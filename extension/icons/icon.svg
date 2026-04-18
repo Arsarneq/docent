@@ -3,11 +3,6 @@
     <style>
       .bubble-stroke { fill: none; stroke: #1a73e8; stroke-width: 7; stroke-linejoin: round; }
       .cursor        { fill: #1a73e8; }
-
-      @media (prefers-color-scheme: dark) {
-        .bubble-stroke { stroke: #8ab4f8; }
-        .cursor        { fill: #8ab4f8; }
-      }
     </style>
   </defs>
 
