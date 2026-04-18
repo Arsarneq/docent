@@ -1,3 +1,5 @@
+<img src="extension/icons/icon.svg" alt="Docent icon" width="80" />
+
 # Docent
 
 > Demonstrated Behaviour Capture and Dispatch
