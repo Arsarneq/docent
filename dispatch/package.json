@@ -4,7 +4,7 @@
   "description": "Dispatch script for Docent — extracts active steps and sends them to a configured HTTP endpoint.",
   "type": "module",
   "scripts": {
-    "send": "node dispatch/send.js"
+    "send": "node send.js"
   },
   "engines": {
     "node": ">=20.0.0"

@@ -145,21 +145,24 @@ Extracts active steps from an export and sends them, along with a reading guide,
 **Requirements:** Node.js 20+
 
 ```bash
+cd dispatch
+npm install
+
 # Set endpoint
 export DOCENT_ENDPOINT_URL=https://your-endpoint.example.com
 export DOCENT_ENDPOINT_API_KEY=your-key   # optional
 
 # Send
-node dispatch/send.js my_project_1713261700000.docent.json
+node send.js my_project_1713261700000.docent.json
 
 # Preview without sending
-node dispatch/send.js my_project_1713261700000.docent.json --dry_run
+node send.js my_project_1713261700000.docent.json --dry_run
 
 # Override endpoint inline
-node dispatch/send.js my_project_1713261700000.docent.json --endpoint https://other-endpoint.example.com
+node send.js my_project_1713261700000.docent.json --endpoint https://other-endpoint.example.com
 
 # Send only one recording from a multi-recording project
-node dispatch/send.js my_project_1713261700000.docent.json --recording "Login flow"
+node send.js my_project_1713261700000.docent.json --recording "Login flow"
 ```
 
 ---
