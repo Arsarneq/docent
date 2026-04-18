@@ -1,0 +1,21 @@
+# Dependencies
+node_modules/
+
+# Session exports (contain recorded user interactions — never commit these)
+*.docent.json
+
+# CLA signatures (managed by cla-assistant bot, stored in signatures/ branch)
+signatures/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editor
+.vscode/
+.idea/
+*.swp
+
+# Environment
+.env
+.env.local
