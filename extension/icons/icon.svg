@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128">
+  <defs>
+    <style>
+      .bubble-stroke { fill: none; stroke: #1a73e8; stroke-width: 7; stroke-linejoin: round; }
+      .cursor        { fill: #1a73e8; }
+
+      @media (prefers-color-scheme: dark) {
+        .bubble-stroke { stroke: #8ab4f8; }
+        .cursor        { fill: #8ab4f8; }
+      }
+    </style>
+  </defs>
+
+  <!-- Bubble stroke -->
+  <path class="bubble-stroke"
+        d="M16 8h96a8 8 0 0 1 8 8v60a8 8 0 0 1-8 8H52l-24 24V76H16a8 8 0 0 1-8-8V16a8 8 0 0 1 8-8z"/>
+
+  <!-- Cursor arrow -->
+  <path class="cursor"
+        d="M34 22 L34 74 L48 58 L56 78 L66 74 L58 54 L76 54 Z"/>
+</svg>

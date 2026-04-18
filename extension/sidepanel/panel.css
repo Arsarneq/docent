@@ -1,0 +1,618 @@
+/*
+ * Docent — Side Panel Styles
+ *
+ * This file is part of Docent.
+ * Licensed under the GNU General Public License v3.0
+ * See LICENSE in the project root for license information.
+ */
+
+/* ── Theme tokens ─────────────────────────────────────────────────────────── */
+/*
+ * Three modes, set via data-theme on <html>:
+ *   data-theme="auto"  — follows prefers-color-scheme (default)
+ *   data-theme="light" — always light
+ *   data-theme="dark"  — always dark
+ *
+ * Colors are derived from Chrome's own system color palette so the panel
+ * feels native in both themes.
+ */
+
+/* Auto: follow the browser */
+:root,
+[data-theme="auto"] {
+  color-scheme: light dark;
+
+  --color-bg:          light-dark(#f8f9fa, #202124);
+  --color-surface:     light-dark(#ffffff, #292a2d);
+  --color-surface-2:   light-dark(#f1f3f4, #35363a);
+  --color-border:      light-dark(#dadce0, #3c4043);
+  --color-accent:      light-dark(#1a73e8, #8ab4f8);
+  --color-accent-soft: light-dark(#1a73e814, #8ab4f814);
+  --color-text:        light-dark(#202124, #e8eaed);
+  --color-muted:       light-dark(#5f6368, #9aa0a6);
+  --color-danger:      light-dark(#d93025, #f28b82);
+  --color-recording:   light-dark(#d93025, #f28b82);
+}
+
+/* Force light */
+[data-theme="light"] {
+  color-scheme: light;
+
+  --color-bg:          #f8f9fa;
+  --color-surface:     #ffffff;
+  --color-surface-2:   #f1f3f4;
+  --color-border:      #dadce0;
+  --color-accent:      #1a73e8;
+  --color-accent-soft: #1a73e814;
+  --color-text:        #202124;
+  --color-muted:       #5f6368;
+  --color-danger:      #d93025;
+  --color-recording:   #d93025;
+}
+
+/* Force dark */
+[data-theme="dark"] {
+  color-scheme: dark;
+
+  --color-bg:          #202124;
+  --color-surface:     #292a2d;
+  --color-surface-2:   #35363a;
+  --color-border:      #3c4043;
+  --color-accent:      #8ab4f8;
+  --color-accent-soft: #8ab4f814;
+  --color-text:        #e8eaed;
+  --color-muted:       #9aa0a6;
+  --color-danger:      #f28b82;
+  --color-recording:   #f28b82;
+}
+
+/* ── Reset & base ─────────────────────────────────────────────────────────── */
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --radius: 8px;
+  --font:   system-ui, -apple-system, sans-serif;
+}
+
+body {
+  font-family:      var(--font);
+  font-size:        13px;
+  background-color: var(--color-bg);
+  color:            var(--color-text);
+  min-width:        280px;
+  line-height:      1.5;
+}
+
+h2 {
+  font-size:   14px;
+  font-weight: 600;
+  color:       var(--color-text);
+}
+
+/* ── Header ───────────────────────────────────────────────────────────────── */
+
+header {
+  display:          flex;
+  align-items:      center;
+  justify-content:  space-between;
+  padding:          8px 12px;
+  background-color: var(--color-surface);
+  border-bottom:    1px solid var(--color-border);
+  position:         sticky;
+  top:              0;
+  z-index:          10;
+}
+
+.header-right {
+  display:     flex;
+  align-items: center;
+  gap:         8px;
+}
+
+.logo {
+  display:     flex;
+  align-items: center;
+  gap:         7px;
+  font-weight: 600;
+  font-size:   14px;
+  color:       var(--color-text);
+}
+
+.logo-svg {
+  width:  20px;
+  height: 20px;
+  color:  var(--color-accent);
+  flex-shrink: 0;
+}/* ── Breadcrumb ───────────────────────────────────────────────────────────── */
+
+.breadcrumb {
+  display:       flex;
+  align-items:   center;
+  gap:           4px;
+  padding:       6px 14px;
+  background:    var(--color-surface);
+  border-bottom: 1px solid var(--color-border);
+  font-size:     12px;
+  flex-wrap:     wrap;
+}
+
+.breadcrumb.hidden { display: none; }
+.bc-item.hidden    { display: none; }
+.bc-sep.hidden     { display: none; }
+
+.bc-item            { color: var(--color-muted); white-space: nowrap; }
+.bc-link            { background: none; border: none; cursor: pointer; font-size: 12px; padding: 0; color: var(--color-muted); }
+.bc-link:hover      { color: var(--color-accent); }
+.bc-sep             { color: var(--color-border); display: flex; align-items: center; }
+.bc-sep svg         { width: 12px; height: 12px; }
+.bc-item:last-child { color: var(--color-text); }
+
+/* ── Badges ───────────────────────────────────────────────────────────────── */
+
+.badge {
+  font-size:     11px;
+  font-weight:   600;
+  padding:       2px 8px;
+  border-radius: 99px;
+  white-space:   nowrap;
+}
+
+.badge--idle      { background: var(--color-surface-2); color: var(--color-muted); }
+.badge--recording { background: var(--color-accent-soft); color: var(--color-recording); animation: pulse 1.4s infinite; }
+.badge--recording svg { width: 10px; height: 10px; }
+.badge--deleted   { background: var(--color-accent-soft); color: var(--color-danger); font-size: 10px; margin-left: 6px; }
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.55; }
+}
+
+/* ── Views ────────────────────────────────────────────────────────────────── */
+
+.view        { padding: 14px; }
+.view.hidden { display: none !important; }
+
+.view-header {
+  display:         flex;
+  align-items:     center;
+  justify-content: space-between;
+  margin-bottom:   14px;
+  gap:             8px;
+}
+
+.view-header-actions {
+  display: flex;
+  gap:     6px;
+}
+
+.view-back-header {
+  display:       flex;
+  align-items:   center;
+  gap:           10px;
+  margin-bottom: 14px;
+  font-weight:   600;
+  font-size:     13px;
+  color:         var(--color-text);
+}
+
+/* ── Inputs ───────────────────────────────────────────────────────────────── */
+
+label {
+  display:        block;
+  font-size:      11px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color:          var(--color-muted);
+  margin-bottom:  5px;
+}
+
+input[type="text"],
+textarea {
+  width:            100%;
+  background-color: var(--color-surface);
+  border:           1px solid var(--color-border);
+  border-radius:    var(--radius);
+  color:            var(--color-text);
+  font-family:      var(--font);
+  font-size:        13px;
+  padding:          8px 10px;
+  resize:           vertical;
+  transition:       border-color 0.15s;
+}
+
+input[type="text"]:focus,
+textarea:focus {
+  outline:      none;
+  border-color: var(--color-accent);
+  box-shadow:   0 0 0 3px var(--color-accent-soft);
+}
+
+.form-actions {
+  display:         flex;
+  justify-content: flex-end;
+  gap:             8px;
+  margin-top:      12px;
+}
+
+/* ── Buttons ──────────────────────────────────────────────────────────────── */
+
+.btn {
+  display:         inline-flex;
+  align-items:     center;
+  justify-content: center;
+  gap:             5px;
+  border:          none;
+  border-radius:   var(--radius);
+  cursor:          pointer;
+  font-family:     var(--font);
+  font-size:       13px;
+  font-weight:     500;
+  padding:         7px 14px;
+  transition:      background 0.15s, color 0.15s, opacity 0.15s;
+  white-space:     nowrap;
+}
+
+.btn svg { width: 16px; height: 16px; flex-shrink: 0; }
+
+.btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+.btn--primary            { background: var(--color-accent); color: #fff; }
+.btn--primary:hover:not(:disabled) { opacity: 0.88; }
+.btn--secondary          { background: var(--color-surface-2); color: var(--color-text); border: 1px solid var(--color-border); }
+.btn--secondary:hover:not(:disabled) { background: var(--color-border); }
+.btn--ghost              { background: transparent; color: var(--color-muted); }
+.btn--ghost:hover:not(:disabled) { color: var(--color-text); background: var(--color-surface-2); }
+.btn--sm                 { font-size: 12px; padding: 4px 10px; }
+.btn--danger:hover:not(:disabled) { color: var(--color-danger); }
+
+/* Icon-only button (gear) */
+.btn--icon {
+  padding:       5px;
+  border-radius: 50%;
+  color:         var(--color-text);
+  background:    transparent;
+  border:        none;
+}
+.btn--icon svg          { width: 20px; height: 20px; display: block; }
+.btn--icon:hover        { background: var(--color-surface-2); }
+
+/* ── Card list (projects + recordings) ───────────────────────────────────── */
+
+.card-list {
+  list-style:     none;
+  display:        flex;
+  flex-direction: column;
+  gap:            6px;
+}
+
+.card-item {
+  display:         flex;
+  align-items:     center;
+  justify-content: space-between;
+  gap:             8px;
+  background:      var(--color-surface);
+  border:          1px solid var(--color-border);
+  border-radius:   var(--radius);
+  padding:         10px 12px;
+  transition:      border-color 0.15s;
+}
+
+.card-item:hover { border-color: var(--color-accent); }
+
+.card-item-main {
+  display:        flex;
+  flex-direction: column;
+  gap:            2px;
+  overflow:       hidden;
+}
+
+.card-item-name {
+  font-weight:   500;
+  white-space:   nowrap;
+  overflow:      hidden;
+  text-overflow: ellipsis;
+  color:         var(--color-text);
+}
+
+.card-item-meta {
+  font-size: 11px;
+  color:     var(--color-muted);
+}
+
+.card-item-actions {
+  display:     flex;
+  gap:         4px;
+  flex-shrink: 0;
+}
+
+.card-item-actions .btn--ghost {
+  font-size: 13px;
+  padding:   4px 10px;
+}
+
+.card-item-actions .btn--ghost svg {
+  width:  16px;
+  height: 16px;
+  display: block;
+}
+.empty-state {
+  color:      var(--color-muted);
+  font-size:  12px;
+  text-align: center;
+  padding:    24px 0;
+}
+
+.empty-state.hidden { display: none; }
+
+/* ── Narration box ────────────────────────────────────────────────────────── */
+
+.narration-box {
+  background:    var(--color-surface);
+  border:        1px solid var(--color-border);
+  border-radius: var(--radius);
+  padding:       12px;
+  margin-bottom: 14px;
+}
+
+.narration-box label { margin-bottom: 6px; }
+
+.narration-controls {
+  display:     flex;
+  gap:         8px;
+  margin-top:  8px;
+  align-items: center;
+}
+
+.narration-controls .btn--primary { flex: 1; }
+
+/* ── Step list ────────────────────────────────────────────────────────────── */
+
+.step-list-header {
+  display:         flex;
+  justify-content: space-between;
+  align-items:     center;
+  margin-bottom:   8px;
+  font-size:       11px;
+  text-transform:  uppercase;
+  letter-spacing:  0.05em;
+  color:           var(--color-muted);
+}
+
+.step-count {
+  background:    var(--color-surface-2);
+  border:        1px solid var(--color-border);
+  border-radius: 99px;
+  padding:       1px 7px;
+  font-size:     11px;
+  color:         var(--color-muted);
+}
+
+.step-list {
+  list-style:     none;
+  display:        flex;
+  flex-direction: column;
+  gap:            6px;
+}
+
+.step-item {
+  display:       flex;
+  align-items:   center;
+  gap:           8px;
+  background:    var(--color-surface);
+  border:        1px solid var(--color-border);
+  border-radius: var(--radius);
+  padding:       8px 10px;
+  cursor:        grab;
+  transition:    border-color 0.15s, opacity 0.15s;
+}
+
+.step-item:active    { cursor: grabbing; }
+.step-item.dragging  { opacity: 0.4; }
+.step-item.drag-over { border-color: var(--color-accent); }
+
+.step-number {
+  min-width:   20px;
+  font-size:   11px;
+  font-weight: 700;
+  color:       var(--color-accent);
+  text-align:  center;
+}
+
+.step-narration {
+  flex:          1;
+  font-size:     13px;
+  overflow:      hidden;
+  white-space:   nowrap;
+  text-overflow: ellipsis;
+  color:         var(--color-text);
+}
+
+.step-actions {
+  display:     flex;
+  gap:         2px;
+  flex-shrink: 0;
+  opacity:     0.5;
+  transition:  opacity 0.15s;
+}
+
+.step-item:hover .step-actions { opacity: 1; }
+
+/* Step action buttons use full text color so they're legible */
+.step-actions .btn--ghost {
+  color:     var(--color-text);
+  font-size: 15px;
+  padding:   4px 7px;
+}
+.step-actions .btn--ghost svg {
+  width:  16px;
+  height: 16px;
+  display: block;
+}
+.step-actions .btn--ghost:hover:not(:disabled) {
+  color:      var(--color-accent);
+  background: var(--color-surface-2);
+}
+.step-actions .btn--danger:hover:not(:disabled) {
+  color:      var(--color-danger);
+  background: var(--color-surface-2);
+}
+
+/* ── History ──────────────────────────────────────────────────────────────── */
+
+.history-list {
+  list-style:     none;
+  display:        flex;
+  flex-direction: column;
+  gap:            8px;
+  margin-top:     4px;
+}
+
+.history-item {
+  background:    var(--color-surface);
+  border:        1px solid var(--color-border);
+  border-radius: var(--radius);
+  padding:       10px 12px;
+}
+
+.history-item--active { border-color: var(--color-accent); }
+
+.history-time {
+  display:       block;
+  font-size:     10px;
+  color:         var(--color-muted);
+  margin-bottom: 3px;
+}
+
+/* ── Step detail ──────────────────────────────────────────────────────────── */
+
+.step-narration--link { cursor: pointer; }
+.step-narration--link:hover {
+  color:           var(--color-accent);
+  text-decoration: underline;
+}
+
+.step-detail-list {
+  list-style:     none;
+  display:        flex;
+  flex-direction: column;
+  gap:            6px;
+}
+
+.step-detail-item {
+  display:               grid;
+  grid-template-columns: 20px 60px 1fr;
+  align-items:           start;
+  gap:                   8px;
+  background:            var(--color-surface);
+  border:                1px solid var(--color-border);
+  border-radius:         var(--radius);
+  padding:               8px 10px;
+  font-size:             12px;
+}
+
+.step-detail-index {
+  font-size:   11px;
+  font-weight: 700;
+  color:       var(--color-accent);
+  text-align:  center;
+  padding-top: 1px;
+}
+
+.step-detail-type {
+  font-weight:    600;
+  color:          var(--color-muted);
+  text-transform: uppercase;
+  font-size:      10px;
+  padding-top:    2px;
+}
+
+.step-detail-desc {
+  color:         var(--color-text);
+  word-break:    break-all;
+  overflow-wrap: anywhere;
+}
+
+.step-detail-empty {
+  color:      var(--color-muted);
+  font-size:  12px;
+  text-align: center;
+  padding:    24px 0;
+}
+
+/* ── Settings ─────────────────────────────────────────────────────────────── */
+
+.settings-group {
+  margin-bottom: 20px;
+}
+
+.settings-label {
+  font-size:      11px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color:          var(--color-muted);
+  margin-bottom:  10px;
+}
+
+.settings-options {
+  display:        flex;
+  flex-direction: column;
+  gap:            4px;
+}
+
+.settings-option {
+  display:       flex;
+  align-items:   center;
+  gap:           0;
+  cursor:        pointer;
+  border-radius: var(--radius);
+  text-transform: none;
+  letter-spacing: normal;
+  font-size:     13px;
+  color:         var(--color-text);
+  margin-bottom: 0;
+}
+
+.settings-option input[type="radio"] {
+  position: absolute;
+  opacity:  0;
+  width:    0;
+  height:   0;
+}
+
+.settings-option-label {
+  display:       flex;
+  align-items:   center;
+  gap:           10px;
+  width:         100%;
+  padding:       9px 12px;
+  border:        1px solid var(--color-border);
+  border-radius: var(--radius);
+  background:    var(--color-surface);
+  transition:    border-color 0.15s, background 0.15s;
+  font-size:     13px;
+  color:         var(--color-text);
+}
+
+.settings-option-label svg {
+  width:       20px;
+  height:      20px;
+  flex-shrink: 0;
+  color:       var(--color-text);
+}
+
+.settings-option:hover .settings-option-label {
+  border-color: var(--color-accent);
+  background:   var(--color-surface-2);
+}
+
+.settings-option input[type="radio"]:checked + .settings-option-label {
+  border-color: var(--color-accent);
+  background:   var(--color-accent-soft);
+  color:        var(--color-accent);
+  font-weight:  500;
+}
+
+.settings-option input[type="radio"]:checked + .settings-option-label svg {
+  color: var(--color-accent);
+}
