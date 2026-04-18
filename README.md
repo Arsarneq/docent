@@ -1,4 +1,4 @@
-<img src="extension/icons/icon.svg" alt="Docent icon" width="80" />
+<img src="extension/icons/icon.svg" alt="Docent icon" width="110" />
 <h1>Docent</h1>
 
 > Demonstrated Behaviour Capture and Dispatch
