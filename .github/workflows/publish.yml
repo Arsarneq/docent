@@ -7,11 +7,21 @@ on:
 jobs:
   publish:
     runs-on: ubuntu-latest
+
     steps:
       - uses: actions/checkout@v4
 
+      - name: Install production dependencies
+        working-directory: extension
+        run: npm install --omit=dev
+
       - name: Package extension
-        run: zip -r extension.zip extension/
+        run: |
+          zip -r extension.zip extension/ \
+            --exclude 'extension/node_modules/*' \
+            --exclude 'extension/package.json' \
+            --exclude 'extension/package-lock.json' \
+            --exclude 'extension/sidepanel/*.test.js'
 
       - name: Upload to Chrome Web Store
         uses: mnao305/chrome-extension-upload@v5.0.0
