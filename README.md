@@ -3,7 +3,7 @@
 
 > Demonstrated Behaviour Capture and Dispatch
 
-A Chrome extension that records browser interactions alongside step-by-step narration, and exports the result as a structured JSON file.
+A Chrome extension that records browser interactions alongside step-by-step narration, and exports the result as structured JSON.
 
 ---
 
