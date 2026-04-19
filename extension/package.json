@@ -1,0 +1,11 @@
+{
+  "name": "docent-extension",
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "test": "node --test sidepanel/dispatch.test.js sidepanel/panel.test.js"
+  },
+  "devDependencies": {
+    "fast-check": "^3.0.0"
+  }
+}

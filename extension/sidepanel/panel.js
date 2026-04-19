@@ -15,20 +15,25 @@
  * See LICENSE in the project root for license information.
  */
 
+import { loadDispatchSettings, saveDispatchSettings, validateEndpointUrl, loadReadingGuidance, buildPayload, sendPayload, DispatchError } from './dispatch.js';
+
 // ─── Elements ─────────────────────────────────────────────────────────────────
 
 const $ = id => document.getElementById(id);
 
 const views = {
-  projects:     $('view-projects'),
-  newProject:   $('view-new-project'),
-  project:      $('view-project'),
-  newRecording: $('view-new-recording'),
-  recording:    $('view-recording'),
-  rerecord:     $('view-rerecord'),
-  history:      $('view-history'),
-  stepDetail:   $('view-step-detail'),
-  settings:     $('view-settings'),
+  projects:          $('view-projects'),
+  newProject:        $('view-new-project'),
+  project:           $('view-project'),
+  newRecording:      $('view-new-recording'),
+  recording:         $('view-recording'),
+  rerecord:          $('view-rerecord'),
+  history:           $('view-history'),
+  stepDetail:        $('view-step-detail'),
+  settings:          $('view-settings'),
+  recordingSelector: $('view-recording-selector'),
+  dispatchConfirm:   $('view-dispatch-confirm'),
+  dispatchResult:    $('view-dispatch-result'),
 };
 
 const breadcrumb       = $('breadcrumb');
@@ -58,6 +63,7 @@ const recordingList    = $('recording-list');
 const recordingsEmpty  = $('recordings-empty');
 const btnNewRecording  = $('btn-new-recording');
 const btnExportProject = $('btn-export-project');
+const btnDispatchProject = $('btn-dispatch-project');
 
 // New recording form
 const newRecordingName         = $('new-recording-name');
@@ -92,6 +98,28 @@ const btnSettings     = $('btn-settings');
 const btnSettingsBack = $('btn-settings-back');
 const themeRadios     = document.querySelectorAll('input[name="theme"]');
 
+// Dispatch settings
+const settingsEndpointUrl   = $('settings-endpoint-url');
+const settingsEndpointError = $('settings-endpoint-error');
+const settingsApiKey        = $('settings-api-key');
+const btnSettingsDispatchSave = $('btn-settings-dispatch-save');
+
+// Recording selector
+const recordingSelectorList = $('recording-selector-list');
+const btnSelectorCancel     = $('btn-selector-cancel');
+
+// Dispatch confirmation
+const confirmEndpoint   = $('confirm-endpoint');
+const confirmRecordings = $('confirm-recordings');
+const confirmSteps      = $('confirm-steps');
+const btnConfirmCancel  = $('btn-confirm-cancel');
+const btnConfirmSend    = $('btn-confirm-send');
+
+// Dispatch result
+const resultTitle   = $('result-title');
+const resultMessage = $('result-message');
+const btnResultBack = $('btn-result-back');
+
 // ─── State ────────────────────────────────────────────────────────────────────
 
 let activeProject    = null;
@@ -102,6 +130,8 @@ let pendingCount     = 0; // actions recorded since last step commit
 let commitInProgress = false; // prevents double-commit on rapid clicks
 let rerecordLogicalId = null;
 let previousRecordingView = null; // tracks pre-rerecord recording state
+let dispatchSettings = { endpointUrl: null, apiKey: null };
+let dispatchSelection = null; // { recordings: [], totalSteps: number }
 
 // ─── Messaging ────────────────────────────────────────────────────────────────
 
@@ -301,6 +331,7 @@ function renderProjectDetail() {
     li.querySelector('[data-action="delete"]').addEventListener('click', () => deleteRecording(r.recording_id, r.name));
     recordingList.appendChild(li);
   });
+  updateDispatchButton();
 }
 
 // Inline rename for project title
@@ -377,6 +408,115 @@ btnExportProject.addEventListener('click', async () => {
   a.click();
   URL.revokeObjectURL(url);
 });
+
+// Dispatch project
+btnDispatchProject.addEventListener('click', () => openDispatchFlow());
+
+function resolveActiveStepsForRecording(r) {
+  const groups = new Map();
+  for (const s of (r.steps ?? [])) {
+    const existing = groups.get(s.logical_id);
+    if (!existing || s.uuid > existing.uuid) groups.set(s.logical_id, s);
+  }
+  return Array.from(groups.values()).filter(s => !s.deleted);
+}
+
+function openDispatchFlow() {
+  const recordings = activeProject?.recordings ?? [];
+  // Resolve active steps for each recording
+  const recordingsWithSteps = recordings
+    .map(r => ({ ...r, activeSteps: resolveActiveStepsForRecording(r) }))
+    .filter(r => r.activeSteps.length > 0);
+
+  if (recordingsWithSteps.length === 0) return;
+
+  if (recordingsWithSteps.length === 1) {
+    // Skip selector, go directly to confirmation
+    showConfirmation(recordingsWithSteps, recordingsWithSteps[0].activeSteps.length);
+    return;
+  }
+
+  // Multiple recordings — show selector
+  recordingSelectorList.innerHTML = '';
+
+  // "Send all" option at the top
+  const allLi = document.createElement('li');
+  allLi.className = 'card-item';
+  const totalSteps = recordingsWithSteps.reduce((n, r) => n + r.activeSteps.length, 0);
+  allLi.innerHTML = `
+    <div class="card-item-main">
+      <span class="card-item-name">Send all recordings</span>
+      <span class="card-item-meta">${recordingsWithSteps.length} recordings · ${totalSteps} steps</span>
+    </div>
+    <div class="card-item-actions">
+      <button class="btn btn--primary btn--sm">Send all</button>
+    </div>
+  `;
+  allLi.querySelector('button').addEventListener('click', () => {
+    showConfirmation(recordingsWithSteps, totalSteps);
+  });
+  recordingSelectorList.appendChild(allLi);
+
+  // Individual recordings
+  recordingsWithSteps.forEach(r => {
+    const li = document.createElement('li');
+    li.className = 'card-item';
+    li.innerHTML = `
+      <div class="card-item-main">
+        <span class="card-item-name">${escapeHtml(r.name)}</span>
+        <span class="card-item-meta">${r.activeSteps.length} step${r.activeSteps.length !== 1 ? 's' : ''}</span>
+      </div>
+      <div class="card-item-actions">
+        <button class="btn btn--ghost btn--sm">Select</button>
+      </div>
+    `;
+    li.querySelector('button').addEventListener('click', () => {
+      showConfirmation([r], r.activeSteps.length);
+    });
+    recordingSelectorList.appendChild(li);
+  });
+
+  showView('recordingSelector');
+}
+
+function showConfirmation(recordings, totalSteps) {
+  dispatchSelection = { recordings, totalSteps };
+  confirmEndpoint.textContent   = dispatchSettings.endpointUrl ?? '';
+  confirmRecordings.textContent = recordings.map(r => r.name).join(', ');
+  confirmSteps.textContent      = String(totalSteps);
+  showView('dispatchConfirm');
+}
+
+btnSelectorCancel.addEventListener('click', () => showView('project'));
+
+btnConfirmCancel.addEventListener('click', () => showView('project'));
+
+btnConfirmSend.addEventListener('click', async () => {
+  if (!dispatchSelection) return;
+  btnConfirmSend.disabled    = true;
+  btnDispatchProject.disabled = true;
+  try {
+    const guidance = await loadReadingGuidance();
+    const payload  = buildPayload(activeProject, dispatchSelection.recordings, guidance);
+    await sendPayload(dispatchSettings.endpointUrl, dispatchSettings.apiKey, payload);
+    resultTitle.textContent   = 'Sent';
+    resultMessage.textContent = `Successfully dispatched ${dispatchSelection.totalSteps} step${dispatchSelection.totalSteps !== 1 ? 's' : ''} to ${dispatchSettings.endpointUrl}.`;
+    showView('dispatchResult');
+  } catch (err) {
+    resultTitle.textContent = 'Error';
+    if (err instanceof DispatchError && err.status !== null) {
+      resultMessage.textContent = `Dispatch failed with HTTP ${err.status}: ${err.message}`;
+    } else {
+      resultMessage.textContent = err.message || 'An unknown error occurred.';
+    }
+    showView('dispatchResult');
+  } finally {
+    btnConfirmSend.disabled    = false;
+    btnDispatchProject.disabled = !dispatchSettings.endpointUrl;
+  }
+});
+
+btnResultBack.addEventListener('click', () => showView('project'));
 
 // ─── Recording view ───────────────────────────────────────────────────────────
 
@@ -749,21 +889,78 @@ themeRadios.forEach(radio => {
 
 let settingsReturnView = 'projects';
 
+// ─── Dispatch settings ────────────────────────────────────────────────────────
+
+async function loadAndPopulateDispatchSettings() {
+  dispatchSettings = await loadDispatchSettings();
+  settingsEndpointUrl.value = dispatchSettings.endpointUrl ?? '';
+  settingsApiKey.value      = dispatchSettings.apiKey ?? '';
+  settingsEndpointError.textContent = '';
+  settingsEndpointError.classList.add('hidden');
+}
+
+btnSettingsDispatchSave.addEventListener('click', async () => {
+  const url    = settingsEndpointUrl.value.trim();
+  const apiKey = settingsApiKey.value.trim();
+  const error  = validateEndpointUrl(url);
+  if (error) {
+    settingsEndpointError.textContent = error;
+    settingsEndpointError.classList.remove('hidden');
+    return;
+  }
+  settingsEndpointError.textContent = '';
+  settingsEndpointError.classList.add('hidden');
+  try {
+    await saveDispatchSettings(url, apiKey);
+    dispatchSettings = await loadDispatchSettings();
+    updateDispatchButton();
+  } catch (err) {
+    settingsEndpointError.textContent = err.message;
+    settingsEndpointError.classList.remove('hidden');
+  }
+});
+
+function updateDispatchButton() {
+  if (!dispatchSettings.endpointUrl) {
+    btnDispatchProject.disabled = true;
+    btnDispatchProject.title = 'Configure an endpoint in Settings to enable dispatch';
+    return;
+  }
+  // Check if any recording has active steps
+  const recordings = activeProject?.recordings ?? [];
+  const hasActiveSteps = recordings.some(r => {
+    const groups = new Map();
+    for (const s of (r.steps ?? [])) {
+      const existing = groups.get(s.logical_id);
+      if (!existing || s.uuid > existing.uuid) groups.set(s.logical_id, s);
+    }
+    return Array.from(groups.values()).some(s => !s.deleted);
+  });
+  btnDispatchProject.disabled = !hasActiveSteps;
+  btnDispatchProject.title = hasActiveSteps ? '' : 'No recordings with active steps';
+}
+
 btnSettings.addEventListener('click', () => {
   // If already in settings, treat as Back
   if (!views.settings.classList.contains('hidden')) {
     showView(settingsReturnView);
+    if (settingsReturnView === 'project') updateDispatchButton();
     return;
   }
   // Find the currently visible non-settings view to return to
   const current = Object.entries(views).find(([key, el]) => key !== 'settings' && !el.classList.contains('hidden'));
   settingsReturnView = current ? current[0] : 'projects';
+  loadAndPopulateDispatchSettings();
   showView('settings');
 });
 
-btnSettingsBack.addEventListener('click', () => showView(settingsReturnView));
+btnSettingsBack.addEventListener('click', () => {
+  showView(settingsReturnView);
+  if (settingsReturnView === 'project') updateDispatchButton();
+});
 
 // ─── Init ─────────────────────────────────────────────────────────────────────
 
 await loadTheme();
+dispatchSettings = await loadDispatchSettings();
 loadProjectsList();

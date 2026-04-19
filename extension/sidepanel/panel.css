@@ -616,3 +616,73 @@ textarea:focus {
 .settings-option input[type="radio"]:checked + .settings-option-label svg {
   color: var(--color-accent);
 }
+
+/* ── Dispatch settings ────────────────────────────────────────────────────── */
+
+.settings-field-error {
+  color:      var(--color-danger);
+  font-size:  11px;
+  margin-top: 4px;
+}
+
+.settings-field-error.hidden { display: none; }
+
+input[type="password"] {
+  width:            100%;
+  background-color: var(--color-surface);
+  border:           1px solid var(--color-border);
+  border-radius:    var(--radius);
+  color:            var(--color-text);
+  font-family:      var(--font);
+  font-size:        13px;
+  padding:          8px 10px;
+  transition:       border-color 0.15s;
+}
+
+input[type="password"]:focus {
+  outline:      none;
+  border-color: var(--color-accent);
+  box-shadow:   0 0 0 3px var(--color-accent-soft);
+}
+
+/* ── Dispatch UI ──────────────────────────────────────────────────────────── */
+
+.view-subtitle {
+  font-size:     12px;
+  color:         var(--color-muted);
+  margin-bottom: 12px;
+}
+
+.confirm-details {
+  background:    var(--color-surface);
+  border:        1px solid var(--color-border);
+  border-radius: var(--radius);
+  padding:       12px;
+  margin-bottom: 14px;
+  display:       flex;
+  flex-direction: column;
+  gap:           8px;
+}
+
+.confirm-row {
+  display:     flex;
+  gap:         12px;
+  font-size:   13px;
+  align-items: baseline;
+}
+
+.confirm-label {
+  font-size:      11px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color:          var(--color-muted);
+  min-width:      90px;
+  flex-shrink:    0;
+}
+
+.result-message {
+  font-size:   13px;
+  color:       var(--color-text);
+  line-height: 1.6;
+  padding:     4px 0;
+}

@@ -71,6 +71,7 @@
       <h2 id="project-title"></h2>
       <div class="view-header-actions">
         <button id="btn-export-project" class="btn btn--secondary btn--sm">Export</button>
+        <button id="btn-dispatch-project" class="btn btn--primary btn--sm" disabled title="Configure an endpoint in Settings to enable dispatch">Send</button>
         <button id="btn-new-recording" class="btn btn--primary btn--sm">+ New recording</button>
       </div>
     </div>
@@ -179,6 +180,50 @@
     <ol id="step-detail-list" class="step-detail-list"></ol>
   </section>
 
+  <!-- ── View: Dispatch Result ───────────────────────────────────────── -->
+  <section id="view-dispatch-result" class="view hidden">
+    <div class="view-back-header">
+      <button id="btn-result-back" class="btn btn--ghost">
+        <svg viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path d="M12 4l-6 6 6 6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        Back
+      </button>
+      <span id="result-title">Result</span>
+    </div>
+    <p id="result-message" class="result-message"></p>
+  </section>
+
+  <!-- ── View: Dispatch Confirmation ────────────────────────────── -->
+  <section id="view-dispatch-confirm" class="view hidden">
+    <div class="view-back-header">
+      <button id="btn-confirm-cancel" class="btn btn--ghost">
+        <svg viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path d="M12 4l-6 6 6 6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        Cancel
+      </button>
+      <span>Confirm dispatch</span>
+    </div>
+    <div class="confirm-details">
+      <p class="confirm-row"><span class="confirm-label">Endpoint</span><span id="confirm-endpoint"></span></p>
+      <p class="confirm-row"><span class="confirm-label">Recording(s)</span><span id="confirm-recordings"></span></p>
+      <p class="confirm-row"><span class="confirm-label">Steps</span><span id="confirm-steps"></span></p>
+    </div>
+    <div class="form-actions">
+      <button id="btn-confirm-send" class="btn btn--primary">Send</button>
+    </div>
+  </section>
+
+  <!-- ── View: Recording Selector ───────────────────────────────── -->
+  <section id="view-recording-selector" class="view hidden">
+    <div class="view-back-header">
+      <button id="btn-selector-cancel" class="btn btn--ghost">
+        <svg viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path d="M12 4l-6 6 6 6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        Cancel
+      </button>
+      <span>Select recording</span>
+    </div>
+    <p class="view-subtitle">Choose which recording to send:</p>
+    <ul id="recording-selector-list" class="card-list"></ul>
+  </section>
+
   <!-- ── View: Settings ──────────────────────────────────────────── -->
   <section id="view-settings" class="view hidden">
     <div class="view-back-header">
@@ -221,6 +266,19 @@
             Dark
           </span>
         </label>
+      </div>
+    </div>
+
+    <div class="settings-group" id="settings-dispatch">
+      <label class="settings-label">Dispatch endpoint</label>
+      <input id="settings-endpoint-url" type="text" placeholder="https://..." />
+      <p id="settings-endpoint-error" class="settings-field-error hidden"></p>
+
+      <label class="settings-label" style="margin-top:12px">API key (optional)</label>
+      <input id="settings-api-key" type="password" placeholder="Bearer token" />
+
+      <div class="form-actions">
+        <button id="btn-settings-dispatch-save" class="btn btn--primary btn--sm">Save</button>
       </div>
     </div>
   </section>

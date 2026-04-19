@@ -11,7 +11,7 @@ A Chrome extension that records browser interactions alongside step-by-step narr
 
 Docent captures browser interactions and pairs them with narration for each step. The result is a `.docent.json` file that describes what happened, in order, with full context.
 
-The dispatch script extracts the active steps from an export and sends them, along with a reading guide, to a configured HTTP endpoint.
+Active steps can be dispatched directly from the extension to a configured HTTP endpoint — no terminal or Node.js required.
 
 ---
 
@@ -51,7 +51,7 @@ The `.docent.json` format is the contract between capture and consumption.
 4. Perform the actions in the browser
 5. Click **Done this step** — repeat for each step
 6. Click **Export** — a `.docent.json` file is downloaded
-7. Run the dispatch script to send the active steps to a configured endpoint
+7. Click **Send** — configure an endpoint in Settings, then dispatch active steps directly from the extension
 
 Steps can be **re-recorded**, **reordered**, and **deleted** at any point before export. Full version history is preserved.
 
@@ -70,12 +70,12 @@ extension/              Chrome Extension (Manifest V3)
     index.html          Side panel UI
     panel.js
     panel.css
+    dispatch.js         Dispatch service — settings, payload construction, HTTP send
   lib/
     uuid-v7.js          UUID v7 generation and utilities
     session.js          Session model, versioning, resolution logic
-dispatch/
-  send.js               Extracts active steps and sends them to a configured HTTP endpoint
-  reading-guidance.md   Included in every dispatch payload
+  assets/
+    reading-guidance.md Bundled reading guidance included in every dispatch payload
 docs/
   session-format.md     The .docent.json format specification
 ```
@@ -138,32 +138,28 @@ Click **Import** on the projects list to load a previously exported `.docent.jso
 
 ---
 
-## Dispatch
+## Send
 
-Extracts active steps from an export and sends them, along with a reading guide, to a configured HTTP endpoint.
+Dispatch active steps directly from the extension — no terminal or Node.js required.
 
-**Requirements:** Node.js 20+
+### Configure the endpoint
 
-```bash
-cd dispatch
-npm install
+1. Click the gear icon to open Settings
+2. Enter the **Dispatch endpoint** URL (must start with `http://` or `https://`)
+3. Optionally enter an **API key** — sent as `Authorization: Bearer <key>`
+4. Click **Save**
 
-# Set endpoint
-export DOCENT_ENDPOINT_URL=https://your-endpoint.example.com
-export DOCENT_ENDPOINT_API_KEY=your-key   # optional
+Local endpoints (e.g. `http://localhost:3000`) are supported.
 
-# Send
-node send.js my_project_1713261700000.docent.json
+### Send a recording
 
-# Preview without sending
-node send.js my_project_1713261700000.docent.json --dry_run
+1. Open a project
+2. Click **Send** — the button is enabled when an endpoint is configured and the project has recordings with active steps
+3. If the project has multiple recordings with active steps, choose which to send (or **Send all**)
+4. Review the endpoint URL, recording name(s), and step count in the confirmation view
+5. Click **Send** to dispatch — a success or error message is shown
 
-# Override endpoint inline
-node send.js my_project_1713261700000.docent.json --endpoint https://other-endpoint.example.com
-
-# Send only one recording from a multi-recording project
-node send.js my_project_1713261700000.docent.json --recording "Login flow"
-```
+The payload format is identical to the standalone dispatch script.
 
 ---
 
