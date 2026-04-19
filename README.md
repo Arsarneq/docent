@@ -1,5 +1,6 @@
 <img src="extension/icons/icon.svg" alt="Docent icon" width="110" />
 <h1>Docent</h1>
+
 > Demonstrated Behaviour Capture and Dispatch
 
 A Chrome extension that records browser interactions alongside step-by-step narration, and exports the result as a structured JSON file.
