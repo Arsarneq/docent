@@ -12,5 +12,5 @@
 
   <!-- Cursor arrow -->
   <path class="cursor"
-        d="M34 22 L34 74 L48 58 L56 78 L66 74 L58 54 L76 54 Z"/>
+        d="M46 16 L46 68 L60 52 L68 72 L78 68 L70 48 L88 48 Z"/>
 </svg>
