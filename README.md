@@ -27,8 +27,6 @@ The dispatch payload includes a reading guide that describes the data format, so
 
 ## Example flow
 
-The diagram below shows one example of how Docent fits into a larger workflow.
-
 ```mermaid
 flowchart LR
     A([Person]) -->|demonstrates workflow| B[Docent]
@@ -47,11 +45,10 @@ The `.docent.json` format is the contract between capture and consumption.
 
 1. Open the Docent side panel in Chrome
 2. Create a project and a recording — recording starts automatically
-3. Narrate the step
-4. Perform the actions in the browser
+3. Perform the actions in the browser
+4. Type the narration for the step
 5. Click **Done this step** — repeat for each step
-6. Click **Export** — a `.docent.json` file is downloaded
-7. Click **Send** — configure an endpoint in Settings, then dispatch active steps directly from the extension
+6. When finished, click **Export** to download a `.docent.json` file, or configure an endpoint in Settings and click **Send** to dispatch directly from the extension
 
 Steps can be **re-recorded**, **reordered**, and **deleted** at any point before export. Full version history is preserved.
 
@@ -116,7 +113,7 @@ No build step required.
 
 The **Done this step** button is disabled until at least one action has been recorded.
 
-**Clear** discards the recorded actions for the current step.
+**Clear** discards the recorded actions for the current step without committing the step.
 
 ### Edit steps
 
@@ -158,8 +155,6 @@ Local endpoints (e.g. `http://localhost:3000`) are supported.
 3. If the project has multiple recordings with active steps, choose which to send (or **Send all**)
 4. Review the endpoint URL, recording name(s), and step count in the confirmation view
 5. Click **Send** to dispatch — a success or error message is shown
-
-The payload format is identical to the standalone dispatch script.
 
 ---
 
