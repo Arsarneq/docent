@@ -34,13 +34,13 @@ import assert from 'node:assert/strict';
 import fc from 'fast-check';
 
 import {
-  loadDispatchSettings,
-  saveDispatchSettings,
   validateEndpointUrl,
   buildPayload,
   sendPayload,
   DispatchError,
-} from './dispatch.js';
+} from '../sidepanel/dispatch.js';
+
+import chromeAdapter from '../sidepanel/adapter-chrome.js';
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 
@@ -61,8 +61,8 @@ describe('settings round-trip preserves both fields', () => {
         fc.string(),
         async (url, apiKey) => {
           storageData = {};
-          await saveDispatchSettings(url, apiKey);
-          const loaded = await loadDispatchSettings();
+          await chromeAdapter.saveSettings(url, apiKey);
+          const loaded = await chromeAdapter.loadSettings();
           assert.strictEqual(loaded.endpointUrl, url || null);
           assert.strictEqual(loaded.apiKey, apiKey === '' ? null : apiKey);
         },
@@ -95,7 +95,7 @@ describe('URL validation rejects non-HTTP(S) inputs', () => {
         async (s) => {
           storageData = {};
           await assert.rejects(
-            () => saveDispatchSettings(s, ''),
+            () => chromeAdapter.saveSettings(s, ''),
             (err) => err instanceof Error,
           );
         },

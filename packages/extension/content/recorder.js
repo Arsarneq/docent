@@ -5,7 +5,7 @@
  * to chrome.storage.local. The service worker is not involved in action
  * capture — this makes recording resilient to SW suspension.
  *
- * Every action is stamped with tab_id so the receiving system knows which tab
+ * Every action is stamped with context_id so the receiving system knows which tab
  * each action occurred on. Runs in all frames (all_frames: true) so
  * interactions inside iframes are also captured.
  *
@@ -70,7 +70,7 @@
   let writeQueue = Promise.resolve();
 
   function appendAction(action) {
-    const stamped = { ...action, tab_id: tabId, frame_src: frameSrc };
+    const stamped = { ...action, context_id: tabId, capture_mode: 'dom', window_rect: null, frame_src: frameSrc };
     writeQueue = writeQueue.then(() =>
       chrome.storage.local.get('pendingActions').then(({ pendingActions }) => {
         const updated = [...(pendingActions ?? []), stamped];

@@ -15,7 +15,15 @@
  * See LICENSE in the project root for license information.
  */
 
-import { loadDispatchSettings, saveDispatchSettings, validateEndpointUrl, loadReadingGuidance, buildPayload, sendPayload, DispatchError } from './dispatch.js';
+import { validateEndpointUrl, buildPayload, sendPayload, DispatchError } from './dispatch.js';
+import adapter from './adapter-chrome.js';
+import {
+  escapeHtml,
+  renderProjectList as renderProjectListHtml,
+  renderRecordingList as renderRecordingListHtml,
+  renderStepList as renderStepListHtml,
+  renderStepDetail as renderStepDetailHtml,
+} from '../shared/views/render.js';
 
 // ─── Elements ─────────────────────────────────────────────────────────────────
 
@@ -136,18 +144,16 @@ let dispatchSelection = null; // { recordings: [], totalSteps: number }
 // ─── Messaging ────────────────────────────────────────────────────────────────
 
 function send(message) {
-  return chrome.runtime.sendMessage(message);
+  return adapter.send(message);
 }
 
 // ─── SW restart recovery ──────────────────────────────────────────────────────
 // pendingActions live in chrome.storage.local (written by the content
 // script directly), so they survive SW suspension. The panel watches
 // pendingCount from local storage to keep the commit button in sync.
-chrome.storage.onChanged.addListener((changes, area) => {
-  if (area === 'local' && changes.pendingCount) {
-    pendingCount = changes.pendingCount.newValue ?? 0;
-    updateCommitButton();
-  }
+adapter.onPendingCountChange(count => {
+  pendingCount = count;
+  updateCommitButton();
 });
 
 // ─── View management ─────────────────────────────────────────────────────────
@@ -204,23 +210,11 @@ async function loadProjectsList() {
   projectList.innerHTML = '';
   projectsEmpty.classList.toggle('hidden', projects.length > 0);
 
-  projects.forEach(p => {
-    const li = document.createElement('li');
-    li.className = 'card-item';
-    li.innerHTML = `
-      <div class="card-item-main">
-        <span class="card-item-name">${escapeHtml(p.name)}</span>
-        <span class="card-item-meta">${p.recording_count} recording${p.recording_count !== 1 ? 's' : ''}</span>
-      </div>
-      <div class="card-item-actions">
-        <button class="btn btn--ghost btn--sm" data-action="open">Open</button>
-        <button class="btn btn--ghost btn--sm btn--danger" data-action="delete" title="Delete">
-          <svg viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-            <path d="M3 5h14M8 5V3h4v2M6 5l1 11h6l1-11" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
-          </svg>
-        </button>
-      </div>
-    `;
+  const htmlItems = renderProjectListHtml(projects);
+  projects.forEach((p, i) => {
+    const wrapper = document.createElement('template');
+    wrapper.innerHTML = htmlItems[i].trim();
+    const li = wrapper.content.firstChild;
     li.querySelector('[data-action="open"]').addEventListener('click', () => openProject(p.project_id));
     li.querySelector('[data-action="delete"]').addEventListener('click', () => deleteProject(p.project_id, p.name));
     projectList.appendChild(li);
@@ -302,31 +296,11 @@ function renderProjectDetail() {
   const recordings = activeProject.recordings ?? [];
   recordingsEmpty.classList.toggle('hidden', recordings.length > 0);
 
-  recordings.forEach(r => {
-    // Use the same resolution algorithm as resolveActiveSteps in session.js
-    const groups = new Map();
-    for (const s of (r.steps ?? [])) {
-      const existing = groups.get(s.logical_id);
-      if (!existing || s.uuid > existing.uuid) groups.set(s.logical_id, s);
-    }
-    const stepCount = Array.from(groups.values()).filter(s => !s.deleted).length;
-
-    const li = document.createElement('li');
-    li.className = 'card-item';
-    li.innerHTML = `
-      <div class="card-item-main">
-        <span class="card-item-name">${escapeHtml(r.name)}</span>
-        <span class="card-item-meta">${stepCount} step${stepCount !== 1 ? 's' : ''}</span>
-      </div>
-      <div class="card-item-actions">
-        <button class="btn btn--ghost btn--sm" data-action="open">Open</button>
-        <button class="btn btn--ghost btn--sm btn--danger" data-action="delete" title="Delete">
-          <svg viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-            <path d="M3 5h14M8 5V3h4v2M6 5l1 11h6l1-11" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
-          </svg>
-        </button>
-      </div>
-    `;
+  const htmlItems = renderRecordingListHtml(recordings);
+  recordings.forEach((r, i) => {
+    const wrapper = document.createElement('template');
+    wrapper.innerHTML = htmlItems[i].trim();
+    const li = wrapper.content.firstChild;
     li.querySelector('[data-action="open"]').addEventListener('click', () => openRecording(r.recording_id));
     li.querySelector('[data-action="delete"]').addEventListener('click', () => deleteRecording(r.recording_id, r.name));
     recordingList.appendChild(li);
@@ -496,7 +470,7 @@ btnConfirmSend.addEventListener('click', async () => {
   btnConfirmSend.disabled    = true;
   btnDispatchProject.disabled = true;
   try {
-    const guidance = await loadReadingGuidance();
+    const guidance = await adapter.loadReadingGuidance();
     const payload  = buildPayload(activeProject, dispatchSelection.recordings, guidance);
     await sendPayload(dispatchSettings.endpointUrl, dispatchSettings.apiKey, payload);
     resultTitle.textContent   = 'Sent';
@@ -525,9 +499,9 @@ function enterRecordingView() {
   recordingTitle.title = 'Click to rename';
   recordingTitle.style.cursor = 'pointer';
   narrationInput.value      = '';
-  // Read actual pendingCount from session storage rather than assuming 0
-  chrome.storage.local.get('pendingCount', ({ pendingCount: count }) => {
-    pendingCount = count ?? 0;
+  // Read actual pendingCount via adapter rather than assuming 0
+  adapter.getPendingCount().then(count => {
+    pendingCount = count;
     updateCommitButton();
   });
   updateRecordingUI();
@@ -641,34 +615,11 @@ function renderStepList() {
   stepList.innerHTML        = '';
   stepCount.textContent     = activeSteps.length;
 
+  const htmlItems = renderStepListHtml(activeSteps);
   activeSteps.forEach((step, index) => {
-    const li       = document.createElement('li');
-    li.className   = 'step-item';
-    li.dataset.logical = step.logical_id;
-    li.draggable   = true;
-
-    li.innerHTML = `
-      <span class="step-number">${index + 1}</span>
-      <span class="step-narration step-narration--link" title="View actions">${escapeHtml(step.narration)}</span>
-      <div class="step-actions">
-        <button class="btn btn--ghost btn--sm" data-action="edit" title="Re-record">
-          <svg viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-            <path d="M13.5 3.5a2.121 2.121 0 0 1 3 3L7 16l-4 1 1-4 9.5-9.5z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/>
-          </svg>
-        </button>
-        <button class="btn btn--ghost btn--sm" data-action="history" title="History">
-          <svg viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-            <circle cx="10" cy="10" r="7.5" stroke="currentColor" stroke-width="1.6"/>
-            <path d="M10 6v4l2.5 2.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
-          </svg>
-        </button>
-        <button class="btn btn--ghost btn--sm btn--danger" data-action="delete" title="Delete">
-          <svg viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-            <path d="M3 5h14M8 5V3h4v2M6 5l1 11h6l1-11" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
-          </svg>
-        </button>
-      </div>
-    `;
+    const wrapper = document.createElement('template');
+    wrapper.innerHTML = htmlItems[index].trim();
+    const li = wrapper.content.firstChild;
 
     li.querySelector('.step-narration').addEventListener('click', () => openStepDetail(step));
 
@@ -751,45 +702,14 @@ function openStepDetail(step) {
   stepDetailTitle.textContent = `Step ${step.step_number}: ${step.narration}`;
   stepDetailList.innerHTML = '';
 
-  if (!step.actions?.length) {
-    const li = document.createElement('li');
-    li.className = 'step-detail-empty';
-    li.textContent = 'No actions recorded.';
-    stepDetailList.appendChild(li);
-  } else {
-    step.actions.forEach((action, i) => {
-      const li = document.createElement('li');
-      li.className = 'step-detail-item';
-      li.innerHTML = `
-        <span class="step-detail-index">${i + 1}</span>
-        <span class="step-detail-type">${action.type}</span>
-        <span class="step-detail-desc">${describeAction(action)}</span>
-      `;
-      stepDetailList.appendChild(li);
-    });
-  }
+  const htmlItems = renderStepDetailHtml(step.actions);
+  htmlItems.forEach(html => {
+    const wrapper = document.createElement('template');
+    wrapper.innerHTML = html.trim();
+    stepDetailList.appendChild(wrapper.content.firstChild);
+  });
 
   showView('stepDetail');
-}
-
-function describeAction(action) {
-  switch (action.type) {
-    case 'navigate':    return escapeHtml(action.url);
-    case 'click':       return escapeHtml(action.element?.text || action.element?.selector || '');
-    case 'right_click': return `right-click ${escapeHtml(action.element?.text || action.element?.selector || '')}`;
-    case 'type':        return `${escapeHtml(action.element?.selector || '')} → "${escapeHtml(action.value || '')}"`;
-    case 'select':      return `${escapeHtml(action.element?.selector || '')} → "${escapeHtml(action.value || '')}"`;
-    case 'key':         return `${escapeHtml(action.key)}${action.modifiers?.ctrl ? ' (Ctrl)' : ''}${action.modifiers?.shift ? ' (Shift)' : ''} on ${escapeHtml(action.element?.selector || '')}`;
-    case 'focus':       return `focus ${escapeHtml(action.element?.selector || '')}`;
-    case 'file_upload': return `${escapeHtml(action.element?.selector || '')} → ${(action.files ?? []).map(f => escapeHtml(f.name)).join(', ')}`;
-    case 'drag_start':  return `drag ${escapeHtml(action.element?.text || action.element?.selector || '')}`;
-    case 'drop':        return `drop onto ${escapeHtml(action.element?.text || action.element?.selector || '')}`;
-    case 'scroll':      return `scroll ${action.delta_y > 0 ? '↓' : '↑'} ${Math.abs(action.delta_y)}px`;
-    case 'tab_switch':  return `switch to tab: ${escapeHtml(action.title || action.url || '')}`;
-    case 'tab_open':    return `new tab opened${action.url ? ': ' + escapeHtml(action.url) : ''}`;
-    case 'tab_close':   return `tab closed`;
-    default:            return '';
-  }
 }
 
 btnStepDetailBack.addEventListener('click', () => showView('recording'));
@@ -851,28 +771,14 @@ async function persistReorder() {
   renderStepList();
 }
 
-// ─── Utilities ────────────────────────────────────────────────────────────────
-
-function escapeHtml(str = '') {
-  return str
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;');
-}
-
 // ─── Theme ────────────────────────────────────────────────────────────────────
-
-const THEME_KEY = 'docentTheme';
 
 function applyTheme(theme) {
   document.documentElement.setAttribute('data-theme', theme ?? 'auto');
 }
 
 async function loadTheme() {
-  const { [THEME_KEY]: saved } = await chrome.storage.local.get(THEME_KEY);
-  const theme = saved ?? 'auto';
+  const theme = await adapter.loadTheme();
   applyTheme(theme);
   themeRadios.forEach(r => { r.checked = r.value === theme; });
 }
@@ -881,7 +787,7 @@ themeRadios.forEach(radio => {
   radio.addEventListener('change', async () => {
     if (!radio.checked) return;
     applyTheme(radio.value);
-    await chrome.storage.local.set({ [THEME_KEY]: radio.value });
+    await adapter.saveTheme(radio.value);
   });
 });
 
@@ -892,7 +798,7 @@ let settingsReturnView = 'projects';
 // ─── Dispatch settings ────────────────────────────────────────────────────────
 
 async function loadAndPopulateDispatchSettings() {
-  dispatchSettings = await loadDispatchSettings();
+  dispatchSettings = await adapter.loadSettings();
   settingsEndpointUrl.value = dispatchSettings.endpointUrl ?? '';
   settingsApiKey.value      = dispatchSettings.apiKey ?? '';
   settingsEndpointError.textContent = '';
@@ -911,8 +817,8 @@ btnSettingsDispatchSave.addEventListener('click', async () => {
   settingsEndpointError.textContent = '';
   settingsEndpointError.classList.add('hidden');
   try {
-    await saveDispatchSettings(url, apiKey);
-    dispatchSettings = await loadDispatchSettings();
+    await adapter.saveSettings(url, apiKey);
+    dispatchSettings = await adapter.loadSettings();
     updateDispatchButton();
   } catch (err) {
     settingsEndpointError.textContent = err.message;
@@ -962,5 +868,5 @@ btnSettingsBack.addEventListener('click', () => {
 // ─── Init ─────────────────────────────────────────────────────────────────────
 
 await loadTheme();
-dispatchSettings = await loadDispatchSettings();
+dispatchSettings = await adapter.loadSettings();
 loadProjectsList();

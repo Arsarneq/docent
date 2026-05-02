@@ -61,15 +61,15 @@ chrome.action.onClicked.addListener(tab => {
   chrome.sidePanel.open({ tabId: tab.id });
 });
 
-// ─── Navigation & tab lifecycle capture ──────────────────────────────────────
+// ─── Navigation & context lifecycle capture ──────────────────────────────────
 // The content script handles in-page (SPA) navigations.
 // The SW handles everything else: cross-document navigations (including
-// back/forward/reload), tab opens, tab closes, and tab switches.
-// All actions are stamped with tab_id so the receiving system knows which tab
-// action occurred on.
+// back/forward/reload), context opens, context closes, and context switches.
+// All actions are stamped with context_id so the receiving system knows which
+// context the action occurred in.
 
 // Serialised write queue — prevents race conditions when multiple SW events
-// (e.g. tab_open + navigate) fire simultaneously.
+// (e.g. context_open + navigate) fire simultaneously.
 let swWriteQueue = Promise.resolve();
 
 async function appendSwAction(action) {
@@ -114,50 +114,58 @@ chrome.webNavigation.onCommitted.addListener(async (details) => {
 
     const { pendingActions } = await chrome.storage.local.get('pendingActions');
     const updated = [...(pendingActions ?? []), {
-      type:      'navigate',
-      nav_type:  navType,
-      timestamp: Date.now(),
-      url:       details.url,
-      tab_id:    details.tabId,
+      type:         'navigate',
+      nav_type:     navType,
+      timestamp:    Date.now(),
+      url:          details.url,
+      context_id:   details.tabId,
+      capture_mode: 'dom',
+      window_rect:  null,
     }];
     await chrome.storage.local.set({ pendingActions: updated, pendingCount: updated.length });
   }));
 });
 
-// Tab switch
+// Context switch
 chrome.tabs.onActivated.addListener(async ({ tabId, windowId }) => {
   if (!await isRecording()) return;
   const tab = await chrome.tabs.get(tabId);
   if (!tab.url || tab.url.startsWith('chrome://') || tab.url.startsWith('chrome-extension://')) return;
   await appendSwAction({
-    type:      'tab_switch',
-    timestamp: Date.now(),
-    tab_id:    tabId,
-    url:       tab.url,
-    title:     tab.title ?? null,
+    type:         'context_switch',
+    timestamp:    Date.now(),
+    context_id:   tabId,
+    source:       tab.url,
+    title:        tab.title ?? null,
+    capture_mode: 'dom',
+    window_rect:  null,
   });
 });
 
-// New tab opened
+// New context opened
 chrome.tabs.onCreated.addListener(async (tab) => {
   if (!await isRecording()) return;
   await appendSwAction({
-    type:       'tab_open',
-    timestamp:  Date.now(),
-    tab_id:     tab.id,
-    opener_tab_id: tab.openerTabId ?? null,
-    url:        tab.url || null,
+    type:               'context_open',
+    timestamp:          Date.now(),
+    context_id:         tab.id,
+    opener_context_id:  tab.openerTabId ?? null,
+    source:             tab.url || null,
+    capture_mode:       'dom',
+    window_rect:        null,
   });
 });
 
-// Tab closed
+// Context closed
 chrome.tabs.onRemoved.addListener(async (tabId, removeInfo) => {
   if (!await isRecording()) return;
   await appendSwAction({
-    type:             'tab_close',
-    timestamp:        Date.now(),
-    tab_id:           tabId,
-    window_closing:   removeInfo.isWindowClosing,
+    type:           'context_close',
+    timestamp:      Date.now(),
+    context_id:     tabId,
+    window_closing: removeInfo.isWindowClosing,
+    capture_mode:   'dom',
+    window_rect:    null,
   });
 });
 

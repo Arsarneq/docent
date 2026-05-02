@@ -325,6 +325,7 @@ describe('Export button still works — sendPayload not called on export', () =>
   });
 });
 
+
 // ─── Task 13: Property test — Dispatch button state reflects project content ──
 //
 // Validates: Requirements 2.2, 2.4, 2.5

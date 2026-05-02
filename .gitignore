@@ -1,8 +1,17 @@
 # Dependencies
 node_modules/
 
+# Rust build artifacts
+packages/desktop/src-tauri/target/
+
+# Tauri auto-generated files (regenerated on build)
+packages/desktop/src-tauri/gen/
+
 # Synced shared code (build artifact — run `npm run sync-shared` to regenerate)
 packages/*/shared/
+
+# Desktop frontend dist (assembled by scripts/build-desktop-dist.js)
+packages/desktop/dist/
 
 # Generated reading guidance (built from session.schema.json)
 packages/shared/assets/reading-guidance.md

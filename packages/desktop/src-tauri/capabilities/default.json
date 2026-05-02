@@ -1,0 +1,16 @@
+{
+  "identifier": "default",
+  "description": "Default permissions for Docent Desktop",
+  "windows": ["main"],
+  "permissions": [
+    "core:default",
+    "dialog:default",
+    "dialog:allow-open",
+    "dialog:allow-save",
+    "fs:default",
+    "fs:allow-appdata-read-recursive",
+    "fs:allow-appdata-write-recursive",
+    "shell:default",
+    "shell:allow-open"
+  ]
+}

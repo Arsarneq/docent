@@ -6,6 +6,7 @@ on:
 
 jobs:
   publish:
+    if: startsWith(github.event.release.tag_name, 'extension-v')
     runs-on: ubuntu-latest
 
     steps:
@@ -14,6 +15,16 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 20
+
+      - name: Update version compatibility table
+        run: node scripts/update-version-table.js
+
+      - name: Commit version table if changed
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add README.md
+          git diff --cached --quiet || (git commit -m "docs: update version compatibility table" && git push origin HEAD:main)
 
       - name: Sync shared code into extension
         run: node scripts/sync-shared.js extension
@@ -24,7 +35,7 @@ jobs:
             --exclude 'node_modules/*' \
             --exclude 'package.json' \
             --exclude 'package-lock.json' \
-            --exclude 'sidepanel/*.test.js'
+            --exclude 'tests/*'
 
       - name: Upload to Chrome Web Store
         uses: mnao305/chrome-extension-upload@v5.0.0

@@ -1,0 +1,70 @@
+name: Publish Desktop App
+
+on:
+  release:
+    types: [published]
+
+jobs:
+  publish-desktop:
+    if: startsWith(github.event.release.tag_name, 'desktop-v')
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            label: Windows
+          # Future platforms — uncomment when capture layer implementations are ready:
+          # - os: macos-latest
+          #   label: macOS
+          # - os: ubuntu-latest
+          #   label: Linux
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: packages/desktop/src-tauri
+
+      - name: Update version compatibility table
+        if: matrix.os == 'windows-latest'
+        run: node scripts/update-version-table.js
+
+      - name: Commit version table if changed
+        if: matrix.os == 'windows-latest'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add README.md
+          git diff --cached --quiet || (git commit -m "docs: update version compatibility table" && git push origin HEAD:main)
+
+      - name: Sync shared code into desktop
+        run: node scripts/sync-shared.js desktop
+
+      - name: Build desktop frontend dist
+        run: node scripts/build-desktop-dist.js
+
+      - name: Build Tauri application
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        with:
+          projectPath: packages/desktop
+          tagName: ${{ github.event.release.tag_name }}
+          releaseName: "Docent Desktop ${{ github.event.release.tag_name }}"
+          releaseBody: ${{ github.event.release.body }}
+          releaseDraft: false
+          prerelease: false

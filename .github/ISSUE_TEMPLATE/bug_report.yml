@@ -7,6 +7,17 @@ body:
       value: |
         Thanks for taking the time to report a bug.
 
+  - type: dropdown
+    id: platform
+    attributes:
+      label: Platform
+      description: Which Docent platform are you using?
+      options:
+        - Chrome Extension
+        - Desktop App (Windows)
+    validations:
+      required: true
+
   - type: textarea
     id: description
     attributes:
@@ -34,17 +45,33 @@ body:
       required: true
 
   - type: input
-    id: chrome_version
+    id: os_version
     attributes:
-      label: Chrome version
-      placeholder: e.g. 124.0.6367.82
+      label: Operating system and version
+      placeholder: e.g. Windows 11 23H2, Windows 10 22H2
     validations:
       required: true
 
   - type: input
+    id: chrome_version
+    attributes:
+      label: Chrome version (extension only)
+      placeholder: e.g. 124.0.6367.82
+    validations:
+      required: false
+
+  - type: input
     id: extension_version
     attributes:
-      label: Docent version
-      placeholder: e.g. 1.0.0
+      label: Extension version (extension only)
+      placeholder: e.g. 2.0.0
     validations:
-      required: true
+      required: false
+
+  - type: input
+    id: desktop_version
+    attributes:
+      label: Desktop app version (desktop only)
+      placeholder: e.g. 0.1.0
+    validations:
+      required: false

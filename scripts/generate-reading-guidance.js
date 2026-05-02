@@ -29,17 +29,19 @@ This document describes the structure and meaning of a Docent dispatch payload.
 
 ## What you are receiving
 
-A project recorded in a real browser, with narration for each step.
+A project recorded in a real browser or desktop application, with narration for each step.
 The narration for each step was provided in natural language and then the actions were performed.
 The payload contains one or more recordings, each with an ordered list of steps.
-Each step pairs a natural language narration with the exact browser actions recorded.
+Each step pairs a natural language narration with the exact actions recorded.
 
 ---
 
 ## Notes
 
 - Passwords are always captured as \`"••••••••"\`.
-- \`tab_id\` values are Chrome's internal tab identifiers for the recording session — they are not persistent across browser restarts.
+- \`context_id\` values are session-scoped identifiers (browser tab IDs or desktop window handles) — they are not persistent across restarts.
+- \`capture_mode\` indicates how each action was captured: \`"dom"\` for browser, \`"accessibility"\` for native UI elements, or \`"coordinate"\` for fallback coordinate-based capture.
+- Context lifecycle actions (\`context_switch\`, \`context_open\`, \`context_close\`) use a \`source\` field containing the page URL (browser) or executable path (desktop).
 
 ---
 

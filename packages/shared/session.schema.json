@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/Arsarneq/docent/blob/main/packages/shared/session.schema.json",
-  "title": "Docent Session Format",
+  "title": "Docent Session Format v2.0.0",
   "description": "The .docent.json export format — the contract between Docent and any downstream system.",
   "type": "object",
   "required": ["project", "recordings"],
@@ -78,88 +78,103 @@
         { "$ref": "#/$defs/action_drag_start" },
         { "$ref": "#/$defs/action_drop" },
         { "$ref": "#/$defs/action_scroll" },
-        { "$ref": "#/$defs/action_tab_switch" },
-        { "$ref": "#/$defs/action_tab_open" },
-        { "$ref": "#/$defs/action_tab_close" }
+        { "$ref": "#/$defs/action_context_switch" },
+        { "$ref": "#/$defs/action_context_open" },
+        { "$ref": "#/$defs/action_context_close" },
+        { "$ref": "#/$defs/action_file_dialog" }
       ]
     },
     "action_navigate": {
       "properties": {
-        "type":      { "const": "navigate" },
-        "nav_type":  { "type": "string", "enum": ["link", "typed", "reload", "back_forward", "spa", "auto_bookmark", "generated", "start_page", "form_submit", "keyword"] },
-        "url":       { "type": "string" },
-        "tab_id":    { "$ref": "#/$defs/tab_id" },
-        "frame_src": { "$ref": "#/$defs/frame_src" }
+        "type":         { "const": "navigate" },
+        "nav_type":     { "type": "string", "enum": ["link", "typed", "reload", "back_forward", "spa", "auto_bookmark", "generated", "start_page", "form_submit", "keyword"] },
+        "url":          { "type": "string" },
+        "context_id":   { "$ref": "#/$defs/context_id" },
+        "capture_mode": { "$ref": "#/$defs/capture_mode" },
+        "window_rect":  { "$ref": "#/$defs/window_rect_or_null" },
+        "frame_src":    { "$ref": "#/$defs/frame_src" }
       },
-      "required": ["type", "timestamp", "nav_type", "url", "tab_id"]
+      "required": ["type", "timestamp", "nav_type", "url", "context_id", "capture_mode"]
     },
     "action_click": {
       "properties": {
-        "type":      { "const": "click" },
-        "x":         { "type": "number" },
-        "y":         { "type": "number" },
-        "element":   { "$ref": "#/$defs/element" },
-        "tab_id":    { "$ref": "#/$defs/tab_id" },
-        "frame_src": { "$ref": "#/$defs/frame_src" }
+        "type":         { "const": "click" },
+        "x":            { "type": "number" },
+        "y":            { "type": "number" },
+        "element":      { "$ref": "#/$defs/element" },
+        "context_id":   { "$ref": "#/$defs/context_id" },
+        "capture_mode": { "$ref": "#/$defs/capture_mode" },
+        "window_rect":  { "$ref": "#/$defs/window_rect_or_null" },
+        "frame_src":    { "$ref": "#/$defs/frame_src" }
       },
-      "required": ["type", "timestamp", "x", "y", "element", "tab_id"]
+      "required": ["type", "timestamp", "x", "y", "element", "context_id", "capture_mode"]
     },
     "action_right_click": {
       "properties": {
-        "type":      { "const": "right_click" },
-        "x":         { "type": "number" },
-        "y":         { "type": "number" },
-        "element":   { "$ref": "#/$defs/element" },
-        "tab_id":    { "$ref": "#/$defs/tab_id" },
-        "frame_src": { "$ref": "#/$defs/frame_src" }
+        "type":         { "const": "right_click" },
+        "x":            { "type": "number" },
+        "y":            { "type": "number" },
+        "element":      { "$ref": "#/$defs/element" },
+        "context_id":   { "$ref": "#/$defs/context_id" },
+        "capture_mode": { "$ref": "#/$defs/capture_mode" },
+        "window_rect":  { "$ref": "#/$defs/window_rect_or_null" },
+        "frame_src":    { "$ref": "#/$defs/frame_src" }
       },
-      "required": ["type", "timestamp", "x", "y", "element", "tab_id"]
+      "required": ["type", "timestamp", "x", "y", "element", "context_id", "capture_mode"]
     },
     "action_type": {
       "properties": {
-        "type":      { "const": "type" },
-        "element":   { "$ref": "#/$defs/element" },
-        "value":     { "type": "string", "description": "The entered value. Passwords are always masked." },
-        "tab_id":    { "$ref": "#/$defs/tab_id" },
-        "frame_src": { "$ref": "#/$defs/frame_src" }
+        "type":         { "const": "type" },
+        "element":      { "$ref": "#/$defs/element" },
+        "value":        { "type": "string", "description": "The entered value. Passwords are always masked." },
+        "context_id":   { "$ref": "#/$defs/context_id" },
+        "capture_mode": { "$ref": "#/$defs/capture_mode" },
+        "window_rect":  { "$ref": "#/$defs/window_rect_or_null" },
+        "frame_src":    { "$ref": "#/$defs/frame_src" }
       },
-      "required": ["type", "timestamp", "element", "value", "tab_id"]
+      "required": ["type", "timestamp", "element", "value", "context_id", "capture_mode"]
     },
     "action_select": {
       "properties": {
-        "type":      { "const": "select" },
-        "element":   { "$ref": "#/$defs/element" },
-        "value":     { "type": "string", "description": "Visible text of the selected option." },
-        "tab_id":    { "$ref": "#/$defs/tab_id" },
-        "frame_src": { "$ref": "#/$defs/frame_src" }
+        "type":         { "const": "select" },
+        "element":      { "$ref": "#/$defs/element" },
+        "value":        { "type": "string", "description": "Visible text of the selected option." },
+        "context_id":   { "$ref": "#/$defs/context_id" },
+        "capture_mode": { "$ref": "#/$defs/capture_mode" },
+        "window_rect":  { "$ref": "#/$defs/window_rect_or_null" },
+        "frame_src":    { "$ref": "#/$defs/frame_src" }
       },
-      "required": ["type", "timestamp", "element", "value", "tab_id"]
+      "required": ["type", "timestamp", "element", "value", "context_id", "capture_mode"]
     },
     "action_key": {
       "properties": {
-        "type":      { "const": "key" },
-        "key":       { "type": "string", "enum": ["Enter", "Escape", "Tab", "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"] },
-        "modifiers": { "$ref": "#/$defs/modifiers" },
-        "element":   { "$ref": "#/$defs/element" },
-        "tab_id":    { "$ref": "#/$defs/tab_id" },
-        "frame_src": { "$ref": "#/$defs/frame_src" }
+        "type":         { "const": "key" },
+        "key":          { "type": "string", "enum": ["Enter", "Escape", "Tab", "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"] },
+        "modifiers":    { "$ref": "#/$defs/modifiers" },
+        "element":      { "$ref": "#/$defs/element" },
+        "context_id":   { "$ref": "#/$defs/context_id" },
+        "capture_mode": { "$ref": "#/$defs/capture_mode" },
+        "window_rect":  { "$ref": "#/$defs/window_rect_or_null" },
+        "frame_src":    { "$ref": "#/$defs/frame_src" }
       },
-      "required": ["type", "timestamp", "key", "modifiers", "element", "tab_id"]
+      "required": ["type", "timestamp", "key", "modifiers", "element", "context_id", "capture_mode"]
     },
     "action_focus": {
       "properties": {
-        "type":      { "const": "focus" },
-        "element":   { "$ref": "#/$defs/element" },
-        "tab_id":    { "$ref": "#/$defs/tab_id" },
-        "frame_src": { "$ref": "#/$defs/frame_src" }
+        "type":         { "const": "focus" },
+        "element":      { "$ref": "#/$defs/element" },
+        "context_id":   { "$ref": "#/$defs/context_id" },
+        "capture_mode": { "$ref": "#/$defs/capture_mode" },
+        "window_rect":  { "$ref": "#/$defs/window_rect_or_null" },
+        "frame_src":    { "$ref": "#/$defs/frame_src" }
       },
-      "required": ["type", "timestamp", "element", "tab_id"]
+      "required": ["type", "timestamp", "element", "context_id", "capture_mode"]
     },
     "action_file_upload": {
       "properties": {
-        "type":      { "const": "file_upload" },
-        "element":   { "$ref": "#/$defs/element" },
-        "files":     {
+        "type":         { "const": "file_upload" },
+        "element":      { "$ref": "#/$defs/element" },
+        "files":        {
           "type": "array",
           "items": {
             "type": "object",
@@ -172,19 +187,23 @@
             }
           }
         },
-        "tab_id":    { "$ref": "#/$defs/tab_id" },
-        "frame_src": { "$ref": "#/$defs/frame_src" }
+        "context_id":   { "$ref": "#/$defs/context_id" },
+        "capture_mode": { "$ref": "#/$defs/capture_mode" },
+        "window_rect":  { "$ref": "#/$defs/window_rect_or_null" },
+        "frame_src":    { "$ref": "#/$defs/frame_src" }
       },
-      "required": ["type", "timestamp", "element", "files", "tab_id"]
+      "required": ["type", "timestamp", "element", "files", "context_id", "capture_mode"]
     },
     "action_drag_start": {
       "properties": {
-        "type":      { "const": "drag_start" },
-        "element":   { "$ref": "#/$defs/element" },
-        "tab_id":    { "$ref": "#/$defs/tab_id" },
-        "frame_src": { "$ref": "#/$defs/frame_src" }
+        "type":         { "const": "drag_start" },
+        "element":      { "$ref": "#/$defs/element" },
+        "context_id":   { "$ref": "#/$defs/context_id" },
+        "capture_mode": { "$ref": "#/$defs/capture_mode" },
+        "window_rect":  { "$ref": "#/$defs/window_rect_or_null" },
+        "frame_src":    { "$ref": "#/$defs/frame_src" }
       },
-      "required": ["type", "timestamp", "element", "tab_id"]
+      "required": ["type", "timestamp", "element", "context_id", "capture_mode"]
     },
     "action_drop": {
       "properties": {
@@ -193,49 +212,75 @@
         "y":              { "type": "number" },
         "element":        { "$ref": "#/$defs/element" },
         "source_element": { "oneOf": [{ "$ref": "#/$defs/element" }, { "type": "null" }], "description": "The dragged element. Null if drag started before recording." },
-        "tab_id":         { "$ref": "#/$defs/tab_id" },
+        "context_id":     { "$ref": "#/$defs/context_id" },
+        "capture_mode":   { "$ref": "#/$defs/capture_mode" },
+        "window_rect":    { "$ref": "#/$defs/window_rect_or_null" },
         "frame_src":      { "$ref": "#/$defs/frame_src" }
       },
-      "required": ["type", "timestamp", "x", "y", "element", "source_element", "tab_id"]
+      "required": ["type", "timestamp", "x", "y", "element", "source_element", "context_id", "capture_mode"]
     },
     "action_scroll": {
       "properties": {
-        "type":        { "const": "scroll" },
-        "element":     { "oneOf": [{ "$ref": "#/$defs/element" }, { "type": "null" }], "description": "The scrolled element. Null for page-level scroll." },
-        "scroll_top":  { "type": "number" },
-        "scroll_left": { "type": "number" },
-        "delta_y":     { "type": "number" },
-        "delta_x":     { "type": "number" },
-        "tab_id":      { "$ref": "#/$defs/tab_id" },
-        "frame_src":   { "$ref": "#/$defs/frame_src" }
+        "type":         { "const": "scroll" },
+        "element":      { "oneOf": [{ "$ref": "#/$defs/element" }, { "type": "null" }], "description": "The scrolled element. Null for page-level scroll." },
+        "scroll_top":   { "type": "number" },
+        "scroll_left":  { "type": "number" },
+        "delta_y":      { "type": "number" },
+        "delta_x":      { "type": "number" },
+        "context_id":   { "$ref": "#/$defs/context_id" },
+        "capture_mode": { "$ref": "#/$defs/capture_mode" },
+        "window_rect":  { "$ref": "#/$defs/window_rect_or_null" },
+        "frame_src":    { "$ref": "#/$defs/frame_src" }
       },
-      "required": ["type", "timestamp", "scroll_top", "scroll_left", "delta_y", "delta_x", "tab_id"]
+      "required": ["type", "timestamp", "scroll_top", "scroll_left", "delta_y", "delta_x", "context_id", "capture_mode"]
     },
-    "action_tab_switch": {
+    "action_context_switch": {
       "properties": {
-        "type":   { "const": "tab_switch" },
-        "tab_id": { "$ref": "#/$defs/tab_id" },
-        "url":    { "type": "string" },
-        "title":  { "type": ["string", "null"] }
+        "type":         { "const": "context_switch" },
+        "context_id":   { "$ref": "#/$defs/context_id" },
+        "source":       { "type": "string" },
+        "title":        { "type": ["string", "null"] },
+        "capture_mode": { "$ref": "#/$defs/capture_mode" },
+        "window_rect":  { "$ref": "#/$defs/window_rect_or_null" },
+        "frame_src":    { "$ref": "#/$defs/frame_src" }
       },
-      "required": ["type", "timestamp", "tab_id", "url"]
+      "required": ["type", "timestamp", "context_id", "source", "capture_mode"]
     },
-    "action_tab_open": {
+    "action_context_open": {
       "properties": {
-        "type":          { "const": "tab_open" },
-        "tab_id":        { "$ref": "#/$defs/tab_id" },
-        "opener_tab_id": { "type": ["integer", "null"] },
-        "url":           { "type": ["string", "null"] }
+        "type":              { "const": "context_open" },
+        "context_id":        { "$ref": "#/$defs/context_id" },
+        "opener_context_id": { "type": ["integer", "null"] },
+        "source":            { "type": ["string", "null"] },
+        "capture_mode":      { "$ref": "#/$defs/capture_mode" },
+        "window_rect":       { "$ref": "#/$defs/window_rect_or_null" },
+        "frame_src":         { "$ref": "#/$defs/frame_src" }
       },
-      "required": ["type", "timestamp", "tab_id", "opener_tab_id"]
+      "required": ["type", "timestamp", "context_id", "opener_context_id", "capture_mode"]
     },
-    "action_tab_close": {
+    "action_context_close": {
       "properties": {
-        "type":           { "const": "tab_close" },
-        "tab_id":         { "$ref": "#/$defs/tab_id" },
-        "window_closing": { "type": "boolean" }
+        "type":            { "const": "context_close" },
+        "context_id":      { "$ref": "#/$defs/context_id" },
+        "window_closing":  { "type": "boolean" },
+        "capture_mode":    { "$ref": "#/$defs/capture_mode" },
+        "window_rect":     { "$ref": "#/$defs/window_rect_or_null" },
+        "frame_src":       { "$ref": "#/$defs/frame_src" }
       },
-      "required": ["type", "timestamp", "tab_id", "window_closing"]
+      "required": ["type", "timestamp", "context_id", "window_closing", "capture_mode"]
+    },
+    "action_file_dialog": {
+      "properties": {
+        "type":         { "const": "file_dialog" },
+        "dialog_type":  { "type": "string", "enum": ["open", "save", "save_as"] },
+        "file_path":    { "type": "string" },
+        "source":       { "type": "string", "description": "The application that opened the file dialog (exe path for desktop, URL for browser)." },
+        "context_id":   { "$ref": "#/$defs/context_id" },
+        "capture_mode": { "$ref": "#/$defs/capture_mode" },
+        "window_rect":  { "$ref": "#/$defs/window_rect_or_null" },
+        "frame_src":    { "$ref": "#/$defs/frame_src" }
+      },
+      "required": ["type", "timestamp", "dialog_type", "file_path", "source", "context_id", "capture_mode"]
     },
     "element": {
       "type": "object",
@@ -272,13 +317,37 @@
       "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}",
       "description": "ISO 8601 timestamp."
     },
-    "tab_id": {
+    "context_id": {
       "type": ["integer", "null"],
-      "description": "Chrome tab identifier. Session-scoped, not persistent across browser restarts."
+      "description": "Context identifier. Chrome tab ID for browser, window handle for desktop. Session-scoped, not persistent across restarts."
+    },
+    "capture_mode": {
+      "type": "string",
+      "enum": ["dom", "accessibility", "coordinate"],
+      "description": "How the action was captured. 'dom' for browser DOM, 'accessibility' for native accessibility API, 'coordinate' for coordinate fallback."
+    },
+    "window_rect": {
+      "type": "object",
+      "required": ["x", "y", "width", "height"],
+      "additionalProperties": false,
+      "properties": {
+        "x":      { "type": "integer", "description": "Window X position on screen in logical pixels." },
+        "y":      { "type": "integer", "description": "Window Y position on screen in logical pixels." },
+        "width":  { "type": "integer", "description": "Window width in logical pixels." },
+        "height": { "type": "integer", "description": "Window height in logical pixels." }
+      },
+      "description": "Window position and size at capture time. Present on coordinate-mode actions."
+    },
+    "window_rect_or_null": {
+      "oneOf": [
+        { "$ref": "#/$defs/window_rect" },
+        { "type": "null" }
+      ],
+      "description": "Window rectangle or null. Null for DOM and accessibility mode actions."
     },
     "frame_src": {
       "type": ["string", "null"],
-      "description": "Iframe URL if the action occurred inside an iframe. Null for the top frame."
+      "description": "Iframe URL if the action occurred inside an iframe. Null for the top frame and all desktop actions."
     }
   }
 }

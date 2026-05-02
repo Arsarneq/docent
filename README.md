@@ -1,17 +1,20 @@
-<img src="packages/extension/icons/icon.svg" alt="Docent icon" width="110" />
+<img src="packages/shared/assets/icons/icon.svg" alt="Docent icon" width="110" />
 <h1>Docent</h1>
 
 > Demonstrated Behaviour Capture and Dispatch
 
-A Chrome extension that records browser interactions alongside step-by-step narration, and exports the result as structured JSON.
+Docent captures user interactions alongside step-by-step narration and exports the result as structured JSON. It runs as a Chrome extension for browser workflows and as a native desktop application (Windows) for native application workflows. Both platforms produce the same `.docent.json` output format.
 
 ---
 
 ## What it does
 
-Docent captures browser interactions and pairs them with narration for each step. The result is a `.docent.json` file that describes what happened, in order, with full context.
+Docent captures interactions and pairs them with narration for each step. The result is a `.docent.json` file that describes what happened, in order, with full context.
 
-Active steps can be dispatched directly from the extension to a configured HTTP endpoint — no terminal or Node.js required.
+- **Chrome extension** — captures DOM events in the browser (clicks, typing, navigation, tab lifecycle, drag, scroll, keyboard)
+- **Desktop application** — captures native application interactions on Windows via the UI Automation accessibility API, with per-action coordinate-based fallback for elements that lack accessibility data
+
+Active steps can be dispatched directly to a configured HTTP endpoint from either platform — no terminal or Node.js required.
 
 ---
 
@@ -19,7 +22,7 @@ Active steps can be dispatched directly from the extension to a configured HTTP 
 
 Most browser recording tools produce code — Playwright scripts, Selenium tests, Puppeteer flows. They assume you want to replay what was recorded, and they assume a specific framework to replay it in.
 
-Docent produces data, not code. Each step is a pair: what was narrated, and what actually happened in the browser. The output makes no assumptions about what receives it or what it does with it.
+Docent produces data, not code. Each step is a pair: what was narrated, and what actually happened. The output makes no assumptions about what receives it or what it does with it.
 
 The dispatch payload includes a reading guide that describes the data format, so any receiving system can interpret it without prior knowledge of Docent.
 
@@ -35,54 +38,25 @@ flowchart LR
     D -->|implements| E([Test suite])
 ```
 
-A person demonstrates a workflow once. Docent captures each step — the narration and the browser actions. The structured output is dispatched to an agentic system that produces a test suite.
+A person demonstrates a workflow once. Docent captures each step — the narration and the interactions. The structured output is dispatched to an agentic system that produces a test suite.
 
 The `.docent.json` format is the contract between capture and consumption.
 
 ---
 
-## How it works
+## Version compatibility
 
-1. Open the Docent side panel in Chrome
-2. Create a project and a recording — recording starts automatically
-3. Perform the actions in the browser
-4. Type the narration for the step
-5. Click **Done this step** — repeat for each step
-6. When finished, click **Export** to download a `.docent.json` file, or configure an endpoint in Settings and click **Send** to dispatch directly from the extension
-
-Steps can be **re-recorded**, **reordered**, and **deleted** at any point before export. Full version history is preserved.
+<!-- VERSION_TABLE_START -->
+| Schema | Extension | Desktop |
+|--------|-----------|---------|
+| 2.0.0  | 2.0.0+   | 1.0.0+  |
+<!-- VERSION_TABLE_END -->
 
 ---
 
-## Project structure
+## Chrome Extension
 
-```
-packages/
-  shared/                   Shared code used by all platforms
-    lib/
-      uuid-v7.js            UUID v7 generation and utilities
-      session.js            Session model, versioning, resolution logic
-    dispatch-core.js        Platform-agnostic dispatch logic
-    session.schema.json     JSON Schema — the .docent.json format contract
-  extension/                Chrome Extension (Manifest V3)
-    manifest.json
-    background/
-      service-worker.js     Message routing, navigation and tab lifecycle capture
-    content/
-      recorder.js           DOM event capture (clicks, typing, navigation, tab lifecycle, drag, scroll, keyboard)
-    sidepanel/
-      index.html            Side panel UI
-      panel.js
-      panel.css
-      dispatch.js           Chrome-specific dispatch — settings, asset loading, re-exports shared logic
-scripts/
-  generate-reading-guidance.js  Generates reading guidance from the JSON Schema
-  sync-shared.js                Copies shared code into platform packages for development
-```
-
----
-
-## Installation (development)
+### Installation (development)
 
 1. Clone the repo
 
@@ -103,17 +77,15 @@ cd packages/extension && npm install
 5. Click **Load unpacked** and select the `packages/extension/` folder
 6. The Docent icon appears in the Chrome toolbar
 
----
+### Using the extension
 
-## Using the extension
-
-### Create a project
+#### Create a project
 
 1. Click the Docent icon — the side panel opens
 2. Click **+ New** to create a project
 3. Click **+ New recording** — recording begins immediately
 
-### Record steps
+#### Record steps
 
 1. Perform the actions in the browser
 2. Type the narration for the step
@@ -124,7 +96,7 @@ The **Done this step** button is disabled until at least one action has been rec
 
 **Clear** discards the recorded actions for the current step without committing the step.
 
-### Edit steps
+#### Edit steps
 
 | Control | Action |
 |---|---|
@@ -134,21 +106,19 @@ The **Done this step** button is disabled until at least one action has been rec
 | Trash icon | Delete — soft delete, history preserved |
 | Drag | Reorder steps |
 
-### Export
+#### Export
 
 Click **Export** on the project view to download a `.docent.json` file.
 
-### Import
+#### Import
 
 Click **Import** on the projects list to load a previously exported `.docent.json` file.
 
----
-
-## Send
+### Send (extension)
 
 Dispatch active steps directly from the extension — no terminal or Node.js required.
 
-### Configure the endpoint
+#### Configure the endpoint
 
 1. Click the gear icon to open Settings
 2. Enter the **Dispatch endpoint** URL (must start with `http://` or `https://`)
@@ -157,7 +127,7 @@ Dispatch active steps directly from the extension — no terminal or Node.js req
 
 Local endpoints (e.g. `http://localhost:3000`) are supported.
 
-### Send a recording
+#### Send a recording
 
 1. Open a project
 2. Click **Send** — the button is enabled when an endpoint is configured and the project has recordings with active steps
@@ -167,9 +137,60 @@ Local endpoints (e.g. `http://localhost:3000`) are supported.
 
 ---
 
+## Desktop Application (Windows)
+
+### Prerequisites
+
+- Windows 10 or later
+- [Rust toolchain](https://rustup.rs/) (for building from source)
+- Node.js 20+
+
+### Installation (development)
+
+1. Clone the repo and sync shared code
+
+```bash
+git clone https://github.com/Arsarneq/docent.git
+cd docent
+npm run sync-shared
+npm run build:desktop-dist
+```
+
+2. Build and run the Tauri application in dev mode
+
+```bash
+cd packages/desktop/src-tauri
+cargo tauri dev
+```
+
+Or build a release binary:
+
+```bash
+cd packages/desktop/src-tauri
+cargo tauri build
+```
+
+### Using the desktop app
+
+The desktop app provides the same workflow as the Chrome extension:
+
+1. Create a project and a recording
+2. Select a target application from the list of running windows
+3. Perform actions in native applications — interactions are captured automatically
+4. Type the narration for each step and click **Done this step**
+5. Export as `.docent.json` or dispatch directly to an endpoint
+
+The desktop capture layer uses the Windows UI Automation accessibility API for rich element descriptions. When an element lacks accessibility data, it falls back to coordinate-based capture for that individual action. A single recording can contain a mix of both modes.
+
+### Send (desktop)
+
+The dispatch workflow is identical to the extension. Configure an endpoint in Settings, then click **Send** on a project.
+
+---
+
 ## Session format
 
-The `.docent.json` format is defined by a [JSON Schema](packages/shared/session.schema.json) — the single source of truth shared across all Docent platforms.
+The `.docent.json` format is defined by a [JSON Schema](packages/shared/session.schema.json) (v2.0.0) — the single source of truth shared across all Docent platforms.
 
 ---
 

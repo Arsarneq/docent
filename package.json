@@ -4,8 +4,17 @@
   "type": "module",
   "scripts": {
     "sync-shared": "node scripts/sync-shared.js",
+    "build:desktop-dist": "node scripts/build-desktop-dist.js",
+    "dev:desktop": "npm run sync-shared && npm run build:desktop-dist && echo 'Run cargo tauri dev from packages/desktop/src-tauri/'",
     "dev:extension": "npm run sync-shared && echo 'Load packages/extension/ in Chrome'",
     "test:extension": "npm run sync-shared && cd packages/extension && npm test",
+    "test:desktop": "node --test packages/desktop/tests/*.test.js",
+    "test:desktop:rust": "cargo test --manifest-path packages/desktop/src-tauri/Cargo.toml",
+    "test:shared": "node --test packages/shared/tests/*.test.js",
+    "update-version-table": "node scripts/update-version-table.js",
     "prepublish": "npm run sync-shared"
+  },
+  "devDependencies": {
+    "fast-check": "^4.7.0"
   }
 }
