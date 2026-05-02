@@ -1,6 +1,9 @@
 # Dependencies
 node_modules/
 
+# Synced shared code (build artifact — run `npm run sync-shared` to regenerate)
+packages/*/shared/
+
 # Session exports (contain recorded user interactions — never commit these)
 *.docent.json
 

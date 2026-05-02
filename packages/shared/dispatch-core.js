@@ -1,8 +1,9 @@
 /**
- * dispatch.js — Dispatch Service Module
+ * dispatch-core.js — Platform-agnostic dispatch logic
  *
- * Handles endpoint settings persistence, payload construction, and HTTP dispatch
- * for the Docent Chrome Extension's integrated dispatch feature.
+ * Contains URL validation, payload construction, HTTP dispatch, and error types.
+ * Platform-specific concerns (settings persistence, asset loading) live in each
+ * platform package.
  *
  * This file is part of Docent.
  * Licensed under the GNU General Public License v3.0
@@ -18,65 +19,6 @@ export function validateEndpointUrl(url) {
   if (url === '') return null;
   if (url.startsWith('http://') || url.startsWith('https://')) return null;
   return 'Endpoint URL must start with http:// or https://';
-}
-
-/**
- * Loads dispatch settings from chrome.storage.local.
- * @returns {Promise<{endpointUrl: string|null, apiKey: string|null}>}
- */
-export async function loadDispatchSettings() {
-  try {
-    const result = await chrome.storage.local.get(['docentEndpointUrl', 'docentApiKey']);
-    return {
-      endpointUrl: result.docentEndpointUrl ?? null,
-      apiKey: result.docentApiKey ?? null,
-    };
-  } catch {
-    return { endpointUrl: null, apiKey: null };
-  }
-}
-
-/**
- * Saves dispatch settings to chrome.storage.local.
- * Throws if endpointUrl is non-empty and invalid.
- * Removes keys from storage when values are empty.
- * @param {string} endpointUrl
- * @param {string} apiKey
- */
-export async function saveDispatchSettings(endpointUrl, apiKey) {
-  const urlError = validateEndpointUrl(endpointUrl);
-  if (endpointUrl !== '' && urlError !== null) {
-    throw new Error(urlError);
-  }
-
-  if (endpointUrl === '') {
-    await chrome.storage.local.remove('docentEndpointUrl');
-  } else {
-    await chrome.storage.local.set({ docentEndpointUrl: endpointUrl });
-  }
-
-  if (apiKey === '') {
-    await chrome.storage.local.remove('docentApiKey');
-  } else {
-    await chrome.storage.local.set({ docentApiKey: apiKey });
-  }
-}
-
-/**
- * Loads the bundled reading guidance markdown text.
- * Returns empty string and logs a warning on failure.
- * @returns {Promise<string>}
- */
-export async function loadReadingGuidance() {
-  try {
-    const url = chrome.runtime.getURL('assets/reading-guidance.md');
-    const response = await fetch(url);
-    if (!response.ok) throw new Error(`HTTP ${response.status}`);
-    return await response.text();
-  } catch (err) {
-    console.warn('[Docent] Failed to load reading guidance:', err);
-    return '';
-  }
 }
 
 /**

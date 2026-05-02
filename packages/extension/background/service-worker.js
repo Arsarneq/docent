@@ -28,8 +28,8 @@ import {
   deleteStep,
   reorderSteps,
   resolveActiveSteps,
-} from '../lib/session.js';
-import { uuidv7 } from '../lib/uuid-v7.js';
+} from '../shared/lib/session.js';
+import { uuidv7 } from '../shared/lib/uuid-v7.js';
 
 // ─── In-memory state (restored from storage on SW restart) ───────────────────
 

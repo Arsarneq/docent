@@ -1,4 +1,4 @@
-<img src="extension/icons/icon.svg" alt="Docent icon" width="110" />
+<img src="packages/extension/icons/icon.svg" alt="Docent icon" width="110" />
 <h1>Docent</h1>
 
 > Demonstrated Behaviour Capture and Dispatch
@@ -57,24 +57,29 @@ Steps can be **re-recorded**, **reordered**, and **deleted** at any point before
 ## Project structure
 
 ```
-extension/              Chrome Extension (Manifest V3)
-  manifest.json
-  background/
-    service-worker.js   Message routing, navigation and tab lifecycle capture
-  content/
-    recorder.js         DOM event capture (clicks, typing, navigation, tab lifecycle, drag, scroll, keyboard)
-  sidepanel/
-    index.html          Side panel UI
-    panel.js
-    panel.css
-    dispatch.js         Dispatch service — settings, payload construction, HTTP send
-  lib/
-    uuid-v7.js          UUID v7 generation and utilities
-    session.js          Session model, versioning, resolution logic
-  assets/
-    reading-guidance.md Bundled reading guidance included in every dispatch payload
+packages/
+  shared/                   Shared code used by all platforms
+    lib/
+      uuid-v7.js            UUID v7 generation and utilities
+      session.js            Session model, versioning, resolution logic
+    assets/
+      reading-guidance.md   Reading guidance included in every dispatch payload
+    dispatch-core.js        Platform-agnostic dispatch logic
+  extension/                Chrome Extension (Manifest V3)
+    manifest.json
+    background/
+      service-worker.js     Message routing, navigation and tab lifecycle capture
+    content/
+      recorder.js           DOM event capture (clicks, typing, navigation, tab lifecycle, drag, scroll, keyboard)
+    sidepanel/
+      index.html            Side panel UI
+      panel.js
+      panel.css
+      dispatch.js           Chrome-specific dispatch — settings, asset loading, re-exports shared logic
 docs/
-  session-format.md     The .docent.json format specification
+  session-format.md         The .docent.json format specification
+scripts/
+  sync-shared.js            Copies shared code into platform packages for development
 ```
 
 ---
@@ -85,14 +90,20 @@ docs/
 
 ```bash
 git clone https://github.com/Arsarneq/docent.git
+cd docent
 ```
 
-2. Open `chrome://extensions` in Chrome
-3. Enable **Developer mode** (top right)
-4. Click **Load unpacked** and select the `extension/` folder
-5. The Docent icon appears in the Chrome toolbar
+2. Sync shared code and install test dependencies
 
-No build step required.
+```bash
+npm run dev:extension
+cd packages/extension && npm install
+```
+
+3. Open `chrome://extensions` in Chrome
+4. Enable **Developer mode** (top right)
+5. Click **Load unpacked** and select the `packages/extension/` folder
+6. The Docent icon appears in the Chrome toolbar
 
 ---
 

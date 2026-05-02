@@ -1,0 +1,11 @@
+{
+  "name": "docent",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "sync-shared": "node scripts/sync-shared.js",
+    "dev:extension": "npm run sync-shared && echo 'Load packages/extension/ in Chrome'",
+    "test:extension": "npm run sync-shared && cd packages/extension && npm test",
+    "prepublish": "npm run sync-shared"
+  }
+}

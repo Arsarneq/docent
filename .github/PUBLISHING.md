@@ -2,7 +2,7 @@
 
 Docent is published to the Chrome Web Store automatically when a GitHub release is created.
 
-The workflow is defined in [`.github/workflows/publish.yml`](.github/workflows/publish.yml). It packages the `extension/` folder as a zip and uploads it using the [mnao305/chrome-extension-upload](https://github.com/mnao305/chrome-extension-upload) action.
+The workflow is defined in [`.github/workflows/publish.yml`](.github/workflows/publish.yml). It syncs shared code into the extension package, zips `packages/extension/`, and uploads it using the [mnao305/chrome-extension-upload](https://github.com/mnao305/chrome-extension-upload) action.
 
 ---
 
@@ -39,4 +39,8 @@ Five secrets must be configured in the GitHub repository (**Settings → Secrets
 
 ## Triggering a publish
 
-Create and publish a GitHub release. The workflow triggers on the `release: published` event and will upload the current state of the `extension/` folder.
+Create and publish a GitHub release. The workflow triggers on the `release: published` event and will:
+
+1. Sync `packages/shared/` into `packages/extension/shared/`
+2. Zip the `packages/extension/` folder
+3. Upload to the Chrome Web Store

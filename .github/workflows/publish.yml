@@ -11,17 +11,20 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install production dependencies
-        working-directory: extension
-        run: npm install --omit=dev
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Sync shared code into extension
+        run: node scripts/sync-shared.js extension
 
       - name: Package extension
         run: |
-          zip -r extension.zip extension/ \
-            --exclude 'extension/node_modules/*' \
-            --exclude 'extension/package.json' \
-            --exclude 'extension/package-lock.json' \
-            --exclude 'extension/sidepanel/*.test.js'
+          cd packages/extension && zip -r ../../extension.zip . \
+            --exclude 'node_modules/*' \
+            --exclude 'package.json' \
+            --exclude 'package-lock.json' \
+            --exclude 'sidepanel/*.test.js'
 
       - name: Upload to Chrome Web Store
         uses: mnao305/chrome-extension-upload@v5.0.0

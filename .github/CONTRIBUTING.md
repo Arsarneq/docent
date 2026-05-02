@@ -17,25 +17,34 @@ Thank you for wanting to contribute. Docent is open source under GPL-3.0.
 git clone https://github.com/Arsarneq/docent.git
 cd docent
 
+# Sync shared code into the extension package
+npm run dev:extension
+
+# Install test dependencies
+cd packages/extension && npm install
+
 # Load the extension in Chrome
 # 1. Open chrome://extensions
 # 2. Enable "Developer mode"
-# 3. Click "Load unpacked" → select the /extension folder
+# 3. Click "Load unpacked" → select the packages/extension/ folder
 ```
-
-No build step required. The extension uses plain ES modules.
 
 ## Project Structure
 
 ```
-extension/          Chrome Extension (Manifest V3)
-  background/       Service worker — message routing, navigation and tab lifecycle capture
-  content/          Content script — DOM event capture
-  sidepanel/        Side panel UI — narration, step list, export
-  lib/              Shared utilities (UUID v7, session model)
-dispatch/           Dispatch script — extracts active steps and sends them to a configured endpoint
+packages/
+  shared/           Shared code — session model, UUID v7, dispatch logic
+  extension/        Chrome Extension (Manifest V3)
+    background/     Service worker — message routing, navigation and tab lifecycle capture
+    content/        Content script — DOM event capture
+    sidepanel/      Side panel UI — narration, step list, export, dispatch
 docs/               Session format specification
+scripts/            Build and sync scripts
 ```
+
+Shared code lives in `packages/shared/` and is copied into each platform package
+by `npm run sync-shared`. After editing shared code, re-run the sync before
+loading the extension.
 
 ## Coding Conventions
 
