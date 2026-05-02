@@ -4,6 +4,9 @@ node_modules/
 # Synced shared code (build artifact — run `npm run sync-shared` to regenerate)
 packages/*/shared/
 
+# Generated reading guidance (built from session.schema.json)
+packages/shared/assets/reading-guidance.md
+
 # Session exports (contain recorded user interactions — never commit these)
 *.docent.json
 

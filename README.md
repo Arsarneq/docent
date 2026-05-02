@@ -62,9 +62,8 @@ packages/
     lib/
       uuid-v7.js            UUID v7 generation and utilities
       session.js            Session model, versioning, resolution logic
-    assets/
-      reading-guidance.md   Reading guidance included in every dispatch payload
     dispatch-core.js        Platform-agnostic dispatch logic
+    session.schema.json     JSON Schema — the .docent.json format contract
   extension/                Chrome Extension (Manifest V3)
     manifest.json
     background/
@@ -76,10 +75,9 @@ packages/
       panel.js
       panel.css
       dispatch.js           Chrome-specific dispatch — settings, asset loading, re-exports shared logic
-docs/
-  session-format.md         The .docent.json format specification
 scripts/
-  sync-shared.js            Copies shared code into platform packages for development
+  generate-reading-guidance.js  Generates reading guidance from the JSON Schema
+  sync-shared.js                Copies shared code into platform packages for development
 ```
 
 ---
@@ -171,7 +169,7 @@ Local endpoints (e.g. `http://localhost:3000`) are supported.
 
 ## Session format
 
-See [docs/session-format.md](docs/session-format.md) — the `.docent.json` specification.
+The `.docent.json` format is defined by a [JSON Schema](packages/shared/session.schema.json) — the single source of truth shared across all Docent platforms.
 
 ---
 

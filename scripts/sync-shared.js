@@ -14,9 +14,13 @@
 
 import { cpSync, existsSync, rmSync } from 'node:fs';
 import { resolve, join } from 'node:path';
+import { execFileSync } from 'node:child_process';
 
 const ROOT = resolve(import.meta.dirname, '..');
 const SHARED_SRC = join(ROOT, 'packages', 'shared');
+
+// Generate reading-guidance.md from the schema before copying
+execFileSync(process.execPath, [join(ROOT, 'scripts', 'generate-reading-guidance.js')], { stdio: 'inherit' });
 
 const ALL_TARGETS = ['extension'];
 const requested = process.argv.slice(2);
