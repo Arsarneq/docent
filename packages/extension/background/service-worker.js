@@ -197,22 +197,50 @@ chrome.tabs.onActivated.addListener(async ({ tabId, windowId }) => {
   });
 });
 
-// New context opened — never record.
-// Tab opens are always effects: window.open (click already captured),
-// Ctrl+T (browser chrome shortcut, not capturable), or link with target=_blank.
+// New context opened — capture as proxy for browser chrome actions (Ctrl+T, Ctrl+N).
+// Suppress when it's a side-effect of an in-page action (window.open, link target=_blank).
+// Distinguishing signal: window.open/link tabs have openerTabId; Ctrl+T/N tabs don't.
 // Track the timestamp so onActivated can suppress the subsequent activation.
 chrome.tabs.onCreated.addListener(async (tab) => {
   lastTabCreatedTimestamp = Date.now();
-  // No-op for recording: context_open is always an effect of something else.
+  if (!await isRecording()) return;
+  // If the tab has an opener, it was opened by window.open or a link — side-effect.
+  if (tab.openerTabId != null) return;
+  // If there was a recent in-page user action, it's a side-effect.
+  if (await wasRecentUserAction()) return;
+  // Otherwise it's a browser chrome action (Ctrl+T, Ctrl+N) — capture as proxy.
+  await appendSwAction({
+    type:               'context_open',
+    timestamp:          Date.now(),
+    context_id:         tab.id,
+    opener_context_id:  null,
+    source:             tab.url || null,
+    capture_mode:       'dom',
+    window_rect:        null,
+  });
 });
 
-// Context closed — never record.
-// Tab closes are always effects (window.close, Ctrl+W, clicking X) or provide
-// no useful information beyond "a tab disappeared" (Requirement 10 AC4).
+// Context closed — capture as proxy for browser chrome actions (Ctrl+W, click X button).
+// Suppress when it's a side-effect of window.close() or a cascading window close.
+// Distinguishing signal: window.close() is preceded by a recent in-page user action;
+// Ctrl+W and X button are not. Cascading closes have removeInfo.isWindowClosing = true.
 // Track the timestamp so onActivated can suppress auto-switch.
 chrome.tabs.onRemoved.addListener(async (tabId, removeInfo) => {
   lastTabRemovedTimestamp = Date.now();
-  // No-op for recording: context_close is always an effect or uninformative.
+  if (!await isRecording()) return;
+  // Cascading close (entire window closing) — not a distinct user action.
+  if (removeInfo.isWindowClosing) return;
+  // If there was a recent in-page user action, it's a side-effect (window.close()).
+  if (await wasRecentUserAction()) return;
+  // Otherwise it's a browser chrome action (Ctrl+W, click X) — capture as proxy.
+  await appendSwAction({
+    type:           'context_close',
+    timestamp:      Date.now(),
+    context_id:     tabId,
+    window_closing: false,
+    capture_mode:   'dom',
+    window_rect:    null,
+  });
 });
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────

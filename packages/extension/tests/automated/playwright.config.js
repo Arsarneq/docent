@@ -9,6 +9,7 @@ export default defineConfig({
   testDir: './specs',
   timeout: 30_000,
   retries: 0,
+  workers: 1, // Extensions share chrome.storage.local — parallel execution causes race conditions.
   use: {
     // No default browser — we configure it per-project below.
   },
