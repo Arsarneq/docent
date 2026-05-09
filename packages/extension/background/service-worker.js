@@ -30,6 +30,13 @@ import {
   resolveActiveSteps,
 } from '../shared/lib/session.js';
 import { uuidv7 } from '../shared/lib/uuid-v7.js';
+import {
+  TAB_CREATED_USER_ACTION_WINDOW,
+  TAB_CLOSED_USER_ACTION_WINDOW,
+  TAB_CREATED_SWITCH_SUPPRESSION,
+  TAB_REMOVED_SWITCH_SUPPRESSION,
+  TAB_CREATED_NAVIGATION_SUPPRESSION,
+} from '../lib/capture-timing.js';
 
 // ─── In-memory state (restored from storage on SW restart) ───────────────────
 
@@ -109,7 +116,7 @@ async function isRecording() {
   return !!recording;
 }
 
-async function wasRecentUserAction(withinMs = 500) {
+async function wasRecentUserAction(withinMs = TAB_CREATED_USER_ACTION_WINDOW) {
   const { lastUserActionTimestamp } = await chrome.storage.local.get('lastUserActionTimestamp');
   return lastUserActionTimestamp && (Date.now() - lastUserActionTimestamp < withinMs);
 }
@@ -130,7 +137,7 @@ chrome.webNavigation.onCommitted.addListener(async (details) => {
   // If a tab was just created/reopened, this navigate is usually a cascading effect.
   // Exception: "link" navigations on newly created tabs are the proxy for
   // "Open in new tab" context menu selections — record those directly.
-  if (Date.now() - lastTabCreatedTimestamp < 500) {
+  if (Date.now() - lastTabCreatedTimestamp < TAB_CREATED_NAVIGATION_SUPPRESSION) {
     if (details.transitionType === 'link') {
       // This is the initial navigation of a tab opened via context menu "Open in new tab".
       // Record it as the proxy for the context menu selection.
@@ -195,10 +202,12 @@ chrome.webNavigation.onCommitted.addListener(async (details) => {
 // Track recent tab removals to suppress auto-switch context_switch events.
 // When a tab is closed, the browser auto-activates another tab — that's not a user action.
 let lastTabRemovedTimestamp = 0;
+let lastTabRemovedId = null;
 
 // Track recent tab creations to suppress context_switch for newly opened tabs
 // and to suppress navigations that are cascading effects of tab creation/reopen.
 let lastTabCreatedTimestamp = 0;
+let lastTabCreatedId = null;
 
 // Track tabs opened programmatically (window.open, link target=_blank).
 // Their close events should be suppressed (they were never captured as context_open).
@@ -210,8 +219,13 @@ const programmaticTabs = new Set();
 // If none of the above, the user clicked a tab in browser chrome.
 chrome.tabs.onActivated.addListener(async ({ tabId, windowId }) => {
   if (!await isRecording()) return;
-  if (Date.now() - lastTabRemovedTimestamp < 300) return;
-  if (Date.now() - lastTabCreatedTimestamp < 300) return;
+  // Suppress auto-switch to a just-removed tab's replacement (fallback: timing)
+  if (Date.now() - lastTabRemovedTimestamp < TAB_REMOVED_SWITCH_SUPPRESSION) return;
+  // Suppress auto-switch to a just-created tab (primary: ID match, fallback: timing)
+  if (tabId === lastTabCreatedId || Date.now() - lastTabCreatedTimestamp < TAB_CREATED_SWITCH_SUPPRESSION) {
+    lastTabCreatedId = null; // consume the suppression
+    return;
+  }
   const tab = await chrome.tabs.get(tabId);
   if (!tab.url || tab.url.startsWith('chrome://') || tab.url.startsWith('chrome-extension://')) return;
   await appendSwAction({
@@ -231,6 +245,7 @@ chrome.tabs.onActivated.addListener(async ({ tabId, windowId }) => {
 // Track the timestamp so onActivated can suppress the subsequent activation.
 chrome.tabs.onCreated.addListener(async (tab) => {
   lastTabCreatedTimestamp = Date.now();
+  lastTabCreatedId = tab.id;
   if (!await isRecording()) return;
   // If there was a recent in-page user action, this tab is a side-effect
   // (window.open, link target=_blank, etc.) — suppress.
@@ -257,13 +272,17 @@ chrome.tabs.onCreated.addListener(async (tab) => {
 // Track the timestamp so onActivated can suppress auto-switch.
 chrome.tabs.onRemoved.addListener(async (tabId, removeInfo) => {
   lastTabRemovedTimestamp = Date.now();
+  lastTabRemovedId = tabId;
   // Clean up tracking regardless of recording state.
   const wasProgrammatic = programmaticTabs.delete(tabId);
   if (!await isRecording()) return;
   // Cascading close (entire window closing) — not a distinct user action.
   if (removeInfo.isWindowClosing) return;
-  // If the tab was opened programmatically, its close is also a side-effect.
-  if (wasProgrammatic) return;
+  // If the tab was opened programmatically AND there's a recent in-page action,
+  // this is window.close() called from JavaScript — a side-effect.
+  // Use a longer window (2000ms) because window.close() can be delayed.
+  // If there's NO recent action, the user closed it manually (Ctrl+W, X button).
+  if (wasProgrammatic && await wasRecentUserAction(TAB_CLOSED_USER_ACTION_WINDOW)) return;
   // Otherwise it's a browser chrome action (Ctrl+W, click X) — capture as proxy.
   await appendSwAction({
     type:           'context_close',

@@ -32,6 +32,14 @@
 (function () {
   'use strict';
 
+  // ─── Timing Constants ───────────────────────────────────────────────────────
+  // Source of truth: lib/capture-timing.js
+  // Content scripts can't use ES imports, so values are duplicated here.
+  const ENTER_SYNTHETIC_CLICK_WINDOW = 50;
+  const SELECT_SYNTHETIC_CLICK_WINDOW = 50;
+  const TAB_FOCUS_CORRELATION_WINDOW = 150;
+  const CLICK_FOCUS_DEDUP_WINDOW = 100;
+
   let active = false;
   let tabId  = null;
   let lastUserActionTimestamp = 0;
@@ -166,9 +174,9 @@
   document.addEventListener('click', (e) => {
     if (!active) return;
     if (!e.isTrusted) return;
-    if (e.detail === 0 && lastKeyEnterTimestamp > 0 && Date.now() - lastKeyEnterTimestamp < 50) return;
+    if (e.detail === 0 && lastKeyEnterTimestamp > 0 && Date.now() - lastKeyEnterTimestamp < ENTER_SYNTHETIC_CLICK_WINDOW) return;
     // Suppress synthetic clicks from native select confirmation (Enter/click on option)
-    if (e.detail === 0 && lastSelectTimestamp > 0 && Date.now() - lastSelectTimestamp < 50) return;
+    if (e.detail === 0 && lastSelectTimestamp > 0 && Date.now() - lastSelectTimestamp < SELECT_SYNTHETIC_CLICK_WINDOW) return;
     const el = e.target.closest(INTERACTIVE) ?? e.target;
     if (el === document.body || el === document.documentElement) return;
     lastClickedEl = e.target; // track raw target for focus deduplication
@@ -324,9 +332,9 @@
     setTimeout(() => {
       if (!active) return;
       // Only record focus if it follows a Tab key press within 200ms
-      if (Date.now() - lastTabKeyTimestamp > 200) return;
+      if (Date.now() - lastTabKeyTimestamp > TAB_FOCUS_CORRELATION_WINDOW) return;
       // Suppress click-caused focus on the same element (click already captures the action)
-      if (capturedEl === lastClickedEl && Date.now() - lastClickTime < 150) return;
+      if (capturedEl === lastClickedEl && Date.now() - lastClickTime < CLICK_FOCUS_DEDUP_WINDOW) return;
       appendAction({
         type:      'focus',
         timestamp: Date.now(),
