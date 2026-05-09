@@ -19,88 +19,44 @@
 
 // ─── Content Script Timing ──────────────────────────────────────────────────
 
-/**
- * Window for suppressing synthetic clicks from Enter key activation.
- * When Enter is pressed on a button/link, the browser fires a synthetic
- * click (detail=0) within this window. Safe at 50ms — no human clicks
- * this fast after pressing Enter.
- */
+/** Suppress synthetic clicks from Enter key activation (detail=0). */
 export const ENTER_SYNTHETIC_CLICK_WINDOW = 50;
 
-/**
- * Window for suppressing synthetic clicks from native select confirmation.
- * When an option is selected in a native <select>, the browser may fire
- * a synthetic click at the same timestamp. Safe at 50ms.
- */
+/** Suppress synthetic clicks from native select confirmation. */
 export const SELECT_SYNTHETIC_CLICK_WINDOW = 50;
 
-/**
- * Window for correlating focus events with a preceding Tab key press.
- * Focus is only captured if a Tab key was pressed within this window.
- * 150ms accounts for the 50ms setTimeout in the focusin handler plus
- * browser processing time.
- */
+/** Correlate focus events with a preceding Tab key press. */
 export const TAB_FOCUS_CORRELATION_WINDOW = 150;
 
-/**
- * Window for suppressing click-caused focus on the same element.
- * When a user clicks an input, focusin fires before click. The 50ms
- * defer + this window suppresses the redundant focus.
- */
+/** Suppress click-caused focus on the same element. */
 export const CLICK_FOCUS_DEDUP_WINDOW = 100;
 
 // ─── Service Worker Timing ──────────────────────────────────────────────────
 
 /**
- * Window for determining if a tab creation (context_open) is a side-effect
- * of an in-page user action (e.g. window.open from a click handler).
+ * Determine if a tab creation is a side-effect of window.open().
  *
- * If a user action occurred within this window before the tab was created,
- * the tab is considered programmatic (side-effect).
- *
- * Trade-off: Too short → window.open() from async handlers leaks through.
- * Too long → Ctrl+T pressed shortly after a click is wrongly suppressed.
- *
- * 500ms: catches immediate and short-async window.open() calls.
- * Risk: user pressing Ctrl+T within 500ms of a click (unlikely but possible).
+ * Trade-off at 500ms:
+ * - Too short → window.open() from async handlers leaks context_open.
+ * - Too long → Ctrl+T shortly after a click is wrongly suppressed.
  */
 export const TAB_CREATED_USER_ACTION_WINDOW = 500;
 
 /**
- * Window for determining if a tab close (context_close) of a programmatic
- * tab is caused by window.close() (side-effect) vs user action (Ctrl+W/X).
+ * Determine if a programmatic tab close is from window.close().
+ * Only applies to tabs in the programmaticTabs set.
  *
- * Only applies to tabs in the programmaticTabs set. If a user action
- * occurred within this window, the close is assumed to be window.close().
- *
- * Trade-off: Too short → delayed window.close() leaks context_close.
- * Too long → user closing a programmatic tab shortly after a click is suppressed.
- *
- * 2000ms: catches window.close() with typical async delays.
- * Risk: user closing a programmatic tab within 2s of their last click.
+ * Trade-off at 2000ms:
+ * - Too short → delayed window.close() leaks context_close.
+ * - Too long → user closing a programmatic tab shortly after a click is suppressed.
  */
 export const TAB_CLOSED_USER_ACTION_WINDOW = 2000;
 
-/**
- * Window for suppressing auto-switch context_switch after a tab is created.
- * When a new tab opens, the browser auto-activates it — that's not a user action.
- * ELIMINATED: now uses per-tab ID tracking instead of a time window.
- * Kept as fallback for edge cases where the tab ID check fails.
- */
+/** Suppress auto-switch after tab creation. Fallback for per-tab ID tracking. */
 export const TAB_CREATED_SWITCH_SUPPRESSION = 100;
 
-/**
- * Window for suppressing auto-switch context_switch after a tab is closed.
- * When a tab closes, the browser auto-activates another — that's not a user action.
- * ELIMINATED: now uses per-tab ID tracking instead of a time window.
- * Kept as fallback for edge cases where the tab ID check fails.
- */
+/** Suppress auto-switch after tab close. */
 export const TAB_REMOVED_SWITCH_SUPPRESSION = 100;
 
-/**
- * Window for suppressing cascading navigations after a tab is created/reopened.
- * E.g. Ctrl+Shift+T reopens a tab and reloads its URL — the reload is a
- * cascading effect, not a separate user action. Fires within the same event
- * loop tick, so 100ms is more than sufficient.
- */
+/** Suppress cascading navigations after tab creation (e.g. Ctrl+Shift+T reload). */
 export const TAB_CREATED_NAVIGATION_SUPPRESSION = 100;
