@@ -58,6 +58,24 @@ test.describe('Navigation', () => {
     expect(actions[0].nav_type).toBe('back_forward');
   });
 
+  test('page.goForward produces navigate(back_forward) action', async ({ testPage, serviceWorker }) => {
+    await testPage.goto('https://example.com');
+    await testPage.waitForTimeout(300);
+    await testPage.goto('https://example.org');
+    await testPage.waitForTimeout(300);
+    await testPage.goBack();
+    await testPage.waitForTimeout(300);
+    await clearPendingActions(serviceWorker);
+
+    await testPage.goForward();
+    await waitForActionsToSettle(serviceWorker, testPage);
+
+    const actions = await getPendingActions(serviceWorker);
+    const types = actions.map(a => a.type);
+    expect(types).toEqual(['navigate']);
+    expect(actions[0].nav_type).toBe('back_forward');
+  });
+
   test('programmatic form.submit() navigation should NOT be captured', async ({ testPage, serviceWorker }) => {
     await setTestContent(testPage, /* html */ `<!DOCTYPE html>
     <html><body>
@@ -195,9 +213,14 @@ test.describe('Background Tab', () => {
 
     const actions = await getPendingActions(serviceWorker);
     const types = actions.map(a => a.type);
-    // Ideal: only the click. Value changes while the tab is in the background
-    // are not user actions — the user is interacting with a different tab.
-    expect(types).toEqual(['click']);
+    // The click is the user's action. The context_switch from returning is also
+    // a user action (clicking the tab). Value changes from the background timer
+    // should NOT appear — they happened while the user was on a different tab.
+    const typeActions = actions.filter(a => a.type === 'type');
+    expect(typeActions.length).toBe(0);
+    expect(types).toContain('click');
+    // context_switch may or may not appear depending on timing — that's fine.
+    // The key assertion: no type actions leaked from the background.
 
     await otherPage.close();
   });

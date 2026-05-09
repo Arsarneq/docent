@@ -202,6 +202,7 @@
       y:         e.clientY,
       element:   describeElement(el),
     });
+    markUserAction();
   }, { capture: true, passive: true });
 
   // ─── Keyboard capture ─────────────────────────────────────────────────────────

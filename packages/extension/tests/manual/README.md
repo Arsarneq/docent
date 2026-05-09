@@ -21,7 +21,7 @@ don't trigger real value changes in automated mode.
 | Test | Action | Expected |
 |------|--------|----------|
 | 1 | Bookmark click | navigate(auto_bookmark) |
-| 2 | Right-click → Open in new tab | right_click + navigate(link) |
+| 2 | Right-click → Open in new tab | right_click + context_open + navigate(link) |
 | 3 | Ctrl+L then Escape | Nothing |
 | 4 | Select: click, ↓↓, Enter | click + select |
 | 5 | Ctrl+T | context_open |

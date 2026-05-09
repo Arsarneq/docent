@@ -35,8 +35,9 @@
   <div class="test-section">
     <h3>Test 2: Right-Click → Open Link in New Tab</h3>
     <p>Right-click the link below and choose "Open link in new tab" from the context menu.</p>
-    <p class="expected">Expected: 1 right_click + 1 navigate(link) on the new tab.
-       No context_open (new tab has openerTabId → suppressed).</p>
+    <p class="expected">Expected: 1 right_click + 1 context_open (new tab) + 1 navigate(link) on the new tab.
+       The right_click is the in-page action. The context_open and navigate are proxies
+       for the context menu selection (browser chrome).</p>
     <a id="link" href="https://example.com" target="_blank">Right-click me → Open in new tab</a>
   </div>
 

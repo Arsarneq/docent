@@ -109,7 +109,7 @@ async function isRecording() {
   return !!recording;
 }
 
-async function wasRecentUserAction(withinMs = 2000) {
+async function wasRecentUserAction(withinMs = 500) {
   const { lastUserActionTimestamp } = await chrome.storage.local.get('lastUserActionTimestamp');
   return lastUserActionTimestamp && (Date.now() - lastUserActionTimestamp < withinMs);
 }
@@ -127,20 +127,47 @@ chrome.webNavigation.onCommitted.addListener(async (details) => {
   const skipTypes = new Set(['auto_subframe', 'manual_subframe']);
   if (skipTypes.has(details.transitionType)) return;
 
-  // If a recent in-page user action occurred, this navigate is its effect — skip it.
-  // This handles: link clicks, form.submit(), window.location.href assignments, etc.
-  if (await wasRecentUserAction()) return;
+  // If a tab was just created/reopened, this navigate is usually a cascading effect.
+  // Exception: "link" navigations on newly created tabs are the proxy for
+  // "Open in new tab" context menu selections — record those directly.
+  if (Date.now() - lastTabCreatedTimestamp < 500) {
+    if (details.transitionType === 'link') {
+      // This is the initial navigation of a tab opened via context menu "Open in new tab".
+      // Record it as the proxy for the context menu selection.
+      await (swWriteQueue = swWriteQueue.then(async () => {
+        const { pendingActions } = await chrome.storage.local.get('pendingActions');
+        const updated = [...(pendingActions ?? []), {
+          type:         'navigate',
+          nav_type:     'link',
+          timestamp:    Date.now(),
+          url:          details.url,
+          context_id:   details.tabId,
+          capture_mode: 'dom',
+          window_rect:  null,
+        }];
+        await chrome.storage.local.set({ pendingActions: updated, pendingCount: updated.length });
+      }));
+    }
+    // All other navigations on newly created tabs are cascading effects — skip.
+    return;
+  }
 
-  // Otherwise it's a browser chrome action — record as proxy.
-  // Deduplicate redirect chains: only record the first navigate in a chain.
-  // Exception: reloads always get recorded even if the URL matches (same page reload).
+  // Determine if this is a browser chrome action or an effect of an in-page action.
+  const qualifiers = details.transitionQualifiers ?? [];
+  let navType = details.transitionType;
+  if (qualifiers.includes('forward_back')) navType = 'back_forward';
+
+  // Browser chrome actions — record as proxy for what the user did.
+  const browserChromeTypes = new Set(['typed', 'reload', 'back_forward', 'auto_bookmark', 'start_page', 'keyword']);
+  if (!browserChromeTypes.has(navType)) return;
+
+  // Redirect hops within a browser chrome navigation — suppress duplicates.
+  if (qualifiers.includes('server_redirect') || qualifiers.includes('client_redirect')) return;
+
+  // Deduplicate: don't record the same URL twice in a row (except reloads).
   await (swWriteQueue = swWriteQueue.then(async () => {
     const normalised = details.url.replace(/\/$/, '');
-    const qualifiers = details.transitionQualifiers ?? [];
-    let navType = details.transitionType;
-    if (qualifiers.includes('forward_back')) navType = 'back_forward';
 
-    // Skip dedup for reloads — reloading the same URL is a valid user action.
     if (navType !== 'reload') {
       const { lastTabNavUrl: stored } = await chrome.storage.local.get('lastTabNavUrl');
       if (normalised === stored) return;
@@ -169,19 +196,20 @@ chrome.webNavigation.onCommitted.addListener(async (details) => {
 // When a tab is closed, the browser auto-activates another tab — that's not a user action.
 let lastTabRemovedTimestamp = 0;
 
-// Track recent tab creations to suppress context_switch for newly opened tabs.
-// When a tab is created (Ctrl+T, window.open, etc.), the subsequent activation is an effect.
+// Track recent tab creations to suppress context_switch for newly opened tabs
+// and to suppress navigations that are cascading effects of tab creation/reopen.
 let lastTabCreatedTimestamp = 0;
 
-// Context switch — only record when NO recent in-page user action, NO recent tab close,
-// and NO recent tab creation.
-// If there's a recent user action, the tab switch is an effect (e.g. window.open).
+// Track tabs opened programmatically (window.open, link target=_blank).
+// Their close events should be suppressed (they were never captured as context_open).
+const programmaticTabs = new Set();
+
+// Context switch — only record when NO recent tab close and NO recent tab creation.
 // If there's a recent tab close, the switch is an auto-activation by the browser.
 // If there's a recent tab creation, the switch is the browser activating the new tab.
 // If none of the above, the user clicked a tab in browser chrome.
 chrome.tabs.onActivated.addListener(async ({ tabId, windowId }) => {
   if (!await isRecording()) return;
-  if (await wasRecentUserAction(2000)) return;
   if (Date.now() - lastTabRemovedTimestamp < 300) return;
   if (Date.now() - lastTabCreatedTimestamp < 300) return;
   const tab = await chrome.tabs.get(tabId);
@@ -204,16 +232,18 @@ chrome.tabs.onActivated.addListener(async ({ tabId, windowId }) => {
 chrome.tabs.onCreated.addListener(async (tab) => {
   lastTabCreatedTimestamp = Date.now();
   if (!await isRecording()) return;
-  // If the tab has an opener, it was opened by window.open or a link — side-effect.
-  if (tab.openerTabId != null) return;
-  // If there was a recent in-page user action, it's a side-effect.
-  if (await wasRecentUserAction()) return;
-  // Otherwise it's a browser chrome action (Ctrl+T, Ctrl+N) — capture as proxy.
+  // If there was a recent in-page user action, this tab is a side-effect
+  // (window.open, link target=_blank, etc.) — suppress.
+  if (await wasRecentUserAction()) {
+    programmaticTabs.add(tab.id);
+    return;
+  }
+  // Otherwise it's a browser chrome action (Ctrl+T, Ctrl+N, Ctrl+Shift+T) — capture as proxy.
   await appendSwAction({
     type:               'context_open',
     timestamp:          Date.now(),
     context_id:         tab.id,
-    opener_context_id:  null,
+    opener_context_id:  tab.openerTabId ?? null,
     source:             tab.url || null,
     capture_mode:       'dom',
     window_rect:        null,
@@ -227,11 +257,13 @@ chrome.tabs.onCreated.addListener(async (tab) => {
 // Track the timestamp so onActivated can suppress auto-switch.
 chrome.tabs.onRemoved.addListener(async (tabId, removeInfo) => {
   lastTabRemovedTimestamp = Date.now();
+  // Clean up tracking regardless of recording state.
+  const wasProgrammatic = programmaticTabs.delete(tabId);
   if (!await isRecording()) return;
   // Cascading close (entire window closing) — not a distinct user action.
   if (removeInfo.isWindowClosing) return;
-  // If there was a recent in-page user action, it's a side-effect (window.close()).
-  if (await wasRecentUserAction()) return;
+  // If the tab was opened programmatically, its close is also a side-effect.
+  if (wasProgrammatic) return;
   // Otherwise it's a browser chrome action (Ctrl+W, click X) — capture as proxy.
   await appendSwAction({
     type:           'context_close',
