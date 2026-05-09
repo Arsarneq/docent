@@ -82,24 +82,26 @@
   <!-- TEST 7 -->
   <div class="test-section">
     <h3>Test 7: Ctrl+T (Open New Tab)</h3>
-    <p>Press <span class="key">Ctrl+T</span> to open a new tab, then click this tab to return and submit.</p>
-    <p class="expected">Expected: 1 context_open (proxy for Ctrl+T) + 1 context_switch (you clicking back).
-       The auto-switch to the new tab is suppressed (it's a side-effect of the open).</p>
+    <p>Press <span class="key">Ctrl+T</span> to open a new tab. Submit the step from the
+       Docent side panel (it persists across tabs).</p>
+    <p class="expected">Expected: 1 context_open (proxy for Ctrl+T).
+       The auto-switch to the new tab is suppressed (side-effect of the open).</p>
     <p class="limitation">Cannot be automated — CDP does not trigger browser-level shortcuts.</p>
   </div>
 
   <!-- TEST 8 -->
   <div class="test-section">
     <h3>Test 8: Ctrl+W (Close Tab)</h3>
-    <p>Switch to a different tab, then press <span class="key">Ctrl+W</span> to close it. Return to this tab.</p>
-    <p class="expected">Expected: 1 context_close + 1 context_switch (returning to this tab).</p>
+    <p>Open a new tab (Ctrl+T), switch to it, then press <span class="key">Ctrl+W</span> to close it.</p>
+    <p class="expected">Expected: 1 context_close (proxy for Ctrl+W).
+       The auto-switch back to the previous tab is suppressed (side-effect of the close).</p>
     <p class="limitation">Cannot be automated — CDP does not trigger browser-level shortcuts.</p>
   </div>
 
   <!-- TEST 9 -->
   <div class="test-section">
     <h3>Test 9: Click Tab to Switch</h3>
-    <p>Open a second tab (Ctrl+T), then click this tab to return to it.</p>
+    <p>Have two tabs open. Click the other tab to switch to it.</p>
     <p class="expected">Expected: 1 context_switch.</p>
     <p class="limitation">Cannot be automated — tab clicking is browser chrome.</p>
   </div>
