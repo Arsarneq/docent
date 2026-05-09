@@ -83,5 +83,16 @@
        No click event (the back button is browser chrome).</p>
   </div>
 
+  <!-- TEST 7: Ctrl+T new tab lifecycle -->
+  <div class="test-section">
+    <h3>Test 7: Ctrl+T (New Tab)</h3>
+    <p>Press <span class="key">Ctrl+T</span> to open a new tab, then close it and return to this tab.</p>
+    <p class="expected">Expected: Nothing captured. Ctrl+T is a browser shortcut (not capturable).
+       The tab opening, switching, and closing are all side-effects of that shortcut.
+       No context_open, context_switch, or context_close actions should appear.</p>
+    <p><em>Note: This test cannot be automated — Playwright's keyboard dispatch does not
+       trigger browser-level shortcuts via CDP.</em></p>
+  </div>
+
 </body>
 </html>

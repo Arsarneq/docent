@@ -5,9 +5,9 @@ Playwright. All other capture tests (48 of 54 total) are in `../automated/`.
 
 ## Test File
 
-- **`browser-chrome.html`** — 6 tests involving bookmark clicks, context menu
-  selections, address bar interactions, native select widgets, and browser
-  navigation buttons.
+- **`browser-chrome.html`** — 7 tests involving bookmark clicks, context menu
+  selections, address bar interactions, native select widgets, browser
+  navigation buttons, and keyboard shortcuts that can't be dispatched via CDP.
 
 ## How to Run
 

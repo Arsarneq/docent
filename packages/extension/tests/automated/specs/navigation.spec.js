@@ -110,27 +110,6 @@ test.describe('Navigation', () => {
 
 test.describe('Tab Lifecycle', () => {
 
-  test('Ctrl+T tab lifecycle should NOT be captured', async ({ testPage, serviceWorker, context }) => {
-    await setTestContent(testPage, '<html><body><p>Main page</p></body></html>');
-    await testPage.waitForTimeout(200);
-    await clearPendingActions(serviceWorker);
-
-    const [newPage] = await Promise.all([
-      context.waitForEvent('page'),
-      testPage.keyboard.press('Control+t'),
-    ]);
-
-    await newPage.waitForTimeout(300);
-    await newPage.close();
-    await testPage.waitForTimeout(300);
-    await waitForActionsToSettle(serviceWorker, testPage);
-
-    const actions = await getPendingActions(serviceWorker);
-    // Ideal: no actions. The keyboard shortcut is browser chrome and the
-    // tab lifecycle is a side-effect of that shortcut.
-    expect(actions.length).toBe(0);
-  });
-
   test('user switching tabs produces context_switch', async ({ testPage, serviceWorker, context }) => {
     await testPage.goto('https://example.com');
     await testPage.waitForTimeout(300);
