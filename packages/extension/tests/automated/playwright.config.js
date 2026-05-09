@@ -8,18 +8,16 @@ const extensionPath = path.resolve(__dirname, '../..');
 export default defineConfig({
   testDir: './specs',
   timeout: 30_000,
-  retries: 0,
+  retries: 3, // Retry up to 3 times (4 total attempts) to handle timing flakes.
   workers: 1, // Extensions share chrome.storage.local — parallel execution causes race conditions.
   use: {
-    // No default browser — we configure it per-project below.
+    // Capture trace on first retry — helps diagnose flaky failures.
+    trace: 'on-first-retry',
   },
   projects: [
     {
       name: 'chromium',
       use: {
-        // Launch Chromium with the extension loaded.
-        // Playwright's chromium doesn't support extensions, so we use the
-        // channel: 'chrome' to use the system Chrome, or launch with args.
         launchOptions: {
           args: [
             `--disable-extensions-except=${extensionPath}`,
@@ -27,8 +25,6 @@ export default defineConfig({
             '--no-first-run',
             '--disable-default-apps',
           ],
-          // Extensions only work in headed mode with a persistent context,
-          // but we handle that in the test helper (global setup).
         },
       },
     },

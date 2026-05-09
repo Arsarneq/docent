@@ -158,7 +158,7 @@ chrome.webNavigation.onCommitted.addListener(async (details) => {
   if (qualifiers.includes('forward_back')) navType = 'back_forward';
 
   // Browser chrome actions — record as proxy for what the user did.
-  const browserChromeTypes = new Set(['typed', 'reload', 'back_forward', 'auto_bookmark', 'start_page', 'keyword']);
+  const browserChromeTypes = new Set(['typed', 'generated', 'reload', 'back_forward', 'auto_bookmark', 'start_page', 'keyword']);
   if (!browserChromeTypes.has(navType)) return;
 
   // Redirect hops within a browser chrome navigation — suppress duplicates.
