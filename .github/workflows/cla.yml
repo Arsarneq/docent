@@ -28,7 +28,7 @@ jobs:
           path-to-signatures: 'signatures/version1/cla.json'
           path-to-document: 'https://github.com/${{ github.repository }}/blob/main/CLA.md'
           branch: 'signatures'
-          allowlist: Arsarneq,bot*,dependabot[bot]
+          allowlist: bot*,dependabot[bot]
           custom-pr-sign-comment: >
             I have read the CLA Document and I hereby sign the CLA
           signed-commit-message: >
