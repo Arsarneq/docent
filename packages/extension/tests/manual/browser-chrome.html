@@ -18,9 +18,9 @@
 
   <div class="instructions">
     <h2>Instructions</h2>
-    <p>These 9 tests involve browser chrome interactions that cannot be automated
+    <p>These tests involve browser chrome interactions that cannot be automated
        with Playwright (CDP cannot trigger browser-level shortcuts or interact with
-       native widgets). All other capture tests are automated (48 tests).</p>
+       native widgets). All other capture tests are automated.</p>
     <p>Start recording in Docent, perform each test, commit a step after each.</p>
   </div>
 
@@ -35,9 +35,8 @@
   <div class="test-section">
     <h3>Test 2: Right-Click → Open Link in New Tab</h3>
     <p>Right-click the link below and choose "Open link in new tab" from the context menu.</p>
-    <p class="expected">Expected: 1 right_click on the link + 1 navigate(link) on the new tab.
-       The right_click is the user's in-page action. The navigate(link) is the proxy for the
-       context menu selection. No context_open (the new tab has an openerTabId so it's suppressed).</p>
+    <p class="expected">Expected: 1 right_click + 1 navigate(link) on the new tab.
+       No context_open (new tab has openerTabId → suppressed).</p>
     <a id="link" href="https://example.com" target="_blank">Right-click me → Open in new tab</a>
   </div>
 
@@ -67,34 +66,35 @@
 
   <!-- TEST 5 -->
   <div class="test-section">
-    <h3>Test 5: Tab Key with Body Focused</h3>
-    <p>Click on empty space (page background), then press <span class="key">Tab</span>.</p>
-    <p class="expected">Expected: 1 key(Tab) with element body.</p>
+    <h3>Test 5: Ctrl+T (Open New Tab)</h3>
+    <p>Press <span class="key">Ctrl+T</span> to open a new tab. Submit the step from the
+       Docent side panel (it persists across tabs).</p>
+    <p class="expected">Expected: 1 context_open.</p>
+    <p class="limitation">Cannot be automated — CDP does not trigger browser-level shortcuts.</p>
   </div>
 
   <!-- TEST 6 -->
   <div class="test-section">
-    <h3>Test 6: Browser Back Button</h3>
-    <p>Navigate somewhere first (e.g. use Test 1), then click the browser's Back button.</p>
-    <p class="expected">Expected: 1 navigate(back_forward).</p>
+    <h3>Test 6: Ctrl+N (Open New Window)</h3>
+    <p>Press <span class="key">Ctrl+N</span> to open a new window. Submit the step from the
+       Docent side panel.</p>
+    <p class="expected">Expected: 1 context_open.</p>
+    <p class="limitation">Cannot be automated — CDP does not trigger browser-level shortcuts.</p>
   </div>
 
   <!-- TEST 7 -->
   <div class="test-section">
-    <h3>Test 7: Ctrl+T (Open New Tab)</h3>
-    <p>Press <span class="key">Ctrl+T</span> to open a new tab. Submit the step from the
-       Docent side panel (it persists across tabs).</p>
-    <p class="expected">Expected: 1 context_open (proxy for Ctrl+T).
-       The auto-switch to the new tab is suppressed (side-effect of the open).</p>
+    <h3>Test 7: Ctrl+W (Close Tab)</h3>
+    <p>Open a new tab (Ctrl+T), switch to it, then press <span class="key">Ctrl+W</span> to close it.</p>
+    <p class="expected">Expected: 1 context_close.</p>
     <p class="limitation">Cannot be automated — CDP does not trigger browser-level shortcuts.</p>
   </div>
 
   <!-- TEST 8 -->
   <div class="test-section">
-    <h3>Test 8: Ctrl+W (Close Tab)</h3>
-    <p>Open a new tab (Ctrl+T), switch to it, then press <span class="key">Ctrl+W</span> to close it.</p>
-    <p class="expected">Expected: 1 context_close (proxy for Ctrl+W).
-       The auto-switch back to the previous tab is suppressed (side-effect of the close).</p>
+    <h3>Test 8: Ctrl+Shift+T (Reopen Closed Tab)</h3>
+    <p>Close a tab first (Ctrl+W), then press <span class="key">Ctrl+Shift+T</span> to reopen it.</p>
+    <p class="expected">Expected: 1 context_open.</p>
     <p class="limitation">Cannot be automated — CDP does not trigger browser-level shortcuts.</p>
   </div>
 
@@ -104,6 +104,17 @@
     <p>Have two tabs open. Click the other tab to switch to it.</p>
     <p class="expected">Expected: 1 context_switch.</p>
     <p class="limitation">Cannot be automated — tab clicking is browser chrome.</p>
+  </div>
+
+  <!-- TEST 10 -->
+  <div class="test-section">
+    <h3>Test 10: Ctrl+X (Cut Text)</h3>
+    <p>Click the input below, select all text (Ctrl+A), then press <span class="key">Ctrl+X</span> to cut.
+       Click elsewhere to blur.</p>
+    <p class="expected">Expected: 1 click + 1 type (with empty value after cut).
+       Ctrl+X is not a captured key, but the value change from cutting IS the user's action.</p>
+    <p class="limitation">Cannot be automated — Playwright's clipboard operations don't trigger real value changes.</p>
+    <input id="input-cut" type="text" value="Cut this text">
   </div>
 
 </body>

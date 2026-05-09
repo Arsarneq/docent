@@ -194,6 +194,26 @@ test.describe('Keyboard Capture', () => {
     expect(types).toEqual(['key']);
     expect(actions[0].key).toBe('Enter');
   });
+
+  test('F12 does NOT produce any action', async ({ testPage, serviceWorker }) => {
+    await testPage.click('#input1');
+    await clearPendingActions(serviceWorker);
+    await testPage.press('#input1', 'F12');
+    await waitForActionsToSettle(serviceWorker, testPage);
+
+    const actions = await getPendingActions(serviceWorker);
+    expect(actions.length).toBe(0);
+  });
+
+  test('F11 does NOT produce any action', async ({ testPage, serviceWorker }) => {
+    await testPage.click('#input1');
+    await clearPendingActions(serviceWorker);
+    await testPage.press('#input1', 'F11');
+    await waitForActionsToSettle(serviceWorker, testPage);
+
+    const actions = await getPendingActions(serviceWorker);
+    expect(actions.length).toBe(0);
+  });
 });
 
 
