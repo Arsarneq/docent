@@ -16,6 +16,8 @@ Docent captures interactions and pairs them with narration for each step. The re
 
 Active steps can be dispatched directly to a configured HTTP endpoint from either platform — no terminal or Node.js required.
 
+See [Capture Principles](docs/capture-principles.md) for the rules governing what is and isn't captured.
+
 ---
 
 ## How this differs

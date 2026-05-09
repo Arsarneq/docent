@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Docent Manual Test — Browser Chrome Interactions</title>
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 800px; margin: 2rem auto; padding: 0 1rem; }
+    .test-section { border: 1px solid #ccc; border-radius: 8px; padding: 1rem; margin: 1rem 0; }
+    .test-section h3 { margin-top: 0; }
+    .instructions { background: #fffde7; padding: 1rem; border-radius: 8px; margin-bottom: 1rem; }
+    .expected { color: #2e7d32; font-weight: bold; }
+    .key { background: #eee; border: 1px solid #ccc; border-radius: 3px; padding: 0.1rem 0.4rem; font-family: monospace; font-size: 0.9em; }
+  </style>
+</head>
+<body>
+  <h1>Docent Manual Test — Browser Chrome Interactions</h1>
+
+  <div class="instructions">
+    <h2>Instructions</h2>
+    <p>These 6 tests involve browser chrome (address bar, bookmarks, context menus)
+       that cannot be automated with Playwright. All other capture tests are automated.</p>
+    <p>Start recording in Docent, perform each test, commit a step after each.</p>
+  </div>
+
+  <!-- TEST 1: Bookmark bar click -->
+  <div class="test-section">
+    <h3>Test 1: Bookmark Bar Click</h3>
+    <p>Click a bookmark in the bookmark bar (if visible), then navigate back.</p>
+    <p class="expected">Expected: 1 navigate action (nav_type: "auto_bookmark").
+       No click event (bookmark bar is browser chrome). No duplicate SPA navigate.</p>
+  </div>
+
+  <!-- TEST 2: Context menu → Open in new tab -->
+  <div class="test-section">
+    <h3>Test 2: Right-Click → Open Link in New Tab</h3>
+    <p>Right-click the link below and choose "Open link in new tab" from the context menu.</p>
+    <p class="expected">Expected: 1 right_click on the link. The context menu selection itself
+       is not capturable. The new tab opening (context_open + navigate) should NOT be captured
+       — it's a side-effect of the menu selection.</p>
+    <a id="link" href="https://example.com" target="_blank">Right-click me → Open in new tab</a>
+  </div>
+
+  <!-- TEST 3: Ctrl+L focus address bar -->
+  <div class="test-section">
+    <h3>Test 3: Ctrl+L (Focus Address Bar)</h3>
+    <p>Press <span class="key">Ctrl+L</span> to focus the address bar, then press
+       <span class="key">Escape</span> to cancel.</p>
+    <p class="expected">Expected: Nothing captured. The address bar is browser chrome —
+       the shortcut is intercepted before reaching the page.</p>
+  </div>
+
+  <!-- TEST 4: Arrow keys in native select dropdown -->
+  <div class="test-section">
+    <h3>Test 4: Arrow Keys in Native Select</h3>
+    <p>Click the select below to open it, then press <span class="key">↓</span> twice
+       to navigate options, then press <span class="key">Enter</span> to confirm.</p>
+    <p class="expected">Expected: 1 click + key(ArrowDown) events + 1 select action.
+       Note: native select widgets may swallow keydown events before they reach the document.</p>
+    <select id="sel">
+      <option>Item 1</option>
+      <option>Item 2</option>
+      <option>Item 3</option>
+      <option>Item 4</option>
+    </select>
+  </div>
+
+  <!-- TEST 5: Tab key with body focused -->
+  <div class="test-section">
+    <h3>Test 5: Tab Key with Body Focused</h3>
+    <p>Click on empty space (page background) so nothing is focused, then press
+       <span class="key">Tab</span>.</p>
+    <p class="expected">Expected: No key(Tab) captured (activeElement is body, which is filtered).
+       A focus event on whatever element receives focus IS expected (user navigating via keyboard).
+       The browser may also scroll to the focused element.</p>
+  </div>
+
+  <!-- TEST 6: Browser back/forward button click -->
+  <div class="test-section">
+    <h3>Test 6: Browser Back/Forward Button</h3>
+    <p>Navigate to another page (e.g. click Test 2's link), then click the browser's
+       physical Back button (not a keyboard shortcut).</p>
+    <p class="expected">Expected: 1 navigate action (nav_type: "back_forward").
+       No click event (the back button is browser chrome).</p>
+  </div>
+
+</body>
+</html>
