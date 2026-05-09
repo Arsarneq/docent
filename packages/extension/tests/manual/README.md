@@ -1,12 +1,11 @@
 # Manual Capture Tests
 
-7 tests that require a human — they involve browser chrome interactions
+9 tests that require a human — they involve browser chrome interactions
 that Playwright cannot automate via CDP.
 
 ## Test File
 
-**`browser-chrome.html`** — Bookmark clicks, context menu selections, address
-bar, native select widgets, Tab on body, back/forward buttons, Ctrl+T lifecycle.
+**`browser-chrome.html`** — Each test verifies a single browser chrome action.
 
 ## How to Run
 
@@ -18,12 +17,14 @@ bar, native select widgets, Tab on body, back/forward buttons, Ctrl+T lifecycle.
 
 ## Quick Reference
 
-| Test | Action | Expected capture |
-|------|--------|-----------------|
-| 1 | Bookmark click + Back | navigate(auto_bookmark) + navigate(back_forward) |
-| 2 | Right-click → Open in new tab | right_click + navigate(link) on new tab |
+| Test | Action | Expected |
+|------|--------|----------|
+| 1 | Bookmark click | navigate(auto_bookmark) |
+| 2 | Right-click → Open in new tab | right_click + navigate(link) |
 | 3 | Ctrl+L then Escape | Nothing |
 | 4 | Select: click, ↓↓, Enter | click + select |
-| 5 | Click background, Tab | key(Tab) on body |
+| 5 | Click background, Tab | key(Tab) |
 | 6 | Back button | navigate(back_forward) |
-| 7 | Ctrl+T, close tab, return | context_open + context_close + context_switch |
+| 7 | Ctrl+T | context_open |
+| 8 | Ctrl+W | context_close + context_switch |
+| 9 | Click a tab | context_switch |
