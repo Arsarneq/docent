@@ -82,8 +82,9 @@
   <!-- TEST 7 -->
   <div class="test-section">
     <h3>Test 7: Ctrl+T (Open New Tab)</h3>
-    <p>Press <span class="key">Ctrl+T</span> to open a new tab. Submit this step from the Docent panel before switching.</p>
-    <p class="expected">Expected: 1 context_open.</p>
+    <p>Press <span class="key">Ctrl+T</span> to open a new tab, then click this tab to return and submit.</p>
+    <p class="expected">Expected: 1 context_open (proxy for Ctrl+T) + 1 context_switch (you clicking back).
+       The auto-switch to the new tab is suppressed (it's a side-effect of the open).</p>
     <p class="limitation">Cannot be automated — CDP does not trigger browser-level shortcuts.</p>
   </div>
 

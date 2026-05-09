@@ -25,6 +25,6 @@ that Playwright cannot automate via CDP.
 | 4 | Select: click, ↓↓, Enter | click + select |
 | 5 | Click background, Tab | key(Tab) |
 | 6 | Back button | navigate(back_forward) |
-| 7 | Ctrl+T | context_open |
+| 7 | Ctrl+T | context_open + context_switch (return) |
 | 8 | Ctrl+W | context_close + context_switch |
 | 9 | Click a tab | context_switch |
