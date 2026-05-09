@@ -9,6 +9,7 @@
     .test-section h3 { margin-top: 0; }
     .instructions { background: #fffde7; padding: 1rem; border-radius: 8px; margin-bottom: 1rem; }
     .expected { color: #2e7d32; font-weight: bold; }
+    .limitation { color: #e65100; font-style: italic; }
     .key { background: #eee; border: 1px solid #ccc; border-radius: 3px; padding: 0.1rem 0.4rem; font-family: monospace; font-size: 0.9em; }
   </style>
 </head>
@@ -17,45 +18,50 @@
 
   <div class="instructions">
     <h2>Instructions</h2>
-    <p>These 6 tests involve browser chrome (address bar, bookmarks, context menus)
-       that cannot be automated with Playwright. All other capture tests are automated.</p>
+    <p>These 7 tests involve browser chrome interactions that cannot be automated
+       with Playwright (CDP cannot trigger browser-level shortcuts or interact with
+       native widgets). All other capture tests are automated (48 tests).</p>
     <p>Start recording in Docent, perform each test, commit a step after each.</p>
   </div>
 
-  <!-- TEST 1: Bookmark bar click -->
+  <!-- TEST 1 -->
   <div class="test-section">
     <h3>Test 1: Bookmark Bar Click</h3>
-    <p>Click a bookmark in the bookmark bar (if visible), then navigate back.</p>
-    <p class="expected">Expected: 1 navigate action (nav_type: "auto_bookmark").
-       No click event (bookmark bar is browser chrome). No duplicate SPA navigate.</p>
+    <p>Click a bookmark in the bookmark bar, then click the browser Back button to return.</p>
+    <p class="expected">Expected: 1 navigate(auto_bookmark) + 1 navigate(back_forward).
+       Both are browser chrome actions captured via their immediate effects.
+       No click events (bookmark bar and back button are browser chrome).</p>
   </div>
 
-  <!-- TEST 2: Context menu → Open in new tab -->
+  <!-- TEST 2 -->
   <div class="test-section">
     <h3>Test 2: Right-Click → Open Link in New Tab</h3>
     <p>Right-click the link below and choose "Open link in new tab" from the context menu.</p>
-    <p class="expected">Expected: 1 right_click on the link. The context menu selection itself
-       is not capturable. The new tab opening (context_open + navigate) should NOT be captured
-       — it's a side-effect of the menu selection.</p>
+    <p class="expected">Expected: 1 right_click on the link + 1 navigate(link) on the new tab.
+       The right_click is the user's in-page action. The navigate(link) is the proxy for the
+       context menu selection (a browser chrome action). No context_open (the new tab has an
+       openerTabId so it's suppressed).</p>
     <a id="link" href="https://example.com" target="_blank">Right-click me → Open in new tab</a>
   </div>
 
-  <!-- TEST 3: Ctrl+L focus address bar -->
+  <!-- TEST 3 -->
   <div class="test-section">
     <h3>Test 3: Ctrl+L (Focus Address Bar)</h3>
     <p>Press <span class="key">Ctrl+L</span> to focus the address bar, then press
        <span class="key">Escape</span> to cancel.</p>
-    <p class="expected">Expected: Nothing captured. The address bar is browser chrome —
-       the shortcut is intercepted before reaching the page.</p>
+    <p class="expected">Expected: Nothing captured. Ctrl+L is intercepted by the browser
+       before reaching the page. Escape in the address bar is also browser chrome.</p>
   </div>
 
-  <!-- TEST 4: Arrow keys in native select dropdown -->
+  <!-- TEST 4 -->
   <div class="test-section">
     <h3>Test 4: Arrow Keys in Native Select</h3>
-    <p>Click the select below to open it, then press <span class="key">↓</span> twice
-       to navigate options, then press <span class="key">Enter</span> to confirm.</p>
-    <p class="expected">Expected: 1 click + key(ArrowDown) events + 1 select action.
-       Note: native select widgets may swallow keydown events before they reach the document.</p>
+    <p>Click the select to open it, press <span class="key">↓</span> twice, press
+       <span class="key">Enter</span> to confirm.</p>
+    <p class="expected">Expected: 1 click (open dropdown) + 1 select (final selection).</p>
+    <p class="limitation">Known limitation: Arrow key presses and Enter inside native select
+       widgets are handled by the browser's internal widget layer before reaching the DOM.
+       They are not capturable. The select action captures the user's final intent.</p>
     <select id="sel">
       <option>Item 1</option>
       <option>Item 2</option>
@@ -64,33 +70,32 @@
     </select>
   </div>
 
-  <!-- TEST 5: Tab key with body focused -->
+  <!-- TEST 5 -->
   <div class="test-section">
     <h3>Test 5: Tab Key with Body Focused</h3>
-    <p>Click on empty space (page background) so nothing is focused, then press
-       <span class="key">Tab</span>.</p>
-    <p class="expected">Expected: No key(Tab) captured (activeElement is body, which is filtered).
-       A focus event on whatever element receives focus IS expected (user navigating via keyboard).
-       The browser may also scroll to the focused element.</p>
+    <p>Click on empty space (page background), then press <span class="key">Tab</span>.</p>
+    <p class="expected">Expected: 1 key(Tab) with element body. The user pressed Tab —
+       that's what they did, captured regardless of what was focused.</p>
   </div>
 
-  <!-- TEST 6: Browser back/forward button click -->
+  <!-- TEST 6 -->
   <div class="test-section">
     <h3>Test 6: Browser Back/Forward Button</h3>
-    <p>Navigate to another page (e.g. click Test 2's link), then click the browser's
-       physical Back button (not a keyboard shortcut).</p>
-    <p class="expected">Expected: 1 navigate action (nav_type: "back_forward").
-       No click event (the back button is browser chrome).</p>
+    <p>Navigate somewhere (e.g. use Test 1), then click the browser's Back button.</p>
+    <p class="expected">Expected: 1 navigate(back_forward). The back button is browser chrome —
+       the navigate is the immediate effect captured as proxy.</p>
   </div>
 
-  <!-- TEST 7: Ctrl+T new tab lifecycle -->
+  <!-- TEST 7 -->
   <div class="test-section">
-    <h3>Test 7: Ctrl+T (New Tab)</h3>
-    <p>Press <span class="key">Ctrl+T</span> to open a new tab, then close it and return to this tab.</p>
-    <p class="expected">Expected: 1 context_open (proxy for Ctrl+T) + 1 context_close (proxy for closing the tab) + 1 context_switch (proxy for clicking back to this tab).
-       These are all browser chrome actions captured via their immediate effects.</p>
-    <p><em>Note: This test cannot be automated — Playwright's keyboard dispatch does not
-       trigger browser-level shortcuts via CDP.</em></p>
+    <h3>Test 7: Ctrl+T → Close Tab → Return</h3>
+    <p>Press <span class="key">Ctrl+T</span> to open a new tab, close it (Ctrl+W or click X),
+       then click this tab to return.</p>
+    <p class="expected">Expected: 1 context_open (proxy for Ctrl+T) +
+       1 context_close (proxy for closing the tab) +
+       1 context_switch (proxy for clicking back to this tab).</p>
+    <p class="limitation">Cannot be automated — Playwright's CDP dispatch does not trigger
+       browser-level keyboard shortcuts.</p>
   </div>
 
 </body>

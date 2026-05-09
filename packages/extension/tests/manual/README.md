@@ -1,28 +1,29 @@
 # Manual Capture Tests
 
-These tests cover browser chrome interactions that cannot be automated with
-Playwright. All other capture tests (48 of 54 total) are in `../automated/`.
+7 tests that require a human — they involve browser chrome interactions
+that Playwright cannot automate via CDP.
 
 ## Test File
 
-- **`browser-chrome.html`** — 7 tests involving bookmark clicks, context menu
-  selections, address bar interactions, native select widgets, browser
-  navigation buttons, and keyboard shortcuts that can't be dispatched via CDP.
+**`browser-chrome.html`** — Bookmark clicks, context menu selections, address
+bar, native select widgets, Tab on body, back/forward buttons, Ctrl+T lifecycle.
 
 ## How to Run
 
-1. Load the extension in Chrome (`chrome://extensions` → Load unpacked → select `packages/extension/`)
-2. Open the Docent side panel and create a project + recording
-3. Start recording
-4. Open `browser-chrome.html` in Chrome
-5. Perform each test as described, committing a step after each
-6. Export the recording and inspect the captured actions
+1. Reload the extension in `chrome://extensions`
+2. Open `browser-chrome.html` in Chrome (refresh if already open)
+3. Open the Docent side panel, create a project + recording, start recording
+4. Perform each test, commit a step after each
+5. Export and inspect the captured actions
 
-## What to Look For
+## Quick Reference
 
-**Capture exactly what the user did, nothing else.**
-
-- Browser chrome interactions (bookmark click, back button) should produce
-  the appropriate navigate action but no click events
-- Context menu selections should not produce tab lifecycle side-effects
-- Keyboard shortcuts intercepted by the browser should not leak to the page
+| Test | Action | Expected capture |
+|------|--------|-----------------|
+| 1 | Bookmark click + Back | navigate(auto_bookmark) + navigate(back_forward) |
+| 2 | Right-click → Open in new tab | right_click + navigate(link) on new tab |
+| 3 | Ctrl+L then Escape | Nothing |
+| 4 | Select: click, ↓↓, Enter | click + select |
+| 5 | Click background, Tab | key(Tab) on body |
+| 6 | Back button | navigate(back_forward) |
+| 7 | Ctrl+T, close tab, return | context_open + context_close + context_switch |
