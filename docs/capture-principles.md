@@ -66,10 +66,15 @@ what the user did. This is the only signal available:
 |---|---|
 | Type URL in address bar + Enter | `navigate` (nav_type: typed) |
 | Click back button | `navigate` (nav_type: back_forward) |
+| Click forward button | `navigate` (nav_type: back_forward) |
 | Click bookmark | `navigate` (nav_type: auto_bookmark) |
 | Press F5 / Ctrl+R | `navigate` (nav_type: reload) |
 | Click a tab | `context_switch` |
+| Ctrl+T / Ctrl+N (new tab/window) | `context_open` |
+| Ctrl+W / click X (close tab) | `context_close` |
+| Ctrl+Shift+T (reopen tab) | `context_open` |
 | Select file in OS dialog | `file_upload` |
+| Right-click → context menu selection | `context_open` + `navigate(link)` on new tab |
 
 Only the immediate effect is captured — not any cascading effects that
 follow (e.g. a page's autofocus on load, SPA router firing on navigation,
@@ -134,8 +139,10 @@ To correctly implement these principles, the capture layer must:
 
 1. **Check `event.isTrusted`** on DOM events (extension) — programmatic
    `.click()`, `.dispatchEvent()` produce untrusted events
-2. **Correlate effects with preceding user actions** — a navigate that occurs
-   within milliseconds of a click on a link is an effect of that click
+2. **Use platform signals to distinguish action from effect** — Chrome's
+   `transitionType` (typed, reload, back_forward, auto_bookmark) identifies
+   browser chrome navigations; `link`, `form_submit`, `generated` identify
+   effects of in-page actions
 3. **Filter browser-generated synthetic events** — Enter on a button fires a
    synthetic click at (0,0); this is not a user action
 4. **Ignore programmatic state changes** — value changes, focus moves, and
@@ -143,3 +150,5 @@ To correctly implement these principles, the capture layer must:
 5. **Capture browser chrome effects only once** — a single address bar
    navigation should produce exactly one `navigate` action, not duplicates
    from both the service worker and content script
+6. **Track programmatic tabs** — tabs opened by `window.open()` are
+   side-effects; their lifecycle (open, close) should not be captured
