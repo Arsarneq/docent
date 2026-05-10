@@ -16,6 +16,7 @@
  */
 
 import { validateEndpointUrl, buildPayload, sendPayload, DispatchError } from './dispatch.js';
+import { sync } from '../shared/sync-client.js';
 import adapter from './adapter-chrome.js';
 import {
   escapeHtml,
@@ -120,6 +121,13 @@ const settingsEndpointError = $('settings-endpoint-error');
 const settingsApiKey        = $('settings-api-key');
 const btnSettingsDispatchSave = $('btn-settings-dispatch-save');
 
+// Sync settings
+const settingsSyncUrl       = $('settings-sync-url');
+const settingsSyncError     = $('settings-sync-error');
+const settingsSyncApiKey    = $('settings-sync-api-key');
+const btnSettingsSyncSave   = $('btn-settings-sync-save');
+const btnSync               = $('btn-sync');
+
 // Recording selector
 const recordingSelectorList = $('recording-selector-list');
 const btnSelectorCancel     = $('btn-selector-cancel');
@@ -148,6 +156,8 @@ let rerecordLogicalId = null;
 let previousRecordingView = null; // tracks pre-rerecord recording state
 let dispatchSettings = { endpointUrl: null, apiKey: null };
 let dispatchSelection = null; // { recordings: [], totalSteps: number }
+let syncSettings = { serverUrl: null, apiKey: null };
+let isSyncing = false;
 
 // ─── Messaging ────────────────────────────────────────────────────────────────
 
@@ -686,6 +696,12 @@ async function openRerecord(step) {
     await send({ type: 'RECORDING_STOP' });
     isRecording = false;
   }
+  // Clear pending actions and start fresh capture for re-recording
+  await send({ type: 'RECORDING_CLEAR' });
+  pendingCount = 0;
+  clearLiveActionList();
+  await send({ type: 'RECORDING_START' });
+  isRecording = true;
   showView('rerecord');
 }
 
@@ -886,6 +902,95 @@ function updateDispatchButton() {
   btnDispatchProject.title = hasActiveSteps ? '' : 'No recordings with active steps';
 }
 
+// ─── Sync settings ────────────────────────────────────────────────────────────
+
+async function loadAndPopulateSyncSettings() {
+  syncSettings = await adapter.loadSyncSettings();
+  settingsSyncUrl.value    = syncSettings.serverUrl ?? '';
+  settingsSyncApiKey.value = syncSettings.apiKey ?? '';
+  settingsSyncError.textContent = '';
+  settingsSyncError.classList.add('hidden');
+}
+
+btnSettingsSyncSave.addEventListener('click', async () => {
+  const url    = settingsSyncUrl.value.trim();
+  const apiKey = settingsSyncApiKey.value.trim();
+
+  // Validate URL if non-empty (R1-AC2)
+  if (url) {
+    const error = validateEndpointUrl(url);
+    if (error) {
+      settingsSyncError.textContent = error;
+      settingsSyncError.classList.remove('hidden');
+      return;
+    }
+  }
+
+  settingsSyncError.textContent = '';
+  settingsSyncError.classList.add('hidden');
+
+  try {
+    await adapter.saveSyncSettings(url, apiKey);
+    syncSettings = await adapter.loadSyncSettings();
+    updateSyncButton();
+  } catch (err) {
+    settingsSyncError.textContent = err.message;
+    settingsSyncError.classList.remove('hidden');
+  }
+});
+
+function updateSyncButton() {
+  btnSync.disabled = !syncSettings.serverUrl || isSyncing;
+}
+
+btnSync.addEventListener('click', () => handleSync());
+
+async function handleSync() {
+  if (isSyncing) return;
+  isSyncing = true;
+  updateSyncButton();
+  btnSync.textContent = 'Syncing…';
+
+  try {
+    // Get all local projects from the service worker
+    const { projects: localProjects } = await send({ type: 'PROJECTS_GET_ALL' });
+
+    const { result, projects: mergedProjects } = await sync(
+      syncSettings.serverUrl,
+      syncSettings.apiKey,
+      localProjects
+    );
+
+    // Persist merged projects back to the service worker
+    await send({ type: 'PROJECTS_SET', projects: mergedProjects });
+
+    // Show summary (R5-AC5)
+    showSyncSummary(result);
+
+    // Refresh the projects list UI to reflect pulled/updated projects
+    await loadProjectsList();
+  } catch (err) {
+    alert(`Sync failed: ${err.message}`);
+  } finally {
+    isSyncing = false;
+    btnSync.textContent = 'Sync';
+    updateSyncButton();
+  }
+}
+
+function showSyncSummary(result) {
+  if (result.halted) {
+    alert('Sync halted: authentication failed. Check your API key in Settings.');
+    return;
+  }
+  const parts = [];
+  if (result.pushed.length > 0) parts.push(`Pushed ${result.pushed.length} project${result.pushed.length !== 1 ? 's' : ''}`);
+  if (result.pulled.length > 0) parts.push(`Pulled ${result.pulled.length} project${result.pulled.length !== 1 ? 's' : ''}`);
+  if (result.errors.length > 0) parts.push(`${result.errors.length} error${result.errors.length !== 1 ? 's' : ''}`);
+  if (parts.length === 0) parts.push('Everything up to date');
+  alert(parts.join('. ') + '.');
+}
+
 btnSettings.addEventListener('click', () => {
   // If already in settings, treat as Back
   if (!views.settings.classList.contains('hidden')) {
@@ -897,6 +1002,7 @@ btnSettings.addEventListener('click', () => {
   const current = Object.entries(views).find(([key, el]) => key !== 'settings' && !el.classList.contains('hidden'));
   settingsReturnView = current ? current[0] : 'projects';
   loadAndPopulateDispatchSettings();
+  loadAndPopulateSyncSettings();
   showView('settings');
 });
 
@@ -909,4 +1015,6 @@ btnSettingsBack.addEventListener('click', () => {
 
 await loadTheme();
 dispatchSettings = await adapter.loadSettings();
+syncSettings = await adapter.loadSyncSettings();
+updateSyncButton();
 loadProjectsList();
