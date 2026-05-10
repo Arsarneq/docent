@@ -278,14 +278,16 @@ describe('Successful dispatch shows success result view', () => {
     let viewShown = '';
 
     const mockLoadReadingGuidance = async () => 'guidance text';
-    const mockBuildPayload = () => ({ reading_guidance: 'guidance text', project: {}, recordings: [] });
+    const mockLoadSchema = async () => ({ title: 'test schema' });
+    const mockBuildPayload = () => ({ reading_guidance: 'guidance text', schema: { title: 'test schema' }, project: {}, recordings: [] });
     const mockSendPayload = async () => ({});
 
     // Simulate the btnConfirmSend click handler logic
     async function handleSend(dispatchSettings, dispatchSelection, project) {
       try {
         const guidance = await mockLoadReadingGuidance();
-        const payload  = mockBuildPayload(project, dispatchSelection.recordings, guidance);
+        const schema   = await mockLoadSchema();
+        const payload  = mockBuildPayload(project, dispatchSelection.recordings, guidance, schema);
         await mockSendPayload(dispatchSettings.endpointUrl, dispatchSettings.apiKey, payload);
         resultTitle = 'Sent';
         viewShown   = 'dispatchResult';
@@ -297,7 +299,7 @@ describe('Successful dispatch shows success result view', () => {
 
     const settings = { endpointUrl: 'http://localhost:3000', apiKey: null };
     const selection = {
-      recordings: [{ recording_id: 'r1', name: 'Rec', activeSteps: [{ logical_id: 'l1' }] }],
+      recordings: [{ recording_id: 'r1', name: 'Rec', steps: [{ logical_id: 'l1' }] }],
       totalSteps: 1,
     };
     await handleSend(settings, selection, { project_id: 'p1', name: 'P', created_at: '' });

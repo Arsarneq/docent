@@ -50,10 +50,16 @@
  *   Tauri:  filesystem via invoke
  *
  * @property {() => Promise<string>} loadReadingGuidance
- *   Load the bundled reading-guidance markdown text.
+ *   Load the bundled reading-guidance prose text (no schema embedded).
  *   Returns empty string on failure.
  *   Chrome: chrome.runtime.getURL + fetch
  *   Tauri:  read from synced shared/assets/
+ *
+ * @property {() => Promise<object>} loadSchema
+ *   Load the platform-specific JSON Schema object.
+ *   Returns empty object on failure.
+ *   Chrome: chrome.runtime.getURL + fetch (extension schema)
+ *   Tauri:  read from synced shared/assets/ (desktop-windows schema)
  *
  * @property {(callback: (count: number) => void) => void} onPendingCountChange
  *   Subscribe to changes in the pending action count.

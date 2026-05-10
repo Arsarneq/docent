@@ -471,7 +471,8 @@ btnConfirmSend.addEventListener('click', async () => {
   btnDispatchProject.disabled = true;
   try {
     const guidance = await adapter.loadReadingGuidance();
-    const payload  = buildPayload(activeProject, dispatchSelection.recordings, guidance);
+    const schema   = await adapter.loadSchema();
+    const payload  = buildPayload(activeProject, dispatchSelection.recordings, guidance, schema);
     await sendPayload(dispatchSettings.endpointUrl, dispatchSettings.apiKey, payload);
     resultTitle.textContent   = 'Sent';
     resultMessage.textContent = `Successfully dispatched ${dispatchSelection.totalSteps} step${dispatchSelection.totalSteps !== 1 ? 's' : ''} to ${dispatchSettings.endpointUrl}.`;

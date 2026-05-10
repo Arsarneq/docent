@@ -24,6 +24,9 @@ jobs:
       - name: Install extension test dependencies
         run: cd packages/extension && npm ci
 
+      - name: Check version tables in sync
+        run: node scripts/check-version-sync.js
+
       - name: Sync shared code
         run: npm run sync-shared
 

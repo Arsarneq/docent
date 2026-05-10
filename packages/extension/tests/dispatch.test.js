@@ -154,24 +154,48 @@ describe('local addresses pass validation', () => {
 
 // ── Task 2.5: Payload fidelity ─────────────────────────────────────────────
 describe('payload fidelity', () => {
-  const stepArb = fc.record({
+  const narrationStepArb = fc.record({
+    uuid: fc.uuid(),
     logical_id: fc.uuid(),
     step_number: fc.nat(),
-    narration: fc.string(),
+    created_at: fc.string(),
+    narration: fc.string({ minLength: 1 }),
+    narration_source: fc.constant('typed'),
     actions: fc.array(fc.anything()),
+    deleted: fc.boolean(),
   });
+
+  const simpleStepArb = fc.record({
+    uuid: fc.uuid(),
+    logical_id: fc.uuid(),
+    step_number: fc.nat(),
+    created_at: fc.string(),
+    step_type: fc.constantFrom('action', 'validation'),
+    expect: fc.option(fc.constantFrom('present', 'absent'), { nil: undefined }),
+    actions: fc.array(fc.anything()),
+    deleted: fc.boolean(),
+  });
+
+  const stepArb = fc.oneof(narrationStepArb, simpleStepArb);
 
   const recordingArb = fc.record({
     recording_id: fc.uuid(),
     name: fc.string(),
     created_at: fc.string(),
-    activeSteps: fc.array(stepArb),
+    steps: fc.array(stepArb),
+    metadata: fc.option(fc.dictionary(fc.string({ minLength: 1, maxLength: 10 }), fc.oneof(fc.string(), fc.array(fc.string()))), { nil: undefined }),
   });
 
   const projectArb = fc.record({
     project_id: fc.uuid(),
     name: fc.string(),
     created_at: fc.string(),
+    metadata: fc.option(fc.dictionary(fc.string({ minLength: 1, maxLength: 10 }), fc.oneof(fc.string(), fc.array(fc.string()))), { nil: undefined }),
+  });
+
+  const schemaArb = fc.record({
+    title: fc.string(),
+    type: fc.constant('object'),
   });
 
   test('buildPayload preserves all project, recording, and step fields', async () => {
@@ -180,13 +204,20 @@ describe('payload fidelity', () => {
         projectArb,
         fc.array(recordingArb),
         fc.string(),
-        (project, recordings, readingGuidance) => {
-          const payload = buildPayload(project, recordings, readingGuidance);
+        schemaArb,
+        (project, recordings, readingGuidance, schema) => {
+          const payload = buildPayload(project, recordings, readingGuidance, schema);
 
           assert.strictEqual(payload.reading_guidance, readingGuidance);
+          assert.deepStrictEqual(payload.schema, schema);
           assert.strictEqual(payload.project.project_id, project.project_id);
           assert.strictEqual(payload.project.name, project.name);
           assert.strictEqual(payload.project.created_at, project.created_at);
+          if (project.metadata) {
+            assert.deepStrictEqual(payload.project.metadata, project.metadata);
+          } else {
+            assert.strictEqual(payload.project.metadata, undefined);
+          }
           assert.strictEqual(payload.recordings.length, recordings.length);
 
           for (let i = 0; i < recordings.length; i++) {
@@ -195,17 +226,44 @@ describe('payload fidelity', () => {
             assert.strictEqual(out.recording_id, src.recording_id);
             assert.strictEqual(out.name, src.name);
             assert.strictEqual(out.created_at, src.created_at);
-            assert.strictEqual(out.steps.length, src.activeSteps.length);
+            if (src.metadata) {
+              assert.deepStrictEqual(out.metadata, src.metadata);
+            } else {
+              assert.strictEqual(out.metadata, undefined);
+            }
+            assert.strictEqual(out.steps.length, src.steps.length);
 
-            for (let j = 0; j < src.activeSteps.length; j++) {
-              const srcStep = src.activeSteps[j];
+            for (let j = 0; j < src.steps.length; j++) {
+              const srcStep = src.steps[j];
               const outStep = out.steps[j];
+              assert.strictEqual(outStep.uuid, srcStep.uuid);
               assert.strictEqual(outStep.logical_id, srcStep.logical_id);
               assert.strictEqual(outStep.step_number, srcStep.step_number);
+              assert.strictEqual(outStep.created_at, srcStep.created_at);
               assert.strictEqual(outStep.narration, srcStep.narration);
+              assert.strictEqual(outStep.narration_source, srcStep.narration_source);
+              assert.strictEqual(outStep.step_type, srcStep.step_type);
+              assert.strictEqual(outStep.expect, srcStep.expect);
               assert.deepStrictEqual(outStep.actions, srcStep.actions);
+              assert.strictEqual(outStep.deleted, srcStep.deleted);
             }
           }
+        },
+      ),
+    );
+  });
+
+  test('buildPayload produces exactly four top-level keys: reading_guidance, schema, project, recordings', async () => {
+    await fc.assert(
+      fc.asyncProperty(
+        projectArb,
+        fc.array(recordingArb),
+        fc.string(),
+        schemaArb,
+        (project, recordings, readingGuidance, schema) => {
+          const payload = buildPayload(project, recordings, readingGuidance, schema);
+          const keys = Object.keys(payload).sort();
+          assert.deepStrictEqual(keys, ['project', 'reading_guidance', 'recordings', 'schema']);
         },
       ),
     );
