@@ -169,6 +169,11 @@ thread_local! {
     /// classified as a click, not a drag). Used to suppress duplicate
     /// EVENT_OBJECT_SELECTION that fires immediately after a click.
     static INPUT_LAST_CLICK_TIMESTAMP: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+
+    /// Window handle (root) where the last click occurred. Used to suppress
+    /// selection events from dialog initialization (different root window
+    /// than where the user clicked).
+    static INPUT_LAST_CLICK_WINDOW: std::cell::Cell<i64> = const { std::cell::Cell::new(0) };
 }
 
 // ---------------------------------------------------------------------------
@@ -540,6 +545,7 @@ fn input_thread_main(
     INPUT_LAST_KEYBOARD_TIMESTAMP.with(|t| t.set(0));
     INPUT_LAST_KEYBOARD_WINDOW.with(|w| w.set(0));
     INPUT_LAST_CLICK_TIMESTAMP.with(|t| t.set(0));
+    INPUT_LAST_CLICK_WINDOW.with(|w| w.set(0));
 
     Ok(())
 }
@@ -905,7 +911,7 @@ unsafe extern "system" fn input_win_event_proc(
         x if x == EVENT_OBJECT_SELECTION => {
             // Suppress selection events that follow a mouse click.
             // The click already captures what was selected — the selection
-            // event is redundant. We check both:
+            // event is redundant. We check:
             // 1. Mouse button is currently down (click in progress)
             // 2. A click was recently completed (within 200ms)
             let mouse_down = INPUT_MOUSE_DOWN_POS.with(|p| p.get().is_some());
@@ -915,6 +921,24 @@ unsafe extern "system" fn input_win_event_proc(
             let last_click = INPUT_LAST_CLICK_TIMESTAMP.with(|t| t.get());
             if last_click > 0 && timestamp.saturating_sub(last_click) < 200 {
                 return; // Recent click — suppress.
+            }
+
+            // Suppress selection events from a different root window than
+            // the last click. This filters dialog initialization noise
+            // (e.g. Save As dialog's filename ComboBox fires selection
+            // events when it opens, but the user's click was on "Open..."
+            // in a different window).
+            let last_click_window = INPUT_LAST_CLICK_WINDOW.with(|w| w.get());
+            if last_click_window != 0 && last_click_window != window_handle {
+                use windows::Win32::UI::WindowsAndMessaging::{GetAncestor, GA_ROOT};
+                let sel_root = GetAncestor(hwnd, GA_ROOT);
+                let click_hwnd = HWND(last_click_window as *mut _);
+                let click_root = GetAncestor(click_hwnd, GA_ROOT);
+                let sel_root_h = if sel_root.0.is_null() { hwnd.0 as i64 } else { sel_root.0 as i64 };
+                let click_root_h = if click_root.0.is_null() { last_click_window } else { click_root.0 as i64 };
+                if sel_root_h != click_root_h {
+                    return; // Different root window — dialog init noise.
+                }
             }
             input_dispatch_raw_event(RawEvent {
                 event_type: RawEventType::Selection,
@@ -983,6 +1007,7 @@ unsafe extern "system" fn input_mouse_ll_proc(
                     // Set click timestamp on mousedown (not just mouseup) because
                     // EVENT_OBJECT_SELECTION can fire between mousedown and mouseup.
                     INPUT_LAST_CLICK_TIMESTAMP.with(|t| t.set(timestamp));
+                    INPUT_LAST_CLICK_WINDOW.with(|w| w.set(window_handle));
 
                     // If clicking on a different top-level window, proactively
                     // dispatch a Foreground event. Some window classes (e.g.
@@ -1089,6 +1114,7 @@ unsafe extern "system" fn input_mouse_ll_proc(
                             pre_captured_element: pre_element,
                         });
                         INPUT_LAST_CLICK_TIMESTAMP.with(|t| t.set(timestamp));
+                        INPUT_LAST_CLICK_WINDOW.with(|w| w.set(window_handle));
                     }
 
                     INPUT_MOUSE_DOWN_POS.with(|p| p.set(None));
