@@ -42,31 +42,29 @@ These user actions happen outside the hooks' visibility:
 ## Input Correlation
 
 The Input_Thread distinguishes user-caused state changes from programmatic
-ones using **input correlation**: WinEvent callbacks (foreground, focus,
-value change, window lifecycle, selection) are only dispatched when correlated
-with a preceding low-level input event.
+ones using **input correlation**: WinEvent callbacks are only dispatched when
+correlated with a preceding low-level input event.
 
-| WinEvent | Correlation source | Window | Additional filter |
-|---|---|---|---|
-| `EVENT_SYSTEM_FOREGROUND` | Any low-level input | 100ms | — |
-| `EVENT_OBJECT_FOCUS` | Any low-level input | 100ms | Suppressed after click (redundant) |
-| `EVENT_OBJECT_CREATE` | Any low-level input | 200ms | — |
-| `EVENT_OBJECT_DESTROY` | Any low-level input | 200ms | Only if previously opened |
-| `EVENT_OBJECT_VALUECHANGE` | Keyboard input only | 1000ms | Same root window as keyboard |
-| `EVENT_OBJECT_SELECTION` | — | — | Suppressed after click; same root window |
+| WinEvent | Correlation source | Additional filter |
+|---|---|---|
+| `EVENT_SYSTEM_FOREGROUND` | Any low-level input | — |
+| `EVENT_OBJECT_FOCUS` | Any low-level input | Suppressed after click (redundant) |
+| `EVENT_OBJECT_CREATE` | Any low-level input | — |
+| `EVENT_OBJECT_DESTROY` | Any low-level input | Only if previously opened |
+| `EVENT_OBJECT_VALUECHANGE` | Keyboard input only | Same root window as keyboard |
+| `EVENT_OBJECT_SELECTION` | — | Suppressed after click; same root window |
 
 **Window-scoping:** Value changes and selections are only correlated with
 input from the same root window. This prevents dialog initialization noise
 (e.g. Ctrl+S in Notepad does not correlate with Save As dialog's filename
 field pre-fill).
 
-**Printable key buffering:** Printable keystrokes are buffered for
-`TYPE_DEBOUNCE_MS`. If a value-change event arrives (producing a `type`
-action), the buffered keys are discarded (superseded). If no value-change
-arrives (non-editable control like Calculator), the keys are emitted
-individually.
+**Printable key buffering:** Printable keystrokes are buffered. If a
+value-change event arrives (producing a `type` action), the buffered keys
+are discarded (superseded). If no value-change arrives (non-editable control
+like Calculator), the keys are emitted individually.
 
-Timing constants live in `src/capture/timing.rs` (single source of truth).
+Timing constants and correlation windows live in `src/capture/timing.rs`.
 
 ---
 
