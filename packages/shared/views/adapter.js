@@ -21,6 +21,12 @@
  */
 
 /**
+ * @typedef {Object} SyncSettings
+ * @property {string|null} serverUrl
+ * @property {string|null} apiKey
+ */
+
+/**
  * @typedef {Object} PlatformAdapter
  *
  * @property {(message: Object) => Promise<Object>} send
@@ -50,10 +56,16 @@
  *   Tauri:  filesystem via invoke
  *
  * @property {() => Promise<string>} loadReadingGuidance
- *   Load the bundled reading-guidance markdown text.
+ *   Load the bundled reading-guidance prose text (no schema embedded).
  *   Returns empty string on failure.
  *   Chrome: chrome.runtime.getURL + fetch
  *   Tauri:  read from synced shared/assets/
+ *
+ * @property {() => Promise<object>} loadSchema
+ *   Load the platform-specific JSON Schema object.
+ *   Returns empty object on failure.
+ *   Chrome: chrome.runtime.getURL + fetch (extension schema)
+ *   Tauri:  read from synced shared/assets/ (desktop-windows schema)
  *
  * @property {(callback: (count: number) => void) => void} onPendingCountChange
  *   Subscribe to changes in the pending action count.
@@ -66,11 +78,26 @@
  *   Chrome: chrome.storage.local.get('pendingCount')
  *   Tauri:  in-memory counter
  *
- * @property {((callback: (event: Object) => void) => void)|undefined} [onActionEvent]
- *   Subscribe to captured action events streamed from the backend.
- *   Optional — only used by the desktop adapter (Tauri events).
- *   The Chrome extension does not use this; actions flow through
- *   the content script → storage → service worker path instead.
+ * @property {((callback: (event: Object) => void) => void)} onActionEvent
+ *   Subscribe to captured action events as they arrive.
+ *   The callback fires with each individual action object.
+ *   Chrome: chrome.storage.onChanged listener for pendingActions array
+ *   Tauri:  in-memory tracking driven by capture:action events
+ *
+ * @property {() => Promise<SyncSettings>} loadSyncSettings
+ *   Load persisted sync settings (server URL and API key).
+ *   Sync settings are stored separately from dispatch settings (R1-AC1) —
+ *   they configure the remote sync server, not the dispatch endpoint.
+ *   Returns { serverUrl: null, apiKey: null } when no configuration exists.
+ *   Chrome: chrome.storage.local (docentSyncUrl / docentSyncApiKey)
+ *   Tauri:  sessionState.settings (syncUrl / syncApiKey)
+ *
+ * @property {(serverUrl: string, apiKey: string) => Promise<void>} saveSyncSettings
+ *   Persist sync settings. These are independent of dispatch settings (R1-AC1).
+ *   Validates that serverUrl starts with http:// or https:// when non-empty.
+ *   An empty serverUrl clears both the sync URL and API key from storage.
+ *   Chrome: chrome.storage.local
+ *   Tauri:  filesystem via invoke
  *
  * @property {boolean} hasNativeFileDialog
  *   Whether the platform provides native file dialogs for export/import.

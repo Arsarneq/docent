@@ -193,6 +193,47 @@ const tauriAdapter = {
     }
   },
 
+  // ── Sync settings ───────────────────────────────────────────────────────────
+
+  async loadSyncSettings() {
+    try {
+      const json = await invoke('load_state');
+      const state = JSON.parse(json);
+      return {
+        serverUrl: state?.settings?.syncUrl ?? null,
+        apiKey:    state?.settings?.syncApiKey ?? null,
+      };
+    } catch {
+      return { serverUrl: null, apiKey: null };
+    }
+  },
+
+  async saveSyncSettings(serverUrl, apiKey) {
+    const urlError = _validateEndpointUrl(serverUrl);
+    if (serverUrl !== '' && urlError !== null) {
+      throw new Error(urlError);
+    }
+
+    try {
+      const json = await invoke('load_state');
+      const state = JSON.parse(json);
+      if (!state.settings) state.settings = {};
+
+      if (serverUrl === '') {
+        // Clear both sync URL and API key when serverUrl is empty (R1-AC3)
+        delete state.settings.syncUrl;
+        delete state.settings.syncApiKey;
+      } else {
+        state.settings.syncUrl = serverUrl;
+        state.settings.syncApiKey = apiKey || null;
+      }
+
+      await invoke('save_state', { data: JSON.stringify(state) });
+    } catch (err) {
+      throw new Error(`Failed to save sync settings: ${err.message || err}`);
+    }
+  },
+
   // ── Theme ─────────────────────────────────────────────────────────────────
 
   async loadTheme() {
@@ -217,6 +258,30 @@ const tauriAdapter = {
     }
   },
 
+  // ── Recording mode ────────────────────────────────────────────────────────
+
+  async loadRecordingMode() {
+    try {
+      const json = await invoke('load_state');
+      const state = JSON.parse(json);
+      return state?.settings?.recordingMode ?? 'narration';
+    } catch {
+      return 'narration';
+    }
+  },
+
+  async saveRecordingMode(mode) {
+    try {
+      const json = await invoke('load_state');
+      const state = JSON.parse(json);
+      if (!state.settings) state.settings = {};
+      state.settings.recordingMode = mode;
+      await invoke('save_state', { data: JSON.stringify(state) });
+    } catch {
+      // Silently fail — recording mode is non-critical
+    }
+  },
+
   // ── Reading guidance ──────────────────────────────────────────────────────
 
   async loadReadingGuidance() {
@@ -227,6 +292,19 @@ const tauriAdapter = {
     } catch (err) {
       console.warn('[Docent] Failed to load reading guidance:', err);
       return '';
+    }
+  },
+
+  // ── Schema ────────────────────────────────────────────────────────────────
+
+  async loadSchema() {
+    try {
+      const response = await fetch('../shared/session.schema.json');
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      return await response.json();
+    } catch (err) {
+      console.warn('[Docent] Failed to load schema:', err);
+      return {};
     }
   },
 

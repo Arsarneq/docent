@@ -24,27 +24,37 @@ export function validateEndpointUrl(url) {
 /**
  * Builds the dispatch payload from a project and selected recordings.
  * @param {object} project
- * @param {object[]} recordings — already-resolved recordings (each has activeSteps array)
- * @param {string} readingGuidance
+ * @param {object[]} recordings — full recordings with steps array
+ * @param {string} readingGuidance — human-readable prose explaining the payload
+ * @param {object} schema — the JSON Schema object for this platform
  * @returns {object} DispatchPayload
  */
-export function buildPayload(project, recordings, readingGuidance) {
+export function buildPayload(project, recordings, readingGuidance, schema) {
   return {
     reading_guidance: readingGuidance,
+    schema,
     project: {
       project_id: project.project_id,
       name: project.name,
       created_at: project.created_at,
+      ...(project.metadata && { metadata: project.metadata }),
     },
     recordings: recordings.map(r => ({
       recording_id: r.recording_id,
       name: r.name,
       created_at: r.created_at,
-      steps: (r.activeSteps ?? []).map(step => ({
+      ...(r.metadata && { metadata: r.metadata }),
+      steps: (r.steps ?? []).map(step => ({
+        uuid: step.uuid,
         logical_id: step.logical_id,
         step_number: step.step_number,
-        narration: step.narration,
+        created_at: step.created_at,
+        ...(step.narration && { narration: step.narration }),
+        ...(step.narration_source && { narration_source: step.narration_source }),
+        ...(step.step_type && { step_type: step.step_type }),
+        ...(step.expect && { expect: step.expect }),
         actions: step.actions,
+        deleted: step.deleted,
       })),
     })),
   };

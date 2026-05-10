@@ -64,8 +64,28 @@ function validateStep(step) {
   assert.ok(Number.isInteger(step.step_number) && step.step_number >= 1,
     'step.step_number must be integer >= 1');
   assert.ok(ISO8601_RE.test(step.created_at), `step.created_at "${step.created_at}" is not ISO 8601`);
-  assert.strictEqual(typeof step.narration, 'string', 'step.narration must be a string');
-  assert.strictEqual(step.narration_source, 'typed', 'step.narration_source must be "typed"');
+
+  // At least one of narration or step_type must be present
+  const hasNarration = step.narration !== undefined;
+  const hasStepType = step.step_type !== undefined;
+  assert.ok(hasNarration || hasStepType,
+    'step must have at least one of narration or step_type');
+
+  if (hasNarration) {
+    assert.strictEqual(typeof step.narration, 'string', 'step.narration must be a string');
+    assert.ok(step.narration.length > 0, 'step.narration must not be empty');
+    assert.strictEqual(step.narration_source, 'typed', 'step.narration_source must be "typed" when narration is present');
+  }
+
+  if (hasStepType) {
+    assert.ok(['action', 'validation'].includes(step.step_type),
+      `step.step_type must be "action" or "validation", got "${step.step_type}"`);
+    if (step.step_type === 'validation') {
+      assert.ok(step.expect === undefined || ['present', 'absent'].includes(step.expect),
+        `step.expect must be "present" or "absent" when step_type is "validation", got "${step.expect}"`);
+    }
+  }
+
   assert.ok(Array.isArray(step.actions), 'step.actions must be an array');
   assert.strictEqual(typeof step.deleted, 'boolean', 'step.deleted must be a boolean');
   for (const action of step.actions) {
@@ -80,9 +100,7 @@ function validateRecording(recording) {
   assert.ok(ISO8601_RE.test(recording.created_at),
     `recording.created_at "${recording.created_at}" is not ISO 8601`);
   assert.ok(Array.isArray(recording.steps), 'recording.steps must be an array');
-  assert.ok(Array.isArray(recording.activeSteps), 'recording.activeSteps must be an array');
   for (const step of recording.steps) validateStep(step);
-  for (const step of recording.activeSteps) validateStep(step);
 }
 
 function validateExport(exportData) {
@@ -99,7 +117,7 @@ function validateExport(exportData) {
   // No additional properties on project
   const projectKeys = Object.keys(p);
   for (const key of projectKeys) {
-    assert.ok(['project_id', 'name', 'created_at'].includes(key),
+    assert.ok(['project_id', 'name', 'created_at', 'metadata'].includes(key),
       `project has unexpected key "${key}"`);
   }
 
@@ -112,47 +130,25 @@ function validateExport(exportData) {
 // ─── Pure export logic (replicated from panel.js) ─────────────────────────────
 
 /**
- * Resolves active steps from a recording — latest version per logical_id,
- * excluding deleted, sorted by step_number.
- * (Same logic as packages/shared/lib/session.js resolveActiveSteps)
- */
-function resolveActiveSteps(recording) {
-  const groups = new Map();
-  for (const step of recording.steps) {
-    const existing = groups.get(step.logical_id);
-    if (!existing || step.uuid > existing.uuid) {
-      groups.set(step.logical_id, step);
-    }
-  }
-  return Array.from(groups.values())
-    .filter(step => !step.deleted)
-    .sort((a, b) => a.step_number - b.step_number);
-}
-
-/**
  * Builds the export data structure for a project.
  * This is the pure logic that panel.js uses to build the export JSON.
- * The output must validate against the v2.0.0 schema contract.
+ * The output includes full step history (no activeSteps resolution).
  */
 function buildExportData(project) {
-  const recordings = (project.recordings ?? []).map(r => {
-    const active = resolveActiveSteps(r);
-    return {
-      recording_id: r.recording_id,
-      name: r.name,
-      created_at: r.created_at,
-      steps: r.steps,
-      activeSteps: active,
-    };
-  });
-
   return {
     project: {
       project_id: project.project_id,
       name: project.name,
       created_at: project.created_at,
+      ...(project.metadata && { metadata: project.metadata }),
     },
-    recordings,
+    recordings: (project.recordings ?? []).map(r => ({
+      recording_id: r.recording_id,
+      name: r.name,
+      created_at: r.created_at,
+      ...(r.metadata && { metadata: r.metadata }),
+      steps: r.steps,
+    })),
   };
 }
 
@@ -203,7 +199,7 @@ const arbAction = fc.record({
   frame_src: fc.constant(null),
 });
 
-const arbStep = fc.record({
+const arbNarrationStep = fc.record({
   uuid: arbUuid,
   logical_id: arbUuid,
   step_number: fc.integer({ min: 1, max: 100 }),
@@ -213,6 +209,19 @@ const arbStep = fc.record({
   actions: fc.array(arbAction, { minLength: 0, maxLength: 3 }),
   deleted: fc.constant(false),
 });
+
+const arbSimpleStep = fc.record({
+  uuid: arbUuid,
+  logical_id: arbUuid,
+  step_number: fc.integer({ min: 1, max: 100 }),
+  created_at: arbTimestamp,
+  step_type: fc.constantFrom('action', 'validation'),
+  expect: fc.option(fc.constantFrom('present', 'absent'), { nil: undefined }),
+  actions: fc.array(arbAction, { minLength: 0, maxLength: 3 }),
+  deleted: fc.constant(false),
+});
+
+const arbStep = fc.oneof(arbNarrationStep, arbSimpleStep);
 
 const arbRecording = fc.record({
   recording_id: arbUuid,
@@ -264,7 +273,7 @@ describe('Property 7: Export schema validation', () => {
     );
   });
 
-  it('activeSteps contains only non-deleted latest versions sorted by step_number', () => {
+  it('export preserves full step history including deleted and re-recorded versions', () => {
     // Generate a recording with multiple versions of the same logical step
     const arbStepWithVersions = fc.tuple(arbUuid, arbUuid).chain(([logicalId, uuid2]) =>
       fc.tuple(
@@ -283,23 +292,15 @@ describe('Property 7: Export schema validation', () => {
             const exportRec = exportData.recordings[i];
             const sourceRec = project.recordings[i];
 
-            // activeSteps should match resolveActiveSteps
-            const expected = resolveActiveSteps(sourceRec);
-            assert.strictEqual(exportRec.activeSteps.length, expected.length,
-              'activeSteps count should match resolved active steps');
+            // All steps are preserved (including deleted and old versions)
+            assert.strictEqual(exportRec.steps.length, sourceRec.steps.length,
+              'export must include all step versions');
 
-            // Verify sorted by step_number
-            for (let j = 1; j < exportRec.activeSteps.length; j++) {
-              assert.ok(
-                exportRec.activeSteps[j].step_number >= exportRec.activeSteps[j - 1].step_number,
-                'activeSteps must be sorted by step_number',
-              );
-            }
-
-            // Verify no deleted steps in activeSteps
-            for (const step of exportRec.activeSteps) {
-              assert.strictEqual(step.deleted, false,
-                'activeSteps must not contain deleted steps');
+            // Each step is preserved with all fields
+            for (let j = 0; j < sourceRec.steps.length; j++) {
+              assert.strictEqual(exportRec.steps[j].uuid, sourceRec.steps[j].uuid);
+              assert.strictEqual(exportRec.steps[j].logical_id, sourceRec.steps[j].logical_id);
+              assert.strictEqual(exportRec.steps[j].deleted, sourceRec.steps[j].deleted);
             }
           }
         },

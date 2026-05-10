@@ -17,6 +17,11 @@ import { validateEndpointUrl as _validateEndpointUrl } from '../shared/dispatch-
 const ENDPOINT_KEY = 'docentEndpointUrl';
 const API_KEY_KEY  = 'docentApiKey';
 const THEME_KEY    = 'docentTheme';
+const RECORDING_MODE_KEY = 'docentRecordingMode';
+
+// Sync settings are stored separately from dispatch settings (R1-AC1)
+const SYNC_URL_KEY     = 'docentSyncUrl';
+const SYNC_API_KEY_KEY = 'docentSyncApiKey';
 
 // ─── Adapter ──────────────────────────────────────────────────────────────────
 
@@ -62,6 +67,39 @@ const chromeAdapter = {
     }
   },
 
+  // ── Sync settings ───────────────────────────────────────────────────────────
+
+  async loadSyncSettings() {
+    try {
+      const result = await chrome.storage.local.get([SYNC_URL_KEY, SYNC_API_KEY_KEY]);
+      return {
+        serverUrl: result[SYNC_URL_KEY] ?? null,
+        apiKey:    result[SYNC_API_KEY_KEY] ?? null,
+      };
+    } catch {
+      return { serverUrl: null, apiKey: null };
+    }
+  },
+
+  async saveSyncSettings(serverUrl, apiKey) {
+    const urlError = _validateEndpointUrl(serverUrl);
+    if (serverUrl !== '' && urlError !== null) {
+      throw new Error(urlError);
+    }
+
+    if (serverUrl === '') {
+      // Clear both sync URL and API key when serverUrl is empty (R1-AC3)
+      await chrome.storage.local.remove([SYNC_URL_KEY, SYNC_API_KEY_KEY]);
+    } else {
+      await chrome.storage.local.set({ [SYNC_URL_KEY]: serverUrl });
+      if (apiKey === '') {
+        await chrome.storage.local.remove(SYNC_API_KEY_KEY);
+      } else {
+        await chrome.storage.local.set({ [SYNC_API_KEY_KEY]: apiKey });
+      }
+    }
+  },
+
   // ── Theme ─────────────────────────────────────────────────────────────────
 
   async loadTheme() {
@@ -75,6 +113,21 @@ const chromeAdapter = {
 
   async saveTheme(theme) {
     await chrome.storage.local.set({ [THEME_KEY]: theme });
+  },
+
+  // ── Recording mode ────────────────────────────────────────────────────────
+
+  async loadRecordingMode() {
+    try {
+      const result = await chrome.storage.local.get(RECORDING_MODE_KEY);
+      return result[RECORDING_MODE_KEY] ?? 'narration';
+    } catch {
+      return 'narration';
+    }
+  },
+
+  async saveRecordingMode(mode) {
+    await chrome.storage.local.set({ [RECORDING_MODE_KEY]: mode });
   },
 
   // ── Reading guidance ──────────────────────────────────────────────────────
@@ -91,12 +144,46 @@ const chromeAdapter = {
     }
   },
 
+  // ── Schema ────────────────────────────────────────────────────────────────
+
+  async loadSchema() {
+    try {
+      const url = chrome.runtime.getURL('shared/session.schema.json');
+      const response = await fetch(url);
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      return await response.json();
+    } catch (err) {
+      console.warn('[Docent] Failed to load schema:', err);
+      return {};
+    }
+  },
+
   // ── Pending action count ──────────────────────────────────────────────────
 
   onPendingCountChange(callback) {
     chrome.storage.onChanged.addListener((changes, area) => {
       if (area === 'local' && changes.pendingCount) {
         callback(changes.pendingCount.newValue ?? 0);
+      }
+    });
+  },
+
+  /**
+   * Subscribe to individual action events as they are captured.
+   * Fires the callback with each new action added to pendingActions.
+   */
+  onActionEvent(callback) {
+    let _lastLength = 0;
+    chrome.storage.onChanged.addListener((changes, area) => {
+      if (area === 'local' && changes.pendingActions) {
+        const newActions = changes.pendingActions.newValue ?? [];
+        // Fire callback for each action added since last update
+        for (let i = _lastLength; i < newActions.length; i++) {
+          try { callback(newActions[i]); } catch { /* ignore */ }
+        }
+        _lastLength = newActions.length;
+        // Reset when cleared
+        if (newActions.length === 0) _lastLength = 0;
       }
     });
   },

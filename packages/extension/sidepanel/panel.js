@@ -16,6 +16,7 @@
  */
 
 import { validateEndpointUrl, buildPayload, sendPayload, DispatchError } from './dispatch.js';
+import { sync } from '../shared/sync-client.js';
 import adapter from './adapter-chrome.js';
 import {
   escapeHtml,
@@ -101,16 +102,47 @@ const stepDetailList  = $('step-detail-list');
 const stepDetailTitle = $('step-detail-title');
 const btnStepDetailBack = $('btn-step-detail-back');
 
+// Pending action list (live during recording)
+const pendingActionsSection = $('pending-actions-section');
+const pendingActionList     = $('pending-action-list');
+const pendingActionCount    = $('pending-action-count');
+const rerecordActionsSection = $('rerecord-actions-section');
+const rerecordActionList     = $('rerecord-action-list');
+const rerecordActionCount    = $('rerecord-action-count');
+
 // Settings
 const btnSettings     = $('btn-settings');
 const btnSettingsBack = $('btn-settings-back');
 const themeRadios     = document.querySelectorAll('input[name="theme"]');
+const recordingModeRadios = document.querySelectorAll('input[name="recording-mode"]');
+
+// Simple mode elements
+const narrationModeBox    = $('narration-mode-box');
+const simpleModeBox       = $('simple-mode-box');
+const stepTypeRadios      = document.querySelectorAll('input[name="step-type"]');
+const expectGroup         = $('expect-group');
+const stepExpectRadios    = document.querySelectorAll('input[name="step-expect"]');
+const btnCommitStepSimple = $('btn-commit-step-simple');
+const btnClearStepSimple  = $('btn-clear-step-simple');
+
+// Metadata elements
+const projectMetadataList     = $('project-metadata-list');
+const btnAddProjectMetadata   = $('btn-add-project-metadata');
+const recordingMetadataList   = $('recording-metadata-list');
+const btnAddRecordingMetadata = $('btn-add-recording-metadata');
 
 // Dispatch settings
 const settingsEndpointUrl   = $('settings-endpoint-url');
 const settingsEndpointError = $('settings-endpoint-error');
 const settingsApiKey        = $('settings-api-key');
 const btnSettingsDispatchSave = $('btn-settings-dispatch-save');
+
+// Sync settings
+const settingsSyncUrl       = $('settings-sync-url');
+const settingsSyncError     = $('settings-sync-error');
+const settingsSyncApiKey    = $('settings-sync-api-key');
+const btnSettingsSyncSave   = $('btn-settings-sync-save');
+const btnSync               = $('btn-sync');
 
 // Recording selector
 const recordingSelectorList = $('recording-selector-list');
@@ -140,6 +172,9 @@ let rerecordLogicalId = null;
 let previousRecordingView = null; // tracks pre-rerecord recording state
 let dispatchSettings = { endpointUrl: null, apiKey: null };
 let dispatchSelection = null; // { recordings: [], totalSteps: number }
+let syncSettings = { serverUrl: null, apiKey: null };
+let isSyncing = false;
+let recordingMode = 'narration'; // 'narration' or 'simple'
 
 // ─── Messaging ────────────────────────────────────────────────────────────────
 
@@ -155,6 +190,34 @@ adapter.onPendingCountChange(count => {
   pendingCount = count;
   updateCommitButton();
 });
+
+// Live action list: render each action as it's captured
+adapter.onActionEvent(action => {
+  appendLiveAction(action);
+});
+
+function appendLiveAction(action) {
+  const html = renderStepDetailHtml([action]);
+  // Determine which list to append to (recording or re-record view)
+  const targetList = rerecordLogicalId ? rerecordActionList : pendingActionList;
+  const targetSection = rerecordLogicalId ? rerecordActionsSection : pendingActionsSection;
+  const targetCount = rerecordLogicalId ? rerecordActionCount : pendingActionCount;
+
+  targetSection.classList.remove('hidden');
+  const li = document.createElement('template');
+  li.innerHTML = html[0].trim();
+  targetList.appendChild(li.content.firstChild);
+  targetCount.textContent = targetList.children.length;
+}
+
+function clearLiveActionList() {
+  pendingActionList.innerHTML = '';
+  pendingActionCount.textContent = '0';
+  pendingActionsSection.classList.add('hidden');
+  rerecordActionList.innerHTML = '';
+  rerecordActionCount.textContent = '0';
+  rerecordActionsSection.classList.add('hidden');
+}
 
 // ─── View management ─────────────────────────────────────────────────────────
 
@@ -292,6 +355,9 @@ function renderProjectDetail() {
   projectTitle.title = 'Click to rename';
   projectTitle.style.cursor = 'pointer';
   recordingList.innerHTML   = '';
+
+  // Render project metadata
+  renderMetadataList(projectMetadataList, activeProject.metadata);
 
   const recordings = activeProject.recordings ?? [];
   recordingsEmpty.classList.toggle('hidden', recordings.length > 0);
@@ -471,7 +537,8 @@ btnConfirmSend.addEventListener('click', async () => {
   btnDispatchProject.disabled = true;
   try {
     const guidance = await adapter.loadReadingGuidance();
-    const payload  = buildPayload(activeProject, dispatchSelection.recordings, guidance);
+    const schema   = await adapter.loadSchema();
+    const payload  = buildPayload(activeProject, dispatchSelection.recordings, guidance, schema);
     await sendPayload(dispatchSettings.endpointUrl, dispatchSettings.apiKey, payload);
     resultTitle.textContent   = 'Sent';
     resultMessage.textContent = `Successfully dispatched ${dispatchSelection.totalSteps} step${dispatchSelection.totalSteps !== 1 ? 's' : ''} to ${dispatchSettings.endpointUrl}.`;
@@ -499,11 +566,16 @@ function enterRecordingView() {
   recordingTitle.title = 'Click to rename';
   recordingTitle.style.cursor = 'pointer';
   narrationInput.value      = '';
+  clearLiveActionList();
   // Read actual pendingCount via adapter rather than assuming 0
   adapter.getPendingCount().then(count => {
     pendingCount = count;
     updateCommitButton();
   });
+  // Apply current recording mode visibility
+  applyRecordingMode(recordingMode);
+  // Render recording metadata
+  renderMetadataList(recordingMetadataList, activeRecording.metadata);
   updateRecordingUI();
   renderStepList();
   showView('recording');
@@ -557,7 +629,10 @@ narrationInput.addEventListener('input', () => {
 });
 
 function updateCommitButton() {
+  // Narration mode: need text + pending actions
   btnCommitStep.disabled = narrationInput.value.trim().length === 0 || pendingCount === 0;
+  // Simple mode: only need pending actions (no text required)
+  btnCommitStepSimple.disabled = pendingCount === 0;
 }
 
 btnCommitStep.addEventListener('click', () =>
@@ -569,6 +644,90 @@ btnClearStep.addEventListener('click', async () => {
   await send({ type: 'RECORDING_CLEAR' });
   pendingCount = 0;
   updateCommitButton();
+  clearLiveActionList();
+});
+
+// ─── Simple mode handlers ─────────────────────────────────────────────────────
+
+stepTypeRadios.forEach(radio => {
+  radio.addEventListener('change', () => {
+    if (!radio.checked) return;
+    expectGroup.classList.toggle('hidden', radio.value !== 'validation');
+  });
+});
+
+btnCommitStepSimple.addEventListener('click', () => commitStepSimple(null));
+
+btnClearStepSimple.addEventListener('click', async () => {
+  if (!confirm('Clear all recorded actions for this step?')) return;
+  await send({ type: 'RECORDING_CLEAR' });
+  pendingCount = 0;
+  updateCommitButton();
+  clearLiveActionList();
+});
+
+async function commitStepSimple(logicalId) {
+  if (commitInProgress) return;
+  commitInProgress = true;
+  try {
+    const stepType = document.querySelector('input[name="step-type"]:checked')?.value ?? 'action';
+    const expect = stepType === 'validation'
+      ? (document.querySelector('input[name="step-expect"]:checked')?.value ?? 'present')
+      : undefined;
+
+    const wasRecording = isRecording;
+
+    if (isRecording) {
+      await send({ type: 'RECORDING_STOP' });
+      isRecording = false;
+    }
+
+    const payload = {
+      type:       'STEP_COMMIT',
+      step_type:  stepType,
+      logical_id: logicalId ?? undefined,
+    };
+    if (expect) payload.expect = expect;
+
+    const response = await send(payload);
+
+    if (response?.ok) {
+      activeSteps = response.activeSteps;
+      clearLiveActionList();
+      renderStepList();
+    }
+
+    if (wasRecording) {
+      await send({ type: 'RECORDING_START' });
+      isRecording = true;
+    }
+    updateRecordingUI();
+  } finally {
+    commitInProgress = false;
+  }
+}
+
+// ─── Recording mode ───────────────────────────────────────────────────────────
+
+function applyRecordingMode(mode) {
+  recordingMode = mode;
+  narrationModeBox.classList.toggle('hidden', mode !== 'narration');
+  simpleModeBox.classList.toggle('hidden', mode !== 'simple');
+}
+
+async function loadRecordingMode() {
+  const mode = await adapter.loadRecordingMode();
+  recordingMode = mode;
+  applyRecordingMode(mode);
+  recordingModeRadios.forEach(r => { r.checked = r.value === mode; });
+}
+
+recordingModeRadios.forEach(radio => {
+  radio.addEventListener('change', async () => {
+    if (!radio.checked) return;
+    applyRecordingMode(radio.value);
+    await adapter.saveRecordingMode(radio.value);
+  });
 });
 
 async function commitStep(inputEl, source, logicalId) {
@@ -596,6 +755,7 @@ async function commitStep(inputEl, source, logicalId) {
       activeSteps    = response.activeSteps;
       inputEl.value  = '';
       if (inputEl === narrationInput) btnCommitStep.disabled = true;
+      clearLiveActionList();
       renderStepList();
     }
 
@@ -646,6 +806,12 @@ async function openRerecord(step) {
     await send({ type: 'RECORDING_STOP' });
     isRecording = false;
   }
+  // Clear pending actions and start fresh capture for re-recording
+  await send({ type: 'RECORDING_CLEAR' });
+  pendingCount = 0;
+  clearLiveActionList();
+  await send({ type: 'RECORDING_START' });
+  isRecording = true;
   showView('rerecord');
 }
 
@@ -685,7 +851,7 @@ async function openHistory(logical_id) {
     li.className = 'history-item' + (i === 0 ? ' history-item--active' : '');
     li.innerHTML = `
       <span class="history-time">${new Date(v.created_at).toLocaleTimeString()}</span>
-      <span class="history-narration">${escapeHtml(v.narration)}</span>
+      <span class="history-narration">${escapeHtml(v.narration || v.step_type || '')}</span>
       ${v.deleted ? '<span class="badge badge--deleted">deleted</span>' : ''}
     `;
     historyList.appendChild(li);
@@ -699,7 +865,8 @@ btnHistoryBack.addEventListener('click', () => showView('recording'));
 // ─── Step detail ──────────────────────────────────────────────────────────────
 
 function openStepDetail(step) {
-  stepDetailTitle.textContent = `Step ${step.step_number}: ${step.narration}`;
+  const label = step.narration || (step.step_type ? `${step.step_type}${step.expect ? ' (' + step.expect + ')' : ''}` : 'Step');
+  stepDetailTitle.textContent = `Step ${step.step_number}: ${label}`;
   stepDetailList.innerHTML = '';
 
   const htmlItems = renderStepDetailHtml(step.actions);
@@ -846,6 +1013,95 @@ function updateDispatchButton() {
   btnDispatchProject.title = hasActiveSteps ? '' : 'No recordings with active steps';
 }
 
+// ─── Sync settings ────────────────────────────────────────────────────────────
+
+async function loadAndPopulateSyncSettings() {
+  syncSettings = await adapter.loadSyncSettings();
+  settingsSyncUrl.value    = syncSettings.serverUrl ?? '';
+  settingsSyncApiKey.value = syncSettings.apiKey ?? '';
+  settingsSyncError.textContent = '';
+  settingsSyncError.classList.add('hidden');
+}
+
+btnSettingsSyncSave.addEventListener('click', async () => {
+  const url    = settingsSyncUrl.value.trim();
+  const apiKey = settingsSyncApiKey.value.trim();
+
+  // Validate URL if non-empty (R1-AC2)
+  if (url) {
+    const error = validateEndpointUrl(url);
+    if (error) {
+      settingsSyncError.textContent = error;
+      settingsSyncError.classList.remove('hidden');
+      return;
+    }
+  }
+
+  settingsSyncError.textContent = '';
+  settingsSyncError.classList.add('hidden');
+
+  try {
+    await adapter.saveSyncSettings(url, apiKey);
+    syncSettings = await adapter.loadSyncSettings();
+    updateSyncButton();
+  } catch (err) {
+    settingsSyncError.textContent = err.message;
+    settingsSyncError.classList.remove('hidden');
+  }
+});
+
+function updateSyncButton() {
+  btnSync.disabled = !syncSettings.serverUrl || isSyncing;
+}
+
+btnSync.addEventListener('click', () => handleSync());
+
+async function handleSync() {
+  if (isSyncing) return;
+  isSyncing = true;
+  updateSyncButton();
+  btnSync.textContent = 'Syncing…';
+
+  try {
+    // Get all local projects from the service worker
+    const { projects: localProjects } = await send({ type: 'PROJECTS_GET_ALL' });
+
+    const { result, projects: mergedProjects } = await sync(
+      syncSettings.serverUrl,
+      syncSettings.apiKey,
+      localProjects
+    );
+
+    // Persist merged projects back to the service worker
+    await send({ type: 'PROJECTS_SET', projects: mergedProjects });
+
+    // Show summary (R5-AC5)
+    showSyncSummary(result);
+
+    // Refresh the projects list UI to reflect pulled/updated projects
+    await loadProjectsList();
+  } catch (err) {
+    alert(`Sync failed: ${err.message}`);
+  } finally {
+    isSyncing = false;
+    btnSync.textContent = 'Sync';
+    updateSyncButton();
+  }
+}
+
+function showSyncSummary(result) {
+  if (result.halted) {
+    alert('Sync halted: authentication failed. Check your API key in Settings.');
+    return;
+  }
+  const parts = [];
+  if (result.pushed.length > 0) parts.push(`Pushed ${result.pushed.length} project${result.pushed.length !== 1 ? 's' : ''}`);
+  if (result.pulled.length > 0) parts.push(`Pulled ${result.pulled.length} project${result.pulled.length !== 1 ? 's' : ''}`);
+  if (result.errors.length > 0) parts.push(`${result.errors.length} error${result.errors.length !== 1 ? 's' : ''}`);
+  if (parts.length === 0) parts.push('Everything up to date');
+  alert(parts.join('. ') + '.');
+}
+
 btnSettings.addEventListener('click', () => {
   // If already in settings, treat as Back
   if (!views.settings.classList.contains('hidden')) {
@@ -857,6 +1113,7 @@ btnSettings.addEventListener('click', () => {
   const current = Object.entries(views).find(([key, el]) => key !== 'settings' && !el.classList.contains('hidden'));
   settingsReturnView = current ? current[0] : 'projects';
   loadAndPopulateDispatchSettings();
+  loadAndPopulateSyncSettings();
   showView('settings');
 });
 
@@ -865,8 +1122,100 @@ btnSettingsBack.addEventListener('click', () => {
   if (settingsReturnView === 'project') updateDispatchButton();
 });
 
+// ─── Metadata editor ──────────────────────────────────────────────────────────
+
+function renderMetadataList(container, metadata) {
+  container.innerHTML = '';
+  if (!metadata || Object.keys(metadata).length === 0) return;
+  for (const [key, value] of Object.entries(metadata)) {
+    const row = document.createElement('div');
+    row.className = 'metadata-row';
+    const displayValue = Array.isArray(value) ? value.join(', ') : value;
+    row.innerHTML = `
+      <input class="metadata-key" type="text" value="${escapeHtml(key)}" placeholder="key" />
+      <span class="metadata-eq">=</span>
+      <input class="metadata-value" type="text" value="${escapeHtml(displayValue)}" placeholder="value (comma = list)" />
+      <button class="btn btn--ghost btn--sm metadata-remove" title="Remove">&times;</button>
+    `;
+    container.appendChild(row);
+  }
+}
+
+function collectMetadata(container) {
+  const rows = container.querySelectorAll('.metadata-row');
+  const metadata = {};
+  for (const row of rows) {
+    const key = row.querySelector('.metadata-key').value.trim();
+    const value = row.querySelector('.metadata-value').value.trim();
+    if (key) {
+      // If value contains commas, store as array
+      metadata[key] = value.includes(',') ? value.split(',').map(v => v.trim()).filter(Boolean) : value;
+    }
+  }
+  return Object.keys(metadata).length > 0 ? metadata : undefined;
+}
+
+function addMetadataRow(container) {
+  const row = document.createElement('div');
+  row.className = 'metadata-row';
+  row.innerHTML = `
+    <input class="metadata-key" type="text" value="" placeholder="key" />
+    <span class="metadata-eq">=</span>
+    <input class="metadata-value" type="text" value="" placeholder="value (comma = list)" />
+    <button class="btn btn--ghost btn--sm metadata-remove" title="Remove">&times;</button>
+  `;
+  container.appendChild(row);
+}
+
+// Project metadata
+btnAddProjectMetadata.addEventListener('click', () => {
+  addMetadataRow(projectMetadataList);
+});
+
+projectMetadataList.addEventListener('click', async (e) => {
+  if (e.target.classList.contains('metadata-remove')) {
+    e.target.closest('.metadata-row').remove();
+    const metadata = collectMetadata(projectMetadataList);
+    if (metadata) activeProject.metadata = metadata;
+    else delete activeProject.metadata;
+    await send({ type: 'PROJECT_SET_METADATA', metadata: metadata ?? null });
+  }
+});
+
+projectMetadataList.addEventListener('change', async () => {
+  const metadata = collectMetadata(projectMetadataList);
+  if (metadata) activeProject.metadata = metadata;
+  else delete activeProject.metadata;
+  await send({ type: 'PROJECT_SET_METADATA', metadata: metadata ?? null });
+});
+
+// Recording metadata
+btnAddRecordingMetadata.addEventListener('click', () => {
+  addMetadataRow(recordingMetadataList);
+});
+
+recordingMetadataList.addEventListener('click', async (e) => {
+  if (e.target.classList.contains('metadata-remove')) {
+    e.target.closest('.metadata-row').remove();
+    const metadata = collectMetadata(recordingMetadataList);
+    if (metadata) activeRecording.metadata = metadata;
+    else delete activeRecording.metadata;
+    await send({ type: 'RECORDING_SET_METADATA', recording_id: activeRecording.recording_id, metadata: metadata ?? null });
+  }
+});
+
+recordingMetadataList.addEventListener('change', async () => {
+  const metadata = collectMetadata(recordingMetadataList);
+  if (metadata) activeRecording.metadata = metadata;
+  else delete activeRecording.metadata;
+  await send({ type: 'RECORDING_SET_METADATA', recording_id: activeRecording.recording_id, metadata: metadata ?? null });
+});
+
 // ─── Init ─────────────────────────────────────────────────────────────────────
 
 await loadTheme();
+await loadRecordingMode();
 dispatchSettings = await adapter.loadSettings();
+syncSettings = await adapter.loadSyncSettings();
+updateSyncButton();
 loadProjectsList();

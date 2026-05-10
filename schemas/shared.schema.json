@@ -1,0 +1,640 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/Arsarneq/docent/blob/main/schemas/shared.schema.json",
+  "description": "Shared definitions used by all Docent platform schemas. Not used directly for validation — use the platform-specific schemas.",
+  "$defs": {
+    "project": {
+      "type": "object",
+      "required": [
+        "project_id",
+        "name",
+        "created_at"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "project_id": {
+          "$ref": "#/$defs/uuidv7"
+        },
+        "name": {
+          "type": "string"
+        },
+        "created_at": {
+          "$ref": "#/$defs/iso8601"
+        },
+        "metadata": {
+          "$ref": "#/$defs/metadata"
+        }
+      }
+    },
+    "recording": {
+      "type": "object",
+      "required": [
+        "recording_id",
+        "name",
+        "created_at",
+        "steps"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "recording_id": {
+          "$ref": "#/$defs/uuidv7"
+        },
+        "name": {
+          "type": "string"
+        },
+        "created_at": {
+          "$ref": "#/$defs/iso8601"
+        },
+        "metadata": {
+          "$ref": "#/$defs/metadata"
+        },
+        "steps": {
+          "description": "All step version records for this recording. Contains full history including re-recorded and deleted versions.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/step"
+          }
+        }
+      }
+    },
+    "step": {
+      "type": "object",
+      "required": [
+        "uuid",
+        "logical_id",
+        "step_number",
+        "created_at",
+        "actions",
+        "deleted"
+      ],
+      "additionalProperties": false,
+      "anyOf": [
+        {
+          "required": [
+            "narration"
+          ]
+        },
+        {
+          "required": [
+            "step_type"
+          ]
+        }
+      ],
+      "properties": {
+        "uuid": {
+          "$ref": "#/$defs/uuidv7"
+        },
+        "logical_id": {
+          "$ref": "#/$defs/uuidv7"
+        },
+        "step_number": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "created_at": {
+          "$ref": "#/$defs/iso8601"
+        },
+        "narration": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Free-text narration describing the step intent. Present in narration mode."
+        },
+        "narration_source": {
+          "type": "string",
+          "const": "typed",
+          "description": "How the narration was provided. Present when narration is present."
+        },
+        "step_type": {
+          "type": "string",
+          "enum": [
+            "action",
+            "validation"
+          ],
+          "description": "Step classification in simple mode. Present in simple mode."
+        },
+        "expect": {
+          "type": "string",
+          "enum": [
+            "present",
+            "absent"
+          ],
+          "description": "Assertion type for validation steps. Present when step_type is 'validation'."
+        },
+        "actions": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/action"
+          }
+        },
+        "deleted": {
+          "type": "boolean"
+        }
+      }
+    },
+    "action_click": {
+      "properties": {
+        "type": {
+          "const": "click"
+        },
+        "x": {
+          "type": "number"
+        },
+        "y": {
+          "type": "number"
+        },
+        "element": {
+          "$ref": "#/$defs/element"
+        },
+        "context_id": {
+          "$ref": "#/$defs/context_id"
+        },
+        "capture_mode": {
+          "$ref": "#/$defs/capture_mode"
+        }
+      },
+      "required": [
+        "type",
+        "timestamp",
+        "x",
+        "y",
+        "element",
+        "context_id",
+        "capture_mode"
+      ]
+    },
+    "action_right_click": {
+      "properties": {
+        "type": {
+          "const": "right_click"
+        },
+        "x": {
+          "type": "number"
+        },
+        "y": {
+          "type": "number"
+        },
+        "element": {
+          "$ref": "#/$defs/element"
+        },
+        "context_id": {
+          "$ref": "#/$defs/context_id"
+        },
+        "capture_mode": {
+          "$ref": "#/$defs/capture_mode"
+        }
+      },
+      "required": [
+        "type",
+        "timestamp",
+        "x",
+        "y",
+        "element",
+        "context_id",
+        "capture_mode"
+      ]
+    },
+    "action_type": {
+      "properties": {
+        "type": {
+          "const": "type"
+        },
+        "element": {
+          "$ref": "#/$defs/element"
+        },
+        "value": {
+          "type": "string",
+          "description": "The entered value. Passwords are always masked."
+        },
+        "context_id": {
+          "$ref": "#/$defs/context_id"
+        },
+        "capture_mode": {
+          "$ref": "#/$defs/capture_mode"
+        }
+      },
+      "required": [
+        "type",
+        "timestamp",
+        "element",
+        "value",
+        "context_id",
+        "capture_mode"
+      ]
+    },
+    "action_select": {
+      "properties": {
+        "type": {
+          "const": "select"
+        },
+        "element": {
+          "$ref": "#/$defs/element"
+        },
+        "value": {
+          "type": "string",
+          "description": "Visible text of the selected option."
+        },
+        "context_id": {
+          "$ref": "#/$defs/context_id"
+        },
+        "capture_mode": {
+          "$ref": "#/$defs/capture_mode"
+        }
+      },
+      "required": [
+        "type",
+        "timestamp",
+        "element",
+        "value",
+        "context_id",
+        "capture_mode"
+      ]
+    },
+    "action_key": {
+      "properties": {
+        "type": {
+          "const": "key"
+        },
+        "key": {
+          "type": "string",
+          "description": "Key name. Control keys use standard names (Enter, Escape, Tab, ArrowUp, etc.). Printable characters use their character value (A, 1, Space, etc.)."
+        },
+        "modifiers": {
+          "$ref": "#/$defs/modifiers"
+        },
+        "element": {
+          "$ref": "#/$defs/element"
+        },
+        "context_id": {
+          "$ref": "#/$defs/context_id"
+        },
+        "capture_mode": {
+          "$ref": "#/$defs/capture_mode"
+        }
+      },
+      "required": [
+        "type",
+        "timestamp",
+        "key",
+        "modifiers",
+        "element",
+        "context_id",
+        "capture_mode"
+      ]
+    },
+    "action_focus": {
+      "properties": {
+        "type": {
+          "const": "focus"
+        },
+        "element": {
+          "$ref": "#/$defs/element"
+        },
+        "context_id": {
+          "$ref": "#/$defs/context_id"
+        },
+        "capture_mode": {
+          "$ref": "#/$defs/capture_mode"
+        }
+      },
+      "required": [
+        "type",
+        "timestamp",
+        "element",
+        "context_id",
+        "capture_mode"
+      ]
+    },
+    "action_drag_start": {
+      "properties": {
+        "type": {
+          "const": "drag_start"
+        },
+        "element": {
+          "$ref": "#/$defs/element"
+        },
+        "context_id": {
+          "$ref": "#/$defs/context_id"
+        },
+        "capture_mode": {
+          "$ref": "#/$defs/capture_mode"
+        }
+      },
+      "required": [
+        "type",
+        "timestamp",
+        "element",
+        "context_id",
+        "capture_mode"
+      ]
+    },
+    "action_drop": {
+      "properties": {
+        "type": {
+          "const": "drop"
+        },
+        "x": {
+          "type": "number"
+        },
+        "y": {
+          "type": "number"
+        },
+        "element": {
+          "$ref": "#/$defs/element"
+        },
+        "source_element": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/element"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The dragged element. Null if drag started before recording."
+        },
+        "context_id": {
+          "$ref": "#/$defs/context_id"
+        },
+        "capture_mode": {
+          "$ref": "#/$defs/capture_mode"
+        }
+      },
+      "required": [
+        "type",
+        "timestamp",
+        "x",
+        "y",
+        "element",
+        "source_element",
+        "context_id",
+        "capture_mode"
+      ]
+    },
+    "action_scroll": {
+      "properties": {
+        "type": {
+          "const": "scroll"
+        },
+        "element": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/element"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The scrolled element. Null for page-level scroll."
+        },
+        "scroll_top": {
+          "type": "number"
+        },
+        "scroll_left": {
+          "type": "number"
+        },
+        "delta_y": {
+          "type": "number"
+        },
+        "delta_x": {
+          "type": "number"
+        },
+        "context_id": {
+          "$ref": "#/$defs/context_id"
+        },
+        "capture_mode": {
+          "$ref": "#/$defs/capture_mode"
+        }
+      },
+      "required": [
+        "type",
+        "timestamp",
+        "scroll_top",
+        "scroll_left",
+        "delta_y",
+        "delta_x",
+        "context_id",
+        "capture_mode"
+      ]
+    },
+    "action_context_switch": {
+      "properties": {
+        "type": {
+          "const": "context_switch"
+        },
+        "context_id": {
+          "$ref": "#/$defs/context_id"
+        },
+        "source": {
+          "type": "string"
+        },
+        "title": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "capture_mode": {
+          "$ref": "#/$defs/capture_mode"
+        }
+      },
+      "required": [
+        "type",
+        "timestamp",
+        "context_id",
+        "source",
+        "capture_mode"
+      ]
+    },
+    "action_context_open": {
+      "properties": {
+        "type": {
+          "const": "context_open"
+        },
+        "context_id": {
+          "$ref": "#/$defs/context_id"
+        },
+        "opener_context_id": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "source": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "capture_mode": {
+          "$ref": "#/$defs/capture_mode"
+        }
+      },
+      "required": [
+        "type",
+        "timestamp",
+        "context_id",
+        "opener_context_id",
+        "capture_mode"
+      ]
+    },
+    "action_context_close": {
+      "properties": {
+        "type": {
+          "const": "context_close"
+        },
+        "context_id": {
+          "$ref": "#/$defs/context_id"
+        },
+        "window_closing": {
+          "type": "boolean"
+        },
+        "capture_mode": {
+          "$ref": "#/$defs/capture_mode"
+        }
+      },
+      "required": [
+        "type",
+        "timestamp",
+        "context_id",
+        "window_closing",
+        "capture_mode"
+      ]
+    },
+    "element": {
+      "type": "object",
+      "required": [
+        "tag",
+        "selector"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "tag": {
+          "type": "string",
+          "description": "HTML tag name, e.g. BUTTON, INPUT, A."
+        },
+        "id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "name": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "role": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "type": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "text": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Visible text, truncated to 100 chars. Null for password fields or empty."
+        },
+        "selector": {
+          "type": "string",
+          "description": "CSS selector — id-based when possible, otherwise nth-of-type path."
+        }
+      }
+    },
+    "modifiers": {
+      "type": "object",
+      "required": [
+        "ctrl",
+        "shift",
+        "alt",
+        "meta"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "ctrl": {
+          "type": "boolean"
+        },
+        "shift": {
+          "type": "boolean"
+        },
+        "alt": {
+          "type": "boolean"
+        },
+        "meta": {
+          "type": "boolean"
+        }
+      }
+    },
+    "uuidv7": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+      "description": "UUID v7 — time-ordered, RFC 9562."
+    },
+    "iso8601": {
+      "type": "string",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}",
+      "description": "ISO 8601 timestamp."
+    },
+    "context_id": {
+      "type": [
+        "integer",
+        "null"
+      ],
+      "description": "Context identifier. Chrome tab ID for browser, window handle for desktop. Session-scoped, not persistent across restarts."
+    },
+    "window_rect": {
+      "type": "object",
+      "required": [
+        "x",
+        "y",
+        "width",
+        "height"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "x": {
+          "type": "integer",
+          "description": "Window X position on screen in logical pixels."
+        },
+        "y": {
+          "type": "integer",
+          "description": "Window Y position on screen in logical pixels."
+        },
+        "width": {
+          "type": "integer",
+          "description": "Window width in logical pixels."
+        },
+        "height": {
+          "type": "integer",
+          "description": "Window height in logical pixels."
+        }
+      },
+      "description": "Window position and size at capture time. Present on coordinate-mode actions."
+    },
+    "metadata": {
+      "type": "object",
+      "description": "User-defined key-value pairs. Values can be a string or an array of strings.",
+      "additionalProperties": {
+        "oneOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    }
+  }
+}

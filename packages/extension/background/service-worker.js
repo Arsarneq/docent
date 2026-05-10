@@ -380,6 +380,16 @@ async function handle(msg) {
       }))};
     }
 
+    case 'PROJECTS_GET_ALL': {
+      return { ok: true, projects };
+    }
+
+    case 'PROJECTS_SET': {
+      projects = msg.projects;
+      await persist();
+      return { ok: true };
+    }
+
     case 'PROJECT_CREATE': {
       const project = createProject(msg.name);
       projects.push(project);
@@ -420,6 +430,18 @@ async function handle(msg) {
       project.name = msg.name;
       await persist();
       return { ok: true, project };
+    }
+
+    case 'PROJECT_SET_METADATA': {
+      const project = getActiveProject();
+      if (!project) return { ok: false, error: 'No active project' };
+      if (msg.metadata) {
+        project.metadata = msg.metadata;
+      } else {
+        delete project.metadata;
+      }
+      await persist();
+      return { ok: true };
     }
 
     // ── Recordings ────────────────────────────────────────────────────────────
@@ -472,6 +494,20 @@ async function handle(msg) {
       return { ok: true };
     }
 
+    case 'RECORDING_SET_METADATA': {
+      const project = getActiveProject();
+      if (!project) return { ok: false, error: 'No active project' };
+      const recording = findRecording(project, msg.recording_id);
+      if (!recording) return { ok: false, error: 'Recording not found' };
+      if (msg.metadata) {
+        recording.metadata = msg.metadata;
+      } else {
+        delete recording.metadata;
+      }
+      await persist();
+      return { ok: true };
+    }
+
     // ── Recording control ─────────────────────────────────────────────────────
 
     case 'RECORDING_START': {
@@ -519,6 +555,8 @@ async function handle(msg) {
       const step = createStep({
         narration:        msg.narration,
         narration_source: msg.narration_source,
+        step_type:        msg.step_type,
+        expect:           msg.expect,
         step_number:      stepNumber,
         actions,
         logical_id:       msg.logical_id,
@@ -586,10 +624,14 @@ async function handle(msg) {
           project_id: project.project_id,
           name:       project.name,
           created_at: project.created_at,
+          ...(project.metadata && { metadata: project.metadata }),
         },
         recordings: project.recordings.map(r => ({
-          ...r,
-          activeSteps: resolveActiveSteps(r),
+          recording_id: r.recording_id,
+          name:         r.name,
+          created_at:   r.created_at,
+          ...(r.metadata && { metadata: r.metadata }),
+          steps:        r.steps,
         })),
       };
       return { ok: true, exportData };
