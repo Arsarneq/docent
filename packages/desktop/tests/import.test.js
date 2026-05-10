@@ -114,8 +114,10 @@ function handleImport(existingProjects, exportData) {
         logical_id: s.logical_id,
         step_number: s.step_number,
         created_at: s.created_at,
-        narration: s.narration,
-        narration_source: s.narration_source ?? 'imported',
+        ...(s.narration && { narration: s.narration }),
+        ...(s.narration_source && { narration_source: s.narration_source }),
+        ...(s.step_type && { step_type: s.step_type }),
+        ...(s.expect && { expect: s.expect }),
         actions: s.actions ?? [],
         deleted: s.deleted ?? false,
       })),
@@ -168,7 +170,7 @@ const arbAction = fc.record({
   frame_src: fc.constant(null),
 });
 
-const arbStep = fc.record({
+const arbNarrationStep = fc.record({
   uuid: arbUuid,
   logical_id: arbUuid,
   step_number: fc.integer({ min: 1, max: 100 }),
@@ -178,6 +180,19 @@ const arbStep = fc.record({
   actions: fc.array(arbAction, { minLength: 0, maxLength: 3 }),
   deleted: fc.constant(false),
 });
+
+const arbSimpleStep = fc.record({
+  uuid: arbUuid,
+  logical_id: arbUuid,
+  step_number: fc.integer({ min: 1, max: 100 }),
+  created_at: arbTimestamp,
+  step_type: fc.constantFrom('action', 'validation'),
+  expect: fc.option(fc.constantFrom('present', 'absent'), { nil: undefined }),
+  actions: fc.array(arbAction, { minLength: 0, maxLength: 3 }),
+  deleted: fc.constant(false),
+});
+
+const arbStep = fc.oneof(arbNarrationStep, arbSimpleStep);
 
 const arbRecording = fc.record({
   recording_id: arbUuid,

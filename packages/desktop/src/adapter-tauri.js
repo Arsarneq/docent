@@ -230,6 +230,19 @@ const tauriAdapter = {
     }
   },
 
+  // ── Schema ────────────────────────────────────────────────────────────────
+
+  async loadSchema() {
+    try {
+      const response = await fetch('../shared/session.schema.json');
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      return await response.json();
+    } catch (err) {
+      console.warn('[Docent] Failed to load schema:', err);
+      return {};
+    }
+  },
+
   // ── Pending action count ──────────────────────────────────────────────────
 
   onPendingCountChange(callback) {

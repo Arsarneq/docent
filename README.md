@@ -3,20 +3,20 @@
 
 > Demonstrated Behaviour Capture and Dispatch
 
-Docent captures user interactions alongside step-by-step narration and exports the result as structured JSON. It runs as a Chrome extension for browser workflows and as a native desktop application (Windows) for native application workflows. Both platforms produce the same `.docent.json` output format.
+Docent captures user interactions alongside step-by-step context and exports the result as structured JSON. It runs as a Chrome extension for browser workflows and as a native desktop application (Windows) for native application workflows. Both platforms produce `.docent.json` files with the same core structure, differentiated by platform-specific action types and fields.
 
 ---
 
 ## What it does
 
-Docent captures interactions and pairs them with narration for each step. The result is a `.docent.json` file that describes what happened, in order, with full context.
+Docent captures interactions and pairs them with step-by-step context. The result is a `.docent.json` file that describes what happened, in order, with full context.
 
 - **Chrome extension** — captures user actions in the browser: clicks, typing, keyboard, drag, scroll, file uploads. Browser chrome actions (address bar, back/forward, tabs) are captured via their immediate effects.
 - **Desktop application** — captures user actions in native Windows applications via low-level input hooks and the UI Automation accessibility API, with per-action coordinate-based fallback for elements that lack accessibility data.
 
 Both platforms follow the same principle: capture exactly what the user did, nothing else. Programmatic side-effects (value changes from code, focus moves from scripts, window lifecycle from `window.open()`) are filtered out.
 
-Active steps can be dispatched directly to a configured HTTP endpoint from either platform — no terminal or Node.js required.
+Recordings can be dispatched directly to a configured HTTP endpoint from either platform — no terminal or Node.js required.
 
 See [Capture Principles](docs/capture-principles.md) for the full rules, with platform-specific details in [Extension](docs/capture-principles-extension.md) and [Desktop](docs/capture-principles-desktop.md).
 
@@ -26,9 +26,9 @@ See [Capture Principles](docs/capture-principles.md) for the full rules, with pl
 
 Most browser recording tools produce code — Playwright scripts, Selenium tests, Puppeteer flows. They assume you want to replay what was recorded, and they assume a specific framework to replay it in.
 
-Docent produces data, not code. Each step is a pair: what was narrated, and what actually happened. The output makes no assumptions about what receives it or what it does with it.
+Docent produces data, not code. Each step pairs context — either a free-text narration or a structured action/validation classification — with the exact interactions captured. The output makes no assumptions about what receives it or what it does with it.
 
-The dispatch payload includes a reading guide that describes the data format, so any receiving system can interpret it without prior knowledge of Docent.
+The dispatch payload includes a reading guide and the JSON Schema for the sending platform, so any receiving system can interpret it without prior knowledge of Docent.
 
 ---
 
@@ -37,12 +37,12 @@ The dispatch payload includes a reading guide that describes the data format, so
 ```mermaid
 flowchart LR
     A([Person]) -->|demonstrates workflow| B[Docent]
-    B -->|steps + narration| C[.docent.json]
+    B -->|steps + context| C[.docent.json]
     C -->|dispatch| D([Agentic system])
     D -->|implements| E([Test suite])
 ```
 
-A person demonstrates a workflow once. Docent captures each step — the narration and the interactions. The structured output is dispatched to an agentic system that produces a test suite.
+A person demonstrates a workflow once. Docent captures each step — the context (narration or action/validation classification) and the interactions. The structured output is dispatched to an agentic system that produces a test suite.
 
 The `.docent.json` format is the contract between capture and consumption.
 
@@ -51,10 +51,12 @@ The `.docent.json` format is the contract between capture and consumption.
 ## Version compatibility
 
 <!-- VERSION_TABLE_START -->
-| Schema | Extension | Desktop |
-|--------|-----------|---------|
-| 2.0.0  | 2.0.0+   | 1.0.0+  |
+| Extension Schema | Extension | Desktop Schema | Desktop |
+|-----------------|-----------|----------------|---------|
+| 2.0.0           | 2.0.0+    | 1.0.0          | 1.0.0+  |
 <!-- VERSION_TABLE_END -->
+
+See [docs/session-format.md](docs/session-format.md#versioning) for the full versioning strategy.
 
 ---
 
@@ -92,7 +94,7 @@ cd packages/extension && npm install
 #### Record steps
 
 1. Perform the actions in the browser
-2. Type the narration for the step
+2. Provide context for the step (type narration in narration mode, or select action/validation in simple mode)
 3. Click **Done this step**
 4. Repeat for each step
 
@@ -120,7 +122,7 @@ Click **Import** on the projects list to load a previously exported `.docent.jso
 
 ### Send (extension)
 
-Dispatch active steps directly from the extension — no terminal or Node.js required.
+Dispatch recordings directly from the extension — no terminal or Node.js required.
 
 #### Configure the endpoint
 
@@ -134,10 +136,10 @@ Local endpoints (e.g. `http://localhost:3000`) are supported.
 #### Send a recording
 
 1. Open a project
-2. Click **Send** — the button is enabled when an endpoint is configured and the project has recordings with active steps
-3. If the project has multiple recordings with active steps, choose which to send (or **Send all**)
+2. Click **Send** — the button is enabled when an endpoint is configured and the project has recordings with steps
+3. If the project has multiple recordings, choose which to send (or **Send all**)
 4. Review the endpoint URL, recording name(s), and step count in the confirmation view
-5. Click **Send** to dispatch — a success or error message is shown
+5. Click **Send** to dispatch — the full recording history is sent. A success or error message is shown
 
 ---
 
@@ -181,7 +183,7 @@ The desktop app provides the same workflow as the Chrome extension:
 1. Create a project and a recording
 2. Select a target application from the list of running windows
 3. Perform actions in native applications — interactions are captured automatically
-4. Type the narration for each step and click **Done this step**
+4. Provide context for each step and click **Done this step**
 5. Export as `.docent.json` or dispatch directly to an endpoint
 
 The desktop capture layer uses the Windows UI Automation accessibility API for rich element descriptions. When an element lacks accessibility data, it falls back to coordinate-based capture for that individual action. A single recording can contain a mix of both modes.
@@ -194,7 +196,12 @@ The dispatch workflow is identical to the extension. Configure an endpoint in Se
 
 ## Session format
 
-The `.docent.json` format is defined by a [JSON Schema](packages/shared/session.schema.json) (v2.0.0) — the single source of truth shared across all Docent platforms.
+The `.docent.json` format is defined by per-platform JSON Schemas — the single source of truth for each Docent platform:
+
+- [Extension schema](schemas/extension.schema.json) — Chrome extension
+- [Desktop Windows schema](schemas/desktop-windows.schema.json) — Windows desktop
+
+See [docs/session-format.md](docs/session-format.md) for the full specification with annotated examples.
 
 ---
 

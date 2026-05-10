@@ -63,8 +63,8 @@ const arbAction = fc.record({
   frame_src: fc.constant(null),
 });
 
-/** Generate a step record */
-const arbStep = fc.record({
+/** Generate a step record (narration mode) */
+const arbNarrationStep = fc.record({
   uuid: arbUuid,
   logical_id: arbUuid,
   step_number: fc.integer({ min: 1, max: 100 }),
@@ -74,6 +74,21 @@ const arbStep = fc.record({
   actions: fc.array(arbAction, { minLength: 0, maxLength: 5 }),
   deleted: fc.boolean(),
 });
+
+/** Generate a step record (simple mode) */
+const arbSimpleStep = fc.record({
+  uuid: arbUuid,
+  logical_id: arbUuid,
+  step_number: fc.integer({ min: 1, max: 100 }),
+  created_at: arbTimestamp,
+  step_type: fc.constantFrom('action', 'validation'),
+  expect: fc.option(fc.constantFrom('present', 'absent'), { nil: undefined }),
+  actions: fc.array(arbAction, { minLength: 0, maxLength: 5 }),
+  deleted: fc.boolean(),
+});
+
+/** Generate a step record (either mode) */
+const arbStep = fc.oneof(arbNarrationStep, arbSimpleStep);
 
 /** Generate a recording */
 const arbRecording = fc.record({
