@@ -70,3 +70,28 @@ jobs:
           name: playwright-report
           path: packages/extension/tests/automated/test-results/
           retention-days: 7
+
+  desktop-integration-tests:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo registry and build
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            packages/desktop/src-tauri/target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('packages/desktop/src-tauri/Cargo.lock') }}
+
+      - name: Run Rust unit tests
+        working-directory: packages/desktop/src-tauri
+        run: cargo test --lib
+
+      - name: Run integration tests (serial)
+        working-directory: packages/desktop/src-tauri
+        run: cargo test --test capture_integration -- --test-threads=1

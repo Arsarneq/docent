@@ -6,11 +6,11 @@
 //! These tests are the desktop equivalent of the extension's Playwright tests.
 //! They run cross-platform (Windows, macOS, Linux) with a single test suite.
 //!
-//! Run with: cargo test --test capture_integration
+//! Run with: cargo test --test capture_integration -- --test-threads=1
 //! CI: runs on windows-latest (and future macos-latest, ubuntu-latest with xvfb)
 //!
-//! NOTE: These tests require a display (headed mode). On Linux CI, use xvfb-run.
-//! Tests are run serially (not in parallel) because they share the OS input layer.
+//! IMPORTANT: Must use --test-threads=1 (serial execution).
+//! Tests share the OS input layer and will interfere with each other in parallel.
 
 use std::sync::mpsc;
 use std::thread;
