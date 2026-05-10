@@ -115,6 +115,26 @@ const chromeAdapter = {
     });
   },
 
+  /**
+   * Subscribe to individual action events as they are captured.
+   * Fires the callback with each new action added to pendingActions.
+   */
+  onActionEvent(callback) {
+    let _lastLength = 0;
+    chrome.storage.onChanged.addListener((changes, area) => {
+      if (area === 'local' && changes.pendingActions) {
+        const newActions = changes.pendingActions.newValue ?? [];
+        // Fire callback for each action added since last update
+        for (let i = _lastLength; i < newActions.length; i++) {
+          try { callback(newActions[i]); } catch { /* ignore */ }
+        }
+        _lastLength = newActions.length;
+        // Reset when cleared
+        if (newActions.length === 0) _lastLength = 0;
+      }
+    });
+  },
+
   async getPendingCount() {
     try {
       const { pendingCount } = await chrome.storage.local.get('pendingCount');
