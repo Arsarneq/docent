@@ -734,3 +734,306 @@ mod side_effects_additional {
         );
     }
 }
+
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// ADDITIONAL USER ACTION TESTS — window switching, special keys
+// ═══════════════════════════════════════════════════════════════════════════════
+
+#[cfg(target_os = "windows")]
+mod user_actions_advanced {
+    use super::*;
+    use std::ptr;
+    use windows::Win32::Foundation::HWND;
+    use windows::Win32::UI::WindowsAndMessaging::{
+        CreateWindowExW, DestroyWindow, SetForegroundWindow, GetWindowRect,
+        WS_OVERLAPPEDWINDOW, WS_VISIBLE, WINDOW_EX_STYLE,
+    };
+    use windows::Win32::Foundation::RECT;
+    use windows::core::w;
+
+    unsafe fn create_target_window(title: &str, x: i32, y: i32) -> (HWND, i32, i32) {
+        let title_wide: Vec<u16> = title.encode_utf16().chain(std::iter::once(0)).collect();
+        let hwnd = CreateWindowExW(
+            WINDOW_EX_STYLE::default(),
+            w!("STATIC"),
+            windows::core::PCWSTR(title_wide.as_ptr()),
+            WS_OVERLAPPEDWINDOW | WS_VISIBLE,
+            x, y, 400, 300,
+            HWND::default(),
+            None,
+            None,
+            Some(ptr::null()),
+        ).expect("Failed to create target window");
+
+        let _ = SetForegroundWindow(hwnd);
+        thread::sleep(Duration::from_millis(100));
+
+        let mut rect = RECT::default();
+        GetWindowRect(hwnd, &mut rect).unwrap();
+        let cx = (rect.left + rect.right) / 2;
+        let cy = (rect.top + rect.bottom) / 2;
+
+        (hwnd, cx, cy)
+    }
+
+    #[test]
+    #[serial]
+    fn user_click_switches_window_produces_context_switch() {
+        // User clicking a different window should produce a context_switch.
+        let (tx, rx) = mpsc::channel::<ActionEvent>();
+        let mut capture = WindowsCapture::new();
+        capture.set_excluded_pid(None);
+        capture.start(tx).expect("Failed to start capture");
+        thread::sleep(Duration::from_millis(200));
+
+        // Create two windows.
+        let (hwnd1, _, _) = unsafe { create_target_window("Window A", 100, 100) };
+        thread::sleep(Duration::from_millis(200));
+        let (hwnd2, cx2, cy2) = unsafe { create_target_window("Window B", 600, 100) };
+        thread::sleep(Duration::from_millis(200));
+
+        // Bring window A to front, then click on window B.
+        unsafe { let _ = SetForegroundWindow(hwnd1); }
+        thread::sleep(Duration::from_millis(300));
+
+        // Clear any setup events by stopping and restarting.
+        // Actually, just wait and then do the user action.
+        let mut enigo = Enigo::new(&Settings::default()).unwrap();
+
+        // Now simulate clicking window B (the user action).
+        enigo.move_mouse(cx2, cy2, Coordinate::Abs).unwrap();
+        thread::sleep(Duration::from_millis(50));
+        enigo.button(enigo::Button::Left, Direction::Click).unwrap();
+        thread::sleep(Duration::from_millis(500));
+
+        unsafe {
+            let _ = DestroyWindow(hwnd1);
+            let _ = DestroyWindow(hwnd2);
+        }
+        capture.stop().unwrap();
+        let events: Vec<_> = rx.try_iter().collect();
+
+        // Should have a click AND a context_switch (user switched windows by clicking).
+        let click_events = clicks(&events);
+        let switch_events = context_switches(&events);
+        assert!(click_events.len() >= 1, "Expected click when switching windows, got {}", click_events.len());
+        assert!(switch_events.len() >= 1, "Expected context_switch when clicking different window, got {}", switch_events.len());
+    }
+
+    #[test]
+    #[serial]
+    fn escape_key_is_captured() {
+        let (tx, rx) = mpsc::channel::<ActionEvent>();
+        let mut capture = WindowsCapture::new();
+        capture.set_excluded_pid(None);
+        capture.start(tx).expect("Failed to start capture");
+        thread::sleep(Duration::from_millis(200));
+
+        let (hwnd, _, _) = unsafe { create_target_window("Escape Test", 200, 200) };
+        thread::sleep(Duration::from_millis(200));
+
+        let mut enigo = Enigo::new(&Settings::default()).unwrap();
+        enigo.key(enigo::Key::Escape, Direction::Click).unwrap();
+        thread::sleep(Duration::from_millis(500));
+
+        unsafe { let _ = DestroyWindow(hwnd); }
+        capture.stop().unwrap();
+        let events: Vec<_> = rx.try_iter().collect();
+
+        let key_events = keys(&events);
+        assert!(key_events.len() >= 1, "Expected Escape key event, got {}", key_events.len());
+    }
+
+    #[test]
+    #[serial]
+    fn tab_key_is_captured() {
+        let (tx, rx) = mpsc::channel::<ActionEvent>();
+        let mut capture = WindowsCapture::new();
+        capture.set_excluded_pid(None);
+        capture.start(tx).expect("Failed to start capture");
+        thread::sleep(Duration::from_millis(200));
+
+        let (hwnd, _, _) = unsafe { create_target_window("Tab Test", 200, 200) };
+        thread::sleep(Duration::from_millis(200));
+
+        let mut enigo = Enigo::new(&Settings::default()).unwrap();
+        enigo.key(enigo::Key::Tab, Direction::Click).unwrap();
+        thread::sleep(Duration::from_millis(500));
+
+        unsafe { let _ = DestroyWindow(hwnd); }
+        capture.stop().unwrap();
+        let events: Vec<_> = rx.try_iter().collect();
+
+        let key_events = keys(&events);
+        assert!(key_events.len() >= 1, "Expected Tab key event, got {}", key_events.len());
+    }
+
+    #[test]
+    #[serial]
+    fn arrow_keys_are_captured() {
+        let (tx, rx) = mpsc::channel::<ActionEvent>();
+        let mut capture = WindowsCapture::new();
+        capture.set_excluded_pid(None);
+        capture.start(tx).expect("Failed to start capture");
+        thread::sleep(Duration::from_millis(200));
+
+        let (hwnd, _, _) = unsafe { create_target_window("Arrow Test", 200, 200) };
+        thread::sleep(Duration::from_millis(200));
+
+        let mut enigo = Enigo::new(&Settings::default()).unwrap();
+        enigo.key(enigo::Key::DownArrow, Direction::Click).unwrap();
+        thread::sleep(Duration::from_millis(100));
+        enigo.key(enigo::Key::UpArrow, Direction::Click).unwrap();
+        thread::sleep(Duration::from_millis(500));
+
+        unsafe { let _ = DestroyWindow(hwnd); }
+        capture.stop().unwrap();
+        let events: Vec<_> = rx.try_iter().collect();
+
+        let key_events = keys(&events);
+        assert!(key_events.len() >= 2, "Expected at least 2 arrow key events, got {}", key_events.len());
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// ADDITIONAL SIDE-EFFECT TESTS — selection, notifications, title changes
+// ═══════════════════════════════════════════════════════════════════════════════
+
+#[cfg(target_os = "windows")]
+mod side_effects_more {
+    use super::*;
+    use std::ptr;
+    use windows::Win32::Foundation::HWND;
+    use windows::Win32::UI::WindowsAndMessaging::{
+        CreateWindowExW, DestroyWindow, SetForegroundWindow,
+        SetWindowTextW, ShowWindow,
+        WS_OVERLAPPEDWINDOW, WS_VISIBLE, WS_POPUP,
+        SW_SHOW, SW_HIDE,
+        WINDOW_EX_STYLE,
+    };
+    use windows::Win32::UI::WindowsAndMessaging::WS_EX_TOPMOST;
+    use windows::core::w;
+
+    unsafe fn create_test_window(title: &str) -> HWND {
+        let title_wide: Vec<u16> = title.encode_utf16().chain(std::iter::once(0)).collect();
+        CreateWindowExW(
+            WINDOW_EX_STYLE::default(),
+            w!("STATIC"),
+            windows::core::PCWSTR(title_wide.as_ptr()),
+            WS_OVERLAPPEDWINDOW | WS_VISIBLE,
+            100, 100, 400, 300,
+            HWND::default(),
+            None,
+            None,
+            Some(ptr::null()),
+        ).expect("Failed to create test window")
+    }
+
+    #[test]
+    #[serial]
+    fn programmatic_title_change_should_not_be_captured() {
+        // Changing a window's title bar text is not a user action.
+        let (tx, rx) = mpsc::channel::<ActionEvent>();
+        let mut capture = WindowsCapture::new();
+        capture.set_excluded_pid(None);
+        capture.start(tx).expect("Failed to start capture");
+        thread::sleep(Duration::from_millis(200));
+
+        let hwnd = unsafe { create_test_window("Original Title") };
+        thread::sleep(Duration::from_millis(200));
+
+        // Change title multiple times.
+        for i in 0..3 {
+            let text: Vec<u16> = format!("Title {}\0", i).encode_utf16().collect();
+            unsafe { SetWindowTextW(hwnd, windows::core::PCWSTR(text.as_ptr())).unwrap(); }
+            thread::sleep(Duration::from_millis(100));
+        }
+        thread::sleep(Duration::from_millis(600));
+
+        unsafe { let _ = DestroyWindow(hwnd); }
+        thread::sleep(Duration::from_millis(300));
+
+        capture.stop().expect("Failed to stop capture");
+        let events: Vec<_> = rx.try_iter().collect();
+
+        let type_events = types(&events);
+        assert_eq!(type_events.len(), 0, "Title changes should not produce type events. Got {}.", type_events.len());
+    }
+
+    #[test]
+    #[serial]
+    fn notification_popup_should_not_be_captured() {
+        // A transient notification-style window appearing and disappearing
+        // should not produce context_open/close/switch events.
+        let (tx, rx) = mpsc::channel::<ActionEvent>();
+        let mut capture = WindowsCapture::new();
+        capture.set_excluded_pid(None);
+        capture.start(tx).expect("Failed to start capture");
+        thread::sleep(Duration::from_millis(200));
+
+        // Create a topmost popup (simulates a notification toast).
+        let hwnd = unsafe {
+            let title = w!("Notification");
+            CreateWindowExW(
+                WS_EX_TOPMOST,
+                w!("STATIC"),
+                title,
+                WS_POPUP | WS_VISIBLE,
+                800, 50, 300, 80,
+                HWND::default(),
+                None,
+                None,
+                Some(ptr::null()),
+            ).expect("Failed to create notification window")
+        };
+        thread::sleep(Duration::from_millis(500));
+
+        // Dismiss it.
+        unsafe { let _ = DestroyWindow(hwnd); }
+        thread::sleep(Duration::from_millis(300));
+
+        capture.stop().expect("Failed to stop capture");
+        let events: Vec<_> = rx.try_iter().collect();
+
+        // Ideal: no lifecycle events from a notification popup.
+        let opens = context_opens(&events);
+        let closes = context_closes(&events);
+        let switches = context_switches(&events);
+        assert_eq!(opens.len(), 0, "Notification popup should not produce context_open. Got {}.", opens.len());
+        assert_eq!(closes.len(), 0, "Notification popup should not produce context_close. Got {}.", closes.len());
+        assert_eq!(switches.len(), 0, "Notification popup should not produce context_switch. Got {}.", switches.len());
+    }
+
+    #[test]
+    #[serial]
+    fn programmatic_show_hide_should_not_be_captured() {
+        // Showing and hiding a window programmatically is not a user action.
+        let (tx, rx) = mpsc::channel::<ActionEvent>();
+        let mut capture = WindowsCapture::new();
+        capture.set_excluded_pid(None);
+        capture.start(tx).expect("Failed to start capture");
+        thread::sleep(Duration::from_millis(200));
+
+        let hwnd = unsafe { create_test_window("Show/Hide Test") };
+        thread::sleep(Duration::from_millis(200));
+
+        unsafe {
+            let _ = ShowWindow(hwnd, SW_HIDE);
+            thread::sleep(Duration::from_millis(200));
+            let _ = ShowWindow(hwnd, SW_SHOW);
+        }
+        thread::sleep(Duration::from_millis(500));
+
+        unsafe { let _ = DestroyWindow(hwnd); }
+        thread::sleep(Duration::from_millis(300));
+
+        capture.stop().expect("Failed to stop capture");
+        let events: Vec<_> = rx.try_iter().collect();
+
+        let opens = context_opens(&events);
+        let closes = context_closes(&events);
+        assert_eq!(opens.len(), 0, "Show/Hide should not produce context_open. Got {}.", opens.len());
+        assert_eq!(closes.len(), 0, "Show/Hide should not produce context_close. Got {}.", closes.len());
+    }
+}

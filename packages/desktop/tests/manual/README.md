@@ -7,11 +7,17 @@ These PowerShell tests verify behaviour that cannot be automated with Enigo
 
 | Concern | Automated (Enigo) | Manual (PowerShell) |
 |---------|-------------------|---------------------|
-| Click, type, key press, scroll | ✅ | — |
+| Click, right-click, double-click, drag | ✅ | — |
+| Key press, typing, modifiers, arrows | ✅ | — |
+| Scroll | ✅ | — |
+| Window switching via click | ✅ | — |
 | Programmatic side-effect filtering | ✅ | — |
+| File dialog (open, navigate, select, confirm) | — | ✅ |
 | Real third-party app accessibility trees | — | ✅ |
 | Coordinate fallback (owner-drawn windows) | — | ✅ |
-| Native widget behaviour (select, dialog) | — | ✅ |
+| System tray interactions | — | ✅ |
+| Taskbar clicks | — | ✅ |
+| Win+Arrow window snap | — | ✅ |
 
 ## Structure
 
