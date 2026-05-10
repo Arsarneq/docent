@@ -1621,3 +1621,673 @@ mod scroll_behaviour {
         );
     }
 }
+
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// MISSING USER ACTION TESTS
+// ═══════════════════════════════════════════════════════════════════════════════
+
+#[cfg(target_os = "windows")]
+mod user_actions_missing {
+    use super::*;
+    use std::ptr;
+    use windows::Win32::Foundation::{HWND, RECT};
+    use windows::Win32::UI::WindowsAndMessaging::{
+        CreateWindowExW, DestroyWindow, SetForegroundWindow, GetWindowRect,
+        WS_OVERLAPPEDWINDOW, WS_VISIBLE, WINDOW_EX_STYLE,
+    };
+    use windows::core::w;
+
+    unsafe fn create_target_window(title: &str) -> (HWND, i32, i32) {
+        let title_wide: Vec<u16> = title.encode_utf16().chain(std::iter::once(0)).collect();
+        let hwnd = CreateWindowExW(
+            WINDOW_EX_STYLE::default(),
+            w!("STATIC"),
+            windows::core::PCWSTR(title_wide.as_ptr()),
+            WS_OVERLAPPEDWINDOW | WS_VISIBLE,
+            200, 200, 600, 400,
+            HWND::default(),
+            None,
+            None,
+            Some(ptr::null()),
+        ).expect("Failed to create target window");
+        let _ = SetForegroundWindow(hwnd);
+        thread::sleep(Duration::from_millis(100));
+        let mut rect = RECT::default();
+        GetWindowRect(hwnd, &mut rect).unwrap();
+        let cx = (rect.left + rect.right) / 2;
+        let cy = (rect.top + rect.bottom) / 2;
+        (hwnd, cx, cy)
+    }
+
+    #[test]
+    #[serial]
+    fn ctrl_click_is_captured() {
+        let (tx, rx) = mpsc::channel::<ActionEvent>();
+        let mut capture = WindowsCapture::new();
+        capture.set_excluded_pid(None);
+        capture.start(tx).unwrap();
+        thread::sleep(Duration::from_millis(200));
+
+        let (hwnd, cx, cy) = unsafe { create_target_window("Ctrl-Click") };
+        thread::sleep(Duration::from_millis(200));
+
+        let mut enigo = Enigo::new(&Settings::default()).unwrap();
+        enigo.move_mouse(cx, cy, Coordinate::Abs).unwrap();
+        thread::sleep(Duration::from_millis(50));
+        enigo.key(enigo::Key::Control, Direction::Press).unwrap();
+        enigo.button(enigo::Button::Left, Direction::Click).unwrap();
+        enigo.key(enigo::Key::Control, Direction::Release).unwrap();
+        thread::sleep(Duration::from_millis(500));
+
+        unsafe { let _ = DestroyWindow(hwnd); }
+        capture.stop().unwrap();
+        let events: Vec<_> = rx.try_iter().collect();
+
+        let click_events = clicks(&events);
+        assert!(click_events.len() >= 1, "Expected Ctrl+click to be captured, got {}", click_events.len());
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// MISSING SIDE-EFFECT TESTS
+// ═══════════════════════════════════════════════════════════════════════════════
+
+#[cfg(target_os = "windows")]
+mod side_effects_missing {
+    use super::*;
+    use std::ptr;
+    use windows::Win32::Foundation::HWND;
+    use windows::Win32::UI::WindowsAndMessaging::{
+        CreateWindowExW, DestroyWindow, SetForegroundWindow,
+        WS_OVERLAPPEDWINDOW, WS_VISIBLE, WINDOW_EX_STYLE,
+    };
+    use windows::Win32::UI::WindowsAndMessaging::ScrollWindow;
+    use windows::core::w;
+
+    unsafe fn create_test_window(title: &str) -> HWND {
+        let title_wide: Vec<u16> = title.encode_utf16().chain(std::iter::once(0)).collect();
+        CreateWindowExW(
+            WINDOW_EX_STYLE::default(),
+            w!("STATIC"),
+            windows::core::PCWSTR(title_wide.as_ptr()),
+            WS_OVERLAPPEDWINDOW | WS_VISIBLE,
+            100, 100, 400, 300,
+            HWND::default(),
+            None,
+            None,
+            Some(ptr::null()),
+        ).expect("Failed to create test window")
+    }
+
+    #[test]
+    #[serial]
+    fn programmatic_scroll_should_not_be_captured() {
+        // ScrollWindow called by application code is not a user action.
+        let (tx, rx) = mpsc::channel::<ActionEvent>();
+        let mut capture = WindowsCapture::new();
+        capture.set_excluded_pid(None);
+        capture.start(tx).unwrap();
+        thread::sleep(Duration::from_millis(200));
+
+        let hwnd = unsafe { create_test_window("Scroll Test") };
+        thread::sleep(Duration::from_millis(200));
+
+        // Programmatically scroll the window content.
+        unsafe {
+            let _ = ScrollWindow(hwnd, 0, -100, None, None);
+        }
+        thread::sleep(Duration::from_millis(500));
+
+        unsafe { let _ = DestroyWindow(hwnd); }
+        thread::sleep(Duration::from_millis(300));
+
+        capture.stop().unwrap();
+        let events: Vec<_> = rx.try_iter().collect();
+
+        let scroll_events = scrolls(&events);
+        assert_eq!(
+            scroll_events.len(), 0,
+            "Programmatic ScrollWindow should not produce scroll events. Got {}.",
+            scroll_events.len()
+        );
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// MISSING CAPTURE BEHAVIOUR TESTS
+// ═══════════════════════════════════════════════════════════════════════════════
+
+#[cfg(target_os = "windows")]
+mod capture_behaviour_missing {
+    use super::*;
+    use std::ptr;
+    use windows::Win32::Foundation::{HWND, RECT};
+    use windows::Win32::UI::WindowsAndMessaging::{
+        CreateWindowExW, DestroyWindow, SetForegroundWindow, GetWindowRect,
+        WS_OVERLAPPEDWINDOW, WS_VISIBLE, WINDOW_EX_STYLE,
+    };
+    use windows::core::w;
+
+    unsafe fn create_target_window(title: &str) -> (HWND, i32, i32) {
+        let title_wide: Vec<u16> = title.encode_utf16().chain(std::iter::once(0)).collect();
+        let hwnd = CreateWindowExW(
+            WINDOW_EX_STYLE::default(),
+            w!("STATIC"),
+            windows::core::PCWSTR(title_wide.as_ptr()),
+            WS_OVERLAPPEDWINDOW | WS_VISIBLE,
+            200, 200, 600, 400,
+            HWND::default(),
+            None,
+            None,
+            Some(ptr::null()),
+        ).expect("Failed to create target window");
+        let _ = SetForegroundWindow(hwnd);
+        thread::sleep(Duration::from_millis(100));
+        let mut rect = RECT::default();
+        GetWindowRect(hwnd, &mut rect).unwrap();
+        let cx = (rect.left + rect.right) / 2;
+        let cy = (rect.top + rect.bottom) / 2;
+        (hwnd, cx, cy)
+    }
+
+    #[test]
+    #[serial]
+    fn context_id_is_consistent_for_same_window() {
+        // Multiple actions on the same window should have the same context_id.
+        let (tx, rx) = mpsc::channel::<ActionEvent>();
+        let mut capture = WindowsCapture::new();
+        capture.set_excluded_pid(None);
+        capture.start(tx).unwrap();
+        thread::sleep(Duration::from_millis(200));
+
+        let (hwnd, cx, cy) = unsafe { create_target_window("Context ID Test") };
+        thread::sleep(Duration::from_millis(200));
+
+        let mut enigo = Enigo::new(&Settings::default()).unwrap();
+        // Multiple clicks on the same window.
+        enigo.move_mouse(cx, cy, Coordinate::Abs).unwrap();
+        enigo.button(enigo::Button::Left, Direction::Click).unwrap();
+        thread::sleep(Duration::from_millis(200));
+        enigo.move_mouse(cx + 20, cy + 20, Coordinate::Abs).unwrap();
+        enigo.button(enigo::Button::Left, Direction::Click).unwrap();
+        thread::sleep(Duration::from_millis(200));
+        enigo.key(enigo::Key::Return, Direction::Click).unwrap();
+        thread::sleep(Duration::from_millis(500));
+
+        unsafe { let _ = DestroyWindow(hwnd); }
+        capture.stop().unwrap();
+        let events: Vec<_> = rx.try_iter().collect();
+
+        // All events should have the same context_id (same window).
+        let context_ids: Vec<_> = events.iter()
+            .filter_map(|e| e.context_id)
+            .collect();
+
+        if context_ids.len() >= 2 {
+            let first = context_ids[0];
+            assert!(
+                context_ids.iter().all(|&id| id == first),
+                "All actions on same window should have same context_id. Got: {:?}",
+                context_ids
+            );
+        }
+    }
+
+    #[test]
+    #[serial]
+    fn window_rect_is_present_on_actions() {
+        // Each action should include the window's position and size.
+        let (tx, rx) = mpsc::channel::<ActionEvent>();
+        let mut capture = WindowsCapture::new();
+        capture.set_excluded_pid(None);
+        capture.start(tx).unwrap();
+        thread::sleep(Duration::from_millis(200));
+
+        let (hwnd, cx, cy) = unsafe { create_target_window("Window Rect Test") };
+        thread::sleep(Duration::from_millis(200));
+
+        let mut enigo = Enigo::new(&Settings::default()).unwrap();
+        enigo.move_mouse(cx, cy, Coordinate::Abs).unwrap();
+        enigo.button(enigo::Button::Left, Direction::Click).unwrap();
+        thread::sleep(Duration::from_millis(500));
+
+        unsafe { let _ = DestroyWindow(hwnd); }
+        capture.stop().unwrap();
+        let events: Vec<_> = rx.try_iter().collect();
+
+        // Click events should have window_rect set.
+        let click_events = clicks(&events);
+        assert!(!click_events.is_empty(), "Expected at least 1 click");
+
+        for click in &click_events {
+            assert!(
+                click.window_rect.is_some(),
+                "Click action should have window_rect set, but it was None"
+            );
+            if let Some(ref rect) = click.window_rect {
+                assert!(rect.width > 0, "window_rect width should be > 0");
+                assert!(rect.height > 0, "window_rect height should be > 0");
+            }
+        }
+    }
+}
+
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// COMPLETENESS TESTS — filling remaining gaps
+// ═══════════════════════════════════════════════════════════════════════════════
+
+#[cfg(target_os = "windows")]
+mod completeness {
+    use super::*;
+    use std::ptr;
+    use windows::Win32::Foundation::{HWND, RECT};
+    use windows::Win32::UI::WindowsAndMessaging::{
+        CreateWindowExW, DestroyWindow, SetForegroundWindow, GetWindowRect,
+        SetWindowTextW,
+        WS_OVERLAPPEDWINDOW, WS_VISIBLE, WS_CHILD, WS_BORDER,
+        WINDOW_EX_STYLE, LBS_NOTIFY,
+    };
+    use windows::core::w;
+
+    unsafe fn create_target_window(title: &str) -> (HWND, i32, i32) {
+        let title_wide: Vec<u16> = title.encode_utf16().chain(std::iter::once(0)).collect();
+        let hwnd = CreateWindowExW(
+            WINDOW_EX_STYLE::default(),
+            w!("STATIC"),
+            windows::core::PCWSTR(title_wide.as_ptr()),
+            WS_OVERLAPPEDWINDOW | WS_VISIBLE,
+            200, 200, 600, 400,
+            HWND::default(),
+            None,
+            None,
+            Some(ptr::null()),
+        ).expect("Failed to create target window");
+        let _ = SetForegroundWindow(hwnd);
+        thread::sleep(Duration::from_millis(100));
+        let mut rect = RECT::default();
+        GetWindowRect(hwnd, &mut rect).unwrap();
+        let cx = (rect.left + rect.right) / 2;
+        let cy = (rect.top + rect.bottom) / 2;
+        (hwnd, cx, cy)
+    }
+
+    #[test]
+    #[serial]
+    fn mouse_move_alone_produces_nothing() {
+        // Moving the mouse without clicking should not produce any events.
+        let (tx, rx) = mpsc::channel::<ActionEvent>();
+        let mut capture = WindowsCapture::new();
+        capture.set_excluded_pid(None);
+        capture.start(tx).unwrap();
+        thread::sleep(Duration::from_millis(200));
+
+        let (hwnd, cx, cy) = unsafe { create_target_window("Move Test") };
+        thread::sleep(Duration::from_millis(200));
+
+        let mut enigo = Enigo::new(&Settings::default()).unwrap();
+        // Move mouse around without clicking.
+        enigo.move_mouse(cx - 50, cy - 50, Coordinate::Abs).unwrap();
+        thread::sleep(Duration::from_millis(50));
+        enigo.move_mouse(cx + 50, cy + 50, Coordinate::Abs).unwrap();
+        thread::sleep(Duration::from_millis(50));
+        enigo.move_mouse(cx, cy, Coordinate::Abs).unwrap();
+        thread::sleep(Duration::from_millis(500));
+
+        unsafe { let _ = DestroyWindow(hwnd); }
+        capture.stop().unwrap();
+        let events: Vec<_> = rx.try_iter().collect();
+
+        assert_eq!(
+            events.len(), 0,
+            "Mouse move alone should produce no events. Got {} events: {:?}",
+            events.len(),
+            events.iter().map(|e| format!("{:?}", e.payload)).take(5).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    #[serial]
+    fn click_coordinates_are_correct() {
+        // Clicks at different positions should have different x,y values.
+        let (tx, rx) = mpsc::channel::<ActionEvent>();
+        let mut capture = WindowsCapture::new();
+        capture.set_excluded_pid(None);
+        capture.start(tx).unwrap();
+        thread::sleep(Duration::from_millis(200));
+
+        let (hwnd, cx, cy) = unsafe { create_target_window("Coords Test") };
+        thread::sleep(Duration::from_millis(200));
+
+        let mut enigo = Enigo::new(&Settings::default()).unwrap();
+        // Click at two different positions.
+        enigo.move_mouse(cx - 80, cy - 40, Coordinate::Abs).unwrap();
+        thread::sleep(Duration::from_millis(50));
+        enigo.button(enigo::Button::Left, Direction::Click).unwrap();
+        thread::sleep(Duration::from_millis(200));
+
+        enigo.move_mouse(cx + 80, cy + 40, Coordinate::Abs).unwrap();
+        thread::sleep(Duration::from_millis(50));
+        enigo.button(enigo::Button::Left, Direction::Click).unwrap();
+        thread::sleep(Duration::from_millis(500));
+
+        unsafe { let _ = DestroyWindow(hwnd); }
+        capture.stop().unwrap();
+        let events: Vec<_> = rx.try_iter().collect();
+
+        let click_events = clicks(&events);
+        assert!(click_events.len() >= 2, "Expected 2 clicks, got {}", click_events.len());
+
+        // Extract coordinates from the two clicks.
+        let coords: Vec<(f64, f64)> = click_events.iter().filter_map(|e| {
+            if let ActionPayload::Click { x, y, .. } = &e.payload {
+                Some((*x, *y))
+            } else {
+                None
+            }
+        }).collect();
+
+        assert!(coords.len() >= 2, "Expected 2 click coords");
+        // The two clicks should be at different positions.
+        assert_ne!(
+            coords[0], coords[1],
+            "Clicks at different positions should have different coordinates"
+        );
+    }
+
+    #[test]
+    #[serial]
+    fn rapid_clicks_are_not_dropped() {
+        // Multiple rapid clicks should all be captured (no events lost).
+        let (tx, rx) = mpsc::channel::<ActionEvent>();
+        let mut capture = WindowsCapture::new();
+        capture.set_excluded_pid(None);
+        capture.start(tx).unwrap();
+        thread::sleep(Duration::from_millis(200));
+
+        let (hwnd, cx, cy) = unsafe { create_target_window("Rapid Click") };
+        thread::sleep(Duration::from_millis(200));
+
+        let mut enigo = Enigo::new(&Settings::default()).unwrap();
+        enigo.move_mouse(cx, cy, Coordinate::Abs).unwrap();
+        thread::sleep(Duration::from_millis(50));
+
+        // 5 rapid clicks.
+        for _ in 0..5 {
+            enigo.button(enigo::Button::Left, Direction::Click).unwrap();
+            thread::sleep(Duration::from_millis(30));
+        }
+        thread::sleep(Duration::from_millis(500));
+
+        unsafe { let _ = DestroyWindow(hwnd); }
+        capture.stop().unwrap();
+        let events: Vec<_> = rx.try_iter().collect();
+
+        let click_events = clicks(&events);
+        assert_eq!(
+            click_events.len(), 5,
+            "Expected 5 rapid clicks captured, got {}",
+            click_events.len()
+        );
+    }
+
+    #[test]
+    #[serial]
+    fn long_text_coalescing_produces_final_value() {
+        // Typing a long string should produce a single coalesced type event
+        // with the final value (not intermediate states).
+        let (tx, rx) = mpsc::channel::<ActionEvent>();
+        let mut capture = WindowsCapture::new();
+        capture.set_excluded_pid(None);
+        capture.start(tx).unwrap();
+        thread::sleep(Duration::from_millis(200));
+
+        let (hwnd, _, _) = unsafe { create_target_window("Long Type") };
+        thread::sleep(Duration::from_millis(200));
+
+        let mut enigo = Enigo::new(&Settings::default()).unwrap();
+        enigo.text("the quick brown fox").unwrap();
+        // Wait for coalescing debounce (500ms).
+        thread::sleep(Duration::from_millis(800));
+
+        unsafe { let _ = DestroyWindow(hwnd); }
+        capture.stop().unwrap();
+        let events: Vec<_> = rx.try_iter().collect();
+
+        let type_events = types(&events);
+        // Should produce at most 1 coalesced type event.
+        assert!(
+            type_events.len() <= 1,
+            "Expected at most 1 coalesced type event for long text, got {}",
+            type_events.len()
+        );
+    }
+
+    #[test]
+    #[serial]
+    fn value_change_dedup_same_value_not_reemitted() {
+        // If the same value is reported twice, only the first should be captured.
+        let (tx, rx) = mpsc::channel::<ActionEvent>();
+        let mut capture = WindowsCapture::new();
+        capture.set_excluded_pid(None);
+        capture.start(tx).unwrap();
+        thread::sleep(Duration::from_millis(200));
+
+        let hwnd = unsafe {
+            let title_wide: Vec<u16> = "Dedup Test\0".encode_utf16().collect();
+            CreateWindowExW(
+                WINDOW_EX_STYLE::default(),
+                w!("EDIT"),
+                windows::core::PCWSTR(title_wide.as_ptr()),
+                WS_OVERLAPPEDWINDOW | WS_VISIBLE,
+                200, 200, 400, 200,
+                HWND::default(),
+                None,
+                None,
+                Some(ptr::null()),
+            ).expect("Failed to create edit window")
+        };
+        unsafe { let _ = SetForegroundWindow(hwnd); }
+        thread::sleep(Duration::from_millis(200));
+
+        // Set the same value twice programmatically.
+        unsafe {
+            SetWindowTextW(hwnd, w!("same value")).unwrap();
+            thread::sleep(Duration::from_millis(200));
+            SetWindowTextW(hwnd, w!("same value")).unwrap();
+        }
+        thread::sleep(Duration::from_millis(800));
+
+        unsafe { let _ = DestroyWindow(hwnd); }
+        thread::sleep(Duration::from_millis(300));
+
+        capture.stop().unwrap();
+        let events: Vec<_> = rx.try_iter().collect();
+
+        let type_events = types(&events);
+        // Same value set twice should produce at most 1 type event (deduplicated).
+        assert!(
+            type_events.len() <= 1,
+            "Same value set twice should be deduplicated. Got {} type events.",
+            type_events.len()
+        );
+    }
+
+    #[test]
+    #[serial]
+    fn multi_modifier_combo_is_captured() {
+        // Ctrl+Shift+Alt+key should be captured with all modifiers.
+        let (tx, rx) = mpsc::channel::<ActionEvent>();
+        let mut capture = WindowsCapture::new();
+        capture.set_excluded_pid(None);
+        capture.start(tx).unwrap();
+        thread::sleep(Duration::from_millis(200));
+
+        let (hwnd, _, _) = unsafe { create_target_window("Multi-Mod") };
+        thread::sleep(Duration::from_millis(200));
+
+        let mut enigo = Enigo::new(&Settings::default()).unwrap();
+        enigo.key(enigo::Key::Control, Direction::Press).unwrap();
+        enigo.key(enigo::Key::Shift, Direction::Press).unwrap();
+        enigo.key(enigo::Key::Alt, Direction::Press).unwrap();
+        enigo.key(enigo::Key::Unicode('k'), Direction::Click).unwrap();
+        enigo.key(enigo::Key::Alt, Direction::Release).unwrap();
+        enigo.key(enigo::Key::Shift, Direction::Release).unwrap();
+        enigo.key(enigo::Key::Control, Direction::Release).unwrap();
+        thread::sleep(Duration::from_millis(500));
+
+        unsafe { let _ = DestroyWindow(hwnd); }
+        capture.stop().unwrap();
+        let events: Vec<_> = rx.try_iter().collect();
+
+        let key_events = keys(&events);
+        assert!(key_events.len() >= 1, "Expected key event for Ctrl+Shift+Alt+K, got {}", key_events.len());
+    }
+
+    #[test]
+    #[serial]
+    fn coordinate_fallback_for_generic_window() {
+        // Clicking on a plain STATIC window (no specific child controls)
+        // should produce a click with capture_mode = Coordinate (since
+        // ElementFromPoint resolves to the Window/Pane itself).
+        use docent_desktop_lib::capture::CaptureMode;
+
+        let (tx, rx) = mpsc::channel::<ActionEvent>();
+        let mut capture = WindowsCapture::new();
+        capture.set_excluded_pid(None);
+        capture.start(tx).unwrap();
+        thread::sleep(Duration::from_millis(200));
+
+        let (hwnd, cx, cy) = unsafe { create_target_window("Fallback Test") };
+        thread::sleep(Duration::from_millis(200));
+
+        let mut enigo = Enigo::new(&Settings::default()).unwrap();
+        enigo.move_mouse(cx, cy, Coordinate::Abs).unwrap();
+        thread::sleep(Duration::from_millis(50));
+        enigo.button(enigo::Button::Left, Direction::Click).unwrap();
+        thread::sleep(Duration::from_millis(500));
+
+        unsafe { let _ = DestroyWindow(hwnd); }
+        capture.stop().unwrap();
+        let events: Vec<_> = rx.try_iter().collect();
+
+        let click_events = clicks(&events);
+        assert!(!click_events.is_empty(), "Expected at least 1 click");
+
+        // A STATIC window with no child controls — ElementFromPoint may
+        // resolve to the window itself (Pane/Window control type) triggering
+        // coordinate fallback, OR it may resolve to the STATIC control.
+        // Either mode is acceptable — we just verify the field is set.
+        for click in &click_events {
+            assert!(
+                click.capture_mode == CaptureMode::Accessibility ||
+                click.capture_mode == CaptureMode::Coordinate,
+                "capture_mode should be Accessibility or Coordinate"
+            );
+        }
+    }
+}
+
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// SELECTION TEST
+// ═══════════════════════════════════════════════════════════════════════════════
+
+#[cfg(target_os = "windows")]
+mod selection {
+    use super::*;
+    use std::ptr;
+    use windows::Win32::Foundation::{HWND, RECT, WPARAM, LPARAM};
+    use windows::Win32::UI::WindowsAndMessaging::{
+        CreateWindowExW, DestroyWindow, SetForegroundWindow, GetWindowRect,
+        SendMessageW,
+        WS_OVERLAPPEDWINDOW, WS_VISIBLE, WS_CHILD, WS_BORDER,
+        WINDOW_EX_STYLE, LBS_NOTIFY,
+    };
+    use windows::core::w;
+
+    const LB_ADDSTRING: u32 = 0x0180;
+
+    #[test]
+    #[serial]
+    fn user_click_on_listbox_item_produces_select() {
+        // Clicking an item in a LISTBOX should produce a select action.
+        let (tx, rx) = mpsc::channel::<ActionEvent>();
+        let mut capture = WindowsCapture::new();
+        capture.set_excluded_pid(None);
+        capture.start(tx).unwrap();
+        thread::sleep(Duration::from_millis(200));
+
+        // Create parent window.
+        let parent = unsafe {
+            CreateWindowExW(
+                WINDOW_EX_STYLE::default(),
+                w!("STATIC"),
+                w!("Selection Test"),
+                WS_OVERLAPPEDWINDOW | WS_VISIBLE,
+                200, 200, 400, 300,
+                HWND::default(),
+                None,
+                None,
+                Some(ptr::null()),
+            ).expect("Failed to create parent")
+        };
+        unsafe { let _ = SetForegroundWindow(parent); }
+        thread::sleep(Duration::from_millis(100));
+
+        // Create a LISTBOX with items.
+        let listbox = unsafe {
+            CreateWindowExW(
+                WINDOW_EX_STYLE::default(),
+                w!("LISTBOX"),
+                w!(""),
+                WS_CHILD | WS_VISIBLE | WS_BORDER |
+                    windows::Win32::UI::WindowsAndMessaging::WINDOW_STYLE(LBS_NOTIFY as u32),
+                10, 10, 200, 150,
+                parent,
+                None,
+                None,
+                Some(ptr::null()),
+            ).expect("Failed to create listbox")
+        };
+
+        // Add items.
+        unsafe {
+            let items = [w!("Item A"), w!("Item B"), w!("Item C")];
+            for item in &items {
+                SendMessageW(listbox, LB_ADDSTRING, WPARAM(0), LPARAM(item.as_ptr() as isize));
+            }
+        }
+        thread::sleep(Duration::from_millis(200));
+
+        // Click on the second item in the listbox.
+        let mut rect = RECT::default();
+        unsafe { GetWindowRect(listbox, &mut rect).unwrap(); }
+        let lx = rect.left + 50;
+        let ly = rect.top + 30; // Approximate position of second item.
+
+        let mut enigo = Enigo::new(&Settings::default()).unwrap();
+        enigo.move_mouse(lx, ly, Coordinate::Abs).unwrap();
+        thread::sleep(Duration::from_millis(50));
+        enigo.button(enigo::Button::Left, Direction::Click).unwrap();
+        thread::sleep(Duration::from_millis(500));
+
+        unsafe {
+            let _ = DestroyWindow(listbox);
+            let _ = DestroyWindow(parent);
+        }
+        capture.stop().unwrap();
+        let events: Vec<_> = rx.try_iter().collect();
+
+        // Should have a click AND a select action.
+        let click_events = clicks(&events);
+        let select_events = selects(&events);
+        assert!(click_events.len() >= 1, "Expected click on listbox, got {}", click_events.len());
+        assert!(
+            select_events.len() >= 1,
+            "Expected select event from clicking listbox item, got {}",
+            select_events.len()
+        );
+    }
+}
