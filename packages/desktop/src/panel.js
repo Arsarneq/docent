@@ -25,6 +25,7 @@
  */
 
 import { validateEndpointUrl, buildPayload, sendPayload, DispatchError } from '../shared/dispatch-core.js';
+import { sync } from '../shared/sync-client.js';
 import adapter, { commitWithCompleteness } from './adapter-tauri.js';
 import {
   escapeHtml,
@@ -143,6 +144,13 @@ const settingsEndpointError = $('settings-endpoint-error');
 const settingsApiKey        = $('settings-api-key');
 const btnSettingsDispatchSave = $('btn-settings-dispatch-save');
 
+// Sync settings
+const settingsSyncUrl       = $('settings-sync-url');
+const settingsSyncError     = $('settings-sync-error');
+const settingsSyncApiKey    = $('settings-sync-api-key');
+const btnSettingsSyncSave   = $('btn-settings-sync-save');
+const btnSync               = $('btn-sync');
+
 // Recording selector
 const recordingSelectorList = $('recording-selector-list');
 const btnSelectorCancel     = $('btn-selector-cancel');
@@ -174,6 +182,8 @@ let sessionState = {
     apiKey: null,
     theme: 'auto',
     selfCaptureExclusion: true,
+    syncUrl: null,
+    syncApiKey: null,
   },
 };
 
@@ -187,6 +197,8 @@ let rerecordLogicalId = null;
 let previousRecordingView = null;
 let dispatchSettings = { endpointUrl: null, apiKey: null };
 let dispatchSelection = null;
+let syncSettings = { serverUrl: null, apiKey: null };
+let isSyncing = false;
 
 // ─── Persistence ──────────────────────────────────────────────────────────────
 
@@ -201,18 +213,24 @@ async function loadState() {
         apiKey: parsed.settings?.apiKey ?? null,
         theme: parsed.settings?.theme ?? 'auto',
         selfCaptureExclusion: parsed.settings?.selfCaptureExclusion ?? true,
+        syncUrl: parsed.settings?.syncUrl ?? null,
+        syncApiKey: parsed.settings?.syncApiKey ?? null,
       },
     };
   } catch {
     // Missing or corrupted file — start fresh
     sessionState = {
       projects: [],
-      settings: { endpointUrl: null, apiKey: null, theme: 'auto', selfCaptureExclusion: true },
+      settings: { endpointUrl: null, apiKey: null, theme: 'auto', selfCaptureExclusion: true, syncUrl: null, syncApiKey: null },
     };
   }
   dispatchSettings = {
     endpointUrl: sessionState.settings.endpointUrl,
     apiKey: sessionState.settings.apiKey,
+  };
+  syncSettings = {
+    serverUrl: sessionState.settings.syncUrl ?? null,
+    apiKey: sessionState.settings.syncApiKey ?? null,
   };
 }
 
@@ -826,6 +844,10 @@ async function openRerecord(step) {
   }
   adapter.clearPendingActions();
   pendingCount = 0;
+  clearLiveActionList();
+  // Start fresh capture for re-recording
+  await invoke('start_capture', { pid: null });
+  isRecording = true;
   showView('rerecord');
 }
 
@@ -1008,6 +1030,102 @@ function updateDispatchButton() {
   btnDispatchProject.title = hasActiveSteps ? '' : 'No recordings with active steps';
 }
 
+// ─── Sync settings ────────────────────────────────────────────────────────────
+
+async function loadAndPopulateSyncSettings() {
+  settingsSyncUrl.value    = syncSettings.serverUrl ?? '';
+  settingsSyncApiKey.value = syncSettings.apiKey ?? '';
+  settingsSyncError.textContent = '';
+  settingsSyncError.classList.add('hidden');
+}
+
+btnSettingsSyncSave.addEventListener('click', async () => {
+  const url    = settingsSyncUrl.value.trim();
+  const apiKey = settingsSyncApiKey.value.trim();
+
+  // Validate URL if non-empty (R1-AC2)
+  if (url) {
+    const error = validateEndpointUrl(url);
+    if (error) {
+      settingsSyncError.textContent = error;
+      settingsSyncError.classList.remove('hidden');
+      return;
+    }
+  }
+
+  settingsSyncError.textContent = '';
+  settingsSyncError.classList.add('hidden');
+
+  try {
+    await adapter.saveSyncSettings(url, apiKey);
+    // Update sessionState to reflect new sync settings
+    sessionState.settings.syncUrl = url || null;
+    sessionState.settings.syncApiKey = apiKey || null;
+    syncSettings = {
+      serverUrl: url || null,
+      apiKey: apiKey || null,
+    };
+    updateSyncButton();
+  } catch (err) {
+    settingsSyncError.textContent = err.message;
+    settingsSyncError.classList.remove('hidden');
+  }
+});
+
+function updateSyncButton() {
+  btnSync.disabled = !syncSettings.serverUrl || isSyncing;
+}
+
+btnSync.addEventListener('click', () => handleSync());
+
+async function handleSync() {
+  if (isSyncing) return;
+  isSyncing = true;
+  updateSyncButton();
+  btnSync.textContent = 'Syncing…';
+
+  try {
+    const { result, projects: mergedProjects } = await sync(
+      syncSettings.serverUrl,
+      syncSettings.apiKey,
+      sessionState.projects
+    );
+
+    // Persist merged projects via saveState() (R5-AC5)
+    sessionState.projects = mergedProjects;
+    await saveState();
+
+    // Show summary (R5-AC5)
+    showSyncSummary(result);
+
+    // Refresh the projects list UI to reflect pulled/updated projects
+    if (activeProject) {
+      // Re-resolve activeProject from updated list
+      activeProject = sessionState.projects.find(p => p.project_id === activeProject.project_id) ?? null;
+    }
+    renderProjectsList();
+  } catch (err) {
+    alert(`Sync failed: ${err.message}`);
+  } finally {
+    isSyncing = false;
+    btnSync.textContent = 'Sync';
+    updateSyncButton();
+  }
+}
+
+function showSyncSummary(result) {
+  if (result.halted) {
+    alert('Sync halted: authentication failed. Check your API key in Settings.');
+    return;
+  }
+  const parts = [];
+  if (result.pushed.length > 0) parts.push(`Pushed ${result.pushed.length} project${result.pushed.length !== 1 ? 's' : ''}`);
+  if (result.pulled.length > 0) parts.push(`Pulled ${result.pulled.length} project${result.pulled.length !== 1 ? 's' : ''}`);
+  if (result.errors.length > 0) parts.push(`${result.errors.length} error${result.errors.length !== 1 ? 's' : ''}`);
+  if (parts.length === 0) parts.push('Everything up to date');
+  alert(parts.join('. ') + '.');
+}
+
 btnSettings.addEventListener('click', () => {
   if (!views.settings.classList.contains('hidden')) {
     showView(settingsReturnView);
@@ -1017,6 +1135,7 @@ btnSettings.addEventListener('click', () => {
   const current = Object.entries(views).find(([key, el]) => key !== 'settings' && !el.classList.contains('hidden'));
   settingsReturnView = current ? current[0] : 'projects';
   loadAndPopulateDispatchSettings();
+  loadAndPopulateSyncSettings();
   showView('settings');
 });
 
@@ -1074,6 +1193,7 @@ if (selfCaptureToggle) {
 await loadState();
 loadTheme();
 await loadWindowList();
+updateSyncButton();
 
 // Set initial self-capture exclusion based on persisted setting
 try {

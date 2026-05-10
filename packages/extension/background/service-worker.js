@@ -380,6 +380,16 @@ async function handle(msg) {
       }))};
     }
 
+    case 'PROJECTS_GET_ALL': {
+      return { ok: true, projects };
+    }
+
+    case 'PROJECTS_SET': {
+      projects = msg.projects;
+      await persist();
+      return { ok: true };
+    }
+
     case 'PROJECT_CREATE': {
       const project = createProject(msg.name);
       projects.push(project);

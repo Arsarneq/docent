@@ -193,6 +193,47 @@ const tauriAdapter = {
     }
   },
 
+  // ── Sync settings ───────────────────────────────────────────────────────────
+
+  async loadSyncSettings() {
+    try {
+      const json = await invoke('load_state');
+      const state = JSON.parse(json);
+      return {
+        serverUrl: state?.settings?.syncUrl ?? null,
+        apiKey:    state?.settings?.syncApiKey ?? null,
+      };
+    } catch {
+      return { serverUrl: null, apiKey: null };
+    }
+  },
+
+  async saveSyncSettings(serverUrl, apiKey) {
+    const urlError = _validateEndpointUrl(serverUrl);
+    if (serverUrl !== '' && urlError !== null) {
+      throw new Error(urlError);
+    }
+
+    try {
+      const json = await invoke('load_state');
+      const state = JSON.parse(json);
+      if (!state.settings) state.settings = {};
+
+      if (serverUrl === '') {
+        // Clear both sync URL and API key when serverUrl is empty (R1-AC3)
+        delete state.settings.syncUrl;
+        delete state.settings.syncApiKey;
+      } else {
+        state.settings.syncUrl = serverUrl;
+        state.settings.syncApiKey = apiKey || null;
+      }
+
+      await invoke('save_state', { data: JSON.stringify(state) });
+    } catch (err) {
+      throw new Error(`Failed to save sync settings: ${err.message || err}`);
+    }
+  },
+
   // ── Theme ─────────────────────────────────────────────────────────────────
 
   async loadTheme() {

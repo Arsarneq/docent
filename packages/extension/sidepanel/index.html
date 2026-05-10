@@ -39,6 +39,7 @@
   <div class="view-header">
     <h2>Projects</h2>
     <div class="view-header-actions">
+      <button id="btn-sync" class="btn btn--secondary btn--sm" disabled>Sync</button>
       <button id="btn-import-project" class="btn btn--secondary btn--sm">Import</button>
       <button id="btn-new-project" class="btn btn--primary btn--sm">+ New</button>
     </div>
@@ -106,8 +107,8 @@
     </button>
   </div>
 
-  <!-- Narration input -->
-  <div class="narration-box">
+  <!-- Narration input (narration mode) -->
+  <div id="narration-mode-box" class="narration-box">
     <label>What are you about to do?</label>
     <textarea
       id="narration-input"
@@ -122,6 +123,44 @@
       <button id="btn-commit-step" class="btn btn--primary" disabled>
         <svg viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path d="M4 10l5 5 7-8" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
         Done this step
+      </button>
+    </div>
+  </div>
+
+  <!-- Simple mode input -->
+  <div id="simple-mode-box" class="narration-box hidden">
+    <label>Step type</label>
+    <div class="settings-options" role="radiogroup" aria-label="Step type" style="margin-bottom:8px">
+      <label class="settings-option">
+        <input type="radio" name="step-type" value="action" checked />
+        <span class="settings-option-label">Action</span>
+      </label>
+      <label class="settings-option">
+        <input type="radio" name="step-type" value="validation" />
+        <span class="settings-option-label">Validation</span>
+      </label>
+    </div>
+    <div id="expect-group" class="hidden">
+      <label>Expect</label>
+      <div class="settings-options" role="radiogroup" aria-label="Expect" style="margin-bottom:8px">
+        <label class="settings-option">
+          <input type="radio" name="step-expect" value="present" checked />
+          <span class="settings-option-label">Present</span>
+        </label>
+        <label class="settings-option">
+          <input type="radio" name="step-expect" value="absent" />
+          <span class="settings-option-label">Absent</span>
+        </label>
+      </div>
+    </div>
+    <div class="narration-controls">
+      <button id="btn-clear-step-simple" class="btn btn--ghost btn--sm" title="Clear recorded actions">
+        <svg viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path d="M5 5l10 10M15 5L5 15" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+        Clear
+      </button>
+      <button id="btn-commit-step-simple" class="btn btn--primary" disabled>
+        <svg viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path d="M4 10l5 5 7-8" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        Commit
       </button>
     </div>
   </div>
@@ -286,6 +325,30 @@
     </div>
   </div>
 
+  <div class="settings-group">
+    <label class="settings-label">Recording mode</label>
+    <div class="settings-options" role="radiogroup" aria-label="Recording mode">
+      <label class="settings-option">
+        <input type="radio" name="recording-mode" value="narration" />
+        <span class="settings-option-label">
+          <svg viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+            <path d="M4 5h12M4 10h8M4 15h10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+          </svg>
+          Narration
+        </span>
+      </label>
+      <label class="settings-option">
+        <input type="radio" name="recording-mode" value="simple" />
+        <span class="settings-option-label">
+          <svg viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+            <path d="M4 10l5 5 7-8" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+          Simple (action / validation)
+        </span>
+      </label>
+    </div>
+  </div>
+
   <div class="settings-group" id="settings-dispatch">
     <label class="settings-label">Dispatch endpoint</label>
     <input id="settings-endpoint-url" type="text" placeholder="https://..." />
@@ -296,6 +359,19 @@
 
     <div class="form-actions">
       <button id="btn-settings-dispatch-save" class="btn btn--primary btn--sm">Save</button>
+    </div>
+  </div>
+
+  <div class="settings-group" id="settings-sync">
+    <label class="settings-label">Sync server</label>
+    <input id="settings-sync-url" type="text" placeholder="https://..." />
+    <p id="settings-sync-error" class="settings-field-error hidden"></p>
+
+    <label class="settings-label" style="margin-top:12px">API key (optional)</label>
+    <input id="settings-sync-api-key" type="password" placeholder="Bearer token" />
+
+    <div class="form-actions">
+      <button id="btn-settings-sync-save" class="btn btn--primary btn--sm">Save</button>
     </div>
   </div>
 </section>
