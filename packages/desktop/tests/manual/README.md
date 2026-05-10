@@ -112,3 +112,27 @@ Use any app with custom-rendered UI (Discord, games, Electron apps without acces
 1. Press Win key, type to search, press Enter
 
 **Expected:** Key events for the search text. context_switch to search window.
+
+### 13. Win+D (Show Desktop)
+
+1. Have windows open, press Win+D
+
+**Expected:** Nothing captured (or just the key combo). No context_switch/close noise.
+
+### 14. Win+L (Lock Screen)
+
+1. Press Win+L to lock
+
+**Expected:** Nothing captured. No context_switch/close noise. (Unlock and verify recording resumes.)
+
+### 15. System Tray Interaction
+
+1. Click a system tray icon (clock, volume, network)
+
+**Expected:** Verify what is captured — may be a click on the tray area or nothing.
+
+### 16. Ctrl+Shift+Esc (Task Manager)
+
+1. Press Ctrl+Shift+Esc to open Task Manager
+
+**Expected:** Verify what is captured — key combo and/or context_switch to Task Manager.
