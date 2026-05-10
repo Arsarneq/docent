@@ -90,7 +90,7 @@ jobs:
 
       - name: Run Rust unit tests
         working-directory: packages/desktop/src-tauri
-        run: cargo test --lib
+        run: cargo test --lib --test worker_pool_test --test scroll_test --test windows_capture_test
 
       - name: Run integration tests
         working-directory: packages/desktop/src-tauri

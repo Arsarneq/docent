@@ -9,9 +9,9 @@
 // shall produce no scroll action.
 
 use docent_desktop_lib::capture::scroll::{
-    process_scroll_events, RawScrollEvent, ScrollAccumulator, DEBOUNCE_MS,
-    MIN_SCROLL_DISTANCE_PX,
+    process_scroll_events, RawScrollEvent, ScrollAccumulator,
 };
+use docent_desktop_lib::capture::timing::{SCROLL_DEBOUNCE_MS, SCROLL_MIN_DISTANCE_PX};
 use proptest::prelude::*;
 
 // ---------------------------------------------------------------------------
@@ -89,7 +89,7 @@ fn arb_tight_sequence() -> impl Strategy<Value = Vec<RawScrollEvent>> {
 // Helper: manually compute expected results for a sequence
 // ---------------------------------------------------------------------------
 
-/// Split events into sequences by DEBOUNCE_MS gaps, then apply threshold.
+/// Split events into sequences by SCROLL_DEBOUNCE_MS gaps, then apply threshold.
 fn expected_results(events: &[RawScrollEvent]) -> Vec<(f64, f64)> {
     if events.is_empty() {
         return Vec::new();
@@ -102,15 +102,15 @@ fn expected_results(events: &[RawScrollEvent]) -> Vec<(f64, f64)> {
         let is_end = if i == events.len() {
             true
         } else {
-            events[i].timestamp.saturating_sub(events[i - 1].timestamp) >= DEBOUNCE_MS
+            events[i].timestamp.saturating_sub(events[i - 1].timestamp) >= SCROLL_DEBOUNCE_MS
         };
 
         if is_end {
             let total_dx: f64 = events[seq_start..i].iter().map(|e| e.delta_x).sum();
             let total_dy: f64 = events[seq_start..i].iter().map(|e| e.delta_y).sum();
 
-            if total_dx.abs() > MIN_SCROLL_DISTANCE_PX
-                || total_dy.abs() > MIN_SCROLL_DISTANCE_PX
+            if total_dx.abs() > SCROLL_MIN_DISTANCE_PX
+                || total_dy.abs() > SCROLL_MIN_DISTANCE_PX
             {
                 results.push((total_dx, total_dy));
             }
@@ -176,8 +176,8 @@ proptest! {
 
         for (i, result) in results.iter().enumerate() {
             prop_assert!(
-                result.total_delta_x.abs() > MIN_SCROLL_DISTANCE_PX
-                    || result.total_delta_y.abs() > MIN_SCROLL_DISTANCE_PX,
+                result.total_delta_x.abs() > SCROLL_MIN_DISTANCE_PX
+                    || result.total_delta_y.abs() > SCROLL_MIN_DISTANCE_PX,
                 "result[{}] does not exceed threshold: dx={}, dy={}",
                 i, result.total_delta_x, result.total_delta_y
             );
@@ -227,7 +227,7 @@ proptest! {
         }
 
         // Flush after debounce interval.
-        let flush_time = events.last().map_or(0, |e| e.timestamp) + DEBOUNCE_MS;
+        let flush_time = events.last().map_or(0, |e| e.timestamp) + SCROLL_DEBOUNCE_MS;
         let acc_result = acc.try_flush(flush_time);
 
         match (batch_results.len(), acc_result) {

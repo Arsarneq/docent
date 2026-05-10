@@ -26,37 +26,6 @@ use docent_desktop_lib::capture::windows::WindowsCapture;
 
 // ─── Test Harness ───────────────────────────────────────────────────────────
 
-/// Start capture, run a closure that simulates input, stop capture,
-/// return all collected ActionEvents.
-#[cfg(target_os = "windows")]
-fn capture_during<F>(setup: F) -> Vec<ActionEvent>
-where
-    F: FnOnce(&mut Enigo),
-{
-    let (tx, rx) = mpsc::channel::<ActionEvent>();
-    let mut capture = WindowsCapture::new();
-
-    // Don't exclude our own PID — we ARE the process simulating input.
-    capture.set_excluded_pid(None);
-
-    capture.start(tx).expect("Failed to start capture");
-
-    // Give hooks time to register.
-    thread::sleep(Duration::from_millis(200));
-
-    // Simulate input.
-    let mut enigo = Enigo::new(&Settings::default()).expect("Failed to create Enigo");
-    setup(&mut enigo);
-
-    // Wait for events to be processed by workers.
-    thread::sleep(Duration::from_millis(1000));
-
-    capture.stop().expect("Failed to stop capture");
-
-    // Collect all events from the channel.
-    rx.try_iter().collect()
-}
-
 /// Filter events by payload type.
 fn clicks(events: &[ActionEvent]) -> Vec<&ActionEvent> {
     events.iter().filter(|e| matches!(&e.payload, ActionPayload::Click { .. })).collect()
@@ -161,7 +130,7 @@ mod user_actions {
         capture.stop().unwrap();
         let events: Vec<_> = rx.try_iter().collect();
 
-        assert!(clicks(&events).len() >= 1, "Expected at least 1 click, got {}", clicks(&events).len());
+        assert!(!clicks(&events).is_empty(), "Expected at least 1 click, got {}", clicks(&events).len());
     }
 
     #[test]
@@ -186,7 +155,7 @@ mod user_actions {
         capture.stop().unwrap();
         let events: Vec<_> = rx.try_iter().collect();
 
-        assert!(right_clicks(&events).len() >= 1, "Expected at least 1 right_click, got {}", right_clicks(&events).len());
+        assert!(!right_clicks(&events).is_empty(), "Expected at least 1 right_click, got {}", right_clicks(&events).len());
     }
 
     #[test]
@@ -209,7 +178,7 @@ mod user_actions {
         capture.stop().unwrap();
         let events: Vec<_> = rx.try_iter().collect();
 
-        assert!(keys(&events).len() >= 1, "Expected at least 1 key event, got {}", keys(&events).len());
+        assert!(!keys(&events).is_empty(), "Expected at least 1 key event, got {}", keys(&events).len());
     }
 
     #[test]
@@ -234,7 +203,7 @@ mod user_actions {
         capture.stop().unwrap();
         let events: Vec<_> = rx.try_iter().collect();
 
-        assert!(scrolls(&events).len() >= 1, "Expected at least 1 scroll event, got {}", scrolls(&events).len());
+        assert!(!scrolls(&events).is_empty(), "Expected at least 1 scroll event, got {}", scrolls(&events).len());
     }
 
     #[test]
@@ -321,8 +290,8 @@ mod user_actions {
             .filter(|e| matches!(&e.payload, ActionPayload::Drop { .. }))
             .collect();
 
-        assert!(drags.len() >= 1, "Expected at least 1 drag_start, got {}", drags.len());
-        assert!(drops.len() >= 1, "Expected at least 1 drop, got {}", drops.len());
+        assert!(!drags.is_empty(), "Expected at least 1 drag_start, got {}", drags.len());
+        assert!(!drops.is_empty(), "Expected at least 1 drop, got {}", drops.len());
     }
 
     #[test]
@@ -347,7 +316,7 @@ mod user_actions {
         capture.stop().unwrap();
         let events: Vec<_> = rx.try_iter().collect();
 
-        assert!(keys(&events).len() >= 1, "Expected at least 1 key event for Ctrl+A, got {}", keys(&events).len());
+        assert!(!keys(&events).is_empty(), "Expected at least 1 key event for Ctrl+A, got {}", keys(&events).len());
     }
 }
 
@@ -364,9 +333,9 @@ mod user_actions {
 mod side_effects {
     use super::*;
     use std::ptr;
-    use windows::Win32::Foundation::{HWND, LPARAM, WPARAM};
+    use windows::Win32::Foundation::HWND;
     use windows::Win32::UI::WindowsAndMessaging::{
-        CreateWindowExW, DestroyWindow, ShowWindow, SetForegroundWindow,
+        CreateWindowExW, DestroyWindow, SetForegroundWindow,
         SetWindowTextW,
         WS_OVERLAPPEDWINDOW, WS_VISIBLE,
         WINDOW_EX_STYLE,
@@ -557,8 +526,7 @@ mod side_effects_additional {
     use std::ptr;
     use windows::Win32::Foundation::HWND;
     use windows::Win32::UI::WindowsAndMessaging::{
-        CreateWindowExW, DestroyWindow, SetForegroundWindow,
-        SetWindowTextW, MoveWindow, ShowWindow,
+        CreateWindowExW, DestroyWindow, SetForegroundWindow, MoveWindow, ShowWindow,
         WS_OVERLAPPEDWINDOW, WS_VISIBLE, SW_MINIMIZE, SW_RESTORE,
         WINDOW_EX_STYLE,
     };
@@ -817,8 +785,8 @@ mod user_actions_advanced {
         // Should have a click AND a context_switch (user switched windows by clicking).
         let click_events = clicks(&events);
         let switch_events = context_switches(&events);
-        assert!(click_events.len() >= 1, "Expected click when switching windows, got {}", click_events.len());
-        assert!(switch_events.len() >= 1, "Expected context_switch when clicking different window, got {}", switch_events.len());
+        assert!(!click_events.is_empty(), "Expected click when switching windows, got {}", click_events.len());
+        assert!(!switch_events.is_empty(), "Expected context_switch when clicking different window, got {}", switch_events.len());
     }
 
     #[test]
@@ -842,7 +810,7 @@ mod user_actions_advanced {
         let events: Vec<_> = rx.try_iter().collect();
 
         let key_events = keys(&events);
-        assert!(key_events.len() >= 1, "Expected Escape key event, got {}", key_events.len());
+        assert!(!key_events.is_empty(), "Expected Escape key event, got {}", key_events.len());
     }
 
     #[test]
@@ -866,7 +834,7 @@ mod user_actions_advanced {
         let events: Vec<_> = rx.try_iter().collect();
 
         let key_events = keys(&events);
-        assert!(key_events.len() >= 1, "Expected Tab key event, got {}", key_events.len());
+        assert!(!key_events.is_empty(), "Expected Tab key event, got {}", key_events.len());
     }
 
     #[test]
@@ -906,7 +874,7 @@ mod side_effects_more {
     use std::ptr;
     use windows::Win32::Foundation::HWND;
     use windows::Win32::UI::WindowsAndMessaging::{
-        CreateWindowExW, DestroyWindow, SetForegroundWindow,
+        CreateWindowExW, DestroyWindow,
         SetWindowTextW, ShowWindow,
         WS_OVERLAPPEDWINDOW, WS_VISIBLE, WS_POPUP,
         SW_SHOW, SW_HIDE,
@@ -1299,7 +1267,7 @@ mod capture_behaviour {
         // Alt+Tab should produce a context_switch (user switched windows).
         let switches = context_switches(&events);
         assert!(
-            switches.len() >= 1,
+            !switches.is_empty(),
             "Expected context_switch from Alt+Tab, got {}",
             switches.len()
         );
@@ -1368,7 +1336,7 @@ mod user_actions_extended {
 
         // Middle click should produce a click event.
         let click_events = clicks(&events);
-        assert!(click_events.len() >= 1, "Expected middle click to be captured, got {} clicks", click_events.len());
+        assert!(!click_events.is_empty(), "Expected middle click to be captured, got {} clicks", click_events.len());
     }
 
     #[test]
@@ -1395,7 +1363,7 @@ mod user_actions_extended {
 
         // Horizontal scroll should produce a scroll event.
         let scroll_events = scrolls(&events);
-        assert!(scroll_events.len() >= 1, "Expected horizontal scroll to be captured, got {}", scroll_events.len());
+        assert!(!scroll_events.is_empty(), "Expected horizontal scroll to be captured, got {}", scroll_events.len());
     }
 
     #[test]
@@ -1419,7 +1387,7 @@ mod user_actions_extended {
         let events: Vec<_> = rx.try_iter().collect();
 
         let key_events = keys(&events);
-        assert!(key_events.len() >= 1, "Expected F5 key to be captured, got {}", key_events.len());
+        assert!(!key_events.is_empty(), "Expected F5 key to be captured, got {}", key_events.len());
     }
 
     #[test]
@@ -1516,7 +1484,7 @@ mod user_actions_extended {
         let events: Vec<_> = rx.try_iter().collect();
 
         let key_events = keys(&events);
-        assert!(key_events.len() >= 1, "Expected Alt+F4 key event, got {}", key_events.len());
+        assert!(!key_events.is_empty(), "Expected Alt+F4 key event, got {}", key_events.len());
     }
 }
 
@@ -1685,7 +1653,7 @@ mod user_actions_missing {
         let events: Vec<_> = rx.try_iter().collect();
 
         let click_events = clicks(&events);
-        assert!(click_events.len() >= 1, "Expected Ctrl+click to be captured, got {}", click_events.len());
+        assert!(!click_events.is_empty(), "Expected Ctrl+click to be captured, got {}", click_events.len());
     }
 }
 
@@ -1699,7 +1667,7 @@ mod side_effects_missing {
     use std::ptr;
     use windows::Win32::Foundation::HWND;
     use windows::Win32::UI::WindowsAndMessaging::{
-        CreateWindowExW, DestroyWindow, SetForegroundWindow,
+        CreateWindowExW, DestroyWindow,
         WS_OVERLAPPEDWINDOW, WS_VISIBLE, WINDOW_EX_STYLE,
     };
     use windows::Win32::UI::WindowsAndMessaging::ScrollWindow;
@@ -1886,8 +1854,8 @@ mod completeness {
     use windows::Win32::UI::WindowsAndMessaging::{
         CreateWindowExW, DestroyWindow, SetForegroundWindow, GetWindowRect,
         SetWindowTextW,
-        WS_OVERLAPPEDWINDOW, WS_VISIBLE, WS_CHILD, WS_BORDER,
-        WINDOW_EX_STYLE, LBS_NOTIFY,
+        WS_OVERLAPPEDWINDOW, WS_VISIBLE,
+        WINDOW_EX_STYLE,
     };
     use windows::core::w;
 
@@ -2142,7 +2110,7 @@ mod completeness {
         let events: Vec<_> = rx.try_iter().collect();
 
         let key_events = keys(&events);
-        assert!(key_events.len() >= 1, "Expected key event for Ctrl+Shift+Alt+K, got {}", key_events.len());
+        assert!(!key_events.is_empty(), "Expected key event for Ctrl+Shift+Alt+K, got {}", key_events.len());
     }
 
     #[test]
@@ -2283,9 +2251,9 @@ mod selection {
         // Should have a click AND a select action.
         let click_events = clicks(&events);
         let select_events = selects(&events);
-        assert!(click_events.len() >= 1, "Expected click on listbox, got {}", click_events.len());
+        assert!(!click_events.is_empty(), "Expected click on listbox, got {}", click_events.len());
         assert!(
-            select_events.len() >= 1,
+            !select_events.is_empty(),
             "Expected select event from clicking listbox item, got {}",
             select_events.len()
         );

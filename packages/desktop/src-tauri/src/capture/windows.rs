@@ -28,10 +28,10 @@ use windows::Win32::System::Com::{
     CoCreateInstance, CoInitializeEx, CoUninitialize, CLSCTX_ALL, COINIT_APARTMENTTHREADED,
 };
 use windows::Win32::UI::Accessibility::{
-    CUIAutomation, IUIAutomation, IUIAutomationElement, SetWinEventHook, UnhookWinEvent,
-    UIA_AutomationIdPropertyId, UIA_ControlTypePropertyId, UIA_IsPasswordPropertyId,
-    UIA_LocalizedControlTypePropertyId, UIA_NamePropertyId, UIA_ValueValuePropertyId,
-    HWINEVENTHOOK,
+    CUIAutomation, IUIAutomation, IUIAutomationElement, IUIAutomationSelectionPattern,
+    SetWinEventHook, UnhookWinEvent, UIA_AutomationIdPropertyId, UIA_ControlTypePropertyId,
+    UIA_IsPasswordPropertyId, UIA_LocalizedControlTypePropertyId, UIA_NamePropertyId,
+    UIA_SelectionPatternId, UIA_ValueValuePropertyId, HWINEVENTHOOK,
 };
 use windows::Win32::UI::HiDpi::{
     SetProcessDpiAwarenessContext, DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2,
@@ -43,21 +43,25 @@ use windows::Win32::UI::WindowsAndMessaging::{
     CallNextHookEx, DispatchMessageW, EnumWindows, GetClassNameW, GetForegroundWindow,
     GetMessageW, GetParent, GetWindow, GetWindowLongW, GetWindowTextW,
     GetWindowThreadProcessId, IsWindow, IsWindowVisible, PostThreadMessageW,
-    SetWindowsHookExW, TranslateMessage, UnhookWindowsHookEx, CHILDID_SELF,
-    EVENT_OBJECT_CREATE, EVENT_OBJECT_DESTROY, EVENT_OBJECT_FOCUS, EVENT_OBJECT_SELECTION,
-    EVENT_OBJECT_VALUECHANGE, EVENT_SYSTEM_FOREGROUND, GWL_STYLE, GW_OWNER, HHOOK,
-    KBDLLHOOKSTRUCT, MSLLHOOKSTRUCT, MSG, OBJID_WINDOW, WH_KEYBOARD_LL, WH_MOUSE_LL,
-    WINEVENT_OUTOFCONTEXT, WM_KEYDOWN, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MOUSEWHEEL,
-    WM_QUIT, WM_RBUTTONDOWN, WM_SYSKEYDOWN, WS_CHILD,
+    SetWindowsHookExW, TranslateMessage, UnhookWindowsHookEx, WindowFromPoint,
+    CHILDID_SELF, EVENT_OBJECT_CREATE, EVENT_OBJECT_DESTROY, EVENT_OBJECT_FOCUS,
+    EVENT_OBJECT_SELECTION, EVENT_OBJECT_VALUECHANGE, EVENT_SYSTEM_FOREGROUND, GWL_STYLE,
+    GW_OWNER, HHOOK, KBDLLHOOKSTRUCT, MSLLHOOKSTRUCT, MSG, OBJID_WINDOW, WH_KEYBOARD_LL,
+    WH_MOUSE_LL, WINEVENT_OUTOFCONTEXT, WM_KEYDOWN, WM_LBUTTONDOWN, WM_LBUTTONUP,
+    WM_MBUTTONDOWN, WM_MOUSEWHEEL, WM_QUIT, WM_RBUTTONDOWN, WM_SYSKEYDOWN, WS_CHILD,
 };
 
 use super::element_mapping::{control_type_name, map_element, UiaProperties};
 use super::scroll::should_keep_event;
+use super::timing;
 use super::worker_pool::{AccessibilityBackend, RawEvent, RawEventType, WorkerPool, worker_loop};
 use super::{
     ActionEvent, CaptureError, CaptureLayer, ElementDescription,
     PermissionStatus, WindowInfo,
 };
+
+/// Horizontal mouse wheel message (not always exported by the windows crate).
+const WM_MOUSEHWHEEL: u32 = 0x020E;
 
 // ---------------------------------------------------------------------------
 // PID exclusion helper
@@ -82,7 +86,7 @@ unsafe fn is_owned_by_excluded(hwnd: HWND, excluded_pid: u32) -> bool {
         return true;
     }
     // Also check if the root owner belongs to a child of the excluded process
-    super::scroll::should_keep_event(owner_pid, Some(excluded_pid)) == false && owner_pid != 0
+    !super::scroll::should_keep_event(owner_pid, Some(excluded_pid)) && owner_pid != 0
 }
 
 const DRAG_THRESHOLD_PX: i32 = 5;
@@ -116,6 +120,10 @@ thread_local! {
     /// Events from non-foreground processes are filtered out.
     static INPUT_FOREGROUND_PID: std::cell::Cell<u32> = const { std::cell::Cell::new(0) };
 
+    /// Root window handle of the last dispatched foreground event. Used to
+    /// deduplicate foreground events (click-based + WinEvent-based).
+    static INPUT_LAST_FOREGROUND_HWND: std::cell::Cell<i64> = const { std::cell::Cell::new(0) };
+
     /// Mouse-down position for drag detection. Set on WM_LBUTTONDOWN,
     /// compared against WM_LBUTTONUP to classify click vs drag.
     static INPUT_MOUSE_DOWN_POS: std::cell::Cell<Option<POINT>> = const { std::cell::Cell::new(None) };
@@ -132,6 +140,16 @@ thread_local! {
     /// the target window is still alive (before the click is processed).
     static INPUT_UIA: std::cell::RefCell<Option<IUIAutomation>> =
         const { std::cell::RefCell::new(None) };
+
+    /// Timestamp of the most recent low-level input event (mouse click or key press).
+    /// Used to correlate WinEvent callbacks with user actions.
+    static INPUT_LAST_INPUT_TIMESTAMP: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+
+    /// Timestamp of the most recent low-level keyboard event only.
+    /// Used specifically for value-change correlation — mouse clicks should not
+    /// satisfy value-change correlation because only keyboard input produces
+    /// value changes that should be captured.
+    static INPUT_LAST_KEYBOARD_TIMESTAMP: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
 }
 
 // ---------------------------------------------------------------------------
@@ -336,8 +354,8 @@ impl CaptureLayer for WindowsCapture {
 // Input_Thread entry point
 // ---------------------------------------------------------------------------
 
-/// The Input_Thread runs the platform's input observation loop (message pump
-/// + hooks). It captures raw event data and dispatches `RawEvent`s to the
+/// The Input_Thread runs the platform's input observation loop (message pump +
+/// hooks). It captures raw event data and dispatches `RawEvent`s to the
 /// worker pool via a channel. It performs zero accessibility queries.
 ///
 /// # Arguments
@@ -462,6 +480,8 @@ fn input_thread_main(
         INPUT_EXCLUDED_PID.with(|p| *p.borrow_mut() = None);
         INPUT_PID_CACHE.with(|c| c.borrow_mut().clear());
         INPUT_UIA.with(|u| *u.borrow_mut() = None);
+        INPUT_LAST_INPUT_TIMESTAMP.with(|t| t.set(0));
+        INPUT_LAST_KEYBOARD_TIMESTAMP.with(|t| t.set(0));
         return Err(e);
     }
 
@@ -492,9 +512,12 @@ fn input_thread_main(
     INPUT_ACTIVE.with(|a| *a.borrow_mut() = None);
     INPUT_EXCLUDED_PID.with(|p| *p.borrow_mut() = None);
     INPUT_FOREGROUND_PID.with(|p| p.set(0));
+    INPUT_LAST_FOREGROUND_HWND.with(|p| p.set(0));
     INPUT_MOUSE_DOWN_POS.with(|p| p.set(None));
     INPUT_PID_CACHE.with(|c| c.borrow_mut().clear());
     INPUT_UIA.with(|u| *u.borrow_mut() = None);
+    INPUT_LAST_INPUT_TIMESTAMP.with(|t| t.set(0));
+    INPUT_LAST_KEYBOARD_TIMESTAMP.with(|t| t.set(0));
 
     Ok(())
 }
@@ -543,7 +566,7 @@ fn input_is_active() -> bool {
     INPUT_ACTIVE.with(|a| {
         a.borrow()
             .as_ref()
-            .map_or(false, |flag| flag.load(Ordering::SeqCst))
+            .is_some_and(|flag| flag.load(Ordering::SeqCst))
     })
 }
 
@@ -638,6 +661,27 @@ unsafe extern "system" fn input_win_event_proc(
 
     match event {
         x if x == EVENT_SYSTEM_FOREGROUND => {
+            // Only dispatch context_switch if correlated with recent user input.
+            // Programmatic foreground changes (notifications, minimize/restore by
+            // other apps) will not have a preceding input event within the window.
+            let last_input = INPUT_LAST_INPUT_TIMESTAMP.with(|t| t.get());
+            if timestamp.saturating_sub(last_input) > timing::FOREGROUND_CORRELATION_MS {
+                return; // Programmatic — suppress.
+            }
+
+            // Resolve root window for deduplication comparison.
+            use windows::Win32::UI::WindowsAndMessaging::{GetAncestor, GA_ROOT};
+            let root = GetAncestor(hwnd, GA_ROOT);
+            let root_handle = if root.0.is_null() { window_handle } else { root.0 as i64 };
+
+            // Deduplicate: if the click-based handler already dispatched a
+            // foreground event for this same root window, skip.
+            let last_fg = INPUT_LAST_FOREGROUND_HWND.with(|h| h.get());
+            if root_handle == last_fg {
+                return; // Already dispatched by click handler.
+            }
+            INPUT_LAST_FOREGROUND_HWND.with(|h| h.set(root_handle));
+
             input_dispatch_raw_event(RawEvent {
                 event_type: RawEventType::Foreground,
                 sequence_id: 0, // assigned by input_dispatch_raw_event
@@ -654,8 +698,8 @@ unsafe extern "system" fn input_win_event_proc(
             });
         }
 
-        x if x == EVENT_OBJECT_CREATE => {
-            if id_object == OBJID_WINDOW.0 && id_child == CHILDID_SELF as i32 {
+        x if x == EVENT_OBJECT_CREATE
+            && id_object == OBJID_WINDOW.0 && id_child == CHILDID_SELF as i32 => {
                 if !IsWindow(hwnd).as_bool() {
                     return;
                 }
@@ -673,6 +717,11 @@ unsafe extern "system" fn input_win_event_proc(
                         return;
                     }
                 }
+                // Only dispatch if correlated with recent user input.
+                let last_input = INPUT_LAST_INPUT_TIMESTAMP.with(|t| t.get());
+                if timestamp.saturating_sub(last_input) > timing::WINDOW_LIFECYCLE_CORRELATION_MS {
+                    return; // Programmatic window creation — suppress.
+                }
                 input_dispatch_raw_event(RawEvent {
                     event_type: RawEventType::WindowCreate,
                     sequence_id: 0,
@@ -688,10 +737,9 @@ unsafe extern "system" fn input_win_event_proc(
                             pre_captured_element: None,
                 });
             }
-        }
 
-        x if x == EVENT_OBJECT_DESTROY => {
-            if id_object == OBJID_WINDOW.0 && id_child == CHILDID_SELF as i32 {
+        x if x == EVENT_OBJECT_DESTROY
+            && id_object == OBJID_WINDOW.0 && id_child == CHILDID_SELF as i32 => {
                 // Only emit context_close for true top-level windows.
                 // Skip child windows, owned windows, and windows without
                 // titles to avoid flooding when dialogs with many
@@ -709,6 +757,11 @@ unsafe extern "system" fn input_win_event_proc(
                     // are typically internal framework windows).
                     let title = get_window_title(hwnd);
                     if !has_parent && !has_owner && !title.is_empty() {
+                        // Only dispatch if correlated with recent user input.
+                        let last_input = INPUT_LAST_INPUT_TIMESTAMP.with(|t| t.get());
+                        if timestamp.saturating_sub(last_input) > timing::WINDOW_LIFECYCLE_CORRELATION_MS {
+                            return; // Programmatic window destruction — suppress.
+                        }
                         input_dispatch_raw_event(RawEvent {
                             event_type: RawEventType::WindowDestroy,
                             sequence_id: 0,
@@ -726,9 +779,16 @@ unsafe extern "system" fn input_win_event_proc(
                     }
                 }
             }
-        }
 
         x if x == EVENT_OBJECT_FOCUS => {
+            // Only dispatch focus if correlated with recent user input.
+            // Programmatic focus changes (e.g., SetFocus calls from apps)
+            // will not have a preceding input event within the window.
+            let last_input = INPUT_LAST_INPUT_TIMESTAMP.with(|t| t.get());
+            if timestamp.saturating_sub(last_input) > timing::FOCUS_CORRELATION_MS {
+                return; // Programmatic focus — suppress.
+            }
+
             input_dispatch_raw_event(RawEvent {
                 event_type: RawEventType::Focus,
                 sequence_id: 0,
@@ -746,6 +806,16 @@ unsafe extern "system" fn input_win_event_proc(
         }
 
         x if x == EVENT_OBJECT_VALUECHANGE => {
+            // Only dispatch value-change if correlated with recent keyboard input.
+            // Uses INPUT_LAST_KEYBOARD_TIMESTAMP (not the general input timestamp)
+            // because only keyboard input produces value changes that should be
+            // captured. A mouse click followed by a programmatic SetWindowText
+            // should NOT pass the correlation check.
+            let last_keyboard = INPUT_LAST_KEYBOARD_TIMESTAMP.with(|t| t.get());
+            if timestamp.saturating_sub(last_keyboard) > timing::VALUE_CHANGE_CORRELATION_MS {
+                return; // Programmatic value change — suppress.
+            }
+
             input_dispatch_raw_event(RawEvent {
                 event_type: RawEventType::ValueChange,
                 sequence_id: 0,
@@ -800,23 +870,74 @@ unsafe extern "system" fn input_mouse_ll_proc(
         let msg = w_param.0 as u32;
         let pt = mouse_struct.pt;
 
-        let hwnd = GetForegroundWindow();
+        // Use GetForegroundWindow for PID exclusion check (determines WHETHER
+        // to capture the event — filters out events on the Docent app itself).
+        let fg_hwnd = GetForegroundWindow();
         let mut pid: u32 = 0;
-        GetWindowThreadProcessId(hwnd, Some(&mut pid));
+        GetWindowThreadProcessId(fg_hwnd, Some(&mut pid));
         let excluded = input_get_excluded_pid();
 
-        if input_should_keep_event_cached(pid, excluded, hwnd) {
+        if input_should_keep_event_cached(pid, excluded, fg_hwnd) {
             let timestamp = current_timestamp_ms();
-            let window_handle = hwnd.0 as i64;
+
+            // Use WindowFromPoint for the window_handle field (identifies WHICH
+            // window was interacted with — the window under the cursor). This
+            // ensures clicks on a specific window always resolve to that window's
+            // handle, even if the foreground hasn't updated yet.
+            let point_hwnd = WindowFromPoint(pt);
+            let window_handle = if point_hwnd.0.is_null() {
+                fg_hwnd.0 as i64
+            } else {
+                point_hwnd.0 as i64
+            };
 
             match msg {
                 WM_LBUTTONDOWN => {
+                    // Update last-input timestamp for correlation.
+                    INPUT_LAST_INPUT_TIMESTAMP.with(|t| t.set(timestamp));
                     // Store mouse-down position for drag detection.
                     INPUT_MOUSE_DOWN_POS.with(|p| p.set(Some(pt)));
+
+                    // If clicking on a different top-level window, proactively
+                    // dispatch a Foreground event. Some window classes (e.g.
+                    // STATIC) don't fire EVENT_SYSTEM_FOREGROUND on activation,
+                    // so we detect the switch here to guarantee context_switch.
+                    if !point_hwnd.0.is_null() {
+                        use windows::Win32::UI::WindowsAndMessaging::{GetAncestor, GA_ROOT};
+                        let clicked_root = GetAncestor(point_hwnd, GA_ROOT);
+                        let fg_root = GetAncestor(fg_hwnd, GA_ROOT);
+                        let clicked_root_h = if clicked_root.0.is_null() { point_hwnd } else { clicked_root };
+                        let fg_root_h = if fg_root.0.is_null() { fg_hwnd } else { fg_root };
+                        if clicked_root_h != fg_root_h {
+                            let clicked_handle = clicked_root_h.0 as i64;
+                            let last_fg = INPUT_LAST_FOREGROUND_HWND.with(|h| h.get());
+                            if clicked_handle != last_fg {
+                                // Different root window — user is switching context.
+                                INPUT_LAST_FOREGROUND_HWND.with(|h| h.set(clicked_handle));
+                                let mut clicked_pid: u32 = 0;
+                                GetWindowThreadProcessId(clicked_root_h, Some(&mut clicked_pid));
+                                INPUT_FOREGROUND_PID.with(|p| p.set(clicked_pid));
+                                input_dispatch_raw_event(RawEvent {
+                                    event_type: RawEventType::Foreground,
+                                    sequence_id: 0,
+                                    timestamp,
+                                    screen_x: 0,
+                                    screen_y: 0,
+                                    window_handle: clicked_handle,
+                                    process_id: clicked_pid,
+                                    key_code: 0,
+                                    modifiers: (false, false, false, false),
+                                    scroll_delta: 0.0,
+                                    callback_params: [0, 0, 0, 0],
+                                    pre_captured_element: None,
+                                });
+                            }
+                        }
+                    }
                 }
                 WM_LBUTTONUP => {
                     let was_drag = INPUT_MOUSE_DOWN_POS.with(|p| {
-                        p.get().map_or(false, |down_pt| {
+                        p.get().is_some_and(|down_pt| {
                             let dx = (pt.x - down_pt.x).abs();
                             let dy = (pt.y - down_pt.y).abs();
                             dx > DRAG_THRESHOLD_PX || dy > DRAG_THRESHOLD_PX
@@ -885,6 +1006,8 @@ unsafe extern "system" fn input_mouse_ll_proc(
                     INPUT_MOUSE_DOWN_POS.with(|p| p.set(None));
                 }
                 WM_RBUTTONDOWN => {
+                    // Update last-input timestamp for correlation.
+                    INPUT_LAST_INPUT_TIMESTAMP.with(|t| t.set(timestamp));
                     let pre_element = input_pre_capture_element(pt.x, pt.y);
                     input_dispatch_raw_event(RawEvent {
                         event_type: RawEventType::RightClick,
@@ -916,6 +1039,42 @@ unsafe extern "system" fn input_mouse_ll_proc(
                         scroll_delta: delta,
                         callback_params: [0, 0, 0, 0],
                             pre_captured_element: None,
+                    });
+                }
+                WM_MOUSEHWHEEL => {
+                    let delta = (mouse_struct.mouseData >> 16) as i16 as f64;
+                    input_dispatch_raw_event(RawEvent {
+                        event_type: RawEventType::Scroll,
+                        sequence_id: 0,
+                        timestamp,
+                        screen_x: pt.x,
+                        screen_y: pt.y,
+                        window_handle,
+                        process_id: pid,
+                        key_code: 0,
+                        modifiers: (false, false, false, false),
+                        scroll_delta: delta,
+                        callback_params: [1, 0, 0, 0], // 1 = horizontal axis
+                        pre_captured_element: None,
+                    });
+                }
+                WM_MBUTTONDOWN => {
+                    // Update last-input timestamp for correlation.
+                    INPUT_LAST_INPUT_TIMESTAMP.with(|t| t.set(timestamp));
+                    let pre_element = input_pre_capture_element(pt.x, pt.y);
+                    input_dispatch_raw_event(RawEvent {
+                        event_type: RawEventType::Click,
+                        sequence_id: 0,
+                        timestamp,
+                        screen_x: pt.x,
+                        screen_y: pt.y,
+                        window_handle,
+                        process_id: pid,
+                        key_code: 0,
+                        modifiers: (false, false, false, false),
+                        scroll_delta: 0.0,
+                        callback_params: [0, 0, 0, 0],
+                        pre_captured_element: pre_element,
                     });
                 }
                 _ => {}
@@ -954,6 +1113,10 @@ unsafe extern "system" fn input_keyboard_ll_proc(
                 let modifiers = get_modifier_state();
                 let timestamp = current_timestamp_ms();
                 let window_handle = hwnd.0 as i64;
+
+                // Update both timestamps for correlation.
+                INPUT_LAST_INPUT_TIMESTAMP.with(|t| t.set(timestamp));
+                INPUT_LAST_KEYBOARD_TIMESTAMP.with(|t| t.set(timestamp));
 
                 input_dispatch_raw_event(RawEvent {
                     event_type: RawEventType::Keyboard,
@@ -1453,5 +1616,60 @@ impl AccessibilityBackend for WindowsAccessibilityBackend {
         } else {
             root.0 as i64
         }
+    }
+
+    fn window_rect(&self, window_handle: i64) -> Option<super::WindowRect> {
+        use windows::Win32::Foundation::RECT;
+        use windows::Win32::UI::WindowsAndMessaging::{GetAncestor, GetWindowRect, GA_ROOT};
+
+        let hwnd = HWND(window_handle as *mut _);
+        let root = unsafe { GetAncestor(hwnd, GA_ROOT) };
+        let target = if root.0.is_null() { hwnd } else { root };
+
+        let mut rect = RECT::default();
+        let ok = unsafe { GetWindowRect(target, &mut rect) };
+        if ok.is_ok() {
+            Some(super::WindowRect {
+                x: rect.left,
+                y: rect.top,
+                width: rect.right - rect.left,
+                height: rect.bottom - rect.top,
+            })
+        } else {
+            None
+        }
+    }
+
+    fn selected_item_name(&self, _window_handle: i64) -> Option<(ElementDescription, String)> {
+        use windows::core::Interface;
+
+        let uia = self.uia.as_ref()?;
+        let focused = unsafe { uia.GetFocusedElement().ok()? };
+
+        // Try to get the SelectionPattern from the focused element.
+        let pattern: IUIAutomationSelectionPattern = unsafe {
+            let pattern_obj = focused
+                .GetCurrentPattern(UIA_SelectionPatternId)
+                .ok()?;
+            pattern_obj.cast().ok()?
+        };
+
+        // Get the current selection array.
+        let selection = unsafe { pattern.GetCurrentSelection().ok()? };
+        let count = unsafe { selection.Length().ok()? };
+        if count == 0 {
+            return None;
+        }
+
+        // Get the first selected element.
+        let selected_element = unsafe { selection.GetElement(0).ok()? };
+
+        // Build the element description for the selected item.
+        let description = unsafe { uia_element_to_description(uia, &selected_element)? };
+
+        // Get the name of the selected item.
+        let name = unsafe { get_string_property(&selected_element, UIA_NamePropertyId) };
+
+        Some((description, name))
     }
 }

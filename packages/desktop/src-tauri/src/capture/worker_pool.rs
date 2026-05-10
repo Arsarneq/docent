@@ -8,13 +8,14 @@ use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
 use std::sync::mpsc;
 use std::sync::Arc;
 use std::thread::JoinHandle;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use super::action_mapping::PASSWORD_MASK;
 use super::coordinate;
 use super::scroll::{RawScrollEvent, ScrollAccumulator};
 use super::{
     ActionEvent, ActionPayload, CaptureError, CaptureMode, ElementDescription, Modifiers,
+    WindowRect,
 };
 
 // ---------------------------------------------------------------------------
@@ -98,7 +99,7 @@ pub struct RawEvent {
 /// Messages sent from the Input_Thread to worker threads.
 pub enum WorkerMessage {
     /// A raw event to process.
-    Event(RawEvent),
+    Event(Box<RawEvent>),
     /// Poison pill — drain remaining events then exit.
     Shutdown,
 }
@@ -302,12 +303,12 @@ impl WorkerPool {
 
             if let Some(worker) = self.workers.get(target) {
                 worker.queue_len.fetch_add(1, Ordering::SeqCst);
-                match worker.sender.send(WorkerMessage::Event(current_event)) {
+                match worker.sender.send(WorkerMessage::Event(Box::new(current_event))) {
                     Ok(()) => return, // Successfully dispatched.
                     Err(mpsc::SendError(WorkerMessage::Event(returned_event))) => {
                         // Worker is dead. Undo the queue_len bump.
                         worker.queue_len.fetch_sub(1, Ordering::SeqCst);
-                        current_event = returned_event;
+                        current_event = *returned_event;
 
                         if respawned.contains(&target) {
                             // Already respawned this index and it failed again.
@@ -479,6 +480,22 @@ pub trait AccessibilityBackend: Send + 'static {
     /// within the same application window should share the same context_id.
     /// On Windows this calls `GetAncestor(hwnd, GA_ROOT)`.
     fn root_window_handle(&self, window_handle: i64) -> i64;
+
+    /// Get the window rectangle (position and size) for a window handle.
+    ///
+    /// Resolves to the root window via `GetAncestor(GA_ROOT)` and returns
+    /// the bounding rectangle. Returns `None` if the call fails or the
+    /// handle is invalid.
+    fn window_rect(&self, window_handle: i64) -> Option<WindowRect>;
+
+    /// Attempt to get the selected item's description and name from a
+    /// container element (List, ComboBox, Tree, DataGrid) using the
+    /// `IUIAutomationSelectionPattern`.
+    ///
+    /// Returns `Some((element_description, selected_item_name))` if a
+    /// selection could be resolved, or `None` if the pattern is not
+    /// supported or no item is selected.
+    fn selected_item_name(&self, window_handle: i64) -> Option<(ElementDescription, String)>;
 }
 
 // ---------------------------------------------------------------------------
@@ -504,18 +521,16 @@ pub struct PendingTypeEvent {
     pub timestamp: u64,
     /// Resolved context_id for the event.
     pub context_id: Option<i64>,
+    /// Resolved window_rect for the event.
+    pub window_rect: Option<WindowRect>,
     /// Sequence_id from the most recent value-change RawEvent.
     pub sequence_id: u64,
     /// Timestamp of the last value-change update (used for debounce).
     pub last_update: u64,
 }
 
-/// Debounce interval for type event coalescing (milliseconds).
-const TYPE_DEBOUNCE_MS: u64 = 500;
-
-/// Timeout for `recv_timeout` — used for periodic flush of scroll and type
-/// buffers.
-const RECV_TIMEOUT: Duration = Duration::from_millis(50);
+/// Debounce interval for type event coalescing (imported from timing.rs).
+use super::timing::{TYPE_DEBOUNCE_MS, WORKER_RECV_TIMEOUT as RECV_TIMEOUT};
 
 // ---------------------------------------------------------------------------
 // Timestamp helper
@@ -769,6 +784,7 @@ pub fn worker_loop<B: AccessibilityBackend>(
 
 /// Process a single raw event, performing accessibility queries and emitting
 /// the appropriate `ActionEvent`.
+#[allow(clippy::too_many_arguments)]
 fn process_raw_event<B: AccessibilityBackend>(
     _worker_index: usize,
     raw: &RawEvent,
@@ -795,20 +811,27 @@ fn process_raw_event<B: AccessibilityBackend>(
         None
     };
 
+    // Resolve window_rect from the window handle.
+    let window_rect = if raw.window_handle != 0 {
+        backend.window_rect(raw.window_handle)
+    } else {
+        None
+    };
+
     match &raw.event_type {
         RawEventType::Click => {
             handle_click(
-                raw, backend, action_sender, context_id, false,
+                raw, backend, action_sender, context_id, false, window_rect.clone(),
             );
         }
         RawEventType::RightClick => {
             handle_click(
-                raw, backend, action_sender, context_id, true,
+                raw, backend, action_sender, context_id, true, window_rect.clone(),
             );
         }
         RawEventType::Focus => {
             handle_focus(
-                raw, backend, action_sender, context_id, last_focus_selector,
+                raw, backend, action_sender, context_id, last_focus_selector, window_rect.clone(),
             );
         }
         RawEventType::ValueChange => {
@@ -819,20 +842,21 @@ fn process_raw_event<B: AccessibilityBackend>(
                 context_id,
                 pending_type,
                 last_value_map,
+                window_rect.clone(),
             );
         }
         RawEventType::Selection => {
-            handle_selection(raw, backend, action_sender, context_id);
+            handle_selection(raw, backend, action_sender, context_id, window_rect.clone());
         }
         RawEventType::Keyboard => {
             handle_keyboard(
-                raw, backend, action_sender, context_id, pending_type,
+                raw, backend, action_sender, context_id, pending_type, window_rect.clone(),
             );
         }
         RawEventType::Foreground => {
             // Flush pending type before context switch.
             flush_pending_type(pending_type, action_sender);
-            handle_foreground(raw, backend, action_sender, context_id);
+            handle_foreground(raw, backend, action_sender, context_id, window_rect.clone());
         }
         RawEventType::WindowCreate => {
             let _ = action_sender.send(ActionEvent {
@@ -840,7 +864,7 @@ fn process_raw_event<B: AccessibilityBackend>(
                 context_id,
                 capture_mode: CaptureMode::Accessibility,
                 frame_src: None,
-                window_rect: None,
+                window_rect: window_rect.clone(),
                 sequence_id: Some(raw.sequence_id),
                 payload: ActionPayload::ContextOpen {
                     opener_context_id: context_id,
@@ -854,7 +878,7 @@ fn process_raw_event<B: AccessibilityBackend>(
                 context_id,
                 capture_mode: CaptureMode::Accessibility,
                 frame_src: None,
-                window_rect: None,
+                window_rect: window_rect.clone(),
                 sequence_id: Some(raw.sequence_id),
                 payload: ActionPayload::ContextClose {
                     window_closing: true,
@@ -862,10 +886,11 @@ fn process_raw_event<B: AccessibilityBackend>(
             });
         }
         RawEventType::Scroll => {
+            let is_horizontal = raw.callback_params[0] == 1;
             scroll_acc.push(RawScrollEvent {
                 timestamp: raw.timestamp,
-                delta_x: 0.0,
-                delta_y: raw.scroll_delta,
+                delta_x: if is_horizontal { raw.scroll_delta } else { 0.0 },
+                delta_y: if is_horizontal { 0.0 } else { raw.scroll_delta },
             });
             // Check if debounce has elapsed (will be checked on timeout too).
             let now = current_timestamp_ms();
@@ -875,7 +900,7 @@ fn process_raw_event<B: AccessibilityBackend>(
                     context_id,
                     capture_mode: CaptureMode::Accessibility,
                     frame_src: None,
-                    window_rect: None,
+                    window_rect: window_rect.clone(),
                     sequence_id: Some(raw.sequence_id),
                     payload: ActionPayload::Scroll {
                         element: None,
@@ -888,10 +913,10 @@ fn process_raw_event<B: AccessibilityBackend>(
             }
         }
         RawEventType::DragStart { source_coords: _ } => {
-            handle_drag_start(raw, backend, action_sender, context_id, last_drag_element);
+            handle_drag_start(raw, backend, action_sender, context_id, last_drag_element, window_rect.clone());
         }
         RawEventType::Drop { source_coords: _ } => {
-            handle_drop(raw, backend, action_sender, context_id, last_drag_element);
+            handle_drop(raw, backend, action_sender, context_id, last_drag_element, window_rect.clone());
         }
         RawEventType::MouseDown | RawEventType::MouseUp => {
             // MouseDown/MouseUp are handled by the Input_Thread for drag
@@ -910,6 +935,7 @@ fn handle_click<B: AccessibilityBackend>(
     action_sender: &mpsc::Sender<ActionEvent>,
     context_id: Option<i64>,
     is_right_click: bool,
+    window_rect: Option<WindowRect>,
 ) {
     // Priority chain for element resolution:
     // 1. Pre-captured element from Input_Thread (window guaranteed alive)
@@ -967,10 +993,39 @@ fn handle_click<B: AccessibilityBackend>(
         context_id,
         capture_mode,
         frame_src: None,
-        window_rect: None,
+        window_rect: window_rect.clone(),
         sequence_id: Some(raw.sequence_id),
         payload,
     });
+
+    // Selection detection: if the clicked element is a list item (or similar
+    // selectable item), also emit a select event. This handles cases where
+    // EVENT_OBJECT_SELECTION doesn't fire (e.g. LISTBOX without message pump).
+    if !is_right_click {
+        let is_list_item = matches!(
+            element_desc.tag.as_str(),
+            "ListItem" | "TreeItem" | "DataItem" | "TabItem"
+        );
+        // Also check role for Win32 controls that might report differently.
+        let role_is_item = element_desc.role.as_deref().is_some_and(|r| {
+            matches!(r, "listitem" | "treeitem" | "option" | "tab")
+        });
+        if is_list_item || role_is_item {
+            let value = element_desc.name.clone().unwrap_or_default();
+            let _ = action_sender.send(ActionEvent {
+                timestamp: raw.timestamp,
+                context_id,
+                capture_mode: CaptureMode::Accessibility,
+                frame_src: None,
+                window_rect: window_rect.clone(),
+                sequence_id: Some(raw.sequence_id),
+                payload: ActionPayload::Select {
+                    element: element_desc.clone(),
+                    value,
+                },
+            });
+        }
+    }
 
     // File dialog detection: if the clicked element is a button named
     // "Save" or "Open", check if the window is a file dialog.
@@ -989,7 +1044,7 @@ fn handle_click<B: AccessibilityBackend>(
                         context_id,
                         capture_mode: CaptureMode::Accessibility,
                         frame_src: None,
-                        window_rect: None,
+                        window_rect,
                         sequence_id: Some(raw.sequence_id),
                         payload: ActionPayload::FileDialog {
                             dialog_type,
@@ -1013,6 +1068,7 @@ fn handle_focus<B: AccessibilityBackend>(
     action_sender: &mpsc::Sender<ActionEvent>,
     context_id: Option<i64>,
     last_focus_selector: &mut String,
+    window_rect: Option<WindowRect>,
 ) {
     let element = match backend.focused_element() {
         Some(el) => el,
@@ -1030,7 +1086,7 @@ fn handle_focus<B: AccessibilityBackend>(
         context_id,
         capture_mode: CaptureMode::Accessibility,
         frame_src: None,
-        window_rect: None,
+        window_rect,
         sequence_id: Some(raw.sequence_id),
         payload: ActionPayload::Focus {
             element,
@@ -1049,6 +1105,7 @@ fn handle_value_change<B: AccessibilityBackend>(
     context_id: Option<i64>,
     pending_type: &mut Option<PendingTypeEvent>,
     last_value_map: &mut HashMap<String, String>,
+    window_rect: Option<WindowRect>,
 ) {
     let element = match backend.focused_element() {
         Some(el) => el,
@@ -1093,6 +1150,7 @@ fn handle_value_change<B: AccessibilityBackend>(
                 is_password,
                 timestamp: raw.timestamp,
                 context_id,
+                window_rect,
                 sequence_id: raw.sequence_id,
                 last_update: raw.timestamp,
             });
@@ -1109,23 +1167,63 @@ fn handle_selection<B: AccessibilityBackend>(
     backend: &B,
     action_sender: &mpsc::Sender<ActionEvent>,
     context_id: Option<i64>,
+    window_rect: Option<WindowRect>,
 ) {
-    let element = match backend.focused_element() {
-        Some(el) => el,
-        None => return,
-    };
+    let element = backend.focused_element();
 
-    let value = element.text.clone().unwrap_or_default();
+    // Try to resolve the selected item via SelectionPattern first.
+    // This works regardless of whether focused_element succeeded.
+    let (final_element, value) = if let Some(ref el) = element {
+        // Check if the focused element is a container type (List, ComboBox, Tree, DataGrid).
+        let is_container = matches!(
+            el.tag.as_str(),
+            "List" | "ComboBox" | "Tree" | "DataGrid"
+        );
+
+        if is_container {
+            // Try to get the selected item from the container.
+            match backend.selected_item_name(raw.window_handle) {
+                Some((selected_el, selected_name)) => (selected_el, selected_name),
+                None => {
+                    // Fall back to the focused element's Name property as the value.
+                    let value = el.name.clone().unwrap_or_default();
+                    (el.clone(), value)
+                }
+            }
+        } else {
+            let value = el.text.clone().unwrap_or_default();
+            (el.clone(), value)
+        }
+    } else {
+        // focused_element() returned None. Still try selected_item_name.
+        match backend.selected_item_name(raw.window_handle) {
+            Some((selected_el, selected_name)) => (selected_el, selected_name),
+            None => {
+                // Emit a minimal select event with a fallback element.
+                let title = backend.window_title(raw.window_handle);
+                let fallback = super::ElementDescription {
+                    tag: "ListItem".to_string(),
+                    id: None,
+                    selector: String::new(),
+                    name: if title.is_empty() { None } else { Some(title.clone()) },
+                    role: Some("listitem".to_string()),
+                    element_type: None,
+                    text: None,
+                };
+                (fallback, String::new())
+            }
+        }
+    };
 
     let _ = action_sender.send(ActionEvent {
         timestamp: raw.timestamp,
         context_id,
         capture_mode: CaptureMode::Accessibility,
         frame_src: None,
-        window_rect: None,
+        window_rect,
         sequence_id: Some(raw.sequence_id),
         payload: ActionPayload::Select {
-            element,
+            element: final_element,
             value,
         },
     });
@@ -1141,6 +1239,7 @@ fn handle_keyboard<B: AccessibilityBackend>(
     action_sender: &mpsc::Sender<ActionEvent>,
     context_id: Option<i64>,
     pending_type: &mut Option<PendingTypeEvent>,
+    window_rect: Option<WindowRect>,
 ) {
     let key = vk_to_key_name(raw.key_code);
 
@@ -1171,7 +1270,7 @@ fn handle_keyboard<B: AccessibilityBackend>(
         context_id,
         capture_mode: CaptureMode::Accessibility,
         frame_src: None,
-        window_rect: None,
+        window_rect,
         sequence_id: Some(raw.sequence_id),
         payload: ActionPayload::Key {
             key,
@@ -1195,6 +1294,7 @@ fn handle_foreground<B: AccessibilityBackend>(
     backend: &B,
     action_sender: &mpsc::Sender<ActionEvent>,
     context_id: Option<i64>,
+    window_rect: Option<WindowRect>,
 ) {
     let title = backend.window_title(raw.window_handle);
     let source = backend.process_name(raw.window_handle);
@@ -1204,7 +1304,7 @@ fn handle_foreground<B: AccessibilityBackend>(
         context_id,
         capture_mode: CaptureMode::Accessibility,
         frame_src: None,
-        window_rect: None,
+        window_rect,
         sequence_id: Some(raw.sequence_id),
         payload: ActionPayload::ContextSwitch {
             source,
@@ -1223,6 +1323,7 @@ fn handle_drag_start<B: AccessibilityBackend>(
     action_sender: &mpsc::Sender<ActionEvent>,
     context_id: Option<i64>,
     last_drag_element: &mut Option<ElementDescription>,
+    window_rect: Option<WindowRect>,
 ) {
     let element = backend
         .element_at_point(raw.screen_x, raw.screen_y)
@@ -1238,7 +1339,7 @@ fn handle_drag_start<B: AccessibilityBackend>(
         context_id,
         capture_mode: CaptureMode::Accessibility,
         frame_src: None,
-        window_rect: None,
+        window_rect,
         sequence_id: Some(raw.sequence_id),
         payload: ActionPayload::DragStart { element },
     });
@@ -1250,6 +1351,7 @@ fn handle_drop<B: AccessibilityBackend>(
     action_sender: &mpsc::Sender<ActionEvent>,
     context_id: Option<i64>,
     last_drag_element: &mut Option<ElementDescription>,
+    window_rect: Option<WindowRect>,
 ) {
     let element = backend
         .element_at_point(raw.screen_x, raw.screen_y)
@@ -1265,7 +1367,7 @@ fn handle_drop<B: AccessibilityBackend>(
         context_id,
         capture_mode: CaptureMode::Accessibility,
         frame_src: None,
-        window_rect: None,
+        window_rect,
         sequence_id: Some(raw.sequence_id),
         payload: ActionPayload::Drop {
             x: raw.screen_x as f64,
@@ -1292,7 +1394,7 @@ fn flush_pending_type(
             context_id: pt.context_id,
             capture_mode: CaptureMode::Accessibility,
             frame_src: None,
-            window_rect: None,
+            window_rect: pt.window_rect,
             sequence_id: Some(pt.sequence_id),
             payload: ActionPayload::Type {
                 element: pt.element,

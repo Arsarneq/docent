@@ -152,7 +152,7 @@ pub fn map_element(props: &UiaProperties) -> ElementDescription {
         } else {
             ""
         };
-        non_empty_mapped(raw, |s| truncate_text(s))
+        non_empty_mapped(raw, truncate_text)
     };
 
     let selector = build_selector(&props.tree_path);
