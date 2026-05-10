@@ -10,6 +10,7 @@
 //! CI: runs on windows-latest (and future macos-latest, ubuntu-latest with xvfb)
 //!
 //! NOTE: These tests require a display (headed mode). On Linux CI, use xvfb-run.
+//! Tests are run serially (not in parallel) because they share the OS input layer.
 
 use std::sync::mpsc;
 use std::thread;
@@ -22,7 +23,9 @@ use docent_desktop_lib::capture::{ActionEvent, ActionPayload, CaptureLayer};
 #[cfg(target_os = "windows")]
 use docent_desktop_lib::capture::windows::WindowsCapture;
 
-/// Helper: start capture, run a closure that simulates input, stop capture,
+// ─── Test Harness ───────────────────────────────────────────────────────────
+
+/// Start capture, run a closure that simulates input, stop capture,
 /// return all collected ActionEvents.
 #[cfg(target_os = "windows")]
 fn capture_during<F>(setup: F) -> Vec<ActionEvent>
@@ -53,144 +56,322 @@ where
     rx.try_iter().collect()
 }
 
-// ─── User Action Tests ──────────────────────────────────────────────────────
-// These verify that real user input IS captured.
+/// Filter events by payload type.
+fn clicks(events: &[ActionEvent]) -> Vec<&ActionEvent> {
+    events.iter().filter(|e| matches!(&e.payload, ActionPayload::Click { .. })).collect()
+}
+
+fn right_clicks(events: &[ActionEvent]) -> Vec<&ActionEvent> {
+    events.iter().filter(|e| matches!(&e.payload, ActionPayload::RightClick { .. })).collect()
+}
+
+fn keys(events: &[ActionEvent]) -> Vec<&ActionEvent> {
+    events.iter().filter(|e| matches!(&e.payload, ActionPayload::Key { .. })).collect()
+}
+
+fn scrolls(events: &[ActionEvent]) -> Vec<&ActionEvent> {
+    events.iter().filter(|e| matches!(&e.payload, ActionPayload::Scroll { .. })).collect()
+}
+
+fn focuses(events: &[ActionEvent]) -> Vec<&ActionEvent> {
+    events.iter().filter(|e| matches!(&e.payload, ActionPayload::Focus { .. })).collect()
+}
+
+fn types(events: &[ActionEvent]) -> Vec<&ActionEvent> {
+    events.iter().filter(|e| matches!(&e.payload, ActionPayload::Type { .. })).collect()
+}
+
+fn selects(events: &[ActionEvent]) -> Vec<&ActionEvent> {
+    events.iter().filter(|e| matches!(&e.payload, ActionPayload::Select { .. })).collect()
+}
+
+fn context_opens(events: &[ActionEvent]) -> Vec<&ActionEvent> {
+    events.iter().filter(|e| matches!(&e.payload, ActionPayload::ContextOpen { .. })).collect()
+}
+
+fn context_closes(events: &[ActionEvent]) -> Vec<&ActionEvent> {
+    events.iter().filter(|e| matches!(&e.payload, ActionPayload::ContextClose { .. })).collect()
+}
+
+fn context_switches(events: &[ActionEvent]) -> Vec<&ActionEvent> {
+    events.iter().filter(|e| matches!(&e.payload, ActionPayload::ContextSwitch { .. })).collect()
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// USER ACTION TESTS — verify real input IS captured
+// ═══════════════════════════════════════════════════════════════════════════════
 
 #[test]
 #[cfg(target_os = "windows")]
-fn click_is_captured() {
+fn user_click_is_captured() {
     let events = capture_during(|enigo| {
         enigo.move_mouse(500, 500, Coordinate::Abs).unwrap();
         thread::sleep(Duration::from_millis(50));
         enigo.button(enigo::Button::Left, Direction::Click).unwrap();
     });
 
-    let clicks: Vec<_> = events
-        .iter()
-        .filter(|e| matches!(&e.payload, ActionPayload::Click { .. }))
-        .collect();
-
     assert!(
-        clicks.len() >= 1,
-        "Expected at least 1 click event, got {}. All events: {:?}",
-        clicks.len(),
-        events.iter().map(|e| format!("{:?}", e.payload)).collect::<Vec<_>>()
+        clicks(&events).len() >= 1,
+        "Expected at least 1 click, got {}",
+        clicks(&events).len()
     );
 }
 
 #[test]
 #[cfg(target_os = "windows")]
-fn right_click_is_captured() {
+fn user_right_click_is_captured() {
     let events = capture_during(|enigo| {
         enigo.move_mouse(500, 500, Coordinate::Abs).unwrap();
         thread::sleep(Duration::from_millis(50));
         enigo.button(enigo::Button::Right, Direction::Click).unwrap();
     });
 
-    let right_clicks: Vec<_> = events
-        .iter()
-        .filter(|e| matches!(&e.payload, ActionPayload::RightClick { .. }))
-        .collect();
-
     assert!(
-        right_clicks.len() >= 1,
-        "Expected at least 1 right_click event, got {}",
-        right_clicks.len()
+        right_clicks(&events).len() >= 1,
+        "Expected at least 1 right_click, got {}",
+        right_clicks(&events).len()
     );
 }
 
 #[test]
 #[cfg(target_os = "windows")]
-fn key_press_is_captured() {
+fn user_key_press_is_captured() {
     let events = capture_during(|enigo| {
-        // Press and release Enter.
         enigo.key(enigo::Key::Return, Direction::Click).unwrap();
     });
 
-    let keys: Vec<_> = events
-        .iter()
-        .filter(|e| matches!(&e.payload, ActionPayload::Key { .. }))
-        .collect();
-
     assert!(
-        keys.len() >= 1,
+        keys(&events).len() >= 1,
         "Expected at least 1 key event, got {}",
-        keys.len()
+        keys(&events).len()
     );
 }
 
 #[test]
 #[cfg(target_os = "windows")]
-fn scroll_is_captured() {
+fn user_scroll_is_captured() {
     let events = capture_during(|enigo| {
         enigo.move_mouse(500, 500, Coordinate::Abs).unwrap();
         thread::sleep(Duration::from_millis(50));
-        // Scroll down significantly.
         enigo.scroll(5, enigo::Axis::Vertical).unwrap();
-        // Wait for scroll debounce.
         thread::sleep(Duration::from_millis(500));
     });
 
-    let scrolls: Vec<_> = events
-        .iter()
-        .filter(|e| matches!(&e.payload, ActionPayload::Scroll { .. }))
-        .collect();
-
     assert!(
-        scrolls.len() >= 1,
+        scrolls(&events).len() >= 1,
         "Expected at least 1 scroll event, got {}",
-        scrolls.len()
+        scrolls(&events).len()
     );
 }
 
-// ─── Side-Effect Tests ──────────────────────────────────────────────────────
-// These verify that programmatic changes are NOT captured.
-// TODO: Implement once the desktop capture layer has side-effect filtering.
-// The pattern: start a test app that programmatically changes values/focus,
-// verify those changes don't appear in the captured events.
-
-
-// ─── Context Lifecycle Tests ────────────────────────────────────────────────
-// These verify that window lifecycle events are captured correctly.
-
 #[test]
 #[cfg(target_os = "windows")]
-fn context_switch_is_captured_on_foreground_change() {
-    // This test verifies that switching the foreground window produces
-    // a context_switch event. We simulate Alt+Tab or clicking another window.
-    // For now, just verify the capture layer produces context_switch events
-    // when the foreground changes.
+fn user_typing_is_captured() {
     let events = capture_during(|enigo| {
-        // Press Alt+Tab to switch windows (if multiple windows exist).
-        // This may not produce a context_switch if only one window is open,
-        // so we just verify no crash occurs.
-        enigo.key(enigo::Key::Tab, Direction::Click).unwrap();
-        thread::sleep(Duration::from_millis(200));
+        // Type some characters — should produce value change events
+        // on whatever element is focused.
+        enigo.text("hello").unwrap();
+        thread::sleep(Duration::from_millis(600)); // Wait for type coalescing debounce
     });
 
-    // We can't guarantee a context_switch (depends on open windows),
-    // but we verify the capture layer handles keyboard input without crashing.
-    let _ = events; // No assertion — just verifying stability.
+    // Typing produces either key events (for individual keys) or type events
+    // (coalesced value changes). At minimum we should see activity.
+    let total = keys(&events).len() + types(&events).len();
+    assert!(
+        total >= 1,
+        "Expected at least 1 key or type event from typing, got {}",
+        total
+    );
 }
 
-// ─── Capture Principle Tests ────────────────────────────────────────────────
-// These will verify that the desktop capture layer follows the same principles
-// as the extension: capture what the user did, nothing else.
+// ═══════════════════════════════════════════════════════════════════════════════
+// SIDE-EFFECT TESTS — verify programmatic changes are NOT captured
+// These test the same principle as the extension tests: capture what the user
+// did, nothing else.
 //
-// TODO: Add these once the desktop capture layer has side-effect filtering:
-//
-// - programmatic_focus_not_captured: spawn a window, programmatically call
-//   SetFocus on a control, verify no focus event is captured
-//
-// - programmatic_value_change_not_captured: spawn a window with an edit
-//   control, programmatically set its text, verify no type event is captured
-//
-// - programmatic_window_open_not_captured: programmatically create a window
-//   (not via user input), verify no context_open is captured
-//
-// - timer_value_updates_not_captured: spawn a window with a timer that
-//   updates a control's value, verify no type events are captured
-//
-// These require the capture layer to distinguish user input (from low-level
-// hooks) from programmatic changes (from WinEvent hooks). The current
-// implementation captures both indiscriminately — fixing this is the next step.
+// NOTE: These tests will FAIL until the desktop capture layer is fixed to
+// filter side-effects. They document the ideal behaviour.
+// ═══════════════════════════════════════════════════════════════════════════════
+
+#[cfg(target_os = "windows")]
+mod side_effects {
+    use super::*;
+    use std::ptr;
+    use windows::Win32::Foundation::{HWND, LPARAM, WPARAM};
+    use windows::Win32::UI::WindowsAndMessaging::{
+        CreateWindowExW, DestroyWindow, ShowWindow, SetForegroundWindow,
+        SetWindowTextW,
+        WS_OVERLAPPEDWINDOW, WS_VISIBLE,
+        WINDOW_EX_STYLE,
+    };
+    use windows::core::w;
+
+    /// Helper: create a simple test window and return its handle.
+    unsafe fn create_test_window(title: &str) -> HWND {
+        let title_wide: Vec<u16> = title.encode_utf16().chain(std::iter::once(0)).collect();
+        let class = w!("STATIC"); // Use built-in STATIC class
+
+        CreateWindowExW(
+            WINDOW_EX_STYLE::default(),
+            class,
+            windows::core::PCWSTR(title_wide.as_ptr()),
+            WS_OVERLAPPEDWINDOW | WS_VISIBLE,
+            100, 100, 400, 300,
+            HWND::default(),
+            None,
+            None,
+            Some(ptr::null()),
+        ).expect("Failed to create test window")
+    }
+
+    #[test]
+    fn programmatic_window_create_should_not_be_captured() {
+        // A window created programmatically (not by user action) should not
+        // produce a context_open event.
+        let (tx, rx) = mpsc::channel::<ActionEvent>();
+        let mut capture = WindowsCapture::new();
+        capture.set_excluded_pid(None);
+        capture.start(tx).expect("Failed to start capture");
+        thread::sleep(Duration::from_millis(200));
+
+        // Programmatically create a window — this is a side-effect.
+        let hwnd = unsafe { create_test_window("Programmatic Window") };
+        thread::sleep(Duration::from_millis(500));
+
+        // Clean up.
+        unsafe { let _ = DestroyWindow(hwnd); }
+        thread::sleep(Duration::from_millis(300));
+
+        capture.stop().expect("Failed to stop capture");
+        let events: Vec<_> = rx.try_iter().collect();
+
+        // Ideal: no context_open or context_close events.
+        // These are side-effects of programmatic window creation, not user actions.
+        let opens = context_opens(&events);
+        let closes = context_closes(&events);
+        assert_eq!(
+            opens.len(), 0,
+            "Programmatic window creation should not produce context_open. Got {} events.",
+            opens.len()
+        );
+        assert_eq!(
+            closes.len(), 0,
+            "Programmatic window destruction should not produce context_close. Got {} events.",
+            closes.len()
+        );
+    }
+
+    #[test]
+    fn programmatic_focus_should_not_be_captured() {
+        // When an application programmatically calls SetFocus/SetForegroundWindow,
+        // it should not produce a focus or context_switch event.
+        let (tx, rx) = mpsc::channel::<ActionEvent>();
+        let mut capture = WindowsCapture::new();
+        capture.set_excluded_pid(None);
+        capture.start(tx).expect("Failed to start capture");
+        thread::sleep(Duration::from_millis(200));
+
+        // Create a window and programmatically bring it to foreground.
+        let hwnd = unsafe { create_test_window("Focus Test Window") };
+        thread::sleep(Duration::from_millis(200));
+        unsafe {
+            let _ = SetForegroundWindow(hwnd);
+        }
+        thread::sleep(Duration::from_millis(500));
+
+        // Clean up.
+        unsafe { let _ = DestroyWindow(hwnd); }
+        thread::sleep(Duration::from_millis(300));
+
+        capture.stop().expect("Failed to stop capture");
+        let events: Vec<_> = rx.try_iter().collect();
+
+        // Ideal: no focus or context_switch events from programmatic focus.
+        let focus_events = focuses(&events);
+        let switches = context_switches(&events);
+        assert_eq!(
+            focus_events.len(), 0,
+            "Programmatic SetFocus should not produce focus events. Got {}.",
+            focus_events.len()
+        );
+        assert_eq!(
+            switches.len(), 0,
+            "Programmatic SetForegroundWindow should not produce context_switch. Got {}.",
+            switches.len()
+        );
+    }
+
+    #[test]
+    fn programmatic_value_change_should_not_be_captured() {
+        // When an application programmatically sets a control's text,
+        // it should not produce a type event.
+        let (tx, rx) = mpsc::channel::<ActionEvent>();
+        let mut capture = WindowsCapture::new();
+        capture.set_excluded_pid(None);
+        capture.start(tx).expect("Failed to start capture");
+        thread::sleep(Duration::from_millis(200));
+
+        // Create a window and programmatically change its text.
+        let hwnd = unsafe { create_test_window("Value Test") };
+        thread::sleep(Duration::from_millis(200));
+
+        // Programmatically set text — this is a side-effect.
+        unsafe {
+            let text = w!("Programmatic value change!");
+            SetWindowTextW(hwnd, text).unwrap();
+        }
+        thread::sleep(Duration::from_millis(600)); // Wait for type coalescing
+
+        // Clean up.
+        unsafe { let _ = DestroyWindow(hwnd); }
+        thread::sleep(Duration::from_millis(300));
+
+        capture.stop().expect("Failed to stop capture");
+        let events: Vec<_> = rx.try_iter().collect();
+
+        // Ideal: no type events from programmatic value changes.
+        let type_events = types(&events);
+        assert_eq!(
+            type_events.len(), 0,
+            "Programmatic SetWindowText should not produce type events. Got {}.",
+            type_events.len()
+        );
+    }
+
+    #[test]
+    fn timer_value_updates_should_not_be_captured() {
+        // When a timer updates a control's value repeatedly,
+        // none of those updates should be captured.
+        let (tx, rx) = mpsc::channel::<ActionEvent>();
+        let mut capture = WindowsCapture::new();
+        capture.set_excluded_pid(None);
+        capture.start(tx).expect("Failed to start capture");
+        thread::sleep(Duration::from_millis(200));
+
+        let hwnd = unsafe { create_test_window("Timer Test") };
+        thread::sleep(Duration::from_millis(200));
+
+        // Simulate timer-driven updates.
+        for i in 0..5 {
+            let text: Vec<u16> = format!("Update {}\0", i).encode_utf16().collect();
+            unsafe {
+                SetWindowTextW(hwnd, windows::core::PCWSTR(text.as_ptr())).unwrap();
+            }
+            thread::sleep(Duration::from_millis(100));
+        }
+        thread::sleep(Duration::from_millis(600));
+
+        unsafe { let _ = DestroyWindow(hwnd); }
+        thread::sleep(Duration::from_millis(300));
+
+        capture.stop().expect("Failed to stop capture");
+        let events: Vec<_> = rx.try_iter().collect();
+
+        let type_events = types(&events);
+        assert_eq!(
+            type_events.len(), 0,
+            "Timer-driven value updates should not produce type events. Got {}.",
+            type_events.len()
+        );
+    }
+}
