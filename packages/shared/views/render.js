@@ -169,14 +169,23 @@ export function renderRecordingList(recordings) {
  *   - `[data-action="history"]` — view history
  *   - `[data-action="delete"]`  — delete step
  *
- * @param {Array<{logical_id: string, narration: string, step_number?: number, actions?: Array}>} steps
+ * @param {Array<{logical_id: string, narration?: string, step_type?: string, expect?: string, step_number?: number, actions?: Array}>} steps
  * @returns {string[]} array of `<li>` HTML strings
  */
 export function renderStepList(steps) {
-  return steps.map((step, index) => `
+  return steps.map((step, index) => {
+    let label;
+    if (step.narration) {
+      label = escapeHtml(step.narration);
+    } else if (step.step_type) {
+      label = escapeHtml(step.step_type) + (step.expect ? ` (${escapeHtml(step.expect)})` : '');
+    } else {
+      label = `Step ${index + 1}`;
+    }
+    return `
     <li class="step-item" data-logical="${escapeHtml(step.logical_id)}" draggable="true">
       <span class="step-number">${index + 1}</span>
-      <span class="step-narration step-narration--link" title="View actions">${escapeHtml(step.narration)}</span>
+      <span class="step-narration step-narration--link" title="View actions">${label}</span>
       <div class="step-actions">
         <button class="btn btn--ghost btn--sm" data-action="edit" title="Re-record">
           ${SVG_EDIT}
@@ -189,7 +198,8 @@ export function renderStepList(steps) {
         </button>
       </div>
     </li>
-  `);
+  `;
+  });
 }
 
 /**
