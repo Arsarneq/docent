@@ -12,7 +12,10 @@
 
 <!-- What manual tests were added or updated? (file path + what they verify) -->
 
+## Behaviour Changes
+
+<!-- Does this change what events are captured or filtered? If no, write "None." -->
+
 ## Breaking Changes
 
-<!-- Does this change the .docent.json format, the dispatch payload, or the capture behaviour? If no, write "None." -->
-
+<!-- Does this change the .docent.json schema (add/remove/rename fields) or the dispatch payload structure? If no, write "None." -->
