@@ -92,6 +92,6 @@ jobs:
         working-directory: packages/desktop/src-tauri
         run: cargo test --lib
 
-      - name: Run integration tests (serial)
+      - name: Run integration tests
         working-directory: packages/desktop/src-tauri
-        run: cargo test --test capture_integration -- --test-threads=1
+        run: cargo test --test capture_integration

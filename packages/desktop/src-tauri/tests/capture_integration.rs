@@ -6,11 +6,11 @@
 //! These tests are the desktop equivalent of the extension's Playwright tests.
 //! They run cross-platform (Windows, macOS, Linux) with a single test suite.
 //!
-//! Run with: cargo test --test capture_integration -- --test-threads=1
+//! Run with: cargo test --test capture_integration
 //! CI: runs on windows-latest (and future macos-latest, ubuntu-latest with xvfb)
 //!
-//! IMPORTANT: Must use --test-threads=1 (serial execution).
-//! Tests share the OS input layer and will interfere with each other in parallel.
+//! Serial execution is enforced via #[serial] attribute (serial_test crate).
+//! Tests share the OS input layer and would interfere in parallel.
 
 use std::sync::mpsc;
 use std::thread;
@@ -19,6 +19,7 @@ use std::time::Duration;
 use enigo::{Enigo, Keyboard, Mouse, Settings, Coordinate, Direction};
 
 use docent_desktop_lib::capture::{ActionEvent, ActionPayload, CaptureLayer};
+use serial_test::serial;
 
 #[cfg(target_os = "windows")]
 use docent_desktop_lib::capture::windows::WindowsCapture;
@@ -102,6 +103,7 @@ fn context_switches(events: &[ActionEvent]) -> Vec<&ActionEvent> {
 // ═══════════════════════════════════════════════════════════════════════════════
 
 #[test]
+    #[serial]
 #[cfg(target_os = "windows")]
 fn user_click_is_captured() {
     let events = capture_during(|enigo| {
@@ -118,6 +120,7 @@ fn user_click_is_captured() {
 }
 
 #[test]
+    #[serial]
 #[cfg(target_os = "windows")]
 fn user_right_click_is_captured() {
     let events = capture_during(|enigo| {
@@ -134,6 +137,7 @@ fn user_right_click_is_captured() {
 }
 
 #[test]
+    #[serial]
 #[cfg(target_os = "windows")]
 fn user_key_press_is_captured() {
     let events = capture_during(|enigo| {
@@ -148,6 +152,7 @@ fn user_key_press_is_captured() {
 }
 
 #[test]
+    #[serial]
 #[cfg(target_os = "windows")]
 fn user_scroll_is_captured() {
     let events = capture_during(|enigo| {
@@ -165,6 +170,7 @@ fn user_scroll_is_captured() {
 }
 
 #[test]
+    #[serial]
 #[cfg(target_os = "windows")]
 fn user_typing_is_captured() {
     let events = capture_during(|enigo| {
@@ -225,6 +231,7 @@ mod side_effects {
     }
 
     #[test]
+    #[serial]
     fn programmatic_window_create_should_not_be_captured() {
         // A window created programmatically (not by user action) should not
         // produce a context_open event.
@@ -262,6 +269,7 @@ mod side_effects {
     }
 
     #[test]
+    #[serial]
     fn programmatic_focus_should_not_be_captured() {
         // When an application programmatically calls SetFocus/SetForegroundWindow,
         // it should not produce a focus or context_switch event.
@@ -302,6 +310,7 @@ mod side_effects {
     }
 
     #[test]
+    #[serial]
     fn programmatic_value_change_should_not_be_captured() {
         // When an application programmatically sets a control's text,
         // it should not produce a type event.
@@ -339,6 +348,7 @@ mod side_effects {
     }
 
     #[test]
+    #[serial]
     fn timer_value_updates_should_not_be_captured() {
         // When a timer updates a control's value repeatedly,
         // none of those updates should be captured.
@@ -381,6 +391,7 @@ mod side_effects {
 // ═══════════════════════════════════════════════════════════════════════════════
 
 #[test]
+    #[serial]
 #[cfg(target_os = "windows")]
 fn user_double_click_is_captured() {
     let events = capture_during(|enigo| {
@@ -401,6 +412,7 @@ fn user_double_click_is_captured() {
 }
 
 #[test]
+    #[serial]
 #[cfg(target_os = "windows")]
 fn user_drag_is_captured() {
     let events = capture_during(|enigo| {
@@ -439,6 +451,7 @@ fn user_drag_is_captured() {
 }
 
 #[test]
+    #[serial]
 #[cfg(target_os = "windows")]
 fn user_modifier_key_combo_is_captured() {
     // Ctrl+A should produce a key event with ctrl modifier.
@@ -490,6 +503,7 @@ mod side_effects_additional {
     }
 
     #[test]
+    #[serial]
     fn programmatic_window_move_should_not_be_captured() {
         // Moving a window programmatically is not a user action.
         let (tx, rx) = mpsc::channel::<ActionEvent>();
@@ -524,6 +538,7 @@ mod side_effects_additional {
     }
 
     #[test]
+    #[serial]
     fn programmatic_minimize_restore_should_not_be_captured() {
         // Minimizing and restoring a window programmatically is not a user action.
         let (tx, rx) = mpsc::channel::<ActionEvent>();
@@ -557,6 +572,7 @@ mod side_effects_additional {
     }
 
     #[test]
+    #[serial]
     fn rapid_programmatic_focus_moves_should_not_be_captured() {
         // Simulates form validation: rapidly moving focus across controls.
         let (tx, rx) = mpsc::channel::<ActionEvent>();
@@ -606,6 +622,7 @@ mod side_effects_additional {
     }
 
     #[test]
+    #[serial]
     fn programmatic_child_window_should_not_be_captured() {
         // When an application spawns a child/dialog window programmatically,
         // it should not produce context_open.
