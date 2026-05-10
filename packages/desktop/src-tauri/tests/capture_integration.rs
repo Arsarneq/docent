@@ -2255,3 +2255,244 @@ mod selection {
         assert!(!click_events.is_empty(), "Expected click on listbox item, got {}", click_events.len());
     }
 }
+
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// DEDUPLICATION AND CORRELATION TESTS
+// ═══════════════════════════════════════════════════════════════════════════════
+
+#[cfg(target_os = "windows")]
+mod deduplication {
+    use super::*;
+    use std::ptr;
+    use windows::Win32::Foundation::{HWND, RECT};
+    use windows::Win32::UI::WindowsAndMessaging::{
+        CreateWindowExW, DestroyWindow, SetForegroundWindow, GetWindowRect,
+        WS_OVERLAPPEDWINDOW, WS_VISIBLE, WINDOW_EX_STYLE,
+    };
+    use windows::core::w;
+
+    unsafe fn create_target_window(title: &str) -> (HWND, i32, i32) {
+        let title_wide: Vec<u16> = title.encode_utf16().chain(std::iter::once(0)).collect();
+        let hwnd = CreateWindowExW(
+            WINDOW_EX_STYLE::default(),
+            w!("STATIC"),
+            windows::core::PCWSTR(title_wide.as_ptr()),
+            WS_OVERLAPPEDWINDOW | WS_VISIBLE,
+            200, 200, 600, 400,
+            HWND::default(),
+            None,
+            None,
+            Some(ptr::null()),
+        ).expect("Failed to create target window");
+        let _ = SetForegroundWindow(hwnd);
+        thread::sleep(Duration::from_millis(100));
+        let mut rect = RECT::default();
+        GetWindowRect(hwnd, &mut rect).unwrap();
+        let cx = (rect.left + rect.right) / 2;
+        let cy = (rect.top + rect.bottom) / 2;
+        (hwnd, cx, cy)
+    }
+
+    #[test]
+    #[serial]
+    fn select_suppressed_after_click() {
+        // Clicking an element should NOT produce a separate select event.
+        // The click already captures the interaction.
+        let (tx, rx) = mpsc::channel::<ActionEvent>();
+        let mut capture = WindowsCapture::new();
+        capture.set_excluded_pid(None);
+        capture.start(tx).unwrap();
+        thread::sleep(Duration::from_millis(200));
+
+        let (hwnd, cx, cy) = unsafe { create_target_window("Select Dedup") };
+        thread::sleep(Duration::from_millis(200));
+
+        let mut enigo = Enigo::new(&Settings::default()).unwrap();
+        enigo.move_mouse(cx, cy, Coordinate::Abs).unwrap();
+        thread::sleep(Duration::from_millis(50));
+        enigo.button(enigo::Button::Left, Direction::Click).unwrap();
+        thread::sleep(Duration::from_millis(500));
+
+        unsafe { let _ = DestroyWindow(hwnd); }
+        capture.stop().unwrap();
+        let events: Vec<_> = rx.try_iter().collect();
+
+        let select_events = selects(&events);
+        assert_eq!(
+            select_events.len(), 0,
+            "Click should not produce a separate select event. Got {} selects.",
+            select_events.len()
+        );
+    }
+
+    #[test]
+    #[serial]
+    fn focus_suppressed_after_click() {
+        // Clicking an element should NOT produce a separate focus event.
+        // The click already captures the interaction.
+        let (tx, rx) = mpsc::channel::<ActionEvent>();
+        let mut capture = WindowsCapture::new();
+        capture.set_excluded_pid(None);
+        capture.start(tx).unwrap();
+        thread::sleep(Duration::from_millis(200));
+
+        let (hwnd, cx, cy) = unsafe { create_target_window("Focus Dedup") };
+        thread::sleep(Duration::from_millis(200));
+
+        let mut enigo = Enigo::new(&Settings::default()).unwrap();
+        enigo.move_mouse(cx, cy, Coordinate::Abs).unwrap();
+        thread::sleep(Duration::from_millis(50));
+        enigo.button(enigo::Button::Left, Direction::Click).unwrap();
+        thread::sleep(Duration::from_millis(500));
+
+        unsafe { let _ = DestroyWindow(hwnd); }
+        capture.stop().unwrap();
+        let events: Vec<_> = rx.try_iter().collect();
+
+        let focus_events = focuses(&events);
+        assert_eq!(
+            focus_events.len(), 0,
+            "Click should not produce a separate focus event. Got {} focus events.",
+            focus_events.len()
+        );
+    }
+
+    #[test]
+    #[serial]
+    fn double_click_not_misclassified_as_drag() {
+        // Two rapid clicks (double-click) should produce 2 click events,
+        // not a drag_start + drop.
+        let (tx, rx) = mpsc::channel::<ActionEvent>();
+        let mut capture = WindowsCapture::new();
+        capture.set_excluded_pid(None);
+        capture.start(tx).unwrap();
+        thread::sleep(Duration::from_millis(200));
+
+        let (hwnd, cx, cy) = unsafe { create_target_window("Double Click") };
+        thread::sleep(Duration::from_millis(200));
+
+        let mut enigo = Enigo::new(&Settings::default()).unwrap();
+        enigo.move_mouse(cx, cy, Coordinate::Abs).unwrap();
+        thread::sleep(Duration::from_millis(50));
+        // Rapid double-click (minimal delay between clicks).
+        enigo.button(enigo::Button::Left, Direction::Click).unwrap();
+        thread::sleep(Duration::from_millis(50));
+        enigo.button(enigo::Button::Left, Direction::Click).unwrap();
+        thread::sleep(Duration::from_millis(500));
+
+        unsafe { let _ = DestroyWindow(hwnd); }
+        capture.stop().unwrap();
+        let events: Vec<_> = rx.try_iter().collect();
+
+        let click_events = clicks(&events);
+        let drag_events: Vec<_> = events.iter()
+            .filter(|e| matches!(&e.payload, ActionPayload::DragStart { .. }))
+            .collect();
+
+        assert!(click_events.len() >= 2, "Expected 2 clicks for double-click, got {}", click_events.len());
+        assert_eq!(drag_events.len(), 0, "Double-click should not produce drag_start. Got {}.", drag_events.len());
+    }
+
+    #[test]
+    #[serial]
+    fn context_close_only_for_opened_windows() {
+        // A window that was never captured as context_open should not
+        // produce context_close when destroyed.
+        let (tx, rx) = mpsc::channel::<ActionEvent>();
+        let mut capture = WindowsCapture::new();
+        capture.set_excluded_pid(None);
+        capture.start(tx).unwrap();
+        thread::sleep(Duration::from_millis(200));
+
+        // Create and immediately destroy a window — no user input precedes
+        // the creation, so it won't be captured as context_open.
+        let hwnd = unsafe {
+            CreateWindowExW(
+                WINDOW_EX_STYLE::default(),
+                w!("STATIC"),
+                w!("Ephemeral Window"),
+                WS_OVERLAPPEDWINDOW | WS_VISIBLE,
+                100, 100, 400, 300,
+                HWND::default(),
+                None,
+                None,
+                Some(ptr::null()),
+            ).expect("Failed to create window")
+        };
+        thread::sleep(Duration::from_millis(300));
+
+        // Now simulate a click (to satisfy correlation) and destroy.
+        let mut enigo = Enigo::new(&Settings::default()).unwrap();
+        let mut rect = RECT::default();
+        unsafe { GetWindowRect(hwnd, &mut rect).unwrap(); }
+        let cx = (rect.left + rect.right) / 2;
+        let cy = (rect.top + rect.bottom) / 2;
+        enigo.move_mouse(cx, cy, Coordinate::Abs).unwrap();
+        enigo.button(enigo::Button::Left, Direction::Click).unwrap();
+        thread::sleep(Duration::from_millis(100));
+
+        unsafe { let _ = DestroyWindow(hwnd); }
+        thread::sleep(Duration::from_millis(300));
+
+        capture.stop().unwrap();
+        let events: Vec<_> = rx.try_iter().collect();
+
+        // Should have a click but NO context_close (window was never opened).
+        let close_events = context_closes(&events);
+        assert_eq!(
+            close_events.len(), 0,
+            "Window never captured as context_open should not produce context_close. Got {}.",
+            close_events.len()
+        );
+    }
+
+    #[test]
+    #[serial]
+    fn value_change_from_different_window_suppressed() {
+        // A value change in a different root window than the keyboard input
+        // should be suppressed (e.g. Ctrl+S in Notepad → Save As dialog initializes).
+        use windows::Win32::UI::WindowsAndMessaging::SetWindowTextW;
+
+        let (tx, rx) = mpsc::channel::<ActionEvent>();
+        let mut capture = WindowsCapture::new();
+        capture.set_excluded_pid(None);
+        capture.start(tx).unwrap();
+        thread::sleep(Duration::from_millis(200));
+
+        // Create two windows (simulating Notepad + Save As dialog).
+        let (hwnd1, _, _) = unsafe { create_target_window("Window A") };
+        let (hwnd2, _, _) = unsafe { create_target_window("Window B") };
+        thread::sleep(Duration::from_millis(200));
+
+        // Type in window A (sets keyboard correlation to window A).
+        unsafe { let _ = SetForegroundWindow(hwnd1); }
+        thread::sleep(Duration::from_millis(100));
+        let mut enigo = Enigo::new(&Settings::default()).unwrap();
+        enigo.key(enigo::Key::Unicode('x'), Direction::Click).unwrap();
+        thread::sleep(Duration::from_millis(100));
+
+        // Programmatically change value in window B (simulates dialog init).
+        unsafe { SetWindowTextW(hwnd2, w!("dialog value")).unwrap(); }
+        thread::sleep(Duration::from_millis(1500)); // Wait for debounce
+
+        unsafe {
+            let _ = DestroyWindow(hwnd1);
+            let _ = DestroyWindow(hwnd2);
+        }
+        capture.stop().unwrap();
+        let events: Vec<_> = rx.try_iter().collect();
+
+        // Should NOT have a type event for "dialog value" (different window).
+        let type_events = types(&events);
+        for t in &type_events {
+            if let ActionPayload::Type { value, .. } = &t.payload {
+                assert!(
+                    !value.contains("dialog value"),
+                    "Value change from different window should be suppressed, but got: '{}'",
+                    value
+                );
+            }
+        }
+    }
+}
