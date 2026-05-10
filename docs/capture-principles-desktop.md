@@ -39,13 +39,23 @@ These user actions happen outside the hooks' visibility:
 
 ---
 
-## Known Limitations (Bugs to Fix)
+## Input Correlation
 
-- **Programmatic focus leaks:** `EVENT_SYSTEM_FOREGROUND` fires for both user and programmatic foreground changes — cannot currently distinguish them
-- **Middle-click not captured:** Only left/right button hooked
-- **Horizontal scroll not captured:** Only WM_MOUSEWHEEL hooked, not WM_MOUSEHWHEEL
-- **Notification popups leak context_switch:** Topmost windows trigger SYSTEM_FOREGROUND
-- **Focus deduplication incomplete:** Repeated clicks on same element produce multiple focus events
+The Input_Thread distinguishes user-caused state changes from programmatic
+ones using **input correlation**: WinEvent callbacks (foreground, focus,
+value change, window lifecycle) are only dispatched when correlated with a
+preceding low-level input event within a configured time window.
+
+| WinEvent | Correlation source | Window |
+|---|---|---|
+| `EVENT_SYSTEM_FOREGROUND` | Any low-level input | 100ms |
+| `EVENT_OBJECT_FOCUS` | Any low-level input | 100ms |
+| `EVENT_OBJECT_CREATE/DESTROY` | Any low-level input | 200ms |
+| `EVENT_OBJECT_VALUECHANGE` | Keyboard input only | 500ms |
+
+Timing constants live in `src/capture/timing.rs` (single source of truth).
+
+---
 
 ## Not Capturable (OS-Level)
 

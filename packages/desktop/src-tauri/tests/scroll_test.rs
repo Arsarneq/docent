@@ -18,21 +18,6 @@ use proptest::prelude::*;
 // Generators
 // ---------------------------------------------------------------------------
 
-/// Strategy for a single raw scroll event.
-#[allow(dead_code)]
-fn arb_scroll_event(base_ts: u64) -> impl Strategy<Value = RawScrollEvent> {
-    (
-        0..600u64,       // offset from base timestamp (0–600ms range)
-        -500.0..500.0f64, // delta_x
-        -500.0..500.0f64, // delta_y
-    )
-        .prop_map(move |(offset, delta_x, delta_y)| RawScrollEvent {
-            timestamp: base_ts + offset,
-            delta_x,
-            delta_y,
-        })
-}
-
 /// Strategy for a sequence of scroll events sorted by timestamp.
 fn arb_scroll_sequence() -> impl Strategy<Value = Vec<RawScrollEvent>> {
     // Generate 1–20 events with increasing timestamps.

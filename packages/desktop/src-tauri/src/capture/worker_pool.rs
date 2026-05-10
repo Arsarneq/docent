@@ -658,12 +658,7 @@ pub fn worker_loop<B: AccessibilityBackend>(
         return;
     }
 
-    let mut scroll_acc = ScrollAccumulator::new();
-    let mut pending_type: Option<PendingTypeEvent> = None;
-    let mut last_focus_selector = String::new();
-    let mut last_value_map: HashMap<String, String> = HashMap::new();
-    // Track the last DragStart element so we can attach it to the Drop event.
-    let mut last_drag_element: Option<ElementDescription> = None;
+    let mut state = WorkerState::new();
 
     loop {
         match receiver.recv_timeout(RECV_TIMEOUT) {
@@ -681,11 +676,7 @@ pub fn worker_loop<B: AccessibilityBackend>(
                         &backend,
                         &action_sender,
                         &excluded_pid,
-                        &mut scroll_acc,
-                        &mut pending_type,
-                        &mut last_focus_selector,
-                        &mut last_value_map,
-                        &mut last_drag_element,
+                        &mut state,
                     );
                 }));
                 if let Err(panic_info) = result {
@@ -713,18 +704,14 @@ pub fn worker_loop<B: AccessibilityBackend>(
                             &backend,
                             &action_sender,
                             &excluded_pid,
-                            &mut scroll_acc,
-                            &mut pending_type,
-                            &mut last_focus_selector,
-                            &mut last_value_map,
-                            &mut last_drag_element,
+                            &mut state,
                         );
                     }));
                 }
                 // Flush pending type event.
-                flush_pending_type(&mut pending_type, &action_sender);
+                flush_pending_type(&mut state.pending_type, &action_sender);
                 // Flush scroll accumulator with a far-future timestamp.
-                if let Some(result) = scroll_acc.try_flush(u64::MAX) {
+                if let Some(result) = state.scroll_acc.try_flush(u64::MAX) {
                     // We don't have a specific raw event for this flush, so
                     // emit with current timestamp and no context_id.
                     let _ = action_sender.send(ActionEvent {
@@ -748,7 +735,7 @@ pub fn worker_loop<B: AccessibilityBackend>(
             Err(mpsc::RecvTimeoutError::Timeout) => {
                 // Periodic flush for scroll debounce and type debounce.
                 let now = current_timestamp_ms();
-                if let Some(result) = scroll_acc.try_flush(now) {
+                if let Some(result) = state.scroll_acc.try_flush(now) {
                     let _ = action_sender.send(ActionEvent {
                         timestamp: now,
                         context_id: None,
@@ -765,11 +752,11 @@ pub fn worker_loop<B: AccessibilityBackend>(
                         },
                     });
                 }
-                try_flush_type_debounce(&mut pending_type, now, &action_sender);
+                try_flush_type_debounce(&mut state.pending_type, now, &action_sender);
             }
             Err(mpsc::RecvTimeoutError::Disconnected) => {
                 // Channel closed — flush and exit.
-                flush_pending_type(&mut pending_type, &action_sender);
+                flush_pending_type(&mut state.pending_type, &action_sender);
                 break;
             }
         }
@@ -779,23 +766,46 @@ pub fn worker_loop<B: AccessibilityBackend>(
 }
 
 // ---------------------------------------------------------------------------
+// Worker state
+// ---------------------------------------------------------------------------
+
+/// Mutable per-worker state passed to `process_raw_event`.
+///
+/// Bundles the scroll accumulator, type coalescing buffer, and deduplication
+/// state into a single struct to keep the function signature manageable.
+struct WorkerState {
+    scroll_acc: ScrollAccumulator,
+    pending_type: Option<PendingTypeEvent>,
+    last_focus_selector: String,
+    last_value_map: HashMap<String, String>,
+    last_drag_element: Option<ElementDescription>,
+}
+
+impl WorkerState {
+    fn new() -> Self {
+        Self {
+            scroll_acc: ScrollAccumulator::new(),
+            pending_type: None,
+            last_focus_selector: String::new(),
+            last_value_map: HashMap::new(),
+            last_drag_element: None,
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Event processing
 // ---------------------------------------------------------------------------
 
 /// Process a single raw event, performing accessibility queries and emitting
 /// the appropriate `ActionEvent`.
-#[allow(clippy::too_many_arguments)]
 fn process_raw_event<B: AccessibilityBackend>(
     _worker_index: usize,
     raw: &RawEvent,
     backend: &B,
     action_sender: &mpsc::Sender<ActionEvent>,
     excluded_pid: &Arc<AtomicU32>,
-    scroll_acc: &mut ScrollAccumulator,
-    pending_type: &mut Option<PendingTypeEvent>,
-    last_focus_selector: &mut String,
-    last_value_map: &mut HashMap<String, String>,
-    last_drag_element: &mut Option<ElementDescription>,
+    state: &mut WorkerState,
 ) {
     // PID exclusion check — discard events from the excluded process.
     let excl = excluded_pid.load(Ordering::SeqCst);
@@ -831,7 +841,7 @@ fn process_raw_event<B: AccessibilityBackend>(
         }
         RawEventType::Focus => {
             handle_focus(
-                raw, backend, action_sender, context_id, last_focus_selector, window_rect.clone(),
+                raw, backend, action_sender, context_id, &mut state.last_focus_selector, window_rect.clone(),
             );
         }
         RawEventType::ValueChange => {
@@ -840,8 +850,8 @@ fn process_raw_event<B: AccessibilityBackend>(
                 backend,
                 action_sender,
                 context_id,
-                pending_type,
-                last_value_map,
+                &mut state.pending_type,
+                &mut state.last_value_map,
                 window_rect.clone(),
             );
         }
@@ -850,12 +860,12 @@ fn process_raw_event<B: AccessibilityBackend>(
         }
         RawEventType::Keyboard => {
             handle_keyboard(
-                raw, backend, action_sender, context_id, pending_type, window_rect.clone(),
+                raw, backend, action_sender, context_id, &mut state.pending_type, window_rect.clone(),
             );
         }
         RawEventType::Foreground => {
             // Flush pending type before context switch.
-            flush_pending_type(pending_type, action_sender);
+            flush_pending_type(&mut state.pending_type, action_sender);
             handle_foreground(raw, backend, action_sender, context_id, window_rect.clone());
         }
         RawEventType::WindowCreate => {
@@ -887,14 +897,14 @@ fn process_raw_event<B: AccessibilityBackend>(
         }
         RawEventType::Scroll => {
             let is_horizontal = raw.callback_params[0] == 1;
-            scroll_acc.push(RawScrollEvent {
+            state.scroll_acc.push(RawScrollEvent {
                 timestamp: raw.timestamp,
                 delta_x: if is_horizontal { raw.scroll_delta } else { 0.0 },
                 delta_y: if is_horizontal { 0.0 } else { raw.scroll_delta },
             });
             // Check if debounce has elapsed (will be checked on timeout too).
             let now = current_timestamp_ms();
-            if let Some(result) = scroll_acc.try_flush(now) {
+            if let Some(result) = state.scroll_acc.try_flush(now) {
                 let _ = action_sender.send(ActionEvent {
                     timestamp: raw.timestamp,
                     context_id,
@@ -913,10 +923,10 @@ fn process_raw_event<B: AccessibilityBackend>(
             }
         }
         RawEventType::DragStart { source_coords: _ } => {
-            handle_drag_start(raw, backend, action_sender, context_id, last_drag_element, window_rect.clone());
+            handle_drag_start(raw, backend, action_sender, context_id, &mut state.last_drag_element, window_rect.clone());
         }
         RawEventType::Drop { source_coords: _ } => {
-            handle_drop(raw, backend, action_sender, context_id, last_drag_element, window_rect.clone());
+            handle_drop(raw, backend, action_sender, context_id, &mut state.last_drag_element, window_rect.clone());
         }
         RawEventType::MouseDown | RawEventType::MouseUp => {
             // MouseDown/MouseUp are handled by the Input_Thread for drag
