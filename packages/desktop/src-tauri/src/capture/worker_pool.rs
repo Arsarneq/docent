@@ -606,19 +606,20 @@ fn vk_to_key_name(vk: u32) -> String {
     }
 }
 
-/// Determine whether a key event should be emitted.
+/// Determine whether a key event should be emitted immediately.
 ///
-/// Returns `true` for control keys and modifier combos. Returns `false` for
-/// plain printable characters (single-char keys with no Ctrl/Alt/Meta held),
-/// which are redundant with the coalesced `type` event from value-change.
-fn should_keep_key_event(key: &str, modifiers: &(bool, bool, bool, bool)) -> bool {
-    // Skip modifier-only keys (empty key name).
-    if key.is_empty() {
-        return false;
-    }
+/// Returns `true` for control keys and modifier combos (emit immediately).
+/// Returns `false` for modifier-only keys (skip entirely — no useful info).
+/// Printable characters are handled separately via the pending_keys buffer.
+fn is_modifier_only_key(key: &str) -> bool {
+    key.is_empty()
+}
+
+/// Determine whether a key is a printable character (should be buffered,
+/// not emitted immediately).
+fn is_printable_key(key: &str, modifiers: &(bool, bool, bool, bool)) -> bool {
     // A key is "printable" if it's a single character with no Ctrl/Alt/Meta.
-    let is_printable_char = key.len() == 1 && !modifiers.0 && !modifiers.2 && !modifiers.3;
-    !is_printable_char
+    key.len() == 1 && !modifiers.0 && !modifiers.2 && !modifiers.3
 }
 
 // ---------------------------------------------------------------------------
@@ -710,6 +711,8 @@ pub fn worker_loop<B: AccessibilityBackend>(
                 }
                 // Flush pending type event.
                 flush_pending_type(&mut state.pending_type, &action_sender);
+                // Flush pending keys (emit if no type event superseded them).
+                flush_pending_keys(&mut state.pending_keys, &action_sender);
                 // Flush scroll accumulator with a far-future timestamp.
                 if let Some(result) = state.scroll_acc.try_flush(u64::MAX) {
                     // We don't have a specific raw event for this flush, so
@@ -752,11 +755,12 @@ pub fn worker_loop<B: AccessibilityBackend>(
                         },
                     });
                 }
-                try_flush_type_debounce(&mut state.pending_type, now, &action_sender);
+                try_flush_type_debounce(&mut state, now, &action_sender);
             }
             Err(mpsc::RecvTimeoutError::Disconnected) => {
                 // Channel closed — flush and exit.
                 flush_pending_type(&mut state.pending_type, &action_sender);
+                flush_pending_keys(&mut state.pending_keys, &action_sender);
                 break;
             }
         }
@@ -779,6 +783,15 @@ struct WorkerState {
     last_focus_selector: String,
     last_value_map: HashMap<String, String>,
     last_drag_element: Option<ElementDescription>,
+    /// Timestamp of the last click event — used to suppress duplicate select
+    /// events that fire immediately after a click on the same element.
+    last_click_timestamp: u64,
+    /// Buffered printable key events. These are held until either:
+    /// - A `type` event arrives (keys are discarded — superseded by the type value)
+    /// - The TYPE_DEBOUNCE_MS window expires with no type event (keys are emitted)
+    pending_keys: Vec<ActionEvent>,
+    /// Timestamp of the last buffered key (for debounce flush).
+    pending_keys_last_timestamp: u64,
 }
 
 impl WorkerState {
@@ -789,6 +802,9 @@ impl WorkerState {
             last_focus_selector: String::new(),
             last_value_map: HashMap::new(),
             last_drag_element: None,
+            last_click_timestamp: 0,
+            pending_keys: Vec::new(),
+            pending_keys_last_timestamp: 0,
         }
     }
 }
@@ -833,11 +849,13 @@ fn process_raw_event<B: AccessibilityBackend>(
             handle_click(
                 raw, backend, action_sender, context_id, false, window_rect.clone(),
             );
+            state.last_click_timestamp = raw.timestamp;
         }
         RawEventType::RightClick => {
             handle_click(
                 raw, backend, action_sender, context_id, true, window_rect.clone(),
             );
+            state.last_click_timestamp = raw.timestamp;
         }
         RawEventType::Focus => {
             handle_focus(
@@ -854,13 +872,17 @@ fn process_raw_event<B: AccessibilityBackend>(
                 &mut state.last_value_map,
                 window_rect.clone(),
             );
+            // A value change arrived — pending keys will be superseded by the
+            // type event when it flushes. Clear them now.
+            state.pending_keys.clear();
+            state.pending_keys_last_timestamp = 0;
         }
         RawEventType::Selection => {
             handle_selection(raw, backend, action_sender, context_id, window_rect.clone());
         }
         RawEventType::Keyboard => {
             handle_keyboard(
-                raw, backend, action_sender, context_id, &mut state.pending_type, window_rect.clone(),
+                raw, backend, action_sender, context_id, state, window_rect.clone(),
             );
         }
         RawEventType::Foreground => {
@@ -1007,35 +1029,6 @@ fn handle_click<B: AccessibilityBackend>(
         sequence_id: Some(raw.sequence_id),
         payload,
     });
-
-    // Selection detection: if the clicked element is a list item (or similar
-    // selectable item), also emit a select event. This handles cases where
-    // EVENT_OBJECT_SELECTION doesn't fire (e.g. LISTBOX without message pump).
-    if !is_right_click {
-        let is_list_item = matches!(
-            element_desc.tag.as_str(),
-            "ListItem" | "TreeItem" | "DataItem" | "TabItem"
-        );
-        // Also check role for Win32 controls that might report differently.
-        let role_is_item = element_desc.role.as_deref().is_some_and(|r| {
-            matches!(r, "listitem" | "treeitem" | "option" | "tab")
-        });
-        if is_list_item || role_is_item {
-            let value = element_desc.name.clone().unwrap_or_default();
-            let _ = action_sender.send(ActionEvent {
-                timestamp: raw.timestamp,
-                context_id,
-                capture_mode: CaptureMode::Accessibility,
-                frame_src: None,
-                window_rect: window_rect.clone(),
-                sequence_id: Some(raw.sequence_id),
-                payload: ActionPayload::Select {
-                    element: element_desc.clone(),
-                    value,
-                },
-            });
-        }
-    }
 
     // File dialog detection: if the clicked element is a button named
     // "Save" or "Open", check if the window is a file dialog.
@@ -1248,19 +1241,15 @@ fn handle_keyboard<B: AccessibilityBackend>(
     backend: &B,
     action_sender: &mpsc::Sender<ActionEvent>,
     context_id: Option<i64>,
-    pending_type: &mut Option<PendingTypeEvent>,
+    state: &mut WorkerState,
     window_rect: Option<WindowRect>,
 ) {
     let key = vk_to_key_name(raw.key_code);
 
-    // Apply key filtering: skip modifier-only and plain printable chars.
-    if !should_keep_key_event(&key, &raw.modifiers) {
+    // Skip modifier-only keys (Shift, Ctrl, Alt alone — no useful info).
+    if is_modifier_only_key(&key) {
         return;
     }
-
-    // Flush pending type before emitting a control key (e.g. user types
-    // "hello" then presses Enter).
-    flush_pending_type(pending_type, action_sender);
 
     let element = backend.focused_element().unwrap_or_else(|| {
         let title = backend.window_title(raw.window_handle);
@@ -1275,7 +1264,7 @@ fn handle_keyboard<B: AccessibilityBackend>(
         }
     });
 
-    let _ = action_sender.send(ActionEvent {
+    let event = ActionEvent {
         timestamp: raw.timestamp,
         context_id,
         capture_mode: CaptureMode::Accessibility,
@@ -1283,7 +1272,7 @@ fn handle_keyboard<B: AccessibilityBackend>(
         window_rect,
         sequence_id: Some(raw.sequence_id),
         payload: ActionPayload::Key {
-            key,
+            key: key.clone(),
             modifiers: Modifiers {
                 ctrl: raw.modifiers.0,
                 shift: raw.modifiers.1,
@@ -1292,7 +1281,18 @@ fn handle_keyboard<B: AccessibilityBackend>(
             },
             element,
         },
-    });
+    };
+
+    if is_printable_key(&key, &raw.modifiers) {
+        // Buffer printable keys — they may be superseded by a type event.
+        state.pending_keys.push(event);
+        state.pending_keys_last_timestamp = raw.timestamp;
+    } else {
+        // Control key — flush pending type and pending keys, then emit.
+        flush_pending_type(&mut state.pending_type, action_sender);
+        flush_pending_keys(&mut state.pending_keys, action_sender);
+        let _ = action_sender.send(event);
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -1393,7 +1393,8 @@ fn handle_drop<B: AccessibilityBackend>(
 // ---------------------------------------------------------------------------
 
 /// Flush the pending type event immediately, emitting it as a `type`
-/// ActionEvent.
+/// ActionEvent. When a type event is flushed, pending keys are discarded
+/// (they're superseded by the coalesced type value).
 fn flush_pending_type(
     pending_type: &mut Option<PendingTypeEvent>,
     action_sender: &mpsc::Sender<ActionEvent>,
@@ -1414,18 +1415,41 @@ fn flush_pending_type(
     }
 }
 
+/// Flush buffered printable key events — emit them as individual key actions.
+/// Called when the TYPE_DEBOUNCE_MS window expires without a type event arriving
+/// (meaning the app doesn't fire EVENT_OBJECT_VALUECHANGE for these keystrokes).
+fn flush_pending_keys(
+    pending_keys: &mut Vec<ActionEvent>,
+    action_sender: &mpsc::Sender<ActionEvent>,
+) {
+    for event in pending_keys.drain(..) {
+        let _ = action_sender.send(event);
+    }
+}
+
 /// Check if the type debounce interval has elapsed and flush if so.
+/// Also flushes pending keys if the type debounce expired without a type event.
 fn try_flush_type_debounce(
-    pending_type: &mut Option<PendingTypeEvent>,
+    state: &mut WorkerState,
     now: u64,
     action_sender: &mpsc::Sender<ActionEvent>,
 ) {
-    let should_flush = pending_type
+    let should_flush_type = state.pending_type
         .as_ref()
         .map(|pt| now.saturating_sub(pt.last_update) >= TYPE_DEBOUNCE_MS)
         .unwrap_or(false);
 
-    if should_flush {
-        flush_pending_type(pending_type, action_sender);
+    if should_flush_type {
+        flush_pending_type(&mut state.pending_type, action_sender);
+        // Type event was produced — discard pending keys (superseded).
+        state.pending_keys.clear();
+        state.pending_keys_last_timestamp = 0;
+    } else if !state.pending_keys.is_empty()
+        && state.pending_keys_last_timestamp > 0
+        && now.saturating_sub(state.pending_keys_last_timestamp) >= TYPE_DEBOUNCE_MS
+    {
+        // No type event arrived within the debounce window — emit the keys.
+        flush_pending_keys(&mut state.pending_keys, action_sender);
+        state.pending_keys_last_timestamp = 0;
     }
 }

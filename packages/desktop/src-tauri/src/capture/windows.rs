@@ -40,8 +40,8 @@ use windows::Win32::UI::Input::KeyboardAndMouse::{
     GetAsyncKeyState, VK_CONTROL, VK_LWIN, VK_MENU, VK_RWIN, VK_SHIFT,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
-    CallNextHookEx, DispatchMessageW, EnumWindows, GetClassNameW, GetForegroundWindow,
-    GetMessageW, GetParent, GetWindow, GetWindowLongW, GetWindowTextW,
+    CallNextHookEx, DispatchMessageW, EnumWindows, GetClassNameW,
+    GetForegroundWindow, GetMessageW, GetParent, GetWindow, GetWindowLongW, GetWindowTextW,
     GetWindowThreadProcessId, IsWindow, IsWindowVisible, PostThreadMessageW,
     SetWindowsHookExW, TranslateMessage, UnhookWindowsHookEx, WindowFromPoint,
     CHILDID_SELF, EVENT_OBJECT_CREATE, EVENT_OBJECT_DESTROY, EVENT_OBJECT_FOCUS,
@@ -128,6 +128,13 @@ thread_local! {
     /// compared against WM_LBUTTONUP to classify click vs drag.
     static INPUT_MOUSE_DOWN_POS: std::cell::Cell<Option<POINT>> = const { std::cell::Cell::new(None) };
 
+    /// Set of window handles for which we've dispatched a WindowCreate event.
+    /// Only emit WindowDestroy (context_close) for windows in this set —
+    /// prevents spurious context_close for internal windows that were never
+    /// captured as context_open.
+    static INPUT_OPENED_WINDOWS: std::cell::RefCell<std::collections::HashSet<i64>> =
+        std::cell::RefCell::new(std::collections::HashSet::new());
+
     /// Cache for PID exclusion check results. Maps PID → should_keep (true/false).
     /// Avoids repeated CreateToolhelp32Snapshot calls for the same PID.
     /// Cleared when capture starts (new session may have different excluded PID).
@@ -150,6 +157,18 @@ thread_local! {
     /// satisfy value-change correlation because only keyboard input produces
     /// value changes that should be captured.
     static INPUT_LAST_KEYBOARD_TIMESTAMP: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+
+    /// Window handle that received the most recent keyboard input.
+    /// Used to scope value-change correlation: only correlate value changes
+    /// with keyboard events that targeted the SAME window. This prevents
+    /// Ctrl+S in Notepad from correlating with value changes in the Save As
+    /// dialog that opens afterwards.
+    static INPUT_LAST_KEYBOARD_WINDOW: std::cell::Cell<i64> = const { std::cell::Cell::new(0) };
+
+    /// Timestamp of the most recent completed click (WM_LBUTTONUP that was
+    /// classified as a click, not a drag). Used to suppress duplicate
+    /// EVENT_OBJECT_SELECTION that fires immediately after a click.
+    static INPUT_LAST_CLICK_TIMESTAMP: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
 }
 
 // ---------------------------------------------------------------------------
@@ -514,10 +533,13 @@ fn input_thread_main(
     INPUT_FOREGROUND_PID.with(|p| p.set(0));
     INPUT_LAST_FOREGROUND_HWND.with(|p| p.set(0));
     INPUT_MOUSE_DOWN_POS.with(|p| p.set(None));
+    INPUT_OPENED_WINDOWS.with(|s| s.borrow_mut().clear());
     INPUT_PID_CACHE.with(|c| c.borrow_mut().clear());
     INPUT_UIA.with(|u| *u.borrow_mut() = None);
     INPUT_LAST_INPUT_TIMESTAMP.with(|t| t.set(0));
     INPUT_LAST_KEYBOARD_TIMESTAMP.with(|t| t.set(0));
+    INPUT_LAST_KEYBOARD_WINDOW.with(|w| w.set(0));
+    INPUT_LAST_CLICK_TIMESTAMP.with(|t| t.set(0));
 
     Ok(())
 }
@@ -736,6 +758,8 @@ unsafe extern "system" fn input_win_event_proc(
                     callback_params: [id_object as i64, id_child as i64, 0, 0],
                             pre_captured_element: None,
                 });
+                // Track this window so we only emit context_close for it.
+                INPUT_OPENED_WINDOWS.with(|s| s.borrow_mut().insert(window_handle));
             }
 
         x if x == EVENT_OBJECT_DESTROY
@@ -756,7 +780,27 @@ unsafe extern "system" fn input_win_event_proc(
                     // Check if the window has a title (titleless windows
                     // are typically internal framework windows).
                     let title = get_window_title(hwnd);
-                    if !has_parent && !has_owner && !title.is_empty() {
+                    // Check if this window's root ancestor is the current
+                    // foreground window — if so, it's an internal sub-window
+                    // (e.g. file dialog folder view refreshing), not a
+                    // standalone window the user closed.
+                    let fg = GetForegroundWindow();
+                    let root = {
+                        use windows::Win32::UI::WindowsAndMessaging::{GetAncestor, GA_ROOT};
+                        GetAncestor(hwnd, GA_ROOT)
+                    };
+                    let is_sub_of_foreground = !fg.0.is_null() && !root.0.is_null() && root == fg;
+
+                    if !has_parent && !has_owner && !title.is_empty() && !is_sub_of_foreground {
+                        // Only emit context_close for windows we previously
+                        // emitted context_open for. This prevents spurious
+                        // context_close for internal windows (file dialog
+                        // folder views, shell sub-windows) that were never
+                        // captured as context_open.
+                        let was_opened = INPUT_OPENED_WINDOWS.with(|s| s.borrow_mut().remove(&window_handle));
+                        if !was_opened {
+                            return; // Never opened — don't close.
+                        }
                         // Only dispatch if correlated with recent user input.
                         let last_input = INPUT_LAST_INPUT_TIMESTAMP.with(|t| t.get());
                         if timestamp.saturating_sub(last_input) > timing::WINDOW_LIFECYCLE_CORRELATION_MS {
@@ -789,6 +833,18 @@ unsafe extern "system" fn input_win_event_proc(
                 return; // Programmatic focus — suppress.
             }
 
+            // Suppress focus events that follow a mouse click (within 200ms).
+            // The click already captures the interaction — focus is redundant.
+            // Focus is only meaningful when caused by Tab key (keyboard navigation).
+            let mouse_down = INPUT_MOUSE_DOWN_POS.with(|p| p.get().is_some());
+            if mouse_down {
+                return; // Click in progress — focus is redundant.
+            }
+            let last_click = INPUT_LAST_CLICK_TIMESTAMP.with(|t| t.get());
+            if last_click > 0 && timestamp.saturating_sub(last_click) < 200 {
+                return; // Recent click — focus is redundant.
+            }
+
             input_dispatch_raw_event(RawEvent {
                 event_type: RawEventType::Focus,
                 sequence_id: 0,
@@ -806,14 +862,28 @@ unsafe extern "system" fn input_win_event_proc(
         }
 
         x if x == EVENT_OBJECT_VALUECHANGE => {
-            // Only dispatch value-change if correlated with recent keyboard input.
-            // Uses INPUT_LAST_KEYBOARD_TIMESTAMP (not the general input timestamp)
-            // because only keyboard input produces value changes that should be
-            // captured. A mouse click followed by a programmatic SetWindowText
-            // should NOT pass the correlation check.
+            // Only dispatch value-change if correlated with recent keyboard input
+            // that targeted the SAME window (root ancestor). This prevents
+            // Ctrl+S in Notepad from correlating with value changes in the
+            // Save As dialog that opens afterwards.
             let last_keyboard = INPUT_LAST_KEYBOARD_TIMESTAMP.with(|t| t.get());
             if timestamp.saturating_sub(last_keyboard) > timing::VALUE_CHANGE_CORRELATION_MS {
-                return; // Programmatic value change — suppress.
+                return; // No recent keyboard input — suppress.
+            }
+            // Check that the keyboard input targeted the same root window.
+            let last_kb_window = INPUT_LAST_KEYBOARD_WINDOW.with(|w| w.get());
+            if last_kb_window != 0 && last_kb_window != window_handle {
+                // Keyboard was in a different window — this value change is
+                // from a newly opened dialog, not from user typing.
+                use windows::Win32::UI::WindowsAndMessaging::{GetAncestor, GA_ROOT};
+                let vc_root = GetAncestor(hwnd, GA_ROOT);
+                let kb_root = HWND(last_kb_window as *mut _);
+                let kb_root_resolved = GetAncestor(kb_root, GA_ROOT);
+                let vc_root_h = if vc_root.0.is_null() { hwnd.0 as i64 } else { vc_root.0 as i64 };
+                let kb_root_h = if kb_root_resolved.0.is_null() { last_kb_window } else { kb_root_resolved.0 as i64 };
+                if vc_root_h != kb_root_h {
+                    return; // Different root window — suppress.
+                }
             }
 
             input_dispatch_raw_event(RawEvent {
@@ -833,6 +903,19 @@ unsafe extern "system" fn input_win_event_proc(
         }
 
         x if x == EVENT_OBJECT_SELECTION => {
+            // Suppress selection events that follow a mouse click.
+            // The click already captures what was selected — the selection
+            // event is redundant. We check both:
+            // 1. Mouse button is currently down (click in progress)
+            // 2. A click was recently completed (within 200ms)
+            let mouse_down = INPUT_MOUSE_DOWN_POS.with(|p| p.get().is_some());
+            if mouse_down {
+                return; // Click in progress — suppress.
+            }
+            let last_click = INPUT_LAST_CLICK_TIMESTAMP.with(|t| t.get());
+            if last_click > 0 && timestamp.saturating_sub(last_click) < 200 {
+                return; // Recent click — suppress.
+            }
             input_dispatch_raw_event(RawEvent {
                 event_type: RawEventType::Selection,
                 sequence_id: 0,
@@ -870,21 +953,21 @@ unsafe extern "system" fn input_mouse_ll_proc(
         let msg = w_param.0 as u32;
         let pt = mouse_struct.pt;
 
-        // Use GetForegroundWindow for PID exclusion check (determines WHETHER
-        // to capture the event — filters out events on the Docent app itself).
+        // Use WindowFromPoint for PID exclusion — determines WHETHER to capture
+        // the event by checking if the click target is Docent's own window.
+        // Previously used GetForegroundWindow, which incorrectly filtered events
+        // when Docent was foreground but the user clicked on a different window.
+        let point_hwnd = WindowFromPoint(pt);
         let fg_hwnd = GetForegroundWindow();
+        let check_hwnd = if point_hwnd.0.is_null() { fg_hwnd } else { point_hwnd };
         let mut pid: u32 = 0;
-        GetWindowThreadProcessId(fg_hwnd, Some(&mut pid));
+        GetWindowThreadProcessId(check_hwnd, Some(&mut pid));
         let excluded = input_get_excluded_pid();
 
-        if input_should_keep_event_cached(pid, excluded, fg_hwnd) {
+        if input_should_keep_event_cached(pid, excluded, check_hwnd) {
             let timestamp = current_timestamp_ms();
 
-            // Use WindowFromPoint for the window_handle field (identifies WHICH
-            // window was interacted with — the window under the cursor). This
-            // ensures clicks on a specific window always resolve to that window's
-            // handle, even if the foreground hasn't updated yet.
-            let point_hwnd = WindowFromPoint(pt);
+            // window_handle field identifies WHICH window was interacted with.
             let window_handle = if point_hwnd.0.is_null() {
                 fg_hwnd.0 as i64
             } else {
@@ -897,6 +980,9 @@ unsafe extern "system" fn input_mouse_ll_proc(
                     INPUT_LAST_INPUT_TIMESTAMP.with(|t| t.set(timestamp));
                     // Store mouse-down position for drag detection.
                     INPUT_MOUSE_DOWN_POS.with(|p| p.set(Some(pt)));
+                    // Set click timestamp on mousedown (not just mouseup) because
+                    // EVENT_OBJECT_SELECTION can fire between mousedown and mouseup.
+                    INPUT_LAST_CLICK_TIMESTAMP.with(|t| t.set(timestamp));
 
                     // If clicking on a different top-level window, proactively
                     // dispatch a Foreground event. Some window classes (e.g.
@@ -937,7 +1023,8 @@ unsafe extern "system" fn input_mouse_ll_proc(
                 }
                 WM_LBUTTONUP => {
                     let was_drag = INPUT_MOUSE_DOWN_POS.with(|p| {
-                        p.get().is_some_and(|down_pt| {
+                        let down = p.get();
+                        down.is_some_and(|down_pt| {
                             let dx = (pt.x - down_pt.x).abs();
                             let dy = (pt.y - down_pt.y).abs();
                             dx > DRAG_THRESHOLD_PX || dy > DRAG_THRESHOLD_PX
@@ -1001,6 +1088,7 @@ unsafe extern "system" fn input_mouse_ll_proc(
                             callback_params: [0, 0, 0, 0],
                             pre_captured_element: pre_element,
                         });
+                        INPUT_LAST_CLICK_TIMESTAMP.with(|t| t.set(timestamp));
                     }
 
                     INPUT_MOUSE_DOWN_POS.with(|p| p.set(None));
@@ -1117,6 +1205,7 @@ unsafe extern "system" fn input_keyboard_ll_proc(
                 // Update both timestamps for correlation.
                 INPUT_LAST_INPUT_TIMESTAMP.with(|t| t.set(timestamp));
                 INPUT_LAST_KEYBOARD_TIMESTAMP.with(|t| t.set(timestamp));
+                INPUT_LAST_KEYBOARD_WINDOW.with(|w| w.set(window_handle));
 
                 input_dispatch_raw_event(RawEvent {
                     event_type: RawEventType::Keyboard,
@@ -1629,11 +1718,17 @@ impl AccessibilityBackend for WindowsAccessibilityBackend {
         let mut rect = RECT::default();
         let ok = unsafe { GetWindowRect(target, &mut rect) };
         if ok.is_ok() {
+            let width = rect.right - rect.left;
+            let height = rect.bottom - rect.top;
+            // Return None for zero-size rects (window already destroyed or invalid)
+            if width <= 0 || height <= 0 {
+                return None;
+            }
             Some(super::WindowRect {
                 x: rect.left,
                 y: rect.top,
-                width: rect.right - rect.left,
-                height: rect.bottom - rect.top,
+                width,
+                height,
             })
         } else {
             None

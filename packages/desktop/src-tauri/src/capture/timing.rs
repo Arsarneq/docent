@@ -23,8 +23,10 @@ pub const FOCUS_CORRELATION_MS: u64 = 100;
 
 /// Value-change correlation window. Keystroke → value change involves:
 /// OS processes key → app receives WM_CHAR → app updates text → accessibility
-/// fires EVENT_OBJECT_VALUECHANGE. This chain can take 200-400ms on slow apps.
-pub const VALUE_CHANGE_CORRELATION_MS: u64 = 500;
+/// fires EVENT_OBJECT_VALUECHANGE. This chain can take 200-400ms on typical
+/// apps, but UWP apps (Calculator, Settings) can take 500-800ms due to their
+/// async rendering pipeline.
+pub const VALUE_CHANGE_CORRELATION_MS: u64 = 1000;
 
 // ─── Scroll ─────────────────────────────────────────────────────────────────
 

@@ -1049,10 +1049,10 @@ mod capture_behaviour {
 
     #[test]
     #[serial]
-    fn printable_keys_are_not_captured_as_key_events() {
-        // The desktop capture layer filters printable characters (a-z, 0-9)
-        // from key events — they're redundant with the coalesced type event.
-        // Only control keys (Enter, Escape, Tab, Arrows, etc.) should produce key events.
+    fn printable_keys_are_captured_when_no_type_event_arrives() {
+        // When typing into a non-editable control (no EVENT_OBJECT_VALUECHANGE),
+        // printable keys are buffered and emitted as individual key events after
+        // the TYPE_DEBOUNCE_MS window expires without a type event arriving.
         let (tx, rx) = mpsc::channel::<ActionEvent>();
         let mut capture = WindowsCapture::new();
         capture.set_excluded_pid(None);
@@ -1063,31 +1063,32 @@ mod capture_behaviour {
         thread::sleep(Duration::from_millis(200));
 
         let mut enigo = Enigo::new(&Settings::default()).unwrap();
-        // Type individual printable characters.
+        // Type individual printable characters into a non-editable window.
         enigo.key(enigo::Key::Unicode('a'), Direction::Click).unwrap();
         enigo.key(enigo::Key::Unicode('b'), Direction::Click).unwrap();
         enigo.key(enigo::Key::Unicode('c'), Direction::Click).unwrap();
-        thread::sleep(Duration::from_millis(600));
+        // Wait for TYPE_DEBOUNCE_MS (1000ms) + buffer to flush.
+        thread::sleep(Duration::from_millis(1500));
 
         unsafe { let _ = DestroyWindow(hwnd); }
         capture.stop().unwrap();
         let events: Vec<_> = rx.try_iter().collect();
 
-        // Printable keys should NOT produce key events (they're filtered).
-        // They should produce a coalesced type event instead.
+        // Since no type event arrived (STATIC window has no Value pattern),
+        // the printable keys should be emitted as individual key events.
         let key_events = keys(&events);
-        for k in &key_events {
-            if let ActionPayload::Key { key, modifiers, .. } = &k.payload {
-                // If a key event IS produced, it should not be a plain printable char
-                // (unless it has a modifier like Ctrl).
-                let is_printable = key.len() == 1 && !modifiers.ctrl && !modifiers.alt && !modifiers.meta;
-                assert!(
-                    !is_printable,
-                    "Printable key '{}' should not produce a key event without modifiers",
-                    key
-                );
+        let printable_keys: Vec<_> = key_events.iter().filter(|e| {
+            if let ActionPayload::Key { key, modifiers, .. } = &e.payload {
+                key.len() == 1 && !modifiers.ctrl && !modifiers.alt && !modifiers.meta
+            } else {
+                false
             }
-        }
+        }).collect();
+        assert!(
+            printable_keys.len() >= 3,
+            "Expected at least 3 printable key events (a, b, c), got {}",
+            printable_keys.len()
+        );
     }
 
     #[test]
@@ -1105,8 +1106,8 @@ mod capture_behaviour {
 
         let mut enigo = Enigo::new(&Settings::default()).unwrap();
         enigo.text("hello").unwrap();
-        // Wait for the 500ms type debounce to flush.
-        thread::sleep(Duration::from_millis(800));
+        // Wait for TYPE_DEBOUNCE_MS (1000ms) + buffer to flush.
+        thread::sleep(Duration::from_millis(1500));
 
         unsafe { let _ = DestroyWindow(hwnd); }
         capture.stop().unwrap();
@@ -2248,14 +2249,9 @@ mod selection {
         capture.stop().unwrap();
         let events: Vec<_> = rx.try_iter().collect();
 
-        // Should have a click AND a select action.
+        // Should have a click action. The click on a list item IS the selection —
+        // a separate select event is not needed (it would be redundant with the click).
         let click_events = clicks(&events);
-        let select_events = selects(&events);
-        assert!(!click_events.is_empty(), "Expected click on listbox, got {}", click_events.len());
-        assert!(
-            !select_events.is_empty(),
-            "Expected select event from clicking listbox item, got {}",
-            select_events.len()
-        );
+        assert!(!click_events.is_empty(), "Expected click on listbox item, got {}", click_events.len());
     }
 }
