@@ -88,6 +88,11 @@ jobs:
             packages/desktop/src-tauri/target
           key: ${{ runner.os }}-cargo-${{ hashFiles('packages/desktop/src-tauri/Cargo.lock') }}
 
+      - name: Create frontend dist directory
+        working-directory: packages/desktop
+        run: New-Item -ItemType Directory -Force -Path dist | Out-Null
+        shell: pwsh
+
       - name: Run Rust unit tests
         working-directory: packages/desktop/src-tauri
         run: cargo test --lib --test worker_pool_test --test scroll_test --test windows_capture_test
