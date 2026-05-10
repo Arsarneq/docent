@@ -258,6 +258,30 @@ const tauriAdapter = {
     }
   },
 
+  // ── Recording mode ────────────────────────────────────────────────────────
+
+  async loadRecordingMode() {
+    try {
+      const json = await invoke('load_state');
+      const state = JSON.parse(json);
+      return state?.settings?.recordingMode ?? 'narration';
+    } catch {
+      return 'narration';
+    }
+  },
+
+  async saveRecordingMode(mode) {
+    try {
+      const json = await invoke('load_state');
+      const state = JSON.parse(json);
+      if (!state.settings) state.settings = {};
+      state.settings.recordingMode = mode;
+      await invoke('save_state', { data: JSON.stringify(state) });
+    } catch {
+      // Silently fail — recording mode is non-critical
+    }
+  },
+
   // ── Reading guidance ──────────────────────────────────────────────────────
 
   async loadReadingGuidance() {

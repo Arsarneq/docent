@@ -69,24 +69,37 @@ export function findRecording(project, recording_id) {
  * Pass logical_id when replacing an existing step; omit for brand new steps.
  *
  * @param {object} params
- * @param {string}           params.narration
- * @param {string}           params.narration_source
+ * @param {string}           [params.narration]
+ * @param {string}           [params.narration_source]
+ * @param {string}           [params.step_type]
+ * @param {string}           [params.expect]
  * @param {number}           params.step_number
  * @param {Action[]}         params.actions
  * @param {string}           [params.logical_id]
  * @returns {Step}
  */
-export function createStep({ narration, narration_source, step_number, actions, logical_id }) {
-  return {
+export function createStep({ narration, narration_source, step_type, expect, step_number, actions, logical_id }) {
+  const step = {
     uuid:             uuidv7(),
     logical_id:       logical_id ?? uuidv7(),
     step_number,
     created_at:       new Date().toISOString(),
-    narration,
-    narration_source,
     actions,
     deleted:          false,
   };
+  // Include narration fields when present (narration mode)
+  if (narration != null) {
+    step.narration = narration;
+    step.narration_source = narration_source;
+  }
+  // Include simple mode fields when present
+  if (step_type != null) {
+    step.step_type = step_type;
+  }
+  if (expect != null) {
+    step.expect = expect;
+  }
+  return step;
 }
 
 /**
