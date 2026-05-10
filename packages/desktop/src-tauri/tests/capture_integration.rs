@@ -375,3 +375,267 @@ mod side_effects {
         );
     }
 }
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// ADDITIONAL USER ACTION TESTS
+// ═══════════════════════════════════════════════════════════════════════════════
+
+#[test]
+#[cfg(target_os = "windows")]
+fn user_double_click_is_captured() {
+    let events = capture_during(|enigo| {
+        enigo.move_mouse(500, 500, Coordinate::Abs).unwrap();
+        thread::sleep(Duration::from_millis(50));
+        // Double-click = two rapid clicks.
+        enigo.button(enigo::Button::Left, Direction::Click).unwrap();
+        thread::sleep(Duration::from_millis(50));
+        enigo.button(enigo::Button::Left, Direction::Click).unwrap();
+    });
+
+    let click_count = clicks(&events).len();
+    assert!(
+        click_count >= 2,
+        "Expected at least 2 click events for double-click, got {}",
+        click_count
+    );
+}
+
+#[test]
+#[cfg(target_os = "windows")]
+fn user_drag_is_captured() {
+    let events = capture_during(|enigo| {
+        // Mouse down at (400, 400), move to (600, 600), mouse up.
+        enigo.move_mouse(400, 400, Coordinate::Abs).unwrap();
+        thread::sleep(Duration::from_millis(50));
+        enigo.button(enigo::Button::Left, Direction::Press).unwrap();
+        thread::sleep(Duration::from_millis(50));
+        enigo.move_mouse(600, 600, Coordinate::Abs).unwrap();
+        thread::sleep(Duration::from_millis(50));
+        enigo.button(enigo::Button::Left, Direction::Release).unwrap();
+    });
+
+    // A drag should produce drag_start + drop, or at minimum a click
+    // (if the drag threshold wasn't met). With 200px movement it should
+    // exceed the DRAG_THRESHOLD_PX (5px).
+    let drags: Vec<_> = events
+        .iter()
+        .filter(|e| matches!(&e.payload, ActionPayload::DragStart { .. }))
+        .collect();
+    let drops: Vec<_> = events
+        .iter()
+        .filter(|e| matches!(&e.payload, ActionPayload::Drop { .. }))
+        .collect();
+
+    assert!(
+        drags.len() >= 1,
+        "Expected at least 1 drag_start event, got {}",
+        drags.len()
+    );
+    assert!(
+        drops.len() >= 1,
+        "Expected at least 1 drop event, got {}",
+        drops.len()
+    );
+}
+
+#[test]
+#[cfg(target_os = "windows")]
+fn user_modifier_key_combo_is_captured() {
+    // Ctrl+A should produce a key event with ctrl modifier.
+    let events = capture_during(|enigo| {
+        enigo.key(enigo::Key::Control, Direction::Press).unwrap();
+        enigo.key(enigo::Key::Unicode('a'), Direction::Click).unwrap();
+        enigo.key(enigo::Key::Control, Direction::Release).unwrap();
+    });
+
+    let key_events = keys(&events);
+    assert!(
+        key_events.len() >= 1,
+        "Expected at least 1 key event for Ctrl+A, got {}",
+        key_events.len()
+    );
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// ADDITIONAL SIDE-EFFECT TESTS
+// ═══════════════════════════════════════════════════════════════════════════════
+
+#[cfg(target_os = "windows")]
+mod side_effects_additional {
+    use super::*;
+    use std::ptr;
+    use windows::Win32::Foundation::HWND;
+    use windows::Win32::UI::WindowsAndMessaging::{
+        CreateWindowExW, DestroyWindow, SetForegroundWindow,
+        SetWindowTextW, MoveWindow, ShowWindow,
+        WS_OVERLAPPEDWINDOW, WS_VISIBLE, SW_MINIMIZE, SW_RESTORE,
+        WINDOW_EX_STYLE,
+    };
+    use windows::core::w;
+
+    unsafe fn create_test_window(title: &str) -> HWND {
+        let title_wide: Vec<u16> = title.encode_utf16().chain(std::iter::once(0)).collect();
+        let class = w!("STATIC");
+        CreateWindowExW(
+            WINDOW_EX_STYLE::default(),
+            class,
+            windows::core::PCWSTR(title_wide.as_ptr()),
+            WS_OVERLAPPEDWINDOW | WS_VISIBLE,
+            100, 100, 400, 300,
+            HWND::default(),
+            None,
+            None,
+            Some(ptr::null()),
+        ).expect("Failed to create test window")
+    }
+
+    #[test]
+    fn programmatic_window_move_should_not_be_captured() {
+        // Moving a window programmatically is not a user action.
+        let (tx, rx) = mpsc::channel::<ActionEvent>();
+        let mut capture = WindowsCapture::new();
+        capture.set_excluded_pid(None);
+        capture.start(tx).expect("Failed to start capture");
+        thread::sleep(Duration::from_millis(200));
+
+        let hwnd = unsafe { create_test_window("Move Test") };
+        thread::sleep(Duration::from_millis(200));
+
+        // Programmatically move the window.
+        unsafe {
+            MoveWindow(hwnd, 200, 200, 500, 400, true).unwrap();
+        }
+        thread::sleep(Duration::from_millis(300));
+
+        unsafe { let _ = DestroyWindow(hwnd); }
+        thread::sleep(Duration::from_millis(300));
+
+        capture.stop().expect("Failed to stop capture");
+        let events: Vec<_> = rx.try_iter().collect();
+
+        // No click, drag, or other events should be produced.
+        let click_events = clicks(&events);
+        let drag_events: Vec<_> = events
+            .iter()
+            .filter(|e| matches!(&e.payload, ActionPayload::DragStart { .. }))
+            .collect();
+        assert_eq!(click_events.len(), 0, "Window move should not produce clicks. Got {}.", click_events.len());
+        assert_eq!(drag_events.len(), 0, "Window move should not produce drags. Got {}.", drag_events.len());
+    }
+
+    #[test]
+    fn programmatic_minimize_restore_should_not_be_captured() {
+        // Minimizing and restoring a window programmatically is not a user action.
+        let (tx, rx) = mpsc::channel::<ActionEvent>();
+        let mut capture = WindowsCapture::new();
+        capture.set_excluded_pid(None);
+        capture.start(tx).expect("Failed to start capture");
+        thread::sleep(Duration::from_millis(200));
+
+        let hwnd = unsafe { create_test_window("Minimize Test") };
+        thread::sleep(Duration::from_millis(200));
+
+        // Programmatically minimize then restore.
+        unsafe {
+            let _ = ShowWindow(hwnd, SW_MINIMIZE);
+            thread::sleep(Duration::from_millis(300));
+            let _ = ShowWindow(hwnd, SW_RESTORE);
+        }
+        thread::sleep(Duration::from_millis(500));
+
+        unsafe { let _ = DestroyWindow(hwnd); }
+        thread::sleep(Duration::from_millis(300));
+
+        capture.stop().expect("Failed to stop capture");
+        let events: Vec<_> = rx.try_iter().collect();
+
+        // No context_switch or focus events should be produced.
+        let switches = context_switches(&events);
+        let focus_events = focuses(&events);
+        assert_eq!(switches.len(), 0, "Programmatic minimize/restore should not produce context_switch. Got {}.", switches.len());
+        assert_eq!(focus_events.len(), 0, "Programmatic minimize/restore should not produce focus. Got {}.", focus_events.len());
+    }
+
+    #[test]
+    fn rapid_programmatic_focus_moves_should_not_be_captured() {
+        // Simulates form validation: rapidly moving focus across controls.
+        let (tx, rx) = mpsc::channel::<ActionEvent>();
+        let mut capture = WindowsCapture::new();
+        capture.set_excluded_pid(None);
+        capture.start(tx).expect("Failed to start capture");
+        thread::sleep(Duration::from_millis(200));
+
+        // Create multiple windows and rapidly switch focus between them.
+        let hwnd1 = unsafe { create_test_window("Focus 1") };
+        let hwnd2 = unsafe { create_test_window("Focus 2") };
+        let hwnd3 = unsafe { create_test_window("Focus 3") };
+        thread::sleep(Duration::from_millis(200));
+
+        unsafe {
+            let _ = SetForegroundWindow(hwnd1);
+            thread::sleep(Duration::from_millis(100));
+            let _ = SetForegroundWindow(hwnd2);
+            thread::sleep(Duration::from_millis(100));
+            let _ = SetForegroundWindow(hwnd3);
+        }
+        thread::sleep(Duration::from_millis(500));
+
+        unsafe {
+            let _ = DestroyWindow(hwnd1);
+            let _ = DestroyWindow(hwnd2);
+            let _ = DestroyWindow(hwnd3);
+        }
+        thread::sleep(Duration::from_millis(300));
+
+        capture.stop().expect("Failed to stop capture");
+        let events: Vec<_> = rx.try_iter().collect();
+
+        // Ideal: no focus or context_switch events from programmatic focus moves.
+        let focus_events = focuses(&events);
+        let switches = context_switches(&events);
+        assert_eq!(
+            focus_events.len(), 0,
+            "Rapid programmatic focus moves should not produce focus events. Got {}.",
+            focus_events.len()
+        );
+        assert_eq!(
+            switches.len(), 0,
+            "Rapid programmatic focus moves should not produce context_switch. Got {}.",
+            switches.len()
+        );
+    }
+
+    #[test]
+    fn programmatic_child_window_should_not_be_captured() {
+        // When an application spawns a child/dialog window programmatically,
+        // it should not produce context_open.
+        let (tx, rx) = mpsc::channel::<ActionEvent>();
+        let mut capture = WindowsCapture::new();
+        capture.set_excluded_pid(None);
+        capture.start(tx).expect("Failed to start capture");
+        thread::sleep(Duration::from_millis(200));
+
+        // Create a parent window, then spawn a child window.
+        let parent = unsafe { create_test_window("Parent") };
+        thread::sleep(Duration::from_millis(200));
+        let child = unsafe { create_test_window("Child Dialog") };
+        thread::sleep(Duration::from_millis(500));
+
+        unsafe {
+            let _ = DestroyWindow(child);
+            let _ = DestroyWindow(parent);
+        }
+        thread::sleep(Duration::from_millis(300));
+
+        capture.stop().expect("Failed to stop capture");
+        let events: Vec<_> = rx.try_iter().collect();
+
+        // Ideal: no context_open for programmatic child windows.
+        let opens = context_opens(&events);
+        assert_eq!(
+            opens.len(), 0,
+            "Programmatic child window should not produce context_open. Got {}.",
+            opens.len()
+        );
+    }
+}
