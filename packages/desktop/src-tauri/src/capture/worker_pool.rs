@@ -8,13 +8,14 @@ use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
 use std::sync::mpsc;
 use std::sync::Arc;
 use std::thread::JoinHandle;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use super::action_mapping::PASSWORD_MASK;
 use super::coordinate;
 use super::scroll::{RawScrollEvent, ScrollAccumulator};
 use super::{
     ActionEvent, ActionPayload, CaptureError, CaptureMode, ElementDescription, Modifiers,
+    WindowRect,
 };
 
 // ---------------------------------------------------------------------------
@@ -98,7 +99,7 @@ pub struct RawEvent {
 /// Messages sent from the Input_Thread to worker threads.
 pub enum WorkerMessage {
     /// A raw event to process.
-    Event(RawEvent),
+    Event(Box<RawEvent>),
     /// Poison pill — drain remaining events then exit.
     Shutdown,
 }
@@ -302,12 +303,12 @@ impl WorkerPool {
 
             if let Some(worker) = self.workers.get(target) {
                 worker.queue_len.fetch_add(1, Ordering::SeqCst);
-                match worker.sender.send(WorkerMessage::Event(current_event)) {
+                match worker.sender.send(WorkerMessage::Event(Box::new(current_event))) {
                     Ok(()) => return, // Successfully dispatched.
                     Err(mpsc::SendError(WorkerMessage::Event(returned_event))) => {
                         // Worker is dead. Undo the queue_len bump.
                         worker.queue_len.fetch_sub(1, Ordering::SeqCst);
-                        current_event = returned_event;
+                        current_event = *returned_event;
 
                         if respawned.contains(&target) {
                             // Already respawned this index and it failed again.
@@ -479,6 +480,22 @@ pub trait AccessibilityBackend: Send + 'static {
     /// within the same application window should share the same context_id.
     /// On Windows this calls `GetAncestor(hwnd, GA_ROOT)`.
     fn root_window_handle(&self, window_handle: i64) -> i64;
+
+    /// Get the window rectangle (position and size) for a window handle.
+    ///
+    /// Resolves to the root window via `GetAncestor(GA_ROOT)` and returns
+    /// the bounding rectangle. Returns `None` if the call fails or the
+    /// handle is invalid.
+    fn window_rect(&self, window_handle: i64) -> Option<WindowRect>;
+
+    /// Attempt to get the selected item's description and name from a
+    /// container element (List, ComboBox, Tree, DataGrid) using the
+    /// `IUIAutomationSelectionPattern`.
+    ///
+    /// Returns `Some((element_description, selected_item_name))` if a
+    /// selection could be resolved, or `None` if the pattern is not
+    /// supported or no item is selected.
+    fn selected_item_name(&self, window_handle: i64) -> Option<(ElementDescription, String)>;
 }
 
 // ---------------------------------------------------------------------------
@@ -504,18 +521,16 @@ pub struct PendingTypeEvent {
     pub timestamp: u64,
     /// Resolved context_id for the event.
     pub context_id: Option<i64>,
+    /// Resolved window_rect for the event.
+    pub window_rect: Option<WindowRect>,
     /// Sequence_id from the most recent value-change RawEvent.
     pub sequence_id: u64,
     /// Timestamp of the last value-change update (used for debounce).
     pub last_update: u64,
 }
 
-/// Debounce interval for type event coalescing (milliseconds).
-const TYPE_DEBOUNCE_MS: u64 = 500;
-
-/// Timeout for `recv_timeout` — used for periodic flush of scroll and type
-/// buffers.
-const RECV_TIMEOUT: Duration = Duration::from_millis(50);
+/// Debounce interval for type event coalescing (imported from timing.rs).
+use super::timing::{TYPE_DEBOUNCE_MS, WORKER_RECV_TIMEOUT as RECV_TIMEOUT};
 
 // ---------------------------------------------------------------------------
 // Timestamp helper
@@ -591,19 +606,20 @@ fn vk_to_key_name(vk: u32) -> String {
     }
 }
 
-/// Determine whether a key event should be emitted.
+/// Determine whether a key event should be emitted immediately.
 ///
-/// Returns `true` for control keys and modifier combos. Returns `false` for
-/// plain printable characters (single-char keys with no Ctrl/Alt/Meta held),
-/// which are redundant with the coalesced `type` event from value-change.
-fn should_keep_key_event(key: &str, modifiers: &(bool, bool, bool, bool)) -> bool {
-    // Skip modifier-only keys (empty key name).
-    if key.is_empty() {
-        return false;
-    }
+/// Returns `true` for control keys and modifier combos (emit immediately).
+/// Returns `false` for modifier-only keys (skip entirely — no useful info).
+/// Printable characters are handled separately via the pending_keys buffer.
+fn is_modifier_only_key(key: &str) -> bool {
+    key.is_empty()
+}
+
+/// Determine whether a key is a printable character (should be buffered,
+/// not emitted immediately).
+fn is_printable_key(key: &str, modifiers: &(bool, bool, bool, bool)) -> bool {
     // A key is "printable" if it's a single character with no Ctrl/Alt/Meta.
-    let is_printable_char = key.len() == 1 && !modifiers.0 && !modifiers.2 && !modifiers.3;
-    !is_printable_char
+    key.len() == 1 && !modifiers.0 && !modifiers.2 && !modifiers.3
 }
 
 // ---------------------------------------------------------------------------
@@ -643,12 +659,7 @@ pub fn worker_loop<B: AccessibilityBackend>(
         return;
     }
 
-    let mut scroll_acc = ScrollAccumulator::new();
-    let mut pending_type: Option<PendingTypeEvent> = None;
-    let mut last_focus_selector = String::new();
-    let mut last_value_map: HashMap<String, String> = HashMap::new();
-    // Track the last DragStart element so we can attach it to the Drop event.
-    let mut last_drag_element: Option<ElementDescription> = None;
+    let mut state = WorkerState::new();
 
     loop {
         match receiver.recv_timeout(RECV_TIMEOUT) {
@@ -666,11 +677,7 @@ pub fn worker_loop<B: AccessibilityBackend>(
                         &backend,
                         &action_sender,
                         &excluded_pid,
-                        &mut scroll_acc,
-                        &mut pending_type,
-                        &mut last_focus_selector,
-                        &mut last_value_map,
-                        &mut last_drag_element,
+                        &mut state,
                     );
                 }));
                 if let Err(panic_info) = result {
@@ -698,18 +705,16 @@ pub fn worker_loop<B: AccessibilityBackend>(
                             &backend,
                             &action_sender,
                             &excluded_pid,
-                            &mut scroll_acc,
-                            &mut pending_type,
-                            &mut last_focus_selector,
-                            &mut last_value_map,
-                            &mut last_drag_element,
+                            &mut state,
                         );
                     }));
                 }
                 // Flush pending type event.
-                flush_pending_type(&mut pending_type, &action_sender);
+                flush_pending_type(&mut state.pending_type, &action_sender);
+                // Flush pending keys (emit if no type event superseded them).
+                flush_pending_keys(&mut state.pending_keys, &action_sender);
                 // Flush scroll accumulator with a far-future timestamp.
-                if let Some(result) = scroll_acc.try_flush(u64::MAX) {
+                if let Some(result) = state.scroll_acc.try_flush(u64::MAX) {
                     // We don't have a specific raw event for this flush, so
                     // emit with current timestamp and no context_id.
                     let _ = action_sender.send(ActionEvent {
@@ -733,7 +738,7 @@ pub fn worker_loop<B: AccessibilityBackend>(
             Err(mpsc::RecvTimeoutError::Timeout) => {
                 // Periodic flush for scroll debounce and type debounce.
                 let now = current_timestamp_ms();
-                if let Some(result) = scroll_acc.try_flush(now) {
+                if let Some(result) = state.scroll_acc.try_flush(now) {
                     let _ = action_sender.send(ActionEvent {
                         timestamp: now,
                         context_id: None,
@@ -750,17 +755,58 @@ pub fn worker_loop<B: AccessibilityBackend>(
                         },
                     });
                 }
-                try_flush_type_debounce(&mut pending_type, now, &action_sender);
+                try_flush_type_debounce(&mut state, now, &action_sender);
             }
             Err(mpsc::RecvTimeoutError::Disconnected) => {
                 // Channel closed — flush and exit.
-                flush_pending_type(&mut pending_type, &action_sender);
+                flush_pending_type(&mut state.pending_type, &action_sender);
+                flush_pending_keys(&mut state.pending_keys, &action_sender);
                 break;
             }
         }
     }
 
     backend.cleanup();
+}
+
+// ---------------------------------------------------------------------------
+// Worker state
+// ---------------------------------------------------------------------------
+
+/// Mutable per-worker state passed to `process_raw_event`.
+///
+/// Bundles the scroll accumulator, type coalescing buffer, and deduplication
+/// state into a single struct to keep the function signature manageable.
+struct WorkerState {
+    scroll_acc: ScrollAccumulator,
+    pending_type: Option<PendingTypeEvent>,
+    last_focus_selector: String,
+    last_value_map: HashMap<String, String>,
+    last_drag_element: Option<ElementDescription>,
+    /// Timestamp of the last click event — used to suppress duplicate select
+    /// events that fire immediately after a click on the same element.
+    last_click_timestamp: u64,
+    /// Buffered printable key events. These are held until either:
+    /// - A `type` event arrives (keys are discarded — superseded by the type value)
+    /// - The TYPE_DEBOUNCE_MS window expires with no type event (keys are emitted)
+    pending_keys: Vec<ActionEvent>,
+    /// Timestamp of the last buffered key (for debounce flush).
+    pending_keys_last_timestamp: u64,
+}
+
+impl WorkerState {
+    fn new() -> Self {
+        Self {
+            scroll_acc: ScrollAccumulator::new(),
+            pending_type: None,
+            last_focus_selector: String::new(),
+            last_value_map: HashMap::new(),
+            last_drag_element: None,
+            last_click_timestamp: 0,
+            pending_keys: Vec::new(),
+            pending_keys_last_timestamp: 0,
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -775,11 +821,7 @@ fn process_raw_event<B: AccessibilityBackend>(
     backend: &B,
     action_sender: &mpsc::Sender<ActionEvent>,
     excluded_pid: &Arc<AtomicU32>,
-    scroll_acc: &mut ScrollAccumulator,
-    pending_type: &mut Option<PendingTypeEvent>,
-    last_focus_selector: &mut String,
-    last_value_map: &mut HashMap<String, String>,
-    last_drag_element: &mut Option<ElementDescription>,
+    state: &mut WorkerState,
 ) {
     // PID exclusion check — discard events from the excluded process.
     let excl = excluded_pid.load(Ordering::SeqCst);
@@ -795,20 +837,29 @@ fn process_raw_event<B: AccessibilityBackend>(
         None
     };
 
+    // Resolve window_rect from the window handle.
+    let window_rect = if raw.window_handle != 0 {
+        backend.window_rect(raw.window_handle)
+    } else {
+        None
+    };
+
     match &raw.event_type {
         RawEventType::Click => {
             handle_click(
-                raw, backend, action_sender, context_id, false,
+                raw, backend, action_sender, context_id, false, window_rect.clone(),
             );
+            state.last_click_timestamp = raw.timestamp;
         }
         RawEventType::RightClick => {
             handle_click(
-                raw, backend, action_sender, context_id, true,
+                raw, backend, action_sender, context_id, true, window_rect.clone(),
             );
+            state.last_click_timestamp = raw.timestamp;
         }
         RawEventType::Focus => {
             handle_focus(
-                raw, backend, action_sender, context_id, last_focus_selector,
+                raw, backend, action_sender, context_id, &mut state.last_focus_selector, window_rect.clone(),
             );
         }
         RawEventType::ValueChange => {
@@ -817,22 +868,27 @@ fn process_raw_event<B: AccessibilityBackend>(
                 backend,
                 action_sender,
                 context_id,
-                pending_type,
-                last_value_map,
+                &mut state.pending_type,
+                &mut state.last_value_map,
+                window_rect.clone(),
             );
+            // A value change arrived — pending keys will be superseded by the
+            // type event when it flushes. Clear them now.
+            state.pending_keys.clear();
+            state.pending_keys_last_timestamp = 0;
         }
         RawEventType::Selection => {
-            handle_selection(raw, backend, action_sender, context_id);
+            handle_selection(raw, backend, action_sender, context_id, window_rect.clone());
         }
         RawEventType::Keyboard => {
             handle_keyboard(
-                raw, backend, action_sender, context_id, pending_type,
+                raw, backend, action_sender, context_id, state, window_rect.clone(),
             );
         }
         RawEventType::Foreground => {
             // Flush pending type before context switch.
-            flush_pending_type(pending_type, action_sender);
-            handle_foreground(raw, backend, action_sender, context_id);
+            flush_pending_type(&mut state.pending_type, action_sender);
+            handle_foreground(raw, backend, action_sender, context_id, window_rect.clone());
         }
         RawEventType::WindowCreate => {
             let _ = action_sender.send(ActionEvent {
@@ -840,7 +896,7 @@ fn process_raw_event<B: AccessibilityBackend>(
                 context_id,
                 capture_mode: CaptureMode::Accessibility,
                 frame_src: None,
-                window_rect: None,
+                window_rect: window_rect.clone(),
                 sequence_id: Some(raw.sequence_id),
                 payload: ActionPayload::ContextOpen {
                     opener_context_id: context_id,
@@ -854,7 +910,7 @@ fn process_raw_event<B: AccessibilityBackend>(
                 context_id,
                 capture_mode: CaptureMode::Accessibility,
                 frame_src: None,
-                window_rect: None,
+                window_rect: window_rect.clone(),
                 sequence_id: Some(raw.sequence_id),
                 payload: ActionPayload::ContextClose {
                     window_closing: true,
@@ -862,20 +918,21 @@ fn process_raw_event<B: AccessibilityBackend>(
             });
         }
         RawEventType::Scroll => {
-            scroll_acc.push(RawScrollEvent {
+            let is_horizontal = raw.callback_params[0] == 1;
+            state.scroll_acc.push(RawScrollEvent {
                 timestamp: raw.timestamp,
-                delta_x: 0.0,
-                delta_y: raw.scroll_delta,
+                delta_x: if is_horizontal { raw.scroll_delta } else { 0.0 },
+                delta_y: if is_horizontal { 0.0 } else { raw.scroll_delta },
             });
             // Check if debounce has elapsed (will be checked on timeout too).
             let now = current_timestamp_ms();
-            if let Some(result) = scroll_acc.try_flush(now) {
+            if let Some(result) = state.scroll_acc.try_flush(now) {
                 let _ = action_sender.send(ActionEvent {
                     timestamp: raw.timestamp,
                     context_id,
                     capture_mode: CaptureMode::Accessibility,
                     frame_src: None,
-                    window_rect: None,
+                    window_rect: window_rect.clone(),
                     sequence_id: Some(raw.sequence_id),
                     payload: ActionPayload::Scroll {
                         element: None,
@@ -888,10 +945,10 @@ fn process_raw_event<B: AccessibilityBackend>(
             }
         }
         RawEventType::DragStart { source_coords: _ } => {
-            handle_drag_start(raw, backend, action_sender, context_id, last_drag_element);
+            handle_drag_start(raw, backend, action_sender, context_id, &mut state.last_drag_element, window_rect.clone());
         }
         RawEventType::Drop { source_coords: _ } => {
-            handle_drop(raw, backend, action_sender, context_id, last_drag_element);
+            handle_drop(raw, backend, action_sender, context_id, &mut state.last_drag_element, window_rect.clone());
         }
         RawEventType::MouseDown | RawEventType::MouseUp => {
             // MouseDown/MouseUp are handled by the Input_Thread for drag
@@ -910,6 +967,7 @@ fn handle_click<B: AccessibilityBackend>(
     action_sender: &mpsc::Sender<ActionEvent>,
     context_id: Option<i64>,
     is_right_click: bool,
+    window_rect: Option<WindowRect>,
 ) {
     // Priority chain for element resolution:
     // 1. Pre-captured element from Input_Thread (window guaranteed alive)
@@ -967,7 +1025,7 @@ fn handle_click<B: AccessibilityBackend>(
         context_id,
         capture_mode,
         frame_src: None,
-        window_rect: None,
+        window_rect: window_rect.clone(),
         sequence_id: Some(raw.sequence_id),
         payload,
     });
@@ -989,7 +1047,7 @@ fn handle_click<B: AccessibilityBackend>(
                         context_id,
                         capture_mode: CaptureMode::Accessibility,
                         frame_src: None,
-                        window_rect: None,
+                        window_rect,
                         sequence_id: Some(raw.sequence_id),
                         payload: ActionPayload::FileDialog {
                             dialog_type,
@@ -1013,6 +1071,7 @@ fn handle_focus<B: AccessibilityBackend>(
     action_sender: &mpsc::Sender<ActionEvent>,
     context_id: Option<i64>,
     last_focus_selector: &mut String,
+    window_rect: Option<WindowRect>,
 ) {
     let element = match backend.focused_element() {
         Some(el) => el,
@@ -1030,7 +1089,7 @@ fn handle_focus<B: AccessibilityBackend>(
         context_id,
         capture_mode: CaptureMode::Accessibility,
         frame_src: None,
-        window_rect: None,
+        window_rect,
         sequence_id: Some(raw.sequence_id),
         payload: ActionPayload::Focus {
             element,
@@ -1049,6 +1108,7 @@ fn handle_value_change<B: AccessibilityBackend>(
     context_id: Option<i64>,
     pending_type: &mut Option<PendingTypeEvent>,
     last_value_map: &mut HashMap<String, String>,
+    window_rect: Option<WindowRect>,
 ) {
     let element = match backend.focused_element() {
         Some(el) => el,
@@ -1093,6 +1153,7 @@ fn handle_value_change<B: AccessibilityBackend>(
                 is_password,
                 timestamp: raw.timestamp,
                 context_id,
+                window_rect,
                 sequence_id: raw.sequence_id,
                 last_update: raw.timestamp,
             });
@@ -1109,23 +1170,63 @@ fn handle_selection<B: AccessibilityBackend>(
     backend: &B,
     action_sender: &mpsc::Sender<ActionEvent>,
     context_id: Option<i64>,
+    window_rect: Option<WindowRect>,
 ) {
-    let element = match backend.focused_element() {
-        Some(el) => el,
-        None => return,
-    };
+    let element = backend.focused_element();
 
-    let value = element.text.clone().unwrap_or_default();
+    // Try to resolve the selected item via SelectionPattern first.
+    // This works regardless of whether focused_element succeeded.
+    let (final_element, value) = if let Some(ref el) = element {
+        // Check if the focused element is a container type (List, ComboBox, Tree, DataGrid).
+        let is_container = matches!(
+            el.tag.as_str(),
+            "List" | "ComboBox" | "Tree" | "DataGrid"
+        );
+
+        if is_container {
+            // Try to get the selected item from the container.
+            match backend.selected_item_name(raw.window_handle) {
+                Some((selected_el, selected_name)) => (selected_el, selected_name),
+                None => {
+                    // Fall back to the focused element's Name property as the value.
+                    let value = el.name.clone().unwrap_or_default();
+                    (el.clone(), value)
+                }
+            }
+        } else {
+            let value = el.text.clone().unwrap_or_default();
+            (el.clone(), value)
+        }
+    } else {
+        // focused_element() returned None. Still try selected_item_name.
+        match backend.selected_item_name(raw.window_handle) {
+            Some((selected_el, selected_name)) => (selected_el, selected_name),
+            None => {
+                // Emit a minimal select event with a fallback element.
+                let title = backend.window_title(raw.window_handle);
+                let fallback = super::ElementDescription {
+                    tag: "ListItem".to_string(),
+                    id: None,
+                    selector: String::new(),
+                    name: if title.is_empty() { None } else { Some(title.clone()) },
+                    role: Some("listitem".to_string()),
+                    element_type: None,
+                    text: None,
+                };
+                (fallback, String::new())
+            }
+        }
+    };
 
     let _ = action_sender.send(ActionEvent {
         timestamp: raw.timestamp,
         context_id,
         capture_mode: CaptureMode::Accessibility,
         frame_src: None,
-        window_rect: None,
+        window_rect,
         sequence_id: Some(raw.sequence_id),
         payload: ActionPayload::Select {
-            element,
+            element: final_element,
             value,
         },
     });
@@ -1140,18 +1241,15 @@ fn handle_keyboard<B: AccessibilityBackend>(
     backend: &B,
     action_sender: &mpsc::Sender<ActionEvent>,
     context_id: Option<i64>,
-    pending_type: &mut Option<PendingTypeEvent>,
+    state: &mut WorkerState,
+    window_rect: Option<WindowRect>,
 ) {
     let key = vk_to_key_name(raw.key_code);
 
-    // Apply key filtering: skip modifier-only and plain printable chars.
-    if !should_keep_key_event(&key, &raw.modifiers) {
+    // Skip modifier-only keys (Shift, Ctrl, Alt alone — no useful info).
+    if is_modifier_only_key(&key) {
         return;
     }
-
-    // Flush pending type before emitting a control key (e.g. user types
-    // "hello" then presses Enter).
-    flush_pending_type(pending_type, action_sender);
 
     let element = backend.focused_element().unwrap_or_else(|| {
         let title = backend.window_title(raw.window_handle);
@@ -1166,15 +1264,15 @@ fn handle_keyboard<B: AccessibilityBackend>(
         }
     });
 
-    let _ = action_sender.send(ActionEvent {
+    let event = ActionEvent {
         timestamp: raw.timestamp,
         context_id,
         capture_mode: CaptureMode::Accessibility,
         frame_src: None,
-        window_rect: None,
+        window_rect,
         sequence_id: Some(raw.sequence_id),
         payload: ActionPayload::Key {
-            key,
+            key: key.clone(),
             modifiers: Modifiers {
                 ctrl: raw.modifiers.0,
                 shift: raw.modifiers.1,
@@ -1183,7 +1281,18 @@ fn handle_keyboard<B: AccessibilityBackend>(
             },
             element,
         },
-    });
+    };
+
+    if is_printable_key(&key, &raw.modifiers) {
+        // Buffer printable keys — they may be superseded by a type event.
+        state.pending_keys.push(event);
+        state.pending_keys_last_timestamp = raw.timestamp;
+    } else {
+        // Control key — flush pending type and pending keys, then emit.
+        flush_pending_type(&mut state.pending_type, action_sender);
+        flush_pending_keys(&mut state.pending_keys, action_sender);
+        let _ = action_sender.send(event);
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -1195,6 +1304,7 @@ fn handle_foreground<B: AccessibilityBackend>(
     backend: &B,
     action_sender: &mpsc::Sender<ActionEvent>,
     context_id: Option<i64>,
+    window_rect: Option<WindowRect>,
 ) {
     let title = backend.window_title(raw.window_handle);
     let source = backend.process_name(raw.window_handle);
@@ -1204,7 +1314,7 @@ fn handle_foreground<B: AccessibilityBackend>(
         context_id,
         capture_mode: CaptureMode::Accessibility,
         frame_src: None,
-        window_rect: None,
+        window_rect,
         sequence_id: Some(raw.sequence_id),
         payload: ActionPayload::ContextSwitch {
             source,
@@ -1223,6 +1333,7 @@ fn handle_drag_start<B: AccessibilityBackend>(
     action_sender: &mpsc::Sender<ActionEvent>,
     context_id: Option<i64>,
     last_drag_element: &mut Option<ElementDescription>,
+    window_rect: Option<WindowRect>,
 ) {
     let element = backend
         .element_at_point(raw.screen_x, raw.screen_y)
@@ -1238,7 +1349,7 @@ fn handle_drag_start<B: AccessibilityBackend>(
         context_id,
         capture_mode: CaptureMode::Accessibility,
         frame_src: None,
-        window_rect: None,
+        window_rect,
         sequence_id: Some(raw.sequence_id),
         payload: ActionPayload::DragStart { element },
     });
@@ -1250,6 +1361,7 @@ fn handle_drop<B: AccessibilityBackend>(
     action_sender: &mpsc::Sender<ActionEvent>,
     context_id: Option<i64>,
     last_drag_element: &mut Option<ElementDescription>,
+    window_rect: Option<WindowRect>,
 ) {
     let element = backend
         .element_at_point(raw.screen_x, raw.screen_y)
@@ -1265,7 +1377,7 @@ fn handle_drop<B: AccessibilityBackend>(
         context_id,
         capture_mode: CaptureMode::Accessibility,
         frame_src: None,
-        window_rect: None,
+        window_rect,
         sequence_id: Some(raw.sequence_id),
         payload: ActionPayload::Drop {
             x: raw.screen_x as f64,
@@ -1281,7 +1393,8 @@ fn handle_drop<B: AccessibilityBackend>(
 // ---------------------------------------------------------------------------
 
 /// Flush the pending type event immediately, emitting it as a `type`
-/// ActionEvent.
+/// ActionEvent. When a type event is flushed, pending keys are discarded
+/// (they're superseded by the coalesced type value).
 fn flush_pending_type(
     pending_type: &mut Option<PendingTypeEvent>,
     action_sender: &mpsc::Sender<ActionEvent>,
@@ -1292,7 +1405,7 @@ fn flush_pending_type(
             context_id: pt.context_id,
             capture_mode: CaptureMode::Accessibility,
             frame_src: None,
-            window_rect: None,
+            window_rect: pt.window_rect,
             sequence_id: Some(pt.sequence_id),
             payload: ActionPayload::Type {
                 element: pt.element,
@@ -1302,18 +1415,41 @@ fn flush_pending_type(
     }
 }
 
+/// Flush buffered printable key events — emit them as individual key actions.
+/// Called when the TYPE_DEBOUNCE_MS window expires without a type event arriving
+/// (meaning the app doesn't fire EVENT_OBJECT_VALUECHANGE for these keystrokes).
+fn flush_pending_keys(
+    pending_keys: &mut Vec<ActionEvent>,
+    action_sender: &mpsc::Sender<ActionEvent>,
+) {
+    for event in pending_keys.drain(..) {
+        let _ = action_sender.send(event);
+    }
+}
+
 /// Check if the type debounce interval has elapsed and flush if so.
+/// Also flushes pending keys if the type debounce expired without a type event.
 fn try_flush_type_debounce(
-    pending_type: &mut Option<PendingTypeEvent>,
+    state: &mut WorkerState,
     now: u64,
     action_sender: &mpsc::Sender<ActionEvent>,
 ) {
-    let should_flush = pending_type
+    let should_flush_type = state.pending_type
         .as_ref()
         .map(|pt| now.saturating_sub(pt.last_update) >= TYPE_DEBOUNCE_MS)
         .unwrap_or(false);
 
-    if should_flush {
-        flush_pending_type(pending_type, action_sender);
+    if should_flush_type {
+        flush_pending_type(&mut state.pending_type, action_sender);
+        // Type event was produced — discard pending keys (superseded).
+        state.pending_keys.clear();
+        state.pending_keys_last_timestamp = 0;
+    } else if !state.pending_keys.is_empty()
+        && state.pending_keys_last_timestamp > 0
+        && now.saturating_sub(state.pending_keys_last_timestamp) >= TYPE_DEBOUNCE_MS
+    {
+        // No type event arrived within the debounce window — emit the keys.
+        flush_pending_keys(&mut state.pending_keys, action_sender);
+        state.pending_keys_last_timestamp = 0;
     }
 }

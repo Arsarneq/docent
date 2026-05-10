@@ -8,8 +8,9 @@
 
 use docent_desktop_lib::capture::scroll::{
     should_keep_event, RawScrollEvent, ScrollAccumulator,
-    DEBOUNCE_MS, process_scroll_events,
+    process_scroll_events,
 };
+use docent_desktop_lib::capture::timing::SCROLL_DEBOUNCE_MS;
 
 // ---------------------------------------------------------------------------
 // Recording state transitions
@@ -136,7 +137,7 @@ mod scroll_accumulator {
             delta_x: 0.0,
             delta_y: 300.0,
         });
-        let result = acc.try_flush(1000 + DEBOUNCE_MS);
+        let result = acc.try_flush(1000 + SCROLL_DEBOUNCE_MS);
         assert!(result.is_some());
         let r = result.unwrap();
         assert_eq!(r.total_delta_y, 300.0);
@@ -151,7 +152,7 @@ mod scroll_accumulator {
             delta_x: 50.0,
             delta_y: 50.0,
         });
-        let result = acc.try_flush(1000 + DEBOUNCE_MS);
+        let result = acc.try_flush(1000 + SCROLL_DEBOUNCE_MS);
         assert!(result.is_none());
         assert!(!acc.has_pending()); // Buffer cleared even though discarded.
     }
@@ -175,7 +176,7 @@ mod scroll_accumulator {
             delta_y: 80.0,
         });
 
-        let result = acc.try_flush(1100 + DEBOUNCE_MS);
+        let result = acc.try_flush(1100 + SCROLL_DEBOUNCE_MS);
         assert!(result.is_some());
         let r = result.unwrap();
         assert_eq!(r.total_delta_y, 240.0);
@@ -202,7 +203,7 @@ mod scroll_accumulator {
             delta_x: 0.0,
             delta_y: 200.0,
         });
-        let result = acc.try_flush(1000 + DEBOUNCE_MS);
+        let result = acc.try_flush(1000 + SCROLL_DEBOUNCE_MS);
         assert!(result.is_none(), "exactly 200px should be discarded (≤ 200)");
     }
 
@@ -214,7 +215,7 @@ mod scroll_accumulator {
             delta_x: 0.0,
             delta_y: 200.1,
         });
-        let result = acc.try_flush(1000 + DEBOUNCE_MS);
+        let result = acc.try_flush(1000 + SCROLL_DEBOUNCE_MS);
         assert!(result.is_some());
     }
 
@@ -226,7 +227,7 @@ mod scroll_accumulator {
             delta_x: 250.0,
             delta_y: 0.0,
         });
-        let result = acc.try_flush(1000 + DEBOUNCE_MS);
+        let result = acc.try_flush(1000 + SCROLL_DEBOUNCE_MS);
         assert!(result.is_some());
         assert_eq!(result.unwrap().total_delta_x, 250.0);
     }
@@ -244,7 +245,7 @@ mod scroll_accumulator {
             delta_x: 0.0,
             delta_y: -100.0,
         });
-        let result = acc.try_flush(1050 + DEBOUNCE_MS);
+        let result = acc.try_flush(1050 + SCROLL_DEBOUNCE_MS);
         assert!(result.is_some());
         assert_eq!(result.unwrap().total_delta_y, -250.0);
     }
@@ -343,13 +344,13 @@ mod file_dialog {
     fn empty_file_path_means_cancelled() {
         // The check_file_dialog function in windows.rs only emits when
         // file_path is non-empty. We verify the contract here.
-        let file_path = "";
+        let file_path = String::new();
         assert!(file_path.is_empty(), "empty path = cancelled dialog");
     }
 
     #[test]
     fn non_empty_file_path_means_confirmed() {
-        let file_path = "C:\\Users\\test\\document.txt";
+        let file_path = String::from("C:\\Users\\test\\document.txt");
         assert!(!file_path.is_empty(), "non-empty path = confirmed dialog");
     }
 }

@@ -11,10 +11,14 @@ Docent captures user interactions alongside step-by-step narration and exports t
 
 Docent captures interactions and pairs them with narration for each step. The result is a `.docent.json` file that describes what happened, in order, with full context.
 
-- **Chrome extension** — captures DOM events in the browser (clicks, typing, navigation, tab lifecycle, drag, scroll, keyboard)
-- **Desktop application** — captures native application interactions on Windows via the UI Automation accessibility API, with per-action coordinate-based fallback for elements that lack accessibility data
+- **Chrome extension** — captures user actions in the browser: clicks, typing, keyboard, drag, scroll, file uploads. Browser chrome actions (address bar, back/forward, tabs) are captured via their immediate effects.
+- **Desktop application** — captures user actions in native Windows applications via low-level input hooks and the UI Automation accessibility API, with per-action coordinate-based fallback for elements that lack accessibility data.
+
+Both platforms follow the same principle: capture exactly what the user did, nothing else. Programmatic side-effects (value changes from code, focus moves from scripts, window lifecycle from `window.open()`) are filtered out.
 
 Active steps can be dispatched directly to a configured HTTP endpoint from either platform — no terminal or Node.js required.
+
+See [Capture Principles](docs/capture-principles.md) for the full rules, with platform-specific details in [Extension](docs/capture-principles-extension.md) and [Desktop](docs/capture-principles-desktop.md).
 
 ---
 

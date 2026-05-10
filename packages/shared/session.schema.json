@@ -149,7 +149,7 @@
     "action_key": {
       "properties": {
         "type":         { "const": "key" },
-        "key":          { "type": "string", "enum": ["Enter", "Escape", "Tab", "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"] },
+        "key":          { "type": "string", "description": "Key name. Control keys use standard names (Enter, Escape, Tab, ArrowUp, etc.). Printable characters use their character value (A, 1, Space, etc.)." },
         "modifiers":    { "$ref": "#/$defs/modifiers" },
         "element":      { "$ref": "#/$defs/element" },
         "context_id":   { "$ref": "#/$defs/context_id" },

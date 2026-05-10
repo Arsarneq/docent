@@ -579,6 +579,19 @@ impl AccessibilityBackend for MockBackend {
     fn root_window_handle(&self, window_handle: i64) -> i64 {
         window_handle
     }
+
+    fn window_rect(&self, _window_handle: i64) -> Option<docent_desktop_lib::capture::WindowRect> {
+        Some(docent_desktop_lib::capture::WindowRect {
+            x: 0,
+            y: 0,
+            width: 1920,
+            height: 1080,
+        })
+    }
+
+    fn selected_item_name(&self, _window_handle: i64) -> Option<(ElementDescription, String)> {
+        None
+    }
 }
 
 /// Helper: spawn a worker_loop in a background thread and return the channels
@@ -617,7 +630,7 @@ impl WorkerTestHarness {
     /// Send a raw event to the worker.
     fn send_event(&self, event: RawEvent) {
         self._queue_len.fetch_add(1, Ordering::SeqCst);
-        self.event_tx.send(WorkerMessage::Event(event)).unwrap();
+        self.event_tx.send(WorkerMessage::Event(Box::new(event))).unwrap();
     }
 
     /// Send shutdown and join the worker thread.
@@ -1180,6 +1193,17 @@ impl AccessibilityBackend for PoisonEventBackend {
     fn process_name(&self, _window_handle: i64) -> String { "test.exe".to_string() }
     fn read_file_dialog_path(&self, _window_handle: i64) -> Option<(String, String)> { None }
     fn root_window_handle(&self, window_handle: i64) -> i64 { window_handle }
+    fn window_rect(&self, _window_handle: i64) -> Option<docent_desktop_lib::capture::WindowRect> {
+        Some(docent_desktop_lib::capture::WindowRect {
+            x: 0,
+            y: 0,
+            width: 1920,
+            height: 1080,
+        })
+    }
+    fn selected_item_name(&self, _window_handle: i64) -> Option<(ElementDescription, String)> {
+        None
+    }
 }
 
 /// Test: a "poison event" that causes a panic in event processing does NOT

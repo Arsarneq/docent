@@ -30,6 +30,13 @@ import {
   resolveActiveSteps,
 } from '../shared/lib/session.js';
 import { uuidv7 } from '../shared/lib/uuid-v7.js';
+import {
+  TAB_CREATED_USER_ACTION_WINDOW,
+  TAB_CLOSED_USER_ACTION_WINDOW,
+  TAB_CREATED_SWITCH_SUPPRESSION,
+  TAB_REMOVED_SWITCH_SUPPRESSION,
+  TAB_CREATED_NAVIGATION_SUPPRESSION,
+} from '../lib/capture-timing.js';
 
 // ─── In-memory state (restored from storage on SW restart) ───────────────────
 
@@ -61,6 +68,29 @@ chrome.action.onClicked.addListener(tab => {
   chrome.sidePanel.open({ tabId: tab.id });
 });
 
+// When recording is enabled, inject content script into all frames
+// (including about:srcdoc iframes that don't match manifest patterns).
+chrome.storage.onChanged.addListener((changes, area) => {
+  if (area === 'local' && changes.recording?.newValue === true) {
+    injectContentScript();
+  }
+});
+
+// When a page finishes loading while recording, re-inject into all frames
+// to cover srcdoc iframes and dynamically created frames.
+chrome.webNavigation.onCompleted.addListener(async (details) => {
+  if (details.frameId !== 0) return; // Only trigger on main frame completion
+  if (!await isRecording()) return;
+  try {
+    await chrome.scripting.executeScript({
+      target: { tabId: details.tabId, allFrames: true },
+      files: ['content/recorder.js'],
+    });
+  } catch {
+    // Tab may not be injectable — ignore
+  }
+});
+
 // ─── Navigation & context lifecycle capture ──────────────────────────────────
 // The content script handles in-page (SPA) navigations.
 // The SW handles everything else: cross-document navigations (including
@@ -86,31 +116,74 @@ async function isRecording() {
   return !!recording;
 }
 
+async function wasRecentUserAction(withinMs = TAB_CREATED_USER_ACTION_WINDOW) {
+  const { lastUserActionTimestamp } = await chrome.storage.local.get('lastUserActionTimestamp');
+  return lastUserActionTimestamp && (Date.now() - lastUserActionTimestamp < withinMs);
+}
+
 // Cross-document navigations: back, forward, reload, link, typed, form_submit, etc.
+// Only record navigations that are browser chrome actions (typed, reload, back_forward,
+// auto_bookmark). Navigations caused by in-page user actions (link clicks, form submits,
+// window.location assignments) are effects of already-captured actions and are skipped.
 chrome.webNavigation.onCommitted.addListener(async (details) => {
   if (details.frameId !== 0) return;
   if (!await isRecording()) return;
-  if (!details.url || details.url.startsWith('chrome://') || details.url.startsWith('chrome-extension://')) return;
+  if (!details.url || details.url.startsWith('chrome://') || details.url.startsWith('chrome-extension://') || details.url.startsWith('about:')) return;
 
   // Skip SPA navigations — those are handled by the content script
   const skipTypes = new Set(['auto_subframe', 'manual_subframe']);
   if (skipTypes.has(details.transitionType)) return;
 
-  // Deduplicate: content script may also fire a navigate for the same URL on load
-  // Use swWriteQueue to serialise the read-check-write so concurrent events can't both pass
+  // If a tab was just created/reopened, this navigate is usually a cascading effect.
+  // Exception: "link" navigations on newly created tabs are the proxy for
+  // "Open in new tab" context menu selections — record those directly.
+  if (Date.now() - lastTabCreatedTimestamp < TAB_CREATED_NAVIGATION_SUPPRESSION) {
+    if (details.transitionType === 'link') {
+      // This is the initial navigation of a tab opened via context menu "Open in new tab".
+      // Record it as the proxy for the context menu selection.
+      await (swWriteQueue = swWriteQueue.then(async () => {
+        const { pendingActions } = await chrome.storage.local.get('pendingActions');
+        const updated = [...(pendingActions ?? []), {
+          type:         'navigate',
+          nav_type:     'link',
+          timestamp:    Date.now(),
+          url:          details.url,
+          context_id:   details.tabId,
+          capture_mode: 'dom',
+          window_rect:  null,
+        }];
+        await chrome.storage.local.set({ pendingActions: updated, pendingCount: updated.length });
+      }));
+    }
+    // All other navigations on newly created tabs are cascading effects — skip.
+    return;
+  }
+
+  // Determine if this is a browser chrome action or an effect of an in-page action.
+  const qualifiers = details.transitionQualifiers ?? [];
+  let navType = details.transitionType;
+  if (qualifiers.includes('forward_back')) navType = 'back_forward';
+
+  // Browser chrome actions — record as proxy for what the user did.
+  const browserChromeTypes = new Set(['typed', 'generated', 'reload', 'back_forward', 'auto_bookmark', 'start_page', 'keyword']);
+  if (!browserChromeTypes.has(navType)) return;
+
+  // Redirect hops within a browser chrome navigation — suppress duplicates.
+  if (qualifiers.includes('server_redirect') || qualifiers.includes('client_redirect')) return;
+
+  // Deduplicate: don't record the same URL twice in a row (except reloads).
   await (swWriteQueue = swWriteQueue.then(async () => {
     const normalised = details.url.replace(/\/$/, '');
-    const { lastTabNavUrl: stored } = await chrome.storage.local.get('lastTabNavUrl');
-    if (normalised === stored) return;
+
+    if (navType !== 'reload') {
+      const { lastTabNavUrl: stored } = await chrome.storage.local.get('lastTabNavUrl');
+      if (normalised === stored) return;
+    }
     await chrome.storage.local.set({ lastTabNavUrl: normalised });
     setTimeout(async () => {
       const { lastTabNavUrl: cur } = await chrome.storage.local.get('lastTabNavUrl');
       if (cur === normalised) await chrome.storage.local.remove('lastTabNavUrl');
     }, 5000);
-
-    const qualifiers = details.transitionQualifiers ?? [];
-    let navType = details.transitionType;
-    if (qualifiers.includes('forward_back')) navType = 'back_forward';
 
     const { pendingActions } = await chrome.storage.local.get('pendingActions');
     const updated = [...(pendingActions ?? []), {
@@ -126,9 +199,33 @@ chrome.webNavigation.onCommitted.addListener(async (details) => {
   }));
 });
 
-// Context switch
+// Track recent tab removals to suppress auto-switch context_switch events.
+// When a tab is closed, the browser auto-activates another tab — that's not a user action.
+let lastTabRemovedTimestamp = 0;
+let lastTabRemovedId = null;
+
+// Track recent tab creations to suppress context_switch for newly opened tabs
+// and to suppress navigations that are cascading effects of tab creation/reopen.
+let lastTabCreatedTimestamp = 0;
+let lastTabCreatedId = null;
+
+// Track tabs opened programmatically (window.open, link target=_blank).
+// Their close events should be suppressed (they were never captured as context_open).
+const programmaticTabs = new Set();
+
+// Context switch — only record when NO recent tab close and NO recent tab creation.
+// If there's a recent tab close, the switch is an auto-activation by the browser.
+// If there's a recent tab creation, the switch is the browser activating the new tab.
+// If none of the above, the user clicked a tab in browser chrome.
 chrome.tabs.onActivated.addListener(async ({ tabId, windowId }) => {
   if (!await isRecording()) return;
+  // Suppress auto-switch to a just-removed tab's replacement (fallback: timing)
+  if (Date.now() - lastTabRemovedTimestamp < TAB_REMOVED_SWITCH_SUPPRESSION) return;
+  // Suppress auto-switch to a just-created tab (primary: ID match, fallback: timing)
+  if (tabId === lastTabCreatedId || Date.now() - lastTabCreatedTimestamp < TAB_CREATED_SWITCH_SUPPRESSION) {
+    lastTabCreatedId = null; // consume the suppression
+    return;
+  }
   const tab = await chrome.tabs.get(tabId);
   if (!tab.url || tab.url.startsWith('chrome://') || tab.url.startsWith('chrome-extension://')) return;
   await appendSwAction({
@@ -142,9 +239,21 @@ chrome.tabs.onActivated.addListener(async ({ tabId, windowId }) => {
   });
 });
 
-// New context opened
+// New context opened — capture as proxy for browser chrome actions (Ctrl+T, Ctrl+N).
+// Suppress when it's a side-effect of an in-page action (window.open, link target=_blank).
+// Distinguishing signal: window.open/link tabs have openerTabId; Ctrl+T/N tabs don't.
+// Track the timestamp so onActivated can suppress the subsequent activation.
 chrome.tabs.onCreated.addListener(async (tab) => {
+  lastTabCreatedTimestamp = Date.now();
+  lastTabCreatedId = tab.id;
   if (!await isRecording()) return;
+  // If there was a recent in-page user action, this tab is a side-effect
+  // (window.open, link target=_blank, etc.) — suppress.
+  if (await wasRecentUserAction()) {
+    programmaticTabs.add(tab.id);
+    return;
+  }
+  // Otherwise it's a browser chrome action (Ctrl+T, Ctrl+N, Ctrl+Shift+T) — capture as proxy.
   await appendSwAction({
     type:               'context_open',
     timestamp:          Date.now(),
@@ -156,14 +265,30 @@ chrome.tabs.onCreated.addListener(async (tab) => {
   });
 });
 
-// Context closed
+// Context closed — capture as proxy for browser chrome actions (Ctrl+W, click X button).
+// Suppress when it's a side-effect of window.close() or a cascading window close.
+// Distinguishing signal: window.close() is preceded by a recent in-page user action;
+// Ctrl+W and X button are not. Cascading closes have removeInfo.isWindowClosing = true.
+// Track the timestamp so onActivated can suppress auto-switch.
 chrome.tabs.onRemoved.addListener(async (tabId, removeInfo) => {
+  lastTabRemovedTimestamp = Date.now();
+  lastTabRemovedId = tabId;
+  // Clean up tracking regardless of recording state.
+  const wasProgrammatic = programmaticTabs.delete(tabId);
   if (!await isRecording()) return;
+  // Cascading close (entire window closing) — not a distinct user action.
+  if (removeInfo.isWindowClosing) return;
+  // If the tab was opened programmatically AND there's a recent in-page action,
+  // this is window.close() called from JavaScript — a side-effect.
+  // Use a longer window (2000ms) because window.close() can be delayed.
+  // If there's NO recent action, the user closed it manually (Ctrl+W, X button).
+  if (wasProgrammatic && await wasRecentUserAction(TAB_CLOSED_USER_ACTION_WINDOW)) return;
+  // Otherwise it's a browser chrome action (Ctrl+W, click X) — capture as proxy.
   await appendSwAction({
     type:           'context_close',
     timestamp:      Date.now(),
     context_id:     tabId,
-    window_closing: removeInfo.isWindowClosing,
+    window_closing: false,
     capture_mode:   'dom',
     window_rect:    null,
   });
@@ -191,14 +316,10 @@ async function setRecording(value) {
 
 async function injectContentScript() {
   const tabs = await chrome.tabs.query({ url: ['http://*/*', 'https://*/*'] });
-  // Only inject into tabs that don't already have the content script loaded
+  // Inject into all frames of all matching tabs.
+  // The content script's __docentLoaded guard prevents double-initialization.
   await Promise.allSettled(tabs.map(async tab => {
     try {
-      const results = await chrome.scripting.executeScript({
-        target: { tabId: tab.id },
-        func:   () => window.__docentLoaded === true,
-      });
-      if (results?.[0]?.result === true) return; // already loaded
       await chrome.scripting.executeScript({
         target: { tabId: tab.id, allFrames: true },
         files:  ['content/recorder.js'],
@@ -225,6 +346,14 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   // available inside the async handle() function.
   if (message.type === 'GET_TAB_ID') {
     sendResponse({ tabId: sender.tab?.id ?? null });
+    return false;
+  }
+
+  // APPEND_ACTION: content script sends actions here for serialized storage writes.
+  // This ensures proper ordering with clearPendingActions.
+  if (message.type === 'APPEND_ACTION') {
+    appendSwAction(message.action);
+    sendResponse({ ok: true });
     return false;
   }
 

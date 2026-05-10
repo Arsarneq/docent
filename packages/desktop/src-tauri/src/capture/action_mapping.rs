@@ -383,7 +383,7 @@ mod tests {
         match &action.payload {
             ActionPayload::Key { key, modifiers, .. } => {
                 assert_eq!(key, "Enter");
-                assert_eq!(modifiers.ctrl, true);
+                assert!(modifiers.ctrl);
             }
             _ => panic!("expected Key payload"),
         }

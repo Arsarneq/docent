@@ -19,7 +19,6 @@
  *   - right-click / context menu
  *   - focus (on inputs, to capture autocomplete triggers)
  *   - scroll (debounced, significant scrolls only)
- *   - in-page navigations (pushState, replaceState, popstate)
  *
  * Cross-document navigations, tab lifecycle events (open/close/switch),
  * back/forward, and reload are captured by the service worker via
@@ -33,8 +32,17 @@
 (function () {
   'use strict';
 
+  // ─── Timing Constants ───────────────────────────────────────────────────────
+  // Source of truth: lib/capture-timing.js
+  // Content scripts can't use ES imports, so values are duplicated here.
+  const ENTER_SYNTHETIC_CLICK_WINDOW = 50;
+  const SELECT_SYNTHETIC_CLICK_WINDOW = 50;
+  const TAB_FOCUS_CORRELATION_WINDOW = 150;
+  const CLICK_FOCUS_DEDUP_WINDOW = 100;
+
   let active = false;
   let tabId  = null;
+  let lastUserActionTimestamp = 0;
 
   // Guard against double-injection — if already loaded, skip re-initialisation
   if (window.__docentLoaded) return;
@@ -63,23 +71,29 @@
     tabId = response?.tabId ?? null;
   });
 
-  // ─── Action writer ────────────────────────────────────────────────────────────
-  // Writes actions directly to chrome.storage.local (available in content scripts).
-  // Uses a serialised queue to prevent race conditions on rapid actions.
+  // ─── User action timestamp tracking ──────────────────────────────────────────
+  // Shared signal so the service worker can correlate browser events with
+  // recent in-page user actions. Written to chrome.storage.local with debouncing.
 
-  let writeQueue = Promise.resolve();
+  function scheduleTimestampSync() {
+    // Write immediately to ensure the service worker can read the timestamp
+    // before any navigation events fire.
+    chrome.storage.local.set({ lastUserActionTimestamp });
+  }
+
+  function markUserAction() {
+    lastUserActionTimestamp = Date.now();
+    scheduleTimestampSync();
+  }
+
+  // ─── Action writer ────────────────────────────────────────────────────────────
+  // Sends actions to the service worker for serialized storage writes.
+  // This ensures that clearPendingActions (which also runs in the SW) is properly
+  // serialized with action appends, preventing race conditions.
 
   function appendAction(action) {
     const stamped = { ...action, context_id: tabId, capture_mode: 'dom', window_rect: null, frame_src: frameSrc };
-    writeQueue = writeQueue.then(() =>
-      chrome.storage.local.get('pendingActions').then(({ pendingActions }) => {
-        const updated = [...(pendingActions ?? []), stamped];
-        return chrome.storage.local.set({
-          pendingActions: updated,
-          pendingCount:   updated.length,
-        });
-      })
-    );
+    chrome.runtime.sendMessage({ type: 'APPEND_ACTION', action: stamped });
   }
 
   // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -138,13 +152,40 @@
 
   let lastClickedEl = null;
   let lastClickTime = 0;
+  let lastKeyEnterTimestamp = 0;
+  let lastTabKeyTimestamp = 0;
+  let lastSelectTimestamp = 0;
+  let lastFileInputClickEl = null;
+  let lastFileInputClickTime = 0;
+  let lastMousedownTime = 0;
+  let lastMousedownEl = null;
+
+  // Track mousedown for blur-caused change suppression.
+  // When clicking a different element, the sequence is:
+  // mousedown → blur → change → focus → mouseup → click
+  // We need to know about the mousedown BEFORE the change fires.
+  document.addEventListener('mousedown', (e) => {
+    if (!active) return;
+    if (!e.isTrusted) return;
+    lastMousedownTime = Date.now();
+    lastMousedownEl = e.target;
+  }, { capture: true, passive: true });
 
   document.addEventListener('click', (e) => {
     if (!active) return;
+    if (!e.isTrusted) return;
+    if (e.detail === 0 && lastKeyEnterTimestamp > 0 && Date.now() - lastKeyEnterTimestamp < ENTER_SYNTHETIC_CLICK_WINDOW) return;
+    // Suppress synthetic clicks from native select confirmation (Enter/click on option)
+    if (e.detail === 0 && lastSelectTimestamp > 0 && Date.now() - lastSelectTimestamp < SELECT_SYNTHETIC_CLICK_WINDOW) return;
     const el = e.target.closest(INTERACTIVE) ?? e.target;
     if (el === document.body || el === document.documentElement) return;
     lastClickedEl = e.target; // track raw target for focus deduplication
     lastClickTime = Date.now();
+    // Track file input clicks for file_upload correlation
+    if (el.tagName === 'INPUT' && el.type === 'file') {
+      lastFileInputClickEl = el;
+      lastFileInputClickTime = Date.now();
+    }
     appendAction({
       type:      'click',
       timestamp: Date.now(),
@@ -152,12 +193,14 @@
       y:         e.clientY,
       element:   describeElement(el),
     });
+    markUserAction();
   }, { capture: true, passive: true });
 
   // ─── Right-click / context menu ───────────────────────────────────────────────
 
   document.addEventListener('contextmenu', (e) => {
     if (!active) return;
+    if (!e.isTrusted) return;
     const el = e.target.closest(INTERACTIVE) ?? e.target;
     if (el === document.body || el === document.documentElement) return;
     appendAction({
@@ -167,6 +210,7 @@
       y:         e.clientY,
       element:   describeElement(el),
     });
+    markUserAction();
   }, { capture: true, passive: true });
 
   // ─── Keyboard capture ─────────────────────────────────────────────────────────
@@ -180,9 +224,15 @@
 
   document.addEventListener('keydown', (e) => {
     if (!active) return;
+    if (!e.isTrusted) return;
     if (!CAPTURE_KEYS.has(e.key)) return;
+    // Set Tab timestamp BEFORE the body check — focus after Tab on body
+    // still needs to be captured (it tells us where focus went).
+    if (e.key === 'Tab') lastTabKeyTimestamp = Date.now();
     const el = document.activeElement;
-    if (!el || el === document.body) return;
+    // Allow Tab even when body is focused — the user pressed Tab to navigate.
+    if (!el || (el === document.body && e.key !== 'Tab')) return;
+    if (e.key === 'Enter') lastKeyEnterTimestamp = Date.now();
     appendAction({
       type:      'key',
       timestamp: Date.now(),
@@ -193,17 +243,44 @@
         alt:   e.altKey,
         meta:  e.metaKey,
       },
-      element: describeElement(el),
+      element: el === document.body ? { tag: 'BODY', id: null, name: null, role: null, type: null, text: null, selector: 'body' } : describeElement(el),
     });
+    markUserAction();
   }, { capture: true, passive: true });
 
   // ─── Text input & file upload capture ────────────────────────────────────────
 
   document.addEventListener('change', (e) => {
     if (!active) return;
+    if (document.visibilityState === 'hidden') return;
     const el = e.target;
 
+    // File inputs: allow if preceded by a click on the same file input (user selected via dialog).
+    // Playwright's fileChooser.setFiles() produces untrusted change events, but the preceding
+    // click on the file input is trusted and already captured.
+    if (el.tagName === 'INPUT' && el.type === 'file') {
+      if (el === lastFileInputClickEl && Date.now() - lastFileInputClickTime < 10000) {
+        const files = Array.from(el.files ?? []).map(f => ({
+          name: f.name,
+          size: f.size,
+          mime: f.type,
+        }));
+        if (files.length > 0) {
+          appendAction({
+            type:      'file_upload',
+            timestamp: Date.now(),
+            element:   describeElement(el),
+            files,
+          });
+        }
+      }
+      return;
+    }
+
+    if (!e.isTrusted) return;
+
     if (el.tagName === 'SELECT') {
+      lastSelectTimestamp = Date.now();
       appendAction({
         type:      'select',
         timestamp: Date.now(),
@@ -213,22 +290,19 @@
       return;
     }
 
-    if (el.tagName === 'INPUT' && el.type === 'file') {
-      const files = Array.from(el.files ?? []).map(f => ({
-        name: f.name,
-        size: f.size,
-        mime: f.type,
-      }));
-      appendAction({
-        type:      'file_upload',
-        timestamp: Date.now(),
-        element:   describeElement(el),
-        files,
-      });
-      return;
-    }
-
     if (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA') {
+      // Suppress change events caused by blur from clicking a submit button within the same form.
+      // When the user clicks submit, the input blurs and fires change. But the user's
+      // intent is captured by the click — the type was already captured earlier (or will
+      // be captured when the user explicitly tabs/clicks away without submitting).
+      // Event order: mousedown(submit) → blur(input) → change(input) → click(submit)
+      if (lastMousedownEl && lastMousedownEl !== el && Date.now() - lastMousedownTime < 100) {
+        const form = el.closest?.('form');
+        if (form && form.contains(lastMousedownEl)) {
+          const isSubmit = lastMousedownEl.closest?.('button[type="submit"], input[type="submit"]');
+          if (isSubmit) return;
+        }
+      }
       const isPassword = el.type === 'password';
       appendAction({
         type:      'type',
@@ -236,16 +310,18 @@
         element:   describeElement(el),
         value:     isPassword ? '••••••••' : el.value,
       });
+      markUserAction();
     }
   }, { capture: true, passive: true });
 
   // ─── Focus capture ────────────────────────────────────────────────────────────
-  // Records focus only when NOT caused by a click on the same element.
-  // focusin fires before click, so we defer 50ms to let the click register first.
-  // Focus from Tab navigation or programmatic focus is kept.
+  // Records focus only when correlated with a preceding Tab key press within 200ms.
+  // Click-caused focus is suppressed (click already captures the action).
+  // Programmatic focus (element.focus()) is not captured.
 
   document.addEventListener('focusin', (e) => {
     if (!active) return;
+    if (document.visibilityState === 'hidden') return;
     const el = e.target;
     const isInput = el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' ||
                     el.getAttribute('contenteditable') === 'true' ||
@@ -255,7 +331,10 @@
     const capturedEl = el;
     setTimeout(() => {
       if (!active) return;
-      if (capturedEl === lastClickedEl && Date.now() - lastClickTime < 150) return;
+      // Only record focus if it follows a Tab key press within 200ms
+      if (Date.now() - lastTabKeyTimestamp > TAB_FOCUS_CORRELATION_WINDOW) return;
+      // Suppress click-caused focus on the same element (click already captures the action)
+      if (capturedEl === lastClickedEl && Date.now() - lastClickTime < CLICK_FOCUS_DEDUP_WINDOW) return;
       appendAction({
         type:      'focus',
         timestamp: Date.now(),
@@ -270,16 +349,30 @@
 
   document.addEventListener('dragstart', (e) => {
     if (!active) return;
+    if (!e.isTrusted) return;
     dragSource = e.target;
     appendAction({
       type:      'drag_start',
       timestamp: Date.now(),
       element:   describeElement(e.target),
     });
+    markUserAction();
   }, { capture: true, passive: true });
+
+  // Allow drop on any element when we have an active drag source.
+  // Without this, the browser won't fire the 'drop' event (HTML5 DnD spec
+  // requires dragover to be cancelled for drop to fire).
+  document.addEventListener('dragover', (e) => {
+    if (!active) return;
+    if (!dragSource) return;
+    e.preventDefault();
+  }, { capture: true });
 
   document.addEventListener('drop', (e) => {
     if (!active) return;
+    // Allow drop if we have an active drag source from a trusted dragstart,
+    // even if the drop event itself is untrusted (Playwright simulation).
+    if (!e.isTrusted && !dragSource) return;
     appendAction({
       type:        'drop',
       timestamp:   Date.now(),
@@ -331,48 +424,59 @@
           delta_y:    el.scrollTop  - scrollStartY,
           delta_x:    el.scrollLeft - scrollStartX,
         });
+        markUserAction();
       }
       scrollStartY = null;
       scrollStartX = null;
     }, 300);
   }, { capture: true, passive: true });
 
-  // ─── In-page navigation capture ───────────────────────────────────────────────
-  // Handles SPA pushState/replaceState/popstate navigations.
-  // Cross-document navigations are handled by the SW via webNavigation.onCommitted.
-  // Skip navigation capture inside iframes — the SW handles those via webNavigation.
+  // ─── Contenteditable capture ──────────────────────────────────────────────────
+  // Captures typing in contenteditable elements via the input event.
+  // Debounced at 500ms — records the final text when typing pauses.
+  // Flushes immediately on blur so no input is lost when the user leaves the field.
 
-  if (!isIframe) {
-    let lastNavUrl = null;
+  let contenteditableTimer = null;
+  let contenteditableEl = null;
 
-    function sendNavigate(url) {
+  document.addEventListener('input', (e) => {
+    if (!active) return;
+    if (!e.isTrusted) return;
+    if (document.visibilityState === 'hidden') return;
+    const el = e.target;
+    if (el.getAttribute('contenteditable') !== 'true' &&
+        el.getAttribute('contenteditable') !== '') return;
+
+    contenteditableEl = el;
+    clearTimeout(contenteditableTimer);
+    contenteditableTimer = setTimeout(() => {
       if (!active) return;
-      const normalised = url.replace(/\/$/, '');
-      if (normalised === lastNavUrl) return;
-      lastNavUrl = normalised;
-      appendAction({ type: 'navigate', nav_type: 'spa', timestamp: Date.now(), url });
-    }
-
-    window.addEventListener('load', () => sendNavigate(location.href));
-
-    if (window.navigation) {
-      window.navigation.addEventListener('navigatesuccess', () => {
-        if (window.navigation.currentEntry?.sameDocument === false) return;
-        sendNavigate(location.href);
+      appendAction({
+        type: 'type',
+        timestamp: Date.now(),
+        element: describeElement(contenteditableEl),
+        value: contenteditableEl.innerText.trim().slice(0, 500),
       });
-    } else {
-      const originalPush    = history.pushState.bind(history);
-      const originalReplace = history.replaceState.bind(history);
-      history.pushState = function (...args) {
-        originalPush(...args);
-        sendNavigate(location.href);
-      };
-      history.replaceState = function (...args) {
-        originalReplace(...args);
-        sendNavigate(location.href);
-      };
-      window.addEventListener('popstate', () => sendNavigate(location.href));
-    }
-  }
+      markUserAction();
+      contenteditableEl = null;
+      contenteditableTimer = null;
+    }, 500);
+  }, { capture: true, passive: true });
+
+  document.addEventListener('blur', (e) => {
+    if (!contenteditableTimer || !contenteditableEl) return;
+    if (e.target !== contenteditableEl) return;
+    clearTimeout(contenteditableTimer);
+    if (!active) { contenteditableEl = null; contenteditableTimer = null; return; }
+    appendAction({
+      type: 'type',
+      timestamp: Date.now(),
+      element: describeElement(contenteditableEl),
+      value: contenteditableEl.innerText.trim().slice(0, 500),
+    });
+    markUserAction();
+    contenteditableEl = null;
+    contenteditableTimer = null;
+  }, { capture: true, passive: true });
 
 })();

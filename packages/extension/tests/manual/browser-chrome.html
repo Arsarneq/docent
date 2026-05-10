@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Docent Manual Test — Browser Chrome Interactions</title>
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 800px; margin: 2rem auto; padding: 0 1rem; }
+    .test-section { border: 1px solid #ccc; border-radius: 8px; padding: 1rem; margin: 1rem 0; }
+    .test-section h3 { margin-top: 0; }
+    .instructions { background: #fffde7; padding: 1rem; border-radius: 8px; margin-bottom: 1rem; }
+    .expected { color: #2e7d32; font-weight: bold; }
+    .limitation { color: #e65100; font-style: italic; }
+    .key { background: #eee; border: 1px solid #ccc; border-radius: 3px; padding: 0.1rem 0.4rem; font-family: monospace; font-size: 0.9em; }
+  </style>
+</head>
+<body>
+  <h1>Docent Manual Test — Browser Chrome Interactions</h1>
+
+  <div class="instructions">
+    <h2>Instructions</h2>
+    <p>These tests involve browser chrome interactions that cannot be automated
+       with Playwright (CDP cannot trigger browser-level shortcuts or interact with
+       native widgets). All other capture tests are automated.</p>
+    <p>Start recording in Docent, perform each test, commit a step after each.</p>
+  </div>
+
+  <!-- TEST 1 -->
+  <div class="test-section">
+    <h3>Test 1: Bookmark Bar Click</h3>
+    <p>Click a bookmark in the bookmark bar.</p>
+    <p class="expected">Expected: 1 navigate(auto_bookmark).</p>
+  </div>
+
+  <!-- TEST 2 -->
+  <div class="test-section">
+    <h3>Test 2: Right-Click → Open Link in New Tab</h3>
+    <p>Right-click the link below and choose "Open link in new tab" from the context menu.</p>
+    <p class="expected">Expected: 1 right_click + 1 context_open (new tab) + 1 navigate(link) on the new tab.
+       The right_click is the in-page action. The context_open and navigate are proxies
+       for the context menu selection (browser chrome).</p>
+    <a id="link" href="https://example.com" target="_blank">Right-click me → Open in new tab</a>
+  </div>
+
+  <!-- TEST 3 -->
+  <div class="test-section">
+    <h3>Test 3: Ctrl+L (Focus Address Bar)</h3>
+    <p>Press <span class="key">Ctrl+L</span> to focus the address bar, then press
+       <span class="key">Escape</span> to cancel.</p>
+    <p class="expected">Expected: Nothing captured.</p>
+  </div>
+
+  <!-- TEST 4 -->
+  <div class="test-section">
+    <h3>Test 4: Arrow Keys in Native Select</h3>
+    <p>Click the select to open it, press <span class="key">↓</span> twice, press
+       <span class="key">Enter</span> to confirm.</p>
+    <p class="expected">Expected: 1 click + 1 select.</p>
+    <p class="limitation">Known limitation: Arrow keys and Enter inside native select
+       widgets are not capturable (browser internal widget layer).</p>
+    <select id="sel">
+      <option>Item 1</option>
+      <option>Item 2</option>
+      <option>Item 3</option>
+      <option>Item 4</option>
+    </select>
+  </div>
+
+  <!-- TEST 5 -->
+  <div class="test-section">
+    <h3>Test 5: Ctrl+T (Open New Tab)</h3>
+    <p>Press <span class="key">Ctrl+T</span> to open a new tab. Submit the step from the
+       Docent side panel (it persists across tabs).</p>
+    <p class="expected">Expected: 1 context_open.</p>
+    <p class="limitation">Cannot be automated — CDP does not trigger browser-level shortcuts.</p>
+  </div>
+
+  <!-- TEST 6 -->
+  <div class="test-section">
+    <h3>Test 6: Ctrl+N (Open New Window)</h3>
+    <p>Press <span class="key">Ctrl+N</span> to open a new window. Submit the step from the
+       Docent side panel.</p>
+    <p class="expected">Expected: 1 context_open.</p>
+    <p class="limitation">Cannot be automated — CDP does not trigger browser-level shortcuts.</p>
+  </div>
+
+  <!-- TEST 7 -->
+  <div class="test-section">
+    <h3>Test 7: Ctrl+W (Close Tab)</h3>
+    <p>Open a new tab (Ctrl+T), switch to it, then press <span class="key">Ctrl+W</span> to close it.</p>
+    <p class="expected">Expected: 1 context_close.</p>
+    <p class="limitation">Cannot be automated — CDP does not trigger browser-level shortcuts.</p>
+  </div>
+
+  <!-- TEST 8 -->
+  <div class="test-section">
+    <h3>Test 8: Ctrl+Shift+T (Reopen Closed Tab)</h3>
+    <p>Close a tab first (Ctrl+W), then press <span class="key">Ctrl+Shift+T</span> to reopen it.</p>
+    <p class="expected">Expected: 1 context_open.</p>
+    <p class="limitation">Cannot be automated — CDP does not trigger browser-level shortcuts.</p>
+  </div>
+
+  <!-- TEST 9 -->
+  <div class="test-section">
+    <h3>Test 9: Click Tab to Switch</h3>
+    <p>Have two tabs open. Click the other tab to switch to it.</p>
+    <p class="expected">Expected: 1 context_switch.</p>
+    <p class="limitation">Cannot be automated — tab clicking is browser chrome.</p>
+  </div>
+
+  <!-- TEST 10 -->
+  <div class="test-section">
+    <h3>Test 10: Ctrl+X (Cut Text)</h3>
+    <p>Click the input below, select all text (Ctrl+A), then press <span class="key">Ctrl+X</span> to cut.
+       Click elsewhere to blur.</p>
+    <p class="expected">Expected: 1 click + 1 type (with empty value after cut).
+       Ctrl+X is not a captured key, but the value change from cutting IS the user's action.</p>
+    <p class="limitation">Cannot be automated — Playwright's clipboard operations don't trigger real value changes.</p>
+    <input id="input-cut" type="text" value="Cut this text">
+  </div>
+
+</body>
+</html>

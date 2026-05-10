@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "type": "module",
   "scripts": {
-    "test": "node --test tests/dispatch.test.js tests/panel.test.js"
+    "test": "node --test tests/dispatch.test.js tests/panel.test.js tests/naming.property.test.js"
   },
   "devDependencies": {
     "fast-check": "^3.0.0"

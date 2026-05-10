@@ -8,6 +8,7 @@ pub mod action_mapping;
 pub mod coordinate;
 pub mod element_mapping;
 pub mod scroll;
+pub mod timing;
 pub mod worker_pool;
 
 #[cfg(target_os = "windows")]

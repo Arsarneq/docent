@@ -9,17 +9,10 @@
 // - 13.2: Discard scroll events where total distance ≤ 200px in both axes.
 
 // ---------------------------------------------------------------------------
-// Constants
+// Constants (imported from timing.rs — single source of truth)
 // ---------------------------------------------------------------------------
 
-/// Debounce interval in milliseconds. A scroll action is emitted only after
-/// no scroll event arrives for this duration.
-pub const DEBOUNCE_MS: u64 = 300;
-
-/// Minimum scroll distance (in pixels) required in at least one axis for the
-/// scroll to be recorded. Sequences where both `|total_delta_x|` and
-/// `|total_delta_y|` are ≤ this threshold are discarded.
-pub const MIN_SCROLL_DISTANCE_PX: f64 = 200.0;
+use super::timing::{SCROLL_DEBOUNCE_MS as DEBOUNCE_MS, SCROLL_MIN_DISTANCE_PX as MIN_SCROLL_DISTANCE_PX};
 
 // ---------------------------------------------------------------------------
 // Scroll event
@@ -124,6 +117,12 @@ pub fn process_scroll_events(events: &[RawScrollEvent]) -> Vec<ScrollResult> {
 pub struct ScrollAccumulator {
     /// Buffered events in the current sequence.
     buffer: Vec<RawScrollEvent>,
+}
+
+impl Default for ScrollAccumulator {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl ScrollAccumulator {
@@ -273,8 +272,10 @@ fn get_process_exe_name(pid: u32) -> Option<String> {
     };
     unsafe {
         let snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0).ok()?;
-        let mut entry = PROCESSENTRY32::default();
-        entry.dwSize = std::mem::size_of::<PROCESSENTRY32>() as u32;
+        let mut entry = PROCESSENTRY32 {
+            dwSize: std::mem::size_of::<PROCESSENTRY32>() as u32,
+            ..Default::default()
+        };
         if Process32First(snapshot, &mut entry).is_ok() {
             loop {
                 if entry.th32ProcessID == pid {
@@ -310,8 +311,10 @@ fn get_parent_pid(pid: u32) -> Option<u32> {
     };
     unsafe {
         let snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0).ok()?;
-        let mut entry = PROCESSENTRY32::default();
-        entry.dwSize = std::mem::size_of::<PROCESSENTRY32>() as u32;
+        let mut entry = PROCESSENTRY32 {
+            dwSize: std::mem::size_of::<PROCESSENTRY32>() as u32,
+            ..Default::default()
+        };
         if Process32First(snapshot, &mut entry).is_ok() {
             loop {
                 if entry.th32ProcessID == pid {
