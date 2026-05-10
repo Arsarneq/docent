@@ -102,92 +102,253 @@ fn context_switches(events: &[ActionEvent]) -> Vec<&ActionEvent> {
 // USER ACTION TESTS — verify real input IS captured
 // ═══════════════════════════════════════════════════════════════════════════════
 
-#[test]
-    #[serial]
 #[cfg(target_os = "windows")]
-fn user_click_is_captured() {
-    let events = capture_during(|enigo| {
-        enigo.move_mouse(500, 500, Coordinate::Abs).unwrap();
+mod user_actions {
+    use super::*;
+    use std::ptr;
+    use windows::Win32::Foundation::HWND;
+    use windows::Win32::UI::WindowsAndMessaging::{
+        CreateWindowExW, DestroyWindow, SetForegroundWindow, GetWindowRect,
+        WS_OVERLAPPEDWINDOW, WS_VISIBLE, WINDOW_EX_STYLE,
+    };
+    use windows::Win32::Foundation::RECT;
+    use windows::core::w;
+
+    /// Create a test window and return its handle + center coordinates.
+    unsafe fn create_target_window() -> (HWND, i32, i32) {
+        let hwnd = CreateWindowExW(
+            WINDOW_EX_STYLE::default(),
+            w!("STATIC"),
+            w!("Docent Test Target"),
+            WS_OVERLAPPEDWINDOW | WS_VISIBLE,
+            200, 200, 600, 400,
+            HWND::default(),
+            None,
+            None,
+            Some(ptr::null()),
+        ).expect("Failed to create target window");
+
+        let _ = SetForegroundWindow(hwnd);
+        thread::sleep(Duration::from_millis(100));
+
+        let mut rect = RECT::default();
+        GetWindowRect(hwnd, &mut rect).unwrap();
+        let cx = (rect.left + rect.right) / 2;
+        let cy = (rect.top + rect.bottom) / 2;
+
+        (hwnd, cx, cy)
+    }
+
+    #[test]
+    #[serial]
+    fn click_is_captured() {
+        let (tx, rx) = mpsc::channel::<ActionEvent>();
+        let mut capture = WindowsCapture::new();
+        capture.set_excluded_pid(None);
+        capture.start(tx).expect("Failed to start capture");
+        thread::sleep(Duration::from_millis(200));
+
+        let (hwnd, cx, cy) = unsafe { create_target_window() };
+        thread::sleep(Duration::from_millis(200));
+
+        let mut enigo = Enigo::new(&Settings::default()).unwrap();
+        enigo.move_mouse(cx, cy, Coordinate::Abs).unwrap();
         thread::sleep(Duration::from_millis(50));
         enigo.button(enigo::Button::Left, Direction::Click).unwrap();
-    });
+        thread::sleep(Duration::from_millis(500));
 
-    assert!(
-        clicks(&events).len() >= 1,
-        "Expected at least 1 click, got {}",
-        clicks(&events).len()
-    );
-}
+        unsafe { let _ = DestroyWindow(hwnd); }
+        capture.stop().unwrap();
+        let events: Vec<_> = rx.try_iter().collect();
 
-#[test]
+        assert!(clicks(&events).len() >= 1, "Expected at least 1 click, got {}", clicks(&events).len());
+    }
+
+    #[test]
     #[serial]
-#[cfg(target_os = "windows")]
-fn user_right_click_is_captured() {
-    let events = capture_during(|enigo| {
-        enigo.move_mouse(500, 500, Coordinate::Abs).unwrap();
+    fn right_click_is_captured() {
+        let (tx, rx) = mpsc::channel::<ActionEvent>();
+        let mut capture = WindowsCapture::new();
+        capture.set_excluded_pid(None);
+        capture.start(tx).expect("Failed to start capture");
+        thread::sleep(Duration::from_millis(200));
+
+        let (hwnd, cx, cy) = unsafe { create_target_window() };
+        thread::sleep(Duration::from_millis(200));
+
+        let mut enigo = Enigo::new(&Settings::default()).unwrap();
+        enigo.move_mouse(cx, cy, Coordinate::Abs).unwrap();
         thread::sleep(Duration::from_millis(50));
         enigo.button(enigo::Button::Right, Direction::Click).unwrap();
-    });
+        thread::sleep(Duration::from_millis(500));
 
-    assert!(
-        right_clicks(&events).len() >= 1,
-        "Expected at least 1 right_click, got {}",
-        right_clicks(&events).len()
-    );
-}
+        unsafe { let _ = DestroyWindow(hwnd); }
+        capture.stop().unwrap();
+        let events: Vec<_> = rx.try_iter().collect();
 
-#[test]
+        assert!(right_clicks(&events).len() >= 1, "Expected at least 1 right_click, got {}", right_clicks(&events).len());
+    }
+
+    #[test]
     #[serial]
-#[cfg(target_os = "windows")]
-fn user_key_press_is_captured() {
-    let events = capture_during(|enigo| {
+    fn key_press_is_captured() {
+        let (tx, rx) = mpsc::channel::<ActionEvent>();
+        let mut capture = WindowsCapture::new();
+        capture.set_excluded_pid(None);
+        capture.start(tx).expect("Failed to start capture");
+        thread::sleep(Duration::from_millis(200));
+
+        let (hwnd, _, _) = unsafe { create_target_window() };
+        thread::sleep(Duration::from_millis(200));
+
+        let mut enigo = Enigo::new(&Settings::default()).unwrap();
         enigo.key(enigo::Key::Return, Direction::Click).unwrap();
-    });
+        thread::sleep(Duration::from_millis(500));
 
-    assert!(
-        keys(&events).len() >= 1,
-        "Expected at least 1 key event, got {}",
-        keys(&events).len()
-    );
-}
+        unsafe { let _ = DestroyWindow(hwnd); }
+        capture.stop().unwrap();
+        let events: Vec<_> = rx.try_iter().collect();
 
-#[test]
+        assert!(keys(&events).len() >= 1, "Expected at least 1 key event, got {}", keys(&events).len());
+    }
+
+    #[test]
     #[serial]
-#[cfg(target_os = "windows")]
-fn user_scroll_is_captured() {
-    let events = capture_during(|enigo| {
-        enigo.move_mouse(500, 500, Coordinate::Abs).unwrap();
+    fn scroll_is_captured() {
+        let (tx, rx) = mpsc::channel::<ActionEvent>();
+        let mut capture = WindowsCapture::new();
+        capture.set_excluded_pid(None);
+        capture.start(tx).expect("Failed to start capture");
+        thread::sleep(Duration::from_millis(200));
+
+        let (hwnd, cx, cy) = unsafe { create_target_window() };
+        thread::sleep(Duration::from_millis(200));
+
+        let mut enigo = Enigo::new(&Settings::default()).unwrap();
+        enigo.move_mouse(cx, cy, Coordinate::Abs).unwrap();
         thread::sleep(Duration::from_millis(50));
         enigo.scroll(5, enigo::Axis::Vertical).unwrap();
         thread::sleep(Duration::from_millis(500));
-    });
 
-    assert!(
-        scrolls(&events).len() >= 1,
-        "Expected at least 1 scroll event, got {}",
-        scrolls(&events).len()
-    );
-}
+        unsafe { let _ = DestroyWindow(hwnd); }
+        capture.stop().unwrap();
+        let events: Vec<_> = rx.try_iter().collect();
 
-#[test]
+        assert!(scrolls(&events).len() >= 1, "Expected at least 1 scroll event, got {}", scrolls(&events).len());
+    }
+
+    #[test]
     #[serial]
-#[cfg(target_os = "windows")]
-fn user_typing_is_captured() {
-    let events = capture_during(|enigo| {
-        // Type some characters — should produce value change events
-        // on whatever element is focused.
-        enigo.text("hello").unwrap();
-        thread::sleep(Duration::from_millis(600)); // Wait for type coalescing debounce
-    });
+    fn typing_is_captured() {
+        let (tx, rx) = mpsc::channel::<ActionEvent>();
+        let mut capture = WindowsCapture::new();
+        capture.set_excluded_pid(None);
+        capture.start(tx).expect("Failed to start capture");
+        thread::sleep(Duration::from_millis(200));
 
-    // Typing produces either key events (for individual keys) or type events
-    // (coalesced value changes). At minimum we should see activity.
-    let total = keys(&events).len() + types(&events).len();
-    assert!(
-        total >= 1,
-        "Expected at least 1 key or type event from typing, got {}",
-        total
-    );
+        let (hwnd, _, _) = unsafe { create_target_window() };
+        thread::sleep(Duration::from_millis(200));
+
+        let mut enigo = Enigo::new(&Settings::default()).unwrap();
+        enigo.text("hello").unwrap();
+        thread::sleep(Duration::from_millis(600));
+
+        unsafe { let _ = DestroyWindow(hwnd); }
+        capture.stop().unwrap();
+        let events: Vec<_> = rx.try_iter().collect();
+
+        let total = keys(&events).len() + types(&events).len();
+        assert!(total >= 1, "Expected at least 1 key or type event from typing, got {}", total);
+    }
+
+    #[test]
+    #[serial]
+    fn double_click_is_captured() {
+        let (tx, rx) = mpsc::channel::<ActionEvent>();
+        let mut capture = WindowsCapture::new();
+        capture.set_excluded_pid(None);
+        capture.start(tx).expect("Failed to start capture");
+        thread::sleep(Duration::from_millis(200));
+
+        let (hwnd, cx, cy) = unsafe { create_target_window() };
+        thread::sleep(Duration::from_millis(200));
+
+        let mut enigo = Enigo::new(&Settings::default()).unwrap();
+        enigo.move_mouse(cx, cy, Coordinate::Abs).unwrap();
+        thread::sleep(Duration::from_millis(50));
+        enigo.button(enigo::Button::Left, Direction::Click).unwrap();
+        thread::sleep(Duration::from_millis(50));
+        enigo.button(enigo::Button::Left, Direction::Click).unwrap();
+        thread::sleep(Duration::from_millis(500));
+
+        unsafe { let _ = DestroyWindow(hwnd); }
+        capture.stop().unwrap();
+        let events: Vec<_> = rx.try_iter().collect();
+
+        assert!(clicks(&events).len() >= 2, "Expected at least 2 clicks for double-click, got {}", clicks(&events).len());
+    }
+
+    #[test]
+    #[serial]
+    fn drag_is_captured() {
+        let (tx, rx) = mpsc::channel::<ActionEvent>();
+        let mut capture = WindowsCapture::new();
+        capture.set_excluded_pid(None);
+        capture.start(tx).expect("Failed to start capture");
+        thread::sleep(Duration::from_millis(200));
+
+        let (hwnd, cx, cy) = unsafe { create_target_window() };
+        thread::sleep(Duration::from_millis(200));
+
+        let mut enigo = Enigo::new(&Settings::default()).unwrap();
+        enigo.move_mouse(cx - 50, cy, Coordinate::Abs).unwrap();
+        thread::sleep(Duration::from_millis(50));
+        enigo.button(enigo::Button::Left, Direction::Press).unwrap();
+        thread::sleep(Duration::from_millis(50));
+        enigo.move_mouse(cx + 150, cy, Coordinate::Abs).unwrap();
+        thread::sleep(Duration::from_millis(50));
+        enigo.button(enigo::Button::Left, Direction::Release).unwrap();
+        thread::sleep(Duration::from_millis(500));
+
+        unsafe { let _ = DestroyWindow(hwnd); }
+        capture.stop().unwrap();
+        let events: Vec<_> = rx.try_iter().collect();
+
+        let drags: Vec<_> = events.iter()
+            .filter(|e| matches!(&e.payload, ActionPayload::DragStart { .. }))
+            .collect();
+        let drops: Vec<_> = events.iter()
+            .filter(|e| matches!(&e.payload, ActionPayload::Drop { .. }))
+            .collect();
+
+        assert!(drags.len() >= 1, "Expected at least 1 drag_start, got {}", drags.len());
+        assert!(drops.len() >= 1, "Expected at least 1 drop, got {}", drops.len());
+    }
+
+    #[test]
+    #[serial]
+    fn modifier_key_combo_is_captured() {
+        let (tx, rx) = mpsc::channel::<ActionEvent>();
+        let mut capture = WindowsCapture::new();
+        capture.set_excluded_pid(None);
+        capture.start(tx).expect("Failed to start capture");
+        thread::sleep(Duration::from_millis(200));
+
+        let (hwnd, _, _) = unsafe { create_target_window() };
+        thread::sleep(Duration::from_millis(200));
+
+        let mut enigo = Enigo::new(&Settings::default()).unwrap();
+        enigo.key(enigo::Key::Control, Direction::Press).unwrap();
+        enigo.key(enigo::Key::Unicode('a'), Direction::Click).unwrap();
+        enigo.key(enigo::Key::Control, Direction::Release).unwrap();
+        thread::sleep(Duration::from_millis(500));
+
+        unsafe { let _ = DestroyWindow(hwnd); }
+        capture.stop().unwrap();
+        let events: Vec<_> = rx.try_iter().collect();
+
+        assert!(keys(&events).len() >= 1, "Expected at least 1 key event for Ctrl+A, got {}", keys(&events).len());
+    }
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -384,89 +545,6 @@ mod side_effects {
             type_events.len()
         );
     }
-}
-
-// ═══════════════════════════════════════════════════════════════════════════════
-// ADDITIONAL USER ACTION TESTS
-// ═══════════════════════════════════════════════════════════════════════════════
-
-#[test]
-    #[serial]
-#[cfg(target_os = "windows")]
-fn user_double_click_is_captured() {
-    let events = capture_during(|enigo| {
-        enigo.move_mouse(500, 500, Coordinate::Abs).unwrap();
-        thread::sleep(Duration::from_millis(50));
-        // Double-click = two rapid clicks.
-        enigo.button(enigo::Button::Left, Direction::Click).unwrap();
-        thread::sleep(Duration::from_millis(50));
-        enigo.button(enigo::Button::Left, Direction::Click).unwrap();
-    });
-
-    let click_count = clicks(&events).len();
-    assert!(
-        click_count >= 2,
-        "Expected at least 2 click events for double-click, got {}",
-        click_count
-    );
-}
-
-#[test]
-    #[serial]
-#[cfg(target_os = "windows")]
-fn user_drag_is_captured() {
-    let events = capture_during(|enigo| {
-        // Mouse down at (400, 400), move to (600, 600), mouse up.
-        enigo.move_mouse(400, 400, Coordinate::Abs).unwrap();
-        thread::sleep(Duration::from_millis(50));
-        enigo.button(enigo::Button::Left, Direction::Press).unwrap();
-        thread::sleep(Duration::from_millis(50));
-        enigo.move_mouse(600, 600, Coordinate::Abs).unwrap();
-        thread::sleep(Duration::from_millis(50));
-        enigo.button(enigo::Button::Left, Direction::Release).unwrap();
-    });
-
-    // A drag should produce drag_start + drop, or at minimum a click
-    // (if the drag threshold wasn't met). With 200px movement it should
-    // exceed the DRAG_THRESHOLD_PX (5px).
-    let drags: Vec<_> = events
-        .iter()
-        .filter(|e| matches!(&e.payload, ActionPayload::DragStart { .. }))
-        .collect();
-    let drops: Vec<_> = events
-        .iter()
-        .filter(|e| matches!(&e.payload, ActionPayload::Drop { .. }))
-        .collect();
-
-    assert!(
-        drags.len() >= 1,
-        "Expected at least 1 drag_start event, got {}",
-        drags.len()
-    );
-    assert!(
-        drops.len() >= 1,
-        "Expected at least 1 drop event, got {}",
-        drops.len()
-    );
-}
-
-#[test]
-    #[serial]
-#[cfg(target_os = "windows")]
-fn user_modifier_key_combo_is_captured() {
-    // Ctrl+A should produce a key event with ctrl modifier.
-    let events = capture_during(|enigo| {
-        enigo.key(enigo::Key::Control, Direction::Press).unwrap();
-        enigo.key(enigo::Key::Unicode('a'), Direction::Click).unwrap();
-        enigo.key(enigo::Key::Control, Direction::Release).unwrap();
-    });
-
-    let key_events = keys(&events);
-    assert!(
-        key_events.len() >= 1,
-        "Expected at least 1 key event for Ctrl+A, got {}",
-        key_events.len()
-    );
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
