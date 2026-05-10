@@ -18,6 +18,10 @@ const ENDPOINT_KEY = 'docentEndpointUrl';
 const API_KEY_KEY  = 'docentApiKey';
 const THEME_KEY    = 'docentTheme';
 
+// Sync settings are stored separately from dispatch settings (R1-AC1)
+const SYNC_URL_KEY     = 'docentSyncUrl';
+const SYNC_API_KEY_KEY = 'docentSyncApiKey';
+
 // ─── Adapter ──────────────────────────────────────────────────────────────────
 
 /** @type {import('../shared/views/adapter.js').PlatformAdapter} */
@@ -59,6 +63,39 @@ const chromeAdapter = {
       await chrome.storage.local.remove(API_KEY_KEY);
     } else {
       await chrome.storage.local.set({ [API_KEY_KEY]: apiKey });
+    }
+  },
+
+  // ── Sync settings ───────────────────────────────────────────────────────────
+
+  async loadSyncSettings() {
+    try {
+      const result = await chrome.storage.local.get([SYNC_URL_KEY, SYNC_API_KEY_KEY]);
+      return {
+        serverUrl: result[SYNC_URL_KEY] ?? null,
+        apiKey:    result[SYNC_API_KEY_KEY] ?? null,
+      };
+    } catch {
+      return { serverUrl: null, apiKey: null };
+    }
+  },
+
+  async saveSyncSettings(serverUrl, apiKey) {
+    const urlError = _validateEndpointUrl(serverUrl);
+    if (serverUrl !== '' && urlError !== null) {
+      throw new Error(urlError);
+    }
+
+    if (serverUrl === '') {
+      // Clear both sync URL and API key when serverUrl is empty (R1-AC3)
+      await chrome.storage.local.remove([SYNC_URL_KEY, SYNC_API_KEY_KEY]);
+    } else {
+      await chrome.storage.local.set({ [SYNC_URL_KEY]: serverUrl });
+      if (apiKey === '') {
+        await chrome.storage.local.remove(SYNC_API_KEY_KEY);
+      } else {
+        await chrome.storage.local.set({ [SYNC_API_KEY_KEY]: apiKey });
+      }
     }
   },
 
