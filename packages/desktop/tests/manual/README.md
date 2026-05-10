@@ -99,7 +99,7 @@ Use any app with custom-rendered UI (Discord, games, Electron apps without acces
 
 ---
 
-## Not Capturable (Verify Nothing Leaks)
+## OS Chrome Interactions
 
 ### 11. Taskbar Click
 

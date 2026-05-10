@@ -70,8 +70,6 @@ Timing constants and correlation windows live in `src/capture/timing.rs`.
 
 ## Not Capturable (OS-Level)
 
-- Taskbar button clicks (captured as click on taskbar button — proxy)
-- Start menu / Win key (search box keystrokes captured)
 - Win+D, Win+L, Win+Arrow
 - System tray interactions
 - Ctrl+Shift+Esc (Task Manager)
