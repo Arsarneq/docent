@@ -72,11 +72,11 @@
  *   Chrome: chrome.storage.local.get('pendingCount')
  *   Tauri:  in-memory counter
  *
- * @property {((callback: (event: Object) => void) => void)|undefined} [onActionEvent]
- *   Subscribe to captured action events streamed from the backend.
- *   Optional — only used by the desktop adapter (Tauri events).
- *   The Chrome extension does not use this; actions flow through
- *   the content script → storage → service worker path instead.
+ * @property {((callback: (event: Object) => void) => void)} onActionEvent
+ *   Subscribe to captured action events as they arrive.
+ *   The callback fires with each individual action object.
+ *   Chrome: chrome.storage.onChanged listener for pendingActions array
+ *   Tauri:  in-memory tracking driven by capture:action events
  *
  * @property {boolean} hasNativeFileDialog
  *   Whether the platform provides native file dialogs for export/import.

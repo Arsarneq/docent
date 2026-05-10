@@ -501,7 +501,7 @@ textarea:focus {
 
 .step-detail-item {
   display:               grid;
-  grid-template-columns: 20px 60px 1fr;
+  grid-template-columns: 20px auto 1fr;
   align-items:           start;
   gap:                   8px;
   background:            var(--color-surface);
@@ -525,6 +525,7 @@ textarea:focus {
   text-transform: uppercase;
   font-size:      10px;
   padding-top:    2px;
+  white-space:    nowrap;
 }
 
 .step-detail-desc {

@@ -7,6 +7,7 @@
 
 // ── Mock chrome.storage.local ──────────────────────────────────────────────
 let storageData = {};
+let storageListeners = [];
 globalThis.chrome = {
   storage: {
     local: {
@@ -22,11 +23,18 @@ globalThis.chrome = {
         ks.forEach(k => delete storageData[k]);
       },
     },
+    onChanged: {
+      addListener: (fn) => { storageListeners.push(fn); },
+    },
   },
   runtime: {
     getURL: (path) => `chrome-extension://test-id/${path}`,
   },
 };
+
+function fireStorageChange(changes, area = 'local') {
+  for (const fn of storageListeners) fn(changes, area);
+}
 
 // ── Imports ────────────────────────────────────────────────────────────────
 import { test, describe, beforeEach } from 'node:test';
@@ -346,5 +354,64 @@ describe('error messages surface HTTP status codes and network errors', () => {
         },
       ),
     );
+  });
+});
+
+// ── Live action list: onActionEvent fires for each new action ──────────────
+describe('onActionEvent fires for each newly appended action', () => {
+  beforeEach(() => { storageListeners = []; });
+
+  test('callback fires once per new action added to pendingActions', () => {
+    const received = [];
+    chromeAdapter.onActionEvent(action => received.push(action));
+
+    // Simulate first action added
+    fireStorageChange({
+      pendingActions: { newValue: [{ type: 'click', timestamp: 1 }] },
+    });
+    assert.strictEqual(received.length, 1);
+    assert.strictEqual(received[0].type, 'click');
+
+    // Simulate second action added
+    fireStorageChange({
+      pendingActions: { newValue: [{ type: 'click', timestamp: 1 }, { type: 'type', timestamp: 2 }] },
+    });
+    assert.strictEqual(received.length, 2);
+    assert.strictEqual(received[1].type, 'type');
+  });
+
+  test('callback does not fire for non-local area changes', () => {
+    const received = [];
+    chromeAdapter.onActionEvent(action => received.push(action));
+
+    fireStorageChange({
+      pendingActions: { newValue: [{ type: 'click', timestamp: 1 }] },
+    }, 'sync');
+    assert.strictEqual(received.length, 0);
+  });
+
+  test('counter resets when pendingActions is cleared', () => {
+    const received = [];
+    chromeAdapter.onActionEvent(action => received.push(action));
+
+    // Add two actions
+    fireStorageChange({
+      pendingActions: { newValue: [{ type: 'click', timestamp: 1 }, { type: 'key', timestamp: 2 }] },
+    });
+    assert.strictEqual(received.length, 2);
+
+    // Clear
+    fireStorageChange({
+      pendingActions: { newValue: [] },
+    });
+    // No new callbacks on clear
+    assert.strictEqual(received.length, 2);
+
+    // Add new action after clear — should fire
+    fireStorageChange({
+      pendingActions: { newValue: [{ type: 'scroll', timestamp: 3 }] },
+    });
+    assert.strictEqual(received.length, 3);
+    assert.strictEqual(received[2].type, 'scroll');
   });
 });

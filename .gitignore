@@ -10,6 +10,10 @@ packages/desktop/src-tauri/gen/
 # Synced shared code (build artifact — run `npm run sync-shared` to regenerate)
 packages/*/shared/
 
+# Generated HTML (assembled from shell + shared views by sync-shared)
+packages/extension/sidepanel/index.html
+packages/desktop/src/index.html
+
 # Desktop frontend dist (assembled by scripts/build-desktop-dist.js)
 packages/desktop/dist/
 
