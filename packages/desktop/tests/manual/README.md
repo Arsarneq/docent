@@ -117,22 +117,28 @@ Use any app with custom-rendered UI (Discord, games, Electron apps without acces
 
 1. Have windows open, press Win+D
 
-**Expected:** Nothing captured (or just the key combo). No context_switch/close noise.
+**Expected:** Nothing captured. Win+D is a system hotkey intercepted before hooks.
 
 ### 14. Win+L (Lock Screen)
 
-1. Press Win+L to lock
+1. Press Win+L to lock, then unlock
 
-**Expected:** Nothing captured. No context_switch/close noise. (Unlock and verify recording resumes.)
+**Expected:** Win+L key combo NOT captured. The click to dismiss the lock screen IS captured (coordinate mode on LockContainer).
 
 ### 15. System Tray Interaction
 
 1. Click a system tray icon (clock, volume, network)
 
-**Expected:** Verify what is captured — may be a click on the tray area or nothing.
+**Expected:** context_switch (to taskbar) + click on the tray button. Fully capturable.
 
 ### 16. Ctrl+Shift+Esc (Task Manager)
 
 1. Press Ctrl+Shift+Esc to open Task Manager
 
-**Expected:** Verify what is captured — key combo and/or context_switch to Task Manager.
+**Expected:** Key combo NOT captured (system hotkey). Task Manager opening may produce a stray select event from its tab control.
+
+### 17. Win+Arrow (Snap/Resize)
+
+1. Focus a window, press Win+Right, Win+Left, Win+Up
+
+**Expected:** key(Meta) + key(ArrowRight, meta:true) + key(ArrowLeft, meta:true) + key(ArrowUp, meta:true). Window_rect changes between each action. Fully capturable.

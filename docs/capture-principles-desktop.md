@@ -70,6 +70,6 @@ Timing constants and correlation windows live in `src/capture/timing.rs`.
 
 ## Not Capturable (OS-Level)
 
-- Win+D, Win+L, Win+Arrow
-- System tray interactions
-- Ctrl+Shift+Esc (Task Manager)
+- Win+D (show desktop) — system hotkey intercepted before hooks
+- Win+L (lock screen) — system hotkey intercepted before hooks
+- Ctrl+Shift+Esc (Task Manager) — system hotkey intercepted before hooks
