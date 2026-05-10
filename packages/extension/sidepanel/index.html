@@ -14,7 +14,6 @@
       <div id="recording-badge" class="badge badge--idle">Idle</div>
       <button id="btn-settings" class="btn btn--icon" title="Settings" aria-label="Settings">
         <svg viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-          <!-- Gear: outer teeth ring + inner circle cutout -->
           <path fill="currentColor" fill-rule="evenodd" clip-rule="evenodd"
             d="M8.25 2a.75.75 0 0 0-.74.63l-.22 1.48a5.5 5.5 0 0 0-.93.54l-1.4-.56a.75.75 0 0 0-.9.34L2.76 6.57a.75.75 0 0 0 .17.96l1.18.93a5.6 5.6 0 0 0 0 1.08l-1.18.93a.75.75 0 0 0-.17.96l1.2 2.08a.75.75 0 0 0 .9.34l1.4-.56c.29.2.6.38.93.54l.22 1.48a.75.75 0 0 0 .74.63h2.5a.75.75 0 0 0 .74-.63l.22-1.48c.33-.16.64-.33.93-.54l1.4.56a.75.75 0 0 0 .9-.34l1.2-2.08a.75.75 0 0 0-.17-.96l-1.18-.93a5.6 5.6 0 0 0 0-1.08l1.18-.93a.75.75 0 0 0 .17-.96l-1.2-2.08a.75.75 0 0 0-.9-.34l-1.4.56a5.5 5.5 0 0 0-.93-.54l-.22-1.48A.75.75 0 0 0 10.75 2h-2.5zm1.25 5.5a2.5 2.5 0 1 0 0 5 2.5 2.5 0 0 0 0-5z"/>
         </svg>
@@ -36,252 +35,271 @@
   </nav>
 
   <!-- ── View: Projects list ─────────────────────────────────────── -->
-  <section id="view-projects" class="view">
-    <div class="view-header">
-      <h2>Projects</h2>
-      <div class="view-header-actions">
-        <button id="btn-import-project" class="btn btn--secondary btn--sm">Import</button>
-        <button id="btn-new-project" class="btn btn--primary btn--sm">+ New</button>
-      </div>
+<section id="view-projects" class="view">
+  <div class="view-header">
+    <h2>Projects</h2>
+    <div class="view-header-actions">
+      <button id="btn-import-project" class="btn btn--secondary btn--sm">Import</button>
+      <button id="btn-new-project" class="btn btn--primary btn--sm">+ New</button>
     </div>
+  </div>
 
-    <input id="import-file-input" type="file" accept=".json" style="display:none" />
+  <input id="import-file-input" type="file" accept=".json" style="display:none" />
 
-    <ul id="project-list" class="card-list"></ul>
+  <ul id="project-list" class="card-list"></ul>
 
-    <p id="projects-empty" class="empty-state hidden">
-      No projects yet. Create one to get started.
-    </p>
-  </section>
+  <p id="projects-empty" class="empty-state hidden">
+    No projects yet. Create one to get started.
+  </p>
+</section>
 
-  <!-- ── View: New project form ──────────────────────────────────── -->
-  <section id="view-new-project" class="view hidden">
-    <h2>New project</h2>
-    <label for="new-project-name">Project name</label>
-    <input id="new-project-name" type="text" placeholder="e.g. Acme CRM" />
-    <div class="form-actions">
-      <button id="btn-new-project-cancel" class="btn btn--ghost">Cancel</button>
-      <button id="btn-new-project-create" class="btn btn--primary">Create project</button>
+<!-- ── View: New project form ──────────────────────────────────── -->
+<section id="view-new-project" class="view hidden">
+  <h2>New project</h2>
+  <label for="new-project-name">Project name</label>
+  <input id="new-project-name" type="text" placeholder="e.g. Acme CRM" />
+  <div class="form-actions">
+    <button id="btn-new-project-cancel" class="btn btn--ghost">Cancel</button>
+    <button id="btn-new-project-create" class="btn btn--primary">Create project</button>
+  </div>
+</section>
+
+<!-- ── View: Project detail (recording list) ───────────────────── -->
+<section id="view-project" class="view hidden">
+  <div class="view-header">
+    <h2 id="project-title"></h2>
+    <div class="view-header-actions">
+      <button id="btn-export-project" class="btn btn--secondary btn--sm">Export</button>
+      <button id="btn-dispatch-project" class="btn btn--primary btn--sm" disabled title="Configure an endpoint in Settings to enable dispatch">Send</button>
+      <button id="btn-new-recording" class="btn btn--primary btn--sm">+ New recording</button>
     </div>
-  </section>
+  </div>
 
-  <!-- ── View: Project detail (recording list) ───────────────────── -->
-  <section id="view-project" class="view hidden">
-    <div class="view-header">
-      <h2 id="project-title"></h2>
-      <div class="view-header-actions">
-        <button id="btn-export-project" class="btn btn--secondary btn--sm">Export</button>
-        <button id="btn-dispatch-project" class="btn btn--primary btn--sm" disabled title="Configure an endpoint in Settings to enable dispatch">Send</button>
-        <button id="btn-new-recording" class="btn btn--primary btn--sm">+ New recording</button>
-      </div>
-    </div>
+  <ul id="recording-list" class="card-list">
+    <!-- populated by panel.js -->
+  </ul>
 
-    <ul id="recording-list" class="card-list">
-      <!-- populated by panel.js -->
-    </ul>
+  <p id="recordings-empty" class="empty-state hidden">
+    No recordings yet. Create one to start recording.
+  </p>
+</section>
 
-    <p id="recordings-empty" class="empty-state hidden">
-      No recordings yet. Create one to start recording.
-    </p>
-  </section>
+<!-- ── View: New recording form ────────────────────────────────── -->
+<section id="view-new-recording" class="view hidden">
+  <h2>New recording</h2>
+  <label for="new-recording-name">Recording name</label>
+  <input id="new-recording-name" type="text" placeholder="e.g. Create new project" />
+  <div class="form-actions">
+    <button id="btn-new-recording-cancel" class="btn btn--ghost">Cancel</button>
+    <button id="btn-new-recording-create" class="btn btn--primary">Create &amp; start recording</button>
+  </div>
+</section>
 
-  <!-- ── View: New recording form ────────────────────────────────── -->
-  <section id="view-new-recording" class="view hidden">
-    <h2>New recording</h2>
-    <label for="new-recording-name">Recording name</label>
-    <input id="new-recording-name" type="text" placeholder="e.g. Create new project" />
-    <div class="form-actions">
-      <button id="btn-new-recording-cancel" class="btn btn--ghost">Cancel</button>
-      <button id="btn-new-recording-create" class="btn btn--primary">Create &amp; start recording</button>
-    </div>
-  </section>
+<!-- ── View: Recording (step list) ────────────────────────────── -->
+<section id="view-recording" class="view hidden">
 
-  <!-- ── View: Recording (step list) ────────────────────────────── -->
-  <section id="view-recording" class="view hidden">
+  <div class="view-header">
+    <h2 id="recording-title"></h2>
+    <button id="btn-toggle-recording" class="btn btn--secondary btn--sm">
+      <svg viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" class="icon-pause"><rect x="5" y="4" width="3.5" height="12" rx="1" fill="currentColor"/><rect x="11.5" y="4" width="3.5" height="12" rx="1" fill="currentColor"/></svg>
+      <span class="btn-label">Pause</span>
+    </button>
+  </div>
 
-    <div class="view-header">
-      <h2 id="recording-title"></h2>
-      <button id="btn-toggle-recording" class="btn btn--secondary btn--sm">
-        <svg viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" class="icon-pause"><rect x="5" y="4" width="3.5" height="12" rx="1" fill="currentColor"/><rect x="11.5" y="4" width="3.5" height="12" rx="1" fill="currentColor"/></svg>
-        <span class="btn-label">Pause</span>
-      </button>
-    </div>
-
-    <!-- Narration input -->
-    <div class="narration-box">
-      <label>What are you about to do?</label>
-      <textarea
-        id="narration-input"
-        rows="2"
-        placeholder="e.g. log into the system"
-      ></textarea>
-      <div class="narration-controls">
-        <button id="btn-clear-step" class="btn btn--ghost btn--sm" title="Clear recorded actions">
-          <svg viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path d="M5 5l10 10M15 5L5 15" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
-          Clear
-        </button>
-        <button id="btn-commit-step" class="btn btn--primary" disabled>
-          <svg viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path d="M4 10l5 5 7-8" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
-          Done this step
-        </button>
-      </div>
-    </div>
-
-    <!-- Step list -->
-    <div class="step-list-header">
-      <span>Steps</span>
-      <span id="step-count" class="step-count">0</span>
-    </div>
-
-    <ol id="step-list" class="step-list"></ol>
-
-  </section>
-
-  <!-- ── View: Re-record a step ──────────────────────────────────── -->
-  <section id="view-rerecord" class="view hidden">
-    <div class="view-back-header">
-      <button id="btn-rerecord-cancel" class="btn btn--ghost">
-        <svg viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path d="M12 4l-6 6 6 6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
-        Back
-      </button>
-      <span>Re-recording step</span>
-    </div>
-    <label>What does this step do?</label>
-    <textarea id="rerecord-narration" rows="2"></textarea>
+  <!-- Narration input -->
+  <div class="narration-box">
+    <label>What are you about to do?</label>
+    <textarea
+      id="narration-input"
+      rows="2"
+      placeholder="e.g. log into the system"
+    ></textarea>
     <div class="narration-controls">
-      <button id="btn-rerecord-commit" class="btn btn--primary">
+      <button id="btn-clear-step" class="btn btn--ghost btn--sm" title="Clear recorded actions">
+        <svg viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path d="M5 5l10 10M15 5L5 15" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+        Clear
+      </button>
+      <button id="btn-commit-step" class="btn btn--primary" disabled>
         <svg viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path d="M4 10l5 5 7-8" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
-        Done
+        Done this step
       </button>
     </div>
-  </section>
+  </div>
 
-  <!-- ── View: Step history ───────────────────────────────────────── -->
-  <section id="view-history" class="view hidden">
-    <div class="view-back-header">
-      <button id="btn-history-back" class="btn btn--ghost">
-        <svg viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path d="M12 4l-6 6 6 6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
-        Back
-      </button>
-      <span>Step history</span>
+  <!-- Live action list (current step being recorded) -->
+  <div id="pending-actions-section" class="pending-actions-section hidden">
+    <div class="step-list-header">
+      <span>Captured actions</span>
+      <span id="pending-action-count" class="step-count">0</span>
     </div>
-    <ol id="history-list" class="history-list"></ol>
-  </section>
+    <ol id="pending-action-list" class="step-detail-list"></ol>
+  </div>
 
-  <!-- ── View: Step detail (read-only actions) ────────────────────── -->
-  <section id="view-step-detail" class="view hidden">
-    <div class="view-back-header">
-      <button id="btn-step-detail-back" class="btn btn--ghost">
-        <svg viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path d="M12 4l-6 6 6 6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
-        Back
-      </button>
-      <span id="step-detail-title">Step actions</span>
-    </div>
-    <ol id="step-detail-list" class="step-detail-list"></ol>
-  </section>
+  <!-- Step list -->
+  <div class="step-list-header">
+    <span>Steps</span>
+    <span id="step-count" class="step-count">0</span>
+  </div>
 
-  <!-- ── View: Dispatch Result ───────────────────────────────────────── -->
-  <section id="view-dispatch-result" class="view hidden">
-    <div class="view-back-header">
-      <button id="btn-result-back" class="btn btn--ghost">
-        <svg viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path d="M12 4l-6 6 6 6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
-        Back
-      </button>
-      <span id="result-title">Result</span>
-    </div>
-    <p id="result-message" class="result-message"></p>
-  </section>
+  <ol id="step-list" class="step-list"></ol>
 
-  <!-- ── View: Dispatch Confirmation ────────────────────────────── -->
-  <section id="view-dispatch-confirm" class="view hidden">
-    <div class="view-back-header">
-      <button id="btn-confirm-cancel" class="btn btn--ghost">
-        <svg viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path d="M12 4l-6 6 6 6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
-        Cancel
-      </button>
-      <span>Confirm dispatch</span>
+</section>
+
+<!-- ── View: Re-record a step ──────────────────────────────────── -->
+<section id="view-rerecord" class="view hidden">
+  <div class="view-back-header">
+    <button id="btn-rerecord-cancel" class="btn btn--ghost">
+      <svg viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path d="M12 4l-6 6 6 6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      Back
+    </button>
+    <span>Re-recording step</span>
+  </div>
+  <label>What does this step do?</label>
+  <textarea id="rerecord-narration" rows="2"></textarea>
+  <div class="narration-controls">
+    <button id="btn-rerecord-commit" class="btn btn--primary">
+      <svg viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path d="M4 10l5 5 7-8" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      Done
+    </button>
+  </div>
+
+  <!-- Live action list (re-recording) -->
+  <div id="rerecord-actions-section" class="pending-actions-section hidden">
+    <div class="step-list-header">
+      <span>Captured actions</span>
+      <span id="rerecord-action-count" class="step-count">0</span>
     </div>
-    <div class="confirm-details">
-      <p class="confirm-row"><span class="confirm-label">Endpoint</span><span id="confirm-endpoint"></span></p>
-      <p class="confirm-row"><span class="confirm-label">Recording(s)</span><span id="confirm-recordings"></span></p>
-      <p class="confirm-row"><span class="confirm-label">Steps</span><span id="confirm-steps"></span></p>
+    <ol id="rerecord-action-list" class="step-detail-list"></ol>
+  </div>
+</section>
+
+<!-- ── View: Step history ───────────────────────────────────────── -->
+<section id="view-history" class="view hidden">
+  <div class="view-back-header">
+    <button id="btn-history-back" class="btn btn--ghost">
+      <svg viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path d="M12 4l-6 6 6 6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      Back
+    </button>
+    <span>Step history</span>
+  </div>
+  <ol id="history-list" class="history-list"></ol>
+</section>
+
+<!-- ── View: Step detail (read-only actions) ────────────────────── -->
+<section id="view-step-detail" class="view hidden">
+  <div class="view-back-header">
+    <button id="btn-step-detail-back" class="btn btn--ghost">
+      <svg viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path d="M12 4l-6 6 6 6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      Back
+    </button>
+    <span id="step-detail-title">Step actions</span>
+  </div>
+  <ol id="step-detail-list" class="step-detail-list"></ol>
+</section>
+
+<!-- ── View: Dispatch Result ───────────────────────────────────────── -->
+<section id="view-dispatch-result" class="view hidden">
+  <div class="view-back-header">
+    <button id="btn-result-back" class="btn btn--ghost">
+      <svg viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path d="M12 4l-6 6 6 6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      Back
+    </button>
+    <span id="result-title">Result</span>
+  </div>
+  <p id="result-message" class="result-message"></p>
+</section>
+
+<!-- ── View: Dispatch Confirmation ────────────────────────────── -->
+<section id="view-dispatch-confirm" class="view hidden">
+  <div class="view-back-header">
+    <button id="btn-confirm-cancel" class="btn btn--ghost">
+      <svg viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path d="M12 4l-6 6 6 6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      Cancel
+    </button>
+    <span>Confirm dispatch</span>
+  </div>
+  <div class="confirm-details">
+    <p class="confirm-row"><span class="confirm-label">Endpoint</span><span id="confirm-endpoint"></span></p>
+    <p class="confirm-row"><span class="confirm-label">Recording(s)</span><span id="confirm-recordings"></span></p>
+    <p class="confirm-row"><span class="confirm-label">Steps</span><span id="confirm-steps"></span></p>
+  </div>
+  <div class="form-actions">
+    <button id="btn-confirm-send" class="btn btn--primary">Send</button>
+  </div>
+</section>
+
+<!-- ── View: Recording Selector ───────────────────────────────── -->
+<section id="view-recording-selector" class="view hidden">
+  <div class="view-back-header">
+    <button id="btn-selector-cancel" class="btn btn--ghost">
+      <svg viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path d="M12 4l-6 6 6 6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      Cancel
+    </button>
+    <span>Select recording</span>
+  </div>
+  <p class="view-subtitle">Choose which recording to send:</p>
+  <ul id="recording-selector-list" class="card-list"></ul>
+</section>
+
+<!-- ── View: Settings ──────────────────────────────────────────── -->
+<section id="view-settings" class="view hidden">
+  <div class="view-back-header">
+    <button id="btn-settings-back" class="btn btn--ghost">
+      <svg viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path d="M12 4l-6 6 6 6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      Back
+    </button>
+    <span>Settings</span>
+  </div>
+
+  <div class="settings-group">
+    <label class="settings-label">Theme</label>
+    <div class="settings-options" role="radiogroup" aria-label="Theme">
+      <label class="settings-option">
+        <input type="radio" name="theme" value="auto" />
+        <span class="settings-option-label">
+          <svg viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+            <circle cx="10" cy="10" r="4" stroke="currentColor" stroke-width="1.5"/>
+            <path d="M10 2v1.5M10 16.5V18M2 10h1.5M16.5 10H18M4.1 4.1l1.1 1.1M14.8 14.8l1.1 1.1M4.1 15.9l1.1-1.1M14.8 5.2l1.1-1.1" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+          </svg>
+          Follow browser
+        </span>
+      </label>
+      <label class="settings-option">
+        <input type="radio" name="theme" value="light" />
+        <span class="settings-option-label">
+          <svg viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+            <circle cx="10" cy="10" r="4" fill="currentColor" opacity="0.2" stroke="currentColor" stroke-width="1.5"/>
+            <path d="M10 2v1.5M10 16.5V18M2 10h1.5M16.5 10H18M4.1 4.1l1.1 1.1M14.8 14.8l1.1 1.1M4.1 15.9l1.1-1.1M14.8 5.2l1.1-1.1" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+          </svg>
+          Light
+        </span>
+      </label>
+      <label class="settings-option">
+        <input type="radio" name="theme" value="dark" />
+        <span class="settings-option-label">
+          <svg viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+            <path d="M15 10.5A6 6 0 0 1 8 4a6 6 0 1 0 7 6.5z" fill="currentColor" opacity="0.2" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/>
+          </svg>
+          Dark
+        </span>
+      </label>
     </div>
+  </div>
+
+  <div class="settings-group" id="settings-dispatch">
+    <label class="settings-label">Dispatch endpoint</label>
+    <input id="settings-endpoint-url" type="text" placeholder="https://..." />
+    <p id="settings-endpoint-error" class="settings-field-error hidden"></p>
+
+    <label class="settings-label" style="margin-top:12px">API key (optional)</label>
+    <input id="settings-api-key" type="password" placeholder="Bearer token" />
+
     <div class="form-actions">
-      <button id="btn-confirm-send" class="btn btn--primary">Send</button>
+      <button id="btn-settings-dispatch-save" class="btn btn--primary btn--sm">Save</button>
     </div>
-  </section>
+  </div>
+</section>
 
-  <!-- ── View: Recording Selector ───────────────────────────────── -->
-  <section id="view-recording-selector" class="view hidden">
-    <div class="view-back-header">
-      <button id="btn-selector-cancel" class="btn btn--ghost">
-        <svg viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path d="M12 4l-6 6 6 6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
-        Cancel
-      </button>
-      <span>Select recording</span>
-    </div>
-    <p class="view-subtitle">Choose which recording to send:</p>
-    <ul id="recording-selector-list" class="card-list"></ul>
-  </section>
-
-  <!-- ── View: Settings ──────────────────────────────────────────── -->
-  <section id="view-settings" class="view hidden">
-    <div class="view-back-header">
-      <button id="btn-settings-back" class="btn btn--ghost">
-        <svg viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path d="M12 4l-6 6 6 6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
-        Back
-      </button>
-      <span>Settings</span>
-    </div>
-
-    <div class="settings-group">
-      <label class="settings-label">Theme</label>
-      <div class="settings-options" role="radiogroup" aria-label="Theme">
-        <label class="settings-option">
-          <input type="radio" name="theme" value="auto" />
-          <span class="settings-option-label">
-            <svg viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-              <circle cx="10" cy="10" r="4" stroke="currentColor" stroke-width="1.5"/>
-              <path d="M10 2v1.5M10 16.5V18M2 10h1.5M16.5 10H18M4.1 4.1l1.1 1.1M14.8 14.8l1.1 1.1M4.1 15.9l1.1-1.1M14.8 5.2l1.1-1.1" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
-            </svg>
-            Follow browser
-          </span>
-        </label>
-        <label class="settings-option">
-          <input type="radio" name="theme" value="light" />
-          <span class="settings-option-label">
-            <svg viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-              <circle cx="10" cy="10" r="4" fill="currentColor" opacity="0.2" stroke="currentColor" stroke-width="1.5"/>
-              <path d="M10 2v1.5M10 16.5V18M2 10h1.5M16.5 10H18M4.1 4.1l1.1 1.1M14.8 14.8l1.1 1.1M4.1 15.9l1.1-1.1M14.8 5.2l1.1-1.1" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
-            </svg>
-            Light
-          </span>
-        </label>
-        <label class="settings-option">
-          <input type="radio" name="theme" value="dark" />
-          <span class="settings-option-label">
-            <svg viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-              <path d="M15 10.5A6 6 0 0 1 8 4a6 6 0 1 0 7 6.5z" fill="currentColor" opacity="0.2" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/>
-            </svg>
-            Dark
-          </span>
-        </label>
-      </div>
-    </div>
-
-    <div class="settings-group" id="settings-dispatch">
-      <label class="settings-label">Dispatch endpoint</label>
-      <input id="settings-endpoint-url" type="text" placeholder="https://..." />
-      <p id="settings-endpoint-error" class="settings-field-error hidden"></p>
-
-      <label class="settings-label" style="margin-top:12px">API key (optional)</label>
-      <input id="settings-api-key" type="password" placeholder="Bearer token" />
-
-      <div class="form-actions">
-        <button id="btn-settings-dispatch-save" class="btn btn--primary btn--sm">Save</button>
-      </div>
-    </div>
-  </section>
 
   <script type="module" src="panel.js"></script>
 </body>

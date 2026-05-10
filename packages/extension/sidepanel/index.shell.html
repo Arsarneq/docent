@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Docent</title>
+  <link rel="stylesheet" href="../shared/views/panel.css" />
+</head>
+<body>
+
+  <!-- ── Header ─────────────────────────────────────────────────── -->
+  <header>
+    <div class="header-right">
+      <div id="recording-badge" class="badge badge--idle">Idle</div>
+      <button id="btn-settings" class="btn btn--icon" title="Settings" aria-label="Settings">
+        <svg viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+          <path fill="currentColor" fill-rule="evenodd" clip-rule="evenodd"
+            d="M8.25 2a.75.75 0 0 0-.74.63l-.22 1.48a5.5 5.5 0 0 0-.93.54l-1.4-.56a.75.75 0 0 0-.9.34L2.76 6.57a.75.75 0 0 0 .17.96l1.18.93a5.6 5.6 0 0 0 0 1.08l-1.18.93a.75.75 0 0 0-.17.96l1.2 2.08a.75.75 0 0 0 .9.34l1.4-.56c.29.2.6.38.93.54l.22 1.48a.75.75 0 0 0 .74.63h2.5a.75.75 0 0 0 .74-.63l.22-1.48c.33-.16.64-.33.93-.54l1.4.56a.75.75 0 0 0 .9-.34l1.2-2.08a.75.75 0 0 0-.17-.96l-1.18-.93a5.6 5.6 0 0 0 0-1.08l1.18-.93a.75.75 0 0 0 .17-.96l-1.2-2.08a.75.75 0 0 0-.9-.34l-1.4.56a5.5 5.5 0 0 0-.93-.54l-.22-1.48A.75.75 0 0 0 10.75 2h-2.5zm1.25 5.5a2.5 2.5 0 1 0 0 5 2.5 2.5 0 0 0 0-5z"/>
+        </svg>
+      </button>
+    </div>
+  </header>
+
+  <!-- ── Breadcrumb ──────────────────────────────────────────────── -->
+  <nav id="breadcrumb" class="breadcrumb hidden">
+    <button id="bc-projects" class="bc-item bc-link">Projects</button>
+    <span id="bc-sep-1" class="bc-sep hidden">
+      <svg viewBox="0 0 12 12" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path d="M4 2l4 4-4 4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    </span>
+    <button id="bc-project" class="bc-item bc-link hidden"></button>
+    <span id="bc-sep-2" class="bc-sep hidden">
+      <svg viewBox="0 0 12 12" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path d="M4 2l4 4-4 4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    </span>
+    <span id="bc-recording" class="bc-item hidden"></span>
+  </nav>
+
+  <!-- SHARED_VIEWS -->
+
+  <script type="module" src="panel.js"></script>
+</body>
+</html>

@@ -104,6 +104,15 @@
     </div>
   </div>
 
+  <!-- Live action list (current step being recorded) -->
+  <div id="pending-actions-section" class="pending-actions-section hidden">
+    <div class="step-list-header">
+      <span>Captured actions</span>
+      <span id="pending-action-count" class="step-count">0</span>
+    </div>
+    <ol id="pending-action-list" class="step-detail-list"></ol>
+  </div>
+
   <!-- Step list -->
   <div class="step-list-header">
     <span>Steps</span>
@@ -130,6 +139,15 @@
       <svg viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path d="M4 10l5 5 7-8" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
       Done
     </button>
+  </div>
+
+  <!-- Live action list (re-recording) -->
+  <div id="rerecord-actions-section" class="pending-actions-section hidden">
+    <div class="step-list-header">
+      <span>Captured actions</span>
+      <span id="rerecord-action-count" class="step-count">0</span>
+    </div>
+    <ol id="rerecord-action-list" class="step-detail-list"></ol>
   </div>
 </section>
 

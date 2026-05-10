@@ -124,6 +124,14 @@ const stepDetailList  = $('step-detail-list');
 const stepDetailTitle = $('step-detail-title');
 const btnStepDetailBack = $('btn-step-detail-back');
 
+// Pending action list (live during recording)
+const pendingActionsSection = $('pending-actions-section');
+const pendingActionList     = $('pending-action-list');
+const pendingActionCount    = $('pending-action-count');
+const rerecordActionsSection = $('rerecord-actions-section');
+const rerecordActionList     = $('rerecord-action-list');
+const rerecordActionCount    = $('rerecord-action-count');
+
 // Settings
 const btnSettings     = $('btn-settings');
 const btnSettingsBack = $('btn-settings-back');
@@ -222,6 +230,35 @@ adapter.onPendingCountChange(count => {
   pendingCount = count;
   updateCommitButton();
 });
+
+// Live action list: render each action as it's captured
+adapter.onActionEvent(action => {
+  appendLiveAction(action);
+});
+
+function appendLiveAction(action) {
+  const html = renderStepDetailHtml([action]);
+  // Determine which list to append to (recording or re-record view)
+  const isRerecording = views.rerecord && !views.rerecord.classList.contains('hidden');
+  const targetList = isRerecording ? rerecordActionList : pendingActionList;
+  const targetSection = isRerecording ? rerecordActionsSection : pendingActionsSection;
+  const targetCount = isRerecording ? rerecordActionCount : pendingActionCount;
+
+  targetSection.classList.remove('hidden');
+  const li = document.createElement('template');
+  li.innerHTML = html[0].trim();
+  targetList.appendChild(li.content.firstChild);
+  targetCount.textContent = targetList.children.length;
+}
+
+function clearLiveActionList() {
+  pendingActionList.innerHTML = '';
+  pendingActionCount.textContent = '0';
+  pendingActionsSection.classList.add('hidden');
+  rerecordActionList.innerHTML = '';
+  rerecordActionCount.textContent = '0';
+  rerecordActionsSection.classList.add('hidden');
+}
 
 // ─── View management ─────────────────────────────────────────────────────────
 
@@ -630,6 +667,7 @@ function enterRecordingView() {
   recordingTitle.title = 'Click to rename';
   recordingTitle.style.cursor = 'pointer';
   narrationInput.value = '';
+  clearLiveActionList();
   pendingCount = adapter.getPendingActions().length;
   updateCommitButton();
   updateRecordingUI();
@@ -695,6 +733,7 @@ btnClearStep.addEventListener('click', async () => {
   adapter.clearPendingActions();
   pendingCount = 0;
   updateCommitButton();
+  clearLiveActionList();
 });
 
 async function commitStep(inputEl, source, logicalId) {
@@ -736,6 +775,7 @@ async function commitStep(inputEl, source, logicalId) {
 
     inputEl.value = '';
     if (inputEl === narrationInput) btnCommitStep.disabled = true;
+    clearLiveActionList();
     renderStepList();
 
     if (wasRecording) {

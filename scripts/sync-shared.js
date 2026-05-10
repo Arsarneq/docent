@@ -18,6 +18,7 @@
 
 import { cpSync, existsSync, mkdirSync, rmSync, copyFileSync } from 'node:fs';
 import { resolve, join, dirname } from 'node:path';
+import { execFileSync } from 'node:child_process';
 
 const ROOT = resolve(import.meta.dirname, '..');
 const SHARED_SRC = join(ROOT, 'packages', 'shared');
@@ -61,3 +62,6 @@ for (const target of targets) {
 
   console.log(`✓ packages/shared/ → packages/${target}/shared/`);
 }
+
+// Inject shared views into platform HTML shells
+execFileSync(process.execPath, [join(ROOT, 'scripts', 'inject-shared-views.js')], { stdio: 'inherit' });
