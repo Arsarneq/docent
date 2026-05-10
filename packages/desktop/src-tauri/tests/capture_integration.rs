@@ -1037,3 +1037,587 @@ mod side_effects_more {
         assert_eq!(closes.len(), 0, "Show/Hide should not produce context_close. Got {}.", closes.len());
     }
 }
+
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// CAPTURE BEHAVIOUR TESTS — verify specific capture layer logic
+// ═══════════════════════════════════════════════════════════════════════════════
+
+#[cfg(target_os = "windows")]
+mod capture_behaviour {
+    use super::*;
+    use std::ptr;
+    use windows::Win32::Foundation::HWND;
+    use windows::Win32::UI::WindowsAndMessaging::{
+        CreateWindowExW, DestroyWindow, SetForegroundWindow, GetWindowRect,
+        WS_OVERLAPPEDWINDOW, WS_VISIBLE, WINDOW_EX_STYLE,
+    };
+    use windows::Win32::Foundation::RECT;
+    use windows::core::w;
+
+    unsafe fn create_target_window(title: &str) -> (HWND, i32, i32) {
+        let title_wide: Vec<u16> = title.encode_utf16().chain(std::iter::once(0)).collect();
+        let hwnd = CreateWindowExW(
+            WINDOW_EX_STYLE::default(),
+            w!("STATIC"),
+            windows::core::PCWSTR(title_wide.as_ptr()),
+            WS_OVERLAPPEDWINDOW | WS_VISIBLE,
+            200, 200, 600, 400,
+            HWND::default(),
+            None,
+            None,
+            Some(ptr::null()),
+        ).expect("Failed to create target window");
+
+        let _ = SetForegroundWindow(hwnd);
+        thread::sleep(Duration::from_millis(100));
+
+        let mut rect = RECT::default();
+        GetWindowRect(hwnd, &mut rect).unwrap();
+        let cx = (rect.left + rect.right) / 2;
+        let cy = (rect.top + rect.bottom) / 2;
+        (hwnd, cx, cy)
+    }
+
+    #[test]
+    #[serial]
+    fn printable_keys_are_not_captured_as_key_events() {
+        // The desktop capture layer filters printable characters (a-z, 0-9)
+        // from key events — they're redundant with the coalesced type event.
+        // Only control keys (Enter, Escape, Tab, Arrows, etc.) should produce key events.
+        let (tx, rx) = mpsc::channel::<ActionEvent>();
+        let mut capture = WindowsCapture::new();
+        capture.set_excluded_pid(None);
+        capture.start(tx).expect("Failed to start capture");
+        thread::sleep(Duration::from_millis(200));
+
+        let (hwnd, _, _) = unsafe { create_target_window("Printable Key Test") };
+        thread::sleep(Duration::from_millis(200));
+
+        let mut enigo = Enigo::new(&Settings::default()).unwrap();
+        // Type individual printable characters.
+        enigo.key(enigo::Key::Unicode('a'), Direction::Click).unwrap();
+        enigo.key(enigo::Key::Unicode('b'), Direction::Click).unwrap();
+        enigo.key(enigo::Key::Unicode('c'), Direction::Click).unwrap();
+        thread::sleep(Duration::from_millis(600));
+
+        unsafe { let _ = DestroyWindow(hwnd); }
+        capture.stop().unwrap();
+        let events: Vec<_> = rx.try_iter().collect();
+
+        // Printable keys should NOT produce key events (they're filtered).
+        // They should produce a coalesced type event instead.
+        let key_events = keys(&events);
+        for k in &key_events {
+            if let ActionPayload::Key { key, modifiers, .. } = &k.payload {
+                // If a key event IS produced, it should not be a plain printable char
+                // (unless it has a modifier like Ctrl).
+                let is_printable = key.len() == 1 && !modifiers.ctrl && !modifiers.alt && !modifiers.meta;
+                assert!(
+                    !is_printable,
+                    "Printable key '{}' should not produce a key event without modifiers",
+                    key
+                );
+            }
+        }
+    }
+
+    #[test]
+    #[serial]
+    fn typing_produces_coalesced_type_event() {
+        // Rapid typing should produce a single coalesced type event (not one per keystroke).
+        let (tx, rx) = mpsc::channel::<ActionEvent>();
+        let mut capture = WindowsCapture::new();
+        capture.set_excluded_pid(None);
+        capture.start(tx).expect("Failed to start capture");
+        thread::sleep(Duration::from_millis(200));
+
+        let (hwnd, _, _) = unsafe { create_target_window("Coalesce Test") };
+        thread::sleep(Duration::from_millis(200));
+
+        let mut enigo = Enigo::new(&Settings::default()).unwrap();
+        enigo.text("hello").unwrap();
+        // Wait for the 500ms type debounce to flush.
+        thread::sleep(Duration::from_millis(800));
+
+        unsafe { let _ = DestroyWindow(hwnd); }
+        capture.stop().unwrap();
+        let events: Vec<_> = rx.try_iter().collect();
+
+        let type_events = types(&events);
+        // Should produce at most 1 coalesced type event (not 5 separate ones).
+        assert!(
+            type_events.len() <= 1,
+            "Expected at most 1 coalesced type event, got {}",
+            type_events.len()
+        );
+    }
+
+    #[test]
+    #[serial]
+    fn focus_deduplication_works() {
+        // Consecutive focus events on the same element should be deduplicated.
+        let (tx, rx) = mpsc::channel::<ActionEvent>();
+        let mut capture = WindowsCapture::new();
+        capture.set_excluded_pid(None);
+        capture.start(tx).expect("Failed to start capture");
+        thread::sleep(Duration::from_millis(200));
+
+        let (hwnd, cx, cy) = unsafe { create_target_window("Focus Dedup Test") };
+        thread::sleep(Duration::from_millis(200));
+
+        // Click the same spot multiple times — should not produce multiple focus events.
+        let mut enigo = Enigo::new(&Settings::default()).unwrap();
+        for _ in 0..3 {
+            enigo.move_mouse(cx, cy, Coordinate::Abs).unwrap();
+            enigo.button(enigo::Button::Left, Direction::Click).unwrap();
+            thread::sleep(Duration::from_millis(100));
+        }
+        thread::sleep(Duration::from_millis(500));
+
+        unsafe { let _ = DestroyWindow(hwnd); }
+        capture.stop().unwrap();
+        let events: Vec<_> = rx.try_iter().collect();
+
+        // Should have 3 clicks but at most 1 focus event (deduplicated).
+        let focus_events = focuses(&events);
+        assert!(
+            focus_events.len() <= 1,
+            "Expected at most 1 focus event (deduplicated), got {}",
+            focus_events.len()
+        );
+    }
+
+    #[test]
+    #[serial]
+    fn password_field_value_is_masked() {
+        // When typing in a password field, the captured value should be masked.
+        // NOTE: This test requires a window with a password edit control.
+        // Using the built-in EDIT class with ES_PASSWORD style.
+        use windows::Win32::UI::WindowsAndMessaging::{
+            WS_CHILD, ES_PASSWORD, WS_BORDER,
+        };
+
+        let (tx, rx) = mpsc::channel::<ActionEvent>();
+        let mut capture = WindowsCapture::new();
+        capture.set_excluded_pid(None);
+        capture.start(tx).expect("Failed to start capture");
+        thread::sleep(Duration::from_millis(200));
+
+        // Create parent window.
+        let (parent, _, _) = unsafe { create_target_window("Password Test") };
+        thread::sleep(Duration::from_millis(100));
+
+        // Create a password edit control inside it.
+        let edit = unsafe {
+            CreateWindowExW(
+                WINDOW_EX_STYLE::default(),
+                w!("EDIT"),
+                w!(""),
+                WS_CHILD | WS_VISIBLE | WS_BORDER | windows::Win32::UI::WindowsAndMessaging::WINDOW_STYLE(ES_PASSWORD as u32),
+                10, 10, 200, 30,
+                parent,
+                None,
+                None,
+                Some(ptr::null()),
+            ).expect("Failed to create edit control")
+        };
+        thread::sleep(Duration::from_millis(200));
+
+        // Focus the edit and type a password.
+        unsafe { let _ = SetForegroundWindow(parent); }
+        thread::sleep(Duration::from_millis(100));
+
+        let mut enigo = Enigo::new(&Settings::default()).unwrap();
+        // Click on the edit control area.
+        let mut rect = RECT::default();
+        unsafe { GetWindowRect(edit, &mut rect).unwrap(); }
+        let ecx = (rect.left + rect.right) / 2;
+        let ecy = (rect.top + rect.bottom) / 2;
+        enigo.move_mouse(ecx, ecy, Coordinate::Abs).unwrap();
+        enigo.button(enigo::Button::Left, Direction::Click).unwrap();
+        thread::sleep(Duration::from_millis(100));
+
+        enigo.text("secret123").unwrap();
+        thread::sleep(Duration::from_millis(800));
+
+        unsafe {
+            let _ = DestroyWindow(edit);
+            let _ = DestroyWindow(parent);
+        }
+        capture.stop().unwrap();
+        let events: Vec<_> = rx.try_iter().collect();
+
+        // If a type event was produced, its value should be masked.
+        let type_events = types(&events);
+        for t in &type_events {
+            if let ActionPayload::Type { value, .. } = &t.payload {
+                assert!(
+                    !value.contains("secret"),
+                    "Password value should be masked, but got: '{}'",
+                    value
+                );
+            }
+        }
+        // Also check no event contains the raw password anywhere.
+        let json = format!("{:?}", events);
+        assert!(
+            !json.contains("secret123"),
+            "Raw password 'secret123' should never appear in captured events"
+        );
+    }
+
+    #[test]
+    #[serial]
+    fn alt_tab_produces_context_switch() {
+        // Alt+Tab is a user action for switching windows.
+        let (tx, rx) = mpsc::channel::<ActionEvent>();
+        let mut capture = WindowsCapture::new();
+        capture.set_excluded_pid(None);
+        capture.start(tx).expect("Failed to start capture");
+        thread::sleep(Duration::from_millis(200));
+
+        // Create two windows so Alt+Tab has something to switch to.
+        let (hwnd1, _, _) = unsafe { create_target_window("Alt-Tab A") };
+        let (hwnd2, _, _) = unsafe { create_target_window("Alt-Tab B") };
+        thread::sleep(Duration::from_millis(300));
+
+        // Simulate Alt+Tab.
+        let mut enigo = Enigo::new(&Settings::default()).unwrap();
+        enigo.key(enigo::Key::Alt, Direction::Press).unwrap();
+        enigo.key(enigo::Key::Tab, Direction::Click).unwrap();
+        enigo.key(enigo::Key::Alt, Direction::Release).unwrap();
+        thread::sleep(Duration::from_millis(500));
+
+        unsafe {
+            let _ = DestroyWindow(hwnd1);
+            let _ = DestroyWindow(hwnd2);
+        }
+        capture.stop().unwrap();
+        let events: Vec<_> = rx.try_iter().collect();
+
+        // Alt+Tab should produce a context_switch (user switched windows).
+        let switches = context_switches(&events);
+        assert!(
+            switches.len() >= 1,
+            "Expected context_switch from Alt+Tab, got {}",
+            switches.len()
+        );
+    }
+}
+
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// EXTENDED USER ACTION TESTS — more input types
+// ═══════════════════════════════════════════════════════════════════════════════
+
+#[cfg(target_os = "windows")]
+mod user_actions_extended {
+    use super::*;
+    use std::ptr;
+    use windows::Win32::Foundation::{HWND, RECT};
+    use windows::Win32::UI::WindowsAndMessaging::{
+        CreateWindowExW, DestroyWindow, SetForegroundWindow, GetWindowRect,
+        WS_OVERLAPPEDWINDOW, WS_VISIBLE, WINDOW_EX_STYLE,
+    };
+    use windows::core::w;
+
+    unsafe fn create_target_window(title: &str) -> (HWND, i32, i32) {
+        let title_wide: Vec<u16> = title.encode_utf16().chain(std::iter::once(0)).collect();
+        let hwnd = CreateWindowExW(
+            WINDOW_EX_STYLE::default(),
+            w!("STATIC"),
+            windows::core::PCWSTR(title_wide.as_ptr()),
+            WS_OVERLAPPEDWINDOW | WS_VISIBLE,
+            200, 200, 600, 400,
+            HWND::default(),
+            None,
+            None,
+            Some(ptr::null()),
+        ).expect("Failed to create target window");
+        let _ = SetForegroundWindow(hwnd);
+        thread::sleep(Duration::from_millis(100));
+        let mut rect = RECT::default();
+        GetWindowRect(hwnd, &mut rect).unwrap();
+        let cx = (rect.left + rect.right) / 2;
+        let cy = (rect.top + rect.bottom) / 2;
+        (hwnd, cx, cy)
+    }
+
+    #[test]
+    #[serial]
+    fn middle_click_is_captured() {
+        let (tx, rx) = mpsc::channel::<ActionEvent>();
+        let mut capture = WindowsCapture::new();
+        capture.set_excluded_pid(None);
+        capture.start(tx).unwrap();
+        thread::sleep(Duration::from_millis(200));
+
+        let (hwnd, cx, cy) = unsafe { create_target_window("Middle Click") };
+        thread::sleep(Duration::from_millis(200));
+
+        let mut enigo = Enigo::new(&Settings::default()).unwrap();
+        enigo.move_mouse(cx, cy, Coordinate::Abs).unwrap();
+        thread::sleep(Duration::from_millis(50));
+        enigo.button(enigo::Button::Middle, Direction::Click).unwrap();
+        thread::sleep(Duration::from_millis(500));
+
+        unsafe { let _ = DestroyWindow(hwnd); }
+        capture.stop().unwrap();
+        let events: Vec<_> = rx.try_iter().collect();
+
+        // Middle click should produce a click event.
+        let click_events = clicks(&events);
+        assert!(click_events.len() >= 1, "Expected middle click to be captured, got {} clicks", click_events.len());
+    }
+
+    #[test]
+    #[serial]
+    fn horizontal_scroll_is_captured() {
+        let (tx, rx) = mpsc::channel::<ActionEvent>();
+        let mut capture = WindowsCapture::new();
+        capture.set_excluded_pid(None);
+        capture.start(tx).unwrap();
+        thread::sleep(Duration::from_millis(200));
+
+        let (hwnd, cx, cy) = unsafe { create_target_window("H-Scroll") };
+        thread::sleep(Duration::from_millis(200));
+
+        let mut enigo = Enigo::new(&Settings::default()).unwrap();
+        enigo.move_mouse(cx, cy, Coordinate::Abs).unwrap();
+        thread::sleep(Duration::from_millis(50));
+        enigo.scroll(5, enigo::Axis::Horizontal).unwrap();
+        thread::sleep(Duration::from_millis(500));
+
+        unsafe { let _ = DestroyWindow(hwnd); }
+        capture.stop().unwrap();
+        let events: Vec<_> = rx.try_iter().collect();
+
+        // Horizontal scroll should produce a scroll event.
+        let scroll_events = scrolls(&events);
+        assert!(scroll_events.len() >= 1, "Expected horizontal scroll to be captured, got {}", scroll_events.len());
+    }
+
+    #[test]
+    #[serial]
+    fn f_keys_are_captured() {
+        let (tx, rx) = mpsc::channel::<ActionEvent>();
+        let mut capture = WindowsCapture::new();
+        capture.set_excluded_pid(None);
+        capture.start(tx).unwrap();
+        thread::sleep(Duration::from_millis(200));
+
+        let (hwnd, _, _) = unsafe { create_target_window("F-Key Test") };
+        thread::sleep(Duration::from_millis(200));
+
+        let mut enigo = Enigo::new(&Settings::default()).unwrap();
+        enigo.key(enigo::Key::F5, Direction::Click).unwrap();
+        thread::sleep(Duration::from_millis(500));
+
+        unsafe { let _ = DestroyWindow(hwnd); }
+        capture.stop().unwrap();
+        let events: Vec<_> = rx.try_iter().collect();
+
+        let key_events = keys(&events);
+        assert!(key_events.len() >= 1, "Expected F5 key to be captured, got {}", key_events.len());
+    }
+
+    #[test]
+    #[serial]
+    fn navigation_keys_are_captured() {
+        // Home, End, PageUp, PageDown, Delete, Backspace.
+        let (tx, rx) = mpsc::channel::<ActionEvent>();
+        let mut capture = WindowsCapture::new();
+        capture.set_excluded_pid(None);
+        capture.start(tx).unwrap();
+        thread::sleep(Duration::from_millis(200));
+
+        let (hwnd, _, _) = unsafe { create_target_window("Nav Keys") };
+        thread::sleep(Duration::from_millis(200));
+
+        let mut enigo = Enigo::new(&Settings::default()).unwrap();
+        enigo.key(enigo::Key::Home, Direction::Click).unwrap();
+        thread::sleep(Duration::from_millis(50));
+        enigo.key(enigo::Key::End, Direction::Click).unwrap();
+        thread::sleep(Duration::from_millis(50));
+        enigo.key(enigo::Key::PageUp, Direction::Click).unwrap();
+        thread::sleep(Duration::from_millis(50));
+        enigo.key(enigo::Key::PageDown, Direction::Click).unwrap();
+        thread::sleep(Duration::from_millis(50));
+        enigo.key(enigo::Key::Delete, Direction::Click).unwrap();
+        thread::sleep(Duration::from_millis(50));
+        enigo.key(enigo::Key::Backspace, Direction::Click).unwrap();
+        thread::sleep(Duration::from_millis(500));
+
+        unsafe { let _ = DestroyWindow(hwnd); }
+        capture.stop().unwrap();
+        let events: Vec<_> = rx.try_iter().collect();
+
+        let key_events = keys(&events);
+        assert!(key_events.len() >= 6, "Expected at least 6 navigation key events, got {}", key_events.len());
+    }
+
+    #[test]
+    #[serial]
+    fn text_selection_by_shift_click_is_captured() {
+        // Shift+click for range selection — both the key modifier and click should be captured.
+        let (tx, rx) = mpsc::channel::<ActionEvent>();
+        let mut capture = WindowsCapture::new();
+        capture.set_excluded_pid(None);
+        capture.start(tx).unwrap();
+        thread::sleep(Duration::from_millis(200));
+
+        let (hwnd, cx, cy) = unsafe { create_target_window("Shift-Click") };
+        thread::sleep(Duration::from_millis(200));
+
+        let mut enigo = Enigo::new(&Settings::default()).unwrap();
+        // First click.
+        enigo.move_mouse(cx - 50, cy, Coordinate::Abs).unwrap();
+        enigo.button(enigo::Button::Left, Direction::Click).unwrap();
+        thread::sleep(Duration::from_millis(100));
+        // Shift+click (range select).
+        enigo.key(enigo::Key::Shift, Direction::Press).unwrap();
+        enigo.move_mouse(cx + 50, cy, Coordinate::Abs).unwrap();
+        enigo.button(enigo::Button::Left, Direction::Click).unwrap();
+        enigo.key(enigo::Key::Shift, Direction::Release).unwrap();
+        thread::sleep(Duration::from_millis(500));
+
+        unsafe { let _ = DestroyWindow(hwnd); }
+        capture.stop().unwrap();
+        let events: Vec<_> = rx.try_iter().collect();
+
+        let click_events = clicks(&events);
+        assert!(click_events.len() >= 2, "Expected at least 2 clicks for shift-click selection, got {}", click_events.len());
+    }
+
+    #[test]
+    #[serial]
+    fn alt_f4_is_captured() {
+        // Alt+F4 is a user action (close window). The key combo should be captured.
+        // NOTE: We don't actually want to close our test window via Alt+F4 because
+        // STATIC windows don't process WM_CLOSE. We just verify the key is captured.
+        let (tx, rx) = mpsc::channel::<ActionEvent>();
+        let mut capture = WindowsCapture::new();
+        capture.set_excluded_pid(None);
+        capture.start(tx).unwrap();
+        thread::sleep(Duration::from_millis(200));
+
+        let (hwnd, _, _) = unsafe { create_target_window("Alt-F4 Test") };
+        thread::sleep(Duration::from_millis(200));
+
+        let mut enigo = Enigo::new(&Settings::default()).unwrap();
+        enigo.key(enigo::Key::Alt, Direction::Press).unwrap();
+        enigo.key(enigo::Key::F4, Direction::Click).unwrap();
+        enigo.key(enigo::Key::Alt, Direction::Release).unwrap();
+        thread::sleep(Duration::from_millis(500));
+
+        unsafe { let _ = DestroyWindow(hwnd); }
+        capture.stop().unwrap();
+        let events: Vec<_> = rx.try_iter().collect();
+
+        let key_events = keys(&events);
+        assert!(key_events.len() >= 1, "Expected Alt+F4 key event, got {}", key_events.len());
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// SCROLL BEHAVIOUR TESTS
+// ═══════════════════════════════════════════════════════════════════════════════
+
+#[cfg(target_os = "windows")]
+mod scroll_behaviour {
+    use super::*;
+    use std::ptr;
+    use windows::Win32::Foundation::{HWND, RECT};
+    use windows::Win32::UI::WindowsAndMessaging::{
+        CreateWindowExW, DestroyWindow, SetForegroundWindow, GetWindowRect,
+        WS_OVERLAPPEDWINDOW, WS_VISIBLE, WINDOW_EX_STYLE,
+    };
+    use windows::core::w;
+
+    unsafe fn create_target_window() -> (HWND, i32, i32) {
+        let hwnd = CreateWindowExW(
+            WINDOW_EX_STYLE::default(),
+            w!("STATIC"),
+            w!("Scroll Test"),
+            WS_OVERLAPPEDWINDOW | WS_VISIBLE,
+            200, 200, 600, 400,
+            HWND::default(),
+            None,
+            None,
+            Some(ptr::null()),
+        ).expect("Failed to create target window");
+        let _ = SetForegroundWindow(hwnd);
+        thread::sleep(Duration::from_millis(100));
+        let mut rect = RECT::default();
+        GetWindowRect(hwnd, &mut rect).unwrap();
+        let cx = (rect.left + rect.right) / 2;
+        let cy = (rect.top + rect.bottom) / 2;
+        (hwnd, cx, cy)
+    }
+
+    #[test]
+    #[serial]
+    fn small_scroll_is_filtered() {
+        // A single small scroll tick should be filtered (below threshold).
+        let (tx, rx) = mpsc::channel::<ActionEvent>();
+        let mut capture = WindowsCapture::new();
+        capture.set_excluded_pid(None);
+        capture.start(tx).unwrap();
+        thread::sleep(Duration::from_millis(200));
+
+        let (hwnd, cx, cy) = unsafe { create_target_window() };
+        thread::sleep(Duration::from_millis(200));
+
+        let mut enigo = Enigo::new(&Settings::default()).unwrap();
+        enigo.move_mouse(cx, cy, Coordinate::Abs).unwrap();
+        thread::sleep(Duration::from_millis(50));
+        // Single small scroll (1 tick).
+        enigo.scroll(1, enigo::Axis::Vertical).unwrap();
+        thread::sleep(Duration::from_millis(500));
+
+        unsafe { let _ = DestroyWindow(hwnd); }
+        capture.stop().unwrap();
+        let events: Vec<_> = rx.try_iter().collect();
+
+        // Small scroll should be filtered (threshold not met).
+        let scroll_events = scrolls(&events);
+        assert_eq!(scroll_events.len(), 0, "Small scroll should be filtered, got {}", scroll_events.len());
+    }
+
+    #[test]
+    #[serial]
+    fn rapid_scrolls_are_coalesced() {
+        // Multiple rapid scroll events should be coalesced into one.
+        let (tx, rx) = mpsc::channel::<ActionEvent>();
+        let mut capture = WindowsCapture::new();
+        capture.set_excluded_pid(None);
+        capture.start(tx).unwrap();
+        thread::sleep(Duration::from_millis(200));
+
+        let (hwnd, cx, cy) = unsafe { create_target_window() };
+        thread::sleep(Duration::from_millis(200));
+
+        let mut enigo = Enigo::new(&Settings::default()).unwrap();
+        enigo.move_mouse(cx, cy, Coordinate::Abs).unwrap();
+        thread::sleep(Duration::from_millis(50));
+        // Rapid scrolling (many ticks in quick succession).
+        for _ in 0..10 {
+            enigo.scroll(2, enigo::Axis::Vertical).unwrap();
+            thread::sleep(Duration::from_millis(20));
+        }
+        thread::sleep(Duration::from_millis(500));
+
+        unsafe { let _ = DestroyWindow(hwnd); }
+        capture.stop().unwrap();
+        let events: Vec<_> = rx.try_iter().collect();
+
+        // Should produce at most 1-2 coalesced scroll events (not 10).
+        let scroll_events = scrolls(&events);
+        assert!(
+            scroll_events.len() <= 2,
+            "Rapid scrolls should be coalesced, got {} scroll events",
+            scroll_events.len()
+        );
+    }
+}
