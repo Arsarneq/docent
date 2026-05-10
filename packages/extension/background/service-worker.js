@@ -432,6 +432,18 @@ async function handle(msg) {
       return { ok: true, project };
     }
 
+    case 'PROJECT_SET_METADATA': {
+      const project = getActiveProject();
+      if (!project) return { ok: false, error: 'No active project' };
+      if (msg.metadata) {
+        project.metadata = msg.metadata;
+      } else {
+        delete project.metadata;
+      }
+      await persist();
+      return { ok: true };
+    }
+
     // ── Recordings ────────────────────────────────────────────────────────────
 
     case 'RECORDING_CREATE': {
@@ -478,6 +490,20 @@ async function handle(msg) {
       const recording = findRecording(project, msg.recording_id);
       if (!recording) return { ok: false, error: 'Recording not found' };
       recording.name = msg.name;
+      await persist();
+      return { ok: true };
+    }
+
+    case 'RECORDING_SET_METADATA': {
+      const project = getActiveProject();
+      if (!project) return { ok: false, error: 'No active project' };
+      const recording = findRecording(project, msg.recording_id);
+      if (!recording) return { ok: false, error: 'Recording not found' };
+      if (msg.metadata) {
+        recording.metadata = msg.metadata;
+      } else {
+        delete recording.metadata;
+      }
       await persist();
       return { ok: true };
     }
@@ -529,6 +555,8 @@ async function handle(msg) {
       const step = createStep({
         narration:        msg.narration,
         narration_source: msg.narration_source,
+        step_type:        msg.step_type,
+        expect:           msg.expect,
         step_number:      stepNumber,
         actions,
         logical_id:       msg.logical_id,

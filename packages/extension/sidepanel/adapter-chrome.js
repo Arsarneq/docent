@@ -17,6 +17,7 @@ import { validateEndpointUrl as _validateEndpointUrl } from '../shared/dispatch-
 const ENDPOINT_KEY = 'docentEndpointUrl';
 const API_KEY_KEY  = 'docentApiKey';
 const THEME_KEY    = 'docentTheme';
+const RECORDING_MODE_KEY = 'docentRecordingMode';
 
 // Sync settings are stored separately from dispatch settings (R1-AC1)
 const SYNC_URL_KEY     = 'docentSyncUrl';
@@ -112,6 +113,21 @@ const chromeAdapter = {
 
   async saveTheme(theme) {
     await chrome.storage.local.set({ [THEME_KEY]: theme });
+  },
+
+  // ── Recording mode ────────────────────────────────────────────────────────
+
+  async loadRecordingMode() {
+    try {
+      const result = await chrome.storage.local.get(RECORDING_MODE_KEY);
+      return result[RECORDING_MODE_KEY] ?? 'narration';
+    } catch {
+      return 'narration';
+    }
+  },
+
+  async saveRecordingMode(mode) {
+    await chrome.storage.local.set({ [RECORDING_MODE_KEY]: mode });
   },
 
   // ── Reading guidance ──────────────────────────────────────────────────────

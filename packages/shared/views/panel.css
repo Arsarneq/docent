@@ -70,6 +70,9 @@
 
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
+/* Generic hidden utility — used by JS to toggle visibility */
+.hidden { display: none !important; }
+
 :root {
   --radius: 8px;
   --font:   system-ui, -apple-system, sans-serif;
@@ -687,3 +690,81 @@ input[type="password"]:focus {
   line-height: 1.6;
   padding:     4px 0;
 }
+
+/* ── Metadata editor ──────────────────────────────────────────────────────── */
+
+.metadata-section {
+  margin-top:    14px;
+  margin-bottom: 14px;
+  border:        1px solid var(--color-border);
+  border-radius: var(--radius);
+  background:    var(--color-surface);
+}
+
+.metadata-summary {
+  padding:       10px 12px;
+  font-size:     11px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color:         var(--color-muted);
+  cursor:        pointer;
+  user-select:   none;
+}
+
+.metadata-summary:hover { color: var(--color-text); }
+
+.metadata-section[open] .metadata-summary {
+  border-bottom: 1px solid var(--color-border);
+}
+
+.metadata-list {
+  padding: 8px 12px 0;
+}
+
+.metadata-row {
+  display:     flex;
+  align-items: center;
+  gap:         6px;
+  margin-bottom: 6px;
+}
+
+.metadata-row .metadata-key,
+.metadata-row .metadata-value {
+  flex:          1;
+  font-size:     12px;
+  padding:       5px 8px;
+  border:        1px solid var(--color-border);
+  border-radius: 4px;
+  background:    var(--color-bg);
+  color:         var(--color-text);
+  font-family:   var(--font);
+}
+
+.metadata-row .metadata-key:focus,
+.metadata-row .metadata-value:focus {
+  outline:      none;
+  border-color: var(--color-accent);
+}
+
+.metadata-eq {
+  color:     var(--color-muted);
+  font-size: 12px;
+}
+
+.metadata-remove {
+  font-size:  16px;
+  line-height: 1;
+  padding:    2px 6px;
+}
+
+.metadata-section > .btn {
+  margin: 4px 12px 10px;
+}
+
+/* ── Pending actions section ──────────────────────────────────────────────── */
+
+.pending-actions-section {
+  margin-bottom: 14px;
+}
+
+.pending-actions-section.hidden { display: none; }

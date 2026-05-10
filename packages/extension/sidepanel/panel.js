@@ -114,6 +114,22 @@ const rerecordActionCount    = $('rerecord-action-count');
 const btnSettings     = $('btn-settings');
 const btnSettingsBack = $('btn-settings-back');
 const themeRadios     = document.querySelectorAll('input[name="theme"]');
+const recordingModeRadios = document.querySelectorAll('input[name="recording-mode"]');
+
+// Simple mode elements
+const narrationModeBox    = $('narration-mode-box');
+const simpleModeBox       = $('simple-mode-box');
+const stepTypeRadios      = document.querySelectorAll('input[name="step-type"]');
+const expectGroup         = $('expect-group');
+const stepExpectRadios    = document.querySelectorAll('input[name="step-expect"]');
+const btnCommitStepSimple = $('btn-commit-step-simple');
+const btnClearStepSimple  = $('btn-clear-step-simple');
+
+// Metadata elements
+const projectMetadataList     = $('project-metadata-list');
+const btnAddProjectMetadata   = $('btn-add-project-metadata');
+const recordingMetadataList   = $('recording-metadata-list');
+const btnAddRecordingMetadata = $('btn-add-recording-metadata');
 
 // Dispatch settings
 const settingsEndpointUrl   = $('settings-endpoint-url');
@@ -158,6 +174,7 @@ let dispatchSettings = { endpointUrl: null, apiKey: null };
 let dispatchSelection = null; // { recordings: [], totalSteps: number }
 let syncSettings = { serverUrl: null, apiKey: null };
 let isSyncing = false;
+let recordingMode = 'narration'; // 'narration' or 'simple'
 
 // ─── Messaging ────────────────────────────────────────────────────────────────
 
@@ -338,6 +355,9 @@ function renderProjectDetail() {
   projectTitle.title = 'Click to rename';
   projectTitle.style.cursor = 'pointer';
   recordingList.innerHTML   = '';
+
+  // Render project metadata
+  renderMetadataList(projectMetadataList, activeProject.metadata);
 
   const recordings = activeProject.recordings ?? [];
   recordingsEmpty.classList.toggle('hidden', recordings.length > 0);
@@ -552,6 +572,10 @@ function enterRecordingView() {
     pendingCount = count;
     updateCommitButton();
   });
+  // Apply current recording mode visibility
+  applyRecordingMode(recordingMode);
+  // Render recording metadata
+  renderMetadataList(recordingMetadataList, activeRecording.metadata);
   updateRecordingUI();
   renderStepList();
   showView('recording');
@@ -605,7 +629,10 @@ narrationInput.addEventListener('input', () => {
 });
 
 function updateCommitButton() {
+  // Narration mode: need text + pending actions
   btnCommitStep.disabled = narrationInput.value.trim().length === 0 || pendingCount === 0;
+  // Simple mode: only need pending actions (no text required)
+  btnCommitStepSimple.disabled = pendingCount === 0;
 }
 
 btnCommitStep.addEventListener('click', () =>
@@ -618,6 +645,89 @@ btnClearStep.addEventListener('click', async () => {
   pendingCount = 0;
   updateCommitButton();
   clearLiveActionList();
+});
+
+// ─── Simple mode handlers ─────────────────────────────────────────────────────
+
+stepTypeRadios.forEach(radio => {
+  radio.addEventListener('change', () => {
+    if (!radio.checked) return;
+    expectGroup.classList.toggle('hidden', radio.value !== 'validation');
+  });
+});
+
+btnCommitStepSimple.addEventListener('click', () => commitStepSimple(null));
+
+btnClearStepSimple.addEventListener('click', async () => {
+  if (!confirm('Clear all recorded actions for this step?')) return;
+  await send({ type: 'RECORDING_CLEAR' });
+  pendingCount = 0;
+  updateCommitButton();
+  clearLiveActionList();
+});
+
+async function commitStepSimple(logicalId) {
+  if (commitInProgress) return;
+  commitInProgress = true;
+  try {
+    const stepType = document.querySelector('input[name="step-type"]:checked')?.value ?? 'action';
+    const expect = stepType === 'validation'
+      ? (document.querySelector('input[name="step-expect"]:checked')?.value ?? 'present')
+      : undefined;
+
+    const wasRecording = isRecording;
+
+    if (isRecording) {
+      await send({ type: 'RECORDING_STOP' });
+      isRecording = false;
+    }
+
+    const payload = {
+      type:       'STEP_COMMIT',
+      step_type:  stepType,
+      logical_id: logicalId ?? undefined,
+    };
+    if (expect) payload.expect = expect;
+
+    const response = await send(payload);
+
+    if (response?.ok) {
+      activeSteps = response.activeSteps;
+      clearLiveActionList();
+      renderStepList();
+    }
+
+    if (wasRecording) {
+      await send({ type: 'RECORDING_START' });
+      isRecording = true;
+    }
+    updateRecordingUI();
+  } finally {
+    commitInProgress = false;
+  }
+}
+
+// ─── Recording mode ───────────────────────────────────────────────────────────
+
+function applyRecordingMode(mode) {
+  recordingMode = mode;
+  narrationModeBox.classList.toggle('hidden', mode !== 'narration');
+  simpleModeBox.classList.toggle('hidden', mode !== 'simple');
+}
+
+async function loadRecordingMode() {
+  const mode = await adapter.loadRecordingMode();
+  recordingMode = mode;
+  applyRecordingMode(mode);
+  recordingModeRadios.forEach(r => { r.checked = r.value === mode; });
+}
+
+recordingModeRadios.forEach(radio => {
+  radio.addEventListener('change', async () => {
+    if (!radio.checked) return;
+    applyRecordingMode(radio.value);
+    await adapter.saveRecordingMode(radio.value);
+  });
 });
 
 async function commitStep(inputEl, source, logicalId) {
@@ -741,7 +851,7 @@ async function openHistory(logical_id) {
     li.className = 'history-item' + (i === 0 ? ' history-item--active' : '');
     li.innerHTML = `
       <span class="history-time">${new Date(v.created_at).toLocaleTimeString()}</span>
-      <span class="history-narration">${escapeHtml(v.narration)}</span>
+      <span class="history-narration">${escapeHtml(v.narration || v.step_type || '')}</span>
       ${v.deleted ? '<span class="badge badge--deleted">deleted</span>' : ''}
     `;
     historyList.appendChild(li);
@@ -755,7 +865,8 @@ btnHistoryBack.addEventListener('click', () => showView('recording'));
 // ─── Step detail ──────────────────────────────────────────────────────────────
 
 function openStepDetail(step) {
-  stepDetailTitle.textContent = `Step ${step.step_number}: ${step.narration}`;
+  const label = step.narration || (step.step_type ? `${step.step_type}${step.expect ? ' (' + step.expect + ')' : ''}` : 'Step');
+  stepDetailTitle.textContent = `Step ${step.step_number}: ${label}`;
   stepDetailList.innerHTML = '';
 
   const htmlItems = renderStepDetailHtml(step.actions);
@@ -1011,9 +1122,99 @@ btnSettingsBack.addEventListener('click', () => {
   if (settingsReturnView === 'project') updateDispatchButton();
 });
 
+// ─── Metadata editor ──────────────────────────────────────────────────────────
+
+function renderMetadataList(container, metadata) {
+  container.innerHTML = '';
+  if (!metadata || Object.keys(metadata).length === 0) return;
+  for (const [key, value] of Object.entries(metadata)) {
+    const row = document.createElement('div');
+    row.className = 'metadata-row';
+    const displayValue = Array.isArray(value) ? value.join(', ') : value;
+    row.innerHTML = `
+      <input class="metadata-key" type="text" value="${escapeHtml(key)}" placeholder="key" />
+      <span class="metadata-eq">=</span>
+      <input class="metadata-value" type="text" value="${escapeHtml(displayValue)}" placeholder="value (comma = list)" />
+      <button class="btn btn--ghost btn--sm metadata-remove" title="Remove">&times;</button>
+    `;
+    container.appendChild(row);
+  }
+}
+
+function collectMetadata(container) {
+  const rows = container.querySelectorAll('.metadata-row');
+  const metadata = {};
+  for (const row of rows) {
+    const key = row.querySelector('.metadata-key').value.trim();
+    const value = row.querySelector('.metadata-value').value.trim();
+    if (key) {
+      // If value contains commas, store as array
+      metadata[key] = value.includes(',') ? value.split(',').map(v => v.trim()).filter(Boolean) : value;
+    }
+  }
+  return Object.keys(metadata).length > 0 ? metadata : undefined;
+}
+
+function addMetadataRow(container) {
+  const row = document.createElement('div');
+  row.className = 'metadata-row';
+  row.innerHTML = `
+    <input class="metadata-key" type="text" value="" placeholder="key" />
+    <span class="metadata-eq">=</span>
+    <input class="metadata-value" type="text" value="" placeholder="value (comma = list)" />
+    <button class="btn btn--ghost btn--sm metadata-remove" title="Remove">&times;</button>
+  `;
+  container.appendChild(row);
+}
+
+// Project metadata
+btnAddProjectMetadata.addEventListener('click', () => {
+  addMetadataRow(projectMetadataList);
+});
+
+projectMetadataList.addEventListener('click', async (e) => {
+  if (e.target.classList.contains('metadata-remove')) {
+    e.target.closest('.metadata-row').remove();
+    const metadata = collectMetadata(projectMetadataList);
+    if (metadata) activeProject.metadata = metadata;
+    else delete activeProject.metadata;
+    await send({ type: 'PROJECT_SET_METADATA', metadata: metadata ?? null });
+  }
+});
+
+projectMetadataList.addEventListener('change', async () => {
+  const metadata = collectMetadata(projectMetadataList);
+  if (metadata) activeProject.metadata = metadata;
+  else delete activeProject.metadata;
+  await send({ type: 'PROJECT_SET_METADATA', metadata: metadata ?? null });
+});
+
+// Recording metadata
+btnAddRecordingMetadata.addEventListener('click', () => {
+  addMetadataRow(recordingMetadataList);
+});
+
+recordingMetadataList.addEventListener('click', async (e) => {
+  if (e.target.classList.contains('metadata-remove')) {
+    e.target.closest('.metadata-row').remove();
+    const metadata = collectMetadata(recordingMetadataList);
+    if (metadata) activeRecording.metadata = metadata;
+    else delete activeRecording.metadata;
+    await send({ type: 'RECORDING_SET_METADATA', recording_id: activeRecording.recording_id, metadata: metadata ?? null });
+  }
+});
+
+recordingMetadataList.addEventListener('change', async () => {
+  const metadata = collectMetadata(recordingMetadataList);
+  if (metadata) activeRecording.metadata = metadata;
+  else delete activeRecording.metadata;
+  await send({ type: 'RECORDING_SET_METADATA', recording_id: activeRecording.recording_id, metadata: metadata ?? null });
+});
+
 // ─── Init ─────────────────────────────────────────────────────────────────────
 
 await loadTheme();
+await loadRecordingMode();
 dispatchSettings = await adapter.loadSettings();
 syncSettings = await adapter.loadSyncSettings();
 updateSyncButton();
