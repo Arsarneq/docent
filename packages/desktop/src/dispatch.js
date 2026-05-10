@@ -93,3 +93,22 @@ export async function loadReadingGuidance() {
     return '';
   }
 }
+
+// ─── Schema ───────────────────────────────────────────────────────────────────
+
+/**
+ * Load the platform-specific JSON Schema from the synced shared/ directory.
+ * Returns empty object on failure.
+ *
+ * @returns {Promise<object>}
+ */
+export async function loadSchema() {
+  try {
+    const response = await fetch('../shared/session.schema.json');
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    return await response.json();
+  } catch (err) {
+    console.warn('[Docent] Failed to load schema:', err);
+    return {};
+  }
+}

@@ -12,6 +12,7 @@
     "test:desktop:rust": "cargo test --manifest-path packages/desktop/src-tauri/Cargo.toml",
     "test:shared": "node --test packages/shared/tests/*.test.js",
     "update-version-table": "node scripts/update-version-table.js",
+    "bump:schema": "node scripts/bump-schema.js",
     "prepublish": "npm run sync-shared"
   },
   "devDependencies": {

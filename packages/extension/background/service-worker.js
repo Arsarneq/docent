@@ -586,10 +586,14 @@ async function handle(msg) {
           project_id: project.project_id,
           name:       project.name,
           created_at: project.created_at,
+          ...(project.metadata && { metadata: project.metadata }),
         },
         recordings: project.recordings.map(r => ({
-          ...r,
-          activeSteps: resolveActiveSteps(r),
+          recording_id: r.recording_id,
+          name:         r.name,
+          created_at:   r.created_at,
+          ...(r.metadata && { metadata: r.metadata }),
+          steps:        r.steps,
         })),
       };
       return { ok: true, exportData };

@@ -489,28 +489,20 @@ async function deleteRecording(recording_id, name) {
 
 // Export project
 btnExportProject.addEventListener('click', async () => {
-  const recordings = (activeProject.recordings ?? []).map(r => {
-    const active = resolveActiveSteps(r);
-    return {
-      recording_id: r.recording_id,
-      name: r.name,
-      created_at: r.created_at,
-      steps: active.map(s => ({
-        logical_id: s.logical_id,
-        step_number: s.step_number,
-        narration: s.narration,
-        actions: s.actions,
-      })),
-    };
-  });
-
   const exportData = {
     project: {
       project_id: activeProject.project_id,
       name: activeProject.name,
       created_at: activeProject.created_at,
+      ...(activeProject.metadata && { metadata: activeProject.metadata }),
     },
-    recordings,
+    recordings: (activeProject.recordings ?? []).map(r => ({
+      recording_id: r.recording_id,
+      name: r.name,
+      created_at: r.created_at,
+      ...(r.metadata && { metadata: r.metadata }),
+      steps: r.steps,
+    })),
   };
 
   if (adapter.hasNativeFileDialog) {
@@ -609,7 +601,8 @@ btnConfirmSend.addEventListener('click', async () => {
   btnDispatchProject.disabled = true;
   try {
     const guidance = await adapter.loadReadingGuidance();
-    const payload  = buildPayload(activeProject, dispatchSelection.recordings, guidance);
+    const schema   = await adapter.loadSchema();
+    const payload  = buildPayload(activeProject, dispatchSelection.recordings, guidance, schema);
     await sendPayload(dispatchSettings.endpointUrl, dispatchSettings.apiKey, payload);
     resultTitle.textContent   = 'Sent';
     resultMessage.textContent = `Successfully dispatched ${dispatchSelection.totalSteps} step${dispatchSelection.totalSteps !== 1 ? 's' : ''} to ${dispatchSettings.endpointUrl}.`;
