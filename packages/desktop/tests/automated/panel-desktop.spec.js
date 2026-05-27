@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Desktop Panel UI Tests
  *
  * Tests the desktop panel by serving the built frontend with a mocked
@@ -6,11 +6,11 @@
  * transitions without requiring the full Tauri runtime.
  *
  * The mock provides:
- * - invoke('load_state') → returns empty state
- * - invoke('save_state') → stores in memory
- * - invoke('start_capture') / invoke('stop_capture') → no-op
- * - invoke('list_windows') → returns empty array
- * - listen('capture:action') → no-op
+ * - invoke('load_state') â†’ returns empty state
+ * - invoke('save_state') â†’ stores in memory
+ * - invoke('start_capture') / invoke('stop_capture') â†’ no-op
+ * - invoke('list_windows') â†’ returns empty array
+ * - listen('capture:action') â†’ no-op
  */
 
 import { test, expect } from './coverage-fixture.js';
@@ -22,7 +22,7 @@ import { fileURLToPath } from 'url';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const distPath = path.resolve(__dirname, '../../dist');
 
-// Inject the Tauri mock before the panel.js script runs — served as external file to comply with CSP
+// Inject the Tauri mock before the panel.js script runs â€” served as external file to comply with CSP
 const TAURI_MOCK_JS = `
   // Mock Tauri v2 globals
   let _savedState = JSON.stringify({ projects: [], settings: {} });
@@ -71,7 +71,7 @@ test.beforeAll(async () => {
 
     let filePath = path.resolve(distPath, req.url === '/' ? 'index.html' : req.url.slice(1));
 
-    // Prevent path traversal — ensure resolved path stays within distPath
+    // Prevent path traversal â€” ensure resolved path stays within distPath
     if (!filePath.startsWith(distPath)) {
       res.writeHead(403);
       res.end('Forbidden');
@@ -97,7 +97,7 @@ test.beforeAll(async () => {
     // Inject the Tauri mock as an external script reference to comply with CSP
     // Also relax CSP for testing (allow the mock script from same origin)
     if (ext === '.html') {
-      // Remove the strict CSP for testing — the mock needs to run
+      // Remove the strict CSP for testing â€” the mock needs to run
       content = content.replace(/<meta http-equiv="Content-Security-Policy"[^>]*>/, '');
       content = content.replace('<head>', '<head><script src="/__tauri-mock.js"></script>');
     }
@@ -118,14 +118,14 @@ test.afterAll(async () => {
   server?.close();
 });
 
-test.describe('Desktop Panel — Smoke', () => {
+test.describe('Desktop Panel â€” Smoke', () => {
   test('panel loads and shows projects view', async ({ page }) => {
     await page.goto(`http://127.0.0.1:${serverPort}/`);
     await page.waitForSelector('#view-projects:not(.hidden)', { timeout: 10000 });
     await expect(page.locator('#view-projects')).toBeVisible();
   });
 
-  test('create project → project detail view', async ({ page }) => {
+  test('create project â†’ project detail view', async ({ page }) => {
     await page.goto(`http://127.0.0.1:${serverPort}/`);
     await page.waitForSelector('#view-projects:not(.hidden)', { timeout: 10000 });
 
@@ -138,7 +138,7 @@ test.describe('Desktop Panel — Smoke', () => {
     await expect(page.locator('#project-title')).toHaveText('Desktop Test');
   });
 
-  test('create recording → recording view', async ({ page }) => {
+  test('create recording â†’ recording view', async ({ page }) => {
     await page.goto(`http://127.0.0.1:${serverPort}/`);
     await page.waitForSelector('#view-projects:not(.hidden)', { timeout: 10000 });
 
@@ -158,7 +158,7 @@ test.describe('Desktop Panel — Smoke', () => {
   });
 });
 
-test.describe('Desktop Panel — Simple Mode', () => {
+test.describe('Desktop Panel â€” Simple Mode', () => {
   test('switching to simple mode shows simple mode box', async ({ page }) => {
     await page.goto(`http://127.0.0.1:${serverPort}/`);
     await page.waitForSelector('#view-projects:not(.hidden)', { timeout: 10000 });
@@ -190,7 +190,7 @@ test.describe('Desktop Panel — Simple Mode', () => {
   });
 });
 
-test.describe('Desktop Panel — Metadata', () => {
+test.describe('Desktop Panel â€” Metadata', () => {
   test('project metadata section exists and add button works', async ({ page }) => {
     await page.goto(`http://127.0.0.1:${serverPort}/`);
     await page.waitForSelector('#view-projects:not(.hidden)', { timeout: 10000 });
@@ -249,7 +249,7 @@ test.describe('Desktop Panel — Metadata', () => {
   });
 });
 
-test.describe('Desktop Panel — Commit with Simulated Capture', () => {
+test.describe('Desktop Panel â€” Commit with Simulated Capture', () => {
   test('simulated capture event enables commit in simple mode', async ({ page }) => {
     await page.goto(`http://127.0.0.1:${serverPort}/`);
     await page.waitForSelector('#view-projects:not(.hidden)', { timeout: 10000 });
@@ -305,7 +305,7 @@ test.describe('Desktop Panel — Commit with Simulated Capture', () => {
   });
 });
 
-test.describe('Desktop Panel — Theme', () => {
+test.describe('Desktop Panel â€” Theme', () => {
   test('theme switch updates data-theme attribute', async ({ page }) => {
     await page.goto(`http://127.0.0.1:${serverPort}/`);
     await page.waitForSelector('#view-projects:not(.hidden)', { timeout: 10000 });
@@ -322,8 +322,8 @@ test.describe('Desktop Panel — Theme', () => {
   });
 });
 
-test.describe('Desktop Panel — Narration Commit Flow', () => {
-  test('type narration + simulated capture → commit → step appears', async ({ page }) => {
+test.describe('Desktop Panel â€” Narration Commit Flow', () => {
+  test('type narration + simulated capture â†’ commit â†’ step appears', async ({ page }) => {
     await page.goto(`http://127.0.0.1:${serverPort}/`);
     await page.waitForSelector('#view-projects:not(.hidden)', { timeout: 10000 });
 
@@ -517,7 +517,7 @@ test.describe('Desktop Panel — Narration Commit Flow', () => {
   });
 });
 
-test.describe('Desktop Panel — Clear Button', () => {
+test.describe('Desktop Panel â€” Clear Button', () => {
   test('clear resets pending actions and disables commit', async ({ page }) => {
     await page.goto(`http://127.0.0.1:${serverPort}/`);
     await page.waitForSelector('#view-projects:not(.hidden)', { timeout: 10000 });
@@ -559,7 +559,7 @@ test.describe('Desktop Panel — Clear Button', () => {
   });
 });
 
-test.describe('Desktop Panel — Step Detail View', () => {
+test.describe('Desktop Panel â€” Step Detail View', () => {
   test('clicking step narration opens detail view', async ({ page }) => {
     await page.goto(`http://127.0.0.1:${serverPort}/`);
     await page.waitForSelector('#view-projects:not(.hidden)', { timeout: 10000 });
@@ -607,7 +607,7 @@ test.describe('Desktop Panel — Step Detail View', () => {
   });
 });
 
-test.describe('Desktop Panel — Delete Step', () => {
+test.describe('Desktop Panel â€” Delete Step', () => {
   test('delete removes step from list', async ({ page }) => {
     await page.goto(`http://127.0.0.1:${serverPort}/`);
     await page.waitForSelector('#view-projects:not(.hidden)', { timeout: 10000 });
@@ -672,7 +672,7 @@ test.describe('Desktop Panel — Delete Step', () => {
   });
 });
 
-test.describe('Desktop Panel — History View', () => {
+test.describe('Desktop Panel â€” History View', () => {
   test('history button shows step versions', async ({ page }) => {
     await page.goto(`http://127.0.0.1:${serverPort}/`);
     await page.waitForSelector('#view-projects:not(.hidden)', { timeout: 10000 });
@@ -719,7 +719,7 @@ test.describe('Desktop Panel — History View', () => {
   });
 });
 
-test.describe('Desktop Panel — Projects View UI Elements', () => {
+test.describe('Desktop Panel â€” Projects View UI Elements', () => {
   test('file input is hidden', async ({ page }) => {
     await page.goto(`http://127.0.0.1:${serverPort}/`);
     await page.waitForSelector('#view-projects:not(.hidden)', { timeout: 10000 });
@@ -746,7 +746,7 @@ test.describe('Desktop Panel — Projects View UI Elements', () => {
   });
 });
 
-test.describe('Desktop Panel — Project Detail UI', () => {
+test.describe('Desktop Panel â€” Project Detail UI', () => {
   test('export button is visible', async ({ page }) => {
     await page.goto(`http://127.0.0.1:${serverPort}/`);
     await page.waitForSelector('#view-projects:not(.hidden)', { timeout: 10000 });
@@ -782,7 +782,7 @@ test.describe('Desktop Panel — Project Detail UI', () => {
   });
 });
 
-test.describe('Desktop Panel — Recording View UI State', () => {
+test.describe('Desktop Panel â€” Recording View UI State', () => {
   test('pending actions section is hidden initially', async ({ page }) => {
     await page.goto(`http://127.0.0.1:${serverPort}/`);
     await page.waitForSelector('#view-projects:not(.hidden)', { timeout: 10000 });
@@ -820,7 +820,7 @@ test.describe('Desktop Panel — Recording View UI State', () => {
   });
 });
 
-test.describe('Desktop Panel — Breadcrumb Navigation', () => {
+test.describe('Desktop Panel â€” Breadcrumb Navigation', () => {
   test('breadcrumb navigates back to projects list', async ({ page }) => {
     await page.goto(`http://127.0.0.1:${serverPort}/`);
     await page.waitForSelector('#view-projects:not(.hidden)', { timeout: 10000 });
@@ -862,7 +862,7 @@ test.describe('Desktop Panel — Breadcrumb Navigation', () => {
   });
 });
 
-test.describe('Desktop Panel — Settings Additional', () => {
+test.describe('Desktop Panel â€” Settings Additional', () => {
   test('settings back button returns to previous view', async ({ page }) => {
     await page.goto(`http://127.0.0.1:${serverPort}/`);
     await page.waitForSelector('#view-projects:not(.hidden)', { timeout: 10000 });
@@ -886,7 +886,7 @@ test.describe('Desktop Panel — Settings Additional', () => {
   });
 });
 
-test.describe('Desktop Panel — Delete Project', () => {
+test.describe('Desktop Panel â€” Delete Project', () => {
   test('delete removes project from list', async ({ page }) => {
     await page.goto(`http://127.0.0.1:${serverPort}/`);
     await page.waitForSelector('#view-projects:not(.hidden)', { timeout: 10000 });
@@ -907,5 +907,228 @@ test.describe('Desktop Panel — Delete Project', () => {
 
     await expect(page.locator('.card-item')).toHaveCount(0);
     await expect(page.locator('#projects-empty')).toBeVisible();
+  });
+});
+
+test.describe('Desktop Panel - Dispatch Flow', () => {
+  test('dispatch button disabled without endpoint configured', async ({ page }) => {
+    await page.goto(`http://127.0.0.1:${serverPort}/`);
+    await page.waitForSelector('#view-projects:not(.hidden)', { timeout: 10000 });
+
+    await page.click('#btn-new-project');
+    await page.waitForSelector('#view-new-project:not(.hidden)', { timeout: 5000 });
+    await page.fill('#new-project-name', 'Dispatch Test');
+    await page.click('#btn-new-project-create');
+    await page.waitForSelector('#view-project:not(.hidden)', { timeout: 5000 });
+
+    await expect(page.locator('#btn-dispatch-project')).toBeDisabled();
+  });
+
+  test('dispatch button enabled after configuring endpoint and having steps', async ({ page }) => {
+    await page.goto(`http://127.0.0.1:${serverPort}/`);
+    await page.waitForSelector('#view-projects:not(.hidden)', { timeout: 10000 });
+
+    // Configure endpoint in settings via save button
+    await page.click('#btn-settings');
+    await page.waitForSelector('#view-settings:not(.hidden)', { timeout: 5000 });
+    await page.fill('#settings-endpoint-url', 'http://localhost:3000/api');
+    await page.click('#btn-settings-dispatch-save');
+    await page.waitForTimeout(300);
+    await page.click('#btn-settings-back');
+    await page.waitForSelector('#view-projects:not(.hidden)', { timeout: 5000 });
+
+    // Create project + recording + commit a step
+    await page.click('#btn-new-project');
+    await page.waitForSelector('#view-new-project:not(.hidden)', { timeout: 5000 });
+    await page.fill('#new-project-name', 'P');
+    await page.click('#btn-new-project-create');
+    await page.waitForSelector('#view-project:not(.hidden)', { timeout: 5000 });
+    await page.click('#btn-new-recording');
+    await page.waitForSelector('#view-new-recording:not(.hidden)', { timeout: 5000 });
+    await page.fill('#new-recording-name', 'R');
+    await page.click('#btn-new-recording-create');
+    await page.waitForSelector('#view-recording:not(.hidden)', { timeout: 5000 });
+
+    await page.evaluate(() => {
+      const handler = window.__TAURI__._listeners['capture:action'];
+      if (handler)
+        handler({
+          payload: {
+            type: 'click',
+            timestamp: Date.now(),
+            capture_mode: 'accessibility',
+            context_id: 1,
+            element: { text: 'OK' },
+          },
+        });
+    });
+    await page.waitForTimeout(300);
+    await page.fill('#narration-input', 'Click OK');
+    await page.click('#btn-commit-step');
+    await page.waitForTimeout(500);
+
+    // Go back to project view
+    await page.click('#bc-project');
+    await page.waitForSelector('#view-project:not(.hidden)', { timeout: 5000 });
+    await expect(page.locator('#btn-dispatch-project')).toBeEnabled();
+  });
+});
+
+test.describe('Desktop Panel - Sync Settings', () => {
+  test('sync URL persists after save and navigate', async ({ page }) => {
+    await page.goto(`http://127.0.0.1:${serverPort}/`);
+    await page.waitForSelector('#view-projects:not(.hidden)', { timeout: 10000 });
+
+    await page.click('#btn-settings');
+    await page.waitForSelector('#view-settings:not(.hidden)', { timeout: 5000 });
+    await page.fill('#settings-sync-url', 'http://sync.example.com');
+    await page.click('#btn-settings-sync-save');
+    await page.waitForTimeout(300);
+    await page.click('#btn-settings-back');
+    await page.waitForSelector('#view-projects:not(.hidden)', { timeout: 5000 });
+
+    // Re-open settings
+    await page.click('#btn-settings');
+    await page.waitForSelector('#view-settings:not(.hidden)', { timeout: 5000 });
+    await expect(page.locator('#settings-sync-url')).toHaveValue('http://sync.example.com');
+  });
+
+  test('sync button enabled when URL configured', async ({ page }) => {
+    await page.goto(`http://127.0.0.1:${serverPort}/`);
+    await page.waitForSelector('#view-projects:not(.hidden)', { timeout: 10000 });
+
+    await page.click('#btn-settings');
+    await page.waitForSelector('#view-settings:not(.hidden)', { timeout: 5000 });
+    await page.fill('#settings-sync-url', 'http://sync.example.com');
+    await page.click('#btn-settings-sync-save');
+    await page.waitForTimeout(300);
+    await page.click('#btn-settings-back');
+    await page.waitForSelector('#view-projects:not(.hidden)', { timeout: 5000 });
+
+    await expect(page.locator('#btn-sync')).toBeEnabled();
+  });
+});
+
+test.describe('Desktop Panel - Re-record Flow', () => {
+  test('re-record opens recording view with banner', async ({ page }) => {
+    await page.goto(`http://127.0.0.1:${serverPort}/`);
+    await page.waitForSelector('#view-projects:not(.hidden)', { timeout: 10000 });
+
+    await page.click('#btn-new-project');
+    await page.waitForSelector('#view-new-project:not(.hidden)', { timeout: 5000 });
+    await page.fill('#new-project-name', 'P');
+    await page.click('#btn-new-project-create');
+    await page.waitForSelector('#view-project:not(.hidden)', { timeout: 5000 });
+    await page.click('#btn-new-recording');
+    await page.waitForSelector('#view-new-recording:not(.hidden)', { timeout: 5000 });
+    await page.fill('#new-recording-name', 'R');
+    await page.click('#btn-new-recording-create');
+    await page.waitForSelector('#view-recording:not(.hidden)', { timeout: 5000 });
+
+    await page.evaluate(() => {
+      const handler = window.__TAURI__._listeners['capture:action'];
+      if (handler)
+        handler({
+          payload: {
+            type: 'click',
+            timestamp: Date.now(),
+            capture_mode: 'accessibility',
+            context_id: 1,
+            element: { text: 'Submit' },
+          },
+        });
+    });
+    await page.waitForTimeout(300);
+    await page.fill('#narration-input', 'Original step');
+    await page.click('#btn-commit-step');
+    await page.waitForTimeout(500);
+
+    // Click edit/re-record on the step
+    await page.locator('[data-action="edit"]').first().click();
+    await page.waitForTimeout(500);
+
+    // Should show re-record banner
+    await expect(page.locator('#rerecord-banner')).toBeVisible();
+  });
+});
+
+test.describe('Desktop Panel - Recording Delete', () => {
+  test('delete recording removes it from project view', async ({ page }) => {
+    await page.goto(`http://127.0.0.1:${serverPort}/`);
+    await page.waitForSelector('#view-projects:not(.hidden)', { timeout: 10000 });
+
+    await page.click('#btn-new-project');
+    await page.waitForSelector('#view-new-project:not(.hidden)', { timeout: 5000 });
+    await page.fill('#new-project-name', 'P');
+    await page.click('#btn-new-project-create');
+    await page.waitForSelector('#view-project:not(.hidden)', { timeout: 5000 });
+
+    await page.click('#btn-new-recording');
+    await page.waitForSelector('#view-new-recording:not(.hidden)', { timeout: 5000 });
+    await page.fill('#new-recording-name', 'Rec A');
+    await page.click('#btn-new-recording-create');
+    await page.waitForSelector('#view-recording:not(.hidden)', { timeout: 5000 });
+    await page.click('#bc-project');
+    await page.waitForSelector('#view-project:not(.hidden)', { timeout: 5000 });
+
+    await page.click('#btn-new-recording');
+    await page.waitForSelector('#view-new-recording:not(.hidden)', { timeout: 5000 });
+    await page.fill('#new-recording-name', 'Rec B');
+    await page.click('#btn-new-recording-create');
+    await page.waitForSelector('#view-recording:not(.hidden)', { timeout: 5000 });
+    await page.click('#bc-project');
+    await page.waitForSelector('#view-project:not(.hidden)', { timeout: 5000 });
+
+    await expect(page.locator('.card-item')).toHaveCount(2);
+
+    page.on('dialog', (dialog) => dialog.accept());
+    await page.locator('[data-action="delete"]').first().click();
+    await page.waitForTimeout(500);
+
+    await expect(page.locator('.card-item')).toHaveCount(1);
+  });
+});
+
+test.describe('Desktop Panel - Endpoint Settings', () => {
+  test('endpoint URL and API key persist after save', async ({ page }) => {
+    await page.goto(`http://127.0.0.1:${serverPort}/`);
+    await page.waitForSelector('#view-projects:not(.hidden)', { timeout: 10000 });
+
+    await page.click('#btn-settings');
+    await page.waitForSelector('#view-settings:not(.hidden)', { timeout: 5000 });
+    await page.fill('#settings-endpoint-url', 'https://api.test.com/dispatch');
+    await page.fill('#settings-api-key', 'sk-12345');
+    await page.click('#btn-settings-dispatch-save');
+    await page.waitForTimeout(300);
+    await page.click('#btn-settings-back');
+    await page.waitForSelector('#view-projects:not(.hidden)', { timeout: 5000 });
+
+    // Re-open settings and verify
+    await page.click('#btn-settings');
+    await page.waitForSelector('#view-settings:not(.hidden)', { timeout: 5000 });
+    await expect(page.locator('#settings-endpoint-url')).toHaveValue(
+      'https://api.test.com/dispatch',
+    );
+    await expect(page.locator('#settings-api-key')).toHaveValue('sk-12345');
+  });
+});
+
+test.describe('Desktop Panel - Window Target Selector', () => {
+  test('target app dropdown is visible in recording view', async ({ page }) => {
+    await page.goto(`http://127.0.0.1:${serverPort}/`);
+    await page.waitForSelector('#view-projects:not(.hidden)', { timeout: 10000 });
+
+    await page.click('#btn-new-project');
+    await page.waitForSelector('#view-new-project:not(.hidden)', { timeout: 5000 });
+    await page.fill('#new-project-name', 'P');
+    await page.click('#btn-new-project-create');
+    await page.waitForSelector('#view-project:not(.hidden)', { timeout: 5000 });
+    await page.click('#btn-new-recording');
+    await page.waitForSelector('#view-new-recording:not(.hidden)', { timeout: 5000 });
+    await page.fill('#new-recording-name', 'R');
+    await page.click('#btn-new-recording-create');
+    await page.waitForSelector('#view-recording:not(.hidden)', { timeout: 5000 });
+
+    await expect(page.locator('#target-app-select')).toBeVisible();
   });
 });
