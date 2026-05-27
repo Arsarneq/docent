@@ -21,12 +21,7 @@ const distPath = path.resolve(__dirname, '../../dist');
 const srcPath = path.resolve(__dirname, '../../src');
 
 // Source files we want coverage for (served from dist/, mapped back to src/)
-const TRACKED_FILES = [
-  'panel.js',
-  'dispatch.js',
-  'persistence.js',
-  'adapter-tauri.js',
-];
+const TRACKED_FILES = ['panel.js', 'dispatch.js', 'persistence.js', 'adapter-tauri.js'];
 
 // Ensure coverage directories exist
 fs.mkdirSync(rawDir, { recursive: true });
