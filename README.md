@@ -3,6 +3,8 @@
 
 > Demonstrated Behaviour Capture and Dispatch
 
+[![codecov](https://codecov.io/gh/Arsarneq/docent/graph/badge.svg)](https://codecov.io/gh/Arsarneq/docent)
+
 Docent captures user interactions alongside step-by-step context and exports the result as structured JSON. It runs as a Chrome extension for browser workflows and as a native desktop application (Windows) for native application workflows. Both platforms produce `.docent.json` files with the same core structure, differentiated by platform-specific action types and fields.
 
 ---

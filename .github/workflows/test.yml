@@ -70,6 +70,13 @@ jobs:
       - name: Run desktop unit tests
         run: npm run test:desktop
 
+      - name: Upload JS coverage to Codecov
+        uses: codecov/codecov-action@v4
+        with:
+          files: coverage/lcov.info,packages/extension/coverage/lcov.info
+          flags: javascript
+          token: ${{ secrets.CODECOV_TOKEN }}
+
   playwright-tests:
     runs-on: ubuntu-latest
     steps:
@@ -150,6 +157,13 @@ jobs:
           name: rust-coverage
           path: packages/desktop/src-tauri/coverage.lcov
           retention-days: 7
+
+      - name: Upload Rust coverage to Codecov
+        uses: codecov/codecov-action@v4
+        with:
+          files: packages/desktop/src-tauri/coverage.lcov
+          flags: rust
+          token: ${{ secrets.CODECOV_TOKEN }}
 
   desktop-playwright-tests:
     runs-on: ubuntu-latest
