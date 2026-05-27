@@ -32,7 +32,8 @@
   --color-text: light-dark(#202124, #e8eaed);
   --color-muted: light-dark(#5f6368, #9aa0a6);
   --color-danger: light-dark(#d93025, #f28b82);
-  --color-recording: light-dark(#d93025, #f28b82);
+  --color-recording: light-dark(#c5221f, #f28b82);
+  --color-accent-on-soft: light-dark(#1558b0, #8ab4f8);
 }
 
 /* Force light */
@@ -48,7 +49,8 @@
   --color-text: #202124;
   --color-muted: #5f6368;
   --color-danger: #d93025;
-  --color-recording: #d93025;
+  --color-recording: #c5221f;
+  --color-accent-on-soft: #1558b0;
 }
 
 /* Force dark */
@@ -65,6 +67,7 @@
   --color-muted: #9aa0a6;
   --color-danger: #f28b82;
   --color-recording: #f28b82;
+  --color-accent-on-soft: #8ab4f8;
 }
 
 /* ── Reset & base ─────────────────────────────────────────────────────────── */
@@ -221,12 +224,12 @@ header {
 .badge--recording {
   background: var(--color-accent-soft);
   color: var(--color-recording);
-  animation: pulse 1.4s infinite;
 }
 
 .badge--recording svg {
   width: 10px;
   height: 10px;
+  animation: pulse 1.4s infinite;
 }
 
 .badge--deleted {
@@ -772,7 +775,7 @@ textarea:focus {
 .settings-option input[type='radio']:checked + .settings-option-label {
   border-color: var(--color-accent);
   background: var(--color-accent-soft);
-  color: var(--color-accent);
+  color: var(--color-accent-on-soft);
   font-weight: 500;
 }
 
