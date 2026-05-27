@@ -21,12 +21,22 @@ jobs:
       - name: Update version compatibility table
         run: node scripts/update-version-table.js
 
-      - name: Commit version table if changed
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add README.md
-          git diff --cached --quiet || (git commit -m "docs: update version compatibility table" && git push origin HEAD:main)
+      - name: Create PR for version table update if changed
+        id: version-pr
+        uses: peter-evans/create-pull-request@v6
+        with:
+          commit-message: "docs: update version compatibility table"
+          title: "docs: update version compatibility table"
+          body: "Automated update of the version compatibility table in README.md after release."
+          branch: automated/version-table-update
+          labels: docs
+          delete-branch: true
+
+      - name: Auto-merge version table PR
+        if: steps.version-pr.outputs.pull-request-number
+        run: gh pr merge ${{ steps.version-pr.outputs.pull-request-number }} --auto --squash
+        env:
+          GH_TOKEN: ${{ github.token }}
 
       - name: Sync shared code into extension
         run: node scripts/sync-shared.js extension

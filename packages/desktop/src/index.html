@@ -3,53 +3,20 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; connect-src http: https:;" />
   <title>Docent Desktop</title>
-  <link rel="stylesheet" href="../shared/views/panel.css" />
-  <style>
-    /* Desktop-specific styles */
-    .desktop-controls {
-      padding: 8px 14px;
-      background: var(--color-surface);
-      border-bottom: 1px solid var(--color-border);
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      font-size: 12px;
-    }
-    .desktop-controls select {
-      flex: 1;
-      background-color: var(--color-surface);
-      border: 1px solid var(--color-border);
-      border-radius: var(--radius);
-      color: var(--color-text);
-      font-family: var(--font);
-      font-size: 12px;
-      padding: 5px 8px;
-    }
-    .desktop-controls select:focus {
-      outline: none;
-      border-color: var(--color-accent);
-      box-shadow: 0 0 0 3px var(--color-accent-soft);
-    }
-    .toggle-row {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      padding: 6px 14px;
-      background: var(--color-surface);
-      border-bottom: 1px solid var(--color-border);
-      font-size: 12px;
-      color: var(--color-muted);
-    }
-    .toggle-row input[type="checkbox"] {
-      accent-color: var(--color-accent);
-    }
-  </style>
+  <link rel="stylesheet" href="shared/views/panel.css" />
 </head>
 <body>
 
   <!-- ── Header ─────────────────────────────────────────────────── -->
   <header>
+    <div class="logo">
+      <svg class="logo-svg" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+        <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+      Docent
+    </div>
     <div class="header-right">
       <div id="recording-badge" class="badge badge--idle">Idle</div>
       <button id="btn-settings" class="btn btn--icon" title="Settings" aria-label="Settings">
@@ -76,22 +43,22 @@
 
   <!-- ── Desktop-specific: Target application selector ───────────── -->
   <div class="desktop-controls" id="desktop-target-controls">
-    <label for="target-app-select" style="margin:0; text-transform:none; letter-spacing:normal; font-size:12px; color:var(--color-muted)">Target:</label>
-    <select id="target-app-select">
-      <option value="">All applications</option>
-    </select>
-    <button id="btn-refresh-apps" class="btn btn--ghost btn--sm" title="Refresh application list">
-      <svg viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" style="width:14px;height:14px">
-        <path d="M17 10a7 7 0 0 1-13.16 3.36M3 10a7 7 0 0 1 13.16-3.36" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
-        <path d="M3 17v-4h4M17 3v4h-4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
-      </svg>
-    </button>
-  </div>
-
-  <!-- ── Desktop-specific: Self-capture exclusion toggle ──────────── -->
-  <div class="toggle-row">
-    <input type="checkbox" id="self-capture-toggle" checked />
-    <label for="self-capture-toggle" style="margin:0; text-transform:none; letter-spacing:normal; font-size:12px; color:var(--color-muted)">Exclude Docent from capture</label>
+    <div class="target-row">
+      <label for="target-app-select" class="target-label">Target:</label>
+      <select id="target-app-select">
+        <option value="">All applications</option>
+      </select>
+      <button id="btn-refresh-apps" class="btn btn--ghost btn--sm" title="Refresh application list">
+        <svg viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" class="icon-sm">
+          <path d="M17 10a7 7 0 0 1-13.16 3.36M3 10a7 7 0 0 1 13.16-3.36" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+          <path d="M3 17v-4h4M17 3v4h-4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+      </button>
+    </div>
+    <label class="toggle-row">
+      <input type="checkbox" id="self-capture-toggle" checked />
+      <span class="toggle-label">Exclude Docent from capture</span>
+    </label>
   </div>
 
   <!-- ── View: Projects list ─────────────────────────────────────── -->
@@ -105,7 +72,7 @@
     </div>
   </div>
 
-  <input id="import-file-input" type="file" accept=".json" style="display:none" />
+  <input id="import-file-input" type="file" accept=".json" class="hidden" />
 
   <ul id="project-list" class="card-list"></ul>
 
@@ -166,12 +133,18 @@
 <!-- ── View: Recording (step list) ────────────────────────────── -->
 <section id="view-recording" class="view hidden">
 
-  <div class="view-header">
+  <div class="view-header" id="recording-header">
     <h2 id="recording-title"></h2>
     <button id="btn-toggle-recording" class="btn btn--secondary btn--sm">
       <svg viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" class="icon-pause"><rect x="5" y="4" width="3.5" height="12" rx="1" fill="currentColor"/><rect x="11.5" y="4" width="3.5" height="12" rx="1" fill="currentColor"/></svg>
       <span class="btn-label">Pause</span>
     </button>
+  </div>
+
+  <!-- Re-record banner (shown when re-recording a step) -->
+  <div id="rerecord-banner" class="rerecord-banner hidden">
+    <span id="rerecord-banner-text">Re-recording step</span>
+    <button id="btn-rerecord-cancel" class="btn btn--ghost btn--sm">Cancel</button>
   </div>
 
   <!-- Metadata editor (collapsible) -->
@@ -204,7 +177,7 @@
   <!-- Simple mode input -->
   <div id="simple-mode-box" class="narration-box hidden">
     <label>Step type</label>
-    <div class="settings-options" role="radiogroup" aria-label="Step type" style="margin-bottom:8px">
+    <div class="settings-options" role="radiogroup" aria-label="Step type" class="mb-8">
       <label class="settings-option">
         <input type="radio" name="step-type" value="action" checked />
         <span class="settings-option-label">Action</span>
@@ -216,7 +189,7 @@
     </div>
     <div id="expect-group" class="hidden">
       <label>Expect</label>
-      <div class="settings-options" role="radiogroup" aria-label="Expect" style="margin-bottom:8px">
+      <div class="settings-options" role="radiogroup" aria-label="Expect" class="mb-8">
         <label class="settings-option">
           <input type="radio" name="step-expect" value="present" checked />
           <span class="settings-option-label">Present</span>
@@ -256,34 +229,6 @@
 
   <ol id="step-list" class="step-list"></ol>
 
-</section>
-
-<!-- ── View: Re-record a step ──────────────────────────────────── -->
-<section id="view-rerecord" class="view hidden">
-  <div class="view-back-header">
-    <button id="btn-rerecord-cancel" class="btn btn--ghost">
-      <svg viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path d="M12 4l-6 6 6 6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
-      Back
-    </button>
-    <span>Re-recording step</span>
-  </div>
-  <label>What does this step do?</label>
-  <textarea id="rerecord-narration" rows="2"></textarea>
-  <div class="narration-controls">
-    <button id="btn-rerecord-commit" class="btn btn--primary">
-      <svg viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path d="M4 10l5 5 7-8" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
-      Done
-    </button>
-  </div>
-
-  <!-- Live action list (re-recording) -->
-  <div id="rerecord-actions-section" class="pending-actions-section hidden">
-    <div class="step-list-header">
-      <span>Captured actions</span>
-      <span id="rerecord-action-count" class="step-count">0</span>
-    </div>
-    <ol id="rerecord-action-list" class="step-detail-list"></ol>
-  </div>
 </section>
 
 <!-- ── View: Step history ───────────────────────────────────────── -->
@@ -428,7 +373,7 @@
     <input id="settings-endpoint-url" type="text" placeholder="https://..." />
     <p id="settings-endpoint-error" class="settings-field-error hidden"></p>
 
-    <label class="settings-label" style="margin-top:12px">API key (optional)</label>
+    <label class="settings-label" class="mt-12">API key (optional)</label>
     <input id="settings-api-key" type="password" placeholder="Bearer token" />
 
     <div class="form-actions">
@@ -441,7 +386,7 @@
     <input id="settings-sync-url" type="text" placeholder="https://..." />
     <p id="settings-sync-error" class="settings-field-error hidden"></p>
 
-    <label class="settings-label" style="margin-top:12px">API key (optional)</label>
+    <label class="settings-label" class="mt-12">API key (optional)</label>
     <input id="settings-sync-api-key" type="password" placeholder="Bearer token" />
 
     <div class="form-actions">
@@ -452,5 +397,6 @@
 
 
   <script type="module" src="panel.js"></script>
+
 </body>
 </html>

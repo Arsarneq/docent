@@ -60,6 +60,7 @@ pub fn run() {
             commands::get_self_pid,
             commands::get_max_sequence_number,
             commands::set_self_capture_exclusion,
+            commands::set_target_pid,
             commands::export_file,
             commands::import_file,
         ])

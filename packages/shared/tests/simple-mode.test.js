@@ -9,7 +9,7 @@
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { createStep, resolveActiveSteps, addStepRecord } from '../lib/session.js';
+import { createStep, resolveActiveSteps, addStepRecord, deleteStep, reorderSteps } from '../lib/session.js';
 import { renderStepList } from '../views/render.js';
 
 // ─── createStep with simple mode fields ───────────────────────────────────────
@@ -192,5 +192,65 @@ describe('renderStepList — simple mode steps', () => {
     for (const h of html) {
       assert.ok(!h.includes('undefined'), `Should not contain "undefined": ${h.substring(0, 100)}`);
     }
+  });
+});
+
+
+// ─── deleteStep and reorderSteps with simple mode steps ───────────────────────
+
+describe('deleteStep — simple mode steps', () => {
+  it('soft-deletes a simple mode step preserving step_type and expect', async () => {
+    const recording = { recording_id: 'r1', name: 'Test', steps: [] };
+
+    const step = createStep({ step_type: 'validation', expect: 'present', step_number: 1, actions: [] });
+    addStepRecord(recording, step);
+
+    // Small delay to ensure tombstone UUID > original UUID
+    await new Promise(r => setTimeout(r, 2));
+
+    deleteStep(recording, step.logical_id);
+
+    const active = resolveActiveSteps(recording);
+    assert.equal(active.length, 0, 'Step should be deleted');
+
+    // The tombstone should preserve the original fields
+    const tombstone = recording.steps.find(s => s.deleted);
+    assert.ok(tombstone, 'Tombstone should exist');
+    assert.equal(tombstone.step_type, 'validation');
+    assert.equal(tombstone.expect, 'present');
+  });
+});
+
+describe('reorderSteps — simple mode steps', () => {
+  it('reorders simple mode steps and preserves step_type/expect', async () => {
+    const recording = { recording_id: 'r1', name: 'Test', steps: [] };
+
+    const s1 = createStep({ step_type: 'action', step_number: 1, actions: [] });
+    await new Promise(r => setTimeout(r, 2));
+    const s2 = createStep({ step_type: 'validation', expect: 'absent', step_number: 2, actions: [] });
+
+    addStepRecord(recording, s1);
+    addStepRecord(recording, s2);
+
+    // Small delay to ensure reorder records have higher UUIDs
+    await new Promise(r => setTimeout(r, 2));
+
+    // Reorder: swap s2 to position 1, s1 to position 2
+    reorderSteps(recording, [s2.logical_id, s1.logical_id]);
+
+    const active = resolveActiveSteps(recording);
+    assert.equal(active.length, 2);
+
+    // Find the validation step and verify its fields survived the reorder
+    const validationStep = active.find(s => s.logical_id === s2.logical_id);
+    assert.ok(validationStep, 'validation step should still exist');
+    assert.equal(validationStep.step_type, 'validation');
+    assert.equal(validationStep.expect, 'absent');
+    assert.equal(validationStep.step_number, 1); // moved from 2 to 1
+
+    const actionStep = active.find(s => s.logical_id === s1.logical_id);
+    assert.ok(actionStep, 'action step should still exist');
+    assert.equal(actionStep.step_type, 'action');
+    assert.equal(actionStep.step_number, 2); // moved from 1 to 2
   });
 });

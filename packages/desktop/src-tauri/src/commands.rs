@@ -213,6 +213,28 @@ pub fn set_self_capture_exclusion(
     Ok(())
 }
 
+/// Set the target application PID for capture filtering.
+///
+/// When set, only events from this PID are captured. All other events are
+/// filtered out (except self-capture exclusion which always takes priority).
+/// Pass `null` or `0` to capture all applications.
+#[tauri::command]
+pub fn set_target_pid(
+    state: State<'_, AppState>,
+    pid: Option<u32>,
+) -> Result<(), String> {
+    let mut capture = state
+        .capture
+        .lock()
+        .map_err(|e| format!("Failed to lock capture state: {e}"))?;
+
+    let effective_pid = pid.filter(|&p| p != 0);
+    eprintln!("[Docent] Target PID set to: {:?}", effective_pid);
+    capture.set_included_pid(effective_pid);
+
+    Ok(())
+}
+
 
 
 // ---------------------------------------------------------------------------

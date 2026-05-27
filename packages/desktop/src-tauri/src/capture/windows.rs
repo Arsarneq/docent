@@ -117,6 +117,10 @@ thread_local! {
     static INPUT_EXCLUDED_PID: std::cell::RefCell<Option<Arc<AtomicU32>>> =
         const { std::cell::RefCell::new(None) };
 
+    /// Shared included PID for target app filtering. 0 means capture all.
+    static INPUT_INCLUDED_PID: std::cell::RefCell<Option<Arc<AtomicU32>>> =
+        const { std::cell::RefCell::new(None) };
+
     /// PID of the current foreground window. Updated on EVENT_SYSTEM_FOREGROUND.
     /// Events from non-foreground processes are filtered out.
     static INPUT_FOREGROUND_PID: std::cell::Cell<u32> = const { std::cell::Cell::new(0) };
@@ -191,6 +195,8 @@ pub struct WindowsCapture {
     active: Arc<AtomicBool>,
     /// Shared excluded PID. 0 means no exclusion. Read by workers on every event.
     excluded_pid: Arc<AtomicU32>,
+    /// Shared included PID (target app). 0 means capture all. Read by input thread on every event.
+    included_pid: Arc<AtomicU32>,
     /// The worker pool that manages accessibility worker threads.
     /// Owned by the bridge thread during capture; stored here only for shutdown.
     worker_pool: Option<WorkerPool>,
@@ -211,6 +217,7 @@ impl WindowsCapture {
         Self {
             active: Arc::new(AtomicBool::new(false)),
             excluded_pid: Arc::new(AtomicU32::new(0)),
+            included_pid: Arc::new(AtomicU32::new(0)),
             worker_pool: None,
             sequence_counter: None,
             bridge_thread: None,
@@ -273,6 +280,7 @@ impl CaptureLayer for WindowsCapture {
         // --- Spawn Input_Thread ---
         let active = self.active.clone();
         let excluded_pid_for_input = self.excluded_pid.clone();
+        let included_pid_for_input = self.included_pid.clone();
 
         let (tid_tx, tid_rx) = std::sync::mpsc::channel::<u32>();
 
@@ -281,7 +289,7 @@ impl CaptureLayer for WindowsCapture {
                 windows::Win32::System::Threading::GetCurrentThreadId()
             };
             let _ = tid_tx.send(thread_id);
-            input_thread_main(active, excluded_pid_for_input, sequence_counter, raw_tx)
+            input_thread_main(active, excluded_pid_for_input, included_pid_for_input, sequence_counter, raw_tx)
         });
 
         match tid_rx.recv_timeout(std::time::Duration::from_secs(5)) {
@@ -367,6 +375,10 @@ impl CaptureLayer for WindowsCapture {
         self.excluded_pid.store(pid.unwrap_or(0), Ordering::SeqCst);
     }
 
+    fn set_included_pid(&mut self, pid: Option<u32>) {
+        self.included_pid.store(pid.unwrap_or(0), Ordering::SeqCst);
+    }
+
     fn max_sequence_id(&self) -> u64 {
         self.sequence_counter
             .as_ref()
@@ -398,6 +410,7 @@ impl CaptureLayer for WindowsCapture {
 fn input_thread_main(
     active: Arc<AtomicBool>,
     excluded_pid: Arc<AtomicU32>,
+    included_pid: Arc<AtomicU32>,
     sequence_counter: Arc<AtomicU64>,
     raw_tx: std::sync::mpsc::Sender<RawEvent>,
 ) -> Result<(), CaptureError> {
@@ -426,6 +439,7 @@ fn input_thread_main(
     INPUT_SEQUENCE_COUNTER.with(|c| *c.borrow_mut() = Some(sequence_counter));
     INPUT_ACTIVE.with(|a| *a.borrow_mut() = Some(active.clone()));
     INPUT_EXCLUDED_PID.with(|p| *p.borrow_mut() = Some(excluded_pid));
+    INPUT_INCLUDED_PID.with(|p| *p.borrow_mut() = Some(included_pid));
 
     // Create a lightweight IUIAutomation instance for pre-capturing click
     // elements. This is used ONLY for ElementFromPoint on mouse-up events.
@@ -503,6 +517,7 @@ fn input_thread_main(
         INPUT_SEQUENCE_COUNTER.with(|c| *c.borrow_mut() = None);
         INPUT_ACTIVE.with(|a| *a.borrow_mut() = None);
         INPUT_EXCLUDED_PID.with(|p| *p.borrow_mut() = None);
+        INPUT_INCLUDED_PID.with(|p| *p.borrow_mut() = None);
         INPUT_PID_CACHE.with(|c| c.borrow_mut().clear());
         INPUT_UIA.with(|u| *u.borrow_mut() = None);
         INPUT_LAST_INPUT_TIMESTAMP.with(|t| t.set(0));
@@ -536,6 +551,7 @@ fn input_thread_main(
     INPUT_SEQUENCE_COUNTER.with(|c| *c.borrow_mut() = None);
     INPUT_ACTIVE.with(|a| *a.borrow_mut() = None);
     INPUT_EXCLUDED_PID.with(|p| *p.borrow_mut() = None);
+        INPUT_INCLUDED_PID.with(|p| *p.borrow_mut() = None);
     INPUT_FOREGROUND_PID.with(|p| p.set(0));
     INPUT_LAST_FOREGROUND_HWND.with(|p| p.set(0));
     INPUT_MOUSE_DOWN_POS.with(|p| p.set(None));
@@ -609,15 +625,35 @@ fn input_get_excluded_pid() -> Option<u32> {
     })
 }
 
+/// Read the current included PID (target app) from the Input_Thread's shared atomic.
+/// Returns None if no target is set (capture all).
+fn input_get_included_pid() -> Option<u32> {
+    INPUT_INCLUDED_PID.with(|p| {
+        p.borrow().as_ref().and_then(|arc| {
+            let val = arc.load(Ordering::SeqCst);
+            if val == 0 { None } else { Some(val) }
+        })
+    })
+}
+
 /// Cached PID exclusion check. Uses a thread-local HashMap to avoid
 /// repeated CreateToolhelp32Snapshot calls for the same PID.
 /// The cache is populated on first check and reused for subsequent events.
 /// This covers both the direct PID check AND the is_owned_by_excluded check.
 fn input_should_keep_event_cached(event_pid: u32, excluded_pid: Option<u32>, hwnd: HWND) -> bool {
-    // Fast path: PID 0 is always filtered, no exclusion means keep all.
+    // Fast path: PID 0 is always filtered.
     if event_pid == 0 {
         return false;
     }
+
+    // Target app filter: if an included PID is set, only keep events from that PID.
+    if let Some(incl) = input_get_included_pid() {
+        if event_pid != incl {
+            return false;
+        }
+    }
+
+    // Exclusion filter (self-capture).
     let Some(excl) = excluded_pid else {
         return true;
     };
