@@ -69,7 +69,14 @@ test.beforeAll(async () => {
       return;
     }
 
-    let filePath = path.join(distPath, req.url === '/' ? 'index.html' : req.url);
+    let filePath = path.resolve(distPath, req.url === '/' ? 'index.html' : req.url.slice(1));
+
+    // Prevent path traversal — ensure resolved path stays within distPath
+    if (!filePath.startsWith(distPath)) {
+      res.writeHead(403);
+      res.end('Forbidden');
+      return;
+    }
 
     if (!fs.existsSync(filePath)) {
       res.writeHead(404);
