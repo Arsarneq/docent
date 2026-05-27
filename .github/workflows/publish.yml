@@ -8,6 +8,8 @@ jobs:
   publish:
     if: startsWith(github.event.release.tag_name, 'extension-v')
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
 
     steps:
       - uses: actions/checkout@v6
