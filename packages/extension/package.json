@@ -6,6 +6,6 @@
     "test": "node --test tests/dispatch.test.js tests/panel.test.js tests/naming.property.test.js"
   },
   "devDependencies": {
-    "fast-check": "^3.0.0"
+    "fast-check": "^4.8.0"
   }
 }
