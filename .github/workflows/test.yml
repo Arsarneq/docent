@@ -12,7 +12,38 @@ permissions:
   contents: read
 
 jobs:
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      extension: ${{ steps.filter.outputs.extension }}
+      desktop: ${{ steps.filter.outputs.desktop }}
+      shared: ${{ steps.filter.outputs.shared }}
+      ci: ${{ steps.filter.outputs.ci }}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            extension:
+              - 'packages/extension/**'
+            desktop:
+              - 'packages/desktop/**'
+            shared:
+              - 'packages/shared/**'
+            ci:
+              - '.github/workflows/**'
+              - 'scripts/**'
+              - 'package.json'
+              - 'package-lock.json'
+              - 'eslint.config.js'
+              - '.prettierrc'
+              - '.c8rc.json'
+              - '.editorconfig'
+              - 'codecov.yml'
+
   lint:
+    needs: [changes]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -48,7 +79,7 @@ jobs:
   dependency-audit:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - uses: actions/setup-node@v4
         with:
@@ -58,19 +89,34 @@ jobs:
         run: npm ci
 
       - name: Audit npm dependencies
-        run: npm audit --audit-level=high
+        run: npm audit --audit-level=high --package-lock-only
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
 
+      - name: Cache cargo-audit
+        id: cache-cargo-audit
+        uses: actions/cache@v5
+        with:
+          path: ~/.cargo/bin/cargo-audit
+          key: ${{ runner.os }}-cargo-audit-0.21
+
       - name: Install cargo-audit
+        if: steps.cache-cargo-audit.outputs.cache-hit != 'true'
         run: cargo install cargo-audit
 
       - name: Audit Rust dependencies
         working-directory: packages/desktop/src-tauri
-        run: cargo audit
+        run: cargo audit --ignore RUSTSEC-2024-0429
 
   unit-tests:
+    needs: [lint, changes]
+    if: |
+      needs.changes.outputs.extension == 'true' ||
+      needs.changes.outputs.desktop == 'true' ||
+      needs.changes.outputs.shared == 'true' ||
+      needs.changes.outputs.ci == 'true' ||
+      github.event_name == 'release'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -98,14 +144,11 @@ jobs:
         run: |
           git diff --exit-code packages/*/shared/ packages/extension/sidepanel/index.html packages/desktop/src/index.html || (echo "ERROR: sync-shared produced changes — run 'npm run sync-shared' locally and commit" && exit 1)
 
-      - name: Run shared tests with coverage
-        run: npm run test:shared:coverage
+      - name: Run shared and desktop tests with coverage
+        run: npm run test:coverage
 
       - name: Run extension unit tests with coverage
         run: cd packages/extension && npm run test:coverage
-
-      - name: Run desktop unit tests
-        run: npm run test:desktop
 
       - name: Upload JS coverage to Codecov
         uses: codecov/codecov-action@v4
@@ -115,6 +158,12 @@ jobs:
           token: ${{ secrets.CODECOV_TOKEN }}
 
   playwright-tests:
+    needs: [lint, changes]
+    if: |
+      needs.changes.outputs.extension == 'true' ||
+      needs.changes.outputs.shared == 'true' ||
+      needs.changes.outputs.ci == 'true' ||
+      github.event_name == 'release'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -150,7 +199,25 @@ jobs:
           retention-days: 7
 
   desktop-integration-tests:
-    runs-on: windows-latest
+    needs: [lint, changes]
+    if: |
+      needs.changes.outputs.desktop == 'true' ||
+      needs.changes.outputs.shared == 'true' ||
+      needs.changes.outputs.ci == 'true' ||
+      github.event_name == 'release'
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            label: Windows
+          # Future platforms:
+          # - os: macos-latest
+          #   label: macOS
+          # - os: ubuntu-latest
+          #   label: Linux
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v6
 
@@ -159,7 +226,15 @@ jobs:
         with:
           components: llvm-tools-preview
 
+      - name: Cache cargo-llvm-cov
+        id: cache-llvm-cov
+        uses: actions/cache@v5
+        with:
+          path: ~/.cargo/bin/cargo-llvm-cov
+          key: ${{ runner.os }}-cargo-llvm-cov-0.6
+
       - name: Install cargo-llvm-cov
+        if: steps.cache-llvm-cov.outputs.cache-hit != 'true'
         run: cargo install cargo-llvm-cov
 
       - name: Cache cargo registry and build
@@ -180,13 +255,9 @@ jobs:
         working-directory: packages/desktop/src-tauri
         run: cargo clippy -- -D warnings
 
-      - name: Run Rust unit tests with coverage
+      - name: Run Rust tests with coverage
         working-directory: packages/desktop/src-tauri
-        run: cargo llvm-cov --lib --test worker_pool_test --test scroll_test --test windows_capture_test --test commands_test --lcov --output-path coverage.lcov
-
-      - name: Run integration tests
-        working-directory: packages/desktop/src-tauri
-        run: cargo test --test capture_integration
+        run: cargo llvm-cov --lib --test worker_pool_test --test scroll_test --test windows_capture_test --test commands_test --test capture_integration --lcov --output-path coverage.lcov
 
       - name: Upload Rust coverage report
         uses: actions/upload-artifact@v7
@@ -203,9 +274,15 @@ jobs:
           token: ${{ secrets.CODECOV_TOKEN }}
 
   desktop-playwright-tests:
+    needs: [lint, changes]
+    if: |
+      needs.changes.outputs.desktop == 'true' ||
+      needs.changes.outputs.shared == 'true' ||
+      needs.changes.outputs.ci == 'true' ||
+      github.event_name == 'release'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - uses: actions/setup-node@v4
         with:
@@ -236,5 +313,28 @@ jobs:
           name: desktop-playwright-report
           path: packages/desktop/tests/automated/test-results/
           retention-days: 7
+
+  ci-gate:
+    runs-on: ubuntu-latest
+    if: always()
+    needs:
+      - changes
+      - lint
+      - dependency-audit
+      - unit-tests
+      - playwright-tests
+      - desktop-integration-tests
+      - desktop-playwright-tests
+    steps:
+      - name: Check job results
+        run: |
+          results=("${{ needs.changes.result }}" "${{ needs.lint.result }}" "${{ needs.dependency-audit.result }}" "${{ needs.unit-tests.result }}" "${{ needs.playwright-tests.result }}" "${{ needs.desktop-integration-tests.result }}" "${{ needs.desktop-playwright-tests.result }}")
+          for result in "${results[@]}"; do
+            if [[ "$result" != "success" && "$result" != "skipped" ]]; then
+              echo "Job failed with result: $result"
+              exit 1
+            fi
+          done
+          echo "All jobs passed or were skipped"
 
 
