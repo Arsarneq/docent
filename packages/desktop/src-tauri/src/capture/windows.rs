@@ -23,7 +23,8 @@ use std::sync::Arc;
 use std::thread::{self, JoinHandle};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use windows::Win32::Foundation::{BOOL, HWND, LPARAM, LRESULT, POINT, WPARAM};
+use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, POINT, WPARAM};
+use windows::core::BOOL;
 use windows::Win32::System::Com::{
     CoCreateInstance, CoInitializeEx, CoUninitialize, CLSCTX_ALL, COINIT_APARTMENTTHREADED,
 };
@@ -513,8 +514,8 @@ fn input_thread_main(
     unsafe {
         let mut msg = MSG::default();
         while active.load(Ordering::SeqCst) {
-            let ret = GetMessageW(&mut msg, HWND::default(), 0, 0);
-            if ret == BOOL(0) || ret == BOOL(-1) {
+            let ret = GetMessageW(&mut msg, None, 0, 0);
+            if !ret.as_bool() {
                 break; // WM_QUIT or error
             }
             let _ = TranslateMessage(&msg);
@@ -728,7 +729,7 @@ unsafe extern "system" fn input_win_event_proc(
 
         x if x == EVENT_OBJECT_CREATE
             && id_object == OBJID_WINDOW.0 && id_child == CHILDID_SELF as i32 => {
-                if !IsWindow(hwnd).as_bool() {
+                if !IsWindow(Some(hwnd)).as_bool() {
                     return;
                 }
                 // Only emit for top-level visible windows.
@@ -1199,7 +1200,7 @@ unsafe extern "system" fn input_mouse_ll_proc(
         }
     }
 
-    CallNextHookEx(HHOOK::default(), n_code, w_param, l_param)
+    CallNextHookEx(None, n_code, w_param, l_param)
 }
 
 // ---------------------------------------------------------------------------
@@ -1251,7 +1252,7 @@ unsafe extern "system" fn input_keyboard_ll_proc(
         }
     }
 
-    CallNextHookEx(HHOOK::default(), n_code, w_param, l_param)
+    CallNextHookEx(None, n_code, w_param, l_param)
 }
 
 // ---------------------------------------------------------------------------
@@ -1393,7 +1394,7 @@ pub(crate) unsafe fn find_child_value_by_automation_id(
     let edit_condition = uia
         .CreatePropertyCondition(
             UIA_ControlTypePropertyId,
-            &windows::core::VARIANT::from(UIA_EditControlTypeId.0),
+            &windows::Win32::System::Variant::VARIANT::from(UIA_EditControlTypeId.0),
         )
         .ok()?;
 
@@ -1440,7 +1441,7 @@ pub(crate) unsafe fn read_file_dialog_directory(
     let toolbar_condition = uia
         .CreatePropertyCondition(
             UIA_ControlTypePropertyId,
-            &windows::core::VARIANT::from(
+            &windows::Win32::System::Variant::VARIANT::from(
                 windows::Win32::UI::Accessibility::UIA_ToolBarControlTypeId.0,
             ),
         )
@@ -1552,7 +1553,7 @@ fn get_process_name_for_pid(pid: u32) -> String {
         match handle {
             Ok(h) => {
                 let mut buf = [0u16; 512];
-                let len = GetModuleFileNameExW(h, None, &mut buf);
+                let len = GetModuleFileNameExW(Some(h), None, &mut buf);
                 let _ = windows::Win32::Foundation::CloseHandle(h);
                 if len > 0 {
                     let full_path = String::from_utf16_lossy(&buf[..len as usize]);

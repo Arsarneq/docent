@@ -1178,7 +1178,7 @@ mod capture_behaviour {
                 w!(""),
                 WS_CHILD | WS_VISIBLE | WS_BORDER | windows::Win32::UI::WindowsAndMessaging::WINDOW_STYLE(ES_PASSWORD as u32),
                 10, 10, 200, 30,
-                parent,
+                Some(parent),
                 None,
                 None,
                 Some(ptr::null()),
@@ -2153,7 +2153,7 @@ mod completeness {
 mod selection {
     use super::*;
     use std::ptr;
-    use windows::Win32::Foundation::{HWND, RECT, WPARAM, LPARAM};
+    use windows::Win32::Foundation::{RECT, WPARAM, LPARAM};
     use windows::Win32::UI::WindowsAndMessaging::{
         CreateWindowExW, DestroyWindow, SetForegroundWindow, GetWindowRect,
         SendMessageW,
@@ -2199,7 +2199,7 @@ mod selection {
                 WS_CHILD | WS_VISIBLE | WS_BORDER |
                     windows::Win32::UI::WindowsAndMessaging::WINDOW_STYLE(LBS_NOTIFY as u32),
                 10, 10, 200, 150,
-                parent,
+                Some(parent),
                 None,
                 None,
                 Some(ptr::null()),
@@ -2210,7 +2210,7 @@ mod selection {
         unsafe {
             let items = [w!("Item A"), w!("Item B"), w!("Item C")];
             for item in &items {
-                SendMessageW(listbox, LB_ADDSTRING, WPARAM(0), LPARAM(item.as_ptr() as isize));
+                SendMessageW(listbox, LB_ADDSTRING, Some(WPARAM(0)), Some(LPARAM(item.as_ptr() as isize)));
             }
         }
         thread::sleep(Duration::from_millis(200));
