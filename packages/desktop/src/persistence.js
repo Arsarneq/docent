@@ -89,13 +89,13 @@ export async function loadSessionState(invoke) {
     }
     // Ensure required structure exists
     return {
-      projects:          state.projects ?? [],
-      activeProjectId:   state.activeProjectId ?? null,
+      projects: state.projects ?? [],
+      activeProjectId: state.activeProjectId ?? null,
       activeRecordingId: state.activeRecordingId ?? null,
       settings: {
-        endpointUrl:          state.settings?.endpointUrl ?? null,
-        apiKey:               state.settings?.apiKey ?? null,
-        theme:                state.settings?.theme ?? 'auto',
+        endpointUrl: state.settings?.endpointUrl ?? null,
+        apiKey: state.settings?.apiKey ?? null,
+        theme: state.settings?.theme ?? 'auto',
         selfCaptureExclusion: state.settings?.selfCaptureExclusion ?? true,
       },
     };

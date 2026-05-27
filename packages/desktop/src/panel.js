@@ -24,7 +24,12 @@
  * See LICENSE in the project root for license information.
  */
 
-import { validateEndpointUrl, buildPayload, sendPayload, DispatchError } from '../shared/dispatch-core.js';
+import {
+  validateEndpointUrl,
+  buildPayload,
+  sendPayload,
+  DispatchError,
+} from '../shared/dispatch-core.js';
 import { sync } from '../shared/sync-client.js';
 import adapter, { commitWithCompleteness } from './adapter-tauri.js';
 import {
@@ -51,139 +56,138 @@ const { invoke } = window.__TAURI__.core;
 
 // ─── Elements ─────────────────────────────────────────────────────────────────
 
-const $ = id => document.getElementById(id);
+const $ = (id) => document.getElementById(id);
 
 const views = {
-  projects:          $('view-projects'),
-  newProject:        $('view-new-project'),
-  project:           $('view-project'),
-  newRecording:      $('view-new-recording'),
-  recording:         $('view-recording'),
-  rerecord:          null, // re-record is now a state within the recording view
-  history:           $('view-history'),
-  stepDetail:        $('view-step-detail'),
-  settings:          $('view-settings'),
+  projects: $('view-projects'),
+  newProject: $('view-new-project'),
+  project: $('view-project'),
+  newRecording: $('view-new-recording'),
+  recording: $('view-recording'),
+  rerecord: null, // re-record is now a state within the recording view
+  history: $('view-history'),
+  stepDetail: $('view-step-detail'),
+  settings: $('view-settings'),
   recordingSelector: $('view-recording-selector'),
-  dispatchConfirm:   $('view-dispatch-confirm'),
-  dispatchResult:    $('view-dispatch-result'),
+  dispatchConfirm: $('view-dispatch-confirm'),
+  dispatchResult: $('view-dispatch-result'),
 };
 
-const breadcrumb       = $('breadcrumb');
-const bcProjects       = $('bc-projects');
-const bcProject        = $('bc-project');
-const bcRecording      = $('bc-recording');
-const bcSep1           = $('bc-sep-1');
-const bcSep2           = $('bc-sep-2');
+const breadcrumb = $('breadcrumb');
+const bcProjects = $('bc-projects');
+const bcProject = $('bc-project');
+const bcRecording = $('bc-recording');
+const bcSep1 = $('bc-sep-1');
+const bcSep2 = $('bc-sep-2');
 
-const recordingBadge   = $('recording-badge');
+const recordingBadge = $('recording-badge');
 
 // Projects list
-const projectList      = $('project-list');
-const projectsEmpty    = $('projects-empty');
-const btnNewProject    = $('btn-new-project');
+const projectList = $('project-list');
+const projectsEmpty = $('projects-empty');
+const btnNewProject = $('btn-new-project');
 const btnImportProject = $('btn-import-project');
-const importFileInput  = $('import-file-input');
+const importFileInput = $('import-file-input');
 
 // New project form
-const newProjectName   = $('new-project-name');
+const newProjectName = $('new-project-name');
 const btnNewProjectCreate = $('btn-new-project-create');
 const btnNewProjectCancel = $('btn-new-project-cancel');
 
 // Project detail
-const projectTitle     = $('project-title');
-const recordingList    = $('recording-list');
-const recordingsEmpty  = $('recordings-empty');
-const btnNewRecording  = $('btn-new-recording');
+const projectTitle = $('project-title');
+const recordingList = $('recording-list');
+const recordingsEmpty = $('recordings-empty');
+const btnNewRecording = $('btn-new-recording');
 const btnExportProject = $('btn-export-project');
 const btnDispatchProject = $('btn-dispatch-project');
 
 // New recording form
-const newRecordingName         = $('new-recording-name');
-const btnNewRecordingCreate    = $('btn-new-recording-create');
-const btnNewRecordingCancel    = $('btn-new-recording-cancel');
+const newRecordingName = $('new-recording-name');
+const btnNewRecordingCreate = $('btn-new-recording-create');
+const btnNewRecordingCancel = $('btn-new-recording-cancel');
 
 // Recording view
-const recordingTitle   = $('recording-title');
+const recordingTitle = $('recording-title');
 const btnToggleRecording = $('btn-toggle-recording');
-const narrationInput   = $('narration-input');
-const btnClearStep     = $('btn-clear-step');
-const btnCommitStep    = $('btn-commit-step');
-const stepListEl       = $('step-list');
-const stepCount        = $('step-count');
+const narrationInput = $('narration-input');
+const btnClearStep = $('btn-clear-step');
+const btnCommitStep = $('btn-commit-step');
+const stepListEl = $('step-list');
+const stepCount = $('step-count');
 
 // Re-record
-const rerecordBanner     = $('rerecord-banner');
+const rerecordBanner = $('rerecord-banner');
 const rerecordBannerText = $('rerecord-banner-text');
-const btnRerecordCancel  = $('btn-rerecord-cancel');
+const btnRerecordCancel = $('btn-rerecord-cancel');
 
 // History
-const historyList    = $('history-list');
+const historyList = $('history-list');
 const btnHistoryBack = $('btn-history-back');
 
 // Step detail
-const stepDetailList  = $('step-detail-list');
+const stepDetailList = $('step-detail-list');
 const stepDetailTitle = $('step-detail-title');
 const btnStepDetailBack = $('btn-step-detail-back');
 
 // Pending action list (live during recording)
 const pendingActionsSection = $('pending-actions-section');
-const pendingActionList     = $('pending-action-list');
-const pendingActionCount    = $('pending-action-count');
+const pendingActionList = $('pending-action-list');
+const pendingActionCount = $('pending-action-count');
 
 // Settings
-const btnSettings     = $('btn-settings');
+const btnSettings = $('btn-settings');
 const btnSettingsBack = $('btn-settings-back');
-const themeRadios     = document.querySelectorAll('input[name="theme"]');
+const themeRadios = document.querySelectorAll('input[name="theme"]');
 const recordingModeRadios = document.querySelectorAll('input[name="recording-mode"]');
 
 // Simple mode elements
-const narrationModeBox    = $('narration-mode-box');
-const simpleModeBox       = $('simple-mode-box');
-const stepTypeRadios      = document.querySelectorAll('input[name="step-type"]');
-const expectGroup         = $('expect-group');
-const stepExpectRadios    = document.querySelectorAll('input[name="step-expect"]');
+const narrationModeBox = $('narration-mode-box');
+const simpleModeBox = $('simple-mode-box');
+const stepTypeRadios = document.querySelectorAll('input[name="step-type"]');
+const expectGroup = $('expect-group');
 const btnCommitStepSimple = $('btn-commit-step-simple');
-const btnClearStepSimple  = $('btn-clear-step-simple');
+const btnClearStepSimple = $('btn-clear-step-simple');
 
 // Metadata elements
-const projectMetadataList     = $('project-metadata-list');
-const btnAddProjectMetadata   = $('btn-add-project-metadata');
-const recordingMetadataList   = $('recording-metadata-list');
+const projectMetadataList = $('project-metadata-list');
+const btnAddProjectMetadata = $('btn-add-project-metadata');
+const recordingMetadataList = $('recording-metadata-list');
 const btnAddRecordingMetadata = $('btn-add-recording-metadata');
 
 // Dispatch settings
-const settingsEndpointUrl   = $('settings-endpoint-url');
+const settingsEndpointUrl = $('settings-endpoint-url');
 const settingsEndpointError = $('settings-endpoint-error');
-const settingsApiKey        = $('settings-api-key');
+const settingsApiKey = $('settings-api-key');
 const btnSettingsDispatchSave = $('btn-settings-dispatch-save');
 
 // Sync settings
-const settingsSyncUrl       = $('settings-sync-url');
-const settingsSyncError     = $('settings-sync-error');
-const settingsSyncApiKey    = $('settings-sync-api-key');
-const btnSettingsSyncSave   = $('btn-settings-sync-save');
-const btnSync               = $('btn-sync');
+const settingsSyncUrl = $('settings-sync-url');
+const settingsSyncError = $('settings-sync-error');
+const settingsSyncApiKey = $('settings-sync-api-key');
+const btnSettingsSyncSave = $('btn-settings-sync-save');
+const btnSync = $('btn-sync');
 
 // Recording selector
 const recordingSelectorList = $('recording-selector-list');
-const btnSelectorCancel     = $('btn-selector-cancel');
+const btnSelectorCancel = $('btn-selector-cancel');
 
 // Dispatch confirmation
-const confirmEndpoint   = $('confirm-endpoint');
+const confirmEndpoint = $('confirm-endpoint');
 const confirmRecordings = $('confirm-recordings');
-const confirmSteps      = $('confirm-steps');
-const btnConfirmCancel  = $('btn-confirm-cancel');
-const btnConfirmSend    = $('btn-confirm-send');
+const confirmSteps = $('confirm-steps');
+const btnConfirmCancel = $('btn-confirm-cancel');
+const btnConfirmSend = $('btn-confirm-send');
 
 // Dispatch result
-const resultTitle   = $('result-title');
+const resultTitle = $('result-title');
 const resultMessage = $('result-message');
 const btnResultBack = $('btn-result-back');
 
 // Desktop-specific elements
-const targetAppSelect       = $('target-app-select');
-const btnRefreshApps        = $('btn-refresh-apps');
-const selfCaptureToggle     = $('self-capture-toggle');
+const targetAppSelect = $('target-app-select');
+const btnRefreshApps = $('btn-refresh-apps');
+const selfCaptureToggle = $('self-capture-toggle');
 
 // ─── State ────────────────────────────────────────────────────────────────────
 
@@ -200,11 +204,11 @@ let sessionState = {
   },
 };
 
-let activeProject    = null;
-let activeRecording  = null;
-let activeSteps      = [];
-let isRecording      = false;
-let pendingCount     = 0;
+let activeProject = null;
+let activeRecording = null;
+let activeSteps = [];
+let isRecording = false;
+let pendingCount = 0;
 let commitInProgress = false;
 let rerecordLogicalId = null;
 let previousRecordingView = null;
@@ -236,7 +240,15 @@ async function loadState() {
     // Missing or corrupted file — start fresh
     sessionState = {
       projects: [],
-      settings: { endpointUrl: null, apiKey: null, theme: 'auto', selfCaptureExclusion: true, syncUrl: null, syncApiKey: null, recordingMode: 'narration' },
+      settings: {
+        endpointUrl: null,
+        apiKey: null,
+        theme: 'auto',
+        selfCaptureExclusion: true,
+        syncUrl: null,
+        syncApiKey: null,
+        recordingMode: 'narration',
+      },
     };
   }
   dispatchSettings = {
@@ -259,13 +271,13 @@ async function saveState() {
 
 // ─── Pending actions tracking ─────────────────────────────────────────────────
 
-adapter.onPendingCountChange(count => {
+adapter.onPendingCountChange((count) => {
   pendingCount = count;
   updateCommitButton();
 });
 
 // Live action list: render each action as it's captured
-adapter.onActionEvent(action => {
+adapter.onActionEvent((action) => {
   appendLiveAction(action);
 });
 
@@ -287,7 +299,7 @@ function clearLiveActionList() {
 // ─── View management ─────────────────────────────────────────────────────────
 
 function showView(viewKey) {
-  Object.values(views).forEach(v => v && v.classList.add('hidden'));
+  Object.values(views).forEach((v) => v && v.classList.add('hidden'));
   views[viewKey].classList.remove('hidden');
   if (['projects', 'newProject', 'project', 'newRecording'].includes(viewKey)) {
     activeRecording = null;
@@ -315,7 +327,7 @@ bcProjects.addEventListener('click', async () => {
     await invoke('stop_capture');
     isRecording = false;
   }
-  activeProject   = null;
+  activeProject = null;
   activeRecording = null;
   updateRecordingUI();
   renderProjectsList();
@@ -335,7 +347,7 @@ bcProject.addEventListener('click', async () => {
 // ─── Projects list ────────────────────────────────────────────────────────────
 
 function renderProjectsList() {
-  const projects = sessionState.projects.map(p => ({
+  const projects = sessionState.projects.map((p) => ({
     ...p,
     recording_count: (p.recordings ?? []).length,
   }));
@@ -348,8 +360,12 @@ function renderProjectsList() {
     const wrapper = document.createElement('template');
     wrapper.innerHTML = htmlItems[i].trim();
     const li = wrapper.content.firstChild;
-    li.querySelector('[data-action="open"]').addEventListener('click', () => openProject(p.project_id));
-    li.querySelector('[data-action="delete"]').addEventListener('click', () => deleteProject(p.project_id, p.name));
+    li.querySelector('[data-action="open"]').addEventListener('click', () =>
+      openProject(p.project_id),
+    );
+    li.querySelector('[data-action="delete"]').addEventListener('click', () =>
+      deleteProject(p.project_id, p.name),
+    );
     projectList.appendChild(li);
   });
 
@@ -357,7 +373,7 @@ function renderProjectsList() {
 }
 
 function openProject(project_id) {
-  activeProject = sessionState.projects.find(p => p.project_id === project_id) ?? null;
+  activeProject = sessionState.projects.find((p) => p.project_id === project_id) ?? null;
   activeRecording = null;
   isRecording = false;
   updateRecordingUI();
@@ -367,7 +383,7 @@ function openProject(project_id) {
 
 async function deleteProject(project_id, name) {
   if (!confirm(`Delete project "${name}"? This cannot be undone.`)) return;
-  sessionState.projects = sessionState.projects.filter(p => p.project_id !== project_id);
+  sessionState.projects = sessionState.projects.filter((p) => p.project_id !== project_id);
   await saveState();
   if (activeProject?.project_id === project_id) {
     activeProject = null;
@@ -389,13 +405,13 @@ btnNewProjectCreate.addEventListener('click', async () => {
   const project = createProject(name);
   sessionState.projects.push(project);
   await saveState();
-  activeProject   = project;
+  activeProject = project;
   activeRecording = null;
   renderProjectDetail();
   showView('project');
 });
 
-newProjectName.addEventListener('keydown', e => {
+newProjectName.addEventListener('keydown', (e) => {
   if (e.key === 'Enter') btnNewProjectCreate.click();
 });
 
@@ -435,17 +451,17 @@ async function handleImportData(exportData) {
   }
 
   const imported = exportData.project;
-  const exists = sessionState.projects.some(p => p.project_id === imported.project_id);
+  const exists = sessionState.projects.some((p) => p.project_id === imported.project_id);
 
   const newProject = {
     project_id: exists ? uuidv7() : imported.project_id,
     name: exists ? `${imported.name} (copy)` : imported.name,
     created_at: imported.created_at ?? new Date().toISOString(),
-    recordings: (exportData.recordings ?? []).map(r => ({
+    recordings: (exportData.recordings ?? []).map((r) => ({
       recording_id: r.recording_id,
       name: r.name,
       created_at: r.created_at,
-      steps: (r.steps ?? []).map(s => ({
+      steps: (r.steps ?? []).map((s) => ({
         uuid: s.uuid ?? uuidv7(),
         logical_id: s.logical_id,
         step_number: s.step_number,
@@ -482,8 +498,12 @@ function renderProjectDetail() {
     const wrapper = document.createElement('template');
     wrapper.innerHTML = htmlItems[i].trim();
     const li = wrapper.content.firstChild;
-    li.querySelector('[data-action="open"]').addEventListener('click', () => openRecording(r.recording_id));
-    li.querySelector('[data-action="delete"]').addEventListener('click', () => deleteRecording(r.recording_id, r.name));
+    li.querySelector('[data-action="open"]').addEventListener('click', () =>
+      openRecording(r.recording_id),
+    );
+    li.querySelector('[data-action="delete"]').addEventListener('click', () =>
+      deleteRecording(r.recording_id, r.name),
+    );
     recordingList.appendChild(li);
   });
   updateDispatchButton();
@@ -517,14 +537,14 @@ btnNewRecordingCreate.addEventListener('click', async () => {
   const recording = createRecording(activeProject, name);
   await saveState();
   activeRecording = recording;
-  activeSteps     = [];
-  isRecording     = true;
+  activeSteps = [];
+  isRecording = true;
   adapter.clearPendingActions();
   await invoke('start_capture', { pid: null });
   enterRecordingView();
 });
 
-newRecordingName.addEventListener('keydown', e => {
+newRecordingName.addEventListener('keydown', (e) => {
   if (e.key === 'Enter') btnNewRecordingCreate.click();
 });
 
@@ -532,8 +552,8 @@ function openRecording(recording_id) {
   const recording = findRecording(activeProject, recording_id);
   if (!recording) return;
   activeRecording = recording;
-  activeSteps     = resolveActiveSteps(recording);
-  isRecording     = false;
+  activeSteps = resolveActiveSteps(recording);
+  isRecording = false;
   enterRecordingView();
 }
 
@@ -543,7 +563,9 @@ async function deleteRecording(recording_id, name) {
     await invoke('stop_capture');
     isRecording = false;
   }
-  activeProject.recordings = activeProject.recordings.filter(r => r.recording_id !== recording_id);
+  activeProject.recordings = activeProject.recordings.filter(
+    (r) => r.recording_id !== recording_id,
+  );
   await saveState();
   activeRecording = null;
   updateRecordingUI();
@@ -560,7 +582,7 @@ btnExportProject.addEventListener('click', async () => {
       created_at: activeProject.created_at,
       ...(activeProject.metadata && { metadata: activeProject.metadata }),
     },
-    recordings: (activeProject.recordings ?? []).map(r => ({
+    recordings: (activeProject.recordings ?? []).map((r) => ({
       recording_id: r.recording_id,
       name: r.name,
       created_at: r.created_at,
@@ -578,9 +600,9 @@ btnExportProject.addEventListener('click', async () => {
     }
   } else {
     const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
-    const url  = URL.createObjectURL(blob);
-    const a    = document.createElement('a');
-    a.href     = url;
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
     a.download = `${activeProject.name.replace(/\s+/g, '_')}_${Date.now()}.docent.json`;
     a.click();
     URL.revokeObjectURL(url);
@@ -597,8 +619,8 @@ function resolveActiveStepsForRecording(r) {
 function openDispatchFlow() {
   const recordings = activeProject?.recordings ?? [];
   const recordingsWithSteps = recordings
-    .map(r => ({ ...r, activeSteps: resolveActiveStepsForRecording(r) }))
-    .filter(r => r.activeSteps.length > 0);
+    .map((r) => ({ ...r, activeSteps: resolveActiveStepsForRecording(r) }))
+    .filter((r) => r.activeSteps.length > 0);
 
   if (recordingsWithSteps.length === 0) return;
 
@@ -627,7 +649,7 @@ function openDispatchFlow() {
   });
   recordingSelectorList.appendChild(allLi);
 
-  recordingsWithSteps.forEach(r => {
+  recordingsWithSteps.forEach((r) => {
     const li = document.createElement('li');
     li.className = 'card-item';
     li.innerHTML = `
@@ -650,9 +672,9 @@ function openDispatchFlow() {
 
 function showConfirmation(recordings, totalSteps) {
   dispatchSelection = { recordings, totalSteps };
-  confirmEndpoint.textContent   = dispatchSettings.endpointUrl ?? '';
-  confirmRecordings.textContent = recordings.map(r => r.name).join(', ');
-  confirmSteps.textContent      = String(totalSteps);
+  confirmEndpoint.textContent = dispatchSettings.endpointUrl ?? '';
+  confirmRecordings.textContent = recordings.map((r) => r.name).join(', ');
+  confirmSteps.textContent = String(totalSteps);
   showView('dispatchConfirm');
 }
 
@@ -661,14 +683,14 @@ btnConfirmCancel.addEventListener('click', () => showView('project'));
 
 btnConfirmSend.addEventListener('click', async () => {
   if (!dispatchSelection) return;
-  btnConfirmSend.disabled     = true;
+  btnConfirmSend.disabled = true;
   btnDispatchProject.disabled = true;
   try {
     const guidance = await adapter.loadReadingGuidance();
-    const schema   = await adapter.loadSchema();
-    const payload  = buildPayload(activeProject, dispatchSelection.recordings, guidance, schema);
+    const schema = await adapter.loadSchema();
+    const payload = buildPayload(activeProject, dispatchSelection.recordings, guidance, schema);
     await sendPayload(dispatchSettings.endpointUrl, dispatchSettings.apiKey, payload);
-    resultTitle.textContent   = 'Sent';
+    resultTitle.textContent = 'Sent';
     resultMessage.textContent = `Successfully dispatched ${dispatchSelection.totalSteps} step${dispatchSelection.totalSteps !== 1 ? 's' : ''} to ${dispatchSettings.endpointUrl}.`;
     showView('dispatchResult');
   } catch (err) {
@@ -680,7 +702,7 @@ btnConfirmSend.addEventListener('click', async () => {
     }
     showView('dispatchResult');
   } finally {
-    btnConfirmSend.disabled     = false;
+    btnConfirmSend.disabled = false;
     btnDispatchProject.disabled = !dispatchSettings.endpointUrl;
   }
 });
@@ -706,7 +728,7 @@ function enterRecordingView() {
   showView('recording');
 }
 
-const SVG_PAUSE  = `<svg viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><rect x="5" y="4" width="3.5" height="12" rx="1" fill="currentColor"/><rect x="11.5" y="4" width="3.5" height="12" rx="1" fill="currentColor"/></svg>`;
+const SVG_PAUSE = `<svg viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><rect x="5" y="4" width="3.5" height="12" rx="1" fill="currentColor"/><rect x="11.5" y="4" width="3.5" height="12" rx="1" fill="currentColor"/></svg>`;
 const SVG_RESUME = `<svg viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path d="M6 4l10 6-10 6V4z" fill="currentColor"/></svg>`;
 const SVG_REC_DOT = `<svg viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><circle cx="10" cy="10" r="5" fill="currentColor"/></svg>`;
 
@@ -759,7 +781,7 @@ function updateCommitButton() {
 }
 
 btnCommitStep.addEventListener('click', () =>
-  commitStep(narrationInput, 'typed', rerecordLogicalId)
+  commitStep(narrationInput, 'typed', rerecordLogicalId),
 );
 
 btnClearStep.addEventListener('click', async () => {
@@ -772,7 +794,7 @@ btnClearStep.addEventListener('click', async () => {
 
 // ─── Simple mode handlers ─────────────────────────────────────────────────────
 
-stepTypeRadios.forEach(radio => {
+stepTypeRadios.forEach((radio) => {
   radio.addEventListener('change', () => {
     if (!radio.checked) return;
     expectGroup.classList.toggle('hidden', radio.value !== 'validation');
@@ -794,9 +816,10 @@ async function commitStepSimple(logicalId) {
   commitInProgress = true;
   try {
     const stepType = document.querySelector('input[name="step-type"]:checked')?.value ?? 'action';
-    const expect = stepType === 'validation'
-      ? (document.querySelector('input[name="step-expect"]:checked')?.value ?? 'present')
-      : undefined;
+    const expect =
+      stepType === 'validation'
+        ? (document.querySelector('input[name="step-expect"]:checked')?.value ?? 'present')
+        : undefined;
 
     const wasRecording = isRecording;
 
@@ -810,7 +833,7 @@ async function commitStepSimple(logicalId) {
 
     const actions = adapter.getPendingActions();
     const nextStepNumber = logicalId
-      ? (activeSteps.find(s => s.logical_id === logicalId)?.step_number ?? activeSteps.length + 1)
+      ? (activeSteps.find((s) => s.logical_id === logicalId)?.step_number ?? activeSteps.length + 1)
       : activeSteps.length + 1;
 
     const stepData = {
@@ -862,10 +885,12 @@ function loadRecordingMode() {
   const mode = sessionState.settings.recordingMode ?? 'narration';
   recordingMode = mode;
   applyRecordingMode(mode);
-  recordingModeRadios.forEach(r => { r.checked = r.value === mode; });
+  recordingModeRadios.forEach((r) => {
+    r.checked = r.value === mode;
+  });
 }
 
-recordingModeRadios.forEach(radio => {
+recordingModeRadios.forEach((radio) => {
   radio.addEventListener('change', async () => {
     if (!radio.checked) return;
     applyRecordingMode(radio.value);
@@ -893,7 +918,7 @@ async function commitStep(inputEl, source, logicalId) {
 
     const actions = adapter.getPendingActions();
     const nextStepNumber = logicalId
-      ? (activeSteps.find(s => s.logical_id === logicalId)?.step_number ?? activeSteps.length + 1)
+      ? (activeSteps.find((s) => s.logical_id === logicalId)?.step_number ?? activeSteps.length + 1)
       : activeSteps.length + 1;
 
     const step = createStep({
@@ -936,8 +961,8 @@ async function commitStep(inputEl, source, logicalId) {
 // ─── Step list ────────────────────────────────────────────────────────────────
 
 function renderStepList() {
-  stepListEl.innerHTML    = '';
-  stepCount.textContent   = activeSteps.length;
+  stepListEl.innerHTML = '';
+  stepCount.textContent = activeSteps.length;
 
   const htmlItems = renderStepListHtml(activeSteps);
   activeSteps.forEach((step, index) => {
@@ -947,8 +972,12 @@ function renderStepList() {
 
     li.querySelector('.step-narration').addEventListener('click', () => openStepDetail(step));
     li.querySelector('[data-action="edit"]').addEventListener('click', () => openRerecord(step));
-    li.querySelector('[data-action="history"]').addEventListener('click', () => openHistory(step.logical_id));
-    li.querySelector('[data-action="delete"]').addEventListener('click', () => confirmDeleteStep(step.logical_id));
+    li.querySelector('[data-action="history"]').addEventListener('click', () =>
+      openHistory(step.logical_id),
+    );
+    li.querySelector('[data-action="delete"]').addEventListener('click', () =>
+      confirmDeleteStep(step.logical_id),
+    );
 
     li.addEventListener('dragstart', onDragStart);
     li.addEventListener('dragover', onDragOver);
@@ -962,8 +991,8 @@ function renderStepList() {
 // ─── Re-record ────────────────────────────────────────────────────────────────
 
 async function openRerecord(step) {
-  rerecordLogicalId       = step.logical_id;
-  previousRecordingView   = isRecording;
+  rerecordLogicalId = step.logical_id;
+  previousRecordingView = isRecording;
   if (isRecording) {
     await invoke('stop_capture');
     isRecording = false;
@@ -1034,12 +1063,14 @@ btnHistoryBack.addEventListener('click', () => showView('recording'));
 // ─── Step detail ──────────────────────────────────────────────────────────────
 
 function openStepDetail(step) {
-  const label = step.narration || (step.step_type ? `${step.step_type}${step.expect ? ' (' + step.expect + ')' : ''}` : 'Step');
+  const label =
+    step.narration ||
+    (step.step_type ? `${step.step_type}${step.expect ? ' (' + step.expect + ')' : ''}` : 'Step');
   stepDetailTitle.textContent = `Step ${step.step_number}: ${label}`;
   stepDetailList.innerHTML = '';
 
   const htmlItems = renderStepDetailHtml(step.actions);
-  htmlItems.forEach(html => {
+  htmlItems.forEach((html) => {
     const wrapper = document.createElement('template');
     wrapper.innerHTML = html.trim();
     stepDetailList.appendChild(wrapper.content.firstChild);
@@ -1079,7 +1110,7 @@ function onDragOver(e) {
 function onDrop(e) {
   e.preventDefault();
   if (dragSrc === this) return;
-  const items  = [...stepListEl.querySelectorAll('.step-item')];
+  const items = [...stepListEl.querySelectorAll('.step-item')];
   const srcIdx = items.indexOf(dragSrc);
   const dstIdx = items.indexOf(this);
   if (srcIdx < dstIdx) stepListEl.insertBefore(dragSrc, this.nextSibling);
@@ -1087,17 +1118,17 @@ function onDrop(e) {
 }
 
 async function onDragEnd() {
-  document.querySelectorAll('.step-item').forEach(el =>
-    el.classList.remove('dragging', 'drag-over')
-  );
-  const currentIds  = [...stepListEl.querySelectorAll('.step-item')].map(el => el.dataset.logical);
-  const originalIds = activeSteps.map(s => s.logical_id);
-  const changed     = currentIds.some((id, i) => id !== originalIds[i]);
+  document
+    .querySelectorAll('.step-item')
+    .forEach((el) => el.classList.remove('dragging', 'drag-over'));
+  const currentIds = [...stepListEl.querySelectorAll('.step-item')].map((el) => el.dataset.logical);
+  const originalIds = activeSteps.map((s) => s.logical_id);
+  const changed = currentIds.some((id, i) => id !== originalIds[i]);
   if (changed) await persistReorder();
 }
 
 async function persistReorder() {
-  const orderedIds = [...stepListEl.querySelectorAll('.step-item')].map(el => el.dataset.logical);
+  const orderedIds = [...stepListEl.querySelectorAll('.step-item')].map((el) => el.dataset.logical);
   reorderSteps(activeRecording, orderedIds);
   activeSteps = resolveActiveSteps(activeRecording);
   await saveState();
@@ -1113,10 +1144,12 @@ function applyTheme(theme) {
 function loadTheme() {
   const theme = sessionState.settings.theme ?? 'auto';
   applyTheme(theme);
-  themeRadios.forEach(r => { r.checked = r.value === theme; });
+  themeRadios.forEach((r) => {
+    r.checked = r.value === theme;
+  });
 }
 
-themeRadios.forEach(radio => {
+themeRadios.forEach((radio) => {
   radio.addEventListener('change', async () => {
     if (!radio.checked) return;
     applyTheme(radio.value);
@@ -1131,15 +1164,15 @@ let settingsReturnView = 'projects';
 
 async function loadAndPopulateDispatchSettings() {
   settingsEndpointUrl.value = dispatchSettings.endpointUrl ?? '';
-  settingsApiKey.value      = dispatchSettings.apiKey ?? '';
+  settingsApiKey.value = dispatchSettings.apiKey ?? '';
   settingsEndpointError.textContent = '';
   settingsEndpointError.classList.add('hidden');
 }
 
 btnSettingsDispatchSave.addEventListener('click', async () => {
-  const url    = settingsEndpointUrl.value.trim();
+  const url = settingsEndpointUrl.value.trim();
   const apiKey = settingsApiKey.value.trim();
-  const error  = validateEndpointUrl(url);
+  const error = validateEndpointUrl(url);
   if (error) {
     settingsEndpointError.textContent = error;
     settingsEndpointError.classList.remove('hidden');
@@ -1149,7 +1182,7 @@ btnSettingsDispatchSave.addEventListener('click', async () => {
   settingsEndpointError.classList.add('hidden');
 
   sessionState.settings.endpointUrl = url || null;
-  sessionState.settings.apiKey      = apiKey || null;
+  sessionState.settings.apiKey = apiKey || null;
   dispatchSettings = {
     endpointUrl: sessionState.settings.endpointUrl,
     apiKey: sessionState.settings.apiKey,
@@ -1165,7 +1198,7 @@ function updateDispatchButton() {
     return;
   }
   const recordings = activeProject?.recordings ?? [];
-  const hasActiveSteps = recordings.some(r => resolveActiveSteps(r).length > 0);
+  const hasActiveSteps = recordings.some((r) => resolveActiveSteps(r).length > 0);
   btnDispatchProject.disabled = !hasActiveSteps;
   btnDispatchProject.title = hasActiveSteps ? '' : 'No recordings with active steps';
 }
@@ -1173,14 +1206,14 @@ function updateDispatchButton() {
 // ─── Sync settings ────────────────────────────────────────────────────────────
 
 async function loadAndPopulateSyncSettings() {
-  settingsSyncUrl.value    = syncSettings.serverUrl ?? '';
+  settingsSyncUrl.value = syncSettings.serverUrl ?? '';
   settingsSyncApiKey.value = syncSettings.apiKey ?? '';
   settingsSyncError.textContent = '';
   settingsSyncError.classList.add('hidden');
 }
 
 btnSettingsSyncSave.addEventListener('click', async () => {
-  const url    = settingsSyncUrl.value.trim();
+  const url = settingsSyncUrl.value.trim();
   const apiKey = settingsSyncApiKey.value.trim();
 
   // Validate URL if non-empty (R1-AC2)
@@ -1228,7 +1261,7 @@ async function handleSync() {
     const { result, projects: mergedProjects } = await sync(
       syncSettings.serverUrl,
       syncSettings.apiKey,
-      sessionState.projects
+      sessionState.projects,
     );
 
     // Persist merged projects via saveState() (R5-AC5)
@@ -1241,7 +1274,8 @@ async function handleSync() {
     // Refresh the projects list UI to reflect pulled/updated projects
     if (activeProject) {
       // Re-resolve activeProject from updated list
-      activeProject = sessionState.projects.find(p => p.project_id === activeProject.project_id) ?? null;
+      activeProject =
+        sessionState.projects.find((p) => p.project_id === activeProject.project_id) ?? null;
     }
     renderProjectsList();
   } catch (err) {
@@ -1259,9 +1293,12 @@ function showSyncSummary(result) {
     return;
   }
   const parts = [];
-  if (result.pushed.length > 0) parts.push(`Pushed ${result.pushed.length} project${result.pushed.length !== 1 ? 's' : ''}`);
-  if (result.pulled.length > 0) parts.push(`Pulled ${result.pulled.length} project${result.pulled.length !== 1 ? 's' : ''}`);
-  if (result.errors.length > 0) parts.push(`${result.errors.length} error${result.errors.length !== 1 ? 's' : ''}`);
+  if (result.pushed.length > 0)
+    parts.push(`Pushed ${result.pushed.length} project${result.pushed.length !== 1 ? 's' : ''}`);
+  if (result.pulled.length > 0)
+    parts.push(`Pulled ${result.pulled.length} project${result.pulled.length !== 1 ? 's' : ''}`);
+  if (result.errors.length > 0)
+    parts.push(`${result.errors.length} error${result.errors.length !== 1 ? 's' : ''}`);
   if (parts.length === 0) parts.push('Everything up to date');
   alert(parts.join('. ') + '.');
 }
@@ -1272,7 +1309,9 @@ btnSettings.addEventListener('click', () => {
     if (settingsReturnView === 'project') updateDispatchButton();
     return;
   }
-  const current = Object.entries(views).find(([key, el]) => key !== 'settings' && !el.classList.contains('hidden'));
+  const current = Object.entries(views).find(
+    ([key, el]) => key !== 'settings' && !el.classList.contains('hidden'),
+  );
   settingsReturnView = current ? current[0] : 'projects';
   loadAndPopulateDispatchSettings();
   loadAndPopulateSyncSettings();
@@ -1364,7 +1403,12 @@ function collectMetadata(container) {
     const value = row.querySelector('.metadata-value').value.trim();
     if (key) {
       // If value contains commas, store as array
-      metadata[key] = value.includes(',') ? value.split(',').map(v => v.trim()).filter(Boolean) : value;
+      metadata[key] = value.includes(',')
+        ? value
+            .split(',')
+            .map((v) => v.trim())
+            .filter(Boolean)
+        : value;
     }
   }
   return Object.keys(metadata).length > 0 ? metadata : undefined;
@@ -1436,7 +1480,9 @@ updateSyncButton();
 
 // Set initial self-capture exclusion based on persisted setting
 try {
-  await invoke('set_self_capture_exclusion', { enabled: sessionState.settings.selfCaptureExclusion ?? true });
+  await invoke('set_self_capture_exclusion', {
+    enabled: sessionState.settings.selfCaptureExclusion ?? true,
+  });
 } catch (err) {
   console.warn('[Docent] Failed to set initial self-capture exclusion:', err);
 }

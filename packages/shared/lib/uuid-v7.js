@@ -25,8 +25,8 @@ export function uuidv7() {
   bytes[1] = Number((ms >> 32n) & 0xffn);
   bytes[2] = Number((ms >> 24n) & 0xffn);
   bytes[3] = Number((ms >> 16n) & 0xffn);
-  bytes[4] = Number((ms >> 8n)  & 0xffn);
-  bytes[5] = Number(ms          & 0xffn);
+  bytes[4] = Number((ms >> 8n) & 0xffn);
+  bytes[5] = Number(ms & 0xffn);
 
   // Version — 4 bits set to 0111 (7)
   bytes[6] = (bytes[6] & 0x0f) | 0x70;
@@ -35,7 +35,7 @@ export function uuidv7() {
   bytes[8] = (bytes[8] & 0x3f) | 0x80;
 
   const hex = Array.from(bytes)
-    .map(b => b.toString(16).padStart(2, '0'))
+    .map((b) => b.toString(16).padStart(2, '0'))
     .join('');
 
   return [

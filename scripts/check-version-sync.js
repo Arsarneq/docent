@@ -51,17 +51,23 @@ function checkFile(filePath, expectedExt, expectedDesk) {
   let ok = true;
 
   if (!tableSection.includes(expectedExt)) {
-    console.error(`✗ ${filePath}: expected extension version "${expectedExt}" not found in version table`);
+    console.error(
+      `✗ ${filePath}: expected extension version "${expectedExt}" not found in version table`,
+    );
     ok = false;
   }
 
   if (!tableSection.includes(expectedDesk)) {
-    console.error(`✗ ${filePath}: expected desktop version "${expectedDesk}" not found in version table`);
+    console.error(
+      `✗ ${filePath}: expected desktop version "${expectedDesk}" not found in version table`,
+    );
     ok = false;
   }
 
   if (ok) {
-    console.log(`✓ ${filePath}: versions match (extension: ${expectedExt}, desktop: ${expectedDesk})`);
+    console.log(
+      `✓ ${filePath}: versions match (extension: ${expectedExt}, desktop: ${expectedDesk})`,
+    );
   }
 
   return ok;

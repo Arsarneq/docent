@@ -37,22 +37,27 @@ function deserializeState(json) {
 
 /** Generate a UUIDv7-like string */
 const hexChar = fc.constantFrom(...'0123456789abcdef'.split(''));
-const arbUuid = fc.tuple(
-  fc.array(hexChar, { minLength: 8, maxLength: 8 }),
-  fc.array(hexChar, { minLength: 4, maxLength: 4 }),
-  fc.array(hexChar, { minLength: 3, maxLength: 3 }),
-  fc.constantFrom('8', '9', 'a', 'b'),
-  fc.array(hexChar, { minLength: 3, maxLength: 3 }),
-  fc.array(hexChar, { minLength: 12, maxLength: 12 }),
-).map(([a, b, c, variant, d, e]) =>
-  `${a.join('')}-${b.join('')}-7${c.join('')}-${variant}${d.join('')}-${e.join('')}`
-);
+const arbUuid = fc
+  .tuple(
+    fc.array(hexChar, { minLength: 8, maxLength: 8 }),
+    fc.array(hexChar, { minLength: 4, maxLength: 4 }),
+    fc.array(hexChar, { minLength: 3, maxLength: 3 }),
+    fc.constantFrom('8', '9', 'a', 'b'),
+    fc.array(hexChar, { minLength: 3, maxLength: 3 }),
+    fc.array(hexChar, { minLength: 12, maxLength: 12 }),
+  )
+  .map(
+    ([a, b, c, variant, d, e]) =>
+      `${a.join('')}-${b.join('')}-7${c.join('')}-${variant}${d.join('')}-${e.join('')}`,
+  );
 
 /** Generate an ISO 8601 timestamp */
-const arbTimestamp = fc.integer({
-  min: new Date('2020-01-01').getTime(),
-  max: new Date('2030-12-31').getTime(),
-}).map(ms => new Date(ms).toISOString());
+const arbTimestamp = fc
+  .integer({
+    min: new Date('2020-01-01').getTime(),
+    max: new Date('2030-12-31').getTime(),
+  })
+  .map((ms) => new Date(ms).toISOString());
 
 /** Generate a single action object */
 const arbAction = fc.record({
@@ -93,14 +98,14 @@ const arbStep = fc.oneof(arbNarrationStep, arbSimpleStep);
 /** Generate a metadata object */
 const arbMetadata = fc.option(
   fc.dictionary(
-    fc.string({ minLength: 1, maxLength: 20 }).filter(s => s.trim().length > 0),
+    fc.string({ minLength: 1, maxLength: 20 }).filter((s) => s.trim().length > 0),
     fc.oneof(
       fc.string({ minLength: 1, maxLength: 50 }),
-      fc.array(fc.string({ minLength: 1, maxLength: 20 }), { minLength: 1, maxLength: 5 })
+      fc.array(fc.string({ minLength: 1, maxLength: 20 }), { minLength: 1, maxLength: 5 }),
     ),
-    { minKeys: 1, maxKeys: 5 }
+    { minKeys: 1, maxKeys: 5 },
   ),
-  { nil: undefined }
+  { nil: undefined },
 );
 
 /** Generate a recording */
@@ -161,8 +166,11 @@ describe('Property 11: Session persistence round-trip', () => {
         const restored = deserializeState(json);
 
         assert.notStrictEqual(restored, null, 'Deserialization should not return null');
-        assert.deepStrictEqual(restored, normalizedState,
-          'Round-tripped state should be deeply equal to original');
+        assert.deepStrictEqual(
+          restored,
+          normalizedState,
+          'Round-tripped state should be deeply equal to original',
+        );
       }),
       { numRuns: 100 },
     );
@@ -214,13 +222,17 @@ describe('Property 11: Session persistence round-trip', () => {
   it('corrupted JSON returns null from deserializeState', () => {
     fc.assert(
       fc.property(
-        fc.string({ minLength: 1, maxLength: 100 }).filter(s => {
-          try { JSON.parse(s); return false; } catch { return true; }
+        fc.string({ minLength: 1, maxLength: 100 }).filter((s) => {
+          try {
+            JSON.parse(s);
+            return false;
+          } catch {
+            return true;
+          }
         }),
         (corruptedJson) => {
           const result = deserializeState(corruptedJson);
-          assert.strictEqual(result, null,
-            'Corrupted JSON should return null');
+          assert.strictEqual(result, null, 'Corrupted JSON should return null');
         },
       ),
       { numRuns: 100 },
@@ -237,8 +249,11 @@ describe('Property 11: Session persistence round-trip', () => {
         for (let i = 0; i < normalizedState.projects.length; i++) {
           const orig = normalizedState.projects[i];
           const rest = restored.projects[i];
-          assert.deepStrictEqual(rest.metadata, orig.metadata,
-            `Project "${orig.name}" metadata mismatch`);
+          assert.deepStrictEqual(
+            rest.metadata,
+            orig.metadata,
+            `Project "${orig.name}" metadata mismatch`,
+          );
         }
       }),
       { numRuns: 100 },
@@ -253,12 +268,17 @@ describe('Property 11: Session persistence round-trip', () => {
         const restored = deserializeState(json);
 
         for (const project of normalizedState.projects) {
-          const restoredProject = restored.projects.find(p => p.project_id === project.project_id);
+          const restoredProject = restored.projects.find(
+            (p) => p.project_id === project.project_id,
+          );
           for (let j = 0; j < project.recordings.length; j++) {
             const origRec = project.recordings[j];
             const restRec = restoredProject.recordings[j];
-            assert.deepStrictEqual(restRec.metadata, origRec.metadata,
-              `Recording "${origRec.name}" metadata mismatch`);
+            assert.deepStrictEqual(
+              restRec.metadata,
+              origRec.metadata,
+              `Recording "${origRec.name}" metadata mismatch`,
+            );
           }
         }
       }),
@@ -268,28 +288,40 @@ describe('Property 11: Session persistence round-trip', () => {
 
   it('metadata with array values preserves array structure', () => {
     const state = {
-      projects: [{
-        project_id: '019e0000-0000-7000-8000-000000000001',
-        name: 'Test',
-        created_at: '2026-01-01T00:00:00.000Z',
-        metadata: { tags: ['smoke', 'login', 'critical'], ticket: 'PROJ-123' },
-        recordings: [{
-          recording_id: '019e0000-0000-7000-8000-000000000002',
-          name: 'Flow',
+      projects: [
+        {
+          project_id: '019e0000-0000-7000-8000-000000000001',
+          name: 'Test',
           created_at: '2026-01-01T00:00:00.000Z',
-          metadata: { env: ['staging', 'prod'] },
-          steps: [],
-        }],
-      }],
+          metadata: { tags: ['smoke', 'login', 'critical'], ticket: 'PROJ-123' },
+          recordings: [
+            {
+              recording_id: '019e0000-0000-7000-8000-000000000002',
+              name: 'Flow',
+              created_at: '2026-01-01T00:00:00.000Z',
+              metadata: { env: ['staging', 'prod'] },
+              steps: [],
+            },
+          ],
+        },
+      ],
       settings: { endpointUrl: null, apiKey: null, theme: 'auto', selfCaptureExclusion: true },
     };
 
     const json = serializeState(state);
     const restored = deserializeState(json);
 
-    assert.deepStrictEqual(restored.projects[0].metadata, { tags: ['smoke', 'login', 'critical'], ticket: 'PROJ-123' });
-    assert.deepStrictEqual(restored.projects[0].recordings[0].metadata, { env: ['staging', 'prod'] });
+    assert.deepStrictEqual(restored.projects[0].metadata, {
+      tags: ['smoke', 'login', 'critical'],
+      ticket: 'PROJ-123',
+    });
+    assert.deepStrictEqual(restored.projects[0].recordings[0].metadata, {
+      env: ['staging', 'prod'],
+    });
     assert.ok(Array.isArray(restored.projects[0].metadata.tags), 'tags should be an array');
-    assert.ok(Array.isArray(restored.projects[0].recordings[0].metadata.env), 'env should be an array');
+    assert.ok(
+      Array.isArray(restored.projects[0].recordings[0].metadata.env),
+      'env should be an array',
+    );
   });
 });

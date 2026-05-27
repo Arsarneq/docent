@@ -35,7 +35,7 @@ describe('uuidv7 — format', () => {
       const variantChar = id.replace(/-/g, '')[16];
       assert.ok(
         ['8', '9', 'a', 'b'].includes(variantChar),
-        `Expected variant 8/9/a/b, got ${variantChar} in ${id}`
+        `Expected variant 8/9/a/b, got ${variantChar} in ${id}`,
       );
     }
   });
@@ -63,7 +63,7 @@ describe('uuidv7 — monotonic ordering', () => {
 
   it('UUIDs generated 2ms apart are strictly ordered by string comparison', async () => {
     const a = uuidv7();
-    await new Promise(r => setTimeout(r, 2));
+    await new Promise((r) => setTimeout(r, 2));
     const b = uuidv7();
     assert.ok(b > a, `Expected ${b} > ${a}`);
   });
@@ -72,7 +72,7 @@ describe('uuidv7 — monotonic ordering', () => {
     const pairs = [];
     for (let i = 0; i < 20; i++) {
       const first = uuidv7();
-      await new Promise(r => setTimeout(r, 2));
+      await new Promise((r) => setTimeout(r, 2));
       const second = uuidv7();
       pairs.push([first, second]);
     }
@@ -93,15 +93,12 @@ describe('uuidv7 — uniqueness', () => {
 
   it('property: N calls produce N unique values', () => {
     fc.assert(
-      fc.property(
-        fc.integer({ min: 2, max: 50 }),
-        (n) => {
-          const ids = new Set();
-          for (let i = 0; i < n; i++) ids.add(uuidv7());
-          return ids.size === n;
-        }
-      ),
-      { numRuns: 50 }
+      fc.property(fc.integer({ min: 2, max: 50 }), (n) => {
+        const ids = new Set();
+        for (let i = 0; i < n; i++) ids.add(uuidv7());
+        return ids.size === n;
+      }),
+      { numRuns: 50 },
     );
   });
 });
@@ -131,11 +128,21 @@ describe('compareUuidv7', () => {
     const b = uuidv7();
     // Same millisecond, but b generated after a — random bits make b >= a
     // Use a guaranteed case instead
-    assert.ok(compareUuidv7('00000000-0000-7000-8000-000000000000', 'ffffffff-ffff-7fff-bfff-ffffffffffff') < 0);
+    assert.ok(
+      compareUuidv7(
+        '00000000-0000-7000-8000-000000000000',
+        'ffffffff-ffff-7fff-bfff-ffffffffffff',
+      ) < 0,
+    );
   });
 
   it('returns positive when a > b', () => {
-    assert.ok(compareUuidv7('ffffffff-ffff-7fff-bfff-ffffffffffff', '00000000-0000-7000-8000-000000000000') > 0);
+    assert.ok(
+      compareUuidv7(
+        'ffffffff-ffff-7fff-bfff-ffffffffffff',
+        '00000000-0000-7000-8000-000000000000',
+      ) > 0,
+    );
   });
 
   it('returns 0 for identical UUIDs', () => {

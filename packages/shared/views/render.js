@@ -39,22 +39,38 @@ export function escapeHtml(str = '') {
  */
 export function describeAction(action) {
   switch (action.type) {
-    case 'navigate':    return escapeHtml(action.url);
-    case 'click':       return escapeHtml(action.element?.text || action.element?.selector || '');
-    case 'right_click': return `right-click ${escapeHtml(action.element?.text || action.element?.selector || '')}`;
-    case 'type':        return `${escapeHtml(action.element?.selector || '')} → "${escapeHtml(action.value || '')}"`;
-    case 'select':      return `${escapeHtml(action.element?.selector || '')} → "${escapeHtml(action.value || '')}"`;
-    case 'key':         return `${escapeHtml(action.key)}${action.modifiers?.ctrl ? ' (Ctrl)' : ''}${action.modifiers?.shift ? ' (Shift)' : ''} on ${escapeHtml(action.element?.selector || '')}`;
-    case 'focus':       return `focus ${escapeHtml(action.element?.selector || '')}`;
-    case 'file_upload': return `${escapeHtml(action.element?.selector || '')} → ${(action.files ?? []).map(f => escapeHtml(f.name)).join(', ')}`;
-    case 'drag_start':  return `drag ${escapeHtml(action.element?.text || action.element?.selector || '')}`;
-    case 'drop':        return `drop onto ${escapeHtml(action.element?.text || action.element?.selector || '')}`;
-    case 'scroll':      return `scroll ${action.delta_y > 0 ? '↓' : '↑'} ${Math.abs(action.delta_y)}px`;
-    case 'context_switch':  return `switch to tab: ${escapeHtml(action.title || action.source || '')}`;
-    case 'context_open':    return `new tab opened${action.source ? ': ' + escapeHtml(action.source) : ''}`;
-    case 'context_close':   return `tab closed`;
-    case 'file_dialog':     return `${escapeHtml(action.dialog_type || 'file')} dialog → ${escapeHtml(action.file_path || '')}`;
-    default:            return '';
+    case 'navigate':
+      return escapeHtml(action.url);
+    case 'click':
+      return escapeHtml(action.element?.text || action.element?.selector || '');
+    case 'right_click':
+      return `right-click ${escapeHtml(action.element?.text || action.element?.selector || '')}`;
+    case 'type':
+      return `${escapeHtml(action.element?.selector || '')} → "${escapeHtml(action.value || '')}"`;
+    case 'select':
+      return `${escapeHtml(action.element?.selector || '')} → "${escapeHtml(action.value || '')}"`;
+    case 'key':
+      return `${escapeHtml(action.key)}${action.modifiers?.ctrl ? ' (Ctrl)' : ''}${action.modifiers?.shift ? ' (Shift)' : ''} on ${escapeHtml(action.element?.selector || '')}`;
+    case 'focus':
+      return `focus ${escapeHtml(action.element?.selector || '')}`;
+    case 'file_upload':
+      return `${escapeHtml(action.element?.selector || '')} → ${(action.files ?? []).map((f) => escapeHtml(f.name)).join(', ')}`;
+    case 'drag_start':
+      return `drag ${escapeHtml(action.element?.text || action.element?.selector || '')}`;
+    case 'drop':
+      return `drop onto ${escapeHtml(action.element?.text || action.element?.selector || '')}`;
+    case 'scroll':
+      return `scroll ${action.delta_y > 0 ? '↓' : '↑'} ${Math.abs(action.delta_y)}px`;
+    case 'context_switch':
+      return `switch to tab: ${escapeHtml(action.title || action.source || '')}`;
+    case 'context_open':
+      return `new tab opened${action.source ? ': ' + escapeHtml(action.source) : ''}`;
+    case 'context_close':
+      return `tab closed`;
+    case 'file_dialog':
+      return `${escapeHtml(action.dialog_type || 'file')} dialog → ${escapeHtml(action.file_path || '')}`;
+    default:
+      return '';
   }
 }
 
@@ -90,7 +106,8 @@ const SVG_HISTORY = `<svg viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.o
  * @returns {string[]} array of `<li>` HTML strings
  */
 export function renderProjectList(projects) {
-  return projects.map(p => `
+  return projects.map(
+    (p) => `
     <li class="card-item" data-project-id="${escapeHtml(p.project_id)}">
       <div class="card-item-main">
         <span class="card-item-name">${escapeHtml(p.name)}</span>
@@ -103,7 +120,8 @@ export function renderProjectList(projects) {
         </button>
       </div>
     </li>
-  `);
+  `,
+  );
 }
 
 /**
@@ -117,11 +135,11 @@ export function renderProjectList(projects) {
  */
 function resolveActiveSteps(steps) {
   const groups = new Map();
-  for (const s of (steps ?? [])) {
+  for (const s of steps ?? []) {
     const existing = groups.get(s.logical_id);
     if (!existing || s.uuid > existing.uuid) groups.set(s.logical_id, s);
   }
-  return Array.from(groups.values()).filter(s => !s.deleted);
+  return Array.from(groups.values()).filter((s) => !s.deleted);
 }
 
 /**
@@ -138,7 +156,7 @@ function resolveActiveSteps(steps) {
  * @returns {string[]} array of `<li>` HTML strings
  */
 export function renderRecordingList(recordings) {
-  return recordings.map(r => {
+  return recordings.map((r) => {
     const activeSteps = resolveActiveSteps(r.steps);
     const count = activeSteps.length;
 
@@ -216,11 +234,13 @@ export function renderStepDetail(actions) {
     return ['<li class="step-detail-empty">No actions recorded.</li>'];
   }
 
-  return actions.map((action, i) => `
+  return actions.map(
+    (action, i) => `
     <li class="step-detail-item">
       <span class="step-detail-index">${i + 1}</span>
       <span class="step-detail-type">${escapeHtml(action.type)}</span>
       <span class="step-detail-desc">${describeAction(action)}</span>
     </li>
-  `);
+  `,
+  );
 }

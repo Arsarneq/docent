@@ -69,16 +69,16 @@ fn payload_type_name(payload: &ActionPayload) -> &'static str {
 /// Strategy for a minimal `ElementDescription`.
 fn arb_element() -> impl Strategy<Value = ElementDescription> {
     (
-        "[a-zA-Z]{1,20}",           // tag
+        "[a-zA-Z]{1,20}",                       // tag
         prop::option::of("[a-zA-Z0-9_]{1,20}"), // id
         prop::option::of("[a-zA-Z0-9 ]{1,30}"), // name
-        prop::option::of("[a-z]{1,15}"),         // role
-        prop::option::of("password"),            // element_type
+        prop::option::of("[a-z]{1,15}"),        // role
+        prop::option::of("password"),           // element_type
         prop::option::of("[a-zA-Z0-9 ]{1,50}"), // text
-        "[a-zA-Z0-9>: ]{0,60}",     // selector
+        "[a-zA-Z0-9>: ]{0,60}",                 // selector
     )
-        .prop_map(|(tag, id, name, role, element_type, text, selector)| {
-            ElementDescription {
+        .prop_map(
+            |(tag, id, name, role, element_type, text, selector)| ElementDescription {
                 tag,
                 id,
                 name,
@@ -86,8 +86,8 @@ fn arb_element() -> impl Strategy<Value = ElementDescription> {
                 element_type,
                 text,
                 selector,
-            }
-        })
+            },
+        )
 }
 
 /// Strategy for `Modifiers`.
@@ -112,18 +112,20 @@ fn arb_capture_mode() -> impl Strategy<Value = CaptureMode> {
 
 /// Strategy for an optional `WindowRect`.
 fn arb_window_rect() -> impl Strategy<Value = Option<WindowRect>> {
-    prop::option::of((
-        -10_000..=10_000i32,
-        -10_000..=10_000i32,
-        1..=10_000i32,
-        1..=10_000i32,
+    prop::option::of(
+        (
+            -10_000..=10_000i32,
+            -10_000..=10_000i32,
+            1..=10_000i32,
+            1..=10_000i32,
+        )
+            .prop_map(|(x, y, width, height)| WindowRect {
+                x,
+                y,
+                width,
+                height,
+            }),
     )
-        .prop_map(|(x, y, width, height)| WindowRect {
-            x,
-            y,
-            width,
-            height,
-        }))
 }
 
 /// Strategy for a random `NativeEvent`.
@@ -136,26 +138,24 @@ fn arb_native_event() -> impl Strategy<Value = NativeEvent> {
         (any::<f64>(), any::<f64>(), arb_element())
             .prop_map(|(x, y, element)| NativeEvent::RightClick { x, y, element }),
         // TextInput
-        (arb_element(), "[a-zA-Z0-9 ]{0,50}", any::<bool>())
-            .prop_map(|(element, value, is_password)| NativeEvent::TextInput {
+        (arb_element(), "[a-zA-Z0-9 ]{0,50}", any::<bool>()).prop_map(
+            |(element, value, is_password)| NativeEvent::TextInput {
                 element,
                 value,
                 is_password,
-            }),
+            }
+        ),
         // Selection
         (arb_element(), "[a-zA-Z0-9 ]{0,50}")
             .prop_map(|(element, value)| NativeEvent::Selection { element, value }),
         // Keyboard
-        (
-            "[a-zA-Z]{1,10}",
-            arb_modifiers(),
-            arb_element(),
-        )
-            .prop_map(|(key, modifiers, element)| NativeEvent::Keyboard {
+        ("[a-zA-Z]{1,10}", arb_modifiers(), arb_element(),).prop_map(
+            |(key, modifiers, element)| NativeEvent::Keyboard {
                 key,
                 modifiers,
                 element,
-            }),
+            }
+        ),
         // Focus
         arb_element().prop_map(|element| NativeEvent::Focus { element }),
         // DragStart
@@ -181,30 +181,36 @@ fn arb_native_event() -> impl Strategy<Value = NativeEvent> {
             any::<f64>(),
             any::<f64>(),
         )
-            .prop_map(
-                |(element, scroll_top, scroll_left, delta_y, delta_x)| NativeEvent::Scroll {
+            .prop_map(|(element, scroll_top, scroll_left, delta_y, delta_x)| {
+                NativeEvent::Scroll {
                     element,
                     scroll_top,
                     scroll_left,
                     delta_y,
                     delta_x,
-                },
-            ),
+                }
+            },),
         // WindowFocus
         ("[a-z_\\.]{1,30}", prop::option::of("[a-zA-Z0-9 ]{1,50}"))
             .prop_map(|(source, title)| NativeEvent::WindowFocus { source, title }),
         // WindowOpen
-        (prop::option::of(any::<i64>()), prop::option::of("[a-z_\\.]{1,30}"))
+        (
+            prop::option::of(any::<i64>()),
+            prop::option::of("[a-z_\\.]{1,30}")
+        )
             .prop_map(|(opener_context_id, source)| NativeEvent::WindowOpen {
                 opener_context_id,
                 source,
             }),
         // WindowClose
-        any::<bool>()
-            .prop_map(|window_closing| NativeEvent::WindowClose { window_closing }),
+        any::<bool>().prop_map(|window_closing| NativeEvent::WindowClose { window_closing }),
         // FileDialogComplete
         (
-            prop_oneof![Just("open".to_string()), Just("save".to_string()), Just("save_as".to_string())],
+            prop_oneof![
+                Just("open".to_string()),
+                Just("save".to_string()),
+                Just("save_as".to_string())
+            ],
             "[A-Z]:\\\\[a-zA-Z0-9\\\\]{1,50}",
             "[a-z_\\.]{1,30}",
         )

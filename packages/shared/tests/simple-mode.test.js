@@ -9,7 +9,13 @@
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { createStep, resolveActiveSteps, addStepRecord, deleteStep, reorderSteps } from '../lib/session.js';
+import {
+  createStep,
+  resolveActiveSteps,
+  addStepRecord,
+  deleteStep,
+  reorderSteps,
+} from '../lib/session.js';
 import { renderStepList } from '../views/render.js';
 
 // ─── createStep with simple mode fields ───────────────────────────────────────
@@ -106,7 +112,12 @@ describe('resolveActiveSteps — simple mode steps', () => {
     const recording = { recording_id: 'r1', name: 'Test', steps: [] };
 
     const step1 = createStep({ step_type: 'action', step_number: 1, actions: [] });
-    const step2 = createStep({ step_type: 'validation', expect: 'present', step_number: 2, actions: [] });
+    const step2 = createStep({
+      step_type: 'validation',
+      expect: 'present',
+      step_number: 2,
+      actions: [],
+    });
 
     addStepRecord(recording, step1);
     addStepRecord(recording, step2);
@@ -121,8 +132,18 @@ describe('resolveActiveSteps — simple mode steps', () => {
   it('resolves mixed narration and simple mode steps', () => {
     const recording = { recording_id: 'r1', name: 'Test', steps: [] };
 
-    const step1 = createStep({ narration: 'Click login', narration_source: 'typed', step_number: 1, actions: [] });
-    const step2 = createStep({ step_type: 'validation', expect: 'absent', step_number: 2, actions: [] });
+    const step1 = createStep({
+      narration: 'Click login',
+      narration_source: 'typed',
+      step_number: 1,
+      actions: [],
+    });
+    const step2 = createStep({
+      step_type: 'validation',
+      expect: 'absent',
+      step_number: 2,
+      actions: [],
+    });
 
     addStepRecord(recording, step1);
     addStepRecord(recording, step2);
@@ -139,9 +160,7 @@ describe('resolveActiveSteps — simple mode steps', () => {
 
 describe('renderStepList — simple mode steps', () => {
   it('renders step_type as label when narration is absent', () => {
-    const steps = [
-      { logical_id: 'l1', step_type: 'action', step_number: 1, actions: [] },
-    ];
+    const steps = [{ logical_id: 'l1', step_type: 'action', step_number: 1, actions: [] }];
     const html = renderStepList(steps);
     assert.equal(html.length, 1);
     assert.ok(html[0].includes('action'), 'Should contain step_type "action"');
@@ -158,16 +177,21 @@ describe('renderStepList — simple mode steps', () => {
   });
 
   it('renders narration when present (narration mode)', () => {
-    const steps = [
-      { logical_id: 'l1', narration: 'Log into system', step_number: 1, actions: [] },
-    ];
+    const steps = [{ logical_id: 'l1', narration: 'Log into system', step_number: 1, actions: [] }];
     const html = renderStepList(steps);
     assert.ok(html[0].includes('Log into system'), 'Should contain narration text');
   });
 
   it('prefers narration over step_type when both present', () => {
     const steps = [
-      { logical_id: 'l1', narration: 'Check button', step_type: 'validation', expect: 'present', step_number: 1, actions: [] },
+      {
+        logical_id: 'l1',
+        narration: 'Check button',
+        step_type: 'validation',
+        expect: 'present',
+        step_number: 1,
+        actions: [],
+      },
     ];
     const html = renderStepList(steps);
     assert.ok(html[0].includes('Check button'), 'Should show narration');
@@ -175,9 +199,7 @@ describe('renderStepList — simple mode steps', () => {
   });
 
   it('renders fallback label when neither narration nor step_type present', () => {
-    const steps = [
-      { logical_id: 'l1', step_number: 1, actions: [] },
-    ];
+    const steps = [{ logical_id: 'l1', step_number: 1, actions: [] }];
     const html = renderStepList(steps);
     assert.ok(html[0].includes('Step 1'), 'Should contain fallback "Step 1"');
     assert.ok(!html[0].includes('undefined'), 'Should not contain "undefined"');
@@ -195,18 +217,22 @@ describe('renderStepList — simple mode steps', () => {
   });
 });
 
-
 // ─── deleteStep and reorderSteps with simple mode steps ───────────────────────
 
 describe('deleteStep — simple mode steps', () => {
   it('soft-deletes a simple mode step preserving step_type and expect', async () => {
     const recording = { recording_id: 'r1', name: 'Test', steps: [] };
 
-    const step = createStep({ step_type: 'validation', expect: 'present', step_number: 1, actions: [] });
+    const step = createStep({
+      step_type: 'validation',
+      expect: 'present',
+      step_number: 1,
+      actions: [],
+    });
     addStepRecord(recording, step);
 
     // Small delay to ensure tombstone UUID > original UUID
-    await new Promise(r => setTimeout(r, 2));
+    await new Promise((r) => setTimeout(r, 2));
 
     deleteStep(recording, step.logical_id);
 
@@ -214,7 +240,7 @@ describe('deleteStep — simple mode steps', () => {
     assert.equal(active.length, 0, 'Step should be deleted');
 
     // The tombstone should preserve the original fields
-    const tombstone = recording.steps.find(s => s.deleted);
+    const tombstone = recording.steps.find((s) => s.deleted);
     assert.ok(tombstone, 'Tombstone should exist');
     assert.equal(tombstone.step_type, 'validation');
     assert.equal(tombstone.expect, 'present');
@@ -226,14 +252,19 @@ describe('reorderSteps — simple mode steps', () => {
     const recording = { recording_id: 'r1', name: 'Test', steps: [] };
 
     const s1 = createStep({ step_type: 'action', step_number: 1, actions: [] });
-    await new Promise(r => setTimeout(r, 2));
-    const s2 = createStep({ step_type: 'validation', expect: 'absent', step_number: 2, actions: [] });
+    await new Promise((r) => setTimeout(r, 2));
+    const s2 = createStep({
+      step_type: 'validation',
+      expect: 'absent',
+      step_number: 2,
+      actions: [],
+    });
 
     addStepRecord(recording, s1);
     addStepRecord(recording, s2);
 
     // Small delay to ensure reorder records have higher UUIDs
-    await new Promise(r => setTimeout(r, 2));
+    await new Promise((r) => setTimeout(r, 2));
 
     // Reorder: swap s2 to position 1, s1 to position 2
     reorderSteps(recording, [s2.logical_id, s1.logical_id]);
@@ -242,13 +273,13 @@ describe('reorderSteps — simple mode steps', () => {
     assert.equal(active.length, 2);
 
     // Find the validation step and verify its fields survived the reorder
-    const validationStep = active.find(s => s.logical_id === s2.logical_id);
+    const validationStep = active.find((s) => s.logical_id === s2.logical_id);
     assert.ok(validationStep, 'validation step should still exist');
     assert.equal(validationStep.step_type, 'validation');
     assert.equal(validationStep.expect, 'absent');
     assert.equal(validationStep.step_number, 1); // moved from 2 to 1
 
-    const actionStep = active.find(s => s.logical_id === s1.logical_id);
+    const actionStep = active.find((s) => s.logical_id === s1.logical_id);
     assert.ok(actionStep, 'action step should still exist');
     assert.equal(actionStep.step_type, 'action');
     assert.equal(actionStep.step_number, 2); // moved from 1 to 2

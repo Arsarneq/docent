@@ -7,9 +7,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc;
 use std::sync::Arc;
 
-use docent_desktop_lib::capture::worker_pool::{
-    RawEvent, RawEventType, WorkerMessage, WorkerPool,
-};
+use docent_desktop_lib::capture::worker_pool::{RawEvent, RawEventType, WorkerMessage, WorkerPool};
 use docent_desktop_lib::capture::ActionEvent;
 use proptest::prelude::*;
 
@@ -31,7 +29,7 @@ fn make_raw_event(event_type: RawEventType, window_handle: i64) -> RawEvent {
         modifiers: (false, false, false, false),
         scroll_delta: 0.0,
         callback_params: [0; 4],
-            pre_captured_element: None,
+        pre_captured_element: None,
     }
 }
 
@@ -488,7 +486,7 @@ use std::sync::Mutex;
 use std::thread;
 use std::time::Duration;
 
-use docent_desktop_lib::capture::worker_pool::{AccessibilityBackend, worker_loop};
+use docent_desktop_lib::capture::worker_pool::{worker_loop, AccessibilityBackend};
 use docent_desktop_lib::capture::{ActionPayload, CaptureError, ElementDescription};
 
 /// A mock accessibility backend for testing the worker_loop.
@@ -630,7 +628,9 @@ impl WorkerTestHarness {
     /// Send a raw event to the worker.
     fn send_event(&self, event: RawEvent) {
         self._queue_len.fetch_add(1, Ordering::SeqCst);
-        self.event_tx.send(WorkerMessage::Event(Box::new(event))).unwrap();
+        self.event_tx
+            .send(WorkerMessage::Event(Box::new(event)))
+            .unwrap();
     }
 
     /// Send shutdown and join the worker thread.
@@ -646,7 +646,6 @@ impl WorkerTestHarness {
         }
         events
     }
-
 }
 
 // ---------------------------------------------------------------------------
@@ -959,14 +958,10 @@ fn worker_panic_respawns_and_redistributes() {
     let (action_tx, _action_rx) = mpsc::channel::<ActionEvent>();
 
     // Track how many times each worker index has been spawned.
-    let spawn_counts: Vec<Arc<AtomicU64>> = (0..3)
-        .map(|_| Arc::new(AtomicU64::new(0)))
-        .collect();
+    let spawn_counts: Vec<Arc<AtomicU64>> = (0..3).map(|_| Arc::new(AtomicU64::new(0))).collect();
     let sc_clone = spawn_counts.clone();
 
-    let worker_counts: Vec<Arc<AtomicU64>> = (0..3)
-        .map(|_| Arc::new(AtomicU64::new(0)))
-        .collect();
+    let worker_counts: Vec<Arc<AtomicU64>> = (0..3).map(|_| Arc::new(AtomicU64::new(0))).collect();
     let wc_clone = worker_counts.clone();
 
     let mut pool = WorkerPool::new(3, action_tx, move |index, rx, _queue_len, _sender| {
@@ -1014,7 +1009,9 @@ fn worker_panic_respawns_and_redistributes() {
         count0 + count1 + count2,
         12,
         "all 12 post-panic events should be delivered: w0={}, w1={}, w2={}",
-        count0, count1, count2
+        count0,
+        count1,
+        count2
     );
 
     // Worker 0 should have been spawned at least twice (original + respawn).
@@ -1159,7 +1156,9 @@ struct PoisonEventBackend {
 }
 
 impl AccessibilityBackend for PoisonEventBackend {
-    fn init(&mut self) -> Result<(), CaptureError> { Ok(()) }
+    fn init(&mut self) -> Result<(), CaptureError> {
+        Ok(())
+    }
     fn cleanup(&mut self) {}
 
     fn element_at_point(&self, x: i32, y: i32) -> Option<ElementDescription> {
@@ -1189,10 +1188,18 @@ impl AccessibilityBackend for PoisonEventBackend {
         })
     }
 
-    fn window_title(&self, _window_handle: i64) -> String { "Test".to_string() }
-    fn process_name(&self, _window_handle: i64) -> String { "test.exe".to_string() }
-    fn read_file_dialog_path(&self, _window_handle: i64) -> Option<(String, String)> { None }
-    fn root_window_handle(&self, window_handle: i64) -> i64 { window_handle }
+    fn window_title(&self, _window_handle: i64) -> String {
+        "Test".to_string()
+    }
+    fn process_name(&self, _window_handle: i64) -> String {
+        "test.exe".to_string()
+    }
+    fn read_file_dialog_path(&self, _window_handle: i64) -> Option<(String, String)> {
+        None
+    }
+    fn root_window_handle(&self, window_handle: i64) -> i64 {
+        window_handle
+    }
     fn window_rect(&self, _window_handle: i64) -> Option<docent_desktop_lib::capture::WindowRect> {
         Some(docent_desktop_lib::capture::WindowRect {
             x: 0,
@@ -1230,7 +1237,7 @@ fn poison_event_does_not_kill_worker() {
         modifiers: (false, false, false, false),
         scroll_delta: 0.0,
         callback_params: [0; 4],
-            pre_captured_element: None,
+        pre_captured_element: None,
     });
 
     // Send the poison event (will panic inside element_at_point).
@@ -1246,7 +1253,7 @@ fn poison_event_does_not_kill_worker() {
         modifiers: (false, false, false, false),
         scroll_delta: 0.0,
         callback_params: [0; 4],
-            pre_captured_element: None,
+        pre_captured_element: None,
     });
 
     // Send another normal click event after the poison.
@@ -1262,7 +1269,7 @@ fn poison_event_does_not_kill_worker() {
         modifiers: (false, false, false, false),
         scroll_delta: 0.0,
         callback_params: [0; 4],
-            pre_captured_element: None,
+        pre_captured_element: None,
     });
 
     // Give the worker time to process all three events.

@@ -69,9 +69,11 @@ Both paths consume the same `.docent.json` format. Docent captures and delivers 
 ## Version compatibility
 
 <!-- VERSION_TABLE_START -->
+
 | Extension Schema | Extension | Desktop Schema | Desktop |
-|-----------------|-----------|----------------|---------|
-| 2.0.0           | 2.0.0+    | 1.0.0          | 1.0.0+  |
+| ---------------- | --------- | -------------- | ------- |
+| 2.0.0            | 2.0.0+    | 1.0.0          | 1.0.0+  |
+
 <!-- VERSION_TABLE_END -->
 
 See [docs/session-format.md](docs/session-format.md#versioning) for the full versioning strategy.
@@ -122,13 +124,13 @@ The **Done this step** button is disabled until at least one action has been rec
 
 #### Edit steps
 
-| Control | Action |
-|---|---|
-| Click narration | View recorded actions for that step (read-only) |
-| Pencil icon | Re-record — replace narration and actions for a step |
-| Clock icon | History — view all previous versions of a step |
-| Trash icon | Delete — soft delete, history preserved |
-| Drag | Reorder steps |
+| Control         | Action                                               |
+| --------------- | ---------------------------------------------------- |
+| Click narration | View recorded actions for that step (read-only)      |
+| Pencil icon     | Re-record — replace narration and actions for a step |
+| Clock icon      | History — view all previous versions of a step       |
+| Trash icon      | Delete — soft delete, history preserved              |
+| Drag            | Reorder steps                                        |
 
 #### Export
 

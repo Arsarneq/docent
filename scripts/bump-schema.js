@@ -63,9 +63,18 @@ if (parts.length !== 3 || parts.some(isNaN)) {
 let [major, minor, patch] = parts;
 
 switch (level) {
-  case 'major': major++; minor = 0; patch = 0; break;
-  case 'minor': minor++; patch = 0; break;
-  case 'patch': patch++; break;
+  case 'major':
+    major++;
+    minor = 0;
+    patch = 0;
+    break;
+  case 'minor':
+    minor++;
+    patch = 0;
+    break;
+  case 'patch':
+    patch++;
+    break;
 }
 
 const newVersion = `${major}.${minor}.${patch}`;
@@ -76,4 +85,6 @@ console.log(`✓ ${platform}.schema.json: ${oldVersion} → ${newVersion}`);
 
 // ─── Update documentation tables ─────────────────────────────────────────────
 
-execFileSync(process.execPath, [join(ROOT, 'scripts', 'update-version-table.js')], { stdio: 'inherit' });
+execFileSync(process.execPath, [join(ROOT, 'scripts', 'update-version-table.js')], {
+  stdio: 'inherit',
+});

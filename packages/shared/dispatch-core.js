@@ -56,12 +56,12 @@ export function buildPayload(project, recordings, readingGuidance, schema) {
       created_at: project.created_at,
       ...(project.metadata && { metadata: project.metadata }),
     },
-    recordings: recordings.map(r => ({
+    recordings: recordings.map((r) => ({
       recording_id: r.recording_id,
       name: r.name,
       created_at: r.created_at,
       ...(r.metadata && { metadata: r.metadata }),
-      steps: (r.steps ?? []).map(step => ({
+      steps: (r.steps ?? []).map((step) => ({
         uuid: step.uuid,
         logical_id: step.logical_id,
         step_number: step.step_number,
@@ -113,7 +113,10 @@ export async function sendPayload(endpointUrl, apiKey, payload) {
   // Serialize payload and check outbound size
   const body = JSON.stringify(payload);
   if (body.length > 50 * 1024 * 1024) {
-    throw new DispatchError('Payload too large (>50MB). Consider sending recordings individually.', null);
+    throw new DispatchError(
+      'Payload too large (>50MB). Consider sending recordings individually.',
+      null,
+    );
   }
 
   let response;

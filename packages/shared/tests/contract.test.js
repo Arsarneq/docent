@@ -11,13 +11,23 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { buildPayload } from '../dispatch-core.js';
-import { createProject, createRecording, createStep, addStepRecord, resolveActiveSteps } from '../lib/session.js';
+import {
+  createProject,
+  createRecording,
+  createStep,
+  addStepRecord,
+  resolveActiveSteps,
+} from '../lib/session.js';
 
 const __dirname = fileURLToPath(new URL('.', import.meta.url));
 
 // Load schemas
-const extensionSchema = JSON.parse(readFileSync(resolve(__dirname, '../../../schemas/extension.schema.json'), 'utf-8'));
-const desktopSchema = JSON.parse(readFileSync(resolve(__dirname, '../../../schemas/desktop-windows.schema.json'), 'utf-8'));
+const extensionSchema = JSON.parse(
+  readFileSync(resolve(__dirname, '../../../schemas/extension.schema.json'), 'utf-8'),
+);
+const desktopSchema = JSON.parse(
+  readFileSync(resolve(__dirname, '../../../schemas/desktop-windows.schema.json'), 'utf-8'),
+);
 
 // ─── Simple schema validation helpers ─────────────────────────────────────────
 // We don't pull in ajv to keep dependencies minimal. Instead we validate
@@ -44,7 +54,19 @@ describe('Contract: buildPayload output structure', () => {
     narration: 'Click login',
     narration_source: 'typed',
     step_number: 1,
-    actions: [{ type: 'click', timestamp: 1000, capture_mode: 'dom', context_id: 1, element: { text: 'Login' }, frame_src: null, window_rect: null, x: 100, y: 200 }],
+    actions: [
+      {
+        type: 'click',
+        timestamp: 1000,
+        capture_mode: 'dom',
+        context_id: 1,
+        element: { text: 'Login' },
+        frame_src: null,
+        window_rect: null,
+        x: 100,
+        y: 200,
+      },
+    ],
   });
   addStepRecord(recording, step1);
 
@@ -53,14 +75,28 @@ describe('Contract: buildPayload output structure', () => {
     step_type: 'validation',
     expect: 'present',
     step_number: 2,
-    actions: [{ type: 'click', timestamp: 2000, capture_mode: 'dom', context_id: 1, element: { text: 'Welcome' }, frame_src: null, window_rect: null, x: 50, y: 50 }],
+    actions: [
+      {
+        type: 'click',
+        timestamp: 2000,
+        capture_mode: 'dom',
+        context_id: 1,
+        element: { text: 'Welcome' },
+        frame_src: null,
+        window_rect: null,
+        x: 50,
+        y: 50,
+      },
+    ],
   });
   addStepRecord(recording, step2);
 
   project.metadata = { ticket: 'PROJ-1' };
   recording.metadata = { env: 'staging' };
 
-  const payload = buildPayload(project, [recording], 'Read this guidance', { title: 'Extension Schema' });
+  const payload = buildPayload(project, [recording], 'Read this guidance', {
+    title: 'Extension Schema',
+  });
 
   it('has exactly four top-level keys', () => {
     const keys = Object.keys(payload).sort();
@@ -151,8 +187,10 @@ describe('Contract: step schema allows both narration and step_type (anyOf)', ()
     const hasNarration = JSON.stringify(stepDef).includes('narration');
     const hasStepType = JSON.stringify(stepDef).includes('step_type');
 
-    assert.ok(hasAnyOf || (hasNarration && hasStepType),
-      'Step schema should support both narration and step_type modes');
+    assert.ok(
+      hasAnyOf || (hasNarration && hasStepType),
+      'Step schema should support both narration and step_type modes',
+    );
   });
 });
 

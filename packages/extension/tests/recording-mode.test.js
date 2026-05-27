@@ -12,14 +12,16 @@ globalThis.chrome = {
     local: {
       get: async (keys) => {
         if (Array.isArray(keys)) {
-          return Object.fromEntries(keys.map(k => [k, storageData[k]]));
+          return Object.fromEntries(keys.map((k) => [k, storageData[k]]));
         }
         return { [keys]: storageData[keys] };
       },
-      set: async (items) => { Object.assign(storageData, items); },
+      set: async (items) => {
+        Object.assign(storageData, items);
+      },
       remove: async (keys) => {
         const ks = Array.isArray(keys) ? keys : [keys];
-        ks.forEach(k => delete storageData[k]);
+        ks.forEach((k) => delete storageData[k]);
       },
     },
     onChanged: {
@@ -36,7 +38,9 @@ import assert from 'node:assert/strict';
 import chromeAdapter from '../sidepanel/adapter-chrome.js';
 
 describe('Recording mode persistence', () => {
-  beforeEach(() => { storageData = {}; });
+  beforeEach(() => {
+    storageData = {};
+  });
 
   test('loadRecordingMode returns "narration" by default', async () => {
     const mode = await chromeAdapter.loadRecordingMode();

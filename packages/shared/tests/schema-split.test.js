@@ -115,7 +115,18 @@ describe('Shared definitions present in both schemas', () => {
   const ext = loadSchema('packages/extension/shared/session.schema.json');
   const desk = loadSchema('packages/desktop/shared/session.schema.json');
 
-  const sharedKeys = ['project', 'recording', 'step', 'element', 'modifiers', 'uuidv7', 'iso8601', 'context_id', 'metadata', 'window_rect'];
+  const sharedKeys = [
+    'project',
+    'recording',
+    'step',
+    'element',
+    'modifiers',
+    'uuidv7',
+    'iso8601',
+    'context_id',
+    'metadata',
+    'window_rect',
+  ];
 
   for (const key of sharedKeys) {
     it(`both schemas have ${key} definition`, () => {

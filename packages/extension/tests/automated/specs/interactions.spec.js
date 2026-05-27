@@ -6,7 +6,14 @@
  * programmatic variants of each.
  */
 
-import { test, expect, getPendingActions, clearPendingActions, waitForActionsToSettle, setTestContent } from '../helpers/extension-fixture.js';
+import {
+  test,
+  expect,
+  getPendingActions,
+  clearPendingActions,
+  waitForActionsToSettle,
+  setTestContent,
+} from '../helpers/extension-fixture.js';
 
 test.describe('File Upload', () => {
   const PAGE_HTML = /* html */ `<!DOCTYPE html>
@@ -35,21 +42,26 @@ test.describe('File Upload', () => {
     await waitForActionsToSettle(serviceWorker, testPage);
 
     const actions = await getPendingActions(serviceWorker);
-    const types = actions.map(a => a.type);
+    const types = actions.map((a) => a.type);
     // User clicked the file input (click) and selected a file (file_upload).
     expect(types).toEqual(['click', 'file_upload']);
-    const fileAction = actions.find(a => a.type === 'file_upload');
+    const fileAction = actions.find((a) => a.type === 'file_upload');
     expect(fileAction.files[0].name).toBe('test.txt');
   });
 
-  test('programmatic file assignment should NOT be captured', async ({ testPage, serviceWorker }) => {
+  test('programmatic file assignment should NOT be captured', async ({
+    testPage,
+    serviceWorker,
+  }) => {
     await testPage.evaluate(() => {
       document.getElementById('btn').addEventListener('click', () => {
         setTimeout(() => {
           const dt = new DataTransfer();
           dt.items.add(new File(['content'], 'fake.txt', { type: 'text/plain' }));
           document.getElementById('file-prog').files = dt.files;
-          document.getElementById('file-prog').dispatchEvent(new Event('change', { bubbles: true }));
+          document
+            .getElementById('file-prog')
+            .dispatchEvent(new Event('change', { bubbles: true }));
         }, 200);
       });
     });
@@ -58,7 +70,7 @@ test.describe('File Upload', () => {
     await waitForActionsToSettle(serviceWorker, testPage);
 
     const actions = await getPendingActions(serviceWorker);
-    const types = actions.map(a => a.type);
+    const types = actions.map((a) => a.type);
     expect(types).toEqual(['click']);
   });
 });
@@ -77,12 +89,15 @@ test.describe('Drag and Drop', () => {
     await clearPendingActions(serviceWorker);
   });
 
-  test('user drag and drop produces drag_start and drop actions', async ({ testPage, serviceWorker }) => {
+  test('user drag and drop produces drag_start and drop actions', async ({
+    testPage,
+    serviceWorker,
+  }) => {
     await testPage.dragAndDrop('#source', '#target');
     await waitForActionsToSettle(serviceWorker, testPage);
 
     const actions = await getPendingActions(serviceWorker);
-    const types = actions.map(a => a.type);
+    const types = actions.map((a) => a.type);
     expect(types).toEqual(['drag_start', 'drop']);
   });
 
@@ -92,8 +107,20 @@ test.describe('Drag and Drop', () => {
         setTimeout(() => {
           const source = document.getElementById('source');
           const target = document.getElementById('target');
-          source.dispatchEvent(new DragEvent('dragstart', { bubbles: true, cancelable: true, dataTransfer: new DataTransfer() }));
-          target.dispatchEvent(new DragEvent('drop', { bubbles: true, cancelable: true, dataTransfer: new DataTransfer() }));
+          source.dispatchEvent(
+            new DragEvent('dragstart', {
+              bubbles: true,
+              cancelable: true,
+              dataTransfer: new DataTransfer(),
+            }),
+          );
+          target.dispatchEvent(
+            new DragEvent('drop', {
+              bubbles: true,
+              cancelable: true,
+              dataTransfer: new DataTransfer(),
+            }),
+          );
         }, 200);
       });
     });
@@ -102,7 +129,7 @@ test.describe('Drag and Drop', () => {
     await waitForActionsToSettle(serviceWorker, testPage);
 
     const actions = await getPendingActions(serviceWorker);
-    const types = actions.map(a => a.type);
+    const types = actions.map((a) => a.type);
     expect(types).toEqual(['click']);
   });
 });
@@ -128,11 +155,14 @@ test.describe('Iframe', () => {
     await waitForActionsToSettle(serviceWorker, testPage);
 
     const actions = await getPendingActions(serviceWorker);
-    const types = actions.map(a => a.type);
+    const types = actions.map((a) => a.type);
     expect(types).toEqual(['click']);
   });
 
-  test('programmatic click inside iframe should NOT be captured', async ({ testPage, serviceWorker }) => {
+  test('programmatic click inside iframe should NOT be captured', async ({
+    testPage,
+    serviceWorker,
+  }) => {
     await testPage.evaluate(() => {
       document.getElementById('btn').addEventListener('click', () => {
         setTimeout(() => {
@@ -147,11 +177,14 @@ test.describe('Iframe', () => {
     await waitForActionsToSettle(serviceWorker, testPage);
 
     const actions = await getPendingActions(serviceWorker);
-    const types = actions.map(a => a.type);
+    const types = actions.map((a) => a.type);
     expect(types).toEqual(['click']);
   });
 
-  test('programmatic iframe navigation should NOT produce navigate action', async ({ testPage, serviceWorker }) => {
+  test('programmatic iframe navigation should NOT produce navigate action', async ({
+    testPage,
+    serviceWorker,
+  }) => {
     await testPage.evaluate(() => {
       document.getElementById('btn').addEventListener('click', () => {
         setTimeout(() => {
@@ -164,7 +197,7 @@ test.describe('Iframe', () => {
     await waitForActionsToSettle(serviceWorker, testPage);
 
     const actions = await getPendingActions(serviceWorker);
-    const types = actions.map(a => a.type);
+    const types = actions.map((a) => a.type);
     expect(types).toEqual(['click']);
   });
 });
@@ -182,7 +215,10 @@ test.describe('Contenteditable', () => {
     await clearPendingActions(serviceWorker);
   });
 
-  test('typing in contenteditable should produce a type action', async ({ testPage, serviceWorker }) => {
+  test('typing in contenteditable should produce a type action', async ({
+    testPage,
+    serviceWorker,
+  }) => {
     await testPage.click('#editable');
     await clearPendingActions(serviceWorker);
     await testPage.type('#editable', 'hello');
@@ -190,7 +226,7 @@ test.describe('Contenteditable', () => {
     await waitForActionsToSettle(serviceWorker, testPage);
 
     const actions = await getPendingActions(serviceWorker);
-    const typeActions = actions.filter(a => a.type === 'type');
+    const typeActions = actions.filter((a) => a.type === 'type');
     // Ideal: typing in contenteditable should be captured as a type action.
     expect(typeActions.length).toBe(1);
     expect(typeActions[0].value).toContain('hello');
@@ -217,7 +253,7 @@ test.describe('Password Masking', () => {
     await waitForActionsToSettle(serviceWorker, testPage);
 
     const actions = await getPendingActions(serviceWorker);
-    const typeActions = actions.filter(a => a.type === 'type');
+    const typeActions = actions.filter((a) => a.type === 'type');
     // Ideal: 1 type action with masked value.
     expect(typeActions.length).toBe(1);
     expect(typeActions[0].value).toBe('••••••••');
@@ -244,7 +280,7 @@ test.describe('Double-Click', () => {
     await waitForActionsToSettle(serviceWorker, testPage);
 
     const actions = await getPendingActions(serviceWorker);
-    const types = actions.map(a => a.type);
+    const types = actions.map((a) => a.type);
     // Ideal: exactly 2 clicks, nothing else.
     expect(types).toEqual(['click', 'click']);
   });
@@ -272,7 +308,7 @@ test.describe('Shadow DOM', () => {
     await waitForActionsToSettle(serviceWorker, testPage);
 
     const actions = await getPendingActions(serviceWorker);
-    const types = actions.map(a => a.type);
+    const types = actions.map((a) => a.type);
     expect(types).toEqual(['click']);
   });
 });
@@ -290,13 +326,21 @@ test.describe('Programmatic Right-Click', () => {
     await clearPendingActions(serviceWorker);
   });
 
-  test('programmatic contextmenu dispatch should NOT be captured', async ({ testPage, serviceWorker }) => {
+  test('programmatic contextmenu dispatch should NOT be captured', async ({
+    testPage,
+    serviceWorker,
+  }) => {
     await testPage.evaluate(() => {
       document.getElementById('btn').addEventListener('click', () => {
         setTimeout(() => {
-          document.getElementById('target').dispatchEvent(new MouseEvent('contextmenu', {
-            bubbles: true, cancelable: true, clientX: 100, clientY: 100,
-          }));
+          document.getElementById('target').dispatchEvent(
+            new MouseEvent('contextmenu', {
+              bubbles: true,
+              cancelable: true,
+              clientX: 100,
+              clientY: 100,
+            }),
+          );
         }, 200);
       });
     });
@@ -305,7 +349,7 @@ test.describe('Programmatic Right-Click', () => {
     await waitForActionsToSettle(serviceWorker, testPage);
 
     const actions = await getPendingActions(serviceWorker);
-    const types = actions.map(a => a.type);
+    const types = actions.map((a) => a.type);
     expect(types).toEqual(['click']);
   });
 });
@@ -323,7 +367,10 @@ test.describe('Programmatic .click()', () => {
     await clearPendingActions(serviceWorker);
   });
 
-  test('programmatic element.click() should NOT be captured', async ({ testPage, serviceWorker }) => {
+  test('programmatic element.click() should NOT be captured', async ({
+    testPage,
+    serviceWorker,
+  }) => {
     await testPage.evaluate(() => {
       document.getElementById('btn').addEventListener('click', () => {
         setTimeout(() => {
@@ -336,12 +383,10 @@ test.describe('Programmatic .click()', () => {
     await waitForActionsToSettle(serviceWorker, testPage);
 
     const actions = await getPendingActions(serviceWorker);
-    const types = actions.map(a => a.type);
+    const types = actions.map((a) => a.type);
     expect(types).toEqual(['click']);
   });
 });
-
-
 
 test.describe('Form Submission — User Action', () => {
   const PAGE_HTML = /* html */ `<!DOCTYPE html>
@@ -352,7 +397,10 @@ test.describe('Form Submission — User Action', () => {
     </form>
   </body></html>`;
 
-  test('user form submit via button click produces only click — navigate is a side-effect', async ({ testPage, serviceWorker }) => {
+  test('user form submit via button click produces only click — navigate is a side-effect', async ({
+    testPage,
+    serviceWorker,
+  }) => {
     await setTestContent(testPage, PAGE_HTML);
     await testPage.waitForTimeout(200);
     await testPage.fill('#input', 'test query');
@@ -363,7 +411,7 @@ test.describe('Form Submission — User Action', () => {
     await waitForActionsToSettle(serviceWorker, testPage);
 
     const actions = await getPendingActions(serviceWorker);
-    const types = actions.map(a => a.type);
+    const types = actions.map((a) => a.type);
     // The user clicked the submit button. That's the action.
     // The form navigation is the effect of clicking submit.
     expect(types).toEqual(['click']);
@@ -383,7 +431,10 @@ test.describe('Contenteditable — Empty Attribute', () => {
     await clearPendingActions(serviceWorker);
   });
 
-  test('typing in contenteditable="" should produce a type action', async ({ testPage, serviceWorker }) => {
+  test('typing in contenteditable="" should produce a type action', async ({
+    testPage,
+    serviceWorker,
+  }) => {
     await testPage.click('#editable');
     await clearPendingActions(serviceWorker);
     await testPage.type('#editable', 'world');
@@ -391,15 +442,18 @@ test.describe('Contenteditable — Empty Attribute', () => {
     await waitForActionsToSettle(serviceWorker, testPage);
 
     const actions = await getPendingActions(serviceWorker);
-    const typeActions = actions.filter(a => a.type === 'type');
+    const typeActions = actions.filter((a) => a.type === 'type');
     expect(typeActions.length).toBe(1);
     expect(typeActions[0].value).toContain('world');
   });
 });
 
 test.describe('Return to Tab', () => {
-
-  test('switching back to a tab produces context_switch', async ({ testPage, serviceWorker, context }) => {
+  test('switching back to a tab produces context_switch', async ({
+    testPage,
+    serviceWorker,
+    context,
+  }) => {
     await setTestContent(testPage, '<html><body><p>Main</p></body></html>');
     await testPage.waitForTimeout(200);
 
@@ -414,7 +468,7 @@ test.describe('Return to Tab', () => {
     await waitForActionsToSettle(serviceWorker, testPage);
 
     const actions = await getPendingActions(serviceWorker);
-    const types = actions.map(a => a.type);
+    const types = actions.map((a) => a.type);
     // Ideal: exactly 1 context_switch, nothing else.
     expect(types).toEqual(['context_switch']);
 

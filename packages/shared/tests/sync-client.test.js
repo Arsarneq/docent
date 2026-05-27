@@ -103,16 +103,22 @@ describe('pushProjects', () => {
           project_id: fc.uuid(),
           name: fc.string({ minLength: 1, maxLength: 50 }),
           created_at: fc.constant('2026-01-01T00:00:00.000Z'),
-          metadata: fc.option(fc.dictionary(fc.string({ minLength: 1, maxLength: 10 }), fc.string()), { nil: undefined }),
+          metadata: fc.option(
+            fc.dictionary(fc.string({ minLength: 1, maxLength: 10 }), fc.string()),
+            { nil: undefined },
+          ),
           recordings: fc.array(
             fc.record({
               recording_id: fc.uuid(),
               name: fc.string({ minLength: 1, maxLength: 50 }),
               created_at: fc.constant('2026-01-01T00:00:00.000Z'),
-              metadata: fc.option(fc.dictionary(fc.string({ minLength: 1, maxLength: 10 }), fc.string()), { nil: undefined }),
+              metadata: fc.option(
+                fc.dictionary(fc.string({ minLength: 1, maxLength: 10 }), fc.string()),
+                { nil: undefined },
+              ),
               steps: fc.array(fc.record({ action: fc.string() }), { maxLength: 3 }),
             }),
-            { maxLength: 3 }
+            { maxLength: 3 },
           ),
         }),
         async (project) => {
@@ -140,9 +146,9 @@ describe('pushProjects', () => {
             assert.equal(sent.name, orig.name);
             assert.ok(Array.isArray(sent.steps), 'recording must have .steps array');
           }
-        }
+        },
       ),
-      { numRuns: 20 }
+      { numRuns: 20 },
     );
   });
 
@@ -205,8 +211,14 @@ describe('pullProjects', () => {
       { project_id: 'x2', name: 'X2', last_modified: '2026-01-01T00:00:00.000Z' },
     ];
     const payloads = {
-      x1: { project: { project_id: 'x1', name: 'X1', created_at: '2026-01-01T00:00:00.000Z' }, recordings: [] },
-      x2: { project: { project_id: 'x2', name: 'X2', created_at: '2026-01-01T00:00:00.000Z' }, recordings: [] },
+      x1: {
+        project: { project_id: 'x1', name: 'X1', created_at: '2026-01-01T00:00:00.000Z' },
+        recordings: [],
+      },
+      x2: {
+        project: { project_id: 'x2', name: 'X2', created_at: '2026-01-01T00:00:00.000Z' },
+        recordings: [],
+      },
     };
 
     mockFetch((url) => {
@@ -234,10 +246,27 @@ describe('pullProjects', () => {
 describe('sync', () => {
   it('merges pulled projects — same project_id replaces local (server-wins)', async () => {
     const localProjects = [makeProject('shared-id', 'Local Version', [makeRecording('r1')])];
-    const manifest = [{ project_id: 'shared-id', name: 'Server Version', last_modified: '2026-06-01T00:00:00.000Z' }];
+    const manifest = [
+      {
+        project_id: 'shared-id',
+        name: 'Server Version',
+        last_modified: '2026-06-01T00:00:00.000Z',
+      },
+    ];
     const serverPayload = {
-      project: { project_id: 'shared-id', name: 'Server Version', created_at: '2026-01-01T00:00:00.000Z' },
-      recordings: [{ recording_id: 'r-server', name: 'Server Rec', created_at: '2026-01-01T00:00:00.000Z', steps: [] }],
+      project: {
+        project_id: 'shared-id',
+        name: 'Server Version',
+        created_at: '2026-01-01T00:00:00.000Z',
+      },
+      recordings: [
+        {
+          recording_id: 'r-server',
+          name: 'Server Rec',
+          created_at: '2026-01-01T00:00:00.000Z',
+          steps: [],
+        },
+      ],
     };
 
     mockFetch((url, opts) => {
@@ -256,9 +285,19 @@ describe('sync', () => {
 
   it('merges pulled projects — new project_id appended', async () => {
     const localProjects = [makeProject('local-only')];
-    const manifest = [{ project_id: 'server-new', name: 'New From Server', last_modified: '2026-06-01T00:00:00.000Z' }];
+    const manifest = [
+      {
+        project_id: 'server-new',
+        name: 'New From Server',
+        last_modified: '2026-06-01T00:00:00.000Z',
+      },
+    ];
     const serverPayload = {
-      project: { project_id: 'server-new', name: 'New From Server', created_at: '2026-01-01T00:00:00.000Z' },
+      project: {
+        project_id: 'server-new',
+        name: 'New From Server',
+        created_at: '2026-01-01T00:00:00.000Z',
+      },
       recordings: [],
     };
 
@@ -278,7 +317,9 @@ describe('sync', () => {
 
   it('executes push before pull (push fetch calls precede pull fetch calls)', async () => {
     const localProjects = [makeProject('p1')];
-    const manifest = [{ project_id: 'srv1', name: 'Srv1', last_modified: '2026-01-01T00:00:00.000Z' }];
+    const manifest = [
+      { project_id: 'srv1', name: 'Srv1', last_modified: '2026-01-01T00:00:00.000Z' },
+    ];
     const serverPayload = {
       project: { project_id: 'srv1', name: 'Srv1', created_at: '2026-01-01T00:00:00.000Z' },
       recordings: [],
@@ -344,7 +385,7 @@ describe('sync', () => {
     const { result } = await sync('https://srv.test', null, localProjects);
 
     assert.equal(result.errors.length >= 1, true);
-    const networkErr = result.errors.find(e => e.status === null);
+    const networkErr = result.errors.find((e) => e.status === null);
     assert.ok(networkErr, 'should have a SyncError with null status');
     assert.ok(networkErr instanceof SyncError);
     assert.equal(networkErr.status, null);
@@ -354,10 +395,12 @@ describe('sync', () => {
     const project = {
       ...makeProject('meta-proj', 'Meta Project'),
       metadata: { ticket: 'PROJ-42', tags: ['smoke', 'login'] },
-      recordings: [{
-        ...makeRecording('meta-rec'),
-        metadata: { env: 'staging' },
-      }],
+      recordings: [
+        {
+          ...makeRecording('meta-rec'),
+          metadata: { env: 'staging' },
+        },
+      ],
     };
 
     let capturedBody;
@@ -371,13 +414,18 @@ describe('sync', () => {
 
     await sync('https://srv.test', null, [project]);
 
-    assert.deepStrictEqual(capturedBody.project.metadata, { ticket: 'PROJ-42', tags: ['smoke', 'login'] });
+    assert.deepStrictEqual(capturedBody.project.metadata, {
+      ticket: 'PROJ-42',
+      tags: ['smoke', 'login'],
+    });
     assert.deepStrictEqual(capturedBody.recordings[0].metadata, { env: 'staging' });
   });
 
   it('pulled project with metadata preserves metadata in merged result', async () => {
     const localProjects = [];
-    const manifest = [{ project_id: 'srv-meta', name: 'Srv', last_modified: '2026-06-01T00:00:00.000Z' }];
+    const manifest = [
+      { project_id: 'srv-meta', name: 'Srv', last_modified: '2026-06-01T00:00:00.000Z' },
+    ];
     const serverPayload = {
       project: {
         project_id: 'srv-meta',
@@ -385,13 +433,15 @@ describe('sync', () => {
         created_at: '2026-01-01T00:00:00.000Z',
         metadata: { team: 'QA', sprint: '24' },
       },
-      recordings: [{
-        recording_id: 'r1',
-        name: 'Flow',
-        created_at: '2026-01-01T00:00:00.000Z',
-        metadata: { browser: 'chrome' },
-        steps: [],
-      }],
+      recordings: [
+        {
+          recording_id: 'r1',
+          name: 'Flow',
+          created_at: '2026-01-01T00:00:00.000Z',
+          metadata: { browser: 'chrome' },
+          steps: [],
+        },
+      ],
     };
 
     mockFetch((url, opts) => {

@@ -33,6 +33,9 @@ playwright-report/
 coverage/
 .c8_output/
 
+# Lefthook local config
+lefthook-local.yml
+
 # Editor
 .vscode/
 .idea/

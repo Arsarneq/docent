@@ -6,7 +6,14 @@
  * a programmatic side-effect after a delay. Only the click should be captured.
  */
 
-import { test, expect, getPendingActions, clearPendingActions, waitForActionsToSettle, setTestContent } from '../helpers/extension-fixture.js';
+import {
+  test,
+  expect,
+  getPendingActions,
+  clearPendingActions,
+  waitForActionsToSettle,
+  setTestContent,
+} from '../helpers/extension-fixture.js';
 
 const PAGE_HTML = /* html */ `<!DOCTYPE html>
 <html><body>
@@ -19,7 +26,6 @@ const PAGE_HTML = /* html */ `<!DOCTYPE html>
 </body></html>`;
 
 test.describe('Side-Effect Capture', () => {
-
   test.beforeEach(async ({ testPage, serviceWorker }) => {
     await setTestContent(testPage, PAGE_HTML);
     await testPage.waitForTimeout(200);
@@ -37,7 +43,7 @@ test.describe('Side-Effect Capture', () => {
     await waitForActionsToSettle(serviceWorker, testPage);
 
     const actions = await getPendingActions(serviceWorker);
-    const types = actions.map(a => a.type);
+    const types = actions.map((a) => a.type);
     expect(types).toEqual(['click']);
   });
 
@@ -58,11 +64,14 @@ test.describe('Side-Effect Capture', () => {
     await waitForActionsToSettle(serviceWorker, testPage);
 
     const actions = await getPendingActions(serviceWorker);
-    const types = actions.map(a => a.type);
+    const types = actions.map((a) => a.type);
     expect(types).toEqual(['click']);
   });
 
-  test('programmatic selection change should not be captured', async ({ testPage, serviceWorker }) => {
+  test('programmatic selection change should not be captured', async ({
+    testPage,
+    serviceWorker,
+  }) => {
     await testPage.evaluate(() => {
       document.getElementById('btn').addEventListener('click', () => {
         setTimeout(() => {
@@ -77,7 +86,7 @@ test.describe('Side-Effect Capture', () => {
     await waitForActionsToSettle(serviceWorker, testPage);
 
     const actions = await getPendingActions(serviceWorker);
-    const types = actions.map(a => a.type);
+    const types = actions.map((a) => a.type);
     expect(types).toEqual(['click']);
   });
 
@@ -94,7 +103,7 @@ test.describe('Side-Effect Capture', () => {
     await waitForActionsToSettle(serviceWorker, testPage);
 
     const actions = await getPendingActions(serviceWorker);
-    const types = actions.map(a => a.type);
+    const types = actions.map((a) => a.type);
     expect(types).toEqual(['click']);
   });
 
@@ -111,7 +120,7 @@ test.describe('Side-Effect Capture', () => {
     await waitForActionsToSettle(serviceWorker, testPage);
 
     const actions = await getPendingActions(serviceWorker);
-    const types = actions.map(a => a.type);
+    const types = actions.map((a) => a.type);
     expect(types).toEqual(['click']);
   });
 
@@ -128,11 +137,15 @@ test.describe('Side-Effect Capture', () => {
     await waitForActionsToSettle(serviceWorker, testPage);
 
     const actions = await getPendingActions(serviceWorker);
-    const types = actions.map(a => a.type);
+    const types = actions.map((a) => a.type);
     expect(types).toEqual(['click']);
   });
 
-  test('programmatic window.open lifecycle should not be captured', async ({ testPage, serviceWorker, context }) => {
+  test('programmatic window.open lifecycle should not be captured', async ({
+    testPage,
+    serviceWorker,
+    context,
+  }) => {
     await testPage.evaluate(() => {
       document.getElementById('btn').addEventListener('click', () => {
         setTimeout(() => {
@@ -146,7 +159,7 @@ test.describe('Side-Effect Capture', () => {
     await waitForActionsToSettle(serviceWorker, testPage, 1000);
 
     const actions = await getPendingActions(serviceWorker);
-    const types = actions.map(a => a.type);
+    const types = actions.map((a) => a.type);
     expect(types).toEqual(['click']);
   });
 
@@ -170,11 +183,14 @@ test.describe('Side-Effect Capture', () => {
     await waitForActionsToSettle(serviceWorker, testPage, 1500);
 
     const actions = await getPendingActions(serviceWorker);
-    const types = actions.map(a => a.type);
+    const types = actions.map((a) => a.type);
     expect(types).toEqual(['click']);
   });
 
-  test('rapid programmatic focus moves should not be captured', async ({ testPage, serviceWorker }) => {
+  test('rapid programmatic focus moves should not be captured', async ({
+    testPage,
+    serviceWorker,
+  }) => {
     await testPage.evaluate(() => {
       document.getElementById('btn').addEventListener('click', () => {
         setTimeout(() => document.getElementById('input').focus(), 100);
@@ -187,9 +203,7 @@ test.describe('Side-Effect Capture', () => {
     await waitForActionsToSettle(serviceWorker, testPage);
 
     const actions = await getPendingActions(serviceWorker);
-    const types = actions.map(a => a.type);
+    const types = actions.map((a) => a.type);
     expect(types).toEqual(['click']);
   });
 });
-
-

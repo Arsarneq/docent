@@ -16,7 +16,7 @@ use std::sync::mpsc;
 use std::thread;
 use std::time::Duration;
 
-use enigo::{Enigo, Keyboard, Mouse, Settings, Coordinate, Direction};
+use enigo::{Coordinate, Direction, Enigo, Keyboard, Mouse, Settings};
 
 use docent_desktop_lib::capture::{ActionEvent, ActionPayload, CaptureLayer};
 use serial_test::serial;
@@ -28,43 +28,73 @@ use docent_desktop_lib::capture::windows::WindowsCapture;
 
 /// Filter events by payload type.
 fn clicks(events: &[ActionEvent]) -> Vec<&ActionEvent> {
-    events.iter().filter(|e| matches!(&e.payload, ActionPayload::Click { .. })).collect()
+    events
+        .iter()
+        .filter(|e| matches!(&e.payload, ActionPayload::Click { .. }))
+        .collect()
 }
 
 fn right_clicks(events: &[ActionEvent]) -> Vec<&ActionEvent> {
-    events.iter().filter(|e| matches!(&e.payload, ActionPayload::RightClick { .. })).collect()
+    events
+        .iter()
+        .filter(|e| matches!(&e.payload, ActionPayload::RightClick { .. }))
+        .collect()
 }
 
 fn keys(events: &[ActionEvent]) -> Vec<&ActionEvent> {
-    events.iter().filter(|e| matches!(&e.payload, ActionPayload::Key { .. })).collect()
+    events
+        .iter()
+        .filter(|e| matches!(&e.payload, ActionPayload::Key { .. }))
+        .collect()
 }
 
 fn scrolls(events: &[ActionEvent]) -> Vec<&ActionEvent> {
-    events.iter().filter(|e| matches!(&e.payload, ActionPayload::Scroll { .. })).collect()
+    events
+        .iter()
+        .filter(|e| matches!(&e.payload, ActionPayload::Scroll { .. }))
+        .collect()
 }
 
 fn focuses(events: &[ActionEvent]) -> Vec<&ActionEvent> {
-    events.iter().filter(|e| matches!(&e.payload, ActionPayload::Focus { .. })).collect()
+    events
+        .iter()
+        .filter(|e| matches!(&e.payload, ActionPayload::Focus { .. }))
+        .collect()
 }
 
 fn types(events: &[ActionEvent]) -> Vec<&ActionEvent> {
-    events.iter().filter(|e| matches!(&e.payload, ActionPayload::Type { .. })).collect()
+    events
+        .iter()
+        .filter(|e| matches!(&e.payload, ActionPayload::Type { .. }))
+        .collect()
 }
 
 fn selects(events: &[ActionEvent]) -> Vec<&ActionEvent> {
-    events.iter().filter(|e| matches!(&e.payload, ActionPayload::Select { .. })).collect()
+    events
+        .iter()
+        .filter(|e| matches!(&e.payload, ActionPayload::Select { .. }))
+        .collect()
 }
 
 fn context_opens(events: &[ActionEvent]) -> Vec<&ActionEvent> {
-    events.iter().filter(|e| matches!(&e.payload, ActionPayload::ContextOpen { .. })).collect()
+    events
+        .iter()
+        .filter(|e| matches!(&e.payload, ActionPayload::ContextOpen { .. }))
+        .collect()
 }
 
 fn context_closes(events: &[ActionEvent]) -> Vec<&ActionEvent> {
-    events.iter().filter(|e| matches!(&e.payload, ActionPayload::ContextClose { .. })).collect()
+    events
+        .iter()
+        .filter(|e| matches!(&e.payload, ActionPayload::ContextClose { .. }))
+        .collect()
 }
 
 fn context_switches(events: &[ActionEvent]) -> Vec<&ActionEvent> {
-    events.iter().filter(|e| matches!(&e.payload, ActionPayload::ContextSwitch { .. })).collect()
+    events
+        .iter()
+        .filter(|e| matches!(&e.payload, ActionPayload::ContextSwitch { .. }))
+        .collect()
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -75,13 +105,13 @@ fn context_switches(events: &[ActionEvent]) -> Vec<&ActionEvent> {
 mod user_actions {
     use super::*;
     use std::ptr;
-    use windows::Win32::Foundation::HWND;
-    use windows::Win32::UI::WindowsAndMessaging::{
-        CreateWindowExW, DestroyWindow, SetForegroundWindow, GetWindowRect,
-        WS_OVERLAPPEDWINDOW, WS_VISIBLE, WINDOW_EX_STYLE,
-    };
-    use windows::Win32::Foundation::RECT;
     use windows::core::w;
+    use windows::Win32::Foundation::HWND;
+    use windows::Win32::Foundation::RECT;
+    use windows::Win32::UI::WindowsAndMessaging::{
+        CreateWindowExW, DestroyWindow, GetWindowRect, SetForegroundWindow, WINDOW_EX_STYLE,
+        WS_OVERLAPPEDWINDOW, WS_VISIBLE,
+    };
 
     /// Create a test window and return its handle + center coordinates.
     unsafe fn create_target_window() -> (HWND, i32, i32) {
@@ -90,11 +120,16 @@ mod user_actions {
             w!("STATIC"),
             w!("Docent Test Target"),
             WS_OVERLAPPEDWINDOW | WS_VISIBLE,
-            200, 200, 600, 400,            None,
+            200,
+            200,
+            600,
+            400,
+            None,
             None,
             None,
             Some(ptr::null()),
-        ).expect("Failed to create target window");
+        )
+        .expect("Failed to create target window");
 
         let _ = SetForegroundWindow(hwnd);
         thread::sleep(Duration::from_millis(100));
@@ -125,11 +160,17 @@ mod user_actions {
         enigo.button(enigo::Button::Left, Direction::Click).unwrap();
         thread::sleep(Duration::from_millis(500));
 
-        unsafe { let _ = DestroyWindow(hwnd); }
+        unsafe {
+            let _ = DestroyWindow(hwnd);
+        }
         capture.stop().unwrap();
         let events: Vec<_> = rx.try_iter().collect();
 
-        assert!(!clicks(&events).is_empty(), "Expected at least 1 click, got {}", clicks(&events).len());
+        assert!(
+            !clicks(&events).is_empty(),
+            "Expected at least 1 click, got {}",
+            clicks(&events).len()
+        );
     }
 
     #[test]
@@ -147,14 +188,22 @@ mod user_actions {
         let mut enigo = Enigo::new(&Settings::default()).unwrap();
         enigo.move_mouse(cx, cy, Coordinate::Abs).unwrap();
         thread::sleep(Duration::from_millis(50));
-        enigo.button(enigo::Button::Right, Direction::Click).unwrap();
+        enigo
+            .button(enigo::Button::Right, Direction::Click)
+            .unwrap();
         thread::sleep(Duration::from_millis(500));
 
-        unsafe { let _ = DestroyWindow(hwnd); }
+        unsafe {
+            let _ = DestroyWindow(hwnd);
+        }
         capture.stop().unwrap();
         let events: Vec<_> = rx.try_iter().collect();
 
-        assert!(!right_clicks(&events).is_empty(), "Expected at least 1 right_click, got {}", right_clicks(&events).len());
+        assert!(
+            !right_clicks(&events).is_empty(),
+            "Expected at least 1 right_click, got {}",
+            right_clicks(&events).len()
+        );
     }
 
     #[test]
@@ -173,11 +222,17 @@ mod user_actions {
         enigo.key(enigo::Key::Return, Direction::Click).unwrap();
         thread::sleep(Duration::from_millis(500));
 
-        unsafe { let _ = DestroyWindow(hwnd); }
+        unsafe {
+            let _ = DestroyWindow(hwnd);
+        }
         capture.stop().unwrap();
         let events: Vec<_> = rx.try_iter().collect();
 
-        assert!(!keys(&events).is_empty(), "Expected at least 1 key event, got {}", keys(&events).len());
+        assert!(
+            !keys(&events).is_empty(),
+            "Expected at least 1 key event, got {}",
+            keys(&events).len()
+        );
     }
 
     #[test]
@@ -198,11 +253,17 @@ mod user_actions {
         enigo.scroll(5, enigo::Axis::Vertical).unwrap();
         thread::sleep(Duration::from_millis(500));
 
-        unsafe { let _ = DestroyWindow(hwnd); }
+        unsafe {
+            let _ = DestroyWindow(hwnd);
+        }
         capture.stop().unwrap();
         let events: Vec<_> = rx.try_iter().collect();
 
-        assert!(!scrolls(&events).is_empty(), "Expected at least 1 scroll event, got {}", scrolls(&events).len());
+        assert!(
+            !scrolls(&events).is_empty(),
+            "Expected at least 1 scroll event, got {}",
+            scrolls(&events).len()
+        );
     }
 
     #[test]
@@ -221,12 +282,18 @@ mod user_actions {
         enigo.text("hello").unwrap();
         thread::sleep(Duration::from_millis(600));
 
-        unsafe { let _ = DestroyWindow(hwnd); }
+        unsafe {
+            let _ = DestroyWindow(hwnd);
+        }
         capture.stop().unwrap();
         let events: Vec<_> = rx.try_iter().collect();
 
         let total = keys(&events).len() + types(&events).len();
-        assert!(total >= 1, "Expected at least 1 key or type event from typing, got {}", total);
+        assert!(
+            total >= 1,
+            "Expected at least 1 key or type event from typing, got {}",
+            total
+        );
     }
 
     #[test]
@@ -249,11 +316,17 @@ mod user_actions {
         enigo.button(enigo::Button::Left, Direction::Click).unwrap();
         thread::sleep(Duration::from_millis(500));
 
-        unsafe { let _ = DestroyWindow(hwnd); }
+        unsafe {
+            let _ = DestroyWindow(hwnd);
+        }
         capture.stop().unwrap();
         let events: Vec<_> = rx.try_iter().collect();
 
-        assert!(clicks(&events).len() >= 2, "Expected at least 2 clicks for double-click, got {}", clicks(&events).len());
+        assert!(
+            clicks(&events).len() >= 2,
+            "Expected at least 2 clicks for double-click, got {}",
+            clicks(&events).len()
+        );
     }
 
     #[test]
@@ -275,22 +348,36 @@ mod user_actions {
         thread::sleep(Duration::from_millis(50));
         enigo.move_mouse(cx + 150, cy, Coordinate::Abs).unwrap();
         thread::sleep(Duration::from_millis(50));
-        enigo.button(enigo::Button::Left, Direction::Release).unwrap();
+        enigo
+            .button(enigo::Button::Left, Direction::Release)
+            .unwrap();
         thread::sleep(Duration::from_millis(500));
 
-        unsafe { let _ = DestroyWindow(hwnd); }
+        unsafe {
+            let _ = DestroyWindow(hwnd);
+        }
         capture.stop().unwrap();
         let events: Vec<_> = rx.try_iter().collect();
 
-        let drags: Vec<_> = events.iter()
+        let drags: Vec<_> = events
+            .iter()
             .filter(|e| matches!(&e.payload, ActionPayload::DragStart { .. }))
             .collect();
-        let drops: Vec<_> = events.iter()
+        let drops: Vec<_> = events
+            .iter()
             .filter(|e| matches!(&e.payload, ActionPayload::Drop { .. }))
             .collect();
 
-        assert!(!drags.is_empty(), "Expected at least 1 drag_start, got {}", drags.len());
-        assert!(!drops.is_empty(), "Expected at least 1 drop, got {}", drops.len());
+        assert!(
+            !drags.is_empty(),
+            "Expected at least 1 drag_start, got {}",
+            drags.len()
+        );
+        assert!(
+            !drops.is_empty(),
+            "Expected at least 1 drop, got {}",
+            drops.len()
+        );
     }
 
     #[test]
@@ -307,15 +394,23 @@ mod user_actions {
 
         let mut enigo = Enigo::new(&Settings::default()).unwrap();
         enigo.key(enigo::Key::Control, Direction::Press).unwrap();
-        enigo.key(enigo::Key::Unicode('a'), Direction::Click).unwrap();
+        enigo
+            .key(enigo::Key::Unicode('a'), Direction::Click)
+            .unwrap();
         enigo.key(enigo::Key::Control, Direction::Release).unwrap();
         thread::sleep(Duration::from_millis(500));
 
-        unsafe { let _ = DestroyWindow(hwnd); }
+        unsafe {
+            let _ = DestroyWindow(hwnd);
+        }
         capture.stop().unwrap();
         let events: Vec<_> = rx.try_iter().collect();
 
-        assert!(!keys(&events).is_empty(), "Expected at least 1 key event for Ctrl+A, got {}", keys(&events).len());
+        assert!(
+            !keys(&events).is_empty(),
+            "Expected at least 1 key event for Ctrl+A, got {}",
+            keys(&events).len()
+        );
     }
 }
 
@@ -332,14 +427,12 @@ mod user_actions {
 mod side_effects {
     use super::*;
     use std::ptr;
+    use windows::core::w;
     use windows::Win32::Foundation::HWND;
     use windows::Win32::UI::WindowsAndMessaging::{
-        CreateWindowExW, DestroyWindow, SetForegroundWindow,
-        SetWindowTextW,
+        CreateWindowExW, DestroyWindow, SetForegroundWindow, SetWindowTextW, WINDOW_EX_STYLE,
         WS_OVERLAPPEDWINDOW, WS_VISIBLE,
-        WINDOW_EX_STYLE,
     };
-    use windows::core::w;
 
     /// Helper: create a simple test window and return its handle.
     unsafe fn create_test_window(title: &str) -> HWND {
@@ -351,11 +444,16 @@ mod side_effects {
             class,
             windows::core::PCWSTR(title_wide.as_ptr()),
             WS_OVERLAPPEDWINDOW | WS_VISIBLE,
-            100, 100, 400, 300,            None,
+            100,
+            100,
+            400,
+            300,
+            None,
             None,
             None,
             Some(ptr::null()),
-        ).expect("Failed to create test window")
+        )
+        .expect("Failed to create test window")
     }
 
     #[test]
@@ -374,7 +472,9 @@ mod side_effects {
         thread::sleep(Duration::from_millis(500));
 
         // Clean up.
-        unsafe { let _ = DestroyWindow(hwnd); }
+        unsafe {
+            let _ = DestroyWindow(hwnd);
+        }
         thread::sleep(Duration::from_millis(300));
 
         capture.stop().expect("Failed to stop capture");
@@ -385,12 +485,14 @@ mod side_effects {
         let opens = context_opens(&events);
         let closes = context_closes(&events);
         assert_eq!(
-            opens.len(), 0,
+            opens.len(),
+            0,
             "Programmatic window creation should not produce context_open. Got {} events.",
             opens.len()
         );
         assert_eq!(
-            closes.len(), 0,
+            closes.len(),
+            0,
             "Programmatic window destruction should not produce context_close. Got {} events.",
             closes.len()
         );
@@ -416,7 +518,9 @@ mod side_effects {
         thread::sleep(Duration::from_millis(500));
 
         // Clean up.
-        unsafe { let _ = DestroyWindow(hwnd); }
+        unsafe {
+            let _ = DestroyWindow(hwnd);
+        }
         thread::sleep(Duration::from_millis(300));
 
         capture.stop().expect("Failed to stop capture");
@@ -426,12 +530,14 @@ mod side_effects {
         let focus_events = focuses(&events);
         let switches = context_switches(&events);
         assert_eq!(
-            focus_events.len(), 0,
+            focus_events.len(),
+            0,
             "Programmatic SetFocus should not produce focus events. Got {}.",
             focus_events.len()
         );
         assert_eq!(
-            switches.len(), 0,
+            switches.len(),
+            0,
             "Programmatic SetForegroundWindow should not produce context_switch. Got {}.",
             switches.len()
         );
@@ -460,7 +566,9 @@ mod side_effects {
         thread::sleep(Duration::from_millis(600)); // Wait for type coalescing
 
         // Clean up.
-        unsafe { let _ = DestroyWindow(hwnd); }
+        unsafe {
+            let _ = DestroyWindow(hwnd);
+        }
         thread::sleep(Duration::from_millis(300));
 
         capture.stop().expect("Failed to stop capture");
@@ -469,7 +577,8 @@ mod side_effects {
         // Ideal: no type events from programmatic value changes.
         let type_events = types(&events);
         assert_eq!(
-            type_events.len(), 0,
+            type_events.len(),
+            0,
             "Programmatic SetWindowText should not produce type events. Got {}.",
             type_events.len()
         );
@@ -499,7 +608,9 @@ mod side_effects {
         }
         thread::sleep(Duration::from_millis(600));
 
-        unsafe { let _ = DestroyWindow(hwnd); }
+        unsafe {
+            let _ = DestroyWindow(hwnd);
+        }
         thread::sleep(Duration::from_millis(300));
 
         capture.stop().expect("Failed to stop capture");
@@ -507,7 +618,8 @@ mod side_effects {
 
         let type_events = types(&events);
         assert_eq!(
-            type_events.len(), 0,
+            type_events.len(),
+            0,
             "Timer-driven value updates should not produce type events. Got {}.",
             type_events.len()
         );
@@ -522,13 +634,12 @@ mod side_effects {
 mod side_effects_additional {
     use super::*;
     use std::ptr;
+    use windows::core::w;
     use windows::Win32::Foundation::HWND;
     use windows::Win32::UI::WindowsAndMessaging::{
-        CreateWindowExW, DestroyWindow, SetForegroundWindow, MoveWindow, ShowWindow,
-        WS_OVERLAPPEDWINDOW, WS_VISIBLE, SW_MINIMIZE, SW_RESTORE,
-        WINDOW_EX_STYLE,
+        CreateWindowExW, DestroyWindow, MoveWindow, SetForegroundWindow, ShowWindow, SW_MINIMIZE,
+        SW_RESTORE, WINDOW_EX_STYLE, WS_OVERLAPPEDWINDOW, WS_VISIBLE,
     };
-    use windows::core::w;
 
     unsafe fn create_test_window(title: &str) -> HWND {
         let title_wide: Vec<u16> = title.encode_utf16().chain(std::iter::once(0)).collect();
@@ -538,11 +649,16 @@ mod side_effects_additional {
             class,
             windows::core::PCWSTR(title_wide.as_ptr()),
             WS_OVERLAPPEDWINDOW | WS_VISIBLE,
-            100, 100, 400, 300,            None,
+            100,
+            100,
+            400,
+            300,
+            None,
             None,
             None,
             Some(ptr::null()),
-        ).expect("Failed to create test window")
+        )
+        .expect("Failed to create test window")
     }
 
     #[test]
@@ -564,7 +680,9 @@ mod side_effects_additional {
         }
         thread::sleep(Duration::from_millis(300));
 
-        unsafe { let _ = DestroyWindow(hwnd); }
+        unsafe {
+            let _ = DestroyWindow(hwnd);
+        }
         thread::sleep(Duration::from_millis(300));
 
         capture.stop().expect("Failed to stop capture");
@@ -576,8 +694,18 @@ mod side_effects_additional {
             .iter()
             .filter(|e| matches!(&e.payload, ActionPayload::DragStart { .. }))
             .collect();
-        assert_eq!(click_events.len(), 0, "Window move should not produce clicks. Got {}.", click_events.len());
-        assert_eq!(drag_events.len(), 0, "Window move should not produce drags. Got {}.", drag_events.len());
+        assert_eq!(
+            click_events.len(),
+            0,
+            "Window move should not produce clicks. Got {}.",
+            click_events.len()
+        );
+        assert_eq!(
+            drag_events.len(),
+            0,
+            "Window move should not produce drags. Got {}.",
+            drag_events.len()
+        );
     }
 
     #[test]
@@ -601,7 +729,9 @@ mod side_effects_additional {
         }
         thread::sleep(Duration::from_millis(500));
 
-        unsafe { let _ = DestroyWindow(hwnd); }
+        unsafe {
+            let _ = DestroyWindow(hwnd);
+        }
         thread::sleep(Duration::from_millis(300));
 
         capture.stop().expect("Failed to stop capture");
@@ -610,8 +740,18 @@ mod side_effects_additional {
         // No context_switch or focus events should be produced.
         let switches = context_switches(&events);
         let focus_events = focuses(&events);
-        assert_eq!(switches.len(), 0, "Programmatic minimize/restore should not produce context_switch. Got {}.", switches.len());
-        assert_eq!(focus_events.len(), 0, "Programmatic minimize/restore should not produce focus. Got {}.", focus_events.len());
+        assert_eq!(
+            switches.len(),
+            0,
+            "Programmatic minimize/restore should not produce context_switch. Got {}.",
+            switches.len()
+        );
+        assert_eq!(
+            focus_events.len(),
+            0,
+            "Programmatic minimize/restore should not produce focus. Got {}.",
+            focus_events.len()
+        );
     }
 
     #[test]
@@ -653,12 +793,14 @@ mod side_effects_additional {
         let focus_events = focuses(&events);
         let switches = context_switches(&events);
         assert_eq!(
-            focus_events.len(), 0,
+            focus_events.len(),
+            0,
             "Rapid programmatic focus moves should not produce focus events. Got {}.",
             focus_events.len()
         );
         assert_eq!(
-            switches.len(), 0,
+            switches.len(),
+            0,
             "Rapid programmatic focus moves should not produce context_switch. Got {}.",
             switches.len()
         );
@@ -693,13 +835,13 @@ mod side_effects_additional {
         // Ideal: no context_open for programmatic child windows.
         let opens = context_opens(&events);
         assert_eq!(
-            opens.len(), 0,
+            opens.len(),
+            0,
             "Programmatic child window should not produce context_open. Got {}.",
             opens.len()
         );
     }
 }
-
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // ADDITIONAL USER ACTION TESTS — window switching, special keys
@@ -709,13 +851,13 @@ mod side_effects_additional {
 mod user_actions_advanced {
     use super::*;
     use std::ptr;
-    use windows::Win32::Foundation::HWND;
-    use windows::Win32::UI::WindowsAndMessaging::{
-        CreateWindowExW, DestroyWindow, SetForegroundWindow, GetWindowRect,
-        WS_OVERLAPPEDWINDOW, WS_VISIBLE, WINDOW_EX_STYLE,
-    };
-    use windows::Win32::Foundation::RECT;
     use windows::core::w;
+    use windows::Win32::Foundation::HWND;
+    use windows::Win32::Foundation::RECT;
+    use windows::Win32::UI::WindowsAndMessaging::{
+        CreateWindowExW, DestroyWindow, GetWindowRect, SetForegroundWindow, WINDOW_EX_STYLE,
+        WS_OVERLAPPEDWINDOW, WS_VISIBLE,
+    };
 
     unsafe fn create_target_window(title: &str, x: i32, y: i32) -> (HWND, i32, i32) {
         let title_wide: Vec<u16> = title.encode_utf16().chain(std::iter::once(0)).collect();
@@ -724,11 +866,16 @@ mod user_actions_advanced {
             w!("STATIC"),
             windows::core::PCWSTR(title_wide.as_ptr()),
             WS_OVERLAPPEDWINDOW | WS_VISIBLE,
-            x, y, 400, 300,            None,
+            x,
+            y,
+            400,
+            300,
+            None,
             None,
             None,
             Some(ptr::null()),
-        ).expect("Failed to create target window");
+        )
+        .expect("Failed to create target window");
 
         let _ = SetForegroundWindow(hwnd);
         thread::sleep(Duration::from_millis(100));
@@ -758,7 +905,9 @@ mod user_actions_advanced {
         thread::sleep(Duration::from_millis(200));
 
         // Bring window A to front, then click on window B.
-        unsafe { let _ = SetForegroundWindow(hwnd1); }
+        unsafe {
+            let _ = SetForegroundWindow(hwnd1);
+        }
         thread::sleep(Duration::from_millis(300));
 
         // Clear any setup events by stopping and restarting.
@@ -781,8 +930,16 @@ mod user_actions_advanced {
         // Should have a click AND a context_switch (user switched windows by clicking).
         let click_events = clicks(&events);
         let switch_events = context_switches(&events);
-        assert!(!click_events.is_empty(), "Expected click when switching windows, got {}", click_events.len());
-        assert!(!switch_events.is_empty(), "Expected context_switch when clicking different window, got {}", switch_events.len());
+        assert!(
+            !click_events.is_empty(),
+            "Expected click when switching windows, got {}",
+            click_events.len()
+        );
+        assert!(
+            !switch_events.is_empty(),
+            "Expected context_switch when clicking different window, got {}",
+            switch_events.len()
+        );
     }
 
     #[test]
@@ -801,12 +958,18 @@ mod user_actions_advanced {
         enigo.key(enigo::Key::Escape, Direction::Click).unwrap();
         thread::sleep(Duration::from_millis(500));
 
-        unsafe { let _ = DestroyWindow(hwnd); }
+        unsafe {
+            let _ = DestroyWindow(hwnd);
+        }
         capture.stop().unwrap();
         let events: Vec<_> = rx.try_iter().collect();
 
         let key_events = keys(&events);
-        assert!(!key_events.is_empty(), "Expected Escape key event, got {}", key_events.len());
+        assert!(
+            !key_events.is_empty(),
+            "Expected Escape key event, got {}",
+            key_events.len()
+        );
     }
 
     #[test]
@@ -825,12 +988,18 @@ mod user_actions_advanced {
         enigo.key(enigo::Key::Tab, Direction::Click).unwrap();
         thread::sleep(Duration::from_millis(500));
 
-        unsafe { let _ = DestroyWindow(hwnd); }
+        unsafe {
+            let _ = DestroyWindow(hwnd);
+        }
         capture.stop().unwrap();
         let events: Vec<_> = rx.try_iter().collect();
 
         let key_events = keys(&events);
-        assert!(!key_events.is_empty(), "Expected Tab key event, got {}", key_events.len());
+        assert!(
+            !key_events.is_empty(),
+            "Expected Tab key event, got {}",
+            key_events.len()
+        );
     }
 
     #[test]
@@ -851,12 +1020,18 @@ mod user_actions_advanced {
         enigo.key(enigo::Key::UpArrow, Direction::Click).unwrap();
         thread::sleep(Duration::from_millis(500));
 
-        unsafe { let _ = DestroyWindow(hwnd); }
+        unsafe {
+            let _ = DestroyWindow(hwnd);
+        }
         capture.stop().unwrap();
         let events: Vec<_> = rx.try_iter().collect();
 
         let key_events = keys(&events);
-        assert!(key_events.len() >= 2, "Expected at least 2 arrow key events, got {}", key_events.len());
+        assert!(
+            key_events.len() >= 2,
+            "Expected at least 2 arrow key events, got {}",
+            key_events.len()
+        );
     }
 }
 
@@ -868,16 +1043,13 @@ mod user_actions_advanced {
 mod side_effects_more {
     use super::*;
     use std::ptr;
-    use windows::Win32::Foundation::HWND;
-    use windows::Win32::UI::WindowsAndMessaging::{
-        CreateWindowExW, DestroyWindow,
-        SetWindowTextW, ShowWindow,
-        WS_OVERLAPPEDWINDOW, WS_VISIBLE, WS_POPUP,
-        SW_SHOW, SW_HIDE,
-        WINDOW_EX_STYLE,
-    };
-    use windows::Win32::UI::WindowsAndMessaging::WS_EX_TOPMOST;
     use windows::core::w;
+    use windows::Win32::Foundation::HWND;
+    use windows::Win32::UI::WindowsAndMessaging::WS_EX_TOPMOST;
+    use windows::Win32::UI::WindowsAndMessaging::{
+        CreateWindowExW, DestroyWindow, SetWindowTextW, ShowWindow, SW_HIDE, SW_SHOW,
+        WINDOW_EX_STYLE, WS_OVERLAPPEDWINDOW, WS_POPUP, WS_VISIBLE,
+    };
 
     unsafe fn create_test_window(title: &str) -> HWND {
         let title_wide: Vec<u16> = title.encode_utf16().chain(std::iter::once(0)).collect();
@@ -886,11 +1058,16 @@ mod side_effects_more {
             w!("STATIC"),
             windows::core::PCWSTR(title_wide.as_ptr()),
             WS_OVERLAPPEDWINDOW | WS_VISIBLE,
-            100, 100, 400, 300,            None,
+            100,
+            100,
+            400,
+            300,
+            None,
             None,
             None,
             Some(ptr::null()),
-        ).expect("Failed to create test window")
+        )
+        .expect("Failed to create test window")
     }
 
     #[test]
@@ -909,19 +1086,28 @@ mod side_effects_more {
         // Change title multiple times.
         for i in 0..3 {
             let text: Vec<u16> = format!("Title {}\0", i).encode_utf16().collect();
-            unsafe { SetWindowTextW(hwnd, windows::core::PCWSTR(text.as_ptr())).unwrap(); }
+            unsafe {
+                SetWindowTextW(hwnd, windows::core::PCWSTR(text.as_ptr())).unwrap();
+            }
             thread::sleep(Duration::from_millis(100));
         }
         thread::sleep(Duration::from_millis(600));
 
-        unsafe { let _ = DestroyWindow(hwnd); }
+        unsafe {
+            let _ = DestroyWindow(hwnd);
+        }
         thread::sleep(Duration::from_millis(300));
 
         capture.stop().expect("Failed to stop capture");
         let events: Vec<_> = rx.try_iter().collect();
 
         let type_events = types(&events);
-        assert_eq!(type_events.len(), 0, "Title changes should not produce type events. Got {}.", type_events.len());
+        assert_eq!(
+            type_events.len(),
+            0,
+            "Title changes should not produce type events. Got {}.",
+            type_events.len()
+        );
     }
 
     #[test]
@@ -943,16 +1129,23 @@ mod side_effects_more {
                 w!("STATIC"),
                 title,
                 WS_POPUP | WS_VISIBLE,
-                800, 50, 300, 80,                None,
+                800,
+                50,
+                300,
+                80,
+                None,
                 None,
                 None,
                 Some(ptr::null()),
-            ).expect("Failed to create notification window")
+            )
+            .expect("Failed to create notification window")
         };
         thread::sleep(Duration::from_millis(500));
 
         // Dismiss it.
-        unsafe { let _ = DestroyWindow(hwnd); }
+        unsafe {
+            let _ = DestroyWindow(hwnd);
+        }
         thread::sleep(Duration::from_millis(300));
 
         capture.stop().expect("Failed to stop capture");
@@ -962,9 +1155,24 @@ mod side_effects_more {
         let opens = context_opens(&events);
         let closes = context_closes(&events);
         let switches = context_switches(&events);
-        assert_eq!(opens.len(), 0, "Notification popup should not produce context_open. Got {}.", opens.len());
-        assert_eq!(closes.len(), 0, "Notification popup should not produce context_close. Got {}.", closes.len());
-        assert_eq!(switches.len(), 0, "Notification popup should not produce context_switch. Got {}.", switches.len());
+        assert_eq!(
+            opens.len(),
+            0,
+            "Notification popup should not produce context_open. Got {}.",
+            opens.len()
+        );
+        assert_eq!(
+            closes.len(),
+            0,
+            "Notification popup should not produce context_close. Got {}.",
+            closes.len()
+        );
+        assert_eq!(
+            switches.len(),
+            0,
+            "Notification popup should not produce context_switch. Got {}.",
+            switches.len()
+        );
     }
 
     #[test]
@@ -987,7 +1195,9 @@ mod side_effects_more {
         }
         thread::sleep(Duration::from_millis(500));
 
-        unsafe { let _ = DestroyWindow(hwnd); }
+        unsafe {
+            let _ = DestroyWindow(hwnd);
+        }
         thread::sleep(Duration::from_millis(300));
 
         capture.stop().expect("Failed to stop capture");
@@ -995,11 +1205,20 @@ mod side_effects_more {
 
         let opens = context_opens(&events);
         let closes = context_closes(&events);
-        assert_eq!(opens.len(), 0, "Show/Hide should not produce context_open. Got {}.", opens.len());
-        assert_eq!(closes.len(), 0, "Show/Hide should not produce context_close. Got {}.", closes.len());
+        assert_eq!(
+            opens.len(),
+            0,
+            "Show/Hide should not produce context_open. Got {}.",
+            opens.len()
+        );
+        assert_eq!(
+            closes.len(),
+            0,
+            "Show/Hide should not produce context_close. Got {}.",
+            closes.len()
+        );
     }
 }
-
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // CAPTURE BEHAVIOUR TESTS — verify specific capture layer logic
@@ -1009,13 +1228,13 @@ mod side_effects_more {
 mod capture_behaviour {
     use super::*;
     use std::ptr;
-    use windows::Win32::Foundation::HWND;
-    use windows::Win32::UI::WindowsAndMessaging::{
-        CreateWindowExW, DestroyWindow, SetForegroundWindow, GetWindowRect,
-        WS_OVERLAPPEDWINDOW, WS_VISIBLE, WINDOW_EX_STYLE,
-    };
-    use windows::Win32::Foundation::RECT;
     use windows::core::w;
+    use windows::Win32::Foundation::HWND;
+    use windows::Win32::Foundation::RECT;
+    use windows::Win32::UI::WindowsAndMessaging::{
+        CreateWindowExW, DestroyWindow, GetWindowRect, SetForegroundWindow, WINDOW_EX_STYLE,
+        WS_OVERLAPPEDWINDOW, WS_VISIBLE,
+    };
 
     unsafe fn create_target_window(title: &str) -> (HWND, i32, i32) {
         let title_wide: Vec<u16> = title.encode_utf16().chain(std::iter::once(0)).collect();
@@ -1024,11 +1243,16 @@ mod capture_behaviour {
             w!("STATIC"),
             windows::core::PCWSTR(title_wide.as_ptr()),
             WS_OVERLAPPEDWINDOW | WS_VISIBLE,
-            200, 200, 600, 400,            None,
+            200,
+            200,
+            600,
+            400,
+            None,
             None,
             None,
             Some(ptr::null()),
-        ).expect("Failed to create target window");
+        )
+        .expect("Failed to create target window");
 
         let _ = SetForegroundWindow(hwnd);
         thread::sleep(Duration::from_millis(100));
@@ -1057,26 +1281,37 @@ mod capture_behaviour {
 
         let mut enigo = Enigo::new(&Settings::default()).unwrap();
         // Type individual printable characters into a non-editable window.
-        enigo.key(enigo::Key::Unicode('a'), Direction::Click).unwrap();
-        enigo.key(enigo::Key::Unicode('b'), Direction::Click).unwrap();
-        enigo.key(enigo::Key::Unicode('c'), Direction::Click).unwrap();
+        enigo
+            .key(enigo::Key::Unicode('a'), Direction::Click)
+            .unwrap();
+        enigo
+            .key(enigo::Key::Unicode('b'), Direction::Click)
+            .unwrap();
+        enigo
+            .key(enigo::Key::Unicode('c'), Direction::Click)
+            .unwrap();
         // Wait for TYPE_DEBOUNCE_MS (1000ms) + buffer to flush.
         thread::sleep(Duration::from_millis(1500));
 
-        unsafe { let _ = DestroyWindow(hwnd); }
+        unsafe {
+            let _ = DestroyWindow(hwnd);
+        }
         capture.stop().unwrap();
         let events: Vec<_> = rx.try_iter().collect();
 
         // Since no type event arrived (STATIC window has no Value pattern),
         // the printable keys should be emitted as individual key events.
         let key_events = keys(&events);
-        let printable_keys: Vec<_> = key_events.iter().filter(|e| {
-            if let ActionPayload::Key { key, modifiers, .. } = &e.payload {
-                key.len() == 1 && !modifiers.ctrl && !modifiers.alt && !modifiers.meta
-            } else {
-                false
-            }
-        }).collect();
+        let printable_keys: Vec<_> = key_events
+            .iter()
+            .filter(|e| {
+                if let ActionPayload::Key { key, modifiers, .. } = &e.payload {
+                    key.len() == 1 && !modifiers.ctrl && !modifiers.alt && !modifiers.meta
+                } else {
+                    false
+                }
+            })
+            .collect();
         assert!(
             printable_keys.len() >= 3,
             "Expected at least 3 printable key events (a, b, c), got {}",
@@ -1102,7 +1337,9 @@ mod capture_behaviour {
         // Wait for TYPE_DEBOUNCE_MS (1000ms) + buffer to flush.
         thread::sleep(Duration::from_millis(1500));
 
-        unsafe { let _ = DestroyWindow(hwnd); }
+        unsafe {
+            let _ = DestroyWindow(hwnd);
+        }
         capture.stop().unwrap();
         let events: Vec<_> = rx.try_iter().collect();
 
@@ -1137,7 +1374,9 @@ mod capture_behaviour {
         }
         thread::sleep(Duration::from_millis(500));
 
-        unsafe { let _ = DestroyWindow(hwnd); }
+        unsafe {
+            let _ = DestroyWindow(hwnd);
+        }
         capture.stop().unwrap();
         let events: Vec<_> = rx.try_iter().collect();
 
@@ -1156,9 +1395,7 @@ mod capture_behaviour {
         // When typing in a password field, the captured value should be masked.
         // NOTE: This test requires a window with a password edit control.
         // Using the built-in EDIT class with ES_PASSWORD style.
-        use windows::Win32::UI::WindowsAndMessaging::{
-            WS_CHILD, ES_PASSWORD, WS_BORDER,
-        };
+        use windows::Win32::UI::WindowsAndMessaging::{ES_PASSWORD, WS_BORDER, WS_CHILD};
 
         let (tx, rx) = mpsc::channel::<ActionEvent>();
         let mut capture = WindowsCapture::new();
@@ -1176,24 +1413,35 @@ mod capture_behaviour {
                 WINDOW_EX_STYLE::default(),
                 w!("EDIT"),
                 w!(""),
-                WS_CHILD | WS_VISIBLE | WS_BORDER | windows::Win32::UI::WindowsAndMessaging::WINDOW_STYLE(ES_PASSWORD as u32),
-                10, 10, 200, 30,
+                WS_CHILD
+                    | WS_VISIBLE
+                    | WS_BORDER
+                    | windows::Win32::UI::WindowsAndMessaging::WINDOW_STYLE(ES_PASSWORD as u32),
+                10,
+                10,
+                200,
+                30,
                 Some(parent),
                 None,
                 None,
                 Some(ptr::null()),
-            ).expect("Failed to create edit control")
+            )
+            .expect("Failed to create edit control")
         };
         thread::sleep(Duration::from_millis(200));
 
         // Focus the edit and type a password.
-        unsafe { let _ = SetForegroundWindow(parent); }
+        unsafe {
+            let _ = SetForegroundWindow(parent);
+        }
         thread::sleep(Duration::from_millis(100));
 
         let mut enigo = Enigo::new(&Settings::default()).unwrap();
         // Click on the edit control area.
         let mut rect = RECT::default();
-        unsafe { GetWindowRect(edit, &mut rect).unwrap(); }
+        unsafe {
+            GetWindowRect(edit, &mut rect).unwrap();
+        }
         let ecx = (rect.left + rect.right) / 2;
         let ecy = (rect.top + rect.bottom) / 2;
         enigo.move_mouse(ecx, ecy, Coordinate::Abs).unwrap();
@@ -1268,7 +1516,6 @@ mod capture_behaviour {
     }
 }
 
-
 // ═══════════════════════════════════════════════════════════════════════════════
 // EXTENDED USER ACTION TESTS — more input types
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -1277,12 +1524,12 @@ mod capture_behaviour {
 mod user_actions_extended {
     use super::*;
     use std::ptr;
+    use windows::core::w;
     use windows::Win32::Foundation::{HWND, RECT};
     use windows::Win32::UI::WindowsAndMessaging::{
-        CreateWindowExW, DestroyWindow, SetForegroundWindow, GetWindowRect,
-        WS_OVERLAPPEDWINDOW, WS_VISIBLE, WINDOW_EX_STYLE,
+        CreateWindowExW, DestroyWindow, GetWindowRect, SetForegroundWindow, WINDOW_EX_STYLE,
+        WS_OVERLAPPEDWINDOW, WS_VISIBLE,
     };
-    use windows::core::w;
 
     unsafe fn create_target_window(title: &str) -> (HWND, i32, i32) {
         let title_wide: Vec<u16> = title.encode_utf16().chain(std::iter::once(0)).collect();
@@ -1291,11 +1538,16 @@ mod user_actions_extended {
             w!("STATIC"),
             windows::core::PCWSTR(title_wide.as_ptr()),
             WS_OVERLAPPEDWINDOW | WS_VISIBLE,
-            200, 200, 600, 400,            None,
+            200,
+            200,
+            600,
+            400,
+            None,
             None,
             None,
             Some(ptr::null()),
-        ).expect("Failed to create target window");
+        )
+        .expect("Failed to create target window");
         let _ = SetForegroundWindow(hwnd);
         thread::sleep(Duration::from_millis(100));
         let mut rect = RECT::default();
@@ -1320,16 +1572,24 @@ mod user_actions_extended {
         let mut enigo = Enigo::new(&Settings::default()).unwrap();
         enigo.move_mouse(cx, cy, Coordinate::Abs).unwrap();
         thread::sleep(Duration::from_millis(50));
-        enigo.button(enigo::Button::Middle, Direction::Click).unwrap();
+        enigo
+            .button(enigo::Button::Middle, Direction::Click)
+            .unwrap();
         thread::sleep(Duration::from_millis(500));
 
-        unsafe { let _ = DestroyWindow(hwnd); }
+        unsafe {
+            let _ = DestroyWindow(hwnd);
+        }
         capture.stop().unwrap();
         let events: Vec<_> = rx.try_iter().collect();
 
         // Middle click should produce a click event.
         let click_events = clicks(&events);
-        assert!(!click_events.is_empty(), "Expected middle click to be captured, got {} clicks", click_events.len());
+        assert!(
+            !click_events.is_empty(),
+            "Expected middle click to be captured, got {} clicks",
+            click_events.len()
+        );
     }
 
     #[test]
@@ -1350,13 +1610,19 @@ mod user_actions_extended {
         enigo.scroll(5, enigo::Axis::Horizontal).unwrap();
         thread::sleep(Duration::from_millis(500));
 
-        unsafe { let _ = DestroyWindow(hwnd); }
+        unsafe {
+            let _ = DestroyWindow(hwnd);
+        }
         capture.stop().unwrap();
         let events: Vec<_> = rx.try_iter().collect();
 
         // Horizontal scroll should produce a scroll event.
         let scroll_events = scrolls(&events);
-        assert!(!scroll_events.is_empty(), "Expected horizontal scroll to be captured, got {}", scroll_events.len());
+        assert!(
+            !scroll_events.is_empty(),
+            "Expected horizontal scroll to be captured, got {}",
+            scroll_events.len()
+        );
     }
 
     #[test]
@@ -1375,12 +1641,18 @@ mod user_actions_extended {
         enigo.key(enigo::Key::F5, Direction::Click).unwrap();
         thread::sleep(Duration::from_millis(500));
 
-        unsafe { let _ = DestroyWindow(hwnd); }
+        unsafe {
+            let _ = DestroyWindow(hwnd);
+        }
         capture.stop().unwrap();
         let events: Vec<_> = rx.try_iter().collect();
 
         let key_events = keys(&events);
-        assert!(!key_events.is_empty(), "Expected F5 key to be captured, got {}", key_events.len());
+        assert!(
+            !key_events.is_empty(),
+            "Expected F5 key to be captured, got {}",
+            key_events.len()
+        );
     }
 
     #[test]
@@ -1410,12 +1682,18 @@ mod user_actions_extended {
         enigo.key(enigo::Key::Backspace, Direction::Click).unwrap();
         thread::sleep(Duration::from_millis(500));
 
-        unsafe { let _ = DestroyWindow(hwnd); }
+        unsafe {
+            let _ = DestroyWindow(hwnd);
+        }
         capture.stop().unwrap();
         let events: Vec<_> = rx.try_iter().collect();
 
         let key_events = keys(&events);
-        assert!(key_events.len() >= 6, "Expected at least 6 navigation key events, got {}", key_events.len());
+        assert!(
+            key_events.len() >= 6,
+            "Expected at least 6 navigation key events, got {}",
+            key_events.len()
+        );
     }
 
     #[test]
@@ -1443,12 +1721,18 @@ mod user_actions_extended {
         enigo.key(enigo::Key::Shift, Direction::Release).unwrap();
         thread::sleep(Duration::from_millis(500));
 
-        unsafe { let _ = DestroyWindow(hwnd); }
+        unsafe {
+            let _ = DestroyWindow(hwnd);
+        }
         capture.stop().unwrap();
         let events: Vec<_> = rx.try_iter().collect();
 
         let click_events = clicks(&events);
-        assert!(click_events.len() >= 2, "Expected at least 2 clicks for shift-click selection, got {}", click_events.len());
+        assert!(
+            click_events.len() >= 2,
+            "Expected at least 2 clicks for shift-click selection, got {}",
+            click_events.len()
+        );
     }
 
     #[test]
@@ -1472,12 +1756,18 @@ mod user_actions_extended {
         enigo.key(enigo::Key::Alt, Direction::Release).unwrap();
         thread::sleep(Duration::from_millis(500));
 
-        unsafe { let _ = DestroyWindow(hwnd); }
+        unsafe {
+            let _ = DestroyWindow(hwnd);
+        }
         capture.stop().unwrap();
         let events: Vec<_> = rx.try_iter().collect();
 
         let key_events = keys(&events);
-        assert!(!key_events.is_empty(), "Expected Alt+F4 key event, got {}", key_events.len());
+        assert!(
+            !key_events.is_empty(),
+            "Expected Alt+F4 key event, got {}",
+            key_events.len()
+        );
     }
 }
 
@@ -1489,12 +1779,12 @@ mod user_actions_extended {
 mod scroll_behaviour {
     use super::*;
     use std::ptr;
+    use windows::core::w;
     use windows::Win32::Foundation::{HWND, RECT};
     use windows::Win32::UI::WindowsAndMessaging::{
-        CreateWindowExW, DestroyWindow, SetForegroundWindow, GetWindowRect,
-        WS_OVERLAPPEDWINDOW, WS_VISIBLE, WINDOW_EX_STYLE,
+        CreateWindowExW, DestroyWindow, GetWindowRect, SetForegroundWindow, WINDOW_EX_STYLE,
+        WS_OVERLAPPEDWINDOW, WS_VISIBLE,
     };
-    use windows::core::w;
 
     unsafe fn create_target_window() -> (HWND, i32, i32) {
         let hwnd = CreateWindowExW(
@@ -1502,11 +1792,16 @@ mod scroll_behaviour {
             w!("STATIC"),
             w!("Scroll Test"),
             WS_OVERLAPPEDWINDOW | WS_VISIBLE,
-            200, 200, 600, 400,            None,
+            200,
+            200,
+            600,
+            400,
+            None,
             None,
             None,
             Some(ptr::null()),
-        ).expect("Failed to create target window");
+        )
+        .expect("Failed to create target window");
         let _ = SetForegroundWindow(hwnd);
         thread::sleep(Duration::from_millis(100));
         let mut rect = RECT::default();
@@ -1536,13 +1831,20 @@ mod scroll_behaviour {
         enigo.scroll(1, enigo::Axis::Vertical).unwrap();
         thread::sleep(Duration::from_millis(500));
 
-        unsafe { let _ = DestroyWindow(hwnd); }
+        unsafe {
+            let _ = DestroyWindow(hwnd);
+        }
         capture.stop().unwrap();
         let events: Vec<_> = rx.try_iter().collect();
 
         // Small scroll should be filtered (threshold not met).
         let scroll_events = scrolls(&events);
-        assert_eq!(scroll_events.len(), 0, "Small scroll should be filtered, got {}", scroll_events.len());
+        assert_eq!(
+            scroll_events.len(),
+            0,
+            "Small scroll should be filtered, got {}",
+            scroll_events.len()
+        );
     }
 
     #[test]
@@ -1568,7 +1870,9 @@ mod scroll_behaviour {
         }
         thread::sleep(Duration::from_millis(500));
 
-        unsafe { let _ = DestroyWindow(hwnd); }
+        unsafe {
+            let _ = DestroyWindow(hwnd);
+        }
         capture.stop().unwrap();
         let events: Vec<_> = rx.try_iter().collect();
 
@@ -1582,7 +1886,6 @@ mod scroll_behaviour {
     }
 }
 
-
 // ═══════════════════════════════════════════════════════════════════════════════
 // MISSING USER ACTION TESTS
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -1591,12 +1894,12 @@ mod scroll_behaviour {
 mod user_actions_missing {
     use super::*;
     use std::ptr;
+    use windows::core::w;
     use windows::Win32::Foundation::{HWND, RECT};
     use windows::Win32::UI::WindowsAndMessaging::{
-        CreateWindowExW, DestroyWindow, SetForegroundWindow, GetWindowRect,
-        WS_OVERLAPPEDWINDOW, WS_VISIBLE, WINDOW_EX_STYLE,
+        CreateWindowExW, DestroyWindow, GetWindowRect, SetForegroundWindow, WINDOW_EX_STYLE,
+        WS_OVERLAPPEDWINDOW, WS_VISIBLE,
     };
-    use windows::core::w;
 
     unsafe fn create_target_window(title: &str) -> (HWND, i32, i32) {
         let title_wide: Vec<u16> = title.encode_utf16().chain(std::iter::once(0)).collect();
@@ -1605,11 +1908,16 @@ mod user_actions_missing {
             w!("STATIC"),
             windows::core::PCWSTR(title_wide.as_ptr()),
             WS_OVERLAPPEDWINDOW | WS_VISIBLE,
-            200, 200, 600, 400,            None,
+            200,
+            200,
+            600,
+            400,
+            None,
             None,
             None,
             Some(ptr::null()),
-        ).expect("Failed to create target window");
+        )
+        .expect("Failed to create target window");
         let _ = SetForegroundWindow(hwnd);
         thread::sleep(Duration::from_millis(100));
         let mut rect = RECT::default();
@@ -1639,12 +1947,18 @@ mod user_actions_missing {
         enigo.key(enigo::Key::Control, Direction::Release).unwrap();
         thread::sleep(Duration::from_millis(500));
 
-        unsafe { let _ = DestroyWindow(hwnd); }
+        unsafe {
+            let _ = DestroyWindow(hwnd);
+        }
         capture.stop().unwrap();
         let events: Vec<_> = rx.try_iter().collect();
 
         let click_events = clicks(&events);
-        assert!(!click_events.is_empty(), "Expected Ctrl+click to be captured, got {}", click_events.len());
+        assert!(
+            !click_events.is_empty(),
+            "Expected Ctrl+click to be captured, got {}",
+            click_events.len()
+        );
     }
 }
 
@@ -1656,13 +1970,12 @@ mod user_actions_missing {
 mod side_effects_missing {
     use super::*;
     use std::ptr;
-    use windows::Win32::Foundation::HWND;
-    use windows::Win32::UI::WindowsAndMessaging::{
-        CreateWindowExW, DestroyWindow,
-        WS_OVERLAPPEDWINDOW, WS_VISIBLE, WINDOW_EX_STYLE,
-    };
-    use windows::Win32::UI::WindowsAndMessaging::ScrollWindow;
     use windows::core::w;
+    use windows::Win32::Foundation::HWND;
+    use windows::Win32::UI::WindowsAndMessaging::ScrollWindow;
+    use windows::Win32::UI::WindowsAndMessaging::{
+        CreateWindowExW, DestroyWindow, WINDOW_EX_STYLE, WS_OVERLAPPEDWINDOW, WS_VISIBLE,
+    };
 
     unsafe fn create_test_window(title: &str) -> HWND {
         let title_wide: Vec<u16> = title.encode_utf16().chain(std::iter::once(0)).collect();
@@ -1671,11 +1984,16 @@ mod side_effects_missing {
             w!("STATIC"),
             windows::core::PCWSTR(title_wide.as_ptr()),
             WS_OVERLAPPEDWINDOW | WS_VISIBLE,
-            100, 100, 400, 300,            None,
+            100,
+            100,
+            400,
+            300,
+            None,
             None,
             None,
             Some(ptr::null()),
-        ).expect("Failed to create test window")
+        )
+        .expect("Failed to create test window")
     }
 
     #[test]
@@ -1697,7 +2015,9 @@ mod side_effects_missing {
         }
         thread::sleep(Duration::from_millis(500));
 
-        unsafe { let _ = DestroyWindow(hwnd); }
+        unsafe {
+            let _ = DestroyWindow(hwnd);
+        }
         thread::sleep(Duration::from_millis(300));
 
         capture.stop().unwrap();
@@ -1705,7 +2025,8 @@ mod side_effects_missing {
 
         let scroll_events = scrolls(&events);
         assert_eq!(
-            scroll_events.len(), 0,
+            scroll_events.len(),
+            0,
             "Programmatic ScrollWindow should not produce scroll events. Got {}.",
             scroll_events.len()
         );
@@ -1720,12 +2041,12 @@ mod side_effects_missing {
 mod capture_behaviour_missing {
     use super::*;
     use std::ptr;
+    use windows::core::w;
     use windows::Win32::Foundation::{HWND, RECT};
     use windows::Win32::UI::WindowsAndMessaging::{
-        CreateWindowExW, DestroyWindow, SetForegroundWindow, GetWindowRect,
-        WS_OVERLAPPEDWINDOW, WS_VISIBLE, WINDOW_EX_STYLE,
+        CreateWindowExW, DestroyWindow, GetWindowRect, SetForegroundWindow, WINDOW_EX_STYLE,
+        WS_OVERLAPPEDWINDOW, WS_VISIBLE,
     };
-    use windows::core::w;
 
     unsafe fn create_target_window(title: &str) -> (HWND, i32, i32) {
         let title_wide: Vec<u16> = title.encode_utf16().chain(std::iter::once(0)).collect();
@@ -1734,11 +2055,16 @@ mod capture_behaviour_missing {
             w!("STATIC"),
             windows::core::PCWSTR(title_wide.as_ptr()),
             WS_OVERLAPPEDWINDOW | WS_VISIBLE,
-            200, 200, 600, 400,            None,
+            200,
+            200,
+            600,
+            400,
+            None,
             None,
             None,
             Some(ptr::null()),
-        ).expect("Failed to create target window");
+        )
+        .expect("Failed to create target window");
         let _ = SetForegroundWindow(hwnd);
         thread::sleep(Duration::from_millis(100));
         let mut rect = RECT::default();
@@ -1772,14 +2098,14 @@ mod capture_behaviour_missing {
         enigo.key(enigo::Key::Return, Direction::Click).unwrap();
         thread::sleep(Duration::from_millis(500));
 
-        unsafe { let _ = DestroyWindow(hwnd); }
+        unsafe {
+            let _ = DestroyWindow(hwnd);
+        }
         capture.stop().unwrap();
         let events: Vec<_> = rx.try_iter().collect();
 
         // All events should have the same context_id (same window).
-        let context_ids: Vec<_> = events.iter()
-            .filter_map(|e| e.context_id)
-            .collect();
+        let context_ids: Vec<_> = events.iter().filter_map(|e| e.context_id).collect();
 
         if context_ids.len() >= 2 {
             let first = context_ids[0];
@@ -1809,7 +2135,9 @@ mod capture_behaviour_missing {
         enigo.button(enigo::Button::Left, Direction::Click).unwrap();
         thread::sleep(Duration::from_millis(500));
 
-        unsafe { let _ = DestroyWindow(hwnd); }
+        unsafe {
+            let _ = DestroyWindow(hwnd);
+        }
         capture.stop().unwrap();
         let events: Vec<_> = rx.try_iter().collect();
 
@@ -1830,7 +2158,6 @@ mod capture_behaviour_missing {
     }
 }
 
-
 // ═══════════════════════════════════════════════════════════════════════════════
 // COMPLETENESS TESTS — filling remaining gaps
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -1839,14 +2166,12 @@ mod capture_behaviour_missing {
 mod completeness {
     use super::*;
     use std::ptr;
+    use windows::core::w;
     use windows::Win32::Foundation::{HWND, RECT};
     use windows::Win32::UI::WindowsAndMessaging::{
-        CreateWindowExW, DestroyWindow, SetForegroundWindow, GetWindowRect,
-        SetWindowTextW,
-        WS_OVERLAPPEDWINDOW, WS_VISIBLE,
-        WINDOW_EX_STYLE,
+        CreateWindowExW, DestroyWindow, GetWindowRect, SetForegroundWindow, SetWindowTextW,
+        WINDOW_EX_STYLE, WS_OVERLAPPEDWINDOW, WS_VISIBLE,
     };
-    use windows::core::w;
 
     unsafe fn create_target_window(title: &str) -> (HWND, i32, i32) {
         let title_wide: Vec<u16> = title.encode_utf16().chain(std::iter::once(0)).collect();
@@ -1855,11 +2180,16 @@ mod completeness {
             w!("STATIC"),
             windows::core::PCWSTR(title_wide.as_ptr()),
             WS_OVERLAPPEDWINDOW | WS_VISIBLE,
-            200, 200, 600, 400,            None,
+            200,
+            200,
+            600,
+            400,
+            None,
             None,
             None,
             Some(ptr::null()),
-        ).expect("Failed to create target window");
+        )
+        .expect("Failed to create target window");
         let _ = SetForegroundWindow(hwnd);
         thread::sleep(Duration::from_millis(100));
         let mut rect = RECT::default();
@@ -1891,15 +2221,22 @@ mod completeness {
         enigo.move_mouse(cx, cy, Coordinate::Abs).unwrap();
         thread::sleep(Duration::from_millis(500));
 
-        unsafe { let _ = DestroyWindow(hwnd); }
+        unsafe {
+            let _ = DestroyWindow(hwnd);
+        }
         capture.stop().unwrap();
         let events: Vec<_> = rx.try_iter().collect();
 
         assert_eq!(
-            events.len(), 0,
+            events.len(),
+            0,
             "Mouse move alone should produce no events. Got {} events: {:?}",
             events.len(),
-            events.iter().map(|e| format!("{:?}", e.payload)).take(5).collect::<Vec<_>>()
+            events
+                .iter()
+                .map(|e| format!("{:?}", e.payload))
+                .take(5)
+                .collect::<Vec<_>>()
         );
     }
 
@@ -1928,21 +2265,30 @@ mod completeness {
         enigo.button(enigo::Button::Left, Direction::Click).unwrap();
         thread::sleep(Duration::from_millis(500));
 
-        unsafe { let _ = DestroyWindow(hwnd); }
+        unsafe {
+            let _ = DestroyWindow(hwnd);
+        }
         capture.stop().unwrap();
         let events: Vec<_> = rx.try_iter().collect();
 
         let click_events = clicks(&events);
-        assert!(click_events.len() >= 2, "Expected 2 clicks, got {}", click_events.len());
+        assert!(
+            click_events.len() >= 2,
+            "Expected 2 clicks, got {}",
+            click_events.len()
+        );
 
         // Extract coordinates from the two clicks.
-        let coords: Vec<(f64, f64)> = click_events.iter().filter_map(|e| {
-            if let ActionPayload::Click { x, y, .. } = &e.payload {
-                Some((*x, *y))
-            } else {
-                None
-            }
-        }).collect();
+        let coords: Vec<(f64, f64)> = click_events
+            .iter()
+            .filter_map(|e| {
+                if let ActionPayload::Click { x, y, .. } = &e.payload {
+                    Some((*x, *y))
+                } else {
+                    None
+                }
+            })
+            .collect();
 
         assert!(coords.len() >= 2, "Expected 2 click coords");
         // The two clicks should be at different positions.
@@ -1976,13 +2322,16 @@ mod completeness {
         }
         thread::sleep(Duration::from_millis(500));
 
-        unsafe { let _ = DestroyWindow(hwnd); }
+        unsafe {
+            let _ = DestroyWindow(hwnd);
+        }
         capture.stop().unwrap();
         let events: Vec<_> = rx.try_iter().collect();
 
         let click_events = clicks(&events);
         assert_eq!(
-            click_events.len(), 5,
+            click_events.len(),
+            5,
             "Expected 5 rapid clicks captured, got {}",
             click_events.len()
         );
@@ -2007,7 +2356,9 @@ mod completeness {
         // Wait for coalescing debounce (500ms).
         thread::sleep(Duration::from_millis(800));
 
-        unsafe { let _ = DestroyWindow(hwnd); }
+        unsafe {
+            let _ = DestroyWindow(hwnd);
+        }
         capture.stop().unwrap();
         let events: Vec<_> = rx.try_iter().collect();
 
@@ -2037,13 +2388,20 @@ mod completeness {
                 w!("EDIT"),
                 windows::core::PCWSTR(title_wide.as_ptr()),
                 WS_OVERLAPPEDWINDOW | WS_VISIBLE,
-                200, 200, 400, 200,                None,
+                200,
+                200,
+                400,
+                200,
+                None,
                 None,
                 None,
                 Some(ptr::null()),
-            ).expect("Failed to create edit window")
+            )
+            .expect("Failed to create edit window")
         };
-        unsafe { let _ = SetForegroundWindow(hwnd); }
+        unsafe {
+            let _ = SetForegroundWindow(hwnd);
+        }
         thread::sleep(Duration::from_millis(200));
 
         // Set the same value twice programmatically.
@@ -2054,7 +2412,9 @@ mod completeness {
         }
         thread::sleep(Duration::from_millis(800));
 
-        unsafe { let _ = DestroyWindow(hwnd); }
+        unsafe {
+            let _ = DestroyWindow(hwnd);
+        }
         thread::sleep(Duration::from_millis(300));
 
         capture.stop().unwrap();
@@ -2086,18 +2446,26 @@ mod completeness {
         enigo.key(enigo::Key::Control, Direction::Press).unwrap();
         enigo.key(enigo::Key::Shift, Direction::Press).unwrap();
         enigo.key(enigo::Key::Alt, Direction::Press).unwrap();
-        enigo.key(enigo::Key::Unicode('k'), Direction::Click).unwrap();
+        enigo
+            .key(enigo::Key::Unicode('k'), Direction::Click)
+            .unwrap();
         enigo.key(enigo::Key::Alt, Direction::Release).unwrap();
         enigo.key(enigo::Key::Shift, Direction::Release).unwrap();
         enigo.key(enigo::Key::Control, Direction::Release).unwrap();
         thread::sleep(Duration::from_millis(500));
 
-        unsafe { let _ = DestroyWindow(hwnd); }
+        unsafe {
+            let _ = DestroyWindow(hwnd);
+        }
         capture.stop().unwrap();
         let events: Vec<_> = rx.try_iter().collect();
 
         let key_events = keys(&events);
-        assert!(!key_events.is_empty(), "Expected key event for Ctrl+Shift+Alt+K, got {}", key_events.len());
+        assert!(
+            !key_events.is_empty(),
+            "Expected key event for Ctrl+Shift+Alt+K, got {}",
+            key_events.len()
+        );
     }
 
     #[test]
@@ -2123,7 +2491,9 @@ mod completeness {
         enigo.button(enigo::Button::Left, Direction::Click).unwrap();
         thread::sleep(Duration::from_millis(500));
 
-        unsafe { let _ = DestroyWindow(hwnd); }
+        unsafe {
+            let _ = DestroyWindow(hwnd);
+        }
         capture.stop().unwrap();
         let events: Vec<_> = rx.try_iter().collect();
 
@@ -2136,14 +2506,13 @@ mod completeness {
         // Either mode is acceptable — we just verify the field is set.
         for click in &click_events {
             assert!(
-                click.capture_mode == CaptureMode::Accessibility ||
-                click.capture_mode == CaptureMode::Coordinate,
+                click.capture_mode == CaptureMode::Accessibility
+                    || click.capture_mode == CaptureMode::Coordinate,
                 "capture_mode should be Accessibility or Coordinate"
             );
         }
     }
 }
-
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // SELECTION TEST
@@ -2153,14 +2522,12 @@ mod completeness {
 mod selection {
     use super::*;
     use std::ptr;
-    use windows::Win32::Foundation::{RECT, WPARAM, LPARAM};
-    use windows::Win32::UI::WindowsAndMessaging::{
-        CreateWindowExW, DestroyWindow, SetForegroundWindow, GetWindowRect,
-        SendMessageW,
-        WS_OVERLAPPEDWINDOW, WS_VISIBLE, WS_CHILD, WS_BORDER,
-        WINDOW_EX_STYLE, LBS_NOTIFY,
-    };
     use windows::core::w;
+    use windows::Win32::Foundation::{LPARAM, RECT, WPARAM};
+    use windows::Win32::UI::WindowsAndMessaging::{
+        CreateWindowExW, DestroyWindow, GetWindowRect, SendMessageW, SetForegroundWindow,
+        LBS_NOTIFY, WINDOW_EX_STYLE, WS_BORDER, WS_CHILD, WS_OVERLAPPEDWINDOW, WS_VISIBLE,
+    };
 
     const LB_ADDSTRING: u32 = 0x0180;
 
@@ -2181,13 +2548,20 @@ mod selection {
                 w!("STATIC"),
                 w!("Selection Test"),
                 WS_OVERLAPPEDWINDOW | WS_VISIBLE,
-                200, 200, 400, 300,                None,
+                200,
+                200,
+                400,
+                300,
+                None,
                 None,
                 None,
                 Some(ptr::null()),
-            ).expect("Failed to create parent")
+            )
+            .expect("Failed to create parent")
         };
-        unsafe { let _ = SetForegroundWindow(parent); }
+        unsafe {
+            let _ = SetForegroundWindow(parent);
+        }
         thread::sleep(Duration::from_millis(100));
 
         // Create a LISTBOX with items.
@@ -2196,28 +2570,41 @@ mod selection {
                 WINDOW_EX_STYLE::default(),
                 w!("LISTBOX"),
                 w!(""),
-                WS_CHILD | WS_VISIBLE | WS_BORDER |
-                    windows::Win32::UI::WindowsAndMessaging::WINDOW_STYLE(LBS_NOTIFY as u32),
-                10, 10, 200, 150,
+                WS_CHILD
+                    | WS_VISIBLE
+                    | WS_BORDER
+                    | windows::Win32::UI::WindowsAndMessaging::WINDOW_STYLE(LBS_NOTIFY as u32),
+                10,
+                10,
+                200,
+                150,
                 Some(parent),
                 None,
                 None,
                 Some(ptr::null()),
-            ).expect("Failed to create listbox")
+            )
+            .expect("Failed to create listbox")
         };
 
         // Add items.
         unsafe {
             let items = [w!("Item A"), w!("Item B"), w!("Item C")];
             for item in &items {
-                SendMessageW(listbox, LB_ADDSTRING, Some(WPARAM(0)), Some(LPARAM(item.as_ptr() as isize)));
+                SendMessageW(
+                    listbox,
+                    LB_ADDSTRING,
+                    Some(WPARAM(0)),
+                    Some(LPARAM(item.as_ptr() as isize)),
+                );
             }
         }
         thread::sleep(Duration::from_millis(200));
 
         // Click on the second item in the listbox.
         let mut rect = RECT::default();
-        unsafe { GetWindowRect(listbox, &mut rect).unwrap(); }
+        unsafe {
+            GetWindowRect(listbox, &mut rect).unwrap();
+        }
         let lx = rect.left + 50;
         let ly = rect.top + 30; // Approximate position of second item.
 
@@ -2237,10 +2624,13 @@ mod selection {
         // Should have a click action. The click on a list item IS the selection —
         // a separate select event is not needed (it would be redundant with the click).
         let click_events = clicks(&events);
-        assert!(!click_events.is_empty(), "Expected click on listbox item, got {}", click_events.len());
+        assert!(
+            !click_events.is_empty(),
+            "Expected click on listbox item, got {}",
+            click_events.len()
+        );
     }
 }
-
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // DEDUPLICATION AND CORRELATION TESTS
@@ -2250,12 +2640,12 @@ mod selection {
 mod deduplication {
     use super::*;
     use std::ptr;
+    use windows::core::w;
     use windows::Win32::Foundation::{HWND, RECT};
     use windows::Win32::UI::WindowsAndMessaging::{
-        CreateWindowExW, DestroyWindow, SetForegroundWindow, GetWindowRect,
-        WS_OVERLAPPEDWINDOW, WS_VISIBLE, WINDOW_EX_STYLE,
+        CreateWindowExW, DestroyWindow, GetWindowRect, SetForegroundWindow, WINDOW_EX_STYLE,
+        WS_OVERLAPPEDWINDOW, WS_VISIBLE,
     };
-    use windows::core::w;
 
     unsafe fn create_target_window(title: &str) -> (HWND, i32, i32) {
         let title_wide: Vec<u16> = title.encode_utf16().chain(std::iter::once(0)).collect();
@@ -2264,11 +2654,16 @@ mod deduplication {
             w!("STATIC"),
             windows::core::PCWSTR(title_wide.as_ptr()),
             WS_OVERLAPPEDWINDOW | WS_VISIBLE,
-            200, 200, 600, 400,            None,
+            200,
+            200,
+            600,
+            400,
+            None,
             None,
             None,
             Some(ptr::null()),
-        ).expect("Failed to create target window");
+        )
+        .expect("Failed to create target window");
         let _ = SetForegroundWindow(hwnd);
         thread::sleep(Duration::from_millis(100));
         let mut rect = RECT::default();
@@ -2298,13 +2693,16 @@ mod deduplication {
         enigo.button(enigo::Button::Left, Direction::Click).unwrap();
         thread::sleep(Duration::from_millis(500));
 
-        unsafe { let _ = DestroyWindow(hwnd); }
+        unsafe {
+            let _ = DestroyWindow(hwnd);
+        }
         capture.stop().unwrap();
         let events: Vec<_> = rx.try_iter().collect();
 
         let select_events = selects(&events);
         assert_eq!(
-            select_events.len(), 0,
+            select_events.len(),
+            0,
             "Click should not produce a separate select event. Got {} selects.",
             select_events.len()
         );
@@ -2330,13 +2728,16 @@ mod deduplication {
         enigo.button(enigo::Button::Left, Direction::Click).unwrap();
         thread::sleep(Duration::from_millis(500));
 
-        unsafe { let _ = DestroyWindow(hwnd); }
+        unsafe {
+            let _ = DestroyWindow(hwnd);
+        }
         capture.stop().unwrap();
         let events: Vec<_> = rx.try_iter().collect();
 
         let focus_events = focuses(&events);
         assert_eq!(
-            focus_events.len(), 0,
+            focus_events.len(),
+            0,
             "Click should not produce a separate focus event. Got {} focus events.",
             focus_events.len()
         );
@@ -2365,17 +2766,29 @@ mod deduplication {
         enigo.button(enigo::Button::Left, Direction::Click).unwrap();
         thread::sleep(Duration::from_millis(500));
 
-        unsafe { let _ = DestroyWindow(hwnd); }
+        unsafe {
+            let _ = DestroyWindow(hwnd);
+        }
         capture.stop().unwrap();
         let events: Vec<_> = rx.try_iter().collect();
 
         let click_events = clicks(&events);
-        let drag_events: Vec<_> = events.iter()
+        let drag_events: Vec<_> = events
+            .iter()
             .filter(|e| matches!(&e.payload, ActionPayload::DragStart { .. }))
             .collect();
 
-        assert!(click_events.len() >= 2, "Expected 2 clicks for double-click, got {}", click_events.len());
-        assert_eq!(drag_events.len(), 0, "Double-click should not produce drag_start. Got {}.", drag_events.len());
+        assert!(
+            click_events.len() >= 2,
+            "Expected 2 clicks for double-click, got {}",
+            click_events.len()
+        );
+        assert_eq!(
+            drag_events.len(),
+            0,
+            "Double-click should not produce drag_start. Got {}.",
+            drag_events.len()
+        );
     }
 
     #[test]
@@ -2397,25 +2810,34 @@ mod deduplication {
                 w!("STATIC"),
                 w!("Ephemeral Window"),
                 WS_OVERLAPPEDWINDOW | WS_VISIBLE,
-                100, 100, 400, 300,                None,
+                100,
+                100,
+                400,
+                300,
+                None,
                 None,
                 None,
                 Some(ptr::null()),
-            ).expect("Failed to create window")
+            )
+            .expect("Failed to create window")
         };
         thread::sleep(Duration::from_millis(300));
 
         // Now simulate a click (to satisfy correlation) and destroy.
         let mut enigo = Enigo::new(&Settings::default()).unwrap();
         let mut rect = RECT::default();
-        unsafe { GetWindowRect(hwnd, &mut rect).unwrap(); }
+        unsafe {
+            GetWindowRect(hwnd, &mut rect).unwrap();
+        }
         let cx = (rect.left + rect.right) / 2;
         let cy = (rect.top + rect.bottom) / 2;
         enigo.move_mouse(cx, cy, Coordinate::Abs).unwrap();
         enigo.button(enigo::Button::Left, Direction::Click).unwrap();
         thread::sleep(Duration::from_millis(100));
 
-        unsafe { let _ = DestroyWindow(hwnd); }
+        unsafe {
+            let _ = DestroyWindow(hwnd);
+        }
         thread::sleep(Duration::from_millis(300));
 
         capture.stop().unwrap();
@@ -2424,7 +2846,8 @@ mod deduplication {
         // Should have a click but NO context_close (window was never opened).
         let close_events = context_closes(&events);
         assert_eq!(
-            close_events.len(), 0,
+            close_events.len(),
+            0,
             "Window never captured as context_open should not produce context_close. Got {}.",
             close_events.len()
         );
@@ -2449,14 +2872,20 @@ mod deduplication {
         thread::sleep(Duration::from_millis(200));
 
         // Type in window A (sets keyboard correlation to window A).
-        unsafe { let _ = SetForegroundWindow(hwnd1); }
+        unsafe {
+            let _ = SetForegroundWindow(hwnd1);
+        }
         thread::sleep(Duration::from_millis(100));
         let mut enigo = Enigo::new(&Settings::default()).unwrap();
-        enigo.key(enigo::Key::Unicode('x'), Direction::Click).unwrap();
+        enigo
+            .key(enigo::Key::Unicode('x'), Direction::Click)
+            .unwrap();
         thread::sleep(Duration::from_millis(100));
 
         // Programmatically change value in window B (simulates dialog init).
-        unsafe { SetWindowTextW(hwnd2, w!("dialog value")).unwrap(); }
+        unsafe {
+            SetWindowTextW(hwnd2, w!("dialog value")).unwrap();
+        }
         thread::sleep(Duration::from_millis(1500)); // Wait for debounce
 
         unsafe {

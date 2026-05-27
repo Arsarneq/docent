@@ -1,67 +1,127 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; connect-src http: https:;" />
-  <title>Docent Desktop</title>
-  <link rel="stylesheet" href="shared/views/panel.css" />
-</head>
-<body>
-
-  <!-- ── Header ─────────────────────────────────────────────────── -->
-  <header>
-    <div class="logo">
-      <svg class="logo-svg" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-        <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-      </svg>
-      Docent
-    </div>
-    <div class="header-right">
-      <div id="recording-badge" class="badge badge--idle">Idle</div>
-      <button id="btn-settings" class="btn btn--icon" title="Settings" aria-label="Settings">
-        <svg viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-          <path fill="currentColor" fill-rule="evenodd" clip-rule="evenodd"
-            d="M8.25 2a.75.75 0 0 0-.74.63l-.22 1.48a5.5 5.5 0 0 0-.93.54l-1.4-.56a.75.75 0 0 0-.9.34L2.76 6.57a.75.75 0 0 0 .17.96l1.18.93a5.6 5.6 0 0 0 0 1.08l-1.18.93a.75.75 0 0 0-.17.96l1.2 2.08a.75.75 0 0 0 .9.34l1.4-.56c.29.2.6.38.93.54l.22 1.48a.75.75 0 0 0 .74.63h2.5a.75.75 0 0 0 .74-.63l.22-1.48c.33-.16.64-.33.93-.54l1.4.56a.75.75 0 0 0 .9-.34l1.2-2.08a.75.75 0 0 0-.17-.96l-1.18-.93a5.6 5.6 0 0 0 0-1.08l1.18-.93a.75.75 0 0 0 .17-.96l-1.2-2.08a.75.75 0 0 0-.9-.34l-1.4.56a5.5 5.5 0 0 0-.93-.54l-.22-1.48A.75.75 0 0 0 10.75 2h-2.5zm1.25 5.5a2.5 2.5 0 1 0 0 5 2.5 2.5 0 0 0 0-5z"/>
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self'; style-src 'self'; connect-src http: https:;"
+    />
+    <title>Docent Desktop</title>
+    <link rel="stylesheet" href="shared/views/panel.css" />
+  </head>
+  <body>
+    <!-- ── Header ─────────────────────────────────────────────────── -->
+    <header>
+      <div class="logo">
+        <svg
+          class="logo-svg"
+          viewBox="0 0 24 24"
+          fill="none"
+          xmlns="http://www.w3.org/2000/svg"
+          aria-hidden="true"
+        >
+          <path
+            d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          />
         </svg>
-      </button>
-    </div>
-  </header>
+        Docent
+      </div>
+      <div class="header-right">
+        <div id="recording-badge" class="badge badge--idle">Idle</div>
+        <button id="btn-settings" class="btn btn--icon" title="Settings" aria-label="Settings">
+          <svg
+            viewBox="0 0 20 20"
+            fill="none"
+            xmlns="http://www.w3.org/2000/svg"
+            aria-hidden="true"
+          >
+            <path
+              fill="currentColor"
+              fill-rule="evenodd"
+              clip-rule="evenodd"
+              d="M8.25 2a.75.75 0 0 0-.74.63l-.22 1.48a5.5 5.5 0 0 0-.93.54l-1.4-.56a.75.75 0 0 0-.9.34L2.76 6.57a.75.75 0 0 0 .17.96l1.18.93a5.6 5.6 0 0 0 0 1.08l-1.18.93a.75.75 0 0 0-.17.96l1.2 2.08a.75.75 0 0 0 .9.34l1.4-.56c.29.2.6.38.93.54l.22 1.48a.75.75 0 0 0 .74.63h2.5a.75.75 0 0 0 .74-.63l.22-1.48c.33-.16.64-.33.93-.54l1.4.56a.75.75 0 0 0 .9-.34l1.2-2.08a.75.75 0 0 0-.17-.96l-1.18-.93a5.6 5.6 0 0 0 0-1.08l1.18-.93a.75.75 0 0 0 .17-.96l-1.2-2.08a.75.75 0 0 0-.9-.34l-1.4.56a5.5 5.5 0 0 0-.93-.54l-.22-1.48A.75.75 0 0 0 10.75 2h-2.5zm1.25 5.5a2.5 2.5 0 1 0 0 5 2.5 2.5 0 0 0 0-5z"
+            />
+          </svg>
+        </button>
+      </div>
+    </header>
 
-  <!-- ── Breadcrumb ──────────────────────────────────────────────── -->
-  <nav id="breadcrumb" class="breadcrumb hidden">
-    <button id="bc-projects" class="bc-item bc-link">Projects</button>
-    <span id="bc-sep-1" class="bc-sep hidden">
-      <svg viewBox="0 0 12 12" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path d="M4 2l4 4-4 4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
-    </span>
-    <button id="bc-project" class="bc-item bc-link hidden"></button>
-    <span id="bc-sep-2" class="bc-sep hidden">
-      <svg viewBox="0 0 12 12" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path d="M4 2l4 4-4 4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
-    </span>
-    <span id="bc-recording" class="bc-item hidden"></span>
-  </nav>
-
-  <!-- ── Desktop-specific: Target application selector ───────────── -->
-  <div class="desktop-controls" id="desktop-target-controls">
-    <div class="target-row">
-      <label for="target-app-select" class="target-label">Target:</label>
-      <select id="target-app-select">
-        <option value="">All applications</option>
-      </select>
-      <button id="btn-refresh-apps" class="btn btn--ghost btn--sm" title="Refresh application list">
-        <svg viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" class="icon-sm">
-          <path d="M17 10a7 7 0 0 1-13.16 3.36M3 10a7 7 0 0 1 13.16-3.36" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
-          <path d="M3 17v-4h4M17 3v4h-4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+    <!-- ── Breadcrumb ──────────────────────────────────────────────── -->
+    <nav id="breadcrumb" class="breadcrumb hidden">
+      <button id="bc-projects" class="bc-item bc-link">Projects</button>
+      <span id="bc-sep-1" class="bc-sep hidden">
+        <svg viewBox="0 0 12 12" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+          <path
+            d="M4 2l4 4-4 4"
+            stroke="currentColor"
+            stroke-width="1.5"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          />
         </svg>
-      </button>
-    </div>
-    <label class="toggle-row">
-      <input type="checkbox" id="self-capture-toggle" checked />
-      <span class="toggle-label">Exclude Docent from capture</span>
-    </label>
-  </div>
+      </span>
+      <button id="bc-project" class="bc-item bc-link hidden"></button>
+      <span id="bc-sep-2" class="bc-sep hidden">
+        <svg viewBox="0 0 12 12" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+          <path
+            d="M4 2l4 4-4 4"
+            stroke="currentColor"
+            stroke-width="1.5"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          />
+        </svg>
+      </span>
+      <span id="bc-recording" class="bc-item hidden"></span>
+    </nav>
 
-  <!-- ── View: Projects list ─────────────────────────────────────── -->
+    <!-- ── Desktop-specific: Target application selector ───────────── -->
+    <div class="desktop-controls" id="desktop-target-controls">
+      <div class="target-row">
+        <label for="target-app-select" class="target-label">Target:</label>
+        <select id="target-app-select">
+          <option value="">All applications</option>
+        </select>
+        <button
+          id="btn-refresh-apps"
+          class="btn btn--ghost btn--sm"
+          title="Refresh application list"
+        >
+          <svg
+            viewBox="0 0 20 20"
+            fill="none"
+            xmlns="http://www.w3.org/2000/svg"
+            aria-hidden="true"
+            class="icon-sm"
+          >
+            <path
+              d="M17 10a7 7 0 0 1-13.16 3.36M3 10a7 7 0 0 1 13.16-3.36"
+              stroke="currentColor"
+              stroke-width="1.8"
+              stroke-linecap="round"
+            />
+            <path
+              d="M3 17v-4h4M17 3v4h-4"
+              stroke="currentColor"
+              stroke-width="1.8"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            />
+          </svg>
+        </button>
+      </div>
+      <label class="toggle-row">
+        <input type="checkbox" id="self-capture-toggle" checked />
+        <span class="toggle-label">Exclude Docent from capture</span>
+      </label>
+    </div>
+
+    <!-- ── View: Projects list ─────────────────────────────────────── -->
 <section id="view-projects" class="view">
   <div class="view-header">
     <h2>Projects</h2>
@@ -76,9 +136,7 @@
 
   <ul id="project-list" class="card-list"></ul>
 
-  <p id="projects-empty" class="empty-state hidden">
-    No projects yet. Create one to get started.
-  </p>
+  <p id="projects-empty" class="empty-state hidden">No projects yet. Create one to get started.</p>
 </section>
 
 <!-- ── View: New project form ──────────────────────────────────── -->
@@ -98,7 +156,14 @@
     <h2 id="project-title"></h2>
     <div class="view-header-actions">
       <button id="btn-export-project" class="btn btn--secondary btn--sm">Export</button>
-      <button id="btn-dispatch-project" class="btn btn--primary btn--sm" disabled title="Configure an endpoint in Settings to enable dispatch">Send</button>
+      <button
+        id="btn-dispatch-project"
+        class="btn btn--primary btn--sm"
+        disabled
+        title="Configure an endpoint in Settings to enable dispatch"
+      >
+        Send
+      </button>
       <button id="btn-new-recording" class="btn btn--primary btn--sm">+ New recording</button>
     </div>
   </div>
@@ -126,17 +191,27 @@
   <input id="new-recording-name" type="text" placeholder="e.g. Create new project" />
   <div class="form-actions">
     <button id="btn-new-recording-cancel" class="btn btn--ghost">Cancel</button>
-    <button id="btn-new-recording-create" class="btn btn--primary">Create &amp; start recording</button>
+    <button id="btn-new-recording-create" class="btn btn--primary">
+      Create &amp; start recording
+    </button>
   </div>
 </section>
 
 <!-- ── View: Recording (step list) ────────────────────────────── -->
 <section id="view-recording" class="view hidden">
-
   <div class="view-header" id="recording-header">
     <h2 id="recording-title"></h2>
     <button id="btn-toggle-recording" class="btn btn--secondary btn--sm">
-      <svg viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" class="icon-pause"><rect x="5" y="4" width="3.5" height="12" rx="1" fill="currentColor"/><rect x="11.5" y="4" width="3.5" height="12" rx="1" fill="currentColor"/></svg>
+      <svg
+        viewBox="0 0 20 20"
+        fill="none"
+        xmlns="http://www.w3.org/2000/svg"
+        aria-hidden="true"
+        class="icon-pause"
+      >
+        <rect x="5" y="4" width="3.5" height="12" rx="1" fill="currentColor" />
+        <rect x="11.5" y="4" width="3.5" height="12" rx="1" fill="currentColor" />
+      </svg>
       <span class="btn-label">Pause</span>
     </button>
   </div>
@@ -157,18 +232,29 @@
   <!-- Narration input (narration mode) -->
   <div id="narration-mode-box" class="narration-box">
     <label>What are you about to do?</label>
-    <textarea
-      id="narration-input"
-      rows="2"
-      placeholder="e.g. log into the system"
-    ></textarea>
+    <textarea id="narration-input" rows="2" placeholder="e.g. log into the system"></textarea>
     <div class="narration-controls">
       <button id="btn-clear-step" class="btn btn--ghost btn--sm" title="Clear recorded actions">
-        <svg viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path d="M5 5l10 10M15 5L5 15" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+        <svg viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+          <path
+            d="M5 5l10 10M15 5L5 15"
+            stroke="currentColor"
+            stroke-width="1.8"
+            stroke-linecap="round"
+          />
+        </svg>
         Clear
       </button>
       <button id="btn-commit-step" class="btn btn--primary" disabled>
-        <svg viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path d="M4 10l5 5 7-8" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        <svg viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+          <path
+            d="M4 10l5 5 7-8"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          />
+        </svg>
         Done this step
       </button>
     </div>
@@ -201,12 +287,31 @@
       </div>
     </div>
     <div class="narration-controls">
-      <button id="btn-clear-step-simple" class="btn btn--ghost btn--sm" title="Clear recorded actions">
-        <svg viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path d="M5 5l10 10M15 5L5 15" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+      <button
+        id="btn-clear-step-simple"
+        class="btn btn--ghost btn--sm"
+        title="Clear recorded actions"
+      >
+        <svg viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+          <path
+            d="M5 5l10 10M15 5L5 15"
+            stroke="currentColor"
+            stroke-width="1.8"
+            stroke-linecap="round"
+          />
+        </svg>
         Clear
       </button>
       <button id="btn-commit-step-simple" class="btn btn--primary" disabled>
-        <svg viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path d="M4 10l5 5 7-8" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        <svg viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+          <path
+            d="M4 10l5 5 7-8"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          />
+        </svg>
         Commit
       </button>
     </div>
@@ -228,14 +333,21 @@
   </div>
 
   <ol id="step-list" class="step-list"></ol>
-
 </section>
 
 <!-- ── View: Step history ───────────────────────────────────────── -->
 <section id="view-history" class="view hidden">
   <div class="view-back-header">
     <button id="btn-history-back" class="btn btn--ghost">
-      <svg viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path d="M12 4l-6 6 6 6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      <svg viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+        <path
+          d="M12 4l-6 6 6 6"
+          stroke="currentColor"
+          stroke-width="1.8"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        />
+      </svg>
       Back
     </button>
     <span>Step history</span>
@@ -247,7 +359,15 @@
 <section id="view-step-detail" class="view hidden">
   <div class="view-back-header">
     <button id="btn-step-detail-back" class="btn btn--ghost">
-      <svg viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path d="M12 4l-6 6 6 6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      <svg viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+        <path
+          d="M12 4l-6 6 6 6"
+          stroke="currentColor"
+          stroke-width="1.8"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        />
+      </svg>
       Back
     </button>
     <span id="step-detail-title">Step actions</span>
@@ -259,7 +379,15 @@
 <section id="view-dispatch-result" class="view hidden">
   <div class="view-back-header">
     <button id="btn-result-back" class="btn btn--ghost">
-      <svg viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path d="M12 4l-6 6 6 6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      <svg viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+        <path
+          d="M12 4l-6 6 6 6"
+          stroke="currentColor"
+          stroke-width="1.8"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        />
+      </svg>
       Back
     </button>
     <span id="result-title">Result</span>
@@ -271,15 +399,29 @@
 <section id="view-dispatch-confirm" class="view hidden">
   <div class="view-back-header">
     <button id="btn-confirm-cancel" class="btn btn--ghost">
-      <svg viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path d="M12 4l-6 6 6 6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      <svg viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+        <path
+          d="M12 4l-6 6 6 6"
+          stroke="currentColor"
+          stroke-width="1.8"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        />
+      </svg>
       Cancel
     </button>
     <span>Confirm dispatch</span>
   </div>
   <div class="confirm-details">
-    <p class="confirm-row"><span class="confirm-label">Endpoint</span><span id="confirm-endpoint"></span></p>
-    <p class="confirm-row"><span class="confirm-label">Recording(s)</span><span id="confirm-recordings"></span></p>
-    <p class="confirm-row"><span class="confirm-label">Steps</span><span id="confirm-steps"></span></p>
+    <p class="confirm-row">
+      <span class="confirm-label">Endpoint</span><span id="confirm-endpoint"></span>
+    </p>
+    <p class="confirm-row">
+      <span class="confirm-label">Recording(s)</span><span id="confirm-recordings"></span>
+    </p>
+    <p class="confirm-row">
+      <span class="confirm-label">Steps</span><span id="confirm-steps"></span>
+    </p>
   </div>
   <div class="form-actions">
     <button id="btn-confirm-send" class="btn btn--primary">Send</button>
@@ -290,7 +432,15 @@
 <section id="view-recording-selector" class="view hidden">
   <div class="view-back-header">
     <button id="btn-selector-cancel" class="btn btn--ghost">
-      <svg viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path d="M12 4l-6 6 6 6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      <svg viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+        <path
+          d="M12 4l-6 6 6 6"
+          stroke="currentColor"
+          stroke-width="1.8"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        />
+      </svg>
       Cancel
     </button>
     <span>Select recording</span>
@@ -303,7 +453,15 @@
 <section id="view-settings" class="view hidden">
   <div class="view-back-header">
     <button id="btn-settings-back" class="btn btn--ghost">
-      <svg viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path d="M12 4l-6 6 6 6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      <svg viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+        <path
+          d="M12 4l-6 6 6 6"
+          stroke="currentColor"
+          stroke-width="1.8"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        />
+      </svg>
       Back
     </button>
     <span>Settings</span>
@@ -315,9 +473,19 @@
       <label class="settings-option">
         <input type="radio" name="theme" value="auto" />
         <span class="settings-option-label">
-          <svg viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-            <circle cx="10" cy="10" r="4" stroke="currentColor" stroke-width="1.5"/>
-            <path d="M10 2v1.5M10 16.5V18M2 10h1.5M16.5 10H18M4.1 4.1l1.1 1.1M14.8 14.8l1.1 1.1M4.1 15.9l1.1-1.1M14.8 5.2l1.1-1.1" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+          <svg
+            viewBox="0 0 20 20"
+            fill="none"
+            xmlns="http://www.w3.org/2000/svg"
+            aria-hidden="true"
+          >
+            <circle cx="10" cy="10" r="4" stroke="currentColor" stroke-width="1.5" />
+            <path
+              d="M10 2v1.5M10 16.5V18M2 10h1.5M16.5 10H18M4.1 4.1l1.1 1.1M14.8 14.8l1.1 1.1M4.1 15.9l1.1-1.1M14.8 5.2l1.1-1.1"
+              stroke="currentColor"
+              stroke-width="1.5"
+              stroke-linecap="round"
+            />
           </svg>
           Follow system
         </span>
@@ -325,9 +493,27 @@
       <label class="settings-option">
         <input type="radio" name="theme" value="light" />
         <span class="settings-option-label">
-          <svg viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-            <circle cx="10" cy="10" r="4" fill="currentColor" opacity="0.2" stroke="currentColor" stroke-width="1.5"/>
-            <path d="M10 2v1.5M10 16.5V18M2 10h1.5M16.5 10H18M4.1 4.1l1.1 1.1M14.8 14.8l1.1 1.1M4.1 15.9l1.1-1.1M14.8 5.2l1.1-1.1" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+          <svg
+            viewBox="0 0 20 20"
+            fill="none"
+            xmlns="http://www.w3.org/2000/svg"
+            aria-hidden="true"
+          >
+            <circle
+              cx="10"
+              cy="10"
+              r="4"
+              fill="currentColor"
+              opacity="0.2"
+              stroke="currentColor"
+              stroke-width="1.5"
+            />
+            <path
+              d="M10 2v1.5M10 16.5V18M2 10h1.5M16.5 10H18M4.1 4.1l1.1 1.1M14.8 14.8l1.1 1.1M4.1 15.9l1.1-1.1M14.8 5.2l1.1-1.1"
+              stroke="currentColor"
+              stroke-width="1.5"
+              stroke-linecap="round"
+            />
           </svg>
           Light
         </span>
@@ -335,8 +521,20 @@
       <label class="settings-option">
         <input type="radio" name="theme" value="dark" />
         <span class="settings-option-label">
-          <svg viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-            <path d="M15 10.5A6 6 0 0 1 8 4a6 6 0 1 0 7 6.5z" fill="currentColor" opacity="0.2" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/>
+          <svg
+            viewBox="0 0 20 20"
+            fill="none"
+            xmlns="http://www.w3.org/2000/svg"
+            aria-hidden="true"
+          >
+            <path
+              d="M15 10.5A6 6 0 0 1 8 4a6 6 0 1 0 7 6.5z"
+              fill="currentColor"
+              opacity="0.2"
+              stroke="currentColor"
+              stroke-width="1.5"
+              stroke-linejoin="round"
+            />
           </svg>
           Dark
         </span>
@@ -350,8 +548,18 @@
       <label class="settings-option">
         <input type="radio" name="recording-mode" value="narration" />
         <span class="settings-option-label">
-          <svg viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-            <path d="M4 5h12M4 10h8M4 15h10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+          <svg
+            viewBox="0 0 20 20"
+            fill="none"
+            xmlns="http://www.w3.org/2000/svg"
+            aria-hidden="true"
+          >
+            <path
+              d="M4 5h12M4 10h8M4 15h10"
+              stroke="currentColor"
+              stroke-width="1.5"
+              stroke-linecap="round"
+            />
           </svg>
           Narration
         </span>
@@ -359,8 +567,19 @@
       <label class="settings-option">
         <input type="radio" name="recording-mode" value="simple" />
         <span class="settings-option-label">
-          <svg viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-            <path d="M4 10l5 5 7-8" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+          <svg
+            viewBox="0 0 20 20"
+            fill="none"
+            xmlns="http://www.w3.org/2000/svg"
+            aria-hidden="true"
+          >
+            <path
+              d="M4 10l5 5 7-8"
+              stroke="currentColor"
+              stroke-width="1.8"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            />
           </svg>
           Simple (action / validation)
         </span>
@@ -396,7 +615,6 @@
 </section>
 
 
-  <script type="module" src="panel.js"></script>
-
-</body>
+    <script type="module" src="panel.js"></script>
+  </body>
 </html>

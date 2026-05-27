@@ -15,19 +15,18 @@ import { validateEndpointUrl as _validateEndpointUrl } from '../shared/dispatch-
 // ─── Settings keys ────────────────────────────────────────────────────────────
 
 const ENDPOINT_KEY = 'docentEndpointUrl';
-const API_KEY_KEY  = 'docentApiKey';
-const THEME_KEY    = 'docentTheme';
+const API_KEY_KEY = 'docentApiKey';
+const THEME_KEY = 'docentTheme';
 const RECORDING_MODE_KEY = 'docentRecordingMode';
 
 // Sync settings are stored separately from dispatch settings (R1-AC1)
-const SYNC_URL_KEY     = 'docentSyncUrl';
+const SYNC_URL_KEY = 'docentSyncUrl';
 const SYNC_API_KEY_KEY = 'docentSyncApiKey';
 
 // ─── Adapter ──────────────────────────────────────────────────────────────────
 
 /** @type {import('../shared/views/adapter.js').PlatformAdapter} */
 const chromeAdapter = {
-
   // ── Message passing ───────────────────────────────────────────────────────
 
   send(message) {
@@ -41,7 +40,7 @@ const chromeAdapter = {
       const result = await chrome.storage.local.get([ENDPOINT_KEY, API_KEY_KEY]);
       return {
         endpointUrl: result[ENDPOINT_KEY] ?? null,
-        apiKey:      result[API_KEY_KEY] ?? null,
+        apiKey: result[API_KEY_KEY] ?? null,
       };
     } catch {
       return { endpointUrl: null, apiKey: null };
@@ -74,7 +73,7 @@ const chromeAdapter = {
       const result = await chrome.storage.local.get([SYNC_URL_KEY, SYNC_API_KEY_KEY]);
       return {
         serverUrl: result[SYNC_URL_KEY] ?? null,
-        apiKey:    result[SYNC_API_KEY_KEY] ?? null,
+        apiKey: result[SYNC_API_KEY_KEY] ?? null,
       };
     } catch {
       return { serverUrl: null, apiKey: null };
@@ -179,7 +178,11 @@ const chromeAdapter = {
         const newActions = changes.pendingActions.newValue ?? [];
         // Fire callback for each action added since last update
         for (let i = _lastLength; i < newActions.length; i++) {
-          try { callback(newActions[i]); } catch { /* ignore */ }
+          try {
+            callback(newActions[i]);
+          } catch {
+            /* ignore */
+          }
         }
         _lastLength = newActions.length;
         // Reset when cleared

@@ -169,13 +169,9 @@ pub enum ActionPayload {
         element: ElementDescription,
     },
     /// Focus change on an element.
-    Focus {
-        element: ElementDescription,
-    },
+    Focus { element: ElementDescription },
     /// Drag operation started.
-    DragStart {
-        element: ElementDescription,
-    },
+    DragStart { element: ElementDescription },
     /// Drop operation completed.
     Drop {
         x: f64,
@@ -202,9 +198,7 @@ pub enum ActionPayload {
         source: Option<String>,
     },
     /// Window closed.
-    ContextClose {
-        window_closing: bool,
-    },
+    ContextClose { window_closing: bool },
     /// File dialog completed with a confirmed selection.
     FileDialog {
         dialog_type: String,

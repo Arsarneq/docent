@@ -3,17 +3,8 @@
   "name": "Docent",
   "version": "2.0.0",
   "description": "Demonstration-driven behaviour capture and dispatch.",
-  "permissions": [
-    "activeTab",
-    "scripting",
-    "storage",
-    "sidePanel",
-    "tabs",
-    "webNavigation"
-  ],
-  "host_permissions": [
-    "<all_urls>"
-  ],
+  "permissions": ["activeTab", "scripting", "storage", "sidePanel", "tabs", "webNavigation"],
+  "host_permissions": ["<all_urls>"],
   "background": {
     "service_worker": "background/service-worker.js",
     "type": "module"
@@ -32,14 +23,14 @@
   "action": {
     "default_title": "Docent",
     "default_icon": {
-      "16":  "icons/icon16.png",
-      "48":  "icons/icon48.png",
+      "16": "icons/icon16.png",
+      "48": "icons/icon48.png",
       "128": "icons/icon128.png"
     }
   },
   "icons": {
-    "16":  "icons/icon16.png",
-    "48":  "icons/icon48.png",
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
     "128": "icons/icon128.png"
   },
   "web_accessible_resources": []

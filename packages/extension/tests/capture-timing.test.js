@@ -79,7 +79,7 @@ describe('capture-timing constants — relative ordering', () => {
 describe('capture-timing — wasRecentUserAction logic', () => {
   // Replicate the core timing logic from the service worker
   function wasRecentUserAction(lastTimestamp, now, windowMs) {
-    return lastTimestamp != null && (now - lastTimestamp < windowMs);
+    return lastTimestamp != null && now - lastTimestamp < windowMs;
   }
 
   it('returns true when action is within the window', () => {

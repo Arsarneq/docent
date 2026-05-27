@@ -98,10 +98,7 @@ test.beforeAll(async () => {
     // Also relax CSP for testing (allow the mock script from same origin)
     if (ext === '.html') {
       // Remove the strict CSP for testing — the mock needs to run
-      content = content.replace(
-        /<meta http-equiv="Content-Security-Policy"[^>]*>/,
-        ''
-      );
+      content = content.replace(/<meta http-equiv="Content-Security-Policy"[^>]*>/, '');
       content = content.replace('<head>', '<head><script src="/__tauri-mock.js"></script>');
     }
 
@@ -122,7 +119,6 @@ test.afterAll(async () => {
 });
 
 test.describe('Desktop Panel — Smoke', () => {
-
   test('panel loads and shows projects view', async ({ page }) => {
     await page.goto(`http://127.0.0.1:${serverPort}/`);
     await page.waitForSelector('#view-projects:not(.hidden)', { timeout: 10000 });
@@ -163,7 +159,6 @@ test.describe('Desktop Panel — Smoke', () => {
 });
 
 test.describe('Desktop Panel — Simple Mode', () => {
-
   test('switching to simple mode shows simple mode box', async ({ page }) => {
     await page.goto(`http://127.0.0.1:${serverPort}/`);
     await page.waitForSelector('#view-projects:not(.hidden)', { timeout: 10000 });
@@ -196,7 +191,6 @@ test.describe('Desktop Panel — Simple Mode', () => {
 });
 
 test.describe('Desktop Panel — Metadata', () => {
-
   test('project metadata section exists and add button works', async ({ page }) => {
     await page.goto(`http://127.0.0.1:${serverPort}/`);
     await page.waitForSelector('#view-projects:not(.hidden)', { timeout: 10000 });
@@ -249,13 +243,13 @@ test.describe('Desktop Panel — Metadata', () => {
     await page.click('#project-metadata-section summary');
     await page.waitForTimeout(100);
     await expect(page.locator('#project-metadata-list .metadata-key').first()).toHaveValue('env');
-    await expect(page.locator('#project-metadata-list .metadata-value').first()).toHaveValue('prod');
+    await expect(page.locator('#project-metadata-list .metadata-value').first()).toHaveValue(
+      'prod',
+    );
   });
 });
 
-
 test.describe('Desktop Panel — Commit with Simulated Capture', () => {
-
   test('simulated capture event enables commit in simple mode', async ({ page }) => {
     await page.goto(`http://127.0.0.1:${serverPort}/`);
     await page.waitForSelector('#view-projects:not(.hidden)', { timeout: 10000 });
@@ -286,7 +280,15 @@ test.describe('Desktop Panel — Commit with Simulated Capture', () => {
     await page.evaluate(() => {
       const handler = window.__TAURI__._listeners['capture:action'];
       if (handler) {
-        handler({ payload: { type: 'click', timestamp: Date.now(), capture_mode: 'accessibility', context_id: 1, element: { text: 'Button', tag: 'Button' } } });
+        handler({
+          payload: {
+            type: 'click',
+            timestamp: Date.now(),
+            capture_mode: 'accessibility',
+            context_id: 1,
+            element: { text: 'Button', tag: 'Button' },
+          },
+        });
       }
     });
     await page.waitForTimeout(300);
@@ -304,7 +306,6 @@ test.describe('Desktop Panel — Commit with Simulated Capture', () => {
 });
 
 test.describe('Desktop Panel — Theme', () => {
-
   test('theme switch updates data-theme attribute', async ({ page }) => {
     await page.goto(`http://127.0.0.1:${serverPort}/`);
     await page.waitForSelector('#view-projects:not(.hidden)', { timeout: 10000 });
@@ -321,9 +322,7 @@ test.describe('Desktop Panel — Theme', () => {
   });
 });
 
-
 test.describe('Desktop Panel — Narration Commit Flow', () => {
-
   test('type narration + simulated capture → commit → step appears', async ({ page }) => {
     await page.goto(`http://127.0.0.1:${serverPort}/`);
     await page.waitForSelector('#view-projects:not(.hidden)', { timeout: 10000 });
@@ -343,7 +342,16 @@ test.describe('Desktop Panel — Narration Commit Flow', () => {
     // Simulate a capture event
     await page.evaluate(() => {
       const handler = window.__TAURI__._listeners['capture:action'];
-      if (handler) handler({ payload: { type: 'click', timestamp: Date.now(), capture_mode: 'accessibility', context_id: 1, element: { text: 'Login' } } });
+      if (handler)
+        handler({
+          payload: {
+            type: 'click',
+            timestamp: Date.now(),
+            capture_mode: 'accessibility',
+            context_id: 1,
+            element: { text: 'Login' },
+          },
+        });
     });
     await page.waitForTimeout(300);
 
@@ -377,7 +385,16 @@ test.describe('Desktop Panel — Narration Commit Flow', () => {
     // Simulate pending action but no narration
     await page.evaluate(() => {
       const handler = window.__TAURI__._listeners['capture:action'];
-      if (handler) handler({ payload: { type: 'click', timestamp: Date.now(), capture_mode: 'accessibility', context_id: 1, element: { text: 'X' } } });
+      if (handler)
+        handler({
+          payload: {
+            type: 'click',
+            timestamp: Date.now(),
+            capture_mode: 'accessibility',
+            context_id: 1,
+            element: { text: 'X' },
+          },
+        });
     });
     await page.waitForTimeout(300);
 
@@ -421,7 +438,16 @@ test.describe('Desktop Panel — Narration Commit Flow', () => {
 
     await page.evaluate(() => {
       const handler = window.__TAURI__._listeners['capture:action'];
-      if (handler) handler({ payload: { type: 'click', timestamp: Date.now(), capture_mode: 'accessibility', context_id: 1, element: { text: 'X' } } });
+      if (handler)
+        handler({
+          payload: {
+            type: 'click',
+            timestamp: Date.now(),
+            capture_mode: 'accessibility',
+            context_id: 1,
+            element: { text: 'X' },
+          },
+        });
     });
     await page.waitForTimeout(300);
 
@@ -450,7 +476,16 @@ test.describe('Desktop Panel — Narration Commit Flow', () => {
     // First step
     await page.evaluate(() => {
       const handler = window.__TAURI__._listeners['capture:action'];
-      if (handler) handler({ payload: { type: 'click', timestamp: Date.now(), capture_mode: 'accessibility', context_id: 1, element: { text: 'A' } } });
+      if (handler)
+        handler({
+          payload: {
+            type: 'click',
+            timestamp: Date.now(),
+            capture_mode: 'accessibility',
+            context_id: 1,
+            element: { text: 'A' },
+          },
+        });
     });
     await page.waitForTimeout(300);
     await page.fill('#narration-input', 'First');
@@ -460,7 +495,17 @@ test.describe('Desktop Panel — Narration Commit Flow', () => {
     // Second step
     await page.evaluate(() => {
       const handler = window.__TAURI__._listeners['capture:action'];
-      if (handler) handler({ payload: { type: 'type', timestamp: Date.now(), capture_mode: 'accessibility', context_id: 1, element: { text: 'B' }, value: 'hello' } });
+      if (handler)
+        handler({
+          payload: {
+            type: 'type',
+            timestamp: Date.now(),
+            capture_mode: 'accessibility',
+            context_id: 1,
+            element: { text: 'B' },
+            value: 'hello',
+          },
+        });
     });
     await page.waitForTimeout(300);
     await page.fill('#narration-input', 'Second');
@@ -473,7 +518,6 @@ test.describe('Desktop Panel — Narration Commit Flow', () => {
 });
 
 test.describe('Desktop Panel — Clear Button', () => {
-
   test('clear resets pending actions and disables commit', async ({ page }) => {
     await page.goto(`http://127.0.0.1:${serverPort}/`);
     await page.waitForSelector('#view-projects:not(.hidden)', { timeout: 10000 });
@@ -491,14 +535,23 @@ test.describe('Desktop Panel — Clear Button', () => {
 
     await page.evaluate(() => {
       const handler = window.__TAURI__._listeners['capture:action'];
-      if (handler) handler({ payload: { type: 'click', timestamp: Date.now(), capture_mode: 'accessibility', context_id: 1, element: { text: 'X' } } });
+      if (handler)
+        handler({
+          payload: {
+            type: 'click',
+            timestamp: Date.now(),
+            capture_mode: 'accessibility',
+            context_id: 1,
+            element: { text: 'X' },
+          },
+        });
     });
     await page.waitForTimeout(300);
     await page.fill('#narration-input', 'Something');
     await expect(page.locator('#btn-commit-step')).toBeEnabled();
 
     // Accept confirm dialog
-    page.on('dialog', dialog => dialog.accept());
+    page.on('dialog', (dialog) => dialog.accept());
     await page.click('#btn-clear-step');
     await page.waitForTimeout(500);
 
@@ -507,7 +560,6 @@ test.describe('Desktop Panel — Clear Button', () => {
 });
 
 test.describe('Desktop Panel — Step Detail View', () => {
-
   test('clicking step narration opens detail view', async ({ page }) => {
     await page.goto(`http://127.0.0.1:${serverPort}/`);
     await page.waitForSelector('#view-projects:not(.hidden)', { timeout: 10000 });
@@ -526,7 +578,16 @@ test.describe('Desktop Panel — Step Detail View', () => {
     // Commit a step
     await page.evaluate(() => {
       const handler = window.__TAURI__._listeners['capture:action'];
-      if (handler) handler({ payload: { type: 'click', timestamp: Date.now(), capture_mode: 'accessibility', context_id: 1, element: { text: 'Submit', selector: '#btn' } } });
+      if (handler)
+        handler({
+          payload: {
+            type: 'click',
+            timestamp: Date.now(),
+            capture_mode: 'accessibility',
+            context_id: 1,
+            element: { text: 'Submit', selector: '#btn' },
+          },
+        });
     });
     await page.waitForTimeout(300);
     await page.fill('#narration-input', 'Click submit');
@@ -547,7 +608,6 @@ test.describe('Desktop Panel — Step Detail View', () => {
 });
 
 test.describe('Desktop Panel — Delete Step', () => {
-
   test('delete removes step from list', async ({ page }) => {
     await page.goto(`http://127.0.0.1:${serverPort}/`);
     await page.waitForSelector('#view-projects:not(.hidden)', { timeout: 10000 });
@@ -566,7 +626,16 @@ test.describe('Desktop Panel — Delete Step', () => {
     // Commit two steps
     await page.evaluate(() => {
       const handler = window.__TAURI__._listeners['capture:action'];
-      if (handler) handler({ payload: { type: 'click', timestamp: Date.now(), capture_mode: 'accessibility', context_id: 1, element: { text: 'A' } } });
+      if (handler)
+        handler({
+          payload: {
+            type: 'click',
+            timestamp: Date.now(),
+            capture_mode: 'accessibility',
+            context_id: 1,
+            element: { text: 'A' },
+          },
+        });
     });
     await page.waitForTimeout(300);
     await page.fill('#narration-input', 'First');
@@ -575,7 +644,16 @@ test.describe('Desktop Panel — Delete Step', () => {
 
     await page.evaluate(() => {
       const handler = window.__TAURI__._listeners['capture:action'];
-      if (handler) handler({ payload: { type: 'click', timestamp: Date.now(), capture_mode: 'accessibility', context_id: 1, element: { text: 'B' } } });
+      if (handler)
+        handler({
+          payload: {
+            type: 'click',
+            timestamp: Date.now(),
+            capture_mode: 'accessibility',
+            context_id: 1,
+            element: { text: 'B' },
+          },
+        });
     });
     await page.waitForTimeout(300);
     await page.fill('#narration-input', 'Second');
@@ -585,7 +663,7 @@ test.describe('Desktop Panel — Delete Step', () => {
     await expect(page.locator('.step-item')).toHaveCount(2);
 
     // Delete first step
-    page.on('dialog', dialog => dialog.accept());
+    page.on('dialog', (dialog) => dialog.accept());
     await page.locator('[data-action="delete"]').first().click();
     await page.waitForTimeout(500);
 
@@ -595,7 +673,6 @@ test.describe('Desktop Panel — Delete Step', () => {
 });
 
 test.describe('Desktop Panel — History View', () => {
-
   test('history button shows step versions', async ({ page }) => {
     await page.goto(`http://127.0.0.1:${serverPort}/`);
     await page.waitForSelector('#view-projects:not(.hidden)', { timeout: 10000 });
@@ -614,7 +691,16 @@ test.describe('Desktop Panel — History View', () => {
     // Commit a step
     await page.evaluate(() => {
       const handler = window.__TAURI__._listeners['capture:action'];
-      if (handler) handler({ payload: { type: 'click', timestamp: Date.now(), capture_mode: 'accessibility', context_id: 1, element: { text: 'X' } } });
+      if (handler)
+        handler({
+          payload: {
+            type: 'click',
+            timestamp: Date.now(),
+            capture_mode: 'accessibility',
+            context_id: 1,
+            element: { text: 'X' },
+          },
+        });
     });
     await page.waitForTimeout(300);
     await page.fill('#narration-input', 'Original');
@@ -633,9 +719,7 @@ test.describe('Desktop Panel — History View', () => {
   });
 });
 
-
 test.describe('Desktop Panel — Projects View UI Elements', () => {
-
   test('file input is hidden', async ({ page }) => {
     await page.goto(`http://127.0.0.1:${serverPort}/`);
     await page.waitForSelector('#view-projects:not(.hidden)', { timeout: 10000 });
@@ -663,7 +747,6 @@ test.describe('Desktop Panel — Projects View UI Elements', () => {
 });
 
 test.describe('Desktop Panel — Project Detail UI', () => {
-
   test('export button is visible', async ({ page }) => {
     await page.goto(`http://127.0.0.1:${serverPort}/`);
     await page.waitForSelector('#view-projects:not(.hidden)', { timeout: 10000 });
@@ -700,7 +783,6 @@ test.describe('Desktop Panel — Project Detail UI', () => {
 });
 
 test.describe('Desktop Panel — Recording View UI State', () => {
-
   test('pending actions section is hidden initially', async ({ page }) => {
     await page.goto(`http://127.0.0.1:${serverPort}/`);
     await page.waitForSelector('#view-projects:not(.hidden)', { timeout: 10000 });
@@ -739,7 +821,6 @@ test.describe('Desktop Panel — Recording View UI State', () => {
 });
 
 test.describe('Desktop Panel — Breadcrumb Navigation', () => {
-
   test('breadcrumb navigates back to projects list', async ({ page }) => {
     await page.goto(`http://127.0.0.1:${serverPort}/`);
     await page.waitForSelector('#view-projects:not(.hidden)', { timeout: 10000 });
@@ -782,7 +863,6 @@ test.describe('Desktop Panel — Breadcrumb Navigation', () => {
 });
 
 test.describe('Desktop Panel — Settings Additional', () => {
-
   test('settings back button returns to previous view', async ({ page }) => {
     await page.goto(`http://127.0.0.1:${serverPort}/`);
     await page.waitForSelector('#view-projects:not(.hidden)', { timeout: 10000 });
@@ -807,7 +887,6 @@ test.describe('Desktop Panel — Settings Additional', () => {
 });
 
 test.describe('Desktop Panel — Delete Project', () => {
-
   test('delete removes project from list', async ({ page }) => {
     await page.goto(`http://127.0.0.1:${serverPort}/`);
     await page.waitForSelector('#view-projects:not(.hidden)', { timeout: 10000 });
@@ -822,7 +901,7 @@ test.describe('Desktop Panel — Delete Project', () => {
     await page.waitForSelector('#view-projects:not(.hidden)', { timeout: 5000 });
     await expect(page.locator('.card-item')).toHaveCount(1);
 
-    page.on('dialog', dialog => dialog.accept());
+    page.on('dialog', (dialog) => dialog.accept());
     await page.locator('[data-action="delete"]').first().click();
     await page.waitForTimeout(500);
 

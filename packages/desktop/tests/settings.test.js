@@ -60,16 +60,9 @@ describe('Property 10: Settings persistence round-trip', () => {
     fc.assert(
       fc.property(
         // Generate random URL strings (including empty)
-        fc.oneof(
-          fc.constant(''),
-          fc.webUrl(),
-          fc.string({ minLength: 0, maxLength: 200 }),
-        ),
+        fc.oneof(fc.constant(''), fc.webUrl(), fc.string({ minLength: 0, maxLength: 200 })),
         // Generate random API key strings (including empty)
-        fc.oneof(
-          fc.constant(''),
-          fc.string({ minLength: 0, maxLength: 200 }),
-        ),
+        fc.oneof(fc.constant(''), fc.string({ minLength: 0, maxLength: 200 })),
         (endpointUrl, apiKey) => {
           const store = { data: JSON.stringify({ projects: [], settings: {} }) };
 
@@ -83,10 +76,16 @@ describe('Property 10: Settings persistence round-trip', () => {
           const expectedUrl = endpointUrl || null;
           const expectedKey = apiKey || null;
 
-          assert.strictEqual(loaded.endpointUrl, expectedUrl,
-            `URL mismatch: saved "${endpointUrl}", got "${loaded.endpointUrl}"`);
-          assert.strictEqual(loaded.apiKey, expectedKey,
-            `API key mismatch: saved "${apiKey}", got "${loaded.apiKey}"`);
+          assert.strictEqual(
+            loaded.endpointUrl,
+            expectedUrl,
+            `URL mismatch: saved "${endpointUrl}", got "${loaded.endpointUrl}"`,
+          );
+          assert.strictEqual(
+            loaded.apiKey,
+            expectedKey,
+            `API key mismatch: saved "${apiKey}", got "${loaded.apiKey}"`,
+          );
         },
       ),
       { numRuns: 100 },

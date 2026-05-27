@@ -36,7 +36,7 @@ function reset() {
 }
 
 function getActiveProject() {
-  return projects.find(p => p.project_id === activeProjectId) ?? null;
+  return projects.find((p) => p.project_id === activeProjectId) ?? null;
 }
 
 function getActiveRecording() {
@@ -118,7 +118,7 @@ async function handle(msg) {
       if (pendingActions.length > 0) {
         actions = pendingActions;
       } else {
-        const existing = activeSteps.find(s => s.logical_id === msg.logical_id);
+        const existing = activeSteps.find((s) => s.logical_id === msg.logical_id);
         actions = existing ? [...existing.actions] : [];
       }
 
@@ -159,7 +159,10 @@ describe('SERVICE WORKER: PROJECT_SET_METADATA', () => {
 
   it('persists metadata on the active project', async () => {
     await handle({ type: 'PROJECT_CREATE', name: 'Test' });
-    const result = await handle({ type: 'PROJECT_SET_METADATA', metadata: { ticket: 'PROJ-1', tags: ['smoke'] } });
+    const result = await handle({
+      type: 'PROJECT_SET_METADATA',
+      metadata: { ticket: 'PROJ-1', tags: ['smoke'] },
+    });
     assert.equal(result.ok, true);
     assert.deepStrictEqual(getActiveProject().metadata, { ticket: 'PROJ-1', tags: ['smoke'] });
   });
@@ -196,14 +199,26 @@ describe('SERVICE WORKER: RECORDING_SET_METADATA', () => {
   it('removes metadata when null is passed', async () => {
     await handle({ type: 'PROJECT_CREATE', name: 'P' });
     const { recording } = await handle({ type: 'RECORDING_CREATE', name: 'R' });
-    await handle({ type: 'RECORDING_SET_METADATA', recording_id: recording.recording_id, metadata: { x: '1' } });
-    await handle({ type: 'RECORDING_SET_METADATA', recording_id: recording.recording_id, metadata: null });
+    await handle({
+      type: 'RECORDING_SET_METADATA',
+      recording_id: recording.recording_id,
+      metadata: { x: '1' },
+    });
+    await handle({
+      type: 'RECORDING_SET_METADATA',
+      recording_id: recording.recording_id,
+      metadata: null,
+    });
     assert.equal(getActiveRecording().metadata, undefined);
   });
 
   it('returns error for unknown recording_id', async () => {
     await handle({ type: 'PROJECT_CREATE', name: 'P' });
-    const result = await handle({ type: 'RECORDING_SET_METADATA', recording_id: 'nonexistent', metadata: {} });
+    const result = await handle({
+      type: 'RECORDING_SET_METADATA',
+      recording_id: 'nonexistent',
+      metadata: {},
+    });
     assert.equal(result.ok, false);
     assert.match(result.error, /Recording not found/);
   });
@@ -226,7 +241,11 @@ describe('SERVICE WORKER: RECORDING_RENAME', () => {
   it('updates the recording name', async () => {
     await handle({ type: 'PROJECT_CREATE', name: 'P' });
     const { recording } = await handle({ type: 'RECORDING_CREATE', name: 'Old Name' });
-    const result = await handle({ type: 'RECORDING_RENAME', recording_id: recording.recording_id, name: 'New Name' });
+    const result = await handle({
+      type: 'RECORDING_RENAME',
+      recording_id: recording.recording_id,
+      name: 'New Name',
+    });
     assert.equal(result.ok, true);
     assert.equal(getActiveRecording().name, 'New Name');
   });
@@ -246,7 +265,11 @@ describe('SERVICE WORKER: STEP_COMMIT', () => {
     await handle({ type: 'RECORDING_CREATE', name: 'R' });
     pendingActions = [{ type: 'click', timestamp: 1 }];
 
-    const result = await handle({ type: 'STEP_COMMIT', narration: 'Click login', narration_source: 'typed' });
+    const result = await handle({
+      type: 'STEP_COMMIT',
+      narration: 'Click login',
+      narration_source: 'typed',
+    });
     assert.equal(result.ok, true);
     assert.equal(result.step.narration, 'Click login');
     assert.equal(result.step.narration_source, 'typed');
@@ -259,7 +282,11 @@ describe('SERVICE WORKER: STEP_COMMIT', () => {
     await handle({ type: 'RECORDING_CREATE', name: 'R' });
     pendingActions = [{ type: 'click', timestamp: 1 }];
 
-    const result = await handle({ type: 'STEP_COMMIT', step_type: 'validation', expect: 'present' });
+    const result = await handle({
+      type: 'STEP_COMMIT',
+      step_type: 'validation',
+      expect: 'present',
+    });
     assert.equal(result.ok, true);
     assert.equal(result.step.step_type, 'validation');
     assert.equal(result.step.expect, 'present');
@@ -282,7 +309,11 @@ describe('SERVICE WORKER: STEP_COMMIT', () => {
     await handle({ type: 'RECORDING_CREATE', name: 'R' });
     pendingActions = [];
 
-    const result = await handle({ type: 'STEP_COMMIT', narration: 'test', narration_source: 'typed' });
+    const result = await handle({
+      type: 'STEP_COMMIT',
+      narration: 'test',
+      narration_source: 'typed',
+    });
     assert.equal(result.ok, false);
     assert.match(result.error, /No actions/);
   });
@@ -307,15 +338,15 @@ describe('SERVICE WORKER: STEPS_REORDER', () => {
     // Create 3 steps with delays to ensure UUID ordering
     pendingActions = [{ type: 'click', timestamp: 1 }];
     const { step: s1 } = await handle({ type: 'STEP_COMMIT', step_type: 'action' });
-    await new Promise(r => setTimeout(r, 2));
+    await new Promise((r) => setTimeout(r, 2));
     pendingActions = [{ type: 'click', timestamp: 2 }];
     const { step: s2 } = await handle({ type: 'STEP_COMMIT', step_type: 'action' });
-    await new Promise(r => setTimeout(r, 2));
+    await new Promise((r) => setTimeout(r, 2));
     pendingActions = [{ type: 'click', timestamp: 3 }];
     const { step: s3 } = await handle({ type: 'STEP_COMMIT', step_type: 'action' });
 
     // Delay before reorder to ensure new UUIDs are higher
-    await new Promise(r => setTimeout(r, 2));
+    await new Promise((r) => setTimeout(r, 2));
 
     // Reorder: 3, 1, 2
     const result = await handle({
@@ -334,7 +365,6 @@ describe('SERVICE WORKER: STEPS_REORDER', () => {
     assert.equal(byNumber[2].step_number, 3);
   });
 });
-
 
 // ─── Content Script → Service Worker Integration ──────────────────────────────
 // Tests the APPEND_ACTION handoff: content script sends an action,
@@ -448,7 +478,6 @@ describe('SERVICE WORKER: APPEND_ACTION (content script → storage handoff)', (
   });
 });
 
-
 // ─── Error Recovery Paths ─────────────────────────────────────────────────────
 
 describe('SERVICE WORKER: error recovery — storage failures', () => {
@@ -457,7 +486,11 @@ describe('SERVICE WORKER: error recovery — storage failures', () => {
   it('STEP_COMMIT with no active recording returns descriptive error', async () => {
     // No project or recording created
     pendingActions = [{ type: 'click', timestamp: 1 }];
-    const result = await handle({ type: 'STEP_COMMIT', narration: 'test', narration_source: 'typed' });
+    const result = await handle({
+      type: 'STEP_COMMIT',
+      narration: 'test',
+      narration_source: 'typed',
+    });
     assert.equal(result.ok, false);
     assert.ok(result.error.includes('No active recording'));
   });
@@ -469,7 +502,11 @@ describe('SERVICE WORKER: error recovery — storage failures', () => {
   });
 
   it('RECORDING_SET_METADATA with no active project returns error', async () => {
-    const result = await handle({ type: 'RECORDING_SET_METADATA', recording_id: 'bad', metadata: {} });
+    const result = await handle({
+      type: 'RECORDING_SET_METADATA',
+      recording_id: 'bad',
+      metadata: {},
+    });
     assert.equal(result.ok, false);
   });
 

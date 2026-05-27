@@ -13,18 +13,22 @@ globalThis.chrome = {
     local: {
       get: async (keys) => {
         if (Array.isArray(keys)) {
-          return Object.fromEntries(keys.map(k => [k, storageData[k]]));
+          return Object.fromEntries(keys.map((k) => [k, storageData[k]]));
         }
         return { [keys]: storageData[keys] };
       },
-      set: async (items) => { Object.assign(storageData, items); },
+      set: async (items) => {
+        Object.assign(storageData, items);
+      },
       remove: async (keys) => {
         const ks = Array.isArray(keys) ? keys : [keys];
-        ks.forEach(k => delete storageData[k]);
+        ks.forEach((k) => delete storageData[k]);
       },
     },
     onChanged: {
-      addListener: (fn) => { storageListeners.push(fn); },
+      addListener: (fn) => {
+        storageListeners.push(fn);
+      },
     },
   },
   runtime: {
@@ -60,33 +64,35 @@ const validUrlArb = fc.oneof(
 
 // ── Task 2.2: Settings round-trip ──────────────────────────────────────────
 describe('settings round-trip preserves both fields', () => {
-  beforeEach(() => { storageData = {}; });
+  beforeEach(() => {
+    storageData = {};
+  });
 
   test('saving and loading returns the same url and apiKey', async () => {
     await fc.assert(
-      fc.asyncProperty(
-        validUrlArb,
-        fc.string(),
-        async (url, apiKey) => {
-          storageData = {};
-          await chromeAdapter.saveSettings(url, apiKey);
-          const loaded = await chromeAdapter.loadSettings();
-          assert.strictEqual(loaded.endpointUrl, url || null);
-          assert.strictEqual(loaded.apiKey, apiKey === '' ? null : apiKey);
-        },
-      ),
+      fc.asyncProperty(validUrlArb, fc.string(), async (url, apiKey) => {
+        storageData = {};
+        await chromeAdapter.saveSettings(url, apiKey);
+        const loaded = await chromeAdapter.loadSettings();
+        assert.strictEqual(loaded.endpointUrl, url || null);
+        assert.strictEqual(loaded.apiKey, apiKey === '' ? null : apiKey);
+      }),
     );
   });
 });
 
 // ── Task 2.3: URL validation rejects non-HTTP(S) inputs ───────────────────
 describe('URL validation rejects non-HTTP(S) inputs', () => {
-  beforeEach(() => { storageData = {}; });
+  beforeEach(() => {
+    storageData = {};
+  });
 
   test('validateEndpointUrl returns non-null for strings not starting with http:// or https://', async () => {
     await fc.assert(
       fc.asyncProperty(
-        fc.string({ minLength: 1 }).filter(s => !s.startsWith('http://') && !s.startsWith('https://')),
+        fc
+          .string({ minLength: 1 })
+          .filter((s) => !s.startsWith('http://') && !s.startsWith('https://')),
         async (s) => {
           const result = validateEndpointUrl(s);
           assert.ok(result !== null, `Expected non-null error for: ${s}`);
@@ -99,7 +105,9 @@ describe('URL validation rejects non-HTTP(S) inputs', () => {
   test('saveDispatchSettings throws for invalid non-HTTP(S) URLs', async () => {
     await fc.assert(
       fc.asyncProperty(
-        fc.string({ minLength: 1 }).filter(s => !s.startsWith('http://') && !s.startsWith('https://')),
+        fc
+          .string({ minLength: 1 })
+          .filter((s) => !s.startsWith('http://') && !s.startsWith('https://')),
         async (s) => {
           storageData = {};
           await assert.rejects(
@@ -116,46 +124,34 @@ describe('URL validation rejects non-HTTP(S) inputs', () => {
 describe('local addresses pass validation', () => {
   test('http://localhost variants are valid', async () => {
     await fc.assert(
-      fc.asyncProperty(
-        fc.option(fc.nat(65535), { nil: undefined }),
-        fc.string(),
-        (port, path) => {
-          const portPart = port !== undefined ? `:${port}` : '';
-          const url = `http://localhost${portPart}${path ? '/' + path : ''}`;
-          const result = validateEndpointUrl(url);
-          assert.strictEqual(result, null, `Expected null for: ${url}`);
-        },
-      ),
+      fc.asyncProperty(fc.option(fc.nat(65535), { nil: undefined }), fc.string(), (port, path) => {
+        const portPart = port !== undefined ? `:${port}` : '';
+        const url = `http://localhost${portPart}${path ? '/' + path : ''}`;
+        const result = validateEndpointUrl(url);
+        assert.strictEqual(result, null, `Expected null for: ${url}`);
+      }),
     );
   });
 
   test('http://127.0.0.1 variants are valid', async () => {
     await fc.assert(
-      fc.asyncProperty(
-        fc.option(fc.nat(65535), { nil: undefined }),
-        fc.string(),
-        (port, path) => {
-          const portPart = port !== undefined ? `:${port}` : '';
-          const url = `http://127.0.0.1${portPart}${path ? '/' + path : ''}`;
-          const result = validateEndpointUrl(url);
-          assert.strictEqual(result, null, `Expected null for: ${url}`);
-        },
-      ),
+      fc.asyncProperty(fc.option(fc.nat(65535), { nil: undefined }), fc.string(), (port, path) => {
+        const portPart = port !== undefined ? `:${port}` : '';
+        const url = `http://127.0.0.1${portPart}${path ? '/' + path : ''}`;
+        const result = validateEndpointUrl(url);
+        assert.strictEqual(result, null, `Expected null for: ${url}`);
+      }),
     );
   });
 
   test('http://[::1] variants are valid', async () => {
     await fc.assert(
-      fc.asyncProperty(
-        fc.option(fc.nat(65535), { nil: undefined }),
-        fc.string(),
-        (port, path) => {
-          const portPart = port !== undefined ? `:${port}` : '';
-          const url = `http://[::1]${portPart}${path ? '/' + path : ''}`;
-          const result = validateEndpointUrl(url);
-          assert.strictEqual(result, null, `Expected null for: ${url}`);
-        },
-      ),
+      fc.asyncProperty(fc.option(fc.nat(65535), { nil: undefined }), fc.string(), (port, path) => {
+        const portPart = port !== undefined ? `:${port}` : '';
+        const url = `http://[::1]${portPart}${path ? '/' + path : ''}`;
+        const result = validateEndpointUrl(url);
+        assert.strictEqual(result, null, `Expected null for: ${url}`);
+      }),
     );
   });
 });
@@ -191,14 +187,26 @@ describe('payload fidelity', () => {
     name: fc.string(),
     created_at: fc.string(),
     steps: fc.array(stepArb),
-    metadata: fc.option(fc.dictionary(fc.string({ minLength: 1, maxLength: 10 }), fc.oneof(fc.string(), fc.array(fc.string()))), { nil: undefined }),
+    metadata: fc.option(
+      fc.dictionary(
+        fc.string({ minLength: 1, maxLength: 10 }),
+        fc.oneof(fc.string(), fc.array(fc.string())),
+      ),
+      { nil: undefined },
+    ),
   });
 
   const projectArb = fc.record({
     project_id: fc.uuid(),
     name: fc.string(),
     created_at: fc.string(),
-    metadata: fc.option(fc.dictionary(fc.string({ minLength: 1, maxLength: 10 }), fc.oneof(fc.string(), fc.array(fc.string()))), { nil: undefined }),
+    metadata: fc.option(
+      fc.dictionary(
+        fc.string({ minLength: 1, maxLength: 10 }),
+        fc.oneof(fc.string(), fc.array(fc.string())),
+      ),
+      { nil: undefined },
+    ),
   });
 
   const schemaArb = fc.record({
@@ -286,19 +294,16 @@ describe('API key produces correct Authorization header', () => {
 
   test('sendPayload sets Authorization: Bearer <apiKey> for non-empty keys', async () => {
     await fc.assert(
-      fc.asyncProperty(
-        fc.string({ minLength: 1 }),
-        async (apiKey) => {
-          let capturedHeaders = null;
-          globalThis.fetch = async (_url, init) => {
-            capturedHeaders = init.headers;
-            return { ok: true, json: async () => ({}) };
-          };
+      fc.asyncProperty(fc.string({ minLength: 1 }), async (apiKey) => {
+        let capturedHeaders = null;
+        globalThis.fetch = async (_url, init) => {
+          capturedHeaders = init.headers;
+          return { ok: true, json: async () => ({}) };
+        };
 
-          await sendPayload('http://localhost:9999', apiKey, {});
-          assert.strictEqual(capturedHeaders['Authorization'], `Bearer ${apiKey}`);
-        },
-      ),
+        await sendPayload('http://localhost:9999', apiKey, {});
+        assert.strictEqual(capturedHeaders['Authorization'], `Bearer ${apiKey}`);
+      }),
     );
   });
 });
@@ -336,34 +341,35 @@ describe('error messages surface HTTP status codes and network errors', () => {
 
   test('sendPayload throws DispatchError with null status and original message for network errors', async () => {
     await fc.assert(
-      fc.asyncProperty(
-        fc.string({ minLength: 1 }),
-        async (message) => {
-          globalThis.fetch = async () => { throw new Error(message); };
+      fc.asyncProperty(fc.string({ minLength: 1 }), async (message) => {
+        globalThis.fetch = async () => {
+          throw new Error(message);
+        };
 
-          let thrown = null;
-          try {
-            await sendPayload('http://localhost:9999', null, {});
-          } catch (err) {
-            thrown = err;
-          }
+        let thrown = null;
+        try {
+          await sendPayload('http://localhost:9999', null, {});
+        } catch (err) {
+          thrown = err;
+        }
 
-          assert.ok(thrown instanceof DispatchError, 'Expected DispatchError to be thrown');
-          assert.strictEqual(thrown.status, null);
-          assert.ok(thrown.message.includes(message), `Expected message to contain: ${message}`);
-        },
-      ),
+        assert.ok(thrown instanceof DispatchError, 'Expected DispatchError to be thrown');
+        assert.strictEqual(thrown.status, null);
+        assert.ok(thrown.message.includes(message), `Expected message to contain: ${message}`);
+      }),
     );
   });
 });
 
 // ── Live action list: onActionEvent fires for each new action ──────────────
 describe('onActionEvent fires for each newly appended action', () => {
-  beforeEach(() => { storageListeners = []; });
+  beforeEach(() => {
+    storageListeners = [];
+  });
 
   test('callback fires once per new action added to pendingActions', () => {
     const received = [];
-    chromeAdapter.onActionEvent(action => received.push(action));
+    chromeAdapter.onActionEvent((action) => received.push(action));
 
     // Simulate first action added
     fireStorageChange({
@@ -374,7 +380,12 @@ describe('onActionEvent fires for each newly appended action', () => {
 
     // Simulate second action added
     fireStorageChange({
-      pendingActions: { newValue: [{ type: 'click', timestamp: 1 }, { type: 'type', timestamp: 2 }] },
+      pendingActions: {
+        newValue: [
+          { type: 'click', timestamp: 1 },
+          { type: 'type', timestamp: 2 },
+        ],
+      },
     });
     assert.strictEqual(received.length, 2);
     assert.strictEqual(received[1].type, 'type');
@@ -382,21 +393,29 @@ describe('onActionEvent fires for each newly appended action', () => {
 
   test('callback does not fire for non-local area changes', () => {
     const received = [];
-    chromeAdapter.onActionEvent(action => received.push(action));
+    chromeAdapter.onActionEvent((action) => received.push(action));
 
-    fireStorageChange({
-      pendingActions: { newValue: [{ type: 'click', timestamp: 1 }] },
-    }, 'sync');
+    fireStorageChange(
+      {
+        pendingActions: { newValue: [{ type: 'click', timestamp: 1 }] },
+      },
+      'sync',
+    );
     assert.strictEqual(received.length, 0);
   });
 
   test('counter resets when pendingActions is cleared', () => {
     const received = [];
-    chromeAdapter.onActionEvent(action => received.push(action));
+    chromeAdapter.onActionEvent((action) => received.push(action));
 
     // Add two actions
     fireStorageChange({
-      pendingActions: { newValue: [{ type: 'click', timestamp: 1 }, { type: 'key', timestamp: 2 }] },
+      pendingActions: {
+        newValue: [
+          { type: 'click', timestamp: 1 },
+          { type: 'key', timestamp: 2 },
+        ],
+      },
     });
     assert.strictEqual(received.length, 2);
 

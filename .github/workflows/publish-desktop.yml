@@ -46,9 +46,9 @@ jobs:
         id: version-pr
         uses: peter-evans/create-pull-request@v6
         with:
-          commit-message: "docs: update version compatibility table"
-          title: "docs: update version compatibility table"
-          body: "Automated update of the version compatibility table in README.md after desktop release."
+          commit-message: 'docs: update version compatibility table'
+          title: 'docs: update version compatibility table'
+          body: 'Automated update of the version compatibility table in README.md after desktop release.'
           branch: automated/version-table-update
           labels: docs
           delete-branch: true
@@ -74,7 +74,7 @@ jobs:
         with:
           projectPath: packages/desktop
           tagName: ${{ github.event.release.tag_name }}
-          releaseName: "Docent Desktop ${{ github.event.release.tag_name }}"
+          releaseName: 'Docent Desktop ${{ github.event.release.tag_name }}'
           releaseBody: ${{ github.event.release.body }}
           releaseDraft: false
           prerelease: false

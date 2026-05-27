@@ -12,7 +12,9 @@
 // Constants (imported from timing.rs — single source of truth)
 // ---------------------------------------------------------------------------
 
-use super::timing::{SCROLL_DEBOUNCE_MS as DEBOUNCE_MS, SCROLL_MIN_DISTANCE_PX as MIN_SCROLL_DISTANCE_PX};
+use super::timing::{
+    SCROLL_DEBOUNCE_MS as DEBOUNCE_MS, SCROLL_MIN_DISTANCE_PX as MIN_SCROLL_DISTANCE_PX,
+};
 
 // ---------------------------------------------------------------------------
 // Scroll event
@@ -88,9 +90,7 @@ pub fn process_scroll_events(events: &[RawScrollEvent]) -> Vec<ScrollResult> {
 
             // Apply threshold filter: emit only if at least one axis exceeds
             // the minimum distance.
-            if total_dx.abs() > MIN_SCROLL_DISTANCE_PX
-                || total_dy.abs() > MIN_SCROLL_DISTANCE_PX
-            {
+            if total_dx.abs() > MIN_SCROLL_DISTANCE_PX || total_dy.abs() > MIN_SCROLL_DISTANCE_PX {
                 results.push(ScrollResult {
                     total_delta_x: total_dx,
                     total_delta_y: total_dy,
@@ -128,9 +128,7 @@ impl Default for ScrollAccumulator {
 impl ScrollAccumulator {
     /// Create a new empty accumulator.
     pub fn new() -> Self {
-        Self {
-            buffer: Vec::new(),
-        }
+        Self { buffer: Vec::new() }
     }
 
     /// Push a new scroll event into the accumulator.
@@ -155,20 +153,15 @@ impl ScrollAccumulator {
         }
 
         // Debounce elapsed — sum deltas and check threshold.
-        let (total_dx, total_dy) = self
-            .buffer
-            .iter()
-            .fold((0.0_f64, 0.0_f64), |(dx, dy), e| {
-                (dx + e.delta_x, dy + e.delta_y)
-            });
+        let (total_dx, total_dy) = self.buffer.iter().fold((0.0_f64, 0.0_f64), |(dx, dy), e| {
+            (dx + e.delta_x, dy + e.delta_y)
+        });
 
         // Clear the buffer regardless of threshold.
         self.buffer.clear();
 
         // Apply threshold filter.
-        if total_dx.abs() > MIN_SCROLL_DISTANCE_PX
-            || total_dy.abs() > MIN_SCROLL_DISTANCE_PX
-        {
+        if total_dx.abs() > MIN_SCROLL_DISTANCE_PX || total_dy.abs() > MIN_SCROLL_DISTANCE_PX {
             Some(ScrollResult {
                 total_delta_x: total_dx,
                 total_delta_y: total_dy,
@@ -267,8 +260,7 @@ fn is_descendant_of(pid: u32, ancestor_pid: u32) -> bool {
 #[cfg(target_os = "windows")]
 fn get_process_exe_name(pid: u32) -> Option<String> {
     use windows::Win32::System::Diagnostics::ToolHelp::{
-        CreateToolhelp32Snapshot, Process32First, Process32Next, PROCESSENTRY32,
-        TH32CS_SNAPPROCESS,
+        CreateToolhelp32Snapshot, Process32First, Process32Next, PROCESSENTRY32, TH32CS_SNAPPROCESS,
     };
     unsafe {
         let snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0).ok()?;
@@ -280,7 +272,9 @@ fn get_process_exe_name(pid: u32) -> Option<String> {
             loop {
                 if entry.th32ProcessID == pid {
                     let _ = windows::Win32::Foundation::CloseHandle(snapshot);
-                    let name = entry.szExeFile.iter()
+                    let name = entry
+                        .szExeFile
+                        .iter()
                         .take_while(|&&c| c != 0)
                         .map(|&c| c as u8 as char)
                         .collect::<String>();
@@ -306,8 +300,7 @@ pub fn get_process_exe_name_pub(pid: u32) -> Option<String> {
 #[cfg(target_os = "windows")]
 fn get_parent_pid(pid: u32) -> Option<u32> {
     use windows::Win32::System::Diagnostics::ToolHelp::{
-        CreateToolhelp32Snapshot, Process32First, Process32Next, PROCESSENTRY32,
-        TH32CS_SNAPPROCESS,
+        CreateToolhelp32Snapshot, Process32First, Process32Next, PROCESSENTRY32, TH32CS_SNAPPROCESS,
     };
     unsafe {
         let snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0).ok()?;
@@ -377,7 +370,10 @@ mod tests {
             delta_y: 200.0,
         }];
         let results = process_scroll_events(&events);
-        assert!(results.is_empty(), "exactly 200px should be discarded (≤ 200)");
+        assert!(
+            results.is_empty(),
+            "exactly 200px should be discarded (≤ 200)"
+        );
     }
 
     #[test]
@@ -395,9 +391,21 @@ mod tests {
     fn rapid_events_accumulate_into_one_sequence() {
         // Events within 300ms of each other form one sequence.
         let events = vec![
-            RawScrollEvent { timestamp: 1000, delta_x: 0.0, delta_y: 80.0 },
-            RawScrollEvent { timestamp: 1050, delta_x: 0.0, delta_y: 80.0 },
-            RawScrollEvent { timestamp: 1100, delta_x: 0.0, delta_y: 80.0 },
+            RawScrollEvent {
+                timestamp: 1000,
+                delta_x: 0.0,
+                delta_y: 80.0,
+            },
+            RawScrollEvent {
+                timestamp: 1050,
+                delta_x: 0.0,
+                delta_y: 80.0,
+            },
+            RawScrollEvent {
+                timestamp: 1100,
+                delta_x: 0.0,
+                delta_y: 80.0,
+            },
         ];
         let results = process_scroll_events(&events);
         assert_eq!(results.len(), 1);
@@ -408,11 +416,23 @@ mod tests {
     fn gap_splits_into_two_sequences() {
         let events = vec![
             // Sequence 1: total_y = 250 (emitted)
-            RawScrollEvent { timestamp: 1000, delta_x: 0.0, delta_y: 125.0 },
-            RawScrollEvent { timestamp: 1050, delta_x: 0.0, delta_y: 125.0 },
+            RawScrollEvent {
+                timestamp: 1000,
+                delta_x: 0.0,
+                delta_y: 125.0,
+            },
+            RawScrollEvent {
+                timestamp: 1050,
+                delta_x: 0.0,
+                delta_y: 125.0,
+            },
             // Gap of 300ms
             // Sequence 2: total_y = 50 (discarded)
-            RawScrollEvent { timestamp: 1400, delta_x: 0.0, delta_y: 50.0 },
+            RawScrollEvent {
+                timestamp: 1400,
+                delta_x: 0.0,
+                delta_y: 50.0,
+            },
         ];
         let results = process_scroll_events(&events);
         assert_eq!(results.len(), 1);
@@ -434,8 +454,16 @@ mod tests {
     #[test]
     fn negative_deltas_accumulate_correctly() {
         let events = vec![
-            RawScrollEvent { timestamp: 1000, delta_x: 0.0, delta_y: -150.0 },
-            RawScrollEvent { timestamp: 1050, delta_x: 0.0, delta_y: -100.0 },
+            RawScrollEvent {
+                timestamp: 1000,
+                delta_x: 0.0,
+                delta_y: -150.0,
+            },
+            RawScrollEvent {
+                timestamp: 1050,
+                delta_x: 0.0,
+                delta_y: -100.0,
+            },
         ];
         let results = process_scroll_events(&events);
         assert_eq!(results.len(), 1);
@@ -453,7 +481,11 @@ mod tests {
     #[test]
     fn accumulator_within_debounce_returns_none() {
         let mut acc = ScrollAccumulator::new();
-        acc.push(RawScrollEvent { timestamp: 1000, delta_x: 0.0, delta_y: 300.0 });
+        acc.push(RawScrollEvent {
+            timestamp: 1000,
+            delta_x: 0.0,
+            delta_y: 300.0,
+        });
         // Only 100ms later — still within debounce.
         assert!(acc.try_flush(1100).is_none());
     }
@@ -461,7 +493,11 @@ mod tests {
     #[test]
     fn accumulator_after_debounce_emits_if_threshold_met() {
         let mut acc = ScrollAccumulator::new();
-        acc.push(RawScrollEvent { timestamp: 1000, delta_x: 0.0, delta_y: 300.0 });
+        acc.push(RawScrollEvent {
+            timestamp: 1000,
+            delta_x: 0.0,
+            delta_y: 300.0,
+        });
         let result = acc.try_flush(1300);
         assert!(result.is_some());
         assert_eq!(result.unwrap().total_delta_y, 300.0);
@@ -472,7 +508,11 @@ mod tests {
     #[test]
     fn accumulator_after_debounce_discards_if_threshold_not_met() {
         let mut acc = ScrollAccumulator::new();
-        acc.push(RawScrollEvent { timestamp: 1000, delta_x: 0.0, delta_y: 50.0 });
+        acc.push(RawScrollEvent {
+            timestamp: 1000,
+            delta_x: 0.0,
+            delta_y: 50.0,
+        });
         let result = acc.try_flush(1300);
         assert!(result.is_none());
         assert!(!acc.has_pending());
@@ -481,7 +521,11 @@ mod tests {
     #[test]
     fn accumulator_clear_discards_pending() {
         let mut acc = ScrollAccumulator::new();
-        acc.push(RawScrollEvent { timestamp: 1000, delta_x: 0.0, delta_y: 500.0 });
+        acc.push(RawScrollEvent {
+            timestamp: 1000,
+            delta_x: 0.0,
+            delta_y: 500.0,
+        });
         acc.clear();
         assert!(!acc.has_pending());
         assert!(acc.try_flush(2000).is_none());

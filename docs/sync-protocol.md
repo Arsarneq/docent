@@ -76,10 +76,10 @@ configured.
 
 **Response fields (Project_Manifest entry):**
 
-| Field | Type | Description |
-|---|---|---|
-| `project_id` | string (UUIDv7) | Unique project identifier. |
-| `name` | string | Human-readable project name. |
+| Field           | Type              | Description                  |
+| --------------- | ----------------- | ---------------------------- |
+| `project_id`    | string (UUIDv7)   | Unique project identifier.   |
+| `name`          | string            | Human-readable project name. |
 | `last_modified` | string (ISO 8601) | Last modification timestamp. |
 
 ---
@@ -236,22 +236,22 @@ for `PUT /projects/:id`.
 
 **Project fields:**
 
-| Field | Type | Required | Description |
-|---|---|---|---|
-| `project_id` | string (UUIDv7) | yes | Unique project identifier. |
-| `name` | string | yes | Human-readable project name. |
-| `created_at` | string (ISO 8601) | yes | Creation timestamp. |
-| `metadata` | object | no | User-defined key-value pairs. Omitted when empty. |
+| Field        | Type              | Required | Description                                       |
+| ------------ | ----------------- | -------- | ------------------------------------------------- |
+| `project_id` | string (UUIDv7)   | yes      | Unique project identifier.                        |
+| `name`       | string            | yes      | Human-readable project name.                      |
+| `created_at` | string (ISO 8601) | yes      | Creation timestamp.                               |
+| `metadata`   | object            | no       | User-defined key-value pairs. Omitted when empty. |
 
 **Recording fields:**
 
-| Field | Type | Required | Description |
-|---|---|---|---|
-| `recording_id` | string (UUIDv7) | yes | Unique recording identifier. |
-| `name` | string | yes | Human-readable recording name. |
-| `created_at` | string (ISO 8601) | yes | Creation timestamp. |
-| `metadata` | object | no | User-defined key-value pairs. Omitted when empty. |
-| `steps` | array | yes | Full step history including re-recorded and deleted steps. |
+| Field          | Type              | Required | Description                                                |
+| -------------- | ----------------- | -------- | ---------------------------------------------------------- |
+| `recording_id` | string (UUIDv7)   | yes      | Unique recording identifier.                               |
+| `name`         | string            | yes      | Human-readable recording name.                             |
+| `created_at`   | string (ISO 8601) | yes      | Creation timestamp.                                        |
+| `metadata`     | object            | no       | User-defined key-value pairs. Omitted when empty.          |
+| `steps`        | array             | yes      | Full step history including re-recorded and deleted steps. |
 
 The `steps` array contains the **complete version history** — it is not filtered
 to active steps only. See the [Docent Session Format](./session-format.md)
@@ -279,11 +279,11 @@ lightweight summary used by the client to determine which projects to fetch.
 ]
 ```
 
-| Field | Type | Required | Description |
-|---|---|---|---|
-| `project_id` | string (UUIDv7) | yes | Unique project identifier. Used as `:id` in subsequent requests. |
-| `name` | string | yes | Human-readable project name. |
-| `last_modified` | string (ISO 8601) | yes | Last modification timestamp. |
+| Field           | Type              | Required | Description                                                      |
+| --------------- | ----------------- | -------- | ---------------------------------------------------------------- |
+| `project_id`    | string (UUIDv7)   | yes      | Unique project identifier. Used as `:id` in subsequent requests. |
+| `name`          | string            | yes      | Human-readable project name.                                     |
+| `last_modified` | string (ISO 8601) | yes      | Last modification timestamp.                                     |
 
 ---
 
@@ -291,14 +291,14 @@ lightweight summary used by the client to determine which projects to fetch.
 
 The client interprets the following HTTP status codes:
 
-| Code | Meaning | Client behavior |
-|---|---|---|
-| 200 | OK — request succeeded | Push: project marked as pushed. Pull: payload parsed and merged. |
-| 201 | Created — new project stored | Same as 200 (treated as success). |
-| 401 | Unauthorized — invalid or missing API key | Sync halted immediately. Error reported to user. |
-| 403 | Forbidden — valid key but insufficient permissions | Sync halted immediately. Error reported to user. |
-| 404 | Not found — project does not exist | Error recorded for that project. Other projects continue. |
-| 500 | Internal server error | Error recorded for that project. Other projects continue. |
+| Code | Meaning                                            | Client behavior                                                  |
+| ---- | -------------------------------------------------- | ---------------------------------------------------------------- |
+| 200  | OK — request succeeded                             | Push: project marked as pushed. Pull: payload parsed and merged. |
+| 201  | Created — new project stored                       | Same as 200 (treated as success).                                |
+| 401  | Unauthorized — invalid or missing API key          | Sync halted immediately. Error reported to user.                 |
+| 403  | Forbidden — valid key but insufficient permissions | Sync halted immediately. Error reported to user.                 |
+| 404  | Not found — project does not exist                 | Error recorded for that project. Other projects continue.        |
+| 500  | Internal server error                              | Error recorded for that project. Other projects continue.        |
 
 **Important:** A `401` or `403` response on any request (push or pull) causes
 the client to halt the entire sync operation. All other error codes are

@@ -1,0 +1,12 @@
+pre-push:
+  parallel: true
+  commands:
+    lint-js:
+      run: npx eslint packages/shared/ packages/extension/sidepanel/ packages/extension/content/ packages/extension/background/ packages/desktop/src/ scripts/
+    lint-css:
+      glob: '*.css'
+      run: npx stylelint 'packages/shared/views/**/*.css'
+    lint-format:
+      run: npx prettier --check .
+    rust-fmt:
+      run: cargo fmt --manifest-path packages/desktop/src-tauri/Cargo.toml --check

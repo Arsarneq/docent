@@ -178,10 +178,7 @@ pub fn map_element(props: &UiaProperties) -> ElementDescription {
 /// `control_type` is the human-readable tag (e.g. `"Button"`).
 /// `position` is the `(child_index, sibling_count)` tuple — for example
 /// `(2, 5)` means "the 3rd child out of 5 siblings of the same type".
-pub fn map_element_fallback(
-    control_type: &str,
-    position: (i32, i32),
-) -> ElementDescription {
+pub fn map_element_fallback(control_type: &str, position: (i32, i32)) -> ElementDescription {
     let (index, _total) = position;
     let name_desc = format!("{control_type} #{}", index + 1);
 

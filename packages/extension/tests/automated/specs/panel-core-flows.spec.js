@@ -88,8 +88,10 @@ async function simulatePendingActions(serviceWorker, actions) {
 }
 
 test.describe('Narration Commit Flow', () => {
-
-  test('type narration + pending actions → commit → step appears in list', async ({ panelPage, serviceWorker }) => {
+  test('type narration + pending actions → commit → step appears in list', async ({
+    panelPage,
+    serviceWorker,
+  }) => {
     await createProjectAndRecording(panelPage);
 
     // Simulate captured actions
@@ -181,7 +183,6 @@ test.describe('Narration Commit Flow', () => {
 });
 
 test.describe('Dispatch Confirmation Flow', () => {
-
   test('configure endpoint → Send button becomes enabled', async ({ panelPage, serviceWorker }) => {
     await createProjectAndRecording(panelPage);
 
@@ -217,10 +218,11 @@ test.describe('Dispatch Confirmation Flow', () => {
   });
 });
 
-
 test.describe('Clear Button', () => {
-
-  test('clear button resets pending actions and disables commit', async ({ panelPage, serviceWorker }) => {
+  test('clear button resets pending actions and disables commit', async ({
+    panelPage,
+    serviceWorker,
+  }) => {
     await createProjectAndRecording(panelPage);
 
     // Simulate pending actions
@@ -235,7 +237,7 @@ test.describe('Clear Button', () => {
     await expect(panelPage.locator('#btn-commit-step')).toBeEnabled();
 
     // Accept the confirm dialog that clear triggers
-    panelPage.on('dialog', dialog => dialog.accept());
+    panelPage.on('dialog', (dialog) => dialog.accept());
 
     // Click clear
     await panelPage.click('#btn-clear-step');
@@ -247,14 +249,25 @@ test.describe('Clear Button', () => {
 });
 
 test.describe('Step Detail View', () => {
-
-  test('clicking step narration opens detail view with actions', async ({ panelPage, serviceWorker }) => {
+  test('clicking step narration opens detail view with actions', async ({
+    panelPage,
+    serviceWorker,
+  }) => {
     await createProjectAndRecording(panelPage);
 
     // Commit a step with actions
     await simulatePendingActions(serviceWorker, [
-      { type: 'click', timestamp: Date.now(), element: { text: 'Submit', selector: '#btn-submit' } },
-      { type: 'type', timestamp: Date.now(), element: { selector: '#email' }, value: 'test@example.com' },
+      {
+        type: 'click',
+        timestamp: Date.now(),
+        element: { text: 'Submit', selector: '#btn-submit' },
+      },
+      {
+        type: 'type',
+        timestamp: Date.now(),
+        element: { selector: '#email' },
+        value: 'test@example.com',
+      },
     ]);
     await panelPage.waitForTimeout(300);
     await panelPage.fill('#narration-input', 'Fill form and submit');
@@ -295,7 +308,6 @@ test.describe('Step Detail View', () => {
 });
 
 test.describe('Delete Step', () => {
-
   test('delete removes step from list', async ({ panelPage, serviceWorker }) => {
     await createProjectAndRecording(panelPage);
 
@@ -315,7 +327,7 @@ test.describe('Delete Step', () => {
     await expect(panelPage.locator('.step-item')).toHaveCount(2);
 
     // Accept confirm dialog
-    panelPage.on('dialog', dialog => dialog.accept());
+    panelPage.on('dialog', (dialog) => dialog.accept());
 
     // Delete the first step
     await panelPage.locator('[data-action="delete"]').first().click();
@@ -328,12 +340,16 @@ test.describe('Delete Step', () => {
 });
 
 test.describe('Simple Mode Commit to Export', () => {
-
-  test('simple mode step appears in export with step_type and expect', async ({ panelPage, serviceWorker }) => {
+  test('simple mode step appears in export with step_type and expect', async ({
+    panelPage,
+    serviceWorker,
+  }) => {
     // Switch to simple mode
     await panelPage.click('#btn-settings');
     await panelPage.waitForSelector('#view-settings:not(.hidden)', { timeout: 5000 });
-    const simpleLabel = panelPage.locator('input[name="recording-mode"][value="simple"]').locator('..');
+    const simpleLabel = panelPage
+      .locator('input[name="recording-mode"][value="simple"]')
+      .locator('..');
     await simpleLabel.scrollIntoViewIfNeeded();
     await simpleLabel.click();
     await panelPage.waitForTimeout(200);
@@ -343,7 +359,9 @@ test.describe('Simple Mode Commit to Export', () => {
     await createProjectAndRecording(panelPage);
 
     // Select validation + present
-    const validationLabel = panelPage.locator('input[name="step-type"][value="validation"]').locator('..');
+    const validationLabel = panelPage
+      .locator('input[name="step-type"][value="validation"]')
+      .locator('..');
     await validationLabel.scrollIntoViewIfNeeded();
     await validationLabel.click();
     await panelPage.waitForTimeout(100);
@@ -365,9 +383,7 @@ test.describe('Simple Mode Commit to Export', () => {
   });
 });
 
-
 test.describe('Theme Switching', () => {
-
   test('changing theme updates data-theme attribute', async ({ panelPage }) => {
     // Default should be auto
     const html = panelPage.locator('html');
@@ -394,7 +410,6 @@ test.describe('Theme Switching', () => {
 });
 
 test.describe('History View', () => {
-
   test('history button shows step versions', async ({ panelPage, serviceWorker }) => {
     await createProjectAndRecording(panelPage);
 
@@ -419,18 +434,14 @@ test.describe('History View', () => {
   });
 });
 
-
 test.describe('Projects View — No Visual Artifacts', () => {
-
   test('file input is hidden on projects list', async ({ panelPage }) => {
     // The import file input should be hidden — not visible as a "Choose File" button
     await expect(panelPage.locator('#import-file-input')).toBeHidden();
   });
 });
 
-
 test.describe('Projects View — UI Elements', () => {
-
   test('sync button is visible and disabled without sync config', async ({ panelPage }) => {
     await expect(panelPage.locator('#btn-sync')).toBeVisible();
     await expect(panelPage.locator('#btn-sync')).toBeDisabled();
@@ -450,7 +461,6 @@ test.describe('Projects View — UI Elements', () => {
 });
 
 test.describe('Project Detail — UI Elements', () => {
-
   test('export button is visible', async ({ panelPage }) => {
     await createProjectAndRecording(panelPage);
     // Go back to project view
@@ -470,7 +480,6 @@ test.describe('Project Detail — UI Elements', () => {
 });
 
 test.describe('Recording View — UI State', () => {
-
   test('pending actions section is hidden initially', async ({ panelPage }) => {
     await createProjectAndRecording(panelPage);
     await expect(panelPage.locator('#pending-actions-section')).toBeHidden();
@@ -484,7 +493,6 @@ test.describe('Recording View — UI State', () => {
 });
 
 test.describe('Breadcrumb Navigation', () => {
-
   test('breadcrumb shows project name and allows navigation back', async ({ panelPage }) => {
     await createProjectAndRecording(panelPage);
 
@@ -507,7 +515,6 @@ test.describe('Breadcrumb Navigation', () => {
 });
 
 test.describe('Settings View — Additional Elements', () => {
-
   test('settings back button returns to previous view', async ({ panelPage }) => {
     await panelPage.click('#btn-settings');
     await panelPage.waitForSelector('#view-settings:not(.hidden)', { timeout: 5000 });
@@ -528,7 +535,6 @@ test.describe('Settings View — Additional Elements', () => {
 });
 
 test.describe('Delete Project', () => {
-
   test('delete removes project from list', async ({ panelPage }) => {
     // Create a project
     await panelPage.click('#btn-new-project');
@@ -545,7 +551,7 @@ test.describe('Delete Project', () => {
     await expect(panelPage.locator('.card-item')).toHaveCount(1);
 
     // Accept confirm dialog and delete
-    panelPage.on('dialog', dialog => dialog.accept());
+    panelPage.on('dialog', (dialog) => dialog.accept());
     await panelPage.locator('[data-action="delete"]').first().click();
     await panelPage.waitForTimeout(500);
 

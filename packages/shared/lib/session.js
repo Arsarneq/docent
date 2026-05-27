@@ -45,8 +45,8 @@ export function createRecording(project, name = 'Untitled Recording') {
   const recording = {
     recording_id: uuidv7(),
     name,
-    created_at:   new Date().toISOString(),
-    steps:        [],
+    created_at: new Date().toISOString(),
+    steps: [],
   };
   project.recordings.push(recording);
   return recording;
@@ -59,7 +59,7 @@ export function createRecording(project, name = 'Untitled Recording') {
  * @returns {Recording|undefined}
  */
 export function findRecording(project, recording_id) {
-  return project.recordings.find(r => r.recording_id === recording_id);
+  return project.recordings.find((r) => r.recording_id === recording_id);
 }
 
 // ─── Steps ────────────────────────────────────────────────────────────────────
@@ -78,14 +78,22 @@ export function findRecording(project, recording_id) {
  * @param {string}           [params.logical_id]
  * @returns {Step}
  */
-export function createStep({ narration, narration_source, step_type, expect, step_number, actions, logical_id }) {
+export function createStep({
+  narration,
+  narration_source,
+  step_type,
+  expect,
+  step_number,
+  actions,
+  logical_id,
+}) {
   const step = {
-    uuid:             uuidv7(),
-    logical_id:       logical_id ?? uuidv7(),
+    uuid: uuidv7(),
+    logical_id: logical_id ?? uuidv7(),
     step_number,
-    created_at:       new Date().toISOString(),
+    created_at: new Date().toISOString(),
     actions,
-    deleted:          false,
+    deleted: false,
   };
   // Include narration fields when present (narration mode)
   if (narration != null) {
@@ -119,7 +127,7 @@ export function resolveActiveSteps(recording) {
   }
 
   return Array.from(groups.values())
-    .filter(step => !step.deleted)
+    .filter((step) => !step.deleted)
     .sort((a, b) => a.step_number - b.step_number);
 }
 
@@ -131,7 +139,7 @@ export function resolveActiveSteps(recording) {
  */
 export function getStepHistory(recording, logical_id) {
   return recording.steps
-    .filter(s => s.logical_id === logical_id)
+    .filter((s) => s.logical_id === logical_id)
     .sort((a, b) => (a.uuid > b.uuid ? -1 : 1));
 }
 
@@ -150,14 +158,14 @@ export function addStepRecord(recording, step) {
  * @param {string} logical_id
  */
 export function deleteStep(recording, logical_id) {
-  const active = resolveActiveSteps(recording).find(s => s.logical_id === logical_id);
+  const active = resolveActiveSteps(recording).find((s) => s.logical_id === logical_id);
   if (!active) return;
 
   recording.steps.push({
     ...active,
-    uuid:       uuidv7(),
+    uuid: uuidv7(),
     created_at: new Date().toISOString(),
-    deleted:    true,
+    deleted: true,
   });
 }
 
@@ -169,18 +177,18 @@ export function deleteStep(recording, logical_id) {
  */
 export function reorderSteps(recording, orderedLogicalIds) {
   const active = resolveActiveSteps(recording);
-  const byId   = new Map(active.map(s => [s.logical_id, s]));
+  const byId = new Map(active.map((s) => [s.logical_id, s]));
 
   orderedLogicalIds.forEach((logical_id, index) => {
-    const step      = byId.get(logical_id);
+    const step = byId.get(logical_id);
     const newNumber = index + 1;
     if (!step || step.step_number === newNumber) return;
 
     recording.steps.push({
       ...step,
-      uuid:        uuidv7(),
+      uuid: uuidv7(),
       step_number: newNumber,
-      created_at:  new Date().toISOString(),
+      created_at: new Date().toISOString(),
     });
   });
 }

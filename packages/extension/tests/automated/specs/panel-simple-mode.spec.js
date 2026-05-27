@@ -56,7 +56,6 @@ const test = base.extend({
 });
 
 test.describe('Simple Mode UI', () => {
-
   test('settings view shows recording mode radio group', async ({ panelPage }) => {
     await panelPage.click('#btn-settings');
     await panelPage.waitForSelector('#view-settings:not(.hidden)', { timeout: 5000 });
@@ -69,12 +68,16 @@ test.describe('Simple Mode UI', () => {
     await expect(narrationRadio).toBeChecked();
   });
 
-  test('switching to simple mode shows simple mode box in recording view', async ({ panelPage }) => {
+  test('switching to simple mode shows simple mode box in recording view', async ({
+    panelPage,
+  }) => {
     // Switch to simple mode in settings
     await panelPage.click('#btn-settings');
     await panelPage.waitForSelector('#view-settings:not(.hidden)', { timeout: 5000 });
     // Scroll to and click the simple mode radio's label
-    const simpleLabel = panelPage.locator('input[name="recording-mode"][value="simple"]').locator('..');
+    const simpleLabel = panelPage
+      .locator('input[name="recording-mode"][value="simple"]')
+      .locator('..');
     await simpleLabel.scrollIntoViewIfNeeded();
     await simpleLabel.click();
     await panelPage.waitForTimeout(200);
@@ -120,7 +123,9 @@ test.describe('Simple Mode UI', () => {
     // Switch to simple mode
     await panelPage.click('#btn-settings');
     await panelPage.waitForSelector('#view-settings:not(.hidden)', { timeout: 5000 });
-    const simpleLabel2 = panelPage.locator('input[name="recording-mode"][value="simple"]').locator('..');
+    const simpleLabel2 = panelPage
+      .locator('input[name="recording-mode"][value="simple"]')
+      .locator('..');
     await simpleLabel2.scrollIntoViewIfNeeded();
     await simpleLabel2.click();
     await panelPage.waitForTimeout(200);
@@ -143,7 +148,9 @@ test.describe('Simple Mode UI', () => {
     await expect(panelPage.locator('#expect-group')).toBeHidden();
 
     // Click validation radio
-    const validationLabel = panelPage.locator('input[name="step-type"][value="validation"]').locator('..');
+    const validationLabel = panelPage
+      .locator('input[name="step-type"][value="validation"]')
+      .locator('..');
     await validationLabel.scrollIntoViewIfNeeded();
     await validationLabel.click();
     await panelPage.waitForTimeout(100);
@@ -165,7 +172,9 @@ test.describe('Simple Mode UI', () => {
     // Switch to simple mode
     await panelPage.click('#btn-settings');
     await panelPage.waitForSelector('#view-settings:not(.hidden)', { timeout: 5000 });
-    const simpleLabel3 = panelPage.locator('input[name="recording-mode"][value="simple"]').locator('..');
+    const simpleLabel3 = panelPage
+      .locator('input[name="recording-mode"][value="simple"]')
+      .locator('..');
     await simpleLabel3.scrollIntoViewIfNeeded();
     await simpleLabel3.click();
     await panelPage.waitForTimeout(200);
@@ -190,7 +199,6 @@ test.describe('Simple Mode UI', () => {
 });
 
 test.describe('Metadata Editor UI', () => {
-
   test('project detail view shows metadata section', async ({ panelPage }) => {
     await panelPage.click('#btn-new-project');
     await panelPage.waitForSelector('#view-new-project:not(.hidden)', { timeout: 5000 });

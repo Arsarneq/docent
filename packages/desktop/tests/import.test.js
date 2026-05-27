@@ -99,17 +99,17 @@ function handleImport(existingProjects, exportData) {
   }
 
   const imported = exportData.project;
-  const exists = existingProjects.some(p => p.project_id === imported.project_id);
+  const exists = existingProjects.some((p) => p.project_id === imported.project_id);
 
   const newProject = {
     project_id: exists ? testUuidv7() : imported.project_id,
     name: exists ? `${imported.name} (copy)` : imported.name,
     created_at: imported.created_at ?? new Date().toISOString(),
-    recordings: (exportData.recordings ?? []).map(r => ({
+    recordings: (exportData.recordings ?? []).map((r) => ({
       recording_id: r.recording_id,
       name: r.name,
       created_at: r.created_at,
-      steps: (r.steps ?? []).map(s => ({
+      steps: (r.steps ?? []).map((s) => ({
         uuid: s.uuid ?? testUuidv7(),
         logical_id: s.logical_id,
         step_number: s.step_number,
@@ -132,21 +132,26 @@ function handleImport(existingProjects, exportData) {
 
 const hexChar = fc.constantFrom(...'0123456789abcdef'.split(''));
 
-const arbUuid = fc.tuple(
-  fc.array(hexChar, { minLength: 8, maxLength: 8 }),
-  fc.array(hexChar, { minLength: 4, maxLength: 4 }),
-  fc.array(hexChar, { minLength: 3, maxLength: 3 }),
-  fc.constantFrom('8', '9', 'a', 'b'),
-  fc.array(hexChar, { minLength: 3, maxLength: 3 }),
-  fc.array(hexChar, { minLength: 12, maxLength: 12 }),
-).map(([a, b, c, variant, d, e]) =>
-  `${a.join('')}-${b.join('')}-7${c.join('')}-${variant}${d.join('')}-${e.join('')}`
-);
+const arbUuid = fc
+  .tuple(
+    fc.array(hexChar, { minLength: 8, maxLength: 8 }),
+    fc.array(hexChar, { minLength: 4, maxLength: 4 }),
+    fc.array(hexChar, { minLength: 3, maxLength: 3 }),
+    fc.constantFrom('8', '9', 'a', 'b'),
+    fc.array(hexChar, { minLength: 3, maxLength: 3 }),
+    fc.array(hexChar, { minLength: 12, maxLength: 12 }),
+  )
+  .map(
+    ([a, b, c, variant, d, e]) =>
+      `${a.join('')}-${b.join('')}-7${c.join('')}-${variant}${d.join('')}-${e.join('')}`,
+  );
 
-const arbTimestamp = fc.integer({
-  min: new Date('2020-01-01').getTime(),
-  max: new Date('2030-12-31').getTime(),
-}).map(ms => new Date(ms).toISOString());
+const arbTimestamp = fc
+  .integer({
+    min: new Date('2020-01-01').getTime(),
+    max: new Date('2030-12-31').getTime(),
+  })
+  .map((ms) => new Date(ms).toISOString());
 
 const arbElement = fc.record({
   tag: fc.constantFrom('BUTTON', 'INPUT', 'A', 'DIV'),
@@ -224,70 +229,75 @@ const arbLocalProject = fc.record({
 describe('Property 8: Duplicate import produces distinct copy', () => {
   it('importing a project with matching project_id produces a new project with different ID and "(copy)" suffix', () => {
     fc.assert(
-      fc.property(
-        arbExportData,
-        arbLocalProject,
-        (exportData, localProject) => {
-          // Force the local project to have the same project_id as the import
-          localProject.project_id = exportData.project.project_id;
-          const existingProjects = [localProject];
+      fc.property(arbExportData, arbLocalProject, (exportData, localProject) => {
+        // Force the local project to have the same project_id as the import
+        localProject.project_id = exportData.project.project_id;
+        const existingProjects = [localProject];
 
-          // Reset counter for deterministic UUIDs
-          uuidCounter = 0;
+        // Reset counter for deterministic UUIDs
+        uuidCounter = 0;
 
-          const result = handleImport(existingProjects, exportData);
+        const result = handleImport(existingProjects, exportData);
 
-          assert.strictEqual(result.success, true, 'Import should succeed');
-          assert.strictEqual(result.projects.length, 2,
-            'Should have original + imported project');
+        assert.strictEqual(result.success, true, 'Import should succeed');
+        assert.strictEqual(result.projects.length, 2, 'Should have original + imported project');
 
-          const importedProject = result.projects[1];
+        const importedProject = result.projects[1];
 
-          // project_id must be different from the original
-          assert.notStrictEqual(importedProject.project_id, exportData.project.project_id,
-            'Imported project must have a different project_id');
+        // project_id must be different from the original
+        assert.notStrictEqual(
+          importedProject.project_id,
+          exportData.project.project_id,
+          'Imported project must have a different project_id',
+        );
 
-          // name must end with " (copy)"
-          assert.ok(importedProject.name.endsWith(' (copy)'),
-            `Imported project name "${importedProject.name}" must end with " (copy)"`);
+        // name must end with " (copy)"
+        assert.ok(
+          importedProject.name.endsWith(' (copy)'),
+          `Imported project name "${importedProject.name}" must end with " (copy)"`,
+        );
 
-          // name should be original name + " (copy)"
-          assert.strictEqual(importedProject.name, `${exportData.project.name} (copy)`,
-            'Imported project name should be original name + " (copy)"');
+        // name should be original name + " (copy)"
+        assert.strictEqual(
+          importedProject.name,
+          `${exportData.project.name} (copy)`,
+          'Imported project name should be original name + " (copy)"',
+        );
 
-          // Original project should be unchanged
-          assert.strictEqual(result.projects[0].project_id, localProject.project_id);
-          assert.strictEqual(result.projects[0].name, localProject.name);
-        },
-      ),
+        // Original project should be unchanged
+        assert.strictEqual(result.projects[0].project_id, localProject.project_id);
+        assert.strictEqual(result.projects[0].name, localProject.name);
+      }),
       { numRuns: 100 },
     );
   });
 
   it('importing a project with non-matching project_id preserves the original ID', () => {
     fc.assert(
-      fc.property(
-        arbExportData,
-        arbLocalProject,
-        (exportData, localProject) => {
-          // Ensure IDs are different
-          if (localProject.project_id === exportData.project.project_id) return;
+      fc.property(arbExportData, arbLocalProject, (exportData, localProject) => {
+        // Ensure IDs are different
+        if (localProject.project_id === exportData.project.project_id) return;
 
-          const existingProjects = [localProject];
-          const result = handleImport(existingProjects, exportData);
+        const existingProjects = [localProject];
+        const result = handleImport(existingProjects, exportData);
 
-          assert.strictEqual(result.success, true, 'Import should succeed');
-          const importedProject = result.projects[1];
+        assert.strictEqual(result.success, true, 'Import should succeed');
+        const importedProject = result.projects[1];
 
-          // project_id should be preserved (no duplicate)
-          assert.strictEqual(importedProject.project_id, exportData.project.project_id,
-            'Non-duplicate import should preserve project_id');
+        // project_id should be preserved (no duplicate)
+        assert.strictEqual(
+          importedProject.project_id,
+          exportData.project.project_id,
+          'Non-duplicate import should preserve project_id',
+        );
 
-          // name should not have "(copy)" suffix
-          assert.strictEqual(importedProject.name, exportData.project.name,
-            'Non-duplicate import should preserve original name');
-        },
-      ),
+        // name should not have "(copy)" suffix
+        assert.strictEqual(
+          importedProject.name,
+          exportData.project.name,
+          'Non-duplicate import should preserve original name',
+        );
+      }),
       { numRuns: 100 },
     );
   });
@@ -319,7 +329,7 @@ describe('Property 9: Invalid import rejection', () => {
       // project_id is not a valid UUIDv7
       fc.record({
         project: fc.record({
-          project_id: fc.string({ minLength: 1, maxLength: 20 }).filter(s => !UUIDV7_RE.test(s)),
+          project_id: fc.string({ minLength: 1, maxLength: 20 }).filter((s) => !UUIDV7_RE.test(s)),
           name: fc.string({ minLength: 1, maxLength: 50 }),
           created_at: arbTimestamp,
         }),
@@ -348,7 +358,7 @@ describe('Property 9: Invalid import rejection', () => {
         project: fc.record({
           project_id: arbUuid,
           name: fc.string({ minLength: 1, maxLength: 50 }),
-          created_at: fc.string({ minLength: 1, maxLength: 10 }).filter(s => !ISO8601_RE.test(s)),
+          created_at: fc.string({ minLength: 1, maxLength: 10 }).filter((s) => !ISO8601_RE.test(s)),
         }),
         recordings: fc.constant([]),
       }),
@@ -368,24 +378,33 @@ describe('Property 9: Invalid import rejection', () => {
         fc.array(arbLocalProject, { minLength: 0, maxLength: 3 }),
         (malformedData, existingProjects) => {
           const originalCount = existingProjects.length;
-          const originalIds = existingProjects.map(p => p.project_id);
+          const originalIds = existingProjects.map((p) => p.project_id);
 
           const result = handleImport(existingProjects, malformedData);
 
           // Import must be rejected
-          assert.strictEqual(result.success, false,
-            `Import should be rejected for malformed data: ${JSON.stringify(malformedData)}`);
+          assert.strictEqual(
+            result.success,
+            false,
+            `Import should be rejected for malformed data: ${JSON.stringify(malformedData)}`,
+          );
 
           // Error message must be descriptive (non-empty string)
           assert.strictEqual(typeof result.error, 'string', 'Error must be a string');
           assert.ok(result.error.length > 0, 'Error message must be non-empty');
 
           // Local project list must be unchanged
-          assert.strictEqual(result.projects.length, originalCount,
-            'Project list length must not change on rejected import');
-          const resultIds = result.projects.map(p => p.project_id);
-          assert.deepStrictEqual(resultIds, originalIds,
-            'Project IDs must not change on rejected import');
+          assert.strictEqual(
+            result.projects.length,
+            originalCount,
+            'Project list length must not change on rejected import',
+          );
+          const resultIds = result.projects.map((p) => p.project_id);
+          assert.deepStrictEqual(
+            resultIds,
+            originalIds,
+            'Project IDs must not change on rejected import',
+          );
         },
       ),
       { numRuns: 100 },
@@ -401,7 +420,9 @@ describe('Property 9: Invalid import rejection', () => {
       }),
       recordings: fc.array(
         fc.record({
-          recording_id: fc.string({ minLength: 1, maxLength: 20 }).filter(s => !UUIDV7_RE.test(s)),
+          recording_id: fc
+            .string({ minLength: 1, maxLength: 20 })
+            .filter((s) => !UUIDV7_RE.test(s)),
           name: fc.string({ minLength: 1, maxLength: 50 }),
           created_at: arbTimestamp,
           steps: fc.constant([]),
@@ -419,12 +440,14 @@ describe('Property 9: Invalid import rejection', () => {
 
           const result = handleImport(existingProjects, invalidData);
 
-          assert.strictEqual(result.success, false,
-            'Import should be rejected for invalid recording_id');
+          assert.strictEqual(
+            result.success,
+            false,
+            'Import should be rejected for invalid recording_id',
+          );
           assert.strictEqual(typeof result.error, 'string');
           assert.ok(result.error.length > 0);
-          assert.strictEqual(result.projects.length, originalCount,
-            'Project list must not change');
+          assert.strictEqual(result.projects.length, originalCount, 'Project list must not change');
         },
       ),
       { numRuns: 100 },

@@ -5,10 +5,7 @@
   "version": "1.0.0",
   "description": "Schema for .docent.json files produced by the Docent desktop application on Windows.",
   "type": "object",
-  "required": [
-    "project",
-    "recordings"
-  ],
+  "required": ["project", "recordings"],
   "additionalProperties": false,
   "properties": {
     "project": {
@@ -24,11 +21,7 @@
   "$defs": {
     "project": {
       "type": "object",
-      "required": [
-        "project_id",
-        "name",
-        "created_at"
-      ],
+      "required": ["project_id", "name", "created_at"],
       "additionalProperties": false,
       "properties": {
         "project_id": {
@@ -47,12 +40,7 @@
     },
     "recording": {
       "type": "object",
-      "required": [
-        "recording_id",
-        "name",
-        "created_at",
-        "steps"
-      ],
+      "required": ["recording_id", "name", "created_at", "steps"],
       "additionalProperties": false,
       "properties": {
         "recording_id": {
@@ -78,25 +66,14 @@
     },
     "step": {
       "type": "object",
-      "required": [
-        "uuid",
-        "logical_id",
-        "step_number",
-        "created_at",
-        "actions",
-        "deleted"
-      ],
+      "required": ["uuid", "logical_id", "step_number", "created_at", "actions", "deleted"],
       "additionalProperties": false,
       "anyOf": [
         {
-          "required": [
-            "narration"
-          ]
+          "required": ["narration"]
         },
         {
-          "required": [
-            "step_type"
-          ]
+          "required": ["step_type"]
         }
       ],
       "properties": {
@@ -125,18 +102,12 @@
         },
         "step_type": {
           "type": "string",
-          "enum": [
-            "action",
-            "validation"
-          ],
+          "enum": ["action", "validation"],
           "description": "Step classification in simple mode. Present in simple mode."
         },
         "expect": {
           "type": "string",
-          "enum": [
-            "present",
-            "absent"
-          ],
+          "enum": ["present", "absent"],
           "description": "Assertion type for validation steps. Present when step_type is 'validation'."
         },
         "actions": {
@@ -174,15 +145,7 @@
           "$ref": "#/$defs/window_rect_or_null"
         }
       },
-      "required": [
-        "type",
-        "timestamp",
-        "x",
-        "y",
-        "element",
-        "context_id",
-        "capture_mode"
-      ]
+      "required": ["type", "timestamp", "x", "y", "element", "context_id", "capture_mode"]
     },
     "action_right_click": {
       "properties": {
@@ -208,15 +171,7 @@
           "$ref": "#/$defs/window_rect_or_null"
         }
       },
-      "required": [
-        "type",
-        "timestamp",
-        "x",
-        "y",
-        "element",
-        "context_id",
-        "capture_mode"
-      ]
+      "required": ["type", "timestamp", "x", "y", "element", "context_id", "capture_mode"]
     },
     "action_type": {
       "properties": {
@@ -240,14 +195,7 @@
           "$ref": "#/$defs/window_rect_or_null"
         }
       },
-      "required": [
-        "type",
-        "timestamp",
-        "element",
-        "value",
-        "context_id",
-        "capture_mode"
-      ]
+      "required": ["type", "timestamp", "element", "value", "context_id", "capture_mode"]
     },
     "action_select": {
       "properties": {
@@ -271,14 +219,7 @@
           "$ref": "#/$defs/window_rect_or_null"
         }
       },
-      "required": [
-        "type",
-        "timestamp",
-        "element",
-        "value",
-        "context_id",
-        "capture_mode"
-      ]
+      "required": ["type", "timestamp", "element", "value", "context_id", "capture_mode"]
     },
     "action_key": {
       "properties": {
@@ -305,15 +246,7 @@
           "$ref": "#/$defs/window_rect_or_null"
         }
       },
-      "required": [
-        "type",
-        "timestamp",
-        "key",
-        "modifiers",
-        "element",
-        "context_id",
-        "capture_mode"
-      ]
+      "required": ["type", "timestamp", "key", "modifiers", "element", "context_id", "capture_mode"]
     },
     "action_focus": {
       "properties": {
@@ -333,13 +266,7 @@
           "$ref": "#/$defs/window_rect_or_null"
         }
       },
-      "required": [
-        "type",
-        "timestamp",
-        "element",
-        "context_id",
-        "capture_mode"
-      ]
+      "required": ["type", "timestamp", "element", "context_id", "capture_mode"]
     },
     "action_drag_start": {
       "properties": {
@@ -359,13 +286,7 @@
           "$ref": "#/$defs/window_rect_or_null"
         }
       },
-      "required": [
-        "type",
-        "timestamp",
-        "element",
-        "context_id",
-        "capture_mode"
-      ]
+      "required": ["type", "timestamp", "element", "context_id", "capture_mode"]
     },
     "action_drop": {
       "properties": {
@@ -474,10 +395,7 @@
           "type": "string"
         },
         "title": {
-          "type": [
-            "string",
-            "null"
-          ]
+          "type": ["string", "null"]
         },
         "capture_mode": {
           "$ref": "#/$defs/capture_mode"
@@ -486,13 +404,7 @@
           "$ref": "#/$defs/window_rect_or_null"
         }
       },
-      "required": [
-        "type",
-        "timestamp",
-        "context_id",
-        "source",
-        "capture_mode"
-      ]
+      "required": ["type", "timestamp", "context_id", "source", "capture_mode"]
     },
     "action_context_open": {
       "properties": {
@@ -503,16 +415,10 @@
           "$ref": "#/$defs/context_id"
         },
         "opener_context_id": {
-          "type": [
-            "integer",
-            "null"
-          ]
+          "type": ["integer", "null"]
         },
         "source": {
-          "type": [
-            "string",
-            "null"
-          ]
+          "type": ["string", "null"]
         },
         "capture_mode": {
           "$ref": "#/$defs/capture_mode"
@@ -521,13 +427,7 @@
           "$ref": "#/$defs/window_rect_or_null"
         }
       },
-      "required": [
-        "type",
-        "timestamp",
-        "context_id",
-        "opener_context_id",
-        "capture_mode"
-      ]
+      "required": ["type", "timestamp", "context_id", "opener_context_id", "capture_mode"]
     },
     "action_context_close": {
       "properties": {
@@ -547,20 +447,11 @@
           "$ref": "#/$defs/window_rect_or_null"
         }
       },
-      "required": [
-        "type",
-        "timestamp",
-        "context_id",
-        "window_closing",
-        "capture_mode"
-      ]
+      "required": ["type", "timestamp", "context_id", "window_closing", "capture_mode"]
     },
     "element": {
       "type": "object",
-      "required": [
-        "tag",
-        "selector"
-      ],
+      "required": ["tag", "selector"],
       "additionalProperties": false,
       "properties": {
         "tag": {
@@ -568,34 +459,19 @@
           "description": "HTML tag name, e.g. BUTTON, INPUT, A."
         },
         "id": {
-          "type": [
-            "string",
-            "null"
-          ]
+          "type": ["string", "null"]
         },
         "name": {
-          "type": [
-            "string",
-            "null"
-          ]
+          "type": ["string", "null"]
         },
         "role": {
-          "type": [
-            "string",
-            "null"
-          ]
+          "type": ["string", "null"]
         },
         "type": {
-          "type": [
-            "string",
-            "null"
-          ]
+          "type": ["string", "null"]
         },
         "text": {
-          "type": [
-            "string",
-            "null"
-          ],
+          "type": ["string", "null"],
           "description": "Visible text, truncated to 100 chars. Null for password fields or empty."
         },
         "selector": {
@@ -606,12 +482,7 @@
     },
     "modifiers": {
       "type": "object",
-      "required": [
-        "ctrl",
-        "shift",
-        "alt",
-        "meta"
-      ],
+      "required": ["ctrl", "shift", "alt", "meta"],
       "additionalProperties": false,
       "properties": {
         "ctrl": {
@@ -639,20 +510,12 @@
       "description": "ISO 8601 timestamp."
     },
     "context_id": {
-      "type": [
-        "integer",
-        "null"
-      ],
+      "type": ["integer", "null"],
       "description": "Context identifier. Chrome tab ID for browser, window handle for desktop. Session-scoped, not persistent across restarts."
     },
     "window_rect": {
       "type": "object",
-      "required": [
-        "x",
-        "y",
-        "width",
-        "height"
-      ],
+      "required": ["x", "y", "width", "height"],
       "additionalProperties": false,
       "properties": {
         "x": {
@@ -693,10 +556,7 @@
     },
     "capture_mode": {
       "type": "string",
-      "enum": [
-        "accessibility",
-        "coordinate"
-      ],
+      "enum": ["accessibility", "coordinate"],
       "description": "How the action was captured. 'accessibility' for native UI elements, 'coordinate' for fallback coordinate-based capture."
     },
     "window_rect_or_null": {
@@ -717,11 +577,7 @@
         },
         "dialog_type": {
           "type": "string",
-          "enum": [
-            "open",
-            "save",
-            "save_as"
-          ]
+          "enum": ["open", "save", "save_as"]
         },
         "file_path": {
           "type": "string"
@@ -752,10 +608,7 @@
     },
     "action": {
       "type": "object",
-      "required": [
-        "type",
-        "timestamp"
-      ],
+      "required": ["type", "timestamp"],
       "properties": {
         "type": {
           "type": "string"

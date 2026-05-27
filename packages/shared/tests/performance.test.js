@@ -11,9 +11,22 @@
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { createProject, createRecording, createStep, addStepRecord, resolveActiveSteps, reorderSteps, deleteStep } from '../lib/session.js';
+import {
+  createProject,
+  createRecording,
+  createStep,
+  addStepRecord,
+  resolveActiveSteps,
+  reorderSteps,
+  deleteStep,
+} from '../lib/session.js';
 import { buildPayload } from '../dispatch-core.js';
-import { renderStepList, renderStepDetail, renderProjectList, renderRecordingList } from '../views/render.js';
+import {
+  renderStepList,
+  renderStepDetail,
+  renderProjectList,
+  renderRecordingList,
+} from '../views/render.js';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -85,7 +98,10 @@ describe('Performance: resolveActiveSteps', () => {
 
     const { elapsed } = timeMs(() => resolveActiveSteps(recording));
 
-    assert.ok(elapsed < 100, `resolveActiveSteps with deletions took ${elapsed.toFixed(1)}ms (limit: 100ms)`);
+    assert.ok(
+      elapsed < 100,
+      `resolveActiveSteps with deletions took ${elapsed.toFixed(1)}ms (limit: 100ms)`,
+    );
   });
 });
 
@@ -96,7 +112,7 @@ describe('Performance: buildPayload', () => {
     const project = generateLargeProject(10, 50);
 
     const { elapsed } = timeMs(() =>
-      buildPayload(project, project.recordings, 'guidance text', { title: 'schema' })
+      buildPayload(project, project.recordings, 'guidance text', { title: 'schema' }),
     );
 
     assert.ok(elapsed < 50, `buildPayload took ${elapsed.toFixed(1)}ms (limit: 50ms)`);
@@ -106,7 +122,7 @@ describe('Performance: buildPayload', () => {
     const project = generateLargeProject(100, 10);
 
     const { elapsed } = timeMs(() =>
-      buildPayload(project, project.recordings, 'guidance text', { title: 'schema' })
+      buildPayload(project, project.recordings, 'guidance text', { title: 'schema' }),
     );
 
     assert.ok(elapsed < 100, `buildPayload took ${elapsed.toFixed(1)}ms (limit: 100ms)`);
@@ -192,7 +208,7 @@ describe('Performance: reorderSteps', () => {
     const active = resolveActiveSteps(recording);
 
     // Reverse the order
-    const reversed = [...active].reverse().map(s => s.logical_id);
+    const reversed = [...active].reverse().map((s) => s.logical_id);
 
     const { elapsed } = timeMs(() => reorderSteps(recording, reversed));
 

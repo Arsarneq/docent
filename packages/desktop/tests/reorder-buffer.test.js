@@ -26,11 +26,7 @@ globalThis.window = {
 // Dynamic import after globals are set up
 const { _testOnly } = await import('../src/adapter-tauri.js');
 
-const {
-  resetReorderState,
-  insertOrdered,
-  stripSeqFields,
-} = _testOnly;
+const { resetReorderState, insertOrdered, stripSeqFields } = _testOnly;
 
 const adapterModule = await import('../src/adapter-tauri.js');
 const adapter = adapterModule.default;
@@ -47,46 +43,49 @@ describe('Property 4: Reorder buffer emits events in sequence order', () => {
 
   it('any permutation of sequence_ids 1..N results in correctly ordered pending actions', () => {
     fc.assert(
-      fc.property(
-        fc.integer({ min: 1, max: 50 }),
-        (n) => {
-          resetReorderState();
-          adapter.clearPendingActions();
+      fc.property(fc.integer({ min: 1, max: 50 }), (n) => {
+        resetReorderState();
+        adapter.clearPendingActions();
 
-          // Create events with sequence_ids 1..N
-          const events = Array.from({ length: n }, (_, i) => ({
-            type: 'click',
-            timestamp: 1000 + i,
-            sequence_id: i + 1,
-            element: { selector: `#el-${i + 1}` },
-          }));
+        // Create events with sequence_ids 1..N
+        const events = Array.from({ length: n }, (_, i) => ({
+          type: 'click',
+          timestamp: 1000 + i,
+          sequence_id: i + 1,
+          element: { selector: `#el-${i + 1}` },
+        }));
 
-          // Shuffle to create a random permutation
-          const shuffled = [...events];
-          for (let i = shuffled.length - 1; i > 0; i--) {
-            const j = Math.floor(Math.random() * (i + 1));
-            [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
-          }
+        // Shuffle to create a random permutation
+        const shuffled = [...events];
+        for (let i = shuffled.length - 1; i > 0; i--) {
+          const j = Math.floor(Math.random() * (i + 1));
+          [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+        }
 
-          // Insert all events in shuffled order
-          for (const event of shuffled) {
-            insertOrdered(event);
-          }
+        // Insert all events in shuffled order
+        for (const event of shuffled) {
+          insertOrdered(event);
+        }
 
-          // Strip _seq fields (as commitWithCompleteness would)
-          stripSeqFields();
+        // Strip _seq fields (as commitWithCompleteness would)
+        stripSeqFields();
 
-          // Verify output order is strictly 1, 2, 3, ..., N by timestamp
-          const delivered = adapter.getPendingActions();
-          assert.strictEqual(delivered.length, n,
-            `Expected ${n} delivered actions, got ${delivered.length}`);
+        // Verify output order is strictly 1, 2, 3, ..., N by timestamp
+        const delivered = adapter.getPendingActions();
+        assert.strictEqual(
+          delivered.length,
+          n,
+          `Expected ${n} delivered actions, got ${delivered.length}`,
+        );
 
-          for (let i = 0; i < delivered.length; i++) {
-            assert.strictEqual(delivered[i].timestamp, 1000 + i,
-              `Action at index ${i} should have timestamp ${1000 + i}, got ${delivered[i].timestamp}`);
-          }
-        },
-      ),
+        for (let i = 0; i < delivered.length; i++) {
+          assert.strictEqual(
+            delivered[i].timestamp,
+            1000 + i,
+            `Action at index ${i} should have timestamp ${1000 + i}, got ${delivered[i].timestamp}`,
+          );
+        }
+      }),
       { numRuns: 20 },
     );
   });
@@ -104,66 +103,64 @@ describe('Property 5: Completeness guarantee waits for all events', () => {
 
   it('after all events 1..maxSeq are inserted, highestSeenSeq >= maxSeq', () => {
     fc.assert(
-      fc.property(
-        fc.integer({ min: 1, max: 20 }),
-        (maxSeq) => {
-          resetReorderState();
-          adapter.clearPendingActions();
+      fc.property(fc.integer({ min: 1, max: 20 }), (maxSeq) => {
+        resetReorderState();
+        adapter.clearPendingActions();
 
-          // Insert events in random order
-          const indices = Array.from({ length: maxSeq }, (_, i) => i + 1);
-          for (let i = indices.length - 1; i > 0; i--) {
-            const j = Math.floor(Math.random() * (i + 1));
-            [indices[i], indices[j]] = [indices[j], indices[i]];
-          }
+        // Insert events in random order
+        const indices = Array.from({ length: maxSeq }, (_, i) => i + 1);
+        for (let i = indices.length - 1; i > 0; i--) {
+          const j = Math.floor(Math.random() * (i + 1));
+          [indices[i], indices[j]] = [indices[j], indices[i]];
+        }
 
-          for (const seqId of indices) {
-            insertOrdered({
-              type: 'click',
-              timestamp: seqId * 100,
-              sequence_id: seqId,
-              element: { selector: `#el-${seqId}` },
-            });
-          }
+        for (const seqId of indices) {
+          insertOrdered({
+            type: 'click',
+            timestamp: seqId * 100,
+            sequence_id: seqId,
+            element: { selector: `#el-${seqId}` },
+          });
+        }
 
-          // Completeness condition: highestSeenSeq >= maxSeq
-          const highest = _testOnly.highestSeenSeq;
-          assert.ok(highest >= maxSeq,
-            `highestSeenSeq (${highest}) should be >= maxSeq (${maxSeq})`);
+        // Completeness condition: highestSeenSeq >= maxSeq
+        const highest = _testOnly.highestSeenSeq;
+        assert.ok(highest >= maxSeq, `highestSeenSeq (${highest}) should be >= maxSeq (${maxSeq})`);
 
-          // All events should be delivered immediately
-          const delivered = adapter.getPendingActions();
-          assert.strictEqual(delivered.length, maxSeq,
-            `Expected ${maxSeq} delivered actions, got ${delivered.length}`);
-        },
-      ),
+        // All events should be delivered immediately
+        const delivered = adapter.getPendingActions();
+        assert.strictEqual(
+          delivered.length,
+          maxSeq,
+          `Expected ${maxSeq} delivered actions, got ${delivered.length}`,
+        );
+      }),
       { numRuns: 10 },
     );
   });
 
   it('partial arrival means highestSeenSeq < maxSeq (commit would wait)', () => {
     fc.assert(
-      fc.property(
-        fc.integer({ min: 3, max: 20 }),
-        (maxSeq) => {
-          resetReorderState();
-          adapter.clearPendingActions();
+      fc.property(fc.integer({ min: 3, max: 20 }), (maxSeq) => {
+        resetReorderState();
+        adapter.clearPendingActions();
 
-          // Insert only events 1..maxSeq-1 (skip the last one)
-          for (let i = 1; i < maxSeq; i++) {
-            insertOrdered({
-              type: 'click',
-              timestamp: i * 100,
-              sequence_id: i,
-              element: { selector: `#el-${i}` },
-            });
-          }
+        // Insert only events 1..maxSeq-1 (skip the last one)
+        for (let i = 1; i < maxSeq; i++) {
+          insertOrdered({
+            type: 'click',
+            timestamp: i * 100,
+            sequence_id: i,
+            element: { selector: `#el-${i}` },
+          });
+        }
 
-          const highest = _testOnly.highestSeenSeq;
-          assert.ok(highest < maxSeq,
-            `highestSeenSeq (${highest}) should be < maxSeq (${maxSeq}) when last event missing`);
-        },
-      ),
+        const highest = _testOnly.highestSeenSeq;
+        assert.ok(
+          highest < maxSeq,
+          `highestSeenSeq (${highest}) should be < maxSeq (${maxSeq}) when last event missing`,
+        );
+      }),
       { numRuns: 10 },
     );
   });
@@ -181,35 +178,33 @@ describe('Property 11: sequence_id stripped before delivery', () => {
 
   it('delivered actions do not contain sequence_id field after stripSeqFields', () => {
     fc.assert(
-      fc.property(
-        fc.integer({ min: 1, max: 30 }),
-        (n) => {
-          resetReorderState();
-          adapter.clearPendingActions();
+      fc.property(fc.integer({ min: 1, max: 30 }), (n) => {
+        resetReorderState();
+        adapter.clearPendingActions();
 
-          for (let i = 1; i <= n; i++) {
-            insertOrdered({
-              type: 'click',
-              timestamp: i * 100,
-              sequence_id: i,
-              element: { selector: `#el-${i}` },
-              capture_mode: 'accessibility',
-            });
-          }
+        for (let i = 1; i <= n; i++) {
+          insertOrdered({
+            type: 'click',
+            timestamp: i * 100,
+            sequence_id: i,
+            element: { selector: `#el-${i}` },
+            capture_mode: 'accessibility',
+          });
+        }
 
-          stripSeqFields();
+        stripSeqFields();
 
-          const delivered = adapter.getPendingActions();
-          assert.strictEqual(delivered.length, n);
+        const delivered = adapter.getPendingActions();
+        assert.strictEqual(delivered.length, n);
 
-          for (const action of delivered) {
-            assert.ok(!('sequence_id' in action),
-              `sequence_id should be stripped: ${JSON.stringify(action)}`);
-            assert.ok(!('_seq' in action),
-              `_seq should be stripped: ${JSON.stringify(action)}`);
-          }
-        },
-      ),
+        for (const action of delivered) {
+          assert.ok(
+            !('sequence_id' in action),
+            `sequence_id should be stripped: ${JSON.stringify(action)}`,
+          );
+          assert.ok(!('_seq' in action), `_seq should be stripped: ${JSON.stringify(action)}`);
+        }
+      }),
       { numRuns: 20 },
     );
   });

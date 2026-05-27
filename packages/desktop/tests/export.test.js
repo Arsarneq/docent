@@ -28,9 +28,21 @@ const UUIDV7_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a
 const ISO8601_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/;
 
 const VALID_ACTION_TYPES = new Set([
-  'navigate', 'click', 'right_click', 'type', 'select', 'key', 'focus',
-  'file_upload', 'drag_start', 'drop', 'scroll',
-  'context_switch', 'context_open', 'context_close', 'file_dialog',
+  'navigate',
+  'click',
+  'right_click',
+  'type',
+  'select',
+  'key',
+  'focus',
+  'file_upload',
+  'drag_start',
+  'drop',
+  'scroll',
+  'context_switch',
+  'context_open',
+  'context_close',
+  'file_dialog',
 ]);
 
 const VALID_CAPTURE_MODES = new Set(['dom', 'accessibility', 'coordinate']);
@@ -41,48 +53,71 @@ function validateElement(el) {
   // Optional nullable fields
   for (const field of ['id', 'name', 'role', 'type', 'text']) {
     const val = el[field];
-    assert.ok(val === null || typeof val === 'string',
-      `element.${field} must be string or null, got ${typeof val}`);
+    assert.ok(
+      val === null || typeof val === 'string',
+      `element.${field} must be string or null, got ${typeof val}`,
+    );
   }
 }
 
 function validateAction(action) {
-  assert.ok(VALID_ACTION_TYPES.has(action.type),
-    `action.type "${action.type}" is not a valid action type`);
+  assert.ok(
+    VALID_ACTION_TYPES.has(action.type),
+    `action.type "${action.type}" is not a valid action type`,
+  );
   assert.strictEqual(typeof action.timestamp, 'number', 'action.timestamp must be a number');
   assert.ok(Number.isInteger(action.timestamp), 'action.timestamp must be an integer');
-  assert.ok(VALID_CAPTURE_MODES.has(action.capture_mode),
-    `action.capture_mode "${action.capture_mode}" is not valid`);
-  assert.ok(action.context_id === null || Number.isInteger(action.context_id),
-    'action.context_id must be integer or null');
+  assert.ok(
+    VALID_CAPTURE_MODES.has(action.capture_mode),
+    `action.capture_mode "${action.capture_mode}" is not valid`,
+  );
+  assert.ok(
+    action.context_id === null || Number.isInteger(action.context_id),
+    'action.context_id must be integer or null',
+  );
 }
 
 function validateStep(step) {
   assert.ok(UUIDV7_RE.test(step.uuid), `step.uuid "${step.uuid}" is not a valid UUIDv7`);
-  assert.ok(UUIDV7_RE.test(step.logical_id), `step.logical_id "${step.logical_id}" is not a valid UUIDv7`);
+  assert.ok(
+    UUIDV7_RE.test(step.logical_id),
+    `step.logical_id "${step.logical_id}" is not a valid UUIDv7`,
+  );
   assert.strictEqual(typeof step.step_number, 'number', 'step.step_number must be a number');
-  assert.ok(Number.isInteger(step.step_number) && step.step_number >= 1,
-    'step.step_number must be integer >= 1');
-  assert.ok(ISO8601_RE.test(step.created_at), `step.created_at "${step.created_at}" is not ISO 8601`);
+  assert.ok(
+    Number.isInteger(step.step_number) && step.step_number >= 1,
+    'step.step_number must be integer >= 1',
+  );
+  assert.ok(
+    ISO8601_RE.test(step.created_at),
+    `step.created_at "${step.created_at}" is not ISO 8601`,
+  );
 
   // At least one of narration or step_type must be present
   const hasNarration = step.narration !== undefined;
   const hasStepType = step.step_type !== undefined;
-  assert.ok(hasNarration || hasStepType,
-    'step must have at least one of narration or step_type');
+  assert.ok(hasNarration || hasStepType, 'step must have at least one of narration or step_type');
 
   if (hasNarration) {
     assert.strictEqual(typeof step.narration, 'string', 'step.narration must be a string');
     assert.ok(step.narration.length > 0, 'step.narration must not be empty');
-    assert.strictEqual(step.narration_source, 'typed', 'step.narration_source must be "typed" when narration is present');
+    assert.strictEqual(
+      step.narration_source,
+      'typed',
+      'step.narration_source must be "typed" when narration is present',
+    );
   }
 
   if (hasStepType) {
-    assert.ok(['action', 'validation'].includes(step.step_type),
-      `step.step_type must be "action" or "validation", got "${step.step_type}"`);
+    assert.ok(
+      ['action', 'validation'].includes(step.step_type),
+      `step.step_type must be "action" or "validation", got "${step.step_type}"`,
+    );
     if (step.step_type === 'validation') {
-      assert.ok(step.expect === undefined || ['present', 'absent'].includes(step.expect),
-        `step.expect must be "present" or "absent" when step_type is "validation", got "${step.expect}"`);
+      assert.ok(
+        step.expect === undefined || ['present', 'absent'].includes(step.expect),
+        `step.expect must be "present" or "absent" when step_type is "validation", got "${step.expect}"`,
+      );
     }
   }
 
@@ -94,11 +129,15 @@ function validateStep(step) {
 }
 
 function validateRecording(recording) {
-  assert.ok(UUIDV7_RE.test(recording.recording_id),
-    `recording.recording_id "${recording.recording_id}" is not a valid UUIDv7`);
+  assert.ok(
+    UUIDV7_RE.test(recording.recording_id),
+    `recording.recording_id "${recording.recording_id}" is not a valid UUIDv7`,
+  );
   assert.strictEqual(typeof recording.name, 'string', 'recording.name must be a string');
-  assert.ok(ISO8601_RE.test(recording.created_at),
-    `recording.created_at "${recording.created_at}" is not ISO 8601`);
+  assert.ok(
+    ISO8601_RE.test(recording.created_at),
+    `recording.created_at "${recording.created_at}" is not ISO 8601`,
+  );
   assert.ok(Array.isArray(recording.steps), 'recording.steps must be an array');
   for (const step of recording.steps) validateStep(step);
 }
@@ -110,15 +149,20 @@ function validateExport(exportData) {
 
   // Project metadata
   const p = exportData.project;
-  assert.ok(UUIDV7_RE.test(p.project_id), `project.project_id "${p.project_id}" is not a valid UUIDv7`);
+  assert.ok(
+    UUIDV7_RE.test(p.project_id),
+    `project.project_id "${p.project_id}" is not a valid UUIDv7`,
+  );
   assert.strictEqual(typeof p.name, 'string', 'project.name must be a string');
   assert.ok(ISO8601_RE.test(p.created_at), `project.created_at "${p.created_at}" is not ISO 8601`);
 
   // No additional properties on project
   const projectKeys = Object.keys(p);
   for (const key of projectKeys) {
-    assert.ok(['project_id', 'name', 'created_at', 'metadata'].includes(key),
-      `project has unexpected key "${key}"`);
+    assert.ok(
+      ['project_id', 'name', 'created_at', 'metadata'].includes(key),
+      `project has unexpected key "${key}"`,
+    );
   }
 
   // Recordings
@@ -142,7 +186,7 @@ function buildExportData(project) {
       created_at: project.created_at,
       ...(project.metadata && { metadata: project.metadata }),
     },
-    recordings: (project.recordings ?? []).map(r => ({
+    recordings: (project.recordings ?? []).map((r) => ({
       recording_id: r.recording_id,
       name: r.name,
       created_at: r.created_at,
@@ -156,21 +200,26 @@ function buildExportData(project) {
 
 const hexChar = fc.constantFrom(...'0123456789abcdef'.split(''));
 
-const arbUuid = fc.tuple(
-  fc.array(hexChar, { minLength: 8, maxLength: 8 }),
-  fc.array(hexChar, { minLength: 4, maxLength: 4 }),
-  fc.array(hexChar, { minLength: 3, maxLength: 3 }),
-  fc.constantFrom('8', '9', 'a', 'b'),
-  fc.array(hexChar, { minLength: 3, maxLength: 3 }),
-  fc.array(hexChar, { minLength: 12, maxLength: 12 }),
-).map(([a, b, c, variant, d, e]) =>
-  `${a.join('')}-${b.join('')}-7${c.join('')}-${variant}${d.join('')}-${e.join('')}`
-);
+const arbUuid = fc
+  .tuple(
+    fc.array(hexChar, { minLength: 8, maxLength: 8 }),
+    fc.array(hexChar, { minLength: 4, maxLength: 4 }),
+    fc.array(hexChar, { minLength: 3, maxLength: 3 }),
+    fc.constantFrom('8', '9', 'a', 'b'),
+    fc.array(hexChar, { minLength: 3, maxLength: 3 }),
+    fc.array(hexChar, { minLength: 12, maxLength: 12 }),
+  )
+  .map(
+    ([a, b, c, variant, d, e]) =>
+      `${a.join('')}-${b.join('')}-7${c.join('')}-${variant}${d.join('')}-${e.join('')}`,
+  );
 
-const arbTimestamp = fc.integer({
-  min: new Date('2020-01-01').getTime(),
-  max: new Date('2030-12-31').getTime(),
-}).map(ms => new Date(ms).toISOString());
+const arbTimestamp = fc
+  .integer({
+    min: new Date('2020-01-01').getTime(),
+    max: new Date('2030-12-31').getTime(),
+  })
+  .map((ms) => new Date(ms).toISOString());
 
 const arbElement = fc.record({
   tag: fc.constantFrom('BUTTON', 'INPUT', 'A', 'DIV', 'SPAN', 'SELECT', 'TEXTAREA'),
@@ -254,8 +303,11 @@ describe('Property 7: Export schema validation', () => {
     fc.assert(
       fc.property(arbProject, (project) => {
         const exportData = buildExportData(project);
-        assert.strictEqual(exportData.recordings.length, project.recordings.length,
-          'export must include all recordings');
+        assert.strictEqual(
+          exportData.recordings.length,
+          project.recordings.length,
+          'export must include all recordings',
+        );
       }),
       { numRuns: 100 },
     );
@@ -277,34 +329,34 @@ describe('Property 7: Export schema validation', () => {
     // Generate a recording with multiple versions of the same logical step
     const arbStepWithVersions = fc.tuple(arbUuid, arbUuid).chain(([logicalId, uuid2]) =>
       fc.tuple(
-        arbStep.map(s => ({ ...s, logical_id: logicalId, step_number: 1 })),
-        arbStep.map(s => ({ ...s, logical_id: logicalId, step_number: 1, uuid: uuid2 })),
-      )
+        arbStep.map((s) => ({ ...s, logical_id: logicalId, step_number: 1 })),
+        arbStep.map((s) => ({ ...s, logical_id: logicalId, step_number: 1, uuid: uuid2 })),
+      ),
     );
 
     fc.assert(
-      fc.property(
-        arbProject,
-        (project) => {
-          const exportData = buildExportData(project);
+      fc.property(arbProject, (project) => {
+        const exportData = buildExportData(project);
 
-          for (let i = 0; i < exportData.recordings.length; i++) {
-            const exportRec = exportData.recordings[i];
-            const sourceRec = project.recordings[i];
+        for (let i = 0; i < exportData.recordings.length; i++) {
+          const exportRec = exportData.recordings[i];
+          const sourceRec = project.recordings[i];
 
-            // All steps are preserved (including deleted and old versions)
-            assert.strictEqual(exportRec.steps.length, sourceRec.steps.length,
-              'export must include all step versions');
+          // All steps are preserved (including deleted and old versions)
+          assert.strictEqual(
+            exportRec.steps.length,
+            sourceRec.steps.length,
+            'export must include all step versions',
+          );
 
-            // Each step is preserved with all fields
-            for (let j = 0; j < sourceRec.steps.length; j++) {
-              assert.strictEqual(exportRec.steps[j].uuid, sourceRec.steps[j].uuid);
-              assert.strictEqual(exportRec.steps[j].logical_id, sourceRec.steps[j].logical_id);
-              assert.strictEqual(exportRec.steps[j].deleted, sourceRec.steps[j].deleted);
-            }
+          // Each step is preserved with all fields
+          for (let j = 0; j < sourceRec.steps.length; j++) {
+            assert.strictEqual(exportRec.steps[j].uuid, sourceRec.steps[j].uuid);
+            assert.strictEqual(exportRec.steps[j].logical_id, sourceRec.steps[j].logical_id);
+            assert.strictEqual(exportRec.steps[j].deleted, sourceRec.steps[j].deleted);
           }
-        },
-      ),
+        }
+      }),
       { numRuns: 100 },
     );
   });

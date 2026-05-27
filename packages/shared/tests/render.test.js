@@ -37,7 +37,7 @@ describe('escapeHtml', () => {
   it('escapes multiple special characters in one string', () => {
     assert.equal(
       escapeHtml('<script>alert("xss")</script>'),
-      '&lt;script&gt;alert(&quot;xss&quot;)&lt;/script&gt;'
+      '&lt;script&gt;alert(&quot;xss&quot;)&lt;/script&gt;',
     );
   });
 
@@ -61,7 +61,6 @@ describe('escapeHtml', () => {
 // ─── describeAction — all v2.0.0 action types ────────────────────────────────
 
 describe('describeAction', () => {
-
   // ── navigate ──────────────────────────────────────────────────────────
 
   it('describes navigate action with url', () => {
@@ -139,7 +138,7 @@ describe('describeAction', () => {
       type: 'key',
       key: 'Enter',
       modifiers: { ctrl: false, shift: false, alt: false, meta: false },
-      element: { selector: '#input' }
+      element: { selector: '#input' },
     };
     assert.equal(describeAction(action), 'Enter on #input');
   });
@@ -149,7 +148,7 @@ describe('describeAction', () => {
       type: 'key',
       key: 'Tab',
       modifiers: { ctrl: true, shift: false, alt: false, meta: false },
-      element: { selector: '#field' }
+      element: { selector: '#field' },
     };
     assert.equal(describeAction(action), 'Tab (Ctrl) on #field');
   });
@@ -159,7 +158,7 @@ describe('describeAction', () => {
       type: 'key',
       key: 'Tab',
       modifiers: { ctrl: false, shift: true, alt: false, meta: false },
-      element: { selector: '#field' }
+      element: { selector: '#field' },
     };
     assert.equal(describeAction(action), 'Tab (Shift) on #field');
   });
@@ -169,7 +168,7 @@ describe('describeAction', () => {
       type: 'key',
       key: 'Escape',
       modifiers: { ctrl: true, shift: true, alt: false, meta: false },
-      element: { selector: '.modal' }
+      element: { selector: '.modal' },
     };
     assert.equal(describeAction(action), 'Escape (Ctrl) (Shift) on .modal');
   });
@@ -187,7 +186,7 @@ describe('describeAction', () => {
     const action = {
       type: 'file_upload',
       element: { selector: '#upload' },
-      files: [{ name: 'doc.pdf', size: 1024, mime: 'application/pdf' }]
+      files: [{ name: 'doc.pdf', size: 1024, mime: 'application/pdf' }],
     };
     assert.equal(describeAction(action), '#upload → doc.pdf');
   });
@@ -198,8 +197,8 @@ describe('describeAction', () => {
       element: { selector: '#upload' },
       files: [
         { name: 'a.png', size: 100, mime: 'image/png' },
-        { name: 'b.jpg', size: 200, mime: 'image/jpeg' }
-      ]
+        { name: 'b.jpg', size: 200, mime: 'image/jpeg' },
+      ],
     };
     assert.equal(describeAction(action), '#upload → a.png, b.jpg');
   });
@@ -345,7 +344,11 @@ describe('describeAction', () => {
   });
 
   it('escapes HTML in type value', () => {
-    const action = { type: 'type', element: { selector: '#in' }, value: '<img onerror="alert(1)">' };
+    const action = {
+      type: 'type',
+      element: { selector: '#in' },
+      value: '<img onerror="alert(1)">',
+    };
     assert.equal(describeAction(action), '#in → "&lt;img onerror=&quot;alert(1)&quot;&gt;"');
   });
 });

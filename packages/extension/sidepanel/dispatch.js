@@ -11,4 +11,9 @@
  * See LICENSE in the project root for license information.
  */
 
-export { validateEndpointUrl, buildPayload, sendPayload, DispatchError } from '../shared/dispatch-core.js';
+export {
+  validateEndpointUrl,
+  buildPayload,
+  sendPayload,
+  DispatchError,
+} from '../shared/dispatch-core.js';

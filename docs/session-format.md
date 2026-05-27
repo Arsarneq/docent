@@ -23,13 +23,16 @@ different fields). Both are documented here.
 Schemas are versioned independently per platform:
 
 <!-- VERSION_TABLE_START -->
-| Schema file | Platform | Current |
-|---|---|---|
-| `schemas/extension.schema.json` | Chrome extension | 2.0.0 |
-| `schemas/desktop-windows.schema.json` | Windows desktop | 1.0.0 |
+
+| Schema file                           | Platform         | Current |
+| ------------------------------------- | ---------------- | ------- |
+| `schemas/extension.schema.json`       | Chrome extension | 2.0.0   |
+| `schemas/desktop-windows.schema.json` | Windows desktop  | 1.0.0   |
+
 <!-- VERSION_TABLE_END -->
 
 **Version bumps:**
+
 - **Patch** (x.x.1): documentation-only changes, description clarifications
 - **Minor** (x.1.0): new optional fields, new action types, new enum values on existing fields
 - **Major** (1.0.0): new required fields, removed fields, renamed fields, changed semantics of existing fields, changed type of existing fields
@@ -52,12 +55,12 @@ When Docent dispatches to an endpoint, the HTTP POST body is:
 }
 ```
 
-| Field | Type | Description |
-|---|---|---|
-| `reading_guidance` | string | Prose explanation of the payload. Designed for LLM context. |
-| `schema` | object | The full JSON Schema for the sending platform. Consumers can use this for validation or ignore it. |
-| `project` | object | Project metadata. |
-| `recordings` | array | Array of recording objects. |
+| Field              | Type   | Description                                                                                        |
+| ------------------ | ------ | -------------------------------------------------------------------------------------------------- |
+| `reading_guidance` | string | Prose explanation of the payload. Designed for LLM context.                                        |
+| `schema`           | object | The full JSON Schema for the sending platform. Consumers can use this for validation or ignore it. |
+| `project`          | object | Project metadata.                                                                                  |
+| `recordings`       | array  | Array of recording objects.                                                                        |
 
 The `.docent.json` export file contains only `project` and `recordings` (no
 `reading_guidance` or `schema` wrapper).
@@ -78,12 +81,12 @@ The `.docent.json` export file contains only `project` and `recordings` (no
 }
 ```
 
-| Field | Type | Required | Description |
-|---|---|---|---|
-| `project_id` | UUIDv7 | yes | Time-ordered unique identifier. |
-| `name` | string | yes | Human-readable project name. |
-| `created_at` | ISO 8601 | yes | Creation timestamp. |
-| `metadata` | object | no | User-defined key-value pairs. Values are strings or arrays of strings. |
+| Field        | Type     | Required | Description                                                            |
+| ------------ | -------- | -------- | ---------------------------------------------------------------------- |
+| `project_id` | UUIDv7   | yes      | Time-ordered unique identifier.                                        |
+| `name`       | string   | yes      | Human-readable project name.                                           |
+| `created_at` | ISO 8601 | yes      | Creation timestamp.                                                    |
+| `metadata`   | object   | no       | User-defined key-value pairs. Values are strings or arrays of strings. |
 
 ---
 
@@ -99,13 +102,13 @@ The `.docent.json` export file contains only `project` and `recordings` (no
 }
 ```
 
-| Field | Type | Required | Description |
-|---|---|---|---|
-| `recording_id` | UUIDv7 | yes | Time-ordered unique identifier. |
-| `name` | string | yes | Human-readable recording name. |
-| `created_at` | ISO 8601 | yes | Creation timestamp. |
-| `metadata` | object | no | User-defined key-value pairs. |
-| `steps` | array | yes | Full step history (see below). |
+| Field          | Type     | Required | Description                     |
+| -------------- | -------- | -------- | ------------------------------- |
+| `recording_id` | UUIDv7   | yes      | Time-ordered unique identifier. |
+| `name`         | string   | yes      | Human-readable recording name.  |
+| `created_at`   | ISO 8601 | yes      | Creation timestamp.             |
+| `metadata`     | object   | no       | User-defined key-value pairs.   |
+| `steps`        | array    | yes      | Full step history (see below).  |
 
 ---
 
@@ -115,6 +118,7 @@ The `steps` array contains the **full version history** of all steps in the
 recording. This includes re-recorded versions and soft-deleted steps.
 
 To resolve the "active" view (what the user last committed):
+
 1. Group steps by `logical_id`
 2. Within each group, take the step with the latest `uuid` (UUIDv7 is time-ordered)
 3. Exclude steps where `deleted: true`
@@ -157,18 +161,18 @@ A step is either **narration mode** or **simple mode**. At least one of
 
 ### Step fields
 
-| Field | Type | Required | Description |
-|---|---|---|---|
-| `uuid` | UUIDv7 | yes | Unique version identifier. Later UUID = newer version. |
-| `logical_id` | UUIDv7 | yes | Groups versions of the same step. |
-| `step_number` | integer ≥ 1 | yes | Display order. |
-| `created_at` | ISO 8601 | yes | When this version was created. |
-| `narration` | string (min 1 char) | one of | Free-text intent description. Present in narration mode. |
-| `narration_source` | `"typed"` | with narration | How narration was provided. |
-| `step_type` | `"action"` \| `"validation"` | one of | Step classification. Present in simple mode. |
-| `expect` | `"present"` \| `"absent"` | no | Assertion type for validation steps. |
-| `actions` | array | yes | Captured user interactions. |
-| `deleted` | boolean | yes | Soft-delete marker. |
+| Field              | Type                         | Required       | Description                                              |
+| ------------------ | ---------------------------- | -------------- | -------------------------------------------------------- |
+| `uuid`             | UUIDv7                       | yes            | Unique version identifier. Later UUID = newer version.   |
+| `logical_id`       | UUIDv7                       | yes            | Groups versions of the same step.                        |
+| `step_number`      | integer ≥ 1                  | yes            | Display order.                                           |
+| `created_at`       | ISO 8601                     | yes            | When this version was created.                           |
+| `narration`        | string (min 1 char)          | one of         | Free-text intent description. Present in narration mode. |
+| `narration_source` | `"typed"`                    | with narration | How narration was provided.                              |
+| `step_type`        | `"action"` \| `"validation"` | one of         | Step classification. Present in simple mode.             |
+| `expect`           | `"present"` \| `"absent"`    | no             | Assertion type for validation steps.                     |
+| `actions`          | array                        | yes            | Captured user interactions.                              |
+| `deleted`          | boolean                      | yes            | Soft-delete marker.                                      |
 
 "one of" means at least one of `narration` or `step_type` must be present.
 
@@ -178,28 +182,30 @@ A step is either **narration mode** or **simple mode**. At least one of
 
 Every action has:
 
-| Field | Type | Description |
-|---|---|---|
-| `type` | string | Action type identifier. |
-| `timestamp` | integer | Unix milliseconds when the action occurred. |
-| `context_id` | integer \| null | Session-scoped window/tab identifier. |
-| `capture_mode` | string | How the action was captured (platform-specific). |
+| Field          | Type            | Description                                      |
+| -------------- | --------------- | ------------------------------------------------ |
+| `type`         | string          | Action type identifier.                          |
+| `timestamp`    | integer         | Unix milliseconds when the action occurred.      |
+| `context_id`   | integer \| null | Session-scoped window/tab identifier.            |
+| `capture_mode` | string          | How the action was captured (platform-specific). |
 
 ### Platform-specific fields
 
 **Extension only:**
+
 - `frame_src` (string \| null) — iframe URL, or null for top frame.
 
 **Desktop (Windows) only:**
+
 - `window_rect` (object \| null) — window position/size `{x, y, width, height}`, or null for accessibility-mode actions.
 
 ### Capture modes
 
-| Platform | Values | Description |
-|---|---|---|
-| Extension | `"dom"` | Always DOM-based capture. |
-| Desktop | `"accessibility"` | Native UI Automation API. Full element description. |
-| Desktop | `"coordinate"` | Fallback. Element lacks accessibility data. `window_rect` is present. |
+| Platform  | Values            | Description                                                           |
+| --------- | ----------------- | --------------------------------------------------------------------- |
+| Extension | `"dom"`           | Always DOM-based capture.                                             |
+| Desktop   | `"accessibility"` | Native UI Automation API. Full element description.                   |
+| Desktop   | `"coordinate"`    | Fallback. Element lacks accessibility data. `window_rect` is present. |
 
 ---
 
@@ -207,32 +213,32 @@ Every action has:
 
 ### Shared (both platforms)
 
-| Type | Key fields | Description |
-|---|---|---|
-| `click` | `x`, `y`, `element` | Left-click on an element. |
-| `right_click` | `x`, `y`, `element` | Right-click on an element. |
-| `type` | `element`, `value` | Text entered into a field. Passwords masked as `"••••••••"`. |
-| `select` | `element`, `value` | Option selected from a dropdown/list. |
-| `key` | `key`, `modifiers`, `element` | Keyboard input. `modifiers`: `{ctrl, shift, alt, meta}`. |
-| `focus` | `element` | Element received focus (non-redundant cases only). |
-| `drag_start` | `element` | Drag operation began. |
-| `drop` | `x`, `y`, `element`, `source_element` | Drop completed. `source_element` is the dragged item. |
-| `scroll` | `element`, `scroll_top`, `scroll_left`, `delta_y`, `delta_x` | Scroll gesture (debounced). |
-| `context_switch` | `source`, `title` | User switched to a different window/tab. |
-| `context_open` | `opener_context_id`, `source` | New window/tab opened. |
-| `context_close` | `window_closing` | Window/tab closed. |
+| Type             | Key fields                                                   | Description                                                  |
+| ---------------- | ------------------------------------------------------------ | ------------------------------------------------------------ |
+| `click`          | `x`, `y`, `element`                                          | Left-click on an element.                                    |
+| `right_click`    | `x`, `y`, `element`                                          | Right-click on an element.                                   |
+| `type`           | `element`, `value`                                           | Text entered into a field. Passwords masked as `"••••••••"`. |
+| `select`         | `element`, `value`                                           | Option selected from a dropdown/list.                        |
+| `key`            | `key`, `modifiers`, `element`                                | Keyboard input. `modifiers`: `{ctrl, shift, alt, meta}`.     |
+| `focus`          | `element`                                                    | Element received focus (non-redundant cases only).           |
+| `drag_start`     | `element`                                                    | Drag operation began.                                        |
+| `drop`           | `x`, `y`, `element`, `source_element`                        | Drop completed. `source_element` is the dragged item.        |
+| `scroll`         | `element`, `scroll_top`, `scroll_left`, `delta_y`, `delta_x` | Scroll gesture (debounced).                                  |
+| `context_switch` | `source`, `title`                                            | User switched to a different window/tab.                     |
+| `context_open`   | `opener_context_id`, `source`                                | New window/tab opened.                                       |
+| `context_close`  | `window_closing`                                             | Window/tab closed.                                           |
 
 ### Extension only
 
-| Type | Key fields | Description |
-|---|---|---|
-| `navigate` | `nav_type`, `url` | Page navigation. `nav_type`: link, typed, reload, back_forward, spa, form_submit, etc. |
-| `file_upload` | `element`, `files` | File(s) selected via input. `files`: `[{name, size, mime}]`. |
+| Type          | Key fields         | Description                                                                            |
+| ------------- | ------------------ | -------------------------------------------------------------------------------------- |
+| `navigate`    | `nav_type`, `url`  | Page navigation. `nav_type`: link, typed, reload, back_forward, spa, form_submit, etc. |
+| `file_upload` | `element`, `files` | File(s) selected via input. `files`: `[{name, size, mime}]`.                           |
 
 ### Desktop (Windows) only
 
-| Type | Key fields | Description |
-|---|---|---|
+| Type          | Key fields                           | Description                                                |
+| ------------- | ------------------------------------ | ---------------------------------------------------------- |
 | `file_dialog` | `dialog_type`, `file_path`, `source` | File dialog completed. `dialog_type`: open, save, save_as. |
 
 ---
@@ -253,15 +259,15 @@ Describes the UI element an action targeted.
 }
 ```
 
-| Field | Type | Required | Description |
-|---|---|---|---|
-| `tag` | string | yes | HTML tag or accessibility role name. |
-| `id` | string \| null | no | Element ID attribute. |
-| `name` | string \| null | no | Name attribute or accessibility name. |
-| `role` | string \| null | no | ARIA role or accessibility role. |
-| `type` | string \| null | no | Input type attribute. |
-| `text` | string \| null | no | Visible text (truncated to 100 chars). Null for passwords. |
-| `selector` | string | yes | CSS selector (extension) or accessibility tree path (desktop). |
+| Field      | Type           | Required | Description                                                    |
+| ---------- | -------------- | -------- | -------------------------------------------------------------- |
+| `tag`      | string         | yes      | HTML tag or accessibility role name.                           |
+| `id`       | string \| null | no       | Element ID attribute.                                          |
+| `name`     | string \| null | no       | Name attribute or accessibility name.                          |
+| `role`     | string \| null | no       | ARIA role or accessibility role.                               |
+| `type`     | string \| null | no       | Input type attribute.                                          |
+| `text`     | string \| null | no       | Visible text (truncated to 100 chars). Null for passwords.     |
+| `selector` | string         | yes      | CSS selector (extension) or accessibility tree path (desktop). |
 
 ---
 

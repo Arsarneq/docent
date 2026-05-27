@@ -34,7 +34,7 @@ const targets = requested.length > 0 ? requested : ALL_TARGETS;
 // Map target package name → platform schema file
 const PLATFORM_SCHEMA = {
   extension: 'extension.schema.json',
-  desktop:   'desktop-windows.schema.json',
+  desktop: 'desktop-windows.schema.json',
 };
 
 for (const target of targets) {
@@ -56,7 +56,9 @@ for (const target of targets) {
     const destSchema = join(dest, 'session.schema.json');
     if (existsSync(src)) {
       copyFileSync(src, destSchema);
-      console.log(`  ↳ schema override: schemas/${platformSchemaFile} → packages/${target}/shared/session.schema.json`);
+      console.log(
+        `  ↳ schema override: schemas/${platformSchemaFile} → packages/${target}/shared/session.schema.json`,
+      );
     }
   }
 
@@ -64,4 +66,6 @@ for (const target of targets) {
 }
 
 // Inject shared views into platform HTML shells
-execFileSync(process.execPath, [join(ROOT, 'scripts', 'inject-shared-views.js')], { stdio: 'inherit' });
+execFileSync(process.execPath, [join(ROOT, 'scripts', 'inject-shared-views.js')], {
+  stdio: 'inherit',
+});

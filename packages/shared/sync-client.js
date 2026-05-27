@@ -63,7 +63,7 @@ export function buildPayloadForProject(project) {
       created_at: project.created_at,
       ...(project.metadata && { metadata: project.metadata }),
     },
-    recordings: (project.recordings ?? []).map(r => ({
+    recordings: (project.recordings ?? []).map((r) => ({
       recording_id: r.recording_id,
       name: r.name,
       created_at: r.created_at,
@@ -115,7 +115,7 @@ export async function pushProjects(serverUrl, apiKey, projects) {
       const syncErr = new SyncError(
         `Network error pushing "${project.name}": ${err.message}`,
         null,
-        project.name
+        project.name,
       );
       errors.push(syncErr);
       continue;
@@ -125,7 +125,7 @@ export async function pushProjects(serverUrl, apiKey, projects) {
       const syncErr = new SyncError(
         `Authentication failed (${response.status}) pushing "${project.name}"`,
         response.status,
-        project.name
+        project.name,
       );
       errors.push(syncErr);
       return { pushed, errors, halted: true };
@@ -137,7 +137,7 @@ export async function pushProjects(serverUrl, apiKey, projects) {
       const syncErr = new SyncError(
         `Push failed for "${project.name}" with status ${response.status}`,
         response.status,
-        project.name
+        project.name,
       );
       errors.push(syncErr);
     }
@@ -171,7 +171,7 @@ export async function pullProjects(serverUrl, apiKey) {
     const syncErr = new SyncError(
       `Network error fetching project manifest: ${err.message}`,
       null,
-      null
+      null,
     );
     errors.push(syncErr);
     return { projects, errors, halted: false };
@@ -181,7 +181,7 @@ export async function pullProjects(serverUrl, apiKey) {
     const syncErr = new SyncError(
       `Authentication failed (${manifestResponse.status}) fetching project manifest`,
       manifestResponse.status,
-      null
+      null,
     );
     errors.push(syncErr);
     return { projects, errors, halted: true };
@@ -191,7 +191,7 @@ export async function pullProjects(serverUrl, apiKey) {
     const syncErr = new SyncError(
       `Failed to fetch project manifest with status ${manifestResponse.status}`,
       manifestResponse.status,
-      null
+      null,
     );
     errors.push(syncErr);
     return { projects, errors, halted: false };
@@ -213,7 +213,7 @@ export async function pullProjects(serverUrl, apiKey) {
       const syncErr = new SyncError(
         `Network error fetching project "${entry.name}": ${err.message}`,
         null,
-        entry.name
+        entry.name,
       );
       errors.push(syncErr);
       continue;
@@ -223,7 +223,7 @@ export async function pullProjects(serverUrl, apiKey) {
       const syncErr = new SyncError(
         `Authentication failed (${response.status}) fetching project "${entry.name}"`,
         response.status,
-        entry.name
+        entry.name,
       );
       errors.push(syncErr);
       return { projects, errors, halted: true };
@@ -233,7 +233,7 @@ export async function pullProjects(serverUrl, apiKey) {
       const syncErr = new SyncError(
         `Failed to fetch project "${entry.name}" with status ${response.status}`,
         response.status,
-        entry.name
+        entry.name,
       );
       errors.push(syncErr);
       continue;
@@ -301,9 +301,7 @@ export async function sync(serverUrl, apiKey, localProjects) {
   const mergedProjects = [...localProjects];
 
   for (const pulledProject of pullResult.projects) {
-    const localIndex = mergedProjects.findIndex(
-      p => p.project_id === pulledProject.project_id
-    );
+    const localIndex = mergedProjects.findIndex((p) => p.project_id === pulledProject.project_id);
     if (localIndex >= 0) {
       mergedProjects[localIndex] = pulledProject;
     } else {
@@ -311,7 +309,7 @@ export async function sync(serverUrl, apiKey, localProjects) {
     }
   }
 
-  const pulled = pullResult.projects.map(p => p.project_id);
+  const pulled = pullResult.projects.map((p) => p.project_id);
 
   return {
     result: {

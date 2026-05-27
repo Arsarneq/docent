@@ -63,7 +63,8 @@ fn save_state_creates_file_and_directories() {
 fn load_state_reads_saved_data() {
     let _tmp = with_temp_appdata("load-saved");
 
-    let data = r#"{"projects":[{"project_id":"abc","name":"Test"}],"settings":{"theme":"dark"}}"#.to_string();
+    let data = r#"{"projects":[{"project_id":"abc","name":"Test"}],"settings":{"theme":"dark"}}"#
+        .to_string();
     save_state(data.clone()).unwrap();
 
     let result = load_state();

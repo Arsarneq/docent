@@ -1,44 +1,44 @@
 version: 2
 updates:
-  - package-ecosystem: "npm"
-    directory: "/"
+  - package-ecosystem: 'npm'
+    directory: '/'
     schedule:
-      interval: "weekly"
+      interval: 'weekly'
     open-pull-requests-limit: 5
     labels:
-      - "dependencies"
+      - 'dependencies'
 
-  - package-ecosystem: "npm"
-    directory: "/packages/extension"
+  - package-ecosystem: 'npm'
+    directory: '/packages/extension'
     schedule:
-      interval: "weekly"
+      interval: 'weekly'
     open-pull-requests-limit: 3
     labels:
-      - "dependencies"
-      - "extension"
+      - 'dependencies'
+      - 'extension'
 
-  - package-ecosystem: "npm"
-    directory: "/packages/extension/tests/automated"
+  - package-ecosystem: 'npm'
+    directory: '/packages/extension/tests/automated'
     schedule:
-      interval: "weekly"
+      interval: 'weekly'
     open-pull-requests-limit: 3
     labels:
-      - "dependencies"
-      - "test"
+      - 'dependencies'
+      - 'test'
 
-  - package-ecosystem: "cargo"
-    directory: "/packages/desktop/src-tauri"
+  - package-ecosystem: 'cargo'
+    directory: '/packages/desktop/src-tauri'
     schedule:
-      interval: "weekly"
+      interval: 'weekly'
     open-pull-requests-limit: 5
     labels:
-      - "dependencies"
-      - "desktop-windows"
+      - 'dependencies'
+      - 'desktop-windows'
 
-  - package-ecosystem: "github-actions"
-    directory: "/"
+  - package-ecosystem: 'github-actions'
+    directory: '/'
     schedule:
-      interval: "weekly"
+      interval: 'weekly'
     open-pull-requests-limit: 3
     labels:
-      - "dependencies"
+      - 'dependencies'
