@@ -1364,4 +1364,3 @@ test.describe('Desktop Panel — Adapter Capture Lifecycle', () => {
     await expect(page.locator('.step-detail-item')).toHaveCount(3);
   });
 });
-});
