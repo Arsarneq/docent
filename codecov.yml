@@ -7,3 +7,8 @@ coverage:
     patch:
       default:
         target: 80%
+
+ignore:
+  - 'packages/*/tests/**'
+  - 'packages/shared/views/adapter.js'
+  - 'packages/*/shared/**'
