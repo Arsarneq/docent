@@ -173,11 +173,7 @@ impl WorkerPool {
     /// return a `JoinHandle<()>`. It receives the worker index, the
     /// `mpsc::Receiver<WorkerMessage>` for that worker's queue, an
     /// `Arc<AtomicU64>` queue-length counter, and a clone of `action_sender`.
-    pub fn new<F>(
-        count: usize,
-        action_sender: mpsc::Sender<ActionEvent>,
-        spawn_worker: F,
-    ) -> Self
+    pub fn new<F>(count: usize, action_sender: mpsc::Sender<ActionEvent>, spawn_worker: F) -> Self
     where
         F: Fn(
                 usize,
@@ -193,12 +189,7 @@ impl WorkerPool {
         for index in 0..count {
             let (tx, rx) = mpsc::channel();
             let queue_len = Arc::new(AtomicU64::new(0));
-            let handle = spawn_worker(
-                index,
-                rx,
-                Arc::clone(&queue_len),
-                action_sender.clone(),
-            );
+            let handle = spawn_worker(index, rx, Arc::clone(&queue_len), action_sender.clone());
             workers.push(WorkerHandle {
                 sender: tx,
                 queue_len,
@@ -270,10 +261,9 @@ impl WorkerPool {
                 self.last_drag_worker = Some(idx);
                 idx
             }
-            RawEventType::Drop { .. } => {
-                self.last_drag_worker
-                    .unwrap_or_else(|| self.shortest_queue_worker())
-            }
+            RawEventType::Drop { .. } => self
+                .last_drag_worker
+                .unwrap_or_else(|| self.shortest_queue_worker()),
             _ => self.shortest_queue_worker(),
         }
     }
@@ -303,7 +293,10 @@ impl WorkerPool {
 
             if let Some(worker) = self.workers.get(target) {
                 worker.queue_len.fetch_add(1, Ordering::SeqCst);
-                match worker.sender.send(WorkerMessage::Event(Box::new(current_event))) {
+                match worker
+                    .sender
+                    .send(WorkerMessage::Event(Box::new(current_event)))
+                {
                     Ok(()) => return, // Successfully dispatched.
                     Err(mpsc::SendError(WorkerMessage::Event(returned_event))) => {
                         // Worker is dead. Undo the queue_len bump.
@@ -406,9 +399,7 @@ impl WorkerPool {
         // Send shutdown signal to all workers.
         for (i, worker) in self.workers.iter().enumerate() {
             if worker.sender.send(WorkerMessage::Shutdown).is_err() {
-                eprintln!(
-                    "[WorkerPool] Warning: worker {i} already disconnected during shutdown"
-                );
+                eprintln!("[WorkerPool] Warning: worker {i} already disconnected during shutdown");
             }
         }
 
@@ -832,7 +823,11 @@ fn process_raw_event<B: AccessibilityBackend>(
     // Resolve context_id from the root window handle.
     let context_id = if raw.window_handle != 0 {
         let root = backend.root_window_handle(raw.window_handle);
-        if root != 0 { Some(root) } else { Some(raw.window_handle) }
+        if root != 0 {
+            Some(root)
+        } else {
+            Some(raw.window_handle)
+        }
     } else {
         None
     };
@@ -847,19 +842,34 @@ fn process_raw_event<B: AccessibilityBackend>(
     match &raw.event_type {
         RawEventType::Click => {
             handle_click(
-                raw, backend, action_sender, context_id, false, window_rect.clone(),
+                raw,
+                backend,
+                action_sender,
+                context_id,
+                false,
+                window_rect.clone(),
             );
             state.last_click_timestamp = raw.timestamp;
         }
         RawEventType::RightClick => {
             handle_click(
-                raw, backend, action_sender, context_id, true, window_rect.clone(),
+                raw,
+                backend,
+                action_sender,
+                context_id,
+                true,
+                window_rect.clone(),
             );
             state.last_click_timestamp = raw.timestamp;
         }
         RawEventType::Focus => {
             handle_focus(
-                raw, backend, action_sender, context_id, &mut state.last_focus_selector, window_rect.clone(),
+                raw,
+                backend,
+                action_sender,
+                context_id,
+                &mut state.last_focus_selector,
+                window_rect.clone(),
             );
         }
         RawEventType::ValueChange => {
@@ -882,7 +892,12 @@ fn process_raw_event<B: AccessibilityBackend>(
         }
         RawEventType::Keyboard => {
             handle_keyboard(
-                raw, backend, action_sender, context_id, state, window_rect.clone(),
+                raw,
+                backend,
+                action_sender,
+                context_id,
+                state,
+                window_rect.clone(),
             );
         }
         RawEventType::Foreground => {
@@ -945,10 +960,24 @@ fn process_raw_event<B: AccessibilityBackend>(
             }
         }
         RawEventType::DragStart { source_coords: _ } => {
-            handle_drag_start(raw, backend, action_sender, context_id, &mut state.last_drag_element, window_rect.clone());
+            handle_drag_start(
+                raw,
+                backend,
+                action_sender,
+                context_id,
+                &mut state.last_drag_element,
+                window_rect.clone(),
+            );
         }
         RawEventType::Drop { source_coords: _ } => {
-            handle_drop(raw, backend, action_sender, context_id, &mut state.last_drag_element, window_rect.clone());
+            handle_drop(
+                raw,
+                backend,
+                action_sender,
+                context_id,
+                &mut state.last_drag_element,
+                window_rect.clone(),
+            );
         }
         RawEventType::MouseDown | RawEventType::MouseUp => {
             // MouseDown/MouseUp are handled by the Input_Thread for drag
@@ -1035,9 +1064,7 @@ fn handle_click<B: AccessibilityBackend>(
     if !is_right_click {
         if let Some(ref name) = element_desc.name {
             let name_lower = name.to_lowercase();
-            if (name_lower == "save" || name_lower == "open")
-                && element_desc.tag == "Button"
-            {
+            if (name_lower == "save" || name_lower == "open") && element_desc.tag == "Button" {
                 if let Some((dialog_type, file_path)) =
                     backend.read_file_dialog_path(raw.window_handle)
                 {
@@ -1091,9 +1118,7 @@ fn handle_focus<B: AccessibilityBackend>(
         frame_src: None,
         window_rect,
         sequence_id: Some(raw.sequence_id),
-        payload: ActionPayload::Focus {
-            element,
-        },
+        payload: ActionPayload::Focus { element },
     });
 }
 
@@ -1178,10 +1203,7 @@ fn handle_selection<B: AccessibilityBackend>(
     // This works regardless of whether focused_element succeeded.
     let (final_element, value) = if let Some(ref el) = element {
         // Check if the focused element is a container type (List, ComboBox, Tree, DataGrid).
-        let is_container = matches!(
-            el.tag.as_str(),
-            "List" | "ComboBox" | "Tree" | "DataGrid"
-        );
+        let is_container = matches!(el.tag.as_str(), "List" | "ComboBox" | "Tree" | "DataGrid");
 
         if is_container {
             // Try to get the selected item from the container.
@@ -1208,7 +1230,11 @@ fn handle_selection<B: AccessibilityBackend>(
                     tag: "ListItem".to_string(),
                     id: None,
                     selector: String::new(),
-                    name: if title.is_empty() { None } else { Some(title.clone()) },
+                    name: if title.is_empty() {
+                        None
+                    } else {
+                        Some(title.clone())
+                    },
                     role: Some("listitem".to_string()),
                     element_type: None,
                     text: None,
@@ -1434,7 +1460,8 @@ fn try_flush_type_debounce(
     now: u64,
     action_sender: &mpsc::Sender<ActionEvent>,
 ) {
-    let should_flush_type = state.pending_type
+    let should_flush_type = state
+        .pending_type
         .as_ref()
         .map(|pt| now.saturating_sub(pt.last_update) >= TYPE_DEBOUNCE_MS)
         .unwrap_or(false);

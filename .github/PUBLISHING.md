@@ -2,10 +2,10 @@
 
 Docent uses independent versioning for each platform. Each platform has its own release workflow triggered by platform-specific tags.
 
-| Platform | Tag pattern | Workflow | Example |
-|---|---|---|---|
-| Chrome Extension | `extension-v*` | `publish.yml` | `extension-v2.0.0` |
-| Desktop (Windows) | `desktop-v*` | `publish-desktop.yml` | `desktop-v0.1.0` |
+| Platform          | Tag pattern    | Workflow              | Example            |
+| ----------------- | -------------- | --------------------- | ------------------ |
+| Chrome Extension  | `extension-v*` | `publish.yml`         | `extension-v2.0.0` |
+| Desktop (Windows) | `desktop-v*`   | `publish-desktop.yml` | `desktop-v0.1.0`   |
 
 Both platforms share the schema contract version defined in `packages/shared/session.schema.json`.
 
@@ -19,11 +19,11 @@ The workflow is defined in [`.github/workflows/publish.yml`](workflows/publish.y
 
 ### Required secrets (extension)
 
-| Secret | Description |
-|---|---|
-| `CHROME_EXTENSION_ID` | The extension ID from the Chrome Web Store developer dashboard |
-| `CHROME_CLIENT_ID` | OAuth 2.0 client ID from Google Cloud Console |
-| `CHROME_CLIENT_SECRET` | OAuth 2.0 client secret from Google Cloud Console |
+| Secret                 | Description                                                             |
+| ---------------------- | ----------------------------------------------------------------------- |
+| `CHROME_EXTENSION_ID`  | The extension ID from the Chrome Web Store developer dashboard          |
+| `CHROME_CLIENT_ID`     | OAuth 2.0 client ID from Google Cloud Console                           |
+| `CHROME_CLIENT_SECRET` | OAuth 2.0 client secret from Google Cloud Console                       |
 | `CHROME_REFRESH_TOKEN` | OAuth 2.0 refresh token obtained via the Chrome Web Store API auth flow |
 
 ### Obtaining the Chrome Web Store credentials
@@ -53,10 +53,10 @@ The workflow is defined in [`.github/workflows/publish-desktop.yml`](workflows/p
 
 ### Required secrets (desktop)
 
-| Secret | Description |
-|---|---|
-| `TAURI_SIGNING_PRIVATE_KEY` | (Optional) Private key for signing the Windows installer. If not set, the installer is unsigned. |
-| `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` | (Optional) Password for the signing private key. |
+| Secret                               | Description                                                                                      |
+| ------------------------------------ | ------------------------------------------------------------------------------------------------ |
+| `TAURI_SIGNING_PRIVATE_KEY`          | (Optional) Private key for signing the Windows installer. If not set, the installer is unsigned. |
+| `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` | (Optional) Password for the signing private key.                                                 |
 
 Code signing is recommended for production releases to avoid Windows SmartScreen warnings. See the [Tauri code signing guide](https://v2.tauri.app/distribute/sign/windows/) for setup instructions.
 
@@ -75,6 +75,6 @@ Currently only Windows is supported. macOS and Linux build targets can be added 
 
 ## CLA Assistant
 
-| Secret | Description |
-|---|---|
+| Secret                  | Description                                                                                                                                 |
+| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
 | `PERSONAL_ACCESS_TOKEN` | A GitHub Personal Access Token with `repo` scope, used by the CLA Assistant workflow to write contributor signatures back to the repository |

@@ -7,9 +7,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc;
 use std::sync::Arc;
 
-use docent_desktop_lib::capture::worker_pool::{
-    RawEvent, RawEventType, WorkerMessage, WorkerPool,
-};
+use docent_desktop_lib::capture::worker_pool::{RawEvent, RawEventType, WorkerMessage, WorkerPool};
 use docent_desktop_lib::capture::ActionEvent;
 use proptest::prelude::*;
 
@@ -31,7 +29,7 @@ fn make_raw_event(event_type: RawEventType, window_handle: i64) -> RawEvent {
         modifiers: (false, false, false, false),
         scroll_delta: 0.0,
         callback_params: [0; 4],
-            pre_captured_element: None,
+        pre_captured_element: None,
     }
 }
 
@@ -488,7 +486,7 @@ use std::sync::Mutex;
 use std::thread;
 use std::time::Duration;
 
-use docent_desktop_lib::capture::worker_pool::{AccessibilityBackend, worker_loop};
+use docent_desktop_lib::capture::worker_pool::{worker_loop, AccessibilityBackend};
 use docent_desktop_lib::capture::{ActionPayload, CaptureError, ElementDescription};
 
 /// A mock accessibility backend for testing the worker_loop.
@@ -630,7 +628,9 @@ impl WorkerTestHarness {
     /// Send a raw event to the worker.
     fn send_event(&self, event: RawEvent) {
         self._queue_len.fetch_add(1, Ordering::SeqCst);
-        self.event_tx.send(WorkerMessage::Event(Box::new(event))).unwrap();
+        self.event_tx
+            .send(WorkerMessage::Event(Box::new(event)))
+            .unwrap();
     }
 
     /// Send shutdown and join the worker thread.
@@ -646,7 +646,6 @@ impl WorkerTestHarness {
         }
         events
     }
-
 }
 
 // ---------------------------------------------------------------------------
@@ -959,14 +958,10 @@ fn worker_panic_respawns_and_redistributes() {
     let (action_tx, _action_rx) = mpsc::channel::<ActionEvent>();
 
     // Track how many times each worker index has been spawned.
-    let spawn_counts: Vec<Arc<AtomicU64>> = (0..3)
-        .map(|_| Arc::new(AtomicU64::new(0)))
-        .collect();
+    let spawn_counts: Vec<Arc<AtomicU64>> = (0..3).map(|_| Arc::new(AtomicU64::new(0))).collect();
     let sc_clone = spawn_counts.clone();
 
-    let worker_counts: Vec<Arc<AtomicU64>> = (0..3)
-        .map(|_| Arc::new(AtomicU64::new(0)))
-        .collect();
+    let worker_counts: Vec<Arc<AtomicU64>> = (0..3).map(|_| Arc::new(AtomicU64::new(0))).collect();
     let wc_clone = worker_counts.clone();
 
     let mut pool = WorkerPool::new(3, action_tx, move |index, rx, _queue_len, _sender| {
@@ -1014,7 +1009,9 @@ fn worker_panic_respawns_and_redistributes() {
         count0 + count1 + count2,
         12,
         "all 12 post-panic events should be delivered: w0={}, w1={}, w2={}",
-        count0, count1, count2
+        count0,
+        count1,
+        count2
     );
 
     // Worker 0 should have been spawned at least twice (original + respawn).
@@ -1159,7 +1156,9 @@ struct PoisonEventBackend {
 }
 
 impl AccessibilityBackend for PoisonEventBackend {
-    fn init(&mut self) -> Result<(), CaptureError> { Ok(()) }
+    fn init(&mut self) -> Result<(), CaptureError> {
+        Ok(())
+    }
     fn cleanup(&mut self) {}
 
     fn element_at_point(&self, x: i32, y: i32) -> Option<ElementDescription> {
@@ -1189,10 +1188,18 @@ impl AccessibilityBackend for PoisonEventBackend {
         })
     }
 
-    fn window_title(&self, _window_handle: i64) -> String { "Test".to_string() }
-    fn process_name(&self, _window_handle: i64) -> String { "test.exe".to_string() }
-    fn read_file_dialog_path(&self, _window_handle: i64) -> Option<(String, String)> { None }
-    fn root_window_handle(&self, window_handle: i64) -> i64 { window_handle }
+    fn window_title(&self, _window_handle: i64) -> String {
+        "Test".to_string()
+    }
+    fn process_name(&self, _window_handle: i64) -> String {
+        "test.exe".to_string()
+    }
+    fn read_file_dialog_path(&self, _window_handle: i64) -> Option<(String, String)> {
+        None
+    }
+    fn root_window_handle(&self, window_handle: i64) -> i64 {
+        window_handle
+    }
     fn window_rect(&self, _window_handle: i64) -> Option<docent_desktop_lib::capture::WindowRect> {
         Some(docent_desktop_lib::capture::WindowRect {
             x: 0,
@@ -1230,7 +1237,7 @@ fn poison_event_does_not_kill_worker() {
         modifiers: (false, false, false, false),
         scroll_delta: 0.0,
         callback_params: [0; 4],
-            pre_captured_element: None,
+        pre_captured_element: None,
     });
 
     // Send the poison event (will panic inside element_at_point).
@@ -1246,7 +1253,7 @@ fn poison_event_does_not_kill_worker() {
         modifiers: (false, false, false, false),
         scroll_delta: 0.0,
         callback_params: [0; 4],
-            pre_captured_element: None,
+        pre_captured_element: None,
     });
 
     // Send another normal click event after the poison.
@@ -1262,7 +1269,7 @@ fn poison_event_does_not_kill_worker() {
         modifiers: (false, false, false, false),
         scroll_delta: 0.0,
         callback_params: [0; 4],
-            pre_captured_element: None,
+        pre_captured_element: None,
     });
 
     // Give the worker time to process all three events.
@@ -1286,4 +1293,437 @@ fn poison_event_does_not_kill_worker() {
 
     assert_eq!(click_events[0].sequence_id, Some(1));
     assert_eq!(click_events[1].sequence_id, Some(3));
+}
+
+// ---------------------------------------------------------------------------
+// Additional unit tests for coverage gaps
+// ---------------------------------------------------------------------------
+
+/// Test: scroll accumulator flush on timeout — when the worker receives scroll
+/// events and then no more events arrive, the periodic timeout flush emits
+/// the accumulated scroll action.
+#[test]
+fn scroll_accumulator_flushes_on_timeout() {
+    let backend = MockBackend::new();
+    let harness = WorkerTestHarness::new(backend);
+
+    // Send multiple scroll events (rapid, within debounce window).
+    // Use current_timestamp so the debounce calculation works correctly.
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_millis() as u64;
+
+    for i in 0..5 {
+        let raw = RawEvent {
+            event_type: RawEventType::Scroll,
+            sequence_id: (i + 1) as u64,
+            timestamp: now + (i as u64 * 20), // 20ms apart
+            screen_x: 500,
+            screen_y: 500,
+            window_handle: 100,
+            process_id: 1,
+            key_code: 0,
+            modifiers: (false, false, false, false),
+            scroll_delta: 100.0, // Each scroll event has delta 100 (total 500 > 200 threshold)
+            callback_params: [0, 0, 0, 0], // vertical scroll
+            pre_captured_element: None,
+        };
+        harness.send_event(raw);
+    }
+
+    // Wait for the scroll debounce (300ms) + recv_timeout (50ms) + margin.
+    thread::sleep(Duration::from_millis(600));
+
+    let events = harness.shutdown();
+
+    // Should have at least one Scroll action event from the timeout flush.
+    let scroll_events: Vec<&ActionEvent> = events
+        .iter()
+        .filter(|e| matches!(e.payload, ActionPayload::Scroll { .. }))
+        .collect();
+
+    assert!(
+        !scroll_events.is_empty(),
+        "expected at least 1 scroll event from timeout flush, got 0 (total events: {})",
+        events.len()
+    );
+}
+
+/// Test: scroll accumulator flush on shutdown — when the worker has pending
+/// scroll events and receives Shutdown, the scroll is flushed.
+#[test]
+fn scroll_accumulator_flushes_on_shutdown() {
+    let backend = MockBackend::new();
+    let harness = WorkerTestHarness::new(backend);
+
+    // Use current timestamp so the accumulator's debounce check works.
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_millis() as u64;
+
+    // Send scroll events that exceed the threshold (total > 200px).
+    for i in 0..3 {
+        let raw = RawEvent {
+            event_type: RawEventType::Scroll,
+            sequence_id: (i + 1) as u64,
+            timestamp: now + (i as u64 * 10),
+            screen_x: 500,
+            screen_y: 500,
+            window_handle: 100,
+            process_id: 1,
+            key_code: 0,
+            modifiers: (false, false, false, false),
+            scroll_delta: 150.0,           // total 450 > 200 threshold
+            callback_params: [0, 0, 0, 0], // vertical scroll
+            pre_captured_element: None,
+        };
+        harness.send_event(raw);
+    }
+
+    // Shutdown immediately (before debounce expires).
+    // The shutdown path flushes with u64::MAX timestamp which always exceeds debounce.
+    thread::sleep(Duration::from_millis(100));
+    let events = harness.shutdown();
+
+    // Should have a scroll event from the shutdown flush.
+    let scroll_events: Vec<&ActionEvent> = events
+        .iter()
+        .filter(|e| matches!(e.payload, ActionPayload::Scroll { .. }))
+        .collect();
+
+    assert!(
+        !scroll_events.is_empty(),
+        "expected scroll event from shutdown flush, got 0 (total events: {})",
+        events.len()
+    );
+}
+
+/// Test: focus deduplication — consecutive focus events on the same element
+/// should produce only one Focus action event.
+#[test]
+fn focus_deduplication_suppresses_consecutive_same_element() {
+    let backend = MockBackend::new();
+    let harness = WorkerTestHarness::new(backend);
+
+    // Send two focus events for the same window (same element via mock).
+    for i in 0..2 {
+        let raw = RawEvent {
+            event_type: RawEventType::Focus,
+            sequence_id: (i + 1) as u64,
+            timestamp: 10000 + (i as u64 * 100),
+            screen_x: 0,
+            screen_y: 0,
+            window_handle: 100,
+            process_id: 1,
+            key_code: 0,
+            modifiers: (false, false, false, false),
+            scroll_delta: 0.0,
+            callback_params: [0; 4],
+            pre_captured_element: None,
+        };
+        harness.send_event(raw);
+    }
+
+    thread::sleep(Duration::from_millis(200));
+    let events = harness.shutdown();
+
+    // Only one focus event should be emitted (second is deduplicated).
+    let focus_events: Vec<&ActionEvent> = events
+        .iter()
+        .filter(|e| matches!(e.payload, ActionPayload::Focus { .. }))
+        .collect();
+
+    assert_eq!(
+        focus_events.len(),
+        1,
+        "expected 1 focus event (dedup), got {} (total events: {})",
+        focus_events.len(),
+        events.len()
+    );
+}
+
+/// Test: value-change deduplication — consecutive value-change events with
+/// the same value should not produce duplicate type events.
+#[test]
+fn value_change_deduplication_same_value() {
+    // All focused_element calls return the same text value.
+    let values = vec![
+        "same_value".to_string(),
+        "same_value".to_string(),
+        "same_value".to_string(),
+    ];
+    let backend = MockBackend::with_focused_values(values);
+    let harness = WorkerTestHarness::new(backend);
+
+    // Send three value-change events that all resolve to the same value.
+    for i in 0..3 {
+        let raw = RawEvent {
+            event_type: RawEventType::ValueChange,
+            sequence_id: (i + 1) as u64,
+            timestamp: 10000 + (i as u64 * 10),
+            screen_x: 0,
+            screen_y: 0,
+            window_handle: 100,
+            process_id: 1,
+            key_code: 0,
+            modifiers: (false, false, false, false),
+            scroll_delta: 0.0,
+            callback_params: [0; 4],
+            pre_captured_element: None,
+        };
+        harness.send_event(raw);
+    }
+
+    // Wait for debounce to expire.
+    thread::sleep(Duration::from_millis(700));
+    let events = harness.shutdown();
+
+    // Should produce at most one type event (dedup suppresses duplicates).
+    let type_events: Vec<&ActionEvent> = events
+        .iter()
+        .filter(|e| matches!(e.payload, ActionPayload::Type { .. }))
+        .collect();
+
+    assert!(
+        type_events.len() <= 1,
+        "expected at most 1 type event (dedup same value), got {}",
+        type_events.len()
+    );
+}
+
+/// Test: keyboard event produces a Key action event for control keys.
+#[test]
+fn keyboard_event_produces_key_action() {
+    let backend = MockBackend::new();
+    let harness = WorkerTestHarness::new(backend);
+
+    // Send a keyboard event for Enter key (0x0D).
+    let raw = RawEvent {
+        event_type: RawEventType::Keyboard,
+        sequence_id: 1,
+        timestamp: 10000,
+        screen_x: 0,
+        screen_y: 0,
+        window_handle: 100,
+        process_id: 1,
+        key_code: 0x0D, // Enter
+        modifiers: (false, false, false, false),
+        scroll_delta: 0.0,
+        callback_params: [0; 4],
+        pre_captured_element: None,
+    };
+    harness.send_event(raw);
+
+    thread::sleep(Duration::from_millis(200));
+    let events = harness.shutdown();
+
+    // Should have a Key action event.
+    let key_events: Vec<&ActionEvent> = events
+        .iter()
+        .filter(|e| matches!(e.payload, ActionPayload::Key { .. }))
+        .collect();
+
+    assert_eq!(
+        key_events.len(),
+        1,
+        "expected 1 key event for Enter, got {}",
+        key_events.len()
+    );
+}
+
+/// Test: keyboard event with modifier-only key (Shift alone) is skipped.
+#[test]
+fn modifier_only_key_is_skipped() {
+    let backend = MockBackend::new();
+    let harness = WorkerTestHarness::new(backend);
+
+    // Send a keyboard event for left Shift (0xA0) — modifier-only, should be skipped.
+    let raw = RawEvent {
+        event_type: RawEventType::Keyboard,
+        sequence_id: 1,
+        timestamp: 10000,
+        screen_x: 0,
+        screen_y: 0,
+        window_handle: 100,
+        process_id: 1,
+        key_code: 0xA0, // VK_LSHIFT
+        modifiers: (false, true, false, false),
+        scroll_delta: 0.0,
+        callback_params: [0; 4],
+        pre_captured_element: None,
+    };
+    harness.send_event(raw);
+
+    thread::sleep(Duration::from_millis(200));
+    let events = harness.shutdown();
+
+    // Should NOT produce a key event for modifier-only keys.
+    let key_events: Vec<&ActionEvent> = events
+        .iter()
+        .filter(|e| matches!(e.payload, ActionPayload::Key { .. }))
+        .collect();
+
+    assert_eq!(
+        key_events.len(),
+        0,
+        "expected 0 key events for modifier-only key, got {}",
+        key_events.len()
+    );
+}
+
+/// Test: foreground event produces a ContextSwitch action.
+#[test]
+fn foreground_event_produces_context_switch() {
+    let backend = MockBackend::new();
+    let harness = WorkerTestHarness::new(backend);
+
+    let raw = RawEvent {
+        event_type: RawEventType::Foreground,
+        sequence_id: 1,
+        timestamp: 10000,
+        screen_x: 0,
+        screen_y: 0,
+        window_handle: 200,
+        process_id: 1,
+        key_code: 0,
+        modifiers: (false, false, false, false),
+        scroll_delta: 0.0,
+        callback_params: [0; 4],
+        pre_captured_element: None,
+    };
+    harness.send_event(raw);
+
+    thread::sleep(Duration::from_millis(200));
+    let events = harness.shutdown();
+
+    let ctx_events: Vec<&ActionEvent> = events
+        .iter()
+        .filter(|e| matches!(e.payload, ActionPayload::ContextSwitch { .. }))
+        .collect();
+
+    assert_eq!(
+        ctx_events.len(),
+        1,
+        "expected 1 context_switch event, got {}",
+        ctx_events.len()
+    );
+}
+
+/// Test: right-click event produces a RightClick action.
+#[test]
+fn right_click_event_produces_right_click_action() {
+    let backend = MockBackend::new();
+    let harness = WorkerTestHarness::new(backend);
+
+    let raw = RawEvent {
+        event_type: RawEventType::RightClick,
+        sequence_id: 1,
+        timestamp: 10000,
+        screen_x: 300,
+        screen_y: 400,
+        window_handle: 100,
+        process_id: 1,
+        key_code: 0,
+        modifiers: (false, false, false, false),
+        scroll_delta: 0.0,
+        callback_params: [0; 4],
+        pre_captured_element: None,
+    };
+    harness.send_event(raw);
+
+    thread::sleep(Duration::from_millis(200));
+    let events = harness.shutdown();
+
+    let rc_events: Vec<&ActionEvent> = events
+        .iter()
+        .filter(|e| matches!(e.payload, ActionPayload::RightClick { .. }))
+        .collect();
+
+    assert_eq!(
+        rc_events.len(),
+        1,
+        "expected 1 right_click event, got {}",
+        rc_events.len()
+    );
+}
+
+/// Test: excluded PID events are discarded.
+#[test]
+fn excluded_pid_events_are_discarded() {
+    let backend = MockBackend::new();
+    let (event_tx, event_rx) = mpsc::channel::<WorkerMessage>();
+    let (action_tx, action_rx) = mpsc::channel::<ActionEvent>();
+    let queue_len = Arc::new(AtomicU64::new(0));
+    let excluded_pid = Arc::new(AtomicU32::new(42)); // Exclude PID 42
+
+    let ql = Arc::clone(&queue_len);
+    let ep = Arc::clone(&excluded_pid);
+
+    let thread_handle = thread::spawn(move || {
+        worker_loop(0, backend, event_rx, ql, action_tx, ep);
+    });
+
+    // Send an event from the excluded PID.
+    queue_len.fetch_add(1, Ordering::SeqCst);
+    event_tx
+        .send(WorkerMessage::Event(Box::new(RawEvent {
+            event_type: RawEventType::Click,
+            sequence_id: 1,
+            timestamp: 10000,
+            screen_x: 100,
+            screen_y: 200,
+            window_handle: 100,
+            process_id: 42, // Excluded PID
+            key_code: 0,
+            modifiers: (false, false, false, false),
+            scroll_delta: 0.0,
+            callback_params: [0; 4],
+            pre_captured_element: None,
+        })))
+        .unwrap();
+
+    // Send a normal event from a different PID.
+    queue_len.fetch_add(1, Ordering::SeqCst);
+    event_tx
+        .send(WorkerMessage::Event(Box::new(RawEvent {
+            event_type: RawEventType::Click,
+            sequence_id: 2,
+            timestamp: 10001,
+            screen_x: 100,
+            screen_y: 200,
+            window_handle: 100,
+            process_id: 99, // Not excluded
+            key_code: 0,
+            modifiers: (false, false, false, false),
+            scroll_delta: 0.0,
+            callback_params: [0; 4],
+            pre_captured_element: None,
+        })))
+        .unwrap();
+
+    thread::sleep(Duration::from_millis(200));
+    let _ = event_tx.send(WorkerMessage::Shutdown);
+    thread_handle.join().unwrap();
+
+    // Collect events.
+    let mut events = Vec::new();
+    while let Ok(evt) = action_rx.try_recv() {
+        events.push(evt);
+    }
+
+    // Only the non-excluded event should produce an action.
+    let click_events: Vec<&ActionEvent> = events
+        .iter()
+        .filter(|e| matches!(e.payload, ActionPayload::Click { .. }))
+        .collect();
+
+    assert_eq!(
+        click_events.len(),
+        1,
+        "expected 1 click event (excluded PID filtered), got {}",
+        click_events.len()
+    );
+    assert_eq!(click_events[0].sequence_id, Some(2));
 }

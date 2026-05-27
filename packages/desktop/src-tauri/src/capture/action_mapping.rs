@@ -4,9 +4,7 @@
 // This module contains NO Windows API calls so it can be compiled and tested
 // on any platform. The actual native event detection lives in `windows.rs`.
 
-use super::{
-    ActionEvent, ActionPayload, CaptureMode, ElementDescription, Modifiers, WindowRect,
-};
+use super::{ActionEvent, ActionPayload, CaptureMode, ElementDescription, Modifiers, WindowRect};
 
 // ---------------------------------------------------------------------------
 // Masked password value
@@ -56,13 +54,9 @@ pub enum NativeEvent {
         element: ElementDescription,
     },
     /// Focus change on an element.
-    Focus {
-        element: ElementDescription,
-    },
+    Focus { element: ElementDescription },
     /// Drag operation started.
-    DragStart {
-        element: ElementDescription,
-    },
+    DragStart { element: ElementDescription },
     /// Drop operation completed.
     Drop {
         x: f64,
@@ -89,9 +83,7 @@ pub enum NativeEvent {
         source: Option<String>,
     },
     /// Window closed.
-    WindowClose {
-        window_closing: bool,
-    },
+    WindowClose { window_closing: bool },
     /// File dialog completed with a confirmed selection.
     FileDialogComplete {
         dialog_type: String,
@@ -567,8 +559,7 @@ mod tests {
         ];
 
         for event in &events {
-            let action =
-                map_event(event, 1000, None, CaptureMode::Accessibility, None);
+            let action = map_event(event, 1000, None, CaptureMode::Accessibility, None);
             assert!(
                 action.frame_src.is_none(),
                 "frame_src must be None for all desktop actions"

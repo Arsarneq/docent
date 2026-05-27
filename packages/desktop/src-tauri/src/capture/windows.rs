@@ -23,16 +23,16 @@ use std::sync::Arc;
 use std::thread::{self, JoinHandle};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, POINT, WPARAM};
 use windows::core::BOOL;
+use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, POINT, WPARAM};
 use windows::Win32::System::Com::{
     CoCreateInstance, CoInitializeEx, CoUninitialize, CLSCTX_ALL, COINIT_APARTMENTTHREADED,
 };
 use windows::Win32::UI::Accessibility::{
     CUIAutomation, IUIAutomation, IUIAutomationElement, IUIAutomationSelectionPattern,
-    SetWinEventHook, UnhookWinEvent, UIA_AutomationIdPropertyId, UIA_ControlTypePropertyId,
+    SetWinEventHook, UIA_AutomationIdPropertyId, UIA_ControlTypePropertyId,
     UIA_IsPasswordPropertyId, UIA_LocalizedControlTypePropertyId, UIA_NamePropertyId,
-    UIA_SelectionPatternId, UIA_ValueValuePropertyId, HWINEVENTHOOK,
+    UIA_SelectionPatternId, UIA_ValueValuePropertyId, UnhookWinEvent, HWINEVENTHOOK,
 };
 use windows::Win32::UI::HiDpi::{
     SetProcessDpiAwarenessContext, DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2,
@@ -41,24 +41,22 @@ use windows::Win32::UI::Input::KeyboardAndMouse::{
     GetAsyncKeyState, VK_CONTROL, VK_LWIN, VK_MENU, VK_RWIN, VK_SHIFT,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
-    CallNextHookEx, DispatchMessageW, EnumWindows, GetClassNameW,
-    GetForegroundWindow, GetMessageW, GetParent, GetWindow, GetWindowLongW, GetWindowTextW,
-    GetWindowThreadProcessId, IsWindow, IsWindowVisible, PostThreadMessageW,
-    SetWindowsHookExW, TranslateMessage, UnhookWindowsHookEx, WindowFromPoint,
-    CHILDID_SELF, EVENT_OBJECT_CREATE, EVENT_OBJECT_DESTROY, EVENT_OBJECT_FOCUS,
-    EVENT_OBJECT_SELECTION, EVENT_OBJECT_VALUECHANGE, EVENT_SYSTEM_FOREGROUND, GWL_STYLE,
-    GW_OWNER, HHOOK, KBDLLHOOKSTRUCT, MSLLHOOKSTRUCT, MSG, OBJID_WINDOW, WH_KEYBOARD_LL,
-    WH_MOUSE_LL, WINEVENT_OUTOFCONTEXT, WM_KEYDOWN, WM_LBUTTONDOWN, WM_LBUTTONUP,
-    WM_MBUTTONDOWN, WM_MOUSEWHEEL, WM_QUIT, WM_RBUTTONDOWN, WM_SYSKEYDOWN, WS_CHILD,
+    CallNextHookEx, DispatchMessageW, EnumWindows, GetClassNameW, GetForegroundWindow, GetMessageW,
+    GetParent, GetWindow, GetWindowLongW, GetWindowTextW, GetWindowThreadProcessId, IsWindow,
+    IsWindowVisible, PostThreadMessageW, SetWindowsHookExW, TranslateMessage, UnhookWindowsHookEx,
+    WindowFromPoint, CHILDID_SELF, EVENT_OBJECT_CREATE, EVENT_OBJECT_DESTROY, EVENT_OBJECT_FOCUS,
+    EVENT_OBJECT_SELECTION, EVENT_OBJECT_VALUECHANGE, EVENT_SYSTEM_FOREGROUND, GWL_STYLE, GW_OWNER,
+    HHOOK, KBDLLHOOKSTRUCT, MSG, MSLLHOOKSTRUCT, OBJID_WINDOW, WH_KEYBOARD_LL, WH_MOUSE_LL,
+    WINEVENT_OUTOFCONTEXT, WM_KEYDOWN, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MBUTTONDOWN, WM_MOUSEWHEEL,
+    WM_QUIT, WM_RBUTTONDOWN, WM_SYSKEYDOWN, WS_CHILD,
 };
 
 use super::element_mapping::{control_type_name, map_element, UiaProperties};
 use super::scroll::should_keep_event;
 use super::timing;
-use super::worker_pool::{AccessibilityBackend, RawEvent, RawEventType, WorkerPool, worker_loop};
+use super::worker_pool::{worker_loop, AccessibilityBackend, RawEvent, RawEventType, WorkerPool};
 use super::{
-    ActionEvent, CaptureError, CaptureLayer, ElementDescription,
-    PermissionStatus, WindowInfo,
+    ActionEvent, CaptureError, CaptureLayer, ElementDescription, PermissionStatus, WindowInfo,
 };
 
 /// Horizontal mouse wheel message (not always exported by the windows crate).
@@ -115,6 +113,10 @@ thread_local! {
 
     /// Shared excluded PID for self-capture filtering.
     static INPUT_EXCLUDED_PID: std::cell::RefCell<Option<Arc<AtomicU32>>> =
+        const { std::cell::RefCell::new(None) };
+
+    /// Shared included PID for target app filtering. 0 means capture all.
+    static INPUT_INCLUDED_PID: std::cell::RefCell<Option<Arc<AtomicU32>>> =
         const { std::cell::RefCell::new(None) };
 
     /// PID of the current foreground window. Updated on EVENT_SYSTEM_FOREGROUND.
@@ -191,6 +193,8 @@ pub struct WindowsCapture {
     active: Arc<AtomicBool>,
     /// Shared excluded PID. 0 means no exclusion. Read by workers on every event.
     excluded_pid: Arc<AtomicU32>,
+    /// Shared included PID (target app). 0 means capture all. Read by input thread on every event.
+    included_pid: Arc<AtomicU32>,
     /// The worker pool that manages accessibility worker threads.
     /// Owned by the bridge thread during capture; stored here only for shutdown.
     worker_pool: Option<WorkerPool>,
@@ -211,6 +215,7 @@ impl WindowsCapture {
         Self {
             active: Arc::new(AtomicBool::new(false)),
             excluded_pid: Arc::new(AtomicU32::new(0)),
+            included_pid: Arc::new(AtomicU32::new(0)),
             worker_pool: None,
             sequence_counter: None,
             bridge_thread: None,
@@ -273,15 +278,20 @@ impl CaptureLayer for WindowsCapture {
         // --- Spawn Input_Thread ---
         let active = self.active.clone();
         let excluded_pid_for_input = self.excluded_pid.clone();
+        let included_pid_for_input = self.included_pid.clone();
 
         let (tid_tx, tid_rx) = std::sync::mpsc::channel::<u32>();
 
         let input_handle = thread::spawn(move || -> Result<(), CaptureError> {
-            let thread_id = unsafe {
-                windows::Win32::System::Threading::GetCurrentThreadId()
-            };
+            let thread_id = unsafe { windows::Win32::System::Threading::GetCurrentThreadId() };
             let _ = tid_tx.send(thread_id);
-            input_thread_main(active, excluded_pid_for_input, sequence_counter, raw_tx)
+            input_thread_main(
+                active,
+                excluded_pid_for_input,
+                included_pid_for_input,
+                sequence_counter,
+                raw_tx,
+            )
         });
 
         match tid_rx.recv_timeout(std::time::Duration::from_secs(5)) {
@@ -367,6 +377,10 @@ impl CaptureLayer for WindowsCapture {
         self.excluded_pid.store(pid.unwrap_or(0), Ordering::SeqCst);
     }
 
+    fn set_included_pid(&mut self, pid: Option<u32>) {
+        self.included_pid.store(pid.unwrap_or(0), Ordering::SeqCst);
+    }
+
     fn max_sequence_id(&self) -> u64 {
         self.sequence_counter
             .as_ref()
@@ -398,6 +412,7 @@ impl CaptureLayer for WindowsCapture {
 fn input_thread_main(
     active: Arc<AtomicBool>,
     excluded_pid: Arc<AtomicU32>,
+    included_pid: Arc<AtomicU32>,
     sequence_counter: Arc<AtomicU64>,
     raw_tx: std::sync::mpsc::Sender<RawEvent>,
 ) -> Result<(), CaptureError> {
@@ -426,12 +441,12 @@ fn input_thread_main(
     INPUT_SEQUENCE_COUNTER.with(|c| *c.borrow_mut() = Some(sequence_counter));
     INPUT_ACTIVE.with(|a| *a.borrow_mut() = Some(active.clone()));
     INPUT_EXCLUDED_PID.with(|p| *p.borrow_mut() = Some(excluded_pid));
+    INPUT_INCLUDED_PID.with(|p| *p.borrow_mut() = Some(included_pid));
 
     // Create a lightweight IUIAutomation instance for pre-capturing click
     // elements. This is used ONLY for ElementFromPoint on mouse-up events.
-    let input_uia: Option<IUIAutomation> = unsafe {
-        CoCreateInstance(&CUIAutomation, None, CLSCTX_ALL).ok()
-    };
+    let input_uia: Option<IUIAutomation> =
+        unsafe { CoCreateInstance(&CUIAutomation, None, CLSCTX_ALL).ok() };
     INPUT_UIA.with(|u| *u.borrow_mut() = input_uia);
 
     // Initialize foreground PID with the current foreground window.
@@ -493,16 +508,21 @@ fn input_thread_main(
 
     if let Err(e) = hook_result {
         for h in &win_hooks {
-            unsafe { let _ = UnhookWinEvent(*h); }
+            unsafe {
+                let _ = UnhookWinEvent(*h);
+            }
         }
         for h in &ll_hooks {
-            unsafe { let _ = UnhookWindowsHookEx(*h); }
+            unsafe {
+                let _ = UnhookWindowsHookEx(*h);
+            }
         }
         // Clean up thread-local state.
         INPUT_RAW_SENDER.with(|s| *s.borrow_mut() = None);
         INPUT_SEQUENCE_COUNTER.with(|c| *c.borrow_mut() = None);
         INPUT_ACTIVE.with(|a| *a.borrow_mut() = None);
         INPUT_EXCLUDED_PID.with(|p| *p.borrow_mut() = None);
+        INPUT_INCLUDED_PID.with(|p| *p.borrow_mut() = None);
         INPUT_PID_CACHE.with(|c| c.borrow_mut().clear());
         INPUT_UIA.with(|u| *u.borrow_mut() = None);
         INPUT_LAST_INPUT_TIMESTAMP.with(|t| t.set(0));
@@ -525,10 +545,14 @@ fn input_thread_main(
 
     // --- Cleanup: unhook all hooks ---
     for h in &win_hooks {
-        unsafe { let _ = UnhookWinEvent(*h); }
+        unsafe {
+            let _ = UnhookWinEvent(*h);
+        }
     }
     for h in &ll_hooks {
-        unsafe { let _ = UnhookWindowsHookEx(*h); }
+        unsafe {
+            let _ = UnhookWindowsHookEx(*h);
+        }
     }
 
     // --- Clean up thread-local state ---
@@ -536,6 +560,7 @@ fn input_thread_main(
     INPUT_SEQUENCE_COUNTER.with(|c| *c.borrow_mut() = None);
     INPUT_ACTIVE.with(|a| *a.borrow_mut() = None);
     INPUT_EXCLUDED_PID.with(|p| *p.borrow_mut() = None);
+    INPUT_INCLUDED_PID.with(|p| *p.borrow_mut() = None);
     INPUT_FOREGROUND_PID.with(|p| p.set(0));
     INPUT_LAST_FOREGROUND_HWND.with(|p| p.set(0));
     INPUT_MOUSE_DOWN_POS.with(|p| p.set(None));
@@ -604,7 +629,26 @@ fn input_get_excluded_pid() -> Option<u32> {
     INPUT_EXCLUDED_PID.with(|p| {
         p.borrow().as_ref().and_then(|arc| {
             let val = arc.load(Ordering::SeqCst);
-            if val == 0 { None } else { Some(val) }
+            if val == 0 {
+                None
+            } else {
+                Some(val)
+            }
+        })
+    })
+}
+
+/// Read the current included PID (target app) from the Input_Thread's shared atomic.
+/// Returns None if no target is set (capture all).
+fn input_get_included_pid() -> Option<u32> {
+    INPUT_INCLUDED_PID.with(|p| {
+        p.borrow().as_ref().and_then(|arc| {
+            let val = arc.load(Ordering::SeqCst);
+            if val == 0 {
+                None
+            } else {
+                Some(val)
+            }
         })
     })
 }
@@ -614,10 +658,19 @@ fn input_get_excluded_pid() -> Option<u32> {
 /// The cache is populated on first check and reused for subsequent events.
 /// This covers both the direct PID check AND the is_owned_by_excluded check.
 fn input_should_keep_event_cached(event_pid: u32, excluded_pid: Option<u32>, hwnd: HWND) -> bool {
-    // Fast path: PID 0 is always filtered, no exclusion means keep all.
+    // Fast path: PID 0 is always filtered.
     if event_pid == 0 {
         return false;
     }
+
+    // Target app filter: if an included PID is set, only keep events from that PID.
+    if let Some(incl) = input_get_included_pid() {
+        if event_pid != incl {
+            return false;
+        }
+    }
+
+    // Exclusion filter (self-capture).
     let Some(excl) = excluded_pid else {
         return true;
     };
@@ -701,7 +754,11 @@ unsafe extern "system" fn input_win_event_proc(
             // Resolve root window for deduplication comparison.
             use windows::Win32::UI::WindowsAndMessaging::{GetAncestor, GA_ROOT};
             let root = GetAncestor(hwnd, GA_ROOT);
-            let root_handle = if root.0.is_null() { window_handle } else { root.0 as i64 };
+            let root_handle = if root.0.is_null() {
+                window_handle
+            } else {
+                root.0 as i64
+            };
 
             // Deduplicate: if the click-based handler already dispatched a
             // foreground event for this same root window, skip.
@@ -723,113 +780,120 @@ unsafe extern "system" fn input_win_event_proc(
                 modifiers: (false, false, false, false),
                 scroll_delta: 0.0,
                 callback_params: [id_object as i64, id_child as i64, 0, 0],
-                            pre_captured_element: None,
+                pre_captured_element: None,
             });
         }
 
         x if x == EVENT_OBJECT_CREATE
-            && id_object == OBJID_WINDOW.0 && id_child == CHILDID_SELF as i32 => {
-                if !IsWindow(Some(hwnd)).as_bool() {
-                    return;
-                }
-                // Only emit for top-level visible windows.
-                if !IsWindowVisible(hwnd).as_bool() {
-                    return;
-                }
-                let style = GetWindowLongW(hwnd, GWL_STYLE) as u32;
-                if style & WS_CHILD.0 != 0 {
-                    return;
-                }
-                let parent = GetParent(hwnd);
-                if let Ok(p) = parent {
-                    if !p.0.is_null() {
-                        return;
-                    }
-                }
-                // Only dispatch if correlated with recent user input.
-                let last_input = INPUT_LAST_INPUT_TIMESTAMP.with(|t| t.get());
-                if timestamp.saturating_sub(last_input) > timing::WINDOW_LIFECYCLE_CORRELATION_MS {
-                    return; // Programmatic window creation — suppress.
-                }
-                input_dispatch_raw_event(RawEvent {
-                    event_type: RawEventType::WindowCreate,
-                    sequence_id: 0,
-                    timestamp,
-                    screen_x: 0,
-                    screen_y: 0,
-                    window_handle,
-                    process_id,
-                    key_code: 0,
-                    modifiers: (false, false, false, false),
-                    scroll_delta: 0.0,
-                    callback_params: [id_object as i64, id_child as i64, 0, 0],
-                            pre_captured_element: None,
-                });
-                // Track this window so we only emit context_close for it.
-                INPUT_OPENED_WINDOWS.with(|s| s.borrow_mut().insert(window_handle));
+            && id_object == OBJID_WINDOW.0
+            && id_child == CHILDID_SELF as i32 =>
+        {
+            if !IsWindow(Some(hwnd)).as_bool() {
+                return;
             }
+            // Only emit for top-level visible windows.
+            if !IsWindowVisible(hwnd).as_bool() {
+                return;
+            }
+            let style = GetWindowLongW(hwnd, GWL_STYLE) as u32;
+            if style & WS_CHILD.0 != 0 {
+                return;
+            }
+            let parent = GetParent(hwnd);
+            if let Ok(p) = parent {
+                if !p.0.is_null() {
+                    return;
+                }
+            }
+            // Only dispatch if correlated with recent user input.
+            let last_input = INPUT_LAST_INPUT_TIMESTAMP.with(|t| t.get());
+            if timestamp.saturating_sub(last_input) > timing::WINDOW_LIFECYCLE_CORRELATION_MS {
+                return; // Programmatic window creation — suppress.
+            }
+            input_dispatch_raw_event(RawEvent {
+                event_type: RawEventType::WindowCreate,
+                sequence_id: 0,
+                timestamp,
+                screen_x: 0,
+                screen_y: 0,
+                window_handle,
+                process_id,
+                key_code: 0,
+                modifiers: (false, false, false, false),
+                scroll_delta: 0.0,
+                callback_params: [id_object as i64, id_child as i64, 0, 0],
+                pre_captured_element: None,
+            });
+            // Track this window so we only emit context_close for it.
+            INPUT_OPENED_WINDOWS.with(|s| s.borrow_mut().insert(window_handle));
+        }
 
         x if x == EVENT_OBJECT_DESTROY
-            && id_object == OBJID_WINDOW.0 && id_child == CHILDID_SELF as i32 => {
-                // Only emit context_close for true top-level windows.
-                // Skip child windows, owned windows, and windows without
-                // titles to avoid flooding when dialogs with many
-                // sub-windows are dismissed.
-                let style = GetWindowLongW(hwnd, GWL_STYLE) as u32;
-                if style & WS_CHILD.0 != 0 {
-                    // Child window — skip.
-                } else {
-                    let parent = GetParent(hwnd);
-                    let has_parent = parent.is_ok_and(|p| !p.0.is_null());
-                    // Check if the window is owned by another window.
-                    let owner = GetWindow(hwnd, GW_OWNER);
-                    let has_owner = owner.is_ok_and(|o| o != HWND::default());
-                    // Check if the window has a title (titleless windows
-                    // are typically internal framework windows).
-                    let title = get_window_title(hwnd);
-                    // Check if this window's root ancestor is the current
-                    // foreground window — if so, it's an internal sub-window
-                    // (e.g. file dialog folder view refreshing), not a
-                    // standalone window the user closed.
-                    let fg = GetForegroundWindow();
-                    let root = {
-                        use windows::Win32::UI::WindowsAndMessaging::{GetAncestor, GA_ROOT};
-                        GetAncestor(hwnd, GA_ROOT)
-                    };
-                    let is_sub_of_foreground = !fg.0.is_null() && !root.0.is_null() && root == fg;
+            && id_object == OBJID_WINDOW.0
+            && id_child == CHILDID_SELF as i32 =>
+        {
+            // Only emit context_close for true top-level windows.
+            // Skip child windows, owned windows, and windows without
+            // titles to avoid flooding when dialogs with many
+            // sub-windows are dismissed.
+            let style = GetWindowLongW(hwnd, GWL_STYLE) as u32;
+            if style & WS_CHILD.0 != 0 {
+                // Child window — skip.
+            } else {
+                let parent = GetParent(hwnd);
+                let has_parent = parent.is_ok_and(|p| !p.0.is_null());
+                // Check if the window is owned by another window.
+                let owner = GetWindow(hwnd, GW_OWNER);
+                let has_owner = owner.is_ok_and(|o| o != HWND::default());
+                // Check if the window has a title (titleless windows
+                // are typically internal framework windows).
+                let title = get_window_title(hwnd);
+                // Check if this window's root ancestor is the current
+                // foreground window — if so, it's an internal sub-window
+                // (e.g. file dialog folder view refreshing), not a
+                // standalone window the user closed.
+                let fg = GetForegroundWindow();
+                let root = {
+                    use windows::Win32::UI::WindowsAndMessaging::{GetAncestor, GA_ROOT};
+                    GetAncestor(hwnd, GA_ROOT)
+                };
+                let is_sub_of_foreground = !fg.0.is_null() && !root.0.is_null() && root == fg;
 
-                    if !has_parent && !has_owner && !title.is_empty() && !is_sub_of_foreground {
-                        // Only emit context_close for windows we previously
-                        // emitted context_open for. This prevents spurious
-                        // context_close for internal windows (file dialog
-                        // folder views, shell sub-windows) that were never
-                        // captured as context_open.
-                        let was_opened = INPUT_OPENED_WINDOWS.with(|s| s.borrow_mut().remove(&window_handle));
-                        if !was_opened {
-                            return; // Never opened — don't close.
-                        }
-                        // Only dispatch if correlated with recent user input.
-                        let last_input = INPUT_LAST_INPUT_TIMESTAMP.with(|t| t.get());
-                        if timestamp.saturating_sub(last_input) > timing::WINDOW_LIFECYCLE_CORRELATION_MS {
-                            return; // Programmatic window destruction — suppress.
-                        }
-                        input_dispatch_raw_event(RawEvent {
-                            event_type: RawEventType::WindowDestroy,
-                            sequence_id: 0,
-                            timestamp,
-                            screen_x: 0,
-                            screen_y: 0,
-                            window_handle,
-                            process_id,
-                            key_code: 0,
-                            modifiers: (false, false, false, false),
-                            scroll_delta: 0.0,
-                            callback_params: [id_object as i64, id_child as i64, 0, 0],
-                            pre_captured_element: None,
-                        });
+                if !has_parent && !has_owner && !title.is_empty() && !is_sub_of_foreground {
+                    // Only emit context_close for windows we previously
+                    // emitted context_open for. This prevents spurious
+                    // context_close for internal windows (file dialog
+                    // folder views, shell sub-windows) that were never
+                    // captured as context_open.
+                    let was_opened =
+                        INPUT_OPENED_WINDOWS.with(|s| s.borrow_mut().remove(&window_handle));
+                    if !was_opened {
+                        return; // Never opened — don't close.
                     }
+                    // Only dispatch if correlated with recent user input.
+                    let last_input = INPUT_LAST_INPUT_TIMESTAMP.with(|t| t.get());
+                    if timestamp.saturating_sub(last_input)
+                        > timing::WINDOW_LIFECYCLE_CORRELATION_MS
+                    {
+                        return; // Programmatic window destruction — suppress.
+                    }
+                    input_dispatch_raw_event(RawEvent {
+                        event_type: RawEventType::WindowDestroy,
+                        sequence_id: 0,
+                        timestamp,
+                        screen_x: 0,
+                        screen_y: 0,
+                        window_handle,
+                        process_id,
+                        key_code: 0,
+                        modifiers: (false, false, false, false),
+                        scroll_delta: 0.0,
+                        callback_params: [id_object as i64, id_child as i64, 0, 0],
+                        pre_captured_element: None,
+                    });
                 }
             }
+        }
 
         x if x == EVENT_OBJECT_FOCUS => {
             // Only dispatch focus if correlated with recent user input.
@@ -864,7 +928,7 @@ unsafe extern "system" fn input_win_event_proc(
                 modifiers: (false, false, false, false),
                 scroll_delta: 0.0,
                 callback_params: [id_object as i64, id_child as i64, 0, 0],
-                            pre_captured_element: None,
+                pre_captured_element: None,
             });
         }
 
@@ -886,8 +950,16 @@ unsafe extern "system" fn input_win_event_proc(
                 let vc_root = GetAncestor(hwnd, GA_ROOT);
                 let kb_root = HWND(last_kb_window as *mut _);
                 let kb_root_resolved = GetAncestor(kb_root, GA_ROOT);
-                let vc_root_h = if vc_root.0.is_null() { hwnd.0 as i64 } else { vc_root.0 as i64 };
-                let kb_root_h = if kb_root_resolved.0.is_null() { last_kb_window } else { kb_root_resolved.0 as i64 };
+                let vc_root_h = if vc_root.0.is_null() {
+                    hwnd.0 as i64
+                } else {
+                    vc_root.0 as i64
+                };
+                let kb_root_h = if kb_root_resolved.0.is_null() {
+                    last_kb_window
+                } else {
+                    kb_root_resolved.0 as i64
+                };
                 if vc_root_h != kb_root_h {
                     return; // Different root window — suppress.
                 }
@@ -905,7 +977,7 @@ unsafe extern "system" fn input_win_event_proc(
                 modifiers: (false, false, false, false),
                 scroll_delta: 0.0,
                 callback_params: [id_object as i64, id_child as i64, 0, 0],
-                            pre_captured_element: None,
+                pre_captured_element: None,
             });
         }
 
@@ -935,8 +1007,16 @@ unsafe extern "system" fn input_win_event_proc(
                 let sel_root = GetAncestor(hwnd, GA_ROOT);
                 let click_hwnd = HWND(last_click_window as *mut _);
                 let click_root = GetAncestor(click_hwnd, GA_ROOT);
-                let sel_root_h = if sel_root.0.is_null() { hwnd.0 as i64 } else { sel_root.0 as i64 };
-                let click_root_h = if click_root.0.is_null() { last_click_window } else { click_root.0 as i64 };
+                let sel_root_h = if sel_root.0.is_null() {
+                    hwnd.0 as i64
+                } else {
+                    sel_root.0 as i64
+                };
+                let click_root_h = if click_root.0.is_null() {
+                    last_click_window
+                } else {
+                    click_root.0 as i64
+                };
                 if sel_root_h != click_root_h {
                     return; // Different root window — dialog init noise.
                 }
@@ -953,7 +1033,7 @@ unsafe extern "system" fn input_win_event_proc(
                 modifiers: (false, false, false, false),
                 scroll_delta: 0.0,
                 callback_params: [id_object as i64, id_child as i64, 0, 0],
-                            pre_captured_element: None,
+                pre_captured_element: None,
             });
         }
 
@@ -984,7 +1064,11 @@ unsafe extern "system" fn input_mouse_ll_proc(
         // when Docent was foreground but the user clicked on a different window.
         let point_hwnd = WindowFromPoint(pt);
         let fg_hwnd = GetForegroundWindow();
-        let check_hwnd = if point_hwnd.0.is_null() { fg_hwnd } else { point_hwnd };
+        let check_hwnd = if point_hwnd.0.is_null() {
+            fg_hwnd
+        } else {
+            point_hwnd
+        };
         let mut pid: u32 = 0;
         GetWindowThreadProcessId(check_hwnd, Some(&mut pid));
         let excluded = input_get_excluded_pid();
@@ -1018,8 +1102,16 @@ unsafe extern "system" fn input_mouse_ll_proc(
                         use windows::Win32::UI::WindowsAndMessaging::{GetAncestor, GA_ROOT};
                         let clicked_root = GetAncestor(point_hwnd, GA_ROOT);
                         let fg_root = GetAncestor(fg_hwnd, GA_ROOT);
-                        let clicked_root_h = if clicked_root.0.is_null() { point_hwnd } else { clicked_root };
-                        let fg_root_h = if fg_root.0.is_null() { fg_hwnd } else { fg_root };
+                        let clicked_root_h = if clicked_root.0.is_null() {
+                            point_hwnd
+                        } else {
+                            clicked_root
+                        };
+                        let fg_root_h = if fg_root.0.is_null() {
+                            fg_hwnd
+                        } else {
+                            fg_root
+                        };
                         if clicked_root_h != fg_root_h {
                             let clicked_handle = clicked_root_h.0 as i64;
                             let last_fg = INPUT_LAST_FOREGROUND_HWND.with(|h| h.get());
@@ -1059,14 +1151,11 @@ unsafe extern "system" fn input_mouse_ll_proc(
 
                     if was_drag {
                         // Drag detected: dispatch DragStart + Drop pair.
-                        let down_pt = INPUT_MOUSE_DOWN_POS.with(|p| p.get())
-                            .unwrap_or(pt);
+                        let down_pt = INPUT_MOUSE_DOWN_POS.with(|p| p.get()).unwrap_or(pt);
                         let source_coords = (down_pt.x, down_pt.y);
 
                         input_dispatch_raw_event(RawEvent {
-                            event_type: RawEventType::DragStart {
-                                source_coords,
-                            },
+                            event_type: RawEventType::DragStart { source_coords },
                             sequence_id: 0,
                             timestamp,
                             screen_x: down_pt.x,
@@ -1081,9 +1170,7 @@ unsafe extern "system" fn input_mouse_ll_proc(
                         });
 
                         input_dispatch_raw_event(RawEvent {
-                            event_type: RawEventType::Drop {
-                                source_coords,
-                            },
+                            event_type: RawEventType::Drop { source_coords },
                             sequence_id: 0,
                             timestamp,
                             screen_x: pt.x,
@@ -1153,7 +1240,7 @@ unsafe extern "system" fn input_mouse_ll_proc(
                         modifiers: (false, false, false, false),
                         scroll_delta: delta,
                         callback_params: [0, 0, 0, 0],
-                            pre_captured_element: None,
+                        pre_captured_element: None,
                     });
                 }
                 WM_MOUSEHWHEEL => {
@@ -1246,7 +1333,7 @@ unsafe extern "system" fn input_keyboard_ll_proc(
                     modifiers,
                     scroll_delta: 0.0,
                     callback_params: [0, 0, 0, 0],
-                            pre_captured_element: None,
+                    pre_captured_element: None,
                 });
             }
         }
@@ -1386,9 +1473,7 @@ pub(crate) unsafe fn find_child_value_by_automation_id(
     parent: &IUIAutomationElement,
     target_automation_id: &str,
 ) -> Option<String> {
-    use windows::Win32::UI::Accessibility::{
-        TreeScope_Descendants, UIA_EditControlTypeId,
-    };
+    use windows::Win32::UI::Accessibility::{TreeScope_Descendants, UIA_EditControlTypeId};
 
     // Create a condition to find Edit controls.
     let edit_condition = uia
@@ -1582,8 +1667,7 @@ pub(crate) unsafe fn get_modifier_state() -> (bool, bool, bool, bool) {
     let ctrl = GetAsyncKeyState(VK_CONTROL.0 as i32) < 0;
     let shift = GetAsyncKeyState(VK_SHIFT.0 as i32) < 0;
     let alt = GetAsyncKeyState(VK_MENU.0 as i32) < 0;
-    let meta = GetAsyncKeyState(VK_LWIN.0 as i32) < 0
-        || GetAsyncKeyState(VK_RWIN.0 as i32) < 0;
+    let meta = GetAsyncKeyState(VK_LWIN.0 as i32) < 0 || GetAsyncKeyState(VK_RWIN.0 as i32) < 0;
     (ctrl, shift, alt, meta)
 }
 
@@ -1700,8 +1784,7 @@ impl AccessibilityBackend for WindowsAccessibilityBackend {
             let dialog_element = uia.ElementFromHandle(hwnd).ok()?;
 
             // Read the filename from the "File name:" edit (AutomationId "1001").
-            let filename =
-                find_child_value_by_automation_id(uia, &dialog_element, "1001")?;
+            let filename = find_child_value_by_automation_id(uia, &dialog_element, "1001")?;
             if filename.is_empty() {
                 return None;
             }
@@ -1770,9 +1853,7 @@ impl AccessibilityBackend for WindowsAccessibilityBackend {
 
         // Try to get the SelectionPattern from the focused element.
         let pattern: IUIAutomationSelectionPattern = unsafe {
-            let pattern_obj = focused
-                .GetCurrentPattern(UIA_SelectionPatternId)
-                .ok()?;
+            let pattern_obj = focused.GetCurrentPattern(UIA_SelectionPatternId).ok()?;
             pattern_obj.cast().ok()?
         };
 

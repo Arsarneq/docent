@@ -25,12 +25,16 @@ const { listen } = window.__TAURI__.event;
 // The Rust backend streams capture:action events; we count them here.
 
 let _pendingActions = [];
-let _pendingCountCallbacks = [];
+const _pendingCountCallbacks = [];
 
 function _notifyPendingCount() {
   const count = _pendingActions.length;
   for (const cb of _pendingCountCallbacks) {
-    try { cb(count); } catch { /* ignore */ }
+    try {
+      cb(count);
+    } catch {
+      /* ignore */
+    }
   }
 }
 
@@ -52,7 +56,7 @@ function _insertOrdered(action) {
   const seqId = action.sequence_id;
 
   // Strip sequence_id before adding to pending actions
-  const { sequence_id, ...cleanAction } = action;
+  const { sequence_id: _seq, ...cleanAction } = action;
 
   if (seqId == null) {
     // No sequence_id — append to end
@@ -77,7 +81,11 @@ function _insertOrdered(action) {
 
   _notifyPendingCount();
   for (const cb of _actionEventCallbacks) {
-    try { cb(cleanAction); } catch { /* ignore */ }
+    try {
+      cb(cleanAction);
+    } catch {
+      /* ignore */
+    }
   }
 }
 
@@ -101,7 +109,9 @@ async function commitWithCompleteness() {
     const check = () => {
       if (_highestSeenSeq >= maxSeq || Date.now() >= deadline) {
         if (Date.now() >= deadline && _highestSeenSeq < maxSeq) {
-          console.warn(`[Docent] Completeness timeout: seen seq ${_highestSeenSeq}, max was ${maxSeq}`);
+          console.warn(
+            `[Docent] Completeness timeout: seen seq ${_highestSeenSeq}, max was ${maxSeq}`,
+          );
         }
         resolve();
         return;
@@ -122,7 +132,7 @@ function _stripSeqFields() {
 
 // ─── Action event listeners ───────────────────────────────────────────────────
 
-let _actionEventCallbacks = [];
+const _actionEventCallbacks = [];
 
 // Start listening for capture:action events from the Rust backend
 listen('capture:action', (event) => {
@@ -134,7 +144,6 @@ listen('capture:action', (event) => {
 
 /** @type {import('../shared/views/adapter.js').PlatformAdapter} */
 const tauriAdapter = {
-
   // ── Message passing ───────────────────────────────────────────────────────
 
   /**
@@ -168,7 +177,7 @@ const tauriAdapter = {
       const state = JSON.parse(json);
       return {
         endpointUrl: state?.settings?.endpointUrl ?? null,
-        apiKey:      state?.settings?.apiKey ?? null,
+        apiKey: state?.settings?.apiKey ?? null,
       };
     } catch {
       return { endpointUrl: null, apiKey: null };
@@ -189,7 +198,48 @@ const tauriAdapter = {
       state.settings.apiKey = apiKey || null;
       await invoke('save_state', { data: JSON.stringify(state) });
     } catch (err) {
-      throw new Error(`Failed to save settings: ${err.message || err}`);
+      throw new Error(`Failed to save settings: ${err.message || err}`, { cause: err });
+    }
+  },
+
+  // ── Sync settings ───────────────────────────────────────────────────────────
+
+  async loadSyncSettings() {
+    try {
+      const json = await invoke('load_state');
+      const state = JSON.parse(json);
+      return {
+        serverUrl: state?.settings?.syncUrl ?? null,
+        apiKey: state?.settings?.syncApiKey ?? null,
+      };
+    } catch {
+      return { serverUrl: null, apiKey: null };
+    }
+  },
+
+  async saveSyncSettings(serverUrl, apiKey) {
+    const urlError = _validateEndpointUrl(serverUrl);
+    if (serverUrl !== '' && urlError !== null) {
+      throw new Error(urlError);
+    }
+
+    try {
+      const json = await invoke('load_state');
+      const state = JSON.parse(json);
+      if (!state.settings) state.settings = {};
+
+      if (serverUrl === '') {
+        // Clear both sync URL and API key when serverUrl is empty (R1-AC3)
+        delete state.settings.syncUrl;
+        delete state.settings.syncApiKey;
+      } else {
+        state.settings.syncUrl = serverUrl;
+        state.settings.syncApiKey = apiKey || null;
+      }
+
+      await invoke('save_state', { data: JSON.stringify(state) });
+    } catch (err) {
+      throw new Error(`Failed to save sync settings: ${err.message || err}`, { cause: err });
     }
   },
 
@@ -217,6 +267,30 @@ const tauriAdapter = {
     }
   },
 
+  // ── Recording mode ────────────────────────────────────────────────────────
+
+  async loadRecordingMode() {
+    try {
+      const json = await invoke('load_state');
+      const state = JSON.parse(json);
+      return state?.settings?.recordingMode ?? 'narration';
+    } catch {
+      return 'narration';
+    }
+  },
+
+  async saveRecordingMode(mode) {
+    try {
+      const json = await invoke('load_state');
+      const state = JSON.parse(json);
+      if (!state.settings) state.settings = {};
+      state.settings.recordingMode = mode;
+      await invoke('save_state', { data: JSON.stringify(state) });
+    } catch {
+      // Silently fail — recording mode is non-critical
+    }
+  },
+
   // ── Reading guidance ──────────────────────────────────────────────────────
 
   async loadReadingGuidance() {
@@ -227,6 +301,19 @@ const tauriAdapter = {
     } catch (err) {
       console.warn('[Docent] Failed to load reading guidance:', err);
       return '';
+    }
+  },
+
+  // ── Schema ────────────────────────────────────────────────────────────────
+
+  async loadSchema() {
+    try {
+      const response = await fetch('../shared/session.schema.json');
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      return await response.json();
+    } catch (err) {
+      console.warn('[Docent] Failed to load schema:', err);
+      return {};
     }
   },
 
@@ -273,7 +360,9 @@ export function getHighestSeenSeq() {
 
 // Test-only exports for reorder internals
 export const _testOnly = {
-  get highestSeenSeq() { return _highestSeenSeq; },
+  get highestSeenSeq() {
+    return _highestSeenSeq;
+  },
   resetReorderState: _resetReorderState,
   insertOrdered: _insertOrdered,
   stripSeqFields: _stripSeqFields,

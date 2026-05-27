@@ -3,9 +3,11 @@
   "version": "1.0.0",
   "type": "module",
   "scripts": {
-    "test": "node --test tests/dispatch.test.js tests/panel.test.js tests/naming.property.test.js"
+    "test": "node --test tests/dispatch.test.js tests/panel.test.js tests/naming.property.test.js tests/recording-mode.test.js tests/service-worker.test.js tests/capture-timing.test.js",
+    "test:coverage": "c8 --reporter=text --reporter=lcov node --test tests/dispatch.test.js tests/panel.test.js tests/naming.property.test.js tests/recording-mode.test.js tests/service-worker.test.js tests/capture-timing.test.js"
   },
   "devDependencies": {
+    "c8": "^11.0.0",
     "fast-check": "^4.8.0"
   }
 }

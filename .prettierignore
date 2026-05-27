@@ -1,0 +1,9 @@
+node_modules/
+packages/*/shared/
+packages/extension/sidepanel/index.html
+packages/desktop/src/index.html
+packages/desktop/dist/
+packages/desktop/src-tauri/target/
+coverage/
+*.lock
+.github/workflows/

@@ -11,10 +11,30 @@
     "test:desktop": "node --test packages/desktop/tests/*.test.js",
     "test:desktop:rust": "cargo test --manifest-path packages/desktop/src-tauri/Cargo.toml",
     "test:shared": "node --test packages/shared/tests/*.test.js",
+    "test:shared:coverage": "c8 --reporter=text --reporter=lcov node --test packages/shared/tests/*.test.js",
+    "test:desktop:coverage": "c8 --reporter=text --reporter=lcov node --test packages/desktop/tests/*.test.js",
+    "test:coverage": "c8 --reporter=text --reporter=lcov --all --src packages/shared/lib --src packages/shared/views --src packages/desktop/src node --test packages/shared/tests/*.test.js packages/desktop/tests/*.test.js",
+    "lint": "npm run lint:js && npm run lint:css && npm run lint:md && npm run lint:format",
+    "lint:js": "eslint packages/shared/ packages/extension/sidepanel/ packages/extension/content/ packages/extension/background/ packages/desktop/src/ scripts/",
+    "lint:css": "stylelint 'packages/shared/views/**/*.css'",
+    "lint:md": "markdownlint-cli2 '**/*.md' '#node_modules' '#packages/desktop/src-tauri/target'",
+    "lint:format": "prettier --check .",
+    "format": "prettier --write .",
     "update-version-table": "node scripts/update-version-table.js",
-    "prepublish": "npm run sync-shared"
+    "bump:schema": "node scripts/bump-schema.js",
+    "prepublish": "npm run sync-shared",
+    "postinstall": "lefthook install"
   },
   "devDependencies": {
-    "fast-check": "^4.8.0"
+    "@eslint/js": "^10.0.1",
+    "c8": "^11.0.0",
+    "eslint": "^10.4.0",
+    "eslint-config-prettier": "^10.1.8",
+    "fast-check": "^4.8.0",
+    "lefthook": "^2.1.8",
+    "markdownlint-cli2": "^0.22.1",
+    "prettier": "^3.8.3",
+    "stylelint": "^17.12.0",
+    "stylelint-config-standard": "^40.0.0"
   }
 }

@@ -22,6 +22,7 @@ Use Notepad (or any app with a full accessibility tree).
 2. Press Ctrl+S, navigate Save As dialog, click Save
 
 **Expected:**
+
 - click + type("Hello World") + key(Ctrl+S)
 - Save As dialog: NO type/select events from dialog initialization (filename field pre-fill is filtered)
 - Click on file + click Save button
@@ -50,6 +51,7 @@ Use Notepad (or any app with a full accessibility tree).
 1. Open File > Open, click through folders in the tree, select a file, click Open
 
 **Expected:**
+
 - Clicks on tree items (no duplicate select events)
 - No context_close events from folder view refreshing
 - No redundant focus events after clicks
@@ -67,6 +69,7 @@ Use Notepad (or any app with a full accessibility tree).
 2. Click between them, type in each, Alt+Tab
 
 **Expected:**
+
 - context_switch when switching apps
 - Correct context_id per window
 - Calculator keyboard input: individual key events with display value in element text

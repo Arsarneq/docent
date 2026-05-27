@@ -32,7 +32,9 @@ let server;
 let serverPort;
 let serverReady;
 
-const serverReadyPromise = new Promise((resolve) => { serverReady = resolve; });
+const serverReadyPromise = new Promise((resolve) => {
+  serverReady = resolve;
+});
 
 function startServer() {
   server = http.createServer((req, res) => {
@@ -82,7 +84,7 @@ export const test = base.extend({
   // Provide a page that's ready for testing (recording active, on an http URL).
   testPage: async ({ context, serviceWorker }, use) => {
     // Reuse the default about:blank tab instead of creating a new one.
-    const page = context.pages()[0] || await context.newPage();
+    const page = context.pages()[0] || (await context.newPage());
 
     // Navigate to the local server so the content script is injected.
     await page.goto(`http://127.0.0.1:${serverPort}/`);

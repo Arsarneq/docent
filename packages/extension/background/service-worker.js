@@ -40,8 +40,8 @@ import {
 
 // ─── In-memory state (restored from storage on SW restart) ───────────────────
 
-let projects         = [];
-let activeProjectId  = null;
+let projects = [];
+let activeProjectId = null;
 let activeRecordingId = null;
 
 // ─── Boot ─────────────────────────────────────────────────────────────────────
@@ -55,16 +55,20 @@ chrome.runtime.onInstalled.addListener(async ({ reason }) => {
 
 // Restore persisted state on SW restart
 (async () => {
-  const stored = await chrome.storage.local.get(['projects', 'activeProjectId', 'activeRecordingId']);
-  projects          = stored.projects          ?? [];
-  activeProjectId   = stored.activeProjectId   ?? null;
+  const stored = await chrome.storage.local.get([
+    'projects',
+    'activeProjectId',
+    'activeRecordingId',
+  ]);
+  projects = stored.projects ?? [];
+  activeProjectId = stored.activeProjectId ?? null;
   activeRecordingId = stored.activeRecordingId ?? null;
   // Do NOT reset recording — the user controls that, not the SW.
   // pendingActions in session storage are preserved across SW restarts.
 })();
 
 // Open side panel when toolbar icon is clicked
-chrome.action.onClicked.addListener(tab => {
+chrome.action.onClicked.addListener((tab) => {
   chrome.sidePanel.open({ tabId: tab.id });
 });
 
@@ -80,7 +84,7 @@ chrome.storage.onChanged.addListener((changes, area) => {
 // to cover srcdoc iframes and dynamically created frames.
 chrome.webNavigation.onCompleted.addListener(async (details) => {
   if (details.frameId !== 0) return; // Only trigger on main frame completion
-  if (!await isRecording()) return;
+  if (!(await isRecording())) return;
   try {
     await chrome.scripting.executeScript({
       target: { tabId: details.tabId, allFrames: true },
@@ -118,7 +122,7 @@ async function isRecording() {
 
 async function wasRecentUserAction(withinMs = TAB_CREATED_USER_ACTION_WINDOW) {
   const { lastUserActionTimestamp } = await chrome.storage.local.get('lastUserActionTimestamp');
-  return lastUserActionTimestamp && (Date.now() - lastUserActionTimestamp < withinMs);
+  return lastUserActionTimestamp && Date.now() - lastUserActionTimestamp < withinMs;
 }
 
 // Cross-document navigations: back, forward, reload, link, typed, form_submit, etc.
@@ -127,8 +131,14 @@ async function wasRecentUserAction(withinMs = TAB_CREATED_USER_ACTION_WINDOW) {
 // window.location assignments) are effects of already-captured actions and are skipped.
 chrome.webNavigation.onCommitted.addListener(async (details) => {
   if (details.frameId !== 0) return;
-  if (!await isRecording()) return;
-  if (!details.url || details.url.startsWith('chrome://') || details.url.startsWith('chrome-extension://') || details.url.startsWith('about:')) return;
+  if (!(await isRecording())) return;
+  if (
+    !details.url ||
+    details.url.startsWith('chrome://') ||
+    details.url.startsWith('chrome-extension://') ||
+    details.url.startsWith('about:')
+  )
+    return;
 
   // Skip SPA navigations — those are handled by the content script
   const skipTypes = new Set(['auto_subframe', 'manual_subframe']);
@@ -143,15 +153,18 @@ chrome.webNavigation.onCommitted.addListener(async (details) => {
       // Record it as the proxy for the context menu selection.
       await (swWriteQueue = swWriteQueue.then(async () => {
         const { pendingActions } = await chrome.storage.local.get('pendingActions');
-        const updated = [...(pendingActions ?? []), {
-          type:         'navigate',
-          nav_type:     'link',
-          timestamp:    Date.now(),
-          url:          details.url,
-          context_id:   details.tabId,
-          capture_mode: 'dom',
-          window_rect:  null,
-        }];
+        const updated = [
+          ...(pendingActions ?? []),
+          {
+            type: 'navigate',
+            nav_type: 'link',
+            timestamp: Date.now(),
+            url: details.url,
+            context_id: details.tabId,
+            capture_mode: 'dom',
+            window_rect: null,
+          },
+        ];
         await chrome.storage.local.set({ pendingActions: updated, pendingCount: updated.length });
       }));
     }
@@ -165,7 +178,15 @@ chrome.webNavigation.onCommitted.addListener(async (details) => {
   if (qualifiers.includes('forward_back')) navType = 'back_forward';
 
   // Browser chrome actions — record as proxy for what the user did.
-  const browserChromeTypes = new Set(['typed', 'generated', 'reload', 'back_forward', 'auto_bookmark', 'start_page', 'keyword']);
+  const browserChromeTypes = new Set([
+    'typed',
+    'generated',
+    'reload',
+    'back_forward',
+    'auto_bookmark',
+    'start_page',
+    'keyword',
+  ]);
   if (!browserChromeTypes.has(navType)) return;
 
   // Redirect hops within a browser chrome navigation — suppress duplicates.
@@ -186,15 +207,18 @@ chrome.webNavigation.onCommitted.addListener(async (details) => {
     }, 5000);
 
     const { pendingActions } = await chrome.storage.local.get('pendingActions');
-    const updated = [...(pendingActions ?? []), {
-      type:         'navigate',
-      nav_type:     navType,
-      timestamp:    Date.now(),
-      url:          details.url,
-      context_id:   details.tabId,
-      capture_mode: 'dom',
-      window_rect:  null,
-    }];
+    const updated = [
+      ...(pendingActions ?? []),
+      {
+        type: 'navigate',
+        nav_type: navType,
+        timestamp: Date.now(),
+        url: details.url,
+        context_id: details.tabId,
+        capture_mode: 'dom',
+        window_rect: null,
+      },
+    ];
     await chrome.storage.local.set({ pendingActions: updated, pendingCount: updated.length });
   }));
 });
@@ -202,7 +226,6 @@ chrome.webNavigation.onCommitted.addListener(async (details) => {
 // Track recent tab removals to suppress auto-switch context_switch events.
 // When a tab is closed, the browser auto-activates another tab — that's not a user action.
 let lastTabRemovedTimestamp = 0;
-let lastTabRemovedId = null;
 
 // Track recent tab creations to suppress context_switch for newly opened tabs
 // and to suppress navigations that are cascading effects of tab creation/reopen.
@@ -217,25 +240,29 @@ const programmaticTabs = new Set();
 // If there's a recent tab close, the switch is an auto-activation by the browser.
 // If there's a recent tab creation, the switch is the browser activating the new tab.
 // If none of the above, the user clicked a tab in browser chrome.
-chrome.tabs.onActivated.addListener(async ({ tabId, windowId }) => {
-  if (!await isRecording()) return;
+chrome.tabs.onActivated.addListener(async ({ tabId, windowId: _windowId }) => {
+  if (!(await isRecording())) return;
   // Suppress auto-switch to a just-removed tab's replacement (fallback: timing)
   if (Date.now() - lastTabRemovedTimestamp < TAB_REMOVED_SWITCH_SUPPRESSION) return;
   // Suppress auto-switch to a just-created tab (primary: ID match, fallback: timing)
-  if (tabId === lastTabCreatedId || Date.now() - lastTabCreatedTimestamp < TAB_CREATED_SWITCH_SUPPRESSION) {
+  if (
+    tabId === lastTabCreatedId ||
+    Date.now() - lastTabCreatedTimestamp < TAB_CREATED_SWITCH_SUPPRESSION
+  ) {
     lastTabCreatedId = null; // consume the suppression
     return;
   }
   const tab = await chrome.tabs.get(tabId);
-  if (!tab.url || tab.url.startsWith('chrome://') || tab.url.startsWith('chrome-extension://')) return;
+  if (!tab.url || tab.url.startsWith('chrome://') || tab.url.startsWith('chrome-extension://'))
+    return;
   await appendSwAction({
-    type:         'context_switch',
-    timestamp:    Date.now(),
-    context_id:   tabId,
-    source:       tab.url,
-    title:        tab.title ?? null,
+    type: 'context_switch',
+    timestamp: Date.now(),
+    context_id: tabId,
+    source: tab.url,
+    title: tab.title ?? null,
     capture_mode: 'dom',
-    window_rect:  null,
+    window_rect: null,
   });
 });
 
@@ -246,7 +273,7 @@ chrome.tabs.onActivated.addListener(async ({ tabId, windowId }) => {
 chrome.tabs.onCreated.addListener(async (tab) => {
   lastTabCreatedTimestamp = Date.now();
   lastTabCreatedId = tab.id;
-  if (!await isRecording()) return;
+  if (!(await isRecording())) return;
   // If there was a recent in-page user action, this tab is a side-effect
   // (window.open, link target=_blank, etc.) — suppress.
   if (await wasRecentUserAction()) {
@@ -255,13 +282,13 @@ chrome.tabs.onCreated.addListener(async (tab) => {
   }
   // Otherwise it's a browser chrome action (Ctrl+T, Ctrl+N, Ctrl+Shift+T) — capture as proxy.
   await appendSwAction({
-    type:               'context_open',
-    timestamp:          Date.now(),
-    context_id:         tab.id,
-    opener_context_id:  tab.openerTabId ?? null,
-    source:             tab.url || null,
-    capture_mode:       'dom',
-    window_rect:        null,
+    type: 'context_open',
+    timestamp: Date.now(),
+    context_id: tab.id,
+    opener_context_id: tab.openerTabId ?? null,
+    source: tab.url || null,
+    capture_mode: 'dom',
+    window_rect: null,
   });
 });
 
@@ -272,32 +299,31 @@ chrome.tabs.onCreated.addListener(async (tab) => {
 // Track the timestamp so onActivated can suppress auto-switch.
 chrome.tabs.onRemoved.addListener(async (tabId, removeInfo) => {
   lastTabRemovedTimestamp = Date.now();
-  lastTabRemovedId = tabId;
   // Clean up tracking regardless of recording state.
   const wasProgrammatic = programmaticTabs.delete(tabId);
-  if (!await isRecording()) return;
+  if (!(await isRecording())) return;
   // Cascading close (entire window closing) — not a distinct user action.
   if (removeInfo.isWindowClosing) return;
   // If the tab was opened programmatically AND there's a recent in-page action,
   // this is window.close() called from JavaScript — a side-effect.
   // Use a longer window (2000ms) because window.close() can be delayed.
   // If there's NO recent action, the user closed it manually (Ctrl+W, X button).
-  if (wasProgrammatic && await wasRecentUserAction(TAB_CLOSED_USER_ACTION_WINDOW)) return;
+  if (wasProgrammatic && (await wasRecentUserAction(TAB_CLOSED_USER_ACTION_WINDOW))) return;
   // Otherwise it's a browser chrome action (Ctrl+W, click X) — capture as proxy.
   await appendSwAction({
-    type:           'context_close',
-    timestamp:      Date.now(),
-    context_id:     tabId,
+    type: 'context_close',
+    timestamp: Date.now(),
+    context_id: tabId,
     window_closing: false,
-    capture_mode:   'dom',
-    window_rect:    null,
+    capture_mode: 'dom',
+    window_rect: null,
   });
 });
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function getActiveProject() {
-  return projects.find(p => p.project_id === activeProjectId) ?? null;
+  return projects.find((p) => p.project_id === activeProjectId) ?? null;
 }
 
 function getActiveRecording() {
@@ -318,16 +344,18 @@ async function injectContentScript() {
   const tabs = await chrome.tabs.query({ url: ['http://*/*', 'https://*/*'] });
   // Inject into all frames of all matching tabs.
   // The content script's __docentLoaded guard prevents double-initialization.
-  await Promise.allSettled(tabs.map(async tab => {
-    try {
-      await chrome.scripting.executeScript({
-        target: { tabId: tab.id, allFrames: true },
-        files:  ['content/recorder.js'],
-      });
-    } catch {
-      // Tab may not be injectable (e.g. chrome:// pages) — ignore
-    }
-  }));
+  await Promise.allSettled(
+    tabs.map(async (tab) => {
+      try {
+        await chrome.scripting.executeScript({
+          target: { tabId: tab.id, allFrames: true },
+          files: ['content/recorder.js'],
+        });
+      } catch {
+        // Tab may not be injectable (e.g. chrome:// pages) — ignore
+      }
+    }),
+  );
 }
 
 async function clearPending() {
@@ -359,7 +387,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
   handle(message)
     .then(sendResponse)
-    .catch(err => {
+    .catch((err) => {
       console.error('[Docent]', err);
       sendResponse({ ok: false, error: err.message });
     });
@@ -368,31 +396,43 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
 async function handle(msg) {
   switch (msg.type) {
-
     // ── Projects ──────────────────────────────────────────────────────────────
 
     case 'PROJECTS_LIST': {
-      return { ok: true, projects: projects.map(p => ({
-        project_id:      p.project_id,
-        name:            p.name,
-        created_at:      p.created_at,
-        recording_count: p.recordings.length,
-      }))};
+      return {
+        ok: true,
+        projects: projects.map((p) => ({
+          project_id: p.project_id,
+          name: p.name,
+          created_at: p.created_at,
+          recording_count: p.recordings.length,
+        })),
+      };
+    }
+
+    case 'PROJECTS_GET_ALL': {
+      return { ok: true, projects };
+    }
+
+    case 'PROJECTS_SET': {
+      projects = msg.projects;
+      await persist();
+      return { ok: true };
     }
 
     case 'PROJECT_CREATE': {
       const project = createProject(msg.name);
       projects.push(project);
-      activeProjectId   = project.project_id;
+      activeProjectId = project.project_id;
       activeRecordingId = null;
       await persist();
       return { ok: true, project };
     }
 
     case 'PROJECT_OPEN': {
-      const project = projects.find(p => p.project_id === msg.project_id);
+      const project = projects.find((p) => p.project_id === msg.project_id);
       if (!project) return { ok: false, error: 'Project not found' };
-      activeProjectId   = project.project_id;
+      activeProjectId = project.project_id;
       activeRecordingId = null;
       await setRecording(false);
       await chrome.storage.local.set({ activeProjectId, activeRecordingId });
@@ -404,9 +444,9 @@ async function handle(msg) {
     }
 
     case 'PROJECT_DELETE': {
-      projects = projects.filter(p => p.project_id !== msg.project_id);
+      projects = projects.filter((p) => p.project_id !== msg.project_id);
       if (activeProjectId === msg.project_id) {
-        activeProjectId   = null;
+        activeProjectId = null;
         activeRecordingId = null;
         await setRecording(false);
       }
@@ -420,6 +460,18 @@ async function handle(msg) {
       project.name = msg.name;
       await persist();
       return { ok: true, project };
+    }
+
+    case 'PROJECT_SET_METADATA': {
+      const project = getActiveProject();
+      if (!project) return { ok: false, error: 'No active project' };
+      if (msg.metadata) {
+        project.metadata = msg.metadata;
+      } else {
+        delete project.metadata;
+      }
+      await persist();
+      return { ok: true };
     }
 
     // ── Recordings ────────────────────────────────────────────────────────────
@@ -451,9 +503,7 @@ async function handle(msg) {
     case 'RECORDING_DELETE': {
       const project = getActiveProject();
       if (!project) return { ok: false, error: 'No active project' };
-      project.recordings = project.recordings.filter(
-        r => r.recording_id !== msg.recording_id
-      );
+      project.recordings = project.recordings.filter((r) => r.recording_id !== msg.recording_id);
       if (activeRecordingId === msg.recording_id) {
         activeRecordingId = null;
         await setRecording(false);
@@ -468,6 +518,20 @@ async function handle(msg) {
       const recording = findRecording(project, msg.recording_id);
       if (!recording) return { ok: false, error: 'Recording not found' };
       recording.name = msg.name;
+      await persist();
+      return { ok: true };
+    }
+
+    case 'RECORDING_SET_METADATA': {
+      const project = getActiveProject();
+      if (!project) return { ok: false, error: 'No active project' };
+      const recording = findRecording(project, msg.recording_id);
+      if (!recording) return { ok: false, error: 'Recording not found' };
+      if (msg.metadata) {
+        recording.metadata = msg.metadata;
+      } else {
+        delete recording.metadata;
+      }
       await persist();
       return { ok: true };
     }
@@ -498,8 +562,8 @@ async function handle(msg) {
       if (!recording) return { ok: false, error: 'No active recording' };
 
       const pendingActions = await getPendingActions();
-      const activeSteps    = resolveActiveSteps(recording);
-      const isRerecord     = !!msg.logical_id;
+      const activeSteps = resolveActiveSteps(recording);
+      const isRerecord = !!msg.logical_id;
 
       if (!isRerecord && pendingActions.length === 0) {
         return { ok: false, error: 'No actions recorded for this step' };
@@ -510,18 +574,20 @@ async function handle(msg) {
         actions = pendingActions;
       } else {
         // Narration-only re-record — reuse existing step's actions
-        const existing = activeSteps.find(s => s.logical_id === msg.logical_id);
+        const existing = activeSteps.find((s) => s.logical_id === msg.logical_id);
         actions = existing ? [...existing.actions] : [];
       }
 
       const stepNumber = msg.step_number ?? activeSteps.length + 1;
 
       const step = createStep({
-        narration:        msg.narration,
+        narration: msg.narration,
         narration_source: msg.narration_source,
-        step_number:      stepNumber,
+        step_type: msg.step_type,
+        expect: msg.expect,
+        step_number: stepNumber,
         actions,
-        logical_id:       msg.logical_id,
+        logical_id: msg.logical_id,
       });
 
       addStepRecord(recording, step);
@@ -558,12 +624,12 @@ async function handle(msg) {
       let projectData = exportData.project;
 
       // If project_id already exists, import as a copy with a new ID and modified name
-      const existing = projects.find(p => p.project_id === projectData.project_id);
+      const existing = projects.find((p) => p.project_id === projectData.project_id);
       if (existing) {
         projectData = {
           ...projectData,
           project_id: uuidv7(),
-          name:       `${projectData.name} (copy)`,
+          name: `${projectData.name} (copy)`,
           created_at: new Date().toISOString(),
         };
       }
@@ -584,12 +650,16 @@ async function handle(msg) {
       const exportData = {
         project: {
           project_id: project.project_id,
-          name:       project.name,
+          name: project.name,
           created_at: project.created_at,
+          ...(project.metadata && { metadata: project.metadata }),
         },
-        recordings: project.recordings.map(r => ({
-          ...r,
-          activeSteps: resolveActiveSteps(r),
+        recordings: project.recordings.map((r) => ({
+          recording_id: r.recording_id,
+          name: r.name,
+          created_at: r.created_at,
+          ...(r.metadata && { metadata: r.metadata }),
+          steps: r.steps,
         })),
       };
       return { ok: true, exportData };

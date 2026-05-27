@@ -27,10 +27,7 @@ fn arb_control_type_id() -> impl Strategy<Value = i32> {
 /// Strategy for optional string fields (AutomationId, Name, LocalizedControlType, value).
 /// Produces a mix of empty strings and non-empty arbitrary strings.
 fn arb_optional_string() -> impl Strategy<Value = String> {
-    prop_oneof![
-        Just(String::new()),
-        "[a-zA-Z0-9_ ]{1,200}",
-    ]
+    prop_oneof![Just(String::new()), "[a-zA-Z0-9_ ]{1,200}",]
 }
 
 /// Strategy for tree path segments.
@@ -50,7 +47,15 @@ fn arb_uia_properties() -> impl Strategy<Value = UiaProperties> {
         arb_tree_path(),
     )
         .prop_map(
-            |(control_type_id, automation_id, name, localized_control_type, is_password, value, tree_path)| {
+            |(
+                control_type_id,
+                automation_id,
+                name,
+                localized_control_type,
+                is_password,
+                value,
+                tree_path,
+            )| {
                 UiaProperties {
                     control_type_id,
                     automation_id,

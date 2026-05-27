@@ -37,7 +37,7 @@ export async function loadDispatchSettings() {
     const state = JSON.parse(json);
     return {
       endpointUrl: state?.settings?.endpointUrl ?? null,
-      apiKey:      state?.settings?.apiKey ?? null,
+      apiKey: state?.settings?.apiKey ?? null,
     };
   } catch {
     return { endpointUrl: null, apiKey: null };
@@ -67,11 +67,11 @@ export async function saveDispatchSettings(endpointUrl, apiKey) {
 
     if (!state.settings) state.settings = {};
     state.settings.endpointUrl = endpointUrl || null;
-    state.settings.apiKey      = apiKey || null;
+    state.settings.apiKey = apiKey || null;
 
     await invoke('save_state', { data: JSON.stringify(state) });
   } catch (err) {
-    throw new Error(`Failed to save dispatch settings: ${err.message || err}`);
+    throw new Error(`Failed to save dispatch settings: ${err.message || err}`, { cause: err });
   }
 }
 
@@ -91,5 +91,24 @@ export async function loadReadingGuidance() {
   } catch (err) {
     console.warn('[Docent] Failed to load reading guidance:', err);
     return '';
+  }
+}
+
+// ─── Schema ───────────────────────────────────────────────────────────────────
+
+/**
+ * Load the platform-specific JSON Schema from the synced shared/ directory.
+ * Returns empty object on failure.
+ *
+ * @returns {Promise<object>}
+ */
+export async function loadSchema() {
+  try {
+    const response = await fetch('../shared/session.schema.json');
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    return await response.json();
+  } catch (err) {
+    console.warn('[Docent] Failed to load schema:', err);
+    return {};
   }
 }

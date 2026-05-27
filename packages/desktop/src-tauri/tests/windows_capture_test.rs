@@ -7,8 +7,7 @@
 // **Validates: Requirements 2.1, 2.5, 6.1–6.6**
 
 use docent_desktop_lib::capture::scroll::{
-    should_keep_event, RawScrollEvent, ScrollAccumulator,
-    process_scroll_events,
+    process_scroll_events, should_keep_event, RawScrollEvent, ScrollAccumulator,
 };
 use docent_desktop_lib::capture::timing::SCROLL_DEBOUNCE_MS;
 
@@ -204,7 +203,10 @@ mod scroll_accumulator {
             delta_y: 200.0,
         });
         let result = acc.try_flush(1000 + SCROLL_DEBOUNCE_MS);
-        assert!(result.is_none(), "exactly 200px should be discarded (≤ 200)");
+        assert!(
+            result.is_none(),
+            "exactly 200px should be discarded (≤ 200)"
+        );
     }
 
     #[test]
@@ -262,12 +264,28 @@ mod batch_scroll {
     fn two_sequences_separated_by_gap() {
         let events = vec![
             // Sequence 1: total_y = 250 (emitted)
-            RawScrollEvent { timestamp: 1000, delta_x: 0.0, delta_y: 125.0 },
-            RawScrollEvent { timestamp: 1050, delta_x: 0.0, delta_y: 125.0 },
+            RawScrollEvent {
+                timestamp: 1000,
+                delta_x: 0.0,
+                delta_y: 125.0,
+            },
+            RawScrollEvent {
+                timestamp: 1050,
+                delta_x: 0.0,
+                delta_y: 125.0,
+            },
             // Gap of 300ms
             // Sequence 2: total_y = 300 (emitted)
-            RawScrollEvent { timestamp: 1400, delta_x: 0.0, delta_y: 150.0 },
-            RawScrollEvent { timestamp: 1450, delta_x: 0.0, delta_y: 150.0 },
+            RawScrollEvent {
+                timestamp: 1400,
+                delta_x: 0.0,
+                delta_y: 150.0,
+            },
+            RawScrollEvent {
+                timestamp: 1450,
+                delta_x: 0.0,
+                delta_y: 150.0,
+            },
         ];
         let results = process_scroll_events(&events);
         assert_eq!(results.len(), 2);
@@ -279,13 +297,25 @@ mod batch_scroll {
     fn mixed_emit_and_discard() {
         let events = vec![
             // Sequence 1: total_y = 250 (emitted)
-            RawScrollEvent { timestamp: 1000, delta_x: 0.0, delta_y: 250.0 },
+            RawScrollEvent {
+                timestamp: 1000,
+                delta_x: 0.0,
+                delta_y: 250.0,
+            },
             // Gap
             // Sequence 2: total_y = 50 (discarded)
-            RawScrollEvent { timestamp: 1400, delta_x: 0.0, delta_y: 50.0 },
+            RawScrollEvent {
+                timestamp: 1400,
+                delta_x: 0.0,
+                delta_y: 50.0,
+            },
             // Gap
             // Sequence 3: total_y = 300 (emitted)
-            RawScrollEvent { timestamp: 1800, delta_x: 0.0, delta_y: 300.0 },
+            RawScrollEvent {
+                timestamp: 1800,
+                delta_x: 0.0,
+                delta_y: 300.0,
+            },
         ];
         let results = process_scroll_events(&events);
         assert_eq!(results.len(), 2);

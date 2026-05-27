@@ -17,18 +17,17 @@
   <div class="view-header">
     <h2>Projects</h2>
     <div class="view-header-actions">
+      <button id="btn-sync" class="btn btn--secondary btn--sm" disabled>Sync</button>
       <button id="btn-import-project" class="btn btn--secondary btn--sm">Import</button>
       <button id="btn-new-project" class="btn btn--primary btn--sm">+ New</button>
     </div>
   </div>
 
-  <input id="import-file-input" type="file" accept=".json" style="display:none" />
+  <input id="import-file-input" type="file" accept=".json" class="hidden" />
 
   <ul id="project-list" class="card-list"></ul>
 
-  <p id="projects-empty" class="empty-state hidden">
-    No projects yet. Create one to get started.
-  </p>
+  <p id="projects-empty" class="empty-state hidden">No projects yet. Create one to get started.</p>
 </section>
 
 <!-- ── View: New project form ──────────────────────────────────── -->
@@ -48,10 +47,24 @@
     <h2 id="project-title"></h2>
     <div class="view-header-actions">
       <button id="btn-export-project" class="btn btn--secondary btn--sm">Export</button>
-      <button id="btn-dispatch-project" class="btn btn--primary btn--sm" disabled title="Configure an endpoint in Settings to enable dispatch">Send</button>
+      <button
+        id="btn-dispatch-project"
+        class="btn btn--primary btn--sm"
+        disabled
+        title="Configure an endpoint in Settings to enable dispatch"
+      >
+        Send
+      </button>
       <button id="btn-new-recording" class="btn btn--primary btn--sm">+ New recording</button>
     </div>
   </div>
+
+  <!-- Metadata editor (collapsible) -->
+  <details id="project-metadata-section" class="metadata-section">
+    <summary class="metadata-summary">Metadata</summary>
+    <div class="metadata-list" id="project-metadata-list"></div>
+    <button id="btn-add-project-metadata" class="btn btn--ghost btn--sm">+ Add</button>
+  </details>
 
   <ul id="recording-list" class="card-list">
     <!-- populated by panel.js -->
@@ -69,39 +82,139 @@
   <input id="new-recording-name" type="text" placeholder="e.g. Create new project" />
   <div class="form-actions">
     <button id="btn-new-recording-cancel" class="btn btn--ghost">Cancel</button>
-    <button id="btn-new-recording-create" class="btn btn--primary">Create &amp; start recording</button>
+    <button id="btn-new-recording-create" class="btn btn--primary">
+      Create &amp; start recording
+    </button>
   </div>
 </section>
 
 <!-- ── View: Recording (step list) ────────────────────────────── -->
 <section id="view-recording" class="view hidden">
-
-  <div class="view-header">
+  <div class="view-header" id="recording-header">
     <h2 id="recording-title"></h2>
     <button id="btn-toggle-recording" class="btn btn--secondary btn--sm">
-      <svg viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" class="icon-pause"><rect x="5" y="4" width="3.5" height="12" rx="1" fill="currentColor"/><rect x="11.5" y="4" width="3.5" height="12" rx="1" fill="currentColor"/></svg>
+      <svg
+        viewBox="0 0 20 20"
+        fill="none"
+        xmlns="http://www.w3.org/2000/svg"
+        aria-hidden="true"
+        class="icon-pause"
+      >
+        <rect x="5" y="4" width="3.5" height="12" rx="1" fill="currentColor" />
+        <rect x="11.5" y="4" width="3.5" height="12" rx="1" fill="currentColor" />
+      </svg>
       <span class="btn-label">Pause</span>
     </button>
   </div>
 
-  <!-- Narration input -->
-  <div class="narration-box">
+  <!-- Re-record banner (shown when re-recording a step) -->
+  <div id="rerecord-banner" class="rerecord-banner hidden">
+    <span id="rerecord-banner-text">Re-recording step</span>
+    <button id="btn-rerecord-cancel" class="btn btn--ghost btn--sm">Cancel</button>
+  </div>
+
+  <!-- Metadata editor (collapsible) -->
+  <details id="recording-metadata-section" class="metadata-section">
+    <summary class="metadata-summary">Metadata</summary>
+    <div class="metadata-list" id="recording-metadata-list"></div>
+    <button id="btn-add-recording-metadata" class="btn btn--ghost btn--sm">+ Add</button>
+  </details>
+
+  <!-- Narration input (narration mode) -->
+  <div id="narration-mode-box" class="narration-box">
     <label>What are you about to do?</label>
-    <textarea
-      id="narration-input"
-      rows="2"
-      placeholder="e.g. log into the system"
-    ></textarea>
+    <textarea id="narration-input" rows="2" placeholder="e.g. log into the system"></textarea>
     <div class="narration-controls">
       <button id="btn-clear-step" class="btn btn--ghost btn--sm" title="Clear recorded actions">
-        <svg viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path d="M5 5l10 10M15 5L5 15" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+        <svg viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+          <path
+            d="M5 5l10 10M15 5L5 15"
+            stroke="currentColor"
+            stroke-width="1.8"
+            stroke-linecap="round"
+          />
+        </svg>
         Clear
       </button>
       <button id="btn-commit-step" class="btn btn--primary" disabled>
-        <svg viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path d="M4 10l5 5 7-8" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        <svg viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+          <path
+            d="M4 10l5 5 7-8"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          />
+        </svg>
         Done this step
       </button>
     </div>
+  </div>
+
+  <!-- Simple mode input -->
+  <div id="simple-mode-box" class="narration-box hidden">
+    <label>Step type</label>
+    <div class="settings-options" role="radiogroup" aria-label="Step type" class="mb-8">
+      <label class="settings-option">
+        <input type="radio" name="step-type" value="action" checked />
+        <span class="settings-option-label">Action</span>
+      </label>
+      <label class="settings-option">
+        <input type="radio" name="step-type" value="validation" />
+        <span class="settings-option-label">Validation</span>
+      </label>
+    </div>
+    <div id="expect-group" class="hidden">
+      <label>Expect</label>
+      <div class="settings-options" role="radiogroup" aria-label="Expect" class="mb-8">
+        <label class="settings-option">
+          <input type="radio" name="step-expect" value="present" checked />
+          <span class="settings-option-label">Present</span>
+        </label>
+        <label class="settings-option">
+          <input type="radio" name="step-expect" value="absent" />
+          <span class="settings-option-label">Absent</span>
+        </label>
+      </div>
+    </div>
+    <div class="narration-controls">
+      <button
+        id="btn-clear-step-simple"
+        class="btn btn--ghost btn--sm"
+        title="Clear recorded actions"
+      >
+        <svg viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+          <path
+            d="M5 5l10 10M15 5L5 15"
+            stroke="currentColor"
+            stroke-width="1.8"
+            stroke-linecap="round"
+          />
+        </svg>
+        Clear
+      </button>
+      <button id="btn-commit-step-simple" class="btn btn--primary" disabled>
+        <svg viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+          <path
+            d="M4 10l5 5 7-8"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          />
+        </svg>
+        Commit
+      </button>
+    </div>
+  </div>
+
+  <!-- Live action list (current step being recorded) -->
+  <div id="pending-actions-section" class="pending-actions-section hidden">
+    <div class="step-list-header">
+      <span>Captured actions</span>
+      <span id="pending-action-count" class="step-count">0</span>
+    </div>
+    <ol id="pending-action-list" class="step-detail-list"></ol>
   </div>
 
   <!-- Step list -->
@@ -111,33 +224,21 @@
   </div>
 
   <ol id="step-list" class="step-list"></ol>
-
-</section>
-
-<!-- ── View: Re-record a step ──────────────────────────────────── -->
-<section id="view-rerecord" class="view hidden">
-  <div class="view-back-header">
-    <button id="btn-rerecord-cancel" class="btn btn--ghost">
-      <svg viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path d="M12 4l-6 6 6 6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
-      Back
-    </button>
-    <span>Re-recording step</span>
-  </div>
-  <label>What does this step do?</label>
-  <textarea id="rerecord-narration" rows="2"></textarea>
-  <div class="narration-controls">
-    <button id="btn-rerecord-commit" class="btn btn--primary">
-      <svg viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path d="M4 10l5 5 7-8" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
-      Done
-    </button>
-  </div>
 </section>
 
 <!-- ── View: Step history ───────────────────────────────────────── -->
 <section id="view-history" class="view hidden">
   <div class="view-back-header">
     <button id="btn-history-back" class="btn btn--ghost">
-      <svg viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path d="M12 4l-6 6 6 6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      <svg viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+        <path
+          d="M12 4l-6 6 6 6"
+          stroke="currentColor"
+          stroke-width="1.8"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        />
+      </svg>
       Back
     </button>
     <span>Step history</span>
@@ -149,7 +250,15 @@
 <section id="view-step-detail" class="view hidden">
   <div class="view-back-header">
     <button id="btn-step-detail-back" class="btn btn--ghost">
-      <svg viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path d="M12 4l-6 6 6 6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      <svg viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+        <path
+          d="M12 4l-6 6 6 6"
+          stroke="currentColor"
+          stroke-width="1.8"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        />
+      </svg>
       Back
     </button>
     <span id="step-detail-title">Step actions</span>
@@ -161,7 +270,15 @@
 <section id="view-dispatch-result" class="view hidden">
   <div class="view-back-header">
     <button id="btn-result-back" class="btn btn--ghost">
-      <svg viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path d="M12 4l-6 6 6 6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      <svg viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+        <path
+          d="M12 4l-6 6 6 6"
+          stroke="currentColor"
+          stroke-width="1.8"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        />
+      </svg>
       Back
     </button>
     <span id="result-title">Result</span>
@@ -173,15 +290,29 @@
 <section id="view-dispatch-confirm" class="view hidden">
   <div class="view-back-header">
     <button id="btn-confirm-cancel" class="btn btn--ghost">
-      <svg viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path d="M12 4l-6 6 6 6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      <svg viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+        <path
+          d="M12 4l-6 6 6 6"
+          stroke="currentColor"
+          stroke-width="1.8"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        />
+      </svg>
       Cancel
     </button>
     <span>Confirm dispatch</span>
   </div>
   <div class="confirm-details">
-    <p class="confirm-row"><span class="confirm-label">Endpoint</span><span id="confirm-endpoint"></span></p>
-    <p class="confirm-row"><span class="confirm-label">Recording(s)</span><span id="confirm-recordings"></span></p>
-    <p class="confirm-row"><span class="confirm-label">Steps</span><span id="confirm-steps"></span></p>
+    <p class="confirm-row">
+      <span class="confirm-label">Endpoint</span><span id="confirm-endpoint"></span>
+    </p>
+    <p class="confirm-row">
+      <span class="confirm-label">Recording(s)</span><span id="confirm-recordings"></span>
+    </p>
+    <p class="confirm-row">
+      <span class="confirm-label">Steps</span><span id="confirm-steps"></span>
+    </p>
   </div>
   <div class="form-actions">
     <button id="btn-confirm-send" class="btn btn--primary">Send</button>
@@ -192,7 +323,15 @@
 <section id="view-recording-selector" class="view hidden">
   <div class="view-back-header">
     <button id="btn-selector-cancel" class="btn btn--ghost">
-      <svg viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path d="M12 4l-6 6 6 6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      <svg viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+        <path
+          d="M12 4l-6 6 6 6"
+          stroke="currentColor"
+          stroke-width="1.8"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        />
+      </svg>
       Cancel
     </button>
     <span>Select recording</span>
@@ -205,7 +344,15 @@
 <section id="view-settings" class="view hidden">
   <div class="view-back-header">
     <button id="btn-settings-back" class="btn btn--ghost">
-      <svg viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path d="M12 4l-6 6 6 6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      <svg viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+        <path
+          d="M12 4l-6 6 6 6"
+          stroke="currentColor"
+          stroke-width="1.8"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        />
+      </svg>
       Back
     </button>
     <span>Settings</span>
@@ -217,9 +364,19 @@
       <label class="settings-option">
         <input type="radio" name="theme" value="auto" />
         <span class="settings-option-label">
-          <svg viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-            <circle cx="10" cy="10" r="4" stroke="currentColor" stroke-width="1.5"/>
-            <path d="M10 2v1.5M10 16.5V18M2 10h1.5M16.5 10H18M4.1 4.1l1.1 1.1M14.8 14.8l1.1 1.1M4.1 15.9l1.1-1.1M14.8 5.2l1.1-1.1" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+          <svg
+            viewBox="0 0 20 20"
+            fill="none"
+            xmlns="http://www.w3.org/2000/svg"
+            aria-hidden="true"
+          >
+            <circle cx="10" cy="10" r="4" stroke="currentColor" stroke-width="1.5" />
+            <path
+              d="M10 2v1.5M10 16.5V18M2 10h1.5M16.5 10H18M4.1 4.1l1.1 1.1M14.8 14.8l1.1 1.1M4.1 15.9l1.1-1.1M14.8 5.2l1.1-1.1"
+              stroke="currentColor"
+              stroke-width="1.5"
+              stroke-linecap="round"
+            />
           </svg>
           Follow browser
         </span>
@@ -227,9 +384,27 @@
       <label class="settings-option">
         <input type="radio" name="theme" value="light" />
         <span class="settings-option-label">
-          <svg viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-            <circle cx="10" cy="10" r="4" fill="currentColor" opacity="0.2" stroke="currentColor" stroke-width="1.5"/>
-            <path d="M10 2v1.5M10 16.5V18M2 10h1.5M16.5 10H18M4.1 4.1l1.1 1.1M14.8 14.8l1.1 1.1M4.1 15.9l1.1-1.1M14.8 5.2l1.1-1.1" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+          <svg
+            viewBox="0 0 20 20"
+            fill="none"
+            xmlns="http://www.w3.org/2000/svg"
+            aria-hidden="true"
+          >
+            <circle
+              cx="10"
+              cy="10"
+              r="4"
+              fill="currentColor"
+              opacity="0.2"
+              stroke="currentColor"
+              stroke-width="1.5"
+            />
+            <path
+              d="M10 2v1.5M10 16.5V18M2 10h1.5M16.5 10H18M4.1 4.1l1.1 1.1M14.8 14.8l1.1 1.1M4.1 15.9l1.1-1.1M14.8 5.2l1.1-1.1"
+              stroke="currentColor"
+              stroke-width="1.5"
+              stroke-linecap="round"
+            />
           </svg>
           Light
         </span>
@@ -237,10 +412,67 @@
       <label class="settings-option">
         <input type="radio" name="theme" value="dark" />
         <span class="settings-option-label">
-          <svg viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-            <path d="M15 10.5A6 6 0 0 1 8 4a6 6 0 1 0 7 6.5z" fill="currentColor" opacity="0.2" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/>
+          <svg
+            viewBox="0 0 20 20"
+            fill="none"
+            xmlns="http://www.w3.org/2000/svg"
+            aria-hidden="true"
+          >
+            <path
+              d="M15 10.5A6 6 0 0 1 8 4a6 6 0 1 0 7 6.5z"
+              fill="currentColor"
+              opacity="0.2"
+              stroke="currentColor"
+              stroke-width="1.5"
+              stroke-linejoin="round"
+            />
           </svg>
           Dark
+        </span>
+      </label>
+    </div>
+  </div>
+
+  <div class="settings-group">
+    <label class="settings-label">Recording mode</label>
+    <div class="settings-options" role="radiogroup" aria-label="Recording mode">
+      <label class="settings-option">
+        <input type="radio" name="recording-mode" value="narration" />
+        <span class="settings-option-label">
+          <svg
+            viewBox="0 0 20 20"
+            fill="none"
+            xmlns="http://www.w3.org/2000/svg"
+            aria-hidden="true"
+          >
+            <path
+              d="M4 5h12M4 10h8M4 15h10"
+              stroke="currentColor"
+              stroke-width="1.5"
+              stroke-linecap="round"
+            />
+          </svg>
+          Narration
+        </span>
+      </label>
+      <label class="settings-option">
+        <input type="radio" name="recording-mode" value="simple" />
+        <span class="settings-option-label">
+          <svg
+            viewBox="0 0 20 20"
+            fill="none"
+            xmlns="http://www.w3.org/2000/svg"
+            aria-hidden="true"
+          >
+            <path
+              d="M4 10l5 5 7-8"
+              stroke="currentColor"
+              stroke-width="1.8"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            />
+          </svg>
+          Simple (action / validation)
         </span>
       </label>
     </div>
@@ -251,11 +483,24 @@
     <input id="settings-endpoint-url" type="text" placeholder="https://..." />
     <p id="settings-endpoint-error" class="settings-field-error hidden"></p>
 
-    <label class="settings-label" style="margin-top:12px">API key (optional)</label>
+    <label class="settings-label" class="mt-12">API key (optional)</label>
     <input id="settings-api-key" type="password" placeholder="Bearer token" />
 
     <div class="form-actions">
       <button id="btn-settings-dispatch-save" class="btn btn--primary btn--sm">Save</button>
+    </div>
+  </div>
+
+  <div class="settings-group" id="settings-sync">
+    <label class="settings-label">Sync server</label>
+    <input id="settings-sync-url" type="text" placeholder="https://..." />
+    <p id="settings-sync-error" class="settings-field-error hidden"></p>
+
+    <label class="settings-label" class="mt-12">API key (optional)</label>
+    <input id="settings-sync-api-key" type="password" placeholder="Bearer token" />
+
+    <div class="form-actions">
+      <button id="btn-settings-sync-save" class="btn btn--primary btn--sm">Save</button>
     </div>
   </div>
 </section>

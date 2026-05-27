@@ -6,10 +6,16 @@
  * Verifies that only user actions are captured and no side-effects leak.
  */
 
-import { test, expect, getPendingActions, clearPendingActions, waitForActionsToSettle, setTestContent } from '../helpers/extension-fixture.js';
+import {
+  test,
+  expect,
+  getPendingActions,
+  clearPendingActions,
+  waitForActionsToSettle,
+  setTestContent,
+} from '../helpers/extension-fixture.js';
 
 test.describe('Smoke Test', () => {
-
   test('address bar navigation (typed) is captured', async ({ testPage, serviceWorker }) => {
     await testPage.goto('https://example.com');
     await testPage.waitForTimeout(500);
@@ -20,16 +26,22 @@ test.describe('Smoke Test', () => {
     await waitForActionsToSettle(serviceWorker, testPage);
 
     const actions = await getPendingActions(serviceWorker);
-    const types = actions.map(a => a.type);
+    const types = actions.map((a) => a.type);
     expect(types).toEqual(['navigate']);
     expect(actions[0].nav_type).toBe('typed');
   });
 
-  test('click link then navigate via address bar — both captured correctly', async ({ testPage, serviceWorker }) => {
-    await setTestContent(testPage, /* html */ `<!DOCTYPE html>
+  test('click link then navigate via address bar — both captured correctly', async ({
+    testPage,
+    serviceWorker,
+  }) => {
+    await setTestContent(
+      testPage,
+      /* html */ `<!DOCTYPE html>
     <html><body>
       <a id="link" href="https://example.com">Go to example</a>
-    </body></html>`);
+    </body></html>`,
+    );
     await testPage.waitForTimeout(200);
     await clearPendingActions(serviceWorker);
 
@@ -43,8 +55,8 @@ test.describe('Smoke Test', () => {
     await waitForActionsToSettle(serviceWorker, testPage);
 
     const actions = await getPendingActions(serviceWorker);
-    const clicks = actions.filter(a => a.type === 'click');
-    const navs = actions.filter(a => a.type === 'navigate');
+    const clicks = actions.filter((a) => a.type === 'click');
+    const navs = actions.filter((a) => a.type === 'navigate');
 
     // The click is the user's action on the link
     expect(clicks.length).toBe(1);
@@ -54,12 +66,18 @@ test.describe('Smoke Test', () => {
     expect(navs[0].url).toContain('example.org');
   });
 
-  test('type in search box, press Enter, click result — full search flow', async ({ testPage, serviceWorker }) => {
-    await setTestContent(testPage, /* html */ `<!DOCTYPE html>
+  test('type in search box, press Enter, click result — full search flow', async ({
+    testPage,
+    serviceWorker,
+  }) => {
+    await setTestContent(
+      testPage,
+      /* html */ `<!DOCTYPE html>
     <html><body>
       <input id="search" type="text" placeholder="Search">
       <a id="result" href="https://example.com">Result link</a>
-    </body></html>`);
+    </body></html>`,
+    );
     await testPage.waitForTimeout(200);
     await clearPendingActions(serviceWorker);
 
@@ -75,19 +93,19 @@ test.describe('Smoke Test', () => {
     await waitForActionsToSettle(serviceWorker, testPage);
 
     const actions = await getPendingActions(serviceWorker);
-    const types = actions.map(a => a.type);
+    const types = actions.map((a) => a.type);
 
     // Expected: click (search box) + key(Enter) + type(value) + click (result)
     // No navigate actions (link click effect is suppressed)
     expect(types).toContain('click');
     expect(types).toContain('key');
     expect(types).toContain('type');
-    expect(types.filter(t => t === 'click').length).toBe(2);
+    expect(types.filter((t) => t === 'click').length).toBe(2);
     expect(types).not.toContain('navigate');
 
-    const keyAction = actions.find(a => a.type === 'key');
+    const keyAction = actions.find((a) => a.type === 'key');
     expect(keyAction.key).toBe('Enter');
-    const typeAction = actions.find(a => a.type === 'type');
+    const typeAction = actions.find((a) => a.type === 'type');
     expect(typeAction.value).toBe('test query');
   });
 
@@ -109,10 +127,10 @@ test.describe('Smoke Test', () => {
     await waitForActionsToSettle(serviceWorker, testPage);
 
     const actions = await getPendingActions(serviceWorker);
-    const navs = actions.filter(a => a.type === 'navigate');
+    const navs = actions.filter((a) => a.type === 'navigate');
 
     expect(navs.length).toBe(3);
-    expect(navs.every(n => n.nav_type === 'back_forward')).toBe(true);
+    expect(navs.every((n) => n.nav_type === 'back_forward')).toBe(true);
   });
 
   test('multi-site session — no side-effect leakage', async ({ testPage, serviceWorker }) => {
@@ -134,10 +152,10 @@ test.describe('Smoke Test', () => {
     await waitForActionsToSettle(serviceWorker, testPage);
 
     const actions = await getPendingActions(serviceWorker);
-    const types = actions.map(a => a.type);
+    const types = actions.map((a) => a.type);
 
     // Only navigate actions — no clicks, no focus, no type, no SPA navigates
-    expect(types.every(t => t === 'navigate')).toBe(true);
+    expect(types.every((t) => t === 'navigate')).toBe(true);
     // 3 navigations: typed (B) + typed (C) + back_forward (B)
     expect(types.length).toBe(3);
   });

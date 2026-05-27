@@ -17,10 +17,10 @@ by `sequence_id` before committing.
 
 ## Capture Modes
 
-| Mode | When | Element description |
-|------|------|---------------------|
-| `accessibility` | ElementFromPoint returns a specific control | Full: tag, id, name, role, text, tree path |
-| `coordinate` | ElementFromPoint returns Window/Pane only | Fallback: tag="unknown", selector="coord:x,y" |
+| Mode            | When                                        | Element description                           |
+| --------------- | ------------------------------------------- | --------------------------------------------- |
+| `accessibility` | ElementFromPoint returns a specific control | Full: tag, id, name, role, text, tree path    |
+| `coordinate`    | ElementFromPoint returns Window/Pane only   | Fallback: tag="unknown", selector="coord:x,y" |
 
 A single recording can mix both modes.
 
@@ -30,12 +30,12 @@ A single recording can mix both modes.
 
 These user actions happen outside the hooks' visibility:
 
-| User action | Captured as |
-|---|---|
-| Click a different window | `context_switch` |
-| Alt+Tab | `context_switch` |
-| Click title bar close (X) | `context_close` |
-| File dialog selection | `file_dialog` |
+| User action               | Captured as      |
+| ------------------------- | ---------------- |
+| Click a different window  | `context_switch` |
+| Alt+Tab                   | `context_switch` |
+| Click title bar close (X) | `context_close`  |
+| File dialog selection     | `file_dialog`    |
 
 ---
 
@@ -45,14 +45,14 @@ The Input_Thread distinguishes user-caused state changes from programmatic
 ones using **input correlation**: WinEvent callbacks are only dispatched when
 correlated with a preceding low-level input event.
 
-| WinEvent | Correlation source | Additional filter |
-|---|---|---|
-| `EVENT_SYSTEM_FOREGROUND` | Any low-level input | — |
-| `EVENT_OBJECT_FOCUS` | Any low-level input | Suppressed after click (redundant) |
-| `EVENT_OBJECT_CREATE` | Any low-level input | — |
-| `EVENT_OBJECT_DESTROY` | Any low-level input | Only if previously opened |
-| `EVENT_OBJECT_VALUECHANGE` | Keyboard input only | Same root window as keyboard |
-| `EVENT_OBJECT_SELECTION` | — | Suppressed after click; same root window |
+| WinEvent                   | Correlation source  | Additional filter                        |
+| -------------------------- | ------------------- | ---------------------------------------- |
+| `EVENT_SYSTEM_FOREGROUND`  | Any low-level input | —                                        |
+| `EVENT_OBJECT_FOCUS`       | Any low-level input | Suppressed after click (redundant)       |
+| `EVENT_OBJECT_CREATE`      | Any low-level input | —                                        |
+| `EVENT_OBJECT_DESTROY`     | Any low-level input | Only if previously opened                |
+| `EVENT_OBJECT_VALUECHANGE` | Keyboard input only | Same root window as keyboard             |
+| `EVENT_OBJECT_SELECTION`   | —                   | Suppressed after click; same root window |
 
 **Window-scoping:** Value changes and selections are only correlated with
 input from the same root window. This prevents dialog initialization noise

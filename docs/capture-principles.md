@@ -4,6 +4,7 @@ The core rules for how Docent captures user interactions. Applies to both
 the Chrome extension and the desktop application.
 
 Platform-specific details:
+
 - [Extension](capture-principles-extension.md)
 - [Desktop](capture-principles-desktop.md)
 
@@ -53,9 +54,9 @@ effect** as a proxy:
 
 ## Distinguishing Action from Effect
 
-| Signal | User action | Effect |
-|--------|-------------|--------|
-| Low-level input hook fired | ✅ | — |
-| `event.isTrusted === false` | — | ✅ |
-| No preceding user input | — | ✅ Likely programmatic |
-| Platform identifies cause (transitionType, etc.) | Depends | Depends |
+| Signal                                           | User action | Effect                 |
+| ------------------------------------------------ | ----------- | ---------------------- |
+| Low-level input hook fired                       | ✅          | —                      |
+| `event.isTrusted === false`                      | —           | ✅                     |
+| No preceding user input                          | —           | ✅ Likely programmatic |
+| Platform identifies cause (transitionType, etc.) | Depends     | Depends                |

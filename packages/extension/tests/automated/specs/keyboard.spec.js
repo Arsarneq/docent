@@ -7,7 +7,14 @@
  * - Synthetic keyboard events (programmatic dispatch) are NOT captured
  */
 
-import { test, expect, getPendingActions, clearPendingActions, waitForActionsToSettle, setTestContent } from '../helpers/extension-fixture.js';
+import {
+  test,
+  expect,
+  getPendingActions,
+  clearPendingActions,
+  waitForActionsToSettle,
+  setTestContent,
+} from '../helpers/extension-fixture.js';
 
 const PAGE_HTML = /* html */ `<!DOCTYPE html>
 <html><body>
@@ -22,7 +29,6 @@ const PAGE_HTML = /* html */ `<!DOCTYPE html>
 </body></html>`;
 
 test.describe('Keyboard Capture', () => {
-
   test.beforeEach(async ({ testPage, serviceWorker }) => {
     await setTestContent(testPage, PAGE_HTML);
     await testPage.waitForTimeout(200);
@@ -36,7 +42,7 @@ test.describe('Keyboard Capture', () => {
     await waitForActionsToSettle(serviceWorker, testPage);
 
     const actions = await getPendingActions(serviceWorker);
-    const keyActions = actions.filter(a => a.type === 'key');
+    const keyActions = actions.filter((a) => a.type === 'key');
     expect(keyActions.length).toBe(1);
     expect(keyActions[0].key).toBe('Enter');
   });
@@ -48,7 +54,7 @@ test.describe('Keyboard Capture', () => {
     await waitForActionsToSettle(serviceWorker, testPage);
 
     const actions = await getPendingActions(serviceWorker);
-    const keyActions = actions.filter(a => a.type === 'key');
+    const keyActions = actions.filter((a) => a.type === 'key');
     expect(keyActions.length).toBe(1);
     expect(keyActions[0].key).toBe('Escape');
   });
@@ -60,20 +66,23 @@ test.describe('Keyboard Capture', () => {
     await waitForActionsToSettle(serviceWorker, testPage);
 
     const actions = await getPendingActions(serviceWorker);
-    const keyActions = actions.filter(a => a.type === 'key');
+    const keyActions = actions.filter((a) => a.type === 'key');
     expect(keyActions.length).toBe(1);
     expect(keyActions[0].key).toBe('Tab');
   });
 
-  test('Enter on button should NOT produce synthetic click', async ({ testPage, serviceWorker }) => {
+  test('Enter on button should NOT produce synthetic click', async ({
+    testPage,
+    serviceWorker,
+  }) => {
     await testPage.click('#btn');
     await clearPendingActions(serviceWorker);
     await testPage.press('#btn', 'Enter');
     await waitForActionsToSettle(serviceWorker, testPage);
 
     const actions = await getPendingActions(serviceWorker);
-    const clicks = actions.filter(a => a.type === 'click');
-    const keys = actions.filter(a => a.type === 'key');
+    const clicks = actions.filter((a) => a.type === 'click');
+    const keys = actions.filter((a) => a.type === 'key');
 
     expect(keys.length).toBe(1);
     expect(keys[0].key).toBe('Enter');
@@ -88,7 +97,7 @@ test.describe('Keyboard Capture', () => {
     await waitForActionsToSettle(serviceWorker, testPage);
 
     const actions = await getPendingActions(serviceWorker);
-    const keyActions = actions.filter(a => a.type === 'key');
+    const keyActions = actions.filter((a) => a.type === 'key');
     expect(keyActions.length).toBe(0);
   });
 
@@ -99,11 +108,14 @@ test.describe('Keyboard Capture', () => {
     await waitForActionsToSettle(serviceWorker, testPage);
 
     const actions = await getPendingActions(serviceWorker);
-    const keyActions = actions.filter(a => a.type === 'key');
+    const keyActions = actions.filter((a) => a.type === 'key');
     expect(keyActions.length).toBe(0);
   });
 
-  test('normal typing produces type action, not key actions', async ({ testPage, serviceWorker }) => {
+  test('normal typing produces type action, not key actions', async ({
+    testPage,
+    serviceWorker,
+  }) => {
     await testPage.click('#input1');
     await clearPendingActions(serviceWorker);
     await testPage.fill('#input1', 'hello world');
@@ -111,22 +123,30 @@ test.describe('Keyboard Capture', () => {
     await waitForActionsToSettle(serviceWorker, testPage);
 
     const actions = await getPendingActions(serviceWorker);
-    const keyActions = actions.filter(a => a.type === 'key');
-    const typeActions = actions.filter(a => a.type === 'type');
+    const keyActions = actions.filter((a) => a.type === 'key');
+    const typeActions = actions.filter((a) => a.type === 'type');
     expect(keyActions.length).toBe(0);
     expect(typeActions.length).toBe(1);
     expect(typeActions[0].value).toBe('hello world');
   });
 
-  test('programmatic keydown dispatch should NOT be captured', async ({ testPage, serviceWorker }) => {
+  test('programmatic keydown dispatch should NOT be captured', async ({
+    testPage,
+    serviceWorker,
+  }) => {
     await testPage.evaluate(() => {
       document.getElementById('btn').addEventListener('click', () => {
         setTimeout(() => {
           const input = document.getElementById('input1');
           input.focus();
-          input.dispatchEvent(new KeyboardEvent('keydown', {
-            key: 'Enter', code: 'Enter', bubbles: true, cancelable: true,
-          }));
+          input.dispatchEvent(
+            new KeyboardEvent('keydown', {
+              key: 'Enter',
+              code: 'Enter',
+              bubbles: true,
+              cancelable: true,
+            }),
+          );
         }, 200);
       });
     });
@@ -135,7 +155,7 @@ test.describe('Keyboard Capture', () => {
     await waitForActionsToSettle(serviceWorker, testPage);
 
     const actions = await getPendingActions(serviceWorker);
-    const types = actions.map(a => a.type);
+    const types = actions.map((a) => a.type);
     expect(types).toEqual(['click']);
   });
 
@@ -148,7 +168,7 @@ test.describe('Keyboard Capture', () => {
     await waitForActionsToSettle(serviceWorker, testPage);
 
     const actions = await getPendingActions(serviceWorker);
-    const types = actions.map(a => a.type);
+    const types = actions.map((a) => a.type);
     expect(types).toEqual(['key']);
     expect(actions[0].key).toBe('Escape');
   });
@@ -165,7 +185,7 @@ test.describe('Keyboard Capture', () => {
     await waitForActionsToSettle(serviceWorker, testPage);
 
     const actions = await getPendingActions(serviceWorker);
-    const keyActions = actions.filter(a => a.type === 'key');
+    const keyActions = actions.filter((a) => a.type === 'key');
     // Ctrl+V is not in the captured key set — no key action.
     expect(keyActions.length).toBe(0);
   });
@@ -178,18 +198,21 @@ test.describe('Keyboard Capture', () => {
     await waitForActionsToSettle(serviceWorker, testPage);
 
     const actions = await getPendingActions(serviceWorker);
-    const keyActions = actions.filter(a => a.type === 'key');
+    const keyActions = actions.filter((a) => a.type === 'key');
     expect(keyActions.length).toBe(0);
   });
 
-  test('Enter on link produces key(Enter) only — navigate is a side-effect', async ({ testPage, serviceWorker }) => {
+  test('Enter on link produces key(Enter) only — navigate is a side-effect', async ({
+    testPage,
+    serviceWorker,
+  }) => {
     await testPage.focus('#link');
     await clearPendingActions(serviceWorker);
     await testPage.press('#link', 'Enter');
     await waitForActionsToSettle(serviceWorker, testPage);
 
     const actions = await getPendingActions(serviceWorker);
-    const types = actions.map(a => a.type);
+    const types = actions.map((a) => a.type);
     // The user pressed Enter. That's the action. The navigate is the effect.
     expect(types).toEqual(['key']);
     expect(actions[0].key).toBe('Enter');
@@ -215,5 +238,3 @@ test.describe('Keyboard Capture', () => {
     expect(actions.length).toBe(0);
   });
 });
-
-

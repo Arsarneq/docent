@@ -94,9 +94,7 @@ fn expected_results(events: &[RawScrollEvent]) -> Vec<(f64, f64)> {
             let total_dx: f64 = events[seq_start..i].iter().map(|e| e.delta_x).sum();
             let total_dy: f64 = events[seq_start..i].iter().map(|e| e.delta_y).sum();
 
-            if total_dx.abs() > SCROLL_MIN_DISTANCE_PX
-                || total_dy.abs() > SCROLL_MIN_DISTANCE_PX
-            {
+            if total_dx.abs() > SCROLL_MIN_DISTANCE_PX || total_dy.abs() > SCROLL_MIN_DISTANCE_PX {
                 results.push((total_dx, total_dy));
             }
 

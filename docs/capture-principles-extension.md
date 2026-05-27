@@ -15,17 +15,17 @@ Platform-specific details for the extension. See [core rules](capture-principles
 
 These user actions happen in browser chrome (not visible to the content script):
 
-| User action | Captured as |
-|---|---|
-| Type URL + Enter | `navigate` (typed/generated) |
-| Click back/forward | `navigate` (back_forward) |
-| Click bookmark | `navigate` (auto_bookmark) |
-| F5 / Ctrl+R | `navigate` (reload) |
-| Click a tab | `context_switch` |
-| Ctrl+T / Ctrl+N | `context_open` |
-| Ctrl+W / click X | `context_close` |
-| Ctrl+Shift+T | `context_open` |
-| Select file in OS dialog | `file_upload` |
+| User action                   | Captured as                       |
+| ----------------------------- | --------------------------------- |
+| Type URL + Enter              | `navigate` (typed/generated)      |
+| Click back/forward            | `navigate` (back_forward)         |
+| Click bookmark                | `navigate` (auto_bookmark)        |
+| F5 / Ctrl+R                   | `navigate` (reload)               |
+| Click a tab                   | `context_switch`                  |
+| Ctrl+T / Ctrl+N               | `context_open`                    |
+| Ctrl+W / click X              | `context_close`                   |
+| Ctrl+Shift+T                  | `context_open`                    |
+| Select file in OS dialog      | `file_upload`                     |
 | Right-click → Open in new tab | `context_open` + `navigate(link)` |
 
 ---

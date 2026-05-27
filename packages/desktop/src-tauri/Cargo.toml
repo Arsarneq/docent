@@ -35,6 +35,7 @@ tauri-build = { version = "2", features = [] }
 proptest = "1"
 enigo = "0.6"
 serial_test = "3"
+tempfile = "3"
 
 [lib]
 name = "docent_desktop_lib"

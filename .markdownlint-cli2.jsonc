@@ -1,0 +1,14 @@
+{
+  "config": {
+    "MD013": false,
+    "MD033": false,
+    "MD041": false,
+    "MD029": false,
+  },
+  "ignores": [
+    "**/node_modules/**",
+    "packages/desktop/src-tauri/target/**",
+    "SECURITY_BACKLOG.md",
+    ".kiro/**",
+  ],
+}

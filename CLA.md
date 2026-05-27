@@ -21,6 +21,7 @@ sell, import, and otherwise transfer your contributions.
 ## 3. You Have the Right to Contribute
 
 You represent that:
+
 - You are legally entitled to grant the above licences
 - If your employer has rights to intellectual property you create, you have
   received permission to make contributions on their behalf, or your employer

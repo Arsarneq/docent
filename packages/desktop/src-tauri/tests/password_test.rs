@@ -20,7 +20,7 @@ fn arb_password_element() -> impl Strategy<Value = ElementDescription> {
         "[a-zA-Z]{1,20}",                       // tag
         prop::option::of("[a-zA-Z0-9_]{1,20}"), // id
         prop::option::of("[a-zA-Z0-9 ]{1,30}"), // name
-        prop::option::of("[a-z]{1,15}"),         // role
+        prop::option::of("[a-z]{1,15}"),        // role
         prop::option::of("[a-zA-Z0-9 ]{1,50}"), // text
         "[a-zA-Z0-9>: ]{0,60}",                 // selector
     )

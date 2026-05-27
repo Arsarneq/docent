@@ -37,10 +37,9 @@ fn arb_specific_control_type_id() -> impl Strategy<Value = i32> {
         (50000..=50031i32),
         (50034..=50040i32),
         // Arbitrary IDs that are not generic containers
-        prop::num::i32::ANY
-            .prop_filter("must not be Window or Pane", |id| {
-                *id != UIA_WINDOW_CONTROL_TYPE_ID && *id != UIA_PANE_CONTROL_TYPE_ID
-            }),
+        prop::num::i32::ANY.prop_filter("must not be Window or Pane", |id| {
+            *id != UIA_WINDOW_CONTROL_TYPE_ID && *id != UIA_PANE_CONTROL_TYPE_ID
+        }),
     ]
 }
 

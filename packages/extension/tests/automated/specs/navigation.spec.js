@@ -8,10 +8,16 @@
  * - 302 redirect chains should not produce multiple navigate actions
  */
 
-import { test, expect, getPendingActions, clearPendingActions, waitForActionsToSettle, setTestContent } from '../helpers/extension-fixture.js';
+import {
+  test,
+  expect,
+  getPendingActions,
+  clearPendingActions,
+  waitForActionsToSettle,
+  setTestContent,
+} from '../helpers/extension-fixture.js';
 
 test.describe('Navigation', () => {
-
   test('page.goto produces navigate action', async ({ testPage, serviceWorker }) => {
     await testPage.goto('https://example.com');
     await testPage.waitForTimeout(500);
@@ -21,7 +27,7 @@ test.describe('Navigation', () => {
     await waitForActionsToSettle(serviceWorker, testPage);
 
     const actions = await getPendingActions(serviceWorker);
-    const types = actions.map(a => a.type);
+    const types = actions.map((a) => a.type);
     // Ideal: exactly 1 navigate, nothing else.
     expect(types).toEqual(['navigate']);
   });
@@ -35,13 +41,16 @@ test.describe('Navigation', () => {
     await waitForActionsToSettle(serviceWorker, testPage);
 
     const actions = await getPendingActions(serviceWorker);
-    const types = actions.map(a => a.type);
+    const types = actions.map((a) => a.type);
     // Ideal: exactly 1 navigate(reload), nothing else.
     expect(types).toEqual(['navigate']);
     expect(actions[0].nav_type).toBe('reload');
   });
 
-  test('page.goBack produces navigate(back_forward) action', async ({ testPage, serviceWorker }) => {
+  test('page.goBack produces navigate(back_forward) action', async ({
+    testPage,
+    serviceWorker,
+  }) => {
     await testPage.goto('https://example.com');
     await testPage.waitForTimeout(300);
     await testPage.goto('https://example.org');
@@ -52,13 +61,16 @@ test.describe('Navigation', () => {
     await waitForActionsToSettle(serviceWorker, testPage);
 
     const actions = await getPendingActions(serviceWorker);
-    const types = actions.map(a => a.type);
+    const types = actions.map((a) => a.type);
     // Ideal: exactly 1 navigate(back_forward), nothing else.
     expect(types).toEqual(['navigate']);
     expect(actions[0].nav_type).toBe('back_forward');
   });
 
-  test('page.goForward produces navigate(back_forward) action', async ({ testPage, serviceWorker }) => {
+  test('page.goForward produces navigate(back_forward) action', async ({
+    testPage,
+    serviceWorker,
+  }) => {
     await testPage.goto('https://example.com');
     await testPage.waitForTimeout(300);
     await testPage.goto('https://example.org');
@@ -71,19 +83,25 @@ test.describe('Navigation', () => {
     await waitForActionsToSettle(serviceWorker, testPage);
 
     const actions = await getPendingActions(serviceWorker);
-    const types = actions.map(a => a.type);
+    const types = actions.map((a) => a.type);
     expect(types).toEqual(['navigate']);
     expect(actions[0].nav_type).toBe('back_forward');
   });
 
-  test('programmatic form.submit() navigation should NOT be captured', async ({ testPage, serviceWorker }) => {
-    await setTestContent(testPage, /* html */ `<!DOCTYPE html>
+  test('programmatic form.submit() navigation should NOT be captured', async ({
+    testPage,
+    serviceWorker,
+  }) => {
+    await setTestContent(
+      testPage,
+      /* html */ `<!DOCTYPE html>
     <html><body>
       <button id="btn">Submit</button>
       <form id="form" method="GET" action="https://example.com">
         <input name="q" type="hidden" value="test">
       </form>
-    </body></html>`);
+    </body></html>`,
+    );
     await testPage.waitForTimeout(200);
     await clearPendingActions(serviceWorker);
 
@@ -98,20 +116,28 @@ test.describe('Navigation', () => {
     await waitForActionsToSettle(serviceWorker, testPage);
 
     const actions = await getPendingActions(serviceWorker);
-    const types = actions.map(a => a.type);
+    const types = actions.map((a) => a.type);
     // Ideal: only the click. The navigate from form.submit() is a side-effect.
     expect(types).toEqual(['click']);
   });
 
-  test('programmatic window.location.href redirect should NOT be captured', async ({ testPage, serviceWorker }) => {
-    await setTestContent(testPage, /* html */ `<!DOCTYPE html>
-    <html><body><button id="btn">Redirect</button></body></html>`);
+  test('programmatic window.location.href redirect should NOT be captured', async ({
+    testPage,
+    serviceWorker,
+  }) => {
+    await setTestContent(
+      testPage,
+      /* html */ `<!DOCTYPE html>
+    <html><body><button id="btn">Redirect</button></body></html>`,
+    );
     await testPage.waitForTimeout(200);
     await clearPendingActions(serviceWorker);
 
     await testPage.evaluate(() => {
       document.getElementById('btn').addEventListener('click', () => {
-        setTimeout(() => { window.location.href = 'https://example.com'; }, 300);
+        setTimeout(() => {
+          window.location.href = 'https://example.com';
+        }, 300);
       });
     });
 
@@ -120,15 +146,18 @@ test.describe('Navigation', () => {
     await waitForActionsToSettle(serviceWorker, testPage);
 
     const actions = await getPendingActions(serviceWorker);
-    const types = actions.map(a => a.type);
+    const types = actions.map((a) => a.type);
     // Ideal: only the click. The navigate is a side-effect of application code.
     expect(types).toEqual(['click']);
   });
 });
 
 test.describe('Tab Lifecycle', () => {
-
-  test('user switching tabs produces context_switch', async ({ testPage, serviceWorker, context }) => {
+  test('user switching tabs produces context_switch', async ({
+    testPage,
+    serviceWorker,
+    context,
+  }) => {
     await testPage.goto('https://example.com');
     await testPage.waitForTimeout(300);
 
@@ -141,7 +170,7 @@ test.describe('Tab Lifecycle', () => {
     await waitForActionsToSettle(serviceWorker, testPage);
 
     const actions = await getPendingActions(serviceWorker);
-    const types = actions.map(a => a.type);
+    const types = actions.map((a) => a.type);
     // Ideal: exactly 1 context_switch — the user switched tabs.
     expect(types).toEqual(['context_switch']);
 
@@ -150,14 +179,19 @@ test.describe('Tab Lifecycle', () => {
 });
 
 test.describe('302 Redirect', () => {
-
-  test('clicking link that 302 redirects should produce only click — navigates are side-effects', async ({ testPage, serviceWorker }) => {
-    await setTestContent(testPage, /* html */ `<!DOCTYPE html>
+  test('clicking link that 302 redirects should produce only click — navigates are side-effects', async ({
+    testPage,
+    serviceWorker,
+  }) => {
+    await setTestContent(
+      testPage,
+      /* html */ `<!DOCTYPE html>
     <html><body>
       <a id="link" href="https://httpbin.org/redirect-to?url=https%3A%2F%2Fexample.com&status_code=302">
         Click me (302 redirect)
       </a>
-    </body></html>`);
+    </body></html>`,
+    );
     await testPage.waitForTimeout(200);
     await clearPendingActions(serviceWorker);
 
@@ -166,7 +200,7 @@ test.describe('302 Redirect', () => {
     await waitForActionsToSettle(serviceWorker, testPage);
 
     const actions = await getPendingActions(serviceWorker);
-    const types = actions.map(a => a.type);
+    const types = actions.map((a) => a.type);
     // The user clicked the link. That's the action.
     // The navigation (including redirects) is the effect.
     expect(types).toEqual(['click']);
@@ -174,13 +208,19 @@ test.describe('302 Redirect', () => {
 });
 
 test.describe('Background Tab', () => {
-
-  test('value changes in background tab should NOT be captured', async ({ testPage, serviceWorker, context }) => {
-    await setTestContent(testPage, /* html */ `<!DOCTYPE html>
+  test('value changes in background tab should NOT be captured', async ({
+    testPage,
+    serviceWorker,
+    context,
+  }) => {
+    await setTestContent(
+      testPage,
+      /* html */ `<!DOCTYPE html>
     <html><body>
       <button id="btn">Start timer</button>
       <input id="input" type="text" value="initial">
-    </body></html>`);
+    </body></html>`,
+    );
     await testPage.waitForTimeout(200);
 
     await testPage.evaluate(() => {
@@ -212,11 +252,11 @@ test.describe('Background Tab', () => {
     await waitForActionsToSettle(serviceWorker, testPage);
 
     const actions = await getPendingActions(serviceWorker);
-    const types = actions.map(a => a.type);
+    const types = actions.map((a) => a.type);
     // The click is the user's action. The context_switch from returning is also
     // a user action (clicking the tab). Value changes from the background timer
     // should NOT appear — they happened while the user was on a different tab.
-    const typeActions = actions.filter(a => a.type === 'type');
+    const typeActions = actions.filter((a) => a.type === 'type');
     expect(typeActions.length).toBe(0);
     expect(types).toContain('click');
     // context_switch may or may not appear depending on timing — that's fine.
@@ -227,8 +267,11 @@ test.describe('Background Tab', () => {
 });
 
 test.describe('Tab Lifecycle — Ctrl+W', () => {
-
-  test('Ctrl+W tab close lifecycle should NOT be captured', async ({ testPage, serviceWorker, context }) => {
+  test('Ctrl+W tab close lifecycle should NOT be captured', async ({
+    testPage,
+    serviceWorker,
+    context,
+  }) => {
     await setTestContent(testPage, '<html><body><p>Main</p></body></html>');
     await testPage.waitForTimeout(200);
 
@@ -249,13 +292,18 @@ test.describe('Tab Lifecycle — Ctrl+W', () => {
 });
 
 test.describe('Meta Refresh Redirect', () => {
-
-  test('meta refresh in iframe should NOT produce navigate action', async ({ testPage, serviceWorker }) => {
-    await setTestContent(testPage, /* html */ `<!DOCTYPE html>
+  test('meta refresh in iframe should NOT produce navigate action', async ({
+    testPage,
+    serviceWorker,
+  }) => {
+    await setTestContent(
+      testPage,
+      /* html */ `<!DOCTYPE html>
     <html><body>
       <button id="btn">Load iframe</button>
       <iframe id="frame" width="400" height="60" srcdoc="<p>Not loaded</p>"></iframe>
-    </body></html>`);
+    </body></html>`,
+    );
     await testPage.waitForTimeout(200);
 
     await testPage.evaluate(() => {
@@ -273,19 +321,24 @@ test.describe('Meta Refresh Redirect', () => {
     await waitForActionsToSettle(serviceWorker, testPage);
 
     const actions = await getPendingActions(serviceWorker);
-    const types = actions.map(a => a.type);
+    const types = actions.map((a) => a.type);
     // Ideal: only the click. The meta refresh inside the iframe is a side-effect.
     expect(types).toEqual(['click']);
   });
 });
 
 test.describe('Multi-Redirect Chain', () => {
-
-  test('clicking link through 3 redirects should produce only click', async ({ testPage, serviceWorker }) => {
-    await setTestContent(testPage, /* html */ `<!DOCTYPE html>
+  test('clicking link through 3 redirects should produce only click', async ({
+    testPage,
+    serviceWorker,
+  }) => {
+    await setTestContent(
+      testPage,
+      /* html */ `<!DOCTYPE html>
     <html><body>
       <a id="link" href="https://httpbin.org/redirect/3">Click me (3 redirects)</a>
-    </body></html>`);
+    </body></html>`,
+    );
     await testPage.waitForTimeout(200);
     await clearPendingActions(serviceWorker);
 
@@ -294,7 +347,7 @@ test.describe('Multi-Redirect Chain', () => {
     await waitForActionsToSettle(serviceWorker, testPage);
 
     const actions = await getPendingActions(serviceWorker);
-    const types = actions.map(a => a.type);
+    const types = actions.map((a) => a.type);
     // The user clicked the link. That's the action.
     // All redirect hops are server-side effects.
     expect(types).toEqual(['click']);

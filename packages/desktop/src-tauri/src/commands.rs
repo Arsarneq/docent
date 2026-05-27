@@ -37,8 +37,8 @@ pub struct AppState {
 /// Return the path to the session persistence file:
 /// `%APPDATA%/com.docent.desktop/session.json` on Windows.
 fn session_file_path() -> Result<PathBuf, String> {
-    let appdata = std::env::var("APPDATA")
-        .map_err(|_| "APPDATA environment variable not set".to_string())?;
+    let appdata =
+        std::env::var("APPDATA").map_err(|_| "APPDATA environment variable not set".to_string())?;
     let dir = PathBuf::from(appdata).join("com.docent.desktop");
     Ok(dir.join("session.json"))
 }
@@ -62,10 +62,7 @@ fn ensure_session_dir() -> Result<(), String> {
 /// Actions are streamed to the frontend via the `capture:action` event channel
 /// (set up in `lib.rs`).
 #[tauri::command]
-pub fn start_capture(
-    state: State<'_, AppState>,
-    pid: Option<u32>,
-) -> Result<(), String> {
+pub fn start_capture(state: State<'_, AppState>, pid: Option<u32>) -> Result<(), String> {
     let mut capture = state
         .capture
         .lock()
@@ -213,7 +210,24 @@ pub fn set_self_capture_exclusion(
     Ok(())
 }
 
+/// Set the target application PID for capture filtering.
+///
+/// When set, only events from this PID are captured. All other events are
+/// filtered out (except self-capture exclusion which always takes priority).
+/// Pass `null` or `0` to capture all applications.
+#[tauri::command]
+pub fn set_target_pid(state: State<'_, AppState>, pid: Option<u32>) -> Result<(), String> {
+    let mut capture = state
+        .capture
+        .lock()
+        .map_err(|e| format!("Failed to lock capture state: {e}"))?;
 
+    let effective_pid = pid.filter(|&p| p != 0);
+    eprintln!("[Docent] Target PID set to: {:?}", effective_pid);
+    capture.set_included_pid(effective_pid);
+
+    Ok(())
+}
 
 // ---------------------------------------------------------------------------
 // Export / Import commands
@@ -244,8 +258,7 @@ pub async fn export_file(
                 .as_path()
                 .ok_or_else(|| "Invalid file path".to_string())?
                 .to_path_buf();
-            fs::write(&path_buf, data)
-                .map_err(|e| format!("Failed to write export file: {e}"))
+            fs::write(&path_buf, data).map_err(|e| format!("Failed to write export file: {e}"))
         }
         None => {
             // User cancelled the dialog — not an error.
