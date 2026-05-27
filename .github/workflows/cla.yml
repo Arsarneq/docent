@@ -7,10 +7,13 @@ on:
     types: [opened, closed, synchronize]
 
 permissions:
-  actions:       write
-  contents:      write
+  actions: write
+  contents: write
   pull-requests: write
-  statuses:      write
+  statuses: write
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
   cla_assistant:
