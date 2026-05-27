@@ -154,7 +154,7 @@ jobs:
         run: cd packages/extension && npm run test:coverage
 
       - name: Upload JS coverage to Codecov
-        uses: codecov/codecov-action@v5
+        uses: codecov/codecov-action@v6
         with:
           files: coverage/lcov.info,packages/extension/coverage/lcov.info
           flags: javascript
@@ -270,7 +270,7 @@ jobs:
           retention-days: 7
 
       - name: Upload Rust coverage to Codecov
-        uses: codecov/codecov-action@v5
+        uses: codecov/codecov-action@v6
         with:
           files: packages/desktop/src-tauri/coverage.lcov
           flags: rust
@@ -310,7 +310,7 @@ jobs:
         run: npx playwright test
 
       - name: Upload desktop Playwright coverage to Codecov
-        uses: codecov/codecov-action@v5
+        uses: codecov/codecov-action@v6
         with:
           files: packages/desktop/tests/automated/coverage/lcov.info
           flags: javascript
