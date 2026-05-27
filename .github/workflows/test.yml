@@ -11,6 +11,9 @@ on:
 permissions:
   contents: read
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 jobs:
   changes:
     runs-on: ubuntu-latest
@@ -151,7 +154,7 @@ jobs:
         run: cd packages/extension && npm run test:coverage
 
       - name: Upload JS coverage to Codecov
-        uses: codecov/codecov-action@v4
+        uses: codecov/codecov-action@v5
         with:
           files: coverage/lcov.info,packages/extension/coverage/lcov.info
           flags: javascript
@@ -257,7 +260,7 @@ jobs:
 
       - name: Run Rust tests with coverage
         working-directory: packages/desktop/src-tauri
-        run: cargo llvm-cov --lib --test worker_pool_test --test scroll_test --test windows_capture_test --test commands_test --test capture_integration --lcov --output-path coverage.lcov
+        run: cargo llvm-cov --lib --test worker_pool_test --test scroll_test --test windows_capture_test --test commands_test --test capture_integration --ignore-filename-regex "(lib|main)\.rs$" --lcov --output-path coverage.lcov
 
       - name: Upload Rust coverage report
         uses: actions/upload-artifact@v7
@@ -267,7 +270,7 @@ jobs:
           retention-days: 7
 
       - name: Upload Rust coverage to Codecov
-        uses: codecov/codecov-action@v4
+        uses: codecov/codecov-action@v5
         with:
           files: packages/desktop/src-tauri/coverage.lcov
           flags: rust
@@ -305,6 +308,13 @@ jobs:
       - name: Run desktop Playwright tests
         working-directory: packages/desktop/tests/automated
         run: npx playwright test
+
+      - name: Upload desktop Playwright coverage to Codecov
+        uses: codecov/codecov-action@v5
+        with:
+          files: packages/desktop/tests/automated/coverage/lcov.info
+          flags: javascript
+          token: ${{ secrets.CODECOV_TOKEN }}
 
       - name: Upload test results
         if: failure()
