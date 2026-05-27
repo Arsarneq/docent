@@ -32,7 +32,7 @@ tauri-build = { version = "2", features = [] }
 
 [dev-dependencies]
 proptest = "1"
-enigo = "0.2"
+enigo = "0.6"
 serial_test = "3"
 
 [lib]
