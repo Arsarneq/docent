@@ -27,7 +27,7 @@ version after pull.
 Authentication is optional. When the user configures an API key in Docent, the
 client includes it as a Bearer token on every request:
 
-```
+```text
 Authorization: Bearer <api_key>
 ```
 
@@ -312,7 +312,7 @@ non-fatal — the client skips the failing project and continues with the rest.
 
 For each local project, the client sends:
 
-```
+```text
 PUT /projects/<project_id>
 ```
 

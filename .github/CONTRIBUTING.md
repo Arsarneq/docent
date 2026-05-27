@@ -51,7 +51,7 @@ cargo run --manifest-path packages/desktop/src-tauri/Cargo.toml
 
 ## Project Structure
 
-```
+```text
 packages/
   shared/           Shared code — session model, UUID v7, dispatch logic, view rendering
     lib/            Session model, UUID v7 generation

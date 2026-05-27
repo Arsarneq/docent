@@ -171,7 +171,7 @@ Local endpoints (e.g. `http://localhost:3000`) are supported.
 - [Rust toolchain](https://rustup.rs/) (for building from source)
 - Node.js 20+
 
-### Installation (development)
+### Installation (development — desktop)
 
 1. Clone the repo and sync shared code
 

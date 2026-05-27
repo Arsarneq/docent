@@ -42,27 +42,27 @@ This is a solo-maintained project. I aim to acknowledge reports within a few day
 
 Docent has several capabilities with distinct attack surfaces:
 
-**Interaction capture**
+### Interaction capture
 
 - The Chrome extension runs with `<all_urls>` host permissions and captures DOM events across all pages. The desktop application captures native application interactions via OS-level accessibility APIs and input hooks.
 - Vulnerabilities that allow exfiltration of captured data, injection of arbitrary actions into a session, or privilege escalation are in scope.
 
-**Data transmission**
+### Data transmission
 
 - Both platforms can dispatch session data to a user-configured HTTP endpoint, with an optional API key sent as a Bearer token.
 - Vulnerabilities that allow an attacker to redirect dispatch output, inject content into the payload, or expose the API key are in scope.
 
-**Local data persistence**
+### Local data persistence
 
 - The desktop application persists session data to the local filesystem. The Chrome extension uses `chrome.storage.local`.
 - Vulnerabilities that allow unauthorised access to persisted session data or settings are in scope.
 
-**OS-level permissions**
+### OS-level permissions
 
 - The desktop application uses OS accessibility APIs and global input hooks. On future platforms (macOS), this requires explicit user permission grants.
 - Vulnerabilities that allow bypassing permission checks or escalating OS-level access are in scope.
 
-**Out of scope**
+### Out of scope
 
 - Vulnerabilities in the receiving endpoint (that is outside this project)
 - Issues requiring physical access to the machine
