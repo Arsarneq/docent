@@ -3,6 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; connect-src http: https:;" />
   <title>Docent</title>
   <link rel="stylesheet" href="../shared/views/panel.css" />
 </head>
@@ -45,7 +46,7 @@
     </div>
   </div>
 
-  <input id="import-file-input" type="file" accept=".json" style="display:none" />
+  <input id="import-file-input" type="file" accept=".json" class="hidden" />
 
   <ul id="project-list" class="card-list"></ul>
 
@@ -106,12 +107,18 @@
 <!-- ── View: Recording (step list) ────────────────────────────── -->
 <section id="view-recording" class="view hidden">
 
-  <div class="view-header">
+  <div class="view-header" id="recording-header">
     <h2 id="recording-title"></h2>
     <button id="btn-toggle-recording" class="btn btn--secondary btn--sm">
       <svg viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" class="icon-pause"><rect x="5" y="4" width="3.5" height="12" rx="1" fill="currentColor"/><rect x="11.5" y="4" width="3.5" height="12" rx="1" fill="currentColor"/></svg>
       <span class="btn-label">Pause</span>
     </button>
+  </div>
+
+  <!-- Re-record banner (shown when re-recording a step) -->
+  <div id="rerecord-banner" class="rerecord-banner hidden">
+    <span id="rerecord-banner-text">Re-recording step</span>
+    <button id="btn-rerecord-cancel" class="btn btn--ghost btn--sm">Cancel</button>
   </div>
 
   <!-- Metadata editor (collapsible) -->
@@ -144,7 +151,7 @@
   <!-- Simple mode input -->
   <div id="simple-mode-box" class="narration-box hidden">
     <label>Step type</label>
-    <div class="settings-options" role="radiogroup" aria-label="Step type" style="margin-bottom:8px">
+    <div class="settings-options" role="radiogroup" aria-label="Step type" class="mb-8">
       <label class="settings-option">
         <input type="radio" name="step-type" value="action" checked />
         <span class="settings-option-label">Action</span>
@@ -156,7 +163,7 @@
     </div>
     <div id="expect-group" class="hidden">
       <label>Expect</label>
-      <div class="settings-options" role="radiogroup" aria-label="Expect" style="margin-bottom:8px">
+      <div class="settings-options" role="radiogroup" aria-label="Expect" class="mb-8">
         <label class="settings-option">
           <input type="radio" name="step-expect" value="present" checked />
           <span class="settings-option-label">Present</span>
@@ -196,34 +203,6 @@
 
   <ol id="step-list" class="step-list"></ol>
 
-</section>
-
-<!-- ── View: Re-record a step ──────────────────────────────────── -->
-<section id="view-rerecord" class="view hidden">
-  <div class="view-back-header">
-    <button id="btn-rerecord-cancel" class="btn btn--ghost">
-      <svg viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path d="M12 4l-6 6 6 6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
-      Back
-    </button>
-    <span>Re-recording step</span>
-  </div>
-  <label>What does this step do?</label>
-  <textarea id="rerecord-narration" rows="2"></textarea>
-  <div class="narration-controls">
-    <button id="btn-rerecord-commit" class="btn btn--primary">
-      <svg viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path d="M4 10l5 5 7-8" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
-      Done
-    </button>
-  </div>
-
-  <!-- Live action list (re-recording) -->
-  <div id="rerecord-actions-section" class="pending-actions-section hidden">
-    <div class="step-list-header">
-      <span>Captured actions</span>
-      <span id="rerecord-action-count" class="step-count">0</span>
-    </div>
-    <ol id="rerecord-action-list" class="step-detail-list"></ol>
-  </div>
 </section>
 
 <!-- ── View: Step history ───────────────────────────────────────── -->
@@ -368,7 +347,7 @@
     <input id="settings-endpoint-url" type="text" placeholder="https://..." />
     <p id="settings-endpoint-error" class="settings-field-error hidden"></p>
 
-    <label class="settings-label" style="margin-top:12px">API key (optional)</label>
+    <label class="settings-label" class="mt-12">API key (optional)</label>
     <input id="settings-api-key" type="password" placeholder="Bearer token" />
 
     <div class="form-actions">
@@ -381,7 +360,7 @@
     <input id="settings-sync-url" type="text" placeholder="https://..." />
     <p id="settings-sync-error" class="settings-field-error hidden"></p>
 
-    <label class="settings-label" style="margin-top:12px">API key (optional)</label>
+    <label class="settings-label" class="mt-12">API key (optional)</label>
     <input id="settings-sync-api-key" type="password" placeholder="Bearer token" />
 
     <div class="form-actions">

@@ -36,7 +36,7 @@ const views = {
   project:           $('view-project'),
   newRecording:      $('view-new-recording'),
   recording:         $('view-recording'),
-  rerecord:          $('view-rerecord'),
+  rerecord:          null, // re-record is now a state within the recording view
   history:           $('view-history'),
   stepDetail:        $('view-step-detail'),
   settings:          $('view-settings'),
@@ -89,8 +89,8 @@ const stepList         = $('step-list');
 const stepCount        = $('step-count');
 
 // Re-record
-const rerecordNarration  = $('rerecord-narration');
-const btnRerecordCommit  = $('btn-rerecord-commit');
+const rerecordBanner     = $('rerecord-banner');
+const rerecordBannerText = $('rerecord-banner-text');
 const btnRerecordCancel  = $('btn-rerecord-cancel');
 
 // History
@@ -106,9 +106,6 @@ const btnStepDetailBack = $('btn-step-detail-back');
 const pendingActionsSection = $('pending-actions-section');
 const pendingActionList     = $('pending-action-list');
 const pendingActionCount    = $('pending-action-count');
-const rerecordActionsSection = $('rerecord-actions-section');
-const rerecordActionList     = $('rerecord-action-list');
-const rerecordActionCount    = $('rerecord-action-count');
 
 // Settings
 const btnSettings     = $('btn-settings');
@@ -198,31 +195,23 @@ adapter.onActionEvent(action => {
 
 function appendLiveAction(action) {
   const html = renderStepDetailHtml([action]);
-  // Determine which list to append to (recording or re-record view)
-  const targetList = rerecordLogicalId ? rerecordActionList : pendingActionList;
-  const targetSection = rerecordLogicalId ? rerecordActionsSection : pendingActionsSection;
-  const targetCount = rerecordLogicalId ? rerecordActionCount : pendingActionCount;
-
-  targetSection.classList.remove('hidden');
+  pendingActionsSection.classList.remove('hidden');
   const li = document.createElement('template');
   li.innerHTML = html[0].trim();
-  targetList.appendChild(li.content.firstChild);
-  targetCount.textContent = targetList.children.length;
+  pendingActionList.appendChild(li.content.firstChild);
+  pendingActionCount.textContent = pendingActionList.children.length;
 }
 
 function clearLiveActionList() {
   pendingActionList.innerHTML = '';
   pendingActionCount.textContent = '0';
   pendingActionsSection.classList.add('hidden');
-  rerecordActionList.innerHTML = '';
-  rerecordActionCount.textContent = '0';
-  rerecordActionsSection.classList.add('hidden');
 }
 
 // ─── View management ─────────────────────────────────────────────────────────
 
 function showView(viewKey) {
-  Object.values(views).forEach(v => v.classList.add('hidden'));
+  Object.values(views).forEach(v => v && v.classList.add('hidden'));
   views[viewKey].classList.remove('hidden');
   // Clear recording context when leaving recording views
   if (['projects', 'newProject', 'project', 'newRecording'].includes(viewKey)) {
@@ -636,7 +625,7 @@ function updateCommitButton() {
 }
 
 btnCommitStep.addEventListener('click', () =>
-  commitStep(narrationInput, 'typed', null)
+  commitStep(narrationInput, 'typed', rerecordLogicalId)
 );
 
 btnClearStep.addEventListener('click', async () => {
@@ -656,7 +645,7 @@ stepTypeRadios.forEach(radio => {
   });
 });
 
-btnCommitStepSimple.addEventListener('click', () => commitStepSimple(null));
+btnCommitStepSimple.addEventListener('click', () => commitStepSimple(rerecordLogicalId));
 
 btnClearStepSimple.addEventListener('click', async () => {
   if (!confirm('Clear all recorded actions for this step?')) return;
@@ -695,6 +684,12 @@ async function commitStepSimple(logicalId) {
       activeSteps = response.activeSteps;
       clearLiveActionList();
       renderStepList();
+      // Clear re-record state if active
+      if (rerecordLogicalId) {
+        rerecordLogicalId = null;
+        rerecordBanner.classList.add('hidden');
+        previousRecordingView = null;
+      }
     }
 
     if (wasRecording) {
@@ -757,6 +752,12 @@ async function commitStep(inputEl, source, logicalId) {
       if (inputEl === narrationInput) btnCommitStep.disabled = true;
       clearLiveActionList();
       renderStepList();
+      // Clear re-record state if active
+      if (rerecordLogicalId) {
+        rerecordLogicalId = null;
+        rerecordBanner.classList.add('hidden');
+        previousRecordingView = null;
+      }
     }
 
     if (wasRecording) {
@@ -800,7 +801,6 @@ function renderStepList() {
 
 async function openRerecord(step) {
   rerecordLogicalId       = step.logical_id;
-  rerecordNarration.value = step.narration;
   previousRecordingView = isRecording;
   if (isRecording) {
     await send({ type: 'RECORDING_STOP' });
@@ -810,29 +810,42 @@ async function openRerecord(step) {
   await send({ type: 'RECORDING_CLEAR' });
   pendingCount = 0;
   clearLiveActionList();
+
+  // Show re-record banner
+  rerecordBanner.classList.remove('hidden');
+  rerecordBannerText.textContent = `Re-recording: ${step.narration || step.step_type || 'step'}`;
+
+  // Pre-fill narration if in narration mode
+  if (recordingMode === 'narration' && step.narration) {
+    narrationInput.value = step.narration;
+  }
+
   await send({ type: 'RECORDING_START' });
   isRecording = true;
-  showView('rerecord');
+  updateRecordingUI();
+  updateCommitButton();
 }
 
 btnRerecordCancel.addEventListener('click', async () => {
   rerecordLogicalId = null;
+  rerecordBanner.classList.add('hidden');
+  narrationInput.value = '';
+  clearLiveActionList();
+
   // Restore recording state to what it was before entering re-record
-  if (previousRecordingView) {
-    await send({ type: 'RECORDING_START' });
-    isRecording = true;
+  if (!previousRecordingView) {
+    await send({ type: 'RECORDING_STOP' });
+    isRecording = false;
   }
   previousRecordingView = null;
   updateRecordingUI();
-  showView('recording');
+  updateCommitButton();
 });
 
-btnRerecordCommit.addEventListener('click', async () => {
-  await commitStep(rerecordNarration, 'typed', rerecordLogicalId);
-  rerecordLogicalId     = null;
-  previousRecordingView = null;
-  showView('recording');
-});
+// The commit buttons (both narration and simple mode) already pass
+// rerecordLogicalId when it's set. After commit, hide the banner.
+// We hook into the existing commitStep/commitStepSimple flow by
+// clearing rerecordLogicalId after successful commit in those functions.
 
 // ─── History ──────────────────────────────────────────────────────────────────
 

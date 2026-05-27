@@ -3,53 +3,20 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; connect-src http: https:;" />
   <title>Docent Desktop</title>
-  <link rel="stylesheet" href="../shared/views/panel.css" />
-  <style>
-    /* Desktop-specific styles */
-    .desktop-controls {
-      padding: 8px 14px;
-      background: var(--color-surface);
-      border-bottom: 1px solid var(--color-border);
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      font-size: 12px;
-    }
-    .desktop-controls select {
-      flex: 1;
-      background-color: var(--color-surface);
-      border: 1px solid var(--color-border);
-      border-radius: var(--radius);
-      color: var(--color-text);
-      font-family: var(--font);
-      font-size: 12px;
-      padding: 5px 8px;
-    }
-    .desktop-controls select:focus {
-      outline: none;
-      border-color: var(--color-accent);
-      box-shadow: 0 0 0 3px var(--color-accent-soft);
-    }
-    .toggle-row {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      padding: 6px 14px;
-      background: var(--color-surface);
-      border-bottom: 1px solid var(--color-border);
-      font-size: 12px;
-      color: var(--color-muted);
-    }
-    .toggle-row input[type="checkbox"] {
-      accent-color: var(--color-accent);
-    }
-  </style>
+  <link rel="stylesheet" href="shared/views/panel.css" />
 </head>
 <body>
 
   <!-- ── Header ─────────────────────────────────────────────────── -->
   <header>
+    <div class="logo">
+      <svg class="logo-svg" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+        <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+      Docent
+    </div>
     <div class="header-right">
       <div id="recording-badge" class="badge badge--idle">Idle</div>
       <button id="btn-settings" class="btn btn--icon" title="Settings" aria-label="Settings">
@@ -76,26 +43,27 @@
 
   <!-- ── Desktop-specific: Target application selector ───────────── -->
   <div class="desktop-controls" id="desktop-target-controls">
-    <label for="target-app-select" style="margin:0; text-transform:none; letter-spacing:normal; font-size:12px; color:var(--color-muted)">Target:</label>
-    <select id="target-app-select">
-      <option value="">All applications</option>
-    </select>
-    <button id="btn-refresh-apps" class="btn btn--ghost btn--sm" title="Refresh application list">
-      <svg viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" style="width:14px;height:14px">
-        <path d="M17 10a7 7 0 0 1-13.16 3.36M3 10a7 7 0 0 1 13.16-3.36" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
-        <path d="M3 17v-4h4M17 3v4h-4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
-      </svg>
-    </button>
-  </div>
-
-  <!-- ── Desktop-specific: Self-capture exclusion toggle ──────────── -->
-  <div class="toggle-row">
-    <input type="checkbox" id="self-capture-toggle" checked />
-    <label for="self-capture-toggle" style="margin:0; text-transform:none; letter-spacing:normal; font-size:12px; color:var(--color-muted)">Exclude Docent from capture</label>
+    <div class="target-row">
+      <label for="target-app-select" class="target-label">Target:</label>
+      <select id="target-app-select">
+        <option value="">All applications</option>
+      </select>
+      <button id="btn-refresh-apps" class="btn btn--ghost btn--sm" title="Refresh application list">
+        <svg viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" class="icon-sm">
+          <path d="M17 10a7 7 0 0 1-13.16 3.36M3 10a7 7 0 0 1 13.16-3.36" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+          <path d="M3 17v-4h4M17 3v4h-4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+      </button>
+    </div>
+    <label class="toggle-row">
+      <input type="checkbox" id="self-capture-toggle" checked />
+      <span class="toggle-label">Exclude Docent from capture</span>
+    </label>
   </div>
 
   <!-- SHARED_VIEWS -->
 
   <script type="module" src="panel.js"></script>
+
 </body>
 </html>

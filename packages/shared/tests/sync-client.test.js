@@ -349,4 +349,61 @@ describe('sync', () => {
     assert.ok(networkErr instanceof SyncError);
     assert.equal(networkErr.status, null);
   });
+
+  it('push payload includes project and recording metadata', async () => {
+    const project = {
+      ...makeProject('meta-proj', 'Meta Project'),
+      metadata: { ticket: 'PROJ-42', tags: ['smoke', 'login'] },
+      recordings: [{
+        ...makeRecording('meta-rec'),
+        metadata: { env: 'staging' },
+      }],
+    };
+
+    let capturedBody;
+    mockFetch((_url, opts) => {
+      if (opts.method === 'PUT') {
+        capturedBody = JSON.parse(opts.body);
+      }
+      if (_url.endsWith('/projects') && opts.method === 'GET') return makeResponse(200, []);
+      return makeResponse(200, { ok: true });
+    });
+
+    await sync('https://srv.test', null, [project]);
+
+    assert.deepStrictEqual(capturedBody.project.metadata, { ticket: 'PROJ-42', tags: ['smoke', 'login'] });
+    assert.deepStrictEqual(capturedBody.recordings[0].metadata, { env: 'staging' });
+  });
+
+  it('pulled project with metadata preserves metadata in merged result', async () => {
+    const localProjects = [];
+    const manifest = [{ project_id: 'srv-meta', name: 'Srv', last_modified: '2026-06-01T00:00:00.000Z' }];
+    const serverPayload = {
+      project: {
+        project_id: 'srv-meta',
+        name: 'Srv',
+        created_at: '2026-01-01T00:00:00.000Z',
+        metadata: { team: 'QA', sprint: '24' },
+      },
+      recordings: [{
+        recording_id: 'r1',
+        name: 'Flow',
+        created_at: '2026-01-01T00:00:00.000Z',
+        metadata: { browser: 'chrome' },
+        steps: [],
+      }],
+    };
+
+    mockFetch((url, opts) => {
+      if (url.endsWith('/projects') && opts.method === 'GET') return makeResponse(200, manifest);
+      if (url.endsWith('/projects/srv-meta')) return makeResponse(200, serverPayload);
+      return makeResponse(200, { ok: true });
+    });
+
+    const { projects } = await sync('https://srv.test', null, localProjects);
+
+    assert.equal(projects.length, 1);
+    assert.deepStrictEqual(projects[0].metadata, { team: 'QA', sprint: '24' });
+    assert.deepStrictEqual(projects[0].recordings[0].metadata, { browser: 'chrome' });
+  });
 });

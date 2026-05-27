@@ -90,12 +90,26 @@ const arbSimpleStep = fc.record({
 /** Generate a step record (either mode) */
 const arbStep = fc.oneof(arbNarrationStep, arbSimpleStep);
 
+/** Generate a metadata object */
+const arbMetadata = fc.option(
+  fc.dictionary(
+    fc.string({ minLength: 1, maxLength: 20 }).filter(s => s.trim().length > 0),
+    fc.oneof(
+      fc.string({ minLength: 1, maxLength: 50 }),
+      fc.array(fc.string({ minLength: 1, maxLength: 20 }), { minLength: 1, maxLength: 5 })
+    ),
+    { minKeys: 1, maxKeys: 5 }
+  ),
+  { nil: undefined }
+);
+
 /** Generate a recording */
 const arbRecording = fc.record({
   recording_id: arbUuid,
   name: fc.string({ minLength: 1, maxLength: 100 }),
   created_at: arbTimestamp,
   steps: fc.array(arbStep, { minLength: 0, maxLength: 5 }),
+  metadata: arbMetadata,
 });
 
 /** Generate a project */
@@ -104,6 +118,7 @@ const arbProject = fc.record({
   name: fc.string({ minLength: 1, maxLength: 100 }),
   created_at: arbTimestamp,
   recordings: fc.array(arbRecording, { minLength: 0, maxLength: 3 }),
+  metadata: arbMetadata,
 });
 
 /** Generate settings */
@@ -210,5 +225,71 @@ describe('Property 11: Session persistence round-trip', () => {
       ),
       { numRuns: 100 },
     );
+  });
+
+  it('metadata on projects round-trips through serialize/deserialize', () => {
+    fc.assert(
+      fc.property(arbSessionState, (state) => {
+        const normalizedState = normalize(state);
+        const json = serializeState(normalizedState);
+        const restored = deserializeState(json);
+
+        for (let i = 0; i < normalizedState.projects.length; i++) {
+          const orig = normalizedState.projects[i];
+          const rest = restored.projects[i];
+          assert.deepStrictEqual(rest.metadata, orig.metadata,
+            `Project "${orig.name}" metadata mismatch`);
+        }
+      }),
+      { numRuns: 100 },
+    );
+  });
+
+  it('metadata on recordings round-trips through serialize/deserialize', () => {
+    fc.assert(
+      fc.property(arbSessionState, (state) => {
+        const normalizedState = normalize(state);
+        const json = serializeState(normalizedState);
+        const restored = deserializeState(json);
+
+        for (const project of normalizedState.projects) {
+          const restoredProject = restored.projects.find(p => p.project_id === project.project_id);
+          for (let j = 0; j < project.recordings.length; j++) {
+            const origRec = project.recordings[j];
+            const restRec = restoredProject.recordings[j];
+            assert.deepStrictEqual(restRec.metadata, origRec.metadata,
+              `Recording "${origRec.name}" metadata mismatch`);
+          }
+        }
+      }),
+      { numRuns: 100 },
+    );
+  });
+
+  it('metadata with array values preserves array structure', () => {
+    const state = {
+      projects: [{
+        project_id: '019e0000-0000-7000-8000-000000000001',
+        name: 'Test',
+        created_at: '2026-01-01T00:00:00.000Z',
+        metadata: { tags: ['smoke', 'login', 'critical'], ticket: 'PROJ-123' },
+        recordings: [{
+          recording_id: '019e0000-0000-7000-8000-000000000002',
+          name: 'Flow',
+          created_at: '2026-01-01T00:00:00.000Z',
+          metadata: { env: ['staging', 'prod'] },
+          steps: [],
+        }],
+      }],
+      settings: { endpointUrl: null, apiKey: null, theme: 'auto', selfCaptureExclusion: true },
+    };
+
+    const json = serializeState(state);
+    const restored = deserializeState(json);
+
+    assert.deepStrictEqual(restored.projects[0].metadata, { tags: ['smoke', 'login', 'critical'], ticket: 'PROJ-123' });
+    assert.deepStrictEqual(restored.projects[0].recordings[0].metadata, { env: ['staging', 'prod'] });
+    assert.ok(Array.isArray(restored.projects[0].metadata.tags), 'tags should be an array');
+    assert.ok(Array.isArray(restored.projects[0].recordings[0].metadata.env), 'env should be an array');
   });
 });

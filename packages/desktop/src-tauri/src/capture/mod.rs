@@ -47,6 +47,11 @@ pub trait CaptureLayer: Send + 'static {
     /// Pass `None` to disable exclusion.
     fn set_excluded_pid(&mut self, pid: Option<u32>);
 
+    /// Set the process ID to include (target app filtering).
+    /// When set, only events from this PID are captured.
+    /// Pass `None` to capture all applications.
+    fn set_included_pid(&mut self, pid: Option<u32>);
+
     /// Return the current maximum sequence number assigned by the input thread.
     /// Returns 0 if no events have been dispatched in the current capture session.
     fn max_sequence_id(&self) -> u64;

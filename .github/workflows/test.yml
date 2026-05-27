@@ -12,6 +12,31 @@ permissions:
   contents: read
 
 jobs:
+  dependency-audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install root dependencies
+        run: npm ci
+
+      - name: Audit npm dependencies
+        run: npm audit --audit-level=high
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install cargo-audit
+        run: cargo install cargo-audit
+
+      - name: Audit Rust dependencies
+        working-directory: packages/desktop/src-tauri
+        run: cargo audit
+
   unit-tests:
     runs-on: ubuntu-latest
     steps:
@@ -32,6 +57,9 @@ jobs:
 
       - name: Sync shared code
         run: npm run sync-shared
+
+      - name: Verify sync-shared output is fresh
+        run: git diff --exit-code packages/*/shared/ packages/extension/sidepanel/index.html packages/desktop/src/index.html || (echo "ERROR: sync-shared produced changes — run 'npm run sync-shared' locally and commit" && exit 1)
 
       - name: Run shared tests
         run: npm run test:shared
@@ -99,10 +127,49 @@ jobs:
         run: New-Item -ItemType Directory -Force -Path dist | Out-Null
         shell: pwsh
 
+      - name: Run Clippy lints
+        working-directory: packages/desktop/src-tauri
+        run: cargo clippy -- -D warnings
+
       - name: Run Rust unit tests
         working-directory: packages/desktop/src-tauri
-        run: cargo test --lib --test worker_pool_test --test scroll_test --test windows_capture_test
+        run: cargo test --lib --test worker_pool_test --test scroll_test --test windows_capture_test --test commands_test
 
       - name: Run integration tests
         working-directory: packages/desktop/src-tauri
         run: cargo test --test capture_integration
+
+  desktop-playwright-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install root dependencies
+        run: npm ci
+
+      - name: Sync shared code and build desktop dist
+        run: npm run sync-shared && npm run build:desktop-dist
+
+      - name: Install desktop Playwright dependencies
+        working-directory: packages/desktop/tests/automated
+        run: npm ci
+
+      - name: Install Playwright browsers
+        working-directory: packages/desktop/tests/automated
+        run: npx playwright install chromium --with-deps
+
+      - name: Run desktop Playwright tests
+        working-directory: packages/desktop/tests/automated
+        run: npx playwright test
+
+      - name: Upload test results
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: desktop-playwright-report
+          path: packages/desktop/tests/automated/test-results/
+          retention-days: 7
