@@ -1,6 +1,9 @@
 name: Dependabot auto-merge
 
-on: pull_request
+on:
+  pull_request:
+  push:
+    branches: [main]
 
 permissions:
   contents: write
@@ -9,7 +12,7 @@ permissions:
 jobs:
   auto-merge:
     runs-on: ubuntu-latest
-    if: github.actor == 'dependabot[bot]'
+    if: github.event_name == 'pull_request' && github.actor == 'dependabot[bot]'
     steps:
       - name: Fetch Dependabot metadata
         id: metadata
@@ -23,3 +26,16 @@ jobs:
         env:
           PR_URL: ${{ github.event.pull_request.html_url }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  update-dependabot-prs:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push'
+    steps:
+      - name: Update Dependabot PR branches
+        run: |
+          gh pr list --repo "$REPO" --author "app/dependabot" --state open --json number,headRefName --jq '.[].number' | while read -r pr; do
+            gh pr update-branch "$pr" --repo "$REPO" --rebase 2>/dev/null || true
+          done
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
