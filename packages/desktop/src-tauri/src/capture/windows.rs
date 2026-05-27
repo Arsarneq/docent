@@ -1394,12 +1394,22 @@ unsafe fn get_string_property(
     element: &IUIAutomationElement,
     property_id: windows::Win32::UI::Accessibility::UIA_PROPERTY_ID,
 ) -> String {
+    use windows::Win32::System::Variant::VT_BSTR;
     element
         .GetCurrentPropertyValue(property_id)
         .ok()
         .and_then(|v| {
-            let bstr: Result<windows::core::BSTR, _> = (&v).try_into();
-            bstr.ok().map(|b| b.to_string())
+            let inner = &v.Anonymous.Anonymous;
+            if inner.vt == VT_BSTR {
+                let bstr_ptr = &inner.Anonymous.bstrVal;
+                if bstr_ptr.is_empty() {
+                    None
+                } else {
+                    Some(bstr_ptr.to_string())
+                }
+            } else {
+                None
+            }
         })
         .unwrap_or_default()
 }
