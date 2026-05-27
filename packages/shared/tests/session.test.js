@@ -160,10 +160,10 @@ describe('resolveActiveSteps', () => {
       actions: [],
       logical_id: 'lid1',
     });
-    // Simulate a newer version (higher uuid)
+    // Create v2 with a guaranteed-higher uuid (prefix with 'z')
     const v2 = {
       ...v1,
-      uuid: 'z' + v1.uuid.slice(1), // lexicographically greater
+      uuid: 'zzz' + v1.uuid.slice(3),
       narration: 'New',
     };
     const r = { recording_id: 'r1', steps: [v1, v2] };
@@ -198,7 +198,7 @@ describe('getStepHistory', () => {
     const v1 = createStep({ narration: 'V1', step_number: 1, actions: [], logical_id: 'lid1' });
     const v2 = {
       ...v1,
-      uuid: 'z' + v1.uuid.slice(1),
+      uuid: 'zzz' + v1.uuid.slice(3),
       narration: 'V2',
     };
     const other = createStep({ narration: 'Other', step_number: 2, actions: [] });
@@ -239,26 +239,42 @@ describe('deleteStep', () => {
     assert.equal(rec.steps.length, 0);
   });
 
-  it('deleted step no longer appears in resolveActiveSteps', () => {
+  it('deleted step no longer appears in resolveActiveSteps', async () => {
     const rec = { recording_id: 'r1', steps: [] };
     const step = createStep({ narration: 'Gone', step_number: 1, actions: [] });
     addStepRecord(rec, step);
+    // Ensure tombstone gets a later timestamp (uuid v7 ordering depends on ms)
+    await new Promise((r) => setTimeout(r, 5));
     deleteStep(rec, step.logical_id);
-    assert.deepEqual(resolveActiveSteps(rec), []);
+    // Verify tombstone was created
+    assert.equal(rec.steps.length, 2);
+    const tombstone = rec.steps[1];
+    assert.equal(tombstone.deleted, true);
+    assert.equal(tombstone.logical_id, step.logical_id);
+    // Tombstone uuid should be greater (later timestamp)
+    assert.ok(tombstone.uuid > step.uuid, 'tombstone uuid should be greater than original');
+    // resolveActiveSteps should return empty (tombstone is latest and deleted)
+    const active = resolveActiveSteps(rec);
+    assert.equal(active.length, 0, 'deleted step should not appear in active steps');
   });
 });
 
 // ─── reorderSteps ─────────────────────────────────────────────────────────────
 
 describe('reorderSteps', () => {
-  it('reassigns step_numbers based on new order', () => {
+  it('reassigns step_numbers based on new order', async () => {
     const rec = { recording_id: 'r1', steps: [] };
     const s1 = createStep({ narration: 'A', step_number: 1, actions: [] });
+    await new Promise((r) => setTimeout(r, 5));
     const s2 = createStep({ narration: 'B', step_number: 2, actions: [] });
+    await new Promise((r) => setTimeout(r, 5));
     const s3 = createStep({ narration: 'C', step_number: 3, actions: [] });
     addStepRecord(rec, s1);
     addStepRecord(rec, s2);
     addStepRecord(rec, s3);
+
+    // Ensure reorder records get later timestamps
+    await new Promise((r) => setTimeout(r, 5));
 
     // Reverse order: C, B, A
     reorderSteps(rec, [s3.logical_id, s2.logical_id, s1.logical_id]);
