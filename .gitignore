@@ -30,6 +30,8 @@ Thumbs.db
 # Test artifacts
 test-results/
 playwright-report/
+coverage/
+.c8_output/
 
 # Editor
 .vscode/
