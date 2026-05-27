@@ -23,7 +23,7 @@ jobs:
 
       - name: Create PR for version table update if changed
         id: version-pr
-        uses: peter-evans/create-pull-request@v6
+        uses: peter-evans/create-pull-request@v8
         with:
           commit-message: 'docs: update version compatibility table'
           title: 'docs: update version compatibility table'
