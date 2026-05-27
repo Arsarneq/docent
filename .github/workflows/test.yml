@@ -61,11 +61,11 @@ jobs:
       - name: Verify sync-shared output is fresh
         run: git diff --exit-code packages/*/shared/ packages/extension/sidepanel/index.html packages/desktop/src/index.html || (echo "ERROR: sync-shared produced changes — run 'npm run sync-shared' locally and commit" && exit 1)
 
-      - name: Run shared tests
-        run: npm run test:shared
+      - name: Run shared tests with coverage
+        run: npm run test:shared:coverage
 
-      - name: Run extension unit tests
-        run: npm run test:extension
+      - name: Run extension unit tests with coverage
+        run: cd packages/extension && npm run test:coverage
 
       - name: Run desktop unit tests
         run: npm run test:desktop

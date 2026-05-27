@@ -1,0 +1,9 @@
+{
+  "exclude": [
+    "node_modules/**",
+    "packages/*/tests/**",
+    "packages/*/tests/automated/**",
+    "scripts/**",
+    "coverage/**"
+  ]
+}

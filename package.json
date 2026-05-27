@@ -11,11 +11,15 @@
     "test:desktop": "node --test packages/desktop/tests/*.test.js",
     "test:desktop:rust": "cargo test --manifest-path packages/desktop/src-tauri/Cargo.toml",
     "test:shared": "node --test packages/shared/tests/*.test.js",
+    "test:shared:coverage": "c8 --reporter=text --reporter=lcov node --test packages/shared/tests/*.test.js",
+    "test:desktop:coverage": "c8 --reporter=text --reporter=lcov node --test packages/desktop/tests/*.test.js",
+    "test:coverage": "c8 --reporter=text --reporter=lcov --all --src packages/shared/lib --src packages/shared/views node --test packages/shared/tests/*.test.js packages/desktop/tests/*.test.js",
     "update-version-table": "node scripts/update-version-table.js",
     "bump:schema": "node scripts/bump-schema.js",
     "prepublish": "npm run sync-shared"
   },
   "devDependencies": {
+    "c8": "^11.0.0",
     "fast-check": "^4.8.0"
   }
 }
