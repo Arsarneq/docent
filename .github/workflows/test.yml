@@ -91,6 +91,9 @@ jobs:
       - name: Sync shared code
         run: npm run sync-shared
 
+      - name: Build desktop dist
+        run: npm run build:desktop-dist
+
       - name: Verify sync-shared output is fresh
         run: git diff --exit-code packages/*/shared/ packages/extension/sidepanel/index.html packages/desktop/src/index.html || (echo "ERROR: sync-shared produced changes — run 'npm run sync-shared' locally and commit" && exit 1)
 
