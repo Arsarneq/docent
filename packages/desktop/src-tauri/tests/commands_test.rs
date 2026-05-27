@@ -30,7 +30,7 @@ fn with_temp_appdata(test_name: &str) -> tempfile::TempDir {
 
 // We call the commands module functions directly.
 // Since they use APPDATA internally, we override it per test.
-use docent_desktop_lib::commands::{load_state, save_state};
+use docent_desktop_lib::commands::{get_self_pid, load_state, save_state};
 
 #[test]
 #[serial]
@@ -142,4 +142,35 @@ fn round_trip_preserves_valid_json() {
     let loaded = load_state().unwrap();
     let parsed: serde_json::Value = serde_json::from_str(&loaded).unwrap();
     assert_eq!(parsed, state);
+}
+
+
+// ---------------------------------------------------------------------------
+// get_self_pid tests
+// ---------------------------------------------------------------------------
+
+#[test]
+fn get_self_pid_returns_nonzero() {
+    let pid = get_self_pid();
+    assert_ne!(pid, 0, "get_self_pid should return a non-zero process ID");
+}
+
+#[test]
+fn get_self_pid_matches_std_process_id() {
+    let pid = get_self_pid();
+    assert_eq!(
+        pid,
+        std::process::id(),
+        "get_self_pid should return the same value as std::process::id()"
+    );
+}
+
+#[test]
+fn get_self_pid_is_stable_across_calls() {
+    let pid1 = get_self_pid();
+    let pid2 = get_self_pid();
+    assert_eq!(
+        pid1, pid2,
+        "get_self_pid should return the same PID on repeated calls"
+    );
 }

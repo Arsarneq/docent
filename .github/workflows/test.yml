@@ -306,6 +306,13 @@ jobs:
         working-directory: packages/desktop/tests/automated
         run: npx playwright test
 
+      - name: Upload desktop Playwright coverage to Codecov
+        uses: codecov/codecov-action@v4
+        with:
+          files: packages/desktop/tests/automated/coverage/lcov.info
+          flags: javascript
+          token: ${{ secrets.CODECOV_TOKEN }}
+
       - name: Upload test results
         if: failure()
         uses: actions/upload-artifact@v7

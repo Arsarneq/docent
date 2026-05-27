@@ -13,7 +13,7 @@
  * - listen('capture:action') → no-op
  */
 
-import { test, expect } from '@playwright/test';
+import { test, expect } from './coverage-fixture.js';
 import http from 'http';
 import fs from 'fs';
 import path from 'path';
