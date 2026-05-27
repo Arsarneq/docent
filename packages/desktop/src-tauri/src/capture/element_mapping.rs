@@ -401,4 +401,175 @@ mod tests {
         assert_eq!(el.name, Some("Edit #1".into()));
         assert_eq!(el.selector, "Edit[0]");
     }
+
+    // -- Additional control_type_name coverage -----------------------------
+
+    #[test]
+    fn calendar_control_type() {
+        assert_eq!(control_type_name(50001), "Calendar");
+    }
+
+    #[test]
+    fn checkbox_control_type() {
+        assert_eq!(control_type_name(50002), "CheckBox");
+    }
+
+    #[test]
+    fn combobox_control_type() {
+        assert_eq!(control_type_name(50003), "ComboBox");
+    }
+
+    #[test]
+    fn hyperlink_control_type() {
+        assert_eq!(control_type_name(50005), "Hyperlink");
+    }
+
+    #[test]
+    fn image_control_type() {
+        assert_eq!(control_type_name(50006), "Image");
+    }
+
+    #[test]
+    fn list_and_listitem_control_types() {
+        assert_eq!(control_type_name(50007), "ListItem");
+        assert_eq!(control_type_name(50008), "List");
+    }
+
+    #[test]
+    fn menu_control_types() {
+        assert_eq!(control_type_name(50009), "Menu");
+        assert_eq!(control_type_name(50010), "MenuBar");
+        assert_eq!(control_type_name(50011), "MenuItem");
+    }
+
+    #[test]
+    fn progress_radio_scrollbar_slider_spinner() {
+        assert_eq!(control_type_name(50012), "ProgressBar");
+        assert_eq!(control_type_name(50013), "RadioButton");
+        assert_eq!(control_type_name(50014), "ScrollBar");
+        assert_eq!(control_type_name(50015), "Slider");
+        assert_eq!(control_type_name(50016), "Spinner");
+    }
+
+    #[test]
+    fn statusbar_tab_tabitem() {
+        assert_eq!(control_type_name(50017), "StatusBar");
+        assert_eq!(control_type_name(50018), "Tab");
+        assert_eq!(control_type_name(50019), "TabItem");
+    }
+
+    #[test]
+    fn toolbar_tooltip_tree_treeitem() {
+        assert_eq!(control_type_name(50021), "ToolBar");
+        assert_eq!(control_type_name(50022), "ToolTip");
+        assert_eq!(control_type_name(50023), "Tree");
+        assert_eq!(control_type_name(50024), "TreeItem");
+    }
+
+    #[test]
+    fn group_thumb_datagrid_dataitem_document() {
+        assert_eq!(control_type_name(50026), "Group");
+        assert_eq!(control_type_name(50027), "Thumb");
+        assert_eq!(control_type_name(50028), "DataGrid");
+        assert_eq!(control_type_name(50029), "DataItem");
+        assert_eq!(control_type_name(50030), "Document");
+    }
+
+    #[test]
+    fn splitbutton_header_headeritem_table_titlebar() {
+        assert_eq!(control_type_name(50031), "SplitButton");
+        assert_eq!(control_type_name(50034), "Header");
+        assert_eq!(control_type_name(50035), "HeaderItem");
+        assert_eq!(control_type_name(50036), "Table");
+        assert_eq!(control_type_name(50037), "TitleBar");
+    }
+
+    #[test]
+    fn separator_semanticzoom_appbar() {
+        assert_eq!(control_type_name(50038), "Separator");
+        assert_eq!(control_type_name(50039), "SemanticZoom");
+        assert_eq!(control_type_name(50040), "AppBar");
+    }
+
+    // -- map_element with various control types ----------------------------
+
+    #[test]
+    fn combobox_mapping_with_value_and_tree_path() {
+        let props = UiaProperties {
+            control_type_id: 50003,
+            automation_id: "cmbCountry".into(),
+            name: "Country".into(),
+            localized_control_type: "combo box".into(),
+            is_password: false,
+            value: "Norway".into(),
+            tree_path: vec![
+                "Window:Settings".into(),
+                "Group:Region".into(),
+                "ComboBox:Country".into(),
+            ],
+        };
+
+        let el = map_element(&props);
+        assert_eq!(el.tag, "ComboBox");
+        assert_eq!(el.id, Some("cmbCountry".into()));
+        assert_eq!(el.name, Some("Country".into()));
+        assert_eq!(el.role, Some("combo box".into()));
+        assert_eq!(el.text, Some("Norway".into()));
+        assert_eq!(
+            el.selector,
+            "Window:Settings > Group:Region > ComboBox:Country"
+        );
+    }
+
+    #[test]
+    fn hyperlink_mapping_uses_name_as_text_fallback() {
+        let props = UiaProperties {
+            control_type_id: 50005,
+            automation_id: String::new(),
+            name: "Click here".into(),
+            localized_control_type: "hyperlink".into(),
+            is_password: false,
+            value: String::new(),
+            tree_path: vec!["Window:Browser".into(), "Hyperlink:Click here".into()],
+        };
+
+        let el = map_element(&props);
+        assert_eq!(el.tag, "Hyperlink");
+        assert_eq!(el.id, None);
+        assert_eq!(el.text, Some("Click here".into()));
+    }
+
+    #[test]
+    fn tree_item_mapping() {
+        let props = UiaProperties {
+            control_type_id: 50024,
+            automation_id: "node_3".into(),
+            name: "Documents".into(),
+            localized_control_type: "tree item".into(),
+            is_password: false,
+            value: String::new(),
+            tree_path: vec![
+                "Window:Explorer".into(),
+                "Tree:Folders".into(),
+                "TreeItem:Documents".into(),
+            ],
+        };
+
+        let el = map_element(&props);
+        assert_eq!(el.tag, "TreeItem");
+        assert_eq!(el.id, Some("node_3".into()));
+        assert_eq!(el.name, Some("Documents".into()));
+        assert_eq!(el.role, Some("tree item".into()));
+        assert_eq!(el.text, Some("Documents".into()));
+    }
+
+    // -- map_element_fallback with various types ---------------------------
+
+    #[test]
+    fn fallback_large_index() {
+        let el = map_element_fallback("ListItem", (99, 100));
+        assert_eq!(el.name, Some("ListItem #100".into()));
+        assert_eq!(el.selector, "ListItem[99]");
+        assert_eq!(el.tag, "ListItem");
+    }
 }

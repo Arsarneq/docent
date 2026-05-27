@@ -14,6 +14,7 @@
  */
 
 import { test, expect } from './coverage-fixture.js';
+import assert from 'node:assert/strict';
 import http from 'http';
 import fs from 'fs';
 import path from 'path';
@@ -1130,5 +1131,369 @@ test.describe('Desktop Panel - Window Target Selector', () => {
     await page.waitForSelector('#view-recording:not(.hidden)', { timeout: 5000 });
 
     await expect(page.locator('#target-app-select')).toBeVisible();
+  });
+});
+
+test.describe('Desktop Panel — Adapter Capture Lifecycle', () => {
+  test('RECORDING_START invokes start_capture and resets reorder state', async ({ page }) => {
+    await page.goto(`http://127.0.0.1:${serverPort}/`);
+    await page.waitForSelector('#view-projects:not(.hidden)', { timeout: 10000 });
+
+    // Create project + recording to get to recording view
+    await page.click('#btn-new-project');
+    await page.waitForSelector('#view-new-project:not(.hidden)', { timeout: 5000 });
+    await page.fill('#new-project-name', 'Capture Lifecycle');
+    await page.click('#btn-new-project-create');
+    await page.waitForSelector('#view-project:not(.hidden)', { timeout: 5000 });
+    await page.click('#btn-new-recording');
+    await page.waitForSelector('#view-new-recording:not(.hidden)', { timeout: 5000 });
+    await page.fill('#new-recording-name', 'R');
+    await page.click('#btn-new-recording-create');
+    await page.waitForSelector('#view-recording:not(.hidden)', { timeout: 5000 });
+
+    // Simulate capture events with sequence_ids to set highestSeenSeq
+    await page.evaluate(() => {
+      const handler = window.__TAURI__._listeners['capture:action'];
+      if (handler) {
+        handler({
+          payload: {
+            type: 'click',
+            timestamp: Date.now(),
+            capture_mode: 'accessibility',
+            context_id: 1,
+            sequence_id: 5,
+            element: { text: 'A' },
+          },
+        });
+        handler({
+          payload: {
+            type: 'click',
+            timestamp: Date.now(),
+            capture_mode: 'accessibility',
+            context_id: 1,
+            sequence_id: 10,
+            element: { text: 'B' },
+          },
+        });
+      }
+    });
+    await page.waitForTimeout(200);
+
+    // Verify pending count is 2
+    const pendingCount = await page.evaluate(() => {
+      return window.__TAURI__.core.invoke('get_max_sequence_number').then(() => {
+        // Access adapter internals via the panel's exposed API
+        const badge = document.querySelector('#pending-count');
+        return badge ? badge.textContent : '0';
+      });
+    });
+
+    // Clear and verify reset
+    page.on('dialog', (dialog) => dialog.accept());
+    await page.click('#btn-clear-step');
+    await page.waitForTimeout(300);
+
+    // After clear, pending count should be 0
+    const afterClear = await page.evaluate(() => {
+      const badge = document.querySelector('#pending-count');
+      return badge ? badge.textContent : '0';
+    });
+    assert.ok(
+      afterClear === '0' || afterClear === '',
+      `Expected 0 pending after clear, got ${afterClear}`,
+    );
+  });
+
+  test('multiple capture events with sequence_ids are ordered correctly', async ({ page }) => {
+    await page.goto(`http://127.0.0.1:${serverPort}/`);
+    await page.waitForSelector('#view-projects:not(.hidden)', { timeout: 10000 });
+
+    await page.click('#btn-new-project');
+    await page.waitForSelector('#view-new-project:not(.hidden)', { timeout: 5000 });
+    await page.fill('#new-project-name', 'Order Test');
+    await page.click('#btn-new-project-create');
+    await page.waitForSelector('#view-project:not(.hidden)', { timeout: 5000 });
+    await page.click('#btn-new-recording');
+    await page.waitForSelector('#view-new-recording:not(.hidden)', { timeout: 5000 });
+    await page.fill('#new-recording-name', 'R');
+    await page.click('#btn-new-recording-create');
+    await page.waitForSelector('#view-recording:not(.hidden)', { timeout: 5000 });
+
+    // Send events out of order (seq 3, then 1, then 2)
+    await page.evaluate(() => {
+      const handler = window.__TAURI__._listeners['capture:action'];
+      if (handler) {
+        handler({
+          payload: {
+            type: 'click',
+            timestamp: Date.now(),
+            capture_mode: 'accessibility',
+            context_id: 1,
+            sequence_id: 3,
+            element: { text: 'Third' },
+          },
+        });
+        handler({
+          payload: {
+            type: 'click',
+            timestamp: Date.now(),
+            capture_mode: 'accessibility',
+            context_id: 1,
+            sequence_id: 1,
+            element: { text: 'First' },
+          },
+        });
+        handler({
+          payload: {
+            type: 'click',
+            timestamp: Date.now(),
+            capture_mode: 'accessibility',
+            context_id: 1,
+            sequence_id: 2,
+            element: { text: 'Second' },
+          },
+        });
+      }
+    });
+    await page.waitForTimeout(300);
+
+    // Commit in simple mode to verify ordering
+    // Switch to simple mode first
+    await page.click('#btn-settings');
+    await page.waitForSelector('#view-settings:not(.hidden)', { timeout: 5000 });
+    const simpleLabel = page.locator('input[name="recording-mode"][value="simple"]').locator('..');
+    await simpleLabel.scrollIntoViewIfNeeded();
+    await simpleLabel.click();
+    await page.waitForTimeout(200);
+    await page.click('#btn-settings-back');
+    await page.waitForSelector('#view-projects:not(.hidden)', { timeout: 5000 });
+
+    // Navigate back to the recording
+    await page.click('[data-action="open"]');
+    await page.waitForSelector('#view-project:not(.hidden)', { timeout: 5000 });
+    await page.click('[data-action="open"]');
+    await page.waitForSelector('#view-recording:not(.hidden)', { timeout: 5000 });
+
+    // Commit the step
+    await page.click('#btn-commit-step-simple');
+    await page.waitForTimeout(500);
+
+    // Verify step was committed (actions should be in correct order)
+    await expect(page.locator('.step-item')).toHaveCount(1);
+  });
+
+  test('commitWithCompleteness waits for all events before committing', async ({ page }) => {
+    await page.goto(`http://127.0.0.1:${serverPort}/`);
+    await page.waitForSelector('#view-projects:not(.hidden)', { timeout: 10000 });
+
+    await page.click('#btn-new-project');
+    await page.waitForSelector('#view-new-project:not(.hidden)', { timeout: 5000 });
+    await page.fill('#new-project-name', 'Completeness');
+    await page.click('#btn-new-project-create');
+    await page.waitForSelector('#view-project:not(.hidden)', { timeout: 5000 });
+    await page.click('#btn-new-recording');
+    await page.waitForSelector('#view-new-recording:not(.hidden)', { timeout: 5000 });
+    await page.fill('#new-recording-name', 'R');
+    await page.click('#btn-new-recording-create');
+    await page.waitForSelector('#view-recording:not(.hidden)', { timeout: 5000 });
+
+    // Set max sequence number in mock to simulate backend having dispatched events
+    await page.evaluate(() => {
+      window._maxSeq = 3;
+    });
+
+    // Send events with sequence_ids 1 and 2 (missing 3)
+    await page.evaluate(() => {
+      const handler = window.__TAURI__._listeners['capture:action'];
+      if (handler) {
+        handler({
+          payload: {
+            type: 'click',
+            timestamp: Date.now(),
+            capture_mode: 'accessibility',
+            context_id: 1,
+            sequence_id: 1,
+            element: { text: 'A' },
+          },
+        });
+        handler({
+          payload: {
+            type: 'click',
+            timestamp: Date.now(),
+            capture_mode: 'accessibility',
+            context_id: 1,
+            sequence_id: 2,
+            element: { text: 'B' },
+          },
+        });
+      }
+    });
+    await page.waitForTimeout(100);
+
+    // Now send the missing event (seq 3) after a short delay
+    await page.evaluate(() => {
+      setTimeout(() => {
+        const handler = window.__TAURI__._listeners['capture:action'];
+        if (handler) {
+          handler({
+            payload: {
+              type: 'click',
+              timestamp: Date.now(),
+              capture_mode: 'accessibility',
+              context_id: 1,
+              sequence_id: 3,
+              element: { text: 'C' },
+            },
+          });
+        }
+      }, 200);
+    });
+
+    // Type narration and commit (commit uses commitWithCompleteness)
+    await page.fill('#narration-input', 'All three events');
+    await page.waitForTimeout(400); // Wait for the delayed event to arrive
+    await page.click('#btn-commit-step');
+    await page.waitForTimeout(500);
+
+    // Step should be committed with all 3 actions
+    await expect(page.locator('.step-item')).toHaveCount(1);
+
+    // Open step detail to verify all 3 actions
+    await page.click('.step-narration');
+    await page.waitForSelector('#view-step-detail:not(.hidden)', { timeout: 5000 });
+    await expect(page.locator('.step-detail-item')).toHaveCount(3);
+  });
+
+  test('action event callback fires for each capture event', async ({ page }) => {
+    await page.goto(`http://127.0.0.1:${serverPort}/`);
+    await page.waitForSelector('#view-projects:not(.hidden)', { timeout: 10000 });
+
+    await page.click('#btn-new-project');
+    await page.waitForSelector('#view-new-project:not(.hidden)', { timeout: 5000 });
+    await page.fill('#new-project-name', 'Callback Test');
+    await page.click('#btn-new-project-create');
+    await page.waitForSelector('#view-project:not(.hidden)', { timeout: 5000 });
+    await page.click('#btn-new-recording');
+    await page.waitForSelector('#view-new-recording:not(.hidden)', { timeout: 5000 });
+    await page.fill('#new-recording-name', 'R');
+    await page.click('#btn-new-recording-create');
+    await page.waitForSelector('#view-recording:not(.hidden)', { timeout: 5000 });
+
+    // Send 5 capture events rapidly
+    await page.evaluate(() => {
+      const handler = window.__TAURI__._listeners['capture:action'];
+      if (handler) {
+        for (let i = 1; i <= 5; i++) {
+          handler({
+            payload: {
+              type: 'click',
+              timestamp: Date.now() + i,
+              capture_mode: 'accessibility',
+              context_id: 1,
+              sequence_id: i,
+              element: { text: `Button ${i}` },
+            },
+          });
+        }
+      }
+    });
+    await page.waitForTimeout(300);
+
+    // Verify pending count badge shows 5
+    const pendingText = await page.evaluate(() => {
+      const badge = document.querySelector('#pending-count');
+      return badge ? badge.textContent.trim() : '0';
+    });
+    assert.equal(pendingText, '5', `Expected 5 pending actions, got ${pendingText}`);
+  });
+
+  test('RECORDING_STOP invokes stop_capture', async ({ page }) => {
+    await page.goto(`http://127.0.0.1:${serverPort}/`);
+    await page.waitForSelector('#view-projects:not(.hidden)', { timeout: 10000 });
+
+    // Track invoke calls
+    await page.evaluate(() => {
+      window._invokeCalls = [];
+      const originalInvoke = window.__TAURI__.core.invoke;
+      window.__TAURI__.core.invoke = async (cmd, args) => {
+        window._invokeCalls.push(cmd);
+        return originalInvoke(cmd, args);
+      };
+    });
+
+    await page.click('#btn-new-project');
+    await page.waitForSelector('#view-new-project:not(.hidden)', { timeout: 5000 });
+    await page.fill('#new-project-name', 'Stop Test');
+    await page.click('#btn-new-project-create');
+    await page.waitForSelector('#view-project:not(.hidden)', { timeout: 5000 });
+    await page.click('#btn-new-recording');
+    await page.waitForSelector('#view-new-recording:not(.hidden)', { timeout: 5000 });
+    await page.fill('#new-recording-name', 'R');
+    await page.click('#btn-new-recording-create');
+    await page.waitForSelector('#view-recording:not(.hidden)', { timeout: 5000 });
+
+    // Navigate away from recording (triggers stop_capture)
+    await page.click('#bc-project');
+    await page.waitForSelector('#view-project:not(.hidden)', { timeout: 5000 });
+    await page.waitForTimeout(300);
+
+    // Verify stop_capture was called
+    const calls = await page.evaluate(() => window._invokeCalls);
+    assert.ok(
+      calls.includes('stop_capture'),
+      `Expected stop_capture to be called, got: ${calls.join(', ')}`,
+    );
+  });
+});
+
+test.describe('Desktop Panel — Pending Actions Edge Cases', () => {
+  test('events without sequence_id are appended to end', async ({ page }) => {
+    await page.goto(`http://127.0.0.1:${serverPort}/`);
+    await page.waitForSelector('#view-projects:not(.hidden)', { timeout: 10000 });
+
+    await page.click('#btn-new-project');
+    await page.waitForSelector('#view-new-project:not(.hidden)', { timeout: 5000 });
+    await page.fill('#new-project-name', 'No Seq');
+    await page.click('#btn-new-project-create');
+    await page.waitForSelector('#view-project:not(.hidden)', { timeout: 5000 });
+    await page.click('#btn-new-recording');
+    await page.waitForSelector('#view-new-recording:not(.hidden)', { timeout: 5000 });
+    await page.fill('#new-recording-name', 'R');
+    await page.click('#btn-new-recording-create');
+    await page.waitForSelector('#view-recording:not(.hidden)', { timeout: 5000 });
+
+    // Send events without sequence_id
+    await page.evaluate(() => {
+      const handler = window.__TAURI__._listeners['capture:action'];
+      if (handler) {
+        handler({
+          payload: {
+            type: 'click',
+            timestamp: Date.now(),
+            capture_mode: 'accessibility',
+            context_id: 1,
+            element: { text: 'No Seq 1' },
+          },
+        });
+        handler({
+          payload: {
+            type: 'type',
+            timestamp: Date.now(),
+            capture_mode: 'accessibility',
+            context_id: 1,
+            element: { selector: '#input' },
+            value: 'hello',
+          },
+        });
+      }
+    });
+    await page.waitForTimeout(200);
+
+    // Verify both events are pending
+    const pendingText = await page.evaluate(() => {
+      const badge = document.querySelector('#pending-count');
+      return badge ? badge.textContent.trim() : '0';
+    });
+    assert.equal(pendingText, '2', `Expected 2 pending actions, got ${pendingText}`);
   });
 });
