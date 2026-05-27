@@ -34,17 +34,33 @@ The dispatch payload includes a reading guide and the JSON Schema for the sendin
 
 ## Example flow
 
+### Agentic consumer (narration mode)
+
 ```mermaid
 flowchart LR
     A([Person]) -->|demonstrates workflow| B[Docent]
-    B -->|steps + context| C[.docent.json]
-    C -->|dispatch| D([Agentic system])
-    D -->|implements| E([Test suite])
+    B -->|narration + actions| C[.docent.json]
+    C -->|dispatch| D([LLM / Agentic system])
+    D -->|interprets & implements| E([Test suite])
 ```
 
-A person demonstrates a workflow once. Docent captures each step — the context (narration or action/validation classification) and the interactions. The structured output is dispatched to an agentic system that produces a test suite.
+A person demonstrates a workflow, narrating each step in natural language. The structured output is dispatched to an agentic system (LLM) that interprets the narration and captured interactions to produce a test suite. The LLM has full context — what the user did and what they meant.
 
-The `.docent.json` format is the contract between capture and consumption.
+### Deterministic consumer (simple mode)
+
+```mermaid
+flowchart LR
+    A([Person]) -->|demonstrates workflow| B[Docent]
+    B -->|action/validation + actions| C[.docent.json]
+    C -->|dispatch| D([Code mapper])
+    D -->|generates directly| E([Test suite])
+```
+
+A person demonstrates a workflow, tagging each step as either "action" (do this) or "validation" (check this). A deterministic code mapper generates framework-specific test code directly from the structured data — no LLM required. Each action step becomes a replay command, each validation step becomes an assertion.
+
+### The format is the contract
+
+Both paths consume the same `.docent.json` format. Docent captures and delivers — it has no opinion about what receives the data or how it's used.
 
 ---
 
