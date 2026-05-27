@@ -288,3 +288,123 @@ describe('buildPayload — edge cases', () => {
     assert.equal(payload.recordings[0].steps[0].deleted, true);
   });
 });
+
+describe('buildPayload — metadata handling', () => {
+  it('includes project metadata when present', () => {
+    const project = {
+      project_id: 'p1',
+      name: 'P',
+      created_at: '2026-01-01T00:00:00.000Z',
+      metadata: { ticket: 'PROJ-42', env: 'staging' },
+    };
+    const payload = buildPayload(project, [], '', {});
+    assert.deepEqual(payload.project.metadata, { ticket: 'PROJ-42', env: 'staging' });
+  });
+
+  it('omits project metadata when not present', () => {
+    const project = { project_id: 'p1', name: 'P', created_at: '2026-01-01T00:00:00.000Z' };
+    const payload = buildPayload(project, [], '', {});
+    assert.equal(payload.project.metadata, undefined);
+  });
+
+  it('includes recording metadata when present', () => {
+    const project = { project_id: 'p1', name: 'P', created_at: '2026-01-01T00:00:00.000Z' };
+    const recordings = [
+      {
+        recording_id: 'r1',
+        name: 'R',
+        created_at: '2026-01-01T00:00:00.000Z',
+        metadata: { browser: 'chrome', version: '120' },
+        steps: [],
+      },
+    ];
+    const payload = buildPayload(project, recordings, '', {});
+    assert.deepEqual(payload.recordings[0].metadata, { browser: 'chrome', version: '120' });
+  });
+
+  it('omits recording metadata when not present', () => {
+    const project = { project_id: 'p1', name: 'P', created_at: '2026-01-01T00:00:00.000Z' };
+    const recordings = [
+      { recording_id: 'r1', name: 'R', created_at: '2026-01-01T00:00:00.000Z', steps: [] },
+    ];
+    const payload = buildPayload(project, recordings, '', {});
+    assert.equal(payload.recordings[0].metadata, undefined);
+  });
+
+  it('includes step narration and narration_source when present', () => {
+    const project = { project_id: 'p1', name: 'P', created_at: '2026-01-01T00:00:00.000Z' };
+    const recordings = [
+      {
+        recording_id: 'r1',
+        name: 'R',
+        created_at: '2026-01-01T00:00:00.000Z',
+        steps: [
+          {
+            uuid: 'u1',
+            logical_id: 'l1',
+            step_number: 1,
+            created_at: '2026-01-01T00:00:00.000Z',
+            narration: 'Click login',
+            narration_source: 'typed',
+            actions: [],
+            deleted: false,
+          },
+        ],
+      },
+    ];
+    const payload = buildPayload(project, recordings, '', {});
+    assert.equal(payload.recordings[0].steps[0].narration, 'Click login');
+    assert.equal(payload.recordings[0].steps[0].narration_source, 'typed');
+  });
+
+  it('includes step_type and expect for simple mode steps', () => {
+    const project = { project_id: 'p1', name: 'P', created_at: '2026-01-01T00:00:00.000Z' };
+    const recordings = [
+      {
+        recording_id: 'r1',
+        name: 'R',
+        created_at: '2026-01-01T00:00:00.000Z',
+        steps: [
+          {
+            uuid: 'u1',
+            logical_id: 'l1',
+            step_number: 1,
+            created_at: '2026-01-01T00:00:00.000Z',
+            step_type: 'validation',
+            expect: 'present',
+            actions: [],
+            deleted: false,
+          },
+        ],
+      },
+    ];
+    const payload = buildPayload(project, recordings, '', {});
+    assert.equal(payload.recordings[0].steps[0].step_type, 'validation');
+    assert.equal(payload.recordings[0].steps[0].expect, 'present');
+  });
+
+  it('omits narration fields when not present on step', () => {
+    const project = { project_id: 'p1', name: 'P', created_at: '2026-01-01T00:00:00.000Z' };
+    const recordings = [
+      {
+        recording_id: 'r1',
+        name: 'R',
+        created_at: '2026-01-01T00:00:00.000Z',
+        steps: [
+          {
+            uuid: 'u1',
+            logical_id: 'l1',
+            step_number: 1,
+            created_at: '2026-01-01T00:00:00.000Z',
+            step_type: 'action',
+            actions: [],
+            deleted: false,
+          },
+        ],
+      },
+    ];
+    const payload = buildPayload(project, recordings, '', {});
+    assert.equal(payload.recordings[0].steps[0].narration, undefined);
+    assert.equal(payload.recordings[0].steps[0].narration_source, undefined);
+  });
+});

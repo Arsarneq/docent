@@ -33,7 +33,7 @@ let testCounter = 0;
  */
 export const test = base.extend({
   page: async ({ page }, use) => {
-    // Start V8 JS coverage before each test
+    // Start V8 JS coverage BEFORE navigation so we capture module initialization
     await page.coverage.startJSCoverage({ resetOnNavigation: false });
 
     await use(page);
