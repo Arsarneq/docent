@@ -47,6 +47,7 @@ jobs:
       - name: Check for version table changes
         if: matrix.os == 'windows-latest'
         id: table-diff
+        shell: bash
         run: |
           if git diff --quiet; then
             echo "changed=false" >> "$GITHUB_OUTPUT"
