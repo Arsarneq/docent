@@ -10,6 +10,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      pull-requests: write
 
     steps:
       - uses: actions/checkout@v6
@@ -23,7 +24,6 @@ jobs:
 
       - name: Create PR for version table update if changed
         id: version-pr
-        continue-on-error: true
         uses: peter-evans/create-pull-request@v8
         with:
           commit-message: 'docs: update version compatibility table'

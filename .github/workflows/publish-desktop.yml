@@ -21,6 +21,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     permissions:
       contents: write
+      pull-requests: write
 
     steps:
       - uses: actions/checkout@v6
@@ -44,7 +45,6 @@ jobs:
       - name: Create PR for version table update if changed
         if: matrix.os == 'windows-latest'
         id: version-pr
-        continue-on-error: true
         uses: peter-evans/create-pull-request@v8
         with:
           commit-message: 'docs: update version compatibility table'
