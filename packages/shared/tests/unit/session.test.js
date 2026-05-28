@@ -22,7 +22,7 @@ import {
   addStepRecord,
   deleteStep,
   reorderSteps,
-} from '../lib/session.js';
+} from '../../lib/session.js';
 
 // ─── createProject ────────────────────────────────────────────────────────────
 

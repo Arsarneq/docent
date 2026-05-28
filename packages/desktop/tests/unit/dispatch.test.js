@@ -36,7 +36,7 @@ globalThis.fetch = mockFetch;
 
 // Dynamic import after globals are set up
 const { loadDispatchSettings, saveDispatchSettings, loadReadingGuidance, loadSchema } =
-  await import('../src/dispatch.js');
+  await import('../../src/dispatch.js');
 
 // ─── loadDispatchSettings() ───────────────────────────────────────────────────
 

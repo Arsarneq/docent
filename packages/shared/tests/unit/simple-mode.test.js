@@ -15,8 +15,8 @@ import {
   addStepRecord,
   deleteStep,
   reorderSteps,
-} from '../lib/session.js';
-import { renderStepList } from '../views/render.js';
+} from '../../lib/session.js';
+import { renderStepList } from '../../views/render.js';
 
 // ─── createStep with simple mode fields ───────────────────────────────────────
 

@@ -13,7 +13,7 @@ import {
   renderRecordingList,
   renderStepList,
   renderStepDetail,
-} from '../views/render.js';
+} from '../../views/render.js';
 
 // ─── renderProjectList ────────────────────────────────────────────────────────
 

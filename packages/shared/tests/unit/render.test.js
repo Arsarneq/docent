@@ -9,7 +9,7 @@
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { escapeHtml, describeAction } from '../views/render.js';
+import { escapeHtml, describeAction } from '../../views/render.js';
 
 // ─── escapeHtml ───────────────────────────────────────────────────────────────
 

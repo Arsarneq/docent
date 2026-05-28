@@ -24,11 +24,11 @@ globalThis.window = {
 };
 
 // Dynamic import after globals are set up
-const { _testOnly } = await import('../src/adapter-tauri.js');
+const { _testOnly } = await import('../../src/adapter-tauri.js');
 
 const { resetReorderState, insertOrdered, stripSeqFields } = _testOnly;
 
-const adapterModule = await import('../src/adapter-tauri.js');
+const adapterModule = await import('../../src/adapter-tauri.js');
 const adapter = adapterModule.default;
 
 // ─── Property 4: Events are delivered in sequence order ───────────────────────

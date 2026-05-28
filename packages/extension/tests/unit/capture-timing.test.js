@@ -26,7 +26,7 @@ import {
   TAB_CREATED_SWITCH_SUPPRESSION,
   TAB_REMOVED_SWITCH_SUPPRESSION,
   TAB_CREATED_NAVIGATION_SUPPRESSION,
-} from '../lib/capture-timing.js';
+} from '../../lib/capture-timing.js';
 
 describe('capture-timing constants — validity', () => {
   const allConstants = {

@@ -18,7 +18,7 @@ updates:
       - 'extension'
 
   - package-ecosystem: 'npm'
-    directory: '/packages/extension/tests/automated'
+    directory: '/packages/extension/tests/e2e'
     schedule:
       interval: 'weekly'
     open-pull-requests-limit: 3

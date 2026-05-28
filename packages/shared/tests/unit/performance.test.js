@@ -19,14 +19,14 @@ import {
   resolveActiveSteps,
   reorderSteps,
   deleteStep,
-} from '../lib/session.js';
-import { buildPayload } from '../dispatch-core.js';
+} from '../../lib/session.js';
+import { buildPayload } from '../../dispatch-core.js';
 import {
   renderStepList,
   renderStepDetail,
   renderProjectList,
   renderRecordingList,
-} from '../views/render.js';
+} from '../../views/render.js';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 

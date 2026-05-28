@@ -10,23 +10,23 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { buildPayload } from '../dispatch-core.js';
+import { buildPayload } from '../../dispatch-core.js';
 import {
   createProject,
   createRecording,
   createStep,
   addStepRecord,
   resolveActiveSteps,
-} from '../lib/session.js';
+} from '../../lib/session.js';
 
 const __dirname = fileURLToPath(new URL('.', import.meta.url));
 
 // Load schemas
 const extensionSchema = JSON.parse(
-  readFileSync(resolve(__dirname, '../../../schemas/extension.schema.json'), 'utf-8'),
+  readFileSync(resolve(__dirname, '../../../../schemas/extension.schema.json'), 'utf-8'),
 );
 const desktopSchema = JSON.parse(
-  readFileSync(resolve(__dirname, '../../../schemas/desktop-windows.schema.json'), 'utf-8'),
+  readFileSync(resolve(__dirname, '../../../../schemas/desktop-windows.schema.json'), 'utf-8'),
 );
 
 // ─── Simple schema validation helpers ─────────────────────────────────────────
