@@ -67,10 +67,50 @@ jobs:
             --exclude 'tests/*'
 
       - name: Upload to Chrome Web Store
-        uses: mnao305/chrome-extension-upload@v6.0.0
-        with:
-          file-path: extension.zip
-          extension-id: ${{ secrets.CHROME_EXTENSION_ID }}
-          client-id: ${{ secrets.CHROME_CLIENT_ID }}
-          client-secret: ${{ secrets.CHROME_CLIENT_SECRET }}
-          refresh-token: ${{ secrets.CHROME_REFRESH_TOKEN }}
+        run: |
+          # Get access token from refresh token
+          TOKEN_RESPONSE=$(curl -s -X POST https://oauth2.googleapis.com/token \
+            -d "client_id=${{ secrets.CHROME_CLIENT_ID }}" \
+            -d "client_secret=${{ secrets.CHROME_CLIENT_SECRET }}" \
+            -d "refresh_token=${{ secrets.CHROME_REFRESH_TOKEN }}" \
+            -d "grant_type=refresh_token")
+          ACCESS_TOKEN=$(echo $TOKEN_RESPONSE | jq -r '.access_token')
+          if [ "$ACCESS_TOKEN" = "null" ] || [ -z "$ACCESS_TOKEN" ]; then
+            echo "::error::Failed to get access token"
+            echo "$TOKEN_RESPONSE" | jq .
+            exit 1
+          fi
+          echo "Access token obtained successfully"
+
+          # Upload the zip
+          echo "Uploading extension.zip to Chrome Web Store..."
+          UPLOAD_RESPONSE=$(curl -s \
+            -X PUT \
+            -H "Authorization: Bearer $ACCESS_TOKEN" \
+            -H "x-goog-api-version: 2" \
+            -T extension.zip \
+            "https://www.googleapis.com/upload/chromewebstore/v1.1/items/${{ secrets.CHROME_EXTENSION_ID }}")
+          echo "Upload response:"
+          echo "$UPLOAD_RESPONSE" | jq .
+          UPLOAD_STATUS=$(echo "$UPLOAD_RESPONSE" | jq -r '.uploadState')
+          if [ "$UPLOAD_STATUS" != "SUCCESS" ]; then
+            echo "::error::Upload failed with state: $UPLOAD_STATUS"
+            exit 1
+          fi
+
+          # Publish
+          echo "Publishing extension..."
+          PUBLISH_RESPONSE=$(curl -s \
+            -X POST \
+            -H "Authorization: Bearer $ACCESS_TOKEN" \
+            -H "x-goog-api-version: 2" \
+            -H "Content-Length: 0" \
+            "https://www.googleapis.com/chromewebstore/v1.1/items/${{ secrets.CHROME_EXTENSION_ID }}/publish")
+          echo "Publish response:"
+          echo "$PUBLISH_RESPONSE" | jq .
+          PUBLISH_STATUS=$(echo "$PUBLISH_RESPONSE" | jq -r '.status[0]')
+          if [ "$PUBLISH_STATUS" != "OK" ]; then
+            echo "::error::Publish failed with status: $PUBLISH_STATUS"
+            exit 1
+          fi
+          echo "Extension published successfully!"
