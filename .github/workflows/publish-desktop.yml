@@ -25,6 +25,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@v6
+        with:
+          ref: main
 
       - uses: actions/setup-node@v6
         with:
@@ -57,6 +59,7 @@ jobs:
         id: version-pr
         uses: peter-evans/create-pull-request@v8
         with:
+          base: main
           commit-message: 'docs: update version compatibility table'
           title: 'docs: update version compatibility table'
           body: 'Automated update of the version compatibility table in README.md after desktop release.'
