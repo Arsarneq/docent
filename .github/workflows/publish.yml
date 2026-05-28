@@ -24,6 +24,9 @@ jobs:
       - name: Update version compatibility table
         run: node scripts/update-version-table.js
 
+      - name: Format updated files
+        run: npx prettier --write README.md docs/session-format.md
+
       - name: Check for version table changes
         id: table-diff
         run: |
