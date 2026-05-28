@@ -42,8 +42,18 @@ jobs:
         if: matrix.os == 'windows-latest'
         run: node scripts/update-version-table.js
 
-      - name: Create PR for version table update if changed
+      - name: Check for version table changes
         if: matrix.os == 'windows-latest'
+        id: table-diff
+        run: |
+          if git diff --quiet; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Create PR for version table update if changed
+        if: matrix.os == 'windows-latest' && steps.table-diff.outputs.changed == 'true'
         id: version-pr
         uses: peter-evans/create-pull-request@v8
         with:
