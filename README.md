@@ -69,11 +69,9 @@ Both paths consume the same `.docent.json` format. Docent captures and delivers 
 ## Version compatibility
 
 <!-- VERSION_TABLE_START -->
-
 | Extension Schema | Extension | Desktop Schema | Desktop |
-| ---------------- | --------- | -------------- | ------- |
-| 2.0.0            | 2.0.0+    | 1.0.0          | 1.0.0+  |
-
+|-----------------|-----------|----------------|---------|
+| 2.0.0           | 2.0.0+    | 1.0.0          | 1.0.0+  |
 <!-- VERSION_TABLE_END -->
 
 See [docs/session-format.md](docs/session-format.md#versioning) for the full versioning strategy.
