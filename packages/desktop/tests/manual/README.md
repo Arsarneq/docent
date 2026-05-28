@@ -8,14 +8,11 @@ and 26+ worker pool unit tests in `src-tauri/tests/worker_pool_test.rs`.
 
 These require real OS interactions that can't be reliably simulated in CI:
 
-| #   | Test                    | Why manual                                 |
-| --- | ----------------------- | ------------------------------------------ |
-| 5   | File dialog navigation  | Complex WinEvent sequence from real dialog |
-| 11  | Taskbar click           | Requires computed taskbar coordinates      |
-| 12  | Start menu / Win key    | Requires real Start menu interaction       |
-| 15  | System tray interaction | Requires computed tray coordinates         |
+| #   | Test                   | Why manual                                 |
+| --- | ---------------------- | ------------------------------------------ |
+| 5   | File dialog navigation | Complex WinEvent sequence from real dialog |
 
-These will be retired when #57 is completed (Enigo + computed coordinates).
+This will be retired when #57 is fully completed (requires opening a real Save/Open dialog).
 
 ## Retired Tests (now automated or logic-tested)
 
@@ -30,34 +27,22 @@ These will be retired when #57 is completed (Enigo + computed coordinates).
 | 8   | Right-click context menu      | `capture_integration.rs::right_click_produces_context_switch_for_menu`                                 |
 | 9   | Copy-paste between apps       | `capture_integration.rs::right_click_is_captured` + `context_switches`                                 |
 | 10  | Custom-rendered window click  | `capture_integration.rs::coordinate_fallback_for_plain_window`                                         |
+| 11  | Taskbar click                 | `capture_integration.rs::taskbar_click_produces_context_switch`                                        |
+| 12  | Start menu / Win key          | `capture_integration.rs::win_key_opens_start_and_typing_captured`                                      |
 | 13  | Win+D (show desktop)          | OS-level suppression — hook never receives it                                                          |
 | 14  | Win+L (lock screen)           | OS-level suppression — `worker_pool_test::win_l_key_combo_is_captured_if_received` documents behaviour |
 | 16  | Ctrl+Shift+Esc (Task Manager) | OS-level suppression — `worker_pool_test::modifier_only_keys_produce_no_events`                        |
+| 15  | System tray interaction       | `capture_integration.rs::system_tray_click_is_captured`                                                |
 | 17  | Win+Arrow (snap/resize)       | `capture_integration.rs::modifier_key_combo_is_captured`                                               |
 
-## How to Run (remaining 4 tests)
+## How to Run (remaining 1 test)
 
 1. Build and launch the desktop app: `cargo tauri dev` from `packages/desktop/src-tauri/`
 2. Create a project + recording, start recording
-3. Perform each test scenario, commit a step after each
+3. Perform the test, commit a step
 4. Export and inspect the captured actions
 
 ### Test 5 — File Dialog Navigation
 
 Open File > Open, click through folders, select a file, click Open.
 **Expected:** Clicks on tree items (no duplicate select events), no context_close from folder refresh.
-
-### Test 11 — Taskbar Click
-
-Click a taskbar button to switch apps.
-**Expected:** context_switch + click.
-
-### Test 12 — Start Menu / Win Key
-
-Press Win key, type to search, press Enter.
-**Expected:** Key events for search text, context_switch to search window.
-
-### Test 15 — System Tray Interaction
-
-Click a system tray icon (clock, volume, network).
-**Expected:** context_switch + click on tray button.
