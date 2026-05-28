@@ -21,12 +21,12 @@ import {
   renderStepDetail,
   renderProjectList,
   renderRecordingList,
-} from '../views/render.js';
-import { buildPayload } from '../dispatch-core.js';
+} from '../../views/render.js';
+import { buildPayload } from '../../dispatch-core.js';
 
 const __dirname = fileURLToPath(new URL('.', import.meta.url));
 const manifest = JSON.parse(
-  readFileSync(resolve(__dirname, '../../extension/manifest.json'), 'utf-8'),
+  readFileSync(resolve(__dirname, '../../../extension/manifest.json'), 'utf-8'),
 );
 
 // ─── XSS Prevention ──────────────────────────────────────────────────────────
@@ -536,11 +536,11 @@ describe('Security: storage key naming', () => {
 
 describe('Security: Content-Security-Policy meta tag', () => {
   const extensionShell = readFileSync(
-    resolve(__dirname, '../../extension/sidepanel/index.shell.html'),
+    resolve(__dirname, '../../../extension/sidepanel/index.shell.html'),
     'utf-8',
   );
   const desktopShell = readFileSync(
-    resolve(__dirname, '../../desktop/src/index.shell.html'),
+    resolve(__dirname, '../../../desktop/src/index.shell.html'),
     'utf-8',
   );
 
@@ -585,7 +585,7 @@ describe('Security: Content-Security-Policy meta tag', () => {
 
 // ─── Adversarial Dispatch Endpoint Tests ─────────────────────────────────────
 
-import { sendPayload, DispatchError, validateEndpointUrl } from '../dispatch-core.js';
+import { sendPayload, DispatchError, validateEndpointUrl } from '../../dispatch-core.js';
 
 describe('Security: endpoint URL validation (enhanced)', () => {
   it('rejects URLs with embedded credentials', () => {

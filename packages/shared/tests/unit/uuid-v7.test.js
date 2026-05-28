@@ -8,7 +8,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import fc from 'fast-check';
-import { uuidv7, uuidv7ToDate, compareUuidv7 } from '../lib/uuid-v7.js';
+import { uuidv7, uuidv7ToDate, compareUuidv7 } from '../../lib/uuid-v7.js';
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 

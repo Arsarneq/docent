@@ -33,7 +33,7 @@ globalThis.window = {
 globalThis.fetch = mockFetch;
 
 // Dynamic import after globals are set up
-const { default: adapter, commitWithCompleteness } = await import('../src/adapter-tauri.js');
+const { default: adapter, commitWithCompleteness } = await import('../../src/adapter-tauri.js');
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 

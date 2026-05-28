@@ -7,7 +7,12 @@
 
 import { describe, it, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
-import { validateEndpointUrl, sendPayload, DispatchError, buildPayload } from '../dispatch-core.js';
+import {
+  validateEndpointUrl,
+  sendPayload,
+  DispatchError,
+  buildPayload,
+} from '../../dispatch-core.js';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 

@@ -2,7 +2,6 @@
   "exclude": [
     "node_modules/**",
     "packages/*/tests/**",
-    "packages/*/tests/automated/**",
     "packages/*/shared/**",
     "packages/desktop/src/panel.js",
     "packages/shared/views/adapter.js",

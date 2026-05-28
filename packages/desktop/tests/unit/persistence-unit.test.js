@@ -19,7 +19,7 @@ import {
   deserializeState,
   loadSessionState,
   saveSessionState,
-} from '../src/persistence.js';
+} from '../../src/persistence.js';
 
 // ─── emptyState() ─────────────────────────────────────────────────────────────
 

@@ -17,7 +17,7 @@ import {
   pullProjects,
   buildHeaders,
   buildPayloadForProject,
-} from '../sync-client.js';
+} from '../../sync-client.js';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 

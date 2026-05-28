@@ -19,7 +19,7 @@ import {
   deleteStep,
   reorderSteps,
   findRecording,
-} from '../shared/lib/session.js';
+} from '../../shared/lib/session.js';
 
 // ─── Simulated service worker state ──────────────────────────────────────────
 

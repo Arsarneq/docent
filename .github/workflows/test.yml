@@ -184,15 +184,15 @@ jobs:
         run: npm run sync-shared
 
       - name: Install Playwright dependencies
-        working-directory: packages/extension/tests/automated
+        working-directory: packages/extension/tests/e2e
         run: npm ci
 
       - name: Install Playwright browsers
-        working-directory: packages/extension/tests/automated
+        working-directory: packages/extension/tests/e2e
         run: npx playwright install chromium --with-deps
 
       - name: Run Playwright tests
-        working-directory: packages/extension/tests/automated
+        working-directory: packages/extension/tests/e2e
         run: xvfb-run npx playwright test
 
       - name: Upload test results
@@ -200,7 +200,7 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: playwright-report
-          path: packages/extension/tests/automated/test-results/
+          path: packages/extension/tests/e2e/test-results/
           retention-days: 7
 
   desktop-integration-tests:
@@ -302,21 +302,21 @@ jobs:
         run: npm run sync-shared && npm run build:desktop-dist
 
       - name: Install desktop Playwright dependencies
-        working-directory: packages/desktop/tests/automated
+        working-directory: packages/desktop/tests/integration
         run: npm ci
 
       - name: Install Playwright browsers
-        working-directory: packages/desktop/tests/automated
+        working-directory: packages/desktop/tests/integration
         run: npx playwright install chromium --with-deps
 
       - name: Run desktop Playwright tests
-        working-directory: packages/desktop/tests/automated
+        working-directory: packages/desktop/tests/integration
         run: npx playwright test
 
       - name: Upload desktop Playwright coverage to Codecov
         uses: codecov/codecov-action@v6
         with:
-          files: packages/desktop/tests/automated/coverage/lcov.info
+          files: packages/desktop/tests/integration/coverage/lcov.info
           flags: javascript
           token: ${{ secrets.CODECOV_TOKEN }}
 
@@ -325,7 +325,7 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: desktop-playwright-report
-          path: packages/desktop/tests/automated/test-results/
+          path: packages/desktop/tests/integration/test-results/
           retention-days: 7
 
   ci-gate:

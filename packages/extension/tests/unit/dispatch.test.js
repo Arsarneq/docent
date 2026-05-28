@@ -50,9 +50,9 @@ import {
   buildPayload,
   sendPayload,
   DispatchError,
-} from '../sidepanel/dispatch.js';
+} from '../../sidepanel/dispatch.js';
 
-import chromeAdapter from '../sidepanel/adapter-chrome.js';
+import chromeAdapter from '../../sidepanel/adapter-chrome.js';
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 

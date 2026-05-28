@@ -14,7 +14,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { resolve, join } from 'node:path';
 
-const ROOT = resolve(import.meta.dirname, '..', '..', '..');
+const ROOT = resolve(import.meta.dirname, '..', '..', '..', '..');
 
 function loadSchema(relativePath) {
   return JSON.parse(readFileSync(join(ROOT, relativePath), 'utf8'));

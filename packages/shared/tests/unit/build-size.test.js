@@ -16,8 +16,8 @@ import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const __dirname = fileURLToPath(new URL('.', import.meta.url));
-const extensionDir = resolve(__dirname, '../../extension');
-const desktopDistDir = resolve(__dirname, '../../desktop/dist');
+const extensionDir = resolve(__dirname, '../../../extension');
+const desktopDistDir = resolve(__dirname, '../../../desktop/dist');
 
 function getDirSize(dir, extensions = null, excludeDirs = []) {
   let total = 0;
@@ -97,7 +97,7 @@ describe('Build size: Desktop dist', () => {
 
 describe('Build size: Schema files', () => {
   it('each schema file is under 50KB', () => {
-    const schemasDir = resolve(__dirname, '../../../schemas');
+    const schemasDir = resolve(__dirname, '../../../../schemas');
     const files = readdirSync(schemasDir).filter((f) => f.endsWith('.json'));
     assert.ok(files.length >= 2, 'Expected at least 2 schema files');
 

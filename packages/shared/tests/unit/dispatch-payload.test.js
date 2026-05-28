@@ -7,7 +7,7 @@
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { buildPayload } from '../dispatch-core.js';
+import { buildPayload } from '../../dispatch-core.js';
 
 describe('buildPayload — metadata handling', () => {
   it('includes project metadata when present', () => {

@@ -35,7 +35,7 @@ globalThis.chrome = {
 
 import { test, describe, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
-import chromeAdapter from '../sidepanel/adapter-chrome.js';
+import chromeAdapter from '../../sidepanel/adapter-chrome.js';
 
 describe('Recording mode persistence', () => {
   beforeEach(() => {
