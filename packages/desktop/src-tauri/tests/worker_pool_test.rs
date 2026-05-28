@@ -1727,3 +1727,126 @@ fn excluded_pid_events_are_discarded() {
     );
     assert_eq!(click_events[0].sequence_id, Some(2));
 }
+
+/// Test: selection events immediately after a click are suppressed by the
+/// input thread (verified in capture_integration.rs::select_suppressed_after_click).
+/// This test verifies the worker-level behaviour: if a selection event DOES
+/// arrive at the worker (i.e. wasn't filtered by the input thread), it produces
+/// a select action.
+#[test]
+fn selection_event_produces_select_action() {
+    let backend = MockBackend::new();
+    let harness = WorkerTestHarness::new(backend);
+
+    harness.send_event(RawEvent {
+        event_type: RawEventType::Selection,
+        sequence_id: 1,
+        timestamp: 1000,
+        screen_x: 100,
+        screen_y: 200,
+        window_handle: 1234,
+        process_id: 1,
+        key_code: 0,
+        modifiers: (false, false, false, false),
+        scroll_delta: 0.0,
+        callback_params: [0, 0, 0, 0],
+        pre_captured_element: None,
+    });
+
+    thread::sleep(Duration::from_millis(200));
+    let events = harness.shutdown();
+
+    let select_events: Vec<&ActionEvent> = events
+        .iter()
+        .filter(|e| matches!(e.payload, ActionPayload::Select { .. }))
+        .collect();
+
+    assert_eq!(
+        select_events.len(),
+        1,
+        "expected 1 select event, got {}",
+        select_events.len()
+    );
+}
+
+/// Test: modifier-only keys (Shift, Ctrl, Alt variants) are skipped by
+/// the keyboard handler — they produce no action events.
+/// Note: VK_LWIN/VK_RWIN (0x5B/0x5C) produce "Meta" and ARE captured.
+/// Covers issue #59 acceptance criteria: verify modifier-variant keys are suppressed.
+#[test]
+fn modifier_only_keys_produce_no_events() {
+    let backend = MockBackend::new();
+    let harness = WorkerTestHarness::new(backend);
+
+    // VK_LSHIFT = 0xA0, VK_RSHIFT = 0xA1, VK_LCONTROL = 0xA2,
+    // VK_RCONTROL = 0xA3, VK_LMENU = 0xA4, VK_RMENU = 0xA5
+    // These all return empty string from vk_to_key_name → skipped.
+    for vk in [0xA0u32, 0xA1, 0xA2, 0xA3, 0xA4, 0xA5] {
+        harness.send_event(RawEvent {
+            event_type: RawEventType::Keyboard,
+            sequence_id: 1,
+            timestamp: 1000,
+            screen_x: 0,
+            screen_y: 0,
+            window_handle: 1234,
+            process_id: 1,
+            key_code: vk,
+            modifiers: (false, false, false, false),
+            scroll_delta: 0.0,
+            callback_params: [0, 0, 0, 0],
+            pre_captured_element: None,
+        });
+    }
+
+    thread::sleep(Duration::from_millis(200));
+    let events = harness.shutdown();
+
+    assert_eq!(
+        events.len(),
+        0,
+        "modifier-only keys should produce no events, got {}",
+        events.len()
+    );
+}
+
+/// Test: Win+L key combo — the L key with meta modifier IS captured as a key
+/// event (our code doesn't suppress it). The actual suppression of Win+L
+/// happens at the OS kernel level — the low-level hook never receives it.
+/// This test documents that if Win+L somehow reached our code, it would be
+/// captured as a normal key event (Meta+L).
+#[test]
+fn win_l_key_combo_is_captured_if_received() {
+    let backend = MockBackend::new();
+    let harness = WorkerTestHarness::new(backend);
+
+    // VK_L = 0x4C, meta = true
+    harness.send_event(RawEvent {
+        event_type: RawEventType::Keyboard,
+        sequence_id: 1,
+        timestamp: 1000,
+        screen_x: 0,
+        screen_y: 0,
+        window_handle: 1234,
+        process_id: 1,
+        key_code: 0x4C,                         // VK_L
+        modifiers: (false, false, false, true), // meta = true
+        scroll_delta: 0.0,
+        callback_params: [0, 0, 0, 0],
+        pre_captured_element: None,
+    });
+
+    thread::sleep(Duration::from_millis(200));
+    let events = harness.shutdown();
+
+    // The key event IS emitted (our code doesn't suppress Win+L — the OS does).
+    let key_events: Vec<&ActionEvent> = events
+        .iter()
+        .filter(|e| matches!(e.payload, ActionPayload::Key { .. }))
+        .collect();
+
+    assert_eq!(
+        key_events.len(),
+        1,
+        "Win+L should be captured if it reaches the worker (OS suppresses it before our hook)"
+    );
+}

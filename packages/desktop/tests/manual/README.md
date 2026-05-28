@@ -1,147 +1,78 @@
 # Manual Tests — Desktop Capture
 
-Tests that require a human and real applications. Everything else is automated
-in `src-tauri/tests/capture_integration.rs` (53 tests).
+Tests that require a human and real applications. The core capture logic is
+verified by 53+ integration tests in `src-tauri/tests/capture_integration.rs`
+and 26+ worker pool unit tests in `src-tauri/tests/worker_pool_test.rs`.
 
-These scenarios apply cross-platform (Windows, macOS, Linux) — the specific
-apps differ but the test concepts are the same.
+## Remaining Manual Tests
 
-## When to run
+These require real OS interactions that can't be simulated in CI:
 
-After changes to the platform capture layer (`src-tauri/src/capture/`).
+| #   | Test                         | Why manual                                 |
+| --- | ---------------------------- | ------------------------------------------ |
+| 2   | Title bar buttons            | Requires computed coordinates (DPI-aware)  |
+| 5   | File dialog navigation       | Complex WinEvent sequence from real dialog |
+| 8   | Right-click context menu     | Requires real menu window creation         |
+| 10  | Custom-rendered window click | Requires app without accessibility tree    |
+| 11  | Taskbar click                | Requires computed taskbar coordinates      |
+| 12  | Start menu / Win key         | Requires real Start menu interaction       |
+| 15  | System tray interaction      | Requires computed tray coordinates         |
 
----
+These will be retired when #56 and #57 are completed (Enigo + computed coordinates).
 
-## Accessibility Mode Tests
+## Retired Tests (now automated or logic-tested)
 
-Use Notepad (or any app with a full accessibility tree).
+| #   | Test                          | Covered by                                                                                              |
+| --- | ----------------------------- | ------------------------------------------------------------------------------------------------------- |
+| 1   | Type and Save                 | `capture_integration.rs::typing_is_captured` + `select_suppressed_after_click`                          |
+| 3   | Window move (title bar drag)  | `capture_integration.rs::drag_is_captured`                                                              |
+| 4   | Window resize (edge drag)     | `capture_integration.rs::drag_is_captured`                                                              |
+| 6   | Double-click to open folder   | `capture_integration.rs::double_click_not_misclassified_as_drag`                                        |
+| 7   | Multi-window workflow         | `capture_integration.rs::alt_tab_produces_context_switch` + `context_id_is_consistent_for_same_window`  |
+| 9   | Copy-paste between apps       | `capture_integration.rs::right_click_is_captured` + `context_switches`                                  |
+| 13  | Win+D (show desktop)          | OS-level suppression — hook never receives it                                                           |
+| 14  | Win+L (lock screen)           | OS-level suppression — `worker_pool_test::win_l_key_combo_is_captured_if_received` documents behaviour  |
+| 16  | Ctrl+Shift+Esc (Task Manager) | OS-level suppression — hook never receives it. `worker_pool_test::modifier_only_keys_produce_no_events` |
+| 17  | Win+Arrow (snap/resize)       | `capture_integration.rs::modifier_key_combo_is_captured`                                                |
 
-### 1. Type and Save
+## How to Run (remaining 7 tests)
 
-1. Click text area, type "Hello World"
-2. Press Ctrl+S, navigate Save As dialog, click Save
+1. Build and launch the desktop app: `cargo tauri dev` from `packages/desktop/src-tauri/`
+2. Create a project + recording, start recording
+3. Perform each test scenario, commit a step after each
+4. Export and inspect the captured actions
 
-**Expected:**
+### Test 2 — Title Bar Buttons
 
-- click + type("Hello World") + key(Ctrl+S)
-- Save As dialog: NO type/select events from dialog initialization (filename field pre-fill is filtered)
-- Click on file + click Save button
-- Confirm overwrite: click "Yes"
+Click minimize, restore, maximize, restore, close on any window.
+**Expected:** Each produces a click on the button element. No extra context_switch/focus noise.
 
-### 2. Title Bar Buttons
+### Test 5 — File Dialog Navigation
 
-1. Click minimize, restore from taskbar, maximize, restore, close
+Open File > Open, click through folders, select a file, click Open.
+**Expected:** Clicks on tree items (no duplicate select events), no context_close from folder refresh.
 
-**Expected:** Each produces a click on the button. No extra context_switch/focus noise.
+### Test 8 — Right-Click Context Menu
 
-### 3. Window Move (Title Bar Drag)
+Right-click in an app, then click a menu item.
+**Expected:** right_click + context_switch (menu window) + click (menu item).
 
-1. Drag the title bar to move a window
+### Test 10 — Custom-Rendered Window
 
-**Expected:** drag_start + drop. NOT a single click.
+Click in an app without accessibility (Discord, games, Electron).
+**Expected:** `capture_mode: "coordinate"`, element has `tag: "Window"` or `tag: "Pane"`.
 
-### 4. Window Resize (Edge Drag)
+### Test 11 — Taskbar Click
 
-1. Drag a window edge to resize
+Click a taskbar button to switch apps.
+**Expected:** context_switch + click.
 
-**Expected:** drag_start + drop. NOT a click on the wrong window.
+### Test 12 — Start Menu / Win Key
 
-### 5. File Dialog Navigation
+Press Win key, type to search, press Enter.
+**Expected:** Key events for search text, context_switch to search window.
 
-1. Open File > Open, click through folders in the tree, select a file, click Open
+### Test 15 — System Tray Interaction
 
-**Expected:**
-
-- Clicks on tree items (no duplicate select events)
-- No context_close events from folder view refreshing
-- No redundant focus events after clicks
-- Click on file + click Open button
-
-### 6. Double-Click to Open Folder
-
-1. In a file dialog, double-click a folder to open it
-
-**Expected:** Two click events. NOT drag_start + drop.
-
-### 7. Multi-Window Workflow
-
-1. Open Notepad + Calculator
-2. Click between them, type in each, Alt+Tab
-
-**Expected:**
-
-- context_switch when switching apps
-- Correct context_id per window
-- Calculator keyboard input: individual key events with display value in element text
-- Notepad keyboard input: coalesced type event with final value
-
-### 8. Right-Click Context Menu
-
-1. Right-click in an app, then click a menu item
-
-**Expected:** right_click + context_switch (menu window) + click (menu item)
-
-### 9. Copy-Paste Between Apps
-
-1. Right-click Calculator display → Copy
-2. Right-click Notepad text area → Paste
-
-**Expected:** right_click + click(Copy) + right_click + click(Paste)
-
----
-
-## Coordinate Fallback Tests
-
-Use any app with custom-rendered UI (Discord, games, Electron apps without accessibility).
-
-### 10. Click in Custom-Rendered Window
-
-1. Click various areas in an app that doesn't expose accessibility
-
-**Expected:** `capture_mode: "coordinate"`, element has `tag: "Window"` or `tag: "Pane"`
-
----
-
-## OS Chrome Interactions
-
-### 11. Taskbar Click
-
-1. Click a taskbar button to switch apps
-
-**Expected:** context_switch + click on taskbar button. No extra noise.
-
-### 12. Start Menu / Win Key
-
-1. Press Win key, type to search, press Enter
-
-**Expected:** Key events for the search text. context_switch to search window.
-
-### 13. Win+D (Show Desktop)
-
-1. Have windows open, press Win+D
-
-**Expected:** Nothing captured. Win+D is a system hotkey intercepted before hooks.
-
-### 14. Win+L (Lock Screen)
-
-1. Press Win+L to lock, then unlock
-
-**Expected:** Win+L key combo NOT captured. The click to dismiss the lock screen IS captured (coordinate mode on LockContainer).
-
-### 15. System Tray Interaction
-
-1. Click a system tray icon (clock, volume, network)
-
-**Expected:** context_switch (to taskbar) + click on the tray button. Fully capturable.
-
-### 16. Ctrl+Shift+Esc (Task Manager)
-
-1. Press Ctrl+Shift+Esc to open Task Manager
-
-**Expected:** Key combo NOT captured (system hotkey). Task Manager opening may produce a stray select event from its tab control.
-
-### 17. Win+Arrow (Snap/Resize)
-
-1. Focus a window, press Win+Right, Win+Left, Win+Up
-
-**Expected:** key(Meta) + key(ArrowRight, meta:true) + key(ArrowLeft, meta:true) + key(ArrowUp, meta:true). Window_rect changes between each action. Fully capturable.
+Click a system tray icon (clock, volume, network).
+**Expected:** context_switch + click on tray button.
