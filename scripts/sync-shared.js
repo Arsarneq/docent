@@ -47,7 +47,13 @@ for (const target of targets) {
   // Ensure the parent directory exists
   mkdirSync(dirname(dest), { recursive: true });
 
-  cpSync(SHARED_SRC, dest, { recursive: true });
+  cpSync(SHARED_SRC, dest, {
+    recursive: true,
+    filter: (src) => {
+      const rel = src.slice(SHARED_SRC.length);
+      return !rel.includes('tests');
+    },
+  });
 
   // Override session.schema.json with the platform-specific schema
   const platformSchemaFile = PLATFORM_SCHEMA[target];

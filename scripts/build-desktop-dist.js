@@ -27,13 +27,7 @@ if (!existsSync(sharedSrc)) {
   console.error('ERROR: packages/desktop/shared/ not found. Run `npm run sync-shared` first.');
   process.exit(1);
 }
-cpSync(sharedSrc, join(distDir, 'shared'), {
-  recursive: true,
-  filter: (src) => {
-    const rel = src.slice(sharedSrc.length);
-    return !rel.includes('tests');
-  },
-});
+cpSync(sharedSrc, join(distDir, 'shared'), { recursive: true });
 
 // 3. Copy src/ files into dist/ (flat — index.html, panel.js, etc.)
 const srcDir = join(desktopDir, 'src');
