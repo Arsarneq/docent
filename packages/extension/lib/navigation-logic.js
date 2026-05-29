@@ -3,7 +3,8 @@
  *
  * Extracted from service-worker.js for unit testability.
  * Determines whether a webNavigation.onCommitted event should be captured
- * and what nav_type to assign.
+ * and what nav_type to assign, and whether a tabs.onCreated event should
+ * produce a context_open action.
  *
  * This file is part of Docent.
  * Licensed under the GNU General Public License v3.0
@@ -99,4 +100,40 @@ export function shouldCaptureNavigation(details, context) {
   }
 
   return { action: 'capture', navType };
+}
+
+/**
+ * Determine whether a tabs.onCreated event should produce a context_open action.
+ *
+ * Browser chrome actions (Ctrl+T, Ctrl+N, Ctrl+Shift+T session restore) produce
+ * context_open. Programmatic tab opens (window.open, link target=_blank) are
+ * suppressed because the content script already captured the triggering action.
+ *
+ * Distinguishing signal: if there was a recent in-page user action (within the
+ * suppression window), the tab creation is a side-effect. Otherwise it's a
+ * deliberate browser chrome action.
+ *
+ * @param {object} tab — chrome.tabs.onCreated tab object
+ * @param {number|null} tab.id — tab ID
+ * @param {number|null|undefined} tab.openerTabId — opener tab (set for window.open)
+ * @param {string|null|undefined} tab.url — initial URL
+ * @param {object} context — timing context
+ * @param {boolean} context.isRecording — whether capture is active
+ * @param {boolean} context.hadRecentUserAction — whether an in-page action occurred recently
+ * @param {number} context.userActionWindowMs — suppression window in ms
+ * @returns {{ action: 'capture'|'skip'|'suppress_programmatic', reason?: string }}
+ */
+export function shouldCaptureTabCreated(tab, context) {
+  // Not recording — skip entirely
+  if (!context.isRecording) {
+    return { action: 'skip', reason: 'not-recording' };
+  }
+
+  // Recent in-page user action → tab is a side-effect (window.open, target=_blank)
+  if (context.hadRecentUserAction) {
+    return { action: 'suppress_programmatic', reason: 'recent-user-action' };
+  }
+
+  // Browser chrome action (Ctrl+T, Ctrl+N, Ctrl+Shift+T) → capture as context_open
+  return { action: 'capture' };
 }
