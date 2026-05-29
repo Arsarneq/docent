@@ -5,7 +5,7 @@
  * even with large datasets. These are not micro-benchmarks — they verify
  * that nothing is accidentally O(n²) or worse.
  *
- * Thresholds are generous (20x+ expected) to avoid flaky CI failures
+ * Thresholds are generous (10x expected) to avoid flaky CI failures
  * while still catching catastrophic regressions.
  */
 
@@ -77,16 +77,16 @@ function timeMs(fn) {
 // ─── Performance: resolveActiveSteps ──────────────────────────────────────────
 
 describe('Performance: resolveActiveSteps', () => {
-  it('resolves 500 steps in under 200ms', () => {
+  it('resolves 500 steps in under 50ms', () => {
     const project = generateLargeProject(1, 500);
     const recording = project.recordings[0];
 
     const { elapsed } = timeMs(() => resolveActiveSteps(recording));
 
-    assert.ok(elapsed < 200, `resolveActiveSteps took ${elapsed.toFixed(1)}ms (limit: 200ms)`);
+    assert.ok(elapsed < 50, `resolveActiveSteps took ${elapsed.toFixed(1)}ms (limit: 50ms)`);
   });
 
-  it('resolves 500 steps with 50% deleted versions in under 300ms', () => {
+  it('resolves 500 steps with 50% deleted versions in under 100ms', () => {
     const project = generateLargeProject(1, 500);
     const recording = project.recordings[0];
 
@@ -99,8 +99,8 @@ describe('Performance: resolveActiveSteps', () => {
     const { elapsed } = timeMs(() => resolveActiveSteps(recording));
 
     assert.ok(
-      elapsed < 300,
-      `resolveActiveSteps with deletions took ${elapsed.toFixed(1)}ms (limit: 300ms)`,
+      elapsed < 100,
+      `resolveActiveSteps with deletions took ${elapsed.toFixed(1)}ms (limit: 100ms)`,
     );
   });
 });
@@ -108,24 +108,24 @@ describe('Performance: resolveActiveSteps', () => {
 // ─── Performance: buildPayload ────────────────────────────────────────────────
 
 describe('Performance: buildPayload', () => {
-  it('builds payload for 10 recordings × 50 steps in under 200ms', () => {
+  it('builds payload for 10 recordings × 50 steps in under 50ms', () => {
     const project = generateLargeProject(10, 50);
 
     const { elapsed } = timeMs(() =>
       buildPayload(project, project.recordings, 'guidance text', { title: 'schema' }),
     );
 
-    assert.ok(elapsed < 200, `buildPayload took ${elapsed.toFixed(1)}ms (limit: 200ms)`);
+    assert.ok(elapsed < 50, `buildPayload took ${elapsed.toFixed(1)}ms (limit: 50ms)`);
   });
 
-  it('builds payload for 100 recordings × 10 steps in under 300ms', () => {
+  it('builds payload for 100 recordings × 10 steps in under 100ms', () => {
     const project = generateLargeProject(100, 10);
 
     const { elapsed } = timeMs(() =>
       buildPayload(project, project.recordings, 'guidance text', { title: 'schema' }),
     );
 
-    assert.ok(elapsed < 300, `buildPayload took ${elapsed.toFixed(1)}ms (limit: 300ms)`);
+    assert.ok(elapsed < 100, `buildPayload took ${elapsed.toFixed(1)}ms (limit: 100ms)`);
   });
 
   it('serialized payload size is reasonable (< 5MB for 10×50)', () => {
@@ -141,18 +141,18 @@ describe('Performance: buildPayload', () => {
 // ─── Performance: renderStepList ──────────────────────────────────────────────
 
 describe('Performance: renderStepList', () => {
-  it('renders 200 steps in under 200ms', () => {
+  it('renders 200 steps in under 50ms', () => {
     const project = generateLargeProject(1, 200);
     const steps = resolveActiveSteps(project.recordings[0]);
 
     const { elapsed } = timeMs(() => renderStepList(steps));
 
-    assert.ok(elapsed < 200, `renderStepList took ${elapsed.toFixed(1)}ms (limit: 200ms)`);
+    assert.ok(elapsed < 50, `renderStepList took ${elapsed.toFixed(1)}ms (limit: 50ms)`);
   });
 });
 
 describe('Performance: renderProjectList', () => {
-  it('renders 100 projects in under 100ms', () => {
+  it('renders 100 projects in under 20ms', () => {
     const projects = [];
     for (let i = 0; i < 100; i++) {
       projects.push({ project_id: `p${i}`, name: `Project ${i}`, recording_count: 5 });
@@ -160,12 +160,12 @@ describe('Performance: renderProjectList', () => {
 
     const { elapsed } = timeMs(() => renderProjectList(projects));
 
-    assert.ok(elapsed < 100, `renderProjectList took ${elapsed.toFixed(1)}ms (limit: 100ms)`);
+    assert.ok(elapsed < 20, `renderProjectList took ${elapsed.toFixed(1)}ms (limit: 20ms)`);
   });
 });
 
 describe('Performance: renderRecordingList', () => {
-  it('renders 50 recordings with steps in under 100ms', () => {
+  it('renders 50 recordings with steps in under 30ms', () => {
     const recordings = [];
     for (let i = 0; i < 50; i++) {
       recordings.push({
@@ -181,28 +181,28 @@ describe('Performance: renderRecordingList', () => {
 
     const { elapsed } = timeMs(() => renderRecordingList(recordings));
 
-    assert.ok(elapsed < 100, `renderRecordingList took ${elapsed.toFixed(1)}ms (limit: 100ms)`);
+    assert.ok(elapsed < 30, `renderRecordingList took ${elapsed.toFixed(1)}ms (limit: 30ms)`);
   });
 });
 
 // ─── Performance: JSON serialization ──────────────────────────────────────────
 
 describe('Performance: JSON serialization round-trip', () => {
-  it('serialize + deserialize 100 recordings × 50 steps in under 500ms', () => {
+  it('serialize + deserialize 100 recordings × 50 steps in under 200ms', () => {
     const project = generateLargeProject(100, 50, 2);
 
     const { elapsed: serializeTime, result: json } = timeMs(() => JSON.stringify(project));
     const { elapsed: deserializeTime } = timeMs(() => JSON.parse(json));
 
     const total = serializeTime + deserializeTime;
-    assert.ok(total < 500, `Round-trip took ${total.toFixed(1)}ms (limit: 500ms)`);
+    assert.ok(total < 200, `Round-trip took ${total.toFixed(1)}ms (limit: 200ms)`);
   });
 });
 
 // ─── Performance: reorderSteps ────────────────────────────────────────────────
 
 describe('Performance: reorderSteps', () => {
-  it('reorders 100 steps in under 200ms', () => {
+  it('reorders 100 steps in under 50ms', () => {
     const project = generateLargeProject(1, 100);
     const recording = project.recordings[0];
     const active = resolveActiveSteps(recording);
@@ -212,6 +212,6 @@ describe('Performance: reorderSteps', () => {
 
     const { elapsed } = timeMs(() => reorderSteps(recording, reversed));
 
-    assert.ok(elapsed < 200, `reorderSteps took ${elapsed.toFixed(1)}ms (limit: 200ms)`);
+    assert.ok(elapsed < 50, `reorderSteps took ${elapsed.toFixed(1)}ms (limit: 50ms)`);
   });
 });
