@@ -5,5 +5,7 @@ packages/desktop/src/index.html
 packages/desktop/dist/
 packages/desktop/src-tauri/target/
 coverage/
+reports/
+.stryker-tmp/
 *.lock
 .github/workflows/
