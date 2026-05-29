@@ -41,6 +41,7 @@ jobs:
         id: version-pr
         uses: peter-evans/create-pull-request@v8
         with:
+          token: ${{ secrets.PERSONAL_ACCESS_TOKEN }}
           base: main
           commit-message: 'docs: update version compatibility table'
           title: 'docs: update version compatibility table'
