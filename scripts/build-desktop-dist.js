@@ -8,7 +8,7 @@
 // The index.html references `../shared/views/panel.css` relative to `src/`,
 // so in the flat dist layout we rewrite that to `shared/views/panel.css`.
 
-import { cpSync, mkdirSync, readFileSync, writeFileSync, existsSync } from 'fs';
+import { cpSync, mkdirSync, rmSync, readFileSync, writeFileSync, existsSync } from 'fs';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 
@@ -18,9 +18,10 @@ const desktopDir = join(root, 'packages', 'desktop');
 const distDir = join(desktopDir, 'dist');
 
 // 1. Clean and create dist/
+rmSync(distDir, { recursive: true, force: true });
 mkdirSync(distDir, { recursive: true });
 
-// 2. Copy shared/ into dist/shared/
+// 2. Copy shared/ into dist/shared/ (excluding tests)
 const sharedSrc = join(desktopDir, 'shared');
 if (!existsSync(sharedSrc)) {
   console.error('ERROR: packages/desktop/shared/ not found. Run `npm run sync-shared` first.');
