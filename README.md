@@ -5,7 +5,7 @@
 
 [![Tests](https://github.com/Arsarneq/docent/actions/workflows/test.yml/badge.svg?branch=main)](https://github.com/Arsarneq/docent/actions/workflows/test.yml)
 [![codecov](https://codecov.io/gh/Arsarneq/docent/graph/badge.svg)](https://codecov.io/gh/Arsarneq/docent)
-[![Extension v2.0.0](https://img.shields.io/badge/Chrome_Web_Store-v2.0.0-4285F4?logo=googlechrome&logoColor=white)](https://github.com/Arsarneq/docent/releases)
+[![Extension v2.0.0](https://img.shields.io/chrome-web-store/v/odhpdgpoknpaakjdkdbjdgpljmpblijh?logo=googlechrome&logoColor=white&label=Chrome%20Web%20Store)](https://chromewebstore.google.com/detail/docent/odhpdgpoknpaakjdkdbjdgpljmpblijh)
 [![License: GPL-3.0](https://img.shields.io/badge/License-GPL--3.0-blue.svg)](LICENSE)
 [![Platform: Windows](https://img.shields.io/badge/Desktop-Windows-0078D4?logo=windows&logoColor=white)](packages/desktop)
 
