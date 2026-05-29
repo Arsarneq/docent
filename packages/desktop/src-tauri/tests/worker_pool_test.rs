@@ -1032,12 +1032,18 @@ fn repeatedly_failing_workers_get_respawned_and_shutdown_completes() {
     let spawn_total = Arc::new(AtomicU64::new(0));
     let st_clone = spawn_total.clone();
 
+    // Track when workers have panicked so we know they're dead.
+    let panicked_count = Arc::new(AtomicU64::new(0));
+    let pc_clone = panicked_count.clone();
+
     let mut pool = WorkerPool::new(3, action_tx, move |_index, rx, _queue_len, _sender| {
         st_clone.fetch_add(1, Ordering::SeqCst);
+        let pc = pc_clone.clone();
         std::thread::spawn(move || {
             // Each worker panics on first event, but handles Shutdown cleanly.
             match rx.recv() {
                 Ok(WorkerMessage::Event(_)) => {
+                    pc.fetch_add(1, Ordering::SeqCst);
                     panic!("simulated worker panic");
                 }
                 Ok(WorkerMessage::Shutdown) => {}
@@ -1056,8 +1062,20 @@ fn repeatedly_failing_workers_get_respawned_and_shutdown_completes() {
     for _ in 0..3 {
         pool.dispatch(make_raw_event(RawEventType::Click, 0));
     }
-    // Give workers time to panic.
-    thread::sleep(Duration::from_millis(100));
+
+    // Wait until all 3 workers have actually panicked (not just a fixed sleep).
+    let deadline = std::time::Instant::now() + Duration::from_secs(5);
+    while panicked_count.load(Ordering::SeqCst) < 3 {
+        if std::time::Instant::now() > deadline {
+            panic!(
+                "Timed out waiting for workers to panic. Only {} of 3 panicked.",
+                panicked_count.load(Ordering::SeqCst)
+            );
+        }
+        thread::sleep(Duration::from_millis(10));
+    }
+    // Extra sleep to ensure the thread has fully exited (receiver dropped).
+    thread::sleep(Duration::from_millis(50));
 
     // Round 2: send 3 more events. Each send detects the dead channel,
     // respawns the worker, and retries on the fresh worker.

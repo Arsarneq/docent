@@ -24,6 +24,6 @@ npx playwright test
 
 ## Coverage
 
-These tests cover the ~48 automatable scenarios from the manual test suite.
-The remaining ~6 tests (bookmark clicks, context menu selections, etc.) require
-manual verification as they involve browser chrome that Playwright cannot access.
+These tests cover the ~48 automatable scenarios from the original test suite.
+The remaining browser chrome interactions (bookmark clicks, session restore)
+are now logic-tested via unit tests in `tests/unit/navigation-logic.test.js`.
