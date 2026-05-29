@@ -31,8 +31,8 @@ describe('Regression: session logic', () => {
     const step = createStep({ narration: 'To delete', step_number: 1, actions: [] });
     addStepRecord(rec, step);
 
-    // Ensure tombstone gets a later timestamp
-    await new Promise((r) => setTimeout(r, 5));
+    // Ensure tombstone gets a later timestamp (use 15ms for CI reliability)
+    await new Promise((r) => setTimeout(r, 15));
     deleteStep(rec, step.logical_id);
 
     const active = resolveActiveSteps(rec);
@@ -66,7 +66,7 @@ describe('Regression: session logic', () => {
     addStepRecord(rec, v1);
 
     // Simulate re-record: new version with same logical_id
-    await new Promise((r) => setTimeout(r, 5));
+    await new Promise((r) => setTimeout(r, 15));
     const v2 = createStep({
       narration: 'Updated',
       step_number: 1,
