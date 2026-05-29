@@ -56,16 +56,20 @@ packages/
   shared/           Shared code — session model, UUID v7, dispatch logic, view rendering
     lib/            Session model, UUID v7 generation
     views/          Shared HTML structure, CSS, rendering functions
-    tests/          Shared module tests
+    tests/unit/     Shared module unit tests
   extension/        Chrome Extension (Manifest V3)
     background/     Service worker — message routing, navigation and context lifecycle capture
     content/        Content script — DOM event capture
     sidepanel/      Side panel UI — narration, step list, export, dispatch
-    tests/          Extension tests
+    tests/unit/     Extension unit tests (node --test)
+    tests/e2e/      Extension E2E tests (Playwright + real Chrome)
+    tests/manual/   Human-only test scenarios
   desktop/          Tauri v2 Desktop Application (Windows)
     src/            JavaScript frontend — panel, adapters, persistence
     src-tauri/      Rust backend — capture layer, Tauri commands
-    tests/          Desktop JavaScript tests
+    tests/unit/     Desktop JavaScript unit tests (node --test)
+    tests/integration/  Desktop Playwright tests (mocked Tauri backend)
+    tests/manual/   Human-only test scenarios
 scripts/            Build, sync, and automation scripts
 ```
 
@@ -113,6 +117,27 @@ npm run test:shared
 - Include a clear description of what changed and why
 - Reference the related issue if one exists
 - All new functions should have JSDoc comments (JavaScript) or doc comments (Rust)
+- **Bug-fix PRs must include a regression test** (see below)
+
+## Regression Tests
+
+Every bug-fix PR must include a test that reproduces the original failure:
+
+- **Naming:** `regression_<issue_number>_<short_description>` (e.g. `regression_42_duplicate_select_after_click`)
+- **Location:** Same test file as the module being fixed (unit tests alongside the fix)
+- **Comment:** Include a link to the original issue/PR in the test comment
+- **Assertion:** Test the exact input that triggered the bug and assert the correct behaviour (not just "doesn't crash")
+
+Example:
+
+```javascript
+// Regression: #42 — duplicate select events fired after click
+// https://github.com/Arsarneq/docent/issues/42
+it('regression_42_no_duplicate_select_after_click', () => {
+  // ... reproduce the exact scenario that caused the bug
+  assert.equal(selectEvents.length, 0, 'Select should be suppressed after click');
+});
+```
 
 ## Licence
 
