@@ -75,3 +75,26 @@ updateBetweenMarkers(
   specTable,
 );
 console.log(`✓ docs/session-format.md updated`);
+
+// ─── README badge versions ────────────────────────────────────────────────────
+
+function updateBadgeVersion(filePath, badgePattern, newVersion) {
+  const fullPath = join(ROOT, filePath);
+  const content = readFileSync(fullPath, 'utf8');
+  const updated = content.replace(badgePattern, newVersion);
+  if (updated !== content) {
+    writeFileSync(fullPath, updated, 'utf8');
+    return true;
+  }
+  return false;
+}
+
+// Desktop badge: [![Desktop vX.Y.Z](https://img.shields.io/badge/Desktop_Release-vX.Y.Z-...
+const desktopBadgePattern = /Desktop_Release-v[\d.]+/g;
+if (updateBadgeVersion('README.md', desktopBadgePattern, `Desktop_Release-v${deskVersion}`)) {
+  console.log(`✓ README.md desktop badge updated to v${deskVersion}`);
+}
+
+// Also update the desktop release link tag
+const desktopLinkPattern = /desktop-v[\d.]+\)/g;
+updateBadgeVersion('README.md', desktopLinkPattern, `desktop-v${deskVersion})`);
