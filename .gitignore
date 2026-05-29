@@ -32,6 +32,8 @@ test-results/
 playwright-report/
 coverage/
 .c8_output/
+reports/
+.stryker-tmp/
 
 # Lefthook local config
 lefthook-local.yml

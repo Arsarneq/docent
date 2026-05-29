@@ -11,6 +11,7 @@
     "test:desktop": "node --test packages/desktop/tests/unit/*.test.js",
     "test:desktop:rust": "cargo test --manifest-path packages/desktop/src-tauri/Cargo.toml",
     "test:shared": "node --test packages/shared/tests/unit/*.test.js",
+    "test:mutation": "npx stryker run",
     "test:shared:coverage": "c8 --reporter=text --reporter=lcov node --test packages/shared/tests/unit/*.test.js",
     "test:desktop:coverage": "c8 --reporter=text --reporter=lcov node --test packages/desktop/tests/unit/*.test.js",
     "test:coverage": "c8 --reporter=text --reporter=lcov --all --src packages/shared/lib --src packages/shared/views --src packages/desktop/src node --test packages/shared/tests/unit/*.test.js packages/desktop/tests/unit/*.test.js",
@@ -27,6 +28,7 @@
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
+    "@stryker-mutator/core": "^9.6.1",
     "ajv": "^8.20.0",
     "ajv-formats": "^3.0.1",
     "c8": "^11.0.0",
