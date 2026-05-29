@@ -116,6 +116,78 @@ describe('sendPayload — error handling', () => {
     assert.ok(thrown.message.includes('503'));
   });
 
+  it('throws DispatchError with correct status for 400 Bad Request', async () => {
+    globalThis.fetch = async () => ({ ok: false, status: 400, headers: { get: () => null } });
+    let thrown = null;
+    try {
+      await sendPayload('https://example.com/api', null, { test: true });
+    } catch (err) {
+      thrown = err;
+    }
+    assert.ok(thrown instanceof DispatchError);
+    assert.equal(thrown.status, 400);
+  });
+
+  it('throws DispatchError with correct status for 401 Unauthorized', async () => {
+    globalThis.fetch = async () => ({ ok: false, status: 401, headers: { get: () => null } });
+    let thrown = null;
+    try {
+      await sendPayload('https://example.com/api', 'bad-key', { test: true });
+    } catch (err) {
+      thrown = err;
+    }
+    assert.ok(thrown instanceof DispatchError);
+    assert.equal(thrown.status, 401);
+  });
+
+  it('throws DispatchError with correct status for 403 Forbidden', async () => {
+    globalThis.fetch = async () => ({ ok: false, status: 403, headers: { get: () => null } });
+    let thrown = null;
+    try {
+      await sendPayload('https://example.com/api', null, { test: true });
+    } catch (err) {
+      thrown = err;
+    }
+    assert.ok(thrown instanceof DispatchError);
+    assert.equal(thrown.status, 403);
+  });
+
+  it('throws DispatchError with correct status for 404 Not Found', async () => {
+    globalThis.fetch = async () => ({ ok: false, status: 404, headers: { get: () => null } });
+    let thrown = null;
+    try {
+      await sendPayload('https://example.com/api', null, { test: true });
+    } catch (err) {
+      thrown = err;
+    }
+    assert.ok(thrown instanceof DispatchError);
+    assert.equal(thrown.status, 404);
+  });
+
+  it('throws DispatchError with correct status for 500 Internal Server Error', async () => {
+    globalThis.fetch = async () => ({ ok: false, status: 500, headers: { get: () => null } });
+    let thrown = null;
+    try {
+      await sendPayload('https://example.com/api', null, { test: true });
+    } catch (err) {
+      thrown = err;
+    }
+    assert.ok(thrown instanceof DispatchError);
+    assert.equal(thrown.status, 500);
+  });
+
+  it('throws DispatchError with correct status for 502 Bad Gateway', async () => {
+    globalThis.fetch = async () => ({ ok: false, status: 502, headers: { get: () => null } });
+    let thrown = null;
+    try {
+      await sendPayload('https://example.com/api', null, { test: true });
+    } catch (err) {
+      thrown = err;
+    }
+    assert.ok(thrown instanceof DispatchError);
+    assert.equal(thrown.status, 502);
+  });
+
   it('throws DispatchError for response > 10MB', async () => {
     globalThis.fetch = async () => ({
       ok: true,
