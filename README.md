@@ -3,7 +3,11 @@
 
 > Demonstrated Behaviour Capture and Dispatch
 
+[![Tests](https://github.com/Arsarneq/docent/actions/workflows/test.yml/badge.svg?branch=main)](https://github.com/Arsarneq/docent/actions/workflows/test.yml)
 [![codecov](https://codecov.io/gh/Arsarneq/docent/graph/badge.svg)](https://codecov.io/gh/Arsarneq/docent)
+[![Extension v2.0.0](https://img.shields.io/badge/Chrome_Web_Store-v2.0.0-4285F4?logo=googlechrome&logoColor=white)](https://github.com/Arsarneq/docent/releases)
+[![License: GPL-3.0](https://img.shields.io/badge/License-GPL--3.0-blue.svg)](LICENSE)
+[![Platform: Windows](https://img.shields.io/badge/Desktop-Windows-0078D4?logo=windows&logoColor=white)](packages/desktop)
 
 Docent captures user interactions alongside step-by-step context and exports the result as structured JSON. It runs as a Chrome extension for browser workflows and as a native desktop application (Windows) for native application workflows. Both platforms produce `.docent.json` files with the same core structure, differentiated by platform-specific action types and fields.
 
