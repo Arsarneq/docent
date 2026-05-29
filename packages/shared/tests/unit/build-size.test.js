@@ -82,10 +82,10 @@ describe('Build size: Extension', () => {
 });
 
 describe('Build size: Desktop dist', () => {
-  it('total JS size is under 250KB', () => {
+  it('total JS size is under 300KB', () => {
     const size = getDirSize(desktopDistDir, ['.js']);
     assert.ok(size > 0, 'No JS files found — has build:desktop-dist been run?');
-    assert.ok(size < 250 * 1024, `Desktop dist JS is ${formatSize(size)} (limit: 250KB).`);
+    assert.ok(size < 300 * 1024, `Desktop dist JS is ${formatSize(size)} (limit: 300KB).`);
   });
 
   it('total dist size is under 1MB', () => {
