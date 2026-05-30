@@ -27,6 +27,7 @@ use windows::core::BOOL;
 use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, POINT, WPARAM};
 use windows::Win32::System::Com::{
     CoCreateInstance, CoInitializeEx, CoUninitialize, CLSCTX_ALL, COINIT_APARTMENTTHREADED,
+    COINIT_MULTITHREADED,
 };
 use windows::Win32::UI::Accessibility::{
     CUIAutomation, IUIAutomation, IUIAutomationElement, IUIAutomationSelectionPattern,
@@ -364,11 +365,19 @@ impl CaptureLayer for WindowsCapture {
         // --- Create WorkerPool with 3 workers ---
         let mut pool = WorkerPool::new(3, sender.clone(), {
             let excluded_pid = excluded_pid.clone();
-            move |index, rx, queue_len, action_sender| {
+            move |index, rx, queue_len, action_sender, pending| {
                 let excluded_pid = excluded_pid.clone();
                 thread::spawn(move || {
                     let backend = WindowsAccessibilityBackend::new();
-                    worker_loop(index, backend, rx, queue_len, action_sender, excluded_pid);
+                    worker_loop(
+                        index,
+                        backend,
+                        rx,
+                        queue_len,
+                        action_sender,
+                        excluded_pid,
+                        pending,
+                    );
                 })
             }
         });
@@ -1896,7 +1905,23 @@ impl Default for WindowsAccessibilityBackend {
 impl AccessibilityBackend for WindowsAccessibilityBackend {
     fn init(&mut self) -> Result<(), CaptureError> {
         unsafe {
-            CoInitializeEx(None, COINIT_APARTMENTTHREADED)
+            // MTA (multithreaded apartment), not STA. These worker threads are
+            // pure UI Automation *clients*: they own no windows and run no
+            // message pump. Microsoft's UIA threading guidance prescribes MTA
+            // for exactly this profile (separate thread, no windows, calls UIA
+            // across the desktop including the app's own UI):
+            // https://learn.microsoft.com/en-us/windows/win32/winauto/uiauto-threading
+            //
+            // The previous STA model was a latent deadlock: an STA thread must
+            // pump messages while a cross-apartment/cross-process UIA call is
+            // outstanding, but these workers never pump — so a UIA call against
+            // an unresponsive window could hang the worker indefinitely (the
+            // root cause behind the capture.stop() hangs). MTA removes the pump
+            // obligation; COM marshals calls without requiring the caller to
+            // pump. Each worker owns its own IUIAutomation instance and never
+            // marshals live elements across threads, so the MTA element-affinity
+            // caveat does not apply.
+            CoInitializeEx(None, COINIT_MULTITHREADED)
                 .ok()
                 .map_err(|e| CaptureError::ComInit(e.to_string()))?;
             let uia: IUIAutomation = CoCreateInstance(&CUIAutomation, None, CLSCTX_ALL)

@@ -5,8 +5,7 @@
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
-use std::sync::mpsc;
-use std::sync::Arc;
+use std::sync::{mpsc, Arc, Mutex};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
@@ -126,6 +125,97 @@ pub struct WorkerHandle {
     pub queue_len: Arc<AtomicU64>,
     /// Join handle for the worker's OS thread. `None` after the thread has been joined.
     pub thread: Option<JoinHandle<()>>,
+    /// Shared handle to the worker's flushable buffers (completed-but-held
+    /// actions). The worker mutates these; the pool retains a clone so
+    /// [`shutdown`](WorkerPool::shutdown) can drain and emit them even if the
+    /// worker thread has to be detached (e.g. stuck in a slow platform call).
+    /// This is what makes buffered actions survive a detach — see
+    /// [`PendingBuffers`].
+    pub pending: SharedPendingBuffers,
+}
+
+// ---------------------------------------------------------------------------
+// PendingBuffers — flushable, completed-but-held actions
+// ---------------------------------------------------------------------------
+
+/// Shared handle to a worker's flushable buffers.
+pub type SharedPendingBuffers = Arc<Mutex<PendingBuffers>>;
+
+/// The subset of per-worker state that holds **completed actions awaiting
+/// emission** (as opposed to dedup/correlation state used to judge future
+/// events). These are "sacred": on stop they must be flushed, never lost.
+///
+/// This lives behind an `Arc<Mutex<>>` shared between the worker thread and the
+/// pool so that [`WorkerPool::shutdown`] can drain and emit any buffered
+/// actions itself if a worker has to be detached without reaching its own
+/// flush path.
+///
+/// # Locking discipline
+///
+/// The worker only ever locks this around **in-memory mutations** (push/take of
+/// already-built `ActionEvent`s) — never across a platform accessibility call.
+/// A wedged worker is therefore always stuck *outside* this lock, so the
+/// shutdown drainer can always acquire it. Violating this discipline (holding
+/// the lock across a backend call) would reintroduce a shutdown hang.
+#[derive(Default)]
+pub struct PendingBuffers {
+    /// Accumulated scroll deltas awaiting debounce/threshold flush.
+    pub scroll_acc: ScrollAccumulator,
+    /// Buffered type event awaiting coalesce-window flush.
+    pub pending_type: Option<PendingTypeEvent>,
+    /// Buffered printable key events awaiting debounce flush.
+    pub pending_keys: Vec<ActionEvent>,
+    /// Timestamp of the last buffered key (for debounce flush).
+    pub pending_keys_last_timestamp: u64,
+}
+
+impl PendingBuffers {
+    fn new() -> Self {
+        Self::default()
+    }
+
+    /// Flush only the pending type event (if any), emitting it. Used at points
+    /// where a type event must be committed before another action (context
+    /// switch, control key) without touching the key/scroll buffers.
+    fn flush_pending_type_only(&mut self, action_sender: &mpsc::Sender<ActionEvent>) {
+        flush_pending_type(&mut self.pending_type, action_sender);
+    }
+
+    /// Drain all buffered actions, emitting them via `action_sender`.
+    ///
+    /// Pending type takes precedence over pending keys (the type value
+    /// supersedes the individual keystrokes), matching the live debounce
+    /// behaviour. Returns after the buffers are empty. Safe to call more than
+    /// once and from either the worker or the shutdown drainer — whoever calls
+    /// first empties the buffers; subsequent calls are no-ops.
+    fn drain_into(&mut self, action_sender: &mpsc::Sender<ActionEvent>) {
+        if self.pending_type.is_some() {
+            // A type event supersedes buffered keys.
+            flush_pending_type(&mut self.pending_type, action_sender);
+            self.pending_keys.clear();
+            self.pending_keys_last_timestamp = 0;
+        } else {
+            flush_pending_keys(&mut self.pending_keys, action_sender);
+            self.pending_keys_last_timestamp = 0;
+        }
+        if let Some(result) = self.scroll_acc.try_flush(u64::MAX) {
+            let _ = action_sender.send(ActionEvent {
+                timestamp: current_timestamp_ms(),
+                context_id: None,
+                capture_mode: CaptureMode::Accessibility,
+                frame_src: None,
+                window_rect: None,
+                sequence_id: None,
+                payload: ActionPayload::Scroll {
+                    element: None,
+                    scroll_top: 0.0,
+                    scroll_left: 0.0,
+                    delta_y: result.total_delta_y,
+                    delta_x: result.total_delta_x,
+                },
+            });
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -134,14 +224,16 @@ pub struct WorkerHandle {
 
 /// Type alias for the boxed spawn closure stored by the pool.
 ///
-/// The closure receives `(worker_index, receiver, queue_len, action_sender)`
-/// and returns a `JoinHandle<()>` for the spawned worker thread.
+/// The closure receives `(worker_index, receiver, queue_len, action_sender,
+/// pending)` and returns a `JoinHandle<()>` for the spawned worker thread.
+/// `pending` is the worker's shared flushable-buffer handle.
 type SpawnWorkerFn = Box<
     dyn Fn(
             usize,
             mpsc::Receiver<WorkerMessage>,
             Arc<AtomicU64>,
             mpsc::Sender<ActionEvent>,
+            SharedPendingBuffers,
         ) -> JoinHandle<()>
         + Send,
 >;
@@ -182,7 +274,8 @@ impl WorkerPool {
     /// `spawn_worker` is called for each worker index (0..count) and must
     /// return a `JoinHandle<()>`. It receives the worker index, the
     /// `mpsc::Receiver<WorkerMessage>` for that worker's queue, an
-    /// `Arc<AtomicU64>` queue-length counter, and a clone of `action_sender`.
+    /// `Arc<AtomicU64>` queue-length counter, a clone of `action_sender`, and
+    /// the worker's shared [`SharedPendingBuffers`] handle.
     pub fn new<F>(count: usize, action_sender: mpsc::Sender<ActionEvent>, spawn_worker: F) -> Self
     where
         F: Fn(
@@ -190,6 +283,7 @@ impl WorkerPool {
                 mpsc::Receiver<WorkerMessage>,
                 Arc<AtomicU64>,
                 mpsc::Sender<ActionEvent>,
+                SharedPendingBuffers,
             ) -> JoinHandle<()>
             + Send
             + 'static,
@@ -199,11 +293,19 @@ impl WorkerPool {
         for index in 0..count {
             let (tx, rx) = mpsc::channel();
             let queue_len = Arc::new(AtomicU64::new(0));
-            let handle = spawn_worker(index, rx, Arc::clone(&queue_len), action_sender.clone());
+            let pending: SharedPendingBuffers = Arc::new(Mutex::new(PendingBuffers::new()));
+            let handle = spawn_worker(
+                index,
+                rx,
+                Arc::clone(&queue_len),
+                action_sender.clone(),
+                Arc::clone(&pending),
+            );
             workers.push(WorkerHandle {
                 sender: tx,
                 queue_len,
                 thread: Some(handle),
+                pending,
             });
         }
 
@@ -377,11 +479,13 @@ impl WorkerPool {
         // Create fresh channel and queue counter.
         let (tx, rx) = mpsc::channel();
         let queue_len = Arc::new(AtomicU64::new(0));
+        let pending: SharedPendingBuffers = Arc::new(Mutex::new(PendingBuffers::new()));
         let thread = (self.spawn_worker)(
             index,
             rx,
             Arc::clone(&queue_len),
             self.action_sender.clone(),
+            Arc::clone(&pending),
         );
 
         eprintln!("[WorkerPool] Respawned worker {index}");
@@ -390,6 +494,7 @@ impl WorkerPool {
             sender: tx,
             queue_len,
             thread: Some(thread),
+            pending,
         };
 
         // Clear sticky affinity entries that pointed to the dead worker.
@@ -429,6 +534,10 @@ impl WorkerPool {
             }
         }
 
+        // Clone the sender so we can emit rescued buffers while iterating
+        // `self.workers` mutably below.
+        let action_sender = self.action_sender.clone();
+
         // Wait (bounded) for every worker thread to finish. We poll
         // `is_finished()` so a single stuck worker can't block the others'
         // cleanup, and so the total wait is capped at `timeout`.
@@ -454,9 +563,27 @@ impl WorkerPool {
                 // Worker is wedged (likely in a blocking platform call).
                 // Detach it: dropping the handle leaks the thread, which is
                 // reclaimed at process exit. Shutdown must not hang on it.
+                //
+                // Before detaching, rescue the worker's buffered actions: it
+                // never reached its own flush path, but those completed actions
+                // are sacred and must not be lost. The worker only ever locks
+                // `pending` around in-memory mutations (never across a platform
+                // call), so a wedged worker holds no lock here and we can
+                // always acquire it. `drain_into` empties the buffers, so if
+                // the worker *does* later wake and flush, it finds them empty —
+                // no double emit.
                 eprintln!(
-                    "[WorkerPool] Warning: worker {i} did not exit within {timeout:?}; detaching"
+                    "[WorkerPool] Warning: worker {i} did not exit within {timeout:?}; \
+                     detaching (rescuing buffered actions)"
                 );
+                match worker.pending.lock() {
+                    Ok(mut buffers) => buffers.drain_into(&action_sender),
+                    Err(poisoned) => {
+                        // A panicked worker poisoned the lock. The buffers are
+                        // still structurally valid; rescue them anyway.
+                        poisoned.into_inner().drain_into(&action_sender);
+                    }
+                }
             }
         }
     }
@@ -583,6 +710,20 @@ fn current_timestamp_ms() -> u64 {
         .as_millis() as u64
 }
 
+/// Lock a worker's shared pending buffers, tolerating poisoning.
+///
+/// If a worker thread panicked while holding the lock, the buffers are still
+/// structurally valid, so we recover the guard rather than propagate the
+/// panic — losing buffered actions to a poisoned lock would defeat the point.
+///
+/// Callers MUST NOT hold this guard across a platform accessibility call (see
+/// [`PendingBuffers`] locking discipline).
+fn lock_buffers(pending: &SharedPendingBuffers) -> std::sync::MutexGuard<'_, PendingBuffers> {
+    pending
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
 // ---------------------------------------------------------------------------
 // Key name mapping (platform-agnostic)
 // ---------------------------------------------------------------------------
@@ -692,6 +833,7 @@ pub fn worker_loop<B: AccessibilityBackend>(
     queue_len: Arc<AtomicU64>,
     action_sender: mpsc::Sender<ActionEvent>,
     excluded_pid: Arc<AtomicU32>,
+    pending: SharedPendingBuffers,
 ) {
     if let Err(e) = backend.init() {
         eprintln!("[Worker {worker_index}] init failed: {e}");
@@ -717,6 +859,7 @@ pub fn worker_loop<B: AccessibilityBackend>(
                         &action_sender,
                         &excluded_pid,
                         &mut state,
+                        &pending,
                     );
                 }));
                 if let Err(panic_info) = result {
@@ -745,39 +888,20 @@ pub fn worker_loop<B: AccessibilityBackend>(
                             &action_sender,
                             &excluded_pid,
                             &mut state,
+                            &pending,
                         );
                     }));
                 }
-                // Flush pending type event.
-                flush_pending_type(&mut state.pending_type, &action_sender);
-                // Flush pending keys (emit if no type event superseded them).
-                flush_pending_keys(&mut state.pending_keys, &action_sender);
-                // Flush scroll accumulator with a far-future timestamp.
-                if let Some(result) = state.scroll_acc.try_flush(u64::MAX) {
-                    // We don't have a specific raw event for this flush, so
-                    // emit with current timestamp and no context_id.
-                    let _ = action_sender.send(ActionEvent {
-                        timestamp: current_timestamp_ms(),
-                        context_id: None,
-                        capture_mode: CaptureMode::Accessibility,
-                        frame_src: None,
-                        window_rect: None,
-                        sequence_id: None,
-                        payload: ActionPayload::Scroll {
-                            element: None,
-                            scroll_top: 0.0,
-                            scroll_left: 0.0,
-                            delta_y: result.total_delta_y,
-                            delta_x: result.total_delta_x,
-                        },
-                    });
-                }
+                // Flush all buffered (completed) actions. Holds the lock only
+                // for the in-memory drain — no backend calls inside.
+                lock_buffers(&pending).drain_into(&action_sender);
                 break;
             }
             Err(mpsc::RecvTimeoutError::Timeout) => {
                 // Periodic flush for scroll debounce and type debounce.
                 let now = current_timestamp_ms();
-                if let Some(result) = state.scroll_acc.try_flush(now) {
+                let mut buffers = lock_buffers(&pending);
+                if let Some(result) = buffers.scroll_acc.try_flush(now) {
                     let _ = action_sender.send(ActionEvent {
                         timestamp: now,
                         context_id: None,
@@ -794,12 +918,11 @@ pub fn worker_loop<B: AccessibilityBackend>(
                         },
                     });
                 }
-                try_flush_type_debounce(&mut state, now, &action_sender);
+                try_flush_type_debounce(&mut buffers, now, &action_sender);
             }
             Err(mpsc::RecvTimeoutError::Disconnected) => {
                 // Channel closed — flush and exit.
-                flush_pending_type(&mut state.pending_type, &action_sender);
-                flush_pending_keys(&mut state.pending_keys, &action_sender);
+                lock_buffers(&pending).drain_into(&action_sender);
                 break;
             }
         }
@@ -812,38 +935,32 @@ pub fn worker_loop<B: AccessibilityBackend>(
 // Worker state
 // ---------------------------------------------------------------------------
 
-/// Mutable per-worker state passed to `process_raw_event`.
+/// Mutable per-worker **dedup/correlation** state passed to `process_raw_event`.
 ///
-/// Bundles the scroll accumulator, type coalescing buffer, and deduplication
-/// state into a single struct to keep the function signature manageable.
+/// This holds only "forward-looking" state — used to decide whether to emit
+/// *future* events (focus/value/select dedup, drag pairing). It is deliberately
+/// **not** shared: once capture stops there are no future events to judge, so
+/// losing this state on a worker detach has no consequence.
+///
+/// The "sacred" completed-but-held actions (scroll/type/key buffers) live
+/// separately in [`PendingBuffers`] behind a shared lock, so they survive a
+/// detach — see that type's docs.
 struct WorkerState {
-    scroll_acc: ScrollAccumulator,
-    pending_type: Option<PendingTypeEvent>,
     last_focus_selector: String,
     last_value_map: HashMap<String, String>,
     last_drag_element: Option<ElementDescription>,
     /// Timestamp of the last click event — used to suppress duplicate select
     /// events that fire immediately after a click on the same element.
     last_click_timestamp: u64,
-    /// Buffered printable key events. These are held until either:
-    /// - A `type` event arrives (keys are discarded — superseded by the type value)
-    /// - The TYPE_DEBOUNCE_MS window expires with no type event (keys are emitted)
-    pending_keys: Vec<ActionEvent>,
-    /// Timestamp of the last buffered key (for debounce flush).
-    pending_keys_last_timestamp: u64,
 }
 
 impl WorkerState {
     fn new() -> Self {
         Self {
-            scroll_acc: ScrollAccumulator::new(),
-            pending_type: None,
             last_focus_selector: String::new(),
             last_value_map: HashMap::new(),
             last_drag_element: None,
             last_click_timestamp: 0,
-            pending_keys: Vec::new(),
-            pending_keys_last_timestamp: 0,
         }
     }
 }
@@ -861,6 +978,7 @@ fn process_raw_event<B: AccessibilityBackend>(
     action_sender: &mpsc::Sender<ActionEvent>,
     excluded_pid: &Arc<AtomicU32>,
     state: &mut WorkerState,
+    pending: &SharedPendingBuffers,
 ) {
     // PID exclusion check — discard events from the excluded process.
     let excl = excluded_pid.load(Ordering::SeqCst);
@@ -926,14 +1044,15 @@ fn process_raw_event<B: AccessibilityBackend>(
                 backend,
                 action_sender,
                 context_id,
-                &mut state.pending_type,
+                pending,
                 &mut state.last_value_map,
                 window_rect.clone(),
             );
             // A value change arrived — pending keys will be superseded by the
             // type event when it flushes. Clear them now.
-            state.pending_keys.clear();
-            state.pending_keys_last_timestamp = 0;
+            let mut buffers = lock_buffers(pending);
+            buffers.pending_keys.clear();
+            buffers.pending_keys_last_timestamp = 0;
         }
         RawEventType::Selection => {
             handle_selection(raw, backend, action_sender, context_id, window_rect.clone());
@@ -944,13 +1063,13 @@ fn process_raw_event<B: AccessibilityBackend>(
                 backend,
                 action_sender,
                 context_id,
-                state,
+                pending,
                 window_rect.clone(),
             );
         }
         RawEventType::Foreground => {
             // Flush pending type before context switch.
-            flush_pending_type(&mut state.pending_type, action_sender);
+            lock_buffers(pending).flush_pending_type_only(action_sender);
             handle_foreground(raw, backend, action_sender, context_id, window_rect.clone());
         }
         RawEventType::WindowCreate => {
@@ -982,14 +1101,15 @@ fn process_raw_event<B: AccessibilityBackend>(
         }
         RawEventType::Scroll => {
             let is_horizontal = raw.callback_params[0] == 1;
-            state.scroll_acc.push(RawScrollEvent {
+            let now = current_timestamp_ms();
+            let mut buffers = lock_buffers(pending);
+            buffers.scroll_acc.push(RawScrollEvent {
                 timestamp: raw.timestamp,
                 delta_x: if is_horizontal { raw.scroll_delta } else { 0.0 },
                 delta_y: if is_horizontal { 0.0 } else { raw.scroll_delta },
             });
             // Check if debounce has elapsed (will be checked on timeout too).
-            let now = current_timestamp_ms();
-            if let Some(result) = state.scroll_acc.try_flush(now) {
+            if let Some(result) = buffers.scroll_acc.try_flush(now) {
                 let _ = action_sender.send(ActionEvent {
                     timestamp: raw.timestamp,
                     context_id,
@@ -1179,10 +1299,11 @@ fn handle_value_change<B: AccessibilityBackend>(
     backend: &B,
     action_sender: &mpsc::Sender<ActionEvent>,
     context_id: Option<i64>,
-    pending_type: &mut Option<PendingTypeEvent>,
+    pending: &SharedPendingBuffers,
     last_value_map: &mut HashMap<String, String>,
     window_rect: Option<WindowRect>,
 ) {
+    // Backend (UIA) call happens BEFORE taking the buffer lock.
     let element = match backend.focused_element() {
         Some(el) => el,
         None => return,
@@ -1196,6 +1317,7 @@ fn handle_value_change<B: AccessibilityBackend>(
     };
 
     // Value-change deduplication: skip if value unchanged for this element.
+    // (last_value_map is dedup state — stays thread-local in WorkerState.)
     if let Some(last_val) = last_value_map.get(&element.selector) {
         if *last_val == value {
             return;
@@ -1203,15 +1325,18 @@ fn handle_value_change<B: AccessibilityBackend>(
     }
     last_value_map.insert(element.selector.clone(), value.clone());
 
+    // In-memory buffer mutation only — short lock, no backend calls inside.
+    let mut buffers = lock_buffers(pending);
+
     // Check if we have a pending type event for a different element — flush it.
-    if let Some(ref pt) = pending_type {
+    if let Some(ref pt) = buffers.pending_type {
         if pt.element.selector != element.selector {
-            flush_pending_type(pending_type, action_sender);
+            buffers.flush_pending_type_only(action_sender);
         }
     }
 
     // Buffer or update the pending type event.
-    match pending_type {
+    match buffers.pending_type {
         Some(ref mut pt) if pt.element.selector == element.selector => {
             // Same element — update value and reset debounce timer.
             pt.value = value;
@@ -1220,7 +1345,7 @@ fn handle_value_change<B: AccessibilityBackend>(
         }
         _ => {
             // New element or no pending event.
-            *pending_type = Some(PendingTypeEvent {
+            buffers.pending_type = Some(PendingTypeEvent {
                 element,
                 value,
                 is_password,
@@ -1315,7 +1440,7 @@ fn handle_keyboard<B: AccessibilityBackend>(
     backend: &B,
     action_sender: &mpsc::Sender<ActionEvent>,
     context_id: Option<i64>,
-    state: &mut WorkerState,
+    pending: &SharedPendingBuffers,
     window_rect: Option<WindowRect>,
 ) {
     let key = vk_to_key_name(raw.key_code);
@@ -1325,6 +1450,8 @@ fn handle_keyboard<B: AccessibilityBackend>(
         return;
     }
 
+    // Backend (UIA) call happens BEFORE taking the buffer lock — never hold
+    // the lock across a platform call (see PendingBuffers locking discipline).
     let element = backend.focused_element().unwrap_or_else(|| {
         let title = backend.window_title(raw.window_handle);
         ElementDescription {
@@ -1357,14 +1484,16 @@ fn handle_keyboard<B: AccessibilityBackend>(
         },
     };
 
+    // In-memory buffer mutation only — short lock, no backend calls inside.
+    let mut buffers = lock_buffers(pending);
     if is_printable_key(&key, &raw.modifiers) {
         // Buffer printable keys — they may be superseded by a type event.
-        state.pending_keys.push(event);
-        state.pending_keys_last_timestamp = raw.timestamp;
+        buffers.pending_keys.push(event);
+        buffers.pending_keys_last_timestamp = raw.timestamp;
     } else {
         // Control key — flush pending type and pending keys, then emit.
-        flush_pending_type(&mut state.pending_type, action_sender);
-        flush_pending_keys(&mut state.pending_keys, action_sender);
+        buffers.flush_pending_type_only(action_sender);
+        flush_pending_keys(&mut buffers.pending_keys, action_sender);
         let _ = action_sender.send(event);
     }
 }
@@ -1504,28 +1633,28 @@ fn flush_pending_keys(
 /// Check if the type debounce interval has elapsed and flush if so.
 /// Also flushes pending keys if the type debounce expired without a type event.
 fn try_flush_type_debounce(
-    state: &mut WorkerState,
+    buffers: &mut PendingBuffers,
     now: u64,
     action_sender: &mpsc::Sender<ActionEvent>,
 ) {
-    let should_flush_type = state
+    let should_flush_type = buffers
         .pending_type
         .as_ref()
         .map(|pt| now.saturating_sub(pt.last_update) >= TYPE_DEBOUNCE_MS)
         .unwrap_or(false);
 
     if should_flush_type {
-        flush_pending_type(&mut state.pending_type, action_sender);
+        flush_pending_type(&mut buffers.pending_type, action_sender);
         // Type event was produced — discard pending keys (superseded).
-        state.pending_keys.clear();
-        state.pending_keys_last_timestamp = 0;
-    } else if !state.pending_keys.is_empty()
-        && state.pending_keys_last_timestamp > 0
-        && now.saturating_sub(state.pending_keys_last_timestamp) >= TYPE_DEBOUNCE_MS
+        buffers.pending_keys.clear();
+        buffers.pending_keys_last_timestamp = 0;
+    } else if !buffers.pending_keys.is_empty()
+        && buffers.pending_keys_last_timestamp > 0
+        && now.saturating_sub(buffers.pending_keys_last_timestamp) >= TYPE_DEBOUNCE_MS
     {
         // No type event arrived within the debounce window — emit the keys.
-        flush_pending_keys(&mut state.pending_keys, action_sender);
-        state.pending_keys_last_timestamp = 0;
+        flush_pending_keys(&mut buffers.pending_keys, action_sender);
+        buffers.pending_keys_last_timestamp = 0;
     }
 }
 
@@ -1538,25 +1667,81 @@ mod tests {
     use super::*;
     use std::sync::mpsc;
 
-    /// Build a pool whose workers run `body` in their receive loop. `body` is
-    /// given the worker's message receiver so a test can choose to drain
-    /// `Shutdown` and exit, or ignore it and block forever.
-    fn pool_with<F>(count: usize, body: F) -> WorkerPool
+    /// Build a pool whose workers run `body(rx, pending, sender)` in their
+    /// receive loop. `body` gets the worker's message receiver, its shared
+    /// pending buffers, and the action sender, so a test can pre-seed buffered
+    /// actions and choose to flush+exit on `Shutdown`, or ignore it and block
+    /// forever.
+    fn pool_with<F>(count: usize, body: F) -> (WorkerPool, mpsc::Receiver<ActionEvent>)
     where
-        F: Fn(mpsc::Receiver<WorkerMessage>) + Send + Sync + Clone + 'static,
+        F: Fn(mpsc::Receiver<WorkerMessage>, SharedPendingBuffers, mpsc::Sender<ActionEvent>)
+            + Send
+            + Sync
+            + Clone
+            + 'static,
     {
-        let (action_tx, _action_rx) = mpsc::channel::<ActionEvent>();
-        WorkerPool::new(count, action_tx, move |_idx, rx, _queue_len, _sender| {
-            let body = body.clone();
-            thread::spawn(move || body(rx))
-        })
+        let (action_tx, action_rx) = mpsc::channel::<ActionEvent>();
+        let pool = WorkerPool::new(
+            count,
+            action_tx,
+            move |_idx, rx, _queue_len, sender, pending| {
+                let body = body.clone();
+                thread::spawn(move || body(rx, pending, sender))
+            },
+        );
+        (pool, action_rx)
+    }
+
+    /// Build a key ActionEvent for seeding pending_keys in tests.
+    fn key_event(key: &str) -> ActionEvent {
+        ActionEvent {
+            timestamp: 1,
+            context_id: Some(42),
+            capture_mode: CaptureMode::Accessibility,
+            frame_src: None,
+            window_rect: None,
+            sequence_id: Some(1),
+            payload: ActionPayload::Key {
+                key: key.to_string(),
+                modifiers: Modifiers {
+                    ctrl: false,
+                    shift: false,
+                    alt: false,
+                    meta: false,
+                },
+                element: ElementDescription {
+                    tag: "Edit".to_string(),
+                    id: None,
+                    name: None,
+                    role: None,
+                    element_type: None,
+                    text: None,
+                    selector: "win > edit".to_string(),
+                },
+            },
+        }
+    }
+
+    /// Collect all currently-available ActionEvents from the receiver.
+    fn drain_events(rx: &mpsc::Receiver<ActionEvent>) -> Vec<ActionEvent> {
+        rx.try_iter().collect()
+    }
+
+    fn key_names(events: &[ActionEvent]) -> Vec<String> {
+        events
+            .iter()
+            .filter_map(|e| match &e.payload {
+                ActionPayload::Key { key, .. } => Some(key.clone()),
+                _ => None,
+            })
+            .collect()
     }
 
     #[test]
     fn shutdown_joins_well_behaved_workers_quickly() {
         // Workers that exit as soon as they see Shutdown should be joined well
         // within the timeout.
-        let mut pool = pool_with(3, |rx| {
+        let (mut pool, _rx) = pool_with(3, |rx, _pending, _sender| {
             while let Ok(msg) = rx.recv() {
                 if matches!(msg, WorkerMessage::Shutdown) {
                     break;
@@ -1581,7 +1766,7 @@ mod tests {
         // A worker that never returns (e.g. parked in a blocking platform call)
         // must not hang shutdown: it should be detached once the timeout
         // elapses, and shutdown should return shortly after the deadline.
-        let mut pool = pool_with(2, |rx| {
+        let (mut pool, _rx) = pool_with(2, |rx, _pending, _sender| {
             // Ignore Shutdown entirely and block forever.
             loop {
                 let _ = rx.recv();
@@ -1611,7 +1796,7 @@ mod tests {
     fn shutdown_is_idempotent() {
         // Calling shutdown twice must not panic or block — the second call has
         // no handles left to join.
-        let mut pool = pool_with(2, |rx| {
+        let (mut pool, _rx) = pool_with(2, |rx, _pending, _sender| {
             while let Ok(msg) = rx.recv() {
                 if matches!(msg, WorkerMessage::Shutdown) {
                     break;
@@ -1624,5 +1809,114 @@ mod tests {
         let start = Instant::now();
         pool.shutdown_with_timeout(Duration::from_secs(5));
         assert!(start.elapsed() < Duration::from_millis(100));
+    }
+
+    #[test]
+    fn responsive_worker_flushes_buffered_keys_on_shutdown() {
+        // A worker that buffered keys and is responsive flushes them via its
+        // own Shutdown handler. This is the behaviour the MTA fix restores:
+        // a non-wedged worker always reaches its flush.
+        let (mut pool, rx) = pool_with(1, |rx, pending, sender| {
+            // Seed buffered keys, then behave normally (flush on Shutdown via
+            // the real drain_into, mirroring the worker loop's Shutdown arm).
+            lock_buffers(&pending).pending_keys = vec![key_event("a"), key_event("b")];
+            while let Ok(msg) = rx.recv() {
+                if matches!(msg, WorkerMessage::Shutdown) {
+                    lock_buffers(&pending).drain_into(&sender);
+                    break;
+                }
+            }
+        });
+
+        // Give the worker a moment to seed its buffer before shutting down.
+        thread::sleep(Duration::from_millis(50));
+        pool.shutdown_with_timeout(Duration::from_secs(5));
+
+        let events = drain_events(&rx);
+        assert_eq!(
+            key_names(&events),
+            vec!["a", "b"],
+            "responsive worker must flush its buffered keys on shutdown"
+        );
+    }
+
+    #[test]
+    fn buffered_keys_survive_a_worker_detach() {
+        // THE key guarantee (option B): completed/buffered actions are sacred.
+        // Even if a worker wedges and must be detached, the buffered keys it
+        // already captured must still be flushed — by the shutdown drainer
+        // reaching into the shared buffer.
+        let (mut pool, rx) = pool_with(1, |rx, pending, _sender| {
+            // Seed buffered keys, then wedge forever (never reach own flush).
+            lock_buffers(&pending).pending_keys = vec![key_event("x"), key_event("y")];
+            // Block forever ignoring Shutdown — simulates a wedged UIA call.
+            loop {
+                let _ = rx.recv();
+                std::thread::sleep(Duration::from_secs(3600));
+            }
+        });
+
+        thread::sleep(Duration::from_millis(50));
+        pool.shutdown_with_timeout(Duration::from_millis(200));
+
+        let events = drain_events(&rx);
+        assert_eq!(
+            key_names(&events),
+            vec!["x", "y"],
+            "buffered keys must survive a worker detach (drained by shutdown)"
+        );
+    }
+
+    #[test]
+    fn detached_worker_buffered_keys_are_complete_and_correct() {
+        // Addresses the specific concern: when a worker is detached and we only
+        // have the flushable buffer (no dedup/correlation state), the rescued
+        // actions must still be COMPLETE and CORRECT — same key, element, and
+        // context as captured — needing nothing from the lost forward-looking
+        // state. This proves the Group-1/Group-2 split loses nothing essential.
+        let (mut pool, rx) = pool_with(1, |rx, pending, _sender| {
+            {
+                let mut b = lock_buffers(&pending);
+                b.pending_keys = vec![key_event("h"), key_event("i")];
+            }
+            loop {
+                let _ = rx.recv();
+                std::thread::sleep(Duration::from_secs(3600));
+            }
+        });
+
+        thread::sleep(Duration::from_millis(50));
+        pool.shutdown_with_timeout(Duration::from_millis(200));
+
+        let events = drain_events(&rx);
+        let key_events: Vec<&ActionEvent> = events
+            .iter()
+            .filter(|e| matches!(e.payload, ActionPayload::Key { .. }))
+            .collect();
+        assert_eq!(key_events.len(), 2, "both buffered keys must be rescued");
+
+        for (event, expected_key) in key_events.iter().zip(["h", "i"]) {
+            // context_id preserved (was set at capture time, not derived from
+            // any dedup state).
+            assert_eq!(event.context_id, Some(42));
+            match &event.payload {
+                ActionPayload::Key {
+                    key,
+                    modifiers,
+                    element,
+                } => {
+                    assert_eq!(key, expected_key, "key value intact");
+                    assert!(
+                        !modifiers.ctrl && !modifiers.shift && !modifiers.alt && !modifiers.meta,
+                        "modifiers intact"
+                    );
+                    // Element (resolved via UIA at capture time) is fully
+                    // present — no "best guess" needed at flush.
+                    assert_eq!(element.tag, "Edit");
+                    assert_eq!(element.selector, "win > edit");
+                }
+                _ => panic!("expected Key payload"),
+            }
+        }
     }
 }
