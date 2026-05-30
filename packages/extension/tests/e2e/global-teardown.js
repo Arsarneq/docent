@@ -72,53 +72,71 @@ export default async function globalTeardown() {
     if (!fs.existsSync(sourceFile)) continue;
 
     try {
-      const converter = v8toIstanbul(sourceFile);
-      await converter.load();
+      // Merge coverage from multiple entries by processing each separately
+      // and taking the max hit count per line. v8-to-istanbul's applyCoverage
+      // replaces rather than merges, so we must do it ourselves.
+      const mergedLineHits = {};
+      const mergedFnHits = {};
+      let fnMap = null;
+      let statementMap = null;
 
       for (const entry of entries) {
+        const converter = v8toIstanbul(sourceFile);
+        await converter.load();
         converter.applyCoverage(entry.functions);
+        const istanbulCoverage = converter.toIstanbul();
+        converter.destroy();
+
+        for (const fileCoverage of Object.values(istanbulCoverage)) {
+          // Merge line hits (take max)
+          if (fileCoverage.statementMap) {
+            if (!statementMap) statementMap = fileCoverage.statementMap;
+            for (const [id, count] of Object.entries(fileCoverage.s)) {
+              const line = fileCoverage.statementMap[id].start.line;
+              mergedLineHits[line] = Math.max(mergedLineHits[line] || 0, count);
+            }
+          }
+          // Merge function hits (take max)
+          if (fileCoverage.fnMap) {
+            if (!fnMap) fnMap = fileCoverage.fnMap;
+            for (const [id, count] of Object.entries(fileCoverage.f)) {
+              mergedFnHits[id] = Math.max(mergedFnHits[id] || 0, count);
+            }
+          }
+        }
       }
 
-      const istanbulCoverage = converter.toIstanbul();
-      converter.destroy();
+      // Generate lcov from merged data
+      const filePath = path.resolve(extensionPath, srcRelPath);
+      lcovOutput += `TN:\n`;
+      lcovOutput += `SF:${filePath}\n`;
 
-      for (const [filePath, fileCoverage] of Object.entries(istanbulCoverage)) {
-        lcovOutput += `TN:\n`;
-        lcovOutput += `SF:${filePath}\n`;
-
-        if (fileCoverage.fnMap) {
-          for (const [id, fn] of Object.entries(fileCoverage.fnMap)) {
-            lcovOutput += `FN:${fn.loc.start.line},${fn.name || '(anonymous)'}\n`;
-          }
-          lcovOutput += `FNF:${Object.keys(fileCoverage.fnMap).length}\n`;
-          let fnHit = 0;
-          for (const [id, count] of Object.entries(fileCoverage.f)) {
-            lcovOutput += `FNDA:${count},${fileCoverage.fnMap[id].name || '(anonymous)'}\n`;
-            if (count > 0) fnHit++;
-          }
-          lcovOutput += `FNH:${fnHit}\n`;
+      if (fnMap) {
+        for (const [id, fn] of Object.entries(fnMap)) {
+          lcovOutput += `FN:${fn.loc.start.line},${fn.name || '(anonymous)'}\n`;
         }
-
-        if (fileCoverage.statementMap) {
-          let linesFound = 0;
-          let linesHit = 0;
-          const lineHits = {};
-          for (const [id, stmt] of Object.entries(fileCoverage.statementMap)) {
-            const line = stmt.start.line;
-            const count = fileCoverage.s[id] || 0;
-            lineHits[line] = (lineHits[line] || 0) + count;
-          }
-          for (const [line, count] of Object.entries(lineHits)) {
-            lcovOutput += `DA:${line},${count}\n`;
-            linesFound++;
-            if (count > 0) linesHit++;
-          }
-          lcovOutput += `LF:${linesFound}\n`;
-          lcovOutput += `LH:${linesHit}\n`;
+        lcovOutput += `FNF:${Object.keys(fnMap).length}\n`;
+        let fnHit = 0;
+        for (const [id, count] of Object.entries(mergedFnHits)) {
+          lcovOutput += `FNDA:${count},${fnMap[id]?.name || '(anonymous)'}\n`;
+          if (count > 0) fnHit++;
         }
-
-        lcovOutput += `end_of_record\n`;
+        lcovOutput += `FNH:${fnHit}\n`;
       }
+
+      if (Object.keys(mergedLineHits).length > 0) {
+        let linesFound = 0;
+        let linesHit = 0;
+        for (const [line, count] of Object.entries(mergedLineHits)) {
+          lcovOutput += `DA:${line},${count}\n`;
+          linesFound++;
+          if (count > 0) linesHit++;
+        }
+        lcovOutput += `LF:${linesFound}\n`;
+        lcovOutput += `LH:${linesHit}\n`;
+      }
+
+      lcovOutput += `end_of_record\n`;
     } catch (err) {
       console.warn(`[coverage] Failed to process ${srcRelPath}:`, err.message);
     }
