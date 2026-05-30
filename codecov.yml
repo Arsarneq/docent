@@ -1,3 +1,14 @@
+# Codecov configuration.
+#
+# Coverage is tracked along two independent axes via flags:
+#   Pyramid layer:  unit | integration | e2e
+#   Language:       javascript | rust
+#
+# Every upload is tagged with one layer flag and one language flag, so coverage
+# can be sliced either way on Codecov (e.g. "all unit coverage" or "all Rust
+# coverage"). carryforward keeps a flag's last-known coverage when its CI job is
+# skipped by a path filter, so skipped jobs don't show as a coverage drop.
+
 coverage:
   status:
     project:
@@ -7,6 +18,34 @@ coverage:
     patch:
       default:
         target: 80%
+
+# Per-flag project status checks. Advisory (informational) for now while we
+# confirm the flags populate correctly; promote to hard gates afterwards.
+flag_management:
+  default_rules:
+    carryforward: true
+  individual_flags:
+    - name: unit
+      statuses:
+        - type: project
+          target: 80%
+          informational: true
+    - name: integration
+      statuses:
+        - type: project
+          informational: true
+    - name: e2e
+      statuses:
+        - type: project
+          informational: true
+    - name: javascript
+      statuses:
+        - type: project
+          informational: true
+    - name: rust
+      statuses:
+        - type: project
+          informational: true
 
 ignore:
   - 'packages/*/tests/**'

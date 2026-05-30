@@ -155,10 +155,10 @@ jobs:
         uses: codecov/codecov-action@v6
         with:
           files: coverage/lcov.info,packages/extension/coverage/lcov.info
-          flags: javascript
+          flags: unit,javascript
           token: ${{ secrets.CODECOV_TOKEN }}
 
-  playwright-tests:
+  extension-e2e-tests:
     needs: [lint, changes]
     if: |
       needs.changes.outputs.extension == 'true' ||
@@ -192,12 +192,12 @@ jobs:
         working-directory: packages/extension/tests/e2e
         run: xvfb-run npx playwright test
 
-      - name: Upload extension Playwright coverage to Codecov
+      - name: Upload extension E2E coverage to Codecov
         if: always()
         uses: codecov/codecov-action@v6
         with:
           files: packages/extension/tests/e2e/coverage/lcov.info
-          flags: javascript
+          flags: e2e,javascript
           token: ${{ secrets.CODECOV_TOKEN }}
 
       - name: Upload test results
@@ -208,7 +208,7 @@ jobs:
           path: packages/extension/tests/e2e/test-results/
           retention-days: 7
 
-  desktop-integration-tests:
+  desktop-rust-tests:
     needs: [lint, changes]
     if: |
       needs.changes.outputs.desktop == 'true' ||
@@ -266,35 +266,51 @@ jobs:
         working-directory: packages/desktop/src-tauri
         run: cargo clippy -- -D warnings
 
-      # Coverage runs every deterministic test binary plus the CI-stable
-      # real-input integration tests. Test files are grouped explicitly so the
-      # rationale is clear and new test files get added deliberately:
-      #   --lib                     in-module unit tests (commands, capture/*)
-      #   pure-logic test binaries  deterministic, no real input/windows
-      #   real-input integration    capture_integration + windows_capture_test
-      #                             (synthesize input via enigo on the CI desktop)
+      # Coverage is split by pyramid layer into two separate llvm-cov runs so
+      # each lands under the correct Codecov flag (unit vs integration).
+      #
+      # UNIT — deterministic, no real input/windows:
+      #   --lib                  in-module unit tests (commands, capture/*)
+      #   *_test binaries        pure logic / state machines / property tests
+      #
+      # INTEGRATION — synthesize real input via enigo on the CI desktop:
+      #   capture_integration    end-to-end capture against real windows
+      #
       # Excluded on purpose: file_dialog_test (spawns Notepad — not reliably
-      # available in CI). If you add a deterministic *_test.rs, add it here so
-      # its coverage is counted.
-      - name: Run Rust tests with coverage
+      # available in CI). If you add a deterministic *_test.rs, add it to the
+      # UNIT run; if it drives real input/windows, add it to the INTEGRATION run.
+      - name: Run Rust unit tests with coverage
         working-directory: packages/desktop/src-tauri
-        run: cargo llvm-cov --lib --test action_mapping_test --test capture_mode_test --test commands_test --test coordinate_test --test coordinate_dpi_test --test element_mapping_test --test password_test --test pid_filter_test --test scroll_test --test worker_pool_test --test capture_integration --test windows_capture_test --ignore-filename-regex "(lib|main)\.rs$" --lcov --output-path coverage.lcov
+        run: cargo llvm-cov --lib --test action_mapping_test --test capture_mode_test --test commands_test --test coordinate_test --test coordinate_dpi_test --test element_mapping_test --test password_test --test pid_filter_test --test scroll_test --test worker_pool_test --test windows_capture_test --ignore-filename-regex "(lib|main)\.rs$" --lcov --output-path coverage-unit.lcov
 
-      - name: Upload Rust coverage report
+      - name: Run Rust integration tests with coverage
+        working-directory: packages/desktop/src-tauri
+        run: cargo llvm-cov --test capture_integration --ignore-filename-regex "(lib|main)\.rs$" --lcov --output-path coverage-integration.lcov
+
+      - name: Upload Rust coverage reports
         uses: actions/upload-artifact@v7
         with:
           name: rust-coverage
-          path: packages/desktop/src-tauri/coverage.lcov
+          path: |
+            packages/desktop/src-tauri/coverage-unit.lcov
+            packages/desktop/src-tauri/coverage-integration.lcov
           retention-days: 7
 
-      - name: Upload Rust coverage to Codecov
+      - name: Upload Rust unit coverage to Codecov
         uses: codecov/codecov-action@v6
         with:
-          files: packages/desktop/src-tauri/coverage.lcov
-          flags: rust
+          files: packages/desktop/src-tauri/coverage-unit.lcov
+          flags: unit,rust
           token: ${{ secrets.CODECOV_TOKEN }}
 
-  desktop-playwright-tests:
+      - name: Upload Rust integration coverage to Codecov
+        uses: codecov/codecov-action@v6
+        with:
+          files: packages/desktop/src-tauri/coverage-integration.lcov
+          flags: integration,rust
+          token: ${{ secrets.CODECOV_TOKEN }}
+
+  desktop-integration-tests:
     needs: [lint, changes]
     if: |
       needs.changes.outputs.desktop == 'true' ||
@@ -328,11 +344,11 @@ jobs:
         working-directory: packages/desktop/tests/integration
         run: npx playwright test
 
-      - name: Upload desktop Playwright coverage to Codecov
+      - name: Upload desktop integration coverage to Codecov
         uses: codecov/codecov-action@v6
         with:
           files: packages/desktop/tests/integration/coverage/lcov.info
-          flags: javascript
+          flags: integration,javascript
           token: ${{ secrets.CODECOV_TOKEN }}
 
       - name: Upload test results
@@ -351,13 +367,13 @@ jobs:
       - lint
       - dependency-audit
       - unit-tests
-      - playwright-tests
+      - extension-e2e-tests
+      - desktop-rust-tests
       - desktop-integration-tests
-      - desktop-playwright-tests
     steps:
       - name: Check job results
         run: |
-          results=("${{ needs.changes.result }}" "${{ needs.lint.result }}" "${{ needs.dependency-audit.result }}" "${{ needs.unit-tests.result }}" "${{ needs.playwright-tests.result }}" "${{ needs.desktop-integration-tests.result }}" "${{ needs.desktop-playwright-tests.result }}")
+          results=("${{ needs.changes.result }}" "${{ needs.lint.result }}" "${{ needs.dependency-audit.result }}" "${{ needs.unit-tests.result }}" "${{ needs.extension-e2e-tests.result }}" "${{ needs.desktop-rust-tests.result }}" "${{ needs.desktop-integration-tests.result }}")
           for result in "${results[@]}"; do
             if [[ "$result" != "success" && "$result" != "skipped" ]]; then
               echo "Job failed with result: $result"

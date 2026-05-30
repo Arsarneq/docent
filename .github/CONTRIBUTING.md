@@ -79,19 +79,28 @@ loading the extension or building the desktop app.
 
 ## Running Tests
 
+Tests are organised by [test-pyramid](https://martinfowler.com/articles/practical-test-pyramid.html)
+layer. Each package keeps its tests under `tests/unit`, `tests/integration`, or
+`tests/e2e`, and CI reports coverage to Codecov under a flag per layer
+(`unit`, `integration`, `e2e`) and per language (`javascript`, `rust`).
+
 ```bash
-# Extension tests (syncs shared code first)
-npm run test:extension
+# By pyramid layer (across packages)
+npm run test:unit          # shared + desktop + extension unit tests
+npm run test:integration   # desktop integration (Playwright + mocked Tauri)
+npm run test:e2e           # extension end-to-end (Playwright + real Chrome)
 
-# Desktop JavaScript tests
-npm run test:desktop
-
-# Desktop Rust tests
-npm run test:desktop:rust
-
-# Shared module tests
-npm run test:shared
+# By package
+npm run test:extension     # extension unit tests (syncs shared code first)
+npm run test:desktop       # desktop JavaScript unit tests
+npm run test:desktop:rust  # desktop Rust tests (cargo)
+npm run test:shared        # shared module unit tests
 ```
+
+Rust tests live in a flat `packages/desktop/src-tauri/tests/` directory (Cargo
+convention). Their pyramid layer is determined by the CI coverage command:
+deterministic logic/state-machine tests count as **unit**, while
+`capture_integration` (which synthesises real input) counts as **integration**.
 
 ## Coding Conventions
 
