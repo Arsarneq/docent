@@ -119,8 +119,27 @@ async function sendSWMessage(panelPage, msg) {
 
 /**
  * Reset SW state to a clean slate via the service worker's storage API.
+ *
+ * Waits for the SW's chrome.runtime.onInstalled init reset to settle first.
+ * On a fresh launch that handler asynchronously sets
+ * `{ projects: [], pendingActions: [], pendingCount: 0 }`; if it lands after
+ * our reset it would clobber state mid-test. We confirm a sentinel survives a
+ * macrotask before proceeding (same guard as service-worker-lifecycle.spec.js).
  */
 async function resetState(serviceWorker) {
+  await expect
+    .poll(
+      async () =>
+        serviceWorker.evaluate(async () => {
+          await chrome.storage.local.set({ __initSentinel: 'ready' });
+          await new Promise((r) => setTimeout(r, 50));
+          const { __initSentinel } = await chrome.storage.local.get('__initSentinel');
+          return __initSentinel;
+        }),
+      { timeout: 5000 },
+    )
+    .toBe('ready');
+
   await serviceWorker.evaluate(async () => {
     await chrome.storage.local.clear();
     await chrome.storage.local.set({
