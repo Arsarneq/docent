@@ -2,8 +2,9 @@
  * Service Worker — Coverage Expansion Tests
  *
  * Exercises all service worker message handler paths via direct
- * chrome.runtime.sendMessage calls from the SW context. This ensures
- * the CDP profiler captures coverage for every code path in service-worker.js.
+ * chrome.runtime.sendMessage calls from an extension page context (side panel).
+ * Messages sent from extension pages are received by the SW's onMessage listener,
+ * ensuring the CDP profiler captures coverage for every code path in service-worker.js.
  *
  * Target: increase SW coverage from 43% to 70%+.
  * Closes #107
@@ -88,19 +89,31 @@ const test = base.extend({
       }
     }
   },
+
+  // Extension page used to send messages to the SW.
+  // chrome.runtime.sendMessage only works from extension contexts (pages, content scripts)
+  // — NOT from the SW to itself.
+  panelPage: async ({ context, extensionId }, use) => {
+    const page = await context.newPage();
+    await page.goto(`chrome-extension://${extensionId}/sidepanel/index.html`);
+    await page.waitForTimeout(500);
+    await use(page);
+    await page.close();
+  },
 });
 
 /**
- * Send a message to the service worker via chrome.runtime.sendMessage.
+ * Send a message to the service worker via chrome.runtime.sendMessage
+ * from an extension page context (panelPage).
  */
-async function sendSWMessage(serviceWorker, msg) {
-  return await serviceWorker.evaluate(async (m) => {
+async function sendSWMessage(panelPage, msg) {
+  return await panelPage.evaluate(async (m) => {
     return await chrome.runtime.sendMessage(m);
   }, msg);
 }
 
 /**
- * Reset SW state to a clean slate.
+ * Reset SW state to a clean slate via the service worker's storage API.
  */
 async function resetState(serviceWorker) {
   await serviceWorker.evaluate(async () => {
@@ -119,19 +132,19 @@ async function resetState(serviceWorker) {
 // ─── PROJECTS_LIST ────────────────────────────────────────────────────────────
 
 test.describe('SW Message: PROJECTS_LIST', () => {
-  test('returns empty list initially', async ({ serviceWorker, swCoverage }) => {
+  test('returns empty list initially', async ({ serviceWorker, panelPage }) => {
     await resetState(serviceWorker);
-    const result = await sendSWMessage(serviceWorker, { type: 'PROJECTS_LIST' });
+    const result = await sendSWMessage(panelPage, { type: 'PROJECTS_LIST' });
     expect(result.ok).toBe(true);
     expect(result.projects).toEqual([]);
   });
 
-  test('returns project summaries after creation', async ({ serviceWorker, swCoverage }) => {
+  test('returns project summaries after creation', async ({ serviceWorker, panelPage }) => {
     await resetState(serviceWorker);
-    await sendSWMessage(serviceWorker, { type: 'PROJECT_CREATE', name: 'Alpha' });
-    await sendSWMessage(serviceWorker, { type: 'PROJECT_CREATE', name: 'Beta' });
+    await sendSWMessage(panelPage, { type: 'PROJECT_CREATE', name: 'Alpha' });
+    await sendSWMessage(panelPage, { type: 'PROJECT_CREATE', name: 'Beta' });
 
-    const result = await sendSWMessage(serviceWorker, { type: 'PROJECTS_LIST' });
+    const result = await sendSWMessage(panelPage, { type: 'PROJECTS_LIST' });
     expect(result.ok).toBe(true);
     expect(result.projects).toHaveLength(2);
     expect(result.projects[0].name).toBe('Alpha');
@@ -144,18 +157,18 @@ test.describe('SW Message: PROJECTS_LIST', () => {
 // ─── PROJECTS_GET_ALL & PROJECTS_SET ──────────────────────────────────────────
 
 test.describe('SW Message: PROJECTS_GET_ALL and PROJECTS_SET', () => {
-  test('GET_ALL returns full project objects', async ({ serviceWorker, swCoverage }) => {
+  test('GET_ALL returns full project objects', async ({ serviceWorker, panelPage }) => {
     await resetState(serviceWorker);
-    await sendSWMessage(serviceWorker, { type: 'PROJECT_CREATE', name: 'Full' });
+    await sendSWMessage(panelPage, { type: 'PROJECT_CREATE', name: 'Full' });
 
-    const result = await sendSWMessage(serviceWorker, { type: 'PROJECTS_GET_ALL' });
+    const result = await sendSWMessage(panelPage, { type: 'PROJECTS_GET_ALL' });
     expect(result.ok).toBe(true);
     expect(result.projects).toHaveLength(1);
     expect(result.projects[0].name).toBe('Full');
     expect(result.projects[0]).toHaveProperty('recordings');
   });
 
-  test('PROJECTS_SET replaces all projects', async ({ serviceWorker, swCoverage }) => {
+  test('PROJECTS_SET replaces all projects', async ({ serviceWorker, panelPage }) => {
     await resetState(serviceWorker);
     const replacement = [
       {
@@ -165,13 +178,13 @@ test.describe('SW Message: PROJECTS_GET_ALL and PROJECTS_SET', () => {
         recordings: [],
       },
     ];
-    const result = await sendSWMessage(serviceWorker, {
+    const result = await sendSWMessage(panelPage, {
       type: 'PROJECTS_SET',
       projects: replacement,
     });
     expect(result.ok).toBe(true);
 
-    const all = await sendSWMessage(serviceWorker, { type: 'PROJECTS_GET_ALL' });
+    const all = await sendSWMessage(panelPage, { type: 'PROJECTS_GET_ALL' });
     expect(all.projects).toHaveLength(1);
     expect(all.projects[0].name).toBe('Replaced');
   });
@@ -180,48 +193,48 @@ test.describe('SW Message: PROJECTS_GET_ALL and PROJECTS_SET', () => {
 // ─── PROJECT_CREATE, PROJECT_OPEN, PROJECT_GET, PROJECT_DELETE, PROJECT_RENAME ─
 
 test.describe('SW Message: Project CRUD', () => {
-  test('PROJECT_CREATE sets active project', async ({ serviceWorker, swCoverage }) => {
+  test('PROJECT_CREATE sets active project', async ({ serviceWorker, panelPage }) => {
     await resetState(serviceWorker);
-    const result = await sendSWMessage(serviceWorker, { type: 'PROJECT_CREATE', name: 'New' });
+    const result = await sendSWMessage(panelPage, { type: 'PROJECT_CREATE', name: 'New' });
     expect(result.ok).toBe(true);
     expect(result.project.name).toBe('New');
     expect(result.project).toHaveProperty('project_id');
 
-    const get = await sendSWMessage(serviceWorker, { type: 'PROJECT_GET' });
+    const get = await sendSWMessage(panelPage, { type: 'PROJECT_GET' });
     expect(get.ok).toBe(true);
     expect(get.project.name).toBe('New');
   });
 
-  test('PROJECT_OPEN switches active project', async ({ serviceWorker, swCoverage }) => {
+  test('PROJECT_OPEN switches active project', async ({ serviceWorker, panelPage }) => {
     await resetState(serviceWorker);
-    const { project: p1 } = await sendSWMessage(serviceWorker, {
+    const { project: p1 } = await sendSWMessage(panelPage, {
       type: 'PROJECT_CREATE',
       name: 'First',
     });
-    const { project: p2 } = await sendSWMessage(serviceWorker, {
+    const { project: p2 } = await sendSWMessage(panelPage, {
       type: 'PROJECT_CREATE',
       name: 'Second',
     });
 
     // Active should be Second (last created)
-    let get = await sendSWMessage(serviceWorker, { type: 'PROJECT_GET' });
+    let get = await sendSWMessage(panelPage, { type: 'PROJECT_GET' });
     expect(get.project.name).toBe('Second');
 
     // Open First
-    const open = await sendSWMessage(serviceWorker, {
+    const open = await sendSWMessage(panelPage, {
       type: 'PROJECT_OPEN',
       project_id: p1.project_id,
     });
     expect(open.ok).toBe(true);
     expect(open.project.name).toBe('First');
 
-    get = await sendSWMessage(serviceWorker, { type: 'PROJECT_GET' });
+    get = await sendSWMessage(panelPage, { type: 'PROJECT_GET' });
     expect(get.project.name).toBe('First');
   });
 
-  test('PROJECT_OPEN with invalid ID returns error', async ({ serviceWorker, swCoverage }) => {
+  test('PROJECT_OPEN with invalid ID returns error', async ({ serviceWorker, panelPage }) => {
     await resetState(serviceWorker);
-    const result = await sendSWMessage(serviceWorker, {
+    const result = await sendSWMessage(panelPage, {
       type: 'PROJECT_OPEN',
       project_id: 'nonexistent',
     });
@@ -231,53 +244,53 @@ test.describe('SW Message: Project CRUD', () => {
 
   test('PROJECT_DELETE removes project and clears active if deleted', async ({
     serviceWorker,
-    swCoverage,
+    panelPage,
   }) => {
     await resetState(serviceWorker);
-    const { project } = await sendSWMessage(serviceWorker, {
+    const { project } = await sendSWMessage(panelPage, {
       type: 'PROJECT_CREATE',
       name: 'ToDelete',
     });
 
-    const del = await sendSWMessage(serviceWorker, {
+    const del = await sendSWMessage(panelPage, {
       type: 'PROJECT_DELETE',
       project_id: project.project_id,
     });
     expect(del.ok).toBe(true);
 
-    const get = await sendSWMessage(serviceWorker, { type: 'PROJECT_GET' });
+    const get = await sendSWMessage(panelPage, { type: 'PROJECT_GET' });
     expect(get.project).toBeNull();
 
-    const list = await sendSWMessage(serviceWorker, { type: 'PROJECTS_LIST' });
+    const list = await sendSWMessage(panelPage, { type: 'PROJECTS_LIST' });
     expect(list.projects).toHaveLength(0);
   });
 
   test('PROJECT_DELETE non-active project does not clear active', async ({
     serviceWorker,
-    swCoverage,
+    panelPage,
   }) => {
     await resetState(serviceWorker);
-    const { project: p1 } = await sendSWMessage(serviceWorker, {
+    const { project: p1 } = await sendSWMessage(panelPage, {
       type: 'PROJECT_CREATE',
       name: 'Keep',
     });
-    const { project: p2 } = await sendSWMessage(serviceWorker, {
+    const { project: p2 } = await sendSWMessage(panelPage, {
       type: 'PROJECT_CREATE',
       name: 'Remove',
     });
 
     // Active is p2 (last created). Delete p1.
-    await sendSWMessage(serviceWorker, { type: 'PROJECT_DELETE', project_id: p1.project_id });
+    await sendSWMessage(panelPage, { type: 'PROJECT_DELETE', project_id: p1.project_id });
 
-    const get = await sendSWMessage(serviceWorker, { type: 'PROJECT_GET' });
+    const get = await sendSWMessage(panelPage, { type: 'PROJECT_GET' });
     expect(get.project.name).toBe('Remove');
   });
 
-  test('PROJECT_RENAME updates project name', async ({ serviceWorker, swCoverage }) => {
+  test('PROJECT_RENAME updates project name', async ({ serviceWorker, panelPage }) => {
     await resetState(serviceWorker);
-    await sendSWMessage(serviceWorker, { type: 'PROJECT_CREATE', name: 'Old' });
+    await sendSWMessage(panelPage, { type: 'PROJECT_CREATE', name: 'Old' });
 
-    const result = await sendSWMessage(serviceWorker, {
+    const result = await sendSWMessage(panelPage, {
       type: 'PROJECT_RENAME',
       name: 'Renamed',
     });
@@ -287,10 +300,10 @@ test.describe('SW Message: Project CRUD', () => {
 
   test('PROJECT_RENAME with no active project returns error', async ({
     serviceWorker,
-    swCoverage,
+    panelPage,
   }) => {
     await resetState(serviceWorker);
-    const result = await sendSWMessage(serviceWorker, {
+    const result = await sendSWMessage(panelPage, {
       type: 'PROJECT_RENAME',
       name: 'X',
     });
@@ -304,12 +317,12 @@ test.describe('SW Message: Project CRUD', () => {
 test.describe('SW Message: Recording lifecycle', () => {
   test('RECORDING_CREATE starts recording and sets active', async ({
     serviceWorker,
-    swCoverage,
+    panelPage,
   }) => {
     await resetState(serviceWorker);
-    await sendSWMessage(serviceWorker, { type: 'PROJECT_CREATE', name: 'P' });
+    await sendSWMessage(panelPage, { type: 'PROJECT_CREATE', name: 'P' });
 
-    const result = await sendSWMessage(serviceWorker, {
+    const result = await sendSWMessage(panelPage, {
       type: 'RECORDING_CREATE',
       name: 'Rec1',
     });
@@ -326,10 +339,10 @@ test.describe('SW Message: Recording lifecycle', () => {
 
   test('RECORDING_CREATE with no active project returns error', async ({
     serviceWorker,
-    swCoverage,
+    panelPage,
   }) => {
     await resetState(serviceWorker);
-    const result = await sendSWMessage(serviceWorker, {
+    const result = await sendSWMessage(panelPage, {
       type: 'RECORDING_CREATE',
       name: 'Orphan',
     });
@@ -339,21 +352,21 @@ test.describe('SW Message: Recording lifecycle', () => {
 
   test('RECORDING_OPEN switches active recording and stops recording', async ({
     serviceWorker,
-    swCoverage,
+    panelPage,
   }) => {
     await resetState(serviceWorker);
-    await sendSWMessage(serviceWorker, { type: 'PROJECT_CREATE', name: 'P' });
-    const { recording: r1 } = await sendSWMessage(serviceWorker, {
+    await sendSWMessage(panelPage, { type: 'PROJECT_CREATE', name: 'P' });
+    const { recording: r1 } = await sendSWMessage(panelPage, {
       type: 'RECORDING_CREATE',
       name: 'R1',
     });
-    const { recording: r2 } = await sendSWMessage(serviceWorker, {
+    const { recording: r2 } = await sendSWMessage(panelPage, {
       type: 'RECORDING_CREATE',
       name: 'R2',
     });
 
     // Open R1
-    const open = await sendSWMessage(serviceWorker, {
+    const open = await sendSWMessage(panelPage, {
       type: 'RECORDING_OPEN',
       recording_id: r1.recording_id,
     });
@@ -368,10 +381,10 @@ test.describe('SW Message: Recording lifecycle', () => {
     expect(state.recording).toBe(false);
   });
 
-  test('RECORDING_OPEN with invalid ID returns error', async ({ serviceWorker, swCoverage }) => {
+  test('RECORDING_OPEN with invalid ID returns error', async ({ serviceWorker, panelPage }) => {
     await resetState(serviceWorker);
-    await sendSWMessage(serviceWorker, { type: 'PROJECT_CREATE', name: 'P' });
-    const result = await sendSWMessage(serviceWorker, {
+    await sendSWMessage(panelPage, { type: 'PROJECT_CREATE', name: 'P' });
+    const result = await sendSWMessage(panelPage, {
       type: 'RECORDING_OPEN',
       recording_id: 'bad-id',
     });
@@ -381,25 +394,25 @@ test.describe('SW Message: Recording lifecycle', () => {
 
   test('RECORDING_OPEN with no active project returns error', async ({
     serviceWorker,
-    swCoverage,
+    panelPage,
   }) => {
     await resetState(serviceWorker);
-    const result = await sendSWMessage(serviceWorker, {
+    const result = await sendSWMessage(panelPage, {
       type: 'RECORDING_OPEN',
       recording_id: 'any',
     });
     expect(result.ok).toBe(false);
   });
 
-  test('RECORDING_DELETE removes recording from project', async ({ serviceWorker, swCoverage }) => {
+  test('RECORDING_DELETE removes recording from project', async ({ serviceWorker, panelPage }) => {
     await resetState(serviceWorker);
-    await sendSWMessage(serviceWorker, { type: 'PROJECT_CREATE', name: 'P' });
-    const { recording } = await sendSWMessage(serviceWorker, {
+    await sendSWMessage(panelPage, { type: 'PROJECT_CREATE', name: 'P' });
+    const { recording } = await sendSWMessage(panelPage, {
       type: 'RECORDING_CREATE',
       name: 'ToDelete',
     });
 
-    const del = await sendSWMessage(serviceWorker, {
+    const del = await sendSWMessage(panelPage, {
       type: 'RECORDING_DELETE',
       recording_id: recording.recording_id,
     });
@@ -415,18 +428,18 @@ test.describe('SW Message: Recording lifecycle', () => {
 
   test('RECORDING_DELETE non-active recording keeps recording state', async ({
     serviceWorker,
-    swCoverage,
+    panelPage,
   }) => {
     await resetState(serviceWorker);
-    await sendSWMessage(serviceWorker, { type: 'PROJECT_CREATE', name: 'P' });
-    const { recording: r1 } = await sendSWMessage(serviceWorker, {
+    await sendSWMessage(panelPage, { type: 'PROJECT_CREATE', name: 'P' });
+    const { recording: r1 } = await sendSWMessage(panelPage, {
       type: 'RECORDING_CREATE',
       name: 'R1',
     });
-    await sendSWMessage(serviceWorker, { type: 'RECORDING_CREATE', name: 'R2' });
+    await sendSWMessage(panelPage, { type: 'RECORDING_CREATE', name: 'R2' });
 
     // Active is R2. Delete R1.
-    const del = await sendSWMessage(serviceWorker, {
+    const del = await sendSWMessage(panelPage, {
       type: 'RECORDING_DELETE',
       recording_id: r1.recording_id,
     });
@@ -434,20 +447,20 @@ test.describe('SW Message: Recording lifecycle', () => {
     expect(del.project.recordings).toHaveLength(1);
   });
 
-  test('RECORDING_START enables recording', async ({ serviceWorker, swCoverage }) => {
+  test('RECORDING_START enables recording', async ({ serviceWorker, panelPage }) => {
     await resetState(serviceWorker);
-    await sendSWMessage(serviceWorker, { type: 'PROJECT_CREATE', name: 'P' });
-    await sendSWMessage(serviceWorker, { type: 'RECORDING_CREATE', name: 'R' });
+    await sendSWMessage(panelPage, { type: 'PROJECT_CREATE', name: 'P' });
+    await sendSWMessage(panelPage, { type: 'RECORDING_CREATE', name: 'R' });
 
     // Stop recording first
-    await sendSWMessage(serviceWorker, { type: 'RECORDING_STOP' });
+    await sendSWMessage(panelPage, { type: 'RECORDING_STOP' });
     let state = await serviceWorker.evaluate(async () => {
       return await chrome.storage.local.get('recording');
     });
     expect(state.recording).toBe(false);
 
     // Start recording
-    const result = await sendSWMessage(serviceWorker, { type: 'RECORDING_START' });
+    const result = await sendSWMessage(panelPage, { type: 'RECORDING_START' });
     expect(result.ok).toBe(true);
 
     state = await serviceWorker.evaluate(async () => {
@@ -458,20 +471,20 @@ test.describe('SW Message: Recording lifecycle', () => {
 
   test('RECORDING_START with no active recording returns error', async ({
     serviceWorker,
-    swCoverage,
+    panelPage,
   }) => {
     await resetState(serviceWorker);
-    const result = await sendSWMessage(serviceWorker, { type: 'RECORDING_START' });
+    const result = await sendSWMessage(panelPage, { type: 'RECORDING_START' });
     expect(result.ok).toBe(false);
     expect(result.error).toMatch(/No active recording/);
   });
 
-  test('RECORDING_STOP disables recording', async ({ serviceWorker, swCoverage }) => {
+  test('RECORDING_STOP disables recording', async ({ serviceWorker, panelPage }) => {
     await resetState(serviceWorker);
-    await sendSWMessage(serviceWorker, { type: 'PROJECT_CREATE', name: 'P' });
-    await sendSWMessage(serviceWorker, { type: 'RECORDING_CREATE', name: 'R' });
+    await sendSWMessage(panelPage, { type: 'PROJECT_CREATE', name: 'P' });
+    await sendSWMessage(panelPage, { type: 'RECORDING_CREATE', name: 'R' });
 
-    const result = await sendSWMessage(serviceWorker, { type: 'RECORDING_STOP' });
+    const result = await sendSWMessage(panelPage, { type: 'RECORDING_STOP' });
     expect(result.ok).toBe(true);
 
     const state = await serviceWorker.evaluate(async () => {
@@ -480,7 +493,7 @@ test.describe('SW Message: Recording lifecycle', () => {
     expect(state.recording).toBe(false);
   });
 
-  test('RECORDING_CLEAR resets pending actions', async ({ serviceWorker, swCoverage }) => {
+  test('RECORDING_CLEAR resets pending actions', async ({ serviceWorker, panelPage }) => {
     await resetState(serviceWorker);
     // Seed some pending actions
     await serviceWorker.evaluate(async () => {
@@ -490,7 +503,7 @@ test.describe('SW Message: Recording lifecycle', () => {
       });
     });
 
-    const result = await sendSWMessage(serviceWorker, { type: 'RECORDING_CLEAR' });
+    const result = await sendSWMessage(panelPage, { type: 'RECORDING_CLEAR' });
     expect(result.ok).toBe(true);
 
     const state = await serviceWorker.evaluate(async () => {
@@ -504,10 +517,10 @@ test.describe('SW Message: Recording lifecycle', () => {
 // ─── STEP_COMMIT, STEP_DELETE, STEPS_REORDER ──────────────────────────────────
 
 test.describe('SW Message: Step operations', () => {
-  test('STEP_COMMIT creates step from pending actions', async ({ serviceWorker, swCoverage }) => {
+  test('STEP_COMMIT creates step from pending actions', async ({ serviceWorker, panelPage }) => {
     await resetState(serviceWorker);
-    await sendSWMessage(serviceWorker, { type: 'PROJECT_CREATE', name: 'P' });
-    await sendSWMessage(serviceWorker, { type: 'RECORDING_CREATE', name: 'R' });
+    await sendSWMessage(panelPage, { type: 'PROJECT_CREATE', name: 'P' });
+    await sendSWMessage(panelPage, { type: 'RECORDING_CREATE', name: 'R' });
 
     // Seed pending actions
     await serviceWorker.evaluate(async () => {
@@ -520,7 +533,7 @@ test.describe('SW Message: Step operations', () => {
       });
     });
 
-    const result = await sendSWMessage(serviceWorker, {
+    const result = await sendSWMessage(panelPage, {
       type: 'STEP_COMMIT',
       narration: 'Log in as admin',
       narration_source: 'typed',
@@ -540,13 +553,13 @@ test.describe('SW Message: Step operations', () => {
 
   test('STEP_COMMIT with no pending and no logical_id returns error', async ({
     serviceWorker,
-    swCoverage,
+    panelPage,
   }) => {
     await resetState(serviceWorker);
-    await sendSWMessage(serviceWorker, { type: 'PROJECT_CREATE', name: 'P' });
-    await sendSWMessage(serviceWorker, { type: 'RECORDING_CREATE', name: 'R' });
+    await sendSWMessage(panelPage, { type: 'PROJECT_CREATE', name: 'P' });
+    await sendSWMessage(panelPage, { type: 'RECORDING_CREATE', name: 'R' });
 
-    const result = await sendSWMessage(serviceWorker, {
+    const result = await sendSWMessage(panelPage, {
       type: 'STEP_COMMIT',
       narration: 'Empty',
       narration_source: 'typed',
@@ -557,11 +570,11 @@ test.describe('SW Message: Step operations', () => {
 
   test('STEP_COMMIT re-record with logical_id reuses existing actions', async ({
     serviceWorker,
-    swCoverage,
+    panelPage,
   }) => {
     await resetState(serviceWorker);
-    await sendSWMessage(serviceWorker, { type: 'PROJECT_CREATE', name: 'P' });
-    await sendSWMessage(serviceWorker, { type: 'RECORDING_CREATE', name: 'R' });
+    await sendSWMessage(panelPage, { type: 'PROJECT_CREATE', name: 'P' });
+    await sendSWMessage(panelPage, { type: 'RECORDING_CREATE', name: 'R' });
 
     // Create initial step
     await serviceWorker.evaluate(async () => {
@@ -570,14 +583,14 @@ test.describe('SW Message: Step operations', () => {
         pendingCount: 1,
       });
     });
-    const { step } = await sendSWMessage(serviceWorker, {
+    const { step } = await sendSWMessage(panelPage, {
       type: 'STEP_COMMIT',
       narration: 'Original',
       narration_source: 'typed',
     });
 
     // Re-record with same logical_id but no new pending actions (narration-only update)
-    const rerecord = await sendSWMessage(serviceWorker, {
+    const rerecord = await sendSWMessage(panelPage, {
       type: 'STEP_COMMIT',
       narration: 'Updated narration',
       narration_source: 'typed',
@@ -591,11 +604,11 @@ test.describe('SW Message: Step operations', () => {
 
   test('STEP_COMMIT with step_type and expect (simple mode)', async ({
     serviceWorker,
-    swCoverage,
+    panelPage,
   }) => {
     await resetState(serviceWorker);
-    await sendSWMessage(serviceWorker, { type: 'PROJECT_CREATE', name: 'P' });
-    await sendSWMessage(serviceWorker, { type: 'RECORDING_CREATE', name: 'R' });
+    await sendSWMessage(panelPage, { type: 'PROJECT_CREATE', name: 'P' });
+    await sendSWMessage(panelPage, { type: 'RECORDING_CREATE', name: 'R' });
 
     await serviceWorker.evaluate(async () => {
       await chrome.storage.local.set({
@@ -604,7 +617,7 @@ test.describe('SW Message: Step operations', () => {
       });
     });
 
-    const result = await sendSWMessage(serviceWorker, {
+    const result = await sendSWMessage(panelPage, {
       type: 'STEP_COMMIT',
       step_type: 'validation',
       expect: 'present',
@@ -616,10 +629,10 @@ test.describe('SW Message: Step operations', () => {
 
   test('STEP_COMMIT with no active recording returns error', async ({
     serviceWorker,
-    swCoverage,
+    panelPage,
   }) => {
     await resetState(serviceWorker);
-    const result = await sendSWMessage(serviceWorker, {
+    const result = await sendSWMessage(panelPage, {
       type: 'STEP_COMMIT',
       narration: 'X',
       narration_source: 'typed',
@@ -628,10 +641,10 @@ test.describe('SW Message: Step operations', () => {
     expect(result.error).toMatch(/No active recording/);
   });
 
-  test('STEP_DELETE removes step by logical_id', async ({ serviceWorker, swCoverage }) => {
+  test('STEP_DELETE removes step by logical_id', async ({ serviceWorker, panelPage }) => {
     await resetState(serviceWorker);
-    await sendSWMessage(serviceWorker, { type: 'PROJECT_CREATE', name: 'P' });
-    await sendSWMessage(serviceWorker, { type: 'RECORDING_CREATE', name: 'R' });
+    await sendSWMessage(panelPage, { type: 'PROJECT_CREATE', name: 'P' });
+    await sendSWMessage(panelPage, { type: 'RECORDING_CREATE', name: 'R' });
 
     // Create two steps
     await serviceWorker.evaluate(async () => {
@@ -640,7 +653,7 @@ test.describe('SW Message: Step operations', () => {
         pendingCount: 1,
       });
     });
-    const { step: s1 } = await sendSWMessage(serviceWorker, {
+    const { step: s1 } = await sendSWMessage(panelPage, {
       type: 'STEP_COMMIT',
       narration: 'First',
       narration_source: 'typed',
@@ -652,14 +665,14 @@ test.describe('SW Message: Step operations', () => {
         pendingCount: 1,
       });
     });
-    await sendSWMessage(serviceWorker, {
+    await sendSWMessage(panelPage, {
       type: 'STEP_COMMIT',
       narration: 'Second',
       narration_source: 'typed',
     });
 
     // Delete first step
-    const del = await sendSWMessage(serviceWorker, {
+    const del = await sendSWMessage(panelPage, {
       type: 'STEP_DELETE',
       logical_id: s1.logical_id,
     });
@@ -670,20 +683,20 @@ test.describe('SW Message: Step operations', () => {
 
   test('STEP_DELETE with no active recording returns error', async ({
     serviceWorker,
-    swCoverage,
+    panelPage,
   }) => {
     await resetState(serviceWorker);
-    const result = await sendSWMessage(serviceWorker, {
+    const result = await sendSWMessage(panelPage, {
       type: 'STEP_DELETE',
       logical_id: 'any',
     });
     expect(result.ok).toBe(false);
   });
 
-  test('STEPS_REORDER changes step order', async ({ serviceWorker, swCoverage }) => {
+  test('STEPS_REORDER changes step order', async ({ serviceWorker, panelPage }) => {
     await resetState(serviceWorker);
-    await sendSWMessage(serviceWorker, { type: 'PROJECT_CREATE', name: 'P' });
-    await sendSWMessage(serviceWorker, { type: 'RECORDING_CREATE', name: 'R' });
+    await sendSWMessage(panelPage, { type: 'PROJECT_CREATE', name: 'P' });
+    await sendSWMessage(panelPage, { type: 'RECORDING_CREATE', name: 'R' });
 
     // Create 3 steps
     const steps = [];
@@ -694,7 +707,7 @@ test.describe('SW Message: Step operations', () => {
           pendingCount: 1,
         });
       }, i * 1000);
-      const { step } = await sendSWMessage(serviceWorker, {
+      const { step } = await sendSWMessage(panelPage, {
         type: 'STEP_COMMIT',
         narration: `Step ${i}`,
         narration_source: 'typed',
@@ -703,7 +716,7 @@ test.describe('SW Message: Step operations', () => {
     }
 
     // Reorder: 3, 1, 2
-    const result = await sendSWMessage(serviceWorker, {
+    const result = await sendSWMessage(panelPage, {
       type: 'STEPS_REORDER',
       orderedLogicalIds: [steps[2].logical_id, steps[0].logical_id, steps[1].logical_id],
     });
@@ -716,10 +729,10 @@ test.describe('SW Message: Step operations', () => {
 
   test('STEPS_REORDER with no active recording returns error', async ({
     serviceWorker,
-    swCoverage,
+    panelPage,
   }) => {
     await resetState(serviceWorker);
-    const result = await sendSWMessage(serviceWorker, {
+    const result = await sendSWMessage(panelPage, {
       type: 'STEPS_REORDER',
       orderedLogicalIds: [],
     });
@@ -730,10 +743,10 @@ test.describe('SW Message: Step operations', () => {
 // ─── PROJECT_IMPORT & PROJECT_EXPORT ──────────────────────────────────────────
 
 test.describe('SW Message: Import and Export', () => {
-  test('PROJECT_EXPORT returns structured export data', async ({ serviceWorker, swCoverage }) => {
+  test('PROJECT_EXPORT returns structured export data', async ({ serviceWorker, panelPage }) => {
     await resetState(serviceWorker);
-    await sendSWMessage(serviceWorker, { type: 'PROJECT_CREATE', name: 'ExportMe' });
-    await sendSWMessage(serviceWorker, { type: 'RECORDING_CREATE', name: 'Rec' });
+    await sendSWMessage(panelPage, { type: 'PROJECT_CREATE', name: 'ExportMe' });
+    await sendSWMessage(panelPage, { type: 'RECORDING_CREATE', name: 'Rec' });
 
     await serviceWorker.evaluate(async () => {
       await chrome.storage.local.set({
@@ -741,13 +754,13 @@ test.describe('SW Message: Import and Export', () => {
         pendingCount: 1,
       });
     });
-    await sendSWMessage(serviceWorker, {
+    await sendSWMessage(panelPage, {
       type: 'STEP_COMMIT',
       narration: 'Click A',
       narration_source: 'typed',
     });
 
-    const result = await sendSWMessage(serviceWorker, { type: 'PROJECT_EXPORT' });
+    const result = await sendSWMessage(panelPage, { type: 'PROJECT_EXPORT' });
     expect(result.ok).toBe(true);
     expect(result.exportData.project.name).toBe('ExportMe');
     expect(result.exportData.recordings).toHaveLength(1);
@@ -756,15 +769,15 @@ test.describe('SW Message: Import and Export', () => {
 
   test('PROJECT_EXPORT with no active project returns error', async ({
     serviceWorker,
-    swCoverage,
+    panelPage,
   }) => {
     await resetState(serviceWorker);
-    const result = await sendSWMessage(serviceWorker, { type: 'PROJECT_EXPORT' });
+    const result = await sendSWMessage(panelPage, { type: 'PROJECT_EXPORT' });
     expect(result.ok).toBe(false);
     expect(result.error).toMatch(/No active project/);
   });
 
-  test('PROJECT_IMPORT adds new project', async ({ serviceWorker, swCoverage }) => {
+  test('PROJECT_IMPORT adds new project', async ({ serviceWorker, panelPage }) => {
     await resetState(serviceWorker);
     const exportData = {
       project: {
@@ -782,19 +795,19 @@ test.describe('SW Message: Import and Export', () => {
       ],
     };
 
-    const result = await sendSWMessage(serviceWorker, { type: 'PROJECT_IMPORT', exportData });
+    const result = await sendSWMessage(panelPage, { type: 'PROJECT_IMPORT', exportData });
     expect(result.ok).toBe(true);
     expect(result.project.name).toBe('Imported');
 
-    const list = await sendSWMessage(serviceWorker, { type: 'PROJECTS_LIST' });
+    const list = await sendSWMessage(panelPage, { type: 'PROJECTS_LIST' });
     expect(list.projects).toHaveLength(1);
   });
 
-  test('PROJECT_IMPORT with duplicate ID creates copy', async ({ serviceWorker, swCoverage }) => {
+  test('PROJECT_IMPORT with duplicate ID creates copy', async ({ serviceWorker, panelPage }) => {
     await resetState(serviceWorker);
 
     // Create a project first
-    const { project: existing } = await sendSWMessage(serviceWorker, {
+    const { project: existing } = await sendSWMessage(panelPage, {
       type: 'PROJECT_CREATE',
       name: 'Original',
     });
@@ -809,18 +822,18 @@ test.describe('SW Message: Import and Export', () => {
       recordings: [],
     };
 
-    const result = await sendSWMessage(serviceWorker, { type: 'PROJECT_IMPORT', exportData });
+    const result = await sendSWMessage(panelPage, { type: 'PROJECT_IMPORT', exportData });
     expect(result.ok).toBe(true);
     expect(result.project.name).toBe('Original (copy)');
     expect(result.project.project_id).not.toBe(existing.project_id);
 
-    const list = await sendSWMessage(serviceWorker, { type: 'PROJECTS_LIST' });
+    const list = await sendSWMessage(panelPage, { type: 'PROJECTS_LIST' });
     expect(list.projects).toHaveLength(2);
   });
 
-  test('PROJECT_IMPORT with invalid data returns error', async ({ serviceWorker, swCoverage }) => {
+  test('PROJECT_IMPORT with invalid data returns error', async ({ serviceWorker, panelPage }) => {
     await resetState(serviceWorker);
-    const result = await sendSWMessage(serviceWorker, {
+    const result = await sendSWMessage(panelPage, {
       type: 'PROJECT_IMPORT',
       exportData: { invalid: true },
     });
@@ -830,10 +843,10 @@ test.describe('SW Message: Import and Export', () => {
 
   test('PROJECT_IMPORT with null exportData returns error', async ({
     serviceWorker,
-    swCoverage,
+    panelPage,
   }) => {
     await resetState(serviceWorker);
-    const result = await sendSWMessage(serviceWorker, {
+    const result = await sendSWMessage(panelPage, {
       type: 'PROJECT_IMPORT',
       exportData: null,
     });
@@ -844,42 +857,42 @@ test.describe('SW Message: Import and Export', () => {
 // ─── PROJECT_SET_METADATA & RECORDING_SET_METADATA ────────────────────────────
 
 test.describe('SW Message: Metadata operations', () => {
-  test('PROJECT_SET_METADATA persists metadata', async ({ serviceWorker, swCoverage }) => {
+  test('PROJECT_SET_METADATA persists metadata', async ({ serviceWorker, panelPage }) => {
     await resetState(serviceWorker);
-    await sendSWMessage(serviceWorker, { type: 'PROJECT_CREATE', name: 'P' });
+    await sendSWMessage(panelPage, { type: 'PROJECT_CREATE', name: 'P' });
 
-    const result = await sendSWMessage(serviceWorker, {
+    const result = await sendSWMessage(panelPage, {
       type: 'PROJECT_SET_METADATA',
       metadata: { ticket: 'PROJ-42', tags: ['smoke', 'regression'] },
     });
     expect(result.ok).toBe(true);
 
-    const { projects } = await sendSWMessage(serviceWorker, { type: 'PROJECTS_GET_ALL' });
+    const { projects } = await sendSWMessage(panelPage, { type: 'PROJECTS_GET_ALL' });
     expect(projects[0].metadata).toEqual({ ticket: 'PROJ-42', tags: ['smoke', 'regression'] });
   });
 
-  test('PROJECT_SET_METADATA with null removes metadata', async ({ serviceWorker, swCoverage }) => {
+  test('PROJECT_SET_METADATA with null removes metadata', async ({ serviceWorker, panelPage }) => {
     await resetState(serviceWorker);
-    await sendSWMessage(serviceWorker, { type: 'PROJECT_CREATE', name: 'P' });
-    await sendSWMessage(serviceWorker, {
+    await sendSWMessage(panelPage, { type: 'PROJECT_CREATE', name: 'P' });
+    await sendSWMessage(panelPage, {
       type: 'PROJECT_SET_METADATA',
       metadata: { x: '1' },
     });
-    await sendSWMessage(serviceWorker, { type: 'PROJECT_SET_METADATA', metadata: null });
+    await sendSWMessage(panelPage, { type: 'PROJECT_SET_METADATA', metadata: null });
 
-    const { projects } = await sendSWMessage(serviceWorker, { type: 'PROJECTS_GET_ALL' });
+    const { projects } = await sendSWMessage(panelPage, { type: 'PROJECTS_GET_ALL' });
     expect(projects[0].metadata).toBeUndefined();
   });
 
-  test('RECORDING_SET_METADATA persists metadata', async ({ serviceWorker, swCoverage }) => {
+  test('RECORDING_SET_METADATA persists metadata', async ({ serviceWorker, panelPage }) => {
     await resetState(serviceWorker);
-    await sendSWMessage(serviceWorker, { type: 'PROJECT_CREATE', name: 'P' });
-    const { recording } = await sendSWMessage(serviceWorker, {
+    await sendSWMessage(panelPage, { type: 'PROJECT_CREATE', name: 'P' });
+    const { recording } = await sendSWMessage(panelPage, {
       type: 'RECORDING_CREATE',
       name: 'R',
     });
 
-    const result = await sendSWMessage(serviceWorker, {
+    const result = await sendSWMessage(panelPage, {
       type: 'RECORDING_SET_METADATA',
       recording_id: recording.recording_id,
       metadata: { env: 'staging' },
@@ -889,20 +902,20 @@ test.describe('SW Message: Metadata operations', () => {
 
   test('RECORDING_SET_METADATA with null removes metadata', async ({
     serviceWorker,
-    swCoverage,
+    panelPage,
   }) => {
     await resetState(serviceWorker);
-    await sendSWMessage(serviceWorker, { type: 'PROJECT_CREATE', name: 'P' });
-    const { recording } = await sendSWMessage(serviceWorker, {
+    await sendSWMessage(panelPage, { type: 'PROJECT_CREATE', name: 'P' });
+    const { recording } = await sendSWMessage(panelPage, {
       type: 'RECORDING_CREATE',
       name: 'R',
     });
-    await sendSWMessage(serviceWorker, {
+    await sendSWMessage(panelPage, {
       type: 'RECORDING_SET_METADATA',
       recording_id: recording.recording_id,
       metadata: { x: '1' },
     });
-    const result = await sendSWMessage(serviceWorker, {
+    const result = await sendSWMessage(panelPage, {
       type: 'RECORDING_SET_METADATA',
       recording_id: recording.recording_id,
       metadata: null,
@@ -910,15 +923,15 @@ test.describe('SW Message: Metadata operations', () => {
     expect(result.ok).toBe(true);
   });
 
-  test('RECORDING_RENAME updates name', async ({ serviceWorker, swCoverage }) => {
+  test('RECORDING_RENAME updates name', async ({ serviceWorker, panelPage }) => {
     await resetState(serviceWorker);
-    await sendSWMessage(serviceWorker, { type: 'PROJECT_CREATE', name: 'P' });
-    const { recording } = await sendSWMessage(serviceWorker, {
+    await sendSWMessage(panelPage, { type: 'PROJECT_CREATE', name: 'P' });
+    const { recording } = await sendSWMessage(panelPage, {
       type: 'RECORDING_CREATE',
       name: 'Old',
     });
 
-    const result = await sendSWMessage(serviceWorker, {
+    const result = await sendSWMessage(panelPage, {
       type: 'RECORDING_RENAME',
       recording_id: recording.recording_id,
       name: 'New Name',
@@ -930,19 +943,19 @@ test.describe('SW Message: Metadata operations', () => {
 // ─── Error paths and edge cases ───────────────────────────────────────────────
 
 test.describe('SW Message: Error paths', () => {
-  test('unknown message type returns error', async ({ serviceWorker, swCoverage }) => {
+  test('unknown message type returns error', async ({ serviceWorker, panelPage }) => {
     await resetState(serviceWorker);
-    const result = await sendSWMessage(serviceWorker, { type: 'TOTALLY_INVALID' });
+    const result = await sendSWMessage(panelPage, { type: 'TOTALLY_INVALID' });
     expect(result.ok).toBe(false);
     expect(result.error).toMatch(/Unknown message type/);
   });
 
   test('RECORDING_DELETE with no active project returns error', async ({
     serviceWorker,
-    swCoverage,
+    panelPage,
   }) => {
     await resetState(serviceWorker);
-    const result = await sendSWMessage(serviceWorker, {
+    const result = await sendSWMessage(panelPage, {
       type: 'RECORDING_DELETE',
       recording_id: 'any',
     });
@@ -951,10 +964,10 @@ test.describe('SW Message: Error paths', () => {
 
   test('RECORDING_RENAME with no active project returns error', async ({
     serviceWorker,
-    swCoverage,
+    panelPage,
   }) => {
     await resetState(serviceWorker);
-    const result = await sendSWMessage(serviceWorker, {
+    const result = await sendSWMessage(panelPage, {
       type: 'RECORDING_RENAME',
       recording_id: 'any',
       name: 'X',
@@ -964,11 +977,11 @@ test.describe('SW Message: Error paths', () => {
 
   test('RECORDING_RENAME with invalid recording_id returns error', async ({
     serviceWorker,
-    swCoverage,
+    panelPage,
   }) => {
     await resetState(serviceWorker);
-    await sendSWMessage(serviceWorker, { type: 'PROJECT_CREATE', name: 'P' });
-    const result = await sendSWMessage(serviceWorker, {
+    await sendSWMessage(panelPage, { type: 'PROJECT_CREATE', name: 'P' });
+    const result = await sendSWMessage(panelPage, {
       type: 'RECORDING_RENAME',
       recording_id: 'nonexistent',
       name: 'X',
@@ -979,10 +992,10 @@ test.describe('SW Message: Error paths', () => {
 
   test('RECORDING_SET_METADATA with no active project returns error', async ({
     serviceWorker,
-    swCoverage,
+    panelPage,
   }) => {
     await resetState(serviceWorker);
-    const result = await sendSWMessage(serviceWorker, {
+    const result = await sendSWMessage(panelPage, {
       type: 'RECORDING_SET_METADATA',
       recording_id: 'any',
       metadata: {},
@@ -992,11 +1005,11 @@ test.describe('SW Message: Error paths', () => {
 
   test('RECORDING_SET_METADATA with invalid recording_id returns error', async ({
     serviceWorker,
-    swCoverage,
+    panelPage,
   }) => {
     await resetState(serviceWorker);
-    await sendSWMessage(serviceWorker, { type: 'PROJECT_CREATE', name: 'P' });
-    const result = await sendSWMessage(serviceWorker, {
+    await sendSWMessage(panelPage, { type: 'PROJECT_CREATE', name: 'P' });
+    const result = await sendSWMessage(panelPage, {
       type: 'RECORDING_SET_METADATA',
       recording_id: 'nonexistent',
       metadata: {},
@@ -1007,10 +1020,10 @@ test.describe('SW Message: Error paths', () => {
 
   test('PROJECT_SET_METADATA with no active project returns error', async ({
     serviceWorker,
-    swCoverage,
+    panelPage,
   }) => {
     await resetState(serviceWorker);
-    const result = await sendSWMessage(serviceWorker, {
+    const result = await sendSWMessage(panelPage, {
       type: 'PROJECT_SET_METADATA',
       metadata: { x: '1' },
     });
@@ -1022,32 +1035,24 @@ test.describe('SW Message: Error paths', () => {
 // ─── GET_TAB_ID and APPEND_ACTION (synchronous handlers) ─────────────────────
 
 test.describe('SW Message: Synchronous handlers', () => {
-  test('GET_TAB_ID returns tab ID from content script context', async ({
-    context,
+  test('GET_TAB_ID returns null tabId when sent from extension page', async ({
     serviceWorker,
-    swCoverage,
+    panelPage,
   }) => {
     // GET_TAB_ID is handled synchronously and uses sender.tab.id.
-    // We test it by sending from a page context (which has a tab).
-    const page = context.pages()[0] || (await context.newPage());
-    await page.goto('chrome://newtab');
-    await page.waitForTimeout(300);
-
-    // We can't easily test GET_TAB_ID from a non-extension page,
-    // but we can verify the SW handles it without crashing by sending
-    // from the SW itself (sender.tab will be undefined → returns null).
-    const result = await serviceWorker.evaluate(async () => {
+    // When sent from the side panel (which is not a tab), tabId is null.
+    const result = await panelPage.evaluate(async () => {
       return await chrome.runtime.sendMessage({ type: 'GET_TAB_ID' });
     });
-    // When sent from SW context, sender.tab is undefined → tabId is null
+    // Side panel pages don't have sender.tab → tabId is null
     expect(result.tabId).toBeNull();
   });
 
-  test('APPEND_ACTION appends to pending actions queue', async ({ serviceWorker, swCoverage }) => {
+  test('APPEND_ACTION appends to pending actions queue', async ({ serviceWorker, panelPage }) => {
     await resetState(serviceWorker);
 
-    // Send APPEND_ACTION (normally sent by content script)
-    const result = await serviceWorker.evaluate(async () => {
+    // Send APPEND_ACTION from the panel page (simulates content script sending)
+    const result = await panelPage.evaluate(async () => {
       return await chrome.runtime.sendMessage({
         type: 'APPEND_ACTION',
         action: { type: 'click', timestamp: 5000, element: { text: 'Appended' } },
@@ -1073,20 +1078,20 @@ test.describe('SW Message: Synchronous handlers', () => {
 test.describe('SW Message: Export includes metadata', () => {
   test('export includes project and recording metadata when set', async ({
     serviceWorker,
-    swCoverage,
+    panelPage,
   }) => {
     await resetState(serviceWorker);
-    await sendSWMessage(serviceWorker, { type: 'PROJECT_CREATE', name: 'MetaExport' });
-    await sendSWMessage(serviceWorker, {
+    await sendSWMessage(panelPage, { type: 'PROJECT_CREATE', name: 'MetaExport' });
+    await sendSWMessage(panelPage, {
       type: 'PROJECT_SET_METADATA',
       metadata: { ticket: 'T-1' },
     });
 
-    const { recording } = await sendSWMessage(serviceWorker, {
+    const { recording } = await sendSWMessage(panelPage, {
       type: 'RECORDING_CREATE',
       name: 'R',
     });
-    await sendSWMessage(serviceWorker, {
+    await sendSWMessage(panelPage, {
       type: 'RECORDING_SET_METADATA',
       recording_id: recording.recording_id,
       metadata: { browser: 'chrome' },
@@ -1098,13 +1103,13 @@ test.describe('SW Message: Export includes metadata', () => {
         pendingCount: 1,
       });
     });
-    await sendSWMessage(serviceWorker, {
+    await sendSWMessage(panelPage, {
       type: 'STEP_COMMIT',
       narration: 'Step',
       narration_source: 'typed',
     });
 
-    const result = await sendSWMessage(serviceWorker, { type: 'PROJECT_EXPORT' });
+    const result = await sendSWMessage(panelPage, { type: 'PROJECT_EXPORT' });
     expect(result.ok).toBe(true);
     expect(result.exportData.project.metadata).toEqual({ ticket: 'T-1' });
     expect(result.exportData.recordings[0].metadata).toEqual({ browser: 'chrome' });
@@ -1114,30 +1119,30 @@ test.describe('SW Message: Export includes metadata', () => {
 // ─── Full workflow: create → record → commit → export → import ────────────────
 
 test.describe('SW Message: Full workflow integration', () => {
-  test('complete project lifecycle via message handler', async ({ serviceWorker, swCoverage }) => {
+  test('complete project lifecycle via message handler', async ({ serviceWorker, panelPage }) => {
     await resetState(serviceWorker);
 
     // Create project
-    const { project } = await sendSWMessage(serviceWorker, {
+    const { project } = await sendSWMessage(panelPage, {
       type: 'PROJECT_CREATE',
       name: 'Lifecycle',
     });
     expect(project.name).toBe('Lifecycle');
 
     // Set project metadata
-    await sendSWMessage(serviceWorker, {
+    await sendSWMessage(panelPage, {
       type: 'PROJECT_SET_METADATA',
       metadata: { env: 'test' },
     });
 
     // Create recording
-    const { recording } = await sendSWMessage(serviceWorker, {
+    const { recording } = await sendSWMessage(panelPage, {
       type: 'RECORDING_CREATE',
       name: 'Flow',
     });
 
     // Set recording metadata
-    await sendSWMessage(serviceWorker, {
+    await sendSWMessage(panelPage, {
       type: 'RECORDING_SET_METADATA',
       recording_id: recording.recording_id,
       metadata: { browser: 'chrome-130' },
@@ -1150,7 +1155,7 @@ test.describe('SW Message: Full workflow integration', () => {
         pendingCount: 1,
       });
     });
-    const { step: s1 } = await sendSWMessage(serviceWorker, {
+    const { step: s1 } = await sendSWMessage(panelPage, {
       type: 'STEP_COMMIT',
       narration: 'Navigate to site',
       narration_source: 'typed',
@@ -1162,39 +1167,39 @@ test.describe('SW Message: Full workflow integration', () => {
         pendingCount: 1,
       });
     });
-    const { step: s2 } = await sendSWMessage(serviceWorker, {
+    const { step: s2 } = await sendSWMessage(panelPage, {
       type: 'STEP_COMMIT',
       narration: 'Click login',
       narration_source: 'typed',
     });
 
     // Verify steps
-    const exportResult = await sendSWMessage(serviceWorker, { type: 'PROJECT_EXPORT' });
+    const exportResult = await sendSWMessage(panelPage, { type: 'PROJECT_EXPORT' });
     expect(exportResult.exportData.recordings[0].steps).toHaveLength(2);
 
     // Stop recording
-    await sendSWMessage(serviceWorker, { type: 'RECORDING_STOP' });
+    await sendSWMessage(panelPage, { type: 'RECORDING_STOP' });
 
     // Rename project
-    await sendSWMessage(serviceWorker, { type: 'PROJECT_RENAME', name: 'Lifecycle v2' });
+    await sendSWMessage(panelPage, { type: 'PROJECT_RENAME', name: 'Lifecycle v2' });
 
     // Rename recording
-    await sendSWMessage(serviceWorker, {
+    await sendSWMessage(panelPage, {
       type: 'RECORDING_RENAME',
       recording_id: recording.recording_id,
       name: 'Flow v2',
     });
 
     // Delete a step
-    await sendSWMessage(serviceWorker, { type: 'STEP_DELETE', logical_id: s1.logical_id });
+    await sendSWMessage(panelPage, { type: 'STEP_DELETE', logical_id: s1.logical_id });
 
     // Export
-    const finalExport = await sendSWMessage(serviceWorker, { type: 'PROJECT_EXPORT' });
+    const finalExport = await sendSWMessage(panelPage, { type: 'PROJECT_EXPORT' });
     expect(finalExport.exportData.project.name).toBe('Lifecycle v2');
     expect(finalExport.exportData.recordings[0].name).toBe('Flow v2');
 
     // Import the export as a new project
-    const importResult = await sendSWMessage(serviceWorker, {
+    const importResult = await sendSWMessage(panelPage, {
       type: 'PROJECT_IMPORT',
       exportData: finalExport.exportData,
     });
@@ -1203,15 +1208,15 @@ test.describe('SW Message: Full workflow integration', () => {
     expect(importResult.project.name).toBe('Lifecycle v2 (copy)');
 
     // Verify we have 2 projects
-    const list = await sendSWMessage(serviceWorker, { type: 'PROJECTS_LIST' });
+    const list = await sendSWMessage(panelPage, { type: 'PROJECTS_LIST' });
     expect(list.projects).toHaveLength(2);
 
     // Delete original project
-    await sendSWMessage(serviceWorker, {
+    await sendSWMessage(panelPage, {
       type: 'PROJECT_DELETE',
       project_id: project.project_id,
     });
-    const finalList = await sendSWMessage(serviceWorker, { type: 'PROJECTS_LIST' });
+    const finalList = await sendSWMessage(panelPage, { type: 'PROJECTS_LIST' });
     expect(finalList.projects).toHaveLength(1);
     expect(finalList.projects[0].name).toBe('Lifecycle v2 (copy)');
   });
