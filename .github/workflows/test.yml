@@ -266,9 +266,19 @@ jobs:
         working-directory: packages/desktop/src-tauri
         run: cargo clippy -- -D warnings
 
+      # Coverage runs every deterministic test binary plus the CI-stable
+      # real-input integration tests. Test files are grouped explicitly so the
+      # rationale is clear and new test files get added deliberately:
+      #   --lib                     in-module unit tests (commands, capture/*)
+      #   pure-logic test binaries  deterministic, no real input/windows
+      #   real-input integration    capture_integration + windows_capture_test
+      #                             (synthesize input via enigo on the CI desktop)
+      # Excluded on purpose: file_dialog_test (spawns Notepad — not reliably
+      # available in CI). If you add a deterministic *_test.rs, add it here so
+      # its coverage is counted.
       - name: Run Rust tests with coverage
         working-directory: packages/desktop/src-tauri
-        run: cargo llvm-cov --lib --test worker_pool_test --test scroll_test --test windows_capture_test --test commands_test --test capture_integration --test coordinate_dpi_test --ignore-filename-regex "(lib|main)\.rs$" --lcov --output-path coverage.lcov
+        run: cargo llvm-cov --lib --test action_mapping_test --test capture_mode_test --test commands_test --test coordinate_test --test coordinate_dpi_test --test element_mapping_test --test password_test --test pid_filter_test --test scroll_test --test worker_pool_test --test capture_integration --test windows_capture_test --ignore-filename-regex "(lib|main)\.rs$" --lcov --output-path coverage.lcov
 
       - name: Upload Rust coverage report
         uses: actions/upload-artifact@v7
