@@ -76,6 +76,13 @@ mod file_dialog_navigation {
 
     /// Open a file dialog by launching Notepad and sending Ctrl+O.
     /// Returns the Notepad process PID for cleanup.
+    ///
+    /// The spawned Notepad is intentionally not `wait()`ed on: the test needs
+    /// it alive and interactive while driving the file dialog, and it is reaped
+    /// out of band via `taskkill /F /PID` in `kill_process`. This is a
+    /// Windows-only test, where the Unix "zombie process" concern the lint
+    /// guards against does not apply.
+    #[allow(clippy::zombie_processes)]
     fn spawn_notepad_with_dialog(enigo: &mut Enigo) -> u32 {
         use std::process::Command;
 
