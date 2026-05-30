@@ -98,3 +98,24 @@ if (updateBadgeVersion('README.md', desktopBadgePattern, `Desktop_Release-v${des
 // Also update the desktop release link tag
 const desktopLinkPattern = /desktop-v[\d.]+\)/g;
 updateBadgeVersion('README.md', desktopLinkPattern, `desktop-v${deskVersion})`);
+
+// ─── Platform config file versions ───────────────────────────────────────────
+
+function updateJsonVersion(filePath, version) {
+  const fullPath = join(ROOT, filePath);
+  const json = JSON.parse(readFileSync(fullPath, 'utf8'));
+  if (json.version !== version) {
+    json.version = version;
+    writeFileSync(fullPath, JSON.stringify(json, null, 2) + '\n', 'utf8');
+    return true;
+  }
+  return false;
+}
+
+if (updateJsonVersion('packages/extension/manifest.json', extVersion)) {
+  console.log(`✓ manifest.json version updated to ${extVersion}`);
+}
+
+if (updateJsonVersion('packages/desktop/src-tauri/tauri.conf.json', deskVersion)) {
+  console.log(`✓ tauri.conf.json version updated to ${deskVersion}`);
+}

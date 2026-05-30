@@ -59,6 +59,19 @@ jobs:
       - name: Sync shared code into extension
         run: node scripts/sync-shared.js extension
 
+      - name: Bump extension version from release tag
+        run: |
+          VERSION="${GITHUB_REF_NAME#extension-v}"
+          echo "Bumping extension version to $VERSION"
+          cd packages/extension
+          node -e "
+            const fs = require('fs');
+            const m = JSON.parse(fs.readFileSync('manifest.json', 'utf8'));
+            m.version = '$VERSION';
+            fs.writeFileSync('manifest.json', JSON.stringify(m, null, 2) + '\n');
+          "
+          echo "manifest.json version is now $(node -e "console.log(JSON.parse(require('fs').readFileSync('manifest.json','utf8')).version)")"
+
       - name: Package extension
         run: |
           cd packages/extension && zip -r ../../extension.zip . \
