@@ -14,6 +14,9 @@
  *
  * Content script injection: The extension's content script only runs on http/https
  * URLs (per manifest matches). We serve test HTML via a simple local HTTP server.
+ *
+ * Coverage: Uses CDP Profiler on the testPage to capture content script
+ * (recorder.js) execution in the page's isolated world.
  */
 
 import { test as base, chromium } from '@playwright/test';
@@ -24,6 +27,13 @@ import fs from 'fs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const extensionPath = path.resolve(__dirname, '../../..');
+const coverageDir = path.resolve(__dirname, '../coverage');
+const rawDir = path.resolve(coverageDir, 'raw');
+
+// Ensure coverage directories exist
+fs.mkdirSync(rawDir, { recursive: true });
+
+let contentCoverageCounter = 0;
 
 // ─── Local HTTP server for serving test pages ─────────────────────────────────
 // The content script only injects on http/https URLs, so we need a real server.
@@ -86,6 +96,19 @@ export const test = base.extend({
     // Reuse the default about:blank tab instead of creating a new one.
     const page = context.pages()[0] || (await context.newPage());
 
+    // Start CDP profiler BEFORE navigation so it captures content script load
+    let cdpSession = null;
+    try {
+      cdpSession = await context.newCDPSession(page);
+      await cdpSession.send('Profiler.enable');
+      await cdpSession.send('Profiler.startPreciseCoverage', {
+        callCount: true,
+        detailed: true,
+      });
+    } catch {
+      cdpSession = null;
+    }
+
     // Navigate to the local server so the content script is injected.
     await page.goto(`http://127.0.0.1:${serverPort}/`);
     await page.waitForTimeout(300); // Let content script initialize
@@ -99,6 +122,33 @@ export const test = base.extend({
     await page.waitForTimeout(150);
 
     await use(page);
+
+    // Collect content script coverage before stopping
+    if (cdpSession) {
+      try {
+        const { result: coverage } = await cdpSession.send('Profiler.takePreciseCoverage');
+        await cdpSession.send('Profiler.stopPreciseCoverage');
+        await cdpSession.send('Profiler.disable');
+        await cdpSession.detach();
+
+        // Get extension ID for filtering
+        const swUrl = serviceWorker.url();
+        const match = swUrl.match(/chrome-extension:\/\/([^/]+)/);
+        const extensionId = match ? match[1] : '';
+        const prefix = `chrome-extension://${extensionId}/`;
+
+        const extensionScripts = coverage
+          .filter((entry) => entry.url.startsWith(prefix))
+          .map((entry) => ({ url: entry.url, functions: entry.functions }));
+
+        if (extensionScripts.length > 0) {
+          const file = path.join(rawDir, `content-${contentCoverageCounter++}.json`);
+          fs.writeFileSync(file, JSON.stringify(extensionScripts));
+        }
+      } catch {
+        // Best-effort — don't break tests
+      }
+    }
 
     // Stop recording after test.
     await serviceWorker.evaluate(async () => {
