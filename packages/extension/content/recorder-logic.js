@@ -106,3 +106,23 @@ export function describeElement(el, stopAt = null) {
     selector: selectorFor(el, stopAt),
   };
 }
+
+/**
+ * Determine whether a scroll event should be captured.
+ * Only significant scrolls (>200px in either axis) are recorded.
+ *
+ * @param {number} startY — scrollTop at scroll start
+ * @param {number} startX — scrollLeft at scroll start
+ * @param {number} endY — scrollTop at scroll end
+ * @param {number} endX — scrollLeft at scroll end
+ * @returns {{ capture: boolean, deltaY: number, deltaX: number }}
+ */
+export function shouldCaptureScroll(startY, startX, endY, endX) {
+  const deltaY = Math.abs(endY - startY);
+  const deltaX = Math.abs(endX - startX);
+  return {
+    capture: deltaY > 200 || deltaX > 200,
+    deltaY: endY - startY,
+    deltaX: endX - startX,
+  };
+}
