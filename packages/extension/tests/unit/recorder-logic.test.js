@@ -9,7 +9,12 @@
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { selectorFor, describeElement, cssEscape } from '../../content/recorder-logic.js';
+import {
+  selectorFor,
+  describeElement,
+  cssEscape,
+  shouldCaptureScroll,
+} from '../../content/recorder-logic.js';
 
 // ─── Mock DOM helpers ─────────────────────────────────────────────────────────
 
@@ -194,5 +199,74 @@ describe('describeElement', () => {
     const desc = describeElement(el);
 
     assert.equal(desc.text, 'hello world');
+  });
+});
+
+// ─── Scroll capture logic ─────────────────────────────────────────────────────
+
+describe('shouldCaptureScroll', () => {
+  it('captures vertical scroll > 200px', () => {
+    const result = shouldCaptureScroll(0, 0, 500, 0);
+    assert.equal(result.capture, true);
+    assert.equal(result.deltaY, 500);
+    assert.equal(result.deltaX, 0);
+  });
+
+  it('captures horizontal scroll > 200px', () => {
+    const result = shouldCaptureScroll(0, 0, 0, 300);
+    assert.equal(result.capture, true);
+    assert.equal(result.deltaY, 0);
+    assert.equal(result.deltaX, 300);
+  });
+
+  it('does NOT capture small vertical scroll (< 200px)', () => {
+    const result = shouldCaptureScroll(0, 0, 100, 0);
+    assert.equal(result.capture, false);
+  });
+
+  it('does NOT capture small horizontal scroll (< 200px)', () => {
+    const result = shouldCaptureScroll(0, 0, 0, 150);
+    assert.equal(result.capture, false);
+  });
+
+  it('does NOT capture exactly 200px (threshold is >200, not >=200)', () => {
+    const result = shouldCaptureScroll(0, 0, 200, 0);
+    assert.equal(result.capture, false);
+  });
+
+  it('captures 201px scroll', () => {
+    const result = shouldCaptureScroll(0, 0, 201, 0);
+    assert.equal(result.capture, true);
+  });
+
+  it('captures scroll up (negative delta)', () => {
+    const result = shouldCaptureScroll(500, 0, 0, 0);
+    assert.equal(result.capture, true);
+    assert.equal(result.deltaY, -500);
+  });
+
+  it('captures scroll left (negative delta)', () => {
+    const result = shouldCaptureScroll(0, 400, 0, 0);
+    assert.equal(result.capture, true);
+    assert.equal(result.deltaX, -400);
+  });
+
+  it('captures when both axes exceed threshold', () => {
+    const result = shouldCaptureScroll(0, 0, 300, 300);
+    assert.equal(result.capture, true);
+    assert.equal(result.deltaY, 300);
+    assert.equal(result.deltaX, 300);
+  });
+
+  it('captures when only one axis exceeds threshold', () => {
+    const result = shouldCaptureScroll(0, 0, 50, 250);
+    assert.equal(result.capture, true);
+    assert.equal(result.deltaY, 50);
+    assert.equal(result.deltaX, 250);
+  });
+
+  it('does NOT capture when both axes are below threshold', () => {
+    const result = shouldCaptureScroll(0, 0, 100, 100);
+    assert.equal(result.capture, false);
   });
 });
