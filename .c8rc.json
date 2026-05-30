@@ -3,6 +3,7 @@
     "node_modules/**",
     "packages/*/tests/**",
     "packages/*/shared/**",
+    "packages/desktop/src/panel.js",
     "packages/shared/views/adapter.js",
     "scripts/**",
     "coverage/**"

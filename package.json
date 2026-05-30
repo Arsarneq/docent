@@ -14,7 +14,7 @@
     "test:mutation": "npx stryker run",
     "test:shared:coverage": "c8 --reporter=text --reporter=lcov node --test packages/shared/tests/unit/*.test.js",
     "test:desktop:coverage": "c8 --reporter=text --reporter=lcov node --test packages/desktop/tests/unit/*.test.js",
-    "test:coverage": "c8 --reporter=text --reporter=lcov --all --src packages/shared/lib --src packages/shared/views --src packages/shared/dispatch-core.js --src packages/shared/sync-client.js --src packages/desktop/src node --test packages/shared/tests/unit/*.test.js packages/desktop/tests/unit/*.test.js",
+    "test:coverage": "c8 --reporter=text --reporter=lcov node --test packages/shared/tests/unit/*.test.js packages/desktop/tests/unit/*.test.js",
     "lint": "npm run lint:js && npm run lint:css && npm run lint:md && npm run lint:format",
     "lint:js": "eslint packages/shared/ packages/extension/sidepanel/ packages/extension/content/ packages/extension/background/ packages/desktop/src/ scripts/",
     "lint:css": "stylelint 'packages/shared/views/**/*.css'",
