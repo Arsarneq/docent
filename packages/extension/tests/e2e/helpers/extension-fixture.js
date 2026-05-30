@@ -14,6 +14,10 @@
  *
  * Content script injection: The extension's content script only runs on http/https
  * URLs (per manifest matches). We serve test HTML via a simple local HTTP server.
+ *
+ * Coverage: When the .instrumented/ directory exists (created by instrument.js),
+ * the fixture loads the instrumented extension and collects __coverage__ from
+ * the service worker after each test.
  */
 
 import { test as base, chromium } from '@playwright/test';
@@ -23,7 +27,22 @@ import http from 'http';
 import fs from 'fs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const extensionPath = path.resolve(__dirname, '../../..');
+const extensionSrcPath = path.resolve(__dirname, '../../..');
+const instrumentedPath = path.resolve(__dirname, '../.instrumented');
+
+// Use instrumented extension if available, otherwise use raw source
+const extensionPath = fs.existsSync(instrumentedPath) ? instrumentedPath : extensionSrcPath;
+
+// Coverage output directory
+const nycOutputDir = path.resolve(__dirname, '../.nyc_output');
+let coverageCounter = 0;
+
+function saveCoverage(coverageData) {
+  if (!coverageData || Object.keys(coverageData).length === 0) return;
+  fs.mkdirSync(nycOutputDir, { recursive: true });
+  const file = path.join(nycOutputDir, `coverage-${coverageCounter++}.json`);
+  fs.writeFileSync(file, JSON.stringify(coverageData));
+}
 
 // ─── Local HTTP server for serving test pages ─────────────────────────────────
 // The content script only injects on http/https URLs, so we need a real server.
@@ -67,6 +86,20 @@ export const test = base.extend({
       ],
     });
     await use(context);
+
+    // Collect coverage from service worker before closing
+    if (extensionPath === instrumentedPath) {
+      try {
+        const sws = context.serviceWorkers();
+        if (sws.length > 0) {
+          const coverage = await sws[0].evaluate(() => globalThis.__coverage__ || null);
+          saveCoverage(coverage);
+        }
+      } catch {
+        // SW may already be terminated — ignore
+      }
+    }
+
     await context.close();
   },
 
@@ -99,6 +132,16 @@ export const test = base.extend({
     await page.waitForTimeout(150);
 
     await use(page);
+
+    // Collect content script coverage before stopping
+    if (extensionPath === instrumentedPath) {
+      try {
+        const coverage = await page.evaluate(() => window.__coverage__ || null);
+        saveCoverage(coverage);
+      } catch {
+        // Page may have navigated away — ignore
+      }
+    }
 
     // Stop recording after test.
     await serviceWorker.evaluate(async () => {
