@@ -2064,14 +2064,83 @@ impl AccessibilityBackend for WindowsAccessibilityBackend {
 
 #[cfg(test)]
 mod tests {
-    use super::{control_type_name, windows_should_keep_event};
+    use super::{
+        control_type_name, get_parent_pid, get_process_exe_name, is_descendant_of,
+        is_webview_process, windows_should_keep_event,
+    };
+
+    // -- process-tree helpers (against the live process table) -------------
+    //
+    // These exercise the relocated WebView2 self-capture helpers using the
+    // current test process, which is guaranteed to exist in the snapshot and
+    // to have a real exe name and parent PID — so the success paths are
+    // deterministic without needing a spawned child.
+
+    #[test]
+    fn get_process_exe_name_resolves_current_process() {
+        let pid = std::process::id();
+        let name = get_process_exe_name(pid).expect("current process must be in the snapshot");
+        assert!(!name.is_empty(), "exe name should be non-empty");
+        // The test binary runs under cargo/llvm-cov; the exe name ends in .exe.
+        assert!(
+            name.to_lowercase().ends_with(".exe"),
+            "unexpected exe name: {name}"
+        );
+    }
+
+    #[test]
+    fn get_process_exe_name_unknown_pid_is_none() {
+        // An almost-certainly-unused high PID exercises the not-found path.
+        // (Windows PIDs are multiples of 4 and nowhere near u32::MAX - 1.)
+        assert_eq!(get_process_exe_name(u32::MAX - 1), None);
+    }
+
+    #[test]
+    fn get_parent_pid_resolves_current_process() {
+        let pid = std::process::id();
+        let parent = get_parent_pid(pid).expect("current process must have a parent");
+        assert_ne!(
+            parent, pid,
+            "parent PID must differ from the process itself"
+        );
+    }
+
+    #[test]
+    fn is_descendant_of_self_is_false() {
+        // A process is not its own ancestor (the walk starts at the parent).
+        let pid = std::process::id();
+        assert!(!is_descendant_of(pid, pid));
+    }
+
+    #[test]
+    fn is_descendant_of_actual_parent_is_true() {
+        // The current process is a descendant of its own parent.
+        let pid = std::process::id();
+        let parent = get_parent_pid(pid).expect("current process must have a parent");
+        assert!(
+            is_descendant_of(pid, parent),
+            "process {pid} should be a descendant of its parent {parent}"
+        );
+    }
+
+    #[test]
+    fn is_webview_process_matches_docent_binary_name() {
+        // The self-capture filter treats any process whose exe name contains
+        // "docent" (or "msedgewebview2") as part of Docent's own tree. The test
+        // binary is `docent-desktop…`, so this exercises the positive match.
+        assert!(is_webview_process(std::process::id()));
+    }
+
+    #[test]
+    fn is_webview_process_false_for_unknown_pid() {
+        // No exe name resolvable → not a WebView process.
+        assert!(!is_webview_process(u32::MAX - 1));
+    }
 
     // -- windows_should_keep_event (base-rule delegation) ------------------
     //
-    // The WebView2 process-tree paths (is_descendant_of / is_webview_process)
-    // query the live process table, so only the deterministic base-rule
-    // short-circuits are asserted here. The process-tree behaviour is exercised
-    // end-to-end by the capture_integration suite.
+    // The WebView2 process-tree paths are covered above; here we assert the
+    // deterministic base-rule short-circuits.
 
     #[test]
     fn keep_event_pid_zero_is_always_filtered() {
