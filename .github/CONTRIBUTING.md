@@ -79,19 +79,49 @@ loading the extension or building the desktop app.
 
 ## Running Tests
 
+Tests are organised by [test-pyramid](https://martinfowler.com/articles/practical-test-pyramid.html)
+layer. Each package keeps its tests under `tests/unit`, `tests/integration`, or
+`tests/e2e`, and CI reports coverage to Codecov under a flag per layer
+(`unit`, `integration`, `e2e`) and per language (`javascript`, `rust`).
+
 ```bash
-# Extension tests (syncs shared code first)
-npm run test:extension
+# By pyramid layer (across packages)
+npm run test:unit          # shared + desktop + extension unit tests
+npm run test:integration   # desktop integration (Playwright + mocked Tauri)
+npm run test:e2e           # extension end-to-end (Playwright + real Chrome)
 
-# Desktop JavaScript tests
-npm run test:desktop
-
-# Desktop Rust tests
-npm run test:desktop:rust
-
-# Shared module tests
-npm run test:shared
+# By package
+npm run test:extension     # extension unit tests (syncs shared code first)
+npm run test:desktop       # desktop JavaScript unit tests
+npm run test:desktop:rust  # desktop Rust tests (cargo)
+npm run test:shared        # shared module unit tests
 ```
+
+Rust tests live in a flat `packages/desktop/src-tauri/tests/` directory (Cargo
+convention). Their pyramid layer is auto-discovered by CI from the test source —
+there are no test-name lists in the workflow. A test that imports the `enigo`
+crate (synthesises real OS input) counts as **integration**; everything else
+counts as **unit**. To opt a test out of CI entirely (e.g. it depends on
+something unavailable on runners), add a `ci-skip` marker comment to its source.
+`file_dialog_test` uses this because it launches Notepad. Each test therefore
+fully describes its own classification and CI-eligibility — adding a test never
+requires editing the workflow.
+
+### How coverage reaches Codecov
+
+Each test job publishes its `lcov` as a build artifact instead of uploading to
+Codecov directly. A single terminal `coverage-upload` job then collects every
+artifact and uploads them back-to-back. This keeps the Codecov PR comment from
+sitting on a stale intermediate value while jobs finish minutes apart — the
+comment only converges once it has seen every upload, so bunching them makes it
+correct sooner. If a job is skipped by a path filter, its artifact is absent and
+that upload is silently skipped; Codecov `carryforward` keeps the flag's
+last-known coverage.
+
+Coverage is also sliced by **component** (`extension`, `desktop`, `shared`) —
+path-based filters defined in `codecov.yml`. Flags encode _how_ lines were
+covered (pyramid layer × language); components encode _which package_ the code
+lives in.
 
 ## Coding Conventions
 
