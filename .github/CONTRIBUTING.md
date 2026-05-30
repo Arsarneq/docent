@@ -98,9 +98,12 @@ npm run test:shared        # shared module unit tests
 ```
 
 Rust tests live in a flat `packages/desktop/src-tauri/tests/` directory (Cargo
-convention). Their pyramid layer is determined by the CI coverage command:
-deterministic logic/state-machine tests count as **unit**, while
-`capture_integration` (which synthesises real input) counts as **integration**.
+convention). Their pyramid layer is auto-discovered by CI from the test source:
+a test that imports the `enigo` crate (synthesises real OS input) counts as
+**integration**, everything else counts as **unit**. Add `use enigo` to a new
+test and it's classified as integration automatically — there's no list to
+maintain. The only hand-kept knob is an exclude for tests that can't run on CI
+at all (`file_dialog_test`, which spawns Notepad).
 
 ### How coverage reaches Codecov
 
@@ -109,13 +112,9 @@ Codecov directly. A single terminal `coverage-upload` job then collects every
 artifact and uploads them back-to-back. This keeps the Codecov PR comment from
 sitting on a stale intermediate value while jobs finish minutes apart — the
 comment only converges once it has seen every upload, so bunching them makes it
-correct immediately. If a job is skipped by a path filter, its artifact is
-absent and that upload is silently skipped; Codecov `carryforward` keeps the
-flag's last-known coverage.
-
-Note: re-running a workflow does **not** refresh the Codecov PR comment, because
-Codecov keys coverage off the commit SHA and a re-run produces an identical SHA.
-Push a new commit to force a fresh comment.
+correct sooner. If a job is skipped by a path filter, its artifact is absent and
+that upload is silently skipped; Codecov `carryforward` keeps the flag's
+last-known coverage.
 
 Coverage is also sliced by **component** (`extension`, `desktop`, `shared`) —
 path-based filters defined in `codecov.yml`. Flags encode _how_ lines were

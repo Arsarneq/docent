@@ -276,26 +276,50 @@ jobs:
         working-directory: packages/desktop/src-tauri
         run: cargo clippy -- -D warnings
 
-      # Coverage is split by pyramid layer into two separate llvm-cov runs so
-      # each lands under the correct Codecov flag (unit vs integration).
+      # Coverage is split by pyramid layer into two llvm-cov runs so each lands
+      # under the correct Codecov flag (unit vs integration). The split is
+      # auto-discovered from the test sources, not hand-maintained:
       #
-      # UNIT — deterministic, no real input/windows:
-      #   --lib                  in-module unit tests (commands, capture/*)
-      #   *_test binaries        pure logic / state machines / property tests
+      #   integration — tests that synthesise real OS input, identified by
+      #                 importing the `enigo` crate (they drive real windows).
+      #   unit        — every other test under tests/ (deterministic logic,
+      #                 state machines, property tests) + `--lib` in-module tests.
       #
-      # INTEGRATION — synthesize real input via enigo on the CI desktop:
-      #   capture_integration    end-to-end capture against real windows
-      #
-      # Excluded on purpose: file_dialog_test (spawns Notepad — not reliably
-      # available in CI). If you add a deterministic *_test.rs, add it to the
-      # UNIT run; if it drives real input/windows, add it to the INTEGRATION run.
+      # A new test file is classified automatically: add `use enigo` and it's
+      # integration, otherwise it's unit — no list to update. The only hand-kept
+      # knob is RUST_COV_EXCLUDE, for tests that can't run in CI at all
+      # (file_dialog_test spawns Notepad, which isn't reliable on CI runners).
+      - name: Discover Rust test layers
+        working-directory: packages/desktop/src-tauri
+        shell: bash
+        env:
+          RUST_COV_EXCLUDE: 'file_dialog_test'
+        run: |
+          unit_args=""
+          integration_args=""
+          for path in tests/*.rs; do
+            name=$(basename "$path" .rs)
+            case " $RUST_COV_EXCLUDE " in *" $name "*) continue ;; esac
+            if grep -qE '^use enigo' "$path"; then
+              integration_args="$integration_args --test $name"
+            else
+              unit_args="$unit_args --test $name"
+            fi
+          done
+          echo "Unit binaries:$unit_args"
+          echo "Integration binaries:$integration_args"
+          echo "RUST_UNIT_TEST_ARGS=$unit_args" >> "$GITHUB_ENV"
+          echo "RUST_INTEGRATION_TEST_ARGS=$integration_args" >> "$GITHUB_ENV"
+
       - name: Run Rust unit tests with coverage
         working-directory: packages/desktop/src-tauri
-        run: cargo llvm-cov --lib --test action_mapping_test --test capture_mode_test --test commands_test --test coordinate_test --test coordinate_dpi_test --test element_mapping_test --test password_test --test pid_filter_test --test scroll_test --test worker_pool_test --test windows_capture_test --ignore-filename-regex "(lib|main)\.rs$" --lcov --output-path coverage-unit.lcov
+        shell: bash
+        run: cargo llvm-cov --lib $RUST_UNIT_TEST_ARGS --ignore-filename-regex "(lib|main)\.rs$" --lcov --output-path coverage-unit.lcov
 
       - name: Run Rust integration tests with coverage
         working-directory: packages/desktop/src-tauri
-        run: cargo llvm-cov --test capture_integration --ignore-filename-regex "(lib|main)\.rs$" --lcov --output-path coverage-integration.lcov
+        shell: bash
+        run: cargo llvm-cov $RUST_INTEGRATION_TEST_ARGS --ignore-filename-regex "(lib|main)\.rs$" --lcov --output-path coverage-integration.lcov
 
       - name: Upload Rust coverage reports
         uses: actions/upload-artifact@v7
