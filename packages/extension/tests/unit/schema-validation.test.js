@@ -1,10 +1,8 @@
 /**
- * schema-validation.test.js — Full JSON Schema validation with Ajv
+ * schema-validation.test.js — Extension JSON Schema validation with Ajv.
  *
- * Validates that buildPayload output and export data conform to the
- * published JSON Schemas using Ajv (draft 2020-12).
- *
- * Covers issue #60.
+ * Validates that extension export data conforms to the published
+ * extension.schema.json using Ajv (draft 2020-12).
  */
 
 import { describe, it } from 'node:test';
@@ -15,37 +13,23 @@ import { fileURLToPath } from 'url';
 import Ajv from 'ajv/dist/2020.js';
 import addFormats from 'ajv-formats';
 import fc from 'fast-check';
-import { buildPayload } from '../../dispatch-core.js';
 import {
   createProject,
   createRecording,
   createStep,
   addStepRecord,
   resolveActiveSteps,
-} from '../../lib/session.js';
+} from '../../shared/lib/session.js';
 
 const __dirname = fileURLToPath(new URL('.', import.meta.url));
 
-// Load schemas
 const extensionSchema = JSON.parse(
   readFileSync(resolve(__dirname, '../../../../schemas/extension.schema.json'), 'utf-8'),
 );
-const desktopSchema = JSON.parse(
-  readFileSync(resolve(__dirname, '../../../../schemas/desktop-windows.schema.json'), 'utf-8'),
-);
 
-// Reading guidance (used in dispatch payloads)
-const readingGuidance = readFileSync(
-  resolve(__dirname, '../../assets/reading-guidance.md'),
-  'utf-8',
-);
-
-// Set up Ajv
 const ajv = new Ajv({ allErrors: true, strict: false });
 addFormats(ajv);
-
 const validateExtension = ajv.compile(extensionSchema);
-const validateDesktop = ajv.compile(desktopSchema);
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -201,7 +185,6 @@ describe('Schema validation: extension export', () => {
     });
     addStepRecord(recording, step);
     const steps = resolveActiveSteps(recording);
-
     const data = {
       project: {
         project_id: project.project_id,
@@ -259,16 +242,14 @@ describe('Schema validation: extension export', () => {
 
 // ─── Negative Tests ───────────────────────────────────────────────────────────
 
-describe('Schema validation: negative tests (must reject bad data)', () => {
+describe('Schema validation: extension negative tests', () => {
   it('rejects missing project field', () => {
-    const data = { recordings: [] };
-    const valid = validateExtension(data);
+    const valid = validateExtension({ recordings: [] });
     assert.ok(!valid, 'Schema should reject data without project field');
   });
 
   it('rejects missing recordings field', () => {
-    const data = { project: { project_id: 'x', name: 'y', created_at: 'z' } };
-    const valid = validateExtension(data);
+    const valid = validateExtension({ project: { project_id: 'x', name: 'y', created_at: 'z' } });
     assert.ok(!valid, 'Schema should reject data without recordings field');
   });
 
@@ -290,7 +271,6 @@ describe('Schema validation: negative tests (must reject bad data)', () => {
         },
       },
     ]);
-    // Remove both narration and step_type — schema requires at least one
     delete data.recordings[0].steps[0].narration;
     delete data.recordings[0].steps[0].narration_source;
     const valid = validateExtension(data);
@@ -307,7 +287,7 @@ describe('Schema validation: negative tests (must reject bad data)', () => {
 
 // ─── Property-Based Tests ─────────────────────────────────────────────────────
 
-describe('Schema validation: property-based (random valid payloads)', () => {
+describe('Schema validation: extension property-based (random valid payloads)', () => {
   const actionArb = fc.oneof(
     fc.record({
       type: fc.constant('click'),
