@@ -192,6 +192,14 @@ jobs:
         working-directory: packages/extension/tests/e2e
         run: xvfb-run npx playwright test
 
+      - name: Upload extension Playwright coverage to Codecov
+        if: always()
+        uses: codecov/codecov-action@v6
+        with:
+          files: packages/extension/tests/e2e/coverage/lcov.info
+          flags: javascript
+          token: ${{ secrets.CODECOV_TOKEN }}
+
       - name: Upload test results
         if: failure()
         uses: actions/upload-artifact@v7
@@ -260,7 +268,7 @@ jobs:
 
       - name: Run Rust tests with coverage
         working-directory: packages/desktop/src-tauri
-        run: cargo llvm-cov --lib --test worker_pool_test --test scroll_test --test windows_capture_test --test commands_test --test capture_integration --ignore-filename-regex "(lib|main)\.rs$" --lcov --output-path coverage.lcov
+        run: cargo llvm-cov --lib --test worker_pool_test --test scroll_test --test windows_capture_test --test commands_test --test capture_integration --lcov --output-path coverage.lcov
 
       - name: Upload Rust coverage report
         uses: actions/upload-artifact@v7
