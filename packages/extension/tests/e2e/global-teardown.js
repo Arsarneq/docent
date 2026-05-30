@@ -1,8 +1,13 @@
 /**
  * Global teardown for extension E2E tests.
  *
- * Converts collected V8 coverage data (from sidepanel-coverage.spec.js)
- * to lcov format using v8-to-istanbul.
+ * Converts collected V8 coverage data to lcov format using v8-to-istanbul.
+ * Processes two types of coverage files:
+ * - Page coverage (sidepanel-page-*.json) — from page.coverage API
+ * - CDP coverage (sidepanel-cdp-*.json) — from Profiler.takePreciseCoverage
+ *
+ * The CDP coverage captures service worker and content script execution
+ * that page.coverage cannot reach.
  */
 
 import fs from 'fs';
@@ -15,11 +20,14 @@ const coverageDir = path.resolve(__dirname, 'coverage');
 const rawDir = path.resolve(coverageDir, 'raw');
 const extensionPath = path.resolve(__dirname, '../..');
 
-// Side panel source files we want coverage for
+// All extension source files we want coverage for
 const TRACKED_FILES = [
   { match: 'sidepanel/panel.js', src: 'sidepanel/panel.js' },
   { match: 'sidepanel/adapter-chrome.js', src: 'sidepanel/adapter-chrome.js' },
   { match: 'sidepanel/dispatch.js', src: 'sidepanel/dispatch.js' },
+  { match: 'background/service-worker.js', src: 'background/service-worker.js' },
+  { match: 'content/recorder.js', src: 'content/recorder.js' },
+  { match: 'content/recorder-logic.js', src: 'content/recorder-logic.js' },
 ];
 
 export default async function globalTeardown() {

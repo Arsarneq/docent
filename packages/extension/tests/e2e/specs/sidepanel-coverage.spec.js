@@ -1,12 +1,12 @@
 /**
- * Side Panel Coverage Spec
+ * Side Panel + CDP Coverage Spec
  *
- * Opens the extension's side panel page directly and exercises its core
- * flows to collect V8 coverage. This spec exists specifically to get
- * panel.js, adapter-chrome.js, and dispatch.js into the coverage report.
+ * Collects coverage for ALL extension source files:
+ * - Side panel files (panel.js, adapter-chrome.js, dispatch.js) via page.coverage
+ * - Service worker + content scripts via CDP Profiler.takePreciseCoverage
  *
- * The side panel is a chrome-extension:// page that Playwright can navigate
- * to and collect page.coverage from.
+ * The CDP profiler captures coverage from every V8 isolate in the browser,
+ * including service workers and content script isolated worlds.
  */
 
 import { test as base, chromium, expect } from '@playwright/test';
@@ -40,7 +40,6 @@ const test = base.extend({
   },
 
   extensionId: async ({ context }, use) => {
-    // Get the extension ID from the service worker URL
     let sw;
     if (context.serviceWorkers().length > 0) {
       sw = context.serviceWorkers()[0];
@@ -54,18 +53,54 @@ const test = base.extend({
   },
 
   sidePanelPage: async ({ context, extensionId }, use) => {
-    // Open the side panel page directly
     const page = await context.newPage();
+
+    // Start page-level coverage for side panel files
     await page.coverage.startJSCoverage({ resetOnNavigation: false });
+
+    // Start CDP profiler for browser-wide coverage (SW + content scripts)
+    const cdpSession = await context.newCDPSession(page);
+    await cdpSession.send('Profiler.enable');
+    await cdpSession.send('Profiler.startPreciseCoverage', {
+      callCount: true,
+      detailed: true,
+    });
+
     await page.goto(`chrome-extension://${extensionId}/sidepanel/index.html`);
-    await page.waitForTimeout(500); // Let panel.js initialize
+    await page.waitForTimeout(500);
 
     await use(page);
 
-    // Stop coverage and save
-    const coverage = await page.coverage.stopJSCoverage();
-    const outFile = path.join(rawDir, `sidepanel-coverage-${coverageCounter++}.json`);
-    fs.writeFileSync(outFile, JSON.stringify(coverage));
+    // Collect page-level coverage (side panel files)
+    const pageCoverage = await page.coverage.stopJSCoverage();
+    const pageFile = path.join(rawDir, `sidepanel-page-${coverageCounter}.json`);
+    fs.writeFileSync(pageFile, JSON.stringify(pageCoverage));
+
+    // Collect CDP profiler coverage (SW + content scripts)
+    try {
+      const { result: cdpCoverage } = await cdpSession.send('Profiler.takePreciseCoverage');
+      // Filter to only extension scripts and convert to page.coverage format
+      const extensionPrefix = `chrome-extension://${extensionId}/`;
+      const extensionScripts = cdpCoverage
+        .filter((entry) => entry.url.startsWith(extensionPrefix))
+        .map((entry) => ({
+          url: entry.url,
+          functions: entry.functions,
+        }));
+
+      if (extensionScripts.length > 0) {
+        const cdpFile = path.join(rawDir, `sidepanel-cdp-${coverageCounter}.json`);
+        fs.writeFileSync(cdpFile, JSON.stringify(extensionScripts));
+      }
+    } catch (err) {
+      console.warn('[coverage] CDP profiler collection failed:', err.message);
+    }
+
+    await cdpSession.send('Profiler.stopPreciseCoverage');
+    await cdpSession.send('Profiler.disable');
+    await cdpSession.detach();
+
+    coverageCounter++;
     await page.close();
   },
 });
@@ -101,14 +136,12 @@ test.describe('Side Panel — Coverage Collection', () => {
   });
 
   test('create recording flow', async ({ sidePanelPage }) => {
-    // Create project first
     await sidePanelPage.click('#btn-new-project');
     await sidePanelPage.waitForSelector('#view-new-project', { timeout: 5000 });
     await sidePanelPage.fill('#new-project-name', 'P');
     await sidePanelPage.click('#btn-new-project-create');
     await sidePanelPage.waitForSelector('#view-project', { timeout: 5000 });
 
-    // Create recording
     await sidePanelPage.click('#btn-new-recording');
     await sidePanelPage.waitForSelector('#view-new-recording', { timeout: 5000 });
     await sidePanelPage.fill('#new-recording-name', 'R');
