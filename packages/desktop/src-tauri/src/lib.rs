@@ -28,8 +28,7 @@ use commands::AppState;
 pub fn run() {
     // Create the platform-specific capture layer.
     #[cfg(target_os = "windows")]
-    let capture_layer: Box<dyn capture::CaptureLayer> =
-        Box::new(capture::windows::WindowsCapture::new());
+    let capture_layer: Box<dyn capture::CaptureLayer> = Box::new(capture::Capture::new());
 
     #[cfg(not(target_os = "windows"))]
     compile_error!("Only Windows is supported in this release. macOS and Linux are planned.");

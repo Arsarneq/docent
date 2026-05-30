@@ -51,8 +51,7 @@ use windows::Win32::UI::WindowsAndMessaging::{
     WM_QUIT, WM_RBUTTONDOWN, WM_SYSKEYDOWN, WS_CHILD,
 };
 
-use super::element_mapping::{control_type_name, map_element, UiaProperties};
-use super::scroll::should_keep_event;
+use super::element_mapping::{map_element, NativeElementProperties};
 use super::timing;
 use super::worker_pool::{worker_loop, AccessibilityBackend, RawEvent, RawEventType, WorkerPool};
 use super::{
@@ -85,7 +84,125 @@ unsafe fn is_owned_by_excluded(hwnd: HWND, excluded_pid: u32) -> bool {
         return true;
     }
     // Also check if the root owner belongs to a child of the excluded process
-    !super::scroll::should_keep_event(owner_pid, Some(excluded_pid)) && owner_pid != 0
+    !windows_should_keep_event(owner_pid, Some(excluded_pid)) && owner_pid != 0
+}
+
+// ---------------------------------------------------------------------------
+// Windows process-tree filtering (self-capture exclusion)
+// ---------------------------------------------------------------------------
+
+/// Windows-specific extension of the platform-agnostic
+/// [`should_keep_event`](super::scroll::should_keep_event) filter.
+///
+/// Returns `true` if the event should be **kept**. Applies the shared base
+/// rule first (PID 0 / direct excluded-PID match), then the Windows-only
+/// WebView2 process-tree checks: Docent renders its UI in a WebView2 host that
+/// spawns several layers of child processes under different PIDs, so events
+/// from those children must also be excluded when self-capture exclusion is on.
+fn windows_should_keep_event(event_pid: u32, excluded_pid: Option<u32>) -> bool {
+    if !super::scroll::should_keep_event(event_pid, excluded_pid) {
+        return false;
+    }
+    if let Some(excl) = excluded_pid {
+        // Check if the process is part of the Docent process tree.
+        // WebView2 spawns multiple levels of child processes, so we check
+        // both the ancestor chain AND the process executable name.
+        if is_descendant_of(event_pid, excl) {
+            return false;
+        }
+        // Fallback: check if the process is msedgewebview2.exe (WebView2
+        // renderer) — these are always Docent's children when self-capture
+        // exclusion is enabled.
+        if is_webview_process(event_pid) {
+            return false;
+        }
+    }
+    true
+}
+
+/// Check if a process is a WebView2 renderer by its executable name.
+fn is_webview_process(pid: u32) -> bool {
+    if let Some(name) = get_process_exe_name(pid) {
+        let lower = name.to_lowercase();
+        lower.contains("msedgewebview2") || lower.contains("docent")
+    } else {
+        false
+    }
+}
+
+/// Check if `pid` is a descendant (child, grandchild, etc.) of `ancestor_pid`.
+/// Walks up the process tree via parent PIDs, up to 5 levels deep.
+fn is_descendant_of(pid: u32, ancestor_pid: u32) -> bool {
+    let mut current = pid;
+    for _ in 0..5 {
+        match get_parent_pid(current) {
+            Some(parent) if parent == ancestor_pid => return true,
+            Some(parent) if parent == 0 || parent == current => return false,
+            Some(parent) => current = parent,
+            None => return false,
+        }
+    }
+    false
+}
+
+/// Get the executable name of a process by PID using CreateToolhelp32Snapshot.
+fn get_process_exe_name(pid: u32) -> Option<String> {
+    use windows::Win32::System::Diagnostics::ToolHelp::{
+        CreateToolhelp32Snapshot, Process32First, Process32Next, PROCESSENTRY32, TH32CS_SNAPPROCESS,
+    };
+    unsafe {
+        let snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0).ok()?;
+        let mut entry = PROCESSENTRY32 {
+            dwSize: std::mem::size_of::<PROCESSENTRY32>() as u32,
+            ..Default::default()
+        };
+        if Process32First(snapshot, &mut entry).is_ok() {
+            loop {
+                if entry.th32ProcessID == pid {
+                    let _ = windows::Win32::Foundation::CloseHandle(snapshot);
+                    let name = entry
+                        .szExeFile
+                        .iter()
+                        .take_while(|&&c| c != 0)
+                        .map(|&c| c as u8 as char)
+                        .collect::<String>();
+                    return Some(name);
+                }
+                if Process32Next(snapshot, &mut entry).is_err() {
+                    break;
+                }
+            }
+        }
+        let _ = windows::Win32::Foundation::CloseHandle(snapshot);
+        None
+    }
+}
+
+/// Get the parent PID of a process using CreateToolhelp32Snapshot.
+fn get_parent_pid(pid: u32) -> Option<u32> {
+    use windows::Win32::System::Diagnostics::ToolHelp::{
+        CreateToolhelp32Snapshot, Process32First, Process32Next, PROCESSENTRY32, TH32CS_SNAPPROCESS,
+    };
+    unsafe {
+        let snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0).ok()?;
+        let mut entry = PROCESSENTRY32 {
+            dwSize: std::mem::size_of::<PROCESSENTRY32>() as u32,
+            ..Default::default()
+        };
+        if Process32First(snapshot, &mut entry).is_ok() {
+            loop {
+                if entry.th32ProcessID == pid {
+                    let _ = windows::Win32::Foundation::CloseHandle(snapshot);
+                    return Some(entry.th32ParentProcessID);
+                }
+                if Process32Next(snapshot, &mut entry).is_err() {
+                    break;
+                }
+            }
+        }
+        let _ = windows::Win32::Foundation::CloseHandle(snapshot);
+        None
+    }
 }
 
 const DRAG_THRESHOLD_PX: i32 = 5;
@@ -687,7 +804,7 @@ fn input_should_keep_event_cached(event_pid: u32, excluded_pid: Option<u32>, hwn
         }
         drop(map);
         // Cache miss — do the expensive checks once.
-        let keep = should_keep_event(event_pid, excluded_pid);
+        let keep = windows_should_keep_event(event_pid, excluded_pid);
         if !keep {
             cache.borrow_mut().insert(event_pid, false);
             return false;
@@ -1346,6 +1463,60 @@ unsafe extern "system" fn input_keyboard_ll_proc(
 // UIA element resolution helpers (used by WindowsAccessibilityBackend)
 // ---------------------------------------------------------------------------
 
+/// Map a Windows `UIA_*ControlTypeId` numeric value to a human-readable tag.
+///
+/// The IDs are defined by Microsoft and are stable across Windows versions.
+/// This is the Windows implementation of the per-platform control-type → tag
+/// mapping; the platform-agnostic `element_mapping` module consumes the
+/// resulting string via `NativeElementProperties::tag`.
+/// See: <https://learn.microsoft.com/en-us/windows/win32/winauto/uiauto-controltype-ids>
+pub(crate) fn control_type_name(id: i32) -> &'static str {
+    match id {
+        50000 => "Button",
+        50001 => "Calendar",
+        50002 => "CheckBox",
+        50003 => "ComboBox",
+        50004 => "Edit",
+        50005 => "Hyperlink",
+        50006 => "Image",
+        50007 => "ListItem",
+        50008 => "List",
+        50009 => "Menu",
+        50010 => "MenuBar",
+        50011 => "MenuItem",
+        50012 => "ProgressBar",
+        50013 => "RadioButton",
+        50014 => "ScrollBar",
+        50015 => "Slider",
+        50016 => "Spinner",
+        50017 => "StatusBar",
+        50018 => "Tab",
+        50019 => "TabItem",
+        50020 => "Text",
+        50021 => "ToolBar",
+        50022 => "ToolTip",
+        50023 => "Tree",
+        50024 => "TreeItem",
+        50025 => "Custom",
+        50026 => "Group",
+        50027 => "Thumb",
+        50028 => "DataGrid",
+        50029 => "DataItem",
+        50030 => "Document",
+        50031 => "SplitButton",
+        50032 => "Window",
+        50033 => "Pane",
+        50034 => "Header",
+        50035 => "HeaderItem",
+        50036 => "Table",
+        50037 => "TitleBar",
+        50038 => "Separator",
+        50039 => "SemanticZoom",
+        50040 => "AppBar",
+        _ => "Unknown",
+    }
+}
+
 /// Convert a UIA element to an `ElementDescription` using the element mapping
 /// module. Requires a reference to the `IUIAutomation` instance for tree
 /// walking (building the tree path).
@@ -1360,8 +1531,8 @@ pub(crate) unsafe fn uia_element_to_description(
     let value = get_string_property(element, UIA_ValueValuePropertyId);
     let is_password = get_bool_property(element, UIA_IsPasswordPropertyId);
 
-    let props = UiaProperties {
-        control_type_id,
+    let props = NativeElementProperties {
+        tag: control_type_name(control_type_id).to_string(),
         automation_id,
         name,
         localized_control_type: localized_type,
@@ -1600,7 +1771,7 @@ unsafe extern "system" fn enum_windows_proc(hwnd: HWND, lparam: LPARAM) -> BOOL 
 
     let windows = &mut *(lparam.0 as *mut Vec<WindowInfo>);
     windows.push(WindowInfo {
-        hwnd: hwnd.0 as i64,
+        window_id: hwnd.0 as i64,
         title,
         process_name,
         pid,
@@ -1884,5 +2055,213 @@ impl AccessibilityBackend for WindowsAccessibilityBackend {
         let name = unsafe { get_string_property(&selected_element, UIA_NamePropertyId) };
 
         Some((description, name))
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        control_type_name, get_parent_pid, get_process_exe_name, is_descendant_of,
+        is_webview_process, windows_should_keep_event,
+    };
+
+    // -- process-tree helpers (against the live process table) -------------
+    //
+    // These exercise the relocated WebView2 self-capture helpers using the
+    // current test process, which is guaranteed to exist in the snapshot and
+    // to have a real exe name and parent PID — so the success paths are
+    // deterministic without needing a spawned child.
+
+    #[test]
+    fn get_process_exe_name_resolves_current_process() {
+        let pid = std::process::id();
+        let name = get_process_exe_name(pid).expect("current process must be in the snapshot");
+        assert!(!name.is_empty(), "exe name should be non-empty");
+        // The test binary runs under cargo/llvm-cov; the exe name ends in .exe.
+        assert!(
+            name.to_lowercase().ends_with(".exe"),
+            "unexpected exe name: {name}"
+        );
+    }
+
+    #[test]
+    fn get_process_exe_name_unknown_pid_is_none() {
+        // An almost-certainly-unused high PID exercises the not-found path.
+        // (Windows PIDs are multiples of 4 and nowhere near u32::MAX - 1.)
+        assert_eq!(get_process_exe_name(u32::MAX - 1), None);
+    }
+
+    #[test]
+    fn get_parent_pid_resolves_current_process() {
+        let pid = std::process::id();
+        let parent = get_parent_pid(pid).expect("current process must have a parent");
+        assert_ne!(
+            parent, pid,
+            "parent PID must differ from the process itself"
+        );
+    }
+
+    #[test]
+    fn is_descendant_of_self_is_false() {
+        // A process is not its own ancestor (the walk starts at the parent).
+        let pid = std::process::id();
+        assert!(!is_descendant_of(pid, pid));
+    }
+
+    #[test]
+    fn is_descendant_of_actual_parent_is_true() {
+        // The current process is a descendant of its own parent.
+        let pid = std::process::id();
+        let parent = get_parent_pid(pid).expect("current process must have a parent");
+        assert!(
+            is_descendant_of(pid, parent),
+            "process {pid} should be a descendant of its parent {parent}"
+        );
+    }
+
+    #[test]
+    fn is_webview_process_matches_docent_binary_name() {
+        // The self-capture filter treats any process whose exe name contains
+        // "docent" (or "msedgewebview2") as part of Docent's own tree. The test
+        // binary is `docent-desktop…`, so this exercises the positive match.
+        assert!(is_webview_process(std::process::id()));
+    }
+
+    #[test]
+    fn is_webview_process_false_for_unknown_pid() {
+        // No exe name resolvable → not a WebView process.
+        assert!(!is_webview_process(u32::MAX - 1));
+    }
+
+    // -- windows_should_keep_event (base-rule delegation) ------------------
+    //
+    // The WebView2 process-tree paths are covered above; here we assert the
+    // deterministic base-rule short-circuits.
+
+    #[test]
+    fn keep_event_pid_zero_is_always_filtered() {
+        assert!(!windows_should_keep_event(0, None));
+        assert!(!windows_should_keep_event(0, Some(0)));
+        assert!(!windows_should_keep_event(0, Some(1234)));
+    }
+
+    #[test]
+    fn keep_event_excluded_pid_is_filtered() {
+        assert!(!windows_should_keep_event(1234, Some(1234)));
+    }
+
+    #[test]
+    fn keep_event_no_exclusion_keeps_all() {
+        assert!(windows_should_keep_event(1234, None));
+        assert!(windows_should_keep_event(u32::MAX, None));
+    }
+
+    // -- control_type_name -------------------------------------------------
+
+    #[test]
+    fn known_control_types_map_correctly() {
+        assert_eq!(control_type_name(50000), "Button");
+        assert_eq!(control_type_name(50004), "Edit");
+        assert_eq!(control_type_name(50020), "Text");
+        assert_eq!(control_type_name(50032), "Window");
+        assert_eq!(control_type_name(50033), "Pane");
+    }
+
+    #[test]
+    fn unknown_control_type_returns_unknown() {
+        assert_eq!(control_type_name(99999), "Unknown");
+        assert_eq!(control_type_name(-1), "Unknown");
+        assert_eq!(control_type_name(0), "Unknown");
+    }
+
+    #[test]
+    fn calendar_control_type() {
+        assert_eq!(control_type_name(50001), "Calendar");
+    }
+
+    #[test]
+    fn checkbox_control_type() {
+        assert_eq!(control_type_name(50002), "CheckBox");
+    }
+
+    #[test]
+    fn combobox_control_type() {
+        assert_eq!(control_type_name(50003), "ComboBox");
+    }
+
+    #[test]
+    fn hyperlink_control_type() {
+        assert_eq!(control_type_name(50005), "Hyperlink");
+    }
+
+    #[test]
+    fn image_control_type() {
+        assert_eq!(control_type_name(50006), "Image");
+    }
+
+    #[test]
+    fn list_and_listitem_control_types() {
+        assert_eq!(control_type_name(50007), "ListItem");
+        assert_eq!(control_type_name(50008), "List");
+    }
+
+    #[test]
+    fn menu_control_types() {
+        assert_eq!(control_type_name(50009), "Menu");
+        assert_eq!(control_type_name(50010), "MenuBar");
+        assert_eq!(control_type_name(50011), "MenuItem");
+    }
+
+    #[test]
+    fn progress_radio_scrollbar_slider_spinner() {
+        assert_eq!(control_type_name(50012), "ProgressBar");
+        assert_eq!(control_type_name(50013), "RadioButton");
+        assert_eq!(control_type_name(50014), "ScrollBar");
+        assert_eq!(control_type_name(50015), "Slider");
+        assert_eq!(control_type_name(50016), "Spinner");
+    }
+
+    #[test]
+    fn statusbar_tab_tabitem() {
+        assert_eq!(control_type_name(50017), "StatusBar");
+        assert_eq!(control_type_name(50018), "Tab");
+        assert_eq!(control_type_name(50019), "TabItem");
+    }
+
+    #[test]
+    fn toolbar_tooltip_tree_treeitem() {
+        assert_eq!(control_type_name(50021), "ToolBar");
+        assert_eq!(control_type_name(50022), "ToolTip");
+        assert_eq!(control_type_name(50023), "Tree");
+        assert_eq!(control_type_name(50024), "TreeItem");
+    }
+
+    #[test]
+    fn group_thumb_datagrid_dataitem_document() {
+        assert_eq!(control_type_name(50026), "Group");
+        assert_eq!(control_type_name(50027), "Thumb");
+        assert_eq!(control_type_name(50028), "DataGrid");
+        assert_eq!(control_type_name(50029), "DataItem");
+        assert_eq!(control_type_name(50030), "Document");
+    }
+
+    #[test]
+    fn splitbutton_header_headeritem_table_titlebar() {
+        assert_eq!(control_type_name(50031), "SplitButton");
+        assert_eq!(control_type_name(50034), "Header");
+        assert_eq!(control_type_name(50035), "HeaderItem");
+        assert_eq!(control_type_name(50036), "Table");
+        assert_eq!(control_type_name(50037), "TitleBar");
+    }
+
+    #[test]
+    fn separator_semanticzoom_appbar() {
+        assert_eq!(control_type_name(50038), "Separator");
+        assert_eq!(control_type_name(50039), "SemanticZoom");
+        assert_eq!(control_type_name(50040), "AppBar");
     }
 }

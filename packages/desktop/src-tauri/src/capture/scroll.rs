@@ -1,8 +1,10 @@
-// Scroll debounce and threshold filtering — pure-Rust logic for scroll
-// noise reduction.
+// Scroll debounce/threshold filtering and the platform-agnostic PID-exclusion
+// base rule — pure-Rust logic for capture noise reduction.
 //
-// This module contains NO Windows API calls so it can be compiled and tested
-// on any platform. The actual `WM_MOUSEWHEEL` monitoring lives in `windows.rs`.
+// This module contains NO platform API calls so it can be compiled and tested
+// on any target. Platform-specific concerns layer on top elsewhere: the actual
+// `WM_MOUSEWHEEL` monitoring and the WebView2 process-tree filtering live in
+// `windows.rs`.
 //
 // Requirements:
 // - 13.1: Debounce scroll events — record only after scrolling stops for 300ms.
@@ -191,6 +193,12 @@ impl ScrollAccumulator {
 ///
 /// Returns `true` if the event should be **kept** (not filtered out).
 ///
+/// This is the platform-agnostic base filter: it drops PID 0 (invalid /
+/// already-destroyed window) and the excluded PID itself, and keeps everything
+/// when exclusion is disabled. Platform modules layer their own process-tree
+/// filtering (e.g. Windows WebView2 child processes, owned system dialogs) on
+/// top of this base rule — that logic lives in each platform's module.
+///
 /// # Arguments
 /// - `event_pid`: The process ID that generated the event.
 /// - `excluded_pid`: The PID to exclude (if any).
@@ -204,123 +212,8 @@ pub fn should_keep_event(event_pid: u32, excluded_pid: Option<u32>) -> bool {
         return false;
     }
     match excluded_pid {
-        Some(excl) => {
-            if event_pid == excl {
-                return false;
-            }
-            #[cfg(target_os = "windows")]
-            {
-                // Check if the process is part of the Docent process tree.
-                // WebView2 spawns multiple levels of child processes, so we check
-                // both the ancestor chain AND the process executable name.
-                if is_descendant_of(event_pid, excl) {
-                    return false;
-                }
-                // Fallback: check if the process is msedgewebview2.exe
-                // (WebView2 renderer) — these are always Docent's children
-                // when self-capture exclusion is enabled.
-                if is_webview_process(event_pid) {
-                    return false;
-                }
-            }
-            true
-        }
+        Some(excl) => event_pid != excl,
         None => true,
-    }
-}
-
-/// Check if a process is a WebView2 renderer by its executable name.
-#[cfg(target_os = "windows")]
-fn is_webview_process(pid: u32) -> bool {
-    if let Some(name) = get_process_exe_name(pid) {
-        let lower = name.to_lowercase();
-        lower.contains("msedgewebview2") || lower.contains("docent")
-    } else {
-        false
-    }
-}
-
-/// Check if `pid` is a descendant (child, grandchild, etc.) of `ancestor_pid`.
-/// Walks up the process tree via parent PIDs, up to 5 levels deep.
-#[cfg(target_os = "windows")]
-fn is_descendant_of(pid: u32, ancestor_pid: u32) -> bool {
-    let mut current = pid;
-    for _ in 0..5 {
-        match get_parent_pid(current) {
-            Some(parent) if parent == ancestor_pid => return true,
-            Some(parent) if parent == 0 || parent == current => return false,
-            Some(parent) => current = parent,
-            None => return false,
-        }
-    }
-    false
-}
-
-/// Get the executable name of a process by PID.
-#[cfg(target_os = "windows")]
-fn get_process_exe_name(pid: u32) -> Option<String> {
-    use windows::Win32::System::Diagnostics::ToolHelp::{
-        CreateToolhelp32Snapshot, Process32First, Process32Next, PROCESSENTRY32, TH32CS_SNAPPROCESS,
-    };
-    unsafe {
-        let snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0).ok()?;
-        let mut entry = PROCESSENTRY32 {
-            dwSize: std::mem::size_of::<PROCESSENTRY32>() as u32,
-            ..Default::default()
-        };
-        if Process32First(snapshot, &mut entry).is_ok() {
-            loop {
-                if entry.th32ProcessID == pid {
-                    let _ = windows::Win32::Foundation::CloseHandle(snapshot);
-                    let name = entry
-                        .szExeFile
-                        .iter()
-                        .take_while(|&&c| c != 0)
-                        .map(|&c| c as u8 as char)
-                        .collect::<String>();
-                    return Some(name);
-                }
-                if Process32Next(snapshot, &mut entry).is_err() {
-                    break;
-                }
-            }
-        }
-        let _ = windows::Win32::Foundation::CloseHandle(snapshot);
-        None
-    }
-}
-
-/// Public wrapper for debugging — get process exe name by PID.
-#[cfg(target_os = "windows")]
-pub fn get_process_exe_name_pub(pid: u32) -> Option<String> {
-    get_process_exe_name(pid)
-}
-
-/// Get the parent PID of a process on Windows using CreateToolhelp32Snapshot.
-#[cfg(target_os = "windows")]
-fn get_parent_pid(pid: u32) -> Option<u32> {
-    use windows::Win32::System::Diagnostics::ToolHelp::{
-        CreateToolhelp32Snapshot, Process32First, Process32Next, PROCESSENTRY32, TH32CS_SNAPPROCESS,
-    };
-    unsafe {
-        let snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0).ok()?;
-        let mut entry = PROCESSENTRY32 {
-            dwSize: std::mem::size_of::<PROCESSENTRY32>() as u32,
-            ..Default::default()
-        };
-        if Process32First(snapshot, &mut entry).is_ok() {
-            loop {
-                if entry.th32ProcessID == pid {
-                    let _ = windows::Win32::Foundation::CloseHandle(snapshot);
-                    return Some(entry.th32ParentProcessID);
-                }
-                if Process32Next(snapshot, &mut entry).is_err() {
-                    break;
-                }
-            }
-        }
-        let _ = windows::Win32::Foundation::CloseHandle(snapshot);
-        None
     }
 }
 

@@ -2,25 +2,33 @@
 //
 // **Validates: Requirements 3.1, 3.2**
 //
-// For any set of Windows UI Automation element properties (ControlType,
+// For any set of platform-provided accessibility element properties (tag,
 // AutomationId, Name, LocalizedControlType, ValuePattern value), the element
 // mapping function produces an `ElementDescription` with all required fields
 // populated according to the mapping rules.
 
-use docent_desktop_lib::capture::element_mapping::{control_type_name, map_element, UiaProperties};
+use docent_desktop_lib::capture::element_mapping::{map_element, NativeElementProperties};
 use proptest::prelude::*;
 
 // ---------------------------------------------------------------------------
 // Generators
 // ---------------------------------------------------------------------------
 
-/// Strategy for control type IDs: mix of known (50000–50040) and unknown values.
-fn arb_control_type_id() -> impl Strategy<Value = i32> {
+/// Strategy for control-type tags: a mix of representative platform tags and
+/// arbitrary non-empty strings. The platform supplies this string (each
+/// platform maps its own role system to a tag), so `map_element` treats it as
+/// an opaque non-empty label — the generator therefore never yields "".
+fn arb_tag() -> impl Strategy<Value = String> {
     prop_oneof![
-        // Known control type IDs
-        (50000..=50040i32),
-        // Unknown / out-of-range IDs
-        prop::num::i32::ANY,
+        // Representative tags a platform backend might supply.
+        Just("Button".to_string()),
+        Just("Edit".to_string()),
+        Just("ComboBox".to_string()),
+        Just("TreeItem".to_string()),
+        Just("Window".to_string()),
+        Just("Unknown".to_string()),
+        // Arbitrary non-empty tag-like strings.
+        "[A-Za-z][A-Za-z0-9]{0,20}",
     ]
 }
 
@@ -35,10 +43,10 @@ fn arb_tree_path() -> impl Strategy<Value = Vec<String>> {
     prop::collection::vec("[A-Za-z]+:[A-Za-z0-9 ]*", 0..=5)
 }
 
-/// Strategy for a complete `UiaProperties` struct.
-fn arb_uia_properties() -> impl Strategy<Value = UiaProperties> {
+/// Strategy for a complete `NativeElementProperties` struct.
+fn arb_native_properties() -> impl Strategy<Value = NativeElementProperties> {
     (
-        arb_control_type_id(),
+        arb_tag(),
         arb_optional_string(),
         arb_optional_string(),
         arb_optional_string(),
@@ -47,17 +55,9 @@ fn arb_uia_properties() -> impl Strategy<Value = UiaProperties> {
         arb_tree_path(),
     )
         .prop_map(
-            |(
-                control_type_id,
-                automation_id,
-                name,
-                localized_control_type,
-                is_password,
-                value,
-                tree_path,
-            )| {
-                UiaProperties {
-                    control_type_id,
+            |(tag, automation_id, name, localized_control_type, is_password, value, tree_path)| {
+                NativeElementProperties {
+                    tag,
                     automation_id,
                     name,
                     localized_control_type,
@@ -80,9 +80,9 @@ proptest! {
     ///
     /// **Validates: Requirements 3.1, 3.2**
     ///
-    /// For any random UIA property set, `map_element` produces an
+    /// For any random property set, `map_element` produces an
     /// `ElementDescription` where:
-    /// - `tag` is always non-empty (derived from control_type_id)
+    /// - `tag` is copied verbatim from the platform-supplied `tag`
     /// - `selector` is always a String (may be empty for empty tree_path)
     /// - When `is_password` is true, `element_type` is `Some("password")` and
     ///   `text` is `None`
@@ -92,16 +92,15 @@ proptest! {
     /// - `name` is `Some(...)` iff `name` is non-empty
     /// - `role` is `Some(...)` iff `localized_control_type` is non-empty
     #[test]
-    fn element_mapping_completeness(props in arb_uia_properties()) {
+    fn element_mapping_completeness(props in arb_native_properties()) {
         let el = map_element(&props);
 
-        // -- tag is always non-empty, derived from control_type_id ----------
+        // -- tag is copied verbatim from the platform-supplied tag ----------
         prop_assert!(!el.tag.is_empty(), "tag must be non-empty");
         prop_assert_eq!(
             &el.tag,
-            control_type_name(props.control_type_id),
-            "tag must match control_type_name({})",
-            props.control_type_id
+            &props.tag,
+            "tag must be copied verbatim from props.tag"
         );
 
         // -- selector is always a String ------------------------------------

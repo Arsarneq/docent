@@ -7,8 +7,8 @@ use std::collections::HashMap;
 use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
 use std::sync::mpsc;
 use std::sync::Arc;
-use std::thread::JoinHandle;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::thread::{self, JoinHandle};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use super::action_mapping::PASSWORD_MASK;
 use super::coordinate;
@@ -17,6 +17,16 @@ use super::{
     ActionEvent, ActionPayload, CaptureError, CaptureMode, ElementDescription, Modifiers,
     WindowRect,
 };
+
+/// Maximum total time [`WorkerPool::shutdown`] waits for all worker threads to
+/// exit before detaching any stragglers. Workers normally exit near-instantly
+/// once they receive the shutdown signal; this bound only matters when a worker
+/// is wedged in an unresponsive platform accessibility call.
+const WORKER_SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(5);
+
+/// Poll interval used while waiting for worker threads to finish during
+/// shutdown. Small enough that normal (fast) exits aren't delayed noticeably.
+const SHUTDOWN_POLL_INTERVAL: Duration = Duration::from_millis(10);
 
 // ---------------------------------------------------------------------------
 // RawEventType
@@ -391,11 +401,27 @@ impl WorkerPool {
         }
     }
 
-    /// Signal all workers to shut down and wait for their threads to finish.
+    /// Signal all workers to shut down and wait (bounded) for their threads.
     ///
-    /// Sends `WorkerMessage::Shutdown` to each worker, then joins every
-    /// thread handle.
+    /// Sends `WorkerMessage::Shutdown` to each worker, then waits up to
+    /// [`WORKER_SHUTDOWN_TIMEOUT`] for **all** threads to finish. Any worker
+    /// that hasn't exited by the deadline is detached (its `JoinHandle` is
+    /// dropped) rather than joined.
+    ///
+    /// The bound matters: a worker can be parked inside a platform
+    /// accessibility call (UIA `ElementFromPoint`, AT-SPI2 query, …) that does
+    /// not return promptly when the target window is unresponsive. An
+    /// unbounded `join()` there would hang `shutdown()` — and therefore
+    /// `stop()` — indefinitely, which is exactly how a single wedged worker can
+    /// stall an entire serial test run until the CI job timeout. Detaching the
+    /// straggler lets shutdown always return; the leaked thread is reclaimed at
+    /// process exit.
     pub fn shutdown(&mut self) {
+        self.shutdown_with_timeout(WORKER_SHUTDOWN_TIMEOUT);
+    }
+
+    /// [`shutdown`](Self::shutdown) with an explicit timeout (for testing).
+    fn shutdown_with_timeout(&mut self, timeout: Duration) {
         // Send shutdown signal to all workers.
         for (i, worker) in self.workers.iter().enumerate() {
             if worker.sender.send(WorkerMessage::Shutdown).is_err() {
@@ -403,12 +429,34 @@ impl WorkerPool {
             }
         }
 
-        // Join all worker threads.
+        // Wait (bounded) for every worker thread to finish. We poll
+        // `is_finished()` so a single stuck worker can't block the others'
+        // cleanup, and so the total wait is capped at `timeout`.
+        let deadline = Instant::now() + timeout;
         for (i, worker) in self.workers.iter_mut().enumerate() {
-            if let Some(handle) = worker.thread.take() {
+            let Some(handle) = worker.thread.take() else {
+                continue;
+            };
+
+            // Spin-wait for this handle to finish, up to the shared deadline.
+            while !handle.is_finished() {
+                if Instant::now() >= deadline {
+                    break;
+                }
+                thread::sleep(SHUTDOWN_POLL_INTERVAL);
+            }
+
+            if handle.is_finished() {
                 if let Err(e) = handle.join() {
                     eprintln!("[WorkerPool] Warning: worker {i} panicked: {e:?}");
                 }
+            } else {
+                // Worker is wedged (likely in a blocking platform call).
+                // Detach it: dropping the handle leaks the thread, which is
+                // reclaimed at process exit. Shutdown must not hang on it.
+                eprintln!(
+                    "[WorkerPool] Warning: worker {i} did not exit within {timeout:?}; detaching"
+                );
             }
         }
     }
@@ -1478,5 +1526,103 @@ fn try_flush_type_debounce(
         // No type event arrived within the debounce window — emit the keys.
         flush_pending_keys(&mut state.pending_keys, action_sender);
         state.pending_keys_last_timestamp = 0;
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::mpsc;
+
+    /// Build a pool whose workers run `body` in their receive loop. `body` is
+    /// given the worker's message receiver so a test can choose to drain
+    /// `Shutdown` and exit, or ignore it and block forever.
+    fn pool_with<F>(count: usize, body: F) -> WorkerPool
+    where
+        F: Fn(mpsc::Receiver<WorkerMessage>) + Send + Sync + Clone + 'static,
+    {
+        let (action_tx, _action_rx) = mpsc::channel::<ActionEvent>();
+        WorkerPool::new(count, action_tx, move |_idx, rx, _queue_len, _sender| {
+            let body = body.clone();
+            thread::spawn(move || body(rx))
+        })
+    }
+
+    #[test]
+    fn shutdown_joins_well_behaved_workers_quickly() {
+        // Workers that exit as soon as they see Shutdown should be joined well
+        // within the timeout.
+        let mut pool = pool_with(3, |rx| {
+            while let Ok(msg) = rx.recv() {
+                if matches!(msg, WorkerMessage::Shutdown) {
+                    break;
+                }
+            }
+        });
+
+        let start = Instant::now();
+        pool.shutdown_with_timeout(Duration::from_secs(5));
+        let elapsed = start.elapsed();
+
+        assert!(
+            elapsed < Duration::from_secs(1),
+            "shutdown of cooperative workers took {elapsed:?}, expected < 1s"
+        );
+        // All handles taken.
+        assert!(pool.workers.iter().all(|w| w.thread.is_none()));
+    }
+
+    #[test]
+    fn shutdown_is_bounded_when_a_worker_is_wedged() {
+        // A worker that never returns (e.g. parked in a blocking platform call)
+        // must not hang shutdown: it should be detached once the timeout
+        // elapses, and shutdown should return shortly after the deadline.
+        let mut pool = pool_with(2, |rx| {
+            // Ignore Shutdown entirely and block forever.
+            loop {
+                let _ = rx.recv();
+                std::thread::sleep(Duration::from_secs(3600));
+            }
+        });
+
+        let timeout = Duration::from_millis(200);
+        let start = Instant::now();
+        pool.shutdown_with_timeout(timeout);
+        let elapsed = start.elapsed();
+
+        // Must return, and not much later than the (per-handle) deadline.
+        assert!(
+            elapsed < Duration::from_secs(5),
+            "shutdown with a wedged worker took {elapsed:?}; it should be bounded"
+        );
+        assert!(
+            elapsed >= timeout,
+            "shutdown returned before the timeout elapsed ({elapsed:?})"
+        );
+        // The wedged handles are detached (taken) so a second shutdown is a no-op.
+        assert!(pool.workers.iter().all(|w| w.thread.is_none()));
+    }
+
+    #[test]
+    fn shutdown_is_idempotent() {
+        // Calling shutdown twice must not panic or block — the second call has
+        // no handles left to join.
+        let mut pool = pool_with(2, |rx| {
+            while let Ok(msg) = rx.recv() {
+                if matches!(msg, WorkerMessage::Shutdown) {
+                    break;
+                }
+            }
+        });
+
+        pool.shutdown_with_timeout(Duration::from_secs(5));
+        // Second call: no handles, returns immediately.
+        let start = Instant::now();
+        pool.shutdown_with_timeout(Duration::from_secs(5));
+        assert!(start.elapsed() < Duration::from_millis(100));
     }
 }
