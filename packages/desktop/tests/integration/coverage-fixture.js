@@ -127,10 +127,8 @@ export async function generateLcovReport() {
     }
 
     // Generate lcov from merged data
-    // Remap the path to point to src/ instead of dist/
-    const reportPath = sourceFile.includes(distPath)
-      ? sourceFile.replace(distPath, srcPath)
-      : sourceFile;
+    // Use path relative to repo root so Codecov can merge with unit test coverage
+    const reportPath = `packages/desktop/src/${filename}`;
 
     lcovOutput += `TN:\n`;
     lcovOutput += `SF:${reportPath}\n`;

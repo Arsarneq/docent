@@ -107,7 +107,8 @@ export default async function globalTeardown() {
       }
 
       // Generate lcov from merged data
-      const filePath = path.resolve(extensionPath, srcRelPath);
+      // Use path relative to repo root so Codecov can merge with unit test coverage
+      const filePath = `packages/extension/${srcRelPath}`;
       lcovOutput += `TN:\n`;
       lcovOutput += `SF:${filePath}\n`;
 
