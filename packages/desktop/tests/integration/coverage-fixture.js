@@ -85,79 +85,97 @@ export async function generateLcovReport() {
     const sourceFile = fs.existsSync(srcFile) ? srcFile : distFile;
     if (!fs.existsSync(sourceFile)) continue;
 
-    const converter = v8toIstanbul(sourceFile);
-    await converter.load();
+    // Merge coverage from multiple test runs by processing each entry
+    // with its own converter and taking the max hit count per line.
+    // v8-to-istanbul's applyCoverage replaces rather than merges.
+    const mergedLineHits = {};
+    const mergedFnHits = {};
+    let fnMap = null;
+    let branchMap = null;
+    const mergedBranchHits = {};
 
-    // Apply all coverage entries for this file
     for (const entry of entries) {
+      const converter = v8toIstanbul(sourceFile);
+      await converter.load();
       converter.applyCoverage(entry.functions);
-    }
+      const istanbulCoverage = converter.toIstanbul();
+      converter.destroy();
 
-    const istanbulCoverage = converter.toIstanbul();
-    converter.destroy();
-
-    // Convert istanbul format to lcov
-    for (const [filePath, fileCoverage] of Object.entries(istanbulCoverage)) {
-      // Remap the path to point to src/ instead of dist/
-      const reportPath = filePath.includes(distPath)
-        ? filePath.replace(distPath, srcPath)
-        : filePath;
-
-      lcovOutput += `TN:\n`;
-      lcovOutput += `SF:${reportPath}\n`;
-
-      // Function coverage
-      if (fileCoverage.fnMap) {
-        for (const [id, fn] of Object.entries(fileCoverage.fnMap)) {
-          lcovOutput += `FN:${fn.loc.start.line},${fn.name || '(anonymous)'}\n`;
-        }
-        lcovOutput += `FNF:${Object.keys(fileCoverage.fnMap).length}\n`;
-        let fnHit = 0;
-        for (const [id, count] of Object.entries(fileCoverage.f)) {
-          lcovOutput += `FNDA:${count},${fileCoverage.fnMap[id].name || '(anonymous)'}\n`;
-          if (count > 0) fnHit++;
-        }
-        lcovOutput += `FNH:${fnHit}\n`;
-      }
-
-      // Branch coverage
-      if (fileCoverage.branchMap) {
-        let branchFound = 0;
-        let branchHit = 0;
-        for (const [id, branch] of Object.entries(fileCoverage.branchMap)) {
-          const counts = fileCoverage.b[id] || [];
-          for (let i = 0; i < counts.length; i++) {
-            lcovOutput += `BRDA:${branch.loc.start.line},${id},${i},${counts[i]}\n`;
-            branchFound++;
-            if (counts[i] > 0) branchHit++;
+      for (const fileCoverage of Object.values(istanbulCoverage)) {
+        if (fileCoverage.statementMap) {
+          for (const [id, count] of Object.entries(fileCoverage.s)) {
+            const line = fileCoverage.statementMap[id].start.line;
+            mergedLineHits[line] = Math.max(mergedLineHits[line] || 0, count);
           }
         }
-        lcovOutput += `BRF:${branchFound}\n`;
-        lcovOutput += `BRH:${branchHit}\n`;
-      }
-
-      // Line coverage
-      if (fileCoverage.statementMap) {
-        let linesFound = 0;
-        let linesHit = 0;
-        const lineHits = {};
-        for (const [id, stmt] of Object.entries(fileCoverage.statementMap)) {
-          const line = stmt.start.line;
-          const count = fileCoverage.s[id] || 0;
-          // Accumulate hits per line (multiple statements can be on same line)
-          lineHits[line] = (lineHits[line] || 0) + count;
+        if (fileCoverage.fnMap) {
+          if (!fnMap) fnMap = fileCoverage.fnMap;
+          for (const [id, count] of Object.entries(fileCoverage.f)) {
+            mergedFnHits[id] = Math.max(mergedFnHits[id] || 0, count);
+          }
         }
-        for (const [line, count] of Object.entries(lineHits)) {
-          lcovOutput += `DA:${line},${count}\n`;
-          linesFound++;
-          if (count > 0) linesHit++;
+        if (fileCoverage.branchMap) {
+          if (!branchMap) branchMap = fileCoverage.branchMap;
+          for (const [id, counts] of Object.entries(fileCoverage.b)) {
+            if (!mergedBranchHits[id]) mergedBranchHits[id] = [];
+            for (let i = 0; i < counts.length; i++) {
+              mergedBranchHits[id][i] = Math.max(mergedBranchHits[id][i] || 0, counts[i]);
+            }
+          }
         }
-        lcovOutput += `LF:${linesFound}\n`;
-        lcovOutput += `LH:${linesHit}\n`;
       }
-
-      lcovOutput += `end_of_record\n`;
     }
+
+    // Generate lcov from merged data
+    // Remap the path to point to src/ instead of dist/
+    const reportPath = sourceFile.includes(distPath)
+      ? sourceFile.replace(distPath, srcPath)
+      : sourceFile;
+
+    lcovOutput += `TN:\n`;
+    lcovOutput += `SF:${reportPath}\n`;
+
+    if (fnMap) {
+      for (const [id, fn] of Object.entries(fnMap)) {
+        lcovOutput += `FN:${fn.loc.start.line},${fn.name || '(anonymous)'}\n`;
+      }
+      lcovOutput += `FNF:${Object.keys(fnMap).length}\n`;
+      let fnHit = 0;
+      for (const [id, count] of Object.entries(mergedFnHits)) {
+        lcovOutput += `FNDA:${count},${fnMap[id]?.name || '(anonymous)'}\n`;
+        if (count > 0) fnHit++;
+      }
+      lcovOutput += `FNH:${fnHit}\n`;
+    }
+
+    if (branchMap) {
+      let branchFound = 0;
+      let branchHit = 0;
+      for (const [id, branch] of Object.entries(branchMap)) {
+        const counts = mergedBranchHits[id] || [];
+        for (let i = 0; i < counts.length; i++) {
+          lcovOutput += `BRDA:${branch.loc.start.line},${id},${i},${counts[i] || 0}\n`;
+          branchFound++;
+          if ((counts[i] || 0) > 0) branchHit++;
+        }
+      }
+      lcovOutput += `BRF:${branchFound}\n`;
+      lcovOutput += `BRH:${branchHit}\n`;
+    }
+
+    if (Object.keys(mergedLineHits).length > 0) {
+      let linesFound = 0;
+      let linesHit = 0;
+      for (const [line, count] of Object.entries(mergedLineHits)) {
+        lcovOutput += `DA:${line},${count}\n`;
+        linesFound++;
+        if (count > 0) linesHit++;
+      }
+      lcovOutput += `LF:${linesFound}\n`;
+      lcovOutput += `LH:${linesHit}\n`;
+    }
+
+    lcovOutput += `end_of_record\n`;
   }
 
   // Write the final lcov report
