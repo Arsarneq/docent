@@ -5,6 +5,8 @@
 
 [![Tests](https://github.com/Arsarneq/docent/actions/workflows/test.yml/badge.svg?branch=main)](https://github.com/Arsarneq/docent/actions/workflows/test.yml)
 [![codecov](https://codecov.io/gh/Arsarneq/docent/graph/badge.svg?branch=main)](https://codecov.io/gh/Arsarneq/docent)
+[![JS coverage](<https://img.shields.io/codecov/c/github/Arsarneq/docent/main?flag=javascript&logo=javascript&logoColor=white&label=coverage%20(js)>)](https://app.codecov.io/gh/Arsarneq/docent?flags%5B0%5D=javascript)
+[![Rust coverage](<https://img.shields.io/codecov/c/github/Arsarneq/docent/main?flag=rust&logo=rust&logoColor=white&label=coverage%20(rust)>)](https://app.codecov.io/gh/Arsarneq/docent?flags%5B0%5D=rust)
 [![Mutation Testing](https://github.com/Arsarneq/docent/actions/workflows/mutation.yml/badge.svg)](https://github.com/Arsarneq/docent/actions/workflows/mutation.yml)
 [![CodeQL](https://img.shields.io/badge/CodeQL-enabled-2088FF?logo=github&logoColor=white)](https://github.com/Arsarneq/docent/security/code-scanning)
 [![Extension v2.0.0](https://img.shields.io/chrome-web-store/v/odhpdgpoknpaakjdkdbjdgpljmpblijh?logo=googlechrome&logoColor=white&label=Chrome%20Web%20Store)](https://chromewebstore.google.com/detail/docent/odhpdgpoknpaakjdkdbjdgpljmpblijh)
