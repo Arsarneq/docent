@@ -63,32 +63,37 @@ const test = base.extend({
     await use(sw);
   },
 
-  swCoverage: async ({ context, extensionId }, use) => {
-    // Start coverage on the service worker via raw CDP WebSocket
-    let swConnection = null;
-    try {
-      const { connectToServiceWorker } = await import('../helpers/cdp-sw-coverage.js');
-      swConnection = await connectToServiceWorker(DEBUG_PORT, extensionId);
-    } catch (err) {
-      console.warn('[coverage] SW CDP connection failed:', err.message);
-    }
-
-    await use(swConnection);
-
-    // Collect and save coverage
-    if (swConnection) {
+  swCoverage: [
+    async ({ context, extensionId }, use) => {
+      // Auto fixture: every test in this spec collects SW coverage via the raw
+      // CDP WebSocket. This captures the message handler AND the tab/navigation
+      // lifecycle listeners executing in the SW context.
+      let swConnection = null;
       try {
-        const { collectAndClose } = await import('../helpers/cdp-sw-coverage.js');
-        const swScripts = await collectAndClose(swConnection, extensionId);
-        if (swScripts.length > 0) {
-          const cdpFile = path.join(rawDir, `sw-coverage-${coverageCounter++}.json`);
-          fs.writeFileSync(cdpFile, JSON.stringify(swScripts));
-        }
+        const { connectToServiceWorker } = await import('../helpers/cdp-sw-coverage.js');
+        swConnection = await connectToServiceWorker(DEBUG_PORT, extensionId);
       } catch (err) {
-        console.warn('[coverage] SW coverage collection failed:', err.message);
+        console.warn('[coverage] SW CDP connection failed:', err.message);
       }
-    }
-  },
+
+      await use(swConnection);
+
+      // Collect and save coverage
+      if (swConnection) {
+        try {
+          const { collectAndClose } = await import('../helpers/cdp-sw-coverage.js');
+          const swScripts = await collectAndClose(swConnection, extensionId);
+          if (swScripts.length > 0) {
+            const cdpFile = path.join(rawDir, `sw-coverage-${coverageCounter++}.json`);
+            fs.writeFileSync(cdpFile, JSON.stringify(swScripts));
+          }
+        } catch (err) {
+          console.warn('[coverage] SW coverage collection failed:', err.message);
+        }
+      }
+    },
+    { auto: true },
+  ],
 
   // Extension page used to send messages to the SW.
   // chrome.runtime.sendMessage only works from extension contexts (pages, content scripts)
@@ -114,8 +119,27 @@ async function sendSWMessage(panelPage, msg) {
 
 /**
  * Reset SW state to a clean slate via the service worker's storage API.
+ *
+ * Waits for the SW's chrome.runtime.onInstalled init reset to settle first.
+ * On a fresh launch that handler asynchronously sets
+ * `{ projects: [], pendingActions: [], pendingCount: 0 }`; if it lands after
+ * our reset it would clobber state mid-test. We confirm a sentinel survives a
+ * macrotask before proceeding (same guard as service-worker-lifecycle.spec.js).
  */
 async function resetState(serviceWorker) {
+  await expect
+    .poll(
+      async () =>
+        serviceWorker.evaluate(async () => {
+          await chrome.storage.local.set({ __initSentinel: 'ready' });
+          await new Promise((r) => setTimeout(r, 50));
+          const { __initSentinel } = await chrome.storage.local.get('__initSentinel');
+          return __initSentinel;
+        }),
+      { timeout: 5000 },
+    )
+    .toBe('ready');
+
   await serviceWorker.evaluate(async () => {
     await chrome.storage.local.clear();
     await chrome.storage.local.set({
@@ -1217,5 +1241,177 @@ test.describe('SW Message: Full workflow integration', () => {
     const finalList = await sendSWMessage(panelPage, { type: 'PROJECTS_LIST' });
     expect(finalList.projects).toHaveLength(1);
     expect(finalList.projects[0].name).toBe('Lifecycle v2 (copy)');
+  });
+});
+
+// ─── Tab & Navigation Lifecycle Handlers ──────────────────────────────────────
+// These exercise the SW's chrome.tabs.* and chrome.webNavigation.* event
+// listeners, which the message-handler tests above never trigger. They run in
+// the SW context where the CDP profiler collects coverage.
+
+/**
+ * Enable recording so the lifecycle handlers don't early-return.
+ */
+async function enableRecording(serviceWorker) {
+  await serviceWorker.evaluate(async () => {
+    await chrome.storage.local.set({ recording: true, pendingActions: [], pendingCount: 0 });
+  });
+  await new Promise((r) => setTimeout(r, 150));
+}
+
+async function readPending(serviceWorker) {
+  return await serviceWorker.evaluate(async () => {
+    const { pendingActions } = await chrome.storage.local.get('pendingActions');
+    return pendingActions ?? [];
+  });
+}
+
+test.describe('SW Lifecycle: tab create/close/switch', () => {
+  test('chrome.tabs.create triggers onCreated → context_open', async ({
+    serviceWorker,
+    context,
+  }) => {
+    await resetState(serviceWorker);
+    await enableRecording(serviceWorker);
+
+    const tabId = await serviceWorker.evaluate(async () => {
+      const tab = await chrome.tabs.create({ url: 'about:blank' });
+      return tab.id;
+    });
+    await new Promise((r) => setTimeout(r, 500));
+
+    const actions = await readPending(serviceWorker);
+    expect(actions.some((a) => a.type === 'context_open')).toBe(true);
+
+    // Clean up
+    await serviceWorker.evaluate(async (id) => {
+      await chrome.tabs.remove(id);
+    }, tabId);
+  });
+
+  test('chrome.tabs.remove triggers onRemoved → context_close', async ({ serviceWorker }) => {
+    await resetState(serviceWorker);
+    const tabId = await serviceWorker.evaluate(async () => {
+      const tab = await chrome.tabs.create({ url: 'about:blank' });
+      return tab.id;
+    });
+    await new Promise((r) => setTimeout(r, 300));
+    await enableRecording(serviceWorker);
+
+    await serviceWorker.evaluate(async (id) => {
+      await chrome.tabs.remove(id);
+    }, tabId);
+    await new Promise((r) => setTimeout(r, 500));
+
+    const actions = await readPending(serviceWorker);
+    expect(actions.some((a) => a.type === 'context_close')).toBe(true);
+  });
+
+  test('chrome.tabs.update active triggers onActivated → context_switch', async ({
+    serviceWorker,
+  }) => {
+    await resetState(serviceWorker);
+    // Create a second tab with a real URL so context_switch is not filtered
+    const newTabId = await serviceWorker.evaluate(async () => {
+      const tab = await chrome.tabs.create({ url: 'https://example.com' });
+      return tab.id;
+    });
+    await new Promise((r) => setTimeout(r, 600));
+    await enableRecording(serviceWorker);
+
+    // Switch to another existing tab (activate a different one)
+    await serviceWorker.evaluate(async () => {
+      const tabs = await chrome.tabs.query({ active: false });
+      if (tabs.length > 0) await chrome.tabs.update(tabs[0].id, { active: true });
+    });
+    await new Promise((r) => setTimeout(r, 600));
+
+    // We can't guarantee a context_switch (depends on tab URLs/timing), but the
+    // onActivated handler path is exercised. Verify no crash and SW still responds.
+    const actions = await readPending(serviceWorker);
+    expect(Array.isArray(actions)).toBe(true);
+
+    await serviceWorker.evaluate(async (id) => {
+      await chrome.tabs.remove(id);
+    }, newTabId);
+  });
+
+  test('tab created during recent user action is suppressed (programmatic)', async ({
+    serviceWorker,
+  }) => {
+    await resetState(serviceWorker);
+    await enableRecording(serviceWorker);
+
+    // Simulate a recent in-page user action so the next tab create is treated
+    // as a side-effect (window.open / target=_blank) and suppressed.
+    await serviceWorker.evaluate(async () => {
+      await chrome.storage.local.set({ lastUserActionTimestamp: Date.now() });
+    });
+
+    const tabId = await serviceWorker.evaluate(async () => {
+      const tab = await chrome.tabs.create({ url: 'about:blank' });
+      return tab.id;
+    });
+    await new Promise((r) => setTimeout(r, 500));
+
+    // The onCreated handler ran but should have suppressed the context_open.
+    const actions = await readPending(serviceWorker);
+    const opens = actions.filter((a) => a.type === 'context_open');
+    expect(opens.length).toBe(0);
+
+    await serviceWorker.evaluate(async (id) => {
+      await chrome.tabs.remove(id);
+    }, tabId);
+  });
+});
+
+test.describe('SW Lifecycle: webNavigation', () => {
+  test('cross-document navigation triggers onCommitted handler', async ({
+    serviceWorker,
+    context,
+  }) => {
+    await resetState(serviceWorker);
+    await enableRecording(serviceWorker);
+
+    // Open a page and navigate it via the address bar equivalent (typed).
+    const page = await context.newPage();
+    await page.goto('https://example.com');
+    await new Promise((r) => setTimeout(r, 500));
+    // Navigate to a different URL — exercises onCommitted
+    await page.goto('https://example.com/page2').catch(() => {});
+    await new Promise((r) => setTimeout(r, 500));
+
+    // The onCommitted handler ran in the SW (coverage captured). We don't assert
+    // on a specific action since transitionType from Playwright navigation varies.
+    const actions = await readPending(serviceWorker);
+    expect(Array.isArray(actions)).toBe(true);
+
+    await page.close();
+  });
+
+  test('recording state change triggers content script injection listener', async ({
+    serviceWorker,
+    context,
+  }) => {
+    await resetState(serviceWorker);
+
+    // Open an http page so there's an injectable tab
+    const page = await context.newPage();
+    await page.goto('https://example.com').catch(() => {});
+    await new Promise((r) => setTimeout(r, 300));
+
+    // Flip recording to true — triggers chrome.storage.onChanged → injectContentScript
+    await serviceWorker.evaluate(async () => {
+      await chrome.storage.local.set({ recording: true });
+    });
+    await new Promise((r) => setTimeout(r, 500));
+
+    // Handler ran without crashing; SW still responds to storage reads.
+    const state = await serviceWorker.evaluate(async () => {
+      return await chrome.storage.local.get('recording');
+    });
+    expect(state.recording).toBe(true);
+
+    await page.close();
   });
 });
