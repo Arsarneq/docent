@@ -1074,23 +1074,24 @@ fn repeatedly_failing_workers_get_respawned_and_shutdown_completes() {
         }
         thread::sleep(Duration::from_millis(10));
     }
-    // Extra sleep to ensure the thread has fully exited (receiver dropped).
-    thread::sleep(Duration::from_millis(50));
 
-    // Round 2: send 3 more events. Each send detects the dead channel,
-    // respawns the worker, and retries on the fresh worker.
-    for _ in 0..3 {
+    // Round 2: repeatedly dispatch events until respawns are detected.
+    // The pool detects dead workers when send() fails (receiver dropped after
+    // thread termination). On fast machines this is immediate; on slow CI
+    // runners the thread teardown takes longer.
+    let deadline = std::time::Instant::now() + Duration::from_secs(5);
+    while spawn_total.load(Ordering::SeqCst) <= 3 {
+        if std::time::Instant::now() > deadline {
+            panic!(
+                "Timed out waiting for respawns. Total spawns: {} (expected > 3)",
+                spawn_total.load(Ordering::SeqCst)
+            );
+        }
         pool.dispatch(make_raw_event(RawEventType::Click, 0));
+        thread::sleep(Duration::from_millis(50));
     }
-    thread::sleep(Duration::from_millis(100));
 
-    // Workers should have been respawned (3 initial + at least 1 respawn).
-    assert!(
-        spawn_total.load(Ordering::SeqCst) > 3,
-        "workers should have been respawned, total spawns: {}",
-        spawn_total.load(Ordering::SeqCst)
-    );
-
+    // Workers have been respawned (verified by the loop above).
     // Shutdown should complete without hanging.
     pool.shutdown();
 }
