@@ -1,73 +1,136 @@
 /**
  * Global teardown for extension E2E tests.
  *
- * Converts collected Istanbul coverage data (.nyc_output/) to lcov format.
- * Coverage JSON files are written by the test fixture after each test.
+ * Converts collected V8 coverage data (from sidepanel-coverage.spec.js)
+ * to lcov format using v8-to-istanbul.
  */
 
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import libCoverage from 'istanbul-lib-coverage';
-import libReport from 'istanbul-lib-report';
-import reports from 'istanbul-reports';
+import v8toIstanbul from 'v8-to-istanbul';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const nycOutputDir = path.resolve(__dirname, '.nyc_output');
 const coverageDir = path.resolve(__dirname, 'coverage');
-const instrumentedDir = path.resolve(__dirname, '.instrumented');
+const rawDir = path.resolve(coverageDir, 'raw');
+const extensionPath = path.resolve(__dirname, '../..');
+
+// Side panel source files we want coverage for
+const TRACKED_FILES = [
+  { match: 'sidepanel/panel.js', src: 'sidepanel/panel.js' },
+  { match: 'sidepanel/adapter-chrome.js', src: 'sidepanel/adapter-chrome.js' },
+  { match: 'sidepanel/dispatch.js', src: 'sidepanel/dispatch.js' },
+];
 
 export default async function globalTeardown() {
-  if (!fs.existsSync(nycOutputDir)) return;
+  if (!fs.existsSync(rawDir)) return;
 
-  const files = fs.readdirSync(nycOutputDir).filter((f) => f.endsWith('.json'));
-  if (files.length === 0) return;
+  const rawFiles = fs.readdirSync(rawDir).filter((f) => f.endsWith('.json'));
+  if (rawFiles.length === 0) return;
 
-  // Merge all coverage files
-  const map = libCoverage.createCoverageMap({});
+  // Merge coverage entries by source file
+  const mergedByFile = new Map();
 
-  for (const file of files) {
+  for (const file of rawFiles) {
+    let entries;
     try {
-      const data = JSON.parse(fs.readFileSync(path.join(nycOutputDir, file), 'utf-8'));
-      map.merge(data);
+      entries = JSON.parse(fs.readFileSync(path.join(rawDir, file), 'utf-8'));
+    } catch {
+      continue;
+    }
+
+    for (const entry of entries) {
+      const url = entry.url || '';
+      const tracked = TRACKED_FILES.find((t) => url.endsWith(`/${t.match}`));
+      if (!tracked) continue;
+
+      if (!mergedByFile.has(tracked.src)) {
+        mergedByFile.set(tracked.src, []);
+      }
+      mergedByFile.get(tracked.src).push(entry);
+    }
+  }
+
+  if (mergedByFile.size === 0) {
+    cleanup(rawFiles);
+    return;
+  }
+
+  // Convert to lcov
+  let lcovOutput = '';
+
+  for (const [srcRelPath, entries] of mergedByFile) {
+    const sourceFile = path.resolve(extensionPath, srcRelPath);
+    if (!fs.existsSync(sourceFile)) continue;
+
+    try {
+      const converter = v8toIstanbul(sourceFile);
+      await converter.load();
+
+      for (const entry of entries) {
+        converter.applyCoverage(entry.functions);
+      }
+
+      const istanbulCoverage = converter.toIstanbul();
+      converter.destroy();
+
+      for (const [filePath, fileCoverage] of Object.entries(istanbulCoverage)) {
+        lcovOutput += `TN:\n`;
+        lcovOutput += `SF:${filePath}\n`;
+
+        if (fileCoverage.fnMap) {
+          for (const [id, fn] of Object.entries(fileCoverage.fnMap)) {
+            lcovOutput += `FN:${fn.loc.start.line},${fn.name || '(anonymous)'}\n`;
+          }
+          lcovOutput += `FNF:${Object.keys(fileCoverage.fnMap).length}\n`;
+          let fnHit = 0;
+          for (const [id, count] of Object.entries(fileCoverage.f)) {
+            lcovOutput += `FNDA:${count},${fileCoverage.fnMap[id].name || '(anonymous)'}\n`;
+            if (count > 0) fnHit++;
+          }
+          lcovOutput += `FNH:${fnHit}\n`;
+        }
+
+        if (fileCoverage.statementMap) {
+          let linesFound = 0;
+          let linesHit = 0;
+          const lineHits = {};
+          for (const [id, stmt] of Object.entries(fileCoverage.statementMap)) {
+            const line = stmt.start.line;
+            const count = fileCoverage.s[id] || 0;
+            lineHits[line] = (lineHits[line] || 0) + count;
+          }
+          for (const [line, count] of Object.entries(lineHits)) {
+            lcovOutput += `DA:${line},${count}\n`;
+            linesFound++;
+            if (count > 0) linesHit++;
+          }
+          lcovOutput += `LF:${linesFound}\n`;
+          lcovOutput += `LH:${linesHit}\n`;
+        }
+
+        lcovOutput += `end_of_record\n`;
+      }
     } catch (err) {
-      console.warn(`[coverage] Failed to parse ${file}:`, err.message);
+      console.warn(`[coverage] Failed to process ${srcRelPath}:`, err.message);
     }
   }
 
-  // Remap paths from .instrumented/ back to the real source paths
-  const extensionSrc = path.resolve(__dirname, '../..');
-  const remapped = libCoverage.createCoverageMap({});
-
-  for (const [filePath, fileCoverage] of Object.entries(map.toJSON())) {
-    // Replace .instrumented path with real source path
-    let realPath = filePath;
-    if (filePath.includes('.instrumented')) {
-      const relative = path.relative(instrumentedDir, filePath);
-      realPath = path.resolve(extensionSrc, relative);
-    }
-    // Also handle cases where the path is already correct
-    const updated = { ...fileCoverage, path: realPath };
-    remapped.addFileCoverage(updated);
+  if (lcovOutput) {
+    fs.writeFileSync(path.join(coverageDir, 'lcov.info'), lcovOutput);
+    console.log(`[coverage] Report written to ${coverageDir}/lcov.info`);
   }
 
-  // Generate lcov report
-  fs.mkdirSync(coverageDir, { recursive: true });
+  cleanup(rawFiles);
+}
 
-  const context = libReport.createContext({
-    dir: coverageDir,
-    coverageMap: remapped,
-  });
-
-  const lcovReport = reports.create('lcov', {});
-  lcovReport.execute(context);
-
-  // Also generate text summary for local debugging
-  const textReport = reports.create('text', {});
-  textReport.execute(context);
-
-  // Clean up .nyc_output
-  fs.rmSync(nycOutputDir, { recursive: true });
-
-  console.log(`[coverage] Report written to ${coverageDir}/lcov.info`);
+function cleanup(rawFiles) {
+  for (const file of rawFiles) {
+    fs.unlinkSync(path.join(rawDir, file));
+  }
+  try {
+    fs.rmdirSync(rawDir);
+  } catch {
+    /* ignore */
+  }
 }

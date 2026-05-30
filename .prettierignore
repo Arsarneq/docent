@@ -7,6 +7,5 @@ packages/desktop/src-tauri/target/
 coverage/
 reports/
 .stryker-tmp/
-packages/extension/tests/e2e/.instrumented/
 *.lock
 .github/workflows/
