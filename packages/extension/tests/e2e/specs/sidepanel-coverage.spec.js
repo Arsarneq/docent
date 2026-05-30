@@ -58,13 +58,21 @@ const test = base.extend({
     // Start page-level coverage for side panel files
     await page.coverage.startJSCoverage({ resetOnNavigation: false });
 
-    // Start CDP profiler for browser-wide coverage (SW + content scripts)
-    const cdpSession = await context.newCDPSession(page);
-    await cdpSession.send('Profiler.enable');
-    await cdpSession.send('Profiler.startPreciseCoverage', {
-      callCount: true,
-      detailed: true,
-    });
+    // Start CDP profiler on the SERVICE WORKER for SW + content script coverage.
+    // A page-level CDP session only sees that page's isolate.
+    // The SW session captures service-worker.js execution.
+    let swCdpSession = null;
+    try {
+      const sw = context.serviceWorkers()[0] || (await context.waitForEvent('serviceworker'));
+      swCdpSession = await context.newCDPSession(sw);
+      await swCdpSession.send('Profiler.enable');
+      await swCdpSession.send('Profiler.startPreciseCoverage', {
+        callCount: true,
+        detailed: true,
+      });
+    } catch (err) {
+      console.warn('[coverage] Failed to start SW CDP profiler:', err.message);
+    }
 
     await page.goto(`chrome-extension://${extensionId}/sidepanel/index.html`);
     await page.waitForTimeout(500);
@@ -76,29 +84,30 @@ const test = base.extend({
     const pageFile = path.join(rawDir, `sidepanel-page-${coverageCounter}.json`);
     fs.writeFileSync(pageFile, JSON.stringify(pageCoverage));
 
-    // Collect CDP profiler coverage (SW + content scripts)
-    try {
-      const { result: cdpCoverage } = await cdpSession.send('Profiler.takePreciseCoverage');
-      // Filter to only extension scripts and convert to page.coverage format
-      const extensionPrefix = `chrome-extension://${extensionId}/`;
-      const extensionScripts = cdpCoverage
-        .filter((entry) => entry.url.startsWith(extensionPrefix))
-        .map((entry) => ({
-          url: entry.url,
-          functions: entry.functions,
-        }));
+    // Collect CDP profiler coverage from the service worker
+    if (swCdpSession) {
+      try {
+        const { result: cdpCoverage } = await swCdpSession.send('Profiler.takePreciseCoverage');
+        const extensionPrefix = `chrome-extension://${extensionId}/`;
+        const extensionScripts = cdpCoverage
+          .filter((entry) => entry.url.startsWith(extensionPrefix))
+          .map((entry) => ({
+            url: entry.url,
+            functions: entry.functions,
+          }));
 
-      if (extensionScripts.length > 0) {
-        const cdpFile = path.join(rawDir, `sidepanel-cdp-${coverageCounter}.json`);
-        fs.writeFileSync(cdpFile, JSON.stringify(extensionScripts));
+        if (extensionScripts.length > 0) {
+          const cdpFile = path.join(rawDir, `sidepanel-cdp-${coverageCounter}.json`);
+          fs.writeFileSync(cdpFile, JSON.stringify(extensionScripts));
+        }
+
+        await swCdpSession.send('Profiler.stopPreciseCoverage');
+        await swCdpSession.send('Profiler.disable');
+        await swCdpSession.detach();
+      } catch (err) {
+        console.warn('[coverage] CDP profiler collection failed:', err.message);
       }
-    } catch (err) {
-      console.warn('[coverage] CDP profiler collection failed:', err.message);
     }
-
-    await cdpSession.send('Profiler.stopPreciseCoverage');
-    await cdpSession.send('Profiler.disable');
-    await cdpSession.detach();
 
     coverageCounter++;
     await page.close();
