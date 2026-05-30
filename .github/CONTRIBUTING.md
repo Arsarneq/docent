@@ -98,12 +98,14 @@ npm run test:shared        # shared module unit tests
 ```
 
 Rust tests live in a flat `packages/desktop/src-tauri/tests/` directory (Cargo
-convention). Their pyramid layer is auto-discovered by CI from the test source:
-a test that imports the `enigo` crate (synthesises real OS input) counts as
-**integration**, everything else counts as **unit**. Add `use enigo` to a new
-test and it's classified as integration automatically — there's no list to
-maintain. The only hand-kept knob is an exclude for tests that can't run on CI
-at all (`file_dialog_test`, which spawns Notepad).
+convention). Their pyramid layer is auto-discovered by CI from the test source —
+there are no test-name lists in the workflow. A test that imports the `enigo`
+crate (synthesises real OS input) counts as **integration**; everything else
+counts as **unit**. To opt a test out of CI entirely (e.g. it depends on
+something unavailable on runners), add a `ci-skip` marker comment to its source.
+`file_dialog_test` uses this because it launches Notepad. Each test therefore
+fully describes its own classification and CI-eligibility — adding a test never
+requires editing the workflow.
 
 ### How coverage reaches Codecov
 

@@ -278,28 +278,32 @@ jobs:
 
       # Coverage is split by pyramid layer into two llvm-cov runs so each lands
       # under the correct Codecov flag (unit vs integration). The split is
-      # auto-discovered from the test sources, not hand-maintained:
+      # fully auto-discovered from the test sources — there are no test-name
+      # lists in this workflow:
       #
-      #   integration — tests that synthesise real OS input, identified by
-      #                 importing the `enigo` crate (they drive real windows).
+      #   ci-skip     — a test file containing the `ci-skip` marker in its source
+      #                 is excluded from CI entirely (e.g. file_dialog_test, which
+      #                 launches Notepad — not reliable on CI runners).
+      #   integration — synthesises real OS input, identified by importing the
+      #                 `enigo` crate (drives real windows).
       #   unit        — every other test under tests/ (deterministic logic,
       #                 state machines, property tests) + `--lib` in-module tests.
       #
-      # A new test file is classified automatically: add `use enigo` and it's
-      # integration, otherwise it's unit — no list to update. The only hand-kept
-      # knob is RUST_COV_EXCLUDE, for tests that can't run in CI at all
-      # (file_dialog_test spawns Notepad, which isn't reliable on CI runners).
+      # A new test classifies itself from its own source: add `use enigo` for
+      # integration (otherwise unit), and add a `ci-skip` comment to opt out of
+      # CI. Nothing to edit here.
       - name: Discover Rust test layers
         working-directory: packages/desktop/src-tauri
         shell: bash
-        env:
-          RUST_COV_EXCLUDE: 'file_dialog_test'
         run: |
           unit_args=""
           integration_args=""
           for path in tests/*.rs; do
             name=$(basename "$path" .rs)
-            case " $RUST_COV_EXCLUDE " in *" $name "*) continue ;; esac
+            if grep -qE '(^|[^[:alnum:]])ci-skip([^[:alnum:]]|$)' "$path"; then
+              echo "Skipping $name (ci-skip marker)"
+              continue
+            fi
             if grep -qE '^use enigo' "$path"; then
               integration_args="$integration_args --test $name"
             else

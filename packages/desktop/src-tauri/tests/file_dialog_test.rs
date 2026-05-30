@@ -1,5 +1,10 @@
 //! Integration test for file dialog navigation capture.
 //!
+//! ci-skip: launches Notepad via the shell, which isn't reliably available on
+//! CI runners — this test is meant to run locally only. The CI Rust coverage
+//! discovery step skips any test file whose source contains the `ci-skip`
+//! marker, so there's no filename list to maintain in the workflow.
+//!
 //! Verifies that opening a file dialog and navigating within it does NOT
 //! produce spurious events (duplicate selects, context_close from folder
 //! refresh, redundant focus events).
