@@ -44,7 +44,43 @@ const test = base.extend({
   },
 });
 
+/**
+ * Wait until the SW's onInstalled init has settled.
+ *
+ * On a fresh launch the SW's chrome.runtime.onInstalled handler asynchronously
+ * resets storage (`{ projects: [], pendingActions: [], pendingCount: 0 }`).
+ * A test that writes storage before that reset lands sees its data clobbered —
+ * the source of intermittent failures across this file. We write a sentinel and
+ * confirm it survives, proving the init reset is done before the test proceeds.
+ */
+async function waitForInitSettled(context, serviceWorker) {
+  const liveWorker = () => {
+    const workers = context.serviceWorkers();
+    return workers.length > 0 ? workers[workers.length - 1] : serviceWorker;
+  };
+  await expect
+    .poll(
+      async () =>
+        liveWorker().evaluate(async () => {
+          await chrome.storage.local.set({ __initSentinel: 'ready' });
+          // Yield a macrotask so a pending onInstalled reset would land first.
+          await new Promise((r) => setTimeout(r, 50));
+          const { __initSentinel } = await chrome.storage.local.get('__initSentinel');
+          return __initSentinel;
+        }),
+      { timeout: 5000 },
+    )
+    .toBe('ready');
+  await liveWorker().evaluate(async () => {
+    await chrome.storage.local.remove('__initSentinel');
+  });
+}
+
 test.describe('Service Worker State Persistence', () => {
+  test.beforeEach(async ({ context, serviceWorker }) => {
+    await waitForInitSettled(context, serviceWorker);
+  });
+
   test('pending actions are stored in chrome.storage.local (survives SW suspension)', async ({
     serviceWorker,
   }) => {
@@ -139,6 +175,10 @@ test.describe('Service Worker State Persistence', () => {
 });
 
 test.describe('Storage Quota Pressure', () => {
+  test.beforeEach(async ({ context, serviceWorker }) => {
+    await waitForInitSettled(context, serviceWorker);
+  });
+
   test('large pending actions array does not crash', async ({ serviceWorker }) => {
     // Write ~5MB of action data (chrome.storage.local quota is 10MB)
     const largeActions = Array.from({ length: 500 }, (_, i) => ({
