@@ -202,6 +202,63 @@ describe('pushProjects', () => {
   });
 });
 
+// ─── buildHeaders ─────────────────────────────────────────────────────────────
+
+describe('buildHeaders', () => {
+  it('returns empty object when apiKey is null', () => {
+    const headers = buildHeaders(null);
+    assert.deepEqual(headers, {});
+  });
+
+  it('returns empty object when apiKey is empty string', () => {
+    const headers = buildHeaders('');
+    assert.deepEqual(headers, {});
+  });
+
+  it('returns Authorization header when apiKey is provided', () => {
+    const headers = buildHeaders('my-key');
+    assert.equal(headers['Authorization'], 'Bearer my-key');
+  });
+});
+
+// ─── buildPayloadForProject ───────────────────────────────────────────────────
+
+describe('buildPayloadForProject', () => {
+  it('builds correct shape with metadata', () => {
+    const project = {
+      ...makeProject('p1', 'Test'),
+      metadata: { env: 'prod' },
+      recordings: [
+        { ...makeRecording('r1', [{ action: 'click' }]), metadata: { browser: 'chrome' } },
+      ],
+    };
+    const payload = buildPayloadForProject(project);
+    assert.equal(payload.project.project_id, 'p1');
+    assert.deepEqual(payload.project.metadata, { env: 'prod' });
+    assert.equal(payload.recordings[0].recording_id, 'r1');
+    assert.deepEqual(payload.recordings[0].metadata, { browser: 'chrome' });
+    assert.deepEqual(payload.recordings[0].steps, [{ action: 'click' }]);
+  });
+
+  it('omits metadata when not present', () => {
+    const project = makeProject('p1', 'Test');
+    const payload = buildPayloadForProject(project);
+    assert.equal(payload.project.metadata, undefined);
+  });
+
+  it('handles project with no recordings', () => {
+    const project = makeProject('p1', 'Empty');
+    const payload = buildPayloadForProject(project);
+    assert.deepEqual(payload.recordings, []);
+  });
+
+  it('handles recording with no steps', () => {
+    const project = { ...makeProject('p1'), recordings: [makeRecording('r1')] };
+    const payload = buildPayloadForProject(project);
+    assert.deepEqual(payload.recordings[0].steps, []);
+  });
+});
+
 // ─── pullProjects ─────────────────────────────────────────────────────────────
 
 describe('pullProjects', () => {
@@ -238,6 +295,164 @@ describe('pullProjects', () => {
     assert.equal(result.projects.length, 2);
     assert.equal(result.projects[0].project_id, 'x1');
     assert.equal(result.projects[1].project_id, 'x2');
+  });
+
+  it('network error on manifest returns error with halted=false', async () => {
+    mockFetch(() => {
+      throw new Error('DNS resolution failed');
+    });
+
+    const result = await pullProjects('https://srv.test', null);
+
+    assert.equal(result.projects.length, 0);
+    assert.equal(result.errors.length, 1);
+    assert.equal(result.errors[0].status, null);
+    assert.ok(result.errors[0].message.includes('DNS resolution failed'));
+    assert.equal(result.halted, false);
+  });
+
+  it('non-auth non-ok manifest response returns error with halted=false', async () => {
+    mockFetch(() => makeResponse(500));
+
+    const result = await pullProjects('https://srv.test', null);
+
+    assert.equal(result.projects.length, 0);
+    assert.equal(result.errors.length, 1);
+    assert.equal(result.errors[0].status, 500);
+    assert.equal(result.halted, false);
+  });
+
+  it('auth error on manifest returns halted=true', async () => {
+    mockFetch(() => makeResponse(401));
+
+    const result = await pullProjects('https://srv.test', 'bad-key');
+
+    assert.equal(result.projects.length, 0);
+    assert.equal(result.errors.length, 1);
+    assert.equal(result.errors[0].status, 401);
+    assert.equal(result.halted, true);
+  });
+
+  it('network error on individual project fetch continues to next project', async () => {
+    const manifest = [
+      { project_id: 'p1', name: 'P1', last_modified: '2026-01-01T00:00:00.000Z' },
+      { project_id: 'p2', name: 'P2', last_modified: '2026-01-01T00:00:00.000Z' },
+    ];
+    const p2Payload = {
+      project: { project_id: 'p2', name: 'P2', created_at: '2026-01-01T00:00:00.000Z' },
+      recordings: [],
+    };
+
+    let callCount = 0;
+    mockFetch((url) => {
+      callCount++;
+      if (url.endsWith('/projects')) return makeResponse(200, manifest);
+      if (url.endsWith('/projects/p1')) throw new Error('Connection reset');
+      if (url.endsWith('/projects/p2')) return makeResponse(200, p2Payload);
+      return makeResponse(404);
+    });
+
+    const result = await pullProjects('https://srv.test', null);
+
+    assert.equal(result.projects.length, 1);
+    assert.equal(result.projects[0].project_id, 'p2');
+    assert.equal(result.errors.length, 1);
+    assert.equal(result.errors[0].status, null);
+    assert.equal(result.errors[0].projectName, 'P1');
+    assert.equal(result.halted, false);
+  });
+
+  it('non-ok response on individual project fetch continues to next project', async () => {
+    const manifest = [
+      { project_id: 'p1', name: 'P1', last_modified: '2026-01-01T00:00:00.000Z' },
+      { project_id: 'p2', name: 'P2', last_modified: '2026-01-01T00:00:00.000Z' },
+    ];
+    const p2Payload = {
+      project: { project_id: 'p2', name: 'P2', created_at: '2026-01-01T00:00:00.000Z' },
+      recordings: [],
+    };
+
+    mockFetch((url) => {
+      if (url.endsWith('/projects')) return makeResponse(200, manifest);
+      if (url.endsWith('/projects/p1')) return makeResponse(500);
+      if (url.endsWith('/projects/p2')) return makeResponse(200, p2Payload);
+      return makeResponse(404);
+    });
+
+    const result = await pullProjects('https://srv.test', null);
+
+    assert.equal(result.projects.length, 1);
+    assert.equal(result.projects[0].project_id, 'p2');
+    assert.equal(result.errors.length, 1);
+    assert.equal(result.errors[0].status, 500);
+    assert.equal(result.errors[0].projectName, 'P1');
+    assert.equal(result.halted, false);
+  });
+
+  it('auth error on individual project fetch halts entire pull', async () => {
+    const manifest = [
+      { project_id: 'p1', name: 'P1', last_modified: '2026-01-01T00:00:00.000Z' },
+      { project_id: 'p2', name: 'P2', last_modified: '2026-01-01T00:00:00.000Z' },
+    ];
+
+    mockFetch((url) => {
+      if (url.endsWith('/projects')) return makeResponse(200, manifest);
+      if (url.endsWith('/projects/p1')) return makeResponse(403);
+      return makeResponse(200, { project: {}, recordings: [] });
+    });
+
+    const result = await pullProjects('https://srv.test', 'key');
+
+    assert.equal(result.projects.length, 0);
+    assert.equal(result.errors.length, 1);
+    assert.equal(result.errors[0].status, 403);
+    assert.equal(result.halted, true);
+    // p2 should NOT have been fetched
+    assert.equal(fetchCalls.length, 2); // manifest + p1 only
+  });
+
+  it('includes Authorization header when apiKey provided', async () => {
+    mockFetch(() => makeResponse(200, []));
+
+    await pullProjects('https://srv.test', 'my-token');
+
+    assert.equal(fetchCalls[0].options.headers['Authorization'], 'Bearer my-token');
+  });
+});
+
+// ─── pushProjects — additional error paths ────────────────────────────────────
+
+describe('pushProjects — network errors', () => {
+  it('network error on push collects SyncError with null status and continues', async () => {
+    const projects = [makeProject('ok1'), makeProject('fail1'), makeProject('ok2')];
+    let callIndex = 0;
+    mockFetch(() => {
+      callIndex++;
+      if (callIndex === 2) throw new Error('Connection refused');
+      return makeResponse(200, { ok: true });
+    });
+
+    const result = await pushProjects('https://srv.test', null, projects);
+
+    assert.deepEqual(result.pushed, ['ok1', 'ok2']);
+    assert.equal(result.errors.length, 1);
+    assert.equal(result.errors[0].status, null);
+    assert.ok(result.errors[0].message.includes('Connection refused'));
+    assert.equal(result.halted, false);
+  });
+
+  it('auth error on push halts immediately', async () => {
+    const projects = [makeProject('p1'), makeProject('p2')];
+    mockFetch(() => makeResponse(401));
+
+    const result = await pushProjects('https://srv.test', 'bad-key', projects);
+
+    assert.equal(result.pushed.length, 0);
+    assert.equal(result.errors.length, 1);
+    assert.equal(result.errors[0].status, 401);
+    assert.equal(result.halted, true);
+    // Only 1 fetch call — halted after first project
+    assert.equal(fetchCalls.length, 1);
   });
 });
 

@@ -4,7 +4,7 @@
   "type": "module",
   "scripts": {
     "test": "node --test tests/unit/*.test.js",
-    "test:coverage": "c8 --reporter=text --reporter=lcov node --test tests/unit/*.test.js"
+    "test:coverage": "c8 --reporter=text --reporter=lcov --all --src lib --src content --src sidepanel --src background node --test tests/unit/*.test.js"
   },
   "devDependencies": {
     "c8": "^11.0.0",
