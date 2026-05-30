@@ -1035,17 +1035,15 @@ test.describe('SW Message: Error paths', () => {
 // ─── GET_TAB_ID and APPEND_ACTION (synchronous handlers) ─────────────────────
 
 test.describe('SW Message: Synchronous handlers', () => {
-  test('GET_TAB_ID returns null tabId when sent from extension page', async ({
-    serviceWorker,
-    panelPage,
-  }) => {
-    // GET_TAB_ID is handled synchronously and uses sender.tab.id.
-    // When sent from the side panel (which is not a tab), tabId is null.
+  test('GET_TAB_ID returns tabId from sender context', async ({ serviceWorker, panelPage }) => {
+    // GET_TAB_ID is handled synchronously and returns sender.tab.id.
+    // The panel page is opened as a tab, so it has a valid tab ID.
     const result = await panelPage.evaluate(async () => {
       return await chrome.runtime.sendMessage({ type: 'GET_TAB_ID' });
     });
-    // Side panel pages don't have sender.tab → tabId is null
-    expect(result.tabId).toBeNull();
+    // Exercises the synchronous GET_TAB_ID handler path
+    expect(result).toHaveProperty('tabId');
+    expect(typeof result.tabId).toBe('number');
   });
 
   test('APPEND_ACTION appends to pending actions queue', async ({ serviceWorker, panelPage }) => {
