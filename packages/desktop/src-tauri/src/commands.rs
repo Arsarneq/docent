@@ -505,7 +505,7 @@ mod tests {
     fn list_windows_returns_windows() {
         let (mut mock, _rec) = MockCapture::new();
         mock.windows = vec![WindowInfo {
-            hwnd: 42,
+            window_id: 42,
             title: "Notepad".into(),
             process_name: "notepad.exe".into(),
             pid: 100,

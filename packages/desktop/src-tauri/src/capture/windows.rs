@@ -51,7 +51,7 @@ use windows::Win32::UI::WindowsAndMessaging::{
     WM_QUIT, WM_RBUTTONDOWN, WM_SYSKEYDOWN, WS_CHILD,
 };
 
-use super::element_mapping::{control_type_name, map_element, UiaProperties};
+use super::element_mapping::{map_element, NativeElementProperties};
 use super::scroll::should_keep_event;
 use super::timing;
 use super::worker_pool::{worker_loop, AccessibilityBackend, RawEvent, RawEventType, WorkerPool};
@@ -1346,6 +1346,60 @@ unsafe extern "system" fn input_keyboard_ll_proc(
 // UIA element resolution helpers (used by WindowsAccessibilityBackend)
 // ---------------------------------------------------------------------------
 
+/// Map a Windows `UIA_*ControlTypeId` numeric value to a human-readable tag.
+///
+/// The IDs are defined by Microsoft and are stable across Windows versions.
+/// This is the Windows implementation of the per-platform control-type → tag
+/// mapping; the platform-agnostic `element_mapping` module consumes the
+/// resulting string via `NativeElementProperties::tag`.
+/// See: <https://learn.microsoft.com/en-us/windows/win32/winauto/uiauto-controltype-ids>
+pub(crate) fn control_type_name(id: i32) -> &'static str {
+    match id {
+        50000 => "Button",
+        50001 => "Calendar",
+        50002 => "CheckBox",
+        50003 => "ComboBox",
+        50004 => "Edit",
+        50005 => "Hyperlink",
+        50006 => "Image",
+        50007 => "ListItem",
+        50008 => "List",
+        50009 => "Menu",
+        50010 => "MenuBar",
+        50011 => "MenuItem",
+        50012 => "ProgressBar",
+        50013 => "RadioButton",
+        50014 => "ScrollBar",
+        50015 => "Slider",
+        50016 => "Spinner",
+        50017 => "StatusBar",
+        50018 => "Tab",
+        50019 => "TabItem",
+        50020 => "Text",
+        50021 => "ToolBar",
+        50022 => "ToolTip",
+        50023 => "Tree",
+        50024 => "TreeItem",
+        50025 => "Custom",
+        50026 => "Group",
+        50027 => "Thumb",
+        50028 => "DataGrid",
+        50029 => "DataItem",
+        50030 => "Document",
+        50031 => "SplitButton",
+        50032 => "Window",
+        50033 => "Pane",
+        50034 => "Header",
+        50035 => "HeaderItem",
+        50036 => "Table",
+        50037 => "TitleBar",
+        50038 => "Separator",
+        50039 => "SemanticZoom",
+        50040 => "AppBar",
+        _ => "Unknown",
+    }
+}
+
 /// Convert a UIA element to an `ElementDescription` using the element mapping
 /// module. Requires a reference to the `IUIAutomation` instance for tree
 /// walking (building the tree path).
@@ -1360,8 +1414,8 @@ pub(crate) unsafe fn uia_element_to_description(
     let value = get_string_property(element, UIA_ValueValuePropertyId);
     let is_password = get_bool_property(element, UIA_IsPasswordPropertyId);
 
-    let props = UiaProperties {
-        control_type_id,
+    let props = NativeElementProperties {
+        tag: control_type_name(control_type_id).to_string(),
         automation_id,
         name,
         localized_control_type: localized_type,
@@ -1600,7 +1654,7 @@ unsafe extern "system" fn enum_windows_proc(hwnd: HWND, lparam: LPARAM) -> BOOL 
 
     let windows = &mut *(lparam.0 as *mut Vec<WindowInfo>);
     windows.push(WindowInfo {
-        hwnd: hwnd.0 as i64,
+        window_id: hwnd.0 as i64,
         title,
         process_name,
         pid,
@@ -1884,5 +1938,117 @@ impl AccessibilityBackend for WindowsAccessibilityBackend {
         let name = unsafe { get_string_property(&selected_element, UIA_NamePropertyId) };
 
         Some((description, name))
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod tests {
+    use super::control_type_name;
+
+    #[test]
+    fn known_control_types_map_correctly() {
+        assert_eq!(control_type_name(50000), "Button");
+        assert_eq!(control_type_name(50004), "Edit");
+        assert_eq!(control_type_name(50020), "Text");
+        assert_eq!(control_type_name(50032), "Window");
+        assert_eq!(control_type_name(50033), "Pane");
+    }
+
+    #[test]
+    fn unknown_control_type_returns_unknown() {
+        assert_eq!(control_type_name(99999), "Unknown");
+        assert_eq!(control_type_name(-1), "Unknown");
+        assert_eq!(control_type_name(0), "Unknown");
+    }
+
+    #[test]
+    fn calendar_control_type() {
+        assert_eq!(control_type_name(50001), "Calendar");
+    }
+
+    #[test]
+    fn checkbox_control_type() {
+        assert_eq!(control_type_name(50002), "CheckBox");
+    }
+
+    #[test]
+    fn combobox_control_type() {
+        assert_eq!(control_type_name(50003), "ComboBox");
+    }
+
+    #[test]
+    fn hyperlink_control_type() {
+        assert_eq!(control_type_name(50005), "Hyperlink");
+    }
+
+    #[test]
+    fn image_control_type() {
+        assert_eq!(control_type_name(50006), "Image");
+    }
+
+    #[test]
+    fn list_and_listitem_control_types() {
+        assert_eq!(control_type_name(50007), "ListItem");
+        assert_eq!(control_type_name(50008), "List");
+    }
+
+    #[test]
+    fn menu_control_types() {
+        assert_eq!(control_type_name(50009), "Menu");
+        assert_eq!(control_type_name(50010), "MenuBar");
+        assert_eq!(control_type_name(50011), "MenuItem");
+    }
+
+    #[test]
+    fn progress_radio_scrollbar_slider_spinner() {
+        assert_eq!(control_type_name(50012), "ProgressBar");
+        assert_eq!(control_type_name(50013), "RadioButton");
+        assert_eq!(control_type_name(50014), "ScrollBar");
+        assert_eq!(control_type_name(50015), "Slider");
+        assert_eq!(control_type_name(50016), "Spinner");
+    }
+
+    #[test]
+    fn statusbar_tab_tabitem() {
+        assert_eq!(control_type_name(50017), "StatusBar");
+        assert_eq!(control_type_name(50018), "Tab");
+        assert_eq!(control_type_name(50019), "TabItem");
+    }
+
+    #[test]
+    fn toolbar_tooltip_tree_treeitem() {
+        assert_eq!(control_type_name(50021), "ToolBar");
+        assert_eq!(control_type_name(50022), "ToolTip");
+        assert_eq!(control_type_name(50023), "Tree");
+        assert_eq!(control_type_name(50024), "TreeItem");
+    }
+
+    #[test]
+    fn group_thumb_datagrid_dataitem_document() {
+        assert_eq!(control_type_name(50026), "Group");
+        assert_eq!(control_type_name(50027), "Thumb");
+        assert_eq!(control_type_name(50028), "DataGrid");
+        assert_eq!(control_type_name(50029), "DataItem");
+        assert_eq!(control_type_name(50030), "Document");
+    }
+
+    #[test]
+    fn splitbutton_header_headeritem_table_titlebar() {
+        assert_eq!(control_type_name(50031), "SplitButton");
+        assert_eq!(control_type_name(50034), "Header");
+        assert_eq!(control_type_name(50035), "HeaderItem");
+        assert_eq!(control_type_name(50036), "Table");
+        assert_eq!(control_type_name(50037), "TitleBar");
+    }
+
+    #[test]
+    fn separator_semanticzoom_appbar() {
+        assert_eq!(control_type_name(50038), "Separator");
+        assert_eq!(control_type_name(50039), "SemanticZoom");
+        assert_eq!(control_type_name(50040), "AppBar");
     }
 }

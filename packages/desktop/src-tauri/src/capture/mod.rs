@@ -14,6 +14,14 @@ pub mod worker_pool;
 #[cfg(target_os = "windows")]
 pub mod windows;
 
+/// The platform-specific capture implementation for the current target.
+///
+/// Each platform module exposes a struct implementing [`CaptureLayer`]; this
+/// alias lets the rest of the crate refer to it without `#[cfg]` at every use
+/// site. New platforms add their own `#[cfg(target_os = ...)]` arm here.
+#[cfg(target_os = "windows")]
+pub type Capture = windows::WindowsCapture;
+
 use serde::Serialize;
 use std::sync::mpsc::Sender;
 
@@ -238,7 +246,11 @@ pub struct ActionEvent {
 /// Information about a visible window, used for target application selection.
 #[derive(Debug, Serialize, Clone)]
 pub struct WindowInfo {
-    pub hwnd: i64,
+    /// Platform-opaque window identifier.
+    /// - Windows: `HWND` cast to `i64`
+    /// - Linux (future): X11 window id / Wayland surface id
+    /// - macOS (future): `CGWindowID`
+    pub window_id: i64,
     pub title: String,
     pub process_name: String,
     pub pid: u32,

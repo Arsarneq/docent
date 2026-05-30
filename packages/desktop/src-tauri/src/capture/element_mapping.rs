@@ -1,94 +1,52 @@
-// Element mapping — pure-Rust mapping from Windows UI Automation properties
-// to the platform-agnostic `ElementDescription` used in the v2.0.0 schema.
+// Element mapping — pure-Rust mapping from platform-provided accessibility
+// properties to the platform-agnostic `ElementDescription` used in the v2.0.0
+// schema.
 //
-// This module contains NO Windows API calls so it can be compiled and tested
-// on any platform. The actual UIA property retrieval lives in `windows.rs`.
+// This module contains NO platform API calls and NO platform-specific
+// constants, so it compiles and is testable on any target. Each platform
+// retrieves its own native properties (and maps its own role/control-type
+// system to a `tag` string) before handing a `NativeElementProperties` here.
 
 use super::ElementDescription;
 
 // ---------------------------------------------------------------------------
-// UIA property bag
+// Native element property bag
 // ---------------------------------------------------------------------------
 
-/// Raw properties retrieved from a Windows UI Automation element.
+/// Platform-agnostic bag of accessibility properties for a single element.
 ///
 /// Populated by the platform-specific capture code and handed to
-/// [`map_element`] for conversion into an [`ElementDescription`].
+/// [`map_element`] for conversion into an [`ElementDescription`]. Each platform
+/// maps its own accessibility model onto these fields:
+/// - `tag`: human-readable control type (Windows `ControlType`, macOS `AXRole`,
+///   Linux AT-SPI2 role) — the platform resolves its native role to a string.
+/// - `automation_id`: Windows `AutomationId` / macOS `AXIdentifier` / Linux id.
+/// - `name`: accessible name.
+/// - `localized_control_type`: localised role description.
+/// - `is_password`: whether the element is a masked/password field.
+/// - `value`: the element's text value.
+/// - `tree_path`: accessibility tree path segments leading to this element.
 #[derive(Debug, Clone)]
-pub struct UiaProperties {
-    /// The numeric `ControlType` id (e.g. `50000` for Button).
-    pub control_type_id: i32,
-    /// The `AutomationId` property. May be empty.
+pub struct NativeElementProperties {
+    /// Human-readable control-type tag (e.g. `"Button"`, `"Edit"`).
+    /// The platform maps its native role/control-type system to this string.
+    pub tag: String,
+    /// The automation/accessibility id. May be empty.
     pub automation_id: String,
-    /// The `Name` property. May be empty.
+    /// The accessible name. May be empty.
     pub name: String,
-    /// The `LocalizedControlType` property (e.g. "button", "edit"). May be empty.
+    /// The localised control type (e.g. "button", "edit"). May be empty.
     pub localized_control_type: String,
-    /// Whether the element is a password field (`IsPassword` property).
+    /// Whether the element is a password field.
     pub is_password: bool,
-    /// The element's text value (from `ValuePattern.Value` or `Name`). May be empty.
+    /// The element's text value. May be empty.
     pub value: String,
     /// The accessibility tree path segments leading to this element.
-    /// Each entry is `"ControlType:Name"` (or just `"ControlType"` when the
-    /// name is empty). The last entry is the element itself.
+    /// Each entry is `"Tag:Name"` (or just `"Tag"` when the name is empty).
+    /// The last entry is the element itself.
     ///
     /// Example: `["Window:Notepad", "Edit:Text Editor"]`
     pub tree_path: Vec<String>,
-}
-
-// ---------------------------------------------------------------------------
-// Control-type mapping
-// ---------------------------------------------------------------------------
-
-/// Map a Windows `UIA_*ControlTypeId` numeric value to a human-readable tag.
-///
-/// The IDs are defined by Microsoft and are stable across Windows versions.
-/// See: <https://learn.microsoft.com/en-us/windows/win32/winauto/uiauto-controltype-ids>
-pub fn control_type_name(id: i32) -> &'static str {
-    match id {
-        50000 => "Button",
-        50001 => "Calendar",
-        50002 => "CheckBox",
-        50003 => "ComboBox",
-        50004 => "Edit",
-        50005 => "Hyperlink",
-        50006 => "Image",
-        50007 => "ListItem",
-        50008 => "List",
-        50009 => "Menu",
-        50010 => "MenuBar",
-        50011 => "MenuItem",
-        50012 => "ProgressBar",
-        50013 => "RadioButton",
-        50014 => "ScrollBar",
-        50015 => "Slider",
-        50016 => "Spinner",
-        50017 => "StatusBar",
-        50018 => "Tab",
-        50019 => "TabItem",
-        50020 => "Text",
-        50021 => "ToolBar",
-        50022 => "ToolTip",
-        50023 => "Tree",
-        50024 => "TreeItem",
-        50025 => "Custom",
-        50026 => "Group",
-        50027 => "Thumb",
-        50028 => "DataGrid",
-        50029 => "DataItem",
-        50030 => "Document",
-        50031 => "SplitButton",
-        50032 => "Window",
-        50033 => "Pane",
-        50034 => "Header",
-        50035 => "HeaderItem",
-        50036 => "Table",
-        50037 => "TitleBar",
-        50038 => "Separator",
-        50039 => "SemanticZoom",
-        50040 => "AppBar",
-        _ => "Unknown",
-    }
 }
 
 // ---------------------------------------------------------------------------
@@ -116,19 +74,19 @@ fn truncate_text(s: &str) -> String {
 // Core mapping
 // ---------------------------------------------------------------------------
 
-/// Convert raw UIA properties into a platform-agnostic [`ElementDescription`].
+/// Convert raw native properties into a platform-agnostic [`ElementDescription`].
 ///
 /// Rules:
-/// - `tag` is derived from `control_type_id` via [`control_type_name`].
+/// - `tag` is taken directly from `props.tag` (the platform supplies it).
 /// - `id` is `automation_id` when non-empty, otherwise `None`.
-/// - `name` is the UIA `Name` when non-empty, otherwise `None`.
+/// - `name` is the accessible `name` when non-empty, otherwise `None`.
 /// - `role` is `localized_control_type` when non-empty, otherwise `None`.
 /// - `element_type` is `Some("password")` when `is_password` is true.
 /// - `text` is `None` for password fields; otherwise the `value` (or `name`
 ///   as fallback) truncated to 100 characters, or `None` if both are empty.
 /// - `selector` is built from `tree_path` segments joined with `" > "`.
-pub fn map_element(props: &UiaProperties) -> ElementDescription {
-    let tag = control_type_name(props.control_type_id).to_string();
+pub fn map_element(props: &NativeElementProperties) -> ElementDescription {
+    let tag = props.tag.clone();
 
     let id = non_empty(&props.automation_id);
     let name = non_empty(&props.name);
@@ -230,24 +188,6 @@ fn build_selector(tree_path: &[String]) -> String {
 mod tests {
     use super::*;
 
-    // -- control_type_name -------------------------------------------------
-
-    #[test]
-    fn known_control_types_map_correctly() {
-        assert_eq!(control_type_name(50000), "Button");
-        assert_eq!(control_type_name(50004), "Edit");
-        assert_eq!(control_type_name(50020), "Text");
-        assert_eq!(control_type_name(50032), "Window");
-        assert_eq!(control_type_name(50033), "Pane");
-    }
-
-    #[test]
-    fn unknown_control_type_returns_unknown() {
-        assert_eq!(control_type_name(99999), "Unknown");
-        assert_eq!(control_type_name(-1), "Unknown");
-        assert_eq!(control_type_name(0), "Unknown");
-    }
-
     // -- truncate_text -----------------------------------------------------
 
     #[test]
@@ -284,8 +224,8 @@ mod tests {
 
     #[test]
     fn basic_button_mapping() {
-        let props = UiaProperties {
-            control_type_id: 50000,
+        let props = NativeElementProperties {
+            tag: "Button".into(),
             automation_id: "btnSave".into(),
             name: "Save".into(),
             localized_control_type: "button".into(),
@@ -307,8 +247,8 @@ mod tests {
 
     #[test]
     fn edit_field_with_value() {
-        let props = UiaProperties {
-            control_type_id: 50004,
+        let props = NativeElementProperties {
+            tag: "Edit".into(),
             automation_id: "txtSearch".into(),
             name: "Search".into(),
             localized_control_type: "edit".into(),
@@ -324,8 +264,8 @@ mod tests {
 
     #[test]
     fn password_field_hides_text() {
-        let props = UiaProperties {
-            control_type_id: 50004,
+        let props = NativeElementProperties {
+            tag: "Edit".into(),
             automation_id: "txtPassword".into(),
             name: "Password".into(),
             localized_control_type: "edit".into(),
@@ -341,8 +281,8 @@ mod tests {
 
     #[test]
     fn empty_optional_fields_become_none() {
-        let props = UiaProperties {
-            control_type_id: 50025,
+        let props = NativeElementProperties {
+            tag: "Custom".into(),
             automation_id: String::new(),
             name: String::new(),
             localized_control_type: String::new(),
@@ -364,8 +304,8 @@ mod tests {
     #[test]
     fn long_value_is_truncated() {
         let long_value: String = "x".repeat(200);
-        let props = UiaProperties {
-            control_type_id: 50004,
+        let props = NativeElementProperties {
+            tag: "Edit".into(),
             automation_id: String::new(),
             name: String::new(),
             localized_control_type: "edit".into(),
@@ -402,101 +342,12 @@ mod tests {
         assert_eq!(el.selector, "Edit[0]");
     }
 
-    // -- Additional control_type_name coverage -----------------------------
-
-    #[test]
-    fn calendar_control_type() {
-        assert_eq!(control_type_name(50001), "Calendar");
-    }
-
-    #[test]
-    fn checkbox_control_type() {
-        assert_eq!(control_type_name(50002), "CheckBox");
-    }
-
-    #[test]
-    fn combobox_control_type() {
-        assert_eq!(control_type_name(50003), "ComboBox");
-    }
-
-    #[test]
-    fn hyperlink_control_type() {
-        assert_eq!(control_type_name(50005), "Hyperlink");
-    }
-
-    #[test]
-    fn image_control_type() {
-        assert_eq!(control_type_name(50006), "Image");
-    }
-
-    #[test]
-    fn list_and_listitem_control_types() {
-        assert_eq!(control_type_name(50007), "ListItem");
-        assert_eq!(control_type_name(50008), "List");
-    }
-
-    #[test]
-    fn menu_control_types() {
-        assert_eq!(control_type_name(50009), "Menu");
-        assert_eq!(control_type_name(50010), "MenuBar");
-        assert_eq!(control_type_name(50011), "MenuItem");
-    }
-
-    #[test]
-    fn progress_radio_scrollbar_slider_spinner() {
-        assert_eq!(control_type_name(50012), "ProgressBar");
-        assert_eq!(control_type_name(50013), "RadioButton");
-        assert_eq!(control_type_name(50014), "ScrollBar");
-        assert_eq!(control_type_name(50015), "Slider");
-        assert_eq!(control_type_name(50016), "Spinner");
-    }
-
-    #[test]
-    fn statusbar_tab_tabitem() {
-        assert_eq!(control_type_name(50017), "StatusBar");
-        assert_eq!(control_type_name(50018), "Tab");
-        assert_eq!(control_type_name(50019), "TabItem");
-    }
-
-    #[test]
-    fn toolbar_tooltip_tree_treeitem() {
-        assert_eq!(control_type_name(50021), "ToolBar");
-        assert_eq!(control_type_name(50022), "ToolTip");
-        assert_eq!(control_type_name(50023), "Tree");
-        assert_eq!(control_type_name(50024), "TreeItem");
-    }
-
-    #[test]
-    fn group_thumb_datagrid_dataitem_document() {
-        assert_eq!(control_type_name(50026), "Group");
-        assert_eq!(control_type_name(50027), "Thumb");
-        assert_eq!(control_type_name(50028), "DataGrid");
-        assert_eq!(control_type_name(50029), "DataItem");
-        assert_eq!(control_type_name(50030), "Document");
-    }
-
-    #[test]
-    fn splitbutton_header_headeritem_table_titlebar() {
-        assert_eq!(control_type_name(50031), "SplitButton");
-        assert_eq!(control_type_name(50034), "Header");
-        assert_eq!(control_type_name(50035), "HeaderItem");
-        assert_eq!(control_type_name(50036), "Table");
-        assert_eq!(control_type_name(50037), "TitleBar");
-    }
-
-    #[test]
-    fn separator_semanticzoom_appbar() {
-        assert_eq!(control_type_name(50038), "Separator");
-        assert_eq!(control_type_name(50039), "SemanticZoom");
-        assert_eq!(control_type_name(50040), "AppBar");
-    }
-
     // -- map_element with various control types ----------------------------
 
     #[test]
     fn combobox_mapping_with_value_and_tree_path() {
-        let props = UiaProperties {
-            control_type_id: 50003,
+        let props = NativeElementProperties {
+            tag: "ComboBox".into(),
             automation_id: "cmbCountry".into(),
             name: "Country".into(),
             localized_control_type: "combo box".into(),
@@ -523,8 +374,8 @@ mod tests {
 
     #[test]
     fn hyperlink_mapping_uses_name_as_text_fallback() {
-        let props = UiaProperties {
-            control_type_id: 50005,
+        let props = NativeElementProperties {
+            tag: "Hyperlink".into(),
             automation_id: String::new(),
             name: "Click here".into(),
             localized_control_type: "hyperlink".into(),
@@ -541,8 +392,8 @@ mod tests {
 
     #[test]
     fn tree_item_mapping() {
-        let props = UiaProperties {
-            control_type_id: 50024,
+        let props = NativeElementProperties {
+            tag: "TreeItem".into(),
             automation_id: "node_3".into(),
             name: "Documents".into(),
             localized_control_type: "tree item".into(),
