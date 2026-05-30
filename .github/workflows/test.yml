@@ -151,12 +151,22 @@ jobs:
       - name: Run extension unit tests with coverage
         run: cd packages/extension && npm run test:coverage
 
-      - name: Upload JS coverage to Codecov
-        uses: codecov/codecov-action@v6
+      # Coverage is uploaded to Codecov by the terminal `coverage-upload` job,
+      # not here. Each test job publishes its lcov as an artifact so all uploads
+      # land in one tight window — this keeps the Codecov PR comment from sitting
+      # on a stale intermediate value while jobs finish minutes apart.
+      - name: Stage JS unit coverage
+        run: |
+          mkdir -p coverage-artifacts
+          cp coverage/lcov.info coverage-artifacts/shared-desktop-unit.lcov
+          cp packages/extension/coverage/lcov.info coverage-artifacts/extension-unit.lcov
+
+      - name: Upload JS unit coverage artifact
+        uses: actions/upload-artifact@v7
         with:
-          files: coverage/lcov.info,packages/extension/coverage/lcov.info
-          flags: unit,javascript
-          token: ${{ secrets.CODECOV_TOKEN }}
+          name: coverage-unit-javascript
+          path: coverage-artifacts/*.lcov
+          retention-days: 1
 
   extension-e2e-tests:
     needs: [lint, changes]
@@ -192,13 +202,13 @@ jobs:
         working-directory: packages/extension/tests/e2e
         run: xvfb-run npx playwright test
 
-      - name: Upload extension E2E coverage to Codecov
+      - name: Upload extension E2E coverage artifact
         if: always()
-        uses: codecov/codecov-action@v6
+        uses: actions/upload-artifact@v7
         with:
-          files: packages/extension/tests/e2e/coverage/lcov.info
-          flags: e2e,javascript
-          token: ${{ secrets.CODECOV_TOKEN }}
+          name: coverage-e2e-javascript
+          path: packages/extension/tests/e2e/coverage/lcov.info
+          retention-days: 1
 
       - name: Upload test results
         if: failure()
@@ -290,25 +300,11 @@ jobs:
       - name: Upload Rust coverage reports
         uses: actions/upload-artifact@v7
         with:
-          name: rust-coverage
+          name: coverage-rust
           path: |
             packages/desktop/src-tauri/coverage-unit.lcov
             packages/desktop/src-tauri/coverage-integration.lcov
-          retention-days: 7
-
-      - name: Upload Rust unit coverage to Codecov
-        uses: codecov/codecov-action@v6
-        with:
-          files: packages/desktop/src-tauri/coverage-unit.lcov
-          flags: unit,rust
-          token: ${{ secrets.CODECOV_TOKEN }}
-
-      - name: Upload Rust integration coverage to Codecov
-        uses: codecov/codecov-action@v6
-        with:
-          files: packages/desktop/src-tauri/coverage-integration.lcov
-          flags: integration,rust
-          token: ${{ secrets.CODECOV_TOKEN }}
+          retention-days: 1
 
   desktop-integration-tests:
     needs: [lint, changes]
@@ -344,12 +340,13 @@ jobs:
         working-directory: packages/desktop/tests/integration
         run: npx playwright test
 
-      - name: Upload desktop integration coverage to Codecov
-        uses: codecov/codecov-action@v6
+      - name: Upload desktop integration coverage artifact
+        if: always()
+        uses: actions/upload-artifact@v7
         with:
-          files: packages/desktop/tests/integration/coverage/lcov.info
-          flags: integration,javascript
-          token: ${{ secrets.CODECOV_TOKEN }}
+          name: coverage-integration-javascript
+          path: packages/desktop/tests/integration/coverage/lcov.info
+          retention-days: 1
 
       - name: Upload test results
         if: failure()
@@ -358,6 +355,80 @@ jobs:
           name: desktop-playwright-report
           path: packages/desktop/tests/integration/test-results/
           retention-days: 7
+
+  # Terminal coverage upload. Every test job publishes its lcov as an artifact
+  # rather than uploading to Codecov itself; this job collects them all and
+  # uploads back-to-back in one tight window. Two reasons:
+  #   1. The Codecov PR comment updates on every upload it receives. When
+  #      uploads were spread across jobs finishing minutes apart, the comment
+  #      sat on stale intermediate values (and sometimes never caught the last
+  #      one). Bunching the uploads makes it converge immediately.
+  #   2. A single place owns the flag taxonomy (pyramid layer x language).
+  #
+  # Each upload step is guarded by hashFiles() so a path-filter-skipped test
+  # job (whose artifact is therefore absent) is silently ignored. Codecov's
+  # carryforward keeps that flag's last-known coverage in the meantime.
+  coverage-upload:
+    needs:
+      - unit-tests
+      - extension-e2e-tests
+      - desktop-rust-tests
+      - desktop-integration-tests
+    if: |
+      always() &&
+      (needs.unit-tests.result != 'skipped' ||
+       needs.extension-e2e-tests.result != 'skipped' ||
+       needs.desktop-rust-tests.result != 'skipped' ||
+       needs.desktop-integration-tests.result != 'skipped')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Download all coverage artifacts
+        uses: actions/download-artifact@v7
+        with:
+          pattern: coverage-*
+          path: coverage-artifacts
+
+      - name: Upload unit JS coverage to Codecov
+        if: hashFiles('coverage-artifacts/coverage-unit-javascript/*.lcov') != ''
+        uses: codecov/codecov-action@v6
+        with:
+          files: coverage-artifacts/coverage-unit-javascript/shared-desktop-unit.lcov,coverage-artifacts/coverage-unit-javascript/extension-unit.lcov
+          flags: unit,javascript
+          token: ${{ secrets.CODECOV_TOKEN }}
+
+      - name: Upload extension E2E coverage to Codecov
+        if: hashFiles('coverage-artifacts/coverage-e2e-javascript/lcov.info') != ''
+        uses: codecov/codecov-action@v6
+        with:
+          files: coverage-artifacts/coverage-e2e-javascript/lcov.info
+          flags: e2e,javascript
+          token: ${{ secrets.CODECOV_TOKEN }}
+
+      - name: Upload Rust unit coverage to Codecov
+        if: hashFiles('coverage-artifacts/coverage-rust/coverage-unit.lcov') != ''
+        uses: codecov/codecov-action@v6
+        with:
+          files: coverage-artifacts/coverage-rust/coverage-unit.lcov
+          flags: unit,rust
+          token: ${{ secrets.CODECOV_TOKEN }}
+
+      - name: Upload Rust integration coverage to Codecov
+        if: hashFiles('coverage-artifacts/coverage-rust/coverage-integration.lcov') != ''
+        uses: codecov/codecov-action@v6
+        with:
+          files: coverage-artifacts/coverage-rust/coverage-integration.lcov
+          flags: integration,rust
+          token: ${{ secrets.CODECOV_TOKEN }}
+
+      - name: Upload desktop integration JS coverage to Codecov
+        if: hashFiles('coverage-artifacts/coverage-integration-javascript/lcov.info') != ''
+        uses: codecov/codecov-action@v6
+        with:
+          files: coverage-artifacts/coverage-integration-javascript/lcov.info
+          flags: integration,javascript
+          token: ${{ secrets.CODECOV_TOKEN }}
 
   ci-gate:
     runs-on: ubuntu-latest
@@ -370,10 +441,11 @@ jobs:
       - extension-e2e-tests
       - desktop-rust-tests
       - desktop-integration-tests
+      - coverage-upload
     steps:
       - name: Check job results
         run: |
-          results=("${{ needs.changes.result }}" "${{ needs.lint.result }}" "${{ needs.dependency-audit.result }}" "${{ needs.unit-tests.result }}" "${{ needs.extension-e2e-tests.result }}" "${{ needs.desktop-rust-tests.result }}" "${{ needs.desktop-integration-tests.result }}")
+          results=("${{ needs.changes.result }}" "${{ needs.lint.result }}" "${{ needs.dependency-audit.result }}" "${{ needs.unit-tests.result }}" "${{ needs.extension-e2e-tests.result }}" "${{ needs.desktop-rust-tests.result }}" "${{ needs.desktop-integration-tests.result }}" "${{ needs.coverage-upload.result }}")
           for result in "${results[@]}"; do
             if [[ "$result" != "success" && "$result" != "skipped" ]]; then
               echo "Job failed with result: $result"

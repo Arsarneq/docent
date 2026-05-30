@@ -898,23 +898,28 @@ mod user_actions_advanced {
         capture.start(tx).expect("Failed to start capture");
         thread::sleep(Duration::from_millis(200));
 
-        // Create two windows.
-        let (hwnd1, _, _) = unsafe { create_target_window("Window A", 100, 100) };
+        // Create two windows in non-overlapping screen regions.
+        let (hwnd1, cx1, cy1) = unsafe { create_target_window("Window A", 100, 100) };
         thread::sleep(Duration::from_millis(200));
         let (hwnd2, cx2, cy2) = unsafe { create_target_window("Window B", 600, 100) };
         thread::sleep(Duration::from_millis(200));
 
-        // Bring window A to front, then click on window B.
-        unsafe {
-            let _ = SetForegroundWindow(hwnd1);
-        }
-        thread::sleep(Duration::from_millis(300));
-
-        // Clear any setup events by stopping and restarting.
-        // Actually, just wait and then do the user action.
         let mut enigo = Enigo::new(&Settings::default()).unwrap();
 
-        // Now simulate clicking window B (the user action).
+        // Establish window A as the foreground window via a real user click.
+        // SetForegroundWindow() from a background process is subject to
+        // Windows' foreground-lock restrictions and is unreliable in CI: when
+        // it silently fails, window B (created last, already foreground) stays
+        // foreground, so the later click on B produces no foreground change and
+        // no context_switch is emitted — which is exactly the flake we saw. A
+        // synthesized click is treated as genuine user input and reliably
+        // activates the window, so the subsequent click on B is a true switch.
+        enigo.move_mouse(cx1, cy1, Coordinate::Abs).unwrap();
+        thread::sleep(Duration::from_millis(50));
+        enigo.button(enigo::Button::Left, Direction::Click).unwrap();
+        thread::sleep(Duration::from_millis(300));
+
+        // Now click window B — a user click that switches foreground A -> B.
         enigo.move_mouse(cx2, cy2, Coordinate::Abs).unwrap();
         thread::sleep(Duration::from_millis(50));
         enigo.button(enigo::Button::Left, Direction::Click).unwrap();

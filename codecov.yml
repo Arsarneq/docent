@@ -47,6 +47,35 @@ flag_management:
         - type: project
           informational: true
 
+# Components slice the merged report by area of code via path filters. Unlike
+# flags (tagged at upload time, encoding how lines were covered), components are
+# defined purely here and encode which package the code lives in. The two axes
+# are orthogonal: flags answer "unit vs integration vs e2e / js vs rust",
+# components answer "extension vs desktop vs shared".
+component_management:
+  default_rules:
+    statuses:
+      - type: project
+        target: auto
+        informational: true
+  individual_components:
+    - component_id: extension
+      name: extension
+      paths:
+        - packages/extension/**
+    - component_id: desktop
+      name: desktop
+      paths:
+        - packages/desktop/**
+    - component_id: shared
+      name: shared
+      paths:
+        - packages/shared/**
+
+# Show both the flag and component breakdowns in the PR comment.
+comment:
+  layout: 'header, diff, flags, components, files, footer'
+
 ignore:
   - 'packages/*/tests/**'
   - 'packages/shared/views/adapter.js'
