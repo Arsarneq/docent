@@ -1,8 +1,13 @@
 /**
  * Global teardown for extension E2E tests.
  *
- * Converts any collected V8 coverage data to lcov format.
- * Coverage is collected from the side panel page during tests that open it.
+ * Converts collected V8 coverage data to lcov format using v8-to-istanbul.
+ * Processes two types of coverage files:
+ * - Page coverage (sidepanel-page-*.json) — from page.coverage API
+ * - CDP coverage (sidepanel-cdp-*.json) — from Profiler.takePreciseCoverage
+ *
+ * The CDP coverage captures service worker and content script execution
+ * that page.coverage cannot reach.
  */
 
 import fs from 'fs';
@@ -15,14 +20,14 @@ const coverageDir = path.resolve(__dirname, 'coverage');
 const rawDir = path.resolve(coverageDir, 'raw');
 const extensionPath = path.resolve(__dirname, '../..');
 
-// Source files we want coverage for
+// All extension source files we want coverage for
 const TRACKED_FILES = [
-  { filename: 'panel.js', srcPath: 'sidepanel/panel.js' },
-  { filename: 'adapter-chrome.js', srcPath: 'sidepanel/adapter-chrome.js' },
-  { filename: 'dispatch.js', srcPath: 'sidepanel/dispatch.js' },
-  { filename: 'service-worker.js', srcPath: 'background/service-worker.js' },
-  { filename: 'recorder-logic.js', srcPath: 'content/recorder-logic.js' },
-  { filename: 'recorder.js', srcPath: 'content/recorder.js' },
+  { match: 'sidepanel/panel.js', src: 'sidepanel/panel.js' },
+  { match: 'sidepanel/adapter-chrome.js', src: 'sidepanel/adapter-chrome.js' },
+  { match: 'sidepanel/dispatch.js', src: 'sidepanel/dispatch.js' },
+  { match: 'background/service-worker.js', src: 'background/service-worker.js' },
+  { match: 'content/recorder.js', src: 'content/recorder.js' },
+  { match: 'content/recorder-logic.js', src: 'content/recorder-logic.js' },
 ];
 
 export default async function globalTeardown() {
@@ -35,19 +40,28 @@ export default async function globalTeardown() {
   const mergedByFile = new Map();
 
   for (const file of rawFiles) {
-    const entries = JSON.parse(fs.readFileSync(path.join(rawDir, file), 'utf-8'));
+    let entries;
+    try {
+      entries = JSON.parse(fs.readFileSync(path.join(rawDir, file), 'utf-8'));
+    } catch {
+      continue;
+    }
+
     for (const entry of entries) {
       const url = entry.url || '';
-      const tracked = TRACKED_FILES.find(
-        (t) => url.endsWith(`/${t.filename}`) || url.includes(`/${t.srcPath}`),
-      );
+      const tracked = TRACKED_FILES.find((t) => url.endsWith(`/${t.match}`));
       if (!tracked) continue;
 
-      if (!mergedByFile.has(tracked.srcPath)) {
-        mergedByFile.set(tracked.srcPath, []);
+      if (!mergedByFile.has(tracked.src)) {
+        mergedByFile.set(tracked.src, []);
       }
-      mergedByFile.get(tracked.srcPath).push(entry);
+      mergedByFile.get(tracked.src).push(entry);
     }
+  }
+
+  if (mergedByFile.size === 0) {
+    cleanup(rawFiles);
+    return;
   }
 
   // Convert to lcov
@@ -72,7 +86,6 @@ export default async function globalTeardown() {
         lcovOutput += `TN:\n`;
         lcovOutput += `SF:${filePath}\n`;
 
-        // Function coverage
         if (fileCoverage.fnMap) {
           for (const [id, fn] of Object.entries(fileCoverage.fnMap)) {
             lcovOutput += `FN:${fn.loc.start.line},${fn.name || '(anonymous)'}\n`;
@@ -86,7 +99,6 @@ export default async function globalTeardown() {
           lcovOutput += `FNH:${fnHit}\n`;
         }
 
-        // Line coverage
         if (fileCoverage.statementMap) {
           let linesFound = 0;
           let linesHit = 0;
@@ -108,23 +120,25 @@ export default async function globalTeardown() {
         lcovOutput += `end_of_record\n`;
       }
     } catch (err) {
-      console.warn(`[Coverage] Failed to process ${srcRelPath}:`, err.message);
+      console.warn(`[coverage] Failed to process ${srcRelPath}:`, err.message);
     }
   }
 
-  // Write lcov report
   if (lcovOutput) {
-    fs.mkdirSync(coverageDir, { recursive: true });
     fs.writeFileSync(path.join(coverageDir, 'lcov.info'), lcovOutput);
+    console.log(`[coverage] Report written to ${coverageDir}/lcov.info`);
   }
 
-  // Clean up raw files
+  cleanup(rawFiles);
+}
+
+function cleanup(rawFiles) {
   for (const file of rawFiles) {
     fs.unlinkSync(path.join(rawDir, file));
   }
   try {
     fs.rmdirSync(rawDir);
   } catch {
-    /* ignore if not empty */
+    /* ignore */
   }
 }
