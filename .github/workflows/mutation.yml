@@ -9,7 +9,7 @@ permissions:
   contents: read
 
 jobs:
-  stryker:
+  stryker-shared:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -21,13 +21,71 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Run Stryker mutation testing
+      - name: Run Stryker — shared package
         run: npm run test:mutation
 
-      - name: Upload mutation report
+      - name: Upload shared mutation report
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: mutation-report
+          name: mutation-report-shared
           path: reports/mutation/
+          retention-days: 30
+
+  stryker-extension:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 20
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install extension test dependencies
+        run: cd packages/extension && npm ci
+
+      - name: Sync shared code
+        run: npm run sync-shared
+
+      - name: Run Stryker — extension
+        run: npm run test:mutation:extension
+
+      - name: Upload extension mutation report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: mutation-report-extension
+          path: reports/mutation-extension/
+          retention-days: 30
+
+  stryker-desktop:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 20
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Sync shared code
+        run: npm run sync-shared
+
+      - name: Build desktop dist
+        run: npm run build:desktop-dist
+
+      - name: Run Stryker — desktop
+        run: npm run test:mutation:desktop
+
+      - name: Upload desktop mutation report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: mutation-report-desktop
+          path: reports/mutation-desktop/
           retention-days: 30

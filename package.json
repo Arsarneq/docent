@@ -12,6 +12,8 @@
     "test:desktop:rust": "cargo test --manifest-path packages/desktop/src-tauri/Cargo.toml",
     "test:shared": "node --test packages/shared/tests/unit/*.test.js",
     "test:mutation": "npx stryker run",
+    "test:mutation:extension": "npx stryker run stryker.extension.mjs",
+    "test:mutation:desktop": "npx stryker run stryker.desktop.mjs",
     "test:shared:coverage": "c8 --reporter=text --reporter=lcov node --test packages/shared/tests/unit/*.test.js",
     "test:desktop:coverage": "c8 --reporter=text --reporter=lcov node --test packages/desktop/tests/unit/*.test.js",
     "test:coverage": "c8 --reporter=text --reporter=lcov node --test packages/shared/tests/unit/*.test.js packages/desktop/tests/unit/*.test.js",
