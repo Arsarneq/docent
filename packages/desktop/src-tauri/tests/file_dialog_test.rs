@@ -322,17 +322,19 @@ mod file_dialog_navigation {
         true
     }
 
-    /// Test: navigating the folder tree (C: → Program Files) does not produce
-    /// spurious context_close events.
+    /// Navigating the folder tree (C: → Program Files) must not make the
+    /// capture layer over-report. A single navigation is exercised once and
+    /// checked for three distinct noise properties — they're facets of the same
+    /// behaviour ("don't emit spurious/duplicate/excessive events during a
+    /// dialog interaction"), so running one scenario and asserting all three is
+    /// both faithful and ~3x cheaper than three identical-scenario tests.
     ///
-    /// Opening a folder tears down and rebuilds the dialog's internal list
-    /// view, which fires WinEvents that look like window destruction. The
-    /// capture layer must filter these out. Because navigation is deterministic
-    /// (we verify both targets were found), this assertion is meaningful: the
-    /// list-refresh condition genuinely occurred.
+    /// Navigation is deterministic (targets located by name via UIA), so the
+    /// genuine folder-load/list-view refresh provably occurs — making the
+    /// no-`context_close` assertion meaningful rather than vacuous.
     #[test]
     #[serial]
-    fn file_dialog_navigation_no_spurious_context_close() {
+    fn folder_navigation_produces_no_spurious_events() {
         let (mut capture, rx, mut enigo, pid, dialog_hwnd) = open_dialog();
         let uia = DialogUia::new(dialog_hwnd);
 
@@ -354,8 +356,19 @@ mod file_dialog_navigation {
         }
 
         let events: Vec<_> = rx.try_iter().collect();
+        let click_events = clicks(&events);
 
-        // ASSERTION 1: No context_close from the folder-load list refresh.
+        // Sanity: the navigation clicks were captured (so the assertions below
+        // are evaluated against a run that actually interacted with the dialog).
+        assert!(
+            !click_events.is_empty(),
+            "Expected at least one click event from folder navigation, got 0"
+        );
+
+        // 1. No context_close from the folder-load list-view teardown/rebuild.
+        //    The dialog's internal list view refreshes on navigation, firing
+        //    WinEvents that look like window destruction; the capture layer
+        //    must filter them out.
         let closes = context_closes(&events);
         assert!(
             closes.is_empty(),
@@ -364,41 +377,10 @@ mod file_dialog_navigation {
             closes.len()
         );
 
-        // ASSERTION 2: The user clicks were captured (drive click + folder open).
-        let click_events = clicks(&events);
-        assert!(
-            !click_events.is_empty(),
-            "Expected at least one click event from folder navigation, got 0"
-        );
-    }
-
-    /// Test: opening a folder in the file list does not produce more select
-    /// events than clicks. A click already captures the user's intent, so the
-    /// redundant EVENT_OBJECT_SELECTION that fires alongside it must be
-    /// suppressed.
-    #[test]
-    #[serial]
-    fn file_dialog_no_duplicate_select_per_click() {
-        let (mut capture, rx, mut enigo, pid, dialog_hwnd) = open_dialog();
-        let uia = DialogUia::new(dialog_hwnd);
-
-        let navigated = navigate_c_then_program_files(&uia, &mut enigo);
-
-        enigo.key(Key::Escape, Direction::Click).unwrap();
-        thread::sleep(Duration::from_millis(500));
-        kill_process(pid);
-        thread::sleep(Duration::from_millis(300));
-        capture.stop().unwrap();
-
-        if !navigated {
-            eprintln!("SKIP: could not navigate C: → Program Files in this environment.");
-            return;
-        }
-
-        let events: Vec<_> = rx.try_iter().collect();
+        // 2. No more select events than clicks. A click already captures the
+        //    user's intent, so the redundant EVENT_OBJECT_SELECTION that fires
+        //    alongside it must be suppressed.
         let select_events = selects(&events);
-        let click_events = clicks(&events);
-
         assert!(
             select_events.len() <= click_events.len(),
             "Got {} select events for {} clicks — duplicate selects are leaking. \
@@ -406,38 +388,11 @@ mod file_dialog_navigation {
             select_events.len(),
             click_events.len()
         );
-    }
 
-    /// Test: navigating the folder tree does not produce excessive focus noise.
-    ///
-    /// File dialogs shuffle focus across many internal controls during a
-    /// navigation. The capture layer should report some legitimate focus
-    /// changes but not one per internal control, so the count must stay
-    /// bounded rather than scale with the dialog's internal complexity.
-    #[test]
-    #[serial]
-    fn file_dialog_focus_count_is_bounded() {
-        let (mut capture, rx, mut enigo, pid, dialog_hwnd) = open_dialog();
-        let uia = DialogUia::new(dialog_hwnd);
-
-        let navigated = navigate_c_then_program_files(&uia, &mut enigo);
-
-        enigo.key(Key::Escape, Direction::Click).unwrap();
-        thread::sleep(Duration::from_millis(500));
-        kill_process(pid);
-        thread::sleep(Duration::from_millis(300));
-        capture.stop().unwrap();
-
-        if !navigated {
-            eprintln!("SKIP: could not navigate C: → Program Files in this environment.");
-            return;
-        }
-
-        let events: Vec<_> = rx.try_iter().collect();
+        // 3. Focus noise stays bounded. File dialogs shuffle focus across many
+        //    internal controls during navigation; the capture layer should
+        //    report some legitimate focus changes but not one per control.
         let focus_events = focuses(&events);
-
-        // A two-step navigation should still produce few focus events. Allow
-        // some headroom over a single interaction but require it stays bounded.
         assert!(
             focus_events.len() < 12,
             "Got {} focus events from a two-step folder navigation — \
