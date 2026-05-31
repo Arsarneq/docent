@@ -663,7 +663,7 @@ describe('Security: adversarial dispatch responses', () => {
     };
 
     await assert.rejects(
-      () => sendPayload('http://localhost:9999', null, {}),
+      () => sendPayload('http://localhost:9999', null, {}, { maxRetries: 0 }),
       (err) => err instanceof DispatchError && err.message.includes('timed out'),
     );
   });

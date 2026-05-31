@@ -327,7 +327,7 @@ describe('error messages surface HTTP status codes and network errors', () => {
 
           let thrown = null;
           try {
-            await sendPayload('http://localhost:9999', null, {});
+            await sendPayload('http://localhost:9999', null, {}, { maxRetries: 0 });
           } catch (err) {
             thrown = err;
           }
@@ -348,7 +348,7 @@ describe('error messages surface HTTP status codes and network errors', () => {
 
         let thrown = null;
         try {
-          await sendPayload('http://localhost:9999', null, {});
+          await sendPayload('http://localhost:9999', null, {}, { maxRetries: 0 });
         } catch (err) {
           thrown = err;
         }

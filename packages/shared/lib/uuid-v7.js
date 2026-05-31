@@ -64,3 +64,22 @@ export function uuidv7ToDate(uuid) {
 export function compareUuidv7(a, b) {
   return a < b ? -1 : a > b ? 1 : 0;
 }
+
+/**
+ * Canonical UUIDv7 format: 8-4-4-4-12 hex, version nibble 7, variant 8/9/a/b.
+ */
+const UUIDV7_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+/**
+ * Returns true if `value` is a well-formed UUID v7 string.
+ *
+ * Used to validate identifiers that originate from untrusted input (imported
+ * files, server-returned sync manifests) before they are interpolated into
+ * request URLs or persisted. See SECURITY_BACKLOG S15.
+ *
+ * @param {unknown} value
+ * @returns {boolean}
+ */
+export function isValidUuidv7(value) {
+  return typeof value === 'string' && UUIDV7_RE.test(value);
+}

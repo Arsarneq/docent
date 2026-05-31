@@ -87,7 +87,9 @@ describe('sendPayload — error handling', () => {
 
     let thrown = null;
     try {
-      await sendPayload('https://example.com/api', null, { test: true });
+      // Network errors are transient (retried); maxRetries:0 asserts the
+      // terminal throw without backoff delay.
+      await sendPayload('https://example.com/api', null, { test: true }, { maxRetries: 0 });
     } catch (err) {
       thrown = err;
     }
@@ -106,7 +108,9 @@ describe('sendPayload — error handling', () => {
 
     let thrown = null;
     try {
-      await sendPayload('https://example.com/api', null, { test: true });
+      // 503 is transient (retried); maxRetries:0 asserts the terminal throw
+      // without incurring backoff delay.
+      await sendPayload('https://example.com/api', null, { test: true }, { maxRetries: 0 });
     } catch (err) {
       thrown = err;
     }
@@ -168,7 +172,7 @@ describe('sendPayload — error handling', () => {
     globalThis.fetch = async () => ({ ok: false, status: 500, headers: { get: () => null } });
     let thrown = null;
     try {
-      await sendPayload('https://example.com/api', null, { test: true });
+      await sendPayload('https://example.com/api', null, { test: true }, { maxRetries: 0 });
     } catch (err) {
       thrown = err;
     }
@@ -180,7 +184,7 @@ describe('sendPayload — error handling', () => {
     globalThis.fetch = async () => ({ ok: false, status: 502, headers: { get: () => null } });
     let thrown = null;
     try {
-      await sendPayload('https://example.com/api', null, { test: true });
+      await sendPayload('https://example.com/api', null, { test: true }, { maxRetries: 0 });
     } catch (err) {
       thrown = err;
     }
@@ -276,7 +280,7 @@ describe('sendPayload — error handling', () => {
 
     let thrown = null;
     try {
-      await sendPayload('https://example.com/api', null, { test: true });
+      await sendPayload('https://example.com/api', null, { test: true }, { maxRetries: 0 });
     } catch (err) {
       thrown = err;
     }
@@ -483,5 +487,148 @@ describe('buildPayload — metadata handling', () => {
     const payload = buildPayload(project, recordings, '', {});
     assert.equal(payload.recordings[0].steps[0].narration, undefined);
     assert.equal(payload.recordings[0].steps[0].narration_source, undefined);
+  });
+});
+
+// ─── S11: plaintext-HTTP + API key rejection ─────────────────────────────────
+
+describe('validateEndpointUrl — S11 plaintext HTTP guard', () => {
+  it('rejects http:// when an API key is set (non-loopback host)', () => {
+    const err = validateEndpointUrl('http://api.example.com/dispatch', { hasApiKey: true });
+    assert.ok(err !== null, 'http + key on a public host must be rejected');
+    assert.match(err, /https/);
+  });
+
+  it('allows https:// when an API key is set', () => {
+    assert.equal(
+      validateEndpointUrl('https://api.example.com/dispatch', { hasApiKey: true }),
+      null,
+    );
+  });
+
+  it('allows http:// + key for loopback (localhost / 127.x / [::1])', () => {
+    assert.equal(validateEndpointUrl('http://localhost:3000', { hasApiKey: true }), null);
+    assert.equal(validateEndpointUrl('http://127.0.0.1:8080/v1', { hasApiKey: true }), null);
+    assert.equal(validateEndpointUrl('http://127.5.5.5/v1', { hasApiKey: true }), null);
+    assert.equal(validateEndpointUrl('http://[::1]:3000', { hasApiKey: true }), null);
+  });
+
+  it('still allows http:// on a public host when NO API key is set', () => {
+    assert.equal(
+      validateEndpointUrl('http://api.example.com/dispatch', { hasApiKey: false }),
+      null,
+    );
+    // Default (no opts) preserves the pre-S11 behaviour for existing callers.
+    assert.equal(validateEndpointUrl('http://api.example.com/dispatch'), null);
+  });
+
+  it('blocks the link-local / cloud-metadata range regardless of key or scheme', () => {
+    assert.ok(validateEndpointUrl('http://169.254.169.254/latest/meta-data') !== null);
+    assert.ok(validateEndpointUrl('https://169.254.169.254/', { hasApiKey: true }) !== null);
+    assert.ok(validateEndpointUrl('http://169.254.1.1/', { hasApiKey: false }) !== null);
+  });
+
+  it('still allows private LAN hosts (not blocked by S11)', () => {
+    assert.equal(validateEndpointUrl('http://192.168.1.10:8080/v1', { hasApiKey: false }), null);
+  });
+});
+
+// ─── S4: dispatch retry with backoff on transient failures ────────────────────
+
+describe('sendPayload — S4 retry/backoff', () => {
+  // Inject a no-op sleep so retry timing is instant and deterministic.
+  const noSleep = () => Promise.resolve();
+
+  it('retries a 503 then succeeds on a later attempt', async () => {
+    let calls = 0;
+    globalThis.fetch = async () => {
+      calls++;
+      if (calls < 3) return { ok: false, status: 503, headers: { get: () => null } };
+      return { ok: true, status: 200, headers: { get: () => null }, json: async () => ({ ok: 1 }) };
+    };
+
+    const result = await sendPayload('https://example.com/api', null, {}, { sleep: noSleep });
+    assert.deepEqual(result, { ok: 1 });
+    assert.equal(calls, 3, 'should have retried twice before succeeding');
+  });
+
+  it('retries up to maxRetries then throws the last transient error', async () => {
+    let calls = 0;
+    globalThis.fetch = async () => {
+      calls++;
+      return { ok: false, status: 500, headers: { get: () => null } };
+    };
+
+    let thrown = null;
+    try {
+      await sendPayload('https://example.com/api', null, {}, { maxRetries: 2, sleep: noSleep });
+    } catch (err) {
+      thrown = err;
+    }
+    assert.ok(thrown instanceof DispatchError);
+    assert.equal(thrown.status, 500);
+    assert.equal(calls, 3, 'initial attempt + 2 retries = 3 calls');
+  });
+
+  it('does NOT retry a non-transient 4xx (fails fast)', async () => {
+    let calls = 0;
+    globalThis.fetch = async () => {
+      calls++;
+      return { ok: false, status: 400, headers: { get: () => null } };
+    };
+
+    await assert.rejects(
+      () => sendPayload('https://example.com/api', null, {}, { maxRetries: 3, sleep: noSleep }),
+      (err) => err instanceof DispatchError && err.status === 400,
+    );
+    assert.equal(calls, 1, '4xx must not be retried');
+  });
+
+  it('retries a 429 (rate limited)', async () => {
+    let calls = 0;
+    globalThis.fetch = async () => {
+      calls++;
+      if (calls < 2) return { ok: false, status: 429, headers: { get: () => null } };
+      return { ok: true, status: 200, headers: { get: () => null }, json: async () => ({}) };
+    };
+
+    await sendPayload('https://example.com/api', null, {}, { sleep: noSleep });
+    assert.equal(calls, 2, '429 should be retried');
+  });
+
+  it('honours Retry-After (seconds) by passing it to sleep', async () => {
+    let calls = 0;
+    const delays = [];
+    globalThis.fetch = async () => {
+      calls++;
+      if (calls < 2) {
+        return {
+          ok: false,
+          status: 503,
+          headers: { get: (h) => (h === 'retry-after' ? '2' : null) },
+        };
+      }
+      return { ok: true, status: 200, headers: { get: () => null }, json: async () => ({}) };
+    };
+
+    await sendPayload(
+      'https://example.com/api',
+      null,
+      {},
+      { sleep: (ms) => (delays.push(ms), Promise.resolve()) },
+    );
+    assert.deepEqual(delays, [2000], 'Retry-After: 2 → 2000ms delay');
+  });
+
+  it('retries a network error then succeeds', async () => {
+    let calls = 0;
+    globalThis.fetch = async () => {
+      calls++;
+      if (calls < 2) throw new Error('ECONNRESET');
+      return { ok: true, status: 200, headers: { get: () => null }, json: async () => ({}) };
+    };
+
+    await sendPayload('https://example.com/api', null, {}, { sleep: noSleep });
+    assert.equal(calls, 2, 'network error should be retried');
   });
 });

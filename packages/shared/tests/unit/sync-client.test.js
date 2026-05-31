@@ -263,25 +263,27 @@ describe('buildPayloadForProject', () => {
 
 describe('pullProjects', () => {
   it('fetches manifest then each project by id', async () => {
+    const X1 = '0190a1b2-0000-7000-8000-000000000001';
+    const X2 = '0190a1b2-0000-7000-8000-000000000002';
     const manifest = [
-      { project_id: 'x1', name: 'X1', last_modified: '2026-01-01T00:00:00.000Z' },
-      { project_id: 'x2', name: 'X2', last_modified: '2026-01-01T00:00:00.000Z' },
+      { project_id: X1, name: 'X1', last_modified: '2026-01-01T00:00:00.000Z' },
+      { project_id: X2, name: 'X2', last_modified: '2026-01-01T00:00:00.000Z' },
     ];
     const payloads = {
       x1: {
-        project: { project_id: 'x1', name: 'X1', created_at: '2026-01-01T00:00:00.000Z' },
+        project: { project_id: X1, name: 'X1', created_at: '2026-01-01T00:00:00.000Z' },
         recordings: [],
       },
       x2: {
-        project: { project_id: 'x2', name: 'X2', created_at: '2026-01-01T00:00:00.000Z' },
+        project: { project_id: X2, name: 'X2', created_at: '2026-01-01T00:00:00.000Z' },
         recordings: [],
       },
     };
 
     mockFetch((url) => {
       if (url.endsWith('/projects')) return makeResponse(200, manifest);
-      if (url.endsWith('/projects/x1')) return makeResponse(200, payloads.x1);
-      if (url.endsWith('/projects/x2')) return makeResponse(200, payloads.x2);
+      if (url.endsWith(`/projects/${X1}`)) return makeResponse(200, payloads.x1);
+      if (url.endsWith(`/projects/${X2}`)) return makeResponse(200, payloads.x2);
       return makeResponse(404);
     });
 
@@ -290,11 +292,11 @@ describe('pullProjects', () => {
     // First call is manifest, then one per project
     assert.equal(fetchCalls.length, 3);
     assert.ok(fetchCalls[0].url.endsWith('/projects'));
-    assert.ok(fetchCalls[1].url.endsWith('/projects/x1'));
-    assert.ok(fetchCalls[2].url.endsWith('/projects/x2'));
+    assert.ok(fetchCalls[1].url.endsWith(`/projects/${X1}`));
+    assert.ok(fetchCalls[2].url.endsWith(`/projects/${X2}`));
     assert.equal(result.projects.length, 2);
-    assert.equal(result.projects[0].project_id, 'x1');
-    assert.equal(result.projects[1].project_id, 'x2');
+    assert.equal(result.projects[0].project_id, X1);
+    assert.equal(result.projects[1].project_id, X2);
   });
 
   it('network error on manifest returns error with halted=false', async () => {
@@ -334,12 +336,14 @@ describe('pullProjects', () => {
   });
 
   it('network error on individual project fetch continues to next project', async () => {
+    const P1 = '0190a1b2-0000-7000-8000-000000000011';
+    const P2 = '0190a1b2-0000-7000-8000-000000000012';
     const manifest = [
-      { project_id: 'p1', name: 'P1', last_modified: '2026-01-01T00:00:00.000Z' },
-      { project_id: 'p2', name: 'P2', last_modified: '2026-01-01T00:00:00.000Z' },
+      { project_id: P1, name: 'P1', last_modified: '2026-01-01T00:00:00.000Z' },
+      { project_id: P2, name: 'P2', last_modified: '2026-01-01T00:00:00.000Z' },
     ];
     const p2Payload = {
-      project: { project_id: 'p2', name: 'P2', created_at: '2026-01-01T00:00:00.000Z' },
+      project: { project_id: P2, name: 'P2', created_at: '2026-01-01T00:00:00.000Z' },
       recordings: [],
     };
 
@@ -347,15 +351,15 @@ describe('pullProjects', () => {
     mockFetch((url) => {
       callCount++;
       if (url.endsWith('/projects')) return makeResponse(200, manifest);
-      if (url.endsWith('/projects/p1')) throw new Error('Connection reset');
-      if (url.endsWith('/projects/p2')) return makeResponse(200, p2Payload);
+      if (url.endsWith(`/projects/${P1}`)) throw new Error('Connection reset');
+      if (url.endsWith(`/projects/${P2}`)) return makeResponse(200, p2Payload);
       return makeResponse(404);
     });
 
     const result = await pullProjects('https://srv.test', null);
 
     assert.equal(result.projects.length, 1);
-    assert.equal(result.projects[0].project_id, 'p2');
+    assert.equal(result.projects[0].project_id, P2);
     assert.equal(result.errors.length, 1);
     assert.equal(result.errors[0].status, null);
     assert.equal(result.errors[0].projectName, 'P1');
@@ -363,26 +367,28 @@ describe('pullProjects', () => {
   });
 
   it('non-ok response on individual project fetch continues to next project', async () => {
+    const P1 = '0190a1b2-0000-7000-8000-000000000011';
+    const P2 = '0190a1b2-0000-7000-8000-000000000012';
     const manifest = [
-      { project_id: 'p1', name: 'P1', last_modified: '2026-01-01T00:00:00.000Z' },
-      { project_id: 'p2', name: 'P2', last_modified: '2026-01-01T00:00:00.000Z' },
+      { project_id: P1, name: 'P1', last_modified: '2026-01-01T00:00:00.000Z' },
+      { project_id: P2, name: 'P2', last_modified: '2026-01-01T00:00:00.000Z' },
     ];
     const p2Payload = {
-      project: { project_id: 'p2', name: 'P2', created_at: '2026-01-01T00:00:00.000Z' },
+      project: { project_id: P2, name: 'P2', created_at: '2026-01-01T00:00:00.000Z' },
       recordings: [],
     };
 
     mockFetch((url) => {
       if (url.endsWith('/projects')) return makeResponse(200, manifest);
-      if (url.endsWith('/projects/p1')) return makeResponse(500);
-      if (url.endsWith('/projects/p2')) return makeResponse(200, p2Payload);
+      if (url.endsWith(`/projects/${P1}`)) return makeResponse(500);
+      if (url.endsWith(`/projects/${P2}`)) return makeResponse(200, p2Payload);
       return makeResponse(404);
     });
 
     const result = await pullProjects('https://srv.test', null);
 
     assert.equal(result.projects.length, 1);
-    assert.equal(result.projects[0].project_id, 'p2');
+    assert.equal(result.projects[0].project_id, P2);
     assert.equal(result.errors.length, 1);
     assert.equal(result.errors[0].status, 500);
     assert.equal(result.errors[0].projectName, 'P1');
@@ -390,14 +396,16 @@ describe('pullProjects', () => {
   });
 
   it('auth error on individual project fetch halts entire pull', async () => {
+    const P1 = '0190a1b2-0000-7000-8000-000000000011';
+    const P2 = '0190a1b2-0000-7000-8000-000000000012';
     const manifest = [
-      { project_id: 'p1', name: 'P1', last_modified: '2026-01-01T00:00:00.000Z' },
-      { project_id: 'p2', name: 'P2', last_modified: '2026-01-01T00:00:00.000Z' },
+      { project_id: P1, name: 'P1', last_modified: '2026-01-01T00:00:00.000Z' },
+      { project_id: P2, name: 'P2', last_modified: '2026-01-01T00:00:00.000Z' },
     ];
 
     mockFetch((url) => {
       if (url.endsWith('/projects')) return makeResponse(200, manifest);
-      if (url.endsWith('/projects/p1')) return makeResponse(403);
+      if (url.endsWith(`/projects/${P1}`)) return makeResponse(403);
       return makeResponse(200, { project: {}, recordings: [] });
     });
 
@@ -460,17 +468,18 @@ describe('pushProjects — network errors', () => {
 
 describe('sync', () => {
   it('merges pulled projects — same project_id replaces local (server-wins)', async () => {
-    const localProjects = [makeProject('shared-id', 'Local Version', [makeRecording('r1')])];
+    const SHARED = '0190a1b2-0000-7000-8000-0000000000a1';
+    const localProjects = [makeProject(SHARED, 'Local Version', [makeRecording('r1')])];
     const manifest = [
       {
-        project_id: 'shared-id',
+        project_id: SHARED,
         name: 'Server Version',
         last_modified: '2026-06-01T00:00:00.000Z',
       },
     ];
     const serverPayload = {
       project: {
-        project_id: 'shared-id',
+        project_id: SHARED,
         name: 'Server Version',
         created_at: '2026-01-01T00:00:00.000Z',
       },
@@ -487,7 +496,7 @@ describe('sync', () => {
     mockFetch((url, opts) => {
       if (opts.method === 'PUT') return makeResponse(200, { ok: true });
       if (url.endsWith('/projects') && opts.method === 'GET') return makeResponse(200, manifest);
-      if (url.endsWith('/projects/shared-id')) return makeResponse(200, serverPayload);
+      if (url.endsWith(`/projects/${SHARED}`)) return makeResponse(200, serverPayload);
       return makeResponse(404);
     });
 
@@ -499,17 +508,18 @@ describe('sync', () => {
   });
 
   it('merges pulled projects — new project_id appended', async () => {
+    const SERVER_NEW = '0190a1b2-0000-7000-8000-0000000000b2';
     const localProjects = [makeProject('local-only')];
     const manifest = [
       {
-        project_id: 'server-new',
+        project_id: SERVER_NEW,
         name: 'New From Server',
         last_modified: '2026-06-01T00:00:00.000Z',
       },
     ];
     const serverPayload = {
       project: {
-        project_id: 'server-new',
+        project_id: SERVER_NEW,
         name: 'New From Server',
         created_at: '2026-01-01T00:00:00.000Z',
       },
@@ -519,7 +529,7 @@ describe('sync', () => {
     mockFetch((url, opts) => {
       if (opts.method === 'PUT') return makeResponse(200, { ok: true });
       if (url.endsWith('/projects') && opts.method === 'GET') return makeResponse(200, manifest);
-      if (url.endsWith('/projects/server-new')) return makeResponse(200, serverPayload);
+      if (url.endsWith(`/projects/${SERVER_NEW}`)) return makeResponse(200, serverPayload);
       return makeResponse(404);
     });
 
@@ -527,23 +537,24 @@ describe('sync', () => {
 
     assert.equal(projects.length, 2);
     assert.equal(projects[0].project_id, 'local-only');
-    assert.equal(projects[1].project_id, 'server-new');
+    assert.equal(projects[1].project_id, SERVER_NEW);
   });
 
   it('executes push before pull (push fetch calls precede pull fetch calls)', async () => {
+    const SRV1 = '0190a1b2-0000-7000-8000-0000000000c1';
     const localProjects = [makeProject('p1')];
     const manifest = [
-      { project_id: 'srv1', name: 'Srv1', last_modified: '2026-01-01T00:00:00.000Z' },
+      { project_id: SRV1, name: 'Srv1', last_modified: '2026-01-01T00:00:00.000Z' },
     ];
     const serverPayload = {
-      project: { project_id: 'srv1', name: 'Srv1', created_at: '2026-01-01T00:00:00.000Z' },
+      project: { project_id: SRV1, name: 'Srv1', created_at: '2026-01-01T00:00:00.000Z' },
       recordings: [],
     };
 
     mockFetch((url, opts) => {
       if (opts.method === 'PUT') return makeResponse(200, { ok: true });
       if (url.endsWith('/projects') && opts.method === 'GET') return makeResponse(200, manifest);
-      if (url.endsWith('/projects/srv1')) return makeResponse(200, serverPayload);
+      if (url.endsWith(`/projects/${SRV1}`)) return makeResponse(200, serverPayload);
       return makeResponse(404);
     });
 
@@ -637,13 +648,14 @@ describe('sync', () => {
   });
 
   it('pulled project with metadata preserves metadata in merged result', async () => {
+    const SRV_META = '0190a1b2-0000-7000-8000-0000000000d1';
     const localProjects = [];
     const manifest = [
-      { project_id: 'srv-meta', name: 'Srv', last_modified: '2026-06-01T00:00:00.000Z' },
+      { project_id: SRV_META, name: 'Srv', last_modified: '2026-06-01T00:00:00.000Z' },
     ];
     const serverPayload = {
       project: {
-        project_id: 'srv-meta',
+        project_id: SRV_META,
         name: 'Srv',
         created_at: '2026-01-01T00:00:00.000Z',
         metadata: { team: 'QA', sprint: '24' },
@@ -661,7 +673,7 @@ describe('sync', () => {
 
     mockFetch((url, opts) => {
       if (url.endsWith('/projects') && opts.method === 'GET') return makeResponse(200, manifest);
-      if (url.endsWith('/projects/srv-meta')) return makeResponse(200, serverPayload);
+      if (url.endsWith(`/projects/${SRV_META}`)) return makeResponse(200, serverPayload);
       return makeResponse(200, { ok: true });
     });
 

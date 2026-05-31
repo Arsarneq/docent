@@ -185,7 +185,7 @@ const tauriAdapter = {
   },
 
   async saveSettings(endpointUrl, apiKey) {
-    const urlError = _validateEndpointUrl(endpointUrl);
+    const urlError = _validateEndpointUrl(endpointUrl, { hasApiKey: !!apiKey });
     if (endpointUrl !== '' && urlError !== null) {
       throw new Error(urlError);
     }
@@ -218,7 +218,7 @@ const tauriAdapter = {
   },
 
   async saveSyncSettings(serverUrl, apiKey) {
-    const urlError = _validateEndpointUrl(serverUrl);
+    const urlError = _validateEndpointUrl(serverUrl, { hasApiKey: !!apiKey });
     if (serverUrl !== '' && urlError !== null) {
       throw new Error(urlError);
     }

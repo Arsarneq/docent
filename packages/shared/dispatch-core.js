@@ -12,10 +12,17 @@
 
 /**
  * Validates an endpoint URL string.
+ *
  * @param {string} url
+ * @param {object} [opts]
+ * @param {boolean} [opts.hasApiKey=false] — whether an API key is configured for
+ *   this endpoint. When true, a plaintext `http://` endpoint is rejected unless
+ *   it targets loopback, because the `Authorization: Bearer` header (and the
+ *   session payload, which may contain PII) would travel unencrypted and be
+ *   readable by an on-path attacker. See SECURITY_BACKLOG S11.
  * @returns {string|null} null if valid, error string if invalid
  */
-export function validateEndpointUrl(url) {
+export function validateEndpointUrl(url, { hasApiKey = false } = {}) {
   if (url === '') return null;
   if (!url.startsWith('http://') && !url.startsWith('https://')) {
     return 'Endpoint URL must start with http:// or https://';
@@ -35,7 +42,42 @@ export function validateEndpointUrl(url) {
   if (!parsed.hostname) {
     return 'Endpoint URL must have a hostname';
   }
+
+  const host = normalizeHostname(parsed.hostname);
+
+  // Always reject the link-local / cloud-metadata range (169.254.0.0/16,
+  // including the 169.254.169.254 metadata endpoint) — never a legitimate
+  // dispatch/sync target, and a classic SSRF pivot. See SECURITY_BACKLOG S11.
+  if (isLinkLocalIpv4(host)) {
+    return 'Endpoint URL must not target a link-local address (169.254.0.0/16)';
+  }
+
+  // An API key over plaintext http:// exposes the key and payload in transit.
+  // Permit http:// only for loopback (local dev); require https:// otherwise.
+  if (hasApiKey && parsed.protocol === 'http:' && !isLoopbackHost(host)) {
+    return 'Use https:// when an API key is set (http:// is allowed only for localhost)';
+  }
+
   return null;
+}
+
+/** Lower-cases and strips IPv6 brackets from a URL hostname. */
+function normalizeHostname(hostname) {
+  return hostname.toLowerCase().replace(/^\[/, '').replace(/\]$/, '');
+}
+
+/** True for loopback hosts: localhost, 127.0.0.0/8, and ::1. */
+function isLoopbackHost(host) {
+  if (host === 'localhost' || host === '::1') return true;
+  // 127.0.0.0/8
+  const m = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(host);
+  return m !== null && Number(m[1]) === 127;
+}
+
+/** True for IPv4 link-local 169.254.0.0/16 (cloud metadata endpoint range). */
+function isLinkLocalIpv4(host) {
+  const m = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(host);
+  return m !== null && Number(m[1]) === 169 && Number(m[2]) === 254;
 }
 
 /**
@@ -94,23 +136,30 @@ export class DispatchError extends Error {
 
 /**
  * Sends the payload to the endpoint via HTTP POST.
+ *
+ * Transient failures (network error, HTTP 429, or 5xx) are retried with
+ * exponential backoff + jitter, up to `maxRetries` attempts. A `Retry-After`
+ * header on a 429/503 response is honoured when present. Non-transient failures
+ * (4xx other than 429) throw immediately. See SECURITY_BACKLOG S4.
+ *
  * @param {string} endpointUrl
  * @param {string|null} apiKey
  * @param {object} payload
+ * @param {object} [opts]
+ * @param {number} [opts.maxRetries=3] — max retry attempts after the first try
+ * @param {(ms:number)=>Promise<void>} [opts.sleep] — injectable delay (for tests)
  * @returns {Promise<object>} parsed JSON response, or empty object if not JSON
  * @throws {DispatchError}
  */
-export async function sendPayload(endpointUrl, apiKey, payload) {
+export async function sendPayload(endpointUrl, apiKey, payload, opts = {}) {
+  const { maxRetries = 3, sleep = defaultSleep } = opts;
+
   const headers = { 'Content-Type': 'application/json' };
   if (apiKey) {
     headers['Authorization'] = `Bearer ${apiKey}`;
   }
 
-  // Timeout: abort after 30 seconds
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 30000);
-
-  // Serialize payload and check outbound size
+  // Serialize payload and check outbound size (once — independent of retries).
   const body = JSON.stringify(payload);
   if (body.length > 50 * 1024 * 1024) {
     throw new DispatchError(
@@ -119,36 +168,83 @@ export async function sendPayload(endpointUrl, apiKey, payload) {
     );
   }
 
-  let response;
-  try {
-    response = await fetch(endpointUrl, {
-      method: 'POST',
-      headers,
-      body,
-      signal: controller.signal,
-    });
-  } catch (err) {
-    clearTimeout(timeoutId);
-    if (err.name === 'AbortError') {
-      throw new DispatchError('Request timed out after 30 seconds', null);
+  let lastError;
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    if (attempt > 0) {
+      // Exponential backoff with full jitter: base 500ms, doubling, capped 8s.
+      // Honour Retry-After (seconds) from the previous response when present.
+      const backoff = Math.min(500 * 2 ** (attempt - 1), 8000);
+      const delay = lastError?.retryAfterMs ?? Math.floor(Math.random() * backoff);
+      await sleep(delay);
     }
-    throw new DispatchError(`Network error: ${err.message}`, null);
-  }
-  clearTimeout(timeoutId);
 
-  if (!response.ok) {
-    throw new DispatchError(`Request failed with status ${response.status}`, response.status);
+    // Per-attempt timeout: abort after 30 seconds.
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 30000);
+
+    let response;
+    try {
+      response = await fetch(endpointUrl, {
+        method: 'POST',
+        headers,
+        body,
+        signal: controller.signal,
+      });
+    } catch (err) {
+      clearTimeout(timeoutId);
+      // Network error / timeout — transient, retry.
+      lastError =
+        err.name === 'AbortError'
+          ? new DispatchError('Request timed out after 30 seconds', null)
+          : new DispatchError(`Network error: ${err.message}`, null);
+      continue;
+    }
+    clearTimeout(timeoutId);
+
+    if (!response.ok) {
+      const transient = response.status === 429 || response.status >= 500;
+      const err = new DispatchError(
+        `Request failed with status ${response.status}`,
+        response.status,
+      );
+      if (transient && attempt < maxRetries) {
+        err.retryAfterMs = parseRetryAfter(response);
+        lastError = err;
+        continue;
+      }
+      throw err;
+    }
+
+    // Response size guard: reject responses larger than 10MB.
+    const contentLength = response.headers?.get?.('content-length');
+    if (contentLength && parseInt(contentLength, 10) > 10 * 1024 * 1024) {
+      throw new DispatchError('Response too large (>10MB)', null);
+    }
+
+    try {
+      return await response.json();
+    } catch {
+      return {};
+    }
   }
 
-  // Response size guard: reject responses larger than 10MB
-  const contentLength = response.headers?.get?.('content-length');
-  if (contentLength && parseInt(contentLength, 10) > 10 * 1024 * 1024) {
-    throw new DispatchError('Response too large (>10MB)', null);
-  }
+  // Retries exhausted on a transient failure.
+  throw lastError ?? new DispatchError('Request failed after retries', null);
+}
 
-  try {
-    return await response.json();
-  } catch {
-    return {};
-  }
+/** Default delay used between retries. Overridable in tests. */
+function defaultSleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * Parse a `Retry-After` header (delta-seconds form) into milliseconds, capped
+ * at 30s. Returns null when absent or unparseable (caller falls back to jitter).
+ */
+function parseRetryAfter(response) {
+  const raw = response.headers?.get?.('retry-after');
+  if (!raw) return null;
+  const secs = parseInt(raw, 10);
+  if (Number.isNaN(secs) || secs < 0) return null;
+  return Math.min(secs, 30) * 1000;
 }

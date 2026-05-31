@@ -125,21 +125,24 @@ describe('#86 partial push failure preserves local state and reports accurately'
 
 describe('#86 pull interruption does not corrupt already-pulled projects', () => {
   it('timeout on the 2nd project keeps the 1st and 3rd, reports the failure', async () => {
+    const A = '0190a1b2-0000-7000-8000-0000000000aa';
+    const B = '0190a1b2-0000-7000-8000-0000000000bb';
+    const C = '0190a1b2-0000-7000-8000-0000000000cc';
     const manifest = [
-      { project_id: 'a', name: 'A', last_modified: '2026-01-01T00:00:00.000Z' },
-      { project_id: 'b', name: 'B', last_modified: '2026-01-01T00:00:00.000Z' },
-      { project_id: 'c', name: 'C', last_modified: '2026-01-01T00:00:00.000Z' },
+      { project_id: A, name: 'A', last_modified: '2026-01-01T00:00:00.000Z' },
+      { project_id: B, name: 'B', last_modified: '2026-01-01T00:00:00.000Z' },
+      { project_id: C, name: 'C', last_modified: '2026-01-01T00:00:00.000Z' },
     ];
     const payload = (id) => ({
-      project: { project_id: id, name: id.toUpperCase(), created_at: '2026-01-01T00:00:00.000Z' },
+      project: { project_id: id, name: 'P', created_at: '2026-01-01T00:00:00.000Z' },
       recordings: [],
     });
 
     mockFetch((url) => {
       if (url.endsWith('/projects')) return makeResponse(200, manifest);
-      if (url.endsWith('/projects/b')) return timeoutAfterStart();
-      if (url.endsWith('/projects/a')) return makeResponse(200, payload('a'));
-      if (url.endsWith('/projects/c')) return makeResponse(200, payload('c'));
+      if (url.endsWith(`/projects/${B}`)) return timeoutAfterStart();
+      if (url.endsWith(`/projects/${A}`)) return makeResponse(200, payload(A));
+      if (url.endsWith(`/projects/${C}`)) return makeResponse(200, payload(C));
       return makeResponse(404);
     });
 
@@ -147,7 +150,7 @@ describe('#86 pull interruption does not corrupt already-pulled projects', () =>
 
     // a and c pulled cleanly; b reported as a network error; not halted.
     assert.equal(result.projects.length, 2);
-    assert.deepEqual(result.projects.map((p) => p.project_id).sort(), ['a', 'c']);
+    assert.deepEqual(result.projects.map((p) => p.project_id).sort(), [A, C].sort());
     assert.equal(result.errors.length, 1);
     assert.equal(result.errors[0].status, null);
     assert.equal(result.errors[0].projectName, 'B');
@@ -177,19 +180,20 @@ describe('#86 pull interruption does not corrupt already-pulled projects', () =>
 
 describe('#86 conflict and concurrency edge cases', () => {
   it('server-wins: a pulled project with the same id replaces the local one (no duplicate)', async () => {
-    const local = [makeProject('shared', 'Local name')];
+    const SHARED = '0190a1b2-0000-7000-8000-0000000000e1';
+    const local = [makeProject(SHARED, 'Local name')];
 
     mockFetch((url, opts) => {
       if (opts.method === 'PUT') return makeResponse(200, { ok: true });
       if (url.endsWith('/projects')) {
         return makeResponse(200, [
-          { project_id: 'shared', name: 'Server name', last_modified: '2026-02-02T00:00:00.000Z' },
+          { project_id: SHARED, name: 'Server name', last_modified: '2026-02-02T00:00:00.000Z' },
         ]);
       }
-      if (url.endsWith('/projects/shared')) {
+      if (url.endsWith(`/projects/${SHARED}`)) {
         return makeResponse(200, {
           project: {
-            project_id: 'shared',
+            project_id: SHARED,
             name: 'Server name',
             created_at: '2026-01-01T00:00:00.000Z',
           },
@@ -201,19 +205,20 @@ describe('#86 conflict and concurrency edge cases', () => {
 
     const { result, projects } = await sync('https://srv.test', null, local);
 
-    // Exactly one project with id "shared" — replaced, not duplicated.
-    const shared = projects.filter((p) => p.project_id === 'shared');
+    // Exactly one project with the shared id — replaced, not duplicated.
+    const shared = projects.filter((p) => p.project_id === SHARED);
     assert.equal(shared.length, 1, 'same project_id must not produce a duplicate');
     assert.equal(shared[0].name, 'Server name', 'server-wins replaces local copy');
-    assert.deepEqual(result.pulled, ['shared']);
+    assert.deepEqual(result.pulled, [SHARED]);
   });
 
   it('two concurrent sync cycles do not produce duplicate projects in either result', async () => {
+    const REMOTE1 = '0190a1b2-0000-7000-8000-0000000000f1';
     const serverManifest = [
-      { project_id: 'remote1', name: 'Remote 1', last_modified: '2026-01-01T00:00:00.000Z' },
+      { project_id: REMOTE1, name: 'Remote 1', last_modified: '2026-01-01T00:00:00.000Z' },
     ];
     const remotePayload = {
-      project: { project_id: 'remote1', name: 'Remote 1', created_at: '2026-01-01T00:00:00.000Z' },
+      project: { project_id: REMOTE1, name: 'Remote 1', created_at: '2026-01-01T00:00:00.000Z' },
       recordings: [],
     };
 
@@ -221,7 +226,7 @@ describe('#86 conflict and concurrency edge cases', () => {
     globalThis.fetch = async (url, options) => {
       if (options.method === 'PUT') return makeResponse(200, { ok: true });
       if (url.endsWith('/projects')) return makeResponse(200, serverManifest);
-      if (url.endsWith('/projects/remote1')) return makeResponse(200, remotePayload);
+      if (url.endsWith(`/projects/${REMOTE1}`)) return makeResponse(200, remotePayload);
       return makeResponse(404);
     };
 
@@ -238,10 +243,62 @@ describe('#86 conflict and concurrency edge cases', () => {
       const ids = projects.map((p) => p.project_id);
       const unique = new Set(ids);
       assert.equal(ids.length, unique.size, `no duplicate project_ids: got ${ids.join(', ')}`);
-      assert.ok(ids.includes('remote1'), 'each sync pulled the remote project');
+      assert.ok(ids.includes(REMOTE1), 'each sync pulled the remote project');
     }
     // Each sync kept its own local project distinct.
     assert.ok(a.projects.some((p) => p.project_id === 'localA'));
     assert.ok(b.projects.some((p) => p.project_id === 'localB'));
+  });
+});
+
+// ─── S15: project_id URL encoding + manifest validation ──────────────────────
+
+describe('#S15 sync URL safety', () => {
+  it('encodeURIComponent is applied to project_id on push', async () => {
+    // A push payload built from a project whose id contains URL-significant
+    // characters must not be able to reshape the request path.
+    const weird = makeProject('a/b?c#d', 'Weird');
+    mockFetch(() => makeResponse(200, { ok: true }));
+
+    await pushProjects('https://srv.test', null, [weird]);
+
+    assert.equal(fetchCalls.length, 1);
+    assert.equal(fetchCalls[0].url, 'https://srv.test/projects/a%2Fb%3Fc%23d');
+  });
+
+  it('pull skips manifest entries whose project_id is not a valid UUIDv7', async () => {
+    const manifest = [
+      { project_id: '0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b', name: 'Good' },
+      { project_id: '../../admin', name: 'Evil path' },
+      { project_id: 12345, name: 'Wrong type' },
+    ];
+    const good = {
+      project: {
+        project_id: '0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b',
+        name: 'Good',
+        created_at: '2026-01-01T00:00:00.000Z',
+      },
+      recordings: [],
+    };
+
+    mockFetch((url) => {
+      if (url.endsWith('/projects')) return makeResponse(200, manifest);
+      if (url.endsWith('/projects/0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b')) {
+        return makeResponse(200, good);
+      }
+      return makeResponse(404);
+    });
+
+    const result = await pullProjects('https://srv.test', null);
+
+    // Only the valid project is fetched + returned; the two bad ids are skipped
+    // (never interpolated into a request URL) and reported as errors.
+    assert.equal(result.projects.length, 1);
+    assert.equal(result.projects[0].project_id, '0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b');
+    assert.equal(result.errors.length, 2);
+    // The only project fetch made was for the good id — no request for the
+    // malicious path segment.
+    const fetchedPaths = fetchCalls.map((c) => c.url);
+    assert.ok(!fetchedPaths.some((u) => u.includes('admin')));
   });
 });
