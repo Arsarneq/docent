@@ -1919,4 +1919,151 @@ mod tests {
             }
         }
     }
+
+    // -----------------------------------------------------------------------
+    // Unresponsive-vs-responsive application behaviour (deterministic)
+    // -----------------------------------------------------------------------
+    //
+    // These drive the *real* `worker_loop`/`handle_keyboard` pipeline through a
+    // backend whose `focused_element()` query either returns promptly
+    // (responsive app) or blocks forever (unresponsive app — a "cut line").
+    //
+    // They pin down the product decision that the flaky integration tests could
+    // not express deterministically: when the target app stops answering
+    // accessibility queries, Docent captures *nothing* for the in-flight event
+    // and never hangs; when the app is responsive, the event is captured.
+
+    /// Backend whose `focused_element()` either returns at once or blocks
+    /// forever, modelling a responsive vs. an unresponsive application. Every
+    /// other query returns promptly so only the in-handler UIA call is affected.
+    struct ProbeBackend {
+        block_focused: bool,
+    }
+
+    impl AccessibilityBackend for ProbeBackend {
+        fn init(&mut self) -> Result<(), CaptureError> {
+            Ok(())
+        }
+        fn cleanup(&mut self) {}
+        fn element_at_point(&self, _x: i32, _y: i32) -> Option<ElementDescription> {
+            None
+        }
+        fn focused_element(&self) -> Option<ElementDescription> {
+            if self.block_focused {
+                // Model an unresponsive provider: the synchronous query never
+                // returns. The thread is detached by bounded shutdown and
+                // reclaimed at process exit (same pattern as the wedged-worker
+                // tests above).
+                loop {
+                    thread::sleep(Duration::from_secs(3600));
+                }
+            }
+            Some(ElementDescription {
+                tag: "Edit".to_string(),
+                id: None,
+                name: Some("Field".to_string()),
+                role: None,
+                element_type: None,
+                text: None,
+                selector: "win > edit".to_string(),
+            })
+        }
+        fn window_title(&self, _window_handle: i64) -> String {
+            "Probe".to_string()
+        }
+        fn process_name(&self, _window_handle: i64) -> String {
+            "probe.exe".to_string()
+        }
+        fn read_file_dialog_path(&self, _window_handle: i64) -> Option<(String, String)> {
+            None
+        }
+        fn root_window_handle(&self, window_handle: i64) -> i64 {
+            window_handle
+        }
+        fn window_rect(&self, _window_handle: i64) -> Option<WindowRect> {
+            None
+        }
+        fn selected_item_name(&self, _window_handle: i64) -> Option<(ElementDescription, String)> {
+            None
+        }
+    }
+
+    /// Build a single-worker pool running the real `worker_loop` over a
+    /// `ProbeBackend`. Returns the pool and the action receiver.
+    fn pool_with_probe_backend(block_focused: bool) -> (WorkerPool, mpsc::Receiver<ActionEvent>) {
+        let (action_tx, action_rx) = mpsc::channel::<ActionEvent>();
+        let pool = WorkerPool::new(1, action_tx, move |idx, rx, queue_len, sender, pending| {
+            let excluded_pid = Arc::new(AtomicU32::new(0));
+            thread::spawn(move || {
+                let backend = ProbeBackend { block_focused };
+                worker_loop(idx, backend, rx, queue_len, sender, excluded_pid, pending);
+            })
+        });
+        (pool, action_rx)
+    }
+
+    /// A printable-key RawEvent ('a') for the responsive/unresponsive tests.
+    fn printable_key_raw_event() -> RawEvent {
+        RawEvent {
+            event_type: RawEventType::Keyboard,
+            sequence_id: 1,
+            timestamp: 1000,
+            screen_x: 0,
+            screen_y: 0,
+            window_handle: 42,
+            process_id: 1,
+            key_code: 0x41, // 'A'
+            modifiers: (false, false, false, false),
+            scroll_delta: 0.0,
+            callback_params: [0; 4],
+            pre_captured_element: None,
+        }
+    }
+
+    #[test]
+    fn responsive_app_keypress_is_captured() {
+        // Responsive app: the focused-element query returns promptly, the key
+        // is buffered, and the worker's own Shutdown flush emits it. Everything
+        // the user put down is captured.
+        let (mut pool, rx) = pool_with_probe_backend(false);
+        pool.dispatch(printable_key_raw_event());
+        // Let the worker process the event before shutting down.
+        thread::sleep(Duration::from_millis(100));
+        pool.shutdown_with_timeout(Duration::from_secs(5));
+
+        assert_eq!(
+            key_names(&drain_events(&rx)),
+            vec!["A"],
+            "a responsive app's keypress must be captured"
+        );
+    }
+
+    #[test]
+    fn unresponsive_app_in_flight_keypress_is_not_captured_and_shutdown_is_bounded() {
+        // Unresponsive app ("cut line"): the worker blocks inside the
+        // focused-element query, so the key is never buffered. On stop there is
+        // nothing to rescue — Docent correctly captures NOTHING for the
+        // in-flight event — and, critically, shutdown is still bounded (the
+        // wedged worker is detached, not joined).
+        let (mut pool, rx) = pool_with_probe_backend(true);
+        pool.dispatch(printable_key_raw_event());
+        // Let the worker pick up the event and block inside focused_element().
+        thread::sleep(Duration::from_millis(100));
+
+        let timeout = Duration::from_millis(300);
+        let start = Instant::now();
+        pool.shutdown_with_timeout(timeout);
+        let elapsed = start.elapsed();
+
+        assert!(
+            elapsed >= timeout && elapsed < Duration::from_secs(3),
+            "shutdown must be bounded even when the app is unresponsive (took {elapsed:?})"
+        );
+        assert!(
+            drain_events(&rx).is_empty(),
+            "an unresponsive app's in-flight keypress must NOT be captured"
+        );
+        // Wedged worker was detached, so a second shutdown is a no-op.
+        assert!(pool.workers.iter().all(|w| w.thread.is_none()));
+    }
 }

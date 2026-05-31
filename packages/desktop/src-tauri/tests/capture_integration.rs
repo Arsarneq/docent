@@ -24,6 +24,37 @@ use serial_test::serial;
 #[cfg(target_os = "windows")]
 use docent_desktop_lib::capture::windows::WindowsCapture;
 
+/// Pump the calling thread's message queue for `dur`, keeping any windows this
+/// thread owns **responsive** (the behaviour of a healthy application).
+///
+/// Capture workers issue *synchronous* accessibility queries — `GetFocusedElement`,
+/// `WM_GETTEXT`, … — that are serviced by the window's owning thread. A test
+/// thread that merely `thread::sleep`s leaves its window unresponsive: those
+/// cross-thread calls then block until the worker's bounded-shutdown deadline
+/// detaches it, which is exactly the (intended) "captures nothing from a cut
+/// line" behaviour — *not* what the happy-path tests mean to assert. Pumping
+/// keeps the window answering, so the queries resolve and capture is
+/// deterministic.
+#[cfg(target_os = "windows")]
+unsafe fn pump_messages_for(dur: Duration) {
+    use std::time::Instant;
+    use windows::Win32::UI::WindowsAndMessaging::{
+        DispatchMessageW, PeekMessageW, TranslateMessage, MSG, PM_REMOVE,
+    };
+
+    let deadline = Instant::now() + dur;
+    let mut msg = MSG::default();
+    while Instant::now() < deadline {
+        // Drain everything currently queued (also services cross-thread sent
+        // messages such as WM_GETOBJECT), then yield briefly.
+        while PeekMessageW(&mut msg, None, 0, 0, PM_REMOVE).as_bool() {
+            let _ = TranslateMessage(&msg);
+            DispatchMessageW(&msg);
+        }
+        thread::sleep(Duration::from_millis(5));
+    }
+}
+
 // ─── Test Harness ───────────────────────────────────────────────────────────
 
 /// Filter events by payload type.
@@ -1275,6 +1306,14 @@ mod capture_behaviour {
         // When typing into a non-editable control (no EVENT_OBJECT_VALUECHANGE),
         // printable keys are buffered and emitted as individual key events after
         // the TYPE_DEBOUNCE_MS window expires without a type event arriving.
+        //
+        // The target window is kept **responsive** (its thread pumps messages)
+        // so the workers' synchronous accessibility queries resolve promptly —
+        // the healthy-application case. (Capture from an *unresponsive* window
+        // is intentionally not asserted here; that "cut line → capture nothing"
+        // behaviour is covered deterministically at the worker layer in
+        // worker_pool.rs, since a real non-pumping window only wedges
+        // probabilistically and would make this test flaky.)
         let (tx, rx) = mpsc::channel::<ActionEvent>();
         let mut capture = WindowsCapture::new();
         capture.set_excluded_pid(None);
@@ -1282,7 +1321,7 @@ mod capture_behaviour {
         thread::sleep(Duration::from_millis(200));
 
         let (hwnd, _, _) = unsafe { create_target_window("Printable Key Test") };
-        thread::sleep(Duration::from_millis(200));
+        unsafe { pump_messages_for(Duration::from_millis(200)) };
 
         let mut enigo = Enigo::new(&Settings::default()).unwrap();
         // Type individual printable characters into a non-editable window.
@@ -1295,8 +1334,9 @@ mod capture_behaviour {
         enigo
             .key(enigo::Key::Unicode('c'), Direction::Click)
             .unwrap();
-        // Wait for TYPE_DEBOUNCE_MS (1000ms) + buffer to flush.
-        thread::sleep(Duration::from_millis(1500));
+        // Wait for TYPE_DEBOUNCE_MS + buffer to flush, pumping so the window
+        // keeps answering the workers' queries throughout.
+        unsafe { pump_messages_for(Duration::from_millis(1500)) };
 
         unsafe {
             let _ = DestroyWindow(hwnd);
@@ -1664,6 +1704,13 @@ mod user_actions_extended {
     #[serial]
     fn navigation_keys_are_captured() {
         // Home, End, PageUp, PageDown, Delete, Backspace.
+        //
+        // Window kept responsive (pumped) so the workers' synchronous queries
+        // resolve — the healthy-application case. These are control keys, which
+        // `handle_keyboard` resolves via `focused_element()` and emits
+        // immediately; against an unresponsive window that query would block,
+        // which is the deliberately-uncaptured "cut line" case covered at the
+        // worker layer in worker_pool.rs.
         let (tx, rx) = mpsc::channel::<ActionEvent>();
         let mut capture = WindowsCapture::new();
         capture.set_excluded_pid(None);
@@ -1671,21 +1718,21 @@ mod user_actions_extended {
         thread::sleep(Duration::from_millis(200));
 
         let (hwnd, _, _) = unsafe { create_target_window("Nav Keys") };
-        thread::sleep(Duration::from_millis(200));
+        unsafe { pump_messages_for(Duration::from_millis(200)) };
 
         let mut enigo = Enigo::new(&Settings::default()).unwrap();
         enigo.key(enigo::Key::Home, Direction::Click).unwrap();
-        thread::sleep(Duration::from_millis(50));
+        unsafe { pump_messages_for(Duration::from_millis(50)) };
         enigo.key(enigo::Key::End, Direction::Click).unwrap();
-        thread::sleep(Duration::from_millis(50));
+        unsafe { pump_messages_for(Duration::from_millis(50)) };
         enigo.key(enigo::Key::PageUp, Direction::Click).unwrap();
-        thread::sleep(Duration::from_millis(50));
+        unsafe { pump_messages_for(Duration::from_millis(50)) };
         enigo.key(enigo::Key::PageDown, Direction::Click).unwrap();
-        thread::sleep(Duration::from_millis(50));
+        unsafe { pump_messages_for(Duration::from_millis(50)) };
         enigo.key(enigo::Key::Delete, Direction::Click).unwrap();
-        thread::sleep(Duration::from_millis(50));
+        unsafe { pump_messages_for(Duration::from_millis(50)) };
         enigo.key(enigo::Key::Backspace, Direction::Click).unwrap();
-        thread::sleep(Duration::from_millis(500));
+        unsafe { pump_messages_for(Duration::from_millis(500)) };
 
         unsafe {
             let _ = DestroyWindow(hwnd);
