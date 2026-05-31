@@ -14,13 +14,26 @@ pub mod worker_pool;
 #[cfg(target_os = "windows")]
 pub mod windows;
 
+// Placeholder backend for platforms without a native implementation yet
+// (Linux/X11 #84, Wayland #85). Keeps the crate compiling on every
+// target while the cross-platform seam is prepared (#97). (macOS is out of
+// scope — see #83.)
+#[cfg(not(target_os = "windows"))]
+pub mod stub;
+
 /// The platform-specific capture implementation for the current target.
 ///
 /// Each platform module exposes a struct implementing [`CaptureLayer`]; this
 /// alias lets the rest of the crate refer to it without `#[cfg]` at every use
-/// site. New platforms add their own `#[cfg(target_os = ...)]` arm here.
+/// site. New platforms add their own `#[cfg(target_os = ...)]` arm here —
+/// replace the [`stub::UnsupportedCapture`] fallback with the real type once a
+/// native backend lands.
 #[cfg(target_os = "windows")]
 pub type Capture = windows::WindowsCapture;
+
+/// Fallback for not-yet-supported platforms (Linux). See [`stub`].
+#[cfg(not(target_os = "windows"))]
+pub type Capture = stub::UnsupportedCapture;
 
 use serde::Serialize;
 use std::sync::mpsc::Sender;
@@ -249,7 +262,6 @@ pub struct WindowInfo {
     /// Platform-opaque window identifier.
     /// - Windows: `HWND` cast to `i64`
     /// - Linux (future): X11 window id / Wayland surface id
-    /// - macOS (future): `CGWindowID`
     pub window_id: i64,
     pub title: String,
     pub process_name: String,
@@ -263,7 +275,6 @@ pub struct WindowInfo {
 /// Result of a platform permission check.
 ///
 /// On Windows, permissions are always granted (no special entitlements needed).
-/// On macOS (future), the user must grant Accessibility permission.
 /// On Linux (future), the AT-SPI2 service must be running.
 #[derive(Debug, Serialize, Clone)]
 pub struct PermissionStatus {

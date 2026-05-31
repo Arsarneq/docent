@@ -241,11 +241,11 @@ jobs:
         include:
           - os: windows-latest
             label: Windows
-          # Future platforms:
-          # - os: macos-latest
-          #   label: macOS
-          # - os: ubuntu-latest
-          #   label: Linux
+          # This job runs the FULL test + coverage pipeline (real UIA + enigo
+          # input), so it only lists platforms that have a working capture
+          # backend AND a cross-platform test path. Add Linux (#84) here when
+          # its backend lands — at which point this job and desktop-cross-compile
+          # are intended to converge into one matrix (#125). (macOS dropped — #83.)
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v6
@@ -351,6 +351,87 @@ jobs:
             packages/desktop/src-tauri/coverage-unit.lcov
             packages/desktop/src-tauri/coverage-integration.lcov
           retention-days: 1
+
+  # Cross-platform COMPILE gate (#97). This is the comprehensive "builds on
+  # every target we ship for" job: it `cargo check`s + clippy-checks the crate
+  # on Windows and Linux, but runs NO tests. It complements the
+  # desktop-rust-tests job, which runs the full test+coverage pipeline only on
+  # the platforms that have a real capture backend (Windows today). Keeping the
+  # full target list here means the cross-platform seam (the no-op
+  # `capture::stub` backend behind `Capture` on non-Windows) is proven to keep
+  # compiling as the code evolves toward native Linux (#84) support.
+  # (macOS was dropped — see #83 — as it has no free code-signing path and
+  # unsigned apps are unusable for non-technical users.)
+  #
+  # NOTE (#125): once a non-Windows backend gains a working test+coverage path,
+  # this compile-only job and desktop-rust-tests are intended to converge into a
+  # single full-pipeline matrix. Until then they stay split — see #125.
+  desktop-cross-compile:
+    needs: [lint, changes]
+    if: |
+      needs.changes.outputs.desktop == 'true' ||
+      needs.changes.outputs.shared == 'true' ||
+      needs.changes.outputs.ci == 'true' ||
+      github.event_name == 'release' ||
+      github.event_name == 'push'
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            label: Windows
+          - os: ubuntu-latest
+            label: Linux
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: ./.github/actions/debug-env
+
+      # Tauri's Linux build links against WebKitGTK/GTK; these dev packages must
+      # be present for `cargo check` to resolve the tauri build script.
+      # (macOS uses the system WebKit — no install needed.)
+      - name: Install Linux system dependencies
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            build-essential \
+            curl \
+            wget \
+            file \
+            libxdo-dev \
+            libssl-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      - name: Cache cargo registry and build
+        uses: actions/cache@v5
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            packages/desktop/src-tauri/target
+          key: ${{ runner.os }}-cargo-xcompile-${{ hashFiles('packages/desktop/src-tauri/Cargo.lock') }}
+
+      - name: Create frontend dist directory
+        shell: bash
+        run: mkdir -p packages/desktop/dist
+
+      - name: cargo check (lib + bin)
+        working-directory: packages/desktop/src-tauri
+        run: cargo check --all-targets ${{ runner.debug == '1' && '-v' || '' }}
+
+      - name: Clippy
+        working-directory: packages/desktop/src-tauri
+        run: cargo clippy ${{ runner.debug == '1' && '-v' || '' }} -- -D warnings
 
   desktop-integration-tests:
     needs: [lint, changes]
@@ -524,12 +605,13 @@ jobs:
       - unit-tests
       - extension-e2e-tests
       - desktop-rust-tests
+      - desktop-cross-compile
       - desktop-integration-tests
       - coverage-upload
     steps:
       - name: Check job results
         run: |
-          results=("${{ needs.changes.result }}" "${{ needs.lint.result }}" "${{ needs.dependency-audit.result }}" "${{ needs.unit-tests.result }}" "${{ needs.extension-e2e-tests.result }}" "${{ needs.desktop-rust-tests.result }}" "${{ needs.desktop-integration-tests.result }}" "${{ needs.coverage-upload.result }}")
+          results=("${{ needs.changes.result }}" "${{ needs.lint.result }}" "${{ needs.dependency-audit.result }}" "${{ needs.unit-tests.result }}" "${{ needs.extension-e2e-tests.result }}" "${{ needs.desktop-rust-tests.result }}" "${{ needs.desktop-cross-compile.result }}" "${{ needs.desktop-integration-tests.result }}" "${{ needs.coverage-upload.result }}")
           for result in "${results[@]}"; do
             if [[ "$result" != "success" && "$result" != "skipped" ]]; then
               echo "Job failed with result: $result"
