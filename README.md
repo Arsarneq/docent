@@ -1,8 +1,4 @@
-<img src="packages/shared/assets/icons/icon.svg" alt="Docent icon" width="110" />
-<h1>Docent</h1>
-
-> Demonstrated Behaviour Capture and Dispatch
-
+<img align="left" width="110" src="packages/shared/assets/icons/icon.svg" alt="Docent icon" />
 [![Tests](https://github.com/Arsarneq/docent/actions/workflows/test.yml/badge.svg?branch=main)](https://github.com/Arsarneq/docent/actions/workflows/test.yml)
 [![codecov](https://codecov.io/gh/Arsarneq/docent/graph/badge.svg?branch=main)](https://codecov.io/gh/Arsarneq/docent)
 [![JS coverage](<https://img.shields.io/codecov/c/github/Arsarneq/docent/main?flag=javascript&logo=javascript&logoColor=white&label=coverage%20(js)>)](https://app.codecov.io/gh/Arsarneq/docent?flags%5B0%5D=javascript)
@@ -16,6 +12,9 @@
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](.github/CONTRIBUTING.md)
 [![License: GPL-3.0](https://img.shields.io/badge/License-GPL--3.0-blue.svg)](LICENSE)
 [![Platform: Windows](https://img.shields.io/badge/Desktop-Windows-0078D4?logo=windows&logoColor=white)](packages/desktop)
+<h1>Docent</h1>
+
+> Demonstrated Behaviour Capture and Dispatch
 
 Docent captures user interactions alongside step-by-step context and exports the result as structured JSON. It runs as a Chrome extension for browser workflows and as a native desktop application (Windows) for native application workflows. Both platforms produce `.docent.json` files with the same core structure, differentiated by platform-specific action types and fields.
 
