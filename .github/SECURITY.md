@@ -59,7 +59,7 @@ Docent has several capabilities with distinct attack surfaces:
 
 ### OS-level permissions
 
-- The desktop application uses OS accessibility APIs and global input hooks. On future platforms (macOS), this requires explicit user permission grants.
+- The desktop application uses OS accessibility APIs and global input hooks. On future platforms (Linux — see [#84](https://github.com/Arsarneq/docent/issues/84)), this may require explicit user permission grants.
 - Vulnerabilities that allow bypassing permission checks or escalating OS-level access are in scope.
 
 ### Out of scope
