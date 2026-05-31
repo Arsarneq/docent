@@ -141,7 +141,8 @@ describe('#94 push of a large project payload', () => {
 
 describe('#94 pull of a large project payload', () => {
   it('parses a multi-MB project response without loss', async () => {
-    const big = makeLargeProject('huge', 200, 50);
+    const HUGE = '0190a1b2-0000-7000-8000-000000000099';
+    const big = makeLargeProject(HUGE, 200, 50);
     const payload = buildPayloadForProject(big);
 
     // Confirm the serialized response really is multi-hundred-KB / MB-scale.
@@ -152,11 +153,11 @@ describe('#94 pull of a large project payload', () => {
     );
 
     const manifest = [
-      { project_id: 'huge', name: 'Huge', last_modified: '2026-01-01T00:00:00.000Z' },
+      { project_id: HUGE, name: 'Huge', last_modified: '2026-01-01T00:00:00.000Z' },
     ];
     mockFetch((url) => {
       if (url.endsWith('/projects')) return makeResponse(200, manifest);
-      if (url.endsWith('/projects/huge')) return makeResponse(200, payload);
+      if (url.endsWith(`/projects/${HUGE}`)) return makeResponse(200, payload);
       return makeResponse(404);
     });
 
@@ -165,7 +166,7 @@ describe('#94 pull of a large project payload', () => {
     assert.equal(result.errors.length, 0);
     assert.equal(result.projects.length, 1);
     const pulled = result.projects[0];
-    assert.equal(pulled.project_id, 'huge');
+    assert.equal(pulled.project_id, HUGE);
     assert.equal(pulled.recordings.length, 200, 'all recordings parsed back');
     assert.equal(pulled.recordings[199].steps.length, 50, 'final recording fully parsed');
   });

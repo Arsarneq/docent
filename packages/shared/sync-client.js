@@ -10,6 +10,8 @@
  * See LICENSE in the project root for license information.
  */
 
+import { isValidUuidv7 } from './lib/uuid-v7.js';
+
 /**
  * Error thrown by sync operations for HTTP or network failures.
  */
@@ -98,7 +100,7 @@ export async function pushProjects(serverUrl, apiKey, projects) {
 
   for (const project of projects) {
     const payload = buildPayloadForProject(project);
-    const url = `${serverUrl}/projects/${project.project_id}`;
+    const url = `${serverUrl}/projects/${encodeURIComponent(project.project_id)}`;
     const headers = {
       ...buildHeaders(apiKey),
       'Content-Type': 'application/json',
@@ -201,7 +203,17 @@ export async function pullProjects(serverUrl, apiKey) {
 
   // Fetch each project by id
   for (const entry of manifest) {
-    const url = `${serverUrl}/projects/${entry.project_id}`;
+    // The manifest comes from the server (untrusted). Validate the id shape
+    // before interpolating it into the request path — a malformed or hostile
+    // id must not be able to reshape the authenticated request URL (the Bearer
+    // token rides along). See SECURITY_BACKLOG S15.
+    if (!entry || typeof entry !== 'object' || !isValidUuidv7(entry.project_id)) {
+      errors.push(
+        new SyncError(`Skipped manifest entry with invalid project_id`, null, entry?.name ?? null),
+      );
+      continue;
+    }
+    const url = `${serverUrl}/projects/${encodeURIComponent(entry.project_id)}`;
 
     let response;
     try {

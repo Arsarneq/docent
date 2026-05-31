@@ -8,7 +8,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import fc from 'fast-check';
-import { uuidv7, uuidv7ToDate, compareUuidv7 } from '../../lib/uuid-v7.js';
+import { uuidv7, uuidv7ToDate, compareUuidv7, isValidUuidv7 } from '../../lib/uuid-v7.js';
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 
@@ -148,5 +148,44 @@ describe('compareUuidv7', () => {
   it('returns 0 for identical UUIDs', () => {
     const id = uuidv7();
     assert.equal(compareUuidv7(id, id), 0);
+  });
+});
+
+describe('isValidUuidv7 (S15)', () => {
+  it('accepts a freshly generated uuidv7', () => {
+    for (let i = 0; i < 50; i++) {
+      assert.ok(isValidUuidv7(uuidv7()));
+    }
+  });
+
+  it('accepts known-good canonical UUIDv7 strings (any case)', () => {
+    assert.ok(isValidUuidv7('00000000-0000-7000-8000-000000000000'));
+    assert.ok(isValidUuidv7('ffffffff-ffff-7fff-bfff-ffffffffffff'));
+    assert.ok(isValidUuidv7('0190A1B2-C3D4-7E5F-8A9B-0C1D2E3F4A5B'));
+  });
+
+  it('rejects non-strings', () => {
+    for (const v of [null, undefined, 42, {}, [], true]) {
+      assert.equal(isValidUuidv7(v), false);
+    }
+  });
+
+  it('rejects wrong version or variant nibbles', () => {
+    // version 4, not 7
+    assert.equal(isValidUuidv7('00000000-0000-4000-8000-000000000000'), false);
+    // variant nibble c (not 8/9/a/b)
+    assert.equal(isValidUuidv7('00000000-0000-7000-c000-000000000000'), false);
+  });
+
+  it('rejects path-traversal / injection shapes that must never reach a URL', () => {
+    for (const v of [
+      '../../etc/passwd',
+      '00000000-0000-7000-8000-000000000000/../admin',
+      'x'.repeat(36),
+      '',
+      '00000000-0000-7000-8000-00000000000', // too short
+    ]) {
+      assert.equal(isValidUuidv7(v), false, `must reject: ${v}`);
+    }
   });
 });

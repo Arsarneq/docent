@@ -1172,7 +1172,7 @@ async function loadAndPopulateDispatchSettings() {
 btnSettingsDispatchSave.addEventListener('click', async () => {
   const url = settingsEndpointUrl.value.trim();
   const apiKey = settingsApiKey.value.trim();
-  const error = validateEndpointUrl(url);
+  const error = validateEndpointUrl(url, { hasApiKey: !!apiKey });
   if (error) {
     settingsEndpointError.textContent = error;
     settingsEndpointError.classList.remove('hidden');
@@ -1218,7 +1218,7 @@ btnSettingsSyncSave.addEventListener('click', async () => {
 
   // Validate URL if non-empty (R1-AC2)
   if (url) {
-    const error = validateEndpointUrl(url);
+    const error = validateEndpointUrl(url, { hasApiKey: !!apiKey });
     if (error) {
       settingsSyncError.textContent = error;
       settingsSyncError.classList.remove('hidden');

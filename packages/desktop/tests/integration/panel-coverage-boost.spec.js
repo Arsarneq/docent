@@ -354,19 +354,19 @@ test.describe('Desktop Panel — Sync Flows', () => {
             status: 200,
             json: async () => [
               {
-                project_id: 'srv-1',
+                project_id: '0190a1b2-0000-7000-8000-000000000051',
                 name: 'From Server',
                 last_modified: '2026-06-01T00:00:00.000Z',
               },
             ],
           };
-        if (url.endsWith('/projects/srv-1'))
+        if (url.endsWith('/projects/0190a1b2-0000-7000-8000-000000000051'))
           return {
             ok: true,
             status: 200,
             json: async () => ({
               project: {
-                project_id: 'srv-1',
+                project_id: '0190a1b2-0000-7000-8000-000000000051',
                 name: 'From Server',
                 created_at: '2026-01-01T00:00:00.000Z',
               },
