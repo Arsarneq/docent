@@ -2,12 +2,5 @@
   "identifier": "default",
   "description": "Default permissions for Docent Desktop",
   "windows": ["main"],
-  "permissions": [
-    "core:default",
-    "dialog:default",
-    "dialog:allow-open",
-    "dialog:allow-save",
-    "shell:default",
-    "shell:allow-open"
-  ]
+  "permissions": ["core:default", "dialog:default", "dialog:allow-open", "dialog:allow-save"]
 }
