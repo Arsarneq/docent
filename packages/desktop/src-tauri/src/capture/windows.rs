@@ -873,7 +873,7 @@ unsafe extern "system" fn input_win_event_proc(
             // Programmatic foreground changes (notifications, minimize/restore by
             // other apps) will not have a preceding input event within the window.
             let last_input = INPUT_LAST_INPUT_TIMESTAMP.with(|t| t.get());
-            if timestamp.saturating_sub(last_input) > timing::FOREGROUND_CORRELATION_MS {
+            if !timing::is_correlated(timestamp, last_input, timing::FOREGROUND_CORRELATION_MS) {
                 return; // Programmatic — suppress.
             }
 
@@ -933,7 +933,11 @@ unsafe extern "system" fn input_win_event_proc(
             }
             // Only dispatch if correlated with recent user input.
             let last_input = INPUT_LAST_INPUT_TIMESTAMP.with(|t| t.get());
-            if timestamp.saturating_sub(last_input) > timing::WINDOW_LIFECYCLE_CORRELATION_MS {
+            if !timing::is_correlated(
+                timestamp,
+                last_input,
+                timing::WINDOW_LIFECYCLE_CORRELATION_MS,
+            ) {
                 return; // Programmatic window creation — suppress.
             }
             input_dispatch_raw_event(RawEvent {
@@ -998,9 +1002,11 @@ unsafe extern "system" fn input_win_event_proc(
                     }
                     // Only dispatch if correlated with recent user input.
                     let last_input = INPUT_LAST_INPUT_TIMESTAMP.with(|t| t.get());
-                    if timestamp.saturating_sub(last_input)
-                        > timing::WINDOW_LIFECYCLE_CORRELATION_MS
-                    {
+                    if !timing::is_correlated(
+                        timestamp,
+                        last_input,
+                        timing::WINDOW_LIFECYCLE_CORRELATION_MS,
+                    ) {
                         return; // Programmatic window destruction — suppress.
                     }
                     input_dispatch_raw_event(RawEvent {
@@ -1026,7 +1032,7 @@ unsafe extern "system" fn input_win_event_proc(
             // Programmatic focus changes (e.g., SetFocus calls from apps)
             // will not have a preceding input event within the window.
             let last_input = INPUT_LAST_INPUT_TIMESTAMP.with(|t| t.get());
-            if timestamp.saturating_sub(last_input) > timing::FOCUS_CORRELATION_MS {
+            if !timing::is_correlated(timestamp, last_input, timing::FOCUS_CORRELATION_MS) {
                 return; // Programmatic focus — suppress.
             }
 
@@ -1064,7 +1070,11 @@ unsafe extern "system" fn input_win_event_proc(
             // Ctrl+S in Notepad from correlating with value changes in the
             // Save As dialog that opens afterwards.
             let last_keyboard = INPUT_LAST_KEYBOARD_TIMESTAMP.with(|t| t.get());
-            if timestamp.saturating_sub(last_keyboard) > timing::VALUE_CHANGE_CORRELATION_MS {
+            if !timing::is_correlated(
+                timestamp,
+                last_keyboard,
+                timing::VALUE_CHANGE_CORRELATION_MS,
+            ) {
                 return; // No recent keyboard input — suppress.
             }
             // Check that the keyboard input targeted the same root window.

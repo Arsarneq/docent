@@ -15,7 +15,8 @@
 // ---------------------------------------------------------------------------
 
 use super::timing::{
-    SCROLL_DEBOUNCE_MS as DEBOUNCE_MS, SCROLL_MIN_DISTANCE_PX as MIN_SCROLL_DISTANCE_PX,
+    debounce_elapsed, SCROLL_DEBOUNCE_MS as DEBOUNCE_MS,
+    SCROLL_MIN_DISTANCE_PX as MIN_SCROLL_DISTANCE_PX,
 };
 
 // ---------------------------------------------------------------------------
@@ -79,7 +80,7 @@ pub fn process_scroll_events(events: &[RawScrollEvent]) -> Vec<ScrollResult> {
         let is_end = if i == events.len() {
             true
         } else {
-            events[i].timestamp.saturating_sub(events[i - 1].timestamp) >= DEBOUNCE_MS
+            debounce_elapsed(events[i].timestamp, events[i - 1].timestamp, DEBOUNCE_MS)
         };
 
         if is_end {
@@ -150,7 +151,7 @@ impl ScrollAccumulator {
         }
 
         let last_ts = self.buffer.last().unwrap().timestamp;
-        if now.saturating_sub(last_ts) < DEBOUNCE_MS {
+        if !debounce_elapsed(now, last_ts, DEBOUNCE_MS) {
             return None; // Still within debounce window.
         }
 
