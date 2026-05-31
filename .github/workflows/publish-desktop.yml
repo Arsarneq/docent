@@ -13,11 +13,11 @@ jobs:
         include:
           - os: windows-latest
             label: Windows
-          # Future platforms — uncomment when capture layer implementations are ready:
-          # - os: macos-latest
-          #   label: macOS
+          # Linux (#84) — uncomment when its capture backend lands.
           # - os: ubuntu-latest
           #   label: Linux
+          # (macOS was dropped — see #83 — no free code-signing path; unsigned
+          # macOS apps are unusable for Docent's non-technical audience.)
     runs-on: ${{ matrix.os }}
     permissions:
       contents: write

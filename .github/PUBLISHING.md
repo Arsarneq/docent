@@ -69,7 +69,7 @@ Create and publish a GitHub release with a tag matching `desktop-v*` (e.g. `desk
 3. Build the Tauri application for Windows
 4. Attach the installer to the GitHub release
 
-Currently only Windows is supported. macOS and Linux build targets can be added to the workflow when those platforms are implemented.
+Currently only Windows is supported. A Linux build target can be added to the workflow when the Linux capture backend lands ([#84](https://github.com/Arsarneq/docent/issues/84)). macOS is not a target ([#83](https://github.com/Arsarneq/docent/issues/83)) — there is no free code-signing path and unsigned macOS apps are unusable for Docent's non-technical audience.
 
 ---
 
