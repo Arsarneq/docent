@@ -1,0 +1,117 @@
+{
+  "project": {
+    "project_id": "0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b",
+    "name": "Login flow (extension)",
+    "created_at": "2026-05-31T12:00:00.000Z",
+    "metadata": { "browser": "Chrome 125", "os": "Windows 11" }
+  },
+  "recordings": [
+    {
+      "recording_id": "0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a60",
+      "name": "Happy path",
+      "created_at": "2026-05-31T12:00:01.000Z",
+      "metadata": { "viewport": "1920x1080" },
+      "steps": [
+        {
+          "uuid": "0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a61",
+          "logical_id": "0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a62",
+          "step_number": 1,
+          "created_at": "2026-05-31T12:00:02.000Z",
+          "narration": "Open the login page",
+          "narration_source": "typed",
+          "deleted": false,
+          "actions": [
+            {
+              "type": "navigate",
+              "timestamp": 1769860802000,
+              "capture_mode": "dom",
+              "context_id": 12345,
+              "url": "https://example.com/login",
+              "nav_type": "typed"
+            },
+            {
+              "type": "context_open",
+              "timestamp": 1769860802500,
+              "capture_mode": "dom",
+              "context_id": 99999,
+              "source": "https://example.com/login",
+              "opener_context_id": 12345
+            }
+          ]
+        },
+        {
+          "uuid": "0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a63",
+          "logical_id": "0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a64",
+          "step_number": 2,
+          "created_at": "2026-05-31T12:00:03.000Z",
+          "narration": "Enter credentials and submit",
+          "narration_source": "typed",
+          "deleted": false,
+          "actions": [
+            {
+              "type": "type",
+              "timestamp": 1769860803000,
+              "capture_mode": "dom",
+              "context_id": 12345,
+              "element": {
+                "tag": "Input",
+                "id": "email",
+                "name": null,
+                "role": null,
+                "type": "email",
+                "text": null,
+                "selector": "#email"
+              },
+              "value": "user@example.com"
+            },
+            {
+              "type": "click",
+              "timestamp": 1769860803500,
+              "capture_mode": "dom",
+              "context_id": 12345,
+              "element": {
+                "tag": "Button",
+                "id": null,
+                "name": null,
+                "role": null,
+                "type": null,
+                "text": "Sign in",
+                "selector": "#submit"
+              },
+              "x": 480,
+              "y": 360
+            }
+          ]
+        },
+        {
+          "uuid": "0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a65",
+          "logical_id": "0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a66",
+          "step_number": 3,
+          "created_at": "2026-05-31T12:00:04.000Z",
+          "step_type": "validation",
+          "expect": "present",
+          "deleted": false,
+          "actions": [
+            {
+              "type": "click",
+              "timestamp": 1769860804000,
+              "capture_mode": "dom",
+              "context_id": 99999,
+              "element": {
+                "tag": "Heading",
+                "id": null,
+                "name": null,
+                "role": "heading",
+                "type": null,
+                "text": "Welcome back",
+                "selector": "h1.greeting"
+              },
+              "x": 200,
+              "y": 80
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
