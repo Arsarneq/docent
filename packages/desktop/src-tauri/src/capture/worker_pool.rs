@@ -2004,15 +2004,20 @@ mod tests {
 
     /// A printable-key RawEvent ('a') for the responsive/unresponsive tests.
     fn printable_key_raw_event() -> RawEvent {
+        control_key_raw_event(0x41, 1) // 'A'
+    }
+
+    /// A keyboard RawEvent for a given virtual-key code and sequence id.
+    fn control_key_raw_event(key_code: u32, sequence_id: u64) -> RawEvent {
         RawEvent {
             event_type: RawEventType::Keyboard,
-            sequence_id: 1,
-            timestamp: 1000,
+            sequence_id,
+            timestamp: 1000 + sequence_id,
             screen_x: 0,
             screen_y: 0,
             window_handle: 42,
             process_id: 1,
-            key_code: 0x41, // 'A'
+            key_code,
             modifiers: (false, false, false, false),
             scroll_delta: 0.0,
             callback_params: [0; 4],
@@ -2035,6 +2040,31 @@ mod tests {
             key_names(&drain_events(&rx)),
             vec!["A"],
             "a responsive app's keypress must be captured"
+        );
+    }
+
+    #[test]
+    fn responsive_app_navigation_keys_are_all_captured() {
+        // Responsive app, control keys (Home/End/PageUp/PageDown/Delete/
+        // Backspace): each is resolved via a prompt focused_element() query and
+        // emitted immediately. All six are captured, in order, with none lost
+        // or duplicated. This is the deterministic equivalent of the
+        // navigation_keys real-input integration test (whose capture *count* is
+        // environment-dependent and therefore not asserted on CI).
+        let (mut pool, rx) = pool_with_probe_backend(false);
+        // VK codes: Home 0x24, End 0x23, PageUp 0x21, PageDown 0x22,
+        // Delete 0x2E, Backspace 0x08.
+        let vks = [0x24u32, 0x23, 0x21, 0x22, 0x2E, 0x08];
+        for (i, vk) in vks.iter().enumerate() {
+            pool.dispatch(control_key_raw_event(*vk, (i + 1) as u64));
+        }
+        thread::sleep(Duration::from_millis(150));
+        pool.shutdown_with_timeout(Duration::from_secs(5));
+
+        assert_eq!(
+            key_names(&drain_events(&rx)),
+            vec!["Home", "End", "PageUp", "PageDown", "Delete", "Backspace"],
+            "all six navigation keys must be captured in order on a responsive app"
         );
     }
 
