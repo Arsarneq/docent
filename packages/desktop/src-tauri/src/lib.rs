@@ -19,19 +19,19 @@ use commands::AppState;
 
 /// Run the Tauri application.
 ///
-/// 1. Creates a `WindowsCapture` instance (behind `#[cfg(target_os = "windows")]`).
+/// 1. Creates the platform-specific capture layer via [`capture::Capture`]
+///    (Windows uses the native backend; other platforms currently use a no-op
+///    stub — see `capture::stub`).
 /// 2. Sets up an `mpsc` channel for `ActionEvent` streaming.
 /// 3. Spawns a background thread that receives `ActionEvent`s from the capture
 ///    layer and emits them to the frontend via `app.emit("capture:action", event)`.
 /// 4. Registers all Tauri commands.
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    // Create the platform-specific capture layer.
-    #[cfg(target_os = "windows")]
+    // Create the platform-specific capture layer. `capture::Capture` resolves
+    // to the native backend on supported platforms and to a no-op stub
+    // elsewhere, so this is target-independent.
     let capture_layer: Box<dyn capture::CaptureLayer> = Box::new(capture::Capture::new());
-
-    #[cfg(not(target_os = "windows"))]
-    compile_error!("Only Windows is supported in this release. macOS and Linux are planned.");
 
     // Set up the action event channel.
     // The sender is given to the capture layer (via AppState) when `start_capture`

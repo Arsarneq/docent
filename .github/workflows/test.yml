@@ -352,6 +352,79 @@ jobs:
             packages/desktop/src-tauri/coverage-integration.lcov
           retention-days: 1
 
+  # Cross-platform compile gate (#97). The desktop-rust-tests job above runs the
+  # full Windows-only test/coverage pipeline (real UIA + enigo input). This job
+  # is lighter and complementary: it only verifies the crate `cargo check`s and
+  # is clippy-clean on macOS and Linux, so the cross-platform seam (the no-op
+  # `capture::stub` backend behind `Capture` on non-Windows) keeps compiling as
+  # the code evolves toward native macOS (#83) / Linux (#84) support. No tests
+  # are run here — there is no native backend to exercise yet.
+  desktop-cross-compile:
+    needs: [lint, changes]
+    if: |
+      needs.changes.outputs.desktop == 'true' ||
+      needs.changes.outputs.shared == 'true' ||
+      needs.changes.outputs.ci == 'true' ||
+      github.event_name == 'release' ||
+      github.event_name == 'push'
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            label: Linux
+          - os: macos-latest
+            label: macOS
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: ./.github/actions/debug-env
+
+      # Tauri's Linux build links against WebKitGTK/GTK; these dev packages must
+      # be present for `cargo check` to resolve the tauri build script.
+      # (macOS uses the system WebKit — no install needed.)
+      - name: Install Linux system dependencies
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            build-essential \
+            curl \
+            wget \
+            file \
+            libxdo-dev \
+            libssl-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      - name: Cache cargo registry and build
+        uses: actions/cache@v5
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            packages/desktop/src-tauri/target
+          key: ${{ runner.os }}-cargo-xcompile-${{ hashFiles('packages/desktop/src-tauri/Cargo.lock') }}
+
+      - name: Create frontend dist directory
+        run: mkdir -p packages/desktop/dist
+
+      - name: cargo check (lib + bin)
+        working-directory: packages/desktop/src-tauri
+        run: cargo check --all-targets ${{ runner.debug == '1' && '-v' || '' }}
+
+      - name: Clippy
+        working-directory: packages/desktop/src-tauri
+        run: cargo clippy ${{ runner.debug == '1' && '-v' || '' }} -- -D warnings
+
   desktop-integration-tests:
     needs: [lint, changes]
     if: |
@@ -524,12 +597,13 @@ jobs:
       - unit-tests
       - extension-e2e-tests
       - desktop-rust-tests
+      - desktop-cross-compile
       - desktop-integration-tests
       - coverage-upload
     steps:
       - name: Check job results
         run: |
-          results=("${{ needs.changes.result }}" "${{ needs.lint.result }}" "${{ needs.dependency-audit.result }}" "${{ needs.unit-tests.result }}" "${{ needs.extension-e2e-tests.result }}" "${{ needs.desktop-rust-tests.result }}" "${{ needs.desktop-integration-tests.result }}" "${{ needs.coverage-upload.result }}")
+          results=("${{ needs.changes.result }}" "${{ needs.lint.result }}" "${{ needs.dependency-audit.result }}" "${{ needs.unit-tests.result }}" "${{ needs.extension-e2e-tests.result }}" "${{ needs.desktop-rust-tests.result }}" "${{ needs.desktop-cross-compile.result }}" "${{ needs.desktop-integration-tests.result }}" "${{ needs.coverage-upload.result }}")
           for result in "${results[@]}"; do
             if [[ "$result" != "success" && "$result" != "skipped" ]]; then
               echo "Job failed with result: $result"
