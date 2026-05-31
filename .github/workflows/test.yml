@@ -456,6 +456,7 @@ jobs:
         uses: codecov/codecov-action@v6
         with:
           files: coverage-artifacts/coverage-unit-javascript/shared-desktop-unit.lcov,coverage-artifacts/coverage-unit-javascript/extension-unit.lcov
+          disable_search: true
           flags: unit,javascript
           token: ${{ secrets.CODECOV_TOKEN }}
           verbose: ${{ runner.debug == '1' }}
@@ -465,6 +466,7 @@ jobs:
         uses: codecov/codecov-action@v6
         with:
           files: coverage-artifacts/coverage-e2e-javascript/lcov.info
+          disable_search: true
           flags: e2e,javascript
           token: ${{ secrets.CODECOV_TOKEN }}
           verbose: ${{ runner.debug == '1' }}
@@ -474,6 +476,7 @@ jobs:
         uses: codecov/codecov-action@v6
         with:
           files: coverage-artifacts/coverage-rust/coverage-unit.lcov
+          disable_search: true
           flags: unit,rust
           token: ${{ secrets.CODECOV_TOKEN }}
           verbose: ${{ runner.debug == '1' }}
@@ -483,6 +486,7 @@ jobs:
         uses: codecov/codecov-action@v6
         with:
           files: coverage-artifacts/coverage-rust/coverage-integration.lcov
+          disable_search: true
           flags: integration,rust
           token: ${{ secrets.CODECOV_TOKEN }}
           verbose: ${{ runner.debug == '1' }}
@@ -492,6 +496,7 @@ jobs:
         uses: codecov/codecov-action@v6
         with:
           files: coverage-artifacts/coverage-integration-javascript/lcov.info
+          disable_search: true
           flags: integration,javascript
           token: ${{ secrets.CODECOV_TOKEN }}
           verbose: ${{ runner.debug == '1' }}
