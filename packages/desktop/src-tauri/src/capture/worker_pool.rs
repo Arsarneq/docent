@@ -696,7 +696,7 @@ pub struct PendingTypeEvent {
 }
 
 /// Debounce interval for type event coalescing (imported from timing.rs).
-use super::timing::{TYPE_DEBOUNCE_MS, WORKER_RECV_TIMEOUT as RECV_TIMEOUT};
+use super::timing::{debounce_elapsed, TYPE_DEBOUNCE_MS, WORKER_RECV_TIMEOUT as RECV_TIMEOUT};
 
 // ---------------------------------------------------------------------------
 // Timestamp helper
@@ -1640,7 +1640,7 @@ fn try_flush_type_debounce(
     let should_flush_type = buffers
         .pending_type
         .as_ref()
-        .map(|pt| now.saturating_sub(pt.last_update) >= TYPE_DEBOUNCE_MS)
+        .map(|pt| debounce_elapsed(now, pt.last_update, TYPE_DEBOUNCE_MS))
         .unwrap_or(false);
 
     if should_flush_type {
@@ -1650,7 +1650,7 @@ fn try_flush_type_debounce(
         buffers.pending_keys_last_timestamp = 0;
     } else if !buffers.pending_keys.is_empty()
         && buffers.pending_keys_last_timestamp > 0
-        && now.saturating_sub(buffers.pending_keys_last_timestamp) >= TYPE_DEBOUNCE_MS
+        && debounce_elapsed(now, buffers.pending_keys_last_timestamp, TYPE_DEBOUNCE_MS)
     {
         // No type event arrived within the debounce window — emit the keys.
         flush_pending_keys(&mut buffers.pending_keys, action_sender);
