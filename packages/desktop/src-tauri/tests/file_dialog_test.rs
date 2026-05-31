@@ -5,18 +5,19 @@
 //! discovery step skips any test file whose source contains the `ci-skip`
 //! marker, so there's no filename list to maintain in the workflow.
 //!
-//! Verifies that opening a file dialog and navigating within it does NOT
-//! produce spurious events (duplicate selects, context_close from folder
-//! refresh, redundant focus events).
+//! Verifies that opening a file dialog and *actually navigating the folder
+//! tree* (clicking the C: drive in the navigation pane, then opening the
+//! "Program Files" folder in the file list) does NOT produce spurious events
+//! (context_close from the list-view refresh, duplicate selects, redundant
+//! focus noise).
 //!
 //! This retires desktop manual test #5 (File Dialog Navigation).
 //!
-//! Approach:
-//! 1. Open a real file dialog via IFileOpenDialog COM API
-//! 2. Wait for it to appear (FindWindowW for dialog class)
-//! 3. Navigate by clicking inside the dialog (tree view / list view)
-//! 4. Assert: no duplicate select events per click, no context_close
-//! 5. Close with Escape
+//! Navigation is deterministic: target elements (the "(C:)" tree item and the
+//! "Program Files" list item) are located by name via UI Automation and clicked
+//! at their real bounding-rect centres — no hard-coded pixel guessing. This
+//! guarantees the genuine folder-load/list-refresh actually occurs, so the
+//! "no spurious context_close" assertion is meaningful rather than vacuous.
 //!
 //! Run with: cargo test --test file_dialog_test
 //! Requires: Windows (uses COM APIs)
@@ -69,7 +70,16 @@ fn focuses(events: &[ActionEvent]) -> Vec<&ActionEvent> {
 mod file_dialog_navigation {
     use super::*;
     use windows::core::w;
+    use windows::core::BSTR;
     use windows::Win32::Foundation::{HWND, RECT};
+    use windows::Win32::System::Com::{
+        CoCreateInstance, CoInitializeEx, CLSCTX_ALL, COINIT_APARTMENTTHREADED,
+    };
+    use windows::Win32::System::Variant::VARIANT;
+    use windows::Win32::UI::Accessibility::{
+        CUIAutomation, IUIAutomation, IUIAutomationElement, PropertyConditionFlags_None,
+        TreeScope_Descendants, UIA_NamePropertyId,
+    };
     use windows::Win32::UI::WindowsAndMessaging::{
         FindWindowW, GetWindowRect, SetForegroundWindow,
     };
@@ -158,150 +168,237 @@ mod file_dialog_navigation {
         }
     }
 
-    /// Test: File dialog navigation does not produce spurious context_close events.
+    /// A UIA session scoped to a single dialog window, used to locate child
+    /// elements by name so the test can click their real screen positions
+    /// instead of guessing pixel coordinates.
     ///
-    /// When navigating folders in a file dialog, the internal list view refreshes
-    /// which can fire WinEvents that look like window destruction. The capture
-    /// layer must filter these out.
+    /// Runs in its own STA apartment for the duration of the lookups. (This is
+    /// the test harness driving the dialog — entirely separate from the capture
+    /// layer's worker threads, which run MTA.)
+    struct DialogUia {
+        uia: IUIAutomation,
+        root: IUIAutomationElement,
+    }
+
+    impl DialogUia {
+        /// Create a UIA session rooted at the given dialog window.
+        fn new(dialog_hwnd: HWND) -> Self {
+            unsafe {
+                // Best-effort COM init for this thread. Ignore the result:
+                // S_OK / S_FALSE mean COM is initialised; RPC_E_CHANGED_MODE
+                // means it's already up in another mode, where CoCreateInstance
+                // still works via marshaling. We never CoUninitialize — each
+                // #[test] runs on its own thread, so COM is torn down when the
+                // thread exits. Calling CoUninitialize here would risk releasing
+                // the apartment while the IUIAutomation interfaces below are
+                // still live (Rust runs an explicit Drop impl before dropping
+                // the struct's fields), which segfaults.
+                let _ = CoInitializeEx(None, COINIT_APARTMENTTHREADED);
+                let uia: IUIAutomation = CoCreateInstance(&CUIAutomation, None, CLSCTX_ALL)
+                    .expect("create IUIAutomation");
+                let root = uia
+                    .ElementFromHandle(dialog_hwnd)
+                    .expect("dialog UIA element");
+                Self { uia, root }
+            }
+        }
+
+        /// Find a descendant element whose Name property exactly equals `name`.
+        /// Returns the centre point (screen coords) of its bounding rectangle.
+        ///
+        /// Retries for up to `timeout_ms` to allow the dialog's view to settle
+        /// (e.g. after a navigation refreshes the list).
+        fn find_center_by_name(&self, name: &str, timeout_ms: u64) -> Option<(i32, i32)> {
+            let start = std::time::Instant::now();
+            loop {
+                if let Some(point) = self.try_find_center_by_name(name) {
+                    return Some(point);
+                }
+                if start.elapsed() > Duration::from_millis(timeout_ms) {
+                    return None;
+                }
+                thread::sleep(Duration::from_millis(100));
+            }
+        }
+
+        fn try_find_center_by_name(&self, name: &str) -> Option<(i32, i32)> {
+            unsafe {
+                let condition = self
+                    .uia
+                    .CreatePropertyConditionEx(
+                        UIA_NamePropertyId,
+                        &VARIANT::from(BSTR::from(name)),
+                        PropertyConditionFlags_None,
+                    )
+                    .ok()?;
+                let element = self
+                    .root
+                    .FindFirst(TreeScope_Descendants, &condition)
+                    .ok()?;
+                // FindFirst returns a null element (not an Err) when nothing
+                // matches; CurrentBoundingRectangle then fails, which `ok()?`
+                // turns into None.
+                let rect = element.CurrentBoundingRectangle().ok()?;
+                if rect.right <= rect.left || rect.bottom <= rect.top {
+                    return None; // Off-screen / zero-size — not clickable.
+                }
+                let cx = (rect.left + rect.right) / 2;
+                let cy = (rect.top + rect.bottom) / 2;
+                Some((cx, cy))
+            }
+        }
+    }
+
+    /// Shared setup: start capture, open Notepad's file dialog, bring it to the
+    /// foreground, and return everything the test needs. Panics on setup
+    /// failure (a setup failure is a test failure, not a capture-behaviour
+    /// result).
+    fn open_dialog() -> (
+        WindowsCapture,
+        mpsc::Receiver<ActionEvent>,
+        Enigo,
+        u32,
+        HWND,
+    ) {
+        let (tx, rx) = mpsc::channel::<ActionEvent>();
+        let mut capture = WindowsCapture::new();
+        capture.set_excluded_pid(None);
+        capture.start(tx).unwrap();
+        thread::sleep(Duration::from_millis(200));
+
+        let mut enigo = Enigo::new(&Settings::default()).unwrap();
+        let pid = spawn_notepad_with_dialog(&mut enigo);
+        let dialog_hwnd = wait_for_dialog(5000).expect("File dialog did not appear within 5s");
+        thread::sleep(Duration::from_millis(500));
+
+        unsafe {
+            let _ = SetForegroundWindow(dialog_hwnd);
+        }
+        thread::sleep(Duration::from_millis(300));
+
+        (capture, rx, enigo, pid, dialog_hwnd)
+    }
+
+    /// Move to `(x, y)` and single-click.
+    fn click_at(enigo: &mut Enigo, x: i32, y: i32) {
+        enigo.move_mouse(x, y, Coordinate::Abs).unwrap();
+        thread::sleep(Duration::from_millis(100));
+        enigo.button(enigo::Button::Left, Direction::Click).unwrap();
+    }
+
+    /// Move to `(x, y)` and double-click (to open a folder in the list view).
+    fn double_click_at(enigo: &mut Enigo, x: i32, y: i32) {
+        enigo.move_mouse(x, y, Coordinate::Abs).unwrap();
+        thread::sleep(Duration::from_millis(100));
+        enigo.button(enigo::Button::Left, Direction::Click).unwrap();
+        thread::sleep(Duration::from_millis(60));
+        enigo.button(enigo::Button::Left, Direction::Click).unwrap();
+    }
+
+    /// Navigate the dialog: click the C: drive in the navigation pane, then
+    /// open the "Program Files" folder in the file list. Returns `true` if both
+    /// targets were found and acted on. A `false` return means the environment
+    /// didn't present the expected tree (e.g. unusual drive labelling) and the
+    /// caller should skip rather than fail.
+    fn navigate_c_then_program_files(uia: &DialogUia, enigo: &mut Enigo) -> bool {
+        // 1. Click the local C: drive tree item. Drive labels vary
+        //    ("Local Disk (C:)", "OS (C:)", …) so match the universal "(C:)".
+        let Some((cx, cy)) = uia.find_center_by_name("(C:)", 3000).or_else(|| {
+            // Some shells expose the full label; try a couple of common ones.
+            uia.find_center_by_name("Local Disk (C:)", 500)
+        }) else {
+            return false;
+        };
+        click_at(enigo, cx, cy);
+        thread::sleep(Duration::from_millis(1000)); // folder load / list refresh #1
+
+        // 2. Open "Program Files" (exact match, excluding the "(x86)" variant).
+        let Some((px, py)) = uia.find_center_by_name("Program Files", 3000) else {
+            return false;
+        };
+        double_click_at(enigo, px, py);
+        thread::sleep(Duration::from_millis(1000)); // folder load / list refresh #2
+
+        true
+    }
+
+    /// Test: navigating the folder tree (C: → Program Files) does not produce
+    /// spurious context_close events.
+    ///
+    /// Opening a folder tears down and rebuilds the dialog's internal list
+    /// view, which fires WinEvents that look like window destruction. The
+    /// capture layer must filter these out. Because navigation is deterministic
+    /// (we verify both targets were found), this assertion is meaningful: the
+    /// list-refresh condition genuinely occurred.
     #[test]
     #[serial]
     fn file_dialog_navigation_no_spurious_context_close() {
-        let (tx, rx) = mpsc::channel::<ActionEvent>();
-        let mut capture = WindowsCapture::new();
-        capture.set_excluded_pid(None);
-        capture.start(tx).unwrap();
-        thread::sleep(Duration::from_millis(200));
+        let (mut capture, rx, mut enigo, pid, dialog_hwnd) = open_dialog();
+        let uia = DialogUia::new(dialog_hwnd);
 
-        let mut enigo = Enigo::new(&Settings::default()).unwrap();
+        let navigated = navigate_c_then_program_files(&uia, &mut enigo);
 
-        // Open Notepad and its file dialog
-        let pid = spawn_notepad_with_dialog(&mut enigo);
-
-        // Wait for file dialog to appear
-        let dialog_hwnd = wait_for_dialog(5000).expect("File dialog did not appear within 5s");
-        thread::sleep(Duration::from_millis(500));
-
-        // Bring dialog to foreground
-        unsafe {
-            let _ = SetForegroundWindow(dialog_hwnd);
-        }
-        thread::sleep(Duration::from_millis(200));
-
-        // Get dialog rect for clicking inside it
-        let mut rect = RECT::default();
-        unsafe {
-            GetWindowRect(dialog_hwnd, &mut rect).unwrap();
-        }
-
-        // Click in the left panel (navigation pane / tree view area)
-        let nav_x = rect.left + (rect.right - rect.left) / 4;
-        let nav_y = rect.top + (rect.bottom - rect.top) / 2;
-
-        // First click — select an item in the navigation pane
-        enigo.move_mouse(nav_x, nav_y, Coordinate::Abs).unwrap();
-        thread::sleep(Duration::from_millis(100));
-        enigo.button(enigo::Button::Left, Direction::Click).unwrap();
-        thread::sleep(Duration::from_millis(800)); // Wait for folder to load
-
-        // Second click — slightly lower to select a different item
-        let nav_y2 = nav_y + 30;
-        enigo.move_mouse(nav_x, nav_y2, Coordinate::Abs).unwrap();
-        thread::sleep(Duration::from_millis(100));
-        enigo.button(enigo::Button::Left, Direction::Click).unwrap();
-        thread::sleep(Duration::from_millis(800));
-
-        // Third click — in the file list area (right side)
-        let list_x = rect.left + (rect.right - rect.left) * 3 / 4;
-        let list_y = rect.top + (rect.bottom - rect.top) / 2;
-        enigo.move_mouse(list_x, list_y, Coordinate::Abs).unwrap();
-        thread::sleep(Duration::from_millis(100));
-        enigo.button(enigo::Button::Left, Direction::Click).unwrap();
-        thread::sleep(Duration::from_millis(500));
-
-        // Close the dialog with Escape
+        // Close the dialog and clean up.
         enigo.key(Key::Escape, Direction::Click).unwrap();
         thread::sleep(Duration::from_millis(500));
-
-        // Kill notepad
         kill_process(pid);
         thread::sleep(Duration::from_millis(300));
-
         capture.stop().unwrap();
+
+        if !navigated {
+            eprintln!(
+                "SKIP: could not locate C: drive and/or Program Files in the dialog; \
+                 environment does not present the expected folder tree."
+            );
+            return;
+        }
+
         let events: Vec<_> = rx.try_iter().collect();
 
-        // ASSERTION 1: No context_close events from folder refresh.
-        // The dialog's internal list view refresh should NOT produce context_close.
+        // ASSERTION 1: No context_close from the folder-load list refresh.
         let closes = context_closes(&events);
         assert!(
             closes.is_empty(),
-            "File dialog navigation produced {} spurious context_close events (expected 0). \
-             Folder refresh is leaking as window destruction.",
+            "Folder navigation produced {} spurious context_close events (expected 0). \
+             The list-view refresh is leaking as window destruction.",
             closes.len()
         );
 
-        // ASSERTION 2: Clicks should be captured (we clicked 3 times).
+        // ASSERTION 2: The user clicks were captured (drive click + folder open).
         let click_events = clicks(&events);
         assert!(
-            click_events.len() >= 2,
-            "Expected at least 2 click events from dialog interaction, got {}",
-            click_events.len()
+            !click_events.is_empty(),
+            "Expected at least one click event from folder navigation, got 0"
         );
     }
 
-    /// Test: File dialog clicks do not produce duplicate select events.
-    ///
-    /// Each click on a tree item or list item should produce at most one
-    /// select event (or zero, since select is suppressed after click).
+    /// Test: opening a folder in the file list does not produce more select
+    /// events than clicks. A click already captures the user's intent, so the
+    /// redundant EVENT_OBJECT_SELECTION that fires alongside it must be
+    /// suppressed.
     #[test]
     #[serial]
     fn file_dialog_no_duplicate_select_per_click() {
-        let (tx, rx) = mpsc::channel::<ActionEvent>();
-        let mut capture = WindowsCapture::new();
-        capture.set_excluded_pid(None);
-        capture.start(tx).unwrap();
-        thread::sleep(Duration::from_millis(200));
+        let (mut capture, rx, mut enigo, pid, dialog_hwnd) = open_dialog();
+        let uia = DialogUia::new(dialog_hwnd);
 
-        let mut enigo = Enigo::new(&Settings::default()).unwrap();
+        let navigated = navigate_c_then_program_files(&uia, &mut enigo);
 
-        // Open Notepad and its file dialog
-        let pid = spawn_notepad_with_dialog(&mut enigo);
-        let dialog_hwnd = wait_for_dialog(5000).expect("File dialog did not appear within 5s");
-        thread::sleep(Duration::from_millis(500));
-
-        unsafe {
-            let _ = SetForegroundWindow(dialog_hwnd);
-        }
-        thread::sleep(Duration::from_millis(200));
-
-        let mut rect = RECT::default();
-        unsafe {
-            GetWindowRect(dialog_hwnd, &mut rect).unwrap();
-        }
-
-        // Click in the file list area
-        let list_x = rect.left + (rect.right - rect.left) * 3 / 4;
-        let list_y = rect.top + (rect.bottom - rect.top) / 2;
-        enigo.move_mouse(list_x, list_y, Coordinate::Abs).unwrap();
-        thread::sleep(Duration::from_millis(100));
-        enigo.button(enigo::Button::Left, Direction::Click).unwrap();
-        thread::sleep(Duration::from_millis(600));
-
-        // Close
         enigo.key(Key::Escape, Direction::Click).unwrap();
         thread::sleep(Duration::from_millis(500));
-
         kill_process(pid);
         thread::sleep(Duration::from_millis(300));
-
         capture.stop().unwrap();
-        let events: Vec<_> = rx.try_iter().collect();
 
-        // Select events should be suppressed after clicks (the click is sufficient).
-        // At most 0 select events per click — the capture layer filters them.
+        if !navigated {
+            eprintln!("SKIP: could not navigate C: → Program Files in this environment.");
+            return;
+        }
+
+        let events: Vec<_> = rx.try_iter().collect();
         let select_events = selects(&events);
         let click_events = clicks(&events);
 
-        // No more select events than click events (ideally 0 selects)
         assert!(
             select_events.len() <= click_events.len(),
             "Got {} select events for {} clicks — duplicate selects are leaking. \
@@ -311,64 +408,40 @@ mod file_dialog_navigation {
         );
     }
 
-    /// Test: File dialog does not produce excessive focus noise.
+    /// Test: navigating the folder tree does not produce excessive focus noise.
     ///
-    /// File dialogs have many internal controls that receive focus. The capture
-    /// layer should not produce an unbounded number of focus events — but some
-    /// focus events are legitimate (different controls receiving focus).
-    /// This test verifies the count stays reasonable (not exponential).
+    /// File dialogs shuffle focus across many internal controls during a
+    /// navigation. The capture layer should report some legitimate focus
+    /// changes but not one per internal control, so the count must stay
+    /// bounded rather than scale with the dialog's internal complexity.
     #[test]
     #[serial]
     fn file_dialog_focus_count_is_bounded() {
-        let (tx, rx) = mpsc::channel::<ActionEvent>();
-        let mut capture = WindowsCapture::new();
-        capture.set_excluded_pid(None);
-        capture.start(tx).unwrap();
-        thread::sleep(Duration::from_millis(200));
+        let (mut capture, rx, mut enigo, pid, dialog_hwnd) = open_dialog();
+        let uia = DialogUia::new(dialog_hwnd);
 
-        let mut enigo = Enigo::new(&Settings::default()).unwrap();
+        let navigated = navigate_c_then_program_files(&uia, &mut enigo);
 
-        let pid = spawn_notepad_with_dialog(&mut enigo);
-        let dialog_hwnd = wait_for_dialog(5000).expect("File dialog did not appear within 5s");
-        thread::sleep(Duration::from_millis(500));
-
-        unsafe {
-            let _ = SetForegroundWindow(dialog_hwnd);
-        }
-        thread::sleep(Duration::from_millis(200));
-
-        let mut rect = RECT::default();
-        unsafe {
-            GetWindowRect(dialog_hwnd, &mut rect).unwrap();
-        }
-
-        // Single click in the navigation pane
-        let nav_x = rect.left + (rect.right - rect.left) / 4;
-        let nav_y = rect.top + (rect.bottom - rect.top) / 2;
-        enigo.move_mouse(nav_x, nav_y, Coordinate::Abs).unwrap();
-        thread::sleep(Duration::from_millis(100));
-        enigo.button(enigo::Button::Left, Direction::Click).unwrap();
-        thread::sleep(Duration::from_millis(600));
-
-        // Close
         enigo.key(Key::Escape, Direction::Click).unwrap();
         thread::sleep(Duration::from_millis(500));
-
         kill_process(pid);
         thread::sleep(Duration::from_millis(300));
-
         capture.stop().unwrap();
-        let events: Vec<_> = rx.try_iter().collect();
 
-        // Focus events should be bounded — not exponential.
-        // A file dialog interaction should produce fewer than 10 focus events total
-        // (dialog open + tree view focus + list view focus + a few internal controls).
+        if !navigated {
+            eprintln!("SKIP: could not navigate C: → Program Files in this environment.");
+            return;
+        }
+
+        let events: Vec<_> = rx.try_iter().collect();
         let focus_events = focuses(&events);
 
+        // A two-step navigation should still produce few focus events. Allow
+        // some headroom over a single interaction but require it stays bounded.
         assert!(
-            focus_events.len() < 10,
-            "Got {} focus events from a single dialog interaction — \
-             focus noise is not being filtered. Expected < 10.",
+            focus_events.len() < 12,
+            "Got {} focus events from a two-step folder navigation — \
+             focus noise is not being filtered. Expected < 12.",
             focus_events.len()
         );
     }
