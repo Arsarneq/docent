@@ -2,7 +2,7 @@
 name = "docent-desktop"
 version = "1.0.0"
 edition = "2021"
-description = "Docent Desktop — native application interaction capture"
+description = "Docent Desktop — captures demonstrated workflows as structured data, not code"
 
 [dependencies]
 tauri = { version = "2", features = [] }
