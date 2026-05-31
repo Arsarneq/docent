@@ -241,11 +241,11 @@ jobs:
         include:
           - os: windows-latest
             label: Windows
-          # Future platforms:
-          # - os: macos-latest
-          #   label: macOS
-          # - os: ubuntu-latest
-          #   label: Linux
+          # This job runs the FULL test + coverage pipeline (real UIA + enigo
+          # input), so it only lists platforms that have a working capture
+          # backend AND a cross-platform test path. Add macOS (#83) / Linux
+          # (#84) here when their backends land — at which point this job and
+          # desktop-cross-compile are intended to converge into one matrix (#125).
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v6
@@ -352,13 +352,18 @@ jobs:
             packages/desktop/src-tauri/coverage-integration.lcov
           retention-days: 1
 
-  # Cross-platform compile gate (#97). The desktop-rust-tests job above runs the
-  # full Windows-only test/coverage pipeline (real UIA + enigo input). This job
-  # is lighter and complementary: it only verifies the crate `cargo check`s and
-  # is clippy-clean on macOS and Linux, so the cross-platform seam (the no-op
-  # `capture::stub` backend behind `Capture` on non-Windows) keeps compiling as
-  # the code evolves toward native macOS (#83) / Linux (#84) support. No tests
-  # are run here — there is no native backend to exercise yet.
+  # Cross-platform COMPILE gate (#97). This is the comprehensive "builds on
+  # every target we ship for" job: it `cargo check`s + clippy-checks the crate
+  # on Windows, Linux, and macOS, but runs NO tests. It complements the
+  # desktop-rust-tests job, which runs the full test+coverage pipeline only on
+  # the platforms that have a real capture backend (Windows today). Keeping the
+  # full target list here means the cross-platform seam (the no-op
+  # `capture::stub` backend behind `Capture` on non-Windows) is proven to keep
+  # compiling as the code evolves toward native macOS (#83) / Linux (#84).
+  #
+  # NOTE (#125): once a non-Windows backend gains a working test+coverage path,
+  # this compile-only job and desktop-rust-tests are intended to converge into a
+  # single full-pipeline matrix. Until then they stay split — see #125.
   desktop-cross-compile:
     needs: [lint, changes]
     if: |
@@ -372,6 +377,8 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          - os: windows-latest
+            label: Windows
           - os: ubuntu-latest
             label: Linux
           - os: macos-latest
@@ -415,6 +422,7 @@ jobs:
           key: ${{ runner.os }}-cargo-xcompile-${{ hashFiles('packages/desktop/src-tauri/Cargo.lock') }}
 
       - name: Create frontend dist directory
+        shell: bash
         run: mkdir -p packages/desktop/dist
 
       - name: cargo check (lib + bin)
