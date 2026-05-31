@@ -243,9 +243,9 @@ jobs:
             label: Windows
           # This job runs the FULL test + coverage pipeline (real UIA + enigo
           # input), so it only lists platforms that have a working capture
-          # backend AND a cross-platform test path. Add macOS (#83) / Linux
-          # (#84) here when their backends land — at which point this job and
-          # desktop-cross-compile are intended to converge into one matrix (#125).
+          # backend AND a cross-platform test path. Add Linux (#84) here when
+          # its backend lands — at which point this job and desktop-cross-compile
+          # are intended to converge into one matrix (#125). (macOS dropped — #83.)
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v6
@@ -354,12 +354,14 @@ jobs:
 
   # Cross-platform COMPILE gate (#97). This is the comprehensive "builds on
   # every target we ship for" job: it `cargo check`s + clippy-checks the crate
-  # on Windows, Linux, and macOS, but runs NO tests. It complements the
+  # on Windows and Linux, but runs NO tests. It complements the
   # desktop-rust-tests job, which runs the full test+coverage pipeline only on
   # the platforms that have a real capture backend (Windows today). Keeping the
   # full target list here means the cross-platform seam (the no-op
   # `capture::stub` backend behind `Capture` on non-Windows) is proven to keep
-  # compiling as the code evolves toward native macOS (#83) / Linux (#84).
+  # compiling as the code evolves toward native Linux (#84) support.
+  # (macOS was dropped — see #83 — as it has no free code-signing path and
+  # unsigned apps are unusable for non-technical users.)
   #
   # NOTE (#125): once a non-Windows backend gains a working test+coverage path,
   # this compile-only job and desktop-rust-tests are intended to converge into a
@@ -381,8 +383,6 @@ jobs:
             label: Windows
           - os: ubuntu-latest
             label: Linux
-          - os: macos-latest
-            label: macOS
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v6

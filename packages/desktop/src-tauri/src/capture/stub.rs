@@ -1,16 +1,20 @@
 // Placeholder capture layer for platforms whose native backend is not yet
-// implemented (macOS — see #83; Linux/X11 — #84; Wayland — #85).
+// implemented (Linux/X11 — #84; Wayland — #85).
 //
 // This exists so the crate **compiles and `cargo check`s on every target**,
 // keeping the cross-platform seam honest as the codebase is prepared for
-// macOS/Linux support (#97). It implements the platform-agnostic
-// [`CaptureLayer`] trait but performs no capture: `start` returns a
-// `CaptureError::Platform` error, `check_permissions` reports "not granted",
-// and the remaining methods are inert. No platform SDKs are referenced, so it
-// builds with zero system dependencies.
+// Linux support (#97). It implements the platform-agnostic [`CaptureLayer`]
+// trait but performs no capture: `start` returns a `CaptureError::Platform`
+// error, `check_permissions` reports "not granted", and the remaining methods
+// are inert. No platform SDKs are referenced, so it builds with zero system
+// dependencies.
 //
 // When a real backend lands for a platform, point that platform's `Capture`
 // alias in `mod.rs` at the new type instead of this stub.
+//
+// (macOS is intentionally not a target — see #83: no free code-signing path
+// exists and unsigned macOS apps are unusable for Docent's non-technical
+// audience.)
 
 use std::sync::mpsc::Sender;
 
