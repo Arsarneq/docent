@@ -22,17 +22,14 @@ jobs:
         github.event.pull_request.user.login != 'dependabot[bot]')
     steps:
       - name: CLA Assistant
-        uses: contributor-assistant/github-action@v2.6.1
+        # Migrated off the upstream contributor-assistant/github-action, which
+        # was archived (read-only) on 2026-03-23 and pinned to Node 20 — GitHub
+        # removes Node 20 from runners on 2026-09-16. This is an actively
+        # maintained, Apache-2.0 community fork with a native Node 24 build and
+        # is a drop-in for the same inputs/signing flow. See #121 for rationale.
+        uses: iainmcgin/cla-github-action@v3.0.0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # contributor-assistant pins the action to node20 (v2.6.1 is the
-          # latest release and even master still declares node20 — there is no
-          # node24 release to bump to). GitHub forces JavaScript actions onto
-          # Node 24 on 2026-06-16 and removes Node 20 on 2026-09-16. Opt in now
-          # so any incompatibility surfaces here as an early warning rather than
-          # breaking the CLA gate on the forced-cutover date. Remove this once
-          # the action ships a native node24 release.
-          FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
         with:
           path-to-signatures: 'signatures/version1/cla.json'
           path-to-document: 'https://github.com/${{ github.repository }}/blob/main/CLA.md'
