@@ -59,7 +59,7 @@ proptest! {
     #[test]
     fn sequence_numbering_is_monotonically_increasing(n in 1usize..1000) {
         let (action_tx, _action_rx) = mpsc::channel::<ActionEvent>();
-        let pool = WorkerPool::new(1, action_tx, |_index, _rx, _queue_len, _sender| {
+        let pool = WorkerPool::new(1, action_tx, |_index, _rx, _queue_len, _sender, _pending| {
             std::thread::spawn(|| {
                 // Worker does nothing; we only test sequence numbering.
             })
@@ -130,7 +130,7 @@ proptest! {
             .collect();
         let wc_clone = worker_counts.clone();
 
-        let mut pool = WorkerPool::new(3, action_tx, move |index, rx, _queue_len, _sender| {
+        let mut pool = WorkerPool::new(3, action_tx, move |index, rx, _queue_len, _sender, _pending| {
             let wc = Arc::clone(&wc_clone[index]);
             std::thread::spawn(move || {
                 loop {
@@ -220,7 +220,7 @@ proptest! {
             .collect();
         let wc_clone = worker_counts.clone();
 
-        let mut pool = WorkerPool::new(3, action_tx, move |index, rx, _queue_len, _sender| {
+        let mut pool = WorkerPool::new(3, action_tx, move |index, rx, _queue_len, _sender, _pending| {
             let wc = Arc::clone(&wc_clone[index]);
             std::thread::spawn(move || {
                 loop {
@@ -377,7 +377,7 @@ proptest! {
             .collect();
         let we_clone = worker_events.clone();
 
-        let mut pool = WorkerPool::new(3, action_tx, move |index, rx, _queue_len, _sender| {
+        let mut pool = WorkerPool::new(3, action_tx, move |index, rx, _queue_len, _sender, _pending| {
             let events = Arc::clone(&we_clone[index]);
             std::thread::spawn(move || {
                 loop {
@@ -486,7 +486,7 @@ use std::sync::Mutex;
 use std::thread;
 use std::time::Duration;
 
-use docent_desktop_lib::capture::worker_pool::{worker_loop, AccessibilityBackend};
+use docent_desktop_lib::capture::worker_pool::{worker_loop, AccessibilityBackend, PendingBuffers};
 use docent_desktop_lib::capture::{ActionPayload, CaptureError, ElementDescription};
 
 /// A mock accessibility backend for testing the worker_loop.
@@ -613,7 +613,8 @@ impl WorkerTestHarness {
         let ep = Arc::clone(&excluded_pid);
 
         let thread = thread::spawn(move || {
-            worker_loop(0, backend, event_rx, ql, action_tx, ep);
+            let pending = std::sync::Arc::new(Mutex::new(PendingBuffers::default()));
+            worker_loop(0, backend, event_rx, ql, action_tx, ep, pending);
         });
 
         Self {
@@ -964,26 +965,30 @@ fn worker_panic_respawns_and_redistributes() {
     let worker_counts: Vec<Arc<AtomicU64>> = (0..3).map(|_| Arc::new(AtomicU64::new(0))).collect();
     let wc_clone = worker_counts.clone();
 
-    let mut pool = WorkerPool::new(3, action_tx, move |index, rx, _queue_len, _sender| {
-        let wc = Arc::clone(&wc_clone[index]);
-        let sc = Arc::clone(&sc_clone[index]);
-        let generation = sc.fetch_add(1, Ordering::SeqCst);
-        std::thread::spawn(move || {
-            loop {
-                match rx.recv() {
-                    Ok(WorkerMessage::Event(_)) => {
-                        if index == 0 && generation == 0 {
-                            // First-generation worker 0 panics on first event.
-                            panic!("simulated worker 0 panic");
+    let mut pool = WorkerPool::new(
+        3,
+        action_tx,
+        move |index, rx, _queue_len, _sender, _pending| {
+            let wc = Arc::clone(&wc_clone[index]);
+            let sc = Arc::clone(&sc_clone[index]);
+            let generation = sc.fetch_add(1, Ordering::SeqCst);
+            std::thread::spawn(move || {
+                loop {
+                    match rx.recv() {
+                        Ok(WorkerMessage::Event(_)) => {
+                            if index == 0 && generation == 0 {
+                                // First-generation worker 0 panics on first event.
+                                panic!("simulated worker 0 panic");
+                            }
+                            wc.fetch_add(1, Ordering::SeqCst);
                         }
-                        wc.fetch_add(1, Ordering::SeqCst);
+                        Ok(WorkerMessage::Shutdown) => break,
+                        Err(_) => break,
                     }
-                    Ok(WorkerMessage::Shutdown) => break,
-                    Err(_) => break,
                 }
-            }
-        })
-    });
+            })
+        },
+    );
 
     // Dispatch one event to worker 0 (send succeeds, worker panics after recv).
     pool.dispatch(make_raw_event(RawEventType::Click, 0));
@@ -1036,21 +1041,25 @@ fn repeatedly_failing_workers_get_respawned_and_shutdown_completes() {
     let panicked_count = Arc::new(AtomicU64::new(0));
     let pc_clone = panicked_count.clone();
 
-    let mut pool = WorkerPool::new(3, action_tx, move |_index, rx, _queue_len, _sender| {
-        st_clone.fetch_add(1, Ordering::SeqCst);
-        let pc = pc_clone.clone();
-        std::thread::spawn(move || {
-            // Each worker panics on first event, but handles Shutdown cleanly.
-            match rx.recv() {
-                Ok(WorkerMessage::Event(_)) => {
-                    pc.fetch_add(1, Ordering::SeqCst);
-                    panic!("simulated worker panic");
+    let mut pool = WorkerPool::new(
+        3,
+        action_tx,
+        move |_index, rx, _queue_len, _sender, _pending| {
+            st_clone.fetch_add(1, Ordering::SeqCst);
+            let pc = pc_clone.clone();
+            std::thread::spawn(move || {
+                // Each worker panics on first event, but handles Shutdown cleanly.
+                match rx.recv() {
+                    Ok(WorkerMessage::Event(_)) => {
+                        pc.fetch_add(1, Ordering::SeqCst);
+                        panic!("simulated worker panic");
+                    }
+                    Ok(WorkerMessage::Shutdown) => {}
+                    Err(_) => {}
                 }
-                Ok(WorkerMessage::Shutdown) => {}
-                Err(_) => {}
-            }
-        })
-    });
+            })
+        },
+    );
 
     // Initial spawn: 3 workers.
     assert_eq!(spawn_total.load(Ordering::SeqCst), 3);
@@ -1100,9 +1109,11 @@ fn repeatedly_failing_workers_get_respawned_and_shutdown_completes() {
 #[test]
 fn max_sequence_id_returns_zero_initially() {
     let (action_tx, _action_rx) = mpsc::channel::<ActionEvent>();
-    let pool = WorkerPool::new(1, action_tx, |_index, _rx, _queue_len, _sender| {
-        std::thread::spawn(|| {})
-    });
+    let pool = WorkerPool::new(
+        1,
+        action_tx,
+        |_index, _rx, _queue_len, _sender, _pending| std::thread::spawn(|| {}),
+    );
 
     assert_eq!(
         pool.max_sequence_id(),
@@ -1681,7 +1692,8 @@ fn excluded_pid_events_are_discarded() {
     let ep = Arc::clone(&excluded_pid);
 
     let thread_handle = thread::spawn(move || {
-        worker_loop(0, backend, event_rx, ql, action_tx, ep);
+        let pending = std::sync::Arc::new(Mutex::new(PendingBuffers::default()));
+        worker_loop(0, backend, event_rx, ql, action_tx, ep, pending);
     });
 
     // Send an event from the excluded PID.
