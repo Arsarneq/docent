@@ -56,10 +56,15 @@ import chromeAdapter from '../../sidepanel/adapter-chrome.js';
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 
-/** Arbitrary valid HTTP/HTTPS URL */
+/**
+ * Arbitrary URL that is valid to persist *with an API key* under the S11 rule
+ * (https required when a key is set; http allowed only for loopback). The
+ * round-trip property pairs these with an arbitrary key, so every generated
+ * combination must be acceptable to `saveSettings`.
+ */
 const validUrlArb = fc.oneof(
   fc.constant('http://localhost:3000'),
-  fc.webUrl({ validSchemes: ['http', 'https'] }),
+  fc.webUrl({ validSchemes: ['https'] }),
 );
 
 // ── Task 2.2: Settings round-trip ──────────────────────────────────────────
