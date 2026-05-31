@@ -25,12 +25,9 @@ jobs:
         # Migrated off the upstream contributor-assistant/github-action, which
         # was archived (read-only) on 2026-03-23 and pinned to Node 20 — GitHub
         # removes Node 20 from runners on 2026-09-16. This is an actively
-        # maintained, Apache-2.0 community fork that ships a native Node 24
-        # build and is a drop-in for the same inputs/signing flow. SHA-pinned
-        # to the v3.0.0 release commit (not the tag) so the exact reviewed code
-        # runs regardless of any later upstream changes — bump deliberately.
-        # See #121 for the migration rationale and alternatives considered.
-        uses: iainmcgin/cla-github-action@3e58ace6af840f66fcd80f68c08d76559140df5e # v3.0.0
+        # maintained, Apache-2.0 community fork with a native Node 24 build and
+        # is a drop-in for the same inputs/signing flow. See #121 for rationale.
+        uses: iainmcgin/cla-github-action@v3.0.0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
