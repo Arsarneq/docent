@@ -4,10 +4,10 @@
 //! and verifies that the capture layer produces the correct ActionEvents.
 //!
 //! These tests are the desktop equivalent of the extension's Playwright tests.
-//! They run cross-platform (Windows, macOS, Linux) with a single test suite.
+//! They run cross-platform (Windows, Linux) with a single test suite.
 //!
 //! Run with: cargo test --test capture_integration
-//! CI: runs on windows-latest (and future macos-latest, ubuntu-latest with xvfb)
+//! CI: runs on windows-latest (and future ubuntu-latest with xvfb)
 //!
 //! Serial execution is enforced via #[serial] attribute (serial_test crate).
 //! Tests share the OS input layer and would interfere in parallel.
