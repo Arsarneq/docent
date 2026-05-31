@@ -1,0 +1,41 @@
+name: Debug env
+description: >
+  When GitHub Actions debug logging is enabled for a run (the "Enable debug
+  logging" checkbox on a re-run, which sets runner.debug == '1'), turn up the
+  verbosity of the tools used across CI by exporting the relevant environment
+  variables to $GITHUB_ENV. On normal runs this is a no-op, so CI output and
+  timing are unchanged.
+
+  Add this once per job, immediately after `actions/checkout`. The exported
+  vars persist to every later step in the same job. Because the GitHub debug
+  flag is set run-wide, this works identically for a full re-run, a "re-run
+  failed jobs" partial re-run, and a single-job re-run — every job that
+  executes re-derives its own verbosity from runner.debug at step 1.
+
+  Tools that only accept a CLI flag (no env knob) — clippy -v, prettier
+  --log-level debug, cargo test --nocapture, stryker --logLevel trace, tauri
+  build -v — are gated per-step with `if: runner.debug == '1'` at the call
+  site, not here.
+
+runs:
+  using: composite
+  steps:
+    - if: runner.debug == '1'
+      shell: bash
+      run: |
+        echo "::notice::Debug logging is on — enabling verbose tool output for this job"
+        {
+          # Rust: full backtraces, app-level logs (once tracing/log is wired),
+          # and verbose cargo (term.verbose; verified env form of --verbose).
+          echo "RUST_BACKTRACE=full"
+          echo "RUST_LOG=debug"
+          echo "CARGO_TERM_VERBOSE=true"
+          # npm: verbose lifecycle/install logging.
+          echo "npm_config_loglevel=verbose"
+          # Playwright + ESLint/Stylelint use the `debug` npm package. Scope the
+          # namespaces deliberately — DEBUG=* is enormous and can destabilise
+          # some libraries. NOTE: do NOT use Playwright's `--debug` CLI flag in
+          # CI; it launches the headed Inspector and hangs. DEBUG=pw:api is the
+          # correct non-interactive verbose path.
+          echo "DEBUG=pw:api,eslint:*,stylelint:*"
+        } >> "$GITHUB_ENV"

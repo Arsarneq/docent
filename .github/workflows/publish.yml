@@ -17,6 +17,8 @@ jobs:
         with:
           ref: main
 
+      - uses: ./.github/actions/debug-env
+
       - uses: actions/setup-node@v6
         with:
           node-version: 20
