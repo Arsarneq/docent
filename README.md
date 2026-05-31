@@ -16,7 +16,7 @@
 
 <h1>Docent</h1>
 
-> Demonstrated Behaviour Capture and Dispatch
+> Captures demonstrated workflows as structured data — not code.
 
 Docent captures user interactions alongside step-by-step context and exports the result as structured JSON. It runs as a Chrome extension for browser workflows and as a native desktop application (Windows) for native application workflows. Both platforms produce `.docent.json` files with the same core structure, differentiated by platform-specific action types and fields.
 
@@ -29,7 +29,7 @@ Docent captures interactions and pairs them with step-by-step context. The resul
 - **Chrome extension** — captures user actions in the browser: clicks, typing, keyboard, drag, scroll, file uploads. Browser chrome actions (address bar, back/forward, tabs) are captured via their immediate effects.
 - **Desktop application** — captures user actions in native Windows applications via low-level input hooks and the UI Automation accessibility API, with per-action coordinate-based fallback for elements that lack accessibility data.
 
-Both platforms follow the same principle: capture exactly what the user did, nothing else. Programmatic side-effects (value changes from code, focus moves from scripts, window lifecycle from `window.open()`) are filtered out.
+Both platforms follow the same principle: every captured action is a real user action — nothing programmatic, synthetic, or inferred. Programmatic side-effects (value changes from code, focus moves from scripts, window lifecycle from `window.open()`) are filtered out. A small amount of observed context is recorded alongside the actions to describe them faithfully, always kept distinct from the actions themselves.
 
 Recordings can be dispatched directly to a configured HTTP endpoint from either platform — no terminal or Node.js required.
 

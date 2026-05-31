@@ -12,7 +12,14 @@ Platform-specific details:
 
 ## Core Rule
 
-**Capture exactly what the user did. Nothing else.**
+**Capture what the user did — not what the code did.**
+
+This is an inclusion filter on the action stream: effects, code-driven events, and
+guessed intent never enter it. A small amount of observed context is recorded
+_alongside_ the actions to describe them faithfully — proxies for actions that happen
+outside the capture layer's view (see [Proxy Capture](#proxy-capture)) and ambient
+facts such as the window rectangle. That context is always kept distinct from the
+actions themselves; it is never invented and never treated as something the user did.
 
 ---
 
