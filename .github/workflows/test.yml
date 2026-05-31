@@ -323,7 +323,15 @@ jobs:
       - name: Run Rust integration tests with coverage
         working-directory: packages/desktop/src-tauri
         shell: bash
-        run: cargo llvm-cov $RUST_INTEGRATION_TEST_ARGS --ignore-filename-regex "(lib|main)\.rs$" --lcov --output-path coverage-integration.lcov
+        # --test-threads=1: every integration test is #[serial] (they share the
+        # OS input layer via enigo), so they never run concurrently anyway.
+        # libtest's default parallel runner still pre-spawns all test threads,
+        # leaving all-but-one blocked on the serial lock — and its 60s
+        # "still running" timer counts that blocked wait, emitting misleading
+        # "has been running for over 60 seconds" warnings for tests that have
+        # done no work. Running single-threaded removes the phantom warnings at
+        # no cost (the suite was already fully serialized).
+        run: cargo llvm-cov $RUST_INTEGRATION_TEST_ARGS --ignore-filename-regex "(lib|main)\.rs$" --lcov --output-path coverage-integration.lcov -- --test-threads=1
 
       - name: Upload Rust coverage reports
         uses: actions/upload-artifact@v7
