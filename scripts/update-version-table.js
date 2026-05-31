@@ -1,9 +1,30 @@
 /**
- * update-version-table.js — Updates version compatibility tables from schema files.
+ * update-version-table.js — Propagates schema versions into every version-bearing
+ * doc and platform manifest.
  *
- * Reads the `version` field from each platform schema in schemas/ and updates
- * the version tables in README.md and docs/session-format.md between their
- * respective markers.
+ * Source of truth: the `version` field of each platform schema in schemas/
+ * (extension.schema.json, desktop-windows.schema.json). This script only READS
+ * those — it never decides a version. Bump the schema first (see bump-schema.js),
+ * then run this to propagate.
+ *
+ * ⚠️ Writes more than the compatibility tables. A single run edits ALL of:
+ *   1. README.md                              — version compatibility table (between markers)
+ *   2. docs/session-format.md                 — version table (between markers)
+ *   3. README.md                              — desktop release BADGE (Desktop_Release-vX.Y.Z)
+ *                                               and release LINK (…/releases/tag/desktop-vX.Y.Z)
+ *   4. packages/extension/manifest.json       — extension APP version
+ *   5. packages/desktop/src-tauri/tauri.conf.json — desktop APP version
+ *
+ * Items 4–5 are the trap: the script forces each app version to equal its
+ * schema version. Those app/release versions are otherwise owned by the git tag
+ * — the publish workflows run THIS step and then overwrite manifest.json /
+ * tauri.conf.json from the release tag. So the app-version write is harmless
+ * inside a release run but wrong anywhere else.
+ *
+ * RELEASE-TIME ONLY. Do not run on a content/docs branch (directly or via
+ * bump-schema.js): it pre-empts an app/release version with no tag step to
+ * correct it. If a change seems to warrant a version bump, flag it for a
+ * maintainer to do at release time instead.
  *
  * Usage:
  *   node scripts/update-version-table.js

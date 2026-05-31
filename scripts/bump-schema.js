@@ -1,8 +1,14 @@
 /**
- * bump-schema.js — Bumps a platform schema version and updates documentation.
+ * bump-schema.js — Bumps a platform schema version and propagates it.
  *
- * Only run at release time. Bumps the version field in the schema file,
- * then runs update-version-table to propagate to README.md and docs/session-format.md.
+ * ⚠️ RELEASE-TIME ONLY. Bumps the `version` field in the named platform schema,
+ * then runs update-version-table.js — which propagates that version not just to
+ * the README + session-format version tables, but also to the README desktop
+ * badge/release link AND the platform app manifests (manifest.json,
+ * tauri.conf.json). Because it writes app/release versions, do NOT run it on a
+ * content or docs branch — only when cutting a release. A description-only
+ * schema edit does not need a manual bump; flag it and let it ride the next
+ * release bump. See update-version-table.js for the full list of files written.
  *
  * Usage:
  *   node scripts/bump-schema.js <platform> <level>
