@@ -7,6 +7,7 @@
 
 // ── Mock chrome.storage.local ──────────────────────────────────────────────
 let storageData = {};
+let sessionData = {};
 let storageListeners = [];
 globalThis.chrome = {
   storage: {
@@ -23,6 +24,17 @@ globalThis.chrome = {
       remove: async (keys) => {
         const ks = Array.isArray(keys) ? keys : [keys];
         ks.forEach((k) => delete storageData[k]);
+      },
+    },
+    session: {
+      get: async (keys) => {
+        const ks = Array.isArray(keys) ? keys : [keys];
+        return Object.fromEntries(
+          ks.filter((k) => k in sessionData).map((k) => [k, sessionData[k]]),
+        );
+      },
+      set: async (items) => {
+        Object.assign(sessionData, items);
       },
     },
     onChanged: {

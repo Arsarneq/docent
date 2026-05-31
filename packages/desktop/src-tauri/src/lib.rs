@@ -10,6 +10,7 @@
 
 pub mod capture;
 pub mod commands;
+pub mod secret_store;
 
 use std::sync::Mutex;
 

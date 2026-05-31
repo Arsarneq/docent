@@ -13,6 +13,13 @@ serde_json = "1"
 thiserror = "2"
 
 [target.'cfg(windows)'.dependencies]
+# Secret-at-rest (S2): API keys are stored in the Windows Credential Manager
+# rather than in plaintext inside session.json. keyring v3.x is the stable
+# application-facing library API (v4 became a CLI/sample crate — the library
+# moved to keyring-core; see the crate README). Gated to Windows because that
+# is the only shipping target with a capture backend; other targets fall back
+# to the previous inline behaviour.
+keyring = { version = "3", features = ["windows-native"] }
 windows = { version = "0.62", features = [
     "Win32_UI_Accessibility",
     "Win32_Foundation",
