@@ -24,34 +24,120 @@ use serial_test::serial;
 #[cfg(target_os = "windows")]
 use docent_desktop_lib::capture::windows::WindowsCapture;
 
-/// Pump the calling thread's message queue for `dur`, keeping any windows this
-/// thread owns **responsive** (the behaviour of a healthy application).
+/// A target window hosted on its **own dedicated thread that runs a real,
+/// continuous `GetMessage` pump** — i.e. a *responsive* application.
 ///
-/// Capture workers issue *synchronous* accessibility queries — `GetFocusedElement`,
-/// `WM_GETTEXT`, … — that are serviced by the window's owning thread. A test
-/// thread that merely `thread::sleep`s leaves its window unresponsive: those
-/// cross-thread calls then block until the worker's bounded-shutdown deadline
-/// detaches it, which is exactly the (intended) "captures nothing from a cut
-/// line" behaviour — *not* what the happy-path tests mean to assert. Pumping
-/// keeps the window answering, so the queries resolve and capture is
-/// deterministic.
+/// Capture workers issue *synchronous* cross-thread accessibility queries
+/// (`GetFocusedElement`/`WM_GETOBJECT`, `GetWindowTextW`/`WM_GETTEXT`, …) that
+/// are serviced by the window's owning thread. Those sent messages are
+/// dispatched to the window only while its thread is inside the message system
+/// (`GetMessage`/`PeekMessage`). A test that merely `thread::sleep`s — or that
+/// pumps only *between* `enigo` calls on the same thread — leaves the window
+/// unresponsive exactly while a worker is mid-query, so the worker blocks until
+/// bounded shutdown detaches it (capturing nothing — the intended "cut line"
+/// behaviour, but *not* what a happy-path test means to assert).
+///
+/// Owning the window on a separate thread blocked in `GetMessageW` keeps it
+/// continuously responsive regardless of what the enigo-driving thread is
+/// doing, which is how a real application behaves. The pump exits when a
+/// `WM_QUIT` is posted to the thread (on `Drop`), and the window is destroyed
+/// on its owning thread (a Win32 requirement).
 #[cfg(target_os = "windows")]
-unsafe fn pump_messages_for(dur: Duration) {
-    use std::time::Instant;
-    use windows::Win32::UI::WindowsAndMessaging::{
-        DispatchMessageW, PeekMessageW, TranslateMessage, MSG, PM_REMOVE,
-    };
+struct ResponsiveWindow {
+    /// HWND stored as `isize` so the handle can cross the thread boundary
+    /// (`HWND` is a raw pointer and not `Send`).
+    hwnd: isize,
+    /// Owning thread id — target of the `WM_QUIT` that stops the pump.
+    thread_id: u32,
+    handle: Option<std::thread::JoinHandle<()>>,
+}
 
-    let deadline = Instant::now() + dur;
-    let mut msg = MSG::default();
-    while Instant::now() < deadline {
-        // Drain everything currently queued (also services cross-thread sent
-        // messages such as WM_GETOBJECT), then yield briefly.
-        while PeekMessageW(&mut msg, None, 0, 0, PM_REMOVE).as_bool() {
-            let _ = TranslateMessage(&msg);
-            DispatchMessageW(&msg);
+#[cfg(target_os = "windows")]
+impl ResponsiveWindow {
+    fn new(title: &str) -> Self {
+        use std::sync::mpsc as smpsc;
+        use windows::Win32::System::Threading::GetCurrentThreadId;
+        use windows::Win32::UI::WindowsAndMessaging::{
+            CreateWindowExW, DestroyWindow, DispatchMessageW, GetMessageW, SetForegroundWindow,
+            TranslateMessage, MSG, WINDOW_EX_STYLE, WS_OVERLAPPEDWINDOW, WS_VISIBLE,
+        };
+
+        let title = title.to_string();
+        let (tx, rx) = smpsc::channel::<(isize, u32)>();
+        let handle = thread::spawn(move || unsafe {
+            let title_wide: Vec<u16> = title.encode_utf16().chain(std::iter::once(0)).collect();
+            let hwnd = CreateWindowExW(
+                WINDOW_EX_STYLE::default(),
+                windows::core::w!("STATIC"),
+                windows::core::PCWSTR(title_wide.as_ptr()),
+                WS_OVERLAPPEDWINDOW | WS_VISIBLE,
+                200,
+                200,
+                600,
+                400,
+                None,
+                None,
+                None,
+                Some(std::ptr::null()),
+            )
+            .expect("Failed to create target window");
+            let _ = SetForegroundWindow(hwnd);
+            let tid = GetCurrentThreadId();
+            tx.send((hwnd.0 as isize, tid))
+                .expect("failed to hand back window handle");
+
+            // Continuous, blocking pump. A thread parked in GetMessageW still
+            // services incoming cross-thread *sent* messages (WM_GETOBJECT,
+            // WM_GETTEXT), so the window stays responsive to the capture
+            // workers' queries. Exits when Drop posts WM_QUIT to this thread.
+            let mut msg = MSG::default();
+            while GetMessageW(&mut msg, None, 0, 0).as_bool() {
+                let _ = TranslateMessage(&msg);
+                DispatchMessageW(&msg);
+            }
+            // DestroyWindow must run on the creating thread.
+            let _ = DestroyWindow(hwnd);
+        });
+
+        let (hwnd, thread_id) = rx.recv().expect("window thread failed to start");
+        // Let the window settle and become foreground before input is driven.
+        thread::sleep(Duration::from_millis(100));
+        Self {
+            hwnd,
+            thread_id,
+            handle: Some(handle),
         }
-        thread::sleep(Duration::from_millis(5));
+    }
+
+    #[allow(dead_code)]
+    fn hwnd(&self) -> windows::Win32::Foundation::HWND {
+        windows::Win32::Foundation::HWND(self.hwnd as *mut _)
+    }
+
+    /// Screen-space centre of the window (for click-based tests).
+    #[allow(dead_code)]
+    fn center(&self) -> (i32, i32) {
+        use windows::Win32::Foundation::RECT;
+        use windows::Win32::UI::WindowsAndMessaging::GetWindowRect;
+        let mut rect = RECT::default();
+        unsafe { GetWindowRect(self.hwnd(), &mut rect).unwrap() };
+        ((rect.left + rect.right) / 2, (rect.top + rect.bottom) / 2)
+    }
+}
+
+#[cfg(target_os = "windows")]
+impl Drop for ResponsiveWindow {
+    fn drop(&mut self) {
+        use windows::Win32::Foundation::{LPARAM, WPARAM};
+        use windows::Win32::UI::WindowsAndMessaging::{PostThreadMessageW, WM_QUIT};
+        unsafe {
+            // Stop the pump; GetMessageW returns 0 on WM_QUIT, the loop breaks,
+            // and the window is destroyed on its owning thread.
+            let _ = PostThreadMessageW(self.thread_id, WM_QUIT, WPARAM(0), LPARAM(0));
+        }
+        if let Some(h) = self.handle.take() {
+            let _ = h.join();
+        }
     }
 }
 
@@ -1307,9 +1393,10 @@ mod capture_behaviour {
         // printable keys are buffered and emitted as individual key events after
         // the TYPE_DEBOUNCE_MS window expires without a type event arriving.
         //
-        // The target window is kept **responsive** (its thread pumps messages)
-        // so the workers' synchronous accessibility queries resolve promptly —
-        // the healthy-application case. (Capture from an *unresponsive* window
+        // The target window is hosted on its own thread running a continuous
+        // GetMessage pump (ResponsiveWindow) — a *responsive* application — so
+        // the workers' synchronous accessibility queries are always serviced
+        // and capture is deterministic. (Capture from an *unresponsive* window
         // is intentionally not asserted here; that "cut line → capture nothing"
         // behaviour is covered deterministically at the worker layer in
         // worker_pool.rs, since a real non-pumping window only wedges
@@ -1320,8 +1407,7 @@ mod capture_behaviour {
         capture.start(tx).expect("Failed to start capture");
         thread::sleep(Duration::from_millis(200));
 
-        let (hwnd, _, _) = unsafe { create_target_window("Printable Key Test") };
-        unsafe { pump_messages_for(Duration::from_millis(200)) };
+        let window = ResponsiveWindow::new("Printable Key Test");
 
         let mut enigo = Enigo::new(&Settings::default()).unwrap();
         // Type individual printable characters into a non-editable window.
@@ -1334,13 +1420,11 @@ mod capture_behaviour {
         enigo
             .key(enigo::Key::Unicode('c'), Direction::Click)
             .unwrap();
-        // Wait for TYPE_DEBOUNCE_MS + buffer to flush, pumping so the window
-        // keeps answering the workers' queries throughout.
-        unsafe { pump_messages_for(Duration::from_millis(1500)) };
+        // Wait for TYPE_DEBOUNCE_MS + buffer to flush. The window keeps
+        // answering the workers' queries on its own pump thread throughout.
+        thread::sleep(Duration::from_millis(1500));
 
-        unsafe {
-            let _ = DestroyWindow(hwnd);
-        }
+        drop(window); // Destroys the window on its owning thread.
         capture.stop().unwrap();
         let events: Vec<_> = rx.try_iter().collect();
 
@@ -1705,38 +1789,38 @@ mod user_actions_extended {
     fn navigation_keys_are_captured() {
         // Home, End, PageUp, PageDown, Delete, Backspace.
         //
-        // Window kept responsive (pumped) so the workers' synchronous queries
-        // resolve — the healthy-application case. These are control keys, which
-        // `handle_keyboard` resolves via `focused_element()` and emits
-        // immediately; against an unresponsive window that query would block,
-        // which is the deliberately-uncaptured "cut line" case covered at the
-        // worker layer in worker_pool.rs.
+        // These are control keys, which `handle_keyboard` resolves via
+        // `focused_element()` and emits immediately (one synchronous query
+        // each — the most query-heavy real-input test). The target window is
+        // hosted on its own thread running a continuous GetMessage pump
+        // (ResponsiveWindow), modelling a *responsive* application, so every
+        // query is serviced and all six keys are captured deterministically.
+        // Against an unresponsive window these queries would block — the
+        // deliberately-uncaptured "cut line" case, covered at the worker layer
+        // in worker_pool.rs.
         let (tx, rx) = mpsc::channel::<ActionEvent>();
         let mut capture = WindowsCapture::new();
         capture.set_excluded_pid(None);
         capture.start(tx).unwrap();
         thread::sleep(Duration::from_millis(200));
 
-        let (hwnd, _, _) = unsafe { create_target_window("Nav Keys") };
-        unsafe { pump_messages_for(Duration::from_millis(200)) };
+        let window = ResponsiveWindow::new("Nav Keys");
 
         let mut enigo = Enigo::new(&Settings::default()).unwrap();
         enigo.key(enigo::Key::Home, Direction::Click).unwrap();
-        unsafe { pump_messages_for(Duration::from_millis(50)) };
+        thread::sleep(Duration::from_millis(50));
         enigo.key(enigo::Key::End, Direction::Click).unwrap();
-        unsafe { pump_messages_for(Duration::from_millis(50)) };
+        thread::sleep(Duration::from_millis(50));
         enigo.key(enigo::Key::PageUp, Direction::Click).unwrap();
-        unsafe { pump_messages_for(Duration::from_millis(50)) };
+        thread::sleep(Duration::from_millis(50));
         enigo.key(enigo::Key::PageDown, Direction::Click).unwrap();
-        unsafe { pump_messages_for(Duration::from_millis(50)) };
+        thread::sleep(Duration::from_millis(50));
         enigo.key(enigo::Key::Delete, Direction::Click).unwrap();
-        unsafe { pump_messages_for(Duration::from_millis(50)) };
+        thread::sleep(Duration::from_millis(50));
         enigo.key(enigo::Key::Backspace, Direction::Click).unwrap();
-        unsafe { pump_messages_for(Duration::from_millis(500)) };
+        thread::sleep(Duration::from_millis(500));
 
-        unsafe {
-            let _ = DestroyWindow(hwnd);
-        }
+        drop(window); // Destroys the window on its owning thread.
         capture.stop().unwrap();
         let events: Vec<_> = rx.try_iter().collect();
 
