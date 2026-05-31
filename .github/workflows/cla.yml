@@ -25,6 +25,14 @@ jobs:
         uses: contributor-assistant/github-action@v2.6.1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # contributor-assistant pins the action to node20 (v2.6.1 is the
+          # latest release and even master still declares node20 — there is no
+          # node24 release to bump to). GitHub forces JavaScript actions onto
+          # Node 24 on 2026-06-16 and removes Node 20 on 2026-09-16. Opt in now
+          # so any incompatibility surfaces here as an early warning rather than
+          # breaking the CLA gate on the forced-cutover date. Remove this once
+          # the action ships a native node24 release.
+          FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
         with:
           path-to-signatures: 'signatures/version1/cla.json'
           path-to-document: 'https://github.com/${{ github.repository }}/blob/main/CLA.md'

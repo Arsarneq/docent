@@ -48,6 +48,8 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
+      - uses: ./.github/actions/debug-env
+
       - uses: actions/setup-node@v6
         with:
           node-version: 20
@@ -62,7 +64,7 @@ jobs:
         run: npm run lint:css
 
       - name: Prettier check
-        run: npm run lint:format
+        run: npm run lint:format ${{ runner.debug == '1' && '-- --log-level debug' || '' }}
 
       - name: markdownlint
         run: npm run lint:md
@@ -74,12 +76,14 @@ jobs:
 
       - name: cargo fmt check
         working-directory: packages/desktop/src-tauri
-        run: cargo fmt --check
+        run: cargo fmt --check ${{ runner.debug == '1' && '-- --verbose' || '' }}
 
   dependency-audit:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
+
+      - uses: ./.github/actions/debug-env
 
       - uses: actions/setup-node@v6
         with:
@@ -121,6 +125,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
+
+      - uses: ./.github/actions/debug-env
 
       - uses: actions/setup-node@v6
         with:
@@ -179,6 +185,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
+
+      - uses: ./.github/actions/debug-env
 
       - uses: actions/setup-node@v6
         with:
@@ -242,6 +250,8 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
+      - uses: ./.github/actions/debug-env
+
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
         with:
@@ -274,7 +284,7 @@ jobs:
 
       - name: Run Clippy lints
         working-directory: packages/desktop/src-tauri
-        run: cargo clippy -- -D warnings
+        run: cargo clippy ${{ runner.debug == '1' && '-v' || '' }} -- -D warnings
 
       # Coverage is split by pyramid layer into two llvm-cov runs so each lands
       # under the correct Codecov flag (unit vs integration). The split is
@@ -318,7 +328,7 @@ jobs:
       - name: Run Rust unit tests with coverage
         working-directory: packages/desktop/src-tauri
         shell: bash
-        run: cargo llvm-cov --lib $RUST_UNIT_TEST_ARGS --ignore-filename-regex "(lib|main)\.rs$" --lcov --output-path coverage-unit.lcov
+        run: cargo llvm-cov --lib $RUST_UNIT_TEST_ARGS --ignore-filename-regex "(lib|main)\.rs$" --lcov --output-path coverage-unit.lcov ${{ runner.debug == '1' && '-- --nocapture' || '' }}
 
       - name: Run Rust integration tests with coverage
         working-directory: packages/desktop/src-tauri
@@ -331,7 +341,7 @@ jobs:
         # "has been running for over 60 seconds" warnings for tests that have
         # done no work. Running single-threaded removes the phantom warnings at
         # no cost (the suite was already fully serialized).
-        run: cargo llvm-cov $RUST_INTEGRATION_TEST_ARGS --ignore-filename-regex "(lib|main)\.rs$" --lcov --output-path coverage-integration.lcov -- --test-threads=1
+        run: cargo llvm-cov $RUST_INTEGRATION_TEST_ARGS --ignore-filename-regex "(lib|main)\.rs$" --lcov --output-path coverage-integration.lcov -- --test-threads=1 ${{ runner.debug == '1' && '--nocapture' || '' }}
 
       - name: Upload Rust coverage reports
         uses: actions/upload-artifact@v7
@@ -353,6 +363,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
+
+      - uses: ./.github/actions/debug-env
 
       - uses: actions/setup-node@v6
         with:
@@ -422,6 +434,8 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
+      - uses: ./.github/actions/debug-env
+
       - name: Download all coverage artifacts
         uses: actions/download-artifact@v7
         with:
@@ -444,6 +458,7 @@ jobs:
           files: coverage-artifacts/coverage-unit-javascript/shared-desktop-unit.lcov,coverage-artifacts/coverage-unit-javascript/extension-unit.lcov
           flags: unit,javascript
           token: ${{ secrets.CODECOV_TOKEN }}
+          verbose: ${{ runner.debug == '1' }}
 
       - name: Upload extension E2E coverage to Codecov
         if: hashFiles('coverage-artifacts/coverage-e2e-javascript/lcov.info') != ''
@@ -452,6 +467,7 @@ jobs:
           files: coverage-artifacts/coverage-e2e-javascript/lcov.info
           flags: e2e,javascript
           token: ${{ secrets.CODECOV_TOKEN }}
+          verbose: ${{ runner.debug == '1' }}
 
       - name: Upload Rust unit coverage to Codecov
         if: hashFiles('coverage-artifacts/coverage-rust/coverage-unit.lcov') != ''
@@ -460,6 +476,7 @@ jobs:
           files: coverage-artifacts/coverage-rust/coverage-unit.lcov
           flags: unit,rust
           token: ${{ secrets.CODECOV_TOKEN }}
+          verbose: ${{ runner.debug == '1' }}
 
       - name: Upload Rust integration coverage to Codecov
         if: hashFiles('coverage-artifacts/coverage-rust/coverage-integration.lcov') != ''
@@ -468,6 +485,7 @@ jobs:
           files: coverage-artifacts/coverage-rust/coverage-integration.lcov
           flags: integration,rust
           token: ${{ secrets.CODECOV_TOKEN }}
+          verbose: ${{ runner.debug == '1' }}
 
       - name: Upload desktop integration JS coverage to Codecov
         if: hashFiles('coverage-artifacts/coverage-integration-javascript/lcov.info') != ''
@@ -476,6 +494,7 @@ jobs:
           files: coverage-artifacts/coverage-integration-javascript/lcov.info
           flags: integration,javascript
           token: ${{ secrets.CODECOV_TOKEN }}
+          verbose: ${{ runner.debug == '1' }}
 
       # No test job produced coverage (docs-/CI-only PR). Tell Codecov the
       # commit is intentionally coverage-free so it posts passing status checks
@@ -487,6 +506,7 @@ jobs:
           run_command: 'empty-upload'
           force: true
           token: ${{ secrets.CODECOV_TOKEN }}
+          verbose: ${{ runner.debug == '1' }}
 
 
   ci-gate:

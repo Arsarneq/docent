@@ -28,6 +28,8 @@ jobs:
         with:
           ref: main
 
+      - uses: ./.github/actions/debug-env
+
       - uses: actions/setup-node@v6
         with:
           node-version: 20
@@ -111,3 +113,5 @@ jobs:
           releaseBody: ${{ github.event.release.body }}
           releaseDraft: false
           prerelease: false
+          # Verbose Tauri/cargo build output only when debug logging is on.
+          args: ${{ runner.debug == '1' && '--verbose' || '' }}
