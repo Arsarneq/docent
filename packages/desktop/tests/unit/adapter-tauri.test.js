@@ -118,11 +118,11 @@ describe('adapter.saveSettings()', () => {
       if (cmd === 'load_state') return JSON.stringify({ settings: {} });
       return undefined;
     });
-    await adapter.saveSettings('http://api.test', 'secret');
+    await adapter.saveSettings('https://api.test', 'secret');
     const saveCall = mockInvoke.mock.calls.find((c) => c.arguments[0] === 'save_state');
     assert.ok(saveCall);
     const saved = JSON.parse(saveCall.arguments[1].data);
-    assert.equal(saved.settings.endpointUrl, 'http://api.test');
+    assert.equal(saved.settings.endpointUrl, 'https://api.test');
     assert.equal(saved.settings.apiKey, 'secret');
   });
 
@@ -177,10 +177,10 @@ describe('adapter.saveSyncSettings()', () => {
       if (cmd === 'load_state') return JSON.stringify({ settings: {} });
       return undefined;
     });
-    await adapter.saveSyncSettings('http://sync.test', 'key');
+    await adapter.saveSyncSettings('https://sync.test', 'key');
     const saveCall = mockInvoke.mock.calls.find((c) => c.arguments[0] === 'save_state');
     const saved = JSON.parse(saveCall.arguments[1].data);
-    assert.equal(saved.settings.syncUrl, 'http://sync.test');
+    assert.equal(saved.settings.syncUrl, 'https://sync.test');
     assert.equal(saved.settings.syncApiKey, 'key');
   });
 
