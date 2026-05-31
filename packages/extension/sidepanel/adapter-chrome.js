@@ -11,6 +11,7 @@
  */
 
 import { validateEndpointUrl as _validateEndpointUrl } from '../shared/dispatch-core.js';
+import { encryptSecret, decryptSecret } from './secret-crypto.js';
 
 // ─── Settings keys ────────────────────────────────────────────────────────────
 
@@ -22,6 +23,24 @@ const RECORDING_MODE_KEY = 'docentRecordingMode';
 // Sync settings are stored separately from dispatch settings (R1-AC1)
 const SYNC_URL_KEY = 'docentSyncUrl';
 const SYNC_API_KEY_KEY = 'docentSyncApiKey';
+
+// ─── Secret helpers ───────────────────────────────────────────────────────────
+
+/**
+ * Decode a stored API-key value for reading. Encrypted values (S2) are stored
+ * as `{ v, iv, ct }` envelopes and decrypted here; a decrypt failure (e.g. the
+ * ephemeral key was cleared by a browser restart) yields null, which callers
+ * treat as "no key configured" so the user re-enters it. A bare string is
+ * accepted as-is so a value that predates encryption still reads back.
+ *
+ * @param {unknown} stored
+ * @returns {Promise<string|null>}
+ */
+async function _readSecret(stored) {
+  if (stored == null) return null;
+  if (typeof stored === 'string') return stored; // pre-encryption / legacy value
+  return decryptSecret(stored);
+}
 
 // ─── Adapter ──────────────────────────────────────────────────────────────────
 
@@ -40,7 +59,7 @@ const chromeAdapter = {
       const result = await chrome.storage.local.get([ENDPOINT_KEY, API_KEY_KEY]);
       return {
         endpointUrl: result[ENDPOINT_KEY] ?? null,
-        apiKey: result[API_KEY_KEY] ?? null,
+        apiKey: await _readSecret(result[API_KEY_KEY]),
       };
     } catch {
       return { endpointUrl: null, apiKey: null };
@@ -62,7 +81,7 @@ const chromeAdapter = {
     if (apiKey === '') {
       await chrome.storage.local.remove(API_KEY_KEY);
     } else {
-      await chrome.storage.local.set({ [API_KEY_KEY]: apiKey });
+      await chrome.storage.local.set({ [API_KEY_KEY]: await encryptSecret(apiKey) });
     }
   },
 
@@ -73,7 +92,7 @@ const chromeAdapter = {
       const result = await chrome.storage.local.get([SYNC_URL_KEY, SYNC_API_KEY_KEY]);
       return {
         serverUrl: result[SYNC_URL_KEY] ?? null,
-        apiKey: result[SYNC_API_KEY_KEY] ?? null,
+        apiKey: await _readSecret(result[SYNC_API_KEY_KEY]),
       };
     } catch {
       return { serverUrl: null, apiKey: null };
@@ -94,7 +113,7 @@ const chromeAdapter = {
       if (apiKey === '') {
         await chrome.storage.local.remove(SYNC_API_KEY_KEY);
       } else {
-        await chrome.storage.local.set({ [SYNC_API_KEY_KEY]: apiKey });
+        await chrome.storage.local.set({ [SYNC_API_KEY_KEY]: await encryptSecret(apiKey) });
       }
     }
   },

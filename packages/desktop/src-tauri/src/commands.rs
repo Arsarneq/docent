@@ -16,6 +16,7 @@ use std::sync::Mutex;
 use tauri::State;
 
 use crate::capture::{CaptureError, CaptureLayer, PermissionStatus, WindowInfo};
+use crate::secret_store::{self, SecretStore};
 
 // ---------------------------------------------------------------------------
 // Application state
@@ -140,19 +141,41 @@ pub fn check_permissions(state: State<'_, AppState>) -> Result<PermissionStatus,
 // Persistence commands
 // ---------------------------------------------------------------------------
 
-/// Load session state from the filesystem.
+/// Re-inject the API keys held in the OS credential store (S2) into a raw
+/// session JSON string read from disk.
 ///
-/// Returns the raw JSON string, or an empty object `"{}"` if the file does
-/// not exist or is unreadable (Req 14.4).
-#[tauri::command]
-pub fn load_state() -> Result<String, String> {
+/// The session file on disk no longer contains `settings.apiKey` /
+/// `settings.syncApiKey` (they are stored in the credential manager); this
+/// restores them so the frontend sees the shape it always has. If the JSON is
+/// not a parseable object — or secret storage is disabled on this target — the
+/// string is returned unchanged.
+fn inject_secrets_into_json(contents: String, store: &dyn SecretStore) -> String {
+    if !secret_store::ENABLED {
+        return contents;
+    }
+    match serde_json::from_str::<serde_json::Value>(&contents) {
+        Ok(mut state) if state.is_object() => match secret_store::inject_secrets(&mut state, store)
+        {
+            Ok(()) => serde_json::to_string(&state).unwrap_or(contents),
+            Err(e) => {
+                eprintln!("Warning: failed to load API keys from credential store: {e}");
+                contents
+            }
+        },
+        // Not an object (or parse failure) — nothing to inject into.
+        _ => contents,
+    }
+}
+
+/// Core logic for `load_state` — testable with an injected [`SecretStore`].
+fn load_state_impl(store: &dyn SecretStore) -> Result<String, String> {
     let path = session_file_path()?;
 
-    match fs::read_to_string(&path) {
-        Ok(contents) => Ok(contents),
+    let contents = match fs::read_to_string(&path) {
+        Ok(contents) => contents,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
             // No persistence file yet — start with empty state.
-            Ok("{}".to_string())
+            "{}".to_string()
         }
         Err(e) => {
             // File exists but is unreadable — log warning, start empty.
@@ -160,21 +183,62 @@ pub fn load_state() -> Result<String, String> {
                 "Warning: failed to read session file at {}: {e}",
                 path.display()
             );
-            Ok("{}".to_string())
+            "{}".to_string()
         }
+    };
+
+    Ok(inject_secrets_into_json(contents, store))
+}
+
+/// Strip the API keys out of a raw session JSON string and persist them to the
+/// OS credential store (S2), returning the JSON that should be written to disk.
+///
+/// If the JSON is not a parseable object — or secret storage is disabled on
+/// this target — the string is returned unchanged so the previous inline
+/// behaviour is preserved.
+fn strip_secrets_from_json(data: String, store: &dyn SecretStore) -> Result<String, String> {
+    if !secret_store::ENABLED {
+        return Ok(data);
     }
+    match serde_json::from_str::<serde_json::Value>(&data) {
+        Ok(mut state) if state.is_object() => {
+            secret_store::strip_secrets(&mut state, store)?;
+            Ok(serde_json::to_string(&state).unwrap_or(data))
+        }
+        // Not an object (or parse failure) — write through unchanged.
+        _ => Ok(data),
+    }
+}
+
+/// Core logic for `save_state` — testable with an injected [`SecretStore`].
+fn save_state_impl(data: String, store: &dyn SecretStore) -> Result<(), String> {
+    let sanitized = strip_secrets_from_json(data, store)?;
+
+    ensure_session_dir()?;
+    let path = session_file_path()?;
+
+    fs::write(&path, sanitized)
+        .map_err(|e| format!("Failed to write session file at {}: {e}", path.display()))
+}
+
+/// Load session state from the filesystem.
+///
+/// Returns the raw JSON string, or an empty object `"{}"` if the file does
+/// not exist or is unreadable (Req 14.4). API keys (S2) are re-injected from
+/// the OS credential store before returning.
+#[tauri::command]
+pub fn load_state() -> Result<String, String> {
+    load_state_impl(secret_store::default_store().as_ref())
 }
 
 /// Save session state to the filesystem.
 ///
 /// Writes the provided JSON string to `%APPDATA%/com.docent.desktop/session.json`.
+/// API keys (S2) are stripped out and stored in the OS credential store rather
+/// than written to the file.
 #[tauri::command]
 pub fn save_state(data: String) -> Result<(), String> {
-    ensure_session_dir()?;
-    let path = session_file_path()?;
-
-    fs::write(&path, data)
-        .map_err(|e| format!("Failed to write session file at {}: {e}", path.display()))
+    save_state_impl(data, secret_store::default_store().as_ref())
 }
 
 // ---------------------------------------------------------------------------
@@ -624,5 +688,91 @@ mod tests {
         set_target_pid_impl(&cap, None).unwrap();
 
         assert_eq!(rec.lock().unwrap().included_pid, None);
+    }
+
+    // ── secret-at-rest JSON wrappers (S2) ────────────────────────────────────
+    //
+    // These wrappers gate on `secret_store::ENABLED`, which is only true on
+    // Windows (the shipping target with a credential backend). The behavioural
+    // assertions therefore only hold on Windows; the tests are compiled and run
+    // there. The underlying strip/inject logic has platform-independent unit
+    // tests in `secret_store.rs`.
+    #[cfg(windows)]
+    mod secret_wrappers {
+        use super::super::*;
+        use crate::secret_store::SecretStore;
+        use std::collections::HashMap;
+        use std::sync::Mutex;
+
+        #[derive(Default)]
+        struct MemStore {
+            map: Mutex<HashMap<String, String>>,
+        }
+
+        impl SecretStore for MemStore {
+            fn set(&self, name: &str, value: &str) -> Result<(), String> {
+                self.map
+                    .lock()
+                    .unwrap()
+                    .insert(name.to_string(), value.to_string());
+                Ok(())
+            }
+            fn get(&self, name: &str) -> Result<Option<String>, String> {
+                Ok(self.map.lock().unwrap().get(name).cloned())
+            }
+            fn delete(&self, name: &str) -> Result<(), String> {
+                self.map.lock().unwrap().remove(name);
+                Ok(())
+            }
+        }
+
+        #[test]
+        fn strip_removes_api_key_from_written_json() {
+            let store = MemStore::default();
+            let data =
+                r#"{"settings":{"endpointUrl":"https://api.test","apiKey":"secret"}}"#.to_string();
+
+            let out = strip_secrets_from_json(data, &store).unwrap();
+
+            assert!(!out.contains("secret"), "apiKey must not reach the file");
+            assert!(out.contains("https://api.test"), "endpoint stays in file");
+            assert_eq!(store.get("apiKey").unwrap().as_deref(), Some("secret"));
+        }
+
+        #[test]
+        fn inject_restores_api_key_into_read_json() {
+            let store = MemStore::default();
+            store.set("apiKey", "secret").unwrap();
+            let on_disk = r#"{"settings":{"endpointUrl":"https://api.test"}}"#.to_string();
+
+            let out = inject_secrets_into_json(on_disk, &store);
+
+            assert!(out.contains("secret"), "apiKey restored on load");
+        }
+
+        #[test]
+        fn non_object_json_passes_through_unchanged() {
+            let store = MemStore::default();
+            assert_eq!(
+                strip_secrets_from_json("not json".to_string(), &store).unwrap(),
+                "not json"
+            );
+            assert_eq!(inject_secrets_into_json("[]".to_string(), &store), "[]");
+        }
+
+        #[test]
+        fn strip_then_inject_round_trips_through_strings() {
+            let store = MemStore::default();
+            let original =
+                r#"{"settings":{"endpointUrl":"https://api.test","apiKey":"k1","syncApiKey":"k2"}}"#
+                    .to_string();
+
+            let on_disk = strip_secrets_from_json(original.clone(), &store).unwrap();
+            let restored = inject_secrets_into_json(on_disk, &store);
+
+            let a: serde_json::Value = serde_json::from_str(&original).unwrap();
+            let b: serde_json::Value = serde_json::from_str(&restored).unwrap();
+            assert_eq!(a, b);
+        }
     }
 }

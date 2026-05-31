@@ -16,12 +16,14 @@ import { mock } from 'node:test';
 // ─── Chrome API mocks ─────────────────────────────────────────────────────────
 
 let storageData = {};
+let sessionData = {};
 let storageListeners = [];
 let mockSendMessage;
 let mockFetch;
 
 function resetStorage() {
   storageData = {};
+  sessionData = {};
   storageListeners = [];
   // Restore the standard mock implementation
   globalThis.chrome.storage.local.get = mock.fn(async (keys) => {
@@ -67,6 +69,25 @@ globalThis.chrome = {
     onChanged: {
       addListener: (fn) => storageListeners.push(fn),
     },
+    session: {
+      get: mock.fn(async (keys) => {
+        const keyArr = Array.isArray(keys) ? keys : [keys];
+        const result = {};
+        for (const k of keyArr) {
+          if (k in sessionData) result[k] = sessionData[k];
+        }
+        return result;
+      }),
+      set: mock.fn(async (obj) => {
+        Object.assign(sessionData, obj);
+      }),
+      remove: mock.fn(async (keys) => {
+        const keyArr = Array.isArray(keys) ? keys : [keys];
+        for (const k of keyArr) {
+          delete sessionData[k];
+        }
+      }),
+    },
   },
   runtime: {
     sendMessage: null,
@@ -103,10 +124,27 @@ describe('adapter.loadSettings()', () => {
   beforeEach(resetStorage);
 
   it('returns endpointUrl and apiKey from storage', async () => {
-    storageData = { docentEndpointUrl: 'https://api.test', docentApiKey: 'key1' };
+    // Round-trip: a key saved (encrypted) reads back as plaintext.
+    await adapter.saveSettings('https://api.test', 'key1');
     const result = await adapter.loadSettings();
     assert.equal(result.endpointUrl, 'https://api.test');
     assert.equal(result.apiKey, 'key1');
+  });
+
+  it('reads a legacy plaintext apiKey value', async () => {
+    // Values that predate encryption are bare strings — still readable.
+    storageData = { docentEndpointUrl: 'https://api.test', docentApiKey: 'legacy-key' };
+    const result = await adapter.loadSettings();
+    assert.equal(result.apiKey, 'legacy-key');
+  });
+
+  it('returns null apiKey when the ephemeral key is gone (post-restart)', async () => {
+    await adapter.saveSettings('https://api.test', 'key1');
+    // Simulate browser restart: session storage cleared, local persists.
+    sessionData = {};
+    const result = await adapter.loadSettings();
+    assert.equal(result.endpointUrl, 'https://api.test');
+    assert.equal(result.apiKey, null);
   });
 
   it('returns nulls when storage is empty', async () => {
@@ -131,10 +169,15 @@ describe('adapter.loadSettings()', () => {
 describe('adapter.saveSettings()', () => {
   beforeEach(resetStorage);
 
-  it('saves endpointUrl and apiKey to storage', async () => {
+  it('saves endpointUrl and encrypts apiKey to storage', async () => {
     await adapter.saveSettings('https://api.test', 'secret');
     assert.equal(storageData.docentEndpointUrl, 'https://api.test');
-    assert.equal(storageData.docentApiKey, 'secret');
+    // The stored API key must be an encryption envelope, not plaintext.
+    const stored = storageData.docentApiKey;
+    assert.equal(typeof stored, 'object');
+    assert.ok(stored.iv && stored.ct, 'stored value should be an {iv, ct} envelope');
+    assert.notEqual(stored.ct, 'secret');
+    assert.ok(!JSON.stringify(stored).includes('secret'), 'plaintext must not appear at rest');
   });
 
   it('removes keys when values are empty strings', async () => {
@@ -153,7 +196,7 @@ describe('adapter.loadSyncSettings()', () => {
   beforeEach(resetStorage);
 
   it('returns serverUrl and apiKey from storage', async () => {
-    storageData = { docentSyncUrl: 'https://sync.test', docentSyncApiKey: 'sk' };
+    await adapter.saveSyncSettings('https://sync.test', 'sk');
     const result = await adapter.loadSyncSettings();
     assert.equal(result.serverUrl, 'https://sync.test');
     assert.equal(result.apiKey, 'sk');
@@ -169,10 +212,13 @@ describe('adapter.loadSyncSettings()', () => {
 describe('adapter.saveSyncSettings()', () => {
   beforeEach(resetStorage);
 
-  it('saves sync URL and apiKey', async () => {
+  it('saves sync URL and encrypts apiKey', async () => {
     await adapter.saveSyncSettings('https://sync.test', 'key');
     assert.equal(storageData.docentSyncUrl, 'https://sync.test');
-    assert.equal(storageData.docentSyncApiKey, 'key');
+    const stored = storageData.docentSyncApiKey;
+    assert.equal(typeof stored, 'object');
+    assert.ok(stored.iv && stored.ct, 'stored value should be an {iv, ct} envelope');
+    assert.ok(!JSON.stringify(stored).includes('key'), 'plaintext must not appear at rest');
   });
 
   it('clears both keys when serverUrl is empty', async () => {
