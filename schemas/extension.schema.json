@@ -456,19 +456,23 @@
       "properties": {
         "tag": {
           "type": "string",
-          "description": "HTML tag name, e.g. BUTTON, INPUT, A."
+          "description": "Element kind: HTML tag name (extension, e.g. BUTTON) or UIA ControlType (desktop, e.g. Button). \"unknown\" in desktop coordinate-capture mode."
         },
         "id": {
-          "type": ["string", "null"]
+          "type": ["string", "null"],
+          "description": "Stable identifier: DOM id attribute (extension) or UIA AutomationId (desktop). Null when absent."
         },
         "name": {
-          "type": ["string", "null"]
+          "type": ["string", "null"],
+          "description": "name attribute (extension) or UIA Name / accessible name (desktop). Null when absent."
         },
         "role": {
-          "type": ["string", "null"]
+          "type": ["string", "null"],
+          "description": "ARIA role (extension) or localised UIA control type (desktop). Null when absent."
         },
         "type": {
-          "type": ["string", "null"]
+          "type": ["string", "null"],
+          "description": "Input type attribute (extension) or control subtype, e.g. \"password\" (desktop). Null when not applicable."
         },
         "text": {
           "type": ["string", "null"],
@@ -476,7 +480,7 @@
         },
         "selector": {
           "type": "string",
-          "description": "CSS selector — id-based when possible, otherwise nth-of-type path."
+          "description": "CSS selector (extension) or accessibility tree path joined with \" > \", or \"coord:x,y\" in coordinate mode (desktop)."
         }
       }
     },

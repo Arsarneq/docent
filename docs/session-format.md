@@ -247,6 +247,11 @@ Every action has:
 
 Describes the UI element an action targeted.
 
+The per-platform JSON Schema is authoritative for field semantics; this table
+summarizes it. Several fields carry different meanings per platform — the
+extension reads the DOM, the desktop app reads the Windows UI Automation (UIA)
+tree.
+
 ```json
 {
   "tag": "BUTTON",
@@ -259,15 +264,15 @@ Describes the UI element an action targeted.
 }
 ```
 
-| Field      | Type           | Required | Description                                                    |
-| ---------- | -------------- | -------- | -------------------------------------------------------------- |
-| `tag`      | string         | yes      | HTML tag or accessibility role name.                           |
-| `id`       | string \| null | no       | Element ID attribute.                                          |
-| `name`     | string \| null | no       | Name attribute or accessibility name.                          |
-| `role`     | string \| null | no       | ARIA role or accessibility role.                               |
-| `type`     | string \| null | no       | Input type attribute.                                          |
-| `text`     | string \| null | no       | Visible text (truncated to 100 chars). Null for passwords.     |
-| `selector` | string         | yes      | CSS selector (extension) or accessibility tree path (desktop). |
+| Field      | Type           | Required | Description                                                                                                          |
+| ---------- | -------------- | -------- | -------------------------------------------------------------------------------------------------------------------- |
+| `tag`      | string         | yes      | HTML tag name (extension) / UIA ControlType, e.g. `Button`, `Edit` (desktop). `"unknown"` in coordinate mode.        |
+| `id`       | string \| null | no       | DOM `id` attribute (extension) / UIA AutomationId, developer-assigned and session-stable (desktop).                  |
+| `name`     | string \| null | no       | `name` attribute (extension) / UIA Name (desktop).                                                                   |
+| `role`     | string \| null | no       | ARIA role (extension) / localized UIA control type (desktop).                                                        |
+| `type`     | string \| null | no       | Input type attribute (extension) / control subtype, e.g. `"password"` (desktop).                                     |
+| `text`     | string \| null | no       | Visible text (truncated to 100 chars). Null for passwords.                                                           |
+| `selector` | string         | yes      | CSS selector (extension) / accessibility tree path joined with `" > "`, or `coord:x,y` in coordinate mode (desktop). |
 
 ---
 
