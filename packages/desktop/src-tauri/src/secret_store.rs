@@ -37,6 +37,13 @@ pub const SECRET_FIELDS: [&str; 2] = [API_KEY_FIELD, SYNC_API_KEY_FIELD];
 /// Abstraction over a per-key secret store so the strip/inject logic is
 /// testable without touching a real OS credential store.
 pub trait SecretStore {
+    /// Whether secret-at-rest storage is active. When `false`, callers skip
+    /// the strip/inject entirely and leave the keys inline in the JSON (the
+    /// pre-S2 behaviour). Defaults to `true`; [`DisabledStore`] overrides it.
+    fn enabled(&self) -> bool {
+        true
+    }
+
     /// Persist `value` under `name`. Overwrites any existing value.
     fn set(&self, name: &str, value: &str) -> Result<(), String>;
 
@@ -84,14 +91,30 @@ pub fn strip_secrets(state: &mut Value, store: &dyn SecretStore) -> Result<(), S
 /// read so the frontend sees the same shape it always has. A field already
 /// present in the JSON is left as-is (the file is authoritative for that load);
 /// otherwise the value from the store, if any, is inserted.
+///
+/// If the store holds none of the secrets, the JSON is left untouched — in
+/// particular an object without `settings` stays without `settings` (so e.g.
+/// the empty `"{}"` state round-trips unchanged).
 pub fn inject_secrets(state: &mut Value, store: &dyn SecretStore) -> Result<(), String> {
-    // Ensure there is a settings object to inject into.
+    // Gather whatever the store holds for the managed fields first, so we only
+    // touch `state` when there is actually something to inject.
+    let mut found: Vec<(&str, String)> = Vec::new();
+    for field in SECRET_FIELDS {
+        if let Some(value) = store.get(field)? {
+            found.push((field, value));
+        }
+    }
+    if found.is_empty() {
+        return Ok(());
+    }
+
+    // Ensure there is a settings object to inject into (creating it only now
+    // that we know there is a secret to place).
     if !state.get("settings").map(Value::is_object).unwrap_or(false) {
-        // Nothing to inject into and nothing the caller expects — but if the
-        // store holds secrets we still want them surfaced, so create settings.
         if let Value::Object(map) = state {
             map.insert("settings".to_string(), Value::Object(Default::default()));
         } else {
+            // Not a JSON object at all — nowhere to inject.
             return Ok(());
         }
     }
@@ -101,13 +124,11 @@ pub fn inject_secrets(state: &mut Value, store: &dyn SecretStore) -> Result<(), 
         .and_then(Value::as_object_mut)
         .expect("settings ensured above");
 
-    for field in SECRET_FIELDS {
-        if settings.contains_key(field) {
-            continue;
-        }
-        if let Some(value) = store.get(field)? {
-            settings.insert(field.to_string(), Value::String(value));
-        }
+    for (field, value) in found {
+        // A field already present in the file is authoritative for this load.
+        settings
+            .entry(field.to_string())
+            .or_insert(Value::String(value));
     }
 
     Ok(())
@@ -163,20 +184,21 @@ pub fn default_store() -> Box<dyn SecretStore> {
 }
 
 // ---------------------------------------------------------------------------
-// Non-Windows: disabled backend (keys stay inline, as before)
+// Disabled backend (keys stay inline, as before)
 // ---------------------------------------------------------------------------
 
-/// No-op [`SecretStore`] for targets without a credential backend.
-///
-/// `set` is a no-op and `get` always returns `None`, so `strip_secrets` leaves
-/// the keys in the JSON (it only removes a field once `set` succeeds — see the
-/// caller). To preserve the previous inline behaviour on these targets,
-/// `commands.rs` skips the strip/inject entirely when the store is disabled.
-#[cfg(not(windows))]
+/// No-op [`SecretStore`] that reports `enabled() == false`, so callers skip the
+/// strip/inject and leave the keys inline in the JSON. Used as the default
+/// store on targets without a credential backend, and by tests that exercise
+/// the raw filesystem persistence (so they don't touch the machine-global
+/// credential store).
 pub struct DisabledStore;
 
-#[cfg(not(windows))]
 impl SecretStore for DisabledStore {
+    fn enabled(&self) -> bool {
+        false
+    }
+
     fn set(&self, _name: &str, _value: &str) -> Result<(), String> {
         Ok(())
     }
@@ -191,18 +213,11 @@ impl SecretStore for DisabledStore {
 }
 
 /// Return the (disabled) secret store on targets without a credential backend.
-/// The keys stay inline in the JSON, matching the pre-S2 behaviour — see the
-/// `ENABLED` short-circuit in `commands.rs`.
+/// The keys stay inline in the JSON, matching the pre-S2 behaviour.
 #[cfg(not(windows))]
 pub fn default_store() -> Box<dyn SecretStore> {
     Box::new(DisabledStore)
 }
-
-/// Whether secret-at-rest storage is active on this target.
-#[cfg(windows)]
-pub const ENABLED: bool = true;
-#[cfg(not(windows))]
-pub const ENABLED: bool = false;
 
 // ---------------------------------------------------------------------------
 // Tests
@@ -396,6 +411,33 @@ mod tests {
         inject_secrets(&mut state, &store).unwrap();
 
         assert_eq!(state["settings"]["apiKey"], "k1");
+    }
+
+    #[test]
+    fn inject_does_not_create_settings_when_store_empty() {
+        // Regression: an object without `settings` must stay without it when
+        // the store holds no secrets (so `"{}"` round-trips unchanged).
+        let store = MemStore::new();
+        let mut state = json(r#"{"projects":[]}"#);
+
+        inject_secrets(&mut state, &store).unwrap();
+
+        assert_eq!(state, json(r#"{"projects":[]}"#));
+        assert!(state.get("settings").is_none());
+    }
+
+    #[test]
+    fn inject_leaves_bare_empty_object_untouched() {
+        let store = MemStore::new();
+        let mut state = json("{}");
+        inject_secrets(&mut state, &store).unwrap();
+        assert_eq!(state, json("{}"));
+    }
+
+    #[test]
+    fn disabled_store_reports_not_enabled() {
+        assert!(!DisabledStore.enabled());
+        assert!(MemStore::new().enabled(), "default trait impl is enabled");
     }
 
     #[test]

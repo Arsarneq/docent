@@ -30,14 +30,28 @@ fn with_temp_appdata(test_name: &str) -> tempfile::TempDir {
 
 // We call the commands module functions directly.
 // Since they use APPDATA internally, we override it per test.
-use docent_desktop_lib::commands::{get_self_pid, load_state, save_state};
+//
+// These tests cover the raw filesystem persistence, so they drive the
+// `_impl` entry points with a `DisabledStore`: that keeps load/save byte-exact
+// (no secret strip/inject) and, crucially, never touches the machine-global
+// Windows Credential Manager — which is shared across the whole test binary and
+// would otherwise leak `apiKey` values between #[serial] tests. Secret
+// strip/inject has its own dedicated unit tests in `secret_store.rs` and
+// `commands.rs`.
+use docent_desktop_lib::commands::{get_self_pid, load_state_impl, save_state_impl};
+use docent_desktop_lib::secret_store::DisabledStore;
+
+/// The filesystem-only store used by every persistence test here.
+fn store() -> DisabledStore {
+    DisabledStore
+}
 
 #[test]
 #[serial]
 fn load_state_returns_empty_object_when_no_file_exists() {
     let _tmp = with_temp_appdata("load-missing");
 
-    let result = load_state();
+    let result = load_state_impl(&store());
     assert!(result.is_ok());
     assert_eq!(result.unwrap(), "{}");
 }
@@ -48,7 +62,7 @@ fn save_state_creates_file_and_directories() {
     let _tmp = with_temp_appdata("save-creates");
 
     let data = r#"{"projects":[],"settings":{}}"#.to_string();
-    let result = save_state(data.clone());
+    let result = save_state_impl(data.clone(), &store());
     assert!(result.is_ok());
 
     // Verify file was written
@@ -65,9 +79,9 @@ fn load_state_reads_saved_data() {
 
     let data = r#"{"projects":[{"project_id":"abc","name":"Test"}],"settings":{"theme":"dark"}}"#
         .to_string();
-    save_state(data.clone()).unwrap();
+    save_state_impl(data.clone(), &store()).unwrap();
 
-    let result = load_state();
+    let result = load_state_impl(&store());
     assert!(result.is_ok());
     assert_eq!(result.unwrap(), data);
 }
@@ -77,10 +91,10 @@ fn load_state_reads_saved_data() {
 fn save_state_overwrites_existing_file() {
     let _tmp = with_temp_appdata("save-overwrite");
 
-    save_state(r#"{"old":"data"}"#.to_string()).unwrap();
-    save_state(r#"{"new":"data"}"#.to_string()).unwrap();
+    save_state_impl(r#"{"old":"data"}"#.to_string(), &store()).unwrap();
+    save_state_impl(r#"{"new":"data"}"#.to_string(), &store()).unwrap();
 
-    let result = load_state().unwrap();
+    let result = load_state_impl(&store()).unwrap();
     assert_eq!(result, r#"{"new":"data"}"#);
 }
 
@@ -93,7 +107,7 @@ fn load_state_returns_empty_object_for_unreadable_file() {
     let path = session_file_path();
     fs::create_dir_all(&path).unwrap(); // path is now a directory, not a file
 
-    let result = load_state();
+    let result = load_state_impl(&store());
     assert!(result.is_ok());
     // Should return "{}" gracefully (Req 14.4)
     assert_eq!(result.unwrap(), "{}");
@@ -137,9 +151,9 @@ fn round_trip_preserves_valid_json() {
     });
 
     let json_str = serde_json::to_string(&state).unwrap();
-    save_state(json_str.clone()).unwrap();
+    save_state_impl(json_str.clone(), &store()).unwrap();
 
-    let loaded = load_state().unwrap();
+    let loaded = load_state_impl(&store()).unwrap();
     let parsed: serde_json::Value = serde_json::from_str(&loaded).unwrap();
     assert_eq!(parsed, state);
 }

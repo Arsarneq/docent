@@ -150,7 +150,7 @@ pub fn check_permissions(state: State<'_, AppState>) -> Result<PermissionStatus,
 /// not a parseable object — or secret storage is disabled on this target — the
 /// string is returned unchanged.
 fn inject_secrets_into_json(contents: String, store: &dyn SecretStore) -> String {
-    if !secret_store::ENABLED {
+    if !store.enabled() {
         return contents;
     }
     match serde_json::from_str::<serde_json::Value>(&contents) {
@@ -168,7 +168,11 @@ fn inject_secrets_into_json(contents: String, store: &dyn SecretStore) -> String
 }
 
 /// Core logic for `load_state` — testable with an injected [`SecretStore`].
-fn load_state_impl(store: &dyn SecretStore) -> Result<String, String> {
+///
+/// Public so integration tests can drive the filesystem path with a
+/// [`secret_store::DisabledStore`], exercising real load/save without touching
+/// the machine-global credential store.
+pub fn load_state_impl(store: &dyn SecretStore) -> Result<String, String> {
     let path = session_file_path()?;
 
     let contents = match fs::read_to_string(&path) {
@@ -197,7 +201,7 @@ fn load_state_impl(store: &dyn SecretStore) -> Result<String, String> {
 /// this target — the string is returned unchanged so the previous inline
 /// behaviour is preserved.
 fn strip_secrets_from_json(data: String, store: &dyn SecretStore) -> Result<String, String> {
-    if !secret_store::ENABLED {
+    if !store.enabled() {
         return Ok(data);
     }
     match serde_json::from_str::<serde_json::Value>(&data) {
@@ -211,7 +215,10 @@ fn strip_secrets_from_json(data: String, store: &dyn SecretStore) -> Result<Stri
 }
 
 /// Core logic for `save_state` — testable with an injected [`SecretStore`].
-fn save_state_impl(data: String, store: &dyn SecretStore) -> Result<(), String> {
+///
+/// Public so integration tests can drive the filesystem path with a
+/// [`secret_store::DisabledStore`].
+pub fn save_state_impl(data: String, store: &dyn SecretStore) -> Result<(), String> {
     let sanitized = strip_secrets_from_json(data, store)?;
 
     ensure_session_dir()?;
@@ -692,12 +699,11 @@ mod tests {
 
     // ── secret-at-rest JSON wrappers (S2) ────────────────────────────────────
     //
-    // These wrappers gate on `secret_store::ENABLED`, which is only true on
-    // Windows (the shipping target with a credential backend). The behavioural
-    // assertions therefore only hold on Windows; the tests are compiled and run
-    // there. The underlying strip/inject logic has platform-independent unit
-    // tests in `secret_store.rs`.
-    #[cfg(windows)]
+    // The wrappers gate on `store.enabled()`. These tests pass an explicitly
+    // enabled in-memory mock (the trait default is enabled), so they exercise
+    // the strip/inject path on every platform — no dependency on the live
+    // credential backend. The underlying strip/inject logic also has dedicated
+    // unit tests in `secret_store.rs`.
     mod secret_wrappers {
         use super::super::*;
         use crate::secret_store::SecretStore;
@@ -751,6 +757,21 @@ mod tests {
         }
 
         #[test]
+        fn disabled_store_leaves_json_untouched() {
+            // A DisabledStore (enabled() == false) must pass JSON through
+            // verbatim — this is the path the filesystem integration tests and
+            // non-Windows targets rely on.
+            use crate::secret_store::DisabledStore;
+            let data =
+                r#"{"settings":{"endpointUrl":"https://api.test","apiKey":"secret"}}"#.to_string();
+            assert_eq!(
+                strip_secrets_from_json(data.clone(), &DisabledStore).unwrap(),
+                data
+            );
+            assert_eq!(inject_secrets_into_json(data.clone(), &DisabledStore), data);
+        }
+
+        #[test]
         fn non_object_json_passes_through_unchanged() {
             let store = MemStore::default();
             assert_eq!(
@@ -758,6 +779,14 @@ mod tests {
                 "not json"
             );
             assert_eq!(inject_secrets_into_json("[]".to_string(), &store), "[]");
+        }
+
+        #[test]
+        fn empty_object_round_trips_without_gaining_settings() {
+            // Regression: inject must not synthesise an empty `settings` object
+            // when the store holds no secrets — `"{}"` must stay `"{}"`.
+            let store = MemStore::default();
+            assert_eq!(inject_secrets_into_json("{}".to_string(), &store), "{}");
         }
 
         #[test]
