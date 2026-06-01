@@ -32,6 +32,7 @@ import { execFileSync } from 'node:child_process';
 import { pathToFileURL } from 'node:url';
 import { PLATFORMS, composePlatform } from './build-schemas.js';
 import { classifyChange } from './classify-schema-change.js';
+import { assertReleaseContext } from './release-context.js';
 
 const ROOT = resolve(import.meta.dirname, '..');
 const SCHEMAS_DIR = join(ROOT, 'schemas');
@@ -180,6 +181,10 @@ function run() {
     console.log('\n✓ No version bumps needed.');
     return;
   }
+
+  // Past this point we WRITE release outputs (delta version, dist, tables,
+  // manifests). Guard against a stray run on a feature branch.
+  assertReleaseContext('auto-version schemas (apply mode)');
 
   for (const e of entries) {
     if (cmpSemver(e.declaredVersion, e.requiredVersion) >= 0) continue;

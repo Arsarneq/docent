@@ -45,6 +45,8 @@ jobs:
       - name: Auto-version schemas and update version table
         if: matrix.os == 'windows-latest'
         run: node scripts/auto-version-schemas.js
+        env:
+          DOCENT_RELEASE: '1'
 
       - name: Format updated files
         if: matrix.os == 'windows-latest'

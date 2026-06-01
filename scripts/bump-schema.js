@@ -36,6 +36,7 @@
 import { readFileSync, writeFileSync } from 'node:fs';
 import { resolve, join } from 'node:path';
 import { execFileSync } from 'node:child_process';
+import { assertReleaseContext } from './release-context.js';
 
 const ROOT = resolve(import.meta.dirname, '..');
 
@@ -57,6 +58,10 @@ if (!VALID_LEVELS.includes(level)) {
   console.error(`Got: ${level ?? '(none)'}`);
   process.exit(1);
 }
+
+// This script writes release outputs (delta version, dist, tables, manifests).
+// Guard against a stray run on a feature branch.
+assertReleaseContext('bump a schema version');
 
 // ─── Bump version ─────────────────────────────────────────────────────────────
 

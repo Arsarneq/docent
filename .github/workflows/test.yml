@@ -47,6 +47,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
+        with:
+          # Full history so the release-output guard can diff against the PR
+          # base via merge-base (three-dot). Other steps don't need it but it's
+          # harmless.
+          fetch-depth: 0
 
       - uses: ./.github/actions/debug-env
 
@@ -68,6 +73,15 @@ jobs:
 
       - name: markdownlint
         run: npm run lint:md
+
+      # Guard 2: fail if a feature branch modified release-only outputs
+      # (schemas/dist/ or a delta `version`). Only meaningful on PRs, where we
+      # have a base branch to diff against; skipped on push/release.
+      - name: No release-only outputs on PR
+        if: github.event_name == 'pull_request'
+        run: |
+          git fetch --no-tags origin "$GITHUB_BASE_REF"
+          node scripts/check-no-release-outputs.js "origin/$GITHUB_BASE_REF"
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable

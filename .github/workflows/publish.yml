@@ -25,6 +25,8 @@ jobs:
 
       - name: Auto-version schemas and update version table
         run: node scripts/auto-version-schemas.js
+        env:
+          DOCENT_RELEASE: '1'
 
       - name: Format updated files
         run: npx prettier --write README.md docs/session-format.md 'schemas/*.delta.json' 'schemas/dist/*.json'

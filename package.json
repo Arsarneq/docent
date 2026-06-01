@@ -7,6 +7,7 @@
     "build:schemas": "node scripts/build-schemas.js",
     "version:schemas": "node scripts/auto-version-schemas.js",
     "version:schemas:check": "node scripts/auto-version-schemas.js --check",
+    "check:no-release-outputs": "node scripts/check-no-release-outputs.js",
     "sync-shared": "node scripts/sync-shared.js",
     "build:desktop-dist": "node scripts/build-desktop-dist.js",
     "dev:desktop": "npm run sync-shared && npm run build:desktop-dist && echo 'Run cargo tauri dev from packages/desktop/src-tauri/'",
