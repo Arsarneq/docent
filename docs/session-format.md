@@ -53,6 +53,33 @@ The base (`schemas/shared.schema.json`) and the desktop-family layer
 change to the base or a family layer is reflected in every published schema it
 feeds, and each is versioned according to its own resulting diff.
 
+### Schema version pinning
+
+The Chrome extension is distributed via the Chrome Web Store, which pushes
+updates automatically. There is no built-in mechanism to hold the emitted schema
+version back when a new release bumps it — the extension always emits the schema
+version it ships with.
+
+**Desktop** users are unaffected: without an auto-updater, you control which
+binary you run and can stay on any version indefinitely.
+
+**Extension** users whose downstream consumers depend on a specific schema
+version can pin by installing from source instead of the Chrome Web Store.
+Follow the [development installation steps](../README.md#installation-development),
+but check out the tag that produces the schema version you need before syncing
+and loading:
+
+```bash
+git checkout extension-v2.0.0   # or any release tag
+```
+
+Chrome will not auto-update an unpacked extension. When you are ready to adopt a
+newer schema version, check out the corresponding tag and reload.
+
+Every exported file carries the `docent_format` stamp, so a consumer can always
+detect which schema version produced a file and fail loudly on a mismatch rather
+than silently misinterpreting data.
+
 ---
 
 ## Dispatch payload structure
