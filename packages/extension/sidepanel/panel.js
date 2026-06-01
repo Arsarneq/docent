@@ -16,6 +16,7 @@
  */
 
 import { validateEndpointUrl, buildPayload, sendPayload, DispatchError } from './dispatch.js';
+import { createDispatchCooldown } from '../shared/dispatch-cooldown.js';
 import { sync } from '../shared/sync-client.js';
 import { buildExport } from '../shared/lib/export-project.js';
 import adapter from './adapter-chrome.js';
@@ -169,6 +170,8 @@ let rerecordLogicalId = null;
 let previousRecordingView = null; // tracks pre-rerecord recording state
 let dispatchSettings = { endpointUrl: null, apiKey: null };
 let dispatchSelection = null; // { recordings: [], totalSteps: number }
+const dispatchCooldown = createDispatchCooldown();
+let cooldownTimer = null; // setInterval handle while the cooldown counts down
 let syncSettings = { serverUrl: null, apiKey: null };
 let isSyncing = false;
 let recordingMode = 'narration'; // 'narration' or 'simple'
@@ -544,6 +547,7 @@ btnConfirmSend.addEventListener('click', async () => {
     const schema = await adapter.loadSchema();
     const payload = buildPayload(activeProject, dispatchSelection.recordings, guidance, schema);
     await sendPayload(dispatchSettings.endpointUrl, dispatchSettings.apiKey, payload);
+    dispatchCooldown.markSent();
     resultTitle.textContent = 'Sent';
     resultMessage.textContent = `Successfully dispatched ${dispatchSelection.totalSteps} step${dispatchSelection.totalSteps !== 1 ? 's' : ''} to ${dispatchSettings.endpointUrl}.`;
     showView('dispatchResult');
@@ -557,7 +561,7 @@ btnConfirmSend.addEventListener('click', async () => {
     showView('dispatchResult');
   } finally {
     btnConfirmSend.disabled = false;
-    btnDispatchProject.disabled = !dispatchSettings.endpointUrl;
+    updateDispatchButton();
   }
 });
 
@@ -1053,8 +1057,34 @@ function updateDispatchButton() {
     }
     return Array.from(groups.values()).some((s) => !s.deleted);
   });
+
+  // Post-send cooldown (S4): hold the button disabled briefly after a send to
+  // guard against rapid re-dispatch, counting down a remaining-seconds hint.
+  const cooldownRemaining = dispatchCooldown.remainingMs();
+  if (cooldownRemaining > 0) {
+    btnDispatchProject.disabled = true;
+    btnDispatchProject.title = `Just sent — wait ${Math.ceil(cooldownRemaining / 1000)}s before sending again`;
+    scheduleCooldownRefresh();
+    return;
+  }
+
   btnDispatchProject.disabled = !hasActiveSteps;
   btnDispatchProject.title = hasActiveSteps ? '' : 'No recordings with active steps';
+}
+
+/**
+ * While a post-send cooldown is active, re-evaluate the dispatch button once a
+ * second so the countdown hint advances and the button re-enables on its own.
+ */
+function scheduleCooldownRefresh() {
+  if (cooldownTimer !== null) return;
+  cooldownTimer = setInterval(() => {
+    if (dispatchCooldown.canSend()) {
+      clearInterval(cooldownTimer);
+      cooldownTimer = null;
+    }
+    updateDispatchButton();
+  }, 1000);
 }
 
 // ─── Sync settings ────────────────────────────────────────────────────────────
