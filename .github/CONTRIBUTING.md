@@ -10,6 +10,9 @@ Thank you for wanting to contribute. Docent is open source under GPL-3.0.
 
 2. **Check for existing issues.** Your idea or bug may already be tracked.
    If not, open an issue before starting significant work so we can discuss approach.
+   Use the issue templates — [Bug report](ISSUE_TEMPLATE/bug_report.yml) (labels
+   the issue `bug`) or [Feature request](ISSUE_TEMPLATE/feature_request.yml)
+   (labels it `enhancement`) — so the report has the details we need.
 
 ## Development Setup
 
@@ -155,8 +158,16 @@ lives in.
 ## Pull Request Guidelines
 
 - One logical change per PR
+- **Fill in the [PR template](PULL_REQUEST_TEMPLATE.md)** — it loads automatically
+  when you open a PR. Complete every section (write "None." where a section does
+  not apply, e.g. Behaviour/Breaking Changes).
 - Include a clear description of what changed and why
-- Reference the related issue if one exists
+- Reference the related issue if one exists (`Closes #000` / `Relates to #000`)
+- **Add labels** so the PR is triageable: the kind of change (`bug`,
+  `enhancement`, or `docs`) plus any area label(s) that apply. Match the label on
+  the issue it closes, and pick area labels from the repo's existing
+  [label list](https://github.com/Arsarneq/docent/labels) rather than inventing
+  new ones.
 - All new functions should have JSDoc comments (JavaScript) or doc comments (Rust)
 - **Bug-fix PRs must include a regression test** (see below)
 
