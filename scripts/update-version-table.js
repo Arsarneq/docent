@@ -2,8 +2,8 @@
  * update-version-table.js — Propagates schema versions into every version-bearing
  * doc and platform manifest.
  *
- * Source of truth: the `version` field of each platform schema in schemas/
- * (extension.schema.json, desktop-windows.schema.json). This script only READS
+ * Source of truth: the `version` field of each platform's leaf delta in schemas/
+ * (extension.delta.json, desktop-windows.delta.json). This script only READS
  * those — it never decides a version. Bump the schema first (see bump-schema.js),
  * then run this to propagate.
  *
@@ -37,16 +37,16 @@ const ROOT = resolve(import.meta.dirname, '..');
 
 // ─── Read versions from schema files ──────────────────────────────────────────
 
-function readVersion(schemaPath) {
-  const schema = JSON.parse(readFileSync(join(ROOT, schemaPath), 'utf8'));
-  if (!schema.version) {
-    throw new Error(`Schema ${schemaPath} is missing a "version" field`);
+function readVersion(deltaPath) {
+  const delta = JSON.parse(readFileSync(join(ROOT, deltaPath), 'utf8'));
+  if (!delta.version) {
+    throw new Error(`${deltaPath} is missing a "version" field`);
   }
-  return schema.version;
+  return delta.version;
 }
 
-const extVersion = readVersion('schemas/extension.schema.json');
-const deskVersion = readVersion('schemas/desktop-windows.schema.json');
+const extVersion = readVersion('schemas/extension.delta.json');
+const deskVersion = readVersion('schemas/desktop-windows.delta.json');
 
 // ─── Update a file between markers ───────────────────────────────────────────
 
@@ -86,8 +86,8 @@ console.log(`✓ README.md updated (extension: ${extVersion}, desktop: ${deskVer
 
 const specTable = `| Schema file | Platform | Current |
 |---|---|---|
-| \`schemas/extension.schema.json\` | Chrome extension | ${extVersion} |
-| \`schemas/desktop-windows.schema.json\` | Windows desktop | ${deskVersion} |`;
+| \`schemas/dist/extension.schema.json\` | Chrome extension | ${extVersion} |
+| \`schemas/dist/desktop-windows.schema.json\` | Windows desktop | ${deskVersion} |`;
 
 updateBetweenMarkers(
   'docs/session-format.md',

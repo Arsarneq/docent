@@ -1,0 +1,142 @@
+/**
+ * schema-composition.test.js — Locks the schema build contract (layered
+ * compose: platform-agnostic base → optional family layer → per-surface leaf).
+ *
+ * Everything here composes from the SOURCE LAYERS in schemas/ via the same
+ * primitives build-schemas.js uses. It deliberately does NOT compare against
+ * schemas/dist/ — dist/ is the released artifact, written only by the release
+ * pipeline, and is expected to lag the source layers within a PR. The
+ * source-composed schema is the contract this commit defines.
+ *
+ *   extension:        shared.schema.json → extension.delta.json
+ *   desktop-windows:  shared.schema.json → desktop.shared.schema.json → desktop-windows.delta.json
+ *
+ * These tests guarantee:
+ *   1. Every platform composes into an internally consistent schema (all local
+ *      $refs resolve) — catching a $def that moved layers but left a dangling ref.
+ *   2. The base stays platform-AGNOSTIC — no platform-specific $defs and no
+ *      platform names in its wording.
+ *   3. Desktop-family defs live in the desktop.shared layer (shared by Windows
+ *      and future Linux), not in the base or a single leaf.
+ *   4. Each platform's unique definitions land in the composed output.
+ */
+
+import { describe, it } from 'node:test';
+import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { resolve, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import Ajv from 'ajv/dist/2020.js';
+import addFormats from 'ajv-formats';
+import { PLATFORMS, composePlatform } from '../../../../scripts/build-schemas.js';
+
+const __dirname = fileURLToPath(new URL('.', import.meta.url));
+const SCHEMAS_DIR = resolve(__dirname, '../../../../schemas');
+
+const readJson = (name) => JSON.parse(readFileSync(join(SCHEMAS_DIR, name), 'utf8'));
+
+const base = readJson('shared.schema.json');
+const desktopFamily = readJson('desktop.shared.schema.json');
+
+describe('Schema composition: every platform composes into a valid schema', () => {
+  for (const platform of Object.keys(PLATFORMS)) {
+    it(`${platform} composes and all local $refs resolve (Ajv compiles it)`, () => {
+      const ajv = new Ajv({ allErrors: true, strict: false });
+      addFormats(ajv);
+      // Ajv.compile resolves every #/$defs/... ref eagerly; a dangling ref
+      // (e.g. a $def left behind in the wrong layer) throws here.
+      assert.doesNotThrow(() => ajv.compile(composePlatform(platform)));
+    });
+  }
+});
+
+describe('Schema composition: base is platform-agnostic', () => {
+  it('base has the envelope and core structural defs', () => {
+    assert.deepStrictEqual(base.required, ['project', 'recordings']);
+    for (const def of ['project', 'recording', 'step', 'element', 'modifiers']) {
+      assert.ok(base.$defs[def], `base missing ${def}`);
+    }
+  });
+
+  it('base does NOT define platform-specific defs (capture_mode, action oneOf, window_rect, file_dialog, frame_src)', () => {
+    for (const platformDef of [
+      'capture_mode',
+      'action',
+      'window_rect',
+      'window_rect_or_null',
+      'action_file_dialog',
+      'frame_src',
+      'action_navigate',
+      'action_file_upload',
+    ]) {
+      assert.strictEqual(
+        base.$defs[platformDef],
+        undefined,
+        `base must not define platform-specific "${platformDef}"`,
+      );
+    }
+  });
+
+  it('base wording names no specific platform', () => {
+    // The whole point of an agnostic base: descriptions must not mention a
+    // concrete platform/technology. Guards against re-introducing the old
+    // "(extension) / (desktop)" dual-wording.
+    const text = JSON.stringify(base.$defs).toLowerCase();
+    for (const term of ['extension', 'desktop', 'chrome', 'uia', 'dom', 'css', 'aria', 'html']) {
+      assert.ok(!text.includes(term), `base wording should not mention "${term}"`);
+    }
+  });
+});
+
+describe('Schema composition: desktop-family layer carries desktop-common defs', () => {
+  it('desktop.shared owns capture_mode, window_rect(+_or_null), file_dialog, action oneOf', () => {
+    assert.deepStrictEqual(desktopFamily.$defs.capture_mode.enum, ['accessibility', 'coordinate']);
+    assert.ok(desktopFamily.$defs.window_rect);
+    assert.ok(desktopFamily.$defs.window_rect_or_null);
+    assert.ok(desktopFamily.$defs.action_file_dialog);
+    assert.ok(desktopFamily.$defs.action);
+    assert.strictEqual(desktopFamily.actionContextProperty.name, 'window_rect');
+  });
+
+  it('desktop-windows leaf is identity-only (no $defs of its own yet)', () => {
+    const leaf = readJson('desktop-windows.delta.json');
+    assert.ok(leaf.title && leaf.version && leaf.$id);
+    assert.strictEqual(leaf.$defs, undefined);
+  });
+});
+
+describe('Schema composition: platform-unique defs land in the composed output', () => {
+  it('extension leaf owns frame_src + navigate/file_upload + dom capture_mode', () => {
+    const leaf = readJson('extension.delta.json');
+    assert.ok(leaf.$defs.frame_src);
+    assert.ok(leaf.$defs.action_navigate);
+    assert.ok(leaf.$defs.action_file_upload);
+    assert.strictEqual(leaf.$defs.capture_mode.const, 'dom');
+    assert.strictEqual(leaf.$defs.action_file_dialog, undefined);
+  });
+
+  it('composed extension schema injects frame_src into every action def, never window_rect', () => {
+    const composed = composePlatform('extension');
+    for (const [name, def] of Object.entries(composed.$defs)) {
+      if (name.startsWith('action_') && def.properties) {
+        assert.ok(def.properties.frame_src, `${name} missing frame_src`);
+        assert.strictEqual(def.properties.window_rect, undefined);
+      }
+    }
+  });
+
+  it('composed desktop schema injects window_rect into every action def, never frame_src', () => {
+    const composed = composePlatform('desktop-windows');
+    for (const [name, def] of Object.entries(composed.$defs)) {
+      if (name.startsWith('action_') && def.properties) {
+        assert.ok(def.properties.window_rect, `${name} missing window_rect`);
+        assert.strictEqual(def.properties.frame_src, undefined);
+      }
+    }
+  });
+
+  it('composed desktop schema includes file_dialog; extension does not', () => {
+    assert.ok(composePlatform('desktop-windows').$defs.action_file_dialog);
+    assert.strictEqual(composePlatform('extension').$defs.action_file_dialog, undefined);
+  });
+});

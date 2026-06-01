@@ -1,20 +1,20 @@
 /**
  * schema-validation.test.js — Desktop JSON Schema validation with Ajv.
  *
- * Validates that desktop export data conforms to the published
- * desktop-windows.schema.json using Ajv (draft 2020-12).
+ * Validates that desktop export data conforms to the desktop-windows schema
+ * (draft 2020-12). The schema is composed from SOURCE LAYERS via
+ * composePlatform — never read from schemas/dist/, which is the released
+ * artifact and can lag this PR's schema changes.
  *
  * Closes #92
  */
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
-import { fileURLToPath } from 'url';
 import Ajv from 'ajv/dist/2020.js';
 import addFormats from 'ajv-formats';
 import fc from 'fast-check';
+import { composePlatform } from '../../../../scripts/build-schemas.js';
 import {
   createProject,
   createRecording,
@@ -23,11 +23,7 @@ import {
   resolveActiveSteps,
 } from '../../shared/lib/session.js';
 
-const __dirname = fileURLToPath(new URL('.', import.meta.url));
-
-const desktopSchema = JSON.parse(
-  readFileSync(resolve(__dirname, '../../../../schemas/desktop-windows.schema.json'), 'utf-8'),
-);
+const desktopSchema = composePlatform('desktop-windows');
 
 const ajv = new Ajv({ allErrors: true, strict: false });
 addFormats(ajv);

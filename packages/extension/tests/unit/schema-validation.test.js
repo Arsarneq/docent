@@ -1,18 +1,18 @@
 /**
  * schema-validation.test.js — Extension JSON Schema validation with Ajv.
  *
- * Validates that extension export data conforms to the published
- * extension.schema.json using Ajv (draft 2020-12).
+ * Validates that extension export data conforms to the extension schema
+ * (draft 2020-12). The schema is composed from SOURCE LAYERS via
+ * composePlatform — never read from schemas/dist/, which is the released
+ * artifact and can lag this PR's schema changes.
  */
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
-import { fileURLToPath } from 'url';
 import Ajv from 'ajv/dist/2020.js';
 import addFormats from 'ajv-formats';
 import fc from 'fast-check';
+import { composePlatform } from '../../../../scripts/build-schemas.js';
 import {
   createProject,
   createRecording,
@@ -21,11 +21,7 @@ import {
   resolveActiveSteps,
 } from '../../shared/lib/session.js';
 
-const __dirname = fileURLToPath(new URL('.', import.meta.url));
-
-const extensionSchema = JSON.parse(
-  readFileSync(resolve(__dirname, '../../../../schemas/extension.schema.json'), 'utf-8'),
-);
+const extensionSchema = composePlatform('extension');
 
 const ajv = new Ajv({ allErrors: true, strict: false });
 addFormats(ajv);

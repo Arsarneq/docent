@@ -7,10 +7,8 @@
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { buildPayload } from '../../dispatch-core.js';
+import { composePlatform } from '../../../../scripts/build-schemas.js';
 import {
   createProject,
   createRecording,
@@ -19,15 +17,10 @@ import {
   resolveActiveSteps,
 } from '../../lib/session.js';
 
-const __dirname = fileURLToPath(new URL('.', import.meta.url));
-
-// Load schemas
-const extensionSchema = JSON.parse(
-  readFileSync(resolve(__dirname, '../../../../schemas/extension.schema.json'), 'utf-8'),
-);
-const desktopSchema = JSON.parse(
-  readFileSync(resolve(__dirname, '../../../../schemas/desktop-windows.schema.json'), 'utf-8'),
-);
+// Compose the platform schemas from SOURCE LAYERS (not schemas/dist/, which is
+// the released artifact and can lag a PR's schema changes).
+const extensionSchema = composePlatform('extension');
+const desktopSchema = composePlatform('desktop-windows');
 
 // ─── Simple schema validation helpers ─────────────────────────────────────────
 // We don't pull in ajv to keep dependencies minimal. Instead we validate

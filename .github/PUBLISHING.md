@@ -7,7 +7,7 @@ Docent uses independent versioning for each platform. Each platform has its own 
 | Chrome Extension  | `extension-v*` | `publish.yml`         | `extension-v2.0.0` |
 | Desktop (Windows) | `desktop-v*`   | `publish-desktop.yml` | `desktop-v0.1.0`   |
 
-Both platforms share the schema contract version defined in `packages/shared/session.schema.json`.
+Each platform's published JSON Schema under [`schemas/dist/`](../schemas/dist/) — `extension.schema.json` and `desktop-windows.schema.json` — is versioned independently. They are **composed** by `scripts/build-schemas.js` from a layered chain: a platform-agnostic base (`schemas/shared.schema.json`), an optional family layer (`schemas/desktop.shared.schema.json`, shared by all desktop surfaces), and a per-surface leaf (`schemas/<surface>.delta.json`). The `version` lives in each leaf. The `dist/` copies are committed by the release pipeline (this workflow) so they track the latest release; day-to-day tooling composes from the source layers directly. See [docs/session-format.md](../docs/session-format.md#versioning) for the versioning strategy and [JSON Schema files](../docs/session-format.md#json-schema-files) for the composition model.
 
 ---
 

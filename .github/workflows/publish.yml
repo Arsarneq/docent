@@ -23,13 +23,15 @@ jobs:
         with:
           node-version: 20
 
-      - name: Update version compatibility table
-        run: node scripts/update-version-table.js
+      - name: Update version compatibility table and compose published schemas
+        run: |
+          node scripts/update-version-table.js
+          node scripts/build-schemas.js
 
       - name: Format updated files
-        run: npx prettier --write README.md docs/session-format.md
+        run: npx prettier --write README.md docs/session-format.md 'schemas/dist/*.json'
 
-      - name: Check for version table changes
+      - name: Check for version table / schema changes
         id: table-diff
         run: |
           if git diff --quiet; then
@@ -38,16 +40,16 @@ jobs:
             echo "changed=true" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Create PR for version table update if changed
+      - name: Create PR for version table + published schema update if changed
         if: steps.table-diff.outputs.changed == 'true'
         id: version-pr
         uses: peter-evans/create-pull-request@v8
         with:
           token: ${{ secrets.PERSONAL_ACCESS_TOKEN }}
           base: main
-          commit-message: 'docs: update version compatibility table'
-          title: 'docs: update version compatibility table'
-          body: 'Automated update of the version compatibility table in README.md after release.'
+          commit-message: 'docs: update version table and published schemas'
+          title: 'docs: update version table and published schemas'
+          body: 'Automated update of the version compatibility table and the composed schemas under schemas/dist/ after release.'
           branch: automated/version-table-update
           labels: docs
           delete-branch: true

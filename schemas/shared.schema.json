@@ -1,7 +1,21 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/Arsarneq/docent/blob/main/schemas/shared.schema.json",
-  "description": "Shared definitions used by all Docent platform schemas. Not used directly for validation — use the platform-specific schemas.",
+  "description": "Platform-agnostic base for all Docent platform schemas: the top-level envelope plus the cross-platform $defs (no platform-specific fields or wording). Composed by scripts/build-schemas.js with optional intermediate family layers (e.g. desktop.shared.schema.json) and a per-surface leaf delta into each published platform schema. Not used directly for validation — use the platform-specific schemas.",
+  "type": "object",
+  "required": ["project", "recordings"],
+  "additionalProperties": false,
+  "properties": {
+    "project": {
+      "$ref": "#/$defs/project"
+    },
+    "recordings": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/recording"
+      }
+    }
+  },
   "$defs": {
     "project": {
       "type": "object",
@@ -404,31 +418,31 @@
       "properties": {
         "tag": {
           "type": "string",
-          "description": "Element kind: HTML tag name (extension, e.g. BUTTON) or UIA ControlType (desktop, e.g. Button). \"unknown\" in desktop coordinate-capture mode."
+          "description": "Element kind or control type (e.g. a button, text input, or link). \"unknown\" when the element could not be identified."
         },
         "id": {
           "type": ["string", "null"],
-          "description": "Stable identifier: DOM id attribute (extension) or UIA AutomationId (desktop). Null when absent."
+          "description": "Stable, developer-assigned identifier for the element. Null when absent."
         },
         "name": {
           "type": ["string", "null"],
-          "description": "name attribute (extension) or UIA Name / accessible name (desktop). Null when absent."
+          "description": "Element name or accessible name. Null when absent."
         },
         "role": {
           "type": ["string", "null"],
-          "description": "ARIA role (extension) or localised UIA control type (desktop). Null when absent."
+          "description": "Accessibility role of the element. Null when absent."
         },
         "type": {
           "type": ["string", "null"],
-          "description": "Input type attribute (extension) or control subtype, e.g. \"password\" (desktop). Null when not applicable."
+          "description": "Element subtype when applicable, e.g. \"password\" for masked text inputs. Null otherwise."
         },
         "text": {
           "type": ["string", "null"],
-          "description": "Visible text, truncated to 100 chars. Null for password fields or empty."
+          "description": "Visible text, truncated to 100 chars. Null for password fields or when empty."
         },
         "selector": {
           "type": "string",
-          "description": "CSS selector (extension) or accessibility tree path joined with \" > \", or \"coord:x,y\" in coordinate mode (desktop)."
+          "description": "Locator for the element: a platform-specific selector or accessibility path, or \"coord:x,y\" when only coordinates are available."
         }
       }
     },
@@ -463,31 +477,7 @@
     },
     "context_id": {
       "type": ["integer", "null"],
-      "description": "Context identifier. Chrome tab ID for browser, window handle for desktop. Session-scoped, not persistent across restarts."
-    },
-    "window_rect": {
-      "type": "object",
-      "required": ["x", "y", "width", "height"],
-      "additionalProperties": false,
-      "properties": {
-        "x": {
-          "type": "integer",
-          "description": "Window X position on screen in logical pixels."
-        },
-        "y": {
-          "type": "integer",
-          "description": "Window Y position on screen in logical pixels."
-        },
-        "width": {
-          "type": "integer",
-          "description": "Window width in logical pixels."
-        },
-        "height": {
-          "type": "integer",
-          "description": "Window height in logical pixels."
-        }
-      },
-      "description": "Window position and size at capture time. Present on coordinate-mode actions."
+      "description": "Identifier for the window, tab, or surface in which the action occurred. Session-scoped; not persistent across restarts."
     },
     "metadata": {
       "type": "object",

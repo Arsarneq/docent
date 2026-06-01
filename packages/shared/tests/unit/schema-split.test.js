@@ -1,12 +1,16 @@
 /**
- * schema-split.test.js — Tests that the per-platform schemas are correctly
- * built from the split source schemas.
+ * schema-split.test.js — Tests that the per-platform PUBLISHED schemas (the
+ * copies synced into each package by sync-shared) carry the correct
+ * platform-specific content. Complements schema-composition.test.js, which
+ * validates the source-layer composition; this checks the synced build output
+ * each package actually ships with.
  *
  * Validates:
  * - Extension schema has correct platform-specific content
  * - Desktop schema has correct platform-specific content
- * - Both share common definitions
- * - Platform-impossible fields are absent
+ * - Both share the cross-platform definitions
+ * - Platform-impossible fields are absent (frame_src on desktop, window_rect on
+ *   extension, etc.)
  */
 
 import { describe, it } from 'node:test';
@@ -115,6 +119,9 @@ describe('Shared definitions present in both schemas', () => {
   const ext = loadSchema('packages/extension/shared/session.schema.json');
   const desk = loadSchema('packages/desktop/shared/session.schema.json');
 
+  // Cross-platform shared defs only. window_rect is intentionally NOT here — it
+  // is a desktop-family concept (see desktop.shared.schema.json) and is absent
+  // from the extension schema.
   const sharedKeys = [
     'project',
     'recording',
@@ -125,7 +132,6 @@ describe('Shared definitions present in both schemas', () => {
     'iso8601',
     'context_id',
     'metadata',
-    'window_rect',
   ];
 
   for (const key of sharedKeys) {

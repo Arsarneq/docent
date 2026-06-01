@@ -1,8 +1,12 @@
 /**
- * check-version-sync.js — Verifies version tables in docs match schema files.
+ * check-version-sync.js — Verifies version tables in docs match the schema
+ * versions.
  *
- * Reads the version from each platform schema and checks that README.md and
- * docs/session-format.md contain matching version numbers between their markers.
+ * The version source of truth is each platform's leaf delta
+ * (schemas/<platform>.delta.json) — that is where bump-schema.js writes and
+ * where the composed schema's version comes from. This reads those and checks
+ * that README.md and docs/session-format.md contain matching version numbers
+ * between their markers.
  *
  * Exits with code 1 if any mismatch is found. Used by CI to catch drift.
  *
@@ -15,19 +19,19 @@ import { resolve, join } from 'node:path';
 
 const ROOT = resolve(import.meta.dirname, '..');
 
-// ─── Read versions from schema files ──────────────────────────────────────────
+// ─── Read versions from the source-of-truth delta files ───────────────────────
 
-function readVersion(schemaPath) {
-  const schema = JSON.parse(readFileSync(join(ROOT, schemaPath), 'utf8'));
-  if (!schema.version) {
-    console.error(`✗ Schema ${schemaPath} is missing a "version" field`);
+function readVersion(deltaPath) {
+  const delta = JSON.parse(readFileSync(join(ROOT, deltaPath), 'utf8'));
+  if (!delta.version) {
+    console.error(`✗ ${deltaPath} is missing a "version" field`);
     process.exit(1);
   }
-  return schema.version;
+  return delta.version;
 }
 
-const extVersion = readVersion('schemas/extension.schema.json');
-const deskVersion = readVersion('schemas/desktop-windows.schema.json');
+const extVersion = readVersion('schemas/extension.delta.json');
+const deskVersion = readVersion('schemas/desktop-windows.delta.json');
 
 // ─── Check a file contains the expected versions between markers ──────────────
 

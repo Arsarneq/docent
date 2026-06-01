@@ -20,14 +20,16 @@ fixtures/
     v<MAJOR.MINOR.PATCH>.docent.json
 ```
 
-- `<platform>` maps to `schemas/<platform>.schema.json` (e.g. `extension` →
-  `schemas/extension.schema.json`, `desktop-windows` →
-  `schemas/desktop-windows.schema.json`).
+- `<platform>` maps to a platform in `scripts/build-schemas.js` `PLATFORMS`
+  (e.g. `extension`, `desktop-windows`).
 - The version in the filename records which schema version produced the export.
 
 The test **auto-discovers** every `<platform>/<file>.docent.json` here and
-validates it against `schemas/<platform>.schema.json`. Adding a new platform or a
-new historical version is purely additive: drop a file in, no test changes.
+validates it against that platform's schema, **composed from the source layers
+in-memory** (via `composePlatform`) — not against the released copy under
+`schemas/dist/`, which can lag a PR's schema changes. Adding a new platform (to
+`PLATFORMS`) or a new historical version is purely additive: drop a file in, no
+test changes.
 
 ## Adding a fixture
 

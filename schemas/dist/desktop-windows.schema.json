@@ -1,9 +1,9 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/Arsarneq/docent/blob/main/schemas/extension.schema.json",
-  "title": "Docent Extension Schema",
-  "version": "2.0.0",
-  "description": "Schema for .docent.json files produced by the Docent Chrome extension.",
+  "$id": "https://github.com/Arsarneq/docent/blob/main/schemas/dist/desktop-windows.schema.json",
+  "title": "Docent Desktop (Windows) Schema",
+  "version": "1.0.0",
+  "description": "Schema for .docent.json files produced by the Docent desktop application on Windows.",
   "type": "object",
   "required": ["project", "recordings"],
   "additionalProperties": false,
@@ -141,8 +141,8 @@
         "capture_mode": {
           "$ref": "#/$defs/capture_mode"
         },
-        "frame_src": {
-          "$ref": "#/$defs/frame_src"
+        "window_rect": {
+          "$ref": "#/$defs/window_rect_or_null"
         }
       },
       "required": ["type", "timestamp", "x", "y", "element", "context_id", "capture_mode"]
@@ -167,8 +167,8 @@
         "capture_mode": {
           "$ref": "#/$defs/capture_mode"
         },
-        "frame_src": {
-          "$ref": "#/$defs/frame_src"
+        "window_rect": {
+          "$ref": "#/$defs/window_rect_or_null"
         }
       },
       "required": ["type", "timestamp", "x", "y", "element", "context_id", "capture_mode"]
@@ -191,8 +191,8 @@
         "capture_mode": {
           "$ref": "#/$defs/capture_mode"
         },
-        "frame_src": {
-          "$ref": "#/$defs/frame_src"
+        "window_rect": {
+          "$ref": "#/$defs/window_rect_or_null"
         }
       },
       "required": ["type", "timestamp", "element", "value", "context_id", "capture_mode"]
@@ -215,8 +215,8 @@
         "capture_mode": {
           "$ref": "#/$defs/capture_mode"
         },
-        "frame_src": {
-          "$ref": "#/$defs/frame_src"
+        "window_rect": {
+          "$ref": "#/$defs/window_rect_or_null"
         }
       },
       "required": ["type", "timestamp", "element", "value", "context_id", "capture_mode"]
@@ -242,8 +242,8 @@
         "capture_mode": {
           "$ref": "#/$defs/capture_mode"
         },
-        "frame_src": {
-          "$ref": "#/$defs/frame_src"
+        "window_rect": {
+          "$ref": "#/$defs/window_rect_or_null"
         }
       },
       "required": ["type", "timestamp", "key", "modifiers", "element", "context_id", "capture_mode"]
@@ -262,8 +262,8 @@
         "capture_mode": {
           "$ref": "#/$defs/capture_mode"
         },
-        "frame_src": {
-          "$ref": "#/$defs/frame_src"
+        "window_rect": {
+          "$ref": "#/$defs/window_rect_or_null"
         }
       },
       "required": ["type", "timestamp", "element", "context_id", "capture_mode"]
@@ -282,8 +282,8 @@
         "capture_mode": {
           "$ref": "#/$defs/capture_mode"
         },
-        "frame_src": {
-          "$ref": "#/$defs/frame_src"
+        "window_rect": {
+          "$ref": "#/$defs/window_rect_or_null"
         }
       },
       "required": ["type", "timestamp", "element", "context_id", "capture_mode"]
@@ -319,8 +319,8 @@
         "capture_mode": {
           "$ref": "#/$defs/capture_mode"
         },
-        "frame_src": {
-          "$ref": "#/$defs/frame_src"
+        "window_rect": {
+          "$ref": "#/$defs/window_rect_or_null"
         }
       },
       "required": [
@@ -368,8 +368,8 @@
         "capture_mode": {
           "$ref": "#/$defs/capture_mode"
         },
-        "frame_src": {
-          "$ref": "#/$defs/frame_src"
+        "window_rect": {
+          "$ref": "#/$defs/window_rect_or_null"
         }
       },
       "required": [
@@ -400,8 +400,8 @@
         "capture_mode": {
           "$ref": "#/$defs/capture_mode"
         },
-        "frame_src": {
-          "$ref": "#/$defs/frame_src"
+        "window_rect": {
+          "$ref": "#/$defs/window_rect_or_null"
         }
       },
       "required": ["type", "timestamp", "context_id", "source", "capture_mode"]
@@ -423,8 +423,8 @@
         "capture_mode": {
           "$ref": "#/$defs/capture_mode"
         },
-        "frame_src": {
-          "$ref": "#/$defs/frame_src"
+        "window_rect": {
+          "$ref": "#/$defs/window_rect_or_null"
         }
       },
       "required": ["type", "timestamp", "context_id", "opener_context_id", "capture_mode"]
@@ -443,8 +443,8 @@
         "capture_mode": {
           "$ref": "#/$defs/capture_mode"
         },
-        "frame_src": {
-          "$ref": "#/$defs/frame_src"
+        "window_rect": {
+          "$ref": "#/$defs/window_rect_or_null"
         }
       },
       "required": ["type", "timestamp", "context_id", "window_closing", "capture_mode"]
@@ -456,31 +456,31 @@
       "properties": {
         "tag": {
           "type": "string",
-          "description": "Element kind: HTML tag name (extension, e.g. BUTTON) or UIA ControlType (desktop, e.g. Button). \"unknown\" in desktop coordinate-capture mode."
+          "description": "Element kind or control type (e.g. a button, text input, or link). \"unknown\" when the element could not be identified."
         },
         "id": {
           "type": ["string", "null"],
-          "description": "Stable identifier: DOM id attribute (extension) or UIA AutomationId (desktop). Null when absent."
+          "description": "Stable, developer-assigned identifier for the element. Null when absent."
         },
         "name": {
           "type": ["string", "null"],
-          "description": "name attribute (extension) or UIA Name / accessible name (desktop). Null when absent."
+          "description": "Element name or accessible name. Null when absent."
         },
         "role": {
           "type": ["string", "null"],
-          "description": "ARIA role (extension) or localised UIA control type (desktop). Null when absent."
+          "description": "Accessibility role of the element. Null when absent."
         },
         "type": {
           "type": ["string", "null"],
-          "description": "Input type attribute (extension) or control subtype, e.g. \"password\" (desktop). Null when not applicable."
+          "description": "Element subtype when applicable, e.g. \"password\" for masked text inputs. Null otherwise."
         },
         "text": {
           "type": ["string", "null"],
-          "description": "Visible text, truncated to 100 chars. Null for password fields or empty."
+          "description": "Visible text, truncated to 100 chars. Null for password fields or when empty."
         },
         "selector": {
           "type": "string",
-          "description": "CSS selector (extension) or accessibility tree path joined with \" > \", or \"coord:x,y\" in coordinate mode (desktop)."
+          "description": "Locator for the element: a platform-specific selector or accessibility path, or \"coord:x,y\" when only coordinates are available."
         }
       }
     },
@@ -515,7 +515,29 @@
     },
     "context_id": {
       "type": ["integer", "null"],
-      "description": "Context identifier. Chrome tab ID for browser, window handle for desktop. Session-scoped, not persistent across restarts."
+      "description": "Identifier for the window, tab, or surface in which the action occurred. Session-scoped; not persistent across restarts."
+    },
+    "metadata": {
+      "type": "object",
+      "description": "User-defined key-value pairs. Values can be a string or an array of strings.",
+      "additionalProperties": {
+        "oneOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "capture_mode": {
+      "type": "string",
+      "enum": ["accessibility", "coordinate"],
+      "description": "How the action was captured. 'accessibility' for native UI elements, 'coordinate' for fallback coordinate-based capture."
     },
     "window_rect": {
       "type": "object",
@@ -541,93 +563,32 @@
       },
       "description": "Window position and size at capture time. Present on coordinate-mode actions."
     },
-    "metadata": {
-      "type": "object",
-      "description": "User-defined key-value pairs. Values can be a string or an array of strings.",
-      "additionalProperties": {
-        "oneOf": [
-          {
-            "type": "string"
-          },
-          {
-            "type": "array",
-            "items": {
-              "type": "string"
-            }
-          }
-        ]
-      }
+    "window_rect_or_null": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/window_rect"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "Window rectangle or null. Present on coordinate-mode actions, null for accessibility-mode."
     },
-    "capture_mode": {
-      "type": "string",
-      "const": "dom",
-      "description": "How the action was captured. Always 'dom' for the browser extension."
-    },
-    "frame_src": {
-      "type": ["string", "null"],
-      "description": "Iframe URL if the action occurred inside an iframe. Null for the top frame."
-    },
-    "action_navigate": {
+    "action_file_dialog": {
       "properties": {
         "type": {
-          "const": "navigate"
+          "const": "file_dialog"
         },
-        "nav_type": {
+        "dialog_type": {
           "type": "string",
-          "enum": [
-            "link",
-            "typed",
-            "reload",
-            "back_forward",
-            "spa",
-            "auto_bookmark",
-            "generated",
-            "start_page",
-            "form_submit",
-            "keyword"
-          ]
+          "enum": ["open", "save", "save_as"]
         },
-        "url": {
+        "file_path": {
           "type": "string"
         },
-        "context_id": {
-          "$ref": "#/$defs/context_id"
-        },
-        "capture_mode": {
-          "$ref": "#/$defs/capture_mode"
-        },
-        "frame_src": {
-          "$ref": "#/$defs/frame_src"
-        }
-      },
-      "required": ["type", "timestamp", "nav_type", "url", "context_id", "capture_mode"]
-    },
-    "action_file_upload": {
-      "properties": {
-        "type": {
-          "const": "file_upload"
-        },
-        "element": {
-          "$ref": "#/$defs/element"
-        },
-        "files": {
-          "type": "array",
-          "items": {
-            "type": "object",
-            "required": ["name", "size", "mime"],
-            "additionalProperties": false,
-            "properties": {
-              "name": {
-                "type": "string"
-              },
-              "size": {
-                "type": "integer"
-              },
-              "mime": {
-                "type": "string"
-              }
-            }
-          }
+        "source": {
+          "type": "string",
+          "description": "The application that opened the file dialog (exe path)."
         },
         "context_id": {
           "$ref": "#/$defs/context_id"
@@ -635,11 +596,19 @@
         "capture_mode": {
           "$ref": "#/$defs/capture_mode"
         },
-        "frame_src": {
-          "$ref": "#/$defs/frame_src"
+        "window_rect": {
+          "$ref": "#/$defs/window_rect_or_null"
         }
       },
-      "required": ["type", "timestamp", "element", "files", "context_id", "capture_mode"]
+      "required": [
+        "type",
+        "timestamp",
+        "dialog_type",
+        "file_path",
+        "source",
+        "context_id",
+        "capture_mode"
+      ]
     },
     "action": {
       "type": "object",
@@ -654,9 +623,6 @@
         }
       },
       "oneOf": [
-        {
-          "$ref": "#/$defs/action_navigate"
-        },
         {
           "$ref": "#/$defs/action_click"
         },
@@ -676,9 +642,6 @@
           "$ref": "#/$defs/action_focus"
         },
         {
-          "$ref": "#/$defs/action_file_upload"
-        },
-        {
           "$ref": "#/$defs/action_drag_start"
         },
         {
@@ -695,6 +658,9 @@
         },
         {
           "$ref": "#/$defs/action_context_close"
+        },
+        {
+          "$ref": "#/$defs/action_file_dialog"
         }
       ]
     }

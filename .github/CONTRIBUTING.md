@@ -77,6 +77,17 @@ Shared code lives in `packages/shared/` and is copied into each platform package
 by `npm run sync-shared`. After editing shared code, re-run the sync before
 loading the extension or building the desktop app.
 
+The published JSON Schemas (`schemas/dist/extension.schema.json`,
+`schemas/dist/desktop-windows.schema.json`) are **build output**, composed by
+`scripts/build-schemas.js` from a layered chain: a platform-agnostic base
+(`schemas/shared.schema.json`), an optional family layer
+(`schemas/desktop.shared.schema.json`, shared by all desktop surfaces), and a
+per-surface leaf (`schemas/<surface>.delta.json`). Edit a layer — never a file
+under `schemas/dist/` directly. The `dist/` copies are committed only by the
+release pipeline; locally, `npm run sync-shared` and the test suite compose each
+schema from the source layers in-memory, so they always reflect your current
+changes (run `npm run build:schemas` if you want to refresh `dist/` by hand).
+
 ## Running Tests
 
 Tests are organised by [test-pyramid](https://martinfowler.com/articles/practical-test-pyramid.html)
