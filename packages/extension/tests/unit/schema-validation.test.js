@@ -13,6 +13,7 @@ import Ajv from 'ajv/dist/2020.js';
 import addFormats from 'ajv-formats';
 import fc from 'fast-check';
 import { composePlatform } from '../../../../scripts/build-schemas.js';
+import { stampFromSchema } from '../../shared/lib/format-stamp.js';
 import {
   createProject,
   createRecording,
@@ -26,6 +27,10 @@ const extensionSchema = composePlatform('extension');
 const ajv = new Ajv({ allErrors: true, strict: false });
 addFormats(ajv);
 const validateExtension = ajv.compile(extensionSchema);
+
+// The docent_format stamp is read from the schema under test, so these tests
+// never need updating when the version bumps.
+const stamp = stampFromSchema(extensionSchema);
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -41,6 +46,7 @@ function buildExtensionExport(actions = []) {
   addStepRecord(recording, step);
   const steps = resolveActiveSteps(recording);
   return {
+    docent_format: stamp,
     project: {
       project_id: project.project_id,
       name: project.name,
@@ -182,6 +188,7 @@ describe('Schema validation: extension export', () => {
     addStepRecord(recording, step);
     const steps = resolveActiveSteps(recording);
     const data = {
+      docent_format: stamp,
       project: {
         project_id: project.project_id,
         name: project.name,

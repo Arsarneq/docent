@@ -90,11 +90,16 @@ const platformRows = [
 ];
 
 // ─── README table ─────────────────────────────────────────────────────────────
-
+//
+// Platform · schema version only. App versions are driven by the git release
+// tag and move independently of the schema, so listing them here (with a
+// forward-range "+") would imply a coupling that doesn't exist and quickly go
+// stale. Files are self-describing via the docent_format stamp, so the schema
+// version is the fact worth publishing.
 const readmeTable = [
-  '| Platform | Schema version | Compatible app versions |',
-  '| --- | --- | --- |',
-  ...platformRows.map((p) => `| ${p.name} | ${p.version} | ${p.version}+ |`),
+  '| Platform | Schema version |',
+  '| --- | --- |',
+  ...platformRows.map((p) => `| ${p.name} | ${p.version} |`),
 ].join('\n');
 
 updateBetweenMarkers(

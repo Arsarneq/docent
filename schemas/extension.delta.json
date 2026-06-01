@@ -1,7 +1,8 @@
 {
   "$id": "https://github.com/Arsarneq/docent/blob/main/schemas/dist/extension.schema.json",
   "title": "Docent Extension Schema",
-  "version": "2.0.0",
+  "platform": "extension",
+  "version": "3.0.0",
   "description": "Schema for .docent.json files produced by the Docent Chrome extension.",
   "actionContextProperty": {
     "name": "frame_src",

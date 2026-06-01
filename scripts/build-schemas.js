@@ -103,6 +103,7 @@ export function compose(layers) {
   let actionContextProperty = null;
   let envelope = {};
   const meta = {};
+  let platform;
   let $schema;
 
   for (const layer of layers) {
@@ -111,6 +112,7 @@ export function compose(layers) {
     if (layerSchema) $schema = layerSchema;
     if ($defs) mergedDefs = { ...mergedDefs, ...$defs };
     if (acp) actionContextProperty = acp;
+    if (rest.platform !== undefined) platform = rest.platform;
 
     // Structural envelope — carried by the base. Captured when present.
     if (rest.type) {
@@ -142,6 +144,28 @@ export function compose(layers) {
       if (name.startsWith('action_') && def.properties) {
         def.properties[actionContextProperty.name] = actionContextProperty.schema;
       }
+    }
+  }
+
+  // Pin the self-describing format stamp to this platform + version. The schema
+  // is the single source of truth for the stamp values, so producers (export,
+  // dispatch, sync) read them straight off the composed schema and consumers can
+  // hard-validate them. The base defines docent_format's shape; here we fix the
+  // two consts. The schema_version const tracks `version` (the thing we
+  // compute), so classify-schema-change.js intentionally ignores its value when
+  // classifying a change — see that file.
+  if (mergedDefs.docent_format?.properties) {
+    if (platform !== undefined) {
+      mergedDefs.docent_format.properties.platform = {
+        ...mergedDefs.docent_format.properties.platform,
+        const: platform,
+      };
+    }
+    if (meta.version !== undefined) {
+      mergedDefs.docent_format.properties.schema_version = {
+        ...mergedDefs.docent_format.properties.schema_version,
+        const: meta.version,
+      };
     }
   }
 

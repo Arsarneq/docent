@@ -647,22 +647,10 @@ async function handle(msg) {
     case 'PROJECT_EXPORT': {
       const project = getActiveProject();
       if (!project) return { ok: false, error: 'No active project' };
-      const exportData = {
-        project: {
-          project_id: project.project_id,
-          name: project.name,
-          created_at: project.created_at,
-          ...(project.metadata && { metadata: project.metadata }),
-        },
-        recordings: project.recordings.map((r) => ({
-          recording_id: r.recording_id,
-          name: r.name,
-          created_at: r.created_at,
-          ...(r.metadata && { metadata: r.metadata }),
-          steps: r.steps,
-        })),
-      };
-      return { ok: true, exportData };
+      // Return the raw project; the panel stamps + shapes it into the
+      // `.docent.json` export via buildExport(), where the composed schema (the
+      // source of the docent_format stamp) is available.
+      return { ok: true, project };
     }
 
     default:

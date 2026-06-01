@@ -31,6 +31,7 @@ import {
   DispatchError,
 } from '../shared/dispatch-core.js';
 import { sync } from '../shared/sync-client.js';
+import { buildExport } from '../shared/lib/export-project.js';
 import adapter, { commitWithCompleteness } from './adapter-tauri.js';
 import {
   escapeHtml,
@@ -575,21 +576,10 @@ async function deleteRecording(recording_id, name) {
 
 // Export project
 btnExportProject.addEventListener('click', async () => {
-  const exportData = {
-    project: {
-      project_id: activeProject.project_id,
-      name: activeProject.name,
-      created_at: activeProject.created_at,
-      ...(activeProject.metadata && { metadata: activeProject.metadata }),
-    },
-    recordings: (activeProject.recordings ?? []).map((r) => ({
-      recording_id: r.recording_id,
-      name: r.name,
-      created_at: r.created_at,
-      ...(r.metadata && { metadata: r.metadata }),
-      steps: r.steps,
-    })),
-  };
+  // Stamp the export with docent_format via the shared builder; the composed
+  // schema (loaded by the adapter) is the single source of truth for the stamp.
+  const schema = await adapter.loadSchema();
+  const exportData = buildExport(activeProject, schema);
 
   if (adapter.hasNativeFileDialog) {
     try {

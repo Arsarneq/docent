@@ -3,9 +3,12 @@
   "$id": "https://github.com/Arsarneq/docent/blob/main/schemas/shared.schema.json",
   "description": "Platform-agnostic base for all Docent platform schemas: the top-level envelope plus the cross-platform $defs (no platform-specific fields or wording). Composed by scripts/build-schemas.js with optional intermediate family layers (e.g. desktop.shared.schema.json) and a per-surface leaf delta into each published platform schema. Not used directly for validation — use the platform-specific schemas.",
   "type": "object",
-  "required": ["project", "recordings"],
+  "required": ["docent_format", "project", "recordings"],
   "additionalProperties": false,
   "properties": {
+    "docent_format": {
+      "$ref": "#/$defs/docent_format"
+    },
     "project": {
       "$ref": "#/$defs/project"
     },
@@ -17,6 +20,22 @@
     }
   },
   "$defs": {
+    "docent_format": {
+      "type": "object",
+      "description": "Self-describing format stamp identifying which Docent platform and schema version produced this file. Lets any consumer pick the correct schema and route migrations without guessing. The platform and schema_version values are fixed (const) per published schema.",
+      "required": ["platform", "schema_version"],
+      "additionalProperties": false,
+      "properties": {
+        "platform": {
+          "type": "string",
+          "description": "The Docent platform that produced this file (set per published schema)."
+        },
+        "schema_version": {
+          "type": "string",
+          "description": "The schema version this file conforms to (set per published schema)."
+        }
+      }
+    },
     "project": {
       "type": "object",
       "required": ["project_id", "name", "created_at"],

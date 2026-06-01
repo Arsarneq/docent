@@ -229,6 +229,16 @@ describe('payload fidelity', () => {
   const schemaArb = fc.record({
     title: fc.string(),
     type: fc.constant('object'),
+    // buildPayload reads the docent_format stamp consts off the schema, so the
+    // generated schema must carry them (see lib/format-stamp.js).
+    $defs: fc.record({
+      docent_format: fc.record({
+        properties: fc.record({
+          platform: fc.record({ const: fc.constantFrom('extension', 'desktop-windows') }),
+          schema_version: fc.record({ const: fc.constantFrom('1.0.0', '2.0.0', '3.0.0') }),
+        }),
+      }),
+    }),
   });
 
   test('buildPayload preserves all project, recording, and step fields', async () => {
@@ -286,7 +296,7 @@ describe('payload fidelity', () => {
     );
   });
 
-  test('buildPayload produces exactly four top-level keys: reading_guidance, schema, project, recordings', async () => {
+  test('buildPayload produces exactly five top-level keys: docent_format, reading_guidance, schema, project, recordings', async () => {
     await fc.assert(
       fc.asyncProperty(
         projectArb,
@@ -296,7 +306,13 @@ describe('payload fidelity', () => {
         (project, recordings, readingGuidance, schema) => {
           const payload = buildPayload(project, recordings, readingGuidance, schema);
           const keys = Object.keys(payload).sort();
-          assert.deepStrictEqual(keys, ['project', 'reading_guidance', 'recordings', 'schema']);
+          assert.deepStrictEqual(keys, [
+            'docent_format',
+            'project',
+            'reading_guidance',
+            'recordings',
+            'schema',
+          ]);
         },
       ),
     );

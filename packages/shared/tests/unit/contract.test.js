@@ -87,13 +87,17 @@ describe('Contract: buildPayload output structure', () => {
   project.metadata = { ticket: 'PROJ-1' };
   recording.metadata = { env: 'staging' };
 
-  const payload = buildPayload(project, [recording], 'Read this guidance', {
-    title: 'Extension Schema',
-  });
+  const payload = buildPayload(project, [recording], 'Read this guidance', extensionSchema);
 
-  it('has exactly four top-level keys', () => {
+  it('has exactly five top-level keys', () => {
     const keys = Object.keys(payload).sort();
-    assert.deepStrictEqual(keys, ['project', 'reading_guidance', 'recordings', 'schema']);
+    assert.deepStrictEqual(keys, [
+      'docent_format',
+      'project',
+      'reading_guidance',
+      'recordings',
+      'schema',
+    ]);
   });
 
   it('project has required fields: project_id, name, created_at', () => {

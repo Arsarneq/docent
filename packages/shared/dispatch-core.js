@@ -10,6 +10,8 @@
  * See LICENSE in the project root for license information.
  */
 
+import { stampFromSchema } from './lib/format-stamp.js';
+
 /**
  * Validates an endpoint URL string.
  *
@@ -92,6 +94,7 @@ export function buildPayload(project, recordings, readingGuidance, schema) {
   return {
     reading_guidance: readingGuidance,
     schema,
+    docent_format: stampFromSchema(schema),
     project: {
       project_id: project.project_id,
       name: project.name,

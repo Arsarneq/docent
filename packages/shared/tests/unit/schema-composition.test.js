@@ -52,8 +52,8 @@ describe('Schema composition: every platform composes into a valid schema', () =
 
 describe('Schema composition: base is platform-agnostic', () => {
   it('base has the envelope and core structural defs', () => {
-    assert.deepStrictEqual(base.required, ['project', 'recordings']);
-    for (const def of ['project', 'recording', 'step', 'element', 'modifiers']) {
+    assert.deepStrictEqual(base.required, ['docent_format', 'project', 'recordings']);
+    for (const def of ['docent_format', 'project', 'recording', 'step', 'element', 'modifiers']) {
       assert.ok(base.$defs[def], `base missing ${def}`);
     }
   });
@@ -138,5 +138,24 @@ describe('Schema composition: platform-unique defs land in the composed output',
   it('composed desktop schema includes file_dialog; extension does not', () => {
     assert.ok(composePlatform('desktop-windows').$defs.action_file_dialog);
     assert.strictEqual(composePlatform('extension').$defs.action_file_dialog, undefined);
+  });
+
+  it('composer pins docent_format platform + schema_version consts per platform', () => {
+    for (const platform of Object.keys(PLATFORMS)) {
+      const composed = composePlatform(platform);
+      const df = composed.$defs.docent_format.properties;
+      assert.strictEqual(df.platform.const, platform, `${platform} platform const`);
+      assert.strictEqual(
+        df.schema_version.const,
+        composed.version,
+        `${platform} schema_version const tracks version`,
+      );
+    }
+  });
+
+  it('docent_format is required at the root of every platform schema', () => {
+    for (const platform of Object.keys(PLATFORMS)) {
+      assert.ok(composePlatform(platform).required.includes('docent_format'));
+    }
   });
 });

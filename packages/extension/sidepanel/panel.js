@@ -17,6 +17,7 @@
 
 import { validateEndpointUrl, buildPayload, sendPayload, DispatchError } from './dispatch.js';
 import { sync } from '../shared/sync-client.js';
+import { buildExport } from '../shared/lib/export-project.js';
 import adapter from './adapter-chrome.js';
 import {
   escapeHtml,
@@ -436,7 +437,12 @@ btnExportProject.addEventListener('click', async () => {
     alert(`Export failed: ${response?.error ?? 'unknown error'}`);
     return;
   }
-  const blob = new Blob([JSON.stringify(response.exportData, null, 2)], {
+  // Stamp the export with docent_format here in the panel, where the composed
+  // schema is available (the service worker doesn't load it). The schema is the
+  // single source of truth for the platform + version stamp.
+  const schema = await adapter.loadSchema();
+  const exportData = buildExport(response.project, schema);
+  const blob = new Blob([JSON.stringify(exportData, null, 2)], {
     type: 'application/json',
   });
   const url = URL.createObjectURL(blob);

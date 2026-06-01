@@ -8,6 +8,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { buildPayload } from '../../dispatch-core.js';
+import { STUB_SCHEMA } from '../fixtures/stub-schema.js';
 
 describe('buildPayload — metadata handling', () => {
   it('includes project metadata when present', () => {
@@ -17,13 +18,13 @@ describe('buildPayload — metadata handling', () => {
       created_at: '2026-01-01T00:00:00.000Z',
       metadata: { ticket: 'PROJ-1', tags: ['smoke'] },
     };
-    const payload = buildPayload(project, [], 'guidance', {});
+    const payload = buildPayload(project, [], 'guidance', STUB_SCHEMA);
     assert.deepStrictEqual(payload.project.metadata, { ticket: 'PROJ-1', tags: ['smoke'] });
   });
 
   it('omits project metadata when absent', () => {
     const project = { project_id: 'p1', name: 'P', created_at: '2026-01-01T00:00:00.000Z' };
-    const payload = buildPayload(project, [], 'guidance', {});
+    const payload = buildPayload(project, [], 'guidance', STUB_SCHEMA);
     assert.equal(payload.project.metadata, undefined);
   });
 
@@ -38,7 +39,7 @@ describe('buildPayload — metadata handling', () => {
         steps: [],
       },
     ];
-    const payload = buildPayload(project, recordings, 'guidance', {});
+    const payload = buildPayload(project, recordings, 'guidance', STUB_SCHEMA);
     assert.deepStrictEqual(payload.recordings[0].metadata, { env: 'prod' });
   });
 
@@ -52,7 +53,7 @@ describe('buildPayload — metadata handling', () => {
         steps: [],
       },
     ];
-    const payload = buildPayload(project, recordings, 'guidance', {});
+    const payload = buildPayload(project, recordings, 'guidance', STUB_SCHEMA);
     assert.equal(payload.recordings[0].metadata, undefined);
   });
 });
@@ -79,7 +80,7 @@ describe('buildPayload — simple mode step fields', () => {
         ],
       },
     ];
-    const payload = buildPayload(project, recordings, '', {});
+    const payload = buildPayload(project, recordings, '', STUB_SCHEMA);
     assert.equal(payload.recordings[0].steps[0].step_type, 'validation');
     assert.equal(payload.recordings[0].steps[0].expect, 'present');
   });
@@ -104,7 +105,7 @@ describe('buildPayload — simple mode step fields', () => {
         ],
       },
     ];
-    const payload = buildPayload(project, recordings, '', {});
+    const payload = buildPayload(project, recordings, '', STUB_SCHEMA);
     assert.equal(payload.recordings[0].steps[0].step_type, 'action');
     assert.equal(payload.recordings[0].steps[0].expect, undefined);
   });
@@ -130,7 +131,7 @@ describe('buildPayload — simple mode step fields', () => {
         ],
       },
     ];
-    const payload = buildPayload(project, recordings, '', {});
+    const payload = buildPayload(project, recordings, '', STUB_SCHEMA);
     assert.equal(payload.recordings[0].steps[0].narration, 'Click login');
     assert.equal(payload.recordings[0].steps[0].narration_source, 'typed');
     assert.equal(payload.recordings[0].steps[0].step_type, undefined);
@@ -156,7 +157,7 @@ describe('buildPayload — simple mode step fields', () => {
         ],
       },
     ];
-    const payload = buildPayload(project, recordings, '', {});
+    const payload = buildPayload(project, recordings, '', STUB_SCHEMA);
     assert.equal(payload.recordings[0].steps[0].narration, undefined);
     assert.equal(payload.recordings[0].steps[0].narration_source, undefined);
   });
@@ -194,7 +195,7 @@ describe('buildPayload — mixed mode recordings', () => {
         ],
       },
     ];
-    const payload = buildPayload(project, recordings, '', {});
+    const payload = buildPayload(project, recordings, '', STUB_SCHEMA);
     const steps = payload.recordings[0].steps;
 
     assert.equal(steps[0].narration, 'Login');

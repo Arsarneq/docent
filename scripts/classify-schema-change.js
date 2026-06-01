@@ -137,6 +137,11 @@ function walk(oldNode, newNode, path, add) {
         break;
       }
       case 'const': {
+        // The schema_version stamp const tracks `version` — the value we are
+        // computing — so a change to it is not a contract change on its own.
+        // (docent_format being added/removed/reshaped is still caught by the
+        // surrounding property/required diffs.) Every other const IS contract.
+        if (childPath.endsWith('/docent_format/properties/schema_version/const')) break;
         add('major', `${childPath}: const changed`);
         break;
       }

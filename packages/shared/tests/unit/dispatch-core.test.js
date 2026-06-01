@@ -7,6 +7,7 @@
 
 import { describe, it, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
+import { STUB_SCHEMA } from '../fixtures/stub-schema.js';
 import {
   validateEndpointUrl,
   sendPayload,
@@ -321,7 +322,7 @@ describe('buildPayload — edge cases', () => {
         steps: null,
       },
     ];
-    const payload = buildPayload(project, recordings, 'guidance', {});
+    const payload = buildPayload(project, recordings, 'guidance', STUB_SCHEMA);
     assert.deepEqual(payload.recordings[0].steps, []);
   });
 
@@ -334,16 +335,15 @@ describe('buildPayload — edge cases', () => {
         created_at: '2026-01-01T00:00:00.000Z',
       },
     ];
-    const payload = buildPayload(project, recordings, 'guidance', {});
+    const payload = buildPayload(project, recordings, 'guidance', STUB_SCHEMA);
     assert.deepEqual(payload.recordings[0].steps, []);
   });
 
   it('includes reading_guidance and schema in payload', () => {
     const project = { project_id: 'p1', name: 'P', created_at: '2026-01-01T00:00:00.000Z' };
-    const schema = { type: 'object', properties: {} };
-    const payload = buildPayload(project, [], 'Read this first', schema);
+    const payload = buildPayload(project, [], 'Read this first', STUB_SCHEMA);
     assert.equal(payload.reading_guidance, 'Read this first');
-    assert.deepEqual(payload.schema, schema);
+    assert.deepEqual(payload.schema, STUB_SCHEMA);
   });
 
   it('preserves deleted flag on steps', () => {
@@ -365,7 +365,7 @@ describe('buildPayload — edge cases', () => {
         ],
       },
     ];
-    const payload = buildPayload(project, recordings, '', {});
+    const payload = buildPayload(project, recordings, '', STUB_SCHEMA);
     assert.equal(payload.recordings[0].steps[0].deleted, true);
   });
 });
@@ -378,13 +378,13 @@ describe('buildPayload — metadata handling', () => {
       created_at: '2026-01-01T00:00:00.000Z',
       metadata: { ticket: 'PROJ-42', env: 'staging' },
     };
-    const payload = buildPayload(project, [], '', {});
+    const payload = buildPayload(project, [], '', STUB_SCHEMA);
     assert.deepEqual(payload.project.metadata, { ticket: 'PROJ-42', env: 'staging' });
   });
 
   it('omits project metadata when not present', () => {
     const project = { project_id: 'p1', name: 'P', created_at: '2026-01-01T00:00:00.000Z' };
-    const payload = buildPayload(project, [], '', {});
+    const payload = buildPayload(project, [], '', STUB_SCHEMA);
     assert.equal(payload.project.metadata, undefined);
   });
 
@@ -399,7 +399,7 @@ describe('buildPayload — metadata handling', () => {
         steps: [],
       },
     ];
-    const payload = buildPayload(project, recordings, '', {});
+    const payload = buildPayload(project, recordings, '', STUB_SCHEMA);
     assert.deepEqual(payload.recordings[0].metadata, { browser: 'chrome', version: '120' });
   });
 
@@ -408,7 +408,7 @@ describe('buildPayload — metadata handling', () => {
     const recordings = [
       { recording_id: 'r1', name: 'R', created_at: '2026-01-01T00:00:00.000Z', steps: [] },
     ];
-    const payload = buildPayload(project, recordings, '', {});
+    const payload = buildPayload(project, recordings, '', STUB_SCHEMA);
     assert.equal(payload.recordings[0].metadata, undefined);
   });
 
@@ -433,7 +433,7 @@ describe('buildPayload — metadata handling', () => {
         ],
       },
     ];
-    const payload = buildPayload(project, recordings, '', {});
+    const payload = buildPayload(project, recordings, '', STUB_SCHEMA);
     assert.equal(payload.recordings[0].steps[0].narration, 'Click login');
     assert.equal(payload.recordings[0].steps[0].narration_source, 'typed');
   });
@@ -459,7 +459,7 @@ describe('buildPayload — metadata handling', () => {
         ],
       },
     ];
-    const payload = buildPayload(project, recordings, '', {});
+    const payload = buildPayload(project, recordings, '', STUB_SCHEMA);
     assert.equal(payload.recordings[0].steps[0].step_type, 'validation');
     assert.equal(payload.recordings[0].steps[0].expect, 'present');
   });
@@ -484,7 +484,7 @@ describe('buildPayload — metadata handling', () => {
         ],
       },
     ];
-    const payload = buildPayload(project, recordings, '', {});
+    const payload = buildPayload(project, recordings, '', STUB_SCHEMA);
     assert.equal(payload.recordings[0].steps[0].narration, undefined);
     assert.equal(payload.recordings[0].steps[0].narration_source, undefined);
   });
