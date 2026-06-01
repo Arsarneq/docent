@@ -1,16 +1,25 @@
 {
+  "docent_format": {
+    "platform": "extension",
+    "schema_version": "2.0.0"
+  },
   "project": {
     "project_id": "0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b",
     "name": "Login flow (extension)",
     "created_at": "2026-05-31T12:00:00.000Z",
-    "metadata": { "browser": "Chrome 125", "os": "Windows 11" }
+    "metadata": {
+      "browser": "Chrome 125",
+      "os": "Windows 11"
+    }
   },
   "recordings": [
     {
       "recording_id": "0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a60",
       "name": "Happy path",
       "created_at": "2026-05-31T12:00:01.000Z",
-      "metadata": { "viewport": "1920x1080" },
+      "metadata": {
+        "viewport": "1920x1080"
+      },
       "steps": [
         {
           "uuid": "0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a61",

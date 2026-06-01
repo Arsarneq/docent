@@ -1,14 +1,23 @@
 /**
- * bump-schema.js — Bumps a platform schema version and propagates it.
+ * bump-schema.js — Manually bumps a platform schema version and propagates it.
  *
- * ⚠️ RELEASE-TIME ONLY. Bumps the `version` field in the named platform schema,
- * then runs update-version-table.js — which propagates that version not just to
- * the README + session-format version tables, but also to the README desktop
- * badge/release link AND the platform app manifests (manifest.json,
- * tauri.conf.json). Because it writes app/release versions, do NOT run it on a
- * content or docs branch — only when cutting a release. A description-only
- * schema edit does not need a manual bump; flag it and let it ride the next
- * release bump. See update-version-table.js for the full list of files written.
+ * Prefer `auto-version-schemas.js`, which derives the correct bump mechanically
+ * by diffing the released schema (schemas/dist/) against the current composed
+ * source. Use THIS tool only to FORCE a specific level — e.g. a semantic change
+ * the structural classifier cannot detect (same shape, changed meaning), which
+ * the docs classify as major.
+ *
+ * ⚠️ RELEASE-TIME ONLY. Bumps the `version` field in the named platform's slim
+ * delta (schemas/<platform>.delta.json — the version source of truth), then
+ * recomposes the published schemas (build-schemas.js) so the bump lands in the
+ * build output, then runs update-version-table.js — which propagates that
+ * version not just to the README + session-format version tables, but also to
+ * the README desktop badge/release link AND the platform app manifests
+ * (manifest.json, tauri.conf.json). Because it writes app/release versions, do
+ * NOT run it on a content or docs branch — only when cutting a release. A
+ * description-only schema edit does not need a manual bump; flag it and let it
+ * ride the next release bump. See update-version-table.js for the full list of
+ * files written.
  *
  * Usage:
  *   node scripts/bump-schema.js <platform> <level>
@@ -27,6 +36,7 @@
 import { readFileSync, writeFileSync } from 'node:fs';
 import { resolve, join } from 'node:path';
 import { execFileSync } from 'node:child_process';
+import { assertReleaseContext } from './release-context.js';
 
 const ROOT = resolve(import.meta.dirname, '..');
 
@@ -49,14 +59,22 @@ if (!VALID_LEVELS.includes(level)) {
   process.exit(1);
 }
 
+// This script writes release outputs (delta version, dist, tables, manifests).
+// Guard against a stray run on a feature branch.
+assertReleaseContext('bump a schema version');
+
 // ─── Bump version ─────────────────────────────────────────────────────────────
 
-const schemaPath = join(ROOT, 'schemas', `${platform}.schema.json`);
-const schema = JSON.parse(readFileSync(schemaPath, 'utf8'));
+// The version source of truth is the slim platform delta. The published
+// schemas/<platform>.schema.json is build output (composed from shared base +
+// delta by build-schemas.js), so writing the bumped version there would be
+// overwritten on the next compose. Bump the delta, then recompose below.
+const deltaPath = join(ROOT, 'schemas', `${platform}.delta.json`);
+const delta = JSON.parse(readFileSync(deltaPath, 'utf8'));
 
-const oldVersion = schema.version;
+const oldVersion = delta.version;
 if (!oldVersion) {
-  console.error(`Error: schema ${platform}.schema.json has no "version" field`);
+  console.error(`Error: schema delta ${platform}.delta.json has no "version" field`);
   process.exit(1);
 }
 
@@ -84,10 +102,16 @@ switch (level) {
 }
 
 const newVersion = `${major}.${minor}.${patch}`;
-schema.version = newVersion;
+delta.version = newVersion;
 
-writeFileSync(schemaPath, JSON.stringify(schema, null, 2) + '\n', 'utf8');
-console.log(`✓ ${platform}.schema.json: ${oldVersion} → ${newVersion}`);
+writeFileSync(deltaPath, JSON.stringify(delta, null, 2) + '\n', 'utf8');
+console.log(`✓ ${platform}.delta.json: ${oldVersion} → ${newVersion}`);
+
+// ─── Recompose published schemas so the bumped version lands in build output ──
+
+execFileSync(process.execPath, [join(ROOT, 'scripts', 'build-schemas.js')], {
+  stdio: 'inherit',
+});
 
 // ─── Update documentation tables ─────────────────────────────────────────────
 

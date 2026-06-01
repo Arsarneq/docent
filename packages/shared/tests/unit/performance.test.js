@@ -21,6 +21,7 @@ import {
   deleteStep,
 } from '../../lib/session.js';
 import { buildPayload } from '../../dispatch-core.js';
+import { STUB_SCHEMA } from '../fixtures/stub-schema.js';
 import {
   renderStepList,
   renderStepDetail,
@@ -112,7 +113,7 @@ describe('Performance: buildPayload', () => {
     const project = generateLargeProject(10, 50);
 
     const { elapsed } = timeMs(() =>
-      buildPayload(project, project.recordings, 'guidance text', { title: 'schema' }),
+      buildPayload(project, project.recordings, 'guidance text', STUB_SCHEMA),
     );
 
     assert.ok(elapsed < 50, `buildPayload took ${elapsed.toFixed(1)}ms (limit: 50ms)`);
@@ -122,7 +123,7 @@ describe('Performance: buildPayload', () => {
     const project = generateLargeProject(100, 10);
 
     const { elapsed } = timeMs(() =>
-      buildPayload(project, project.recordings, 'guidance text', { title: 'schema' }),
+      buildPayload(project, project.recordings, 'guidance text', STUB_SCHEMA),
     );
 
     assert.ok(elapsed < 100, `buildPayload took ${elapsed.toFixed(1)}ms (limit: 100ms)`);
@@ -130,7 +131,7 @@ describe('Performance: buildPayload', () => {
 
   it('serialized payload size is reasonable (< 5MB for 10×50)', () => {
     const project = generateLargeProject(10, 50);
-    const payload = buildPayload(project, project.recordings, 'guidance', {});
+    const payload = buildPayload(project, project.recordings, 'guidance', STUB_SCHEMA);
     const json = JSON.stringify(payload);
 
     const sizeMB = json.length / (1024 * 1024);

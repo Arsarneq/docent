@@ -1,14 +1,17 @@
 /**
  * sync-shared.js — Copies packages/shared/ into target package(s) and
- * applies per-platform schema overrides from schemas/.
+ * writes each target's platform-specific session.schema.json.
  *
  * Chrome extensions (and other sandboxed runtimes) cannot import modules from
  * outside their root directory. This script copies the shared package into each
  * target so that relative imports like '../shared/lib/session.js' resolve at
  * runtime.
  *
- * After copying, the platform-specific schema from schemas/ replaces the
- * generic session.schema.json in each target.
+ * The per-platform session.schema.json written into each target is COMPOSED IN
+ * MEMORY from the source layers (composePlatform), NOT copied from
+ * schemas/dist/. dist/ is the released artifact and can lag the source layers
+ * within a PR; the synced copy must reflect the current source so the app and
+ * tests run against the schema this commit actually defines.
  *
  * Usage:
  *   node scripts/sync-shared.js                  # sync all packages
@@ -16,13 +19,13 @@
  *   node scripts/sync-shared.js extension desktop  # sync specific packages
  */
 
-import { cpSync, existsSync, mkdirSync, rmSync, copyFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { resolve, join, dirname } from 'node:path';
 import { execFileSync } from 'node:child_process';
+import { composePlatform } from './build-schemas.js';
 
 const ROOT = resolve(import.meta.dirname, '..');
 const SHARED_SRC = join(ROOT, 'packages', 'shared');
-const SCHEMAS_DIR = join(ROOT, 'schemas');
 
 // Reading guidance is now a static checked-in file at packages/shared/assets/reading-guidance.md
 // No generation step needed.
@@ -31,10 +34,10 @@ const ALL_TARGETS = ['extension', 'desktop'];
 const requested = process.argv.slice(2);
 const targets = requested.length > 0 ? requested : ALL_TARGETS;
 
-// Map target package name → platform schema file
-const PLATFORM_SCHEMA = {
-  extension: 'extension.schema.json',
-  desktop: 'desktop-windows.schema.json',
+// Map target package name → platform key in build-schemas PLATFORMS.
+const PLATFORM_KEY = {
+  extension: 'extension',
+  desktop: 'desktop-windows',
 };
 
 for (const target of targets) {
@@ -55,17 +58,16 @@ for (const target of targets) {
     },
   });
 
-  // Override session.schema.json with the platform-specific schema
-  const platformSchemaFile = PLATFORM_SCHEMA[target];
-  if (platformSchemaFile) {
-    const src = join(SCHEMAS_DIR, platformSchemaFile);
+  // Write session.schema.json by composing the platform schema from source
+  // layers in-memory (never from schemas/dist/, which can be stale in a PR).
+  const platformKey = PLATFORM_KEY[target];
+  if (platformKey) {
     const destSchema = join(dest, 'session.schema.json');
-    if (existsSync(src)) {
-      copyFileSync(src, destSchema);
-      console.log(
-        `  ↳ schema override: schemas/${platformSchemaFile} → packages/${target}/shared/session.schema.json`,
-      );
-    }
+    const composed = composePlatform(platformKey);
+    writeFileSync(destSchema, JSON.stringify(composed, null, 2) + '\n', 'utf8');
+    console.log(
+      `  ↳ schema composed: ${platformKey} (source layers) → packages/${target}/shared/session.schema.json`,
+    );
   }
 
   console.log(`✓ packages/shared/ → packages/${target}/shared/`);

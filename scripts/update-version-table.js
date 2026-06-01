@@ -2,8 +2,8 @@
  * update-version-table.js — Propagates schema versions into every version-bearing
  * doc and platform manifest.
  *
- * Source of truth: the `version` field of each platform schema in schemas/
- * (extension.schema.json, desktop-windows.schema.json). This script only READS
+ * Source of truth: the `version` field of each platform's leaf delta in schemas/
+ * (extension.delta.json, desktop-windows.delta.json). This script only READS
  * those — it never decides a version. Bump the schema first (see bump-schema.js),
  * then run this to propagate.
  *
@@ -37,16 +37,16 @@ const ROOT = resolve(import.meta.dirname, '..');
 
 // ─── Read versions from schema files ──────────────────────────────────────────
 
-function readVersion(schemaPath) {
-  const schema = JSON.parse(readFileSync(join(ROOT, schemaPath), 'utf8'));
-  if (!schema.version) {
-    throw new Error(`Schema ${schemaPath} is missing a "version" field`);
+function readVersion(deltaPath) {
+  const delta = JSON.parse(readFileSync(join(ROOT, deltaPath), 'utf8'));
+  if (!delta.version) {
+    throw new Error(`${deltaPath} is missing a "version" field`);
   }
-  return schema.version;
+  return delta.version;
 }
 
-const extVersion = readVersion('schemas/extension.schema.json');
-const deskVersion = readVersion('schemas/desktop-windows.schema.json');
+const extVersion = readVersion('schemas/extension.delta.json');
+const deskVersion = readVersion('schemas/desktop-windows.delta.json');
 
 // ─── Update a file between markers ───────────────────────────────────────────
 
@@ -68,11 +68,39 @@ function updateBetweenMarkers(filePath, startMarker, endMarker, newContent) {
   writeFileSync(fullPath, content, 'utf8');
 }
 
-// ─── README table ─────────────────────────────────────────────────────────────
+// ─── README + session-format version tables ──────────────────────────────────
+//
+// One row PER PLATFORM. Extension and desktop are versioned independently, so a
+// single coupled row (the old "Ext Schema | Ext | Desktop Schema | Desktop"
+// layout) repeated the unchanged platform's values on every single-platform
+// bump and implied a cross-platform relationship that doesn't exist. A
+// per-platform row changes only when that platform changes, and adding a new
+// surface (e.g. Linux, #84) is just another entry in this list.
+const platformRows = [
+  {
+    name: 'Chrome Extension',
+    schemaFile: 'schemas/dist/extension.schema.json',
+    version: extVersion,
+  },
+  {
+    name: 'Desktop (Windows)',
+    schemaFile: 'schemas/dist/desktop-windows.schema.json',
+    version: deskVersion,
+  },
+];
 
-const readmeTable = `| Extension Schema | Extension | Desktop Schema | Desktop |
-|-----------------|-----------|----------------|---------|
-| ${extVersion}           | ${extVersion}+    | ${deskVersion}          | ${deskVersion}+  |`;
+// ─── README table ─────────────────────────────────────────────────────────────
+//
+// Platform · schema version only. App versions are driven by the git release
+// tag and move independently of the schema, so listing them here (with a
+// forward-range "+") would imply a coupling that doesn't exist and quickly go
+// stale. Files are self-describing via the docent_format stamp, so the schema
+// version is the fact worth publishing.
+const readmeTable = [
+  '| Platform | Schema version |',
+  '| --- | --- |',
+  ...platformRows.map((p) => `| ${p.name} | ${p.version} |`),
+].join('\n');
 
 updateBetweenMarkers(
   'README.md',
@@ -84,10 +112,11 @@ console.log(`✓ README.md updated (extension: ${extVersion}, desktop: ${deskVer
 
 // ─── docs/session-format.md table ─────────────────────────────────────────────
 
-const specTable = `| Schema file | Platform | Current |
-|---|---|---|
-| \`schemas/extension.schema.json\` | Chrome extension | ${extVersion} |
-| \`schemas/desktop-windows.schema.json\` | Windows desktop | ${deskVersion} |`;
+const specTable = [
+  '| Schema file | Platform | Current |',
+  '|---|---|---|',
+  ...platformRows.map((p) => `| \`${p.schemaFile}\` | ${p.name} | ${p.version} |`),
+].join('\n');
 
 updateBetweenMarkers(
   'docs/session-format.md',

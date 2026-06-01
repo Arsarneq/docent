@@ -23,6 +23,7 @@ import {
   renderRecordingList,
 } from '../../views/render.js';
 import { buildPayload } from '../../dispatch-core.js';
+import { STUB_SCHEMA } from '../fixtures/stub-schema.js';
 
 const __dirname = fileURLToPath(new URL('.', import.meta.url));
 const manifest = JSON.parse(
@@ -127,7 +128,7 @@ describe('Security: API key not leaked in exports or payloads', () => {
     const recordings = [
       { recording_id: 'r1', name: 'R', created_at: '2026-01-01T00:00:00.000Z', steps: [] },
     ];
-    const payload = buildPayload(project, recordings, 'guidance', { title: 'schema' });
+    const payload = buildPayload(project, recordings, 'guidance', STUB_SCHEMA);
 
     const json = JSON.stringify(payload);
     assert.ok(!json.includes('apiKey'), 'Payload should not contain apiKey field');
@@ -138,7 +139,7 @@ describe('Security: API key not leaked in exports or payloads', () => {
   it('buildPayload does not include endpoint URL in the payload body', () => {
     const project = { project_id: 'p1', name: 'P', created_at: '2026-01-01T00:00:00.000Z' };
     const recordings = [];
-    const payload = buildPayload(project, recordings, 'guidance', {});
+    const payload = buildPayload(project, recordings, 'guidance', STUB_SCHEMA);
 
     const json = JSON.stringify(payload);
     assert.ok(!json.includes('endpointUrl'), 'Payload should not contain endpointUrl');
@@ -153,7 +154,7 @@ describe('Security: import validation rejects dangerous payloads', () => {
     // This tests that the data layer handles large strings without throwing
     const longName = 'A'.repeat(100000);
     const project = { project_id: 'p1', name: longName, created_at: '2026-01-01T00:00:00.000Z' };
-    const payload = buildPayload(project, [], '', {});
+    const payload = buildPayload(project, [], '', STUB_SCHEMA);
     assert.equal(payload.project.name, longName); // No crash, data preserved
   });
 
@@ -164,7 +165,7 @@ describe('Security: import validation rejects dangerous payloads', () => {
       created_at: '2026-01-01T00:00:00.000Z',
       metadata: { __proto__: { admin: true }, normal: 'value' },
     };
-    const payload = buildPayload(project, [], '', {});
+    const payload = buildPayload(project, [], '', STUB_SCHEMA);
 
     // The metadata is passed through as-is (it's just data)
     // But it should NOT pollute Object.prototype
@@ -270,7 +271,7 @@ describe('Security: sensitive data isolation', () => {
       },
     ];
 
-    const payload = buildPayload(project, recordings, 'guidance', { title: 'schema' });
+    const payload = buildPayload(project, recordings, 'guidance', STUB_SCHEMA);
     const json = JSON.stringify(payload);
 
     // None of these settings-related strings should appear in the payload
@@ -322,11 +323,17 @@ describe('Security: sensitive data isolation', () => {
       },
     ];
 
-    const payload = buildPayload(project, recordings, '', {});
+    const payload = buildPayload(project, recordings, '', STUB_SCHEMA);
 
     // Verify only expected top-level keys
     const topKeys = Object.keys(payload).sort();
-    assert.deepStrictEqual(topKeys, ['project', 'reading_guidance', 'recordings', 'schema']);
+    assert.deepStrictEqual(topKeys, [
+      'docent_format',
+      'project',
+      'reading_guidance',
+      'recordings',
+      'schema',
+    ]);
 
     // Verify project only has expected keys
     const projectKeys = Object.keys(payload.project).sort();
@@ -438,7 +445,7 @@ describe('Security: import robustness', () => {
     ];
 
     // Should not throw
-    const payload = buildPayload(project, recordings, '', {});
+    const payload = buildPayload(project, recordings, '', STUB_SCHEMA);
     assert.equal(payload.project.name.length, 1_000_000);
   });
 
@@ -469,7 +476,7 @@ describe('Security: import robustness', () => {
       },
     ];
 
-    const payload = buildPayload(project, recordings, '', {});
+    const payload = buildPayload(project, recordings, '', STUB_SCHEMA);
     const json = JSON.stringify(payload);
     const restored = JSON.parse(json);
 

@@ -25,35 +25,32 @@ import { resolve, join, basename } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import Ajv from 'ajv/dist/2020.js';
 import addFormats from 'ajv-formats';
+import { PLATFORMS, composePlatform } from '../../../../scripts/build-schemas.js';
 
 const __dirname = fileURLToPath(new URL('.', import.meta.url));
-const REPO_ROOT = resolve(__dirname, '../../../..');
-const SCHEMAS_DIR = join(REPO_ROOT, 'schemas');
 const FIXTURES_DIR = resolve(__dirname, '../fixtures');
 
 // ─── Discover platform schemas ────────────────────────────────────────────────
 
 /**
- * Map of platform name → compiled Ajv validator, discovered from
- * `schemas/<platform>.schema.json`. `shared.schema.json` is excluded — it holds
- * shared $defs and is not a standalone export schema.
+ * Map of platform name → compiled Ajv validator. Each platform schema is
+ * COMPOSED FROM SOURCE LAYERS (composePlatform), not read from schemas/dist/.
+ * dist/ is the released artifact and can lag the current PR's schema changes;
+ * backward-compat must check fixtures against the schema this commit defines.
+ * The set of platforms comes from build-schemas' PLATFORMS map — adding a new
+ * platform (e.g. desktop-linux, #84) there makes it covered here automatically.
  */
 function discoverValidators() {
   const ajv = new Ajv({ allErrors: true, strict: false });
   addFormats(ajv);
 
   const validators = new Map();
-  const schemaFiles = readdirSync(SCHEMAS_DIR).filter(
-    (f) => f.endsWith('.schema.json') && f !== 'shared.schema.json',
-  );
-
-  for (const file of schemaFiles) {
-    const platform = basename(file, '.schema.json');
-    const schema = JSON.parse(readFileSync(join(SCHEMAS_DIR, file), 'utf-8'));
+  for (const platform of Object.keys(PLATFORMS)) {
+    const schema = composePlatform(platform);
     validators.set(platform, {
       validate: ajv.compile(schema),
       version: schema.version,
-      file,
+      file: `${platform}.schema.json (composed from source)`,
     });
   }
   return validators;

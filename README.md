@@ -79,13 +79,18 @@ Both paths consume the same `.docent.json` format. Docent captures and delivers 
 
 ---
 
-## Version compatibility
+## Schema versions
+
+The current `.docent.json` schema version for each platform. Exported files are
+self-describing — each carries a `docent_format` stamp with its platform and
+schema version — so you never need to match versions by hand.
 
 <!-- VERSION_TABLE_START -->
 
-| Extension Schema | Extension | Desktop Schema | Desktop |
-| ---------------- | --------- | -------------- | ------- |
-| 2.0.0            | 2.0.0+    | 1.0.0          | 1.0.0+  |
+| Platform          | Schema version |
+| ----------------- | -------------- |
+| Chrome Extension  | 2.0.0          |
+| Desktop (Windows) | 1.0.0          |
 
 <!-- VERSION_TABLE_END -->
 

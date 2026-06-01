@@ -94,6 +94,7 @@ export default [
         __dirname: 'readonly',
         __filename: 'readonly',
         URL: 'readonly',
+        structuredClone: 'readonly',
       },
     },
   },

@@ -497,9 +497,17 @@ test.describe('Side Panel — Dispatch Flow', () => {
     await panelPage.click('#bc-project');
     await panelPage.waitForSelector('#view-project', { timeout: 5000 });
 
-    // Mock fetch
+    // Mock fetch for the dispatch endpoint only — let the schema fetch
+    // (shared/session.schema.json, used to build the docent_format stamp) pass
+    // through to the real extension resource.
     await panelPage.evaluate(() => {
-      window.fetch = async () => ({ ok: true, status: 200, json: async () => ({}) });
+      window._originalFetch = window.fetch;
+      window.fetch = async (url, opts) => {
+        if (typeof url === 'string' && url.includes('session.schema.json')) {
+          return window._originalFetch(url, opts);
+        }
+        return { ok: true, status: 200, json: async () => ({}) };
+      };
     });
 
     await panelPage.click('#btn-dispatch-project');
@@ -554,7 +562,13 @@ test.describe('Side Panel — Dispatch Failure', () => {
     await panelPage.waitForSelector('#view-project', { timeout: 5000 });
 
     await panelPage.evaluate(() => {
-      window.fetch = async () => ({ ok: false, status: 500, text: async () => 'Server Error' });
+      window._originalFetch = window.fetch;
+      window.fetch = async (url, opts) => {
+        if (typeof url === 'string' && url.includes('session.schema.json')) {
+          return window._originalFetch(url, opts);
+        }
+        return { ok: false, status: 500, text: async () => 'Server Error' };
+      };
     });
 
     await panelPage.click('#btn-dispatch-project');

@@ -147,6 +147,12 @@ The canonical shape for a complete project with all its recordings and step
 history. Used as the response body for `GET /projects/:id` and the request body
 for `PUT /projects/:id`.
 
+> **Note:** Unlike a `.docent.json` export or a dispatch payload, the sync shape
+> does **not** carry the `docent_format` stamp. Sync is a live client↔server
+> protocol between Docent clients that already agree on the format via the API
+> contract; the stamp exists to make portable, at-rest files self-describing. A
+> server simply stores and returns the payload verbatim.
+
 ```json
 {
   "project": {

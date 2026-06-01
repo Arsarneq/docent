@@ -20,6 +20,14 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import fc from 'fast-check';
+import { buildExport } from '../../shared/lib/export-project.js';
+import { composePlatform } from '../../../../scripts/build-schemas.js';
+import { stampFromSchema } from '../../shared/lib/format-stamp.js';
+
+// The desktop platform schema is the source of truth for the docent_format
+// stamp; read it once for both building and validating exports here.
+const desktopSchema = composePlatform('desktop-windows');
+const expectedStamp = stampFromSchema(desktopSchema);
 
 // ─── Schema validation (lightweight, no external JSON Schema library) ─────────
 // We validate the structural contract defined in session.schema.json directly.
@@ -143,6 +151,14 @@ function validateRecording(recording) {
 }
 
 function validateExport(exportData) {
+  // Self-describing format stamp (required, pinned per platform)
+  assert.ok(exportData.docent_format, 'export must have docent_format stamp');
+  assert.deepStrictEqual(
+    exportData.docent_format,
+    expectedStamp,
+    'docent_format stamp must match the platform schema consts',
+  );
+
   // Top-level structure
   assert.ok(exportData.project, 'export must have project');
   assert.ok(Array.isArray(exportData.recordings), 'export must have recordings array');
@@ -171,29 +187,15 @@ function validateExport(exportData) {
   }
 }
 
-// ─── Pure export logic (replicated from panel.js) ─────────────────────────────
+// ─── Export logic (delegates to the shared builder used by panel.js) ──────────
 
 /**
- * Builds the export data structure for a project.
- * This is the pure logic that panel.js uses to build the export JSON.
- * The output includes full step history (no activeSteps resolution).
+ * Builds the export data structure for a project via the same shared builder
+ * panel.js uses, stamped with the desktop platform schema. Exercising the real
+ * buildExport keeps this property test honest about the shipped export shape.
  */
 function buildExportData(project) {
-  return {
-    project: {
-      project_id: project.project_id,
-      name: project.name,
-      created_at: project.created_at,
-      ...(project.metadata && { metadata: project.metadata }),
-    },
-    recordings: (project.recordings ?? []).map((r) => ({
-      recording_id: r.recording_id,
-      name: r.name,
-      created_at: r.created_at,
-      ...(r.metadata && { metadata: r.metadata }),
-      steps: r.steps,
-    })),
-  };
+  return buildExport(project, desktopSchema);
 }
 
 // ─── Arbitraries ──────────────────────────────────────────────────────────────

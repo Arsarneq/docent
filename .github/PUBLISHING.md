@@ -7,7 +7,7 @@ Docent uses independent versioning for each platform. Each platform has its own 
 | Chrome Extension  | `extension-v*` | `publish.yml`         | `extension-v2.0.0` |
 | Desktop (Windows) | `desktop-v*`   | `publish-desktop.yml` | `desktop-v0.1.0`   |
 
-Both platforms share the schema contract version defined in `packages/shared/session.schema.json`.
+Each platform's published JSON Schema under [`schemas/dist/`](../schemas/dist/) — `extension.schema.json` and `desktop-windows.schema.json` — is versioned independently. They are **composed** by `scripts/build-schemas.js` from a layered chain: a platform-agnostic base (`schemas/shared.schema.json`), an optional family layer (`schemas/desktop.shared.schema.json`, shared by all desktop surfaces), and a per-surface leaf (`schemas/<surface>.delta.json`). The `version` lives in each leaf. The `dist/` copies are committed by the release pipeline (this workflow) so they track the latest release; day-to-day tooling composes from the source layers directly. See [docs/session-format.md](../docs/session-format.md#versioning) for the versioning strategy and [JSON Schema files](../docs/session-format.md#json-schema-files) for the composition model.
 
 ---
 
@@ -38,7 +38,7 @@ The workflow is defined in [`.github/workflows/publish.yml`](workflows/publish.y
 
 Create and publish a GitHub release with a tag matching `extension-v*` (e.g. `extension-v2.0.0`). The workflow will:
 
-1. Update the version compatibility table in README.md
+1. Auto-version the schemas (classify the change since the last release, bump the affected leaf delta), refresh `schemas/dist/` and the version tables/badges, and open an auto-merged PR with the result
 2. Sync `packages/shared/` into `packages/extension/shared/`
 3. Zip the `packages/extension/` folder
 4. Upload to the Chrome Web Store
@@ -64,7 +64,7 @@ Code signing is recommended for production releases to avoid Windows SmartScreen
 
 Create and publish a GitHub release with a tag matching `desktop-v*` (e.g. `desktop-v0.1.0`). The workflow will:
 
-1. Update the version compatibility table in README.md
+1. Auto-version the schemas (classify the change since the last release, bump the affected leaf delta), refresh `schemas/dist/` and the version tables/badges, and open an auto-merged PR with the result
 2. Sync `packages/shared/` into `packages/desktop/shared/`
 3. Build the Tauri application for Windows
 4. Attach the installer to the GitHub release

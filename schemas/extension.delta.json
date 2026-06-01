@@ -1,0 +1,149 @@
+{
+  "$id": "https://github.com/Arsarneq/docent/blob/main/schemas/dist/extension.schema.json",
+  "title": "Docent Extension Schema",
+  "platform": "extension",
+  "version": "2.0.0",
+  "description": "Schema for .docent.json files produced by the Docent Chrome extension.",
+  "actionContextProperty": {
+    "name": "frame_src",
+    "schema": {
+      "$ref": "#/$defs/frame_src"
+    }
+  },
+  "$defs": {
+    "capture_mode": {
+      "type": "string",
+      "const": "dom",
+      "description": "How the action was captured. Always 'dom' for the browser extension."
+    },
+    "frame_src": {
+      "type": ["string", "null"],
+      "description": "Iframe URL if the action occurred inside an iframe. Null for the top frame."
+    },
+    "action_navigate": {
+      "properties": {
+        "type": {
+          "const": "navigate"
+        },
+        "nav_type": {
+          "type": "string",
+          "enum": [
+            "link",
+            "typed",
+            "reload",
+            "back_forward",
+            "spa",
+            "auto_bookmark",
+            "generated",
+            "start_page",
+            "form_submit",
+            "keyword"
+          ]
+        },
+        "url": {
+          "type": "string"
+        },
+        "context_id": {
+          "$ref": "#/$defs/context_id"
+        },
+        "capture_mode": {
+          "$ref": "#/$defs/capture_mode"
+        }
+      },
+      "required": ["type", "timestamp", "nav_type", "url", "context_id", "capture_mode"]
+    },
+    "action_file_upload": {
+      "properties": {
+        "type": {
+          "const": "file_upload"
+        },
+        "element": {
+          "$ref": "#/$defs/element"
+        },
+        "files": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["name", "size", "mime"],
+            "additionalProperties": false,
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "size": {
+                "type": "integer"
+              },
+              "mime": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "context_id": {
+          "$ref": "#/$defs/context_id"
+        },
+        "capture_mode": {
+          "$ref": "#/$defs/capture_mode"
+        }
+      },
+      "required": ["type", "timestamp", "element", "files", "context_id", "capture_mode"]
+    },
+    "action": {
+      "type": "object",
+      "required": ["type", "timestamp"],
+      "properties": {
+        "type": {
+          "type": "string"
+        },
+        "timestamp": {
+          "type": "integer",
+          "description": "Unix milliseconds."
+        }
+      },
+      "oneOf": [
+        {
+          "$ref": "#/$defs/action_navigate"
+        },
+        {
+          "$ref": "#/$defs/action_click"
+        },
+        {
+          "$ref": "#/$defs/action_right_click"
+        },
+        {
+          "$ref": "#/$defs/action_type"
+        },
+        {
+          "$ref": "#/$defs/action_select"
+        },
+        {
+          "$ref": "#/$defs/action_key"
+        },
+        {
+          "$ref": "#/$defs/action_focus"
+        },
+        {
+          "$ref": "#/$defs/action_file_upload"
+        },
+        {
+          "$ref": "#/$defs/action_drag_start"
+        },
+        {
+          "$ref": "#/$defs/action_drop"
+        },
+        {
+          "$ref": "#/$defs/action_scroll"
+        },
+        {
+          "$ref": "#/$defs/action_context_switch"
+        },
+        {
+          "$ref": "#/$defs/action_context_open"
+        },
+        {
+          "$ref": "#/$defs/action_context_close"
+        }
+      ]
+    }
+  }
+}

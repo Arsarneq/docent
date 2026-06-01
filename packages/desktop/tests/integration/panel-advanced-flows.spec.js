@@ -148,14 +148,21 @@ test.describe('Desktop Panel — Dispatch Send', () => {
   test('successful dispatch shows success result view', async ({ page }) => {
     await setupDispatchReady(page);
 
-    // Mock fetch to succeed
+    // Mock fetch to succeed — but only for the dispatch endpoint. The schema
+    // fetch (../shared/session.schema.json, used to build the docent_format
+    // stamp) must still hit the real served file, so let it pass through.
     await page.evaluate(() => {
       window._originalFetch = window.fetch;
-      window.fetch = async () => ({
-        ok: true,
-        status: 200,
-        json: async () => ({ success: true }),
-      });
+      window.fetch = async (url, opts) => {
+        if (typeof url === 'string' && url.includes('session.schema.json')) {
+          return window._originalFetch(url, opts);
+        }
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({ success: true }),
+        };
+      };
     });
 
     // Navigate to project and dispatch
@@ -177,13 +184,20 @@ test.describe('Desktop Panel — Dispatch Send', () => {
   test('failed dispatch shows error result view', async ({ page }) => {
     await setupDispatchReady(page);
 
-    // Mock fetch to fail
+    // Mock fetch to fail — but only for the dispatch endpoint; let the schema
+    // fetch (used to build the docent_format stamp) pass through to the real file.
     await page.evaluate(() => {
-      window.fetch = async () => ({
-        ok: false,
-        status: 500,
-        text: async () => 'Internal Server Error',
-      });
+      window._originalFetch = window.fetch;
+      window.fetch = async (url, opts) => {
+        if (typeof url === 'string' && url.includes('session.schema.json')) {
+          return window._originalFetch(url, opts);
+        }
+        return {
+          ok: false,
+          status: 500,
+          text: async () => 'Internal Server Error',
+        };
+      };
     });
 
     await page.click('#bc-project');

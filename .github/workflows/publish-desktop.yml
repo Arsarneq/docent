@@ -42,15 +42,17 @@ jobs:
         with:
           workspaces: packages/desktop/src-tauri
 
-      - name: Update version compatibility table
+      - name: Auto-version schemas and update version table
         if: matrix.os == 'windows-latest'
-        run: node scripts/update-version-table.js
+        run: node scripts/auto-version-schemas.js
+        env:
+          DOCENT_RELEASE: '1'
 
       - name: Format updated files
         if: matrix.os == 'windows-latest'
-        run: npx prettier --write README.md docs/session-format.md
+        run: npx prettier --write README.md docs/session-format.md 'schemas/*.delta.json' 'schemas/dist/*.json'
 
-      - name: Check for version table changes
+      - name: Check for version table / schema changes
         if: matrix.os == 'windows-latest'
         id: table-diff
         shell: bash
@@ -61,16 +63,16 @@ jobs:
             echo "changed=true" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Create PR for version table update if changed
+      - name: Create PR for schema version + published schema update if changed
         if: matrix.os == 'windows-latest' && steps.table-diff.outputs.changed == 'true'
         id: version-pr
         uses: peter-evans/create-pull-request@v8
         with:
           token: ${{ secrets.PERSONAL_ACCESS_TOKEN }}
           base: main
-          commit-message: 'docs: update version compatibility table'
-          title: 'docs: update version compatibility table'
-          body: 'Automated update of the version compatibility table in README.md after desktop release.'
+          commit-message: 'chore: auto-version schemas and refresh published dist'
+          title: 'chore: auto-version schemas and refresh published dist'
+          body: 'Automated schema versioning: the schema change since the last release was classified and the affected version(s) bumped in the leaf delta(s), with schemas/dist/, the version tables, and badges refreshed to match.'
           branch: automated/version-table-update
           labels: docs
           delete-branch: true

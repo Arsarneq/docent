@@ -786,9 +786,12 @@ test.describe('SW Message: Import and Export', () => {
 
     const result = await sendSWMessage(panelPage, { type: 'PROJECT_EXPORT' });
     expect(result.ok).toBe(true);
-    expect(result.exportData.project.name).toBe('ExportMe');
-    expect(result.exportData.recordings).toHaveLength(1);
-    expect(result.exportData.recordings[0].steps).toHaveLength(1);
+    // PROJECT_EXPORT returns the raw active project; the panel stamps + shapes
+    // it into the .docent.json export via buildExport (where the schema is
+    // available). The service worker no longer wraps it in `exportData`.
+    expect(result.project.name).toBe('ExportMe');
+    expect(result.project.recordings).toHaveLength(1);
+    expect(result.project.recordings[0].steps).toHaveLength(1);
   });
 
   test('PROJECT_EXPORT with no active project returns error', async ({
@@ -1133,8 +1136,8 @@ test.describe('SW Message: Export includes metadata', () => {
 
     const result = await sendSWMessage(panelPage, { type: 'PROJECT_EXPORT' });
     expect(result.ok).toBe(true);
-    expect(result.exportData.project.metadata).toEqual({ ticket: 'T-1' });
-    expect(result.exportData.recordings[0].metadata).toEqual({ browser: 'chrome' });
+    expect(result.project.metadata).toEqual({ ticket: 'T-1' });
+    expect(result.project.recordings[0].metadata).toEqual({ browser: 'chrome' });
   });
 });
 
@@ -1197,7 +1200,7 @@ test.describe('SW Message: Full workflow integration', () => {
 
     // Verify steps
     const exportResult = await sendSWMessage(panelPage, { type: 'PROJECT_EXPORT' });
-    expect(exportResult.exportData.recordings[0].steps).toHaveLength(2);
+    expect(exportResult.project.recordings[0].steps).toHaveLength(2);
 
     // Stop recording
     await sendSWMessage(panelPage, { type: 'RECORDING_STOP' });
@@ -1215,15 +1218,19 @@ test.describe('SW Message: Full workflow integration', () => {
     // Delete a step
     await sendSWMessage(panelPage, { type: 'STEP_DELETE', logical_id: s1.logical_id });
 
-    // Export
+    // Export — PROJECT_EXPORT returns the raw active project
     const finalExport = await sendSWMessage(panelPage, { type: 'PROJECT_EXPORT' });
-    expect(finalExport.exportData.project.name).toBe('Lifecycle v2');
-    expect(finalExport.exportData.recordings[0].name).toBe('Flow v2');
+    expect(finalExport.project.name).toBe('Lifecycle v2');
+    expect(finalExport.project.recordings[0].name).toBe('Flow v2');
 
-    // Import the export as a new project
+    // Import it back as a new project. PROJECT_IMPORT consumes the export shape
+    // ({ project, recordings }) — the same shape the panel builds via buildExport.
     const importResult = await sendSWMessage(panelPage, {
       type: 'PROJECT_IMPORT',
-      exportData: finalExport.exportData,
+      exportData: {
+        project: finalExport.project,
+        recordings: finalExport.project.recordings,
+      },
     });
     expect(importResult.ok).toBe(true);
     // Should be a copy since same project_id
