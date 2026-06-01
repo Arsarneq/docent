@@ -2,15 +2,12 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/Arsarneq/docent/blob/main/schemas/dist/desktop-windows.schema.json",
   "title": "Docent Desktop (Windows) Schema",
-  "version": "2.0.0",
+  "version": "1.0.0",
   "description": "Schema for .docent.json files produced by the Docent desktop application on Windows.",
   "type": "object",
-  "required": ["docent_format", "project", "recordings"],
+  "required": ["project", "recordings"],
   "additionalProperties": false,
   "properties": {
-    "docent_format": {
-      "$ref": "#/$defs/docent_format"
-    },
     "project": {
       "$ref": "#/$defs/project"
     },
@@ -22,24 +19,6 @@
     }
   },
   "$defs": {
-    "docent_format": {
-      "type": "object",
-      "description": "Self-describing format stamp identifying which Docent platform and schema version produced this file. Lets any consumer pick the correct schema and route migrations without guessing. The platform and schema_version values are fixed (const) per published schema.",
-      "required": ["platform", "schema_version"],
-      "additionalProperties": false,
-      "properties": {
-        "platform": {
-          "type": "string",
-          "description": "The Docent platform that produced this file (set per published schema).",
-          "const": "desktop-windows"
-        },
-        "schema_version": {
-          "type": "string",
-          "description": "The schema version this file conforms to (set per published schema).",
-          "const": "2.0.0"
-        }
-      }
-    },
     "project": {
       "type": "object",
       "required": ["project_id", "name", "created_at"],

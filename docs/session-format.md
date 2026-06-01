@@ -26,8 +26,8 @@ Schemas are versioned independently per platform:
 
 | Schema file                                | Platform          | Current |
 | ------------------------------------------ | ----------------- | ------- |
-| `schemas/dist/extension.schema.json`       | Chrome Extension  | 3.0.0   |
-| `schemas/dist/desktop-windows.schema.json` | Desktop (Windows) | 2.0.0   |
+| `schemas/dist/extension.schema.json`       | Chrome Extension  | 2.0.0   |
+| `schemas/dist/desktop-windows.schema.json` | Desktop (Windows) | 1.0.0   |
 
 <!-- VERSION_TABLE_END -->
 
