@@ -23,6 +23,7 @@ import { cpSync, existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { resolve, join, dirname } from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { composePlatform } from './build-schemas.js';
+import { build as buildValidators } from './build-validators.js';
 
 const ROOT = resolve(import.meta.dirname, '..');
 const SHARED_SRC = join(ROOT, 'packages', 'shared');
@@ -40,6 +41,11 @@ const PLATFORM_KEY = {
   desktop: 'desktop-windows',
 };
 
+// Generate the platform validators once up front (SECURITY_BACKLOG S12). This
+// writes packages/shared/generated/validate-<platform>.js for every platform;
+// below, each target receives ONLY its own validator (not the others').
+await buildValidators();
+
 for (const target of targets) {
   const dest = join(ROOT, 'packages', target, 'shared');
 
@@ -54,7 +60,10 @@ for (const target of targets) {
     recursive: true,
     filter: (src) => {
       const rel = src.slice(SHARED_SRC.length);
-      return !rel.includes('tests');
+      // Exclude tests and the generated/ dir — generated validators are
+      // platform-specific, so we copy only this target's own validator below
+      // rather than shipping every platform's validator into every package.
+      return !rel.includes('tests') && !rel.includes('generated');
     },
   });
 
@@ -67,6 +76,17 @@ for (const target of targets) {
     writeFileSync(destSchema, JSON.stringify(composed, null, 2) + '\n', 'utf8');
     console.log(
       `  ↳ schema composed: ${platformKey} (source layers) → packages/${target}/shared/session.schema.json`,
+    );
+
+    // Copy ONLY this target's generated validator into the synced tree.
+    const destGenerated = join(dest, 'generated');
+    mkdirSync(destGenerated, { recursive: true });
+    cpSync(
+      join(SHARED_SRC, 'generated', `validate-${platformKey}.js`),
+      join(destGenerated, `validate-${platformKey}.js`),
+    );
+    console.log(
+      `  ↳ validator copied: validate-${platformKey}.js → packages/${target}/shared/generated/`,
     );
   }
 

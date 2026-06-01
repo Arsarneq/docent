@@ -17,6 +17,7 @@
 
 import { validateEndpointUrl, buildPayload, sendPayload, DispatchError } from './dispatch.js';
 import { createDispatchCooldown } from '../shared/dispatch-cooldown.js';
+import { validatePayload } from '../shared/lib/validate-import.js';
 import { sync } from '../shared/sync-client.js';
 import { buildExport } from '../shared/lib/export-project.js';
 import adapter from './adapter-chrome.js';
@@ -318,6 +319,23 @@ importFileInput.addEventListener('change', async () => {
   } catch {
     alert('Could not read file — make sure it is a valid .docent.json');
     return;
+  }
+
+  // Validate against the platform schema before handing it to the service
+  // worker for persistence (S12). Reject-but-log: on failure we surface the
+  // reason and do not import.
+  const validator = await adapter.loadValidator();
+  if (validator) {
+    const { valid, errors } = validatePayload(validator, exportData);
+    if (!valid) {
+      console.warn('[Docent] Import rejected — schema validation failed:', errors);
+      alert(
+        `Import failed: file does not match the Docent format.\n\n${errors.slice(0, 5).join('\n')}`,
+      );
+      return;
+    }
+  } else {
+    console.warn('[Docent] Import validator unavailable — proceeding without schema validation.');
   }
 
   const response = await send({ type: 'PROJECT_IMPORT', exportData });
@@ -1140,10 +1158,18 @@ async function handleSync() {
     // Get all local projects from the service worker
     const { projects: localProjects } = await send({ type: 'PROJECTS_GET_ALL' });
 
+    // Schema (for the push-side docent_format stamp) and the generated
+    // validator (applied to each pulled payload) — both from the adapter, where
+    // the composed schema is the single source of truth. See S12.
+    const schema = await adapter.loadSchema();
+    const validator = await adapter.loadValidator();
+
     const { result, projects: mergedProjects } = await sync(
       syncSettings.serverUrl,
       syncSettings.apiKey,
       localProjects,
+      schema,
+      validator,
     );
 
     // Persist merged projects back to the service worker

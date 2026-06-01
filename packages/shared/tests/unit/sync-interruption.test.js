@@ -18,6 +18,7 @@
 import { describe, it, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { sync, pushProjects, pullProjects } from '../../sync-client.js';
+import { STUB_SCHEMA } from '../fixtures/stub-schema.js';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -29,6 +30,12 @@ function makeProject(id, name, recordings = []) {
     recordings,
   };
 }
+
+/** Permissive stub validator — these tests exercise sync mechanics, not schema validation. */
+function passValidator() {
+  return true;
+}
+passValidator.errors = [];
 
 let fetchCalls = [];
 
@@ -83,7 +90,7 @@ describe('#86 partial push failure preserves local state and reports accurately'
       return makeResponse(200, { ok: true });
     });
 
-    const result = await pushProjects('https://srv.test', null, local);
+    const result = await pushProjects('https://srv.test', null, local, STUB_SCHEMA);
 
     // p1 and p3 pushed; p2 recorded as a network error (status null).
     assert.deepEqual(result.pushed, ['p1', 'p3']);
@@ -109,7 +116,13 @@ describe('#86 partial push failure preserves local state and reports accurately'
       return makeResponse(200, []);
     });
 
-    const { result, projects } = await sync('https://srv.test', null, local);
+    const { result, projects } = await sync(
+      'https://srv.test',
+      null,
+      local,
+      STUB_SCHEMA,
+      passValidator,
+    );
 
     assert.deepEqual(result.pushed, ['ok1', 'ok2'], 'only successful pushes are reported');
     assert.equal(result.errors.length, 1);
@@ -146,7 +159,7 @@ describe('#86 pull interruption does not corrupt already-pulled projects', () =>
       return makeResponse(404);
     });
 
-    const result = await pullProjects('https://srv.test', null);
+    const result = await pullProjects('https://srv.test', null, passValidator);
 
     // a and c pulled cleanly; b reported as a network error; not halted.
     assert.equal(result.projects.length, 2);
@@ -163,7 +176,7 @@ describe('#86 pull interruption does not corrupt already-pulled projects', () =>
       return makeResponse(200, {});
     });
 
-    const result = await pullProjects('https://srv.test', null);
+    const result = await pullProjects('https://srv.test', null, passValidator);
 
     assert.equal(result.projects.length, 0);
     assert.equal(result.errors.length, 1);
@@ -203,7 +216,13 @@ describe('#86 conflict and concurrency edge cases', () => {
       return makeResponse(404);
     });
 
-    const { result, projects } = await sync('https://srv.test', null, local);
+    const { result, projects } = await sync(
+      'https://srv.test',
+      null,
+      local,
+      STUB_SCHEMA,
+      passValidator,
+    );
 
     // Exactly one project with the shared id — replaced, not duplicated.
     const shared = projects.filter((p) => p.project_id === SHARED);
@@ -235,8 +254,8 @@ describe('#86 conflict and concurrency edge cases', () => {
 
     // Fire two sync cycles concurrently against the same server state.
     const [a, b] = await Promise.all([
-      sync('https://srv.test', null, localA),
-      sync('https://srv.test', null, localB),
+      sync('https://srv.test', null, localA, STUB_SCHEMA, passValidator),
+      sync('https://srv.test', null, localB, STUB_SCHEMA, passValidator),
     ]);
 
     for (const { projects } of [a, b]) {
@@ -260,7 +279,7 @@ describe('#S15 sync URL safety', () => {
     const weird = makeProject('a/b?c#d', 'Weird');
     mockFetch(() => makeResponse(200, { ok: true }));
 
-    await pushProjects('https://srv.test', null, [weird]);
+    await pushProjects('https://srv.test', null, [weird], STUB_SCHEMA);
 
     assert.equal(fetchCalls.length, 1);
     assert.equal(fetchCalls[0].url, 'https://srv.test/projects/a%2Fb%3Fc%23d');
@@ -289,7 +308,7 @@ describe('#S15 sync URL safety', () => {
       return makeResponse(404);
     });
 
-    const result = await pullProjects('https://srv.test', null);
+    const result = await pullProjects('https://srv.test', null, passValidator);
 
     // Only the valid project is fetched + returned; the two bad ids are skipped
     // (never interpolated into a request URL) and reported as errors.

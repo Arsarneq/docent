@@ -10,6 +10,10 @@ packages/desktop/src-tauri/gen/
 # Synced shared code (build artifact — run `npm run sync-shared` to regenerate)
 packages/*/shared/
 
+# Generated validators (build artifact — Ajv standalone, produced by
+# scripts/build-validators.js via sync-shared; see SECURITY_BACKLOG S12)
+packages/shared/generated/
+
 # Generated HTML (assembled from shell + shared views by sync-shared)
 packages/extension/sidepanel/index.html
 packages/desktop/src/index.html

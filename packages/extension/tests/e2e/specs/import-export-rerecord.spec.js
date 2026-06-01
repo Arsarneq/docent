@@ -98,6 +98,7 @@ test.describe('Import Flow', () => {
   test('importing a .docent.json file adds project to list', async ({ panelPage }) => {
     // Create a valid .docent.json file
     const importData = {
+      docent_format: { platform: 'extension', schema_version: '2.0.0' },
       project: {
         project_id: '019e0000-0000-7000-8000-000000000001',
         name: 'Imported Project',
@@ -115,8 +116,27 @@ test.describe('Import Flow', () => {
               step_number: 1,
               created_at: '2026-01-01T00:00:00.000Z',
               narration: 'Imported step',
-              narration_source: 'imported',
-              actions: [{ type: 'click', timestamp: 1000, element: { text: 'OK' } }],
+              narration_source: 'typed',
+              actions: [
+                {
+                  type: 'click',
+                  timestamp: 1000,
+                  capture_mode: 'dom',
+                  context_id: 1,
+                  frame_src: null,
+                  x: 10,
+                  y: 20,
+                  element: {
+                    tag: 'BUTTON',
+                    id: null,
+                    name: null,
+                    role: null,
+                    type: null,
+                    text: 'OK',
+                    selector: 'button',
+                  },
+                },
+              ],
               deleted: false,
             },
           ],

@@ -18,6 +18,7 @@ import {
   buildHeaders,
   buildPayloadForProject,
 } from '../../sync-client.js';
+import { STUB_SCHEMA } from '../fixtures/stub-schema.js';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -62,6 +63,12 @@ function makeResponse(status, body = null) {
   };
 }
 
+/** Permissive stub validator — these tests exercise sync mechanics, not schema validation. */
+function passValidator() {
+  return true;
+}
+passValidator.errors = [];
+
 // ─── Setup / Teardown ─────────────────────────────────────────────────────────
 
 const originalFetch = globalThis.fetch;
@@ -81,7 +88,7 @@ describe('pushProjects', () => {
     const projects = [makeProject('aaa'), makeProject('bbb'), makeProject('ccc')];
     mockFetch(() => makeResponse(200, { ok: true }));
 
-    await pushProjects('https://srv.test', null, projects);
+    await pushProjects('https://srv.test', null, projects, STUB_SCHEMA);
 
     assert.equal(fetchCalls.length, 3);
     assert.equal(fetchCalls[0].url, 'https://srv.test/projects/aaa');
@@ -128,7 +135,7 @@ describe('pushProjects', () => {
             return makeResponse(200, { ok: true });
           });
 
-          await pushProjects('https://srv.test', null, [project]);
+          await pushProjects('https://srv.test', null, [project], STUB_SCHEMA);
 
           // Verify Full_Project_Payload shape
           assert.ok(capturedBody.project, 'payload must have .project');
@@ -154,14 +161,14 @@ describe('pushProjects', () => {
 
   it('includes Authorization header when apiKey provided', async () => {
     mockFetch(() => makeResponse(200, { ok: true }));
-    await pushProjects('https://srv.test', 'my-secret-key', [makeProject('p1')]);
+    await pushProjects('https://srv.test', 'my-secret-key', [makeProject('p1')], STUB_SCHEMA);
 
     assert.equal(fetchCalls[0].options.headers['Authorization'], 'Bearer my-secret-key');
   });
 
   it('omits Authorization header when apiKey is null', async () => {
     mockFetch(() => makeResponse(200, { ok: true }));
-    await pushProjects('https://srv.test', null, [makeProject('p1')]);
+    await pushProjects('https://srv.test', null, [makeProject('p1')], STUB_SCHEMA);
 
     assert.equal(fetchCalls[0].options.headers['Authorization'], undefined);
   });
@@ -170,7 +177,7 @@ describe('pushProjects', () => {
     const projects = [makeProject('id1'), makeProject('id2')];
     mockFetch(() => makeResponse(201, { ok: true }));
 
-    const result = await pushProjects('https://srv.test', null, projects);
+    const result = await pushProjects('https://srv.test', null, projects, STUB_SCHEMA);
 
     assert.deepEqual(result.pushed, ['id1', 'id2']);
     assert.equal(result.errors.length, 0);
@@ -185,7 +192,7 @@ describe('pushProjects', () => {
       return makeResponse(200, { ok: true });
     });
 
-    const result = await pushProjects('https://srv.test', null, projects);
+    const result = await pushProjects('https://srv.test', null, projects, STUB_SCHEMA);
 
     assert.deepEqual(result.pushed, ['ok1', 'ok2']);
     assert.equal(result.errors.length, 1);
@@ -196,7 +203,7 @@ describe('pushProjects', () => {
 
   it('Content-Type header is application/json on PUT requests', async () => {
     mockFetch(() => makeResponse(200, { ok: true }));
-    await pushProjects('https://srv.test', null, [makeProject('p1')]);
+    await pushProjects('https://srv.test', null, [makeProject('p1')], STUB_SCHEMA);
 
     assert.equal(fetchCalls[0].options.headers['Content-Type'], 'application/json');
   });
@@ -232,7 +239,7 @@ describe('buildPayloadForProject', () => {
         { ...makeRecording('r1', [{ action: 'click' }]), metadata: { browser: 'chrome' } },
       ],
     };
-    const payload = buildPayloadForProject(project);
+    const payload = buildPayloadForProject(project, STUB_SCHEMA);
     assert.equal(payload.project.project_id, 'p1');
     assert.deepEqual(payload.project.metadata, { env: 'prod' });
     assert.equal(payload.recordings[0].recording_id, 'r1');
@@ -242,19 +249,19 @@ describe('buildPayloadForProject', () => {
 
   it('omits metadata when not present', () => {
     const project = makeProject('p1', 'Test');
-    const payload = buildPayloadForProject(project);
+    const payload = buildPayloadForProject(project, STUB_SCHEMA);
     assert.equal(payload.project.metadata, undefined);
   });
 
   it('handles project with no recordings', () => {
     const project = makeProject('p1', 'Empty');
-    const payload = buildPayloadForProject(project);
+    const payload = buildPayloadForProject(project, STUB_SCHEMA);
     assert.deepEqual(payload.recordings, []);
   });
 
   it('handles recording with no steps', () => {
     const project = { ...makeProject('p1'), recordings: [makeRecording('r1')] };
-    const payload = buildPayloadForProject(project);
+    const payload = buildPayloadForProject(project, STUB_SCHEMA);
     assert.deepEqual(payload.recordings[0].steps, []);
   });
 });
@@ -287,7 +294,7 @@ describe('pullProjects', () => {
       return makeResponse(404);
     });
 
-    const result = await pullProjects('https://srv.test', null);
+    const result = await pullProjects('https://srv.test', null, passValidator);
 
     // First call is manifest, then one per project
     assert.equal(fetchCalls.length, 3);
@@ -304,7 +311,7 @@ describe('pullProjects', () => {
       throw new Error('DNS resolution failed');
     });
 
-    const result = await pullProjects('https://srv.test', null);
+    const result = await pullProjects('https://srv.test', null, passValidator);
 
     assert.equal(result.projects.length, 0);
     assert.equal(result.errors.length, 1);
@@ -316,7 +323,7 @@ describe('pullProjects', () => {
   it('non-auth non-ok manifest response returns error with halted=false', async () => {
     mockFetch(() => makeResponse(500));
 
-    const result = await pullProjects('https://srv.test', null);
+    const result = await pullProjects('https://srv.test', null, passValidator);
 
     assert.equal(result.projects.length, 0);
     assert.equal(result.errors.length, 1);
@@ -327,7 +334,7 @@ describe('pullProjects', () => {
   it('auth error on manifest returns halted=true', async () => {
     mockFetch(() => makeResponse(401));
 
-    const result = await pullProjects('https://srv.test', 'bad-key');
+    const result = await pullProjects('https://srv.test', 'bad-key', passValidator);
 
     assert.equal(result.projects.length, 0);
     assert.equal(result.errors.length, 1);
@@ -356,7 +363,7 @@ describe('pullProjects', () => {
       return makeResponse(404);
     });
 
-    const result = await pullProjects('https://srv.test', null);
+    const result = await pullProjects('https://srv.test', null, passValidator);
 
     assert.equal(result.projects.length, 1);
     assert.equal(result.projects[0].project_id, P2);
@@ -385,7 +392,7 @@ describe('pullProjects', () => {
       return makeResponse(404);
     });
 
-    const result = await pullProjects('https://srv.test', null);
+    const result = await pullProjects('https://srv.test', null, passValidator);
 
     assert.equal(result.projects.length, 1);
     assert.equal(result.projects[0].project_id, P2);
@@ -409,7 +416,7 @@ describe('pullProjects', () => {
       return makeResponse(200, { project: {}, recordings: [] });
     });
 
-    const result = await pullProjects('https://srv.test', 'key');
+    const result = await pullProjects('https://srv.test', 'key', passValidator);
 
     assert.equal(result.projects.length, 0);
     assert.equal(result.errors.length, 1);
@@ -422,7 +429,7 @@ describe('pullProjects', () => {
   it('includes Authorization header when apiKey provided', async () => {
     mockFetch(() => makeResponse(200, []));
 
-    await pullProjects('https://srv.test', 'my-token');
+    await pullProjects('https://srv.test', 'my-token', passValidator);
 
     assert.equal(fetchCalls[0].options.headers['Authorization'], 'Bearer my-token');
   });
@@ -440,7 +447,7 @@ describe('pushProjects — network errors', () => {
       return makeResponse(200, { ok: true });
     });
 
-    const result = await pushProjects('https://srv.test', null, projects);
+    const result = await pushProjects('https://srv.test', null, projects, STUB_SCHEMA);
 
     assert.deepEqual(result.pushed, ['ok1', 'ok2']);
     assert.equal(result.errors.length, 1);
@@ -453,7 +460,7 @@ describe('pushProjects — network errors', () => {
     const projects = [makeProject('p1'), makeProject('p2')];
     mockFetch(() => makeResponse(401));
 
-    const result = await pushProjects('https://srv.test', 'bad-key', projects);
+    const result = await pushProjects('https://srv.test', 'bad-key', projects, STUB_SCHEMA);
 
     assert.equal(result.pushed.length, 0);
     assert.equal(result.errors.length, 1);
@@ -500,7 +507,13 @@ describe('sync', () => {
       return makeResponse(404);
     });
 
-    const { projects } = await sync('https://srv.test', null, localProjects);
+    const { projects } = await sync(
+      'https://srv.test',
+      null,
+      localProjects,
+      STUB_SCHEMA,
+      passValidator,
+    );
 
     assert.equal(projects.length, 1);
     assert.equal(projects[0].name, 'Server Version');
@@ -533,7 +546,13 @@ describe('sync', () => {
       return makeResponse(404);
     });
 
-    const { projects } = await sync('https://srv.test', null, localProjects);
+    const { projects } = await sync(
+      'https://srv.test',
+      null,
+      localProjects,
+      STUB_SCHEMA,
+      passValidator,
+    );
 
     assert.equal(projects.length, 2);
     assert.equal(projects[0].project_id, 'local-only');
@@ -558,7 +577,7 @@ describe('sync', () => {
       return makeResponse(404);
     });
 
-    await sync('https://srv.test', null, localProjects);
+    await sync('https://srv.test', null, localProjects, STUB_SCHEMA, passValidator);
 
     // First call should be the PUT (push), then GET /projects (pull manifest)
     assert.equal(fetchCalls[0].options.method, 'PUT');
@@ -572,7 +591,13 @@ describe('sync', () => {
 
     mockFetch(() => makeResponse(401));
 
-    const { result, projects } = await sync('https://srv.test', 'bad-key', localProjects);
+    const { result, projects } = await sync(
+      'https://srv.test',
+      'bad-key',
+      localProjects,
+      STUB_SCHEMA,
+      passValidator,
+    );
 
     assert.equal(result.halted, true);
     assert.equal(result.pushed.length, 0);
@@ -593,7 +618,13 @@ describe('sync', () => {
       return makeResponse(404);
     });
 
-    const { result, projects } = await sync('https://srv.test', 'key', localProjects);
+    const { result, projects } = await sync(
+      'https://srv.test',
+      'key',
+      localProjects,
+      STUB_SCHEMA,
+      passValidator,
+    );
 
     assert.equal(result.halted, true);
     assert.deepEqual(result.pushed, ['p1']);
@@ -608,7 +639,13 @@ describe('sync', () => {
       throw new Error('Network unreachable');
     });
 
-    const { result } = await sync('https://srv.test', null, localProjects);
+    const { result } = await sync(
+      'https://srv.test',
+      null,
+      localProjects,
+      STUB_SCHEMA,
+      passValidator,
+    );
 
     assert.equal(result.errors.length >= 1, true);
     const networkErr = result.errors.find((e) => e.status === null);
@@ -638,7 +675,7 @@ describe('sync', () => {
       return makeResponse(200, { ok: true });
     });
 
-    await sync('https://srv.test', null, [project]);
+    await sync('https://srv.test', null, [project], STUB_SCHEMA, passValidator);
 
     assert.deepStrictEqual(capturedBody.project.metadata, {
       ticket: 'PROJ-42',
@@ -677,7 +714,13 @@ describe('sync', () => {
       return makeResponse(200, { ok: true });
     });
 
-    const { projects } = await sync('https://srv.test', null, localProjects);
+    const { projects } = await sync(
+      'https://srv.test',
+      null,
+      localProjects,
+      STUB_SCHEMA,
+      passValidator,
+    );
 
     assert.equal(projects.length, 1);
     assert.deepStrictEqual(projects[0].metadata, { team: 'QA', sprint: '24' });

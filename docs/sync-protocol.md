@@ -147,14 +147,22 @@ The canonical shape for a complete project with all its recordings and step
 history. Used as the response body for `GET /projects/:id` and the request body
 for `PUT /projects/:id`.
 
-> **Note:** Unlike a `.docent.json` export or a dispatch payload, the sync shape
-> does **not** carry the `docent_format` stamp. Sync is a live client↔server
-> protocol between Docent clients that already agree on the format via the API
-> contract; the stamp exists to make portable, at-rest files self-describing. A
-> server simply stores and returns the payload verbatim.
+> **Note:** The sync payload carries the same `docent_format` stamp as a
+> `.docent.json` export. Earlier protocol versions omitted it on the assumption
+> that synced clients always agree on the format via the API contract — but with
+> client auto-update, two clients syncing through one server can be on different
+> schema versions (or be different platforms entirely, e.g. an extension project
+> and a desktop project on the same server). The stamp lets the pulling client
+> identify the platform and schema version of each project and validate or route
+> it accordingly, instead of guessing. The server still treats the payload as
+> opaque — it stores and returns it verbatim and does not need to read the stamp.
 
 ```json
 {
+  "docent_format": {
+    "platform": "extension",
+    "schema_version": "2.0.0"
+  },
   "project": {
     "project_id": "019e11fd-78ba-7fdb-8362-6fe9f697f641",
     "name": "Login regression suite",
@@ -239,6 +247,14 @@ for `PUT /projects/:id`.
   ]
 }
 ```
+
+**Top-level fields:**
+
+| Field           | Type   | Required | Description                                                                                                   |
+| --------------- | ------ | -------- | ------------------------------------------------------------------------------------------------------------- |
+| `docent_format` | object | yes      | Self-describing stamp `{ platform, schema_version }`. See [session format](./session-format.md#format-stamp). |
+| `project`       | object | yes      | Project metadata (see below).                                                                                 |
+| `recordings`    | array  | yes      | Array of recording objects (see below).                                                                       |
 
 **Project fields:**
 
@@ -357,3 +373,7 @@ before the server version overwrites local data.
   validate or generate them — they are always provided by the client.
 - The server does not need to understand the internal structure of steps or
   actions. It stores and returns them verbatim.
+- The `docent_format` stamp is part of the stored payload. The server treats it
+  as opaque — it does not read or validate it. Only the pulling client uses it
+  (to identify the platform/schema version and validate the payload before
+  persisting).

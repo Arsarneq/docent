@@ -317,6 +317,18 @@ const tauriAdapter = {
     }
   },
 
+  // ── Import validator ────────────────────────────────────────────────────────
+
+  async loadValidator() {
+    try {
+      const mod = await import('../shared/generated/validate-desktop-windows.js');
+      return mod.default;
+    } catch (err) {
+      console.warn('[Docent] Failed to load import validator:', err);
+      return null;
+    }
+  },
+
   // ── Pending action count ──────────────────────────────────────────────────
 
   onPendingCountChange(callback) {

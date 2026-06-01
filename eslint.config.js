@@ -118,6 +118,7 @@ export default [
     ignores: [
       'node_modules/**',
       'packages/*/shared/**',
+      'packages/shared/generated/**',
       'packages/extension/sidepanel/index.html',
       'packages/desktop/src/index.html',
       'packages/desktop/dist/**',

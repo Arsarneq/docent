@@ -176,6 +176,19 @@ const chromeAdapter = {
     }
   },
 
+  // ── Import validator ────────────────────────────────────────────────────────
+
+  async loadValidator() {
+    try {
+      const url = chrome.runtime.getURL('shared/generated/validate-extension.js');
+      const mod = await import(url);
+      return mod.default;
+    } catch (err) {
+      console.warn('[Docent] Failed to load import validator:', err);
+      return null;
+    }
+  },
+
   // ── Pending action count ──────────────────────────────────────────────────
 
   onPendingCountChange(callback) {
