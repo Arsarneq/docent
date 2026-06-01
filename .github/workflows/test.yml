@@ -141,6 +141,14 @@ jobs:
       - name: Check version tables in sync
         run: node scripts/check-version-sync.js
 
+      # Advisory only (never blocks): surfaces how the next release will version
+      # any schema change in this PR. Deltas are intentionally NOT bumped during
+      # development — auto-version-schemas.js does that mechanically at release
+      # time — so this is informational, not a gate.
+      - name: Schema version impact (advisory)
+        continue-on-error: true
+        run: node scripts/auto-version-schemas.js --check
+
       - name: Sync shared code
         run: npm run sync-shared
 

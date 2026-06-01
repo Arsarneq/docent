@@ -38,7 +38,7 @@ The workflow is defined in [`.github/workflows/publish.yml`](workflows/publish.y
 
 Create and publish a GitHub release with a tag matching `extension-v*` (e.g. `extension-v2.0.0`). The workflow will:
 
-1. Update the version compatibility table in README.md
+1. Auto-version the schemas (classify the change since the last release, bump the affected leaf delta), refresh `schemas/dist/` and the version tables/badges, and open an auto-merged PR with the result
 2. Sync `packages/shared/` into `packages/extension/shared/`
 3. Zip the `packages/extension/` folder
 4. Upload to the Chrome Web Store
@@ -64,7 +64,7 @@ Code signing is recommended for production releases to avoid Windows SmartScreen
 
 Create and publish a GitHub release with a tag matching `desktop-v*` (e.g. `desktop-v0.1.0`). The workflow will:
 
-1. Update the version compatibility table in README.md
+1. Auto-version the schemas (classify the change since the last release, bump the affected leaf delta), refresh `schemas/dist/` and the version tables/badges, and open an auto-merged PR with the result
 2. Sync `packages/shared/` into `packages/desktop/shared/`
 3. Build the Tauri application for Windows
 4. Attach the installer to the GitHub release

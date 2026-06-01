@@ -1,5 +1,11 @@
 /**
- * bump-schema.js — Bumps a platform schema version and propagates it.
+ * bump-schema.js — Manually bumps a platform schema version and propagates it.
+ *
+ * Prefer `auto-version-schemas.js`, which derives the correct bump mechanically
+ * by diffing the released schema (schemas/dist/) against the current composed
+ * source. Use THIS tool only to FORCE a specific level — e.g. a semantic change
+ * the structural classifier cannot detect (same shape, changed meaning), which
+ * the docs classify as major.
  *
  * ⚠️ RELEASE-TIME ONLY. Bumps the `version` field in the named platform's slim
  * delta (schemas/<platform>.delta.json — the version source of truth), then

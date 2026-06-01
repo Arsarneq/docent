@@ -31,14 +31,27 @@ Schemas are versioned independently per platform:
 
 <!-- VERSION_TABLE_END -->
 
-**Version bumps:**
+**Version bumps** are determined **mechanically at release time** by
+[`scripts/auto-version-schemas.js`](../scripts/auto-version-schemas.js), which
+diffs the last released schema (`schemas/dist/<platform>.schema.json`) against
+the schema composed from the current source layers and classifies the change:
 
-- **Patch** (x.x.1): documentation-only changes, description clarifications
+- **Patch** (x.x.1): documentation-only changes (description clarifications)
 - **Minor** (x.1.0): new optional fields, new action types, new enum values on existing fields
-- **Major** (1.0.0): new required fields, removed fields, renamed fields, changed semantics of existing fields, changed type of existing fields
+- **Major** (1.0.0): new required fields, removed fields, renamed fields, changed semantics, changed types, removed enum values, tightened constraints
 
-The shared definitions (`schemas/shared.schema.json`) are not versioned
-independently — they change when a platform schema changes.
+The classifier is intentionally conservative: anything it cannot confidently
+place as patch or minor is escalated to **major**, so a release can never
+silently under-version a breaking change. Contributors do not bump versions by
+hand during development — the release pipeline does it. (To force a level for a
+semantic change the structural diff cannot see — same shape, changed meaning —
+use `scripts/bump-schema.js`.)
+
+The base (`schemas/shared.schema.json`) and the desktop-family layer
+(`schemas/desktop.shared.schema.json`) are not versioned independently — the
+`version` lives in each per-surface leaf (`schemas/<surface>.delta.json`). A
+change to the base or a family layer is reflected in every published schema it
+feeds, and each is versioned according to its own resulting diff.
 
 ---
 
