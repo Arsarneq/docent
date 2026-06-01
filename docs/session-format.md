@@ -24,10 +24,10 @@ Schemas are versioned independently per platform:
 
 <!-- VERSION_TABLE_START -->
 
-| Schema file                           | Platform         | Current |
-| ------------------------------------- | ---------------- | ------- |
-| `schemas/extension.schema.json`       | Chrome extension | 2.0.0   |
-| `schemas/desktop-windows.schema.json` | Windows desktop  | 1.0.0   |
+| Schema file                                | Platform          | Current |
+| ------------------------------------------ | ----------------- | ------- |
+| `schemas/dist/extension.schema.json`       | Chrome Extension  | 2.0.0   |
+| `schemas/dist/desktop-windows.schema.json` | Desktop (Windows) | 1.0.0   |
 
 <!-- VERSION_TABLE_END -->
 

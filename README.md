@@ -83,9 +83,10 @@ Both paths consume the same `.docent.json` format. Docent captures and delivers 
 
 <!-- VERSION_TABLE_START -->
 
-| Extension Schema | Extension | Desktop Schema | Desktop |
-| ---------------- | --------- | -------------- | ------- |
-| 2.0.0            | 2.0.0+    | 1.0.0          | 1.0.0+  |
+| Platform          | Schema version | Compatible app versions |
+| ----------------- | -------------- | ----------------------- |
+| Chrome Extension  | 2.0.0          | 2.0.0+                  |
+| Desktop (Windows) | 1.0.0          | 1.0.0+                  |
 
 <!-- VERSION_TABLE_END -->
 

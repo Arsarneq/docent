@@ -68,11 +68,34 @@ function updateBetweenMarkers(filePath, startMarker, endMarker, newContent) {
   writeFileSync(fullPath, content, 'utf8');
 }
 
+// ─── README + session-format version tables ──────────────────────────────────
+//
+// One row PER PLATFORM. Extension and desktop are versioned independently, so a
+// single coupled row (the old "Ext Schema | Ext | Desktop Schema | Desktop"
+// layout) repeated the unchanged platform's values on every single-platform
+// bump and implied a cross-platform relationship that doesn't exist. A
+// per-platform row changes only when that platform changes, and adding a new
+// surface (e.g. Linux, #84) is just another entry in this list.
+const platformRows = [
+  {
+    name: 'Chrome Extension',
+    schemaFile: 'schemas/dist/extension.schema.json',
+    version: extVersion,
+  },
+  {
+    name: 'Desktop (Windows)',
+    schemaFile: 'schemas/dist/desktop-windows.schema.json',
+    version: deskVersion,
+  },
+];
+
 // ─── README table ─────────────────────────────────────────────────────────────
 
-const readmeTable = `| Extension Schema | Extension | Desktop Schema | Desktop |
-|-----------------|-----------|----------------|---------|
-| ${extVersion}           | ${extVersion}+    | ${deskVersion}          | ${deskVersion}+  |`;
+const readmeTable = [
+  '| Platform | Schema version | Compatible app versions |',
+  '| --- | --- | --- |',
+  ...platformRows.map((p) => `| ${p.name} | ${p.version} | ${p.version}+ |`),
+].join('\n');
 
 updateBetweenMarkers(
   'README.md',
@@ -84,10 +107,11 @@ console.log(`✓ README.md updated (extension: ${extVersion}, desktop: ${deskVer
 
 // ─── docs/session-format.md table ─────────────────────────────────────────────
 
-const specTable = `| Schema file | Platform | Current |
-|---|---|---|
-| \`schemas/dist/extension.schema.json\` | Chrome extension | ${extVersion} |
-| \`schemas/dist/desktop-windows.schema.json\` | Windows desktop | ${deskVersion} |`;
+const specTable = [
+  '| Schema file | Platform | Current |',
+  '|---|---|---|',
+  ...platformRows.map((p) => `| \`${p.schemaFile}\` | ${p.name} | ${p.version} |`),
+].join('\n');
 
 updateBetweenMarkers(
   'docs/session-format.md',
