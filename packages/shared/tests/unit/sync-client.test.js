@@ -485,6 +485,7 @@ describe('sync', () => {
       },
     ];
     const serverPayload = {
+      docent_format: { platform: 'stub', schema_version: '0.0.0-stub' },
       project: {
         project_id: SHARED,
         name: 'Server Version',
@@ -531,6 +532,7 @@ describe('sync', () => {
       },
     ];
     const serverPayload = {
+      docent_format: { platform: 'stub', schema_version: '0.0.0-stub' },
       project: {
         project_id: SERVER_NEW,
         name: 'New From Server',
@@ -691,6 +693,7 @@ describe('sync', () => {
       { project_id: SRV_META, name: 'Srv', last_modified: '2026-06-01T00:00:00.000Z' },
     ];
     const serverPayload = {
+      docent_format: { platform: 'stub', schema_version: '0.0.0-stub' },
       project: {
         project_id: SRV_META,
         name: 'Srv',
@@ -725,5 +728,152 @@ describe('sync', () => {
     assert.equal(projects.length, 1);
     assert.deepStrictEqual(projects[0].metadata, { team: 'QA', sprint: '24' });
     assert.deepStrictEqual(projects[0].recordings[0].metadata, { browser: 'chrome' });
+  });
+});
+
+// ─── sync — schema-mismatch handling (follow-up to S12) ───────────────────────
+
+describe('sync — pull stamp mismatch handling', () => {
+  // The local client's stamp comes from STUB_SCHEMA: platform "stub",
+  // schema_version "0.0.0-stub". A pulled payload whose stamp differs is
+  // rejected per-project, reported in result.mismatched (not errors), and never
+  // merged into local state.
+  const LOCAL_ID = '0190a1b2-0000-7000-8000-0000000000c1';
+
+  function mockPull(serverPayload) {
+    const manifest = [
+      { project_id: LOCAL_ID, name: 'Server', last_modified: '2026-06-01T00:00:00.000Z' },
+    ];
+    mockFetch((url, opts) => {
+      if (opts.method === 'PUT') return makeResponse(200, { ok: true });
+      if (url.endsWith('/projects') && opts.method === 'GET') return makeResponse(200, manifest);
+      if (url.endsWith(`/projects/${LOCAL_ID}`)) return makeResponse(200, serverPayload);
+      return makeResponse(404);
+    });
+  }
+
+  it('skips a project from a different platform and reports it in mismatched', async () => {
+    mockPull({
+      docent_format: { platform: 'desktop-windows', schema_version: '0.0.0-stub' },
+      project: { project_id: LOCAL_ID, name: 'Server', created_at: '2026-01-01T00:00:00.000Z' },
+      recordings: [],
+    });
+
+    const { result, projects } = await sync(
+      'https://srv.test',
+      null,
+      [],
+      STUB_SCHEMA,
+      passValidator,
+    );
+
+    assert.equal(projects.length, 0, 'mismatched project is not merged');
+    assert.equal(result.pulled.length, 0);
+    assert.equal(result.mismatched.length, 1);
+    assert.match(result.mismatched[0].message, /different Docent platform/);
+    assert.equal(result.errors.length, 0, 'a mismatch is not a generic error');
+    assert.equal(result.halted, false);
+  });
+
+  it('skips a project with a different schema version and reports it', async () => {
+    mockPull({
+      docent_format: { platform: 'stub', schema_version: '9.9.9' },
+      project: { project_id: LOCAL_ID, name: 'Server', created_at: '2026-01-01T00:00:00.000Z' },
+      recordings: [],
+    });
+
+    const { result, projects } = await sync(
+      'https://srv.test',
+      null,
+      [],
+      STUB_SCHEMA,
+      passValidator,
+    );
+
+    assert.equal(projects.length, 0);
+    assert.equal(result.mismatched.length, 1);
+    assert.match(result.mismatched[0].message, /schema version 9\.9\.9/);
+  });
+
+  it('skips a project with no stamp and reports it as mismatched', async () => {
+    mockPull({
+      project: { project_id: LOCAL_ID, name: 'Server', created_at: '2026-01-01T00:00:00.000Z' },
+      recordings: [],
+    });
+
+    const { result, projects } = await sync(
+      'https://srv.test',
+      null,
+      [],
+      STUB_SCHEMA,
+      passValidator,
+    );
+
+    assert.equal(projects.length, 0);
+    assert.equal(result.mismatched.length, 1);
+    assert.match(result.mismatched[0].message, /missing or malformed/);
+  });
+
+  it('accepts a project whose stamp matches the local client', async () => {
+    mockPull({
+      docent_format: { platform: 'stub', schema_version: '0.0.0-stub' },
+      project: { project_id: LOCAL_ID, name: 'Server', created_at: '2026-01-01T00:00:00.000Z' },
+      recordings: [],
+    });
+
+    const { result, projects } = await sync(
+      'https://srv.test',
+      null,
+      [],
+      STUB_SCHEMA,
+      passValidator,
+    );
+
+    assert.equal(projects.length, 1);
+    assert.deepEqual(result.pulled, [LOCAL_ID]);
+    assert.equal(result.mismatched.length, 0);
+  });
+
+  it('merges compatible projects while skipping incompatible ones in the same pull', async () => {
+    const GOOD = '0190a1b2-0000-7000-8000-0000000000c2';
+    const BAD = '0190a1b2-0000-7000-8000-0000000000c3';
+    const manifest = [
+      { project_id: GOOD, name: 'Good', last_modified: '2026-06-01T00:00:00.000Z' },
+      { project_id: BAD, name: 'Bad', last_modified: '2026-06-01T00:00:00.000Z' },
+    ];
+    mockFetch((url, opts) => {
+      if (opts.method === 'PUT') return makeResponse(200, { ok: true });
+      if (url.endsWith('/projects') && opts.method === 'GET') return makeResponse(200, manifest);
+      if (url.endsWith(`/projects/${GOOD}`))
+        return makeResponse(200, {
+          docent_format: { platform: 'stub', schema_version: '0.0.0-stub' },
+          project: { project_id: GOOD, name: 'Good', created_at: '2026-01-01T00:00:00.000Z' },
+          recordings: [],
+        });
+      if (url.endsWith(`/projects/${BAD}`))
+        return makeResponse(200, {
+          docent_format: { platform: 'desktop-windows', schema_version: '0.0.0-stub' },
+          project: { project_id: BAD, name: 'Bad', created_at: '2026-01-01T00:00:00.000Z' },
+          recordings: [],
+        });
+      return makeResponse(404);
+    });
+
+    const { result, projects } = await sync(
+      'https://srv.test',
+      null,
+      [],
+      STUB_SCHEMA,
+      passValidator,
+    );
+
+    assert.deepEqual(
+      projects.map((p) => p.project_id),
+      [GOOD],
+      'only the compatible project is merged',
+    );
+    assert.deepEqual(result.pulled, [GOOD]);
+    assert.equal(result.mismatched.length, 1);
+    assert.equal(result.mismatched[0].projectName, 'Bad');
   });
 });

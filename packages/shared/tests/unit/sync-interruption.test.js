@@ -205,6 +205,7 @@ describe('#86 conflict and concurrency edge cases', () => {
       }
       if (url.endsWith(`/projects/${SHARED}`)) {
         return makeResponse(200, {
+          docent_format: { platform: 'stub', schema_version: '0.0.0-stub' },
           project: {
             project_id: SHARED,
             name: 'Server name',
@@ -237,6 +238,7 @@ describe('#86 conflict and concurrency edge cases', () => {
       { project_id: REMOTE1, name: 'Remote 1', last_modified: '2026-01-01T00:00:00.000Z' },
     ];
     const remotePayload = {
+      docent_format: { platform: 'stub', schema_version: '0.0.0-stub' },
       project: { project_id: REMOTE1, name: 'Remote 1', created_at: '2026-01-01T00:00:00.000Z' },
       recordings: [],
     };

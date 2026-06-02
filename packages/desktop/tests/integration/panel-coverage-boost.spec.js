@@ -358,7 +358,13 @@ test.describe('Desktop Panel — Sync Flows', () => {
 
     // Mock fetch: push succeeds, pull returns 1 new project
     await page.evaluate(() => {
+      window._originalFetch = window.fetch;
       window.fetch = async (url, opts) => {
+        // The schema fetch (session.schema.json — used to build the push stamp
+        // and the local stamp for mismatch checks) must hit the real file.
+        if (typeof url === 'string' && url.includes('session.schema.json')) {
+          return window._originalFetch(url, opts);
+        }
         if (opts && opts.method === 'PUT') return { ok: true, status: 200, json: async () => ({}) };
         if (url.endsWith('/projects') && (!opts || opts.method === 'GET'))
           return {
@@ -412,9 +418,16 @@ test.describe('Desktop Panel — Sync Flows', () => {
     await page.click('#btn-settings-back');
     await page.waitForSelector('#view-projects:not(.hidden)', { timeout: 5000 });
 
-    // Mock fetch: return 401
+    // Mock fetch: return 401 for sync requests, but let the schema fetch (used
+    // to build the local docent_format stamp) hit the real served file.
     await page.evaluate(() => {
-      window.fetch = async () => ({ ok: false, status: 401, json: async () => ({}) });
+      window._originalFetch = window.fetch;
+      window.fetch = async (url, opts) => {
+        if (typeof url === 'string' && url.includes('session.schema.json')) {
+          return window._originalFetch(url, opts);
+        }
+        return { ok: false, status: 401, json: async () => ({}) };
+      };
     });
 
     // Capture alert message
