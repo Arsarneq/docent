@@ -148,14 +148,12 @@ history. Used as the response body for `GET /projects/:id` and the request body
 for `PUT /projects/:id`.
 
 > **Note:** The sync payload carries the same `docent_format` stamp as a
-> `.docent.json` export. Earlier protocol versions omitted it on the assumption
-> that synced clients always agree on the format via the API contract — but with
-> client auto-update, two clients syncing through one server can be on different
-> schema versions (or be different platforms entirely, e.g. an extension project
-> and a desktop project on the same server). The stamp lets the pulling client
-> identify the platform and schema version of each project and validate or route
-> it accordingly, instead of guessing. The server still treats the payload as
-> opaque — it stores and returns it verbatim and does not need to read the stamp.
+> `.docent.json` export. A single server can hold projects from different Docent
+> platforms (e.g. an extension project and a desktop project), and — once client
+> auto-update is in play — clients on different schema versions. The stamp lets
+> the pulling client identify each project's platform and schema version and
+> validate or route it accordingly, instead of guessing. The server treats the
+> payload as opaque — it stores and returns it verbatim and never reads the stamp.
 
 ```json
 {
