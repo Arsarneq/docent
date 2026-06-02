@@ -158,6 +158,7 @@ test.describe('Desktop Import Flow', () => {
 
     // Set up the mock to return a valid import JSON
     const importData = {
+      docent_format: { platform: 'desktop-windows', schema_version: '1.0.0' },
       project: {
         project_id: '019e0000-0000-7000-8000-000000000001',
         name: 'Imported Project',
@@ -175,8 +176,26 @@ test.describe('Desktop Import Flow', () => {
               step_number: 1,
               created_at: '2026-01-01T00:00:00.000Z',
               narration: 'Imported step',
-              narration_source: 'imported',
-              actions: [{ type: 'click', timestamp: 1000, element: { text: 'OK' } }],
+              narration_source: 'typed',
+              actions: [
+                {
+                  type: 'click',
+                  timestamp: 1000,
+                  capture_mode: 'accessibility',
+                  context_id: 1,
+                  x: 10,
+                  y: 20,
+                  element: {
+                    tag: 'Button',
+                    id: null,
+                    name: null,
+                    role: null,
+                    type: null,
+                    text: 'OK',
+                    selector: 'OK',
+                  },
+                },
+              ],
               deleted: false,
             },
           ],

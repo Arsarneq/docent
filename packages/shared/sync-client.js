@@ -11,6 +11,8 @@
  */
 
 import { isValidUuidv7 } from './lib/uuid-v7.js';
+import { stampFromSchema } from './lib/format-stamp.js';
+import { validatePayload } from './lib/validate-import.js';
 
 /**
  * Error thrown by sync operations for HTTP or network failures.
@@ -54,11 +56,20 @@ export function buildHeaders(apiKey) {
 /**
  * Constructs the Full_Project_Payload shape for a project.
  * Sends full step history without filtering.
+ *
+ * The payload carries the self-describing `docent_format` stamp (read off the
+ * composed schema, the single source of truth). Sync used to omit the stamp,
+ * but with client auto-update two clients on one server can be on different
+ * schema versions/platforms; the stamp lets the puller detect that. See
+ * SECURITY_BACKLOG S12 and docs/sync-protocol.md.
+ *
  * @param {object} project
- * @returns {object} { project: {...}, recordings: [...] }
+ * @param {object} schema - the composed platform schema (source of the stamp)
+ * @returns {object} { docent_format, project: {...}, recordings: [...] }
  */
-export function buildPayloadForProject(project) {
+export function buildPayloadForProject(project, schema) {
   return {
+    docent_format: stampFromSchema(schema),
     project: {
       project_id: project.project_id,
       name: project.name,
@@ -92,14 +103,15 @@ function isAuthError(status) {
  * @param {string} serverUrl - base URL of the sync server
  * @param {string|null} apiKey - Bearer token, or null for unauthenticated
  * @param {object[]} projects - array of local project objects
+ * @param {object} schema - composed platform schema (for the docent_format stamp)
  * @returns {Promise<{pushed: string[], errors: SyncError[], halted: boolean}>}
  */
-export async function pushProjects(serverUrl, apiKey, projects) {
+export async function pushProjects(serverUrl, apiKey, projects, schema) {
   const pushed = [];
   const errors = [];
 
   for (const project of projects) {
-    const payload = buildPayloadForProject(project);
+    const payload = buildPayloadForProject(project, schema);
     const url = `${serverUrl}/projects/${encodeURIComponent(project.project_id)}`;
     const headers = {
       ...buildHeaders(apiKey),
@@ -153,11 +165,17 @@ export async function pushProjects(serverUrl, apiKey, projects) {
  * Fetches GET /projects for the manifest, then GET /projects/:id for each entry.
  * Non-auth errors on one project do not prevent other projects from being fetched.
  *
+ * Each pulled payload is schema-validated before being accepted (S12). An
+ * invalid payload is skipped and recorded as a per-project SyncError
+ * (reject-but-log) — the rest of the pull continues.
+ *
  * @param {string} serverUrl - base URL of the sync server
  * @param {string|null} apiKey - Bearer token, or null for unauthenticated
+ * @param {(data: unknown) => boolean & { errors?: object[] }} validator -
+ *   generated platform validator for the full `.docent.json` envelope
  * @returns {Promise<{projects: object[], errors: SyncError[], halted: boolean}>}
  */
-export async function pullProjects(serverUrl, apiKey) {
+export async function pullProjects(serverUrl, apiKey, validator) {
   const projects = [];
   const errors = [];
   const headers = buildHeaders(apiKey);
@@ -252,10 +270,36 @@ export async function pullProjects(serverUrl, apiKey) {
     }
 
     const payload = await response.json();
-    // Reconstruct project from Full_Project_Payload shape
+
+    // Validate the pulled payload against the platform schema before accepting
+    // it (S12). A malformed or version/platform-mismatched payload is skipped
+    // and reported (reject-but-log); the rest of the pull continues.
+    const { valid, errors: validationErrors } = validatePayload(validator, payload);
+    if (!valid) {
+      errors.push(
+        new SyncError(
+          `Pulled project "${entry.name}" failed schema validation: ${validationErrors.join('; ')}`,
+          null,
+          entry.name,
+        ),
+      );
+      continue;
+    }
+
+    // Reconstruct project from Full_Project_Payload shape using an explicit
+    // field allowlist — never spread untrusted JSON into stored state.
     const project = {
-      ...payload.project,
-      recordings: payload.recordings ?? [],
+      project_id: payload.project.project_id,
+      name: payload.project.name,
+      created_at: payload.project.created_at,
+      ...(payload.project.metadata && { metadata: payload.project.metadata }),
+      recordings: (payload.recordings ?? []).map((r) => ({
+        recording_id: r.recording_id,
+        name: r.name,
+        created_at: r.created_at,
+        ...(r.metadata && { metadata: r.metadata }),
+        steps: r.steps ?? [],
+      })),
     };
     projects.push(project);
   }
@@ -271,13 +315,16 @@ export async function pullProjects(serverUrl, apiKey) {
  * @param {string} serverUrl - base URL of the sync server
  * @param {string|null} apiKey - Bearer token, or null for unauthenticated
  * @param {object[]} localProjects - array of local project objects (full shape)
+ * @param {object} schema - composed platform schema (for the docent_format stamp on push)
+ * @param {(data: unknown) => boolean & { errors?: object[] }} validator -
+ *   generated platform validator applied to each pulled payload
  * @returns {Promise<{result: SyncResult, projects: object[]}>}
  */
-export async function sync(serverUrl, apiKey, localProjects) {
+export async function sync(serverUrl, apiKey, localProjects, schema, validator) {
   const allErrors = [];
 
   // 1. Push phase
-  const pushResult = await pushProjects(serverUrl, apiKey, localProjects);
+  const pushResult = await pushProjects(serverUrl, apiKey, localProjects, schema);
   allErrors.push(...pushResult.errors);
 
   if (pushResult.halted) {
@@ -293,7 +340,7 @@ export async function sync(serverUrl, apiKey, localProjects) {
   }
 
   // 2. Pull phase
-  const pullResult = await pullProjects(serverUrl, apiKey);
+  const pullResult = await pullProjects(serverUrl, apiKey, validator);
   allErrors.push(...pullResult.errors);
 
   if (pullResult.halted) {

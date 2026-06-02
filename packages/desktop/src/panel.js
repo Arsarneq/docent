@@ -31,6 +31,7 @@ import {
   DispatchError,
 } from '../shared/dispatch-core.js';
 import { createDispatchCooldown } from '../shared/dispatch-cooldown.js';
+import { validatePayload } from '../shared/lib/validate-import.js';
 import { sync } from '../shared/sync-client.js';
 import { buildExport } from '../shared/lib/export-project.js';
 import adapter, { commitWithCompleteness } from './adapter-tauri.js';
@@ -452,6 +453,21 @@ async function handleImportData(exportData) {
   if (!exportData?.project?.project_id) {
     alert('Invalid file: missing project data.');
     return;
+  }
+
+  // Validate against the platform schema before persisting (S12). Reject-but-log.
+  const validator = await adapter.loadValidator();
+  if (validator) {
+    const { valid, errors } = validatePayload(validator, exportData);
+    if (!valid) {
+      console.warn('[Docent] Import rejected — schema validation failed:', errors);
+      alert(
+        `Import failed: file does not match the Docent format.\n\n${errors.slice(0, 5).join('\n')}`,
+      );
+      return;
+    }
+  } else {
+    console.warn('[Docent] Import validator unavailable — proceeding without schema validation.');
   }
 
   const imported = exportData.project;
@@ -1278,10 +1294,17 @@ async function handleSync() {
   btnSync.textContent = 'Syncing…';
 
   try {
+    // Schema (push-side docent_format stamp) + generated validator (applied to
+    // each pulled payload), both from the adapter. See S12.
+    const schema = await adapter.loadSchema();
+    const validator = await adapter.loadValidator();
+
     const { result, projects: mergedProjects } = await sync(
       syncSettings.serverUrl,
       syncSettings.apiKey,
       sessionState.projects,
+      schema,
+      validator,
     );
 
     // Persist merged projects via saveState() (R5-AC5)

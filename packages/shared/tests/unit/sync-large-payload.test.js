@@ -18,6 +18,7 @@
 import { describe, it, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { pushProjects, pullProjects, buildPayloadForProject } from '../../sync-client.js';
+import { STUB_SCHEMA } from '../fixtures/stub-schema.js';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -86,6 +87,12 @@ function makeResponse(status, body = null) {
   return { status, ok: status >= 200 && status < 300, json: async () => body };
 }
 
+/** Permissive stub validator — these tests exercise sync mechanics, not schema validation. */
+function passValidator() {
+  return true;
+}
+passValidator.errors = [];
+
 const originalFetch = globalThis.fetch;
 beforeEach(() => {
   fetchCalls = [];
@@ -108,7 +115,7 @@ describe('#94 push of a large project payload', () => {
       return makeResponse(200, { ok: true });
     });
 
-    const result = await pushProjects('https://srv.test', null, [project]);
+    const result = await pushProjects('https://srv.test', null, [project], STUB_SCHEMA);
 
     assert.deepEqual(result.pushed, ['big']);
     assert.equal(result.errors.length, 0);
@@ -131,7 +138,7 @@ describe('#94 push of a large project payload', () => {
 
   it('buildPayloadForProject preserves full step history without filtering', () => {
     const project = makeLargeProject('hist', 10, 100);
-    const payload = buildPayloadForProject(project);
+    const payload = buildPayloadForProject(project, STUB_SCHEMA);
     const totalSteps = payload.recordings.reduce((n, r) => n + r.steps.length, 0);
     assert.equal(totalSteps, 10 * 100, 'every step is included; nothing is dropped at scale');
   });
@@ -143,7 +150,7 @@ describe('#94 pull of a large project payload', () => {
   it('parses a multi-MB project response without loss', async () => {
     const HUGE = '0190a1b2-0000-7000-8000-000000000099';
     const big = makeLargeProject(HUGE, 200, 50);
-    const payload = buildPayloadForProject(big);
+    const payload = buildPayloadForProject(big, STUB_SCHEMA);
 
     // Confirm the serialized response really is multi-hundred-KB / MB-scale.
     const serialized = JSON.stringify(payload);
@@ -161,7 +168,7 @@ describe('#94 pull of a large project payload', () => {
       return makeResponse(404);
     });
 
-    const result = await pullProjects('https://srv.test', null);
+    const result = await pullProjects('https://srv.test', null, passValidator);
 
     assert.equal(result.errors.length, 0);
     assert.equal(result.projects.length, 1);
@@ -177,14 +184,19 @@ describe('#94 pull of a large project payload', () => {
 describe('#94 payload edge cases', () => {
   it('project with an empty recordings array pushes cleanly', async () => {
     mockFetch(() => makeResponse(200, { ok: true }));
-    const result = await pushProjects('https://srv.test', null, [
-      {
-        project_id: 'empty',
-        name: 'Empty',
-        created_at: '2026-01-01T00:00:00.000Z',
-        recordings: [],
-      },
-    ]);
+    const result = await pushProjects(
+      'https://srv.test',
+      null,
+      [
+        {
+          project_id: 'empty',
+          name: 'Empty',
+          created_at: '2026-01-01T00:00:00.000Z',
+          recordings: [],
+        },
+      ],
+      STUB_SCHEMA,
+    );
     assert.deepEqual(result.pushed, ['empty']);
     assert.equal(result.errors.length, 0);
   });
@@ -208,7 +220,7 @@ describe('#94 payload edge cases', () => {
       parsedBack = JSON.parse(opts.body);
       return makeResponse(200, { ok: true });
     });
-    const result = await pushProjects('https://srv.test', null, [project]);
+    const result = await pushProjects('https://srv.test', null, [project], STUB_SCHEMA);
     assert.deepEqual(result.pushed, ['norec']);
     assert.equal(parsedBack.recordings[0].steps.length, 0, 'empty steps array preserved');
   });

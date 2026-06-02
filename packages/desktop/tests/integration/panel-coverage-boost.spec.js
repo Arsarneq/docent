@@ -231,6 +231,7 @@ test.describe('Desktop Panel — Import Project', () => {
     // Set mock import data
     await page.evaluate(() => {
       window.__MOCK_IMPORT_DATA__ = JSON.stringify({
+        docent_format: { platform: 'desktop-windows', schema_version: '1.0.0' },
         project: {
           project_id: '019e0000-0000-7000-8000-000000000099',
           name: 'Imported Project',
@@ -253,9 +254,19 @@ test.describe('Desktop Panel — Import Project', () => {
                   {
                     type: 'click',
                     timestamp: 1000,
-                    capture_mode: 'dom',
+                    capture_mode: 'accessibility',
                     context_id: 1,
-                    element: { text: 'Login' },
+                    x: 10,
+                    y: 20,
+                    element: {
+                      tag: 'Button',
+                      id: null,
+                      name: null,
+                      role: null,
+                      type: null,
+                      text: 'Login',
+                      selector: 'Login',
+                    },
                   },
                 ],
                 deleted: false,
@@ -278,6 +289,7 @@ test.describe('Desktop Panel — Import Project', () => {
     await page.waitForSelector('#view-projects:not(.hidden)', { timeout: 10000 });
 
     const importData = JSON.stringify({
+      docent_format: { platform: 'desktop-windows', schema_version: '1.0.0' },
       project: {
         project_id: '019e0000-0000-7000-8000-000000000200',
         name: 'Original',
@@ -365,6 +377,7 @@ test.describe('Desktop Panel — Sync Flows', () => {
             ok: true,
             status: 200,
             json: async () => ({
+              docent_format: { platform: 'desktop-windows', schema_version: '1.0.0' },
               project: {
                 project_id: '0190a1b2-0000-7000-8000-000000000051',
                 name: 'From Server',
