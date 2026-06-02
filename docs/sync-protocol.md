@@ -345,7 +345,17 @@ pushing the remaining projects.
 1. The client fetches `GET /projects` to retrieve the manifest.
 2. For each entry in the manifest, the client fetches
    `GET /projects/<project_id>` to retrieve the full payload.
-3. Merge logic (server-wins):
+3. Each pulled payload is checked before it is accepted:
+   - **Stamp compatibility** — the payload's `docent_format` must match the
+     pulling client's platform and schema version. A project from a different
+     platform, a different schema version, or with a missing stamp is **skipped
+     and reported to the user** (not merged), with the reason (update the client
+     or pin the producing version). This prevents a client from misinterpreting
+     data it cannot faithfully represent.
+   - **Schema validation** — the payload must validate against the client's
+     platform schema. An invalid payload is skipped and reported.
+   - Both checks are per-project: one skipped project does not abort the pull.
+4. Merge logic (server-wins), applied to the projects that passed step 3:
    - If a pulled `project_id` matches a local project, the local project is
      **replaced entirely** with the server version.
    - If a pulled `project_id` has no local match, the project is **appended**

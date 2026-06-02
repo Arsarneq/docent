@@ -11,7 +11,7 @@
  */
 
 import { isValidUuidv7 } from './lib/uuid-v7.js';
-import { stampFromSchema } from './lib/format-stamp.js';
+import { stampFromSchema, checkStampCompatibility } from './lib/format-stamp.js';
 import { validatePayload } from './lib/validate-import.js';
 
 /**
@@ -36,6 +36,9 @@ export class SyncError extends Error {
  * @property {string[]} pushed - project_ids successfully pushed
  * @property {string[]} pulled - project_ids successfully pulled
  * @property {SyncError[]} errors - errors encountered (non-fatal per-project)
+ * @property {SyncError[]} mismatched - projects skipped on pull due to a
+ *   docent_format platform/version mismatch (distinct from `errors` so the UI
+ *   can present them as a compatibility issue, not a failure)
  * @property {boolean} halted - true if sync was halted (auth failure)
  */
 
@@ -165,19 +168,31 @@ export async function pushProjects(serverUrl, apiKey, projects, schema) {
  * Fetches GET /projects for the manifest, then GET /projects/:id for each entry.
  * Non-auth errors on one project do not prevent other projects from being fetched.
  *
- * Each pulled payload is schema-validated before being accepted (S12). An
- * invalid payload is skipped and recorded as a per-project SyncError
- * (reject-but-log) — the rest of the pull continues.
+ * Each pulled payload is checked in two stages before being accepted:
+ *   1. **Stamp compatibility** — its `docent_format` must match this client's
+ *      platform + schema version. A platform/version mismatch is rejected with
+ *      an actionable reason (the producing client is a different platform, or a
+ *      different schema version → update or pin). See the sync schema-mismatch
+ *      handling follow-up to S12.
+ *   2. **Schema validation** — the full payload must validate against the
+ *      generated platform validator (S12).
+ *
+ * Both are reject-but-log and per-project: a rejected project is skipped and
+ * reported (mismatches in `mismatched`, other failures in `errors`); the rest
+ * of the pull continues.
  *
  * @param {string} serverUrl - base URL of the sync server
  * @param {string|null} apiKey - Bearer token, or null for unauthenticated
  * @param {(data: unknown) => boolean & { errors?: object[] }} validator -
  *   generated platform validator for the full `.docent.json` envelope
- * @returns {Promise<{projects: object[], errors: SyncError[], halted: boolean}>}
+ * @param {{ platform: string, schema_version: string }} localStamp -
+ *   this client's expected stamp (from stampFromSchema of its own schema)
+ * @returns {Promise<{projects: object[], errors: SyncError[], mismatched: SyncError[], halted: boolean}>}
  */
-export async function pullProjects(serverUrl, apiKey, validator) {
+export async function pullProjects(serverUrl, apiKey, validator, localStamp) {
   const projects = [];
   const errors = [];
+  const mismatched = [];
   const headers = buildHeaders(apiKey);
 
   // Fetch manifest
@@ -194,7 +209,7 @@ export async function pullProjects(serverUrl, apiKey, validator) {
       null,
     );
     errors.push(syncErr);
-    return { projects, errors, halted: false };
+    return { projects, errors, mismatched, halted: false };
   }
 
   if (isAuthError(manifestResponse.status)) {
@@ -204,7 +219,7 @@ export async function pullProjects(serverUrl, apiKey, validator) {
       null,
     );
     errors.push(syncErr);
-    return { projects, errors, halted: true };
+    return { projects, errors, mismatched, halted: true };
   }
 
   if (!manifestResponse.ok) {
@@ -214,7 +229,7 @@ export async function pullProjects(serverUrl, apiKey, validator) {
       null,
     );
     errors.push(syncErr);
-    return { projects, errors, halted: false };
+    return { projects, errors, mismatched, halted: false };
   }
 
   const manifest = await manifestResponse.json();
@@ -256,7 +271,7 @@ export async function pullProjects(serverUrl, apiKey, validator) {
         entry.name,
       );
       errors.push(syncErr);
-      return { projects, errors, halted: true };
+      return { projects, errors, mismatched, halted: true };
     }
 
     if (!response.ok) {
@@ -271,9 +286,25 @@ export async function pullProjects(serverUrl, apiKey, validator) {
 
     const payload = await response.json();
 
-    // Validate the pulled payload against the platform schema before accepting
-    // it (S12). A malformed or version/platform-mismatched payload is skipped
-    // and reported (reject-but-log); the rest of the pull continues.
+    // Stage 1 — stamp compatibility. Reject a project whose docent_format does
+    // not match this client's platform/schema version, with an actionable
+    // reason, before the generic schema check (which would only say "invalid").
+    // Recorded in `mismatched`, not `errors`, so the UI can phrase it as a
+    // compatibility issue rather than a failure. Skipped only when localStamp is
+    // unavailable (defensive — callers always provide it).
+    if (localStamp) {
+      const stampCheck = checkStampCompatibility(payload, localStamp);
+      if (!stampCheck.compatible) {
+        mismatched.push(
+          new SyncError(`Skipped "${entry.name}": ${stampCheck.message}`, null, entry.name),
+        );
+        continue;
+      }
+    }
+
+    // Stage 2 — schema validation against the platform validator (S12). A
+    // malformed payload is skipped and reported (reject-but-log); the rest of
+    // the pull continues.
     const { valid, errors: validationErrors } = validatePayload(validator, payload);
     if (!valid) {
       errors.push(
@@ -304,7 +335,7 @@ export async function pullProjects(serverUrl, apiKey, validator) {
     projects.push(project);
   }
 
-  return { projects, errors, halted: false };
+  return { projects, errors, mismatched, halted: false };
 }
 
 /**
@@ -322,6 +353,11 @@ export async function pullProjects(serverUrl, apiKey, validator) {
  */
 export async function sync(serverUrl, apiKey, localProjects, schema, validator) {
   const allErrors = [];
+  const allMismatched = [];
+
+  // The stamp this client expects on any project it accepts. Derived from its
+  // own composed schema (the single source of truth), so it can never drift.
+  const localStamp = stampFromSchema(schema);
 
   // 1. Push phase
   const pushResult = await pushProjects(serverUrl, apiKey, localProjects, schema);
@@ -333,6 +369,7 @@ export async function sync(serverUrl, apiKey, localProjects, schema, validator) 
         pushed: pushResult.pushed,
         pulled: [],
         errors: allErrors,
+        mismatched: allMismatched,
         halted: true,
       },
       projects: localProjects,
@@ -340,8 +377,9 @@ export async function sync(serverUrl, apiKey, localProjects, schema, validator) 
   }
 
   // 2. Pull phase
-  const pullResult = await pullProjects(serverUrl, apiKey, validator);
+  const pullResult = await pullProjects(serverUrl, apiKey, validator, localStamp);
   allErrors.push(...pullResult.errors);
+  allMismatched.push(...pullResult.mismatched);
 
   if (pullResult.halted) {
     return {
@@ -349,6 +387,7 @@ export async function sync(serverUrl, apiKey, localProjects, schema, validator) 
         pushed: pushResult.pushed,
         pulled: [],
         errors: allErrors,
+        mismatched: allMismatched,
         halted: true,
       },
       projects: localProjects,
@@ -375,6 +414,7 @@ export async function sync(serverUrl, apiKey, localProjects, schema, validator) 
       pushed: pushResult.pushed,
       pulled,
       errors: allErrors,
+      mismatched: allMismatched,
       halted: false,
     },
     projects: mergedProjects,

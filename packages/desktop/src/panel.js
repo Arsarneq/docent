@@ -1340,10 +1340,23 @@ function showSyncSummary(result) {
     parts.push(`Pushed ${result.pushed.length} project${result.pushed.length !== 1 ? 's' : ''}`);
   if (result.pulled.length > 0)
     parts.push(`Pulled ${result.pulled.length} project${result.pulled.length !== 1 ? 's' : ''}`);
+  const mismatched = result.mismatched ?? [];
+  if (mismatched.length > 0)
+    parts.push(
+      `Skipped ${mismatched.length} incompatible project${mismatched.length !== 1 ? 's' : ''}`,
+    );
   if (result.errors.length > 0)
     parts.push(`${result.errors.length} error${result.errors.length !== 1 ? 's' : ''}`);
   if (parts.length === 0) parts.push('Everything up to date');
-  alert(parts.join('. ') + '.');
+
+  let message = parts.join('. ') + '.';
+  // Spell out why incompatible projects were skipped so the user can act
+  // (update Docent, or pin the producing version).
+  if (mismatched.length > 0) {
+    message +=
+      '\n\nSkipped (incompatible format):\n' + mismatched.map((m) => `• ${m.message}`).join('\n');
+  }
+  alert(message);
 }
 
 btnSettings.addEventListener('click', () => {
