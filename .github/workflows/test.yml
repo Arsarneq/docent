@@ -18,6 +18,8 @@ jobs:
       extension: ${{ steps.filter.outputs.extension }}
       desktop: ${{ steps.filter.outputs.desktop }}
       shared: ${{ steps.filter.outputs.shared }}
+      schema: ${{ steps.filter.outputs.schema }}
+      referenceServer: ${{ steps.filter.outputs.referenceServer }}
       ci: ${{ steps.filter.outputs.ci }}
     steps:
       - uses: actions/checkout@v6
@@ -31,6 +33,10 @@ jobs:
               - 'packages/desktop/**'
             shared:
               - 'packages/shared/**'
+            schema:
+              - 'schemas/**'
+            referenceServer:
+              - 'reference-implementations/**'
             ci:
               - '.github/workflows/**'
               - 'scripts/**'
@@ -133,6 +139,7 @@ jobs:
       needs.changes.outputs.extension == 'true' ||
       needs.changes.outputs.desktop == 'true' ||
       needs.changes.outputs.shared == 'true' ||
+      needs.changes.outputs.schema == 'true' ||
       needs.changes.outputs.ci == 'true' ||
       github.event_name == 'release' ||
       github.event_name == 'push'
@@ -201,6 +208,8 @@ jobs:
     if: |
       needs.changes.outputs.extension == 'true' ||
       needs.changes.outputs.shared == 'true' ||
+      needs.changes.outputs.schema == 'true' ||
+      needs.changes.outputs.referenceServer == 'true' ||
       needs.changes.outputs.ci == 'true' ||
       github.event_name == 'release' ||
       github.event_name == 'push'
@@ -460,6 +469,8 @@ jobs:
     if: |
       needs.changes.outputs.desktop == 'true' ||
       needs.changes.outputs.shared == 'true' ||
+      needs.changes.outputs.schema == 'true' ||
+      needs.changes.outputs.referenceServer == 'true' ||
       needs.changes.outputs.ci == 'true' ||
       github.event_name == 'release' ||
       github.event_name == 'push'
@@ -506,6 +517,43 @@ jobs:
           name: desktop-playwright-report
           path: packages/desktop/tests/integration/test-results/
           retention-days: 7
+
+  # Reference Sync Server tests (repo/testing artifact, excluded from releases).
+  # Runs the server's own pyramid-layered suites — tests/unit + tests/integration
+  # under reference-implementations/sync-server — which run NOWHERE else in CI.
+  # The unit layer includes the samples-conformance guard: it validates the
+  # bundled seed samples against the platform schemas composed from source, so a
+  # schema-shape change that a sample no longer matches fails HERE, on the PR.
+  # Gated on the reference server, the schemas it validates against, and shared
+  # (the validator/digest the conformance test composes through).
+  reference-server-tests:
+    needs: [lint, changes]
+    if: |
+      needs.changes.outputs.referenceServer == 'true' ||
+      needs.changes.outputs.schema == 'true' ||
+      needs.changes.outputs.shared == 'true' ||
+      needs.changes.outputs.ci == 'true' ||
+      github.event_name == 'release' ||
+      github.event_name == 'push'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: ./.github/actions/debug-env
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 20
+
+      # The reference server has no runtime deps, but the samples-conformance
+      # unit test composes the platform schema (scripts/build-schemas.js → ajv +
+      # prettier) — all root devDependencies — so install at the repo root.
+      - name: Install root dependencies
+        run: npm ci
+
+      - name: Run reference sync server tests (unit + integration)
+        working-directory: reference-implementations/sync-server
+        run: npm test
 
   # Terminal coverage upload. Every test job publishes its lcov as an artifact
   # rather than uploading to Codecov itself; this job collects them all and
@@ -629,11 +677,12 @@ jobs:
       - desktop-rust-tests
       - desktop-cross-compile
       - desktop-integration-tests
+      - reference-server-tests
       - coverage-upload
     steps:
       - name: Check job results
         run: |
-          results=("${{ needs.changes.result }}" "${{ needs.lint.result }}" "${{ needs.dependency-audit.result }}" "${{ needs.unit-tests.result }}" "${{ needs.extension-e2e-tests.result }}" "${{ needs.desktop-rust-tests.result }}" "${{ needs.desktop-cross-compile.result }}" "${{ needs.desktop-integration-tests.result }}" "${{ needs.coverage-upload.result }}")
+          results=("${{ needs.changes.result }}" "${{ needs.lint.result }}" "${{ needs.dependency-audit.result }}" "${{ needs.unit-tests.result }}" "${{ needs.extension-e2e-tests.result }}" "${{ needs.desktop-rust-tests.result }}" "${{ needs.desktop-cross-compile.result }}" "${{ needs.desktop-integration-tests.result }}" "${{ needs.reference-server-tests.result }}" "${{ needs.coverage-upload.result }}")
           for result in "${results[@]}"; do
             if [[ "$result" != "success" && "$result" != "skipped" ]]; then
               echo "Job failed with result: $result"
