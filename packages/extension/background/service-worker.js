@@ -45,10 +45,19 @@ import {
 import { createSyncTrigger, BACKSTOP_INTERVAL_MS } from '../shared/sync-scheduler.js';
 import { sync } from '../shared/sync-client.js';
 import { loadSyncState, saveSyncState, getSettings, setSettings } from '../shared/sync-store.js';
-// Reuse the panel's platform adapter verbatim so the background cycle reads the
-// same durable SyncStore, LiveState signals, schema, and validator the manual
-// path uses (R23.16). adapter-chrome.js touches only chrome.* + fetch + dynamic
-// import at call time (no DOM), so it is safe to host in the service worker.
+// The generated platform validator (S12), applied to each pulled payload. The
+// panel loads this via dynamic import (adapter-chrome.loadValidator), but a
+// Manifest V3 service worker CANNOT use dynamic import() — so the background
+// cycle imports it STATICALLY here. (A dynamic import in the SW throws, which
+// previously surfaced as `validator is not a function` and aborted every
+// Auto-Sync cycle before its push.)
+import validateExtensionPayload from '../shared/generated/validate-extension.js';
+// Reuse the panel's platform adapter for the durable SyncStore, LiveState
+// signals, settings, and schema fetch the background cycle needs (R23.16).
+// adapter-chrome.js touches only chrome.* + fetch (no DOM). NOTE: its
+// loadValidator() uses dynamic import(), which a Manifest V3 service worker
+// cannot do — so the SW does NOT call loadValidator() and instead imports the
+// generated validator statically (see above).
 import chromeAdapter from '../sidepanel/adapter-chrome.js';
 
 // ─── In-memory state (restored from storage on SW restart) ───────────────────
@@ -535,10 +544,12 @@ async function runAutoSyncCycle() {
   // turning Auto-Sync on without an endpoint, R23.2; this is a defensive guard.)
   if (!serverUrl) return;
 
-  // Schema (push-side docent_format stamp) + generated validator (applied to
-  // each pulled payload), loaded by URL exactly as the panel does (R23.16, S12).
+  // Schema (push-side docent_format stamp), loaded by URL exactly as the panel
+  // does (R23.16, S12). The generated validator is imported STATICALLY at module
+  // scope (see the import) because a Manifest V3 service worker cannot use the
+  // dynamic import() that the panel's adapter.loadValidator() relies on.
   const schema = await chromeAdapter.loadSchema();
-  const validator = await chromeAdapter.loadValidator();
+  const validator = validateExtensionPayload;
 
   // LiveState (R6, R7, R8) — the SW owns `recording` / `activeRecordingId` /
   // `pendingCount` in chrome.storage.local; snapshot them once and build the

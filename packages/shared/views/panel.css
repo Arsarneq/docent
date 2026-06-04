@@ -1044,6 +1044,13 @@ input[type='password']:focus {
   cursor: pointer;
 }
 
+/* A toggle-row that follows another control and needs a little separation.
+ * Replaces a previous inline `style="margin-top: 10px"`, which the extension's
+ * CSP (style-src 'self') blocks. */
+.toggle-row--spaced {
+  margin-top: 10px;
+}
+
 .toggle-label {
   font-size: 12px;
   color: var(--color-muted);
