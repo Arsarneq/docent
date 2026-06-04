@@ -115,6 +115,22 @@ export default [
     },
   },
   {
+    // Reference implementations (Node.js, standard library only) — repo/testing
+    // artifacts, excluded from releases but held to the same lint bar as the
+    // rest of the repo.
+    files: ['reference-implementations/**/*.js'],
+    languageOptions: {
+      globals: {
+        process: 'readonly',
+        console: 'readonly',
+        Buffer: 'readonly',
+        URL: 'readonly',
+        crypto: 'readonly',
+        fetch: 'readonly',
+      },
+    },
+  },
+  {
     ignores: [
       'node_modules/**',
       'packages/*/shared/**',

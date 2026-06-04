@@ -545,3 +545,6 @@ token be added later without a breaking change.
   identify the platform/schema version and validate the payload before reconciling).
 - A server may add optional top-level fields (e.g. a future concurrency-control
   token); the client ignores unrecognized fields, so this is non-breaking.
+
+> **Working example.** For a small, runnable implementation of this contract, see
+> the [Reference Sync Server](reference-sync-server.md).
