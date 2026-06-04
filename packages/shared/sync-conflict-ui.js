@@ -54,6 +54,13 @@ import { uuidv7 } from './lib/uuid-v7.js';
 export const UI_ACTIONS = Object.freeze({
   /** Activate an attention indicator → open the workflow for its Unit (R13.3). */
   OPEN_WORKFLOW: 'open-workflow',
+  /**
+   * Activate a rolled-up recordings indicator on a project row → open the project
+   * so its per-recording indicators are visible (R13.7). A roll-up stands for one
+   * or more recordings, not a single resolvable Unit, so it opens the project
+   * rather than a workflow.
+   */
+  OPEN_PROJECT: 'open-project',
   /** Accept a Review item's incoming change (R12.2). */
   ACCEPT_REVIEW: 'accept-review',
   /** Decline a Review item's incoming change (R12.2). */
@@ -75,6 +82,21 @@ export const UI_ACTIONS = Object.freeze({
  * @property {string|null} recording_id - null for a project-level Unit
  * @property {'project'|'recording'} level - which row the indicator belongs on
  * @property {'review'|'conflict'} kind - Review-and-Accept vs Conflict (R13.1)
+ */
+
+/**
+ * One attention badge to render on a project ROW (R13.4–R13.7). A project row
+ * can show up to three of these at once (see {@link getProjectRowIndicators}).
+ *
+ * @typedef {Object} ProjectRowBadge
+ * @property {'project-own'|'recording-rollup'} scope - the project Unit's own
+ *   badge (opens its workflow), or a rolled-up child-recordings badge (opens the
+ *   project)
+ * @property {'review'|'conflict'} kind - Review-and-Accept vs Conflict (R13.1)
+ * @property {string|null} unitRef - the project Unit's `unitRef` for a
+ *   `'project-own'` badge; null for a `'recording-rollup'` badge (it stands for
+ *   several recordings, not one Unit)
+ * @property {string} project_id
  */
 
 /**
@@ -154,6 +176,61 @@ export function getRecordingIndicator(indicators, project_id, recording_id) {
   );
 }
 
+/**
+ * The full set of attention badges a single project ROW should show (R13.4–R13.7).
+ *
+ * A project row surfaces the attention of the project Unit AND of every child
+ * recording, so the user can see a project needs attention without opening it
+ * (R13.6). It is a roll-up, deduplicated by kind: there is at most ONE badge of
+ * each unique (level, kind) pairing, so e.g. three child recordings in conflict
+ * still yield a single recording-level conflict badge. Up to THREE badges can
+ * therefore show at once on one project row:
+ *
+ *   - the project Unit's OWN badge — present iff the project Unit itself is in
+ *     review or conflict (its own `getProjectIndicator`); it carries the
+ *     `open-workflow` hook for the project Unit (R13.3);
+ *   - a rolled-up recording-CONFLICT badge — present iff ANY child recording is
+ *     in conflict; and
+ *   - a rolled-up recording-REVIEW badge — present iff ANY child recording is in
+ *     review.
+ *
+ * A roll-up badge stands for one or more child recordings, not a single
+ * resolvable Unit, so it carries the `open-project` hook (open the project to see
+ * which recordings need attention, R13.7) rather than `open-workflow`. The
+ * project's own badge keeps the `open-workflow` hook.
+ *
+ * Ordering is stable and meaningful: the project-own badge first, then the
+ * recording conflict roll-up, then the recording review roll-up — conflicts
+ * (a forced choice) read ahead of reviews (a softer prompt).
+ *
+ * @param {AttentionIndicator[]} indicators - from {@link deriveIndicators}
+ * @param {string} project_id
+ * @returns {ProjectRowBadge[]} 0..3 badges to render on the project row
+ */
+export function getProjectRowIndicators(indicators, project_id) {
+  const own = getProjectIndicator(indicators, project_id);
+  const recordingKinds = new Set(
+    indicators
+      .filter((i) => i.level === 'recording' && i.project_id === project_id)
+      .map((i) => i.kind),
+  );
+
+  const badges = [];
+  // 1. The project Unit's own badge (opens its workflow, R13.3).
+  if (own) {
+    badges.push({ scope: 'project-own', kind: own.kind, unitRef: own.unitRef, project_id });
+  }
+  // 2. Rolled-up recording conflict (opens the project, R13.7).
+  if (recordingKinds.has('conflict')) {
+    badges.push({ scope: 'recording-rollup', kind: 'conflict', unitRef: null, project_id });
+  }
+  // 3. Rolled-up recording review (opens the project, R13.7).
+  if (recordingKinds.has('review')) {
+    badges.push({ scope: 'recording-rollup', kind: 'review', unitRef: null, project_id });
+  }
+  return badges;
+}
+
 // ─── Indicator rendering ──────────────────────────────────────────────────────
 
 /**
@@ -177,6 +254,55 @@ export function renderIndicatorBadge(indicator) {
     `<button type="button" class="attention-badge ${modifier}"` +
     ` data-action="${UI_ACTIONS.OPEN_WORKFLOW}"` +
     ` data-unit-ref="${escapeHtml(indicator.unitRef)}"` +
+    ` title="${escapeHtml(title)}">${label}</button>`
+  );
+}
+
+/**
+ * Render one project-ROW badge (R13.4–R13.7). Distinguishes Review from Conflict
+ * by the same CSS modifier and label as {@link renderIndicatorBadge}, so the
+ * badges read identically wherever they appear. The activation hook differs by
+ * scope:
+ *
+ *   - a `'project-own'` badge carries `data-action="open-workflow"` +
+ *     `data-unit-ref` (the project Unit), so activating it opens that Unit's
+ *     resolution workflow (R13.3);
+ *   - a `'recording-rollup'` badge carries `data-action="open-project"` +
+ *     `data-project-id` (no `unitRef` — it stands for one or more recordings, not
+ *     a single resolvable Unit), so activating it opens the project to reveal the
+ *     per-recording badges (R13.7).
+ *
+ * @param {ProjectRowBadge | null | undefined} badge
+ * @returns {string} a `<button>` HTML string, or `''` when there is no badge
+ */
+export function renderProjectRowBadge(badge) {
+  if (!badge) return '';
+  const isConflict = badge.kind === 'conflict';
+  const label = isConflict ? 'Conflict' : 'Review';
+  const modifier = isConflict ? 'attention-badge--conflict' : 'attention-badge--review';
+
+  if (badge.scope === 'recording-rollup') {
+    // A roll-up over child recordings: opens the project (R13.7), no unitRef.
+    const title = isConflict
+      ? 'A recording in this project is in conflict — open to resolve'
+      : 'A recording in this project has an incoming change to review — open to see it';
+    return (
+      `<button type="button" class="attention-badge ${modifier} attention-badge--rollup"` +
+      ` data-action="${UI_ACTIONS.OPEN_PROJECT}"` +
+      ` data-project-id="${escapeHtml(badge.project_id)}"` +
+      ` title="${escapeHtml(title)}">${label}</button>`
+    );
+  }
+
+  // The project Unit's own badge: opens its workflow (R13.3), exactly like a
+  // recording-level indicator badge.
+  const title = isConflict
+    ? 'This project is in conflict — resolve to choose a version'
+    : 'Incoming change to this project — review to accept or decline';
+  return (
+    `<button type="button" class="attention-badge ${modifier}"` +
+    ` data-action="${UI_ACTIONS.OPEN_WORKFLOW}"` +
+    ` data-unit-ref="${escapeHtml(badge.unitRef)}"` +
     ` title="${escapeHtml(title)}">${label}</button>`
   );
 }

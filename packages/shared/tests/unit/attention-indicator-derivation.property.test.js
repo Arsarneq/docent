@@ -16,12 +16,16 @@
  *     row level (`'project'` for a project Unit, `'recording'` for a recording).
  *   - RECORDING ALWAYS SHOWN (R13.4) — a recording needing attention always has
  *     a recording-level indicator, whether or not its project also needs one.
- *   - PROJECT ONLY WHEN THE PROJECT UNIT ITSELF NEEDS ATTENTION (R13.4 / R13.5) —
- *     a project row shows an indicator iff the project Unit itself is in review
- *     or conflict. A project whose only attention is in a child recording gets
- *     NO project-level indicator (R13.4); a project that itself needs attention
- *     shows the project-level indicator in addition to any recording-level ones
- *     (R13.5).
+ *   - PROJECT-OWN INDICATOR (R13.5) — the project's OWN indicator
+ *     (`getProjectIndicator`) shows iff the project Unit itself is in review or
+ *     conflict; a project whose only attention is in a child recording gets NO
+ *     project-OWN indicator.
+ *   - PROJECT-ROW ROLL-UP (R13.4–R13.7) — `getProjectRowIndicators` returns the
+ *     full badge set for a project ROW: the project-own indicator (when present)
+ *     plus a deduplicated rolled-up Conflict and/or Review indicator reflecting
+ *     whether ANY child recording is in that state. At most one badge per kind,
+ *     up to three total. The project-own badge opens its workflow; a roll-up
+ *     opens the project.
  *
  * The expected indicator set is re-derived independently from the generated
  * scenario (not from the implementation) and used as the oracle.
@@ -29,7 +33,7 @@
  * Uses Node.js built-in test runner + fast-check (fast-check v4: `fc.uuid()` for
  * ids).
  *
- * **Validates: Requirements 13.1, 13.4, 13.5**
+ * **Validates: Requirements 13.1, 13.4, 13.5, 13.6, 13.7**
  *
  * This file is part of Docent.
  * Licensed under the GNU General Public License v3.0
@@ -45,6 +49,7 @@ import fc from 'fast-check';
 import {
   deriveIndicators,
   getProjectIndicator,
+  getProjectRowIndicators,
   getRecordingIndicator,
 } from '../../sync-conflict-ui.js';
 
@@ -182,6 +187,46 @@ function expectedIndicators(scenario) {
 
 const byUnitRef = (a, b) => a.unitRef.localeCompare(b.unitRef);
 
+/**
+ * Independently re-derive the EXPECTED project-ROW badge set for one project from
+ * the scenario (the oracle for {@link getProjectRowIndicators}). Mirrors
+ * R13.4–R13.7: the project-own badge (when the project Unit itself has an item),
+ * then a deduplicated recording Conflict roll-up (when any child is a conflict),
+ * then a recording Review roll-up (when any child is a review) — in that order.
+ *
+ * @param {{project_id: string, projectItem: ('review'|'conflict'|null), recordings: {recording_id: string, kind: 'review'|'conflict'}[]}} proj
+ * @returns {Array<{scope: string, kind: string, unitRef: string|null, project_id: string}>}
+ */
+function expectedRowBadges(proj) {
+  const out = [];
+  if (proj.projectItem != null) {
+    out.push({
+      scope: 'project-own',
+      kind: proj.projectItem,
+      unitRef: proj.project_id,
+      project_id: proj.project_id,
+    });
+  }
+  const recKinds = new Set(proj.recordings.map((r) => r.kind));
+  if (recKinds.has('conflict')) {
+    out.push({
+      scope: 'recording-rollup',
+      kind: 'conflict',
+      unitRef: null,
+      project_id: proj.project_id,
+    });
+  }
+  if (recKinds.has('review')) {
+    out.push({
+      scope: 'recording-rollup',
+      kind: 'review',
+      unitRef: null,
+      project_id: proj.project_id,
+    });
+  }
+  return out;
+}
+
 // ─── Property 24 ───────────────────────────────────────────────────────────────
 
 describe('Property 24: Attention indicators are derived correctly and distinguish review from conflict', () => {
@@ -311,6 +356,147 @@ describe('Property 24: Attention indicators are derived correctly and distinguis
     assert.ok(recInd);
     assert.equal(recInd.level, 'recording');
     assert.equal(recInd.kind, 'conflict');
+  });
+
+  // ─── Project-ROW roll-up badges (R13.4–R13.7) ──────────────────────────────
+
+  describe('getProjectRowIndicators rolls up project + child attention (R13.4–R13.7)', () => {
+    it('returns exactly the deduplicated project-own + recording-rollup badge set, in order', () => {
+      fc.assert(
+        fc.property(arbScenario, (scenario) => {
+          const state = buildState(scenario);
+          const indicators = deriveIndicators(state);
+
+          for (const proj of scenario) {
+            const actual = getProjectRowIndicators(indicators, proj.project_id);
+            const expected = expectedRowBadges(proj);
+
+            // EXACT set + ORDER: the row badges equal the independently-derived
+            // oracle, in the contract order (project-own, conflict roll-up,
+            // review roll-up).
+            assert.deepStrictEqual(
+              actual,
+              expected,
+              `row badges for ${proj.project_id} must equal the oracle in order`,
+            );
+
+            // At most ONE badge per kind/scope pairing — never duplicated by N
+            // child recordings of the same kind.
+            const seen = new Set();
+            for (const b of actual) {
+              const key = `${b.scope}:${b.kind}`;
+              assert.ok(!seen.has(key), `duplicate row badge ${key} for ${proj.project_id}`);
+              seen.add(key);
+            }
+            assert.ok(actual.length <= 3, 'a project row shows at most three badges');
+
+            // A recording roll-up never carries a unitRef (it is not a single
+            // resolvable Unit); the project-own badge always does.
+            for (const b of actual) {
+              if (b.scope === 'recording-rollup') {
+                assert.equal(b.unitRef, null, 'a roll-up badge has no unitRef (opens the project)');
+              } else {
+                assert.equal(
+                  b.unitRef,
+                  proj.project_id,
+                  'the project-own badge carries its unitRef',
+                );
+              }
+            }
+          }
+        }),
+        { numRuns: 200 },
+      );
+    });
+
+    it('child-only attention still yields a project-row badge — the recording roll-up — even with no project-own badge (R13.6)', () => {
+      fc.assert(
+        fc.property(arbScenario, (scenario) => {
+          const state = buildState(scenario);
+          const indicators = deriveIndicators(state);
+
+          for (const proj of scenario) {
+            const childKinds = new Set(proj.recordings.map((r) => r.kind));
+            const rowBadges = getProjectRowIndicators(indicators, proj.project_id);
+
+            // Whenever ANY child recording needs attention, the project ROW shows
+            // a badge (so the user sees it without opening the project, R13.6) —
+            // even when the project Unit itself has none (R13.4).
+            if (childKinds.size > 0) {
+              assert.ok(
+                rowBadges.length > 0,
+                `project ${proj.project_id} with child attention must show a row badge (R13.6)`,
+              );
+            }
+            // The roll-up reflects exactly which child kinds are present.
+            const rollupKinds = new Set(
+              rowBadges.filter((b) => b.scope === 'recording-rollup').map((b) => b.kind),
+            );
+            assert.deepStrictEqual(
+              [...rollupKinds].sort(),
+              [...childKinds].sort(),
+              'recording roll-up kinds must equal the distinct child-recording kinds',
+            );
+          }
+        }),
+        { numRuns: 200 },
+      );
+    });
+  });
+
+  it('three conflicting child recordings collapse to a SINGLE conflict roll-up on the project row (R13.6)', () => {
+    const state = {
+      schema: 1,
+      baselines: {},
+      snapshots: {},
+      reviews: {},
+      conflicts: {
+        'p1:r1': makeItem('conflict', 'p1:r1', 'p1', 'r1'),
+        'p1:r2': makeItem('conflict', 'p1:r2', 'p1', 'r2'),
+        'p1:r3': makeItem('conflict', 'p1:r3', 'p1', 'r3'),
+      },
+    };
+    const indicators = deriveIndicators(state);
+    const rowBadges = getProjectRowIndicators(indicators, 'p1');
+
+    // No project-own item, three child conflicts → exactly ONE conflict roll-up.
+    assert.equal(rowBadges.length, 1);
+    assert.deepStrictEqual(rowBadges[0], {
+      scope: 'recording-rollup',
+      kind: 'conflict',
+      unitRef: null,
+      project_id: 'p1',
+    });
+  });
+
+  it('a project with its own review + a child conflict + a child review shows all THREE row badges (R13.5, R13.6)', () => {
+    const state = {
+      schema: 1,
+      baselines: {},
+      snapshots: {},
+      reviews: {
+        p9: makeItem('review', 'p9', 'p9', null),
+        'p9:rR': makeItem('review', 'p9:rR', 'p9', 'rR'),
+      },
+      conflicts: {
+        'p9:rC': makeItem('conflict', 'p9:rC', 'p9', 'rC'),
+      },
+    };
+    const indicators = deriveIndicators(state);
+    const rowBadges = getProjectRowIndicators(indicators, 'p9');
+
+    // Order: project-own (review), recording conflict roll-up, recording review roll-up.
+    assert.deepStrictEqual(rowBadges, [
+      { scope: 'project-own', kind: 'review', unitRef: 'p9', project_id: 'p9' },
+      { scope: 'recording-rollup', kind: 'conflict', unitRef: null, project_id: 'p9' },
+      { scope: 'recording-rollup', kind: 'review', unitRef: null, project_id: 'p9' },
+    ]);
+  });
+
+  it('a project with no attention has no row badges', () => {
+    const state = { schema: 1, baselines: {}, snapshots: {}, reviews: {}, conflicts: {} };
+    const indicators = deriveIndicators(state);
+    assert.deepStrictEqual(getProjectRowIndicators(indicators, 'p-none'), []);
   });
 
   it('an empty or absent SyncState yields no indicators', () => {

@@ -39,9 +39,10 @@ import { createAutoSyncHost } from './auto-sync-host.js';
 import {
   UI_ACTIONS,
   deriveIndicators,
-  getProjectIndicator,
+  getProjectRowIndicators,
   getRecordingIndicator,
   renderIndicatorBadge,
+  renderProjectRowBadge,
   renderWorkflow,
 } from '../shared/sync-conflict-ui.js';
 import {
@@ -686,9 +687,10 @@ function renderProjectsList() {
     li.querySelector('[data-action="delete"]').addEventListener('click', () =>
       deleteProject(p.project_id, p.name),
     );
-    // Project-level attention badge: shown only when the project Unit itself
-    // needs attention (R13.4/R13.5). Activating it opens the workflow (R13.3).
-    attachAttentionBadge(li, getProjectIndicator(indicators, p.project_id));
+    // Project-row attention badges (R13.4–R13.7): the project Unit's own badge
+    // (opens its workflow, R13.3) plus rolled-up recording-conflict /
+    // recording-review badges (open the project, R13.7), deduped to one of each.
+    attachProjectRowBadges(li, getProjectRowIndicators(indicators, p.project_id));
     projectList.appendChild(li);
   });
 
@@ -1876,11 +1878,11 @@ function showSyncSummary(result) {
     // transient and resolve by ending capture / closing the open recording / retrying.
     const haltMessages = {
       auth: 'Sync halted: authentication failed. Check your API key in Settings.',
-      'capture-active': 'Sync paused while you’re recording. It will run once you stop capturing.',
+      'capture-active': "Sync paused while you're recording. Stop capture, then sync again.",
       'pending-actions-unprotected':
-        'Sync paused: a recording has uncommitted actions. Commit or close it, then sync again.',
+        'Sync paused: a recording has uncommitted actions. Commit or clear them, then sync again.',
       'internal-error':
-        'Sync was blocked to protect your data and made no changes. Please try again.',
+        'Sync stopped to protect your data and made no changes. Your work and any pending items are preserved.',
     };
     alert(haltMessages[result.haltReason] ?? 'Sync halted. Please try again.');
     return;
@@ -1911,7 +1913,8 @@ function showSyncSummary(result) {
     parts.push(
       `Auto-applied ${autoAppliedDeletions.length} deletion${autoAppliedDeletions.length !== 1 ? 's' : ''}`,
     );
-  if (review.length > 0) parts.push(`${review.length} to review`);
+  if (review.length > 0)
+    parts.push(`${review.length} change${review.length !== 1 ? 's' : ''} to review`);
   if (conflicts.length > 0)
     parts.push(`${conflicts.length} conflict${conflicts.length !== 1 ? 's' : ''}`);
   if (result.errors.length > 0)
@@ -1970,6 +1973,38 @@ function attachAttentionBadge(li, indicator) {
       openConflictWorkflow(badge.dataset.unitRef);
     }
   });
+}
+
+/**
+ * Attach the project-ROW attention badges to a project row (R13.4–R13.7). Renders
+ * each {@link ProjectRowBadge} from {@link getProjectRowIndicators} and wires its
+ * activation by scope: the project Unit's OWN badge opens that Unit's resolution
+ * workflow (`open-workflow`, R13.3); a rolled-up recordings badge opens the
+ * project so its per-recording badges become visible (`open-project`, R13.7).
+ *
+ * @param {HTMLElement} li - the project list row
+ * @param {import('../shared/sync-conflict-ui.js').ProjectRowBadge[]} badges
+ */
+function attachProjectRowBadges(li, badges) {
+  if (!badges || badges.length === 0) return;
+  const actions = li.querySelector('.card-item-actions') ?? li;
+  // Insert in reverse so the rendered order (own, conflict roll-up, review
+  // roll-up) is preserved when each is placed before the existing controls.
+  for (let i = badges.length - 1; i >= 0; i--) {
+    const html = renderProjectRowBadge(badges[i]);
+    if (!html) continue;
+    const wrapper = document.createElement('template');
+    wrapper.innerHTML = html.trim();
+    const badge = wrapper.content.firstChild;
+    badge.addEventListener('click', () => {
+      if (badge.dataset.action === UI_ACTIONS.OPEN_PROJECT) {
+        openProject(badge.dataset.projectId);
+      } else if (badge.dataset.action === UI_ACTIONS.OPEN_WORKFLOW) {
+        openConflictWorkflow(badge.dataset.unitRef);
+      }
+    });
+    actions.insertBefore(badge, actions.firstChild);
+  }
 }
 
 /** Lazily create the overlay that hosts the resolution workflow HTML. */

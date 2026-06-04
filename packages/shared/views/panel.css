@@ -1095,6 +1095,16 @@ input[type='password']:focus {
   filter: brightness(1.05);
 }
 
+/*
+ * Rolled-up project-row badge (R13.7): stands for one or more child recordings
+ * needing attention rather than the project Unit itself. Styled like a normal
+ * attention badge (same Review/Conflict colours) with a subtle dashed border so
+ * it reads as "open to see which recordings", not a directly-resolvable Unit.
+ */
+.attention-badge--rollup {
+  border-style: dashed;
+}
+
 /* ── Sync resolution workflow ─────────────────────────────────────────────── */
 
 .sync-workflow {

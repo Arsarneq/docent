@@ -34,8 +34,10 @@ import {
   UI_ACTIONS,
   deriveIndicators,
   getProjectIndicator,
+  getProjectRowIndicators,
   getRecordingIndicator,
   renderIndicatorBadge,
+  renderProjectRowBadge,
   routeWorkflow,
   renderWorkflow,
   renderReviewWorkflow,
@@ -313,5 +315,75 @@ describe('Activating an indicator opens the workflow (R13.3, R12.1)', () => {
     assert.equal(result.kind, null);
     assert.equal(result.redirected, false);
     assert.ok(result.html.includes('Nothing to resolve'));
+  });
+});
+
+// ─── R13.4–R13.7 — Project-row roll-up badges ─────────────────────────────────
+
+describe('Project-row roll-up badges (R13.4–R13.7)', () => {
+  it('rolls up a child conflict to a single open-project badge when the project itself is clean (R13.6, R13.7)', () => {
+    // Seeded state has a recording-level Review under REVIEW_PROJECT and a
+    // recording-level Conflict under CONFLICT_PROJECT; neither project Unit
+    // itself has an item.
+    const state = seedState();
+    const indicators = deriveIndicators(state);
+
+    // The project Unit itself is clean, so no project-own badge…
+    assert.equal(getProjectIndicator(indicators, CONFLICT_PROJECT), null);
+    // …but the row still shows a rolled-up conflict badge for its child (R13.6).
+    const rowBadges = getProjectRowIndicators(indicators, CONFLICT_PROJECT);
+    assert.equal(rowBadges.length, 1);
+    assert.equal(rowBadges[0].scope, 'recording-rollup');
+    assert.equal(rowBadges[0].kind, 'conflict');
+    assert.equal(rowBadges[0].unitRef, null);
+
+    // The rendered roll-up badge opens the PROJECT (R13.7), not a workflow.
+    const html = renderProjectRowBadge(rowBadges[0]);
+    assert.ok(html.includes(`data-action="${UI_ACTIONS.OPEN_PROJECT}"`));
+    assert.ok(html.includes(`data-project-id="${CONFLICT_PROJECT}"`));
+    assert.ok(html.includes('attention-badge--conflict'));
+    assert.ok(html.includes('attention-badge--rollup'));
+    assert.ok(html.includes('Conflict'));
+    // A roll-up is not a single resolvable Unit, so it carries no unitRef.
+    assert.ok(!html.includes('data-unit-ref'));
+    assert.ok(!html.includes(`data-action="${UI_ACTIONS.OPEN_WORKFLOW}"`));
+  });
+
+  it("a project's OWN badge opens its workflow (R13.3, R13.5)", () => {
+    const state = createEmptySyncState();
+    upsertReview(state, 'proj-own', makeReviewIncoming()); // project-level Review
+    const indicators = deriveIndicators(state);
+
+    const rowBadges = getProjectRowIndicators(indicators, 'proj-own');
+    assert.equal(rowBadges.length, 1);
+    assert.equal(rowBadges[0].scope, 'project-own');
+    assert.equal(rowBadges[0].unitRef, 'proj-own');
+
+    const html = renderProjectRowBadge(rowBadges[0]);
+    assert.ok(html.includes(`data-action="${UI_ACTIONS.OPEN_WORKFLOW}"`));
+    assert.ok(html.includes('data-unit-ref="proj-own"'));
+    assert.ok(html.includes('attention-badge--review'));
+    // The project-own badge is NOT a roll-up.
+    assert.ok(!html.includes('attention-badge--rollup'));
+    assert.ok(!html.includes(`data-action="${UI_ACTIONS.OPEN_PROJECT}"`));
+  });
+
+  it('shows up to three badges (own + conflict roll-up + review roll-up) on one project row (R13.5, R13.6)', () => {
+    const state = createEmptySyncState();
+    upsertReview(state, 'p', makeReviewIncoming()); // the project Unit's own Review
+    upsertConflict(state, 'p:rC', makeConflictLocal(), makeConflictIncoming()); // child Conflict
+    upsertReview(state, 'p:rR', makeReviewIncoming()); // child Review
+    const indicators = deriveIndicators(state);
+
+    const rowBadges = getProjectRowIndicators(indicators, 'p');
+    assert.deepEqual(
+      rowBadges.map((b) => `${b.scope}:${b.kind}`),
+      ['project-own:review', 'recording-rollup:conflict', 'recording-rollup:review'],
+    );
+  });
+
+  it('renderProjectRowBadge returns empty string for no badge', () => {
+    assert.equal(renderProjectRowBadge(null), '');
+    assert.equal(renderProjectRowBadge(undefined), '');
   });
 });

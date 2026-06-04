@@ -24,9 +24,10 @@ import { testConnection, settingsFingerprint } from '../shared/connection-test.j
 import { acceptReview, declineReview, resolveConflict } from '../shared/conflict-resolution.js';
 import {
   deriveIndicators,
-  getProjectIndicator,
+  getProjectRowIndicators,
   getRecordingIndicator,
   renderIndicatorBadge,
+  renderProjectRowBadge,
   renderWorkflow,
   buildResolvedState,
   UI_ACTIONS,
@@ -327,10 +328,11 @@ async function loadProjectsList() {
     li.querySelector('[data-action="delete"]').addEventListener('click', () =>
       deleteProject(p.project_id, p.name),
     );
-    // Project-level attention indicator (R13.1, R13.5): shown only when the
-    // project Unit itself needs attention; a project whose only attention is in a
-    // child recording shows none here (R13.4).
-    attachIndicatorBadge(li, getProjectIndicator(indicators, p.project_id));
+    // Project-row attention badges (R13.4–R13.7): the project Unit's own badge
+    // (if it itself needs attention) plus rolled-up recording-conflict /
+    // recording-review badges (if any child recording does), deduped to one of
+    // each kind. The own badge opens its workflow; a roll-up opens the project.
+    attachProjectRowBadges(li, getProjectRowIndicators(indicators, p.project_id));
     projectList.appendChild(li);
   });
 
@@ -1564,7 +1566,7 @@ function showSyncSummary(result) {
     // All existing deferred state is preserved on every halt path.
     switch (result.haltReason) {
       case 'capture-active':
-        alert('Sync paused while you are recording. Stop capture, then sync again.');
+        alert("Sync paused while you're recording. Stop capture, then sync again.");
         return;
       case 'pending-actions-unprotected':
         alert(
@@ -1572,7 +1574,9 @@ function showSyncSummary(result) {
         );
         return;
       case 'internal-error':
-        alert('Sync stopped to protect your data. Your work and any pending items are preserved.');
+        alert(
+          'Sync stopped to protect your data and made no changes. Your work and any pending items are preserved.',
+        );
         return;
       case 'auth':
       default:
@@ -1617,7 +1621,9 @@ function showSyncSummary(result) {
   let message = parts.join('. ') + '.';
   // Point the user at where to act when there is anything needing attention.
   if (review.length > 0 || conflicts.length > 0) {
-    message += '\n\nOpen the affected projects to review changes and resolve conflicts.';
+    message +=
+      '\n\nProjects and recordings needing your attention are marked in the list — ' +
+      'select a marker to review or resolve them.';
   }
   // Spell out why incompatible projects were skipped so the user can act
   // (update Docent, or pin the producing version).
@@ -1653,6 +1659,38 @@ function attachIndicatorBadge(li, indicator) {
   // Place the badge in the row's main column so it reads with the name/meta.
   const main = li.querySelector('.card-item-main') ?? li;
   main.appendChild(badge);
+}
+
+/**
+ * Attach the project-ROW attention badges to a project row (R13.4–R13.7). Renders
+ * each {@link ProjectRowBadge} from {@link getProjectRowIndicators} and wires its
+ * activation by scope: the project Unit's OWN badge opens that Unit's resolution
+ * workflow (`open-workflow`, R13.3); a rolled-up recordings badge opens the
+ * project so its per-recording badges become visible (`open-project`, R13.7).
+ *
+ * @param {HTMLElement} li - the project card-item `<li>`
+ * @param {import('../shared/sync-conflict-ui.js').ProjectRowBadge[]} badges
+ */
+function attachProjectRowBadges(li, badges) {
+  if (!badges || badges.length === 0) return;
+  const main = li.querySelector('.card-item-main') ?? li;
+  for (const badgeData of badges) {
+    const html = renderProjectRowBadge(badgeData);
+    if (!html) continue;
+    const wrapper = document.createElement('template');
+    wrapper.innerHTML = html.trim();
+    const badge = wrapper.content.firstChild;
+    badge.addEventListener('click', (e) => {
+      // Don't let the badge click also trigger the row's open handler.
+      e.stopPropagation();
+      if (badge.dataset.action === UI_ACTIONS.OPEN_PROJECT) {
+        openProject(badge.dataset.projectId);
+      } else {
+        openWorkflow(badge.dataset.unitRef);
+      }
+    });
+    main.appendChild(badge);
+  }
 }
 
 /**
