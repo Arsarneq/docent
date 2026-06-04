@@ -795,6 +795,46 @@ textarea:focus {
   display: none;
 }
 
+/*
+ * Helper text under a setting (e.g. the "Recordings you haven't changed" hint
+ * on the Auto-Accept toggles, the Auto-Sync enable prompt, and the
+ * Connection_Test result). Reused on both platforms for R22/R23 parity.
+ */
+.settings-hint {
+  font-size: 11px;
+  color: var(--color-muted);
+  margin-top: 4px;
+}
+
+.settings-hint.hidden {
+  display: none;
+}
+
+/* An error-flavored Connection_Test / auth result. */
+.settings-hint.is-error {
+  color: var(--color-danger);
+}
+
+/* A passing Connection_Test result. */
+.settings-hint.is-ok {
+  color: var(--color-accent);
+}
+
+/*
+ * "Auto-sync active" status indicator (R23.5). Shown only while Auto-Sync is
+ * enabled and running; the accent color marks it as an active, healthy state.
+ */
+.settings-status {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--color-accent);
+  margin-top: 8px;
+}
+
+.settings-status.hidden {
+  display: none;
+}
+
 input[type='password'] {
   width: 100%;
   background-color: var(--color-surface);
@@ -1010,4 +1050,167 @@ input[type='password']:focus {
   margin: 0;
   text-transform: none;
   letter-spacing: normal;
+}
+
+/* ── Sync attention indicators ────────────────────────────────────────────── */
+
+/*
+ * Activatable attention badge shown on a project/recording row when the Unit
+ * needs the user's attention. Distinguishes Review-and-Accept (an incoming
+ * change to confirm) from Conflict (both sides changed). Rendered by
+ * sync-conflict-ui.js renderIndicatorBadge() and wired by each panel.
+ */
+.attention-badge {
+  font-size: 10px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 99px;
+  border: 1px solid transparent;
+  cursor: pointer;
+  margin-top: 4px;
+  align-self: flex-start;
+  white-space: nowrap;
+}
+
+.attention-badge--review {
+  background: var(--color-accent-soft);
+  color: var(--color-accent-on-soft);
+  border-color: var(--color-accent);
+}
+
+.attention-badge--conflict {
+  background: var(--color-accent-soft);
+  color: var(--color-danger);
+  border-color: var(--color-danger);
+}
+
+.attention-badge:hover {
+  filter: brightness(1.05);
+}
+
+/* ── Sync resolution workflow ─────────────────────────────────────────────── */
+
+.sync-workflow {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 4px 0;
+}
+
+.sync-workflow-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.sync-workflow-desc {
+  font-size: 12px;
+  color: var(--color-muted);
+}
+
+.sync-workflow-redirect {
+  font-size: 12px;
+  color: var(--color-danger);
+  background: var(--color-accent-soft);
+  padding: 6px 10px;
+  border-radius: var(--radius);
+}
+
+.sync-workflow-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.sync-workflow-status {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--color-accent-on-soft);
+}
+
+.sync-conflict-sides {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.sync-conflict-side {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  background: var(--color-surface);
+}
+
+.sync-conflict-side-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.sync-unit-summary {
+  font-size: 12px;
+  color: var(--color-text);
+}
+
+.sync-unit-summary--deleted {
+  color: var(--color-danger);
+  font-style: italic;
+}
+
+.sync-unit-name {
+  font-weight: 600;
+}
+
+.sync-unit-meta {
+  font-size: 11px;
+  color: var(--color-muted);
+}
+
+.sync-step-list {
+  margin: 4px 0 0;
+  padding-left: 18px;
+  color: var(--color-muted);
+}
+
+.sync-step {
+  font-size: 11px;
+}
+
+/* ── Sync resolution workflow overlay ─────────────────────────────────────── */
+
+/*
+ * Modal overlay that hosts the shared resolution workflow (renderWorkflow()).
+ * A panel that has no dedicated workflow <section> renders the workflow here,
+ * over the current view, and closes it on resolution or dismissal.
+ */
+.sync-workflow-overlay {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  background: rgb(0 0 0 / 45%);
+  z-index: 1000;
+}
+
+.sync-workflow-dialog {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: 100%;
+  max-width: 480px;
+  max-height: 90%;
+  overflow-y: auto;
+  padding: 16px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+}
+
+.sync-workflow-close {
+  align-self: flex-end;
 }

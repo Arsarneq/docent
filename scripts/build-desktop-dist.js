@@ -40,7 +40,13 @@ html = html.replace(/\.\.\/shared\//g, 'shared/');
 writeFileSync(indexPath, html);
 
 // Rewrite JS imports in all .js files in dist/
-for (const file of ['panel.js', 'adapter-tauri.js', 'dispatch.js', 'persistence.js']) {
+for (const file of [
+  'panel.js',
+  'adapter-tauri.js',
+  'auto-sync-host.js',
+  'dispatch.js',
+  'persistence.js',
+]) {
   const filePath = join(distDir, file);
   if (existsSync(filePath)) {
     let js = readFileSync(filePath, 'utf8');

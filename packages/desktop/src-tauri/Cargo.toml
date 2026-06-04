@@ -5,7 +5,7 @@ edition = "2021"
 description = "Docent Desktop — captures demonstrated workflows as structured data, not code"
 
 [dependencies]
-tauri = { version = "2", features = [] }
+tauri = { version = "2", features = ["tray-icon"] }
 tauri-plugin-dialog = "2"
 tauri-plugin-fs = "2"
 serde = { version = "1", features = ["derive"] }

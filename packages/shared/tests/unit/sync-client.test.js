@@ -561,7 +561,7 @@ describe('sync', () => {
     assert.equal(projects[1].project_id, SERVER_NEW);
   });
 
-  it('executes push before pull (push fetch calls precede pull fetch calls)', async () => {
+  it('executes pull before push (pull fetch calls precede the push PUT)', async () => {
     const SRV1 = '0190a1b2-0000-7000-8000-0000000000c1';
     const localProjects = [makeProject('p1')];
     const manifest = [
@@ -581,14 +581,20 @@ describe('sync', () => {
 
     await sync('https://srv.test', null, localProjects, STUB_SCHEMA, passValidator);
 
-    // First call should be the PUT (push), then GET /projects (pull manifest)
-    assert.equal(fetchCalls[0].options.method, 'PUT');
-    assert.ok(fetchCalls[0].url.includes('/projects/p1'));
+    // Pull-first order (R20.1): the GET /projects manifest and per-project pull
+    // GET come first; the PUT (push) runs only after pull + reconcile complete.
+    assert.equal(fetchCalls[0].options.method, 'GET');
+    assert.ok(fetchCalls[0].url.endsWith('/projects'));
     assert.equal(fetchCalls[1].options.method, 'GET');
-    assert.ok(fetchCalls[1].url.endsWith('/projects'));
+    assert.ok(fetchCalls[1].url.endsWith(`/projects/${SRV1}`));
+    const putCall = fetchCalls.find((c) => c.options.method === 'PUT');
+    assert.ok(putCall, 'a PUT (push) request was issued after the pull');
+    assert.ok(putCall.url.includes('/projects/p1'));
+    // The push PUT is the LAST request — it never precedes a pull GET.
+    assert.equal(fetchCalls[fetchCalls.length - 1].options.method, 'PUT');
   });
 
-  it('401 on push halts sync, returns halted=true', async () => {
+  it('401 on the pull manifest (the first request) halts sync before any push', async () => {
     const localProjects = [makeProject('p1')];
 
     mockFetch(() => makeResponse(401));
@@ -606,17 +612,21 @@ describe('sync', () => {
     assert.equal(result.pulled.length, 0);
     // Projects unchanged
     assert.deepEqual(projects, localProjects);
-    // No pull calls should have been made (only 1 push call)
+    // Pull-first: the manifest GET is the first request and fails, so no push
+    // is ever attempted (only the 1 manifest call).
     assert.equal(fetchCalls.length, 1);
+    assert.equal(fetchCalls[0].options.method, 'GET');
   });
 
-  it('403 on pull manifest halts sync, returns halted=true', async () => {
+  it('401 on push halts sync after a successful pull+reconcile (nothing pushed)', async () => {
     const localProjects = [makeProject('p1')];
 
+    // Pull manifest succeeds with an empty server (no per-project GETs); the
+    // push PUT then returns 401. In pull-first order the push runs last, so the
+    // pull and reconcile have already completed when the auth failure occurs.
     mockFetch((url, opts) => {
-      if (opts.method === 'PUT') return makeResponse(200, { ok: true });
-      // Pull manifest returns 403
-      if (url.endsWith('/projects') && opts.method === 'GET') return makeResponse(403);
+      if (opts.method === 'PUT') return makeResponse(401);
+      if (url.endsWith('/projects') && opts.method === 'GET') return makeResponse(200, []);
       return makeResponse(404);
     });
 
@@ -629,9 +639,13 @@ describe('sync', () => {
     );
 
     assert.equal(result.halted, true);
-    assert.deepEqual(result.pushed, ['p1']);
+    assert.equal(result.haltReason, 'auth');
+    assert.deepEqual(result.pushed, [], 'the push that returned 401 is not counted as pushed');
     assert.equal(result.pulled.length, 0);
     assert.deepEqual(projects, localProjects);
+    // Order: GET /projects (manifest), then PUT /projects/p1 (the auth failure).
+    assert.equal(fetchCalls[0].options.method, 'GET');
+    assert.equal(fetchCalls[fetchCalls.length - 1].options.method, 'PUT');
   });
 
   it('network error (fetch throws) produces SyncError with null status', async () => {

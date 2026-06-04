@@ -390,6 +390,33 @@
   <ul id="recording-selector-list" class="card-list"></ul>
 </section>
 
+<!-- ── View: Sync resolution workflow ──────────────────────────── -->
+<!--
+  Host for the shared conflict-resolution workflow (sync-conflict-ui.js).
+  panel.js renders the Review accept/decline view or the Conflict
+  local-vs-incoming chooser into #sync-workflow-body and wires the
+  [data-action] controls. Used identically by the extension and desktop
+  panels (R12, R17.2).
+-->
+<section id="view-sync-workflow" class="view hidden">
+  <div class="view-back-header">
+    <button id="btn-sync-workflow-back" class="btn btn--ghost">
+      <svg viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+        <path
+          d="M12 4l-6 6 6 6"
+          stroke="currentColor"
+          stroke-width="1.8"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        />
+      </svg>
+      Back
+    </button>
+    <span>Resolve</span>
+  </div>
+  <div id="sync-workflow-body"></div>
+</section>
+
 <!-- ── View: Settings ──────────────────────────────────────────── -->
 <section id="view-settings" class="view hidden">
   <div class="view-back-header">
@@ -552,6 +579,51 @@
     <div class="form-actions">
       <button id="btn-settings-sync-save" class="btn btn--primary btn--sm">Save</button>
     </div>
+  </div>
+
+  <!--
+    Reconciliation-policy settings (R22). Two independent, client-local toggles
+    that move safe-but-incoming reconciliation from "held for review" to
+    "applied automatically" without ever auto-resolving a divergence. Both
+    default OFF; values are per-client and never sent to the Sync_Server.
+  -->
+  <div class="settings-group" id="settings-reconciliation">
+    <label class="settings-label">Reconciliation</label>
+
+    <label class="toggle-row">
+      <input type="checkbox" id="toggle-auto-accept-updates" />
+      <span class="toggle-label">Auto-accept updates</span>
+    </label>
+    <p class="settings-hint">Recordings you haven't changed</p>
+
+    <label class="toggle-row" style="margin-top: 10px">
+      <input type="checkbox" id="toggle-auto-accept-deletions" />
+      <span class="toggle-label">Auto-accept deletions</span>
+    </label>
+    <p class="settings-hint">Recordings you haven't changed</p>
+  </div>
+
+  <!--
+    Auto-Sync settings (R23). Auto-Sync only changes *what triggers* a cycle.
+    It can be enabled ONLY after a Connection_Test passes for the current server
+    settings (R23.2); changing the endpoint/API key invalidates the test and
+    forces it off until a fresh test passes (R23.3). While active, the manual
+    Sync button is hidden and an "Auto-sync active" indicator is shown.
+  -->
+  <div class="settings-group" id="settings-auto-sync">
+    <label class="settings-label">Auto-sync</label>
+
+    <div class="form-actions">
+      <button id="btn-test-connection" class="btn btn--secondary btn--sm">Test connection</button>
+    </div>
+    <p id="settings-connection-status" class="settings-hint hidden"></p>
+
+    <label class="toggle-row" style="margin-top: 10px">
+      <input type="checkbox" id="toggle-auto-sync" disabled />
+      <span class="toggle-label">Auto-sync</span>
+    </label>
+    <p id="settings-auto-sync-hint" class="settings-hint hidden"></p>
+    <p id="settings-auto-sync-status" class="settings-status hidden">Auto-sync active</p>
   </div>
 </section>
 

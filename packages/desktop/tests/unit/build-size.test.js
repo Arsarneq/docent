@@ -23,6 +23,21 @@
  *     imported/synced payloads. Deliberate security artifact, not accidental
  *     bloat — budget raised to fit it plus normal headroom, and kept aligned
  *     with the extension's JS budget.
+ *   - Raised to 480KB for the sync-conflict-resolution feature: graded conflict
+ *     resolution is implemented as a set of shared `packages/shared` modules
+ *     (sync-client rewrite, conflict-detector, conflict-resolution,
+ *     sync-conflict-ui, sync-store, sync-baseline, sync-digest, sync-types) that
+ *     sync-shared copies into the desktop dist so both platforms get identical
+ *     behavior (R17.1). This ~90KB of shared logic is a deliberate feature
+ *     artifact, not accidental bloat; the budget was raised to fit it plus
+ *     normal headroom, and kept aligned with the extension's JS budget.
+ *   - Raised to 520KB for the Auto-Sync background host (R23): the shared
+ *     cooldown-debounced `sync-scheduler.js` (copied into the dist by
+ *     sync-shared) plus the desktop `src/auto-sync-host.js` host that wires the
+ *     ~60s backstop + data-event trigger to the shared `sync()` add ~22KB of
+ *     deliberate feature code (verified: the dist growth is entirely these two
+ *     modules, no new dependency). Budget raised to fit them plus normal
+ *     headroom.
  *
  * Requires `npm run build:desktop-dist` to have been run first.
  */
@@ -64,12 +79,12 @@ function formatSize(bytes) {
 }
 
 describe('Build size: Desktop dist', () => {
-  it('total JS size is under 360KB', () => {
+  it('total JS size is under 520KB', () => {
     const size = getDirSize(desktopDistDir, ['.js']);
     assert.ok(size > 0, 'No JS files found — has build:desktop-dist been run?');
     assert.ok(
-      size < 360 * 1024,
-      `Desktop dist JS is ${formatSize(size)} (soft limit: 360KB). Regression tripwire, not a platform limit — if the growth is an intentional artifact, raise the limit AND its rationale in this file's header; otherwise check for an accidental large dependency.`,
+      size < 520 * 1024,
+      `Desktop dist JS is ${formatSize(size)} (soft limit: 520KB). Regression tripwire, not a platform limit — if the growth is an intentional artifact, raise the limit AND its rationale in this file's header; otherwise check for an accidental large dependency.`,
     );
   });
 

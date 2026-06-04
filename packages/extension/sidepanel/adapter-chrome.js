@@ -24,6 +24,12 @@ const RECORDING_MODE_KEY = 'docentRecordingMode';
 const SYNC_URL_KEY = 'docentSyncUrl';
 const SYNC_API_KEY_KEY = 'docentSyncApiKey';
 
+// Durable conflict-handling state (baselines, snapshots, reviews, conflicts).
+// Persisted as one blob so it survives SW suspension and browser restarts
+// (R10.1). The shared sync-store module owns its shape; the adapter only
+// reads/writes the raw value through chrome.storage.local.
+const SYNC_STATE_KEY = 'docentSyncState';
+
 // ─── Secret helpers ───────────────────────────────────────────────────────────
 
 /**
@@ -115,6 +121,90 @@ const chromeAdapter = {
       } else {
         await chrome.storage.local.set({ [SYNC_API_KEY_KEY]: await encryptSecret(apiKey) });
       }
+    }
+  },
+
+  // ── Sync conflict-handling state (SyncStore adapter) ──────────────────────────
+
+  /**
+   * Load the persisted durable conflict-handling state blob (R10.1). Returns the
+   * raw stored value (or null when nothing is persisted yet); the shared
+   * sync-store `loadSyncState` normalizes it into the full SyncState shape, so
+   * the adapter never has to know the shape. A storage failure yields null so the
+   * shared layer falls back to a fresh empty state rather than throwing.
+   *
+   * @returns {Promise<unknown>}
+   */
+  async loadSyncState() {
+    try {
+      const result = await chrome.storage.local.get(SYNC_STATE_KEY);
+      return result[SYNC_STATE_KEY] ?? null;
+    } catch {
+      return null;
+    }
+  },
+
+  /**
+   * Persist the durable conflict-handling state blob (R10.1). The shared
+   * sync-store `saveSyncState` passes the already-normalized SyncState here; the
+   * adapter writes it verbatim under a single key.
+   *
+   * @param {object} state - the SyncState blob to persist
+   * @returns {Promise<void>}
+   */
+  async saveSyncState(state) {
+    await chrome.storage.local.set({ [SYNC_STATE_KEY]: state });
+  },
+
+  /**
+   * Subscribe to changes to the durable SyncState blob written by ANY context
+   * (R23.16). The background service worker hosts the Auto-Sync cycle and owns
+   * the `chrome.alarms` trigger; when a background cycle records new
+   * Review/Conflict items or auto-disables Auto-Sync after a 401/403 (R23.11),
+   * it rewrites this blob. The panel watches it so its attention indicators and
+   * its Settings state (the Auto-Sync toggle, the Connection_Test status, and
+   * the manual Sync button's visibility) stay in agreement with what the SW just
+   * did — even though the panel never owns the trigger itself. The callback
+   * receives the new raw blob (or null when cleared); the shared `loadSyncState`
+   * normalizes it.
+   *
+   * @param {(state: unknown) => void} callback
+   * @returns {void}
+   */
+  onSyncStateChange(callback) {
+    chrome.storage.onChanged.addListener((changes, area) => {
+      if (area === 'local' && changes[SYNC_STATE_KEY]) {
+        callback(changes[SYNC_STATE_KEY].newValue ?? null);
+      }
+    });
+  },
+
+  /**
+   * Read a synchronous-friendly snapshot of the live-work signals the shared
+   * `LiveState` adapter needs (R6, R7, R8): the capture flag, the open recording
+   * id, and the pending-action count. The service worker is the source of truth
+   * for all three (it writes `recording`, `activeRecordingId`, and `pendingCount`
+   * to chrome.storage.local), so reading them here keeps the live-work gate
+   * correct even when the panel is not on the recording view. The panel snapshots
+   * this once before each sync cycle and builds the synchronous `LiveState`
+   * accessors over it. A storage failure yields a safe, fully-idle snapshot.
+   *
+   * @returns {Promise<{recording: boolean, activeRecordingId: string|null, pendingCount: number}>}
+   */
+  async loadLiveState() {
+    try {
+      const result = await chrome.storage.local.get([
+        'recording',
+        'activeRecordingId',
+        'pendingCount',
+      ]);
+      return {
+        recording: result.recording === true,
+        activeRecordingId: result.activeRecordingId ?? null,
+        pendingCount: result.pendingCount ?? 0,
+      };
+    } catch {
+      return { recording: false, activeRecordingId: null, pendingCount: 0 };
     }
   },
 

@@ -19,6 +19,18 @@ import { validateEndpointUrl, buildPayload, sendPayload, DispatchError } from '.
 import { createDispatchCooldown } from '../shared/dispatch-cooldown.js';
 import { validatePayload } from '../shared/lib/validate-import.js';
 import { sync } from '../shared/sync-client.js';
+import { loadSyncState, saveSyncState, getSettings, setSettings } from '../shared/sync-store.js';
+import { testConnection, settingsFingerprint } from '../shared/connection-test.js';
+import { acceptReview, declineReview, resolveConflict } from '../shared/conflict-resolution.js';
+import {
+  deriveIndicators,
+  getProjectIndicator,
+  getRecordingIndicator,
+  renderIndicatorBadge,
+  renderWorkflow,
+  buildResolvedState,
+  UI_ACTIONS,
+} from '../shared/sync-conflict-ui.js';
 import { buildExport } from '../shared/lib/export-project.js';
 import adapter from './adapter-chrome.js';
 import {
@@ -46,6 +58,7 @@ const views = {
   recordingSelector: $('view-recording-selector'),
   dispatchConfirm: $('view-dispatch-confirm'),
   dispatchResult: $('view-dispatch-result'),
+  syncWorkflow: $('view-sync-workflow'),
 };
 
 const breadcrumb = $('breadcrumb');
@@ -143,6 +156,26 @@ const settingsSyncApiKey = $('settings-sync-api-key');
 const btnSettingsSyncSave = $('btn-settings-sync-save');
 const btnSync = $('btn-sync');
 
+// Reconciliation-policy + Auto-Sync settings (R22, R23). The two Auto-Accept
+// toggles set client-local reconciliation policy; the Auto-Sync toggle + the
+// Connection_Test flow drive the enable state machine. On the extension the
+// background SERVICE WORKER (task 24.4) owns the actual trigger — it observes
+// the persisted `autoSync` setting via chrome.storage.onChanged and runs the
+// `chrome.alarms` + data-event cycle. The panel only SETS policy/state and
+// REFLECTS what the SW did (e.g. a 401/403 auto-disable, R23.11); it never wires
+// the trigger itself.
+const toggleAutoAcceptUpdates = $('toggle-auto-accept-updates');
+const toggleAutoAcceptDeletions = $('toggle-auto-accept-deletions');
+const btnTestConnection = $('btn-test-connection');
+const settingsConnectionStatus = $('settings-connection-status');
+const toggleAutoSync = $('toggle-auto-sync');
+const settingsAutoSyncHint = $('settings-auto-sync-hint');
+const settingsAutoSyncStatus = $('settings-auto-sync-status');
+
+// Sync resolution workflow view
+const syncWorkflowBody = $('sync-workflow-body');
+const btnSyncWorkflowBack = $('btn-sync-workflow-back');
+
 // Recording selector
 const recordingSelectorList = $('recording-selector-list');
 const btnSelectorCancel = $('btn-selector-cancel');
@@ -175,6 +208,22 @@ const dispatchCooldown = createDispatchCooldown();
 let cooldownTimer = null; // setInterval handle while the cooldown counts down
 let syncSettings = { serverUrl: null, apiKey: null };
 let isSyncing = false;
+// Cached durable conflict-handling state (baselines, snapshots, reviews,
+// conflicts), loaded from chrome.storage.local via the SyncStore adapter. Used
+// to derive the attention indicators on the project/recording rows and to drive
+// the resolution workflow. Refreshed after each sync cycle and each resolution.
+let syncState = null;
+// The unitRef whose resolution workflow is currently open, or null when none.
+let workflowUnitRef = null;
+
+// The SyncStore seam (R10.1, R16.1, R17.1): a raw { load, save } pair over the
+// chrome.storage.local blob. The shared `loadSyncState`/`saveSyncState` helpers
+// (and `sync()` itself) normalize whatever `load()` returns into the full
+// SyncState shape, so this only moves the raw value in and out of storage.
+const adapterSyncStore = {
+  load: () => adapter.loadSyncState(),
+  save: (state) => adapter.saveSyncState(state),
+};
 let recordingMode = 'narration'; // 'narration' or 'simple'
 
 // ─── Messaging ────────────────────────────────────────────────────────────────
@@ -267,6 +316,7 @@ async function loadProjectsList() {
   projectsEmpty.classList.toggle('hidden', projects.length > 0);
 
   const htmlItems = renderProjectListHtml(projects);
+  const indicators = deriveIndicators(syncState);
   projects.forEach((p, i) => {
     const wrapper = document.createElement('template');
     wrapper.innerHTML = htmlItems[i].trim();
@@ -277,6 +327,10 @@ async function loadProjectsList() {
     li.querySelector('[data-action="delete"]').addEventListener('click', () =>
       deleteProject(p.project_id, p.name),
     );
+    // Project-level attention indicator (R13.1, R13.5): shown only when the
+    // project Unit itself needs attention; a project whose only attention is in a
+    // child recording shows none here (R13.4).
+    attachIndicatorBadge(li, getProjectIndicator(indicators, p.project_id));
     projectList.appendChild(li);
   });
 
@@ -377,6 +431,7 @@ function renderProjectDetail() {
   recordingsEmpty.classList.toggle('hidden', recordings.length > 0);
 
   const htmlItems = renderRecordingListHtml(recordings);
+  const indicators = deriveIndicators(syncState);
   recordings.forEach((r, i) => {
     const wrapper = document.createElement('template');
     wrapper.innerHTML = htmlItems[i].trim();
@@ -386,6 +441,12 @@ function renderProjectDetail() {
     );
     li.querySelector('[data-action="delete"]').addEventListener('click', () =>
       deleteRecording(r.recording_id, r.name),
+    );
+    // Recording-level attention indicator (R13.1, R13.4): always shown when the
+    // recording needs attention, regardless of the project-level indicator.
+    attachIndicatorBadge(
+      li,
+      getRecordingIndicator(indicators, activeProject.project_id, r.recording_id),
     );
     recordingList.appendChild(li);
   });
@@ -1113,6 +1174,12 @@ async function loadAndPopulateSyncSettings() {
   settingsSyncApiKey.value = syncSettings.apiKey ?? '';
   settingsSyncError.textContent = '';
   settingsSyncError.classList.add('hidden');
+  // Refresh the durable state so the policy toggles, the Connection_Test status,
+  // and the Auto-Sync enable state reflect the latest persisted settings —
+  // including any background auto-disable the service worker performed after a
+  // 401/403 (R23.11, R23.16).
+  syncState = await loadSyncState(adapterSyncStore);
+  updateAutoSyncControls();
 }
 
 btnSettingsSyncSave.addEventListener('click', async () => {
@@ -1133,18 +1200,284 @@ btnSettingsSyncSave.addEventListener('click', async () => {
   settingsSyncError.classList.add('hidden');
 
   try {
+    // Fingerprint the server settings BEFORE and AFTER the save so we can tell
+    // whether the endpoint or API key actually changed (R23.3). The fingerprint
+    // is computed over the PLAINTEXT key the panel holds in memory, never the
+    // at-rest envelope, so a restart that re-encrypts the secret does not read
+    // as a change (R23.3).
+    const prevFingerprint = settingsFingerprint(syncSettings.serverUrl, syncSettings.apiKey);
     await adapter.saveSyncSettings(url, apiKey);
     syncSettings = await adapter.loadSyncSettings();
+    const nextFingerprint = settingsFingerprint(syncSettings.serverUrl, syncSettings.apiKey);
+
+    // R23.3: when a server setting changes, invalidate the prior Connection_Test
+    // and disable Auto-Sync until a fresh test passes. Persisting `autoSync:false`
+    // is what the service worker observes (via chrome.storage.onChanged) to tear
+    // its background trigger down (R23.16). When the settings are unchanged the
+    // prior passing test still applies, so nothing is invalidated.
+    if (nextFingerprint !== prevFingerprint) {
+      await persistSettings({
+        autoSync: false,
+        connectionTest: null,
+        testedSettingsFingerprint: null,
+      });
+    }
     updateSyncButton();
+    updateAutoSyncControls();
   } catch (err) {
     settingsSyncError.textContent = err.message;
     settingsSyncError.classList.remove('hidden');
   }
 });
 
-function updateSyncButton() {
-  btnSync.disabled = !syncSettings.serverUrl || isSyncing;
+// ─── Reconciliation-policy + Auto-Sync settings state machine (R22, R23) ──────
+
+// True while a Connection_Test request is in flight, so the test button stays
+// disabled and the status line reads "Testing…" until it resolves.
+let connectionTestInFlight = false;
+
+/**
+ * Persist a partial reconciliation/Auto-Sync settings change into the durable
+ * SyncState (R22.3, R23.1). Reloads the latest state first so a concurrent
+ * background write by the service worker (e.g. recording a new Review item) is
+ * not clobbered, applies the patch through the shared `setSettings`, saves, and
+ * refreshes the cached `syncState`. Settings live ONLY in the SyncStore and are
+ * never transmitted to the Sync_Server (R22.3, R23.1).
+ *
+ * @param {Partial<import('../shared/sync-types.js').ReconciliationSettings>} patch
+ * @returns {Promise<void>}
+ */
+async function persistSettings(patch) {
+  const state = await loadSyncState(adapterSyncStore);
+  setSettings(state, patch);
+  await saveSyncState(adapterSyncStore, state);
+  syncState = await loadSyncState(adapterSyncStore);
 }
+
+/**
+ * Read whether Auto-Sync is currently enabled from the persisted settings
+ * (R23.1). Tolerates a never-persisted state (defaults OFF).
+ *
+ * @returns {boolean}
+ */
+function isAutoSyncEnabled() {
+  return getSettings(syncState).autoSync === true;
+}
+
+/**
+ * The enable rule for Auto-Sync (R23.2, R23.17): it can be turned on ONLY when
+ * an endpoint is configured AND a Connection_Test has PASSED for the CURRENT
+ * server settings. "For the current settings" is enforced by comparing the
+ * stored `testedSettingsFingerprint` to the fingerprint of the settings the
+ * panel holds now, so changing the endpoint/API key (which changes the
+ * fingerprint) makes a prior pass no longer count (R23.3).
+ *
+ * @returns {boolean}
+ */
+function canEnableAutoSync() {
+  if (!syncSettings.serverUrl) return false; // endpoint must be present (R23.2, R23.17)
+  const settings = getSettings(syncState);
+  return (
+    settings.connectionTest === 'pass' &&
+    settings.testedSettingsFingerprint ===
+      settingsFingerprint(syncSettings.serverUrl, syncSettings.apiKey)
+  );
+}
+
+// Auto-Accept policy toggles (R22.1, R22.2): plain client-local booleans that
+// the orchestrator reads to decide auto-apply-vs-defer. Changing one only
+// affects the next sync cycle (R22.9); it never retroactively resolves items.
+toggleAutoAcceptUpdates.addEventListener('change', async () => {
+  await persistSettings({ autoAcceptUpdates: toggleAutoAcceptUpdates.checked });
+});
+
+toggleAutoAcceptDeletions.addEventListener('change', async () => {
+  await persistSettings({ autoAcceptDeletions: toggleAutoAcceptDeletions.checked });
+});
+
+// Connection_Test (R16.5, R23.2): issue GET /projects against the configured
+// server and record the outcome (pass / auth / unreachable) plus the fingerprint
+// of the settings it was taken against, so the enable rule can confirm a pass
+// applies to the CURRENT settings (R23.3).
+btnTestConnection.addEventListener('click', async () => {
+  if (connectionTestInFlight) return;
+  // Defensive: the enable rule checks endpoint-present before a test is invoked
+  // (R23.17), and the button is disabled without one — but guard anyway.
+  if (!syncSettings.serverUrl) return;
+
+  connectionTestInFlight = true;
+  settingsConnectionStatus.classList.remove('hidden', 'is-ok', 'is-error');
+  settingsConnectionStatus.textContent = 'Testing…';
+  btnTestConnection.disabled = true;
+
+  try {
+    const fingerprint = settingsFingerprint(syncSettings.serverUrl, syncSettings.apiKey);
+    const { reason } = await testConnection(syncSettings.serverUrl, syncSettings.apiKey);
+    // Record the outcome and the fingerprint it was taken against. A failing
+    // result is stored too (with its fingerprint) so the status line can show
+    // why and the enable rule keeps Auto-Sync off until a pass (R23.2, R23.3).
+    await persistSettings({ connectionTest: reason, testedSettingsFingerprint: fingerprint });
+  } catch {
+    // testConnection itself classifies network failures as 'unreachable' and
+    // never throws; this is a last-resort guard so the UI never wedges.
+    await persistSettings({ connectionTest: 'unreachable' });
+  } finally {
+    connectionTestInFlight = false;
+    updateAutoSyncControls();
+  }
+});
+
+// Auto-Sync toggle (R23.1). The panel only SETS the persisted `autoSync` value;
+// the background service worker observes it via chrome.storage.onChanged and
+// owns the `chrome.alarms` + data-event trigger (task 24.4). Enabling is gated
+// by the enable rule (R23.2); a refused enable snaps the checkbox back off.
+toggleAutoSync.addEventListener('change', async () => {
+  if (toggleAutoSync.checked) {
+    if (!canEnableAutoSync()) {
+      toggleAutoSync.checked = false; // not enableable yet (R23.2)
+      updateAutoSyncControls();
+      return;
+    }
+    await persistSettings({ autoSync: true });
+  } else {
+    await persistSettings({ autoSync: false });
+  }
+  updateAutoSyncControls();
+  updateSyncButton();
+});
+
+/**
+ * Render the Connection_Test status line for the CURRENT server settings. A
+ * stored result taken against different settings (a stale fingerprint) reads as
+ * "not tested" and is hidden, so the line never implies a pass for settings the
+ * user has since changed (R23.3).
+ *
+ * @param {import('../shared/sync-types.js').ReconciliationSettings} settings
+ * @returns {void}
+ */
+function renderConnectionStatus(settings) {
+  const el = settingsConnectionStatus;
+  if (connectionTestInFlight) return; // leave the "Testing…" text in place
+  el.classList.remove('is-ok', 'is-error');
+  const currentFingerprint = syncSettings.serverUrl
+    ? settingsFingerprint(syncSettings.serverUrl, syncSettings.apiKey)
+    : null;
+  const forCurrentSettings =
+    settings.testedSettingsFingerprint != null &&
+    settings.testedSettingsFingerprint === currentFingerprint;
+  if (!forCurrentSettings || !settings.connectionTest) {
+    el.classList.add('hidden');
+    el.textContent = '';
+    return;
+  }
+  el.classList.remove('hidden');
+  switch (settings.connectionTest) {
+    case 'pass':
+      el.textContent = 'Connection OK.';
+      el.classList.add('is-ok');
+      break;
+    case 'auth':
+      el.textContent = 'Authentication failed — check your API key, then test again.';
+      el.classList.add('is-error');
+      break;
+    case 'unreachable':
+    default:
+      el.textContent = 'Server unreachable — check the address, then test again.';
+      el.classList.add('is-error');
+      break;
+  }
+}
+
+/**
+ * Render the helper line under the Auto-Sync toggle. When Auto-Sync is active or
+ * already enableable nothing is shown; otherwise it explains what is missing —
+ * an endpoint, a passing test, or a re-test after the service worker auto-
+ * disabled Auto-Sync on a 401/403 (R23.2, R23.11).
+ *
+ * @param {import('../shared/sync-types.js').ReconciliationSettings} settings
+ * @param {boolean} active
+ * @param {boolean} enableable
+ * @returns {void}
+ */
+function renderAutoSyncHint(settings, active, enableable) {
+  const el = settingsAutoSyncHint;
+  el.classList.remove('is-error');
+  if (active || enableable) {
+    el.classList.add('hidden');
+    el.textContent = '';
+    return;
+  }
+  let message;
+  if (!syncSettings.serverUrl) {
+    message = 'Configure a sync server above to enable auto-sync.';
+  } else if (settings.connectionTest === 'auth') {
+    // Reflect the SW's 401/403 auto-disable + needs-retest flag (R23.11).
+    message = 'Auto-sync was turned off after an authentication failure. Test again to re-enable.';
+    el.classList.add('is-error');
+  } else {
+    message = 'Test the connection to enable auto-sync.';
+  }
+  el.textContent = message;
+  el.classList.remove('hidden');
+}
+
+/**
+ * Bring the reconciliation-policy toggles, the Connection_Test status, the
+ * Auto-Sync toggle/hint, and the "Auto-sync active" indicator into agreement
+ * with the persisted settings (R22.1, R22.2, R23.2, R23.5). Safe to call any
+ * time; it only reads `syncState` and `syncSettings` and mutates the Settings
+ * DOM. The manual Sync button's visibility is owned by {@link updateSyncButton}.
+ *
+ * @returns {void}
+ */
+function updateAutoSyncControls() {
+  const settings = getSettings(syncState);
+
+  // Reconciliation-policy toggles (R22.1, R22.2).
+  toggleAutoAcceptUpdates.checked = settings.autoAcceptUpdates === true;
+  toggleAutoAcceptDeletions.checked = settings.autoAcceptDeletions === true;
+
+  const active = settings.autoSync === true;
+  const enableable = canEnableAutoSync();
+
+  // The Auto-Sync toggle reflects the persisted value and is interactive only
+  // when it can be turned on (enable rule met) OR it is already on (so it can be
+  // turned off); otherwise it is disabled and not enableable (R23.2).
+  toggleAutoSync.checked = active;
+  toggleAutoSync.disabled = !active && !enableable;
+
+  renderConnectionStatus(settings);
+  renderAutoSyncHint(settings, active, enableable);
+
+  // "Auto-sync active" status indicator, shown only while active (R23.5).
+  settingsAutoSyncStatus.classList.toggle('hidden', !active);
+
+  // The Connection_Test button is meaningful only with an endpoint configured.
+  btnTestConnection.disabled = !syncSettings.serverUrl || connectionTestInFlight;
+}
+
+function updateSyncButton() {
+  // R23.4: while Auto-Sync is active, hide the manual Sync button entirely and
+  // provide no manual force-sync affordance (the ~60s service-worker backstop
+  // makes one unnecessary). When Auto-Sync is OFF, show it and gate on an
+  // endpoint being configured and no sync already in flight (R23.6).
+  const active = isAutoSyncEnabled();
+  btnSync.classList.toggle('hidden', active);
+  btnSync.disabled = active || !syncSettings.serverUrl || isSyncing;
+}
+
+// Reflect background changes the service worker made to the durable SyncState
+// (R23.16): a background Auto-Sync cycle may have recorded new Review/Conflict
+// items, or auto-disabled Auto-Sync after a 401/403 (R23.11). Refresh the cached
+// state and keep the manual Sync button + (when open) the Settings controls in
+// agreement, without yanking the user out of whatever view they are in (R23.10).
+adapter.onSyncStateChange(async () => {
+  syncState = await loadSyncState(adapterSyncStore);
+  updateSyncButton();
+  if (!views.settings.classList.contains('hidden')) {
+    updateAutoSyncControls();
+  }
+});
 
 btnSync.addEventListener('click', () => handleSync());
 
@@ -1164,21 +1497,57 @@ async function handleSync() {
     const schema = await adapter.loadSchema();
     const validator = await adapter.loadValidator();
 
+    // SyncStore (R10.1, R17.1) — durable conflict-handling state backed by
+    // chrome.storage.local. `sync()` normalizes whatever `load()` returns into
+    // the full SyncState shape internally, so the raw adapter store is passed
+    // straight through.
+    const store = adapterSyncStore;
+
+    // LiveState (R6, R7, R8) — synchronous live-work signals. The service worker
+    // owns `recording` / `activeRecordingId` / `pendingCount` in
+    // chrome.storage.local; snapshot them once so the gate is a hard block over
+    // a consistent view:
+    //   • isCaptureActive()             ← the `recording` flag (R7)
+    //   • getLockedRecordingIds()       ← the open recording (`activeRecordingId`)
+    //                                     is the Locked_Recording (R6)
+    //   • recordingsWithPendingActions()← when pendingCount > 0 those uncommitted
+    //                                     actions belong to the open recording (R8)
+    const live = await adapter.loadLiveState();
+    const lockedRecordingIds = live.activeRecordingId
+      ? new Set([live.activeRecordingId])
+      : new Set();
+    const pendingRecordingIds =
+      live.pendingCount > 0 && live.activeRecordingId
+        ? new Set([live.activeRecordingId])
+        : new Set();
+    const liveState = {
+      isCaptureActive: () => live.recording === true,
+      getLockedRecordingIds: () => lockedRecordingIds,
+      recordingsWithPendingActions: () => pendingRecordingIds,
+    };
+
     const { result, projects: mergedProjects } = await sync(
       syncSettings.serverUrl,
       syncSettings.apiKey,
       localProjects,
       schema,
       validator,
+      store,
+      liveState,
     );
 
     // Persist merged projects back to the service worker
     await send({ type: 'PROJECTS_SET', projects: mergedProjects });
 
-    // Show summary (R5-AC5)
+    // Refresh the cached conflict-handling state so the indicators and the
+    // resolution workflow reflect what the cycle just recorded (R13.1, R13.2).
+    syncState = await loadSyncState(adapterSyncStore);
+
+    // Show summary (R13.2)
     showSyncSummary(result);
 
-    // Refresh the projects list UI to reflect pulled/updated projects
+    // Refresh the projects list UI to reflect pulled/updated projects and any
+    // newly-derived attention indicators.
     await loadProjectsList();
   } catch (err) {
     alert(`Sync failed: ${err.message}`);
@@ -1191,8 +1560,25 @@ async function handleSync() {
 
 function showSyncSummary(result) {
   if (result.halted) {
-    alert('Sync halted: authentication failed. Check your API key in Settings.');
-    return;
+    // Distinguish WHY the cycle halted so the message is actionable (R13.2).
+    // All existing deferred state is preserved on every halt path.
+    switch (result.haltReason) {
+      case 'capture-active':
+        alert('Sync paused while you are recording. Stop capture, then sync again.');
+        return;
+      case 'pending-actions-unprotected':
+        alert(
+          'Sync paused: a recording has uncommitted actions. Commit or clear them, then sync again.',
+        );
+        return;
+      case 'internal-error':
+        alert('Sync stopped to protect your data. Your work and any pending items are preserved.');
+        return;
+      case 'auth':
+      default:
+        alert('Sync halted: authentication failed. Check your API key in Settings.');
+        return;
+    }
   }
   const parts = [];
   if (result.pushed.length > 0)
@@ -1204,11 +1590,35 @@ function showSyncSummary(result) {
     parts.push(
       `Skipped ${mismatched.length} incompatible project${mismatched.length !== 1 ? 's' : ''}`,
     );
+  // Settings-gated automatic outcomes (R13.2, R22.7): fast-forward updates and
+  // server-side deletions applied without review because the matching
+  // Auto-Accept policy is ON. Reported alongside the transport counts.
+  const autoAppliedUpdates = result.autoAppliedUpdates ?? [];
+  const autoAppliedDeletions = result.autoAppliedDeletions ?? [];
+  if (autoAppliedUpdates.length > 0)
+    parts.push(
+      `Auto-applied ${autoAppliedUpdates.length} update${autoAppliedUpdates.length !== 1 ? 's' : ''}`,
+    );
+  if (autoAppliedDeletions.length > 0)
+    parts.push(
+      `Auto-applied ${autoAppliedDeletions.length} deletion${autoAppliedDeletions.length !== 1 ? 's' : ''}`,
+    );
+  // New deferral counts alongside the existing counts (R13.2).
+  const review = result.review ?? [];
+  const conflicts = result.conflicts ?? [];
+  if (review.length > 0)
+    parts.push(`${review.length} change${review.length !== 1 ? 's' : ''} to review`);
+  if (conflicts.length > 0)
+    parts.push(`${conflicts.length} conflict${conflicts.length !== 1 ? 's' : ''}`);
   if (result.errors.length > 0)
     parts.push(`${result.errors.length} error${result.errors.length !== 1 ? 's' : ''}`);
   if (parts.length === 0) parts.push('Everything up to date');
 
   let message = parts.join('. ') + '.';
+  // Point the user at where to act when there is anything needing attention.
+  if (review.length > 0 || conflicts.length > 0) {
+    message += '\n\nOpen the affected projects to review changes and resolve conflicts.';
+  }
   // Spell out why incompatible projects were skipped so the user can act
   // (update Docent, or pin the producing version).
   if (mismatched.length > 0) {
@@ -1217,6 +1627,147 @@ function showSyncSummary(result) {
   }
   alert(message);
 }
+
+// ─── Sync attention indicators & resolution workflow ─────────────────────────
+
+/**
+ * Attach a rendered attention badge to a card-item row, wiring its activation to
+ * open the resolution workflow for that Unit (R13.3). A null indicator (the Unit
+ * does not need attention) attaches nothing.
+ *
+ * @param {HTMLElement} li - the card-item `<li>` produced by the shared renderer
+ * @param {import('../shared/sync-conflict-ui.js').AttentionIndicator|null} indicator
+ */
+function attachIndicatorBadge(li, indicator) {
+  if (!indicator) return;
+  const html = renderIndicatorBadge(indicator);
+  if (!html) return;
+  const wrapper = document.createElement('template');
+  wrapper.innerHTML = html.trim();
+  const badge = wrapper.content.firstChild;
+  badge.addEventListener('click', (e) => {
+    // Don't let the badge click also trigger the row's open handler.
+    e.stopPropagation();
+    openWorkflow(indicator.unitRef);
+  });
+  // Place the badge in the row's main column so it reads with the name/meta.
+  const main = li.querySelector('.card-item-main') ?? li;
+  main.appendChild(badge);
+}
+
+/**
+ * Open the resolution workflow for a Unit (R12.1, R13.3). Renders the shared
+ * workflow (a Review's accept/decline view or a Conflict's local-vs-incoming
+ * chooser), wires the action buttons, and shows the workflow view. The
+ * wrong-interface guard lives in the shared `renderWorkflow`/`resolveConflict`,
+ * so the panel always opens whichever interface the item actually needs (R12.4).
+ *
+ * @param {string} unitRef
+ * @param {('review'|'conflict')} [requestedKind]
+ */
+function openWorkflow(unitRef, requestedKind) {
+  const { kind, html } = renderWorkflow(syncState, unitRef, requestedKind);
+  if (kind === null) {
+    // Nothing to resolve (already resolved elsewhere) — just refresh the lists.
+    refreshSyncViews();
+    return;
+  }
+  workflowUnitRef = unitRef;
+  syncWorkflowBody.innerHTML = html;
+  wireWorkflowActions();
+  showView('syncWorkflow');
+}
+
+/**
+ * Wire the `[data-action]` controls the shared workflow rendered (R12.2, R12.3).
+ * Each handler calls the shared resolution function, persists the mutated state
+ * through the SyncStore, refreshes the cached state, and re-renders.
+ */
+function wireWorkflowActions() {
+  const handlers = {
+    [UI_ACTIONS.ACCEPT_REVIEW]: (ref) =>
+      runResolution((projects) => acceptReview(syncState, projects, ref)),
+    [UI_ACTIONS.DECLINE_REVIEW]: (ref) =>
+      runResolution((projects) => declineReview(syncState, projects, ref)),
+    [UI_ACTIONS.RESOLVE_KEEP_LOCAL]: (ref) => resolveConflictSide(ref, 'local'),
+    [UI_ACTIONS.RESOLVE_KEEP_INCOMING]: (ref) => resolveConflictSide(ref, 'incoming'),
+  };
+  for (const [action, handler] of Object.entries(handlers)) {
+    syncWorkflowBody.querySelectorAll(`[data-action="${action}"]`).forEach((btn) => {
+      btn.addEventListener('click', () => handler(btn.dataset.unitRef ?? workflowUnitRef));
+    });
+  }
+}
+
+/**
+ * Resolve a Conflict by keeping one side. The keep choice is translated into an
+ * explicit append-only resolved state by the shared `buildResolvedState` (so both
+ * platforms translate it identically, R17.2/R17.3) and applied via
+ * `resolveConflict` (R11, R19.5).
+ *
+ * @param {string} unitRef
+ * @param {'local'|'incoming'} side
+ */
+function resolveConflictSide(unitRef, side) {
+  const item = syncState?.conflicts?.[unitRef];
+  if (!item) {
+    refreshSyncViews();
+    return;
+  }
+  const resolvedState = buildResolvedState(item, side);
+  runResolution((projects) => resolveConflict(syncState, projects, unitRef, resolvedState));
+}
+
+/**
+ * Apply a resolution action against the current local projects, persist the
+ * mutated SyncState, and re-render. The resolution helpers mutate `syncState`
+ * in place and return the updated projects; persistence of the state blob is the
+ * panel's responsibility (R12.5, R12.6, R17.1). On failure the helpers leave the
+ * state untouched, so nothing is persisted and the item stays pending.
+ *
+ * @param {(projects: object[]) => import('../shared/conflict-resolution.js').ResolutionResult} apply
+ */
+async function runResolution(apply) {
+  try {
+    const { projects: localProjects } = await send({ type: 'PROJECTS_GET_ALL' });
+    const result = apply(localProjects);
+    if (!result.ok) {
+      // A failed/abandoned resolution retains the item (R12.6). Re-render so any
+      // wrong-interface redirect or empty state is surfaced.
+      openWorkflow(result.item?.unitRef ?? workflowUnitRef, result.kind ?? undefined);
+      return;
+    }
+    // Persist the adopted local projects and the mutated conflict-handling state.
+    await send({ type: 'PROJECTS_SET', projects: result.projects });
+    await saveSyncState(adapterSyncStore, syncState);
+    syncState = await loadSyncState(adapterSyncStore);
+    workflowUnitRef = null;
+    await refreshSyncViews();
+  } catch (err) {
+    alert(`Could not resolve: ${err.message}`);
+  }
+}
+
+/**
+ * Re-render whichever list view is appropriate after a sync or resolution so the
+ * attention indicators reflect the current SyncState. Returns to the project
+ * detail when a project is open, otherwise the projects list.
+ */
+async function refreshSyncViews() {
+  if (activeProject) {
+    const { project } = await send({ type: 'PROJECT_GET' });
+    if (project) activeProject = project;
+    renderProjectDetail();
+    showView('project');
+  } else {
+    await loadProjectsList();
+  }
+}
+
+btnSyncWorkflowBack.addEventListener('click', () => {
+  workflowUnitRef = null;
+  refreshSyncViews();
+});
 
 btnSettings.addEventListener('click', () => {
   // If already in settings, treat as Back
@@ -1348,5 +1899,12 @@ await loadTheme();
 await loadRecordingMode();
 dispatchSettings = await adapter.loadSettings();
 syncSettings = await adapter.loadSyncSettings();
+// Load the durable conflict-handling state so attention indicators render on the
+// first project-list paint (R13.1). A missing/empty blob normalizes to an empty
+// SyncState, so this is safe before any sync has run.
+syncState = await loadSyncState(adapterSyncStore);
+// Reflect the persisted Auto-Sync setting in the manual Sync button immediately:
+// when Auto-Sync is already active (e.g. enabled in a prior session and still
+// running in the service worker) the button starts hidden (R23.4).
 updateSyncButton();
 loadProjectsList();

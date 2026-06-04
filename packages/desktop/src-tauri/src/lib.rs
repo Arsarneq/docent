@@ -12,9 +12,15 @@ pub mod capture;
 pub mod commands;
 pub mod secret_store;
 
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 use std::sync::Mutex;
 
-use tauri::Emitter;
+use tauri::{
+    menu::{MenuBuilder, MenuItemBuilder},
+    tray::TrayIconBuilder,
+    Emitter, Manager, WindowEvent,
+};
 
 use commands::AppState;
 
@@ -40,9 +46,16 @@ pub fn run() {
     // to the frontend.
     let (action_tx, action_rx) = std::sync::mpsc::channel::<capture::ActionEvent>();
 
+    // Background Auto-Sync keep-alive flag (R23.15). Shared between the command
+    // that arms/disarms it (`set_auto_sync_keepalive`) and the window close
+    // handler below, which reads it to decide whether a close hides the window
+    // (keeping the webview + its Auto-Sync timer alive) or quits the app.
+    let auto_sync_keepalive = Arc::new(AtomicBool::new(false));
+
     let app_state = AppState {
         capture: Mutex::new(capture_layer),
         action_sender: action_tx,
+        auto_sync_keepalive: Arc::clone(&auto_sync_keepalive),
     };
 
     tauri::Builder::default()
@@ -60,6 +73,7 @@ pub fn run() {
             commands::get_max_sequence_number,
             commands::set_self_capture_exclusion,
             commands::set_target_pid,
+            commands::set_auto_sync_keepalive,
             commands::export_file,
             commands::import_file,
         ])
@@ -75,7 +89,51 @@ pub fn run() {
                 }
             });
 
+            // System tray (R23.15): while the background Auto-Sync keep-alive is
+            // armed, closing the window only hides it, so the tray is the user's
+            // way back to the window and the explicit way to quit. A "Show"
+            // item re-reveals + focuses the main window; "Quit" exits the app
+            // regardless of the keep-alive flag.
+            let show_item = MenuItemBuilder::with_id("show", "Show Docent").build(app)?;
+            let quit_item = MenuItemBuilder::with_id("quit", "Quit").build(app)?;
+            let tray_menu = MenuBuilder::new(app)
+                .items(&[&show_item, &quit_item])
+                .build()?;
+
+            TrayIconBuilder::with_id("docent-tray")
+                .tooltip("Docent Desktop")
+                .icon(app.default_window_icon().unwrap().clone())
+                .menu(&tray_menu)
+                .show_menu_on_left_click(true)
+                .on_menu_event(|app, event| match event.id().as_ref() {
+                    "show" => {
+                        if let Some(window) = app.get_webview_window("main") {
+                            let _ = window.show();
+                            let _ = window.set_focus();
+                        }
+                    }
+                    "quit" => {
+                        app.exit(0);
+                    }
+                    _ => {}
+                })
+                .build(app)?;
+
             Ok(())
+        })
+        .on_window_event(move |window, event| {
+            // R23.15: when the background Auto-Sync keep-alive is armed, a window
+            // close request HIDES the window instead of destroying the webview,
+            // so the frontend's Auto-Sync timer and the shared `sync()` it
+            // invokes keep running headless. When it is disarmed, the close
+            // proceeds normally (the app quits with its last window). The user
+            // can always re-show or quit from the system tray.
+            if let WindowEvent::CloseRequested { api, .. } = event {
+                if auto_sync_keepalive.load(Ordering::SeqCst) {
+                    api.prevent_close();
+                    let _ = window.hide();
+                }
+            }
         })
         .run(tauri::generate_context!())
         .expect("error while running Docent Desktop");

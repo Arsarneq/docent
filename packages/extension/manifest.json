@@ -3,7 +3,15 @@
   "name": "Docent",
   "version": "2.0.0",
   "description": "Captures demonstrated workflows as structured data — not code.",
-  "permissions": ["activeTab", "scripting", "storage", "sidePanel", "tabs", "webNavigation"],
+  "permissions": [
+    "activeTab",
+    "alarms",
+    "scripting",
+    "storage",
+    "sidePanel",
+    "tabs",
+    "webNavigation"
+  ],
   "host_permissions": ["<all_urls>"],
   "background": {
     "service_worker": "background/service-worker.js",

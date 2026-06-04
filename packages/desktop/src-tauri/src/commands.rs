@@ -11,6 +11,8 @@
 
 use std::fs;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 use std::sync::Mutex;
 
 use tauri::State;
@@ -29,6 +31,14 @@ use crate::secret_store::{self, SecretStore};
 pub struct AppState {
     pub capture: Mutex<Box<dyn CaptureLayer>>,
     pub action_sender: std::sync::mpsc::Sender<crate::capture::ActionEvent>,
+    /// Whether the background Auto-Sync host wants the window kept alive when
+    /// closed (R23.15). While `true`, the window's close request HIDES the
+    /// window instead of destroying the webview, so the frontend's Auto-Sync
+    /// timer + the shared `sync()` it invokes keep running headless. The
+    /// frontend arms/disarms this via `set_auto_sync_keepalive` as Auto-Sync is
+    /// enabled/disabled. Shared as an `Arc<AtomicBool>` so the `lib.rs` window
+    /// event handler can read it without locking the capture mutex.
+    pub auto_sync_keepalive: Arc<AtomicBool>,
 }
 
 // ---------------------------------------------------------------------------
@@ -332,6 +342,24 @@ fn set_target_pid_impl(capture: &CaptureMutex, pid: Option<u32>) -> Result<(), S
 #[tauri::command]
 pub fn set_target_pid(state: State<'_, AppState>, pid: Option<u32>) -> Result<(), String> {
     set_target_pid_impl(&state.capture, pid)
+}
+
+// ---------------------------------------------------------------------------
+// Background Auto-Sync keep-alive command (R23.15)
+// ---------------------------------------------------------------------------
+
+/// Arm or disarm the background Auto-Sync keep-alive.
+///
+/// While armed (`enabled == true`), the window's close request is intercepted in
+/// `lib.rs` and the window is HIDDEN instead of destroyed, so the frontend's
+/// Auto-Sync timer + the shared `sync()` it invokes keep running with the window
+/// closed/minimized (Requirement 23.15). The system tray (set up in `lib.rs`)
+/// lets the user re-show the window or quit. While disarmed, the window closes —
+/// and the app quits — normally. The frontend calls this from its Auto-Sync host
+/// as the `Auto_Sync` setting is enabled/disabled.
+#[tauri::command]
+pub fn set_auto_sync_keepalive(state: State<'_, AppState>, enabled: bool) {
+    state.auto_sync_keepalive.store(enabled, Ordering::SeqCst);
 }
 
 // ---------------------------------------------------------------------------
