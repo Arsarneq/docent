@@ -82,6 +82,24 @@ export default [
         Blob: 'readonly',
       },
     },
+    rules: {
+      // A Manifest V3 service worker CANNOT use dynamic import() — a dynamic
+      // import in the SW throws at runtime (it previously surfaced as
+      // `validator is not a function` and silently aborted every Auto-Sync
+      // cycle before its push). The background entry must import everything,
+      // including the generated validator, STATICALLY at module scope. This
+      // rule fails any dynamic import() in the background layer at lint time so
+      // the "works in a Node test, dead in the MV3 SW" class of bug can never
+      // ship again. See docs / the service-worker static-import guard test.
+      'no-restricted-syntax': [
+        'error',
+        {
+          selector: 'ImportExpression',
+          message:
+            'Dynamic import() is not supported in a Manifest V3 service worker. Import statically at module scope (e.g. the generated validator in service-worker.js).',
+        },
+      ],
+    },
   },
   {
     // Node.js scripts
