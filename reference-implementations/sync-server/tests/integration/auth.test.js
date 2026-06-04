@@ -31,7 +31,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { startServer } from '../server.js';
+import { startServer } from '../../server.js';
 import { startTestServer, request } from './harness.js';
 
 /** A Static_Token used by the gated-server cases. */

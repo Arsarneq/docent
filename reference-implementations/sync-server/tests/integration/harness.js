@@ -1,6 +1,6 @@
 /**
- * tests/harness.js — the integration-test harness for the Reference Sync Server
- * (Requirement 8.1, design's Testing Strategy).
+ * tests/integration/harness.js — the integration-test harness for the Reference
+ * Sync Server (Requirement 8.1, design's Testing Strategy).
  *
  * This module is NOT a test file (no `.test.js` suffix, so `node --test` does
  * not run it directly). It exports the helpers the integration suites
@@ -45,15 +45,15 @@
  * Licensed under the GNU General Public License v3.0
  * See LICENSE in the project root for license information.
  *
- * @module tests/harness
+ * @module tests/integration/harness
  */
 
 import { mkdtemp, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
-import { startServer } from '../server.js';
-import { FileStorageProvider } from '../storage/file-provider.js';
+import { startServer } from '../../server.js';
+import { FileStorageProvider } from '../../storage/file-provider.js';
 
 /** Prefix for each suite's fresh temp storage directory under `os.tmpdir()`. */
 const TMP_PREFIX = 'docent-sync-server-it-';

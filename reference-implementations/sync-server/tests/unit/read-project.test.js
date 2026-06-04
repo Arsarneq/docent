@@ -1,9 +1,9 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { readProject } from './read-project.js';
-import { deriveETag } from '../etag.js';
-import { StorageProvider } from '../storage/provider.js';
+import { readProject } from '../../handlers/read-project.js';
+import { deriveETag } from '../../etag.js';
+import { StorageProvider } from '../../storage/provider.js';
 
 /**
  * Tests for the `GET /projects/:id` read handler (Requirements 2.1, 2.2, 2.3,

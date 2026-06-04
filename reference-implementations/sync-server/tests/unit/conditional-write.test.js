@@ -1,8 +1,8 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { evaluateConditionalWrite } from './conditional-write.js';
-import { deriveETag } from './etag.js';
+import { evaluateConditionalWrite } from '../../conditional-write.js';
+import { deriveETag } from '../../etag.js';
 
 /**
  * Tests for the explicit conditional-write gate (Requirements 6.3, 6.4, 6.5,

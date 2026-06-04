@@ -4,8 +4,8 @@ import { mkdtemp, rm, readFile, readdir } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
-import { FileStorageProvider } from '../storage/file-provider.js';
-import { StorageProvider } from '../storage/provider.js';
+import { FileStorageProvider } from '../../storage/file-provider.js';
+import { StorageProvider } from '../../storage/provider.js';
 
 /**
  * Tests for the default File_Storage_Provider (Requirements 7.2, 7.3, 7.4, 7.6,

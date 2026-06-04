@@ -5,9 +5,9 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
-import { writeProject } from './write-project.js';
-import { FileStorageProvider } from '../storage/file-provider.js';
-import { deriveETag } from '../etag.js';
+import { writeProject } from '../../handlers/write-project.js';
+import { FileStorageProvider } from '../../storage/file-provider.js';
+import { deriveETag } from '../../etag.js';
 
 /**
  * Tests for the `PUT /projects/:id` handler (Requirements 3.1–3.7, 6.2–6.5).

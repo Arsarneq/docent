@@ -20,10 +20,10 @@ import { dirname, resolve } from 'node:path';
  * verifies the existing exclusion).
  *
  * Repo-root-relative paths are resolved from this test file's location:
- *   .../docent/reference-implementations/sync-server/tests  → up 3 → repo root.
+ *   .../docent/reference-implementations/sync-server/tests/unit  → up 4 → repo root.
  */
 const TEST_DIR = dirname(fileURLToPath(import.meta.url));
-const REPO_ROOT = resolve(TEST_DIR, '..', '..', '..');
+const REPO_ROOT = resolve(TEST_DIR, '..', '..', '..', '..');
 
 const PUBLISH_YML = resolve(REPO_ROOT, '.github/workflows/publish.yml');
 const PUBLISH_DESKTOP_YML = resolve(REPO_ROOT, '.github/workflows/publish-desktop.yml');

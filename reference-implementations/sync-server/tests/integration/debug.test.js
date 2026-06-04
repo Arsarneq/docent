@@ -36,7 +36,7 @@ import { fileURLToPath } from 'node:url';
 import { startTestServer, request } from './harness.js';
 
 /** Absolute path to the bundled `samples/` directory, relative to this test. */
-const SAMPLES_DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'samples');
+const SAMPLES_DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', '..', 'samples');
 
 /**
  * Build a representative Full_Project_Payload-shaped object. The server stores

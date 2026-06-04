@@ -5,9 +5,9 @@ import os from 'node:os';
 import path from 'node:path';
 import { Readable } from 'node:stream';
 
-import { createRouter } from './router.js';
-import { FileStorageProvider } from './storage/file-provider.js';
-import { deriveETag } from './etag.js';
+import { createRouter } from '../../router.js';
+import { FileStorageProvider } from '../../storage/file-provider.js';
+import { deriveETag } from '../../etag.js';
 
 /**
  * Tests for the auth-first router (Requirements 5.6, 5.7, 12.2).

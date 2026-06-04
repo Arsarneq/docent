@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { StorageProvider } from '../storage/provider.js';
+import { StorageProvider } from '../../storage/provider.js';
 
 test('StorageProvider is constructable as an abstract base', () => {
   const provider = new StorageProvider();

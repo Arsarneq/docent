@@ -1,7 +1,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { checkAuth } from './auth.js';
+import { checkAuth } from '../../auth.js';
 
 /**
  * Tests for optional Bearer authentication (Requirement 5).

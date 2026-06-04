@@ -6,9 +6,9 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { debugReset, debugDump, debugSeed, handleDebug } from './debug.js';
-import { FileStorageProvider } from '../storage/file-provider.js';
-import { deriveETag } from '../etag.js';
+import { debugReset, debugDump, debugSeed, handleDebug } from '../../handlers/debug.js';
+import { FileStorageProvider } from '../../storage/file-provider.js';
+import { deriveETag } from '../../etag.js';
 
 /**
  * Tests for the `/__debug/*` Debug_Affordances (Requirements 12.1, 12.3, 12.4,
@@ -20,7 +20,7 @@ import { deriveETag } from '../etag.js';
  * Readable carrying the body) and a fake response capturing status/headers/body.
  */
 
-const SAMPLES_DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'samples');
+const SAMPLES_DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', '..', 'samples');
 
 /** A representative Full_Project_Payload-shaped object. */
 function samplePayload(id = '0192f0a0-0000-7000-8000-000000000001', name = 'Demo Project') {

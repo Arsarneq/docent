@@ -1,7 +1,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { handleManifest } from './manifest.js';
+import { handleManifest } from '../../handlers/manifest.js';
 
 /**
  * Tests for the `GET /projects` manifest handler (Requirement 1).

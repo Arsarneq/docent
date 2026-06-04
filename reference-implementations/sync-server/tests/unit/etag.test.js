@@ -1,7 +1,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { deriveETag } from './etag.js';
+import { deriveETag } from '../../etag.js';
 
 /**
  * Tests for deterministic, content-derived ETag derivation (Requirements 6.1,
