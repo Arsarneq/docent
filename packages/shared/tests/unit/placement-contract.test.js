@@ -55,6 +55,7 @@ import { fileURLToPath } from 'node:url';
 // ── The shared modules under test (placement) ────────────────────────────────
 import { classifyProject } from '../../conflict-detector.js';
 import { loadSyncState, saveSyncState, upsertReview, upsertConflict } from '../../sync-store.js';
+import { createEmptySyncState } from '../../sync-store.js';
 import { acceptReview, declineReview, resolveConflict } from '../../conflict-resolution.js';
 import { deriveIndicators, renderWorkflow } from '../../sync-conflict-ui.js';
 import { advanceBaseline } from '../../sync-baseline.js';
@@ -234,6 +235,40 @@ function makeLocalProject() {
   };
 }
 
+/**
+ * The server's (and last-agreed baseline's) version of the project: identical to
+ * {@link makeLocalProject} except the recording carries an OLDER narration. Used
+ * to make the local project a clean `changed-local-outgoing` so the cycle
+ * genuinely PUSHES (the contract test needs a real PUT to inspect) without any
+ * deferral — local moved, the server is still at the agreed baseline.
+ */
+function makeServerVersion() {
+  const project = makeLocalProject();
+  project.recordings[0].steps[0].narration = 'Open the cart (older)';
+  return project;
+}
+
+/** In-memory SyncStore pre-seeded with a baseline equal to the server version. */
+function makeSeededStore() {
+  const state = createEmptySyncState();
+  advanceBaseline(state, PROJECT_ID, {
+    project_id: PROJECT_ID,
+    name: 'Checkout Flow',
+    created_at: '2026-01-01T00:00:00.000Z',
+    recordings: makeServerVersion().recordings,
+  });
+  let saved = state;
+  return {
+    load: async () => saved,
+    save: async (s) => {
+      saved = s;
+    },
+    get saved() {
+      return saved;
+    },
+  };
+}
+
 /** In-memory SyncStore adapter (client-side state only — never touches the wire). */
 function makeMemoryStore() {
   let saved = null;
@@ -308,9 +343,10 @@ describe('Protocol contract: sync() uses only /projects + /projects/:id, no serv
 
   it('every request targets only /projects or /projects/:id with GET/PUT', async () => {
     const local = makeLocalProject();
-    // The server stores the project verbatim — reuse the same builder so the
-    // pulled copy is content-identical (a clean, converged cycle).
-    installFakeFetch(buildPayloadForProject(local, STUB_SCHEMA));
+    // The server holds an OLDER version and the baseline equals it, so local is a
+    // clean `changed-local-outgoing` — a genuine push the contract can inspect
+    // (a content-identical server would converge and be skipped, R20.4).
+    installFakeFetch(buildPayloadForProject(makeServerVersion(), STUB_SCHEMA));
 
     const { result } = await sync(
       SERVER_URL,
@@ -318,7 +354,7 @@ describe('Protocol contract: sync() uses only /projects + /projects/:id, no serv
       [local],
       STUB_SCHEMA,
       passValidator,
-      makeMemoryStore(),
+      makeSeededStore(),
       idleLiveState,
     );
 
@@ -352,7 +388,8 @@ describe('Protocol contract: sync() uses only /projects + /projects/:id, no serv
 
   it('the pushed body is a Full_Project_Payload carrying no conflict/baseline/review fields', async () => {
     const local = makeLocalProject();
-    installFakeFetch(buildPayloadForProject(local, STUB_SCHEMA));
+    // Older server + matching baseline ⇒ a clean changed-local-outgoing push.
+    installFakeFetch(buildPayloadForProject(makeServerVersion(), STUB_SCHEMA));
 
     await sync(
       SERVER_URL,
@@ -360,7 +397,7 @@ describe('Protocol contract: sync() uses only /projects + /projects/:id, no serv
       [local],
       STUB_SCHEMA,
       passValidator,
-      makeMemoryStore(),
+      makeSeededStore(),
       idleLiveState,
     );
 
@@ -606,7 +643,10 @@ describe('Sync_Trigger contract: the scheduler/trigger adds no server-side state
     // uses, and confirm every request the triggered cycle made is on-contract —
     // i.e. the trigger introduces no endpoint of its own.
     const local = makeLocalProject();
-    const serverPayload = buildPayloadForProject(local, STUB_SCHEMA);
+    // Older server + matching baseline ⇒ the triggered cycle is a clean
+    // changed-local-outgoing PUSH (a content-identical server would converge and
+    // be skipped, R20.4), so the full pull+push is exercised.
+    const serverPayload = buildPayloadForProject(makeServerVersion(), STUB_SCHEMA);
 
     calls = [];
     globalThis.fetch = async (url, options = {}) => {
@@ -625,7 +665,7 @@ describe('Sync_Trigger contract: the scheduler/trigger adds no server-side state
     };
 
     const runCycle = () =>
-      sync(SERVER_URL, null, [local], STUB_SCHEMA, passValidator, makeMemoryStore(), idleLiveState);
+      sync(SERVER_URL, null, [local], STUB_SCHEMA, passValidator, makeSeededStore(), idleLiveState);
 
     let notify;
     const trigger = createSyncTrigger({

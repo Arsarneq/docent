@@ -472,11 +472,38 @@ describe('Property 37: The push payload is assembled per-unit (no clobber, no ac
           assert.ok(Array.isArray(put.body.recordings), 'payload has a recordings array');
           putByProjectId.set(put.body.project.project_id, put.body);
         }
-        assert.equal(puts.length, localProjects.length, 'exactly one PUT per local project');
+
+        // ── R20.4 — a project is pushed IFF some unit's wire-version differs
+        //    from the server's agreed-or-pulled version. Here project metadata
+        //    always converges, so a project has something to write exactly when
+        //    it carries a recording whose LOCAL version reaches the wire and
+        //    differs from the server: a `changed-local-outgoing` (local moved,
+        //    server at baseline) or a `clean-local-new` (local-only, no server
+        //    counterpart). A project all of whose recordings are
+        //    `already-converged`, deferred (Review/Conflict), locked, or
+        //    `brand-new-remote` re-sends only the server's own bytes and is
+        //    skipped (R20.4). ──
+        const expectedPushedIds = new Set();
+        for (const project of localProjects) {
+          const { recExpect } = expectations.get(project.project_id);
+          const hasWrite = [...recExpect.values()].some(
+            (e) => e.expectKind === 'local' && e.outcome !== 'already-converged',
+          );
+          if (hasWrite) expectedPushedIds.add(project.project_id);
+        }
+        assert.deepEqual(
+          new Set(putByProjectId.keys()),
+          expectedPushedIds,
+          'exactly the projects with a content-differing unit are pushed (R20.4)',
+        );
 
         for (const project of localProjects) {
           const pid = project.project_id;
           const body = putByProjectId.get(pid);
+          if (!expectedPushedIds.has(pid)) {
+            assert.ok(!body, `project ${pid} has nothing to write and is skipped (R20.4)`);
+            continue;
+          }
           assert.ok(body, `project ${pid} was pushed`);
 
           const { recExpect, allRecIds } = expectations.get(pid);
@@ -536,6 +563,11 @@ describe('Property 37: The push payload is assembled per-unit (no clobber, no ac
   it('a diverged (Conflict) recording is pushed at the server version, not the divergent local edits', async () => {
     const pid = '018f4e2a-0000-7000-8000-000000000001';
     const rid = 'rec-div';
+    // A changed-local-outgoing sibling gives the project a reason to write, so
+    // the project is pushed (and the Conflict sibling's wire-version can be
+    // inspected). Without it the whole payload would equal the server and the
+    // project would be skipped (R20.4).
+    const clo = 'rec-clo';
     const steps = [{ uuid: 's1', logical_id: 'a', step_number: 0, deleted: false }];
 
     const seed = createEmptySyncState();
@@ -546,7 +578,7 @@ describe('Property 37: The push payload is assembled per-unit (no clobber, no ac
         project_id: pid,
         name: 'P',
         created_at: PROJ_CREATED,
-        recordings: [rec(rid, 'base', steps)],
+        recordings: [rec(rid, 'base', steps), rec(clo, 'base', steps)],
       }),
     );
 
@@ -555,7 +587,7 @@ describe('Property 37: The push payload is assembled per-unit (no clobber, no ac
         project_id: pid,
         name: 'P',
         created_at: PROJ_CREATED,
-        recordings: [rec(rid, 'local', steps)],
+        recordings: [rec(rid, 'local', steps), rec(clo, 'clo-local', steps)],
       },
     ];
     const manifest = [{ project_id: pid, name: 'P' }];
@@ -566,7 +598,7 @@ describe('Property 37: The push payload is assembled per-unit (no clobber, no ac
           project_id: pid,
           name: 'P',
           created_at: PROJ_CREATED,
-          recordings: [rec(rid, 'server', steps)],
+          recordings: [rec(rid, 'server', steps), rec(clo, 'base', steps)],
         }),
       ],
     ]);
@@ -593,6 +625,13 @@ describe('Property 37: The push payload is assembled per-unit (no clobber, no ac
       pushed.name,
       'local',
       'the divergent local edits never clobber the server copy',
+    );
+    // The CLO sibling is what gave the project a reason to write, at its local version.
+    const pushedClo = puts[0].body.recordings.find((r) => r.recording_id === clo);
+    assert.equal(
+      pushedClo.name,
+      'clo-local',
+      'the changed-local-outgoing sibling reaches the wire',
     );
   });
 
@@ -663,6 +702,11 @@ describe('Property 37: The push payload is assembled per-unit (no clobber, no ac
 
     const seed = createEmptySyncState();
     seed.settings.autoAcceptUpdates = true; // opt into fast-forward auto-apply (R22.4)
+    // A changed-local-outgoing sibling gives the project a reason to write: after
+    // the fast-forward auto-apply the merged recording EQUALS the server, so on
+    // its own it would be a nothing-to-write skip (R20.4). The sibling keeps the
+    // project pushed so the adopted recording's wire-version can be inspected.
+    const clo = 'rec-clo';
     advanceBaseline(
       seed,
       pid,
@@ -670,7 +714,7 @@ describe('Property 37: The push payload is assembled per-unit (no clobber, no ac
         project_id: pid,
         name: 'P',
         created_at: PROJ_CREATED,
-        recordings: [rec(rid, 'base', [s1])],
+        recordings: [rec(rid, 'base', [s1]), rec(clo, 'base', [s1])],
       }),
     );
 
@@ -679,7 +723,7 @@ describe('Property 37: The push payload is assembled per-unit (no clobber, no ac
         project_id: pid,
         name: 'P',
         created_at: PROJ_CREATED,
-        recordings: [rec(rid, 'base', [s1])],
+        recordings: [rec(rid, 'base', [s1]), rec(clo, 'clo-local', [s1])],
       },
     ];
     const manifest = [{ project_id: pid, name: 'P' }];
@@ -690,8 +734,9 @@ describe('Property 37: The push payload is assembled per-unit (no clobber, no ac
           project_id: pid,
           name: 'P',
           created_at: PROJ_CREATED,
-          // incoming is an append-only superset of the baseline (adds s2).
-          recordings: [rec(rid, 'base', [s1, s2])],
+          // incoming is an append-only superset of the baseline (adds s2); the
+          // clo sibling stays at the server baseline.
+          recordings: [rec(rid, 'base', [s1, s2]), rec(clo, 'base', [s1])],
         }),
       ],
     ]);

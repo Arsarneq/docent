@@ -441,9 +441,10 @@ function materialize(specs) {
 
       case 'converged': {
         // local == incoming (identical): pulled, baseline advanced, no deferral.
-        // Project metadata is local (not deferred), so there is always a write.
+        // The whole assembled payload equals the server's agreed-or-pulled state,
+        // so the project is SKIPPED — nothing to write (R20.4).
         const proj = makeProject(id, `same-${id}`, ca, recs);
-        addLocal(proj, s.pushOk);
+        addLocal(proj, s.pushOk, false);
         manifest.push({ project_id: id, name: proj.name });
         byId.set(id, { category: 'accept', payload: buildPayload(proj) });
         expected.pulled.add(id);
@@ -453,14 +454,14 @@ function materialize(specs) {
       case 'changed-incoming': {
         // local == baseline, incoming differs (project-metadata change) → a Review.
         // The project-metadata Unit is DEFERRED, so it re-sends the agreed-or-pulled
-        // metadata; the project is pushed ONLY if it still carries a pushable
-        // recording (R20.4). With no recordings, its whole assembly is a pure
-        // agreed-or-pulled re-send and the per-unit push skips it.
+        // metadata; the recordings here are identical on every side (converged), so
+        // each equals the server too. The whole assembled payload therefore equals
+        // the server and the project is SKIPPED (R20.4), regardless of recs.
         const baseProj = makeProject(id, `base-${id}`, ca, recs);
         const localProj = makeProject(id, `base-${id}`, ca, recs);
         const serverProj = makeProject(id, `srv-${id}`, ca, recs);
         advanceBaseline(seed, id, projectProjection(baseProj));
-        addLocal(localProj, s.pushOk, recs.length > 0);
+        addLocal(localProj, s.pushOk, false);
         manifest.push({ project_id: id, name: serverProj.name });
         byId.set(id, { category: 'accept', payload: buildPayload(serverProj) });
         expected.pulled.add(id);
@@ -470,12 +471,14 @@ function materialize(specs) {
 
       case 'diverged': {
         // local / incoming / baseline all differ (project-metadata) → a Conflict.
-        // Same per-unit push skip rule as changed-incoming (R20.4).
+        // The deferred project-metadata re-sends agreed-or-pulled; the recordings
+        // converge (equal the server). Whole payload equals the server ⇒ SKIPPED
+        // (R20.4).
         const baseProj = makeProject(id, `base-${id}`, ca, recs);
         const localProj = makeProject(id, `loc-${id}`, ca, recs);
         const serverProj = makeProject(id, `srv-${id}`, ca, recs);
         advanceBaseline(seed, id, projectProjection(baseProj));
-        addLocal(localProj, s.pushOk, recs.length > 0);
+        addLocal(localProj, s.pushOk, false);
         manifest.push({ project_id: id, name: serverProj.name });
         byId.set(id, { category: 'accept', payload: buildPayload(serverProj) });
         expected.pulled.add(id);
@@ -486,14 +489,15 @@ function materialize(specs) {
       case 'auto-update': {
         // Converged project metadata + a recording that is a fast-forward
         // `changed-incoming` → an auto-applied UPDATE (Auto-Accept-Updates ON).
-        // Sibling `recs` are identical on every side (converged). Project metadata
-        // is local (not deferred) ⇒ always a write, so the project is pushed.
+        // After the auto-apply the merged recording EQUALS the server's version
+        // and the sibling `recs` + metadata converge, so the whole assembled
+        // payload equals the server ⇒ SKIPPED (R20.4).
         const marker = ffMarkerBase(id);
         const baseProj = makeProject(id, `au-${id}`, ca, [marker, ...recs]);
         const localProj = makeProject(id, `au-${id}`, ca, [marker, ...recs]);
         const serverProj = makeProject(id, `au-${id}`, ca, [ffMarkerServer(id), ...recs]);
         advanceBaseline(seed, id, projectProjection(baseProj));
-        addLocal(localProj, s.pushOk);
+        addLocal(localProj, s.pushOk, false);
         manifest.push({ project_id: id, name: serverProj.name });
         byId.set(id, { category: 'accept', payload: buildPayload(serverProj) });
         expected.pulled.add(id);
@@ -504,13 +508,14 @@ function materialize(specs) {
       case 'auto-delete': {
         // Converged project metadata + a recording absent on the server with the
         // local copy unchanged → an auto-applied DELETION (Auto-Accept-Deletions
-        // ON). Sibling `recs` converge. Project metadata is local ⇒ a write.
+        // ON). After the deletion the merged project equals the server (marker
+        // absent on both, siblings + metadata converge) ⇒ SKIPPED (R20.4).
         const marker = delMarker(id);
         const baseProj = makeProject(id, `ad-${id}`, ca, [marker, ...recs]);
         const localProj = makeProject(id, `ad-${id}`, ca, [marker, ...recs]);
         const serverProj = makeProject(id, `ad-${id}`, ca, recs); // marker ABSENT on server
         advanceBaseline(seed, id, projectProjection(baseProj));
-        addLocal(localProj, s.pushOk);
+        addLocal(localProj, s.pushOk, false);
         manifest.push({ project_id: id, name: serverProj.name });
         byId.set(id, { category: 'accept', payload: buildPayload(serverProj) });
         expected.pulled.add(id);
@@ -809,8 +814,8 @@ describe('Property 25: Reported counts equal the sets actually produced', () => 
 
     assert.deepEqual(
       sorted(result.pushed),
-      sorted([PUSH_ONLY, CONVERGED, CHANGED, DIVERGED, AUTO_UPD, AUTO_DEL]),
-      'pushed = the local projects whose PUT succeeded and that had something to write',
+      sorted([PUSH_ONLY]),
+      'pushed = only the local-only project whose PUT succeeded and content-differs; converged / changed-incoming / diverged / auto-applied all equal the server and are skipped (R20.4)',
     );
     assert.deepEqual(
       sorted(result.pulled),

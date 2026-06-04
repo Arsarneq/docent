@@ -389,6 +389,12 @@ function materialize({ bothProjects, serverOnlyProjects }) {
   const localProjects = [];
   const payloadById = new Map();
   const manifest = [];
+  // The `both` project ids that have something to write — i.e. carry at least one
+  // `clo` recording (local moved, server at baseline). A `converged` recording
+  // equals the server and a `diverged` recording re-sends the server version, so
+  // neither is a reason to write; project metadata always converges here. A
+  // project with nothing content-differing is skipped (R20.4).
+  const expectedPushedIds = new Set();
 
   const bothIds = new Set(bothProjects.map((p) => p.project_id));
 
@@ -421,6 +427,7 @@ function materialize({ bothProjects, serverOnlyProjects }) {
         default:
           throw new Error(`unknown outcome ${rspec.outcome}`);
       }
+      if (rspec.outcome === 'clo') expectedPushedIds.add(pid);
     }
 
     if (baselineRecs.length > 0) {
@@ -471,7 +478,7 @@ function materialize({ bothProjects, serverOnlyProjects }) {
     manifest.push({ project_id: pid, name: pname });
   }
 
-  return { seed, localProjects, payloadById, manifest };
+  return { seed, localProjects, payloadById, manifest, expectedPushedIds };
 }
 
 // ─── Property 38 ──────────────────────────────────────────────────────────────
@@ -480,7 +487,8 @@ describe('Property 38: Pull precedes push; push runs only after a non-halting re
   it('issues every pull before any push, and never pushes when the cycle halts before reconcile completes', async () => {
     await fc.assert(
       fc.asyncProperty(arbScenario, async (scenario) => {
-        const { seed, localProjects, payloadById, manifest } = materialize(scenario);
+        const { seed, localProjects, payloadById, manifest, expectedPushedIds } =
+          materialize(scenario);
         const { halt } = scenario;
 
         const failMode = halt.mode === 'internal-error' ? halt.failMode : null;
@@ -507,9 +515,17 @@ describe('Property 38: Pull precedes push; push runs only after a non-halting re
           // Non-halting cycle: pull + reconcile + push all ran.
           assert.equal(result.halted, false, 'a clean cycle does not halt');
           assert.equal(result.haltReason, null, 'no halt reason on a clean cycle');
-          // The push path was really exercised (≥1 local project → ≥1 PUT).
-          assert.ok(puts().length >= 1, 'at least one project was pushed');
-          // R20.6 positive: a push runs only after the reconcile persisted.
+          // Exactly the projects with a content-differing unit are pushed; a
+          // project whose whole payload equals the server is skipped (R20.4).
+          // (The scenario can legitimately have nothing to push — all converged /
+          // diverged / server-only — in which case the ordering holds vacuously.)
+          assert.deepEqual(
+            new Set(puts().map((p) => decodeURIComponent(p.url.split('/').pop()))),
+            expectedPushedIds,
+            'exactly the projects with a content-differing unit are pushed (R20.4)',
+          );
+          // R20.6 positive: when a push happens, it runs only after the reconcile
+          // persisted (vacuously true when nothing is pushed).
           assertPushFollowsPersist();
         } else if (halt.mode === 'pull-auth') {
           // A 401/403 on the pull halts BEFORE reconcile (R20.6): no push, and

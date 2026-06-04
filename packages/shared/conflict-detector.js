@@ -79,7 +79,7 @@
  * See LICENSE in the project root for license information.
  */
 
-import { digestProject, digestRecording, canonicalize } from './sync-digest.js';
+import { digestProject, digestRecording, digestProjectMetadata } from './sync-digest.js';
 import { getRecordingBaselineDigest } from './sync-baseline.js';
 
 /**
@@ -160,29 +160,6 @@ export function classifyUnit(digestLocal, digestIncoming, digestBaseline, locked
   //    treated as divergence (R2.6, R2.7), including the concurrent-push
   //    overwrite case (R18.1).
   return 'diverged';
-}
-
-/**
- * Canonical digest of a project's OWN identity — its allowlisted scalar fields
- * (`project_id`, `name`, `created_at`, and `metadata` when present) — with its
- * recordings deliberately EXCLUDED. This isolates project-scoped identity from
- * recording-scoped identity so a project metadata change is classified as its
- * own Unit (R2.10) without conflating it with any recording change. Uses the same
- * allowlist and canonicalization as {@link digestProject} (minus `recordings`),
- * so unrecognized top-level fields never affect it (R18.3).
- *
- * @param {import('./sync-types.js').ProjectCopy | object | null} project
- * @returns {string|null} the project's metadata digest, or null when absent
- */
-function digestProjectMetadata(project) {
-  if (project == null) return null;
-  const projection = {
-    project_id: project.project_id,
-    name: project.name,
-    created_at: project.created_at,
-    ...(project.metadata && { metadata: project.metadata }),
-  };
-  return canonicalize(projection);
 }
 
 /**

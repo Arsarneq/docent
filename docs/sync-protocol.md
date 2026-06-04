@@ -451,6 +451,114 @@ Key rules:
 A locked recording is skipped in this phase entirely: its incoming changes are
 neither applied nor offered until it is closed.
 
+#### What causes a conflict that must be resolved
+
+A **conflict** — the only outcome that forces the user to choose between two
+versions — arises in exactly two situations. Everything else reconciles
+automatically or is held as a non-blocking **review**.
+
+A conflict is recorded when, for a single unit (a project's own
+name+metadata, or one recording):
+
+1. **Diverged — both sides changed.** The unit's content differs from the
+   baseline on _both_ the local and the incoming side (and the two sides are not
+   identical to each other). Neither change can be applied without discarding the
+   other, so the user picks which version to keep.
+   - The no-baseline case counts here too: if there is no agreed baseline for the
+     unit and local ≠ incoming, the change cannot be attributed to one side, so it
+     is treated as diverged.
+2. **Delete-vs-change.** The unit existed in the baseline, and one side **deleted**
+   it while the other side **changed** it. Deleting and editing are
+   irreconcilable, so the user chooses delete or keep-the-change.
+
+Because content identity is a canonical digest of **name + metadata + full step
+history**, _any_ of those changing on both sides triggers a conflict — there is
+nothing special about steps. Worked examples (all verified against the
+classifier):
+
+| Local change            | Incoming (server) change          | Result                            |
+| ----------------------- | --------------------------------- | --------------------------------- |
+| Edit recording steps    | Edit the same recording's steps   | **Conflict** (recording diverged) |
+| Add recording metadata  | Rename the same recording         | **Conflict** (recording diverged) |
+| Rename a recording      | Different rename, same recording  | **Conflict** (recording diverged) |
+| Change project metadata | Different project-metadata change | **Conflict** (project diverged)   |
+| Edit a recording        | Delete that recording             | **Conflict** (delete-vs-change)   |
+| Delete a recording      | Edit that recording               | **Conflict** (delete-vs-change)   |
+
+What is **NOT** a conflict (resolves without a forced choice):
+
+- **Only one side changed.** A change on only the local side is auto-pushed
+  (`changed-local-outgoing`); a change on only the incoming side is held as a
+  **review** (`changed-incoming`) — a non-blocking prompt to accept, not a
+  conflict. (With the opt-in "Auto-accept updates" setting, an append-only
+  fast-forward review is applied automatically; it never auto-resolves a
+  divergence.)
+- **Both sides made the identical change.** Already-converged — the baseline is
+  advanced, nothing to do.
+- **Brand-new unit** on either side — auto-added.
+- **Agreed deletion** — a unit deleted on one side and unchanged on the other is
+  propagated (a server-side deletion of an unchanged unit is a **review**, not a
+  conflict, unless "Auto-accept deletions" is on).
+- **Same-metadata / same-rename on both sides** — identical content is convergence,
+  not divergence.
+
+The throughline: a conflict requires **two competing changes to the same unit**
+(or a delete racing a change). One-sided changes, identical changes, and brand-new
+units never force a choice.
+
+#### What results in a non-blocking review
+
+A **review** (review-and-accept) is the softer counterpart to a conflict: the
+server has a change to a unit you have **not** touched locally, so there is no
+competing local edit to weigh against it. Nothing is lost either way, so it is
+surfaced as a non-blocking prompt — accept the incoming version, or decline to
+keep your (unchanged-since-baseline) local one — rather than a forced choice. A
+pending review never blocks the rest of the cycle, and the unit is never changed
+until you act.
+
+A review is recorded when, for a single unit (a project's own name+metadata, or
+one recording), the **local side still equals the baseline** while the
+**incoming side moved**:
+
+1. **Changed-incoming.** Local content equals the last-agreed baseline; the
+   server's version differs. The incoming change is held for accept/decline.
+2. **Server deletion of an unchanged unit.** The unit existed in the baseline,
+   the server deleted it, and your local copy is unchanged from the baseline. The
+   deletion is held for review (accept the deletion, or keep your copy) rather
+   than applied silently.
+
+Worked examples (all verified against the classifier):
+
+| Local side               | Incoming (server) change        | Result                           |
+| ------------------------ | ------------------------------- | -------------------------------- |
+| Unchanged since baseline | Recording's steps edited        | **Review** (changed-incoming)    |
+| Unchanged since baseline | Recording renamed               | **Review** (changed-incoming)    |
+| Unchanged since baseline | Recording metadata changed      | **Review** (changed-incoming)    |
+| Unchanged since baseline | Project metadata changed        | **Review** (changed-incoming)    |
+| Unchanged since baseline | Recording deleted on the server | **Review** (accept the deletion) |
+
+Two opt-in, client-local settings turn specific reviews into **silent
+auto-applies** (they change only what happens to a review — they never touch a
+conflict):
+
+- **Auto-accept updates** — a `changed-incoming` review is applied automatically
+  **only** when the incoming version is an _append-only fast-forward_ of your
+  baseline (it strictly adds to the step history, dropping nothing). A
+  history-rewriting or otherwise non-fast-forward change still becomes a review
+  even with this on.
+- **Auto-accept deletions** — a server deletion of a unit you have not changed is
+  applied automatically instead of being held for review.
+
+Neither setting ever auto-resolves a **divergence**: if your local copy also
+moved from the baseline, it is a conflict regardless of these toggles.
+
+What is **NOT** a review:
+
+- **You changed it too** — that is a conflict (diverged), not a review.
+- **You changed it, the server didn't** — auto-pushed (`changed-local-outgoing`),
+  no prompt.
+- **Brand-new or agreed/identical** — auto-added or converged, nothing to review.
+
 ### Push phase
 
 Push runs **only after** the pull and reconcile phases of the same cycle complete
@@ -460,7 +568,7 @@ begins with a fresh pull, so a concurrent server change is re-detected rather th
 overwritten).
 
 Because the server only offers a whole-project `PUT`, the client assembles each
-project's payload **per recording** (R20.3, R6.4):
+project's payload **per recording**:
 
 - A recording that is **pushable** — clean brand-new-local, changed-local-outgoing,
   already-converged, or an auto-applied incoming version — is sent at its **local**
@@ -480,12 +588,19 @@ project's payload **per recording** (R20.3, R6.4):
   being resurrected.
 
 A project with **nothing to write** is skipped rather than re-sending an unchanged
-payload (R20.4): a project auto-added from the server this cycle, or one whose
-whole assembled payload would be a pure re-send of the agreed-or-pulled server
-state, is not pushed. Push reads only committed `recording.steps`; uncommitted
+payload. "Nothing to write" is decided by **content**: a project is
+skipped when every assembled unit's wire-version is content-identical (by
+canonical digest) to the server's agreed-or-pulled version of that unit, so the
+`PUT` would only re-send the server's own bytes. This covers a project
+auto-added from the server this cycle, a fully-converged project, a project whose
+only change is a deferred Review/Conflict (sent at the agreed-or-pulled version),
+and a project whose only non-converged unit is a **locked** recording — its live
+local edits are held back at the agreed-or-pulled version this cycle and reach the
+server only on a later cycle, after the recording is unlocked and reconciled (no
+authored work is lost). Push reads only committed `recording.steps`; uncommitted
 captured actions live in a separate store and never enter the payload.
 
-Push never advances the baseline (R1.2).
+Push never advances the baseline.
 
 ---
 
@@ -496,8 +611,8 @@ is accepted unconditionally and overwrites whatever was stored. It has no
 conditional-write primitive (no `If-Match`/ETag), so it cannot reject a write
 that is based on a stale read.
 
-Pull-then-push **narrows but does not fully eliminate** the overwrite window
-(R18.5). Between a client's pull and its push, another client can still write, and
+Pull-then-push **narrows but does not fully eliminate** the overwrite window.
+Between a client's pull and its push, another client can still write, and
 the opaque server will accept the later write. The pull-first ordering bounds the
 _consequence_ — no client's own committed local work is permanently lost, because:
 
@@ -526,7 +641,7 @@ token be added later without a breaking change.
 - The server stays **opaque and unchanged**. It stores the `Full_Project_Payload`
   as-is and returns it verbatim; it holds no conflict, baseline, or version state.
   All reconciliation — baseline tracking, classification, snapshot retention, and
-  conflict resolution — is **client-side** (R16.1, R16.3, R16.4). A compatible
+  conflict resolution — is **client-side**. A compatible
   server needs only the three endpoints above.
 - The client sends the complete project state on every push — there is no
   incremental/delta sync.

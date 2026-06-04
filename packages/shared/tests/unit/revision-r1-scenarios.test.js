@@ -373,14 +373,16 @@ describe('Revision R1 example: resolve a Conflict, then the resolved state propa
       'the divergence is recorded as a Conflict',
     );
     assert.deepEqual(cycle1.result.review, []);
-    // The conflicted recording is never pushed at its local edits; it re-sends the
-    // agreed-or-pulled (server) version (R20.2).
+    // The conflicted recording re-sends the agreed-or-pulled (server) version,
+    // never its local edits (R20.2). With a single recording and converged
+    // metadata, the whole assembled payload equals the server, so the project is
+    // SKIPPED — nothing to write (R20.4). A skip is the strongest form of "the
+    // local edits never reach the wire".
     const puts1 = capturedPuts();
-    assert.equal(puts1.length, 1, 'the project is pushed (metadata converged)');
     assert.equal(
-      findRec(puts1[0], RID).name,
-      'div-server',
-      'the Conflict recording re-sends the server version, never its local edits',
+      puts1.length,
+      0,
+      'the diverged project re-sends only the server state and is skipped (R20.4)',
     );
 
     // Resolve through the workflow exactly as a panel would: load → resolve →

@@ -329,6 +329,7 @@ function materialize(specs) {
 
       case 'converged': {
         // Local equals incoming → pull confirms agreement → advance to it (R1.3).
+        // The assembled payload equals the server, so the project is skipped (R20.4).
         const local = projOf(project_id, [recOf(recording_id, 'base', steps)]);
         localProjects.push(local);
         onServer(local);
@@ -336,7 +337,7 @@ function materialize(specs) {
           project_id,
           recording_id,
           category,
-          pushed: true,
+          pushed: false,
           baseline: 'advance',
           expectedDigest: digestProject(local),
         });
@@ -346,6 +347,7 @@ function materialize(specs) {
       case 'converged-stale-baseline': {
         // Local equals incoming, but a STALE baseline is on record → the pull
         // confirmation must repair/overwrite it to the agreed state (R1.3, R1.5).
+        // The wire payload equals the server, so the project is skipped (R20.4).
         const local = projOf(project_id, [recOf(recording_id, 'base', steps)]);
         const stale = projOf(project_id, [recOf(recording_id, 'STALE', steps)], '-stale');
         localProjects.push(local);
@@ -355,7 +357,7 @@ function materialize(specs) {
           project_id,
           recording_id,
           category,
-          pushed: true,
+          pushed: false,
           baseline: 'advance',
           expectedDigest: digestProject(local),
           forbiddenDigests: [digestProject(stale)],
@@ -429,7 +431,10 @@ function materialize(specs) {
           project_id,
           recording_id,
           category,
-          pushed: true,
+          // After the auto-apply the merged local recording EQUALS the incoming
+          // (server) version, so the wire payload equals the server and the
+          // project is skipped (R20.4).
+          pushed: false,
           baseline: 'advance',
           expectedDigest: digestProject(advanced),
           expectedRecordingDigest: digestRecording(incomingRec),
@@ -457,7 +462,10 @@ function materialize(specs) {
           project_id,
           recording_id,
           category,
-          pushed: true,
+          // The deferred recording re-sends the agreed-or-pulled (server) version
+          // and local metadata converges, so the wire payload equals the server:
+          // the project is skipped (R20.4).
+          pushed: false,
           baseline: 'unchanged',
           expectedDigest: digestProject(baseline),
           forbiddenDigests: [digestProject(incoming)],
@@ -480,7 +488,10 @@ function materialize(specs) {
           project_id,
           recording_id,
           category,
-          pushed: true,
+          // The diverged recording re-sends the agreed-or-pulled (server) version
+          // and local metadata converges, so the wire payload equals the server:
+          // the project is skipped (R20.4).
+          pushed: false,
           baseline: 'unchanged',
           expectedDigest: digestProject(baseline),
           forbiddenDigests: [digestProject(local), digestProject(incoming)],
@@ -533,14 +544,20 @@ describe('Property 3: Baseline advances only on confirmed agreement or adoption,
           const recordingRef = `${project_id}:${recording_id}`;
           const baseline = getBaseline(state, project_id);
 
-          // Every LOCAL project was pushed — so wherever the baseline did NOT
-          // advance below, it is despite the project having been pushed (R1.2).
-          if (exp.pushed) {
-            assert.ok(
-              putLog.includes(`${SERVER}/projects/${encodeURIComponent(project_id)}`),
-              `${exp.category} project ${project_id} must have been pushed`,
-            );
-          }
+          // A project is pushed IFF its assembled payload differs from the
+          // server's agreed-or-pulled state (R20.4). With one recording per
+          // project here, that is exactly `local-only-new` (no server
+          // counterpart) and `changed-local-outgoing` (local moved, server at
+          // baseline); a converged, auto-applied-fast-forward, deferred
+          // (Review/Conflict), or brand-new-remote project re-sends only the
+          // server's own bytes and is skipped. Wherever the baseline did NOT
+          // advance below for a PUSHED project, it is despite the push (R1.2).
+          const wasPushed = putLog.includes(`${SERVER}/projects/${encodeURIComponent(project_id)}`);
+          assert.equal(
+            wasPushed,
+            exp.pushed,
+            `${exp.category} project ${project_id} push expectation (R20.4)`,
+          );
 
           switch (exp.baseline) {
             case 'absent': {

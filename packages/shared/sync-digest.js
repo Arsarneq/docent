@@ -183,3 +183,27 @@ export function digestProject(project) {
 
   return canonicalize(projection);
 }
+
+/**
+ * Compute the canonical content digest of a project's OWN identity — its
+ * allowlisted scalar fields (`project_id`, `name`, `created_at`, and `metadata`
+ * when present) — with its recordings deliberately EXCLUDED. This isolates
+ * project-scoped identity from recording-scoped identity so a project metadata
+ * change is compared as its own Unit (R2.10), matching the project-metadata Unit
+ * the Conflict_Detector classifies. Uses the same allowlist and canonicalization
+ * as {@link digestProject} (minus `recordings`), so unrecognized top-level fields
+ * never affect it (R18.3).
+ *
+ * @param {import('./sync-types.js').ProjectCopy | object | null} project
+ * @returns {string|null} the project's metadata digest, or null when absent
+ */
+export function digestProjectMetadata(project) {
+  if (project == null) return null;
+  const projection = {
+    project_id: project.project_id,
+    name: project.name,
+    created_at: project.created_at,
+    ...(project.metadata && { metadata: project.metadata }),
+  };
+  return canonicalize(projection);
+}

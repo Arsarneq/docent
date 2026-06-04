@@ -246,14 +246,19 @@ const arbScenario = fc.uniqueArray(arbProjectSpec, {
  * Materialize a scenario into the `sync()` inputs plus the per-recording
  * expectations. Every project is present on BOTH sides (pulled this cycle) with
  * IDENTICAL project metadata (so the project-metadata Unit is always converged
- * and never deferred, and the project always has a local-carrying unit to push).
+ * and never deferred). Every project also gets a mandatory
+ * `changed-local-outgoing` recording (`clo-*`: local moved, server still at
+ * baseline) so the project always has a content-differing unit to write and is
+ * never skipped (R20.4) — this is what keeps the locked recording's preserved
+ * wire-version observable in the push, now that an `already-converged` sibling
+ * equals the server and is no longer a reason to write.
  *
  * A LOCKED recording gets three DISTINCT versions — baseline `base-*`, local
  * `local-*`, server `server-*` — so its agreed-or-pulled (server snapshot) push
  * version is provably neither its local edits nor its baseline. A NON-locked
- * recording is `already-converged` (baseline == local == server), so it is the
- * only-local-carrying noise that keeps the project pushable without itself being
- * deferred or version-swapped.
+ * recording is `already-converged` (baseline == local == server), present only
+ * to prove a converged sibling is still emitted (no omission) and pushed at the
+ * server-equal version.
  */
 function materialize(projectSpecs) {
   const seed = createEmptySyncState();
@@ -274,6 +279,20 @@ function materialize(projectSpecs) {
     const recExpect = new Map();
     const allRecIds = new Set();
 
+    // Mandatory changed-local-outgoing recording: local moved, server still at
+    // baseline ⇒ a genuine content difference, so the project is always pushed
+    // (R20.4). Pushed at its local version.
+    const cloId = `${pid}-clo`;
+    allRecIds.add(cloId);
+    baselineRecs.push(rec(cloId, `clo-base-${cloId}`, []));
+    localRecs.push(rec(cloId, `clo-local-${cloId}`, []));
+    serverRecs.push(rec(cloId, `clo-base-${cloId}`, [])); // server == baseline
+    recExpect.set(cloId, {
+      locked: false,
+      expectedKey: projKey(rec(cloId, `clo-local-${cloId}`, [])),
+      localKey: projKey(rec(cloId, `clo-local-${cloId}`, [])),
+    });
+
     pspec.recordings.forEach((rspec, i) => {
       const rid = `${pid}-r${i}`; // globally unique
       allRecIds.add(rid);
@@ -293,7 +312,8 @@ function materialize(projectSpecs) {
           localKey: projKey(local),
         });
       } else {
-        // already-converged: identical on every side ⇒ pushed at local (== server).
+        // already-converged: identical on every side ⇒ emitted at the server-equal
+        // version (not itself a reason to write).
         const v = rec(rid, `conv-${rid}`, rspec.steps);
         baselineRecs.push(v);
         localRecs.push(v);
@@ -368,9 +388,10 @@ describe('Property 35: A locked recording is preserved in the outbound push at i
         assert.equal(result.halted, false);
         assert.equal(result.haltReason, null);
 
-        // Every local project is pushed exactly once: its project-metadata Unit
-        // is converged (local-carrying), so the project always has something to
-        // write and is never skipped (R20.4).
+        // Every local project is pushed exactly once: each carries a mandatory
+        // changed-local-outgoing recording whose local version differs from the
+        // server, so the project always has something to write and is never
+        // skipped (R20.4).
         const puts = capturedPuts();
         const putByProjectId = new Map();
         for (const put of puts) {
@@ -440,7 +461,7 @@ describe('Property 35: A locked recording is preserved in the outbound push at i
   it('snapshot branch: a locked recording pulled this cycle is pushed at the server (snapshot) version, not the local edits', async () => {
     const pid = '018f4e2a-0000-7000-8000-000000000001';
     const lockedId = 'r-open';
-    const idleId = 'r-idle';
+    const cloId = 'r-clo';
     const steps = [{ uuid: 's1', logical_id: 'a', step_number: 0, deleted: false }];
 
     const seed = createEmptySyncState();
@@ -451,7 +472,7 @@ describe('Property 35: A locked recording is preserved in the outbound push at i
         project_id: pid,
         name: 'P',
         created_at: PROJ_CREATED,
-        recordings: [rec(lockedId, 'base', steps), rec(idleId, 'idle', [])],
+        recordings: [rec(lockedId, 'base', steps), rec(cloId, 'clo-base', [])],
       }),
     );
 
@@ -460,8 +481,10 @@ describe('Property 35: A locked recording is preserved in the outbound push at i
         project_id: pid,
         name: 'P',
         created_at: PROJ_CREATED,
-        // r-open has live local edits that must NOT be pushed.
-        recordings: [rec(lockedId, 'local-edits', steps), rec(idleId, 'idle', [])],
+        // r-open has live local edits that must NOT be pushed; r-clo is a
+        // changed-local-outgoing sibling (local moved, server at baseline) that
+        // gives the project a reason to write so it is not skipped (R20.4).
+        recordings: [rec(lockedId, 'local-edits', steps), rec(cloId, 'clo-local', [])],
       },
     ];
     const manifest = [{ project_id: pid, name: 'P' }];
@@ -473,7 +496,7 @@ describe('Property 35: A locked recording is preserved in the outbound push at i
           name: 'P',
           created_at: PROJ_CREATED,
           // The server's current version of r-open, pulled this cycle.
-          recordings: [rec(lockedId, 'server-version', steps), rec(idleId, 'idle', [])],
+          recordings: [rec(lockedId, 'server-version', steps), rec(cloId, 'clo-base', [])],
         }),
       ],
     ]);
@@ -494,7 +517,7 @@ describe('Property 35: A locked recording is preserved in the outbound push at i
     assert.equal(puts.length, 1);
     const pushed = puts[0].body.recordings;
     const ids = pushed.map((r) => r.recording_id);
-    assert.deepEqual(ids, [lockedId, idleId], 'the locked recording is preserved, not dropped');
+    assert.deepEqual(ids, [lockedId, cloId], 'the locked recording is preserved, not dropped');
     const lockedPushed = pushed.find((r) => r.recording_id === lockedId);
     assert.equal(
       lockedPushed.name,
@@ -507,7 +530,7 @@ describe('Property 35: A locked recording is preserved in the outbound push at i
   it('baseline branch: a locked recording whose project is not pulled this cycle is pushed at its Sync_Baseline version, not the local edits', async () => {
     const pid = '018f4e2a-0000-7000-8000-000000000002';
     const lockedId = 'r-open';
-    const plainId = 'r-plain';
+    const cloId = 'r-clo';
     const steps = [{ uuid: 's1', logical_id: 'a', step_number: 0, deleted: false }];
 
     const seed = createEmptySyncState();
@@ -518,7 +541,7 @@ describe('Property 35: A locked recording is preserved in the outbound push at i
         project_id: pid,
         name: 'P',
         created_at: PROJ_CREATED,
-        recordings: [rec(lockedId, 'baseline-version', steps), rec(plainId, 'plain', [])],
+        recordings: [rec(lockedId, 'baseline-version', steps), rec(cloId, 'clo-base', [])],
       }),
     );
 
@@ -527,9 +550,9 @@ describe('Property 35: A locked recording is preserved in the outbound push at i
         project_id: pid,
         name: 'P',
         created_at: PROJ_CREATED,
-        // r-open has live local edits; r-plain is a clean local-carrying sibling
-        // so the project still has something to write.
-        recordings: [rec(lockedId, 'local-edits', steps), rec(plainId, 'plain', [])],
+        // r-open has live local edits; r-clo is a changed-local-outgoing sibling
+        // (local differs from the baseline) so the project has something to write.
+        recordings: [rec(lockedId, 'local-edits', steps), rec(cloId, 'clo-local', [])],
       },
     ];
     // Project P is NOT in the manifest ⇒ no Sync_Snapshot is retained this cycle,
@@ -550,7 +573,11 @@ describe('Property 35: A locked recording is preserved in the outbound push at i
 
     assert.equal(result.halted, false);
     const puts = capturedPuts();
-    assert.equal(puts.length, 1, 'the project is pushed (its plain sibling has local content)');
+    assert.equal(
+      puts.length,
+      1,
+      'the project is pushed (its clo sibling differs from the baseline)',
+    );
     const pushed = puts[0].body.recordings;
     assert.ok(
       pushed.some((r) => r.recording_id === lockedId),
@@ -606,7 +633,7 @@ describe('Property 35: A locked recording is preserved in the outbound push at i
     );
   });
 
-  it('a project whose every recording is locked is still pushed whole, each at its agreed-or-pulled version', async () => {
+  it('a project whose every recording is locked (each with an agreed-or-pulled version) is SKIPPED — nothing to write (R20.4)', async () => {
     const pid = '018f4e2a-0000-7000-8000-000000000004';
     const steps = [{ uuid: 's1', logical_id: 'a', step_number: 0, deleted: false }];
 
@@ -656,22 +683,16 @@ describe('Property 35: A locked recording is preserved in the outbound push at i
 
     assert.equal(result.halted, false);
     const puts = capturedPuts();
+    // Every recording is locked, so each would be sent at its agreed-or-pulled
+    // (server) version, and the project metadata converges — the WHOLE assembled
+    // payload equals the server's own state. Per the maintainer's strict-R20.4
+    // decision, the project is SKIPPED rather than re-sending the server's bytes.
+    // The held-back local edits reach the server on a later cycle, once the
+    // recordings are unlocked and reconciled; nothing is lost by the skip.
     assert.equal(
       puts.length,
-      1,
-      'the project is still pushed even though all its recordings are locked',
+      0,
+      'a project whose only non-converged units are locked re-sends only the server state and is skipped (R20.4)',
     );
-    const pushed = puts[0].body.recordings;
-    assert.deepEqual(
-      pushed.map((r) => r.recording_id),
-      ['r1', 'r2'],
-      'no locked recording is omitted',
-    );
-    // Each locked recording is pushed at its agreed-or-pulled (server) version.
-    assert.equal(pushed.find((r) => r.recording_id === 'r1').name, 'server-1');
-    assert.equal(pushed.find((r) => r.recording_id === 'r2').name, 'server-2');
-    for (const r of pushed) {
-      assert.ok(!r.name.startsWith('local-'), 'no locked recording pushes its local edits');
-    }
   });
 });

@@ -24,6 +24,7 @@ import {
 import { classifyProject } from './conflict-detector.js';
 import { getBaseline, advanceBaseline } from './sync-baseline.js';
 import { isAppendOnlySuperset, incomingDismissalDigest } from './conflict-resolution.js';
+import { digestRecording, digestProjectMetadata } from './sync-digest.js';
 
 /**
  * Error thrown by sync operations for HTTP or network failures.
@@ -192,18 +193,36 @@ function agreedOrPulledSource(state, project_id) {
  * not re-sent — the deletion propagates rather than being resurrected.
  *
  * ── `writeNeeded` (the "nothing to write" signal, R20.4) ─────────────────────
+ *
  * Alongside the assembled parts, this returns whether the project actually has
- * anything to write. A unit re-sends the SERVER's own state (and so is NOT a
- * reason to write) only when it is deferred/locked AND an agreed-or-pulled
- * version exists for it; every OTHER unit carries the LOCAL version — a
- * clean-local-new, `changed-local-outgoing`, or `already-converged` recording, a
- * deferred/locked recording that fell back to local because there was no
- * agreed-or-pulled copy, or the local project metadata. `writeNeeded` is true
- * when at least one such local-carrying unit is present; it is false only when
- * the WHOLE assembled payload is agreed-or-pulled (the project metadata is a
- * deferral re-sending the agreed-or-pulled metadata AND every recording is a
- * deferred/locked re-send), in which case pushing would only re-send the
- * server's own state and the caller skips the project (R20.4).
+ * anything to write — decided by CONTENT, not by which classification a unit
+ * fell into. For each unit the wire-version (what this function puts in the
+ * payload) is compared by canonical digest against the AGREED-OR-PULLED server
+ * version of that same unit ({@link agreedOrPulledSource}); the unit is a reason
+ * to write iff the two differ. `writeNeeded` is the OR of those per-unit
+ * comparisons (project metadata + every recording).
+ *
+ * This makes R20.4 literal: a project is skipped only when its WHOLE assembled
+ * payload already equals the server's agreed-or-pulled state, so pushing would
+ * merely re-send the server's own bytes. It naturally covers every case:
+ *   - a `changed-local-outgoing` / clean-local-new recording, or changed local
+ *     metadata, differs from the server ⇒ a write;
+ *   - an `already-converged` recording equals the server ⇒ not a write;
+ *   - a deferred (Review/Conflict) or Locked recording carries the
+ *     agreed-or-pulled version, which equals the server ⇒ not a write;
+ *   - a deferred/locked recording that FELL BACK to local (no agreed-or-pulled
+ *     copy) has no server counterpart to equal ⇒ a write (its local content must
+ *     still reach the server).
+ * When NO agreed-or-pulled source exists at all (a brand-new local project never
+ * pulled and with no baseline), every unit is treated as a write — there is
+ * nothing on the server to compare against, so the local work must be sent.
+ *
+ * A project whose only non-converged unit is a Locked recording (its live edits
+ * held back, sent at the agreed-or-pulled version) and whose every other unit
+ * equals the server is therefore SKIPPED this cycle (strict R20.4): nothing on
+ * the wire would differ from the server, and the held-back edits reach the server
+ * on a later cycle, after the recording is unlocked and reconciled. No data is
+ * lost by the skip.
  *
  * @param {import('./sync-types.js').SyncState} state - the persisted, reconciled
  *   SyncState (read-only): baselines, snapshots, reviews, and conflicts
@@ -219,39 +238,50 @@ function buildProjectPushAssembly(state, project, lockedRecordingIds) {
   const isDeferred = (unitRef) =>
     Boolean(state?.reviews?.[unitRef]) || Boolean(state?.conflicts?.[unitRef]);
 
-  // True once any unit carries a LOCAL version (i.e. the assembly is not a pure
-  // re-send of the server's agreed-or-pulled state). Drives the caller's
-  // skip-nothing-to-write decision (R20.4).
+  // True once any unit's wire-version differs (by canonical digest) from the
+  // server's agreed-or-pulled version of that same unit — i.e. the assembly is
+  // not a pure re-send of the server's state. Drives the caller's
+  // skip-nothing-to-write decision by CONTENT, not by classification (R20.4).
   let writeNeeded = false;
 
-  // Project metadata: a project-level deferral sends agreed-or-pulled metadata so
-  // a project-metadata change under review/conflict is not clobbered; otherwise
-  // the local metadata (which is a local-carrying unit).
+  // Project metadata: a project-level deferral sends the agreed-or-pulled
+  // metadata so a project-metadata change under review/conflict is not clobbered;
+  // otherwise the local metadata. Either way, it is a reason to write only if
+  // what we send differs from the server's agreed-or-pulled metadata.
   let projectMeta;
   if (isDeferred(project_id) && source) {
     projectMeta = projectMetaSkeleton(source);
   } else {
     projectMeta = projectMetaSkeleton(project);
+  }
+  if (digestProjectMetadata(projectMeta) !== digestProjectMetadata(source)) {
     writeNeeded = true;
   }
 
   const recordings = (project.recordings ?? []).map((rec) => {
     const unitRef = `${project_id}:${rec.recording_id}`;
+    const agreed = source ? findRecordingById(source, rec.recording_id) : null;
+
+    let wire;
     if (locked.has(rec.recording_id) || isDeferred(unitRef)) {
-      const agreed = source ? findRecordingById(source, rec.recording_id) : null;
-      if (agreed) {
-        // Deferred/locked WITH an agreed-or-pulled copy → re-send the server's
-        // own version (not a reason to write).
-        return recordingProjection(agreed);
-      }
-      // No agreed-or-pulled copy → fall back to local (nothing on the server to
-      // clobber); this local content still needs to reach the server.
-      writeNeeded = true;
-      return recordingProjection(rec);
+      // Deferred/locked: re-send the server's agreed-or-pulled version when one
+      // exists (so a whole-project write cannot clobber a concurrent server
+      // change this client has not reconciled); otherwise fall back to local
+      // (nothing on the server to clobber).
+      wire = recordingProjection(agreed ?? rec);
+    } else {
+      // Clean / changed-local-outgoing / already-converged / auto-applied → local.
+      wire = recordingProjection(rec);
     }
-    // Clean / changed-local-outgoing / already-converged / auto-applied → local.
-    writeNeeded = true;
-    return recordingProjection(rec);
+
+    // A reason to write iff the wire-version differs from the server's
+    // agreed-or-pulled version of this recording. A recording with no
+    // agreed-or-pulled counterpart (brand-new local, or a deferred/locked
+    // fallback-to-local) has nothing to equal on the server ⇒ it must be sent.
+    if (!agreed || digestRecording(wire) !== digestRecording(agreed)) {
+      writeNeeded = true;
+    }
+    return wire;
   });
 
   return { projectMeta, recordings, writeNeeded };

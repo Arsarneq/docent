@@ -460,15 +460,15 @@ describe('Property 39: Resolution pushes nothing; the resolved state propagates 
 
         const puts = capturedPutsByProjectId();
         const body = puts.get(project_id);
-        assert.ok(body, 'the project is pushed on the cycle after resolution');
-        const pushedRec = body.recordings.find((r) => r.recording_id === recording_id);
-        assert.ok(pushedRec, 'the resolved recording is present in the push');
-        const pushedDigest = digestRecording(pushedRec);
 
         if (isConflictArm) {
-          // keep-local / merge ⇒ changed-local-outgoing: the RESOLVED LOCAL
-          // version reaches the wire, and it is provably NOT the server's own
-          // version (R20.5).
+          // keep-local / merge ⇒ changed-local-outgoing: the project is pushed
+          // and the RESOLVED LOCAL version reaches the wire, provably NOT the
+          // server's own version (R20.5).
+          assert.ok(body, 'a keep-local/merge resolution propagates a write on the next cycle');
+          const pushedRec = body.recordings.find((r) => r.recording_id === recording_id);
+          assert.ok(pushedRec, 'the resolved recording is present in the push');
+          const pushedDigest = digestRecording(pushedRec);
           assert.equal(
             pushedDigest,
             digestRecording(resolvedRec),
@@ -480,15 +480,29 @@ describe('Property 39: Resolution pushes nothing; the resolved state propagates 
             'the pushed version is the resolved local version, not the server version',
           );
         } else {
-          // accept ⇒ already-converged: the recording reaches the wire equal to
-          // the server's own version — no divergent local edit is propagated
-          // (R20.5). Unrecognized fields on the server payload (R18.3) do not
+          // accept ⇒ already-converged: the resolved-against version EQUALS the
+          // server's, and (single recording + converged metadata) the whole
+          // project equals the server, so it is SKIPPED — no divergent local edit
+          // is propagated, the strongest form of R20.5. If the project IS pushed
+          // (e.g. a sibling differed), the recording must still reach the wire at
+          // the server's own version. Unrecognized server fields (R18.3) do not
           // perturb this.
-          assert.equal(
-            pushedDigest,
-            serverDigest,
-            'an accepted Review reads as already-converged (no divergent local edit pushed, R20.5)',
-          );
+          if (body) {
+            const pushedRec = body.recordings.find((r) => r.recording_id === recording_id);
+            assert.ok(pushedRec, 'the resolved recording is present in the push');
+            assert.equal(
+              digestRecording(pushedRec),
+              serverDigest,
+              'an accepted Review reads as already-converged (no divergent local edit pushed, R20.5)',
+            );
+          } else {
+            // Nothing to write: the accepted recording equals the server, so the
+            // project re-sends only the server's state and is skipped (R20.4).
+            assert.ok(
+              true,
+              'an accepted Review converges to the server, so the project has nothing to write (R20.4)',
+            );
+          }
         }
       }),
       { numRuns: 200 },
