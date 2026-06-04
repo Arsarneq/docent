@@ -236,8 +236,8 @@ The dispatch workflow is identical to the extension. Configure an endpoint in Se
 
 The `.docent.json` format is defined by per-platform JSON Schemas — the single source of truth for each Docent platform:
 
-- [Extension schema](schemas/extension.schema.json) — Chrome extension
-- [Desktop Windows schema](schemas/desktop-windows.schema.json) — Windows desktop
+- [Extension schema](schemas/dist/extension.schema.json) — Chrome extension
+- [Desktop Windows schema](schemas/dist/desktop-windows.schema.json) — Windows desktop
 
 See [docs/session-format.md](docs/session-format.md) for the full specification with annotated examples.
 

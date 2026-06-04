@@ -350,8 +350,8 @@ tree.
 
 Machine-readable schemas for validation:
 
-- [`schemas/extension.schema.json`](../schemas/extension.schema.json) — Chrome extension
-- [`schemas/desktop-windows.schema.json`](../schemas/desktop-windows.schema.json) — Windows desktop
+- [`schemas/dist/extension.schema.json`](../schemas/dist/extension.schema.json) — Chrome extension
+- [`schemas/dist/desktop-windows.schema.json`](../schemas/dist/desktop-windows.schema.json) — Windows desktop
 - [`schemas/shared.schema.json`](../schemas/shared.schema.json) — Shared definitions (not used directly for validation)
 
 ---
