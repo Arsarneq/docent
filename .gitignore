@@ -54,6 +54,7 @@ lefthook-local.yml
 .cursor/
 .windsurf/
 .copilot/
+.claude/
 
 # Environment
 .env

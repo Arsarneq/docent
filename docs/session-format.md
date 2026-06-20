@@ -334,15 +334,17 @@ tree.
 }
 ```
 
-| Field      | Type           | Required | Description                                                                                                          |
-| ---------- | -------------- | -------- | -------------------------------------------------------------------------------------------------------------------- |
-| `tag`      | string         | yes      | HTML tag name (extension) / UIA ControlType, e.g. `Button`, `Edit` (desktop). `"unknown"` in coordinate mode.        |
-| `id`       | string \| null | no       | DOM `id` attribute (extension) / UIA AutomationId, developer-assigned and session-stable (desktop).                  |
-| `name`     | string \| null | no       | `name` attribute (extension) / UIA Name (desktop).                                                                   |
-| `role`     | string \| null | no       | ARIA role (extension) / localized UIA control type (desktop).                                                        |
-| `type`     | string \| null | no       | Input type attribute (extension) / control subtype, e.g. `"password"` (desktop).                                     |
-| `text`     | string \| null | no       | Visible text (truncated to 100 chars). Null for passwords.                                                           |
-| `selector` | string         | yes      | CSS selector (extension) / accessibility tree path joined with `" > "`, or `coord:x,y` in coordinate mode (desktop). |
+| Field          | Type           | Required | Description                                                                                                                  |
+| -------------- | -------------- | -------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| `tag`          | string         | yes      | HTML tag name (extension) / UIA ControlType, e.g. `Button`, `Edit` (desktop). `"unknown"` in coordinate mode.                |
+| `id`           | string \| null | no       | DOM `id` attribute (extension) / UIA AutomationId, developer-assigned and session-stable (desktop).                          |
+| `name`         | string \| null | no       | `name` attribute (extension) / UIA Name (desktop).                                                                           |
+| `role`         | string \| null | no       | ARIA role (extension) / localized UIA control type (desktop).                                                                |
+| `type`         | string \| null | no       | Input type attribute (extension) / control subtype, e.g. `"password"` (desktop).                                             |
+| `autocomplete` | string \| null | no       | HTML `autocomplete` token, e.g. `"cc-number"` (extension). Used to detect sensitive payment fields. Null/absent on desktop.  |
+| `text`         | string \| null | no       | Visible text (truncated to 100 chars). Null for passwords.                                                                   |
+| `selector`     | string         | yes      | CSS selector (extension) / accessibility tree path joined with `" > "`, or `coord:x,y` in coordinate mode (desktop).         |
+| `redacted`     | boolean        | no       | `true` when the value/text was redacted because the field was sensitive (password, payment, or other PII). Absent otherwise. |
 
 ---
 

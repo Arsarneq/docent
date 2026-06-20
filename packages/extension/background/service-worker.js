@@ -30,6 +30,7 @@ import {
   resolveActiveSteps,
 } from '../shared/lib/session.js';
 import { uuidv7 } from '../shared/lib/uuid-v7.js';
+import { isSensitiveField, redactUrl, SENSITIVE_MASK } from '../shared/lib/field-sensitivity.js';
 import {
   TAB_CREATED_USER_ACTION_WINDOW,
   TAB_CLOSED_USER_ACTION_WINDOW,
@@ -146,10 +147,34 @@ chrome.webNavigation.onCompleted.addListener(async (details) => {
 // (e.g. context_open + navigate) fire simultaneously.
 let swWriteQueue = Promise.resolve();
 
+// S10 — sensitive-data redaction at the storage chokepoint. The content script
+// already masks passwords inline (native `type=password` signal); this catches
+// the rest with the SHARED field-sensitivity util, before anything is persisted:
+//   - a sensitive non-password field (cc/ssn/secret/payment-autocomplete) has its
+//     value masked and its element text nulled + flagged `redacted`;
+//   - a `navigate` URL has its sensitive query-param values stripped.
+// Applied at EVERY pendingActions write (here + the inline navigate writes), so
+// no captured value reaches storage unredacted. Mutates the soon-to-be-stored
+// action in place.
+function redactSensitive(action) {
+  if (!action || typeof action !== 'object') return action;
+  const el = action.element;
+  if (el && typeof el === 'object' && !el.redacted && isSensitiveField(el)) {
+    if (typeof action.value === 'string') action.value = SENSITIVE_MASK;
+    el.text = null;
+    el.redacted = true;
+  }
+  if (action.type === 'navigate' && typeof action.url === 'string') {
+    action.url = redactUrl(action.url);
+  }
+  return action;
+}
+
 async function appendSwAction(action) {
+  const safe = redactSensitive(action);
   swWriteQueue = swWriteQueue.then(async () => {
     const { pendingActions } = await chrome.storage.local.get('pendingActions');
-    const updated = [...(pendingActions ?? []), action];
+    const updated = [...(pendingActions ?? []), safe];
     await chrome.storage.local.set({ pendingActions: updated, pendingCount: updated.length });
   });
   return swWriteQueue;
@@ -195,7 +220,7 @@ chrome.webNavigation.onCommitted.addListener(async (details) => {
         const { pendingActions } = await chrome.storage.local.get('pendingActions');
         const updated = [
           ...(pendingActions ?? []),
-          {
+          redactSensitive({
             type: 'navigate',
             nav_type: 'link',
             timestamp: Date.now(),
@@ -203,7 +228,7 @@ chrome.webNavigation.onCommitted.addListener(async (details) => {
             context_id: details.tabId,
             capture_mode: 'dom',
             window_rect: null,
-          },
+          }),
         ];
         await chrome.storage.local.set({ pendingActions: updated, pendingCount: updated.length });
       }));
@@ -249,7 +274,7 @@ chrome.webNavigation.onCommitted.addListener(async (details) => {
     const { pendingActions } = await chrome.storage.local.get('pendingActions');
     const updated = [
       ...(pendingActions ?? []),
-      {
+      redactSensitive({
         type: 'navigate',
         nav_type: navType,
         timestamp: Date.now(),
@@ -257,7 +282,7 @@ chrome.webNavigation.onCommitted.addListener(async (details) => {
         context_id: details.tabId,
         capture_mode: 'dom',
         window_rect: null,
-      },
+      }),
     ];
     await chrome.storage.local.set({ pendingActions: updated, pendingCount: updated.length });
   }));

@@ -139,8 +139,16 @@
       name: el.getAttribute('name') || null,
       role: el.getAttribute('role') || null,
       type: el.getAttribute('type') || null,
+      // Captured so the service worker (the storage chokepoint) can flag sensitive
+      // payment fields via the shared field-sensitivity util — the content script
+      // itself stays pattern-free. Passwords are still masked inline below.
+      autocomplete: el.getAttribute('autocomplete') || null,
       text: isPassword ? null : (el.innerText ?? el.value ?? '').trim().slice(0, 100) || null,
       selector: selectorFor(el),
+      // Mark the password element redacted (its value is masked at the type site
+      // below and its text is nulled above). Non-password sensitive fields are
+      // flagged + masked in the service worker, before storage.
+      ...(isPassword && { redacted: true }),
     };
   }
 

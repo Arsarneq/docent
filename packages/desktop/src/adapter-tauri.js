@@ -14,6 +14,7 @@
 
 import { validateEndpointUrl as _validateEndpointUrl } from '../shared/dispatch-core.js';
 import { setHttpTransport } from '../shared/lib/http-transport.js';
+import { isSensitiveField, SENSITIVE_MASK } from '../shared/lib/field-sensitivity.js';
 import { invoke, listen } from './tauri-bridge.js';
 
 // ─── Native HTTP transport (S20) ──────────────────────────────────────────────
@@ -104,11 +105,29 @@ function _resetReorderState() {
   _highestSeenSeq = 0;
 }
 
+// S10 — sensitive-data redaction at the desktop storage chokepoint. The Rust
+// capture layer masks passwords (native UIA `IsPassword` signal); this catches
+// the rest with the SHARED field-sensitivity util — a cc/ssn/secret field named
+// in the accessibility tree — before the action enters the pending list (and so
+// the stored/exported recording). `isSensitiveField` also matches the
+// password element_type, so this is also where the desktop `redacted` marker is
+// set, keeping the marker single-sourced with the extension. Mutates in place.
+function _redactSensitive(action) {
+  const el = action && action.element;
+  if (el && typeof el === 'object' && !el.redacted && isSensitiveField(el)) {
+    if (typeof action.value === 'string') action.value = SENSITIVE_MASK;
+    el.text = null;
+    el.redacted = true;
+  }
+  return action;
+}
+
 function _insertOrdered(action) {
   const seqId = action.sequence_id;
 
   // Strip sequence_id before adding to pending actions
   const { sequence_id: _seq, ...cleanAction } = action;
+  _redactSensitive(cleanAction);
 
   if (seqId == null) {
     // No sequence_id — append to end
