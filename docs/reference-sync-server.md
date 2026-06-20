@@ -24,6 +24,32 @@ restating it.
 
 ---
 
+## Scope: a sync target, not a consumer API
+
+The sync server is an **opaque sync target** — it stores and returns whole
+`Full_Project_Payload`s for Docent clients and holds no other state. It is **not**
+a consumer-facing read API. A system that consumes recordings (an LLM/agentic
+pipeline, a deterministic code mapper, a dashboard) should read from the
+**storage** the server persists to — through its own service — rather than
+calling the sync endpoints directly.
+
+Consistent with that scope, the reference server sends **no CORS headers** and
+binds to loopback. This is deliberate, not an omission:
+
+- **Docent's own clients never need it.** The Chrome extension reaches the server
+  through its `host_permissions`, and the desktop app issues sync requests
+  natively (from Rust) rather than through the webview — so neither relies on the
+  browser's cross-origin rules.
+- **Permissive CORS on a local store is a hazard.** Adding a header such as
+  `Access-Control-Allow-Origin: *` to a loopback-bound, optionally-open server
+  would let _any website the user visits_ read and overwrite their local sync
+  data from the browser. Do not add CORS to feed a browser-based consumer;
+  integrate at the storage layer instead. If you deliberately expose your own
+  server to a trusted browser origin, scope CORS to that exact origin — never
+  `*`, and never on an unauthenticated server.
+
+---
+
 ## Running the server
 
 The server has no runtime dependencies and no build step. From

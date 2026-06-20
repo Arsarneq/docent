@@ -47,6 +47,25 @@ this — it only stores and returns payloads.
 
 ---
 
+## Server scope and CORS
+
+A sync server is a **sync target for Docent clients**, not a consumer-facing read
+API. Systems that consume recordings (an LLM/agentic pipeline, a code mapper, a
+dashboard) should read from the server's underlying **storage** through their own
+service, rather than calling these endpoints directly.
+
+A compliant server therefore does **not** need to emit CORS headers: Docent's own
+clients do not rely on the browser's cross-origin rules — the Chrome extension
+uses its host permissions, and the desktop app issues requests natively rather
+than through the webview. Adding permissive CORS (e.g.
+`Access-Control-Allow-Origin: *`) to a server — especially one bound to localhost
+or running without authentication — would let any website the user visits read
+and overwrite their data from the browser. If you intentionally expose your
+server to a trusted browser origin, scope CORS to that exact origin and never use
+`*` on an unauthenticated server.
+
+---
+
 ## Authentication
 
 Authentication is optional. When the user configures an API key in Docent, the

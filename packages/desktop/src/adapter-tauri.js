@@ -2,9 +2,10 @@
  * adapter-tauri.js — Tauri Desktop Platform Adapter
  *
  * Implements the PlatformAdapter interface (see shared/views/adapter.js)
- * using Tauri v2 APIs: window.__TAURI__.core.invoke for commands,
- * window.__TAURI__.event.listen for events, and filesystem persistence
- * via Tauri commands.
+ * using Tauri v2 APIs via the `tauri-bridge.js` seam (S13): `invoke` for
+ * commands and `listen` for events (the bridge reaches them through an ESM
+ * import of `@tauri-apps/api`, since the app ships with `withGlobalTauri: false`),
+ * plus filesystem persistence via Tauri commands.
  *
  * This file is part of Docent.
  * Licensed under the GNU General Public License v3.0
@@ -12,12 +13,63 @@
  */
 
 import { validateEndpointUrl as _validateEndpointUrl } from '../shared/dispatch-core.js';
+import { setHttpTransport } from '../shared/lib/http-transport.js';
+import { invoke, listen } from './tauri-bridge.js';
 
-// ─── Tauri globals ────────────────────────────────────────────────────────────
-// Tauri v2 with `withGlobalTauri: true` exposes APIs on window.__TAURI__
+// ─── Native HTTP transport (S20) ──────────────────────────────────────────────
+// The desktop issues sync / dispatch / connection-test requests through the
+// native `sync_http_request` command (Rust) instead of the webview's `fetch`,
+// which would be CORS-blocked against a non-CORS server (the reference server,
+// any correctly-scoped adopter backend). Binding it here — once, at module load,
+// before the panel runs any sync — routes the shared HTTP code through Rust on
+// this platform while the extension keeps using `globalThis.fetch`
+// (host-permission-backed). See SECURITY_BACKLOG S20.
 
-const { invoke } = window.__TAURI__.core;
-const { listen } = window.__TAURI__.event;
+/** Normalize the shared callers' header object into a plain `Record<string,string>`. */
+function _headersToRecord(headers) {
+  if (!headers) return {};
+  if (typeof headers.forEach === 'function' && typeof headers.get === 'function') {
+    // A Headers instance (the shared code passes plain objects, but be safe).
+    const record = {};
+    headers.forEach((value, key) => {
+      record[key] = value;
+    });
+    return record;
+  }
+  return { ...headers };
+}
+
+/**
+ * `fetch`-shaped transport backed by the native `sync_http_request` command.
+ * Returns the strict response subset the shared HTTP code uses
+ * (`ok`/`status`/`headers.get`/`json`/`text`). The webview `signal` is not
+ * plumbed through `invoke`; the native command enforces its own timeout.
+ *
+ * @param {string} url
+ * @param {{method?: string, headers?: object, body?: string|null}} [options]
+ * @returns {Promise<object>} a `fetch`-shaped response
+ */
+async function tauriRequest(url, options = {}) {
+  const { method = 'GET', headers = {}, body = null } = options;
+  const result = await invoke('sync_http_request', {
+    method,
+    url,
+    headers: _headersToRecord(headers),
+    body: body ?? null,
+  });
+  const headerMap = result?.headers ?? {};
+  const status = result?.status ?? 0;
+  const bodyText = result?.body ?? '';
+  return {
+    ok: status >= 200 && status < 300,
+    status,
+    headers: { get: (name) => headerMap[String(name).toLowerCase()] ?? null },
+    json: async () => JSON.parse(bodyText),
+    text: async () => bodyText,
+  };
+}
+
+setHttpTransport(tauriRequest);
 
 // ─── In-memory pending actions ────────────────────────────────────────────────
 // Unlike the Chrome extension (which uses chrome.storage.local for

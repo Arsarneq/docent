@@ -73,6 +73,9 @@ describe('readProject — stored project (R2.1, R2.4, R6.1)', () => {
 
     assert.equal(res.statusCode, 200);
     assert.equal(res.headers['Content-Type'], 'application/json');
+    // `no-store` so a browser-based client (the extension's webview fetch) can't
+    // serve a stale project from its HTTP cache and miss a concurrent change.
+    assert.equal(res.headers['Cache-Control'], 'no-store');
     assert.deepEqual(JSON.parse(res.body), payload);
   });
 

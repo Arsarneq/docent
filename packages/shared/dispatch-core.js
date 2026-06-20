@@ -11,6 +11,7 @@
  */
 
 import { stampFromSchema } from './lib/format-stamp.js';
+import { httpRequest } from './lib/http-transport.js';
 
 /**
  * Validates an endpoint URL string.
@@ -187,7 +188,7 @@ export async function sendPayload(endpointUrl, apiKey, payload, opts = {}) {
 
     let response;
     try {
-      response = await fetch(endpointUrl, {
+      response = await httpRequest(endpointUrl, {
         method: 'POST',
         headers,
         body,

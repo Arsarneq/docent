@@ -61,6 +61,13 @@ export async function readProject(storage, req, res, id) {
   res.writeHead(200, {
     'Content-Type': 'application/json',
     ETag: deriveETag(record.payload),
+    // Never let a browser-based client (the Chrome extension's webview `fetch`)
+    // serve a STALE project from its HTTP cache: with an ETag but no freshness
+    // header, the browser may reuse a prior body and the sync client would miss a
+    // concurrent server change. The client also sends `cache: no-store`, but a
+    // compliant server should not rely on that. (Docent clients are the only
+    // intended consumers; this is not a CORS/consumer-API affordance.)
+    'Cache-Control': 'no-store',
   });
   res.end(body);
 }

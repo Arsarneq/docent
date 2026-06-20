@@ -50,6 +50,8 @@ export async function handleManifest(storage, _req, res) {
   const manifest = await storage.list();
 
   const body = JSON.stringify(manifest);
-  res.writeHead(200, { 'Content-Type': 'application/json' });
+  // `no-store` so a browser-based client never serves a stale manifest from its
+  // HTTP cache (see read-project.js for the full rationale).
+  res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
   res.end(body);
 }

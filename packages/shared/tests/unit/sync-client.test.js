@@ -306,6 +306,33 @@ describe('pullProjects', () => {
     assert.equal(result.projects[1].project_id, X2);
   });
 
+  it("issues every GET with cache: 'no-store' so the webview fetch can't serve a stale payload", async () => {
+    // Regression: the extension transport is the browser's `fetch`. With a server
+    // that sends an ETag but no Cache-Control (the reference server, and adopter
+    // servers), the browser would serve a STALE cached project — the client then
+    // sees already-converged and silently drops an incoming change/review. Every
+    // GET (manifest + per-project) must opt out of the HTTP cache.
+    const ID = '0190a1b2-0000-7000-8000-000000000009';
+    const manifest = [{ project_id: ID, name: 'P', last_modified: '2026-01-01T00:00:00.000Z' }];
+    mockFetch((url) => {
+      if (url.endsWith('/projects')) return makeResponse(200, manifest);
+      if (url.endsWith(`/projects/${ID}`))
+        return makeResponse(200, {
+          project: { project_id: ID, name: 'P', created_at: '2026-01-01T00:00:00.000Z' },
+          recordings: [],
+        });
+      return makeResponse(404);
+    });
+
+    await pullProjects('https://srv.test', null, passValidator);
+
+    assert.ok(fetchCalls.length >= 2, 'manifest + at least one project fetch');
+    for (const call of fetchCalls) {
+      assert.equal(call.options.method, 'GET');
+      assert.equal(call.options.cache, 'no-store', `GET ${call.url} must set cache: 'no-store'`);
+    }
+  });
+
   it('network error on manifest returns error with halted=false', async () => {
     mockFetch(() => {
       throw new Error('DNS resolution failed');

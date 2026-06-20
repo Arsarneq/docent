@@ -13,6 +13,7 @@
 import { isValidUuidv7 } from './lib/uuid-v7.js';
 import { stampFromSchema, checkStampCompatibility } from './lib/format-stamp.js';
 import { validatePayload } from './lib/validate-import.js';
+import { httpRequest } from './lib/http-transport.js';
 import {
   loadSyncState,
   saveSyncState,
@@ -466,7 +467,7 @@ export async function pushProjects(
 
     let response;
     try {
-      response = await fetch(url, {
+      response = await httpRequest(url, {
         method: 'PUT',
         headers,
         body: JSON.stringify(payload),
@@ -541,9 +542,16 @@ export async function pullProjects(serverUrl, apiKey, validator, localStamp) {
   // Fetch manifest
   let manifestResponse;
   try {
-    manifestResponse = await fetch(`${serverUrl}/projects`, {
+    manifestResponse = await httpRequest(`${serverUrl}/projects`, {
       method: 'GET',
       headers,
+      // Bypass the HTTP cache. The extension transport is the webview's `fetch`,
+      // which otherwise lets the browser serve a STALE manifest/project payload
+      // (the reference server, and adopter servers, may send an ETag but no
+      // Cache-Control) — making the client miss a concurrent server change and
+      // skip the review/conflict it should raise. The desktop's native transport
+      // ignores this field (it has no shared browser cache).
+      cache: 'no-store',
     });
   } catch (err) {
     const syncErr = new SyncError(
@@ -593,9 +601,14 @@ export async function pullProjects(serverUrl, apiKey, validator, localStamp) {
 
     let response;
     try {
-      response = await fetch(url, {
+      response = await httpRequest(url, {
         method: 'GET',
         headers,
+        // Bypass the HTTP cache so the webview `fetch` (extension) always reads
+        // the server's current bytes — a stale cached project payload here reads
+        // as already-converged and silently drops an incoming change. See the
+        // manifest fetch above.
+        cache: 'no-store',
       });
     } catch (err) {
       const syncErr = new SyncError(

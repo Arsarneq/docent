@@ -34,6 +34,26 @@ const TAURI_MOCK_JS = `
       invoke: async (cmd, args) => {
         switch (cmd) {
           case 'load_state': return _savedState;
+          case 'sync_http_request': {
+            // S20: the desktop routes sync/dispatch/connection-test through the
+            // native sync_http_request command. In the integration env there is
+            // no Rust backend, so the mock services it via the page's window.fetch
+            // (which these specs stub) and adapts the result into the native
+            // command's { status, headers, body } shape — keeping every existing
+            // fetch stub faithful while exercising the real transport path.
+            const _r = await window.fetch(args.url, {
+              method: args.method,
+              headers: args.headers || {},
+              body: args.body == null ? undefined : args.body,
+            });
+            const _status = typeof _r.status === 'number' ? _r.status : _r.ok ? 200 : 500;
+            let _body = '';
+            if (typeof _r.text === 'function') { try { _body = await _r.text(); } catch (_e) { _body = ''; } }
+            if (!_body && typeof _r.json === 'function') { try { _body = JSON.stringify(await _r.json()); } catch (_e) { _body = ''; } }
+            const _headers = {};
+            if (_r.headers && typeof _r.headers.forEach === 'function') { _r.headers.forEach((v, k) => { _headers[String(k).toLowerCase()] = v; }); }
+            return { status: _status, headers: _headers, body: _body };
+          }
           case 'save_state': _savedState = args.data; return;
           case 'start_capture': return;
           case 'stop_capture': return;
@@ -992,6 +1012,31 @@ test.describe('Desktop Panel - Sync Settings', () => {
     await page.click('#btn-settings');
     await page.waitForSelector('#view-settings:not(.hidden)', { timeout: 5000 });
     await expect(page.locator('#settings-sync-url')).toHaveValue('http://sync.example.com');
+  });
+
+  test('saving a valid sync URL does not report an authentication failure', async ({ page }) => {
+    // Regression: saving a new endpoint is a settings change, NOT an auth failure.
+    // It must invalidate the Connection_Test to the untested state and prompt a
+    // re-test — never set connectionTest='auth', which wrongly surfaced
+    // "Authentication failed — re-test your connection." after a plain Save while
+    // an explicit Test connection against the same server passed.
+    await page.goto(`http://127.0.0.1:${serverPort}/`);
+    await page.waitForSelector('#view-projects:not(.hidden)', { timeout: 10000 });
+
+    await page.click('#btn-settings');
+    await page.waitForSelector('#view-settings:not(.hidden)', { timeout: 5000 });
+
+    // Save a syntactically valid endpoint WITHOUT first testing the connection.
+    await page.fill('#settings-sync-url', 'http://localhost:3000');
+    await page.click('#btn-settings-sync-save');
+    await page.waitForTimeout(300);
+
+    // No false auth error on the connection status line...
+    await expect(page.locator('#settings-connection-status')).not.toContainText(
+      'Authentication failed',
+    );
+    // ...and the neutral re-test prompt guides the user instead.
+    await expect(page.locator('#settings-auto-sync-hint')).toContainText('Test the connection');
   });
 
   test('sync button enabled when URL configured', async ({ page }) => {

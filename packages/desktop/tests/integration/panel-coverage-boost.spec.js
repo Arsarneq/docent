@@ -37,6 +37,26 @@ const TAURI_MOCK_JS = `
         _invokeCalls.push({ cmd, args });
         switch (cmd) {
           case 'load_state': return _savedState;
+          case 'sync_http_request': {
+            // S20: the desktop routes sync/dispatch/connection-test through the
+            // native sync_http_request command. In the integration env there is
+            // no Rust backend, so the mock services it via the page's window.fetch
+            // (which these specs stub) and adapts the result into the native
+            // command's { status, headers, body } shape — keeping every existing
+            // fetch stub faithful while exercising the real transport path.
+            const _r = await window.fetch(args.url, {
+              method: args.method,
+              headers: args.headers || {},
+              body: args.body == null ? undefined : args.body,
+            });
+            const _status = typeof _r.status === 'number' ? _r.status : _r.ok ? 200 : 500;
+            let _body = '';
+            if (typeof _r.text === 'function') { try { _body = await _r.text(); } catch (_e) { _body = ''; } }
+            if (!_body && typeof _r.json === 'function') { try { _body = JSON.stringify(await _r.json()); } catch (_e) { _body = ''; } }
+            const _headers = {};
+            if (_r.headers && typeof _r.headers.forEach === 'function') { _r.headers.forEach((v, k) => { _headers[String(k).toLowerCase()] = v; }); }
+            return { status: _status, headers: _headers, body: _body };
+          }
           case 'save_state': _savedState = args.data; return;
           case 'start_capture': return;
           case 'stop_capture': return;

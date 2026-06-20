@@ -57,6 +57,7 @@
 
 import { buildHeaders } from './sync-client.js';
 import { canonicalize } from './sync-digest.js';
+import { httpRequest } from './lib/http-transport.js';
 
 /**
  * Issue a single `GET /projects` against the configured server and classify the
@@ -83,9 +84,12 @@ export async function testConnection(serverUrl, apiKey) {
 
   let response;
   try {
-    response = await fetch(`${serverUrl}/projects`, {
+    response = await httpRequest(`${serverUrl}/projects`, {
       method: 'GET',
       headers,
+      // Bypass the HTTP cache so a connection test reflects the live server, not
+      // a cached response from the webview `fetch` (extension). See sync-client.
+      cache: 'no-store',
     });
   } catch {
     // Network failure (DNS, refused, offline, CORS, …) — the server could not

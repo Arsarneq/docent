@@ -11,6 +11,7 @@
 pub mod capture;
 pub mod commands;
 pub mod secret_store;
+pub mod sync_http;
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -76,6 +77,7 @@ pub fn run() {
             commands::set_auto_sync_keepalive,
             commands::export_file,
             commands::import_file,
+            sync_http::sync_http_request,
         ])
         .setup(|app| {
             // Spawn a background thread that receives ActionEvents from the

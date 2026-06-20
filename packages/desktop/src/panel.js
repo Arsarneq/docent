@@ -73,8 +73,7 @@ import {
   findRecording,
 } from '../shared/lib/session.js';
 import { uuidv7 } from '../shared/lib/uuid-v7.js';
-
-const { invoke } = window.__TAURI__.core;
+import { invoke } from './tauri-bridge.js';
 
 // ─── Elements ─────────────────────────────────────────────────────────────────
 
@@ -495,7 +494,7 @@ function startAutoSyncHost() {
       // R23.11: a 401/403 disables Auto-Sync and flags Settings for a re-test
       // rather than retrying bad credentials on the interval. Persist the change
       // and tear the host down; the user re-tests + re-enables from Settings.
-      await disableAutoSync({ needsRetest: true });
+      await disableAutoSync({ invalidateTest: 'auth' });
     },
   });
 
@@ -527,20 +526,29 @@ function stopAutoSyncHost() {
 }
 
 /**
- * Persist `autoSync: false` (and, on an auth failure, invalidate the prior
- * Connection_Test so Settings demands a fresh pass before re-enabling — R23.3,
- * R23.11) and tear the host down. Used by the auth-disable path and by an
- * explicit user toggle-off.
+ * Persist `autoSync: false` and tear the host down. Used by the auth-disable
+ * path, by a settings change, and by an explicit user toggle-off.
+ *
+ * The optional `invalidateTest` also clears the prior Connection_Test so Settings
+ * demands a fresh pass before re-enabling (R23.3, R23.11). It distinguishes WHY
+ * the pass no longer applies, which the UI surfaces differently:
+ *   - `'auth'`     — a genuine 401/403 occurred; Settings shows an auth error.
+ *   - `'untested'` — the endpoint/key changed, so the prior pass simply no longer
+ *                    applies. This is NOT a failure, so it must NOT be labelled
+ *                    `'auth'` (doing so wrongly shows "Authentication failed" after
+ *                    a plain Save); the test reverts to the untested (`null`) state
+ *                    and Settings prompts "Test the connection to enable Auto-sync."
+ *   - `false`      — leave the Connection_Test untouched (e.g. a manual toggle-off).
  *
  * @param {object} [opts]
- * @param {boolean} [opts.needsRetest=false] — also clear the Connection_Test pass.
+ * @param {('auth'|'untested'|false)} [opts.invalidateTest=false]
  * @returns {Promise<void>}
  */
-async function disableAutoSync({ needsRetest = false } = {}) {
+async function disableAutoSync({ invalidateTest = false } = {}) {
   const state = (await loadSyncState(syncStore)) ?? {};
   const patch = { autoSync: false };
-  if (needsRetest) {
-    patch.connectionTest = 'auth';
+  if (invalidateTest) {
+    patch.connectionTest = invalidateTest === 'auth' ? 'auth' : null;
     patch.testedSettingsFingerprint = null;
   }
   setSettings(state, patch);
@@ -1612,7 +1620,16 @@ btnSettingsSyncSave.addEventListener('click', async () => {
     // R23.3: changing the endpoint or API key invalidates the prior
     // Connection_Test and disables Auto-Sync until a fresh test passes. Tear the
     // background host down here; the user re-tests + re-enables from Settings.
-    await disableAutoSync({ needsRetest: true });
+    // This is a settings change, not an auth failure — invalidate to the untested
+    // state so Settings prompts a re-test rather than reporting "Authentication
+    // failed".
+    await disableAutoSync({ invalidateTest: 'untested' });
+    // Clear any transient Connection_Test result from the previous settings; it
+    // was taken against a now-stale endpoint/key. updateAutoSyncControls re-derives
+    // the correct prompt ("Test the connection to enable Auto-sync.").
+    settingsConnectionStatus.textContent = '';
+    settingsConnectionStatus.classList.add('hidden');
+    settingsConnectionStatus.classList.remove('is-ok', 'is-error');
     updateSyncButton();
     updateAutoSyncControls();
   } catch (err) {

@@ -38,6 +38,14 @@
  *     deliberate feature code (verified: the dist growth is entirely these two
  *     modules, no new dependency). Budget raised to fit them plus normal
  *     headroom.
+ *   - Raised to 560KB for SECURITY_BACKLOG S13/S20: the dist now ships a bundled
+ *     `tauri-bridge.js` (~6KB) with `@tauri-apps/api`'s `invoke`/`listen` inlined.
+ *     With `withGlobalTauri: false` (S13) the frontend reaches the Tauri API via
+ *     an ESM import rather than the `window.__TAURI__` global, and the desktop's
+ *     native HTTP transport (S20) is reached through the same bridge. esbuild
+ *     bundles only this one file so the API resolves under the strict
+ *     `script-src 'self'` CSP. Deliberate security artifact, not accidental
+ *     bloat — budget raised to fit it plus normal headroom.
  *
  * Requires `npm run build:desktop-dist` to have been run first.
  */
@@ -79,12 +87,12 @@ function formatSize(bytes) {
 }
 
 describe('Build size: Desktop dist', () => {
-  it('total JS size is under 520KB', () => {
+  it('total JS size is under 560KB', () => {
     const size = getDirSize(desktopDistDir, ['.js']);
     assert.ok(size > 0, 'No JS files found — has build:desktop-dist been run?');
     assert.ok(
-      size < 520 * 1024,
-      `Desktop dist JS is ${formatSize(size)} (soft limit: 520KB). Regression tripwire, not a platform limit — if the growth is an intentional artifact, raise the limit AND its rationale in this file's header; otherwise check for an accidental large dependency.`,
+      size < 560 * 1024,
+      `Desktop dist JS is ${formatSize(size)} (soft limit: 560KB). Regression tripwire, not a platform limit — if the growth is an intentional artifact, raise the limit AND its rationale in this file's header; otherwise check for an accidental large dependency.`,
     );
   });
 
