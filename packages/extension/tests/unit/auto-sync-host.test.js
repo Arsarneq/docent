@@ -129,6 +129,8 @@ globalThis.chrome = {
   webNavigation: {
     onCompleted: { addListener() {} },
     onCommitted: { addListener() {} },
+    onBeforeNavigate: { addListener() {} },
+    getAllFrames: async () => [],
   },
   tabs: {
     onActivated: { addListener() {} },

@@ -38,6 +38,7 @@ import {
   TAB_REMOVED_SWITCH_SUPPRESSION,
   TAB_CREATED_NAVIGATION_SUPPRESSION,
 } from '../lib/capture-timing.js';
+import { isTrustedActionSender } from '../lib/frame-trust.js';
 // Auto-Sync background host (R23.10, R23.15, R23.16). The triggered cycle calls
 // the SAME shared `sync()` the manual panel path does, through the SAME
 // chrome-backed adapter, so a background cycle and a manual cycle are identical
@@ -71,6 +72,54 @@ let activeRecordingId = null;
 // synchronous (it drops triggers while capture is active, R23.9), so the SW
 // holds the flag in memory rather than awaiting a storage read on every trigger.
 let liveRecording = false;
+
+// Active-frame registry: tabId → Set<frameId> of frames we have injected the
+// recorder into during the current recording. A frame is "trusted" (its
+// APPEND_ACTION messages are appended) only if it is in this registry — that is
+// the per-frame sender check that stops an embedded third-party frame, or any
+// page that can reach the message port, from injecting actions into a session.
+//
+// In-memory only — frameIds are session-scoped and churn as frames load/unload,
+// so this is NOT persisted. After an SW restart it is empty; the APPEND_ACTION
+// handler lazily reseeds it from chrome.webNavigation rather than false-rejecting
+// a legitimate frame whose registration was lost with the suspended worker.
+const activeFrames = new Map();
+
+/** Add (tabId, frameId) to the active-frame registry. */
+function registerFrame(tabId, frameId) {
+  if (tabId == null || frameId == null) return;
+  let frames = activeFrames.get(tabId);
+  if (!frames) {
+    frames = new Set();
+    activeFrames.set(tabId, frames);
+  }
+  frames.add(frameId);
+}
+
+/** Seed the registry for a tab from the frames currently loaded in it. */
+async function seedFramesForTab(tabId) {
+  try {
+    const frames = await chrome.webNavigation.getAllFrames({ tabId });
+    for (const f of frames ?? []) registerFrame(tabId, f.frameId);
+  } catch {
+    // Tab may have gone away or not be queryable — leave the registry as-is.
+  }
+}
+
+/** Seed the registry for every http/https tab (mirrors injectContentScript's set). */
+async function seedActiveFrames() {
+  try {
+    const tabs = await chrome.tabs.query({ url: ['http://*/*', 'https://*/*'] });
+    await Promise.allSettled(tabs.map((tab) => seedFramesForTab(tab.id)));
+  } catch {
+    // Best-effort — a failed seed is recovered by the lazy reseed on append.
+  }
+}
+
+/** Clear the whole registry on any record-stop path. */
+function clearActiveFrames() {
+  activeFrames.clear();
+}
 
 // ─── Boot ─────────────────────────────────────────────────────────────────────
 
@@ -116,24 +165,45 @@ chrome.storage.onChanged.addListener((changes, area) => {
   if (area === 'local' && changes.recording) {
     liveRecording = changes.recording.newValue === true;
     if (changes.recording.newValue === true) {
-      injectContentScript();
+      // Inject into all current frames, then record which frames we injected
+      // into so their actions are trusted. Clearing first keeps the registry
+      // scoped to the new recording.
+      clearActiveFrames();
+      injectContentScript().then(() => seedActiveFrames());
+    } else {
+      // Capture stopped externally — drop the trust registry.
+      clearActiveFrames();
     }
   }
 });
 
-// When a page finishes loading while recording, re-inject into all frames
-// to cover srcdoc iframes and dynamically created frames.
+// When a frame finishes loading while recording, inject the recorder into THAT
+// specific frame and register it as trusted. This covers main frames, srcdoc
+// iframes, and dynamically created/child frames — it is the injection path that
+// replaces the old static manifest `all_frames` auto-inject (which is gone with
+// S3). Runs for every frame (not just the main frame): subframes are exactly the
+// frames the static entry used to cover automatically.
 chrome.webNavigation.onCompleted.addListener(async (details) => {
-  if (details.frameId !== 0) return; // Only trigger on main frame completion
   if (!(await isRecording())) return;
   try {
     await chrome.scripting.executeScript({
-      target: { tabId: details.tabId, allFrames: true },
+      target: { tabId: details.tabId, frameIds: [details.frameId] },
       files: ['content/recorder.js'],
+      injectImmediately: true,
     });
+    registerFrame(details.tabId, details.frameId);
   } catch {
-    // Tab may not be injectable — ignore
+    // Frame may not be injectable (e.g. chrome:// pages) — ignore.
   }
+});
+
+// A subframe navigating away unloads its recorder; drop it from the trust
+// registry so a stale frameId can't be reused. (Main-frame navigations reseed on
+// the following onCompleted, so they are left alone here.)
+chrome.webNavigation.onBeforeNavigate.addListener((details) => {
+  if (details.frameId === 0) return;
+  const frames = activeFrames.get(details.tabId);
+  if (frames) frames.delete(details.frameId);
 });
 
 // ─── Navigation & context lifecycle capture ──────────────────────────────────
@@ -178,6 +248,42 @@ async function appendSwAction(action) {
     await chrome.storage.local.set({ pendingActions: updated, pendingCount: updated.length });
   });
   return swWriteQueue;
+}
+
+// Validate an APPEND_ACTION sender against the active-frame registry, then append
+// on success. Drops untrusted senders silently (warn + return — never throw), so
+// a frame we did not inject into cannot write actions into the recording.
+async function validateAndAppend(action, sender) {
+  // Lazy reseed: if a recording is live but the in-memory registry is empty, the
+  // SW was suspended and lost it. Rebuild this tab's frames from webNavigation
+  // BEFORE validating, rather than false-rejecting a legitimate frame.
+  const tabId = sender?.tab?.id;
+  if (liveRecording && tabId != null && !activeFrames.has(tabId)) {
+    await seedFramesForTab(tabId);
+  }
+
+  const trusted = isTrustedActionSender({
+    sender,
+    runtimeId: chrome.runtime.id,
+    liveRecording,
+    activeFrames,
+  });
+  if (!trusted) {
+    console.warn('[Docent] Dropped APPEND_ACTION from untrusted sender', {
+      tabId,
+      frameId: sender?.frameId,
+    });
+    return;
+  }
+
+  // Stamp identity from the TRUSTED sender, not the message: a compromised frame
+  // cannot spoof another tab's context_id. frame_src is left as reported — it is
+  // descriptive context (cross-origin tests assert on it) and dropping legitimate
+  // frame data would violate the conservative-fidelity rule.
+  if (action && typeof action === 'object') {
+    action.context_id = sender.tab.id;
+  }
+  await appendSwAction(action);
 }
 
 async function isRecording() {
@@ -366,6 +472,8 @@ chrome.tabs.onRemoved.addListener(async (tabId, removeInfo) => {
   lastTabRemovedTimestamp = Date.now();
   // Clean up tracking regardless of recording state.
   const wasProgrammatic = programmaticTabs.delete(tabId);
+  // The tab is gone — drop all of its frames from the trust registry.
+  activeFrames.delete(tabId);
   if (!(await isRecording())) return;
   // Cascading close (entire window closing) — not a distinct user action.
   if (removeInfo.isWindowClosing) return;
@@ -409,6 +517,11 @@ async function setRecording(value) {
   // the onChanged listener, which keeps the mirror correct for any external
   // change as well.
   liveRecording = value === true;
+  // Drop the trust registry the moment capture stops, on every record-stop path
+  // (RECORDING_STOP, RECORDING_OPEN, PROJECT_OPEN/DELETE, RECORDING_DELETE). The
+  // storage.onChanged listener also clears it, but doing it here makes the
+  // record-stop chokepoint synchronous and independent of the async change event.
+  if (value !== true) clearActiveFrames();
   await chrome.storage.local.set({ recording: value });
 }
 
@@ -422,6 +535,10 @@ async function injectContentScript() {
         await chrome.scripting.executeScript({
           target: { tabId: tab.id, allFrames: true },
           files: ['content/recorder.js'],
+          // Inject as early as possible to recover the document_start timing the
+          // removed static content_scripts entry used to provide, so the recorder
+          // is ready before the user's first interaction.
+          injectImmediately: true,
         });
       } catch {
         // Tab may not be injectable (e.g. chrome:// pages) — ignore
@@ -647,12 +764,32 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return false;
   }
 
-  // APPEND_ACTION: content script sends actions here for serialized storage writes.
-  // This ensures proper ordering with clearPendingActions.
-  if (message.type === 'APPEND_ACTION') {
-    appendSwAction(message.action);
-    sendResponse({ ok: true });
+  // FRAME_READY: the recorder reports (from its isolated world, after wiring all
+  // its listeners) that this frame is live and capturing. Register the frame as
+  // trusted — a stronger signal than mere frame existence, so its APPEND_ACTIONs
+  // are accepted. No response is sent (the sender passes no callback).
+  if (message.type === 'FRAME_READY') {
+    const tabId = sender.tab?.id;
+    if (tabId != null && sender.frameId != null) registerFrame(tabId, sender.frameId);
     return false;
+  }
+
+  // APPEND_ACTION: content script sends actions here for serialized storage
+  // writes (this also serializes them with clearPendingActions). Each sender is
+  // validated against the active-frame registry before its action is appended,
+  // so only frames we injected into during a live recording can write actions —
+  // an untrusted/spoofed sender (e.g. an embedded third-party frame reaching the
+  // message port) is dropped silently, never appended and never thrown on.
+  if (message.type === 'APPEND_ACTION') {
+    validateAndAppend(message.action, sender)
+      .then(() => sendResponse({ ok: true }))
+      .catch((err) => {
+        // A genuine append failure (storage error) — report it, but never throw
+        // back into the message port.
+        console.error('[Docent]', err);
+        sendResponse({ ok: false, error: err?.message });
+      });
+    return true;
   }
 
   handle(message)
@@ -762,7 +899,9 @@ async function handle(msg) {
       activeRecordingId = recording.recording_id;
       await clearPending();
       await persist();
+      clearActiveFrames();
       await injectContentScript();
+      await seedActiveFrames();
       await setRecording(true);
       return { ok: true, recording, project };
     }
@@ -819,7 +958,9 @@ async function handle(msg) {
 
     case 'RECORDING_START': {
       if (!getActiveRecording()) return { ok: false, error: 'No active recording' };
+      clearActiveFrames();
       await injectContentScript();
+      await seedActiveFrames();
       await setRecording(true);
       return { ok: true };
     }

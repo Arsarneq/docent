@@ -17,6 +17,17 @@
  * with a reference comment pointing here as the source of truth.
  */
 
+// ─── Human-action floor ───────────────────────────────────────────────────────
+
+/**
+ * The minimum interval between two deliberate human actions (~200ms — see the
+ * "rule of thumb" in the file header). Single source of truth for that floor so
+ * derived bars don't hard-code a magic number: e.g. content-script injection
+ * must complete in well under half this (a frame must be ready to capture before
+ * the user could plausibly act in it).
+ */
+export const DELIBERATE_ACTION_FLOOR = 200;
+
 // ─── Content Script Timing ──────────────────────────────────────────────────
 
 /** Suppress synthetic clicks from Enter key activation (detail=0). */

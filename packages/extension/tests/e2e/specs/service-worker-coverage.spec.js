@@ -1073,10 +1073,17 @@ test.describe('SW Message: Synchronous handlers', () => {
     expect(typeof result.tabId).toBe('number');
   });
 
-  test('APPEND_ACTION appends to pending actions queue', async ({ serviceWorker, panelPage }) => {
+  test('APPEND_ACTION from a non-recorded sender is acknowledged but dropped (S14)', async ({
+    serviceWorker,
+    panelPage,
+  }) => {
     await resetState(serviceWorker);
 
-    // Send APPEND_ACTION from the panel page (simulates content script sending)
+    // The panel page is not an injected frame of an actively-recorded tab (and no
+    // recording is live), so the SW's APPEND_ACTION handler routes it through the
+    // frame-trust gate and drops it silently — still acknowledging the message so
+    // the sender's port closes cleanly. The accept path (a real recorded frame's
+    // action is appended) is covered by frame-trust.spec.js.
     const result = await panelPage.evaluate(async () => {
       return await chrome.runtime.sendMessage({
         type: 'APPEND_ACTION',
@@ -1085,16 +1092,14 @@ test.describe('SW Message: Synchronous handlers', () => {
     });
     expect(result.ok).toBe(true);
 
-    // Wait for the write queue to flush
+    // Wait for any write-queue flush, then confirm nothing was appended.
     await new Promise((r) => setTimeout(r, 200));
 
-    // Verify it was appended
     const state = await serviceWorker.evaluate(async () => {
       return await chrome.storage.local.get(['pendingActions', 'pendingCount']);
     });
-    expect(state.pendingActions).toHaveLength(1);
-    expect(state.pendingActions[0].element.text).toBe('Appended');
-    expect(state.pendingCount).toBe(1);
+    expect(state.pendingActions).toHaveLength(0);
+    expect(state.pendingCount).toBe(0);
   });
 });
 
