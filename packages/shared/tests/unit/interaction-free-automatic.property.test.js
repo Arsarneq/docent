@@ -299,13 +299,16 @@ const arbStep = fc.record({
 });
 
 /**
- * A recording spec. `steps` / `created_at` are SHARED across the recording's
- * three role variants (base / local / server) so digest variance comes purely
- * from the role-dependent `name` ({@link recName}). Because every role shares the
- * same step uuids, an incoming `changed-incoming` version is always an
- * append-only SUPERSET of the baseline — a true fast-forward — so under the
- * `auto-accept` policy it is eligible to auto-apply (R4.2, R22.4). `locked` marks
- * a recording the user has open in the Recording_View (only honored when it has a
+ * A recording spec. `created_at` is SHARED across the recording's three role
+ * variants (base / local / server); digest variance comes from the role-dependent
+ * `name` ({@link recName}) for most fates. The exception is `changed-incoming`:
+ * its name is identical on every side and the SERVER side instead APPENDS one
+ * committed step ({@link buildRec}), so the incoming version is a true CONTENT
+ * fast-forward of the baseline — an append-only step superset that changes nothing
+ * else — and is therefore eligible to auto-apply under the `auto-accept` policy
+ * (R4.2, R22.4). (A rename-style changed-incoming is NOT a fast-forward and defers
+ * to Review even with the toggle on — covered by Property 42.) `locked` marks a
+ * recording the user has open in the Recording_View (only honored when it has a
  * local copy and the scenario gate mode is `locked`).
  */
 const arbRecordingSpec = fc.record({
@@ -367,7 +370,12 @@ function recName(spec, role) {
     case 'converged':
       return `${rid}-conv`;
     case 'changed-incoming':
-      return role === 'server' ? `${rid}-ci-srv` : `${rid}-ci`;
+      // SAME name on every side: the server side instead differs by an APPENDED
+      // step (built in buildRec), making the incoming version a true CONTENT
+      // fast-forward (append-only step superset, name unchanged) that auto-applies
+      // under auto-accept. A rename would NOT be a fast-forward (→ Review even
+      // with the toggle on — covered by Property 42), so this test does not rename.
+      return `${rid}-ci`;
     case 'changed-local-outgoing':
       // local moved; base and server stay at the agreed version.
       return role === 'local' ? `${rid}-clo-local` : `${rid}-clo`;
@@ -403,12 +411,24 @@ function projName(pid, metaFate, role) {
 function buildRec(spec, role) {
   const name = recName(spec, role);
   if (name == null) return null;
+  // A `changed-incoming` recording is a true append-only fast-forward: every role
+  // shares the same baseline steps + name, and only the SERVER side APPENDS one
+  // extra committed step. So the server differs from the baseline purely by an
+  // appended step (a content fast-forward → eligible to auto-apply under
+  // auto-accept, R4.2/R22.4), never by a rename (which would defer to Review).
+  const steps =
+    spec.fate === 'changed-incoming' && role === 'server'
+      ? [
+          ...spec.steps,
+          { uuid: `${spec.recording_id}-ci-ff`, logical_id: 'a', step_number: 99, deleted: false },
+        ]
+      : spec.steps;
   return JSON.parse(
     JSON.stringify({
       recording_id: spec.recording_id,
       name,
       created_at: spec.created_at,
-      steps: spec.steps,
+      steps,
     }),
   );
 }

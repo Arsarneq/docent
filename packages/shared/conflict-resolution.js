@@ -75,7 +75,7 @@
 
 import { advanceBaseline } from './sync-baseline.js';
 import { clearItem, recordDismissedIncoming } from './sync-store.js';
-import { digestProject, digestRecording } from './sync-digest.js';
+import { canonicalize, digestProject, digestRecording } from './sync-digest.js';
 import { resolveActiveSteps } from './lib/session.js';
 import { uuidv7 } from './lib/uuid-v7.js';
 
@@ -318,6 +318,50 @@ export function isAppendOnlySuperset(base, candidate) {
     if (!present.has(uuid)) return false;
   }
   return true;
+}
+
+/**
+ * Canonical digest of a {@link UnitCopy}'s **non-step content** — everything that
+ * is not the step history (`recording_id`/`project_id`, `name`, `created_at`,
+ * `metadata`). Used by {@link isContentFastForward} to decide whether an incoming
+ * version changed anything *besides* its steps.
+ *
+ * @param {import('./sync-types.js').UnitCopy | null | undefined} copy
+ * @returns {string}
+ */
+function nonStepContent(copy) {
+  // Drop the step history (recording-level `steps`, project-level `recordings`)
+  // and canonicalize the rest so key order / metadata shape never matters.
+  const { steps: _steps, recordings: _recordings, ...rest } = copy ?? {};
+  return canonicalize(rest);
+}
+
+/**
+ * Report whether `candidate` is a **content fast-forward** of `base`: its step
+ * history is an append-only superset ({@link isAppendOnlySuperset}) AND it changes
+ * **nothing else** — same name, same metadata (same non-step content).
+ *
+ * This is the predicate the orchestrator's Auto-Accept-Updates gate consults. The
+ * append-only check alone is too permissive: a server-side **rename or metadata
+ * edit** leaves the step history identical (a trivial superset), so it would slip
+ * through as a "fast-forward" and be silently auto-applied. But the documented
+ * contract is that auto-apply happens only when the incoming version *strictly
+ * adds to the step history, dropping nothing* — a pure rename adds nothing to
+ * history. A step append is lossless to adopt silently; silently renaming a
+ * recording the user has open is a surprising, separate change, so it must go to
+ * Review even with the toggle on. This predicate enforces exactly that.
+ *
+ * @param {import('./sync-types.js').UnitCopy | null | undefined} base - the baseline version
+ * @param {import('./sync-types.js').UnitCopy | null | undefined} candidate - the incoming version
+ * @returns {boolean} true iff `candidate` is `base` plus appended steps and nothing else
+ */
+export function isContentFastForward(base, candidate) {
+  if (!isAppendOnlySuperset(base, candidate)) return false;
+  // No baseline → the "superset of nothing" edge (never reached by the gate,
+  // which only runs this when local == baseline); there is no non-step content
+  // to compare against, so defer to the step-superset result.
+  if (base == null) return true;
+  return nonStepContent(base) === nonStepContent(candidate);
 }
 
 /**

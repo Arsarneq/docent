@@ -33,12 +33,15 @@
  * adopted. Converged siblings stay byte-identical and are never auto-applied,
  * reviewed, or conflicted, proving the split is scoped to the changed recordings.
  *
- * The file also directly unit-tests the exported `isAppendOnlySuperset` predicate
- * — the single source of truth the orchestrator's gate consults — proving its
- * defining property: a candidate is a superset of a base IFF it retains every
- * step-record uuid present in the base, across both recording- and project-level
- * UnitCopies, with a null/absent base treated as having no records (anything is a
- * superset of nothing).
+ * The file also directly unit-tests the two exported predicates: the
+ * step-history building block `isAppendOnlySuperset` (a candidate is a superset of
+ * a base IFF it retains every step-record uuid present in the base, across both
+ * recording- and project-level UnitCopies, with a null/absent base treated as
+ * having no records — anything is a superset of nothing); and the predicate the
+ * orchestrator's gate ACTUALLY consults, `isContentFastForward` (an append-only
+ * step superset that ALSO changes nothing else, so a rename or metadata-only edit
+ * is NOT a fast-forward and defers to Review even with the toggle ON). A
+ * deterministic end-to-end regression drives the full cycle for the rename case.
  *
  * `fetch` is mocked exactly as in `sync-client.test.js` / the sibling property
  * tests (`makeResponse`-style stubs dispatched per project_id; PUT → 200), the
@@ -65,7 +68,7 @@ import assert from 'node:assert/strict';
 import fc from 'fast-check';
 
 import { sync } from '../../sync-client.js';
-import { isAppendOnlySuperset } from '../../conflict-resolution.js';
+import { isAppendOnlySuperset, isContentFastForward } from '../../conflict-resolution.js';
 import { digestRecording } from '../../sync-digest.js';
 import { createEmptySyncState, setSettings } from '../../sync-store.js';
 import { advanceBaseline, getBaseline, getRecordingBaselineDigest } from '../../sync-baseline.js';
@@ -809,6 +812,83 @@ describe('Property 42: Auto-applied fast-forward requires an append-only superse
     );
     assert.equal(getRecordingBaselineDigest(getBaseline(state, ID), REC), baselineDigestBefore);
   });
+
+  // ── Deterministic regression: toggle ON, step-superset that ALSO renames ─────
+  // A rename leaves the step history a (trivial) superset, but a true fast-forward
+  // changes NOTHING but steps — so a renamed superset is held for Review, never
+  // silently auto-applied. Guards the tightened content fast-forward predicate.
+
+  it('toggle ON: a step-superset that also RENAMES is held for Review (rename is not a fast-forward)', async () => {
+    const ID = '018f0000-0000-7000-8000-000000000021';
+    const REC = '018f0000-0000-7000-8000-0000000000c1';
+
+    const localRec = {
+      recording_id: REC,
+      name: 'rec',
+      created_at: '2026-01-01T00:00:00.000Z',
+      steps: [{ uuid: 'b-1', logical_id: 'a', step_number: 0, deleted: false }],
+    };
+    // Server appended a committed step (retains b-1 → step-superset) BUT also
+    // renamed the recording → not a content fast-forward.
+    const incomingRec = {
+      recording_id: REC,
+      name: 'rec [SERVER]',
+      created_at: '2026-01-01T00:00:00.000Z',
+      steps: [
+        { uuid: 'b-1', logical_id: 'a', step_number: 0, deleted: false },
+        { uuid: 'x-1', logical_id: 'a', step_number: 1, deleted: false },
+      ],
+    };
+
+    const localProject = {
+      project_id: ID,
+      name: 'Project',
+      created_at: '2026-01-01T00:00:00.000Z',
+      recordings: [localRec],
+    };
+    const incomingProject = { ...localProject, recordings: [incomingRec] };
+
+    const seed = createEmptySyncState();
+    advanceBaseline(seed, ID, projectProjection(localProject));
+    setSettings(seed, { autoAcceptUpdates: true, autoAcceptDeletions: false });
+    const baselineBefore = getRecordingBaselineDigest(getBaseline(seed, ID), REC);
+
+    installMockFetch(
+      [{ project_id: ID, name: 'Project' }],
+      new Map([[ID, buildPayload(incomingProject)]]),
+    );
+
+    const store = makeStore(seed);
+    const { result, projects } = await sync(
+      SERVER,
+      null,
+      [localProject],
+      STUB_SCHEMA,
+      passValidator,
+      store,
+      makeLiveState(),
+    );
+
+    const unitRef = `${ID}:${REC}`;
+    assert.deepEqual(
+      result.autoAppliedUpdates,
+      [],
+      'a renamed step-superset is NOT auto-applied even with the toggle ON',
+    );
+    assert.deepEqual(result.review, [unitRef], 'the renamed superset is held for Review');
+    assert.deepEqual(result.conflicts, []);
+
+    // Local untouched; baseline entry unchanged.
+    const merged = projects.find((p) => p.project_id === ID);
+    assert.deepEqual(
+      merged.recordings.find((r) => r.recording_id === REC),
+      recordingProjection(localRec),
+    );
+    assert.equal(
+      getRecordingBaselineDigest(getBaseline(store.getState(), ID), REC),
+      baselineBefore,
+    );
+  });
 });
 
 // ─── isAppendOnlySuperset predicate (direct unit + property coverage) ─────────
@@ -893,5 +973,60 @@ describe('isAppendOnlySuperset: a candidate is a superset iff it retains every b
     const base = recordingWithUuids(['b-1']);
     assert.equal(isAppendOnlySuperset(base, recordingWithUuids([])), false);
     assert.equal(isAppendOnlySuperset(base, null), false);
+  });
+});
+
+// ─── isContentFastForward predicate (append-only steps AND unchanged content) ──
+// The gate the orchestrator actually consults: a true fast-forward is an
+// append-only step superset that changes NOTHING else (name/metadata), so a
+// rename or metadata edit is held for Review even with Auto-Accept-Updates on.
+
+describe('isContentFastForward: appends steps and changes nothing else', () => {
+  const rec = (name, uuids, metadata) => ({
+    recording_id: 'r',
+    name,
+    created_at: '2026-01-01T00:00:00.000Z',
+    ...(metadata && { metadata }),
+    steps: uuids.map((u, i) => ({ uuid: u, logical_id: 'a', step_number: i, deleted: false })),
+  });
+
+  it('an append-only step superset with the SAME name+metadata IS a content fast-forward', () => {
+    assert.equal(isContentFastForward(rec('rec', ['b-1']), rec('rec', ['b-1', 'x-1'])), true);
+  });
+
+  it('an identical version is a (non-strict) content fast-forward', () => {
+    assert.equal(isContentFastForward(rec('rec', ['b-1']), rec('rec', ['b-1'])), true);
+  });
+
+  it('a pure RENAME (identical steps) is NOT a content fast-forward', () => {
+    assert.equal(isContentFastForward(rec('rec', ['b-1']), rec('rec [SERVER]', ['b-1'])), false);
+  });
+
+  it('a step superset that ALSO renames is NOT a content fast-forward', () => {
+    assert.equal(isContentFastForward(rec('rec', ['b-1']), rec('renamed', ['b-1', 'x-1'])), false);
+  });
+
+  it('a metadata-only change (identical steps) is NOT a content fast-forward', () => {
+    assert.equal(
+      isContentFastForward(rec('rec', ['b-1'], { a: 1 }), rec('rec', ['b-1'], { a: 2 })),
+      false,
+    );
+  });
+
+  it('a history-dropping change is NOT a content fast-forward even with the same name', () => {
+    assert.equal(
+      isContentFastForward(rec('rec', ['b-1', 'b-2']), rec('rec', ['b-2', 'x-1'])),
+      false,
+    );
+  });
+
+  it('metadata key order is irrelevant (canonical comparison)', () => {
+    assert.equal(
+      isContentFastForward(
+        rec('rec', ['b-1'], { a: 1, b: 2 }),
+        rec('rec', ['b-1', 'x-1'], { b: 2, a: 1 }),
+      ),
+      true,
+    );
   });
 });

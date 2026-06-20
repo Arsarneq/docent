@@ -24,7 +24,7 @@ import {
 } from './sync-store.js';
 import { classifyProject } from './conflict-detector.js';
 import { getBaseline, advanceBaseline } from './sync-baseline.js';
-import { isAppendOnlySuperset, incomingDismissalDigest } from './conflict-resolution.js';
+import { isContentFastForward, incomingDismissalDigest } from './conflict-resolution.js';
 import { digestRecording, digestProjectMetadata } from './sync-digest.js';
 
 /**
@@ -849,7 +849,7 @@ function unitCopyForSide(sideProject, recording_id) {
  *
  * Returns `null` when there is no baseline, no agreed state, or no agreed entry
  * for the recording. This is the `base` side of the fast-forward
- * ({@link isAppendOnlySuperset}) check the reconcile phase uses to decide whether
+ * ({@link isContentFastForward}) check the reconcile phase uses to decide whether
  * a `changed-incoming` version may be auto-applied (R4.2, R22.4): the incoming
  * version is auto-applied only when it RETAINS every committed step record present
  * in this last-agreed version (a true append-only fast-forward).
@@ -913,8 +913,9 @@ function baselineUnitCopy(baseline, recording_id) {
  *                               local one in the merged list, and the per-Unit
  *                               baseline advances to it) ONLY when
  *                               Auto-Accept-Updates is ON AND the incoming version
- *                               is an append-only superset of the baseline (a true
- *                               fast-forward via {@link isAppendOnlySuperset}); the
+ *                               is a true fast-forward of the baseline — an
+ *                               append-only step superset that changes nothing else
+ *                               (via {@link isContentFastForward}); the
  *                               `unitRef` is reported in `autoAppliedUpdates`
  *                               (R4.2, R22.4). Otherwise — the setting is OFF, the
  *                               incoming version is NOT a fast-forward (R4.3), or
@@ -1153,19 +1154,22 @@ function applyAutomaticOutcomes(state, localProjects, pulledProjects, lockedReco
           }
 
           // Auto-apply ONLY when Auto-Accept-Updates is ON AND the incoming
-          // version is an append-only superset of the baseline — a true
-          // fast-forward that drops no committed step record (R4.2, R22.4). A
-          // non-fast-forward incoming change is held for Review even when the
-          // setting is ON (R4.3).
+          // version is a true fast-forward of the baseline — its step history is
+          // an append-only superset AND it changes nothing else (R4.2, R22.4).
+          // The "nothing else" clause matters: a server-side RENAME or metadata
+          // edit leaves the step history identical (a trivial superset), so a
+          // step-only fast-forward check would silently auto-apply it; a pure
+          // rename adds nothing to history, so it is held for Review even with
+          // the setting ON (R4.3) — only step appends are adopted silently.
           //
-          // The fast-forward (append-only superset) predicate is a STEP-HISTORY
-          // concept, so auto-apply is scoped to RECORDING-level units. A
-          // project-level `changed-incoming` is a project-metadata change (its
-          // recordings are reconciled as their own Units); auto-applying it would
-          // mean replacing the whole project and could clobber a sibling
-          // recording's independent outcome, so it always defers to Review.
+          // The fast-forward predicate is a STEP-HISTORY concept, so auto-apply
+          // is scoped to RECORDING-level units. A project-level `changed-incoming`
+          // is a project-metadata change (its recordings are reconciled as their
+          // own Units); auto-applying it would mean replacing the whole project
+          // and could clobber a sibling recording's independent outcome, so it
+          // always defers to Review.
           const base = baselineUnitCopy(baseline, recording_id);
-          const isFastForward = recording_id != null && isAppendOnlySuperset(base, incomingCopy);
+          const isFastForward = recording_id != null && isContentFastForward(base, incomingCopy);
           if (settings.autoAcceptUpdates && isFastForward) {
             // Adopt the incoming recording into the merged list and advance the
             // per-Unit baseline to it (R4.2) — siblings untouched (R1.9).

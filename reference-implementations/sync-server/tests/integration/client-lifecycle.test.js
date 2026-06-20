@@ -29,7 +29,11 @@ import assert from 'node:assert/strict';
 
 import { startTestServer, request } from './harness.js';
 import { sync } from '../../../../packages/shared/sync-client.js';
-import { loadSyncState, saveSyncState } from '../../../../packages/shared/sync-store.js';
+import {
+  loadSyncState,
+  saveSyncState,
+  setSettings,
+} from '../../../../packages/shared/sync-store.js';
 import {
   itemKind,
   acceptReview,
@@ -146,6 +150,21 @@ async function serverProject(id) {
 async function renameOnServer(id, recId, newName) {
   const payload = await serverProject(id);
   payload.recordings.find((r) => r.recording_id === recId).name = newName;
+  const res = await request(server.baseUrl, 'PUT', `/projects/${id}`, { body: payload });
+  assert.ok(res.status === 200 || res.status === 201, `server PUT ${res.status}`);
+}
+
+/** Append a fresh committed step to a server recording (an append-only edit). */
+async function appendStepOnServer(id, recId) {
+  const payload = await serverProject(id);
+  const rec = payload.recordings.find((r) => r.recording_id === recId);
+  rec.steps.push({
+    ...deep(rec.steps[rec.steps.length - 1]),
+    uuid: '019ed000-0000-7000-8000-0000000000b2',
+    logical_id: '019ed000-0000-7000-8000-0000000000b2',
+    step_number: rec.steps.length + 1,
+    narration: 'appended on server',
+  });
   const res = await request(server.baseUrl, 'PUT', `/projects/${id}`, { body: payload });
   assert.ok(res.status === 200 || res.status === 201, `server PUT ${res.status}`);
 }
@@ -313,6 +332,50 @@ describe('client ↔ real server: sync lifecycle', () => {
     projects = res.projects;
     const recIds = projects.find((p) => p.project_id === PID).recordings.map((r) => r.recording_id);
     assert.ok(!recIds.includes(RID2), 'deleted recording stays deleted after resolution');
+  });
+
+  it('Auto-Accept-Updates: a server step-append auto-applies, but a server rename is held for review', async () => {
+    const store = makeStore();
+    // Turn the policy ON before converging.
+    const seeded = await loadSyncState(store);
+    setSettings(seeded, { autoAcceptUpdates: true });
+    await saveSyncState(store, seeded);
+
+    let projects = await converge(store, [freshProject()]);
+
+    // (a) Server APPENDS a committed step (append-only, name unchanged) → a true
+    // fast-forward, auto-applied silently (no review), and converges.
+    await appendStepOnServer(PID, RID);
+    const c1 = await runCycle(store, projects);
+    assert.deepEqual(c1.result.conflicts, []);
+    assert.deepEqual(c1.result.review, [], 'a step append is auto-applied, not reviewed');
+    assert.deepEqual(
+      c1.result.autoAppliedUpdates,
+      [unitRef(PID, RID)],
+      'the append-only step extension is auto-applied',
+    );
+    projects = c1.projects;
+    assert.equal(
+      projects.find((p) => p.project_id === PID).recordings[0].steps.length,
+      2,
+      'the appended step was adopted locally',
+    );
+
+    // (b) Server RENAMES the recording (no new steps) → NOT a fast-forward, so it
+    // is held for Review even though Auto-Accept-Updates is ON.
+    await renameOnServer(PID, RID, 'rec one [SERVER RENAME]');
+    const c2 = await runCycle(store, projects);
+    assert.deepEqual(
+      c2.result.autoAppliedUpdates,
+      [],
+      'a rename is not a fast-forward, so it is NOT auto-applied',
+    );
+    assert.deepEqual(
+      c2.result.review,
+      [unitRef(PID, RID)],
+      'the rename is held for review despite the toggle being ON',
+    );
+    assert.equal(recName(c2.projects, PID, RID), 'rec one', 'local name unchanged until accepted');
   });
 
   it('a project from another platform is SKIPPED and reported, never turned into a conflict', async () => {
