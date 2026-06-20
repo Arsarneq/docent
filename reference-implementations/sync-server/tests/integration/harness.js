@@ -1,6 +1,6 @@
 /**
  * tests/integration/harness.js — the integration-test harness for the Reference
- * Sync Server (Requirement 8.1, design's Testing Strategy).
+ * Sync Server (design's Testing Strategy).
  *
  * This module is NOT a test file (no `.test.js` suffix, so `node --test` does
  * not run it directly). It exports the helpers the integration suites
@@ -75,7 +75,7 @@ const TMP_PREFIX = 'docent-sync-server-it-';
 
 /**
  * Start the real Reference Sync Server on an ephemeral port over a fresh temp
- * storage directory, ready to be driven over HTTP (Requirement 8.1).
+ * storage directory, ready to be driven over HTTP.
  *
  * Steps:
  *   1. Create a brand-new temp dir with `fs.mkdtemp` (unique per call).

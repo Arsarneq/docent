@@ -1,12 +1,12 @@
 /**
- * sync-capture-toggle.test.js — R7.3 mid-cycle capture-toggle timing case.
+ * sync-capture-toggle.test.js — mid-cycle capture-toggle timing (Capture-Active Sync Halt).
  *
- * Requirement 7.3 (Capture-Active Sync Halt):
+ * Capture-Active Sync Halt:
  *   "IF Capture_Active begins while a sync cycle is in progress, THEN THE
  *    Sync_Client SHALL complete the current unit of work and start no new work
  *    until Capture_Active ends."
  *
- * The two halves of R7.3 are:
+ * The two halves of the Capture-Active Sync Halt are:
  *   (a) complete the current unit of work — a unit already in flight when
  *       capture begins is not corrupted or aborted; it finishes; and
  *   (b) start no new work — once capture is active, no new unit of work begins.
@@ -15,7 +15,7 @@
  * The current `sync()` evaluates the capture signal as a SINGLE pre-flight gate
  * (`evaluatePreflightGate`) before any push/pull. It does not yet re-check
  * `isCaptureActive()` per-Unit mid-cycle — that finer-grained checkpoint is
- * slated for the orchestrator detection wiring (tasks 12.1+). Consequently R7.3
+ * slated for the orchestrator detection wiring. Consequently the halt
  * is enforced today at the **sync-cycle granularity**: a cycle that started
  * before capture was active runs to completion (its unit of work finishes), and
  * the next cycle starts no new work because the pre-flight gate halts it.
@@ -32,7 +32,6 @@
  * mocked `globalThis.fetch`, the established pattern in sync-client.test.js — no
  * timers, no wall-clock thresholds, nothing timing-flaky.
  *
- * Validates: Requirements 7.3
  */
 
 import { describe, it, beforeEach, afterEach } from 'node:test';
@@ -101,14 +100,14 @@ afterEach(() => {
   globalThis.fetch = originalFetch;
 });
 
-// ─── R7.3 mid-cycle capture toggle ──────────────────────────────────────────
+// ─── mid-cycle capture toggle ──────────────────────────────────────────
 
-describe('R7.3 mid-cycle capture-toggle timing', () => {
+describe('mid-cycle capture-toggle timing', () => {
   it('the in-progress unit of work completes, and once capture is active no new unit starts', async () => {
     // A LiveState whose capture signal flips ON only AFTER the first unit of
     // work completes — modelling the user starting capture mid-flight. Nothing
     // is locked and there are no pending actions, so the only gate in play is
-    // the Capture-Active halt (R7.1/R7.3).
+    // the Capture-Active halt.
     let unitsProcessed = 0;
     let captureActive = false;
 
@@ -141,7 +140,7 @@ describe('R7.3 mid-cycle capture-toggle timing', () => {
     // ── Cycle 1 ──────────────────────────────────────────────────────────────
     // Capture was inactive at the pre-flight gate, so the cycle runs. Capture
     // flipping mid-cycle must not corrupt or abort the in-flight work: the
-    // current unit of work completes (R7.3 half (a)).
+    // current unit of work completes (the "complete current unit" half).
     const first = await sync(
       'https://srv.test',
       null,
@@ -164,7 +163,7 @@ describe('R7.3 mid-cycle capture-toggle timing', () => {
 
     // ── Cycle 2 ──────────────────────────────────────────────────────────────
     // Capture is now active. The next sync cycle must start no new unit of work
-    // (R7.3 half (b)): the pre-flight gate halts immediately with reason
+    // (the "start no new work" half): the pre-flight gate halts immediately with reason
     // 'capture-active' and the fake fetch observes zero further units.
     fetchCalls = [];
     const second = await sync(
@@ -181,7 +180,7 @@ describe('R7.3 mid-cycle capture-toggle timing', () => {
     assert.equal(
       second.result.haltReason,
       'capture-active',
-      'the halt reason is the capture-active gate (R7.1/R7.3)',
+      'the halt reason is the capture-active gate',
     );
     assert.equal(second.result.pushed.length, 0, 'no project is pushed while capture is active');
     assert.equal(second.result.pulled.length, 0, 'no project is pulled while capture is active');
@@ -199,7 +198,7 @@ describe('R7.3 mid-cycle capture-toggle timing', () => {
     assert.deepEqual(second.projects, first.projects, 'gated cycle leaves projects unchanged');
   });
 
-  it('the capture gate is re-evaluated each cycle: it re-enables once capture ends (R7.4)', async () => {
+  it('the capture gate is re-evaluated each cycle: it re-enables once capture ends', async () => {
     // Companion to the timing case: confirms the gate is checked per cycle, so
     // "start no new work UNTIL Capture_Active ends" is satisfied — when capture
     // ends, the very next cycle is allowed to start work again.
@@ -234,7 +233,7 @@ describe('R7.3 mid-cycle capture-toggle timing', () => {
     assert.equal(gated.result.haltReason, 'capture-active');
     assert.equal(fetchCalls.length, 0, 'no unit of work starts while capture is active');
 
-    // Capture ends; the next cycle is allowed to start work again (R7.4).
+    // Capture ends; the next cycle is allowed to start work again.
     captureActive = false;
     fetchCalls = [];
     const resumed = await sync(

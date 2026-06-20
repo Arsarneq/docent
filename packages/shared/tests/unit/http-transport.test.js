@@ -1,5 +1,5 @@
 /**
- * http-transport.test.js — the platform HTTP transport seam (S20).
+ * http-transport.test.js — the platform HTTP transport seam.
  *
  * Verifies that the shared HTTP code's indirection point:
  *   - defaults to `globalThis.fetch` when no transport is bound (the extension

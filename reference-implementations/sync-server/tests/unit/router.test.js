@@ -10,7 +10,7 @@ import { FileStorageProvider } from '../../storage/file-provider.js';
 import { deriveETag } from '../../etag.js';
 
 /**
- * Tests for the auth-first router (Requirements 5.6, 5.7, 12.2).
+ * Tests for the auth-first router.
  *
  * The router is driven directly with fake `req`/`res` objects — no real socket
  * or `http.Server` is needed. A fake `req` is a `Readable` carrying the body (so
@@ -113,7 +113,7 @@ afterEach(async () => {
   await rm(tmpDir, { recursive: true, force: true });
 });
 
-describe('router — auth-first (R5.7, 12.2)', () => {
+describe('router — auth-first', () => {
   it('returns 401 when a token is set and the Authorization header is missing', async () => {
     const router = createRouter({ storage, token: TOKEN });
     const res = await drive(router, { method: 'GET', url: '/projects' });
@@ -141,13 +141,13 @@ describe('router — auth-first (R5.7, 12.2)', () => {
     assert.deepEqual(JSON.parse(res.body), []);
   });
 
-  it('gates the /__debug/* routes behind auth too (R5.7) — 401 without a header', async () => {
+  it('gates the /__debug/* routes behind auth too — 401 without a header', async () => {
     const router = createRouter({ storage, token: TOKEN });
     const res = await drive(router, { method: 'POST', url: '/__debug/reset' });
     assert.equal(res.statusCode, 401);
   });
 
-  it('gates the /__debug/* routes behind auth too (R5.7) — 403 with a wrong token', async () => {
+  it('gates the /__debug/* routes behind auth too — 403 with a wrong token', async () => {
     const router = createRouter({ storage, token: TOKEN });
     const res = await drive(router, {
       method: 'POST',
@@ -291,7 +291,7 @@ describe('router — 404 for an unknown path', () => {
   });
 });
 
-describe('router — 500 wrapper (R5.6)', () => {
+describe('router — 500 wrapper', () => {
   /** A storage stub whose every method throws, to force a handler error. */
   function throwingStorage() {
     return {

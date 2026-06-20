@@ -1,7 +1,7 @@
 /**
  * validate-import.js — Schema-validate untrusted ingested data before persist.
  *
- * The platform-agnostic half of SECURITY_BACKLOG S12. Imported `.docent.json`
+ * The platform-agnostic half of untrusted-input schema validation. Imported `.docent.json`
  * files and pulled sync payloads are untrusted input; before any of it is
  * written into stored state it must validate against the published platform
  * schema. The actual validator is generated (Ajv standalone, eval-free — see

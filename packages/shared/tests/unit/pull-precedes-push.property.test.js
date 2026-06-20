@@ -6,13 +6,13 @@
  * reconcile (classify + apply automatic outcomes + record deferrals) → persist →
  * push. Two requirements ride on that order:
  *
- *   - **R20.1 — pull precedes push.** Every pull request (the GET /projects
+ *   - **Pull precedes push.** Every pull request (the GET /projects
  *     manifest and every per-project GET /projects/:id) is issued BEFORE any
  *     push request (a PUT /projects/:id). Pulling first is the precondition for
  *     detecting a concurrent server change: a push-first order would set the
  *     server equal to local before the pull observed it, so `incoming == local`
  *     would always hold and a divergence could never be detected.
- *   - **R20.6 — push only after a non-halting reconcile.** A push runs only once
+ *   - **Push only after a non-halting reconcile.** A push runs only once
  *     the pull and reconciliation phases of the SAME cycle have completed without
  *     an aborting/halting error. If the cycle halts before reconciliation
  *     completes — an auth halt on the pull (401/403), or an internal-error abort
@@ -26,19 +26,18 @@
  * are exercised over arbitrary projects:
  *
  *   - `none`           — pull + reconcile + push all succeed. Assert: every GET
- *                        precedes every PUT (R20.1); a SAVE (the reconcile
- *                        persist) precedes the first PUT (R20.6, the positive
+ *                        precedes every PUT; a SAVE (the reconcile
+ *                        persist) precedes the first PUT (the positive
  *                        case — push runs only after a non-halting reconcile +
  *                        persist); and at least one PUT is issued (the push path
  *                        is really exercised).
  *   - `pull-auth`      — the manifest GET or a per-project GET returns 401/403.
  *                        Assert: the cycle halts with `haltReason: 'auth'`, NO
  *                        PUT is issued, and the store is never persisted (the
- *                        halt precedes reconcile). R20.6.
+ *                        halt precedes reconcile).
  *   - `internal-error` — the store throws while loading, during detection, or at
  *                        the persist point. Assert: the cycle halts with
  *                        `haltReason: 'internal-error'` and NO PUT is issued.
- *                        R20.6.
  *
  * Across EVERY mode the universal ordering invariant is asserted: no pull GET is
  * ever issued after a push PUT.
@@ -53,14 +52,12 @@
  * (`fc.uuid({ version: 7 })` supplies project ids that pass the manifest's
  * UUIDv7 guard).
  *
- * **Validates: Requirements 20.1, 20.6**
- *
  * This file is part of Docent.
  * Licensed under the GNU General Public License v3.0
  * See LICENSE in the project root for license information.
  */
 
-// Feature: sync-conflict-resolution, Property 38: Pull precedes push; push runs only after a non-halting reconcile
+// Pull precedes push; push runs only after a non-halting reconcile
 
 import { describe, it, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
@@ -149,7 +146,7 @@ function puts() {
 }
 
 /**
- * The universal ordering invariant (R20.1): no pull GET is ever issued after a
+ * The universal ordering invariant: no pull GET is ever issued after a
  * push PUT. Holds vacuously when no PUT (or no GET) was issued.
  */
 function assertNoGetAfterPut() {
@@ -157,13 +154,13 @@ function assertNoGetAfterPut() {
   for (const e of events) {
     if (e.kind === 'PUT') seenPut = true;
     else if (e.kind === 'GET') {
-      assert.ok(!seenPut, 'a pull GET must never be issued after a push PUT (R20.1)');
+      assert.ok(!seenPut, 'a pull GET must never be issued after a push PUT');
     }
   }
 }
 
 /**
- * The positive R20.6 case: a push runs only after the reconcile persist. When at
+ * The positive case: a push runs only after the reconcile persist. When at
  * least one PUT was issued, a SAVE (the sole persist point) must appear before
  * the FIRST PUT.
  */
@@ -173,7 +170,7 @@ function assertPushFollowsPersist() {
   const persistedBeforePush = events.slice(0, firstPutIdx).some((e) => e.kind === 'SAVE');
   assert.ok(
     persistedBeforePush,
-    'a push runs only after a non-halting reconcile persisted (SAVE precedes the first PUT) (R20.6)',
+    'a push runs only after a non-halting reconcile persisted (SAVE precedes the first PUT)',
   );
 }
 
@@ -315,7 +312,7 @@ const arbStep = fc.record({
 /**
  * One recording in a project present on both sides, tagged with the outcome it
  * should settle into. Only the recording `name` drives the classification (the
- * steps are shared across versions, R2.8):
+ * steps are shared across versions):
  *   - `converged` — local == server == baseline.
  *   - `clo`       — local moved, server still at baseline (changed-local-outgoing).
  *   - `diverged`  — local and server both moved (a Conflict, deferred).
@@ -393,7 +390,7 @@ function materialize({ bothProjects, serverOnlyProjects }) {
   // `clo` recording (local moved, server at baseline). A `converged` recording
   // equals the server and a `diverged` recording re-sends the server version, so
   // neither is a reason to write; project metadata always converges here. A
-  // project with nothing content-differing is skipped (R20.4).
+  // project with nothing content-differing is skipped.
   const expectedPushedIds = new Set();
 
   const bothIds = new Set(bothProjects.map((p) => p.project_id));
@@ -481,9 +478,7 @@ function materialize({ bothProjects, serverOnlyProjects }) {
   return { seed, localProjects, payloadById, manifest, expectedPushedIds };
 }
 
-// ─── Property 38 ──────────────────────────────────────────────────────────────
-
-describe('Property 38: Pull precedes push; push runs only after a non-halting reconcile', () => {
+describe('Pull precedes push; push runs only after a non-halting reconcile', () => {
   it('issues every pull before any push, and never pushes when the cycle halts before reconcile completes', async () => {
     await fc.assert(
       fc.asyncProperty(arbScenario, async (scenario) => {
@@ -508,7 +503,7 @@ describe('Property 38: Pull precedes push; push runs only after a non-halting re
           makeIdleLiveState(),
         );
 
-        // ── Universal ordering invariant (R20.1): no GET after any PUT ────────
+        // ── Universal ordering invariant: no GET after any PUT ────────
         assertNoGetAfterPut();
 
         if (halt.mode === 'none') {
@@ -516,33 +511,33 @@ describe('Property 38: Pull precedes push; push runs only after a non-halting re
           assert.equal(result.halted, false, 'a clean cycle does not halt');
           assert.equal(result.haltReason, null, 'no halt reason on a clean cycle');
           // Exactly the projects with a content-differing unit are pushed; a
-          // project whose whole payload equals the server is skipped (R20.4).
+          // project whose whole payload equals the server is skipped.
           // (The scenario can legitimately have nothing to push — all converged /
           // diverged / server-only — in which case the ordering holds vacuously.)
           assert.deepEqual(
             new Set(puts().map((p) => decodeURIComponent(p.url.split('/').pop()))),
             expectedPushedIds,
-            'exactly the projects with a content-differing unit are pushed (R20.4)',
+            'exactly the projects with a content-differing unit are pushed',
           );
-          // R20.6 positive: when a push happens, it runs only after the reconcile
+          // Positive case: when a push happens, it runs only after the reconcile
           // persisted (vacuously true when nothing is pushed).
           assertPushFollowsPersist();
         } else if (halt.mode === 'pull-auth') {
-          // A 401/403 on the pull halts BEFORE reconcile (R20.6): no push, and
+          // A 401/403 on the pull halts BEFORE reconcile: no push, and
           // the store is never persisted.
           assert.equal(result.halted, true, 'a pull auth failure halts the cycle');
           assert.equal(result.haltReason, 'auth', 'halt reason is auth');
-          assert.equal(puts().length, 0, 'no push PUT is issued when the pull halts (R20.6)');
+          assert.equal(puts().length, 0, 'no push PUT is issued when the pull halts');
           assert.ok(
             !events.some((e) => e.kind === 'SAVE'),
             'the store is never persisted when the pull halts before reconcile',
           );
         } else {
-          // An internal failure (load / detection / persist) aborts the cycle
-          // (R20.6 / R16.2): no push is ever issued.
+          // An internal failure (load / detection / persist) aborts the cycle:
+          // no push is ever issued.
           assert.equal(result.halted, true, 'an internal failure halts the cycle');
           assert.equal(result.haltReason, 'internal-error', 'halt reason is internal-error');
-          assert.equal(puts().length, 0, 'no push PUT is issued when reconcile aborts (R20.6)');
+          assert.equal(puts().length, 0, 'no push PUT is issued when reconcile aborts');
         }
       }),
       { numRuns: 200 },

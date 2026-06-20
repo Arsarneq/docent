@@ -10,14 +10,14 @@
  *      throws — the ENTIRE sync aborts: it returns `halted: true` with
  *      `haltReason: 'internal-error'`, the durable store is left exactly as it
  *      was (it is never saved), and the caller is handed back the unchanged
- *      local projects (no partial merge) (R5.3, R9.4).
+ *      local projects (no partial merge).
  *
  *   2. RESOLVING a Conflict, inside `resolveConflict`. If the chosen resolved
  *      version cannot be retained (its deep clone throws), or it cannot be
  *      applied (a recording-level Conflict whose local project is absent), the
  *      resolution aborts with `ok: false`, `reason: 'apply-failed'`, the whole
  *      SyncState left byte-for-byte unchanged, the Conflict still pending, and
- *      the local projects array unchanged (R5.5, R9.4).
+ *      the local projects array unchanged.
  *
  * ── How "a version cannot be retained" is forced deterministically ───────────
  * Retention is a JSON round-trip (`JSON.parse(JSON.stringify(version))`) — the
@@ -34,7 +34,7 @@
  *     invokes it, and THROWS — so the version passes detection but CANNOT BE
  *     RETAINED when the Conflict is recorded.
  *
- * This isolates the abort to the retention step (R5.3) rather than the digest,
+ * This isolates the abort to the retention step rather than the digest,
  * exactly as the design's "abort-on-unretainable" path describes. For the
  * resolution facet, where no digest precedes the clone, an unclonable
  * `resolvedState` (a `BigInt` field, or the same throwing-`toJSON` metadata) is
@@ -49,14 +49,12 @@
  * for project ids that pass the manifest's UUIDv7 guard; `fc.uuid()` for
  * recording ids).
  *
- * **Validates: Requirements 5.3, 5.5, 9.4**
- *
  * This file is part of Docent.
  * Licensed under the GNU General Public License v3.0
  * See LICENSE in the project root for license information.
  */
 
-// Feature: sync-conflict-resolution, Property 12: Inability to retain a version aborts (recording or resolving), preserving state
+// Inability to retain a version aborts (recording or resolving), preserving state
 
 import { describe, it, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
@@ -87,7 +85,7 @@ const LOCAL_STAMP = stampFromSchema(STUB_SCHEMA);
  * non-own): `canonicalForm` (used by the digest) rebuilds objects from own
  * enumerable keys only, so it drops the inherited `toJSON` and the digest
  * succeeds; `JSON.stringify` (used by `deepCopy`) walks the prototype chain,
- * invokes `toJSON`, and throws — so retaining this version fails (R5.3).
+ * invokes `toJSON`, and throws — so retaining this version fails.
  *
  * @param {string} tag - own enumerable content so the object is non-empty
  * @returns {object}
@@ -335,7 +333,7 @@ const arbSyncAbort = fc.record({
   otherRecId: fc.uuid(),
 });
 
-describe('Property 12 (recording): an unretainable version aborts the whole sync, preserving all durable state', () => {
+describe('(recording): an unretainable version aborts the whole sync, preserving all durable state', () => {
   it('aborts with halted/internal-error, never saves the store, and returns the unchanged local projects', async () => {
     await fc.assert(
       fc.asyncProperty(arbSyncAbort, async (scenario) => {
@@ -353,7 +351,7 @@ describe('Property 12 (recording): an unretainable version aborts the whole sync
           makeLiveState(),
         );
 
-        // ── The cycle aborts/blocks (R5.3, R9.4) ──
+        // ── The cycle aborts/blocks ──
         assert.equal(result.halted, true, 'an unretainable version must halt the cycle');
         assert.equal(result.haltReason, 'internal-error', 'the halt reason is internal-error');
         // The abort produces no deferral sets and no pulled ids.
@@ -570,7 +568,7 @@ function materializeResolveAbort(scenario) {
   return { state, projects, unitRef, otherRef: hasOther ? otherRef : null, resolvedState };
 }
 
-describe('Property 12 (resolving): an unretainable or unapplicable resolution aborts, leaving the Conflict and all state unchanged', () => {
+describe('(resolving): an unretainable or unapplicable resolution aborts, leaving the Conflict and all state unchanged', () => {
   it('returns apply-failed, retains the Conflict, and leaves the SyncState and projects byte-for-byte unchanged', () => {
     fc.assert(
       fc.property(arbResolveAbort, (scenario) => {
@@ -586,7 +584,7 @@ describe('Property 12 (resolving): an unretainable or unapplicable resolution ab
           now: FIXED_NOW,
         });
 
-        // ── The resolution aborts (R5.5, R9.4) ──
+        // ── The resolution aborts ──
         assert.equal(result.ok, false, 'an unretainable/unapplicable resolution must not succeed');
         assert.equal(result.reason, 'apply-failed', 'the failure reason is apply-failed');
 
@@ -681,7 +679,7 @@ describe('Property 12 (resolving): an unretainable or unapplicable resolution ab
     const before = JSON.stringify(state);
 
     // A valid, clonable append-only superset — but there is no local project to
-    // apply it into, so the resolution cannot complete (R5.5).
+    // apply it into, so the resolution cannot complete.
     const resolvedState = {
       recording_id: 'rec-1',
       name: 'merged',

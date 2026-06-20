@@ -5,7 +5,7 @@ import { access } from 'node:fs/promises';
 import { startTestServer, request } from './harness.js';
 
 /**
- * Harness self-test (Requirement 8.1, design's Testing Strategy).
+ * Harness self-test (design's Testing Strategy).
  *
  * This is a minimal smoke test that the integration harness itself works — it
  * does NOT test protocol behavior (Tasks 10.2–10.6 own that). It confirms the

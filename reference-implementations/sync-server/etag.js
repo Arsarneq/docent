@@ -5,25 +5,25 @@
  * opaque entity-tag the server can advertise on reads and check on `If-Match`
  * writes. `deriveETag` produces that tag deterministically from a project's
  * content, so two reads of the same unchanged project return the same ETag, and
- * any change to the content yields a different one (Requirements 6.1, 6.6).
+ * any change to the content yields a different one.
  *
  * Derivation: canonical JSON (object keys sorted at every depth, array order
- * preserved, `undefined` dropped) → SHA-256 (`node:crypto`, standard library,
- * Requirement 8.1) → the hex digest wrapped in double quotes per the HTTP ETag
+ * preserved, `undefined` dropped) → SHA-256 (`node:crypto`, standard library) →
+ * the hex digest wrapped in double quotes per the HTTP ETag
  * syntax (RFC 9110 §8.8.3).
  *
  * Canonicalization source: to stay faithful to the client's notion of content
- * identity (Requirement 8.2), this module uses `packages/shared`'s
+ * identity, this module uses `packages/shared`'s
  * `canonicalize` WHEN it can be imported, and falls back to a local key-sorted
  * canonicalizer when it cannot — so the reference server keeps working when it
- * is copied out of the monorepo on its own (Requirement 8.2: the shared helpers
+ * is copied out of the monorepo on its own (the shared helpers
  * MAY be used but are never a hard dependency). Either canonicalizer is
  * deterministic for a given content, which is all the ETag contract requires
  * (the tag is opaque to clients; only stability and change-sensitivity matter).
  *
  * The ETag is derived from the payload content ONLY — never from the
  * server-maintained `last_modified`, which is stored alongside the payload and
- * is not part of it (Requirement 6.1).
+ * is not part of it.
  *
  * This file is part of Docent.
  * Licensed under the GNU General Public License v3.0
@@ -84,15 +84,14 @@ let canonicalize = localCanonicalize;
 try {
   // Soft dependency: relative path from this file up to the monorepo's shared
   // package. Absent when the reference server is used standalone — the catch
-  // then leaves the local fallback in place (Requirement 8.2).
+  // then leaves the local fallback in place.
   ({ canonicalize } = await import('../../packages/shared/sync-digest.js'));
 } catch {
   canonicalize = localCanonicalize;
 }
 
 /**
- * Derive a deterministic, opaque ETag from a stored payload's content
- * (Requirements 6.1, 6.6).
+ * Derive a deterministic, opaque ETag from a stored payload's content.
  *
  * Canonical JSON → SHA-256 → quoted hex. Two reads of the same unchanged
  * project yield the same ETag; any content change yields a different one. The

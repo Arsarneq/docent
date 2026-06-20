@@ -8,9 +8,9 @@
  * is mocked — the harness runs the same server a deployment would.
  *
  * Coverage:
- *   - Manifest  (GET /projects)      — Requirements 1.1, 1.2, 1.3, 1.4
- *   - Read      (GET /projects/:id)  — Requirements 2.1, 2.2, 2.4
- *   - Write     (PUT /projects/:id)  — Requirements 3.1, 3.2, 3.3, 3.4, 3.6, 3.7
+ *   - Manifest  (GET /projects)
+ *   - Read      (GET /projects/:id)
+ *   - Write     (PUT /projects/:id)
  *
  * This file is part of Docent.
  * Licensed under the GNU General Public License v3.0
@@ -31,8 +31,7 @@ import { startTestServer, request } from './harness.js';
  * The payload carries a `docent_format` stamp and a recording with full step
  * history — the server must store these verbatim and NEVER read them for the
  * manifest (only `project.project_id` / `project.name` are read). The payload
- * carries `created_at`, NOT `last_modified` (the server maintains that itself,
- * per Requirements 1.4 / 3.7).
+ * carries `created_at`, NOT `last_modified` (the server maintains that itself).
  *
  * @param {string} id    The `project_id`, identical to the PUT path id.
  * @param {string} name  The project name surfaced in the manifest.
@@ -93,14 +92,14 @@ describe('protocol — manifest (GET /projects)', () => {
     await server.close();
   });
 
-  it('returns 200 and an empty array on an empty store (R1.1, R1.3)', async () => {
+  it('returns 200 and an empty array on an empty store', async () => {
     const res = await request(server.baseUrl, 'GET', '/projects');
     assert.equal(res.status, 200);
     assert.equal(res.headers['content-type'], 'application/json');
     assert.deepEqual(res.body, []);
   });
 
-  it('returns one entry per stored project, derived only from project_id/name + server last_modified (R1.2, R1.4)', async () => {
+  it('returns one entry per stored project, derived only from project_id/name + server last_modified', async () => {
     // Store two distinct projects through the protocol.
     await request(server.baseUrl, 'PUT', `/projects/${PROJECT_A}`, {
       body: makePayload(PROJECT_A, 'Project A'),
@@ -123,7 +122,7 @@ describe('protocol — manifest (GET /projects)', () => {
     assert.equal(entryB.name, 'Project B');
 
     // last_modified is a server-maintained timestamp (NOT in the payload, which
-    // carries created_at). It must be present and a valid ISO timestamp (R1.4).
+    // carries created_at). It must be present and a valid ISO timestamp.
     assert.ok(entryA.last_modified, 'project A has a server last_modified');
     assert.equal(
       Number.isNaN(Date.parse(entryA.last_modified)),
@@ -132,7 +131,7 @@ describe('protocol — manifest (GET /projects)', () => {
     );
   });
 
-  it('exposes ONLY project_id/name/last_modified — never the docent_format stamp or steps (R1.4)', async () => {
+  it('exposes ONLY project_id/name/last_modified — never the docent_format stamp or steps', async () => {
     const res = await request(server.baseUrl, 'GET', '/projects');
     for (const entry of res.body) {
       assert.deepEqual(
@@ -157,7 +156,7 @@ describe('protocol — read (GET /projects/:id)', () => {
     await server.close();
   });
 
-  it('returns 200, the exact stored payload, and Content-Type application/json (R2.1, R2.4)', async () => {
+  it('returns 200, the exact stored payload, and Content-Type application/json', async () => {
     const payload = makePayload(PROJECT_A, 'Readable Project');
     await request(server.baseUrl, 'PUT', `/projects/${PROJECT_A}`, { body: payload });
 
@@ -168,7 +167,7 @@ describe('protocol — read (GET /projects/:id)', () => {
     assert.deepEqual(res.body, payload);
   });
 
-  it('returns 404 for an unknown project_id (R2.2)', async () => {
+  it('returns 404 for an unknown project_id', async () => {
     const res = await request(
       server.baseUrl,
       'GET',
@@ -187,7 +186,7 @@ describe('protocol — write (PUT /projects/:id)', () => {
     await server.close();
   });
 
-  it('creates a new project → 201 with { ok: true } (R3.1, R3.6)', async () => {
+  it('creates a new project → 201 with { ok: true }', async () => {
     const res = await request(server.baseUrl, 'PUT', `/projects/${PROJECT_A}`, {
       body: makePayload(PROJECT_A, 'Created'),
     });
@@ -195,7 +194,7 @@ describe('protocol — write (PUT /projects/:id)', () => {
     assert.deepEqual(res.body, { ok: true });
   });
 
-  it('replaces an existing project → 200 with { ok: true } (R3.2, R3.6)', async () => {
+  it('replaces an existing project → 200 with { ok: true }', async () => {
     // First write created it (above precedes this in declaration order, but be
     // self-contained: ensure it exists, then replace).
     await request(server.baseUrl, 'PUT', `/projects/${PROJECT_A}`, {
@@ -213,7 +212,7 @@ describe('protocol — write (PUT /projects/:id)', () => {
     assert.equal(read.body.project.name, 'Replaced');
   });
 
-  it('rejects a path-id ≠ body project_id mismatch → 400, store unchanged (R3.3)', async () => {
+  it('rejects a path-id ≠ body project_id mismatch → 400, store unchanged', async () => {
     const before = await request(server.baseUrl, 'GET', '/projects');
 
     // Body's project_id deliberately differs from the path id.
@@ -229,7 +228,7 @@ describe('protocol — write (PUT /projects/:id)', () => {
     assert.equal(read.status, 404);
   });
 
-  it('rejects an invalid-JSON body → 400, store unchanged (R3.4)', async () => {
+  it('rejects an invalid-JSON body → 400, store unchanged', async () => {
     const before = await request(server.baseUrl, 'GET', '/projects');
 
     const res = await request(server.baseUrl, 'PUT', `/projects/${PROJECT_B}`, {
@@ -243,7 +242,7 @@ describe('protocol — write (PUT /projects/:id)', () => {
     assert.deepEqual(after.body, before.body, 'manifest unchanged after 400');
   });
 
-  it('surfaces last_modified in the manifest but NEVER in the read-back payload (R3.7, R1.4)', async () => {
+  it('surfaces last_modified in the manifest but NEVER in the read-back payload', async () => {
     const payload = makePayload(PROJECT_A, 'Timestamped');
     await request(server.baseUrl, 'PUT', `/projects/${PROJECT_A}`, { body: payload });
 

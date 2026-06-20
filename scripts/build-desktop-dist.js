@@ -60,7 +60,7 @@ for (const file of [
 
 console.log('✓ Desktop dist assembled at packages/desktop/dist/');
 
-// 5. Bundle the Tauri bridge (S13). The app ships with `withGlobalTauri: false`,
+// 5. Bundle the Tauri bridge. The app ships with `withGlobalTauri: false`,
 // so the frontend reaches the Tauri API via an ESM import of `@tauri-apps/api`
 // (in `tauri-bridge.js`) rather than a `window.__TAURI__` global. Those are bare
 // module specifiers a browser cannot resolve, so esbuild inlines them into a
@@ -82,7 +82,7 @@ if (existsSync(bridgeFile)) {
     absWorkingDir: root,
     logLevel: 'warning',
   });
-  console.log('✓ Tauri bridge bundled (S13) at packages/desktop/dist/tauri-bridge.js');
+  console.log('✓ Tauri bridge bundled at packages/desktop/dist/tauri-bridge.js');
 } else {
   console.error('ERROR: packages/desktop/dist/tauri-bridge.js not found after copy.');
   process.exit(1);

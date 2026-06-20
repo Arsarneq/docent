@@ -151,6 +151,7 @@ export default [
   {
     ignores: [
       'node_modules/**',
+      '.claude/**',
       'packages/*/shared/**',
       'packages/shared/generated/**',
       'packages/extension/sidepanel/index.html',

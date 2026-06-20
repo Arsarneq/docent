@@ -69,7 +69,7 @@ import chromeAdapter from '../../sidepanel/adapter-chrome.js';
 // ── Helpers ────────────────────────────────────────────────────────────────
 
 /**
- * Arbitrary URL that is valid to persist *with an API key* under the S11 rule
+ * Arbitrary URL that is valid to persist *with an API key* under the plaintext-HTTP rule
  * (https required when a key is set; http allowed only for loopback). The
  * round-trip property pairs these with an arbitrary key, so every generated
  * combination must be acceptable to `saveSettings`.

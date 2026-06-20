@@ -8,8 +8,7 @@ import { FileStorageProvider } from '../../storage/file-provider.js';
 import { StorageProvider } from '../../storage/provider.js';
 
 /**
- * Tests for the default File_Storage_Provider (Requirements 7.2, 7.3, 7.4, 7.6,
- * 12.3).
+ * Tests for the default File_Storage_Provider.
  *
  * Each test runs against a fresh temp directory created with `fs.mkdtemp` and
  * injected into the provider's constructor, so suites never collide on the
@@ -19,7 +18,7 @@ import { StorageProvider } from '../../storage/provider.js';
  * The provider's public surface is async (`put`/`read`/`list`/`clear`), and the
  * on-disk wrapper format is `{ last_modified, payload }`, so the tests assert
  * both the returned values AND the durable persistence behavior that backs a
- * restart (Requirement 7.4) by constructing a second provider over the same
+ * restart by constructing a second provider over the same
  * directory.
  */
 
@@ -77,7 +76,7 @@ describe('FileStorageProvider', () => {
     });
   });
 
-  describe('put — create vs replace (R7.2, R3.1, R3.2)', () => {
+  describe('put — create vs replace', () => {
     const id = '0192f0a0-0000-7000-8000-000000000001';
 
     it('reports created=true on first write', async () => {
@@ -104,7 +103,7 @@ describe('FileStorageProvider', () => {
     });
   });
 
-  describe('read — present vs absent (R7.5)', () => {
+  describe('read — present vs absent', () => {
     const id = '0192f0a0-0000-7000-8000-000000000002';
 
     it('returns the verbatim payload and last_modified for a stored project', async () => {
@@ -120,7 +119,7 @@ describe('FileStorageProvider', () => {
       assert.equal(record, null);
     });
 
-    it('does NOT inject last_modified into the read-back payload (verbatim, R7.6)', async () => {
+    it('does NOT inject last_modified into the read-back payload (verbatim)', async () => {
       const payload = samplePayload(id, 'Verbatim');
       await provider.put(id, payload, '2026-06-04T10:00:00.000Z');
       const record = await provider.read(id);
@@ -129,7 +128,7 @@ describe('FileStorageProvider', () => {
       assert.deepEqual(record.payload, payload);
     });
 
-    it('persists last_modified alongside the payload, not inside it, on disk (R7.6)', async () => {
+    it('persists last_modified alongside the payload, not inside it, on disk', async () => {
       const payload = samplePayload(id, 'OnDisk');
       await provider.put(id, payload, '2026-06-04T10:00:00.000Z');
       const onDisk = JSON.parse(await readFile(path.join(storageDir, `${id}.json`), 'utf8'));
@@ -139,7 +138,7 @@ describe('FileStorageProvider', () => {
     });
   });
 
-  describe('list — contents and shape (R1.4, R7.5)', () => {
+  describe('list — contents and shape', () => {
     it('returns an empty array when no projects are stored', async () => {
       assert.deepEqual(await provider.list(), []);
     });
@@ -174,7 +173,7 @@ describe('FileStorageProvider', () => {
     });
   });
 
-  describe('clear — count (R12.3)', () => {
+  describe('clear — count', () => {
     it('returns 0 and leaves an empty store when nothing is stored', async () => {
       assert.equal(await provider.clear(), 0);
       assert.deepEqual(await provider.list(), []);
@@ -199,7 +198,7 @@ describe('FileStorageProvider', () => {
     });
   });
 
-  describe('restart reload — durability over the same temp dir (R7.4)', () => {
+  describe('restart reload — durability over the same temp dir', () => {
     it('reloads projects and their last_modified from a fresh provider over the same dir', async () => {
       const id1 = '0192f0a0-0000-7000-8000-000000000030';
       const id2 = '0192f0a0-0000-7000-8000-000000000031';
@@ -224,7 +223,7 @@ describe('FileStorageProvider', () => {
     });
   });
 
-  describe('hostile project_id rejection (R7.3)', () => {
+  describe('hostile project_id rejection', () => {
     const hostileIds = [
       ['empty string', ''],
       ['forward-slash traversal', '../escape'],

@@ -5,7 +5,7 @@
  * same content?" Against an opaque last-write-wins server, timestamps and
  * `last_modified` are unreliable, so the Conflict_Detector compares **canonical
  * content digests** instead (design: "content-hash equality drives
- * classification, not timestamps"; R1, R2, R18).
+ * classification, not timestamps").
  *
  * This module is pure logic. It exposes three helpers:
  *
@@ -22,7 +22,7 @@
  *
  * Design decisions:
  *
- *   - **Allowlisted projection (R18.3, R2).** The digest is computed over the
+ *   - **Allowlisted projection.** The digest is computed over the
  *     SAME explicit field allowlist the pull path uses when it reconstructs a
  *     project (see `pullProjects` in sync-client.js): project →
  *     `project_id`, `name`, `created_at`, `metadata?`, `recordings`; recording →
@@ -30,7 +30,7 @@
  *     top-level field (e.g. `last_modified`, or a future optional
  *     concurrency-control token) is dropped before hashing, so unrecognized
  *     server fields can never affect content identity — a future protocol
- *     version may add an optional token without breaking clients (R18.3), and an
+ *     version may add an optional token without breaking clients, and an
  *     unreliable `last_modified` never causes a spurious divergence.
  *
  *   - **Steps are authored content, included verbatim.** The pull reconstruction
@@ -39,9 +39,9 @@
  *     (all version records AND tombstones) is included — not the Active View —
  *     so two recordings are equal iff their committed histories are equal. This
  *     is what makes `already-converged` detection robust regardless of baseline
- *     (R2.2) and keeps tombstones/re-records part of identity.
+ * and keeps tombstones/re-records part of identity.
  *
- *   - **Name and metadata are part of identity (R2.8).** Both are folded into the
+ *   - **Name and metadata are part of identity.** Both are folded into the
  *     digest, so a name-only or metadata-only change is classified by the same
  *     rules as any other change (already-converged / changed-incoming /
  *     diverged), with no project-vs-recording asymmetry.
@@ -133,11 +133,11 @@ function compareSteps(a, b) {
 /**
  * Compute the canonical content digest of a single recording.
  *
- * Folds the recording's name and metadata into identity (R2.8) and covers the
+ * Folds the recording's name and metadata into identity and covers the
  * FULL committed step history — every version record and tombstone — sorted by
- * `(logical_id, uuid)`, never the Active View and never Pending Actions (R8.1).
+ * `(logical_id, uuid)`, never the Active View and never Pending Actions.
  * Only the allowlisted recording fields are projected; any other top-level field
- * is dropped before hashing (R18.3). `metadata` is included only when present,
+ * is dropped before hashing. `metadata` is included only when present,
  * matching the pull reconstruction allowlist exactly.
  *
  * @param {import('./sync-types.js').RecordingCopy | object} recording
@@ -161,10 +161,10 @@ export function digestRecording(recording) {
 /**
  * Compute the canonical content digest of a project.
  *
- * Folds the project's name and metadata into identity (R2.8) and composes the
+ * Folds the project's name and metadata into identity and composes the
  * ordered recording digests (recording array order is preserved). Only the
  * allowlisted project fields are projected; any other top-level field is dropped
- * before hashing (R18.3). `metadata` is included only when present, matching the
+ * before hashing. `metadata` is included only when present, matching the
  * pull reconstruction allowlist exactly.
  *
  * @param {import('./sync-types.js').ProjectCopy | object} project
@@ -189,10 +189,10 @@ export function digestProject(project) {
  * allowlisted scalar fields (`project_id`, `name`, `created_at`, and `metadata`
  * when present) — with its recordings deliberately EXCLUDED. This isolates
  * project-scoped identity from recording-scoped identity so a project metadata
- * change is compared as its own Unit (R2.10), matching the project-metadata Unit
+ * change is compared as its own Unit, matching the project-metadata Unit
  * the Conflict_Detector classifies. Uses the same allowlist and canonicalization
  * as {@link digestProject} (minus `recordings`), so unrecognized top-level fields
- * never affect it (R18.3).
+ * never affect it.
  *
  * @param {import('./sync-types.js').ProjectCopy | object | null} project
  * @returns {string|null} the project's metadata digest, or null when absent

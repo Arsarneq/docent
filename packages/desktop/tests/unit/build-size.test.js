@@ -18,7 +18,7 @@
  *
  * JS budget history:
  *   - Originally 250KB (hand-written ES modules only).
- *   - Raised to 360KB for SECURITY_BACKLOG S12: the dist now ships a generated
+ *   - Raised to 360KB for the generated schema validator: the dist now ships a generated
  *     Ajv-standalone validator (~105KB, eval-free) to validate untrusted
  *     imported/synced payloads. Deliberate security artifact, not accidental
  *     bloat — budget raised to fit it plus normal headroom, and kept aligned
@@ -28,21 +28,21 @@
  *     (sync-client rewrite, conflict-detector, conflict-resolution,
  *     sync-conflict-ui, sync-store, sync-baseline, sync-digest, sync-types) that
  *     sync-shared copies into the desktop dist so both platforms get identical
- *     behavior (R17.1). This ~90KB of shared logic is a deliberate feature
+ *     behavior. This ~90KB of shared logic is a deliberate feature
  *     artifact, not accidental bloat; the budget was raised to fit it plus
  *     normal headroom, and kept aligned with the extension's JS budget.
- *   - Raised to 520KB for the Auto-Sync background host (R23): the shared
+ *   - Raised to 520KB for the Auto-Sync background host: the shared
  *     cooldown-debounced `sync-scheduler.js` (copied into the dist by
  *     sync-shared) plus the desktop `src/auto-sync-host.js` host that wires the
  *     ~60s backstop + data-event trigger to the shared `sync()` add ~22KB of
  *     deliberate feature code (verified: the dist growth is entirely these two
  *     modules, no new dependency). Budget raised to fit them plus normal
  *     headroom.
- *   - Raised to 560KB for SECURITY_BACKLOG S13/S20: the dist now ships a bundled
+ *   - Raised to 560KB for the Tauri-bridge bundling: the dist now ships a bundled
  *     `tauri-bridge.js` (~6KB) with `@tauri-apps/api`'s `invoke`/`listen` inlined.
- *     With `withGlobalTauri: false` (S13) the frontend reaches the Tauri API via
+ *     With `withGlobalTauri: false` the frontend reaches the Tauri API via
  *     an ESM import rather than the `window.__TAURI__` global, and the desktop's
- *     native HTTP transport (S20) is reached through the same bridge. esbuild
+ *     native HTTP transport is reached through the same bridge. esbuild
  *     bundles only this one file so the API resolves under the strict
  *     `script-src 'self'` CSP. Deliberate security artifact, not accidental
  *     bloat — budget raised to fit it plus normal headroom.

@@ -1,26 +1,22 @@
 /**
- * Property 8: Duplicate import produces distinct copy
- * Property 9: Invalid import rejection
+ * Duplicate import produces distinct copy
+ * Invalid import rejection
  *
- * Property 8: For any valid `.docent.json` file whose `project_id`
+ * For any valid `.docent.json` file whose `project_id`
  * matches an existing project in the local store, importing the file
  * SHALL produce a new project with a `project_id` different from the
  * original and a `name` that ends with `" (copy)"`.
  *
- * **Validates: Requirements 8.2**
- *
- * Property 9: For any JSON string that does not conform to the
+ * For any JSON string that does not conform to the
  * Schema_Contract (missing required fields, wrong types, invalid
  * structure), attempting to import it SHALL be rejected with a
  * descriptive error message, and the local project list SHALL remain
  * unchanged.
  *
- * **Validates: Requirements 8.3**
- *
  * This tests the pure import logic, not the Tauri invoke calls.
  *
- * Feature: desktop-capture, Property 8: Duplicate import produces distinct copy
- * Feature: desktop-capture, Property 9: Invalid import rejection
+ * Duplicate import produces distinct copy
+ * Invalid import rejection
  */
 
 import { describe, it } from 'node:test';
@@ -224,9 +220,9 @@ const arbLocalProject = fc.record({
   recordings: fc.array(arbRecording, { minLength: 0, maxLength: 2 }),
 });
 
-// ─── Property 8: Duplicate import produces distinct copy ──────────────────────
+// ─── Duplicate import produces distinct copy ──────────────────────
 
-describe('Property 8: Duplicate import produces distinct copy', () => {
+describe('Duplicate import produces distinct copy', () => {
   it('importing a project with matching project_id produces a new project with different ID and "(copy)" suffix', () => {
     fc.assert(
       fc.property(arbExportData, arbLocalProject, (exportData, localProject) => {
@@ -303,9 +299,9 @@ describe('Property 8: Duplicate import produces distinct copy', () => {
   });
 });
 
-// ─── Property 9: Invalid import rejection ─────────────────────────────────────
+// ─── Invalid import rejection ─────────────────────────────────────
 
-describe('Property 9: Invalid import rejection', () => {
+describe('Invalid import rejection', () => {
   it('malformed JSON structures are rejected with a descriptive error', () => {
     // Generate various kinds of invalid import data
     const arbMalformed = fc.oneof(

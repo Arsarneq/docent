@@ -2,7 +2,7 @@
  * adapter-tauri.js — Tauri Desktop Platform Adapter
  *
  * Implements the PlatformAdapter interface (see shared/views/adapter.js)
- * using Tauri v2 APIs via the `tauri-bridge.js` seam (S13): `invoke` for
+ * using Tauri v2 APIs via the `tauri-bridge.js` seam: `invoke` for
  * commands and `listen` for events (the bridge reaches them through an ESM
  * import of `@tauri-apps/api`, since the app ships with `withGlobalTauri: false`),
  * plus filesystem persistence via Tauri commands.
@@ -17,14 +17,14 @@ import { setHttpTransport } from '../shared/lib/http-transport.js';
 import { isSensitiveField, SENSITIVE_MASK } from '../shared/lib/field-sensitivity.js';
 import { invoke, listen } from './tauri-bridge.js';
 
-// ─── Native HTTP transport (S20) ──────────────────────────────────────────────
+// ─── Native HTTP transport ──────────────────────────────────────────────
 // The desktop issues sync / dispatch / connection-test requests through the
 // native `sync_http_request` command (Rust) instead of the webview's `fetch`,
 // which would be CORS-blocked against a non-CORS server (the reference server,
 // any correctly-scoped adopter backend). Binding it here — once, at module load,
 // before the panel runs any sync — routes the shared HTTP code through Rust on
 // this platform while the extension keeps using `globalThis.fetch`
-// (host-permission-backed). See SECURITY_BACKLOG S20.
+// (host-permission-backed).
 
 /** Normalize the shared callers' header object into a plain `Record<string,string>`. */
 function _headersToRecord(headers) {
@@ -105,7 +105,7 @@ function _resetReorderState() {
   _highestSeenSeq = 0;
 }
 
-// S10 — sensitive-data redaction at the desktop storage chokepoint. The Rust
+// Sensitive-data redaction at the desktop storage chokepoint. The Rust
 // capture layer masks passwords (native UIA `IsPassword` signal); this catches
 // the rest with the SHARED field-sensitivity util — a cc/ssn/secret field named
 // in the accessibility tree — before the action enters the pending list (and so
@@ -300,7 +300,7 @@ const tauriAdapter = {
       if (!state.settings) state.settings = {};
 
       if (serverUrl === '') {
-        // Clear both sync URL and API key when serverUrl is empty (R1-AC3)
+        // Clear both sync URL and API key when serverUrl is empty
         delete state.settings.syncUrl;
         delete state.settings.syncApiKey;
       } else {

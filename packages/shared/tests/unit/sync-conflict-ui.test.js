@@ -13,14 +13,14 @@
  * pure render functions are exercised against it.
  *
  * Coverage:
- *   - R12.1 — the workflow presents each Review and each Conflict.
- *   - R12.2 — a Review opens the accept/decline view (ACCEPT_REVIEW /
+ *   - the workflow presents each Review and each Conflict.
+ *   - a Review opens the accept/decline view (ACCEPT_REVIEW /
  *             DECLINE_REVIEW controls).
- *   - R12.3 — a Conflict opens the local-vs-incoming chooser (RESOLVE_KEEP_LOCAL
+ *   - a Conflict opens the local-vs-incoming chooser (RESOLVE_KEEP_LOCAL
  *             / RESOLVE_KEEP_INCOMING controls).
- *   - R12.4 — opening a Unit with the wrong interface is prevented and the user
+ *   - opening a Unit with the wrong interface is prevented and the user
  *             is redirected to the correct one.
- *   - R13.3 — activating an attention indicator opens the workflow for that Unit.
+ *   - activating an attention indicator opens the workflow for that Unit.
  *
  * This file is part of Docent.
  * Licensed under the GNU General Public License v3.0
@@ -130,9 +130,9 @@ function seedState() {
   return state;
 }
 
-// ─── R12.2 — Review renders the accept/decline controls ───────────────────────
+// ─── Review renders the accept/decline controls ───────────────────────
 
-describe('Review workflow rendering (R12.2)', () => {
+describe('Review workflow rendering', () => {
   it('renders the incoming change with Accept and Decline controls', () => {
     const state = seedState();
     const result = renderWorkflow(state, REVIEW_REF);
@@ -160,9 +160,9 @@ describe('Review workflow rendering (R12.2)', () => {
   });
 });
 
-// ─── R12.3 — Conflict renders the local-vs-incoming chooser ───────────────────
+// ─── Conflict renders the local-vs-incoming chooser ───────────────────
 
-describe('Conflict workflow rendering (R12.3)', () => {
+describe('Conflict workflow rendering', () => {
   it('renders both versions with keep-local and keep-incoming controls', () => {
     const state = seedState();
     const result = renderWorkflow(state, CONFLICT_REF);
@@ -191,9 +191,9 @@ describe('Conflict workflow rendering (R12.3)', () => {
   });
 });
 
-// ─── R12.4 — Wrong-interface guard redirects to the correct view ──────────────
+// ─── Wrong-interface guard redirects to the correct view ──────────────
 
-describe('Wrong-interface guard (R12.4)', () => {
+describe('Wrong-interface guard', () => {
   it('redirects a Review opened with the Conflict interface to the review view', () => {
     const state = seedState();
     const result = renderWorkflow(state, REVIEW_REF, 'conflict');
@@ -242,9 +242,9 @@ describe('Wrong-interface guard (R12.4)', () => {
   });
 });
 
-// ─── R13.3 / R12.1 — Activating an indicator opens the right workflow ─────────
+// ─── Activating an indicator opens the right workflow ─────────
 
-describe('Activating an indicator opens the workflow (R13.3, R12.1)', () => {
+describe('Activating an indicator opens the workflow', () => {
   it('derives one indicator per seeded item, labelled review vs conflict', () => {
     const state = seedState();
     const indicators = deriveIndicators(state);
@@ -266,7 +266,7 @@ describe('Activating an indicator opens the workflow (R13.3, R12.1)', () => {
     assert.equal(conflictIndicator.kind, 'conflict');
     assert.equal(conflictIndicator.level, 'recording');
 
-    // Neither item is project-level, so no project row shows a badge (R13.4).
+    // Neither item is project-level, so no project row shows a badge.
     assert.equal(getProjectIndicator(indicators, REVIEW_PROJECT), null);
     assert.equal(getProjectIndicator(indicators, CONFLICT_PROJECT), null);
   });
@@ -318,10 +318,10 @@ describe('Activating an indicator opens the workflow (R13.3, R12.1)', () => {
   });
 });
 
-// ─── R13.4–R13.7 — Project-row roll-up badges ─────────────────────────────────
+// ─── Project-row roll-up badges ─────────────────────────────────
 
-describe('Project-row roll-up badges (R13.4–R13.7)', () => {
-  it('rolls up a child conflict to a single open-project badge when the project itself is clean (R13.6, R13.7)', () => {
+describe('Project-row roll-up badges', () => {
+  it('rolls up a child conflict to a single open-project badge when the project itself is clean', () => {
     // Seeded state has a recording-level Review under REVIEW_PROJECT and a
     // recording-level Conflict under CONFLICT_PROJECT; neither project Unit
     // itself has an item.
@@ -330,14 +330,14 @@ describe('Project-row roll-up badges (R13.4–R13.7)', () => {
 
     // The project Unit itself is clean, so no project-own badge…
     assert.equal(getProjectIndicator(indicators, CONFLICT_PROJECT), null);
-    // …but the row still shows a rolled-up conflict badge for its child (R13.6).
+    // …but the row still shows a rolled-up conflict badge for its child.
     const rowBadges = getProjectRowIndicators(indicators, CONFLICT_PROJECT);
     assert.equal(rowBadges.length, 1);
     assert.equal(rowBadges[0].scope, 'recording-rollup');
     assert.equal(rowBadges[0].kind, 'conflict');
     assert.equal(rowBadges[0].unitRef, null);
 
-    // The rendered roll-up badge opens the PROJECT (R13.7), not a workflow.
+    // The rendered roll-up badge opens the PROJECT, not a workflow.
     const html = renderProjectRowBadge(rowBadges[0]);
     assert.ok(html.includes(`data-action="${UI_ACTIONS.OPEN_PROJECT}"`));
     assert.ok(html.includes(`data-project-id="${CONFLICT_PROJECT}"`));
@@ -349,7 +349,7 @@ describe('Project-row roll-up badges (R13.4–R13.7)', () => {
     assert.ok(!html.includes(`data-action="${UI_ACTIONS.OPEN_WORKFLOW}"`));
   });
 
-  it("a project's OWN badge opens its workflow (R13.3, R13.5)", () => {
+  it("a project's OWN badge opens its workflow", () => {
     const state = createEmptySyncState();
     upsertReview(state, 'proj-own', makeReviewIncoming()); // project-level Review
     const indicators = deriveIndicators(state);
@@ -368,7 +368,7 @@ describe('Project-row roll-up badges (R13.4–R13.7)', () => {
     assert.ok(!html.includes(`data-action="${UI_ACTIONS.OPEN_PROJECT}"`));
   });
 
-  it('shows up to three badges (own + conflict roll-up + review roll-up) on one project row (R13.5, R13.6)', () => {
+  it('shows up to three badges (own + conflict roll-up + review roll-up) on one project row', () => {
     const state = createEmptySyncState();
     upsertReview(state, 'p', makeReviewIncoming()); // the project Unit's own Review
     upsertConflict(state, 'p:rC', makeConflictLocal(), makeConflictIncoming()); // child Conflict

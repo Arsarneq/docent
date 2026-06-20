@@ -5,12 +5,12 @@
  * The Sync_Baseline is the retained last *mutually agreed* state per project.
  * These tests cover the three read/advance helpers:
  *
- *   - getBaseline                — returns null when no baseline exists (R1.6),
+ *   - getBaseline                — returns null when no baseline exists,
  *                                  otherwise the recorded BaselineRecord.
  *   - advanceBaseline            — stores a content digest plus a recoverable
  *                                  deep-copy of the agreed project, so later
  *                                  mutation of the caller's object cannot corrupt
- *                                  the recorded baseline (R1.1, R1.7, R3.3).
+ *                                  the recorded baseline.
  *   - getRecordingBaselineDigest — derives a recording-level agreed digest from
  *                                  the per-project baseline, or null when absent.
  *

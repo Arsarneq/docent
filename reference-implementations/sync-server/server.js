@@ -1,6 +1,5 @@
 /**
- * server.js — entry point for the Reference Sync Server (Requirements 7.1, 7.2,
- * 8.1, 8.3, 8.4, 5.6).
+ * server.js — entry point for the Reference Sync Server.
  *
  * This is the single composition root of the server. It does three things and
  * nothing else:
@@ -9,11 +8,11 @@
  *      Static_Token — from the environment and the command line (see
  *      {@link readConfig}).
  *   2. Constructs the default `File_Storage_Provider` HERE, at the single
- *      construction site (Requirement 7.1, 7.2): every other module reaches
+ *      construction site: every other module reaches
  *      stored projects only through the injected `Storage_Provider` interface,
  *      so an adopter swaps the backend by changing this one line.
  *   3. Creates the `http.Server` from the router and listens, defaulting to the
- *      documented port `3000` when none is configured (Requirement 8.4), then
+ *      documented port `3000` when none is configured, then
  *      logs the bound URL.
  *
  * Runtime: Node.js standard library only — `node:http` for the server and
@@ -24,9 +23,9 @@
  * Configuration (env takes precedence is documented per key below):
  *
  *   - Port:  `--port <n>` argv flag, else the `PORT` environment variable,
- *            else the default `3000` (Requirement 8.4).
+ *            else the default `3000`.
  *   - Token: `--token <t>` argv flag, else the `SYNC_TOKEN` environment
- *            variable, else unset → the server runs open (Requirement 5.4).
+ *            variable, else unset → the server runs open.
  *
  * Import vs. run: importing this module does NOT bind a port. The listener only
  * starts when the file is executed as the program entry point (the
@@ -48,7 +47,7 @@ import { pathToFileURL } from 'node:url';
 import { createRouter } from './router.js';
 import { FileStorageProvider } from './storage/file-provider.js';
 
-/** The documented default listening port when none is configured (R8.4). */
+/** The documented default listening port when none is configured. */
 export const DEFAULT_PORT = 3000;
 
 /** Environment variable read for the listening port. */
@@ -111,8 +110,8 @@ export function readConfig({ argv = process.argv.slice(2), env = process.env } =
 /**
  * Build the `http.Server` for the Reference Sync Server WITHOUT binding a port.
  *
- * This is the single construction site for the default `File_Storage_Provider`
- * (Requirement 7.1, 7.2): the concrete provider is instantiated here and passed
+ * This is the single construction site for the default `File_Storage_Provider`:
+ * the concrete provider is instantiated here and passed
  * to the router, which only ever talks to the `Storage_Provider` interface. An
  * adopter swaps the backend by replacing the provider on this one line. A test
  * may inject its own `storage` (e.g. a `File_Storage_Provider` over a fresh
@@ -120,7 +119,7 @@ export function readConfig({ argv = process.argv.slice(2), env = process.env } =
  *
  * @param {object} [options]
  * @param {string|null} [options.token]
- *   The Static_Token, or null/undefined for an open server (Requirement 5.4).
+ *   The Static_Token, or null/undefined for an open server.
  * @param {import('./storage/provider.js').StorageProvider} [options.storage]
  *   An optional Storage_Provider override; defaults to a `File_Storage_Provider`
  *   over `<os.tmpdir()>/docent-reference-sync-server`.
@@ -135,7 +134,7 @@ export function createServer({ token = null, storage = new FileStorageProvider()
 /**
  * Create AND start the server, returning once it is listening.
  *
- * Listens on the given port (or the documented default `3000`, Requirement 8.4)
+ * Listens on the given port (or the documented default `3000`)
  * and resolves with the live server, the bound address, and the storage
  * provider. Passing port `0` binds an ephemeral port — the shape the test
  * harness (Task 10.1) uses to run isolated suites without contending for `3000`.

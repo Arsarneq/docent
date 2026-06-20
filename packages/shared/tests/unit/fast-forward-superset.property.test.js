@@ -1,6 +1,6 @@
 /**
  * fast-forward-superset.property.test.js — Property test that an auto-applied
- * fast-forward requires an append-only superset (Property 42, R1 / task 22.17).
+ * fast-forward requires an append-only superset.
  *
  * Auto-Accept-Updates is a POLICY preference that lets the orchestrator adopt an
  * incoming change to a recording the user has NOT themselves touched (local ==
@@ -10,7 +10,7 @@
  * baseline and merely adds more). A non-superset incoming version — history
  * rewritten, or a committed step record dropped — is surprising enough that it is
  * STILL held for Review even with the toggle ON, because silently adopting it
- * could discard a committed record (R4.2, R4.3, R22.4).
+ * could discard a committed record.
  *
  * This property drives the FULL `sync()` orchestrator with Auto-Accept-Updates
  * ON over a large space of `changed-incoming` recordings, each of which is EITHER
@@ -19,9 +19,9 @@
  * every generated cycle it pins the exact split:
  *
  *   - `result.autoAppliedUpdates` = EXACTLY the append-only-superset unitRefs, and
- *     nothing else — a non-superset is never auto-applied (R4.2, R22.4);
+ *     nothing else — a non-superset is never auto-applied;
  *   - `result.review` = EXACTLY the non-superset unitRefs — held for Review even
- *     though the toggle is ON (R4.3); and
+ *     though the toggle is ON; and
  *   - `result.conflicts` = ∅ — a local-unchanged incoming change is never a
  *     Conflict.
  *
@@ -54,14 +54,12 @@
  * (`fc.uuid({ version: 7 })` supplies project ids that pass the manifest's
  * UUIDv7 guard; `fc.uuid()` supplies recording ids).
  *
- * **Validates: Requirements 4.2, 4.3, 22.4**
- *
  * This file is part of Docent.
  * Licensed under the GNU General Public License v3.0
  * See LICENSE in the project root for license information.
  */
 
-// Feature: sync-conflict-resolution, Property 42: Auto-applied fast-forward requires an append-only superset
+// Auto-applied fast-forward requires an append-only superset
 
 import { describe, it, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
@@ -246,7 +244,7 @@ function stepFromKey(prefix, key) {
  * appends `extraKeys` (≥1, disjoint `x-*` uuids) — so it is an append-only
  * superset that nonetheless differs from the baseline (it has ≥1 step the
  * baseline lacks), guaranteeing a `changed-incoming` classification that the
- * toggle-ON gate must auto-apply (R4.2, R22.4).
+ * toggle-ON gate must auto-apply.
  */
 const arbSupersetRecordingSpec = fc.record({
   recording_id: fc.uuid(),
@@ -261,7 +259,7 @@ const arbSupersetRecordingSpec = fc.record({
  * carries `baseKeys` (≥1, so a baseline record can always be dropped). The
  * incoming side drops the FIRST baseline record and appends `extraKeys` (≥0,
  * disjoint `x-*` uuids) — so it is NOT an append-only superset of the baseline
- * and must be held for Review even with the toggle ON (R4.3).
+ * and must be held for Review even with the toggle ON.
  */
 const arbNonSupersetRecordingSpec = fc.record({
   recording_id: fc.uuid(),
@@ -309,7 +307,7 @@ const arbProjectSpec = fc.record({
  * A scenario: 1..3 projects with unique ids. `autoAcceptDeletions` is threaded
  * purely to show it never matters here (no deletions are generated);
  * `autoAcceptUpdates` is forced ON in `materialize` because it is the precondition
- * of Property 42.
+ * of an auto-applied fast-forward.
  */
 const arbScenario = fc.record({
   autoAcceptDeletions: fc.boolean(),
@@ -455,7 +453,7 @@ function materialize(scenario) {
     });
   }
 
-  // Property 42 precondition: Auto-Accept-Updates ON.
+  // Fast-forward precondition: Auto-Accept-Updates ON.
   setSettings(seed, {
     autoAcceptUpdates: true,
     autoAcceptDeletions: scenario.autoAcceptDeletions,
@@ -464,9 +462,7 @@ function materialize(scenario) {
   return { localProjects, manifest, payloadById, seed, expectations };
 }
 
-// ─── Property 42 ──────────────────────────────────────────────────────────────
-
-describe('Property 42: Auto-applied fast-forward requires an append-only superset', () => {
+describe('Auto-applied fast-forward requires an append-only superset', () => {
   it('with Auto-Accept-Updates ON, auto-applies ONLY the append-only-superset incoming versions and defers every non-superset to Review', async () => {
     await fc.assert(
       fc.asyncProperty(arbScenario, async (scenario) => {
@@ -498,7 +494,7 @@ describe('Property 42: Auto-applied fast-forward requires an append-only superse
           e.nonSupersetRefs.map((c) => c.unitRef),
         );
 
-        // ── The CORE of Property 42 (R4.2, R4.3, R22.4): with the toggle ON, the
+        // ── The CORE: with the toggle ON, the
         //    auto-applied set is EXACTLY the append-only-superset units, and the
         //    review set is EXACTLY the non-superset units. ──
         assert.deepEqual(
@@ -550,7 +546,7 @@ describe('Property 42: Auto-applied fast-forward requires an append-only superse
           const baseline = getBaseline(state, project_id);
           assert.ok(baseline, `project ${project_id} keeps a baseline`);
 
-          // ── Superset units: AUTO-APPLIED (R4.2, R22.4). ──
+          // ── Superset units: AUTO-APPLIED. ──
           for (const { recording_id, unitRef, expectedIncoming } of supersetRefs) {
             assert.ok(
               result.autoAppliedUpdates.includes(unitRef),
@@ -564,13 +560,13 @@ describe('Property 42: Auto-applied fast-forward requires an append-only superse
             assert.deepEqual(
               cleanCopy(recordingProjection(mergedRec(recording_id))),
               expectedIncoming,
-              'the incoming fast-forward version is adopted into the merged list (R4.2)',
+              'the incoming fast-forward version is adopted into the merged list',
             );
             // The per-recording baseline entry advances to the incoming version.
             assert.equal(
               getRecordingBaselineDigest(baseline, recording_id),
               digestRecording(expectedIncoming),
-              'the per-unit baseline advances to the auto-applied version (R4.2)',
+              'the per-unit baseline advances to the auto-applied version',
             );
           }
 
@@ -583,7 +579,7 @@ describe('Property 42: Auto-applied fast-forward requires an append-only superse
           } of nonSupersetRefs) {
             assert.ok(
               !result.autoAppliedUpdates.includes(unitRef),
-              `${unitRef} (non-superset) is NOT auto-applied even with the toggle ON (R4.3)`,
+              `${unitRef} (non-superset) is NOT auto-applied even with the toggle ON`,
             );
             const review = state.reviews?.[unitRef];
             assert.ok(review, `a Review item must exist for ${unitRef}`);
@@ -604,7 +600,7 @@ describe('Property 42: Auto-applied fast-forward requires an append-only superse
             assert.deepEqual(
               cleanCopy(recordingProjection(mergedRec(recording_id))),
               expectedLocal,
-              'the local recording is left byte-identical (incoming never applied, R9.5)',
+              'the local recording is left byte-identical (incoming never applied)',
             );
             // The per-recording baseline entry is UNCHANGED (still the local/agreed
             // version), proving the incoming change was not adopted.
@@ -639,7 +635,7 @@ describe('Property 42: Auto-applied fast-forward requires an append-only superse
 
   // ── Deterministic regression example: toggle ON, append-only superset ────────
   // Auto-Accept-Updates is ON and the incoming version retains every baseline
-  // step record and appends one → a true fast-forward, auto-applied (R4.2, R22.4).
+  // step record and appends one → a true fast-forward, auto-applied.
 
   it('toggle ON: an append-only superset is auto-applied and advances the per-unit baseline', async () => {
     const ID = '018f0000-0000-7000-8000-000000000001';
@@ -733,7 +729,7 @@ describe('Property 42: Auto-applied fast-forward requires an append-only superse
   // ── Deterministic regression example: toggle ON, non-superset incoming ───────
   // Auto-Accept-Updates is ON, but the incoming version DROPS a committed step
   // record present in the baseline, so it is not an append-only superset and is
-  // held for Review rather than auto-applied (R4.3, R22.4).
+  // held for Review rather than auto-applied.
 
   it('toggle ON: a non-superset (history-dropping) incoming change is held for Review, baseline unchanged', async () => {
     const ID = '018f0000-0000-7000-8000-000000000011';
@@ -794,7 +790,7 @@ describe('Property 42: Auto-applied fast-forward requires an append-only superse
     assert.deepEqual(
       result.autoAppliedUpdates,
       [],
-      'a non-superset change is NOT auto-applied even with the toggle ON (R4.3)',
+      'a non-superset change is NOT auto-applied even with the toggle ON',
     );
     assert.deepEqual(result.review, [unitRef], 'the non-superset change is reviewed');
 

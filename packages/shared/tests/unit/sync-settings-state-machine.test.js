@@ -1,7 +1,7 @@
 /**
  * sync-settings-state-machine.test.js — Render-with-seeded-settings example
  * tests for the two reconciliation-policy toggles and the Auto-Sync
- * enable/disable state machine (task 25.3, [REVISES 16.3]).
+ * enable/disable state machine.
  *
  * Both platform panels (extension `sidepanel/panel.js`, desktop `src/panel.js`)
  * use top-level `await` and DOM globals, so they cannot be imported under
@@ -11,26 +11,26 @@
  * the `sync-store` settings helpers (`getSettings`/`setSettings`), the
  * `connection-test` helpers (`testConnection`/`settingsFingerprint`), and the
  * `sync-scheduler` — so the test validates the shared logic the UI relies on
- * rather than DOM wiring (Requirement 17.3: identical behavior on both
+ * rather than DOM wiring (identical behavior on both
  * platforms given identical settings + inputs).
  *
  * The mirrored functions reproduce, line-for-line in behavior, the panel's:
- *   - reconciliation-policy toggle render (R22.1, R22.2)
- *   - `canEnableAutoSync` enable rule (R23.2, R23.3, R23.17)
- *   - Auto-Sync controls render incl. the active status indicator (R23.2, R23.5)
- *   - manual Sync button render (hidden while active — R23.4, R23.6)
- *   - the settings-change invalidation (R23.3) and the 401/403 auto-disable +
- *     needs-retest (R23.11) transitions
+ *   - reconciliation-policy toggle render
+ *   - `canEnableAutoSync` enable rule
+ *   - Auto-Sync controls render incl. the active status indicator
+ *   - manual Sync button render (hidden while active)
+ *   - the settings-change invalidation and the 401/403 auto-disable +
+ *     needs-retest transitions
  *
  * Coverage:
- *   - R22.1 / R22.2 — both Auto-Accept toggles render and persist their state.
- *   - R23.2 / R23.17 — Auto-Sync enables ONLY with an endpoint present AND a
+ *   - both Auto-Accept toggles render and persist their state.
+ *   - Auto-Sync enables ONLY with an endpoint present AND a
  *     passing Connection_Test for the current settings.
- *   - R23.3 — a settings change (endpoint or plaintext API key) invalidates the
+ *   - a settings change (endpoint or plaintext API key) invalidates the
  *     prior pass via the fingerprint and disables Auto-Sync.
- *   - R23.4 / R23.5 / R23.6 — the manual Sync button is hidden and the active
+ *   - the manual Sync button is hidden and the active
  *     indicator shown while Auto-Sync is active; the reverse when off.
- *   - R23.11 — a 401/403 auto-disable forces OFF + needs-retest, blocking
+ *   - a 401/403 auto-disable forces OFF + needs-retest, blocking
  *     re-enable until a fresh pass.
  *
  * This file is part of Docent.
@@ -53,7 +53,7 @@ import { createSyncScheduler } from '../../sync-scheduler.js';
 // exactly as the panels do, and never touch the DOM.
 
 /**
- * Render state for the two reconciliation-policy toggles (R22.1, R22.2). Mirrors
+ * Render state for the two reconciliation-policy toggles. Mirrors
  * the first lines of `updateAutoSyncControls()` in both panels.
  *
  * @param {import('../../sync-types.js').SyncState} syncState
@@ -68,7 +68,7 @@ function renderPolicyToggles(syncState) {
 }
 
 /**
- * The Auto-Sync enable rule (R23.2, R23.3, R23.17). Mirrors `canEnableAutoSync()`
+ * The Auto-Sync enable rule. Mirrors `canEnableAutoSync()`
  * (extension) / `hasPassingConnectionTest()` (desktop): an endpoint must be
  * present AND a Connection_Test must have PASSED for the CURRENT settings, which
  * is enforced by matching the stored `testedSettingsFingerprint` against the
@@ -79,7 +79,7 @@ function renderPolicyToggles(syncState) {
  * @returns {boolean}
  */
 function canEnableAutoSync(syncSettings, syncState) {
-  if (!syncSettings.serverUrl) return false; // endpoint-present precondition (R23.2, R23.17)
+  if (!syncSettings.serverUrl) return false; // endpoint-present precondition
   const settings = getSettings(syncState);
   return (
     settings.connectionTest === 'pass' &&
@@ -89,7 +89,7 @@ function canEnableAutoSync(syncSettings, syncState) {
 }
 
 /**
- * Render state for the Auto-Sync toggle + its status indicator (R23.2, R23.5).
+ * Render state for the Auto-Sync toggle + its status indicator.
  * Mirrors the Auto-Sync half of `updateAutoSyncControls()` in both panels:
  *   - the toggle reflects the persisted `autoSync` value;
  *   - it is interactive only when enableable OR already on;
@@ -113,7 +113,7 @@ function renderAutoSyncControls(syncSettings, syncState) {
 }
 
 /**
- * Render state for the manual Sync button (R23.4, R23.6). Mirrors
+ * Render state for the manual Sync button. Mirrors
  * `updateSyncButton()` in both panels: hidden while Auto-Sync is active (no
  * manual force-sync affordance), shown and endpoint-gated otherwise.
  *
@@ -131,8 +131,8 @@ function renderSyncButton(syncSettings, syncState, isSyncing = false) {
 }
 
 /**
- * Apply a server-settings change exactly as the panel's Save handler does
- * (R23.3): if the fingerprint of the new (endpoint, plaintext key) differs from
+ * Apply a server-settings change exactly as the panel's Save handler does:
+ * if the fingerprint of the new (endpoint, plaintext key) differs from
  * the previous one, the prior Connection_Test is invalidated and Auto-Sync is
  * forced OFF until a fresh test passes. An unchanged fingerprint leaves the
  * prior pass intact.
@@ -156,7 +156,7 @@ function applyServerSettingsChange(syncState, prevSettings, nextSettings) {
 
 /**
  * Record a Connection_Test outcome into the durable settings exactly as the
- * panel's Test-connection handler does (R23.2, R23.3): store the outcome reason
+ * panel's Test-connection handler does: store the outcome reason
  * together with the fingerprint of the settings it was taken against.
  *
  * @param {import('../../sync-types.js').SyncState} syncState
@@ -172,7 +172,7 @@ function recordConnectionTest(syncState, syncSettings, reason) {
 }
 
 /**
- * The 401/403 auto-disable + needs-retest transition (R23.11). Mirrors the
+ * The 401/403 auto-disable + needs-retest transition. Mirrors the
  * desktop `disableAutoSync({ needsRetest: true })` and the extension service
  * worker's background auto-disable: persist `autoSync:false`, flag the prior
  * test as an auth failure, and clear the tested fingerprint so the enable rule
@@ -232,9 +232,9 @@ function seedPassed(syncSettings, overrides = {}) {
   return state;
 }
 
-// ─── R22.1 / R22.2 — reconciliation-policy toggles render & persist ───────────
+// ─── reconciliation-policy toggles render & persist ───────────
 
-describe('Auto-Accept policy toggles render with seeded settings (R22.1, R22.2)', () => {
+describe('Auto-Accept policy toggles render with seeded settings', () => {
   it('both toggles default OFF on a fresh state', () => {
     const state = createEmptySyncState();
     assert.deepEqual(renderPolicyToggles(state), {
@@ -266,7 +266,7 @@ describe('Auto-Accept policy toggles render with seeded settings (R22.1, R22.2)'
     });
   });
 
-  it('toggling a policy setting persists it without touching the other (R22.9)', () => {
+  it('toggling a policy setting persists it without touching the other', () => {
     const state = createEmptySyncState();
 
     // Turn Auto-Accept-Updates ON (the toggle's change handler).
@@ -290,15 +290,15 @@ describe('Auto-Accept policy toggles render with seeded settings (R22.1, R22.2)'
     const state = createEmptySyncState();
     setSettings(state, { autoAcceptUpdates: true, autoAcceptDeletions: true });
 
-    // No Connection_Test recorded, so Auto-Sync stays not-enableable (R23.2).
+    // No Connection_Test recorded, so Auto-Sync stays not-enableable.
     assert.equal(canEnableAutoSync(syncSettings, state), false);
     assert.equal(renderAutoSyncControls(syncSettings, state).toggleDisabled, true);
   });
 });
 
-// ─── R23.2 / R23.17 — Auto-Sync enable rule ───────────────────────────────────
+// ─── Auto-Sync enable rule ───────────────────────────────────
 
-describe('Auto-Sync enable rule (R23.2, R23.17)', () => {
+describe('Auto-Sync enable rule', () => {
   it('is not enableable without an endpoint, even with a stored pass', () => {
     const noEndpoint = settingsFor('', null);
     // A pass on record but no endpoint configured now.
@@ -311,7 +311,7 @@ describe('Auto-Sync enable rule (R23.2, R23.17)', () => {
 
     const controls = renderAutoSyncControls(noEndpoint, state);
     assert.equal(controls.toggleDisabled, true);
-    assert.equal(controls.testButtonDisabled, true, 'no endpoint → test button disabled (R23.17)');
+    assert.equal(controls.testButtonDisabled, true, 'no endpoint → test button disabled');
   });
 
   it('is not enableable with an endpoint but no passing test', () => {
@@ -340,7 +340,7 @@ describe('Auto-Sync enable rule (R23.2, R23.17)', () => {
     assert.equal(controls.testButtonDisabled, false);
   });
 
-  it('a pass recorded against DIFFERENT settings does not count (stale fingerprint, R23.3)', () => {
+  it('a pass recorded against DIFFERENT settings does not count (stale fingerprint)', () => {
     const tested = settingsFor(SERVER, KEY);
     const state = seedPassed(tested); // passed for (SERVER, KEY)
 
@@ -378,9 +378,9 @@ describe('Auto-Sync enable rule (R23.2, R23.17)', () => {
   });
 });
 
-// ─── R23.3 — a settings change invalidates a prior pass ───────────────────────
+// ─── a settings change invalidates a prior pass ───────────────────────
 
-describe('Server-settings change invalidates a prior pass and disables Auto-Sync (R23.3)', () => {
+describe('Server-settings change invalidates a prior pass and disables Auto-Sync', () => {
   it('changing the endpoint forces Auto-Sync OFF and clears the test', () => {
     const prev = settingsFor(SERVER, KEY);
     const state = seedPassed(prev, { autoSync: true });
@@ -407,7 +407,7 @@ describe('Server-settings change invalidates a prior pass and disables Auto-Sync
     assert.equal(canEnableAutoSync(next, state), false);
   });
 
-  it('saving the SAME settings leaves a prior pass intact (no spurious invalidation, R23.3)', () => {
+  it('saving the SAME settings leaves a prior pass intact (no spurious invalidation)', () => {
     const prev = settingsFor(SERVER, KEY);
     const state = seedPassed(prev, { autoSync: true });
 
@@ -423,41 +423,37 @@ describe('Server-settings change invalidates a prior pass and disables Auto-Sync
   });
 });
 
-// ─── R23.4 / R23.5 / R23.6 — hidden Sync button + active status indicator ─────
+// ─── hidden Sync button + active status indicator ─────
 
-describe('Manual Sync button + Auto-Sync active indicator (R23.4, R23.5, R23.6)', () => {
+describe('Manual Sync button + Auto-Sync active indicator', () => {
   it('while Auto-Sync is OFF: manual button shown (endpoint-gated), no active indicator', () => {
     const syncSettings = settingsFor(SERVER, KEY);
     const state = seedPassed(syncSettings); // enableable but not yet on
 
     const button = renderSyncButton(syncSettings, state);
-    assert.equal(
-      button.hidden,
-      false,
-      'manual Sync button is shown while Auto-Sync is OFF (R23.6)',
-    );
+    assert.equal(button.hidden, false, 'manual Sync button is shown while Auto-Sync is OFF');
     assert.equal(button.disabled, false, 'enabled — endpoint present, not syncing');
 
     const controls = renderAutoSyncControls(syncSettings, state);
-    assert.equal(controls.statusIndicatorHidden, true, 'no active indicator while OFF (R23.5)');
+    assert.equal(controls.statusIndicatorHidden, true, 'no active indicator while OFF');
     assert.equal(controls.toggleChecked, false);
   });
 
-  it('while Auto-Sync is ACTIVE: manual button hidden, active indicator shown (R23.4, R23.5)', () => {
+  it('while Auto-Sync is ACTIVE: manual button hidden, active indicator shown', () => {
     const syncSettings = settingsFor(SERVER, KEY);
     const state = seedPassed(syncSettings, { autoSync: true });
 
     const button = renderSyncButton(syncSettings, state);
-    assert.equal(button.hidden, true, 'manual Sync button hidden while active (R23.4)');
+    assert.equal(button.hidden, true, 'manual Sync button hidden while active');
     assert.equal(button.disabled, true, 'disabled while active — no manual force-sync affordance');
 
     const controls = renderAutoSyncControls(syncSettings, state);
-    assert.equal(controls.statusIndicatorHidden, false, 'active indicator shown (R23.5)');
+    assert.equal(controls.statusIndicatorHidden, false, 'active indicator shown');
     assert.equal(controls.toggleChecked, true);
     assert.equal(controls.toggleDisabled, false, 'an active toggle stays interactive to turn off');
   });
 
-  it('the manual button stays disabled while a manual sync is in flight (OFF, R23.6)', () => {
+  it('the manual button stays disabled while a manual sync is in flight (OFF)', () => {
     const syncSettings = settingsFor(SERVER, KEY);
     const state = seedPassed(syncSettings);
     assert.equal(renderSyncButton(syncSettings, state, true).disabled, true);
@@ -472,9 +468,9 @@ describe('Manual Sync button + Auto-Sync active indicator (R23.4, R23.5, R23.6)'
   });
 });
 
-// ─── R23.11 — 401/403 auto-disable + needs-retest ─────────────────────────────
+// ─── 401/403 auto-disable + needs-retest ─────────────────────────────
 
-describe('401/403 auto-disable forces OFF + needs-retest (R23.11)', () => {
+describe('401/403 auto-disable forces OFF + needs-retest', () => {
   it('disables Auto-Sync, flags auth, and blocks re-enable until a fresh pass', () => {
     const syncSettings = settingsFor(SERVER, KEY);
     const state = seedPassed(syncSettings, { autoSync: true });
@@ -484,7 +480,7 @@ describe('401/403 auto-disable forces OFF + needs-retest (R23.11)', () => {
     applyAuthAutoDisable(state);
 
     const settings = getSettings(state);
-    assert.equal(settings.autoSync, false, 'auto-disabled (R23.11)');
+    assert.equal(settings.autoSync, false, 'auto-disabled');
     assert.equal(settings.connectionTest, 'auth', 'flagged for re-test');
     assert.equal(settings.testedSettingsFingerprint, null, 'prior fingerprint cleared');
     assert.equal(
@@ -511,9 +507,9 @@ describe('401/403 auto-disable forces OFF + needs-retest (R23.11)', () => {
   });
 });
 
-// ─── Connection_Test drives the state machine end-to-end (R16.5, R23.2) ───────
+// ─── Connection_Test drives the state machine end-to-end ───────
 
-describe('Connection_Test outcome drives the enable rule (R16.5, R23.2)', () => {
+describe('Connection_Test outcome drives the enable rule', () => {
   beforeEach(() => {
     globalThis.fetch = originalFetch;
   });
@@ -556,14 +552,14 @@ describe('Connection_Test outcome drives the enable rule (R16.5, R23.2)', () => 
   });
 });
 
-// ─── Scheduler reflects the enable/disable lifecycle (R23.7, R23.14) ──────────
+// ─── Scheduler reflects the enable/disable lifecycle ──────────
 //
 // The Auto-Sync state machine arms the shared Sync_Trigger/scheduler when the
 // setting becomes active and tears it down when it goes off. These assert the
 // scheduler honors that start/stop lifecycle (the trigger mechanism the state
 // machine drives); coalescing details are covered by sync-scheduler.test.js.
 
-describe('Auto-Sync state machine arms/disarms the shared scheduler (R23.7, R23.14)', () => {
+describe('Auto-Sync state machine arms/disarms the shared scheduler', () => {
   it('a disabled scheduler ignores triggers; starting it lets a cycle dispatch', () => {
     let cycles = 0;
     const sched = createSyncScheduler({ cooldownMs: 0, now: () => 1000 });

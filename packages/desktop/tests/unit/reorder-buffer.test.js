@@ -6,8 +6,6 @@
  * each event at the correct position in the pending actions list based on
  * its sequence_id, delivering immediately (no buffering). These tests verify
  * ordering, completeness, and sequence_id stripping.
- *
- * Feature: capture-worker-pool
  */
 
 import { describe, it, beforeEach } from 'node:test';
@@ -33,11 +31,10 @@ const adapter = adapterModule.default;
 
 const { SENSITIVE_MASK } = await import('../../shared/lib/field-sensitivity.js');
 
-// ─── Property 4: Events are delivered in sequence order ───────────────────────
-// Feature: capture-worker-pool, Property 4: Reorder buffer ordering
-// **Validates: Requirements 7.3, 7.4**
+// ─── Events are delivered in sequence order ───────────────────────
+// Reorder buffer ordering
 
-describe('Property 4: Reorder buffer emits events in sequence order', () => {
+describe('Reorder buffer emits events in sequence order', () => {
   beforeEach(() => {
     resetReorderState();
     adapter.clearPendingActions();
@@ -93,11 +90,10 @@ describe('Property 4: Reorder buffer emits events in sequence order', () => {
   });
 });
 
-// ─── Property 5: Completeness guarantee ───────────────────────────────────────
-// Feature: capture-worker-pool, Property 5: Completeness guarantee
-// **Validates: Requirements 8.3, 8.5**
+// ─── Completeness guarantee ───────────────────────────────────────
+// Completeness guarantee
 
-describe('Property 5: Completeness guarantee waits for all events', () => {
+describe('Completeness guarantee waits for all events', () => {
   beforeEach(() => {
     resetReorderState();
     adapter.clearPendingActions();
@@ -168,11 +164,10 @@ describe('Property 5: Completeness guarantee waits for all events', () => {
   });
 });
 
-// ─── Property 11: sequence_id stripped before delivery ────────────────────────
-// Feature: capture-worker-pool, Property 11: sequence_id stripped
-// **Validates: Requirements 6.6, 12.9**
+// ─── sequence_id stripped before delivery ────────────────────────
+// sequence_id stripped
 
-describe('Property 11: sequence_id stripped before delivery', () => {
+describe('sequence_id stripped before delivery', () => {
   beforeEach(() => {
     resetReorderState();
     adapter.clearPendingActions();
@@ -297,13 +292,13 @@ describe('Ordered insertion unit tests', () => {
   });
 });
 
-// ─── S10: sensitive-value redaction at the desktop storage chokepoint ─────────
+// ─── sensitive-value redaction at the desktop storage chokepoint ─────────
 // _insertOrdered runs the shared field-sensitivity util before an action enters
 // the pending list (and so the stored recording). The Rust layer masks passwords
 // natively; this covers cc/ssn/secret fields named in the accessibility tree and
 // sets the `redacted` marker (single-sourced with the extension).
 
-describe('S10: _insertOrdered redacts sensitive field values', () => {
+describe('_insertOrdered redacts sensitive field values', () => {
   beforeEach(() => {
     resetReorderState();
     adapter.clearPendingActions();

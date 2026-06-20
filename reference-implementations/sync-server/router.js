@@ -1,6 +1,5 @@
 /**
- * router.js — auth-first request dispatch for the Reference Sync Server
- * (Requirements 5.6, 5.7, 12.2).
+ * router.js — auth-first request dispatch for the Reference Sync Server.
  *
  * The router is the single composition point that turns an incoming HTTP
  * request into one of the four handlers. It enforces the design's precedence
@@ -9,13 +8,13 @@
  *   auth (401/403)  →  routing (404 / 405)  →  handler
  *
  * and wraps the whole dispatch in a top-level try/catch that maps any unhandled
- * error to HTTP 500 (Requirement 5.6) — even when no Static_Token is configured.
+ * error to HTTP 500 — even when no Static_Token is configured.
  *
- * Auth runs FIRST for EVERY request, protocol routes and `/__debug/*` alike
- * (Requirement 5.7): a configured token leaves no unauthenticated endpoint, and
+ * Auth runs FIRST for EVERY request, protocol routes and `/__debug/*` alike:
+ * a configured token leaves no unauthenticated endpoint, and
  * an auth failure short-circuits before any handler is reached, so a rejected
  * request never touches stored data. The debug affordances stay behind their
- * own `/__debug/` prefix (Requirement 12.2); this router only detects the prefix
+ * own `/__debug/` prefix; this router only detects the prefix
  * and delegates the whole namespace to `handleDebug`, which self-guards the
  * method (405) and unknown sub-paths (404).
  *
@@ -41,7 +40,7 @@ import { readProject } from './handlers/read-project.js';
 import { writeProject } from './handlers/write-project.js';
 import { handleDebug } from './handlers/debug.js';
 
-/** The distinct prefix under which all non-protocol debug routes live (R12.2). */
+/** The distinct prefix under which all non-protocol debug routes live. */
 const DEBUG_PREFIX = '/__debug/';
 
 /**
@@ -70,9 +69,9 @@ function sendJson(res, status, body) {
  *
  * @param {object} config
  * @param {import('./storage/provider.js').StorageProvider} config.storage
- *   The injected Storage_Provider — the only path to stored projects (R7.1).
+ *   The injected Storage_Provider — the only path to stored projects.
  * @param {string|null|undefined} [config.token]
- *   The Static_Token, or null/undefined/empty when the server is open (R5.4).
+ *   The Static_Token, or null/undefined/empty when the server is open.
  * @returns {(req: import('node:http').IncomingMessage, res: import('node:http').ServerResponse) => Promise<void>}
  *   An async request listener.
  */
@@ -80,10 +79,10 @@ export function createRouter({ storage, token }) {
   return async function route(req, res) {
     // Everything is wrapped so that ANY unhandled error — including one thrown
     // by a handler or the storage seam — becomes HTTP 500, even when no token
-    // is configured (Requirement 5.6).
+    // is configured.
     try {
-      // ── Step 1: auth FIRST, for every request — protocol and /__debug/* alike
-      // (Requirements 5.7, 12.2). On failure, write 401/403 and stop before any
+      // ── Step 1: auth FIRST, for every request — protocol and /__debug/* alike.
+      // On failure, write 401/403 and stop before any
       // dispatch, so a rejected request never reaches a handler or the store.
       const auth = checkAuth(token, req);
       if (!auth.ok) {
@@ -142,7 +141,7 @@ export function createRouter({ storage, token }) {
       // ── Anything else is an unknown path → 404.
       sendJson(res, 404, { error: 'not_found' });
     } catch {
-      // Requirement 5.6: any internal error maps to 500, even when open. The
+      // Any internal error maps to 500, even when open. The
       // sendJson headersSent guard avoids a double-write if a handler had
       // already started the response before throwing.
       sendJson(res, 500, { error: 'internal_server_error' });

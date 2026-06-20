@@ -11,8 +11,7 @@ import { FileStorageProvider } from '../../storage/file-provider.js';
 import { deriveETag } from '../../etag.js';
 
 /**
- * Tests for the `/__debug/*` Debug_Affordances (Requirements 12.1, 12.3, 12.4,
- * 12.5, 12.6, 12.7, 12.8).
+ * Tests for the `/__debug/*` Debug_Affordances.
  *
  * Each affordance is exercised against the real `FileStorageProvider` over a
  * fresh temp dir per test (no mocks), so reset/dump/seed are validated against
@@ -77,7 +76,7 @@ afterEach(async () => {
   await rm(storageDir, { recursive: true, force: true });
 });
 
-describe('debugReset — POST /__debug/reset (R12.3)', () => {
+describe('debugReset — POST /__debug/reset', () => {
   it('clears all stored projects and reports the count removed', async () => {
     await storage.put('id-1', samplePayload('id-1'), '2020-01-01T00:00:00.000Z');
     await storage.put('id-2', samplePayload('id-2'), '2020-01-02T00:00:00.000Z');
@@ -87,7 +86,7 @@ describe('debugReset — POST /__debug/reset (R12.3)', () => {
 
     assert.equal(res.statusCode, 200);
     assert.deepEqual(res.json, { ok: true, cleared: 2 });
-    // A subsequent manifest is empty (R12.3).
+    // A subsequent manifest is empty.
     assert.deepEqual(await storage.list(), []);
   });
 
@@ -100,7 +99,7 @@ describe('debugReset — POST /__debug/reset (R12.3)', () => {
   });
 });
 
-describe('debugDump — GET /__debug/dump (R12.4)', () => {
+describe('debugDump — GET /__debug/dump', () => {
   it('returns count + per-project project_id/name/last_modified/etag', async () => {
     const payload = samplePayload('id-1', 'Dumped Project');
     await storage.put('id-1', payload, '2026-06-04T10:00:00.000Z');
@@ -128,7 +127,7 @@ describe('debugDump — GET /__debug/dump (R12.4)', () => {
     assert.deepEqual(res.json, { count: 0, projects: [] });
   });
 
-  it('does not mutate stored data (R12.4)', async () => {
+  it('does not mutate stored data', async () => {
     const payload = samplePayload('id-1');
     await storage.put('id-1', payload, '2026-06-04T10:00:00.000Z');
     const before = await storage.read('id-1');
@@ -141,7 +140,7 @@ describe('debugDump — GET /__debug/dump (R12.4)', () => {
   });
 });
 
-describe('debugSeed — POST /__debug/seed with a caller array (R12.5)', () => {
+describe('debugSeed — POST /__debug/seed with a caller array', () => {
   it('stores each payload verbatim with a server-set last_modified and reports the count', async () => {
     const a = samplePayload('seed-a', 'Seed A');
     const b = samplePayload('seed-b', 'Seed B');
@@ -155,10 +154,10 @@ describe('debugSeed — POST /__debug/seed with a caller array (R12.5)', () => {
 
     const storedA = await storage.read('seed-a');
     const storedB = await storage.read('seed-b');
-    // Verbatim, opaque storage — the payload round-trips exactly (R12.5, R12.6).
+    // Verbatim, opaque storage — the payload round-trips exactly.
     assert.deepEqual(storedA.payload, a);
     assert.deepEqual(storedB.payload, b);
-    // A server-set last_modified is recorded, not pulled from the payload (R12.5).
+    // A server-set last_modified is recorded, not pulled from the payload.
     const stampA = Date.parse(storedA.last_modified);
     assert.ok(stampA >= before && stampA <= Date.now());
     // last_modified is never merged into the verbatim payload.
@@ -166,7 +165,7 @@ describe('debugSeed — POST /__debug/seed with a caller array (R12.5)', () => {
   });
 });
 
-describe('debugSeed — POST /__debug/seed with { samples: true } (R12.6, R12.7)', () => {
+describe('debugSeed — POST /__debug/seed with { samples: true }', () => {
   it('stores both an extension- and a desktop-windows-stamped project', async () => {
     const res = fakeRes();
     await debugSeed(storage, fakeReq(JSON.stringify({ samples: true })), res);
@@ -175,7 +174,7 @@ describe('debugSeed — POST /__debug/seed with { samples: true } (R12.6, R12.7)
     assert.deepEqual(res.json, { ok: true, seeded: 2 });
 
     // The two bundled samples are now stored; confirm both platforms are present
-    // by reading the samples back and comparing verbatim (R12.6: stored opaquely,
+    // by reading the samples back and comparing verbatim (stored opaquely,
     // verbatim — the server never interprets the docent_format stamp).
     const extension = JSON.parse(
       await readFile(path.join(SAMPLES_DIR, 'extension-sample.json'), 'utf8'),
@@ -194,7 +193,7 @@ describe('debugSeed — POST /__debug/seed with { samples: true } (R12.6, R12.7)
   });
 });
 
-describe('debugSeed — invalid JSON (R12.8)', () => {
+describe('debugSeed — invalid JSON', () => {
   it('responds 400 and leaves stored data unchanged', async () => {
     // Seed one project first so we can confirm the store is untouched.
     await storage.put('existing', samplePayload('existing'), '2020-01-01T00:00:00.000Z');
@@ -204,7 +203,7 @@ describe('debugSeed — invalid JSON (R12.8)', () => {
     await debugSeed(storage, fakeReq('{ not valid json'), res);
 
     assert.equal(res.statusCode, 400);
-    // Store unchanged: the one pre-existing project is still the only one (R12.8).
+    // Store unchanged: the one pre-existing project is still the only one.
     assert.deepEqual(await storage.list(), before);
   });
 

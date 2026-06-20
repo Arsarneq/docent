@@ -39,15 +39,15 @@ import {
   TAB_CREATED_NAVIGATION_SUPPRESSION,
 } from '../lib/capture-timing.js';
 import { isTrustedActionSender } from '../lib/frame-trust.js';
-// Auto-Sync background host (R23.10, R23.15, R23.16). The triggered cycle calls
+// Auto-Sync background host. The triggered cycle calls
 // the SAME shared `sync()` the manual panel path does, through the SAME
 // chrome-backed adapter, so a background cycle and a manual cycle are identical
-// apart from origin (R23.13, R23.16). The shared cooldown-debounced scheduler
-// (sync-scheduler.js, task 24.2) owns coalescing/overlap/capture-drop.
+// apart from origin. The shared cooldown-debounced scheduler
+// (sync-scheduler.js) owns coalescing/overlap/capture-drop.
 import { createSyncTrigger, BACKSTOP_INTERVAL_MS } from '../shared/sync-scheduler.js';
 import { sync } from '../shared/sync-client.js';
 import { loadSyncState, saveSyncState, getSettings, setSettings } from '../shared/sync-store.js';
-// The generated platform validator (S12), applied to each pulled payload. The
+// The generated platform validator, applied to each pulled payload. The
 // panel loads this via dynamic import (adapter-chrome.loadValidator), but a
 // Manifest V3 service worker CANNOT use dynamic import() — so the background
 // cycle imports it STATICALLY here. (A dynamic import in the SW throws, which
@@ -55,7 +55,7 @@ import { loadSyncState, saveSyncState, getSettings, setSettings } from '../share
 // Auto-Sync cycle before its push.)
 import validateExtensionPayload from '../shared/generated/validate-extension.js';
 // Reuse the panel's platform adapter for the durable SyncStore, LiveState
-// signals, settings, and schema fetch the background cycle needs (R23.16).
+// signals, settings, and schema fetch the background cycle needs.
 // adapter-chrome.js touches only chrome.* + fetch (no DOM). NOTE: its
 // loadValidator() uses dynamic import(), which a Manifest V3 service worker
 // cannot do — so the SW does NOT call loadValidator() and instead imports the
@@ -69,7 +69,7 @@ let activeProjectId = null;
 let activeRecordingId = null;
 // In-memory mirror of the `recording` capture flag, kept in sync via
 // chrome.storage.onChanged. The Auto-Sync scheduler's capture probe is
-// synchronous (it drops triggers while capture is active, R23.9), so the SW
+// synchronous (it drops triggers while capture is active), so the SW
 // holds the flag in memory rather than awaiting a storage read on every trigger.
 let liveRecording = false;
 
@@ -145,9 +145,9 @@ chrome.runtime.onInstalled.addListener(async ({ reason }) => {
   // pendingActions in session storage are preserved across SW restarts.
 
   // Seed the in-memory capture mirror so the Auto-Sync scheduler's synchronous
-  // capture probe is correct from the first trigger (R23.9), and reconcile the
+  // capture probe is correct from the first trigger, and reconcile the
   // background trigger with the persisted `autoSync` setting so Auto-Sync keeps
-  // running with the panel closed across SW restarts (R23.10, R23.15).
+  // running with the panel closed across SW restarts.
   liveRecording = stored.recording === true;
   await reconcileAutoSync();
 })();
@@ -160,7 +160,7 @@ chrome.action.onClicked.addListener((tab) => {
 // When recording is enabled, inject content script into all frames
 // (including about:srcdoc iframes that don't match manifest patterns).
 // Also mirror the `recording` flag into memory so the Auto-Sync scheduler can
-// drop triggers synchronously while capture is active (R23.9).
+// drop triggers synchronously while capture is active.
 chrome.storage.onChanged.addListener((changes, area) => {
   if (area === 'local' && changes.recording) {
     liveRecording = changes.recording.newValue === true;
@@ -181,7 +181,7 @@ chrome.storage.onChanged.addListener((changes, area) => {
 // specific frame and register it as trusted. This covers main frames, srcdoc
 // iframes, and dynamically created/child frames — it is the injection path that
 // replaces the old static manifest `all_frames` auto-inject (which is gone with
-// S3). Runs for every frame (not just the main frame): subframes are exactly the
+// programmatic injection). Runs for every frame (not just the main frame): subframes are exactly the
 // frames the static entry used to cover automatically.
 chrome.webNavigation.onCompleted.addListener(async (details) => {
   if (!(await isRecording())) return;
@@ -217,7 +217,7 @@ chrome.webNavigation.onBeforeNavigate.addListener((details) => {
 // (e.g. context_open + navigate) fire simultaneously.
 let swWriteQueue = Promise.resolve();
 
-// S10 — sensitive-data redaction at the storage chokepoint. The content script
+// Sensitive-data redaction at the storage chokepoint. The content script
 // already masks passwords inline (native `type=password` signal); this catches
 // the rest with the SHARED field-sensitivity util, before anything is persisted:
 //   - a sensitive non-password field (cc/ssn/secret/payment-autocomplete) has its
@@ -513,7 +513,7 @@ async function setRecording(value) {
   // Update the in-memory capture mirror eagerly so the Auto-Sync scheduler sees
   // the new value immediately — in particular, a RECORDING_STOP must clear the
   // flag BEFORE its recording-close trigger fires, or the scheduler would drop
-  // that trigger as capture-active (R23.9). The storage write below also fires
+  // that trigger as capture-active. The storage write below also fires
   // the onChanged listener, which keeps the mirror correct for any external
   // change as well.
   liveRecording = value === true;
@@ -556,30 +556,30 @@ async function getPendingActions() {
   return pendingActions ?? [];
 }
 
-// ─── Auto-Sync background host (R23.10, R23.15, R23.16) ───────────────────────
+// ─── Auto-Sync background host ───────────────────────
 // The side panel hosts the MANUAL sync path; it does not run while the panel is
 // closed. `chrome.alarms` fires in the service worker, so the BACKGROUND
 // Auto-Sync cycle is hosted here. A triggered cycle calls the SAME shared
 // `sync()` the panel calls, through the SAME chrome-backed adapter, so a
-// background cycle and a manual cycle are identical apart from origin
-// (R23.13, R23.16). The shared cooldown-debounced scheduler (sync-scheduler.js)
-// owns coalescing, never-overlap, and the capture-active drop (R23.7–23.9,
-// R23.14); this file only wires the platform triggers and the cycle body.
+// background cycle and a manual cycle are identical apart from origin.
+// The shared cooldown-debounced scheduler (sync-scheduler.js)
+// owns coalescing, never-overlap, and the capture-active drop; this file only
+// wires the platform triggers and the cycle body.
 
 // chrome.storage.local key the chrome adapter persists the durable SyncState
 // blob under. Kept in sync with SYNC_STATE_KEY in sidepanel/adapter-chrome.js;
 // the SW watches it so a panel toggle of the `autoSync` setting starts/stops the
-// background trigger (R23.16).
+// background trigger.
 const SYNC_STATE_STORAGE_KEY = 'docentSyncState';
 
-// chrome.alarms name for the ~60s periodic backstop (R23.7). Persisted by the
+// chrome.alarms name for the ~60s periodic backstop. Persisted by the
 // browser, so it wakes the SW and re-drives the cycle even after suspension.
 const AUTO_SYNC_ALARM = 'docent-auto-sync-backstop';
 
 // The raw SyncStore seam over chrome.storage.local — identical shape to the
 // panel's `adapterSyncStore`. `sync()` and the sync-store helpers normalize the
 // loaded value into the full SyncState shape, so this just moves the raw blob
-// in and out of storage (R23.16).
+// in and out of storage.
 const adapterSyncStore = {
   load: () => chromeAdapter.loadSyncState(),
   save: (state) => chromeAdapter.saveSyncState(state),
@@ -592,7 +592,7 @@ let autoSyncNotify = null;
 // Tracks whether the trigger is currently started, so start/stop are idempotent.
 let autoSyncActive = false;
 
-// Local data events that should fire an Auto-Sync trigger (R23.7): a step
+// Local data events that should fire an Auto-Sync trigger: a step
 // commit, a recording close (capture stop), and project/recording create or
 // delete. Fired centrally from the message dispatcher on a successful response.
 const AUTO_SYNC_DATA_EVENTS = new Set([
@@ -606,7 +606,7 @@ const AUTO_SYNC_DATA_EVENTS = new Set([
 
 function fireAutoSyncTrigger() {
   // No-op when Auto-Sync is off (notify is null); the scheduler also drops the
-  // trigger while capture is active (R23.9), so this stays a thin pass-through.
+  // trigger while capture is active, so this stays a thin pass-through.
   autoSyncNotify?.();
 }
 
@@ -616,18 +616,18 @@ chrome.alarms.onAlarm.addListener((alarm) => {
   if (alarm.name === AUTO_SYNC_ALARM) fireAutoSyncTrigger();
 });
 
-// The Sync_Trigger adapter (R23.13): the shared scheduler owns the coalescing
+// The Sync_Trigger adapter: the shared scheduler owns the coalescing
 // and the capture-active drop; `wire` registers the platform trigger sources
 // (the ~60s alarm + the data-event hooks routed through `fireAutoSyncTrigger`)
 // and returns a teardown that tears them down on stop.
 const autoSyncTrigger = createSyncTrigger({
   // Synchronous capture probe: drop (do not queue) any trigger while capture is
-  // active (R23.9). Mirrors the `recording` flag the panel's LiveState reads.
+  // active. Mirrors the `recording` flag the panel's LiveState reads.
   isCaptureActive: () => liveRecording === true,
   wire(notify) {
     autoSyncNotify = notify;
     // Periodic ~60s backstop so a locally-idle client still pulls others'
-    // changes (R23.7). periodInMinutes is the alarms API unit.
+    // changes. periodInMinutes is the alarms API unit.
     chrome.alarms.create(AUTO_SYNC_ALARM, {
       periodInMinutes: BACKSTOP_INTERVAL_MS / 60000,
     });
@@ -653,8 +653,8 @@ function stopAutoSync() {
 /**
  * Start or stop the background trigger to match the persisted `autoSync`
  * setting. Called on boot (so Auto-Sync survives SW suspension and browser
- * restart, R23.15) and whenever the SyncState blob changes (so a panel toggle
- * takes effect with the panel open or closed, R23.16).
+ * restart) and whenever the SyncState blob changes (so a panel toggle
+ * takes effect with the panel open or closed).
  */
 async function reconcileAutoSync() {
   let enabled = false;
@@ -673,27 +673,26 @@ async function reconcileAutoSync() {
  * One background Auto-Sync cycle. Invokes the SAME shared `sync()` the manual
  * panel path uses, with the SAME chrome-backed SyncStore, LiveState, schema, and
  * validator, so a background cycle and a manual cycle are identical apart from
- * origin (R23.13, R23.16). `sync()` persists the resulting SyncState through the
- * store, so the panel, when next shown, derives its indicators from it (R23.16,
- * R13.1). On a 401/403 the cycle disables Auto-Sync rather than retrying bad
- * credentials on the interval (R23.11); a transient error leaves Auto-Sync
- * enabled to retry on the next trigger (R23.12), which the scheduler handles by
+ * origin. `sync()` persists the resulting SyncState through the
+ * store, so the panel, when next shown, derives its indicators from it. On a 401/403 the cycle disables Auto-Sync rather than retrying bad
+ * credentials on the interval; a transient error leaves Auto-Sync
+ * enabled to retry on the next trigger, which the scheduler handles by
  * swallowing the rejection.
  */
 async function runAutoSyncCycle() {
   const { serverUrl, apiKey } = await chromeAdapter.loadSyncSettings();
   // No endpoint configured → nothing to sync. (The panel's enable rule forbids
-  // turning Auto-Sync on without an endpoint, R23.2; this is a defensive guard.)
+  // turning Auto-Sync on without an endpoint; this is a defensive guard.)
   if (!serverUrl) return;
 
   // Schema (push-side docent_format stamp), loaded by URL exactly as the panel
-  // does (R23.16, S12). The generated validator is imported STATICALLY at module
+  // does. The generated validator is imported STATICALLY at module
   // scope (see the import) because a Manifest V3 service worker cannot use the
   // dynamic import() that the panel's adapter.loadValidator() relies on.
   const schema = await chromeAdapter.loadSchema();
   const validator = validateExtensionPayload;
 
-  // LiveState (R6, R7, R8) — the SW owns `recording` / `activeRecordingId` /
+  // LiveState — the SW owns `recording` / `activeRecordingId` /
   // `pendingCount` in chrome.storage.local; snapshot them once and build the
   // synchronous accessors over a consistent view, identical to the panel.
   const live = await chromeAdapter.loadLiveState();
@@ -717,11 +716,11 @@ async function runAutoSyncCycle() {
   );
 
   // Persist the merged projects into the SW's own state + storage, mirroring the
-  // panel's PROJECTS_SET. `sync()` already persisted the SyncState blob (R23.16).
+  // panel's PROJECTS_SET. `sync()` already persisted the SyncState blob.
   projects = mergedProjects;
   await persist();
 
-  // R23.11 — an auth failure disables Auto-Sync and invalidates the
+  // an auth failure disables Auto-Sync and invalidates the
   // Connection_Test so the panel surfaces a needs-attention state and requires a
   // fresh passing test before re-enabling, rather than retrying bad credentials.
   if (result.halted && result.haltReason === 'auth') {
@@ -730,7 +729,7 @@ async function runAutoSyncCycle() {
 }
 
 /**
- * Disable Auto-Sync after a 401/403 (R23.11): tear the trigger down immediately
+ * Disable Auto-Sync after a 401/403: tear the trigger down immediately
  * so the next interval does not retry bad credentials, then persist the disable
  * and invalidate the Connection_Test result so the panel prompts a re-test.
  */
@@ -747,7 +746,7 @@ async function disableAutoSyncOnAuthFailure() {
 
 // Observe the `autoSync` setting (it lives inside the durable SyncState blob):
 // when the panel toggles it, the blob changes and we start/stop the background
-// trigger to match (R23.16).
+// trigger to match.
 chrome.storage.onChanged.addListener((changes, area) => {
   if (area === 'local' && changes[SYNC_STATE_STORAGE_KEY]) {
     reconcileAutoSync();
@@ -794,10 +793,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
   handle(message)
     .then((response) => {
-      // Fire an Auto-Sync trigger on a successful local data event (R23.7): a
+      // Fire an Auto-Sync trigger on a successful local data event: a
       // step commit, a recording close, or a project/recording create/delete.
       // The scheduler coalesces bursts and drops triggers while capture is
-      // active (R23.8, R23.9); this is a no-op when Auto-Sync is off.
+      // active; this is a no-op when Auto-Sync is off.
       if (response?.ok && AUTO_SYNC_DATA_EVENTS.has(message.type)) {
         fireAutoSyncTrigger();
       }

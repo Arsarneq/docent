@@ -1,5 +1,5 @@
 /**
- * E2E — S14 frame-trust sender validation (regression).
+ * E2E — frame-trust sender validation (regression).
  *
  * APPEND_ACTION messages are appended to the recording ONLY when they come from
  * a frame the service worker injected into during the live recording (tracked in
@@ -95,7 +95,7 @@ async function settle(serviceWorker, page, ms = 300) {
   }
 }
 
-test.describe('S14 frame-trust — untrusted APPEND_ACTION is dropped', () => {
+test.describe('frame-trust — untrusted APPEND_ACTION is dropped', () => {
   test('an APPEND_ACTION from a sender that is not a recorded frame is dropped', async ({
     context,
     serviceWorker,

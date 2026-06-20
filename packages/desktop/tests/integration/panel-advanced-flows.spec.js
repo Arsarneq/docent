@@ -25,7 +25,7 @@ const TAURI_MOCK_JS = `
         switch (cmd) {
           case 'load_state': return _savedState;
           case 'sync_http_request': {
-            // S20: the desktop routes sync/dispatch/connection-test through the
+            // The desktop routes sync/dispatch/connection-test through the
             // native sync_http_request command. In the integration env there is
             // no Rust backend, so the mock services it via the page's window.fetch
             // (which these specs stub) and adapts the result into the native

@@ -4,7 +4,7 @@
  * The parity-bearing UI half of the conflict-resolution feature. Both the Chrome
  * extension (`packages/extension/sidepanel/panel.js`) and the desktop app
  * (`packages/desktop/src/panel.js`) import this module so they surface the SAME
- * attention indicators and the SAME Conflict_Resolution workflow (R17.2). Like
+ * attention indicators and the SAME Conflict_Resolution workflow. Like
  * `views/render.js`, every function here is pure: it takes the durable
  * {@link SyncState} (plus a Unit reference) and returns plain data or an HTML
  * string — no DOM access, no platform APIs, no side effects. Each panel inserts
@@ -15,23 +15,21 @@
  *
  *   1. **Attention-indicator derivation** ({@link deriveIndicators} +
  *      lookups) — from a `SyncState`, work out which Units need attention and
- *      whether each is a *Review* or a *Conflict* (R13.1). A recording needing
- *      attention always yields a recording-level indicator (R13.4); the
+ *      whether each is a *Review* or a *Conflict*. A recording needing
+ *      attention always yields a recording-level indicator; the
  *      project-level indicator is yielded only when the project Unit itself needs
- *      attention, in which case both show (R13.5).
+ *      attention, in which case both show.
  *
  *   2. **Resolution-workflow rendering** ({@link renderWorkflow} +
- *      {@link routeWorkflow}) — a Review item opens the accept/decline view
- *      (R12.2); a Conflict opens the local-vs-incoming chooser (R12.3); opening a
+ *      {@link routeWorkflow}) — a Review item opens the accept/decline view;
+ * a Conflict opens the local-vs-incoming chooser; opening a
  *      Unit with the wrong interface is prevented and redirected to the correct
- *      one (R12.4). Activating an indicator opens the workflow for that Unit
- *      (R13.3) via the `data-action="open-workflow"` / `data-unit-ref` hooks.
+ *      one. Activating an indicator opens the workflow for that Unit
+ * via the `data-action="open-workflow"` / `data-unit-ref` hooks.
  *
  * `reviews` and `conflicts` are mutually exclusive per `unitRef` (guaranteed by
  * sync-store.js), so a Unit routes to exactly one interface; routing checks
  * conflicts before reviews purely for determinism.
- *
- * Design references: R12.1–12.4, R13.1, R13.3, R13.4, R13.5, R17.1, R17.2.
  *
  * This file is part of Docent.
  * Licensed under the GNU General Public License v3.0
@@ -52,22 +50,22 @@ import { uuidv7 } from './lib/uuid-v7.js';
  * @readonly
  */
 export const UI_ACTIONS = Object.freeze({
-  /** Activate an attention indicator → open the workflow for its Unit (R13.3). */
+  /** Activate an attention indicator → open the workflow for its Unit. */
   OPEN_WORKFLOW: 'open-workflow',
   /**
    * Activate a rolled-up recordings indicator on a project row → open the project
-   * so its per-recording indicators are visible (R13.7). A roll-up stands for one
+   * so its per-recording indicators are visible. A roll-up stands for one
    * or more recordings, not a single resolvable Unit, so it opens the project
    * rather than a workflow.
    */
   OPEN_PROJECT: 'open-project',
-  /** Accept a Review item's incoming change (R12.2). */
+  /** Accept a Review item's incoming change. */
   ACCEPT_REVIEW: 'accept-review',
-  /** Decline a Review item's incoming change (R12.2). */
+  /** Decline a Review item's incoming change. */
   DECLINE_REVIEW: 'decline-review',
-  /** Resolve a Conflict by keeping the local version (R12.3). */
+  /** Resolve a Conflict by keeping the local version. */
   RESOLVE_KEEP_LOCAL: 'resolve-keep-local',
-  /** Resolve a Conflict by keeping the incoming version (R12.3). */
+  /** Resolve a Conflict by keeping the incoming version. */
   RESOLVE_KEEP_INCOMING: 'resolve-keep-incoming',
 });
 
@@ -81,18 +79,18 @@ export const UI_ACTIONS = Object.freeze({
  * @property {string} project_id
  * @property {string|null} recording_id - null for a project-level Unit
  * @property {'project'|'recording'} level - which row the indicator belongs on
- * @property {'review'|'conflict'} kind - Review-and-Accept vs Conflict (R13.1)
+ * @property {'review'|'conflict'} kind - Review-and-Accept vs Conflict
  */
 
 /**
- * One attention badge to render on a project ROW (R13.4–R13.7). A project row
+ * One attention badge to render on a project ROW. A project row
  * can show up to three of these at once (see {@link getProjectRowIndicators}).
  *
  * @typedef {Object} ProjectRowBadge
  * @property {'project-own'|'recording-rollup'} scope - the project Unit's own
  *   badge (opens its workflow), or a rolled-up child-recordings badge (opens the
  *   project)
- * @property {'review'|'conflict'} kind - Review-and-Accept vs Conflict (R13.1)
+ * @property {'review'|'conflict'} kind - Review-and-Accept vs Conflict
  * @property {string|null} unitRef - the project Unit's `unitRef` for a
  *   `'project-own'` badge; null for a `'recording-rollup'` badge (it stands for
  *   several recordings, not one Unit)
@@ -123,13 +121,12 @@ function indicatorFromItem(item) {
  * Derive the full set of attention indicators from a {@link SyncState}.
  *
  * Exactly the Units recorded in `reviews` or `conflicts` need attention; each is
- * labelled `'review'` or `'conflict'` by its record type (R13.1). A
- * recording-level item produces a `level: 'recording'` indicator (always shown,
- * R13.4); a project-level item produces a `level: 'project'` indicator, which is
+ * labelled `'review'` or `'conflict'` by its record type. A
+ * recording-level item produces a `level: 'recording'` indicator (always shown); a project-level item produces a `level: 'project'` indicator, which is
  * the *only* reason a project row shows a badge — so a project whose only
- * attention is in a child recording gets no project-level indicator (R13.4),
+ * attention is in a child recording gets no project-level indicator,
  * while a project that itself needs attention shows the project-level indicator
- * in addition to any recording-level ones (R13.5).
+ * in addition to any recording-level ones.
  *
  * Pure derivation: returns plain data, never touches the DOM.
  *
@@ -148,7 +145,7 @@ export function deriveIndicators(state) {
 /**
  * Find the project-level indicator for a project, or `null` when the project
  * Unit itself does not need attention. Drives whether a project row shows a
- * badge (R13.5 / R13.4).
+ * badge.
  *
  * @param {AttentionIndicator[]} indicators - from {@link deriveIndicators}
  * @param {string} project_id
@@ -160,7 +157,7 @@ export function getProjectIndicator(indicators, project_id) {
 
 /**
  * Find the recording-level indicator for a recording, or `null` when it does not
- * need attention. A recording needing attention always has one (R13.4).
+ * need attention. A recording needing attention always has one.
  *
  * @param {AttentionIndicator[]} indicators - from {@link deriveIndicators}
  * @param {string} project_id
@@ -177,18 +174,18 @@ export function getRecordingIndicator(indicators, project_id, recording_id) {
 }
 
 /**
- * The full set of attention badges a single project ROW should show (R13.4–R13.7).
+ * The full set of attention badges a single project ROW should show.
  *
  * A project row surfaces the attention of the project Unit AND of every child
- * recording, so the user can see a project needs attention without opening it
- * (R13.6). It is a roll-up, deduplicated by kind: there is at most ONE badge of
+ * recording, so the user can see a project needs attention without opening it.
+ * It is a roll-up, deduplicated by kind: there is at most ONE badge of
  * each unique (level, kind) pairing, so e.g. three child recordings in conflict
  * still yield a single recording-level conflict badge. Up to THREE badges can
  * therefore show at once on one project row:
  *
  *   - the project Unit's OWN badge — present iff the project Unit itself is in
  *     review or conflict (its own `getProjectIndicator`); it carries the
- *     `open-workflow` hook for the project Unit (R13.3);
+ *     `open-workflow` hook for the project Unit;
  *   - a rolled-up recording-CONFLICT badge — present iff ANY child recording is
  *     in conflict; and
  *   - a rolled-up recording-REVIEW badge — present iff ANY child recording is in
@@ -196,7 +193,7 @@ export function getRecordingIndicator(indicators, project_id, recording_id) {
  *
  * A roll-up badge stands for one or more child recordings, not a single
  * resolvable Unit, so it carries the `open-project` hook (open the project to see
- * which recordings need attention, R13.7) rather than `open-workflow`. The
+ * which recordings need attention) rather than `open-workflow`. The
  * project's own badge keeps the `open-workflow` hook.
  *
  * Ordering is stable and meaningful: the project-own badge first, then the
@@ -216,15 +213,15 @@ export function getProjectRowIndicators(indicators, project_id) {
   );
 
   const badges = [];
-  // 1. The project Unit's own badge (opens its workflow, R13.3).
+  // 1. The project Unit's own badge (opens its workflow).
   if (own) {
     badges.push({ scope: 'project-own', kind: own.kind, unitRef: own.unitRef, project_id });
   }
-  // 2. Rolled-up recording conflict (opens the project, R13.7).
+  // 2. Rolled-up recording conflict (opens the project).
   if (recordingKinds.has('conflict')) {
     badges.push({ scope: 'recording-rollup', kind: 'conflict', unitRef: null, project_id });
   }
-  // 3. Rolled-up recording review (opens the project, R13.7).
+  // 3. Rolled-up recording review (opens the project).
   if (recordingKinds.has('review')) {
     badges.push({ scope: 'recording-rollup', kind: 'review', unitRef: null, project_id });
   }
@@ -236,8 +233,8 @@ export function getProjectRowIndicators(indicators, project_id) {
 /**
  * Render one attention indicator as an activatable badge. The badge carries the
  * `data-action="open-workflow"` and `data-unit-ref` hooks so the panel can open
- * the workflow for that Unit when the badge is activated (R13.3). The CSS
- * modifier and label distinguish Review from Conflict (R13.1).
+ * the workflow for that Unit when the badge is activated. The CSS
+ * modifier and label distinguish Review from Conflict.
  *
  * @param {AttentionIndicator | null | undefined} indicator
  * @returns {string} a `<button>` HTML string, or `''` when there is no indicator
@@ -259,18 +256,18 @@ export function renderIndicatorBadge(indicator) {
 }
 
 /**
- * Render one project-ROW badge (R13.4–R13.7). Distinguishes Review from Conflict
+ * Render one project-ROW badge. Distinguishes Review from Conflict
  * by the same CSS modifier and label as {@link renderIndicatorBadge}, so the
  * badges read identically wherever they appear. The activation hook differs by
  * scope:
  *
  *   - a `'project-own'` badge carries `data-action="open-workflow"` +
  *     `data-unit-ref` (the project Unit), so activating it opens that Unit's
- *     resolution workflow (R13.3);
+ *     resolution workflow;
  *   - a `'recording-rollup'` badge carries `data-action="open-project"` +
  *     `data-project-id` (no `unitRef` — it stands for one or more recordings, not
  *     a single resolvable Unit), so activating it opens the project to reveal the
- *     per-recording badges (R13.7).
+ *     per-recording badges.
  *
  * @param {ProjectRowBadge | null | undefined} badge
  * @returns {string} a `<button>` HTML string, or `''` when there is no badge
@@ -282,7 +279,7 @@ export function renderProjectRowBadge(badge) {
   const modifier = isConflict ? 'attention-badge--conflict' : 'attention-badge--review';
 
   if (badge.scope === 'recording-rollup') {
-    // A roll-up over child recordings: opens the project (R13.7), no unitRef.
+    // A roll-up over child recordings: opens the project, no unitRef.
     const title = isConflict
       ? 'A recording in this project is in conflict — open to resolve'
       : 'A recording in this project has an incoming change to review — open to see it';
@@ -294,7 +291,7 @@ export function renderProjectRowBadge(badge) {
     );
   }
 
-  // The project Unit's own badge: opens its workflow (R13.3), exactly like a
+  // The project Unit's own badge: opens its workflow, exactly like a
   // recording-level indicator badge.
   const title = isConflict
     ? 'This project is in conflict — resolve to choose a version'
@@ -321,7 +318,7 @@ export function renderProjectRowBadge(badge) {
  * @typedef {Object} WorkflowRoute
  * @property {ItemKind} kind - the item's actual kind, or null when there is none
  * @property {boolean} redirected - true when the requested interface did not
- *   match the item's kind and the user was redirected to the correct one (R12.4)
+ *   match the item's kind and the user was redirected to the correct one
  * @property {(import('./sync-types.js').ReviewItem|import('./sync-types.js').ConflictItem|null)} item
  *   the stored item, or null when the Unit has no active deferral
  */
@@ -347,11 +344,11 @@ function lookupItem(state, unitRef) {
 
 /**
  * Route a Unit to the correct resolution interface, enforcing the wrong-interface
- * guard (R12.4). When `requestedKind` is supplied and disagrees with the Unit's
+ * guard. When `requestedKind` is supplied and disagrees with the Unit's
  * actual kind, the route reports `redirected: true` and resolves to the actual
  * kind — never the requested one — so a Review can never be opened in the
  * Conflict interface (or vice-versa). When `requestedKind` is omitted (the normal
- * "activate the indicator" path, R13.3), the actual kind is used with no redirect.
+ * "activate the indicator" path), the actual kind is used with no redirect.
  *
  * @param {import('./sync-types.js').SyncState | null | undefined} state
  * @param {import('./sync-types.js').UnitRef} unitRef
@@ -432,7 +429,7 @@ function renderUnitSummary(unit) {
 
 /**
  * Optional banner shown when the user was redirected to the correct interface
- * because they opened a Unit with the wrong one (R12.4).
+ * because they opened a Unit with the wrong one.
  *
  * @param {boolean} redirected
  * @param {'review'|'conflict'} kind - the correct interface the user landed on
@@ -450,12 +447,12 @@ function renderRedirectNotice(redirected, kind) {
 // ─── Workflow rendering ────────────────────────────────────────────────────────
 
 /**
- * Render the accept/decline view for a Review-and-Accept item (R12.2). Presents
+ * Render the accept/decline view for a Review-and-Accept item. Presents
  * the incoming change and the Accept / Decline controls; only the incoming
  * version is stored on a Review item, so only it is shown.
  *
  * @param {import('./sync-types.js').ReviewItem} item
- * @param {boolean} [redirected=false] - whether the user was redirected here (R12.4)
+ * @param {boolean} [redirected=false] - whether the user was redirected here
  * @returns {string} HTML string
  */
 export function renderReviewWorkflow(item, redirected = false) {
@@ -480,13 +477,13 @@ export function renderReviewWorkflow(item, redirected = false) {
 }
 
 /**
- * Render the local-vs-incoming chooser for a Conflict (R12.3). Presents both the
+ * Render the local-vs-incoming chooser for a Conflict. Presents both the
  * local and the incoming versions side by side, each with a control to adopt that
  * side as the resolved outcome. A delete-vs-change Conflict has one absent side,
  * rendered as a deletion the user can accept by choosing the other version.
  *
  * @param {import('./sync-types.js').ConflictItem} item
- * @param {boolean} [redirected=false] - whether the user was redirected here (R12.4)
+ * @param {boolean} [redirected=false] - whether the user was redirected here
  * @returns {string} HTML string
  */
 export function renderConflictWorkflow(item, redirected = false) {
@@ -527,9 +524,9 @@ function renderNoItem() {
 
 /**
  * Open the resolution workflow for a Unit. This is the single entry point a panel
- * calls when an indicator is activated (R13.3) or when the user opens an item
+ * calls when an indicator is activated or when the user opens an item
  * through a specific interface. It routes the Unit to its correct interface,
- * enforcing the wrong-interface guard (R12.4): if `requestedKind` disagrees with
+ * enforcing the wrong-interface guard: if `requestedKind` disagrees with
  * the Unit's actual kind, the correct interface is rendered and `redirected` is
  * set so the panel can surface the redirect.
  *
@@ -574,7 +571,7 @@ function latestPerLogicalId(steps) {
  * Union the step records of two histories by `uuid` (first occurrence wins),
  * preserving the append-only history of BOTH sides. The result contains every
  * record from each side, so it satisfies `resolveConflict`'s append-only superset
- * requirement (R11.1) before any chosen-side overlay is applied.
+ * requirement before any chosen-side overlay is applied.
  *
  * @param {object[]} localSteps
  * @param {object[]} incomingSteps
@@ -592,12 +589,11 @@ function unionStepsByUuid(localSteps, incomingSteps) {
  * Build the resolved committed step history for one recording so that, over the
  * APPEND-ONLY union of both sides' records, the *chosen* side's Active View wins.
  *
- * The union (every record from local and incoming) is the append-only base
- * (R11.1). On top of it, for each `logical_id` we append a single fresh-`uuid`
+ * The union (every record from local and incoming) is the append-only base.
+ * On top of it, for each `logical_id` we append a single fresh-`uuid`
  * version record that makes the chosen side's intent the latest version — exactly
  * the re-record / tombstone mechanism `session.js` already uses, so tombstones
- * stay tombstoned (R11.2) and there is at most one active step per `logical_id`
- * (R11.3):
+ * stay tombstoned and there is at most one active step per `logical_id`:
  *   - the chosen side wants the step LIVE  → append a fresh copy of the chosen
  *     side's active record (so it becomes the latest, live version);
  *   - the chosen side wants it GONE (its latest version is a tombstone, or it has
@@ -658,12 +654,12 @@ function recordingShell(chosenRec, steps) {
  * keep-incoming choice, suitable to pass straight to `resolveConflict`.
  *
  * The two panels call this so the choice is translated IDENTICALLY on both
- * platforms (R17.2, R17.3); it is the single shared place a conflict choice
+ * platforms; it is the single shared place a conflict choice
  * becomes an append-only resolved state.
  *
  *   - When the chosen side is ABSENT (the deletion side of a delete-vs-change
  *     Conflict), the user chose to accept the deletion → returns the
- *     `{ deleted: true }` sentinel `resolveConflict` recognises (R19.5).
+ *     `{ deleted: true }` sentinel `resolveConflict` recognises.
  *   - When the other side is absent (keeping the surviving changed version of a
  *     delete-vs-change Conflict), the chosen copy alone is already an append-only
  *     superset (the absent side contributes no records) → returns it verbatim.

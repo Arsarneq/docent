@@ -1,6 +1,6 @@
 /**
  * validate-import.test.js — Unit tests for the shared ingestion validator
- * wrapper (SECURITY_BACKLOG S12).
+ * wrapper.
  *
  * Exercises validatePayload's bounds checks and its delegation to an injected
  * (stub) Ajv-standalone-style validator. The generated validators themselves are

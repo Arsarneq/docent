@@ -1,6 +1,5 @@
-// Property 6: Action mapping invariants
+// Action mapping invariants
 //
-// **Validates: Requirements 4.1–4.15**
 //
 // For any native interaction event processed by the Capture_Layer, the
 // resulting `ActionEvent` shall:
@@ -231,9 +230,7 @@ fn arb_native_event() -> impl Strategy<Value = NativeEvent> {
 proptest! {
     #![proptest_config(ProptestConfig::with_cases(200))]
 
-    /// Feature: desktop-capture, Property 6: Action mapping invariants
-    ///
-    /// **Validates: Requirements 4.1–4.15**
+    /// Action mapping invariants
     ///
     /// For any random native event, the mapped `ActionEvent`:
     /// (a) has the provided timestamp,

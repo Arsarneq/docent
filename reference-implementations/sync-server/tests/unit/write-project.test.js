@@ -10,7 +10,7 @@ import { FileStorageProvider } from '../../storage/file-provider.js';
 import { deriveETag } from '../../etag.js';
 
 /**
- * Tests for the `PUT /projects/:id` handler (Requirements 3.1–3.7, 6.2–6.5).
+ * Tests for the `PUT /projects/:id` handler.
  *
  * The handler is exercised against the real `FileStorageProvider` over a fresh
  * temp dir per test (no mocks), so create/replace, verbatim storage, and the
@@ -77,7 +77,7 @@ afterEach(async () => {
   await rm(storageDir, { recursive: true, force: true });
 });
 
-describe('writeProject — create (R3.1, R3.6, R6.2)', () => {
+describe('writeProject — create', () => {
   it('stores a new project and responds 201 with { ok: true } and an ETag', async () => {
     const payload = samplePayload();
     const res = fakeRes();
@@ -94,7 +94,7 @@ describe('writeProject — create (R3.1, R3.6, R6.2)', () => {
   });
 });
 
-describe('writeProject — replace (R3.2)', () => {
+describe('writeProject — replace', () => {
   it('replaces an existing project and responds 200', async () => {
     const id = '0192f0a0-0000-7000-8000-000000000001';
     await storage.put(id, samplePayload(id), '2020-01-01T00:00:00.000Z');
@@ -114,7 +114,7 @@ describe('writeProject — replace (R3.2)', () => {
   });
 });
 
-describe('writeProject — server-set last_modified (R3.7)', () => {
+describe('writeProject — server-set last_modified', () => {
   it('records a fresh server timestamp, not anything from the payload', async () => {
     const payload = samplePayload();
     const before = Date.now();
@@ -130,7 +130,7 @@ describe('writeProject — server-set last_modified (R3.7)', () => {
   });
 });
 
-describe('writeProject — invalid JSON (R3.4)', () => {
+describe('writeProject — invalid JSON', () => {
   it('responds 400 and leaves stored data unchanged', async () => {
     const res = fakeRes();
     await writeProject(storage, fakeReq('{ not valid json'), res, 'some-id');
@@ -140,7 +140,7 @@ describe('writeProject — invalid JSON (R3.4)', () => {
   });
 });
 
-describe('writeProject — path/body id mismatch (R3.3)', () => {
+describe('writeProject — path/body id mismatch', () => {
   it('responds 400 when the path id differs from body project_id, store unchanged', async () => {
     const payload = samplePayload('0192f0a0-0000-7000-8000-000000000001');
     const res = fakeRes();
@@ -160,8 +160,8 @@ describe('writeProject — path/body id mismatch (R3.3)', () => {
   });
 });
 
-describe('writeProject — conditional write (R6.2, R6.3, R6.4, R6.5)', () => {
-  it('proceeds and returns a fresh ETag when If-Match matches the stored ETag (R6.3)', async () => {
+describe('writeProject — conditional write', () => {
+  it('proceeds and returns a fresh ETag when If-Match matches the stored ETag', async () => {
     const id = '0192f0a0-0000-7000-8000-000000000001';
     const original = samplePayload(id);
     await storage.put(id, original, '2020-01-01T00:00:00.000Z');
@@ -182,7 +182,7 @@ describe('writeProject — conditional write (R6.2, R6.3, R6.4, R6.5)', () => {
     assert.equal((await storage.read(id)).payload.project.name, 'Updated');
   });
 
-  it('rejects with 412 on a stale If-Match and leaves stored data unchanged (R6.4)', async () => {
+  it('rejects with 412 on a stale If-Match and leaves stored data unchanged', async () => {
     const id = '0192f0a0-0000-7000-8000-000000000001';
     const original = samplePayload(id);
     await storage.put(id, original, '2020-01-01T00:00:00.000Z');
@@ -202,7 +202,7 @@ describe('writeProject — conditional write (R6.2, R6.3, R6.4, R6.5)', () => {
     assert.equal((await storage.read(id)).payload.project.name, 'Demo Project');
   });
 
-  it('rejects a create with 412 when an If-Match is present but nothing is stored (R6.4)', async () => {
+  it('rejects a create with 412 when an If-Match is present but nothing is stored', async () => {
     const payload = samplePayload();
     const res = fakeRes();
 
@@ -217,7 +217,7 @@ describe('writeProject — conditional write (R6.2, R6.3, R6.4, R6.5)', () => {
     assert.deepEqual(await storage.list(), []);
   });
 
-  it('overwrites unconditionally when no If-Match is present (last-write-wins, R6.5)', async () => {
+  it('overwrites unconditionally when no If-Match is present (last-write-wins)', async () => {
     const id = '0192f0a0-0000-7000-8000-000000000001';
     await storage.put(id, samplePayload(id), '2020-01-01T00:00:00.000Z');
 
@@ -232,7 +232,7 @@ describe('writeProject — conditional write (R6.2, R6.3, R6.4, R6.5)', () => {
   });
 });
 
-describe('writeProject — verbatim storage (R3.5, R4)', () => {
+describe('writeProject — verbatim storage', () => {
   it('stores the payload verbatim including unrecognized top-level fields', async () => {
     const payload = samplePayload();
     const res = fakeRes();

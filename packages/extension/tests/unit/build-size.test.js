@@ -21,7 +21,7 @@
  *
  * JS budget history:
  *   - Originally 200KB (hand-written ES modules only).
- *   - Raised to 360KB for SECURITY_BACKLOG S12: each platform now ships a
+ *   - Raised to 360KB for the generated schema validator: each platform now ships a
  *     generated Ajv-standalone validator (~109KB, eval-free, required to
  *     validate untrusted imported/synced payloads under the `script-src 'self'`
  *     CSP). This is a deliberate security artifact, not accidental bloat; the
@@ -31,10 +31,10 @@
  *     (sync-client rewrite, conflict-detector, conflict-resolution,
  *     sync-conflict-ui, sync-store, sync-baseline, sync-digest, sync-types) that
  *     sync-shared copies into the extension so both platforms get identical
- *     behavior (R17.1). This ~90KB of shared logic is a deliberate feature
+ *     behavior. This ~90KB of shared logic is a deliberate feature
  *     artifact, not accidental bloat; the budget was raised to fit it plus
  *     normal headroom.
- *   - Raised to 600KB for the sync-conflict-resolution Revision R1 (tasks 19-26):
+ *   - Raised to 600KB for the sync-conflict-resolution pull-first rework:
  *     the pull-first reconcile rework plus the Auto-Sync background host grew the
  *     synced shared modules and added two new ones — the shared cooldown-debounced
  *     `sync-scheduler.js` (~12KB) and `connection-test.js` (~6KB) copied into the
@@ -42,7 +42,7 @@
  *     `conflict-resolution.js`, `sync-types.js`, `sync-store.js`,
  *     `conflict-detector.js`, and `sync-conflict-ui.js`, plus the auto-sync host
  *     wiring in `background/service-worker.js`. Verified the ~74KB growth (480→554KB
- *     actual) is entirely this deliberate R1 feature code with no duplicated bundle
+ *     actual) is entirely this deliberate feature code with no duplicated bundle
  *     and no new third-party dependency (the largest single file remains the
  *     generated Ajv validator). This mirrors the desktop limit raised to 520KB in
  *     this same revision; the extension's equivalent bump was outstanding. Budget

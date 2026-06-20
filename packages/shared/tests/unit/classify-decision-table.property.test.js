@@ -11,29 +11,27 @@
  *                content-equality, with or without a lock, yields exactly one
  *                valid ClassKind (never undefined, never two).
  *   - CORRECT  — the assigned ClassKind matches the reference decision table and
- *                its precedence (Requirement 2.9): `locked-skipped` first; then
+ *                its precedence: `locked-skipped` first; then
  *                `already-converged`; then the deletion cases (a side absent but
- *                present in the baseline, per Requirement 19); then `brand-new`
+ *                present in the baseline); then `brand-new`
  *                (no local counterpart and no baseline); then `changed-incoming`
  *                (local == baseline, incoming differs); then `changed-local-outgoing`
- *                (incoming == baseline, local differs — a routine outgoing change,
- *                R2.5); then `diverged`. The `diverged` fall-through covers both
- *                the no-baseline local≠incoming case (R2.7) and the concurrent-push
+ *                (incoming == baseline, local differs — a routine outgoing change); then `diverged`. The `diverged` fall-through covers both
+ *                the no-baseline local≠incoming case and the concurrent-push
  *                case where a second client overwrote the server copy from a common
- *                baseline (Requirement 18.1), so the overwritten client's work is
+ *                baseline, so the overwritten client's work is
  *                surfaced rather than silently dropped.
  *
  * The reference decision table below (`referenceClassify`) is an INDEPENDENT
- * re-derivation from Requirements 2 and 19 — it is the oracle the implementation
+ * re-derivation from the classification rules — it is the oracle the implementation
  * is checked against, not a copy of the implementation.
  *
  * Uses Node.js built-in test runner + fast-check (fast-check v4: no
  * `fc.hexaString` — `fc.uuid()` is used for ids).
  *
- * **Validates: Requirements 2.1, 2.2, 2.3, 2.4, 2.5, 2.6, 2.7, 2.9, 2.10, 18.1**
  */
 
-// Feature: sync-conflict-resolution, Property 1: Classification decision table is total and correct
+// Classification decision table is total and correct
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
@@ -59,19 +57,19 @@ const VALID_KINDS = new Set([
 // ─── Reference decision table (the oracle) ───────────────────────────────────
 
 /**
- * Independent re-derivation of the classification decision table from
- * Requirements 2 and 19, applying the R2.9 precedence by evaluation order. Each
+ * Independent re-derivation of the classification decision table,
+ * applying the documented precedence by evaluation order. Each
  * digest is a content string or `null` (absent). This is the source of truth the
  * implementation is checked against.
  *
  * @param {string|null} dl - local digest, or null if absent
  * @param {string|null} di - incoming digest, or null if absent
- * @param {string|null} db - baseline digest, or null if none (R1.6)
- * @param {boolean} locked - true when this Unit is a Locked_Recording (R6.3)
+ * @param {string|null} db - baseline digest, or null if none
+ * @param {boolean} locked - true when this Unit is a Locked_Recording
  * @returns {string}
  */
 function referenceClassify(dl, di, db, locked) {
-  // R6.3 — a locked recording is excluded from the merge regardless of any
+  // a locked recording is excluded from the merge regardless of any
   //        other signal (highest precedence).
   if (locked) return 'locked-skipped';
 
@@ -79,35 +77,35 @@ function referenceClassify(dl, di, db, locked) {
   const hasIncoming = di != null;
   const hasBaseline = db != null;
 
-  // R2.2 — both sides present and equal ⇒ converged, regardless of baseline.
+  // both sides present and equal ⇒ converged, regardless of baseline.
   if (hasLocal && hasIncoming && dl === di) return 'already-converged';
 
-  // R19 — absent locally but present in baseline ⇒ a deliberate LOCAL deletion
+  // absent locally but present in baseline ⇒ a deliberate LOCAL deletion
   //       (the data model has no recording/project tombstone), never brand-new.
   if (!hasLocal && hasBaseline) {
-    if (di === db) return 'deleted-local-clean'; // R19.1 — incoming unchanged ⇒ propagate
-    if (!hasIncoming) return 'deleted-both'; // R19.7 — gone on both sides ⇒ agreed
-    return 'conflict-delete-vs-change'; // R19.2 — deleted vs changed
+    if (di === db) return 'deleted-local-clean'; // incoming unchanged ⇒ propagate
+    if (!hasIncoming) return 'deleted-both'; // gone on both sides ⇒ agreed
+    return 'conflict-delete-vs-change'; // deleted vs changed
   }
 
-  // R19 — absent on the server but present in baseline ⇒ a SERVER deletion.
+  // absent on the server but present in baseline ⇒ a SERVER deletion.
   if (!hasIncoming && hasBaseline) {
-    if (dl === db) return 'deleted-remote-review'; // R19.3 — local unchanged ⇒ review
-    return 'conflict-delete-vs-change'; // R19.5 — deleted vs changed
+    if (dl === db) return 'deleted-remote-review'; // local unchanged ⇒ review
+    return 'conflict-delete-vs-change'; // deleted vs changed
   }
 
-  // R2.3 — no local counterpart and no baseline counterpart ⇒ genuinely new.
+  // no local counterpart and no baseline counterpart ⇒ genuinely new.
   if (!hasLocal) return 'brand-new';
 
-  // R2.4 — local still matches baseline while incoming moved ⇒ review-and-accept.
+  // local still matches baseline while incoming moved ⇒ review-and-accept.
   if (hasBaseline && dl === db && di !== db) return 'changed-incoming';
 
-  // R2.5 — incoming still matches baseline while local moved ⇒ a routine outgoing
+  // incoming still matches baseline while local moved ⇒ a routine outgoing
   //        change (the local side moved, the server is still at the last-agreed
   //        state). Pushed automatically, never deferred.
   if (hasBaseline && di === db && dl !== db) return 'changed-local-outgoing';
 
-  // R2.6 / R2.7 / R18.1 — both present and differing, with both differing from the
+  // both present and differing, with both differing from the
   //                       baseline, OR no baseline at all (local != incoming with no
   //                       last-agreed state to attribute the change to either side)
   //                       ⇒ both sides moved / unknowable, including the
@@ -212,16 +210,14 @@ function materialize(scenario) {
   return { local, incoming, baseline, lockedRecordingIds };
 }
 
-// ─── Property 1 ───────────────────────────────────────────────────────────────
-
-describe('Property 1: Classification decision table is total and correct', () => {
+describe('Classification decision table is total and correct', () => {
   it('classifyUnit assigns exactly one valid ClassKind matching the reference table for every digest/lock combination', () => {
     fc.assert(
       fc.property(arbDigest, arbDigest, arbDigest, fc.boolean(), (dl, di, db, locked) => {
         const kind = classifyUnit(dl, di, db, locked);
         // TOTAL: always a single valid classification.
         assert.ok(VALID_KINDS.has(kind), `classifyUnit produced an invalid kind: ${kind}`);
-        // CORRECT: matches the independent reference decision table (incl. R2.7 precedence).
+        // CORRECT: matches the independent reference decision table (incl. precedence).
         assert.equal(kind, referenceClassify(dl, di, db, locked));
       }),
       { numRuns: 500 },
@@ -268,7 +264,7 @@ describe('Property 1: Classification decision table is total and correct', () =>
           // CORRECT: the decision table applied to the digests classifyProject
           // reports for this Unit must reproduce the reported kind. A project-
           // level Unit is never locked; a recording-level Unit is locked iff its
-          // id is in the locked set (R6.3).
+          // id is in the locked set.
           const locked = c.recording_id == null ? false : lockedRecordingIds.has(c.recording_id);
           assert.equal(
             c.kind,
@@ -281,7 +277,7 @@ describe('Property 1: Classification decision table is total and correct', () =>
     );
   });
 
-  it('classifies the concurrent-push case as diverged (R18.1)', () => {
+  it('classifies the concurrent-push case as diverged', () => {
     // Two clients edit the same recording from a common baseline; client A edits
     // locally, client B overwrites the server. When A pulls: local != incoming,
     // local != baseline, incoming != baseline ⇒ diverged (A's work surfaced).
@@ -292,30 +288,30 @@ describe('Property 1: Classification decision table is total and correct', () =>
   });
 
   it('covers each decision-table branch with a concrete example', () => {
-    // locked-skipped (R6.3) — beats every other signal, even full equality.
+    // locked-skipped — beats every other signal, even full equality.
     assert.equal(classifyUnit('A', 'A', 'A', true), 'locked-skipped');
-    // already-converged (R2.2) — equal regardless of baseline.
+    // already-converged — equal regardless of baseline.
     assert.equal(classifyUnit('A', 'A', 'B', false), 'already-converged');
     assert.equal(classifyUnit('A', 'A', null, false), 'already-converged');
-    // deleted-local-clean (R19.1) — absent local, incoming == baseline.
+    // deleted-local-clean — absent local, incoming == baseline.
     assert.equal(classifyUnit(null, 'A', 'A', false), 'deleted-local-clean');
-    // deleted-both (R19.7) — absent on both sides, present in baseline.
+    // deleted-both — absent on both sides, present in baseline.
     assert.equal(classifyUnit(null, null, 'A', false), 'deleted-both');
-    // conflict-delete-vs-change, local deleted (R19.2) — absent local, incoming changed.
+    // conflict-delete-vs-change, local deleted — absent local, incoming changed.
     assert.equal(classifyUnit(null, 'B', 'A', false), 'conflict-delete-vs-change');
-    // deleted-remote-review (R19.3) — absent incoming, local == baseline.
+    // deleted-remote-review — absent incoming, local == baseline.
     assert.equal(classifyUnit('A', null, 'A', false), 'deleted-remote-review');
-    // conflict-delete-vs-change, server deleted (R19.5) — absent incoming, local changed.
+    // conflict-delete-vs-change, server deleted — absent incoming, local changed.
     assert.equal(classifyUnit('B', null, 'A', false), 'conflict-delete-vs-change');
-    // brand-new (R2.3) — no local counterpart, no baseline.
+    // brand-new — no local counterpart, no baseline.
     assert.equal(classifyUnit(null, 'A', null, false), 'brand-new');
-    // changed-incoming (R2.4) — local == baseline, incoming moved.
+    // changed-incoming — local == baseline, incoming moved.
     assert.equal(classifyUnit('A', 'B', 'A', false), 'changed-incoming');
-    // changed-local-outgoing (R2.5) — incoming == baseline, local moved.
+    // changed-local-outgoing — incoming == baseline, local moved.
     assert.equal(classifyUnit('B', 'A', 'A', false), 'changed-local-outgoing');
-    // diverged (R2.6) — both present, differ, both differ from baseline.
+    // diverged — both present, differ, both differ from baseline.
     assert.equal(classifyUnit('A', 'B', 'C', false), 'diverged');
-    // diverged with no baseline (R2.7) — both present and differ, never agreed.
+    // diverged with no baseline — both present and differ, never agreed.
     assert.equal(classifyUnit('A', 'B', null, false), 'diverged');
   });
 });

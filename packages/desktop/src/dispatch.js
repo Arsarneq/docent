@@ -19,7 +19,7 @@ export {
   validateEndpointUrl,
 } from '../shared/dispatch-core.js';
 
-// ─── Tauri command bridge (S13) ──────────────────────────────────────────────
+// ─── Tauri command bridge ──────────────────────────────────────────────
 
 import { invoke } from './tauri-bridge.js';
 

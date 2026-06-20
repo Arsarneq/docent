@@ -1,9 +1,9 @@
 /**
  * file-provider.js — the default File_Storage_Provider for the Reference Sync
- * Server (Requirements 7.2–7.6).
+ * Server.
  *
  * Persistence model: each project is one flat JSON file under a directory inside
- * the OS temp folder (Requirement 7.3):
+ * the OS temp folder:
  *
  *   <os.tmpdir()>/docent-reference-sync-server/<project_id>.json
  *
@@ -14,9 +14,9 @@
  *
  * The timestamp is stored ALONGSIDE the payload, never merged into it, so the
  * payload returned by `GET /projects/:id` stays byte-for-content identical to
- * what was written (Requirements 4.1, 7.6). Because the wrapper persists on
- * disk, the timestamp survives a restart within the same temp-folder session
- * (Requirement 7.4): a fresh provider constructed over the same directory reads
+ * what was written. Because the wrapper persists on
+ * disk, the timestamp survives a restart within the same temp-folder session:
+ * a fresh provider constructed over the same directory reads
  * the projects and their `last_modified` back unchanged.
  *
  * The storage directory base is injectable through the constructor so tests can
@@ -44,7 +44,7 @@ const FILE_SUFFIX = '.json';
 
 /**
  * Default Storage_Provider that persists each project as a flat JSON file under
- * the OS temp folder (Requirement 7.2).
+ * the OS temp folder.
  *
  * @augments StorageProvider
  */
@@ -65,7 +65,7 @@ export class FileStorageProvider extends StorageProvider {
   constructor(storageDir) {
     super();
     this.#storageDir = storageDir ?? path.join(os.tmpdir(), DEFAULT_DIR_NAME);
-    // Create the storage directory on startup if absent (Requirement 7.3).
+    // Create the storage directory on startup if absent.
     mkdirSync(this.#storageDir, { recursive: true });
   }
 
@@ -85,7 +85,7 @@ export class FileStorageProvider extends StorageProvider {
    * The hostile-id defense runs here, at the single place that builds a path,
    * so every public method that resolves a path (`read`, `put`, and — via
    * `clear`/`list` deriving from real filenames — the rest) is protected
-   * without each one repeating the check (Requirement 7.3).
+   * without each one repeating the check.
    *
    * @param {string} id The `project_id`.
    * @returns {string} Absolute path to `<storageDir>/<id>.json`.
@@ -98,7 +98,7 @@ export class FileStorageProvider extends StorageProvider {
 
   /**
    * Reject a `project_id` that could escape the storage directory before it is
-   * ever used to build a file path (Requirement 7.3). A legitimate
+   * ever used to build a file path. A legitimate
    * `project_id` is a client-supplied UUIDv7 (hex + hyphens) and is
    * filesystem-safe; this guard defends against a hostile id arriving through a
    * seed or PUT. It rejects:
@@ -127,8 +127,8 @@ export class FileStorageProvider extends StorageProvider {
   }
 
   /**
-   * List every stored project as a manifest entry (Requirements 1.2, 1.4,
-   * 7.5). Each entry's `project_id` and `name` come from the wrapped
+   * List every stored project as a manifest entry. Each entry's `project_id`
+   * and `name` come from the wrapped
    * `payload.project`, and `last_modified` from the sibling timestamp — the
    * `docent_format` stamp and step internals are never read. An empty (or
    * absent) store yields an empty array.
@@ -154,7 +154,7 @@ export class FileStorageProvider extends StorageProvider {
   /**
    * Read a single project's stored record by `project_id`, returning the
    * verbatim payload plus its `last_modified`, or `null` when no such project
-   * is stored (Requirements 2.2, 7.5). The wrapper is unwrapped here so callers
+   * is stored. The wrapper is unwrapped here so callers
    * only ever see `{ payload, last_modified }`.
    *
    * @param {string} id The `project_id` to read.
@@ -168,11 +168,10 @@ export class FileStorageProvider extends StorageProvider {
 
   /**
    * Create-or-replace a project's verbatim payload together with its
-   * server-supplied `last_modified` (Requirements 3.7, 7.5, 7.6). The timestamp
+   * server-supplied `last_modified`. The timestamp
    * is written into the file wrapper, never into the payload. `created`
    * reflects whether a file already existed before this write, so the write
-   * handler can choose 201 (create) versus 200 (replace) (Requirements 3.1,
-   * 3.2).
+   * handler can choose 201 (create) versus 200 (replace).
    *
    * @param {string} id           The `project_id` to store under.
    * @param {object} payload      The Full_Project_Payload, stored verbatim.
@@ -188,8 +187,8 @@ export class FileStorageProvider extends StorageProvider {
   }
 
   /**
-   * Remove every stored project file and report how many were removed
-   * (Requirement 12.3). Only the per-project `.json` files are touched; an
+   * Remove every stored project file and report how many were removed.
+   * Only the per-project `.json` files are touched; an
    * absent directory counts as zero.
    *
    * @returns {Promise<number>} The number of projects removed.

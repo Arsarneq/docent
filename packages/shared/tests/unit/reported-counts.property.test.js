@@ -1,9 +1,9 @@
 /**
  * reported-counts.property.test.js — Property test that a completed sync cycle's
- * REPORTED counts equal the sets the cycle ACTUALLY produced (R13.2).
+ * REPORTED counts equal the sets the cycle ACTUALLY produced.
  *
  * When a sync cycle completes, `sync()` returns a {@link SyncResult} carrying the
- * eight sets the UI surfaces (R13.2): the projects `pushed`, the projects
+ * eight sets the UI surfaces: the projects `pushed`, the projects
  * `pulled`, the stamp-incompatible-skipped projects (`mismatched`), the errored
  * projects (`errors`), the `review` / `conflicts` `unitRef`s recorded this cycle,
  * and the `autoAppliedUpdates` / `autoAppliedDeletions` `unitRef`s applied this
@@ -13,7 +13,7 @@
  *
  * "Actually happened" is measured at the source for every dimension:
  *   - `pushed`     — exactly the local projects that HAD something to write
- *                    (R20.4) and whose PUT the server accepted. A project whose
+ * and whose PUT the server accepted. A project whose
  *                    only change is a deferred project-metadata change and that
  *                    has no pushable recordings is SKIPPED (no PUT at all under
  *                    the per-unit push), so it appears in neither `pushed` nor
@@ -32,12 +32,11 @@
  *   - `autoAppliedUpdates`   — exactly the recording units that were a
  *                    fast-forward `changed-incoming` and were auto-applied because
  *                    Auto-Accept-Updates is ON; verified by the incoming version
- *                    landing in the merged project (R4.2, R22.4).
+ *                    landing in the merged project.
  *   - `autoAppliedDeletions` — exactly the recording units that were a
  *                    server-side deletion of a local-unchanged unit and were
  *                    auto-applied because Auto-Accept-Deletions is ON; verified by
- *                    the recording's absence from the merged project (R19.4,
- *                    R22.5).
+ *                    the recording's absence from the merged project.
  *
  * The property drives the full `sync()` orchestrator (not a sub-component) over an
  * arbitrary mix of per-project FATES, so the eight dimensions are exercised
@@ -48,7 +47,7 @@
  *   - `changed-incoming` — local == baseline, incoming differs (project-metadata)
  *                          → a Review. Its project-metadata Unit is DEFERRED, so
  *                          under the per-unit push the project is pushed ONLY when
- *                          it still has a pushable recording (R20.4).
+ *                          it still has a pushable recording.
  *   - `diverged`         — local/incoming/baseline all differ (project-metadata)
  *                          → a Conflict; same per-unit push skip rule as above.
  *   - `auto-update`      — converged project metadata + a recording that is a
@@ -65,14 +64,14 @@
  *
  * Both reconciliation-policy toggles are seeded ON so the settings-gated automatic
  * outcomes actually fire: a fast-forward `changed-incoming` recording auto-applies
- * (R4.2, R22.4) and a server-deletion of a local-unchanged recording auto-applies
- * (R19.4, R22.5). The toggles affect ONLY those two recording-level cases; a
+ * and a server-deletion of a local-unchanged recording auto-applies.
+ * The toggles affect ONLY those two recording-level cases; a
  * project-METADATA `changed-incoming` still defers to Review (it is never a
  * fast-forward) and a `diverged` project is always a Conflict, so the
  * `review` / `conflicts` dimensions stay exact.
  *
  * The deferred Units use a project-metadata change (a project-name marker folded
- * into content identity, R2.8) so each `changed-incoming` / `diverged` project
+ * into content identity) so each `changed-incoming` / `diverged` project
  * yields exactly one project-level `unitRef` (the `project_id`), keeping the
  * expected `review` / `conflicts` sets exact; their other recordings are identical
  * on every side so they never add stray deferrals. The `auto-update` /
@@ -91,14 +90,12 @@
  * (`fc.uuid({ version: 7 })` supplies project ids that pass the manifest's
  * UUIDv7 guard; `fc.uuid()` supplies recording ids).
  *
- * **Validates: Requirements 13.2**
- *
  * This file is part of Docent.
  * Licensed under the GNU General Public License v3.0
  * See LICENSE in the project root for license information.
  */
 
-// Feature: sync-conflict-resolution, Property 25: Reported counts equal the sets actually produced
+// Reported counts equal the sets actually produced
 
 import { describe, it, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
@@ -258,7 +255,7 @@ function makeProject(project_id, name, created_at, recordings) {
   return { project_id, name, created_at, recordings: recordings.map(cleanRecording) };
 }
 
-// ─── auto-apply marker recordings (R4.2/R22.4 updates, R19.4/R22.5 deletions) ──
+// ─── auto-apply marker recordings (updates and deletions) ──
 
 const MARKER_CA = '2026-01-01T00:00:00.000Z';
 
@@ -294,7 +291,7 @@ function ffMarkerBase(project_id) {
 /**
  * Server version of the fast-forward marker — an append-only SUPERSET of the
  * base (it retains step 0 and appends step 1), so it is a TRUE fast-forward and
- * is eligible to auto-apply when Auto-Accept-Updates is ON (R4.2, R22.4).
+ * is eligible to auto-apply when Auto-Accept-Updates is ON.
  */
 function ffMarkerServer(project_id) {
   return {
@@ -308,7 +305,7 @@ function ffMarkerServer(project_id) {
 /**
  * Local/baseline version of the auto-delete marker (absent on the server side).
  * Local == baseline so the server's absence classifies `deleted-remote-review`,
- * which auto-applies when Auto-Accept-Deletions is ON (R19.4, R22.5).
+ * which auto-applies when Auto-Accept-Deletions is ON.
  */
 function delMarker(project_id) {
   return {
@@ -407,7 +404,7 @@ function materialize(specs) {
 
   /**
    * Register a local project + its push fate. `writeNeeded` reflects the
-   * per-unit push decision (R20.4): a project with nothing to write is NOT
+   * per-unit push decision: a project with nothing to write is NOT
    * pushed, so it lands in neither `pushed` nor `errors`.
    */
   const addLocal = (project, pushOk, writeNeeded = true) => {
@@ -442,7 +439,7 @@ function materialize(specs) {
       case 'converged': {
         // local == incoming (identical): pulled, baseline advanced, no deferral.
         // The whole assembled payload equals the server's agreed-or-pulled state,
-        // so the project is SKIPPED — nothing to write (R20.4).
+        // so the project is SKIPPED — nothing to write.
         const proj = makeProject(id, `same-${id}`, ca, recs);
         addLocal(proj, s.pushOk, false);
         manifest.push({ project_id: id, name: proj.name });
@@ -456,7 +453,7 @@ function materialize(specs) {
         // The project-metadata Unit is DEFERRED, so it re-sends the agreed-or-pulled
         // metadata; the recordings here are identical on every side (converged), so
         // each equals the server too. The whole assembled payload therefore equals
-        // the server and the project is SKIPPED (R20.4), regardless of recs.
+        // the server and the project is SKIPPED, regardless of recs.
         const baseProj = makeProject(id, `base-${id}`, ca, recs);
         const localProj = makeProject(id, `base-${id}`, ca, recs);
         const serverProj = makeProject(id, `srv-${id}`, ca, recs);
@@ -472,8 +469,7 @@ function materialize(specs) {
       case 'diverged': {
         // local / incoming / baseline all differ (project-metadata) → a Conflict.
         // The deferred project-metadata re-sends agreed-or-pulled; the recordings
-        // converge (equal the server). Whole payload equals the server ⇒ SKIPPED
-        // (R20.4).
+        // converge (equal the server). Whole payload equals the server ⇒ SKIPPED.
         const baseProj = makeProject(id, `base-${id}`, ca, recs);
         const localProj = makeProject(id, `loc-${id}`, ca, recs);
         const serverProj = makeProject(id, `srv-${id}`, ca, recs);
@@ -491,7 +487,7 @@ function materialize(specs) {
         // `changed-incoming` → an auto-applied UPDATE (Auto-Accept-Updates ON).
         // After the auto-apply the merged recording EQUALS the server's version
         // and the sibling `recs` + metadata converge, so the whole assembled
-        // payload equals the server ⇒ SKIPPED (R20.4).
+        // payload equals the server ⇒ SKIPPED.
         const marker = ffMarkerBase(id);
         const baseProj = makeProject(id, `au-${id}`, ca, [marker, ...recs]);
         const localProj = makeProject(id, `au-${id}`, ca, [marker, ...recs]);
@@ -509,7 +505,7 @@ function materialize(specs) {
         // Converged project metadata + a recording absent on the server with the
         // local copy unchanged → an auto-applied DELETION (Auto-Accept-Deletions
         // ON). After the deletion the merged project equals the server (marker
-        // absent on both, siblings + metadata converge) ⇒ SKIPPED (R20.4).
+        // absent on both, siblings + metadata converge) ⇒ SKIPPED.
         const marker = delMarker(id);
         const baseProj = makeProject(id, `ad-${id}`, ca, [marker, ...recs]);
         const localProj = makeProject(id, `ad-${id}`, ca, [marker, ...recs]);
@@ -578,9 +574,7 @@ function parseRef(ref) {
   return i === -1 ? { pid: ref, rid: null } : { pid: ref.slice(0, i), rid: ref.slice(i + 1) };
 }
 
-// ─── Property 25 ──────────────────────────────────────────────────────────────
-
-describe('Property 25: Reported counts equal the sets actually produced', () => {
+describe('Reported counts equal the sets actually produced', () => {
   it('reports pushed / pulled / mismatched / errors / review / conflicts / autoAppliedUpdates / autoAppliedDeletions equal to the sets the cycle actually produced', async () => {
     await fc.assert(
       fc.asyncProperty(arbScenario, async (specs) => {
@@ -677,7 +671,7 @@ describe('Property 25: Reported counts equal the sets actually produced', () => 
           );
         }
 
-        // ── the COUNTS (Property 25's literal claim) equal the set sizes. ──
+        // ── the COUNTS equal the set sizes. ──
         assert.equal(result.pushed.length, expected.pushed.size, 'pushed count');
         assert.equal(result.pulled.length, expected.pulled.size, 'pulled count');
         assert.equal(result.mismatched.length, expected.mismatchedNames.size, 'mismatched count');
@@ -815,7 +809,7 @@ describe('Property 25: Reported counts equal the sets actually produced', () => 
     assert.deepEqual(
       sorted(result.pushed),
       sorted([PUSH_ONLY]),
-      'pushed = only the local-only project whose PUT succeeded and content-differs; converged / changed-incoming / diverged / auto-applied all equal the server and are skipped (R20.4)',
+      'pushed = only the local-only project whose PUT succeeded and content-differs; converged / changed-incoming / diverged / auto-applied all equal the server and are skipped',
     );
     assert.deepEqual(
       sorted(result.pulled),

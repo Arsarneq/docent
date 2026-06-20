@@ -18,10 +18,10 @@
  *
  *   - RECOVERABLE LOCAL — every step record (by `uuid`) present in the local
  *     version is still present in the adopted Unit's committed history after
- *     resolution, so the local version remains recoverable (R9.3).
+ *     resolution, so the local version remains recoverable.
  *   - RECOVERABLE INCOMING — every step record (by `uuid`) present in the incoming
  *     version is still present in the adopted Unit's committed history, so the
- *     incoming version remains recoverable (R9.3).
+ *     incoming version remains recoverable.
  *   - The adopted history is thus a superset of the union of both versions'
  *     records — neither version loses a record as a result of resolution.
  *   - SNAPSHOT RETAINED — the retained project-level Sync_Snapshot (landed on
@@ -36,10 +36,9 @@
  * Uses the Node.js built-in test runner + fast-check (fast-check v4: `fc.uuid()`
  * for ids), mirroring the generator conventions in the sibling property tests.
  *
- * **Validates: Requirements 9.3**
  */
 
-// Feature: sync-conflict-resolution, Property 18: Resolution keeps both versions recoverable
+// Resolution keeps both versions recoverable
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
@@ -217,21 +216,19 @@ function adoptedUnit(m, projects) {
   return proj;
 }
 
-// ─── Property 18 ──────────────────────────────────────────────────────────────
-
-describe('Property 18: Resolution keeps both versions recoverable', () => {
+describe('Resolution keeps both versions recoverable', () => {
   it('a successful keep/merge resolution retains every step record of BOTH the local and incoming versions, and preserves the retained snapshot', () => {
     fc.assert(
       fc.property(arbScenario, (scenario) => {
         const m = materialize(scenario);
 
         // Seed the store with exactly this Conflict (via the real idempotent
-        // upsert path), retaining recoverable copies of both versions (R5.2).
+        // upsert path), retaining recoverable copies of both versions.
         const state = createEmptySyncState();
         upsertConflict(state, m.unitRef, m.localVer, m.incomingVer, FIXED_NOW);
 
         // Optionally seed a retained project-level Sync_Snapshot (landed on pull),
-        // so we can prove resolution preserves it as a recovery handle (R9.3).
+        // so we can prove resolution preserves it as a recovery handle.
         let snapshotRef;
         let snapshotJsonBefore;
         if (scenario.includeSnapshot) {
@@ -271,14 +268,14 @@ describe('Property 18: Resolution keeps both versions recoverable', () => {
         assert.ok(unit, 'the resolved target Unit must be present after resolution');
         const adoptedUuids = collectUuids(unit);
 
-        // RECOVERABLE LOCAL (R9.3): every local step record survives.
+        // RECOVERABLE LOCAL: every local step record survives.
         for (const uuid of localUuids) {
           assert.ok(
             adoptedUuids.has(uuid),
             `local step record ${uuid} must remain recoverable in the adopted history`,
           );
         }
-        // RECOVERABLE INCOMING (R9.3): every incoming step record survives.
+        // RECOVERABLE INCOMING: every incoming step record survives.
         for (const uuid of incomingUuids) {
           assert.ok(
             adoptedUuids.has(uuid),
@@ -286,7 +283,7 @@ describe('Property 18: Resolution keeps both versions recoverable', () => {
           );
         }
 
-        // ── SNAPSHOT RETAINED — never cleared by resolution (R9.3) ────────────
+        // ── SNAPSHOT RETAINED — never cleared by resolution ────────────
         if (scenario.includeSnapshot) {
           assert.equal(
             state.snapshots[m.project_id],

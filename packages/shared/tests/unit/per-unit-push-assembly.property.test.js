@@ -6,25 +6,23 @@
  * VERBATIM. That makes the payload's per-recording contents load-bearing in two
  * opposite directions at once:
  *
- *   - **No accidental deletion (R6.4).** A recording present on ANY side (local,
+ *   - **No accidental deletion.** A recording present on ANY side (local,
  *     server, or baseline) that the payload omits would read to other clients as
  *     a deliberate recording deletion. So every such recording must appear in the
  *     pushed body.
- *   - **No clobber of an un-reconciled server change (R20.3).** A recording this
+ *   - **No clobber of an un-reconciled server change.** A recording this
  *     client has NOT reconciled — a deferred (Review/Conflict) unit or a Locked
  *     recording — must be sent at the version most recently *agreed-or-pulled* for
  *     it (its Sync_Snapshot version when pulled this cycle, else its Sync_Baseline
  *     version), NOT the un-reconciled live local edits, so the whole-project write
  *     cannot overwrite the concurrent server change.
  *
- * Property 37 (design): "For any project pushed in a cycle, the assembled
+ * (design): "For any project pushed in a cycle, the assembled
  * `Full_Project_Payload` contains, for each recording: the local version when the
  * recording is clean-local-new, `changed-local-outgoing`, or `already-converged`;
  * and the agreed-or-pulled version when the recording is deferred (Review/Conflict)
  * or locked. No recording present locally, on the server, or in the baseline is
  * omitted from the payload."
- *
- * **Validates: Requirements 20.3, 6.4**
  *
  * ── How the invariant is pinned ──────────────────────────────────────────────
  * The test drives the REAL `sync()` (pull → reconcile → per-unit push) with a
@@ -48,11 +46,11 @@
  *                                agreed-or-pulled version, never the local edits.
  *
  * Version differences are driven by the recording `name` (folded into the content
- * digest, R2.8) so each category settles into its intended classification. For
+ * digest) so each category settles into its intended classification. For
  * EVERY pushed recording the test asserts the pushed projection deep-equals the
  * EXPECTED source version (local for clean/outgoing/converged/new/auto-added,
  * server for deferred/locked), that no recording present on any side is omitted,
- * and — the teeth of R20.3 — that a deferred or locked recording's pushed version
+ * and — the teeth of the rule — that a deferred or locked recording's pushed version
  * is the server's (agreed-or-pulled) one, never the divergent local edits.
  *
  * `fetch` is mocked exactly as in the sibling sync property tests
@@ -70,7 +68,7 @@
  * See LICENSE in the project root for license information.
  */
 
-// Feature: sync-conflict-resolution, Property 37: The push payload is assembled per-unit (no clobber, no accidental deletion)
+// The push payload is assembled per-unit (no clobber, no accidental deletion)
 
 import { describe, it, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
@@ -244,7 +242,7 @@ const arbStep = fc.record({
  * One recording, tagged with the classification it should settle into. Each
  * outcome maps to a (baseline, local, server) version triple in {@link versionsFor};
  * the steps are shared across versions so only the recording `name` drives the
- * intended classification (R2.8). The recording_id is a plain uuid (recording ids
+ * intended classification. The recording_id is a plain uuid (recording ids
  * are not subject to the manifest's UUIDv7 guard — only project_ids are).
  */
 const arbRecordingSpec = fc.record({
@@ -374,7 +372,7 @@ function materialize(projectSpecs) {
     const localRecs = [];
     const serverRecs = [];
     const recExpect = new Map();
-    // Every recording id present on ANY side — the no-omission universe (R6.4).
+    // Every recording id present on ANY side — the no-omission universe.
     const allRecIds = new Set();
 
     for (const rspec of pspec.recordings) {
@@ -438,9 +436,7 @@ function materialize(projectSpecs) {
   return { seed, localProjects, payloadById, manifest, locked, expectations };
 }
 
-// ─── Property 37 ──────────────────────────────────────────────────────────────
-
-describe('Property 37: The push payload is assembled per-unit (no clobber, no accidental deletion)', () => {
+describe('The push payload is assembled per-unit (no clobber, no accidental deletion)', () => {
   it('pushes each recording at the correct per-unit version, omitting none and never clobbering a deferred/locked unit with local edits', async () => {
     await fc.assert(
       fc.asyncProperty(arbScenario, async (projectSpecs) => {
@@ -465,7 +461,7 @@ describe('Property 37: The push payload is assembled per-unit (no clobber, no ac
 
         // Every local project is pushed exactly once: its project-metadata Unit
         // is converged (local-carrying), so the project always has something to
-        // write and is never skipped (R20.4).
+        // write and is never skipped.
         const puts = capturedPuts();
         const putByProjectId = new Map();
         for (const put of puts) {
@@ -473,7 +469,7 @@ describe('Property 37: The push payload is assembled per-unit (no clobber, no ac
           putByProjectId.set(put.body.project.project_id, put.body);
         }
 
-        // ── R20.4 — a project is pushed IFF some unit's wire-version differs
+        // ── a project is pushed IFF some unit's wire-version differs
         //    from the server's agreed-or-pulled version. Here project metadata
         //    always converges, so a project has something to write exactly when
         //    it carries a recording whose LOCAL version reaches the wire and
@@ -482,7 +478,7 @@ describe('Property 37: The push payload is assembled per-unit (no clobber, no ac
         //    counterpart). A project all of whose recordings are
         //    `already-converged`, deferred (Review/Conflict), locked, or
         //    `brand-new-remote` re-sends only the server's own bytes and is
-        //    skipped (R20.4). ──
+        //    skipped. ──
         const expectedPushedIds = new Set();
         for (const project of localProjects) {
           const { recExpect } = expectations.get(project.project_id);
@@ -494,14 +490,14 @@ describe('Property 37: The push payload is assembled per-unit (no clobber, no ac
         assert.deepEqual(
           new Set(putByProjectId.keys()),
           expectedPushedIds,
-          'exactly the projects with a content-differing unit are pushed (R20.4)',
+          'exactly the projects with a content-differing unit are pushed',
         );
 
         for (const project of localProjects) {
           const pid = project.project_id;
           const body = putByProjectId.get(pid);
           if (!expectedPushedIds.has(pid)) {
-            assert.ok(!body, `project ${pid} has nothing to write and is skipped (R20.4)`);
+            assert.ok(!body, `project ${pid} has nothing to write and is skipped`);
             continue;
           }
           assert.ok(body, `project ${pid} was pushed`);
@@ -509,7 +505,7 @@ describe('Property 37: The push payload is assembled per-unit (no clobber, no ac
           const { recExpect, allRecIds } = expectations.get(pid);
           const pushedById = new Map(body.recordings.map((r) => [r.recording_id, r]));
 
-          // ── No accidental deletion (R6.4) ──────────────────────────────────
+          // ── No accidental deletion ──────────────────────────────────
           // Every recording present on ANY side (local, server, or baseline) is
           // present in the pushed payload; the verbatim-store server can never
           // read the write as a deletion.
@@ -525,7 +521,7 @@ describe('Property 37: The push payload is assembled per-unit (no clobber, no ac
             );
           }
 
-          // ── Per-unit version selection + no clobber (R20.3) ─────────────────
+          // ── Per-unit version selection + no clobber ─────────────────
           for (const [rid, exp] of recExpect) {
             const pushed = pushedById.get(rid);
             const pushedKey = projKey(pushed);
@@ -540,7 +536,7 @@ describe('Property 37: The push payload is assembled per-unit (no clobber, no ac
               `recording ${rid} (${exp.outcome}) pushed at the ${exp.expectKind} version`,
             );
 
-            // The teeth of R20.3: a deferred or locked recording is sent at the
+            // The teeth of the rule: a deferred or locked recording is sent at the
             // server's agreed-or-pulled version, NEVER its un-reconciled local
             // edits — so the whole-project write cannot clobber the concurrent
             // server change this client has not reconciled.
@@ -566,7 +562,7 @@ describe('Property 37: The push payload is assembled per-unit (no clobber, no ac
     // A changed-local-outgoing sibling gives the project a reason to write, so
     // the project is pushed (and the Conflict sibling's wire-version can be
     // inspected). Without it the whole payload would equal the server and the
-    // project would be skipped (R20.4).
+    // project would be skipped.
     const clo = 'rec-clo';
     const steps = [{ uuid: 's1', logical_id: 'a', step_number: 0, deleted: false }];
 
@@ -691,7 +687,7 @@ describe('Property 37: The push payload is assembled per-unit (no clobber, no ac
     const puts = capturedPuts();
     assert.equal(puts.length, 1);
     const pushed = puts[0].body.recordings.find((r) => r.recording_id === rid);
-    assert.equal(pushed.name, 'edited', 'the local edit reaches the wire (R20.2)');
+    assert.equal(pushed.name, 'edited', 'the local edit reaches the wire');
   });
 
   it('an auto-applied fast-forward update is pushed at the adopted (incoming) version', async () => {
@@ -701,10 +697,10 @@ describe('Property 37: The push payload is assembled per-unit (no clobber, no ac
     const s2 = { uuid: 's2', logical_id: 'a', step_number: 1, deleted: false };
 
     const seed = createEmptySyncState();
-    seed.settings.autoAcceptUpdates = true; // opt into fast-forward auto-apply (R22.4)
+    seed.settings.autoAcceptUpdates = true; // opt into fast-forward auto-apply
     // A changed-local-outgoing sibling gives the project a reason to write: after
     // the fast-forward auto-apply the merged recording EQUALS the server, so on
-    // its own it would be a nothing-to-write skip (R20.4). The sibling keeps the
+    // its own it would be a nothing-to-write skip. The sibling keeps the
     // project pushed so the adopted recording's wire-version can be inspected.
     const clo = 'rec-clo';
     advanceBaseline(

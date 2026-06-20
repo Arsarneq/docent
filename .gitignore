@@ -11,7 +11,7 @@ packages/desktop/src-tauri/gen/
 packages/*/shared/
 
 # Generated validators (build artifact — Ajv standalone, produced by
-# scripts/build-validators.js via sync-shared; see SECURITY_BACKLOG S12)
+# scripts/build-validators.js via sync-shared)
 packages/shared/generated/
 
 # Generated HTML (assembled from shell + shared views by sync-shared)

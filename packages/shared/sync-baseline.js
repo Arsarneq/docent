@@ -5,7 +5,7 @@
  * of a project — a state confirmed common to both the local side and the
  * Sync_Server, NOT merely the state this client last pushed. It is what lets the
  * Conflict_Detector tell brand-new work apart from work that changed since the
- * last agreement, even when another client pushed concurrently (R1).
+ * last agreement, even when another client pushed concurrently.
  *
  * This module is pure logic over the single durable {@link SyncState} object
  * (its `baselines` map); persistence is the platform `SyncStore` adapter's job
@@ -20,18 +20,18 @@
  *
  * Design invariants:
  *   - A baseline stores a content digest PLUS a recoverable copy of the agreed
- *     project, so detection and recovery never depend on re-fetching (R1.1).
+ *     project, so detection and recovery never depend on re-fetching.
  *   - `getBaseline` returns null where no baseline exists, so the detector treats
- *     the project as having no last-agreed state (R1.6).
+ *     the project as having no last-agreed state.
  *   - `advanceBaseline` is advanced ONLY on confirmed agreement or adoption
- *     (pull-confirmed equality R1.3, Review/Conflict adoption R1.4, brand-new
- *     auto-add R3.3). It is NEVER invoked from the push path, because a push is
+ *     (pull-confirmed equality, Review/Conflict adoption, brand-new
+ *     auto-add). It is NEVER invoked from the push path, because a push is
  *     not confirmation of agreement — a concurrent client may overwrite the
- *     pushed state before this client observes it (R1.2). This module cannot see
+ *     pushed state before this client observes it. This module cannot see
  *     its call site, so that guarantee is upheld by the push phase never calling
  *     this function (see sync-client.js push phase).
  *   - The recoverable copy is a deep, independent clone so later mutation of the
- *     caller's object can never corrupt the recorded baseline (R1.1, R1.7).
+ *     caller's object can never corrupt the recorded baseline.
  *
  * This file is part of Docent.
  * Licensed under the GNU General Public License v3.0
@@ -59,7 +59,7 @@ function deepCopy(value) {
  * Read the recorded Sync_Baseline for a project.
  *
  * Returns `null` when no baseline has been recorded for the project, so the
- * Conflict_Detector treats the project as having no last-agreed state (R1.6).
+ * Conflict_Detector treats the project as having no last-agreed state.
  *
  * @param {import('./sync-types.js').SyncState} state - the loaded SyncState (the
  *   in-memory store object whose `baselines` map holds the records)
@@ -75,15 +75,15 @@ export function getBaseline(state, project_id) {
  * Record agreement on a project's state by advancing its Sync_Baseline.
  *
  * Stores a content digest of the agreed project plus a recoverable (deep-cloned)
- * copy of it, so detection and recovery never depend on re-fetching (R1.1). The
+ * copy of it, so detection and recovery never depend on re-fetching. The
  * baseline is keyed by `project_id` in `state.baselines`; calling again for the
  * same project replaces the prior record with the newly-agreed state, which also
- * repairs a stale or absent baseline to the confirmed-agreed state (R1.3).
+ * repairs a stale or absent baseline to the confirmed-agreed state.
  *
  * MUST be called only on confirmed agreement or adoption — pull-confirmed
- * equality (R1.3), adoption via Review-and-Accept / Conflict_Resolution (R1.4),
- * or auto-add of a brand-new unit (R3.3). MUST NOT be called from the push path
- * (R1.2): a push is not confirmation of agreement.
+ * equality, adoption via Review-and-Accept / Conflict_Resolution,
+ * or auto-add of a brand-new unit. MUST NOT be called from the push path:
+ * a push is not confirmation of agreement.
  *
  * @param {import('./sync-types.js').SyncState} state - the loaded SyncState; its
  *   `baselines` map is mutated in place

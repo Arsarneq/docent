@@ -109,22 +109,22 @@ pub enum NativeEvent {
 ///
 /// # Requirements
 ///
-/// - 4.1:  click → `click`
-/// - 4.2:  right-click → `right_click`
-/// - 4.3:  text input → `type`
-/// - 4.4:  selection → `select`
-/// - 4.5:  keyboard → `key`
-/// - 4.6:  focus → `focus`
-/// - 4.7:  drag/drop → `drag_start` / `drop`
-/// - 4.8:  scroll → `scroll`
-/// - 4.9:  window focus → `context_switch`
-/// - 4.10: window open → `context_open`
-/// - 4.11: window close → `context_close`
-/// - 4.12: timestamp as Unix milliseconds
-/// - 4.13: `frame_src: null` for all desktop actions
-/// - 4.15: `navigate` is never produced
-/// - 4.16: file dialog → `file_dialog`
-/// - 2.3:  password fields masked as `"••••••••"`
+/// - click → `click`
+/// - right-click → `right_click`
+/// - text input → `type`
+/// - selection → `select`
+/// - keyboard → `key`
+/// - focus → `focus`
+/// - drag/drop → `drag_start` / `drop`
+/// - scroll → `scroll`
+/// - window focus → `context_switch`
+/// - window open → `context_open`
+/// - window close → `context_close`
+/// - timestamp as Unix milliseconds
+/// - `frame_src: null` for all desktop actions
+/// - `navigate` is never produced
+/// - file dialog → `file_dialog`
+/// - password fields masked as `"••••••••"`
 pub fn map_event(
     event: &NativeEvent,
     timestamp: u64,
@@ -230,7 +230,7 @@ pub fn map_event(
         timestamp,
         context_id,
         capture_mode,
-        frame_src: None, // Always null for desktop actions (Req 4.13)
+        frame_src: None, // Always null for desktop actions
         window_rect,
         sequence_id: None,
         payload,

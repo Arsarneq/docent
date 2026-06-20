@@ -5,8 +5,7 @@ import { evaluateConditionalWrite } from '../../conditional-write.js';
 import { deriveETag } from '../../etag.js';
 
 /**
- * Tests for the explicit conditional-write gate (Requirements 6.3, 6.4, 6.5,
- * 11.1, 11.3).
+ * Tests for the explicit conditional-write gate.
  *
  * `evaluateConditionalWrite` is a pure decision function over two inputs — the
  * raw `If-Match` header value and the currently stored project record — so the
@@ -39,7 +38,7 @@ function storedRecord(payload) {
   return { payload, last_modified: '2026-06-04T10:00:00.000Z' };
 }
 
-describe('evaluateConditionalWrite — absent If-Match (last-write-wins, R6.5)', () => {
+describe('evaluateConditionalWrite — absent If-Match (last-write-wins)', () => {
   it('proceeds when If-Match is undefined, even with a stored project', () => {
     const existing = storedRecord(samplePayload());
     assert.deepEqual(evaluateConditionalWrite(undefined, existing), {
@@ -61,7 +60,7 @@ describe('evaluateConditionalWrite — absent If-Match (last-write-wins, R6.5)',
   });
 });
 
-describe('evaluateConditionalWrite — present and matching If-Match (R6.3)', () => {
+describe('evaluateConditionalWrite — present and matching If-Match', () => {
   it('proceeds when If-Match equals the stored project current ETag', () => {
     const payload = samplePayload();
     const existing = storedRecord(payload);
@@ -75,7 +74,7 @@ describe('evaluateConditionalWrite — present and matching If-Match (R6.3)', ()
     const payload = samplePayload();
     const matching = deriveETag(payload);
     // Two records with the same payload but different last_modified both match,
-    // confirming last_modified does not participate in the comparison (R6.1).
+    // confirming last_modified does not participate in the comparison.
     const recordA = { payload, last_modified: '2026-06-04T10:00:00.000Z' };
     const recordB = { payload, last_modified: '2030-01-01T00:00:00.000Z' };
     assert.deepEqual(evaluateConditionalWrite(matching, recordA), {
@@ -87,7 +86,7 @@ describe('evaluateConditionalWrite — present and matching If-Match (R6.3)', ()
   });
 });
 
-describe('evaluateConditionalWrite — present and mismatching If-Match (412, R6.4)', () => {
+describe('evaluateConditionalWrite — present and mismatching If-Match (412)', () => {
   it('rejects with 412 when If-Match does not match the stored ETag', () => {
     const existing = storedRecord(samplePayload());
     assert.deepEqual(evaluateConditionalWrite('"stale-etag-value"', existing), {

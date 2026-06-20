@@ -1,22 +1,22 @@
 /**
  * placement-contract.test.js — Placement & protocol-contract smoke tests.
  *
- * A standard smoke/contract suite (NOT a property test) for task 17.3. It pins
+ * A standard smoke/contract suite (NOT a property test). It pins
  * three architectural guarantees the rest of the feature relies on:
  *
- *   1. PLACEMENT (R16.1, R17.1) — detection, snapshot retention, deferral, and
+ *   1. PLACEMENT — detection, snapshot retention, deferral, and
  *      resolution all live in `packages/shared`. The parity-bearing modules
  *      (conflict-detector, sync-store, conflict-resolution, sync-conflict-ui,
  *      sync-baseline, sync-digest) exist in this package and export their key
  *      functions.
  *
- *   2. PANEL IMPORTS (R17.2) — both platform panels (extension + desktop) import
+ *   2. PANEL IMPORTS — both platform panels (extension + desktop) import
  *      the shared `sync()`, the shared workflow module (sync-conflict-ui), and
  *      the shared resolution functions (conflict-resolution), so neither panel
  *      forks its own conflict-handling logic. Asserted by reading the panel
  *      source files (NOT executing them — they need a DOM / chrome / Tauri).
  *
- *   3. PROTOCOL CONTRACT (R16.3, R16.4) — `sync()` talks to the opaque server
+ *   3. PROTOCOL CONTRACT — `sync()` talks to the opaque server
  *      using ONLY the existing endpoints (`GET`/`PUT /projects` and
  *      `GET /projects/:id`) and the existing `Full_Project_Payload` shape, with
  *      NO server-side conflict state. Asserted by driving `sync()` with a fake
@@ -25,7 +25,7 @@
  *      pushed body is a clean Full_Project_Payload carrying no conflict /
  *      baseline / review fields.
  *
- *   4. CONNECTION_TEST CONTRACT (R16.5) — the Auto-Sync `testConnection` helper
+ *   4. CONNECTION_TEST CONTRACT — the Auto-Sync `testConnection` helper
  *      uses ONLY the existing read endpoint (`GET /projects`) and requires no
  *      test-specific server support: a normal success is a pass, a 401/403 is an
  *      auth failure, anything else is unreachable. Asserted by driving
@@ -33,7 +33,7 @@
  *      the single call is a bodiless `GET /projects`. The `settingsFingerprint`
  *      is asserted to be a purely client-local value that is never transmitted.
  *
- *   5. SYNC_TRIGGER CONTRACT (R16.6) — the Auto-Sync Sync_Trigger / scheduler is
+ *   5. SYNC_TRIGGER CONTRACT — the Auto-Sync Sync_Trigger / scheduler is
  *      a client-side adapter that only decides *when* to invoke the shared
  *      `sync()`; it adds NO server-side state and makes NO requests of its own.
  *      Asserted by driving the shared scheduler + trigger with a fake fetch that
@@ -70,9 +70,9 @@ const SHARED_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '.
 const EXTENSION_PANEL = path.resolve(SHARED_DIR, '../extension/sidepanel/panel.js');
 const DESKTOP_PANEL = path.resolve(SHARED_DIR, '../desktop/src/panel.js');
 
-// ─── (1) PLACEMENT — modules live in packages/shared (R16.1, R17.1) ───────────
+// ─── (1) PLACEMENT — modules live in packages/shared ───────────
 
-describe('Placement: conflict-handling logic lives in packages/shared (R16.1, R17.1)', () => {
+describe('Placement: conflict-handling logic lives in packages/shared', () => {
   // Module file → the concern it carries, per the design Module Layout.
   const sharedModules = [
     ['conflict-detector.js', 'detection'],
@@ -117,7 +117,7 @@ describe('Placement: conflict-handling logic lives in packages/shared (R16.1, R1
   });
 });
 
-// ─── (2) PANEL IMPORTS — both panels import the shared logic (R17.2) ──────────
+// ─── (2) PANEL IMPORTS — both panels import the shared logic ──────────
 
 /**
  * Extract the import clause (`{ a, b }` or a default name) for the first import
@@ -138,7 +138,7 @@ function importClauseFor(source, moduleSuffix) {
   return match ? match[1] : null;
 }
 
-describe('Panel imports: both panels use the shared sync() + workflow + resolution (R17.2)', () => {
+describe('Panel imports: both panels use the shared sync() + workflow + resolution', () => {
   const panels = [
     ['extension', EXTENSION_PANEL],
     ['desktop', DESKTOP_PANEL],
@@ -189,7 +189,7 @@ describe('Panel imports: both panels use the shared sync() + workflow + resoluti
   }
 });
 
-// ─── (3) PROTOCOL CONTRACT — endpoints + payload shape only (R16.3, R16.4) ────
+// ─── (3) PROTOCOL CONTRACT — endpoints + payload shape only ────
 
 const SERVER_URL = 'https://server.test';
 // A valid UUIDv7 (version nibble 7, variant 8) so the pull manifest entry is not
@@ -303,7 +303,7 @@ function collectKeys(value, out = new Set()) {
   return out;
 }
 
-describe('Protocol contract: sync() uses only /projects + /projects/:id, no server conflict state (R16.3, R16.4)', () => {
+describe('Protocol contract: sync() uses only /projects + /projects/:id, no server conflict state', () => {
   const originalFetch = globalThis.fetch;
   let calls;
 
@@ -345,7 +345,7 @@ describe('Protocol contract: sync() uses only /projects + /projects/:id, no serv
     const local = makeLocalProject();
     // The server holds an OLDER version and the baseline equals it, so local is a
     // clean `changed-local-outgoing` — a genuine push the contract can inspect
-    // (a content-identical server would converge and be skipped, R20.4).
+    // (a content-identical server would converge and be skipped).
     installFakeFetch(buildPayloadForProject(makeServerVersion(), STUB_SCHEMA));
 
     const { result } = await sync(
@@ -405,7 +405,7 @@ describe('Protocol contract: sync() uses only /projects + /projects/:id, no serv
     assert.ok(put, 'a PUT push should have been made');
     const body = JSON.parse(put.body);
 
-    // Full_Project_Payload is EXACTLY these three keys (R16.3).
+    // Full_Project_Payload is EXACTLY these three keys.
     assert.deepEqual(
       Object.keys(body).sort(),
       ['docent_format', 'project', 'recordings'],
@@ -420,7 +420,7 @@ describe('Protocol contract: sync() uses only /projects + /projects/:id, no serv
     assert.equal(typeof body.project.created_at, 'string');
     assert.ok(Array.isArray(body.recordings), 'recordings must be an array');
 
-    // No server-side conflict state crosses the wire (R16.4): no conflict,
+    // No server-side conflict state crosses the wire: no conflict,
     // baseline, review, or snapshot field appears anywhere in the payload.
     const forbidden = [
       'conflict',
@@ -470,9 +470,9 @@ describe('Protocol contract: sync() uses only /projects + /projects/:id, no serv
   });
 });
 
-// ─── (4) CONNECTION_TEST CONTRACT — existing read endpoint only (R16.5) ───────
+// ─── (4) CONNECTION_TEST CONTRACT — existing read endpoint only ───────
 
-describe('Connection_Test contract: testConnection uses only GET /projects, no test-specific server support (R16.5)', () => {
+describe('Connection_Test contract: testConnection uses only GET /projects, no test-specific server support', () => {
   const originalFetch = globalThis.fetch;
   let calls;
 
@@ -528,7 +528,7 @@ describe('Connection_Test contract: testConnection uses only GET /projects, no t
   });
 
   it('classifies success/auth/unreachable from ordinary responses, needing no server support', async () => {
-    // A normal successful response is sufficient (R16.5) — no special body.
+    // A normal successful response is sufficient — no special body.
     installProbeFetch(200, []);
     assert.deepEqual(await testConnection(SERVER_URL, null), { ok: true, reason: 'pass' });
 
@@ -562,9 +562,9 @@ describe('Connection_Test contract: testConnection uses only GET /projects, no t
   });
 });
 
-// ─── (5) SYNC_TRIGGER CONTRACT — adds no server state, makes no requests (R16.6)
+// ─── (5) SYNC_TRIGGER CONTRACT — adds no server state, makes no requests
 
-describe('Sync_Trigger contract: the scheduler/trigger adds no server-side state and issues no requests of its own (R16.6)', () => {
+describe('Sync_Trigger contract: the scheduler/trigger adds no server-side state and issues no requests of its own', () => {
   const originalFetch = globalThis.fetch;
   let calls;
 
@@ -604,7 +604,7 @@ describe('Sync_Trigger contract: the scheduler/trigger adds no server-side state
     assert.equal(cycleRuns, 1, 'never overlaps cycles');
     assert.equal(sched.hasPending(), true, 'a single follow-up is queued, not extra cycles');
     // The trigger plumbing made NO requests — only an invoked sync() would.
-    assert.equal(calls.length, 0, 'the Sync_Trigger issues no requests of its own (R16.6)');
+    assert.equal(calls.length, 0, 'the Sync_Trigger issues no requests of its own');
 
     release();
   });
@@ -635,7 +635,7 @@ describe('Sync_Trigger contract: the scheduler/trigger adds no server-side state
     assert.equal(torn, true, 'stop() tears the client-side hook down');
 
     // The entire Sync_Trigger lifecycle added no server state and made no calls.
-    assert.equal(calls.length, 0, 'the Sync_Trigger adapter contacts no server (R16.6)');
+    assert.equal(calls.length, 0, 'the Sync_Trigger adapter contacts no server');
   });
 
   it('only the invoked sync() talks to the server, over the contract-pinned endpoints', async () => {
@@ -645,7 +645,7 @@ describe('Sync_Trigger contract: the scheduler/trigger adds no server-side state
     const local = makeLocalProject();
     // Older server + matching baseline ⇒ the triggered cycle is a clean
     // changed-local-outgoing PUSH (a content-identical server would converge and
-    // be skipped, R20.4), so the full pull+push is exercised.
+    // be skipped), so the full pull+push is exercised.
     const serverPayload = buildPayloadForProject(makeServerVersion(), STUB_SCHEMA);
 
     calls = [];

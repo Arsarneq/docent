@@ -1,5 +1,5 @@
 /**
- * secret-crypto.js — At-rest encryption for extension API keys (S2)
+ * secret-crypto.js — At-rest encryption for extension API keys
  *
  * The dispatch and sync API keys were previously written verbatim into
  * chrome.storage.local. Anyone able to read the extension's storage on disk
@@ -16,7 +16,7 @@
  *     plaintext key, only ciphertext that is useless without the in-memory key.
  *   ✗ A compromised extension: code running as the extension can read the
  *     session key and decrypt, exactly as it could read the plaintext before.
- *     Narrowing the content-script attack surface is tracked separately (S3).
+ *     Narrowing the content-script attack surface is tracked separately.
  *
  * CONSEQUENCE: because the AES key is ephemeral, encrypted keys cannot be
  * decrypted after a browser restart. The adapter treats an undecryptable value

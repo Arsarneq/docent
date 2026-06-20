@@ -1,26 +1,26 @@
 /**
  * interaction-free-automatic.property.test.js — Property test that the AUTOMATIC
- * side of a sync cycle completes WITHOUT ANY user interaction (Property 28).
+ * side of a sync cycle completes WITHOUT ANY user interaction.
  *
- * The feature's north star draws a sharp line (R15): transport, detection, push
+ * The feature's north star draws a sharp line: transport, detection, push
  * (including the push of a `changed-local-outgoing` Unit), the addition of
  * brand-new Units, fast-forward auto-applies, and auto-applied deletions are all
  * AUTOMATIC, while adopting a *deferred* incoming change into an existing
  * recording with a local counterpart (a Review held for review, or a Conflict) is
- * always USER-GATED. Property 28 pins the automatic half of that line from the
+ * always USER-GATED. This property pins the automatic half of that line from the
  * orchestrator's point of view:
  *
- *   - R15.1 — a full `sync()` cycle (pull, snapshot retention, detection, push,
+ *   - a full `sync()` cycle (pull, snapshot retention, detection, push,
  *     the addition of brand-new Units, settings-gated fast-forward auto-applies,
  *     auto-applied deletions, and deferral RECORDING) runs to completion (or halts
  *     at a pre-flight gate) without ever requesting user input. There is no
  *     prompt/confirm/accept hook anywhere on the sync path; deciding a Review or a
  *     Conflict is the separate, user-driven resolution workflow, never `sync()`.
- *   - R15.2 — `sync()` adopts NO *deferred* incoming change into an existing
+ *   - `sync()` adopts NO *deferred* incoming change into an existing
  *     recording that has a local counterpart. Every Review/Conflict Unit is
  *     DEFERRED durably and its LOCAL data is left byte-identical in the merged
  *     list — the incoming version is recorded for later, never applied here.
- *   - R21.1 / R21.4 — a `changed-local-outgoing` Unit (local changed since the
+ *   - a `changed-local-outgoing` Unit (local changed since the
  *     baseline, incoming still equals the baseline) is a NON-DEFERRED, AUTOMATIC
  *     outcome: its local version is pushed automatically (it reaches the wire),
  *     it is never recorded as a Review or a Conflict, and no user input is needed.
@@ -30,7 +30,7 @@
  * misbehaving code path might reach for — `globalThis.prompt`, `globalThis.confirm`,
  * and `globalThis.alert`. Any call would both record itself AND throw, failing the
  * run. `fetch` is deliberately NOT sentineled to throw: transport is an automatic
- * operation that the cycle is SUPPOSED to perform (R15.1), so it is mocked to
+ * operation that the cycle is SUPPOSED to perform, so it is mocked to
  * serve the scenario, count its calls, and capture each PUT body so the property
  * can also assert WHAT reached the wire (a `changed-local-outgoing` Unit's local
  * version). After the cycle we assert the sentinel call-log is empty.
@@ -69,14 +69,12 @@
  * (`fc.uuid({ version: 7 })` supplies project ids that pass the manifest's
  * UUIDv7 guard).
  *
- * **Validates: Requirements 15.1, 15.2, 21.1, 21.4**
- *
  * This file is part of Docent.
  * Licensed under the GNU General Public License v3.0
  * See LICENSE in the project root for license information.
  */
 
-// Feature: sync-conflict-resolution, Property 28: Automatic operations complete without user interaction
+// Automatic operations complete without user interaction
 
 import { describe, it, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
@@ -157,7 +155,7 @@ function installMockFetch(manifest, payloadById) {
  * sentinels never leak into other tests.
  *
  * `fetch` is intentionally left alone — transport is an AUTOMATIC operation the
- * cycle is supposed to perform (R15.1), not a user-input surface.
+ * cycle is supposed to perform, not a user-input surface.
  *
  * @returns {{ calls: Array<[string, unknown[]]>, restore: () => void }}
  */
@@ -171,7 +169,7 @@ function installUserInputSentinels() {
     original[name] = globalThis[name];
     globalThis[name] = (...args) => {
       calls.push([name, args]);
-      throw new Error(`sync() must not request user input via ${name}() (R15.1)`);
+      throw new Error(`sync() must not request user input via ${name}()`);
     };
   }
   const restore = () => {
@@ -305,9 +303,9 @@ const arbStep = fc.record({
  * its name is identical on every side and the SERVER side instead APPENDS one
  * committed step ({@link buildRec}), so the incoming version is a true CONTENT
  * fast-forward of the baseline — an append-only step superset that changes nothing
- * else — and is therefore eligible to auto-apply under the `auto-accept` policy
- * (R4.2, R22.4). (A rename-style changed-incoming is NOT a fast-forward and defers
- * to Review even with the toggle on — covered by Property 42.) `locked` marks a
+ * else — and is therefore eligible to auto-apply under the `auto-accept` policy.
+ * (A rename-style changed-incoming is NOT a fast-forward and defers
+ * to Review even with the toggle on.) `locked` marks a
  * recording the user has open in the Recording_View (only honored when it has a
  * local copy and the scenario gate mode is `locked`).
  */
@@ -353,12 +351,12 @@ const arbScenario = fc.record({
  * relationship; `null` means ABSENT on that side. Equal names ⇒ equal digests.
  *
  *   - `converged`               — equal on every side.
- *   - `changed-incoming`        — local == base, server moved (R2.4).
- *   - `changed-local-outgoing`  — server == base, local moved (R2.5): a routine
+ *   - `changed-incoming`        — local == base, server moved.
+ *   - `changed-local-outgoing`  — server == base, local moved: a routine
  *                                 one-sided local change, pushed automatically.
- *   - `diverged`                — all three sides differ (R2.6).
- *   - `remote-deleted`          — absent on the server, local == base (R19.3).
- *   - `brand-new`               — server-only, no local/baseline (R3.2).
+ *   - `diverged`                — all three sides differ.
+ *   - `remote-deleted`          — absent on the server, local == base.
+ *   - `brand-new`               — server-only, no local/baseline.
  *
  * @param {{recording_id: string, fate: string}} spec
  * @param {'base'|'local'|'server'} role
@@ -374,7 +372,7 @@ function recName(spec, role) {
       // step (built in buildRec), making the incoming version a true CONTENT
       // fast-forward (append-only step superset, name unchanged) that auto-applies
       // under auto-accept. A rename would NOT be a fast-forward (→ Review even
-      // with the toggle on — covered by Property 42), so this test does not rename.
+      // with the toggle on), so this test does not rename.
       return `${rid}-ci`;
     case 'changed-local-outgoing':
       // local moved; base and server stay at the agreed version.
@@ -415,7 +413,7 @@ function buildRec(spec, role) {
   // shares the same baseline steps + name, and only the SERVER side APPENDS one
   // extra committed step. So the server differs from the baseline purely by an
   // appended step (a content fast-forward → eligible to auto-apply under
-  // auto-accept, R4.2/R22.4), never by a rename (which would defer to Review).
+  // auto-accept), never by a rename (which would defer to Review).
   const steps =
     spec.fate === 'changed-incoming' && role === 'server'
       ? [
@@ -499,7 +497,7 @@ function materialize(scenario) {
     if (s.fate === 'remote-deleted') {
       // Whole project deleted on the server, local == baseline → a project-level
       // `deleted-remote-review`: a Review under the default policy, an auto-applied
-      // deletion under auto-accept (R19.3, R19.4).
+      // deletion under auto-accept.
       const name = `${pid}-rd`;
       const local = buildProj(pid, name, s.created_at, recsForRole(s.recordings, 'local'));
       const baseline = buildProj(pid, name, s.created_at, recsForRole(s.recordings, 'local'));
@@ -533,7 +531,7 @@ function materialize(scenario) {
     payloadById.set(pid, buildPayload(server));
     manifest.push({ project_id: pid, name: server.name });
 
-    // Project-metadata Unit outcome (R2.10): a metadata change is its own Unit.
+    // Project-metadata Unit outcome: a metadata change is its own Unit.
     if (s.metaFate === 'changed-incoming') projectInfos.push({ project_id: pid, kind: 'meta-ci' });
     else if (s.metaFate === 'diverged') projectInfos.push({ project_id: pid, kind: 'meta-div' });
 
@@ -567,7 +565,7 @@ function materialize(scenario) {
 
   for (const info of descendRecInfos) {
     // A locked recording is `locked-skipped` — excluded from the merge entirely,
-    // so it produces no review/conflict/auto-apply outcome this cycle (R6.3).
+    // so it produces no review/conflict/auto-apply outcome this cycle.
     if (effectiveLocked.has(info.recording_id)) continue;
     switch (info.fate) {
       case 'changed-incoming':
@@ -603,7 +601,7 @@ function materialize(scenario) {
     if (pinfo.kind === 'meta-ci') {
       // A project-METADATA change is never a fast-forward candidate (only
       // recording-level units are), so it always DEFERS to Review even under
-      // auto-accept (R4.3).
+      // auto-accept.
       expectReview.add(pinfo.project_id);
     } else if (pinfo.kind === 'meta-div') {
       expectConflicts.add(pinfo.project_id);
@@ -632,9 +630,7 @@ function materialize(scenario) {
   };
 }
 
-// ─── Property 28 ────────────────────────────────────────────────────────────────
-
-describe('Property 28: Automatic operations complete without user interaction', () => {
+describe('Automatic operations complete without user interaction', () => {
   it('runs a full sync cycle over an arbitrary mix of fates and policies without ever requesting user input — auto-pushing changed-local-outgoing units and running settings-gated auto-applies, while adopting no deferred change into a local recording', async () => {
     const { calls, restore } = installUserInputSentinels();
     try {
@@ -667,14 +663,14 @@ describe('Property 28: Automatic operations complete without user interaction', 
             liveState,
           );
 
-          // ── (A) No user-input surface was touched on ANY path (R15.1). ──
+          // ── (A) No user-input surface was touched on ANY path. ──
           assert.deepEqual(calls, [], `sync() requested user input: ${JSON.stringify(calls)}`);
 
           const localById = new Map(localProjects.map((p) => [p.project_id, p]));
           const mergedById = new Map(projects.map((p) => [p.project_id, p]));
 
           if (gateMode === 'capture-active') {
-            // ── Halts via the capture-active gate (R15.5): no cycle, no
+            // ── Halts via the capture-active gate: no cycle, no
             //    transport, no auto-apply, local data returned unchanged. ──
             assert.equal(result.halted, true, 'capture-active halts the cycle');
             assert.equal(result.haltReason, 'capture-active');
@@ -687,7 +683,7 @@ describe('Property 28: Automatic operations complete without user interaction', 
             return;
           }
 
-          // ── permissive / locked: the automatic cycle completes (R15.1). ──
+          // ── permissive / locked: the automatic cycle completes. ──
           assert.equal(result.halted, false, 'an ungated automatic cycle completes');
           assert.equal(result.haltReason, null);
 
@@ -716,7 +712,7 @@ describe('Property 28: Automatic operations complete without user interaction', 
             'conflicts equals exactly the diverged units',
           );
 
-          // ── (C) R21.1 / R21.4 — every changed-local-outgoing Unit is a
+          // ── (C) every changed-local-outgoing Unit is a
           //    NON-DEFERRED automatic outcome: never reviewed/conflicted/
           //    auto-applied, and its LOCAL version is pushed to the wire. ──
           for (const { project_id, recording_id, unitRef, localName } of cloRefs) {
@@ -738,7 +734,7 @@ describe('Property 28: Automatic operations complete without user interaction', 
               `changed-local-outgoing ${unitRef} records nothing durable`,
             );
 
-            // Its local version reaches the wire (R21.1): the project was pushed
+            // Its local version reaches the wire: the project was pushed
             // and its pushed payload carries the recording at its LOCAL name.
             assert.ok(
               result.pushed.includes(project_id),
@@ -751,11 +747,11 @@ describe('Property 28: Automatic operations complete without user interaction', 
             assert.equal(
               pushedRec.name,
               localName,
-              'the changed-local-outgoing recording is pushed at its LOCAL version (R21.1)',
+              'the changed-local-outgoing recording is pushed at its LOCAL version',
             );
           }
 
-          // ── (D) R4.2 / R22.4 — each auto-applied UPDATE replaced the local
+          // ── (D) each auto-applied UPDATE replaced the local
           //    recording with the incoming version in the merged list. ──
           for (const unitRef of expectAutoUpdates) {
             const { pid, rid } = parseRef(unitRef);
@@ -774,7 +770,7 @@ describe('Property 28: Automatic operations complete without user interaction', 
             );
           }
 
-          // ── (E) R19.4 / R22.5 — each auto-applied DELETION removed the Unit
+          // ── (E) each auto-applied DELETION removed the Unit
           //    from the merged list. ──
           for (const unitRef of expectAutoDeletions) {
             const { pid, rid } = parseRef(unitRef);
@@ -791,7 +787,7 @@ describe('Property 28: Automatic operations complete without user interaction', 
             }
           }
 
-          // ── (F) R15.2 — no DEFERRED incoming change is adopted into a local
+          // ── (F) no DEFERRED incoming change is adopted into a local
           //    recording: for every Unit in Review or Conflict that has a local
           //    counterpart, the merged local data is byte-identical to the input
           //    (the incoming version is recorded, never applied). ──
@@ -816,7 +812,7 @@ describe('Property 28: Automatic operations complete without user interaction', 
                   created_at: lp.created_at,
                   ...(lp.metadata && { metadata: lp.metadata }),
                 },
-                'deferred project metadata is not adopted (R15.2)',
+                'deferred project metadata is not adopted',
               );
               return;
             }
@@ -827,7 +823,7 @@ describe('Property 28: Automatic operations complete without user interaction', 
             assert.deepEqual(
               recordingProjection(mr),
               recordingProjection(lr),
-              'no deferred incoming change is adopted into a local recording (R15.2)',
+              'no deferred incoming change is adopted into a local recording',
             );
           };
 
@@ -909,11 +905,11 @@ describe('Property 28: Automatic operations complete without user interaction', 
     assert.ok(fetchCounter.count > 0, 'transport ran automatically');
     assert.equal(result.halted, false);
 
-    // Brand-new project was auto-added (R15.1) without any interaction.
+    // Brand-new project was auto-added without any interaction.
     const mergedNew = projects.find((p) => p.project_id === NEW_PID);
     assert.ok(mergedNew, 'the brand-new project is auto-added');
 
-    // The diverged recording is deferred and local is left untouched (R15.2).
+    // The diverged recording is deferred and local is left untouched.
     const ref = `${DESC_PID}:${RID}`;
     assert.deepEqual(result.conflicts, [ref]);
     const mergedDesc = projects.find((p) => p.project_id === DESC_PID);
@@ -968,7 +964,7 @@ describe('Property 28: Automatic operations complete without user interaction', 
     assert.deepEqual(calls, [], 'no user input was requested');
     assert.equal(result.halted, false);
 
-    // Not deferred and not auto-applied — a routine outgoing change (R21.4).
+    // Not deferred and not auto-applied — a routine outgoing change.
     assert.deepEqual(result.review, []);
     assert.deepEqual(result.conflicts, []);
     assert.deepEqual(result.autoAppliedUpdates, []);
@@ -979,7 +975,7 @@ describe('Property 28: Automatic operations complete without user interaction', 
       'changed-local-outgoing records nothing durable',
     );
 
-    // The local version was pushed (R21.1).
+    // The local version was pushed.
     assert.ok(result.pushed.includes(PID), 'the project was pushed');
     const body = pushedBodies.get(PID);
     const pushedRec = body.recordings.find((r) => r.recording_id === RID);
@@ -1048,7 +1044,7 @@ describe('Property 28: Automatic operations complete without user interaction', 
     assert.deepEqual(calls, [], 'no user input was requested on the auto-apply path');
     assert.equal(result.halted, false);
 
-    // The fast-forward update auto-applied (R4.2/R22.4) — no review, no conflict.
+    // The fast-forward update auto-applied — no review, no conflict.
     assert.deepEqual(result.autoAppliedUpdates, [ffRef]);
     assert.ok(!result.review.includes(ffRef) && !result.conflicts.includes(ffRef));
     const merged = projects.find((p) => p.project_id === PID);
@@ -1058,7 +1054,7 @@ describe('Property 28: Automatic operations complete without user interaction', 
       'the incoming fast-forward version was adopted',
     );
 
-    // The server deletion auto-applied (R19.4/R22.5) — removed from the merged list.
+    // The server deletion auto-applied — removed from the merged list.
     assert.deepEqual(result.autoAppliedDeletions, [delRef]);
     assert.ok(
       !merged.recordings.some((r) => r.recording_id === DEL_RID),
@@ -1107,7 +1103,7 @@ describe('Property 28: Automatic operations complete without user interaction', 
     }
 
     assert.deepEqual(calls, [], 'no user input was requested on the halt path');
-    assert.equal(fetchCounter.count, 0, 'capture-active performs no push/pull (R7.2)');
+    assert.equal(fetchCounter.count, 0, 'capture-active performs no push/pull');
     assert.equal(result.halted, true);
     assert.equal(result.haltReason, 'capture-active');
     assert.deepEqual(projects, [local], 'local projects are returned unchanged');
@@ -1127,7 +1123,7 @@ describe('Property 28: Automatic operations complete without user interaction', 
     );
 
     // A recording holds Pending Actions but is neither locked nor capture-halted
-    // → the pre-flight safety assertion halts the cycle (R8.4) — still no input.
+    // → the pre-flight safety assertion halts the cycle — still no input.
     const liveState = {
       isCaptureActive: () => false,
       getLockedRecordingIds: () => new Set(),

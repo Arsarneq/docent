@@ -120,7 +120,7 @@ export const test = base.extend({
       cdpSession = null;
     }
 
-    // Navigate to the local server. With S3 the recorder is no longer a passive
+    // Navigate to the local server. With programmatic injection the recorder is no longer a passive
     // manifest content script — it is injected by the SW only while recording,
     // so nothing runs here until recording is turned on below.
     const pageUrl = `http://127.0.0.1:${serverPort}/`;

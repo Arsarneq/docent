@@ -71,7 +71,6 @@
 }
 
 /* ── Reset & base ─────────────────────────────────────────────────────────── */
-
 *,
 *::before,
 *::after {
@@ -798,7 +797,7 @@ textarea:focus {
 /*
  * Helper text under a setting (e.g. the "Recordings you haven't changed" hint
  * on the Auto-Accept toggles, the Auto-Sync enable prompt, and the
- * Connection_Test result). Reused on both platforms for R22/R23 parity.
+ * Connection_Test result). Reused on both platforms for sync-settings parity.
  */
 .settings-hint {
   font-size: 11px;
@@ -821,7 +820,7 @@ textarea:focus {
 }
 
 /*
- * "Auto-sync active" status indicator (R23.5). Shown only while Auto-Sync is
+ * "Auto-sync active" status indicator. Shown only while Auto-Sync is
  * enabled and running; the accent color marks it as an active, healthy state.
  */
 .settings-status {
@@ -1096,7 +1095,7 @@ input[type='password']:focus {
 }
 
 /*
- * Rolled-up project-row badge (R13.7): stands for one or more child recordings
+ * Rolled-up project-row badge: stands for one or more child recordings
  * needing attention rather than the project Unit itself. Styled like a normal
  * attention badge (same Review/Conflict colours) with a subtle dashed border so
  * it reads as "open to see which recordings", not a directly-resolvable Unit.

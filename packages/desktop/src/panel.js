@@ -189,7 +189,7 @@ const settingsSyncApiKey = $('settings-sync-api-key');
 const btnSettingsSyncSave = $('btn-settings-sync-save');
 const btnSync = $('btn-sync');
 
-// Reconciliation-policy + Auto-Sync settings (R22, R23)
+// Reconciliation-policy + Auto-Sync settings
 const toggleAutoAcceptUpdates = $('toggle-auto-accept-updates');
 const toggleAutoAcceptDeletions = $('toggle-auto-accept-deletions');
 const btnTestConnection = $('btn-test-connection');
@@ -315,7 +315,7 @@ async function saveState() {
 // orchestrator and resolution workflow behave the same on both platforms.
 
 /**
- * SyncStore adapter (R10.1, R16.1, R17.1) — durable read/write of the single
+ * SyncStore adapter — durable read/write of the single
  * `SyncState` blob (baselines, snapshots, reviews, conflicts). It is persisted
  * as `sessionState.syncState`, so it rides the same Tauri `save_state` blob the
  * rest of the desktop state uses and survives application restarts. `load()`
@@ -336,18 +336,18 @@ const syncStore = {
 };
 
 /**
- * LiveState adapter (R6, R7, R8) — synchronous answers about what the user is
+ * LiveState adapter — synchronous answers about what the user is
  * doing right now, mapped from the desktop panel's existing live flags:
  *   - `isCaptureActive()`            ← `isRecording`. The desktop's `isRecording`
  *     flag tracks whether the Rust capture backend is running (toggled by
- *     start_capture/stop_capture); while true, sync halts entirely (R7).
+ *     start_capture/stop_capture); while true, sync halts entirely.
  *   - `getLockedRecordingIds()`      ← `activeRecording`. `activeRecording` is
  *     non-null only while a recording is open in the Recording_View (showView
  *     clears it on every non-recording view), so it is exactly the
- *     Open_Recording — a Locked_Recording excluded from the inbound merge (R6).
+ *     Open_Recording — a Locked_Recording excluded from the inbound merge.
  *   - `recordingsWithPendingActions()` ← `pendingCount` + `activeRecording`.
  *     Uncommitted Pending Actions belong to the open recording, so a non-zero
- *     `pendingCount` marks that recording as holding Pending Actions (R8); it is
+ *     `pendingCount` marks that recording as holding Pending Actions; it is
  *     protected by the lock (it is the open recording) or, while capturing, the
  *     capture halt.
  *
@@ -385,28 +385,28 @@ function getSyncState() {
   return sessionState.syncState ?? null;
 }
 
-// ─── Background Auto-Sync host (R23.7, R23.9, R23.10, R23.13, R23.15, R23.16) ───
+// ─── Background Auto-Sync host ───
 //
 // Auto-Sync changes only *what triggers* a cycle: a ~60s backstop timer plus
 // local data-event hooks, routed through the shared cooldown-debounced scheduler
 // (sync-scheduler.js), invoke the SAME shared `sync()` with the SAME `syncStore`,
-// `liveState`, schema, and validator the manual Sync button uses (R23.13, R23.16).
+// `liveState`, schema, and validator the manual Sync button uses.
 // The host lives in `auto-sync-host.js` (DOM-free) so the triggered cycle can run
 // even when the window is closed/minimized — on desktop the Tauri webview is kept
 // alive in that case (see src-tauri/src/lib.rs), so this JS host's timer and
-// `sync()` invocation keep running headless (R23.15). The host persists the
+// `sync()` invocation keep running headless. The host persists the
 // resulting SyncState through `syncStore`, so the window — when next shown —
-// derives attention indicators from it (R23.10, R23.16).
+// derives attention indicators from it.
 
 /** @type {ReturnType<typeof createAutoSyncHost> | null} The running host, or null when Auto-Sync is off. */
 let autoSyncHost = null;
 
 /**
- * The single data-event callback the running host registered (R23.7a). The panel
+ * The single data-event callback the running host registered. The panel
  * calls {@link notifyDataEvent} after a meaningful local data change (step
  * commit, recording close, project/recording create/delete); that forwards here,
  * which the shared scheduler coalesces with the backstop into at most one cycle
- * per cooldown window (R23.8). `null` while Auto-Sync is off.
+ * per cooldown window. `null` while Auto-Sync is off.
  *
  * @type {(() => void) | null}
  */
@@ -416,7 +416,7 @@ let autoSyncDataHook = null;
  * Fire the Auto-Sync data-event trigger, if Auto-Sync is active. A no-op when
  * Auto-Sync is off, so call sites can invoke it unconditionally after a local
  * data mutation. The scheduler drops it while capture is active and coalesces a
- * burst into one cycle (R23.8, R23.9).
+ * burst into one cycle.
  *
  * @returns {void}
  */
@@ -425,8 +425,8 @@ function notifyDataEvent() {
 }
 
 /**
- * Read whether Auto-Sync is enabled from the persisted, normalized settings
- * (R23.1). Tolerates a never-persisted state (defaults OFF).
+ * Read whether Auto-Sync is enabled from the persisted, normalized settings.
+ * Tolerates a never-persisted state (defaults OFF).
  *
  * @returns {boolean}
  */
@@ -435,8 +435,8 @@ function isAutoSyncEnabled() {
 }
 
 /**
- * Tell the Rust side whether to keep the webview alive when the window is closed
- * (R23.15). While Auto-Sync is active the close request hides the window instead
+ * Tell the Rust side whether to keep the webview alive when the window is closed.
+ * While Auto-Sync is active the close request hides the window instead
  * of destroying the webview, so this host's timer + `sync()` keep running in the
  * background; while it is off the window closes (and quits) normally. Best-effort:
  * a missing command (older shell) is logged and ignored so the panel still works.
@@ -453,15 +453,15 @@ async function setBackgroundKeepAlive(armed) {
 }
 
 /**
- * Start the background Auto-Sync host if it is not already running (R23.7). Wires
+ * Start the background Auto-Sync host if it is not already running. Wires
  * the shared scheduler to the manual path's adapters and arms the webview
- * keep-alive so the cycle survives a closed/minimized window (R23.15). Idempotent.
+ * keep-alive so the cycle survives a closed/minimized window. Idempotent.
  *
  * @returns {void}
  */
 function startAutoSyncHost() {
   if (autoSyncHost) return;
-  if (!syncSettings.serverUrl) return; // enable rule requires an endpoint (R23.2, R23.17)
+  if (!syncSettings.serverUrl) return; // enable rule requires an endpoint
 
   autoSyncHost = createAutoSyncHost({
     serverUrl: syncSettings.serverUrl,
@@ -471,7 +471,7 @@ function startAutoSyncHost() {
       sessionState.projects = mergedProjects;
       await saveState();
       // Refresh whatever list is in view so freshly pulled/updated projects and
-      // their attention indicators appear even on a background cycle (R23.10).
+      // their attention indicators appear even on a background cycle.
       refreshActiveProjectViews();
     },
     getSchema: () => adapter.loadSchema(),
@@ -485,13 +485,13 @@ function startAutoSyncHost() {
     },
     onCycleComplete: () => {
       // Re-render so background-recorded Review/Conflict indicators surface when
-      // the window is shown (R23.10). Cheap and idempotent.
+      // the window is shown. Cheap and idempotent.
       refreshActiveProjectViews();
       updateSyncButton();
       updateAutoSyncControls();
     },
     onAuthDisable: async () => {
-      // R23.11: a 401/403 disables Auto-Sync and flags Settings for a re-test
+      // a 401/403 disables Auto-Sync and flags Settings for a re-test
       // rather than retrying bad credentials on the interval. Persist the change
       // and tear the host down; the user re-tests + re-enables from Settings.
       await disableAutoSync({ invalidateTest: 'auth' });
@@ -509,7 +509,7 @@ function startAutoSyncHost() {
 
 /**
  * Stop the background Auto-Sync host if running and disarm the webview
- * keep-alive (R23.3). Idempotent. Does NOT change the persisted `autoSync`
+ * keep-alive. Idempotent. Does NOT change the persisted `autoSync`
  * setting — use {@link disableAutoSync} for that.
  *
  * @returns {void}
@@ -530,7 +530,7 @@ function stopAutoSyncHost() {
  * path, by a settings change, and by an explicit user toggle-off.
  *
  * The optional `invalidateTest` also clears the prior Connection_Test so Settings
- * demands a fresh pass before re-enabling (R23.3, R23.11). It distinguishes WHY
+ * demands a fresh pass before re-enabling. It distinguishes WHY
  * the pass no longer applies, which the UI surfaces differently:
  *   - `'auth'`     — a genuine 401/403 occurred; Settings shows an auth error.
  *   - `'untested'` — the endpoint/key changed, so the prior pass simply no longer
@@ -559,7 +559,7 @@ async function disableAutoSync({ invalidateTest = false } = {}) {
 /**
  * Bring the host into agreement with the persisted `autoSync` setting and the
  * current endpoint: start it when Auto-Sync is enabled and an endpoint is
- * present, stop it otherwise (R23.2, R23.6). Safe to call on boot and after any
+ * present, stop it otherwise. Safe to call on boot and after any
  * settings change.
  *
  * @returns {void}
@@ -575,7 +575,7 @@ function syncAutoSyncHostState() {
 /**
  * Re-resolve the active project from the (possibly replaced) projects array and
  * re-render whichever list is currently shown, so a background cycle's pulled
- * data and attention indicators appear without a manual refresh (R23.10, R13.1).
+ * data and attention indicators appear without a manual refresh.
  *
  * @returns {void}
  */
@@ -654,7 +654,7 @@ bcProjects.addEventListener('click', async () => {
   activeRecording = null;
   updateRecordingUI();
   renderProjectsList();
-  if (wasRecordingOpen) notifyDataEvent(); // R23.7a: recording close
+  if (wasRecordingOpen) notifyDataEvent(); // recording close
 });
 
 bcProject.addEventListener('click', async () => {
@@ -667,7 +667,7 @@ bcProject.addEventListener('click', async () => {
   updateRecordingUI();
   renderProjectDetail();
   showView('project');
-  if (wasRecordingOpen) notifyDataEvent(); // R23.7a: recording close
+  if (wasRecordingOpen) notifyDataEvent(); // recording close
 });
 
 // ─── Projects list ────────────────────────────────────────────────────────────
@@ -681,7 +681,7 @@ function renderProjectsList() {
   projectList.innerHTML = '';
   projectsEmpty.classList.toggle('hidden', projects.length > 0);
 
-  // Derive sync-state attention indicators once for the whole list (R13.1).
+  // Derive sync-state attention indicators once for the whole list.
   const indicators = deriveIndicators(getSyncState());
 
   const htmlItems = renderProjectListHtml(projects);
@@ -695,9 +695,9 @@ function renderProjectsList() {
     li.querySelector('[data-action="delete"]').addEventListener('click', () =>
       deleteProject(p.project_id, p.name),
     );
-    // Project-row attention badges (R13.4–R13.7): the project Unit's own badge
-    // (opens its workflow, R13.3) plus rolled-up recording-conflict /
-    // recording-review badges (open the project, R13.7), deduped to one of each.
+    // Project-row attention badges: the project Unit's own badge
+    // (opens its workflow) plus rolled-up recording-conflict /
+    // recording-review badges (open the project), deduped to one of each.
     attachProjectRowBadges(li, getProjectRowIndicators(indicators, p.project_id));
     projectList.appendChild(li);
   });
@@ -718,7 +718,7 @@ async function deleteProject(project_id, name) {
   if (!confirm(`Delete project "${name}"? This cannot be undone.`)) return;
   sessionState.projects = sessionState.projects.filter((p) => p.project_id !== project_id);
   await saveState();
-  notifyDataEvent(); // R23.7a: project delete is a meaningful local data event
+  notifyDataEvent(); // project delete is a meaningful local data event
   if (activeProject?.project_id === project_id) {
     activeProject = null;
     activeRecording = null;
@@ -739,7 +739,7 @@ btnNewProjectCreate.addEventListener('click', async () => {
   const project = createProject(name);
   sessionState.projects.push(project);
   await saveState();
-  notifyDataEvent(); // R23.7a: project create is a meaningful local data event
+  notifyDataEvent(); // project create is a meaningful local data event
   activeProject = project;
   activeRecording = null;
   renderProjectDetail();
@@ -785,7 +785,7 @@ async function handleImportData(exportData) {
     return;
   }
 
-  // Validate against the platform schema before persisting (S12). Reject-but-log.
+  // Validate against the platform schema before persisting. Reject-but-log.
   const validator = await adapter.loadValidator();
   if (validator) {
     const { valid, errors } = validatePayload(validator, exportData);
@@ -843,7 +843,7 @@ function renderProjectDetail() {
   const recordings = activeProject.recordings ?? [];
   recordingsEmpty.classList.toggle('hidden', recordings.length > 0);
 
-  // Derive recording-level attention indicators for this project (R13.1, R13.4).
+  // Derive recording-level attention indicators for this project.
   const indicators = deriveIndicators(getSyncState());
 
   const htmlItems = renderRecordingListHtml(recordings);
@@ -858,7 +858,7 @@ function renderProjectDetail() {
       deleteRecording(r.recording_id, r.name),
     );
     // Recording-level attention badge: always shown when the recording needs
-    // attention (R13.4); activating it opens the workflow for that Unit (R13.3).
+    // attention; activating it opens the workflow for that Unit.
     attachAttentionBadge(
       li,
       getRecordingIndicator(indicators, activeProject.project_id, r.recording_id),
@@ -895,7 +895,7 @@ btnNewRecordingCreate.addEventListener('click', async () => {
   }
   const recording = createRecording(activeProject, name);
   await saveState();
-  notifyDataEvent(); // R23.7a: recording create is a meaningful local data event
+  notifyDataEvent(); // recording create is a meaningful local data event
   activeRecording = recording;
   activeSteps = [];
   isRecording = true;
@@ -927,7 +927,7 @@ async function deleteRecording(recording_id, name) {
     (r) => r.recording_id !== recording_id,
   );
   await saveState();
-  notifyDataEvent(); // R23.7a: recording delete is a meaningful local data event
+  notifyDataEvent(); // recording delete is a meaningful local data event
   activeRecording = null;
   updateRecordingUI();
   renderProjectDetail();
@@ -1203,7 +1203,7 @@ async function commitStepSimple(logicalId) {
 
     activeSteps = resolveActiveSteps(activeRecording);
     await saveState();
-    notifyDataEvent(); // R23.7a: step commit is a meaningful local data event
+    notifyDataEvent(); // step commit is a meaningful local data event
 
     clearLiveActionList();
     renderStepList();
@@ -1287,7 +1287,7 @@ async function commitStep(inputEl, source, logicalId) {
 
     activeSteps = resolveActiveSteps(activeRecording);
     await saveState();
-    notifyDataEvent(); // R23.7a: step commit is a meaningful local data event
+    notifyDataEvent(); // step commit is a meaningful local data event
 
     inputEl.value = '';
     if (inputEl === narrationInput) btnCommitStep.disabled = true;
@@ -1553,7 +1553,7 @@ function updateDispatchButton() {
   const recordings = activeProject?.recordings ?? [];
   const hasActiveSteps = recordings.some((r) => resolveActiveSteps(r).length > 0);
 
-  // Post-send cooldown (S4): hold the button disabled briefly after a send to
+  // Post-send cooldown: hold the button disabled briefly after a send to
   // guard against rapid re-dispatch, counting down a remaining-seconds hint.
   const cooldownRemaining = dispatchCooldown.remainingMs();
   if (cooldownRemaining > 0) {
@@ -1595,7 +1595,7 @@ btnSettingsSyncSave.addEventListener('click', async () => {
   const url = settingsSyncUrl.value.trim();
   const apiKey = settingsSyncApiKey.value.trim();
 
-  // Validate URL if non-empty (R1-AC2)
+  // Validate URL if non-empty
   if (url) {
     const error = validateEndpointUrl(url, { hasApiKey: !!apiKey });
     if (error) {
@@ -1617,7 +1617,7 @@ btnSettingsSyncSave.addEventListener('click', async () => {
       serverUrl: url || null,
       apiKey: apiKey || null,
     };
-    // R23.3: changing the endpoint or API key invalidates the prior
+    // changing the endpoint or API key invalidates the prior
     // Connection_Test and disables Auto-Sync until a fresh test passes. Tear the
     // background host down here; the user re-tests + re-enables from Settings.
     // This is a settings change, not an auth failure — invalidate to the untested
@@ -1639,27 +1639,27 @@ btnSettingsSyncSave.addEventListener('click', async () => {
 });
 
 function updateSyncButton() {
-  // R23.4: while Auto-Sync is active, hide the manual Sync button entirely and
+  // while Auto-Sync is active, hide the manual Sync button entirely and
   // provide no manual force-sync affordance (the ~60s backstop makes one
   // unnecessary). When Auto-Sync is off, show it and gate on an endpoint being
-  // configured and no sync already in flight (R23.6).
+  // configured and no sync already in flight.
   const autoActive = autoSyncHost !== null;
   btnSync.classList.toggle('hidden', autoActive);
   btnSync.disabled = autoActive || !syncSettings.serverUrl || isSyncing;
 }
 
-// ─── Reconciliation-policy + Auto-Sync settings (R22, R23) ──────────────────────
+// ─── Reconciliation-policy + Auto-Sync settings ──────────────────────
 //
 // These three client-local toggles are the settings half of the feature: the
-// two Auto-Accept policy toggles (R22) and the Auto-Sync enable state machine
-// (R23). They are byte-identical in semantics and labels to the extension's, and
-// their values are per-client (persisted via setSettings, never synced — R22.3,
-// R22.8, R23.1). The orchestrator reads the policy toggles each cycle; the
-// background host (created by 24.5) reads `autoSync` via syncAutoSyncHostState().
+// two Auto-Accept policy toggles and the Auto-Sync enable state machine.
+// They are byte-identical in semantics and labels to the extension's, and
+// their values are per-client (persisted via setSettings, never synced). The
+// orchestrator reads the policy toggles each cycle; the
+// background host reads `autoSync` via syncAutoSyncHostState().
 
 /**
  * Reflect the persisted reconciliation-policy + Auto-Sync settings into the
- * Settings controls (R22.1, R23.1). Reads the normalized settings from the
+ * Settings controls. Reads the normalized settings from the
  * durable SyncState so a never-persisted state shows the documented OFF defaults.
  * Also recomputes the Auto-Sync enable rule and the connection/status indicators.
  *
@@ -1670,7 +1670,7 @@ function loadAndPopulateReconciliationSettings() {
   toggleAutoAcceptUpdates.checked = settings.autoAcceptUpdates === true;
   toggleAutoAcceptDeletions.checked = settings.autoAcceptDeletions === true;
   // Clear any transient Connection_Test result line from a previous visit; the
-  // needs-retest case (R23.11) is re-derived by updateAutoSyncControls below.
+  // needs-retest case is re-derived by updateAutoSyncControls below.
   settingsConnectionStatus.textContent = '';
   settingsConnectionStatus.classList.add('hidden');
   settingsConnectionStatus.classList.remove('is-ok', 'is-error');
@@ -1678,8 +1678,8 @@ function loadAndPopulateReconciliationSettings() {
 }
 
 /**
- * Persist a reconciliation-policy toggle (R22.3). The two settings are
- * independent booleans applied on the *next* sync cycle (R22.9); changing one
+ * Persist a reconciliation-policy toggle. The two settings are
+ * independent booleans applied on the *next* sync cycle; changing one
  * never retroactively applies or reverses a prior cycle's outcomes.
  *
  * @param {'autoAcceptUpdates'|'autoAcceptDeletions'} key
@@ -1702,15 +1702,15 @@ toggleAutoAcceptDeletions.addEventListener('change', async () => {
 
 /**
  * True when a passing Connection_Test is on record for the *current* server
- * settings (R23.2): the stored outcome is `pass` AND the stored fingerprint
- * matches the plaintext fingerprint of the current endpoint + API key (R23.3).
+ * settings: the stored outcome is `pass` AND the stored fingerprint
+ * matches the plaintext fingerprint of the current endpoint + API key.
  * A settings change recomputes the fingerprint, so a stale pass no longer
  * matches and Auto-Sync is no longer enableable until a fresh test passes.
  *
  * @returns {boolean}
  */
 function hasPassingConnectionTest() {
-  if (!syncSettings.serverUrl) return false; // endpoint-present precondition (R23.17)
+  if (!syncSettings.serverUrl) return false; // endpoint-present precondition
   const settings = getSettings(getSyncState() ?? {});
   if (settings.connectionTest !== 'pass') return false;
   const current = settingsFingerprint(syncSettings.serverUrl, syncSettings.apiKey);
@@ -1719,14 +1719,14 @@ function hasPassingConnectionTest() {
 
 /**
  * Recompute the Auto-Sync enable rule and refresh the three indicators in
- * Settings (R23.2, R23.5):
+ * Settings:
  *   - the Auto-Sync toggle is enableable ONLY when an endpoint is present AND a
  *     passing Connection_Test is on record for the current settings; otherwise
  *     it is disabled and (when off) shows a prompt explaining what is needed;
  *   - the toggle reflects the persisted `autoSync` value;
  *   - the "Auto-sync active" status shows only while the host is actually running;
  *   - the needs-retest flag (set by a 401/403 auto-disable) surfaces as an
- *     error-flavored connection status (R23.11).
+ *     error-flavored connection status.
  *
  * @returns {void}
  */
@@ -1738,11 +1738,11 @@ function updateAutoSyncControls() {
 
   // The toggle is enableable only when the rule is met; keep it checked only
   // while genuinely enabled so a forced-off state (settings change / auth
-  // disable) is reflected immediately (R23.2, R23.3).
+  // disable) is reflected immediately.
   toggleAutoSync.checked = enabled;
   toggleAutoSync.disabled = !canEnable && !enabled;
 
-  // Active indicator (R23.5): only while the background host is running.
+  // Active indicator: only while the background host is running.
   settingsAutoSyncStatus.classList.toggle('hidden', !active);
 
   // Enable prompt: when Auto-Sync is off and cannot yet be enabled, explain why
@@ -1756,7 +1756,7 @@ function updateAutoSyncControls() {
     settingsAutoSyncHint.classList.add('hidden');
   }
 
-  // R23.11: a prior 401/403 auto-disable stored connectionTest='auth' and cleared
+  // a prior 401/403 auto-disable stored connectionTest='auth' and cleared
   // the tested fingerprint. Surface that as a needs-retest prompt so the user
   // knows to re-test rather than wondering why Auto-sync turned itself off.
   if (!enabled && settings.connectionTest === 'auth' && syncSettings.serverUrl) {
@@ -1778,7 +1778,7 @@ function showConnectionStatus(message, flavor = '') {
 }
 
 btnTestConnection.addEventListener('click', async () => {
-  // R23.17: the enable rule verifies an endpoint is present BEFORE invoking the
+  // the enable rule verifies an endpoint is present BEFORE invoking the
   // Connection_Test; never call testConnection with an empty/absent endpoint.
   if (!syncSettings.serverUrl) {
     showConnectionStatus('Configure a sync server above first.', 'is-error');
@@ -1792,7 +1792,7 @@ btnTestConnection.addEventListener('click', async () => {
     const state = (await loadSyncState(syncStore)) ?? {};
     if (ok) {
       // Record the pass against the CURRENT plaintext fingerprint so a later
-      // endpoint/key change invalidates it (R23.2, R23.3).
+      // endpoint/key change invalidates it.
       setSettings(state, {
         connectionTest: 'pass',
         testedSettingsFingerprint: settingsFingerprint(syncSettings.serverUrl, syncSettings.apiKey),
@@ -1822,7 +1822,7 @@ toggleAutoSync.addEventListener('change', async () => {
   if (toggleAutoSync.checked) {
     // Enforce the enable rule defensively even though the toggle is disabled when
     // it is unmet: only persist autoSync=true when an endpoint is present AND a
-    // fresh Connection_Test passes (R23.2, R23.17).
+    // fresh Connection_Test passes.
     if (!hasPassingConnectionTest()) {
       toggleAutoSync.checked = false;
       updateAutoSyncControls();
@@ -1851,7 +1851,7 @@ async function handleSync() {
 
   try {
     // Schema (push-side docent_format stamp) + generated validator (applied to
-    // each pulled payload), both from the adapter. See S12.
+    // each pulled payload), both from the adapter.
     const schema = await adapter.loadSchema();
     const validator = await adapter.loadValidator();
 
@@ -1865,11 +1865,11 @@ async function handleSync() {
       liveState,
     );
 
-    // Persist merged projects via saveState() (R5-AC5)
+    // Persist merged projects via saveState()
     sessionState.projects = mergedProjects;
     await saveState();
 
-    // Show summary (R5-AC5)
+    // Show summary
     showSyncSummary(result);
 
     // Refresh the projects list UI to reflect pulled/updated projects
@@ -1890,7 +1890,7 @@ async function handleSync() {
 
 function showSyncSummary(result) {
   if (result.halted) {
-    // Distinguish WHY the cycle halted so the user can act (R13.2). Auth is the
+    // Distinguish WHY the cycle halted so the user can act. Auth is the
     // only halt that maps to a settings fix; the live-work and internal halts are
     // transient and resolve by ending capture / closing the open recording / retrying.
     const haltMessages = {
@@ -1914,11 +1914,11 @@ function showSyncSummary(result) {
     parts.push(
       `Skipped ${mismatched.length} incompatible project${mismatched.length !== 1 ? 's' : ''}`,
     );
-  // New graded-reconciliation counts (R13.2): items deferred for the user to act
+  // New graded-reconciliation counts: items deferred for the user to act
   // on — incoming changes to review-and-accept, and divergences in conflict.
   const review = result.review ?? [];
   const conflicts = result.conflicts ?? [];
-  // Auto-applied outcomes (R13.2, R22.7): fast-forward updates and server-side
+  // Auto-applied outcomes: fast-forward updates and server-side
   // deletions applied automatically because the matching Auto-Accept policy is ON.
   const autoAppliedUpdates = result.autoAppliedUpdates ?? [];
   const autoAppliedDeletions = result.autoAppliedDeletions ?? [];
@@ -1970,7 +1970,7 @@ let workflowBody = null;
  * Attach a shared attention badge to a list row when its Unit needs attention.
  * The badge HTML (with the stable `data-action="open-workflow"` / `data-unit-ref`
  * hooks) comes from the shared `renderIndicatorBadge`, so it is byte-identical to
- * the extension's. Activating it opens the workflow for that Unit (R13.3).
+ * the extension's. Activating it opens the workflow for that Unit.
  *
  * @param {HTMLElement} li - the rendered list row
  * @param {import('../shared/sync-conflict-ui.js').AttentionIndicator | null} indicator
@@ -1993,11 +1993,11 @@ function attachAttentionBadge(li, indicator) {
 }
 
 /**
- * Attach the project-ROW attention badges to a project row (R13.4–R13.7). Renders
+ * Attach the project-ROW attention badges to a project row. Renders
  * each {@link ProjectRowBadge} from {@link getProjectRowIndicators} and wires its
  * activation by scope: the project Unit's OWN badge opens that Unit's resolution
- * workflow (`open-workflow`, R13.3); a rolled-up recordings badge opens the
- * project so its per-recording badges become visible (`open-project`, R13.7).
+ * workflow (`open-workflow`); a rolled-up recordings badge opens the
+ * project so its per-recording badges become visible (`open-project`).
  *
  * @param {HTMLElement} li - the project list row
  * @param {import('../shared/sync-conflict-ui.js').ProjectRowBadge[]} badges
@@ -2049,9 +2049,9 @@ function closeWorkflow() {
 }
 
 /**
- * Open the shared resolution workflow for a Unit (R12.1, R13.3). The shared
+ * Open the shared resolution workflow for a Unit. The shared
  * `renderWorkflow` routes the Unit to the correct interface and enforces the
- * wrong-interface guard (R12.4): a Review opens the accept/decline view, a
+ * wrong-interface guard: a Review opens the accept/decline view, a
  * Conflict opens the local-vs-incoming chooser. The returned HTML is inserted
  * into the overlay and its UI_ACTIONS controls are wired to the shared resolution
  * functions.
@@ -2082,7 +2082,7 @@ function openConflictWorkflow(unitRef, requestedKind = null) {
 /**
  * Persist the mutated SyncState through the SyncStore adapter and refresh the
  * affected views. Shared by all resolution outcomes so the durable store and the
- * UI are updated in lock-step (R12.5).
+ * UI are updated in lock-step.
  *
  * @param {import('../shared/conflict-resolution.js').ResolutionResult} result
  * @returns {Promise<void>}
@@ -2092,7 +2092,7 @@ async function persistResolution(result) {
   // the in-memory SyncState in place. Persisting through the SyncStore adapter
   // (saveSyncState → syncStore.save) writes the SyncState back into sessionState
   // AND flushes the whole Tauri blob, so the durable conflict state and the
-  // local projects are persisted together in one write (R12.5).
+  // local projects are persisted together in one write.
   sessionState.projects = result.projects;
   await saveSyncState(syncStore, getSyncState() ?? {});
   // Refresh whichever list is in view so the now-cleared indicator disappears.
@@ -2129,11 +2129,11 @@ async function handleDeclineReview(unitRef) {
 
 /**
  * Resolve a Conflict by adopting one side. The shared `resolveConflict` requires
- * an explicit append-only resolved state (R11.4, R11.5): keeping a side means
+ * an explicit append-only resolved state: keeping a side means
  * adopting that side's full version while RETAINING every step record from both
  * histories, so the chosen recording/project copy is augmented with any step
  * records unique to the other side. A delete-vs-change Conflict where the chosen
- * side is absent is resolved via the DELETE_RESOLUTION sentinel (R19.5).
+ * side is absent is resolved via the DELETE_RESOLUTION sentinel.
  *
  * @param {string} unitRef
  * @param {('local'|'incoming')} side - which version the user chose to keep
@@ -2149,9 +2149,9 @@ async function handleResolveConflict(unitRef, side) {
 
   const chosen = side === 'local' ? item.local : item.incoming;
   const other = side === 'local' ? item.incoming : item.local;
-  // A delete-vs-change Conflict: the chosen side is absent → accept the deletion
-  // (R19.5). Otherwise build the explicit append-only resolved state that adopts
-  // the chosen side's Active View while retaining both histories (R11.1, R11.4),
+  // A delete-vs-change Conflict: the chosen side is absent → accept the deletion.
+  // Otherwise build the explicit append-only resolved state that adopts
+  // the chosen side's Active View while retaining both histories,
   // using the shared builder so the extension and desktop resolve identically.
   const resolvedState = chosen == null ? DELETE_RESOLUTION : buildKeepResolution(chosen, other);
 
@@ -2350,8 +2350,8 @@ try {
 }
 renderProjectsList();
 
-// Bring the background Auto-Sync host into agreement with the persisted setting
-// (R23.1, R23.2): start the ~60s backstop + data-event trigger when Auto-Sync is
+// Bring the background Auto-Sync host into agreement with the persisted setting:
+// start the ~60s backstop + data-event trigger when Auto-Sync is
 // enabled and an endpoint is configured, so triggered cycles run even when the
-// window is later closed/minimized (R23.15). A no-op when Auto-Sync is off.
+// window is later closed/minimized. A no-op when Auto-Sync is off.
 syncAutoSyncHostState();

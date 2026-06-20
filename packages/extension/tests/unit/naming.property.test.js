@@ -1,13 +1,11 @@
 /**
  * naming.property.test.js — Property-based tests for v2.0.0 platform-neutral naming
  *
- * Property 13: Extension actions use platform-neutral naming and DOM capture mode
+ * Extension actions use platform-neutral naming and DOM capture mode
  *
  * Generates random browser action objects that simulate what the content script
  * (recorder.js) and service worker (service-worker.js) produce, then verifies
  * the v2.0.0 naming invariants hold across all generated actions.
- *
- * **Validates: Requirements 17.10**
  *
  * Uses Node's built-in test runner (node:test) and fast-check.
  */
@@ -269,9 +267,9 @@ const CONTEXT_LIFECYCLE_TYPES = new Set(['context_switch', 'context_open', 'cont
 
 const LEGACY_FIELD_NAMES = ['tab_id', 'tab_switch', 'tab_open', 'tab_close'];
 
-// ── Property 13 Tests ──────────────────────────────────────────────────────
+// ── Naming property tests ──────────────────────────────────────────────────
 
-describe('Feature: desktop-capture, Property 13: Extension actions use platform-neutral naming and DOM capture mode', () => {
+describe('Extension actions use platform-neutral naming and DOM capture mode', () => {
   test('all actions use context_id, never tab_id', async () => {
     await fc.assert(
       fc.asyncProperty(extensionActionArb, async (action) => {

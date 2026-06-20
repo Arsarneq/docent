@@ -1,6 +1,5 @@
-// Property 2: Scroll debounce and threshold filtering
+// Scroll debounce and threshold filtering
 //
-// **Validates: Requirements 2.7, 13.1, 13.2**
 //
 // For any sequence of scroll events with timestamps, the capture layer shall
 // emit a scroll action only when (a) no scroll event occurs for 300ms after
@@ -112,9 +111,7 @@ fn expected_results(events: &[RawScrollEvent]) -> Vec<(f64, f64)> {
 proptest! {
     #![proptest_config(ProptestConfig::with_cases(200))]
 
-    /// Feature: desktop-capture, Property 2: Scroll debounce and threshold filtering
-    ///
-    /// **Validates: Requirements 2.7, 13.1, 13.2**
+    /// Scroll debounce and threshold filtering
     ///
     /// For any sequence of scroll events, the number of emitted scroll actions
     /// matches the expected count based on debounce grouping and threshold
@@ -147,9 +144,7 @@ proptest! {
         }
     }
 
-    /// Feature: desktop-capture, Property 2: Scroll debounce and threshold filtering
-    ///
-    /// **Validates: Requirements 13.2**
+    /// Scroll debounce and threshold filtering
     ///
     /// For any emitted scroll result, at least one axis must exceed the
     /// 200px threshold.
@@ -167,9 +162,7 @@ proptest! {
         }
     }
 
-    /// Feature: desktop-capture, Property 2: Scroll debounce and threshold filtering
-    ///
-    /// **Validates: Requirements 13.1**
+    /// Scroll debounce and threshold filtering
     ///
     /// For a tight sequence (all events within debounce window), at most one
     /// scroll result is produced.
@@ -183,9 +176,7 @@ proptest! {
         );
     }
 
-    /// Feature: desktop-capture, Property 2: Scroll debounce and threshold filtering
-    ///
-    /// **Validates: Requirements 13.2**
+    /// Scroll debounce and threshold filtering
     ///
     /// Empty input produces no scroll results.
     #[test]
@@ -194,9 +185,7 @@ proptest! {
         prop_assert!(results.is_empty());
     }
 
-    /// Feature: desktop-capture, Property 2: Scroll debounce and threshold filtering
-    ///
-    /// **Validates: Requirements 13.1, 13.2**
+    /// Scroll debounce and threshold filtering
     ///
     /// The ScrollAccumulator produces the same results as process_scroll_events
     /// for a single tight sequence when flushed after the debounce interval.

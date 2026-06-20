@@ -1,5 +1,5 @@
 /**
- * http-transport.js — Platform HTTP transport seam (S20)
+ * http-transport.js — Platform HTTP transport seam
  *
  * Docent's sync, dispatch, and connection-test logic live in the shared layer
  * and must issue HTTP requests to a user-configured server. WHICH mechanism
@@ -16,7 +16,7 @@
  *     adopter backend) has its response discarded by the webview and surfaces as
  *     "could not reach the server". Issuing the request below the webview removes
  *     CORS from the path entirely, identically on WebView2 (Windows) and
- *     WebKitGTK (Linux). See SECURITY_BACKLOG S20.
+ *     WebKitGTK (Linux).
  *
  * Rather than thread a transport argument through every entry point and every
  * call site (panels, auto-sync hosts, and the 792 shared tests that mock

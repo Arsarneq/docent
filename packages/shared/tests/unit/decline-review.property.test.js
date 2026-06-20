@@ -7,7 +7,7 @@
  * their narrative. Declining is a *dismissal*, never a way to overwrite the
  * server change with the local version. Four guarantees follow:
  *
- *   1. KEEP LOCAL / NEVER PUSH (R4.8) — the local version is left completely
+ *   1. KEEP LOCAL / NEVER PUSH — the local version is left completely
  *      untouched and is never pushed over the incoming server change.
  *      `declineReview` never applies the incoming change, so the local `projects`
  *      array comes back byte-identical (and, in fact, the very same array
@@ -15,17 +15,17 @@
  *      incoming Sync_Snapshot is retained for later recovery (the retained
  *      project-level snapshot when one landed on pull, otherwise the item's own
  *      recoverable incoming copy).
- *   2. DISMISS THE EXACT VERSION (R4.9) — the canonical digest of the declined
+ *   2. DISMISS THE EXACT VERSION — the canonical digest of the declined
  *      incoming version is recorded in `dismissedIncoming`, so a subsequent cycle
  *      that pulls the SAME incoming version does not re-offer it as a fresh
  *      Review item.
- *   3. ONLY THAT VERSION (R4.10) — the dismissal applies ONLY to the exact
+ *   3. ONLY THAT VERSION — the dismissal applies ONLY to the exact
  *      declined version: a DIFFERENT incoming version (a different digest) is not
  *      suppressed and is classified afresh.
- *   4. NO BASELINE ADVANCE (R1.8) — declining adopts nothing, so the Sync_Baseline
+ *   4. NO BASELINE ADVANCE — declining adopts nothing, so the Sync_Baseline
  *      for the affected project is never advanced (or fabricated).
  *
- * The Review item itself is cleared (R12.5), returning the Unit to the NONE
+ * The Review item itself is cleared, returning the Unit to the NONE
  * state for deferred items (its dismissal lives on in `dismissedIncoming`).
  *
  * The property drives `declineReview` over arbitrary local projects and arbitrary
@@ -36,10 +36,9 @@
  * Uses the Node.js built-in test runner + fast-check (fast-check v4: `fc.uuid()`
  * for ids), mirroring the generators in sync-store-roundtrip.property.test.js.
  *
- * **Validates: Requirements 4.8, 4.9, 4.10, 1.8**
  */
 
-// Feature: sync-conflict-resolution, Property 10: Declining a Review item keeps local, dismisses the incoming version, and never pushes
+// Declining a Review item keeps local, dismisses the incoming version, and never pushes
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
@@ -150,9 +149,7 @@ function unitRefOf(scenario) {
 // A fixed clock for seeding a deterministic pre-existing baseline.
 const FIXED_NOW = 1700000000000;
 
-// ─── Property 10 ───────────────────────────────────────────────────────────────
-
-describe('Property 10: Declining a Review item keeps local, dismisses the incoming version, and never pushes', () => {
+describe('Declining a Review item keeps local, dismisses the incoming version, and never pushes', () => {
   it('after a decline the local projects are byte-identical and never pushed, the exact declined incoming version is dismissed (a different one is not), the snapshot stays recoverable, and the baseline is not advanced', () => {
     fc.assert(
       fc.property(arbScenario, (scenario) => {
@@ -192,14 +189,14 @@ describe('Property 10: Declining a Review item keeps local, dismisses the incomi
           upsertReview(state, otherUnitRef, scenario.otherIncoming);
         }
 
-        // The canonical digest the decline must record as dismissed (R4.9),
+        // The canonical digest the decline must record as dismissed,
         // computed at the item's own granularity exactly as `declineReview` does.
         const dismissedDigest = isRecordingLevel
           ? digestRecording(incoming)
           : digestProject(incoming);
         // A guaranteed-DIFFERENT incoming version: changing the name changes the
         // content digest, so this stands in for "a later pull brought a different
-        // incoming version" (R4.10).
+        // incoming version".
         const differentIncoming = { ...incoming, name: `${incoming.name}\u0001changed` };
         const differentDigest = isRecordingLevel
           ? digestRecording(differentIncoming)
@@ -231,7 +228,7 @@ describe('Property 10: Declining a Review item keeps local, dismisses the incomi
         assert.equal(result.kind, 'review');
         assert.equal(result.reason, null);
 
-        // (R4.8) KEEP LOCAL / NEVER PUSH — the incoming change is never applied and
+        // KEEP LOCAL / NEVER PUSH — the incoming change is never applied and
         //        the local version is never pushed over the server change. The
         //        returned array is the same reference, its content is unchanged,
         //        and the result reports no adoption/removal of any Unit.
@@ -247,7 +244,7 @@ describe('Property 10: Declining a Review item keeps local, dismisses the incomi
         );
         assert.notEqual(result.removed, true, 'decline must not adopt a deletion (no push/apply)');
 
-        // (R4.8) RETAIN THE SNAPSHOT — the declined incoming change stays
+        // RETAIN THE SNAPSHOT — the declined incoming change stays
         //        recoverable and is surfaced on the result.
         assert.notEqual(
           result.retained,
@@ -284,21 +281,21 @@ describe('Property 10: Declining a Review item keeps local, dismisses the incomi
           );
         }
 
-        // (R12.5) The Review item is cleared, returning the Unit to NONE for
+        // The Review item is cleared, returning the Unit to NONE for
         //         deferred items.
         assert.equal(itemKind(state, unitRef), null, 'the declined Review item must be cleared');
         assert.equal(getItem(state, unitRef), null);
         assert.equal(state.reviews[unitRef], undefined);
 
-        // (R4.9) The EXACT declined incoming version is recorded as dismissed, so a
+        // The EXACT declined incoming version is recorded as dismissed, so a
         //        later cycle that pulls the same version does not re-offer it.
         assert.equal(
           isDismissedIncoming(state, unitRef, dismissedDigest),
           true,
-          'the declined incoming version must be recorded as dismissed (R4.9)',
+          'the declined incoming version must be recorded as dismissed',
         );
 
-        // (R4.10) The dismissal applies ONLY to the exact declined version — a
+        // The dismissal applies ONLY to the exact declined version — a
         //         DIFFERENT incoming version is not suppressed.
         assert.notEqual(
           dismissedDigest,
@@ -308,26 +305,26 @@ describe('Property 10: Declining a Review item keeps local, dismisses the incomi
         assert.equal(
           isDismissedIncoming(state, unitRef, differentDigest),
           false,
-          'a different incoming version must NOT be suppressed by the dismissal (R4.10)',
+          'a different incoming version must NOT be suppressed by the dismissal',
         );
 
-        // (R1.8) The baseline is not advanced (nor fabricated) by a decline.
+        // The baseline is not advanced (nor fabricated) by a decline.
         if (includeBaseline) {
           assert.equal(
             getBaseline(state, projectId),
             baselineRef,
-            'decline must not advance/replace the baseline (R1.8)',
+            'decline must not advance/replace the baseline',
           );
           assert.equal(
             JSON.stringify(getBaseline(state, projectId)),
             baselineJsonBefore,
-            'the pre-existing baseline content must be unchanged (R1.8)',
+            'the pre-existing baseline content must be unchanged',
           );
         } else {
           assert.equal(
             getBaseline(state, projectId),
             null,
-            'decline must not fabricate a baseline (R1.8)',
+            'decline must not fabricate a baseline',
           );
         }
 
@@ -377,28 +374,28 @@ describe('Property 10: Declining a Review item keeps local, dismisses the incomi
       pulledAt: '2024-02-01T00:00:00.000Z',
     };
     const snapshotBefore = structuredClone(state.snapshots['proj-1']);
-    // Seed a pre-existing baseline; declining must not advance it (R1.8).
+    // Seed a pre-existing baseline; declining must not advance it.
     advanceBaseline(state, 'proj-1', local, () => FIXED_NOW);
     const baselineBefore = structuredClone(getBaseline(state, 'proj-1'));
 
     const result = declineReview(state, projects, 'proj-1:rec-1');
 
     assert.equal(result.ok, true);
-    // (R4.8) Local untouched and never pushed.
+    // Local untouched and never pushed.
     assert.deepStrictEqual(projects, projectsBefore);
     assert.equal(result.projects, projects);
-    // (R12.5) Item cleared; (R4.8) snapshot retained and surfaced.
+    // Item cleared; snapshot retained and surfaced.
     assert.equal(itemKind(state, 'proj-1:rec-1'), null);
     assert.deepStrictEqual(state.snapshots['proj-1'], snapshotBefore);
     assert.deepStrictEqual(result.retained, snapshotBefore);
-    // (R4.9) The exact incoming version is dismissed.
+    // The exact incoming version is dismissed.
     assert.equal(isDismissedIncoming(state, 'proj-1:rec-1', digestRecording(incoming)), true);
-    // (R4.10) A different incoming version is not suppressed.
+    // A different incoming version is not suppressed.
     assert.equal(
       isDismissedIncoming(state, 'proj-1:rec-1', digestRecording({ ...incoming, name: 'other' })),
       false,
     );
-    // (R1.8) Baseline untouched.
+    // Baseline untouched.
     assert.deepStrictEqual(getBaseline(state, 'proj-1'), baselineBefore);
   });
 
@@ -418,17 +415,17 @@ describe('Property 10: Declining a Review item keeps local, dismisses the incomi
 
     assert.equal(result.ok, true);
     assert.equal(itemKind(state, 'proj-9'), null);
-    // (R4.8) No project snapshot ⇒ fall back to the item's recoverable incoming copy.
+    // No project snapshot ⇒ fall back to the item's recoverable incoming copy.
     assert.deepStrictEqual(result.retained, itemIncomingBefore);
     assert.equal(state.snapshots['proj-9'], undefined);
-    // (R4.9) The exact incoming project version is dismissed (project granularity).
+    // The exact incoming project version is dismissed (project granularity).
     assert.equal(isDismissedIncoming(state, 'proj-9', digestProject(incoming)), true);
-    // (R4.10) A different incoming version is not suppressed.
+    // A different incoming version is not suppressed.
     assert.equal(
       isDismissedIncoming(state, 'proj-9', digestProject({ ...incoming, name: 'changed' })),
       false,
     );
-    // (R1.8) No baseline fabricated.
+    // No baseline fabricated.
     assert.equal(getBaseline(state, 'proj-9'), null);
   });
 });

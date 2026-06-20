@@ -1,13 +1,13 @@
 /**
  * connection-test.js — Connection_Test + settings fingerprint for Auto-Sync.
  *
- * Auto-Sync (Requirement 23) is a client-local mode that can be enabled only
+ * Auto-Sync is a client-local mode that can be enabled only
  * after a Connection_Test confirms the configured server settings can reach the
  * Sync_Server. This module is the small, pure shared helper the settings state
  * machine in each platform panel consumes; the panels own the enable rule and
  * the Sync_Trigger lifecycle, while the WHEN/WHETHER-to-test logic and the
  * fingerprint that detects a settings change live here so both platforms behave
- * identically (Requirements 16.5, 17.3, 23.2, 23.3, 23.17).
+ * identically.
  *
  * Two exports:
  *
@@ -15,28 +15,27 @@
  *     against the existing read endpoint and classifies the outcome as
  *     `pass` / `auth` / `unreachable`. It adds no test-specific server support:
  *     a normal successful response is `pass`, a 401/403 is an `auth` failure,
- *     and a network error or any other non-success status is `unreachable`
- *     (Requirements 16.5, 23.2).
+ *     and a network error or any other non-success status is `unreachable`.
  *
  *   - `settingsFingerprint(serverUrl, apiKey)` — a stable, deterministic
  *     fingerprint of the server settings a test was taken against, so a later
  *     change to the endpoint or API key no longer matches the stored
  *     `testedSettingsFingerprint` and forces Auto-Sync off until a fresh test
- *     passes (Requirement 23.3).
+ *     passes.
  *
  * Design decisions:
  *
- *   - **Existing endpoint only (R16.5).** The Connection_Test reuses the same
+ *   - **Existing endpoint only.** The Connection_Test reuses the same
  *     `GET /projects` manifest read the pull path uses (see `pullProjects` in
  *     sync-client.js) and the same Bearer-token header builder, so it requires
  *     no Sync_Server change and no test-specific endpoint.
  *
- *   - **Non-empty endpoint assumed (R23.17).** The panel enable rule verifies an
+ *   - **Non-empty endpoint assumed.** The panel enable rule verifies an
  *     endpoint is present BEFORE invoking the Connection_Test, so this helper
  *     does not re-validate an empty/absent `serverUrl` — it composes the request
  *     URL directly, exactly as the pull path does.
  *
- *   - **Plaintext key in the fingerprint (R23.3).** The fingerprint is computed
+ *   - **Plaintext key in the fingerprint.** The fingerprint is computed
  *     over the endpoint and the PLAINTEXT API key the client holds in memory —
  *     never the at-rest encrypted envelope — so re-encrypting or re-deriving the
  *     stored secret across restarts does not spuriously invalidate a still-valid
@@ -48,7 +47,7 @@
  *     fingerprints is exactly equality of (endpoint, plaintext key), with zero
  *     collision risk, and it needs no synchronous strong-hash primitive (which
  *     is unavailable in the Tauri webview). It is a local, opaque marker — never
- *     transmitted to the Sync_Server (Requirement 23.1, 23.3).
+ *     transmitted to the Sync_Server.
  *
  * This file is part of Docent.
  * Licensed under the GNU General Public License v3.0
@@ -61,7 +60,7 @@ import { httpRequest } from './lib/http-transport.js';
 
 /**
  * Issue a single `GET /projects` against the configured server and classify the
- * outcome for the Auto-Sync settings state machine (Requirements 16.5, 23.2).
+ * outcome for the Auto-Sync settings state machine.
  *
  * Classification:
  *   - a successful response (HTTP 2xx) → `{ ok: true, reason: 'pass' }`;
@@ -71,11 +70,10 @@ import { httpRequest } from './lib/http-transport.js';
  *
  * Assumes a non-empty `serverUrl`: the panel enable rule checks an endpoint is
  * present before calling this, so the Connection_Test is never invoked with an
- * empty or absent endpoint (Requirement 23.17). The request reuses the existing
- * read endpoint and Bearer-token header, adding no test-specific server support
- * (Requirement 16.5).
+ * empty or absent endpoint. The request reuses the existing
+ * read endpoint and Bearer-token header, adding no test-specific server support.
  *
- * @param {string} serverUrl - base URL of the sync server (non-empty, R23.17)
+ * @param {string} serverUrl - base URL of the sync server (non-empty)
  * @param {string|null} apiKey - Bearer token, or null for unauthenticated
  * @returns {Promise<{ ok: boolean, reason: ('pass'|'auth'|'unreachable') }>}
  */
@@ -93,7 +91,7 @@ export async function testConnection(serverUrl, apiKey) {
     });
   } catch {
     // Network failure (DNS, refused, offline, CORS, …) — the server could not
-    // be reached at all. Not an auth distinction; report unreachable (R23.2).
+    // be reached at all. Not an auth distinction; report unreachable.
     return { ok: false, reason: 'unreachable' };
   }
 
@@ -107,19 +105,19 @@ export async function testConnection(serverUrl, apiKey) {
 
   // Reachable but the request did not succeed (e.g. 404/500). Treat as
   // unreachable for the purpose of enabling Auto-Sync — the settings are not
-  // confirmed working, and this is not an auth-credential problem (R23.2).
+  // confirmed working, and this is not an auth-credential problem.
   return { ok: false, reason: 'unreachable' };
 }
 
 /**
  * Compute a stable, deterministic fingerprint of the server settings a
  * Connection_Test was taken against, so a later change to the endpoint or API
- * key invalidates a prior passing test (Requirement 23.3).
+ * key invalidates a prior passing test.
  *
  * Computed over the endpoint and the PLAINTEXT `apiKey` held in memory — never
  * the at-rest encrypted envelope — so re-encrypting or re-deriving the stored
  * secret across restarts does not change the fingerprint and therefore does not
- * spuriously invalidate a still-valid test (Requirement 23.3). The result is the
+ * spuriously invalidate a still-valid test. The result is the
  * canonical JSON of the `{ serverUrl, apiKey }` projection: two settings that
  * differ in either field yield different fingerprints, identical settings yield
  * byte-identical fingerprints, and there is no collision risk (the fingerprint

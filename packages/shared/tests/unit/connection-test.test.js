@@ -1,13 +1,11 @@
 /**
  * connection-test.test.js — Unit tests for the Connection_Test helper and the
- * Auto-Sync settings fingerprint (task 24.1).
+ * Auto-Sync settings fingerprint.
  *
  * Covers `testConnection` (the GET /projects probe classified as
  * pass/auth/unreachable) with a mocked fetch, and `settingsFingerprint` (the
  * stable, plaintext-key fingerprint that invalidates a passing test when the
  * endpoint or API key changes).
- *
- * Validates: Requirements 16.5, 23.2, 23.3, 23.17
  *
  * This file is part of Docent.
  * Licensed under the GNU General Public License v3.0
@@ -60,9 +58,9 @@ afterEach(() => {
   globalThis.fetch = originalFetch;
 });
 
-// ─── testConnection — request shape (R16.5, R23.17) ──────────────────────────
+// ─── testConnection — request shape ──────────────────────────
 
-describe('testConnection request shape (R16.5, R23.17)', () => {
+describe('testConnection request shape', () => {
   it('issues a single GET to the existing /projects endpoint', async () => {
     mockFetch(() => makeResponse(200, []));
 
@@ -97,7 +95,7 @@ describe('testConnection request shape (R16.5, R23.17)', () => {
     assert.equal(fetchCalls[0].options.headers.Authorization, undefined);
   });
 
-  it('reuses the configured endpoint verbatim (assumes non-empty serverUrl, R23.17)', async () => {
+  it('reuses the configured endpoint verbatim (assumes non-empty serverUrl)', async () => {
     mockFetch(() => makeResponse(200, []));
 
     await testConnection('https://srv.test/base', null);
@@ -106,9 +104,9 @@ describe('testConnection request shape (R16.5, R23.17)', () => {
   });
 });
 
-// ─── testConnection — outcome classification (R16.5, R23.2) ──────────────────
+// ─── testConnection — outcome classification ──────────────────
 
-describe('testConnection outcome classification (R16.5, R23.2)', () => {
+describe('testConnection outcome classification', () => {
   it('classifies a 200 OK as pass', async () => {
     mockFetch(() => makeResponse(200, []));
 
@@ -166,9 +164,9 @@ describe('testConnection outcome classification (R16.5, R23.2)', () => {
   });
 });
 
-// ─── settingsFingerprint — determinism & sensitivity (R23.3) ─────────────────
+// ─── settingsFingerprint — determinism & sensitivity ─────────────────
 
-describe('settingsFingerprint determinism and sensitivity (R23.3)', () => {
+describe('settingsFingerprint determinism and sensitivity', () => {
   it('is deterministic for identical settings', () => {
     const a = settingsFingerprint('https://srv.test', 'key-1');
     const b = settingsFingerprint('https://srv.test', 'key-1');

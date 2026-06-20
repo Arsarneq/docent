@@ -12,7 +12,6 @@
  * payload completes without error. Size/scale is the variable under test, not
  * elapsed time.
  *
- * Validates: #94 acceptance criteria (functional half).
  */
 
 import { describe, it, beforeEach, afterEach } from 'node:test';

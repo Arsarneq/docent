@@ -1,23 +1,23 @@
-// sync_http.rs — Native HTTP transport for sync / dispatch / connection-test (S20).
+// sync_http.rs — Native HTTP transport for sync / dispatch / connection-test.
 //
 // The desktop frontend cannot reach a sync/dispatch server through the webview's
 // `fetch`: the request is cross-origin and the server (the reference server, and
 // any correctly-scoped adopter backend) emits no CORS headers, so WebView2 /
 // WebKitGTK discard the response and the client reports "could not reach the
 // server". Issuing the request HERE, from Rust, removes CORS from the path
-// entirely — identically on Windows and Linux. See SECURITY_BACKLOG S20.
+// entirely — identically on Windows and Linux.
 //
 // This is the SINGLE outbound-HTTP chokepoint exposed to the frontend (the
 // `sync_http_request` command). It is deliberately a narrow, purpose-built
 // command rather than the general `tauri-plugin-http` `fetch` granted to JS, so
 // the only outbound primitive the webview can reach is this one, which:
-//   - enforces the same transport policy as the CSP `connect-src` and S11:
+//   - enforces the same transport policy as the CSP `connect-src`:
 //     `https://` to any host, plaintext `http://` only to loopback, and never a
 //     link-local / cloud-metadata address (169.254.0.0/16); and
 //   - applies its own request timeout (the webview `signal` is not plumbed
 //     through `invoke`, so the timeout lives here).
 //
-// Paired with `withGlobalTauri: false` (S13): this primitive is reachable only
+// Paired with `withGlobalTauri: false`: this primitive is reachable only
 // via an explicit ESM `invoke('sync_http_request', …)`, not a `window.__TAURI__`
 // global an injected script could trivially grab.
 
@@ -62,13 +62,13 @@ fn is_loopback_host(host: &str) -> bool {
 }
 
 /// True for the IPv4 link-local / cloud-metadata range 169.254.0.0/16 — never a
-/// legitimate sync/dispatch target, and a classic SSRF pivot (S11).
+/// legitimate sync/dispatch target, and a classic SSRF pivot.
 fn is_link_local_host(host: &str) -> bool {
     matches!(unbracket(host).parse::<IpAddr>(), Ok(IpAddr::V4(v4)) if v4.is_link_local())
 }
 
 /// Validate and parse a sync/dispatch target URL, enforcing the same transport
-/// policy as the webview `connect-src` CSP and S11. Returns the parsed URL on
+/// policy as the webview `connect-src` CSP. Returns the parsed URL on
 /// success, or an actionable error string. This is the security-critical core
 /// and is unit-tested directly.
 ///
@@ -91,8 +91,9 @@ pub fn validate_sync_url(url: &str) -> Result<reqwest::Url, String> {
         .ok_or_else(|| "Sync server URL must have a host".to_string())?;
 
     if is_link_local_host(host) {
-        return Err("Sync server URL must not target a link-local address (169.254.0.0/16)"
-            .to_string());
+        return Err(
+            "Sync server URL must not target a link-local address (169.254.0.0/16)".to_string(),
+        );
     }
 
     if scheme == "http" && !is_loopback_host(host) {
@@ -159,7 +160,7 @@ async fn sync_http_request_impl(
 }
 
 /// Issue a native HTTP request on behalf of the shared sync / dispatch /
-/// connection-test code (S20). The frontend transport adapter calls this via
+/// connection-test code. The frontend transport adapter calls this via
 /// `invoke('sync_http_request', { method, url, headers, body })` and adapts the
 /// result back into a `fetch`-shaped response.
 #[tauri::command]

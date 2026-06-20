@@ -4,7 +4,6 @@
  * Tests pushProjects, pullProjects, and sync functions with mocked fetch.
  * Uses Node.js built-in test runner and fast-check for property-based tests.
  *
- * Validates: Requirements R2, R3, R7, R8, R9
  */
 
 import { describe, it, beforeEach, afterEach } from 'node:test';
@@ -101,7 +100,6 @@ describe('pushProjects', () => {
 
   /**
    * Property-based test: pushProjects payload matches Full_Project_Payload shape.
-   * Validates: Requirements R2
    */
   it('payload matches Full_Project_Payload shape (property-based)', async () => {
     await fc.assert(
@@ -608,7 +606,7 @@ describe('sync', () => {
 
     await sync('https://srv.test', null, localProjects, STUB_SCHEMA, passValidator);
 
-    // Pull-first order (R20.1): the GET /projects manifest and per-project pull
+    // Pull-first order: the GET /projects manifest and per-project pull
     // GET come first; the PUT (push) runs only after pull + reconcile complete.
     assert.equal(fetchCalls[0].options.method, 'GET');
     assert.ok(fetchCalls[0].url.endsWith('/projects'));
@@ -772,7 +770,7 @@ describe('sync', () => {
   });
 });
 
-// ─── sync — schema-mismatch handling (follow-up to S12) ───────────────────────
+// ─── sync — schema-mismatch handling ───────────────────────
 
 describe('sync — pull stamp mismatch handling', () => {
   // The local client's stamp comes from STUB_SCHEMA: platform "stub",

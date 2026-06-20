@@ -2,7 +2,7 @@
  * revision-r1-scenarios.test.js — Concrete, hand-built example scenarios that
  * drive the FULL `sync()` (pull → reconcile → per-unit push) and the user-gated
  * resolution workflow across MULTIPLE cycles, pinning the three timing/round-trip
- * behaviors that the pull-first reorder (Revision R1) enables. Where the sibling
+ * behaviors that the pull-first reorder enables. Where the sibling
  * PROPERTY tests pin universal invariants over randomized inputs, this file pins
  * the exact multi-cycle storylines from the design's "Unit / example tests":
  *
@@ -10,21 +10,19 @@
  *      baseline, local moved) is pushed on this cycle WITHOUT advancing the
  *      baseline; a following cycle with the server now equal classifies the Unit
  *      `already-converged` and advances the baseline to the agreed state (the
- *      routine round-trip the pull-first order enables) (R2.5, R21.1, R20.5,
- *      R1.2, R1.3).
+ *      routine round-trip the pull-first order enables).
  *
  *   2. **resolve → next-cycle** — resolving a Conflict (keep-local / merge)
  *      issues NO push during the resolution action; the resolved state then
  *      propagates on the NEXT pull-first cycle as `changed-local-outgoing` and is
- *      pushed (R20.5). In the concurrent variant, when the server moved AGAIN
+ *      pushed. In the concurrent variant, when the server moved AGAIN
  *      before that next cycle's pull, the resolved Unit re-classifies as a FRESH
- *      Conflict rather than overwriting the other client's change (R18.3).
+ *      Conflict rather than overwriting the other client's change.
  *
  *   3. **decline re-offer suppression** — declining a `changed-incoming` Review
  *      records the dismissed incoming version, so a later cycle that re-pulls the
  *      SAME incoming version does NOT re-offer it; a later cycle that pulls a
- *      DIFFERENT incoming version classifies it afresh and offers a new Review
- *      (R4.9, R4.10).
+ *      DIFFERENT incoming version classifies it afresh and offers a new Review.
  *
  * The cycles share ONE persistent in-memory `SyncStore` (so baselines, reviews,
  * conflicts, and dismissals carry across cycles exactly as on a real client) and
@@ -38,8 +36,6 @@
  * `makeStore` / `makeLiveState` / `passValidator`) and uses the Node.js built-in
  * test runner (`node --test`). These are concrete example tests, so fast-check is
  * not used.
- *
- * **Validates: Requirements 2.5, 4.9, 4.10, 18.3, 20.5, 21.1**
  *
  * This file is part of Docent.
  * Licensed under the GNU General Public License v3.0
@@ -221,9 +217,9 @@ function findRec(project, recording_id) {
   return (project.recordings ?? []).find((r) => r && r.recording_id === recording_id);
 }
 
-// ─── Scenario 1: changed-local-outgoing convergence (R2.5, R21.1, R20.5) ──────
+// ─── Scenario 1: changed-local-outgoing convergence ──────
 
-describe('Revision R1 example: changed-local-outgoing convergence round-trip', () => {
+describe('pull-first example: changed-local-outgoing convergence round-trip', () => {
   const PID = '018f4e2a-0000-7000-8000-0000000000c1';
   const RID = 'rec-clo';
   const STEPS = [step('s1', 'a', 0)];
@@ -262,7 +258,7 @@ describe('Revision R1 example: changed-local-outgoing convergence round-trip', (
     assert.deepEqual(cycle1.result.review, [], 'a one-sided local change is never a Review');
     assert.deepEqual(cycle1.result.autoAppliedUpdates, []);
 
-    // The local edit reaches the wire automatically (R21.1, R20.2)…
+    // The local edit reaches the wire automatically…
     const puts1 = capturedPuts();
     assert.equal(puts1.length, 1, 'the project with a local edit is pushed');
     assert.equal(
@@ -271,7 +267,7 @@ describe('Revision R1 example: changed-local-outgoing convergence round-trip', (
       'the changed-local-outgoing edit is pushed at the local version',
     );
 
-    // …but the push does NOT advance the baseline (R1.2, R21.2): it still equals
+    // …but the push does NOT advance the baseline: it still equals
     // the seeded agreed state, so agreement is not yet recorded.
     assert.equal(
       getBaseline(store.getState(), PID).digest,
@@ -301,7 +297,7 @@ describe('Revision R1 example: changed-local-outgoing convergence round-trip', (
     assert.deepEqual(cycle2.result.review, []);
 
     // The baseline now equals the agreed (converged) state — the round-trip the
-    // pull-first ordering enables (R1.3, R2.5).
+    // pull-first ordering enables.
     const convergedDigest = digestProject(
       projectProjection(proj(PID, 'P', [rec(RID, 'edited', STEPS)])),
     );
@@ -318,9 +314,9 @@ describe('Revision R1 example: changed-local-outgoing convergence round-trip', (
   });
 });
 
-// ─── Scenario 2: resolve → next-cycle (R20.5, R18.3) ──────────────────────────
+// ─── Scenario 2: resolve → next-cycle ──────────────────────────
 
-describe('Revision R1 example: resolve a Conflict, then the resolved state propagates next cycle', () => {
+describe('pull-first example: resolve a Conflict, then the resolved state propagates next cycle', () => {
   const PID = '018f4e2a-0000-7000-8000-0000000000c2';
   const RID = 'rec-div';
   const unitRef = `${PID}:${RID}`;
@@ -330,13 +326,13 @@ describe('Revision R1 example: resolve a Conflict, then the resolved state propa
   const LOCAL_STEPS = [step('s1', 'a', 0), step('s2', 'b', 1)];
   const SERVER_STEPS = [step('s1', 'a', 0), step('s3', 'c', 1)];
   // The user's chosen merge resolution: the explicit append-only superset of both
-  // sides (retains s1, s2, s3) — accepted by resolveConflict (R11.1).
+  // sides (retains s1, s2, s3) — accepted by resolveConflict.
   const MERGED_STEPS = [step('s1', 'a', 0), step('s2', 'b', 1), step('s3', 'c', 1)];
 
   /**
    * Drive cycle 1 (which detects the divergence as a Conflict) and then resolve
    * it with the keep-local / merge resolution, asserting that the resolution
-   * action issues NO push (R20.5). Returns the live store, the post-resolution
+   * action issues NO push. Returns the live store, the post-resolution
    * local projects, and the resolved-against incoming digest for later checks.
    */
   async function detectAndResolve() {
@@ -374,20 +370,20 @@ describe('Revision R1 example: resolve a Conflict, then the resolved state propa
     );
     assert.deepEqual(cycle1.result.review, []);
     // The conflicted recording re-sends the agreed-or-pulled (server) version,
-    // never its local edits (R20.2). With a single recording and converged
+    // never its local edits. With a single recording and converged
     // metadata, the whole assembled payload equals the server, so the project is
-    // SKIPPED — nothing to write (R20.4). A skip is the strongest form of "the
+    // SKIPPED — nothing to write. A skip is the strongest form of "the
     // local edits never reach the wire".
     const puts1 = capturedPuts();
     assert.equal(
       puts1.length,
       0,
-      'the diverged project re-sends only the server state and is skipped (R20.4)',
+      'the diverged project re-sends only the server state and is skipped',
     );
 
     // Resolve through the workflow exactly as a panel would: load → resolve →
     // persist. Reset the captured calls FIRST, so the assertion that resolution
-    // issues no push (R20.5) is exercised against an empty log.
+    // issues no push is exercised against an empty log.
     fetchCalls = [];
     const state = await loadSyncState(store);
     const resolvedRec = rec(RID, 'merged', MERGED_STEPS);
@@ -398,11 +394,11 @@ describe('Revision R1 example: resolve a Conflict, then the resolved state propa
     assert.equal(resolution.reason, null);
     await saveSyncState(store, state);
 
-    // ── R20.5 — the resolve action issues NO push (and no fetch at all). ──
+    // ── the resolve action issues NO push (and no fetch at all). ──
     assert.equal(fetchCalls.length, 0, 'resolution performs no transport — it pushes nothing');
 
     // The baseline advanced PER-UNIT to the resolved-against incoming version
-    // (the server's 'div-server'), not to the adopted merged state (R1.4, R1.9).
+    // (the server's 'div-server'), not to the adopted merged state.
     const resolvedAgainstDigest = digestRecording(
       recordingProjection(rec(RID, 'div-server', SERVER_STEPS)),
     );
@@ -423,7 +419,7 @@ describe('Revision R1 example: resolve a Conflict, then the resolved state propa
 
     // Cycle 2: the server is UNCHANGED since resolution (still 'div-server'). The
     // resolved-against baseline == incoming, while the merged local differs →
-    // changed-local-outgoing → the resolved state is pushed (R20.5).
+    // changed-local-outgoing → the resolved state is pushed.
     installMockFetch(
       [{ project_id: PID, name: 'P' }],
       new Map([[PID, buildPayload(proj(PID, 'P', [rec(RID, 'div-server', SERVER_STEPS)]))]]),
@@ -453,14 +449,14 @@ describe('Revision R1 example: resolve a Conflict, then the resolved state propa
     );
   });
 
-  it('produces a FRESH Conflict on the next cycle when the server moved again concurrently (R18.3)', async () => {
+  it('produces a FRESH Conflict on the next cycle when the server moved again concurrently', async () => {
     const { store, resolvedProjects } = await detectAndResolve();
 
     // Cycle 2 (concurrent variant): a DIFFERENT client moved the server again to
     // 'div-server-2' before this client's next push. The resolved-against
     // baseline ('div-server') now differs from BOTH the merged local and the new
     // incoming version → the unit re-classifies as diverged, surfacing the other
-    // client's change as a fresh Conflict rather than overwriting it (R18.3).
+    // client's change as a fresh Conflict rather than overwriting it.
     const SERVER2_STEPS = [step('s1', 'a', 0), step('s4', 'd', 1)];
     installMockFetch(
       [{ project_id: PID, name: 'P' }],
@@ -480,7 +476,7 @@ describe('Revision R1 example: resolve a Conflict, then the resolved state propa
     assert.deepEqual(
       cycle2.result.conflicts,
       [unitRef],
-      'the concurrent server change is re-detected as a fresh Conflict (R18.3)',
+      'the concurrent server change is re-detected as a fresh Conflict',
     );
     assert.deepEqual(cycle2.result.review, []);
 
@@ -504,9 +500,9 @@ describe('Revision R1 example: resolve a Conflict, then the resolved state propa
   });
 });
 
-// ─── Scenario 3: decline re-offer suppression (R4.9, R4.10) ───────────────────
+// ─── Scenario 3: decline re-offer suppression ───────────────────
 
-describe('Revision R1 example: a declined incoming version is not re-offered, a different one is', () => {
+describe('pull-first example: a declined incoming version is not re-offered, a different one is', () => {
   const PID = '018f4e2a-0000-7000-8000-0000000000c3';
   const RID = 'rec-ci';
   const unitRef = `${PID}:${RID}`;
@@ -549,7 +545,7 @@ describe('Revision R1 example: a declined incoming version is not re-offered, a 
     assert.ok(store.getState().reviews[unitRef], 'a Review item exists for the unit');
 
     // Decline the Review the way a panel does: load → decline → persist. The
-    // declined incoming version (v2) is recorded as dismissed (R4.9); local is
+    // declined incoming version (v2) is recorded as dismissed; local is
     // left unchanged and nothing is pushed.
     const stateAfterDecline = await loadSyncState(store);
     const decline = declineReview(stateAfterDecline, cycle1.projects, unitRef);
@@ -562,7 +558,7 @@ describe('Revision R1 example: a declined incoming version is not re-offered, a 
     );
 
     // ── Cycle 2: the server still serves the SAME v2 → the dismissal suppresses
-    //    it: no Review is re-offered, local + baseline untouched (R4.9). ──
+    //    it: no Review is re-offered, local + baseline untouched. ──
     installMockFetch(
       [{ project_id: PID, name: 'P' }],
       new Map([[PID, buildPayload(proj(PID, 'P', [rec(RID, 'v2', V2_STEPS)]))]]),
@@ -580,7 +576,7 @@ describe('Revision R1 example: a declined incoming version is not re-offered, a 
     assert.deepEqual(
       cycle2.result.review,
       [],
-      'the same declined incoming version is NOT re-offered (R4.9)',
+      'the same declined incoming version is NOT re-offered',
     );
     assert.deepEqual(cycle2.result.conflicts, []);
     assert.ok(
@@ -594,8 +590,8 @@ describe('Revision R1 example: a declined incoming version is not re-offered, a 
     );
 
     // ── Cycle 3: the server now serves a DIFFERENT version v3 → the dismissal no
-    //    longer matches → the unit is classified afresh and offered for Review
-    //    (R4.10). ──
+    //    longer matches → the unit is classified afresh and offered for Review.
+    // ──
     installMockFetch(
       [{ project_id: PID, name: 'P' }],
       new Map([[PID, buildPayload(proj(PID, 'P', [rec(RID, 'v3', V3_STEPS)]))]]),
@@ -613,7 +609,7 @@ describe('Revision R1 example: a declined incoming version is not re-offered, a 
     assert.deepEqual(
       cycle3.result.review,
       [unitRef],
-      'a DIFFERENT incoming version is classified afresh and offered (R4.10)',
+      'a DIFFERENT incoming version is classified afresh and offered',
     );
     assert.deepEqual(cycle3.result.conflicts, []);
     const review = store.getState().reviews[unitRef];

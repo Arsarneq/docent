@@ -7,12 +7,12 @@
  * `sync-digest.js`). Any top-level field the server returns that is not on that
  * allowlist — `last_modified` today, or a future optional concurrency-control
  * token — must be dropped before hashing, so it can never shift content identity
- * and break clients built against this contract (Requirement 18.3).
+ * and break clients built against this contract.
  *
  * Uses Node.js built-in test runner + fast-check.
  */
 
-// Feature: sync-conflict-resolution, Property 32: Unrecognized server fields do not affect behavior
+// Unrecognized server fields do not affect behavior
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
@@ -20,7 +20,7 @@ import fc from 'fast-check';
 import { digestProject, digestRecording } from '../../sync-digest.js';
 
 // The explicit field allowlists the digest projects over. Any top-level field
-// NOT in these sets must be dropped before hashing (Requirement 18.3).
+// NOT in these sets must be dropped before hashing.
 const RECORDING_ALLOWLIST = new Set(['recording_id', 'name', 'created_at', 'metadata', 'steps']);
 const PROJECT_ALLOWLIST = new Set(['project_id', 'name', 'created_at', 'metadata', 'recordings']);
 
@@ -93,9 +93,7 @@ function arbServerExtraFields(allowlist) {
     });
 }
 
-// ─── Property 32 ───────────────────────────────────────────────────────────────
-
-describe('Property 32: Unrecognized server fields do not affect behavior', () => {
+describe('Unrecognized server fields do not affect behavior', () => {
   it('augmenting a recording with arbitrary unrecognized top-level fields does not change its digest', () => {
     fc.assert(
       fc.property(arbRecording, arbServerExtraFields(RECORDING_ALLOWLIST), (recording, extra) => {

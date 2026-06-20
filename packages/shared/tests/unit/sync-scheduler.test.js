@@ -1,10 +1,10 @@
 /**
  * sync-scheduler.test.js — Unit tests for the shared cooldown-debounced
- * Auto-Sync scheduler (Requirement 23: R23.7, R23.8, R23.9, R23.13, R23.14).
+ * Auto-Sync scheduler.
  *
  * Uses an injectable clock and deferred cycle promises so coalescing and the
  * never-overlap guarantee can be exercised deterministically without real timers.
- * (Property 41 in task 24.3 covers the trigger behavior exhaustively; these are
+ * (the sibling property test covers the trigger behavior exhaustively; these are
  * focused example/edge-case checks of the scheduler's coalescing state machine.)
  */
 
@@ -78,7 +78,7 @@ describe('createSyncScheduler', () => {
     assert.throws(() => sched.start(null), TypeError);
   });
 
-  it('dispatches a cycle on the first trigger after start (R23.7)', () => {
+  it('dispatches a cycle on the first trigger after start', () => {
     const clock = fakeClock();
     const { runCycle, count } = makeCycleRunner();
     const sched = createSyncScheduler({ cooldownMs: 5000, now: clock.now });
@@ -89,7 +89,7 @@ describe('createSyncScheduler', () => {
     assert.equal(sched.isRunning(), true);
   });
 
-  it('coalesces triggers fired during an in-flight cycle into one follow-up (R23.14)', async () => {
+  it('coalesces triggers fired during an in-flight cycle into one follow-up', async () => {
     const clock = fakeClock();
     const runner = makeCycleRunner();
     const sched = createSyncScheduler({ cooldownMs: 5000, now: clock.now });
@@ -111,7 +111,7 @@ describe('createSyncScheduler', () => {
     assert.equal(sched.hasPending(), false);
   });
 
-  it('never starts a second concurrent cycle while one is in flight (R23.14)', async () => {
+  it('never starts a second concurrent cycle while one is in flight', async () => {
     const clock = fakeClock();
     const runner = makeCycleRunner();
     const sched = createSyncScheduler({ cooldownMs: 0, now: clock.now });
@@ -126,7 +126,7 @@ describe('createSyncScheduler', () => {
     assert.equal(runner.count(), 2);
   });
 
-  it('defers a trigger inside the cooldown window and runs one cycle per window (R23.8)', async () => {
+  it('defers a trigger inside the cooldown window and runs one cycle per window', async () => {
     const clock = fakeClock();
     const runner = makeCycleRunner();
     const sched = createSyncScheduler({ cooldownMs: 5000, now: clock.now });
@@ -148,7 +148,7 @@ describe('createSyncScheduler', () => {
     assert.equal(runner.count(), 2);
   });
 
-  it('drops triggers while capture is active, never queueing them (R23.9)', () => {
+  it('drops triggers while capture is active, never queueing them', () => {
     const clock = fakeClock();
     const runner = makeCycleRunner();
     let capturing = true;
@@ -170,7 +170,7 @@ describe('createSyncScheduler', () => {
     assert.equal(runner.count(), 1);
   });
 
-  it('survives a throwing cycle and stays enabled to retry (R23.12)', async () => {
+  it('survives a throwing cycle and stays enabled to retry', async () => {
     const clock = fakeClock();
     let calls = 0;
     const runCycle = () => {
@@ -190,7 +190,7 @@ describe('createSyncScheduler', () => {
     assert.equal(calls, 2);
   });
 
-  it('stop clears the pending follow-up and disables further triggers (R23.3, R23.11)', () => {
+  it('stop clears the pending follow-up and disables further triggers', () => {
     const clock = fakeClock();
     const runner = makeCycleRunner();
     const sched = createSyncScheduler({ cooldownMs: 5000, now: clock.now });
@@ -226,7 +226,7 @@ describe('createSyncTrigger', () => {
     assert.throws(() => createSyncTrigger({}), TypeError);
   });
 
-  it('wires platform triggers on start and tears them down on stop (R23.13, R23.3)', () => {
+  it('wires platform triggers on start and tears them down on stop', () => {
     const clock = fakeClock();
     const runner = makeCycleRunner();
     let registered = null;

@@ -6,8 +6,8 @@ import { deriveETag } from '../../etag.js';
 import { StorageProvider } from '../../storage/provider.js';
 
 /**
- * Tests for the `GET /projects/:id` read handler (Requirements 2.1, 2.2, 2.3,
- * 2.4, 6.1). They drive the handler directly with a tiny in-memory
+ * Tests for the `GET /projects/:id` read handler. They drive the handler
+ * directly with a tiny in-memory
  * Storage_Provider and a minimal fake ServerResponse that records the status,
  * headers, and body the handler writes.
  */
@@ -21,7 +21,7 @@ function samplePayload() {
       name: 'Demo Project',
       created_at: '2026-06-04T10:00:00.000Z',
     },
-    // An unrecognized top-level field must survive verbatim (R2.3).
+    // An unrecognized top-level field must survive verbatim.
     unknown_top_level: { keep: 'me' },
     recordings: [
       {
@@ -63,7 +63,7 @@ function fakeResponse() {
   };
 }
 
-describe('readProject — stored project (R2.1, R2.4, R6.1)', () => {
+describe('readProject — stored project', () => {
   it('responds 200 with the verbatim payload as application/json', async () => {
     const payload = samplePayload();
     const storage = new StubProvider({ payload, last_modified: '2026-06-04T10:00:00.000Z' });
@@ -122,7 +122,7 @@ describe('readProject — stored project (R2.1, R2.4, R6.1)', () => {
   });
 });
 
-describe('readProject — not stored (R2.2)', () => {
+describe('readProject — not stored', () => {
   it('responds 404 when the provider returns null', async () => {
     const storage = new StubProvider(null);
     const res = fakeResponse();

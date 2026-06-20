@@ -5,20 +5,20 @@
  * A Review-and-Accept item defers an incoming change to a recording (or project)
  * the user already has, whose local copy was unchanged since the last-agreed
  * Sync_Baseline (`changed-incoming`). The incoming change is NEVER applied during
- * a sync cycle — it is adopted only when the user explicitly accepts it (R4.1).
+ * a sync cycle — it is adopted only when the user explicitly accepts it.
  * `acceptReview` is the single, auditable place that adoption happens.
  *
  * This property pins the post-condition of a successful accept on ANY PENDING
  * Review item, across arbitrary local projects and arbitrary incoming versions,
  * at both granularities (a recording-level item and a project-level item):
  *
- *   - APPLIES the incoming change (R4.5) — the affected unit in the returned
+ *   - APPLIES the incoming change — the affected unit in the returned
  *     projects equals the incoming version: for a recording-level item the named
  *     recording in its project becomes byte-identical to the incoming recording;
  *     for a project-level item the project becomes byte-identical to the incoming
  *     project (replacing a present local copy, or added when none existed).
  *   - ADVANCES the baseline to the **resolved-against incoming version**, PER-UNIT
- *     (R4.6, R1.4, R1.9) — NOT to the adopted local state. A recording-level
+ * — NOT to the adopted local state. A recording-level
  *     accept replaces ONLY the affected recording's entry in the per-project
  *     baseline with the incoming recording, leaving every sibling baseline entry
  *     untouched (so resolving one recording never marks a locally-changed sibling
@@ -27,8 +27,8 @@
  *     project. For an accept the resolved-against version equals the adopted
  *     state, so the Unit reads as already-converged on a subsequent identical
  *     pull.
- *   - MARKS the item APPLIED (R4.7) — the returned item's status is `APPLIED`.
- *   - CLEARS the item (R12.5) — the Unit returns to the NONE state, so a later
+ *   - MARKS the item APPLIED — the returned item's status is `APPLIED`.
+ *   - CLEARS the item — the Unit returns to the NONE state, so a later
  *     cycle processes it normally rather than as a duplicate.
  *
  * It also pins that everything NOT targeted is left untouched: sibling recordings
@@ -39,10 +39,9 @@
  * Uses the Node.js built-in test runner + fast-check (fast-check v4: `fc.uuid()`
  * for ids), mirroring the generator conventions in the sibling property tests.
  *
- * **Validates: Requirements 4.5, 4.6, 4.7, 1.4, 1.9**
  */
 
-// Feature: sync-conflict-resolution, Property 9: Accepting a Review item applies the incoming change, advances baseline to the incoming version, and marks APPLIED
+// Accepting a Review item applies the incoming change, advances baseline to the incoming version, and marks APPLIED
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
@@ -205,7 +204,7 @@ function materializeRaw(scenario) {
     // sibling at a deliberately-distinct agreed version (name suffixed so its
     // digest differs from the local sibling) plus a stale agreed version of the
     // target recording. Proving these sibling entries are UNCHANGED after the
-    // accept is exactly the R1.9 per-unit guarantee — the old whole-project rule
+    // accept is exactly the per-unit guarantee — the old whole-project rule
     // would have overwritten them with the (changed) local siblings.
     let seededBaseline = null;
     let expectedBaselineAgreed;
@@ -300,21 +299,19 @@ function findProject(projects, project_id) {
   return projects.find((p) => p && p.project_id === project_id);
 }
 
-// ─── Property 9 ──────────────────────────────────────────────────────────────
-
-describe('Property 9: Accepting a Review item applies the incoming change, advances baseline to the incoming version, and marks APPLIED', () => {
+describe('Accepting a Review item applies the incoming change, advances baseline to the incoming version, and marks APPLIED', () => {
   it('a successful accept applies the incoming version, advances the baseline per-unit to the incoming version (siblings untouched), marks APPLIED, and clears the item', () => {
     fc.assert(
       fc.property(arbScenario, (scenario) => {
         const m = materialize(scenario);
 
-        // Build a store holding exactly this PENDING Review item (R4.1).
+        // Build a store holding exactly this PENDING Review item.
         const state = createEmptySyncState();
         upsertReview(state, m.unitRef, m.incoming, FIXED_NOW);
 
         // Optionally seed a STALE baseline so we can prove accept advances the
         // baseline PER-UNIT to the resolved-against incoming version, overwriting
-        // only the target entry and leaving sibling entries untouched (R1.9).
+        // only the target entry and leaving sibling entries untouched.
         if (m.seededBaseline) {
           advanceBaseline(state, m.project_id, m.seededBaseline, FIXED_NOW);
         }
@@ -329,17 +326,17 @@ describe('Property 9: Accepting a Review item applies the incoming change, advan
         assert.equal(result.kind, 'review');
         assert.equal(result.reason, null);
 
-        // ── R4.7 — the item is marked APPLIED ──────────────────────────────
+        // ── the item is marked APPLIED ──────────────────────────────
         assert.equal(result.item.status, 'APPLIED', 'accepted item must be APPLIED');
 
-        // ── R12.5 — the item is cleared (Unit returns to NONE) ─────────────
+        // ── the item is cleared (Unit returns to NONE) ─────────────
         assert.equal(
           getItem(state, m.unitRef),
           null,
           'accepted item must be cleared from the store',
         );
 
-        // ── R4.5 — the incoming change is applied to the affected unit ─────
+        // ── the incoming change is applied to the affected unit ─────
         const appliedProject = findProject(result.projects, m.project_id);
         assert.ok(appliedProject, 'the affected project must be present after accept');
 
@@ -348,7 +345,7 @@ describe('Property 9: Accepting a Review item applies the incoming change, advan
             (r) => r.recording_id === m.recording_id,
           );
           assert.ok(appliedRecording, 'the affected recording must be present after accept');
-          // The affected recording equals the incoming version (R4.5).
+          // The affected recording equals the incoming version.
           assert.deepStrictEqual(appliedRecording, m.incoming);
           assert.equal(
             digestRecording(appliedRecording),
@@ -356,7 +353,7 @@ describe('Property 9: Accepting a Review item applies the incoming change, advan
             'affected recording digest must equal the incoming digest',
           );
         } else {
-          // The whole project equals the incoming version (R4.5).
+          // The whole project equals the incoming version.
           assert.deepStrictEqual(appliedProject, m.incoming);
         }
 
@@ -364,7 +361,7 @@ describe('Property 9: Accepting a Review item applies the incoming change, advan
         // adopted state.
         assert.deepStrictEqual(appliedProject, m.expectedAccepted);
 
-        // ── R4.6, R1.4, R1.9 — baseline advanced PER-UNIT to the incoming
+        // ── baseline advanced PER-UNIT to the incoming
         //    (resolved-against) version, NOT to the adopted local state ──────
         const baseline = getBaseline(state, m.project_id);
         assert.ok(baseline, 'baseline must exist after a successful accept');
@@ -384,14 +381,14 @@ describe('Property 9: Accepting a Review item applies the incoming change, advan
         );
 
         if (m.level === 'recording') {
-          // R1.4 — the affected recording's baseline entry is the incoming version.
+          // the affected recording's baseline entry is the incoming version.
           assert.equal(
             getRecordingBaselineDigest(baseline, m.recording_id),
             digestRecording(m.incoming),
             'affected recording baseline entry must equal the incoming version',
           );
 
-          // R1.9 — sibling baseline entries are untouched. When a stale baseline
+          // sibling baseline entries are untouched. When a stale baseline
           // was seeded, each sibling's baseline entry still equals its prior
           // AGREED version (and NOT the changed local version), proving the
           // accept never advanced the whole-project baseline to the local state.
@@ -401,7 +398,7 @@ describe('Property 9: Accepting a Review item applies the incoming change, advan
               assert.equal(
                 getRecordingBaselineDigest(baseline, baselineSibling.recording_id),
                 digestRecording(baselineSibling),
-                'sibling baseline entry must be left untouched (R1.9)',
+                'sibling baseline entry must be left untouched',
               );
             }
           }
@@ -503,7 +500,7 @@ describe('Property 9: Accepting a Review item applies the incoming change, advan
     assert.equal(result.item.status, 'APPLIED');
     assert.equal(getItem(state, 'proj-1:rec-1'), null);
 
-    // R4.5 — the incoming change is applied; the sibling local data is untouched.
+    // the incoming change is applied; the sibling local data is untouched.
     const applied = result.projects[0].recordings.find((r) => r.recording_id === 'rec-1');
     assert.deepStrictEqual(applied, incoming);
     assert.deepStrictEqual(
@@ -512,9 +509,9 @@ describe('Property 9: Accepting a Review item applies the incoming change, advan
     );
 
     const baseline = getBaseline(state, 'proj-1');
-    // R1.4 — the target's baseline entry is advanced to the incoming version.
+    // the target's baseline entry is advanced to the incoming version.
     assert.equal(getRecordingBaselineDigest(baseline, 'rec-1'), digestRecording(incoming));
-    // R1.9 — the sibling's baseline entry is UNCHANGED: still the agreed version,
+    // the sibling's baseline entry is UNCHANGED: still the agreed version,
     // and crucially NOT the locally-edited version. The old whole-project rule
     // would have set it to the local sibling, wrongly marking it agreed.
     assert.equal(
@@ -545,7 +542,7 @@ describe('Property 9: Accepting a Review item applies the incoming change, advan
     assert.deepStrictEqual(findProject(result.projects, 'proj-new'), incoming);
 
     const baseline = getBaseline(state, 'proj-new');
-    // R1.4 — a project-level accept advances the whole project baseline to the
+    // a project-level accept advances the whole project baseline to the
     // resolved-against incoming project.
     assert.deepStrictEqual(baseline.agreedState, incoming);
     assert.equal(baseline.digest, digestProject(incoming));

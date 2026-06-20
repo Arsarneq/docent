@@ -7,32 +7,28 @@
  *
  * `changed-local-outgoing` is the routine one-sided local edit: the LOCAL version
  * moved since the last mutually-agreed Sync_Baseline while the incoming (server)
- * version still EQUALS that baseline (R2.5). It is an AUTOMATIC, non-deferred
+ * version still EQUALS that baseline. It is an AUTOMATIC, non-deferred
  * outcome — never a Review or a Conflict — so its local edit must reach the
  * server on this very cycle, without a prompt and without advancing the baseline
- * (the baseline advances only when a later pull confirms incoming == local,
- * R21.1, R21.2, R21.4).
+ * (the baseline advances only when a later pull confirms incoming == local).
  *
- * Property 36 (design): "For any sync cycle, a Unit classified
+ * (design): "For any sync cycle, a Unit classified
  * `changed-local-outgoing` has its local version included in the push, and no
  * Unit in an unresolved Conflict or pending Review state has its local version
  * pushed; a project with no pushable, deferred, or locked unit requiring a write
  * is not pushed at all."
  *
- * **Validates: Requirements 20.2, 20.4, 21.1, 21.3**
- *
- * ── What this property pins (and how it differs from Property 37) ────────────
- * Property 37 (`per-unit-push-assembly`) pins the COMPLETENESS of the assembled
+ * ── What this property pins (and how it differs from per-unit-push-assembly) ──
+ * (`per-unit-push-assembly`) pins the COMPLETENESS of the assembled
  * payload (no recording present on any side is omitted; no clobber). THIS
- * property pins the OUTBOUND-ELIGIBILITY rule of R20.2/R21.1/R21.3 and the
- * skip-rule of R20.4:
+ * property pins the OUTBOUND-ELIGIBILITY rule and the
+ * skip-rule:
  *
- *   - a `changed-local-outgoing` recording's LOCAL edit reaches the wire (R20.2,
- *     R21.1) — the routine outgoing change is pushed automatically;
+ *   - a `changed-local-outgoing` recording's LOCAL edit reaches the wire — the routine outgoing change is pushed automatically;
  *   - the other versions that reach the wire AS LOCAL are exactly the clean ones:
  *     `already-converged` and clean-local-new (and, by the same baseline rule, a
  *     *resolved* unit on the cycle after resolution, which reads as
- *     `changed-local-outgoing` or `already-converged` — see Property 39);
+ *     `changed-local-outgoing` or `already-converged`);
  *   - a DEFERRED unit (an active Review or Conflict) and a LOCKED recording NEVER
  *     push their un-reconciled local edits — they re-send the agreed-or-pulled
  *     (server) version instead, so the local edit provably does NOT reach the
@@ -40,7 +36,7 @@
  *   - a project that is present locally but has NO unit requiring a write — its
  *     project metadata is itself deferred AND every recording is deferred/locked,
  *     so the whole assembled payload would be a pure re-send of the
- *     agreed-or-pulled server state — is SKIPPED rather than re-sent (R20.4).
+ *     agreed-or-pulled server state — is SKIPPED rather than re-sent.
  *
  * ── How the invariant is driven ─────────────────────────────────────────────
  * The test drives the REAL `sync()` (pull → reconcile → per-unit push) with a
@@ -54,14 +50,14 @@
  *     `already-converged`, clean-local-new, `diverged` (Conflict),
  *     `changed-incoming` (Review, Auto-Accept-Updates OFF), and `locked`
  *     recordings. It MUST be pushed, and each recording's pushed version is
- *     checked against the side R20.2/R21.1 requires;
+ *     checked against the side the eligibility rule requires;
  *   - a NOTHING-TO-WRITE project: project metadata diverges on both sides (a
  *     project-level Conflict) and every recording diverges too (recording-level
  *     Conflicts), so the entire assembled payload is agreed-or-pulled and the
- *     project is SKIPPED (R20.4).
+ *     project is SKIPPED.
  *
  * Version differences are driven by the recording/project `name` (folded into
- * the content digest, R2.8) so each category settles into its intended
+ * the content digest) so each category settles into its intended
  * classification. The settings are left at the documented defaults
  * (Auto-Accept-Updates / Deletions OFF), so a `changed-incoming` recording always
  * defers to Review and is never auto-applied.
@@ -82,7 +78,7 @@
  * See LICENSE in the project root for license information.
  */
 
-// Feature: sync-conflict-resolution, Property 36: Changed-local-outgoing is auto-pushed and only it (plus clean/resolved) reaches the wire
+// Changed-local-outgoing is auto-pushed and only it (plus clean/resolved) reaches the wire
 
 import { describe, it, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
@@ -257,7 +253,7 @@ const arbStep = fc.record({
 /**
  * Outcomes for a recording in a PUSHABLE project. Each maps to a (baseline,
  * local, server) version triple in {@link versionsFor}; steps are shared across
- * versions so only the recording `name` drives the intended classification (R2.8).
+ * versions so only the recording `name` drives the intended classification.
  *   - `changed-local-outgoing` — the property's headline case (push local).
  *   - `already-converged`      — clean: local == server == baseline (push local).
  *   - `clean-local-new`        — local-only new work (push local).
@@ -296,8 +292,8 @@ const arbPushableProjectSpec = fc.record({
 /**
  * A NOTHING-TO-WRITE project: its project metadata diverges on both sides AND
  * every recording diverges, so the whole assembled payload is a pure
- * agreed-or-pulled re-send (`writeNeeded === false`) and the project is skipped
- * (R20.4). 1..2 diverged recordings.
+ * agreed-or-pulled re-send (`writeNeeded === false`) and the project is skipped.
+ * 1..2 diverged recordings.
  */
 const arbNothingProjectSpec = fc.record({
   project_id: fc.uuid({ version: 7 }),
@@ -396,7 +392,7 @@ function versionsFor(outcome, rid, steps) {
  * (so the project-metadata Unit is always converged and local-carrying ⇒ the
  * project always has something to write). Nothing-to-write projects make the
  * project metadata AND every recording diverge, so the whole assembled payload is
- * agreed-or-pulled and the project is skipped (R20.4).
+ * agreed-or-pulled and the project is skipped.
  */
 function materialize(scenario) {
   const seed = createEmptySyncState();
@@ -564,9 +560,7 @@ function materialize(scenario) {
   };
 }
 
-// ─── Property 36 ──────────────────────────────────────────────────────────────
-
-describe('Property 36: Changed-local-outgoing is auto-pushed and only it (plus clean/resolved) reaches the wire', () => {
+describe('Changed-local-outgoing is auto-pushed and only it (plus clean/resolved) reaches the wire', () => {
   it('pushes changed-local-outgoing (and clean) units at the local version, never pushes a deferred/locked unit at its local edits, and skips a nothing-to-write project', async () => {
     await fc.assert(
       fc.asyncProperty(arbScenario, async (scenario) => {
@@ -606,17 +600,17 @@ describe('Property 36: Changed-local-outgoing is auto-pushed and only it (plus c
           putByProjectId.set(put.body.project.project_id, put.body);
         }
 
-        // ── R20.4 — exactly the pushable projects reach the wire; every
+        // ── exactly the pushable projects reach the wire; every
         //    nothing-to-write project is skipped. ──
         const pushedIds = new Set(putByProjectId.keys());
         assert.deepEqual(
           pushedIds,
           pushableIds,
-          'exactly the pushable projects are pushed (nothing-to-write projects skipped, R20.4)',
+          'exactly the pushable projects are pushed (nothing-to-write projects skipped)',
         );
         assert.equal(puts.length, pushableIds.size, 'exactly one PUT per pushable project');
         for (const nid of nothingIds) {
-          assert.ok(!pushedIds.has(nid), `nothing-to-write project ${nid} is not pushed (R20.4)`);
+          assert.ok(!pushedIds.has(nid), `nothing-to-write project ${nid} is not pushed`);
         }
 
         // ── Deferral sanity: the units we expect deferred ARE reported as
@@ -639,7 +633,7 @@ describe('Property 36: Changed-local-outgoing is auto-pushed and only it (plus c
         );
 
         // ── Per-pushable-project: each recording reaches the wire at the side
-        //    R20.2/R21.1 requires; a deferred/locked unit never pushes local. ──
+        //    the eligibility rule requires; a deferred/locked unit never pushes local. ──
         for (const [pid, recExpect] of pushableExpect) {
           const body = putByProjectId.get(pid);
           assert.ok(body, `pushable project ${pid} was pushed`);
@@ -660,13 +654,13 @@ describe('Property 36: Changed-local-outgoing is auto-pushed and only it (plus c
               `recording ${rid} (${exp.outcome}) pushed at the ${exp.expectKind} version`,
             );
 
-            // The teeth of R20.2 / Property 36: a deferred or locked unit NEVER
+            // The teeth of the rule: a deferred or locked unit NEVER
             // pushes its un-reconciled local edits over the server's copy.
             if (exp.deferredOrLocked && exp.localKey !== null) {
               assert.notEqual(
                 pushedKey,
                 exp.localKey,
-                `deferred/locked recording ${rid} (${exp.outcome}) must NOT push its local edits (R20.2)`,
+                `deferred/locked recording ${rid} (${exp.outcome}) must NOT push its local edits`,
               );
             }
           }
@@ -678,7 +672,7 @@ describe('Property 36: Changed-local-outgoing is auto-pushed and only it (plus c
 
   // ── Deterministic regression examples ────────────────────────────────────
 
-  it('a changed-local-outgoing recording is auto-pushed at the local version (R21.1, R20.2)', async () => {
+  it('a changed-local-outgoing recording is auto-pushed at the local version', async () => {
     const pid = '018f4e2a-0000-7000-8000-000000000101';
     const rid = 'rec-clo';
     const steps = [{ uuid: 's1', logical_id: 'a', step_number: 0, deleted: false }];
@@ -734,7 +728,7 @@ describe('Property 36: Changed-local-outgoing is auto-pushed and only it (plus c
     const puts = capturedPuts();
     assert.equal(puts.length, 1, 'the project is pushed (it has a local edit to write)');
     const pushed = puts[0].body.recordings.find((r) => r.recording_id === rid);
-    assert.equal(pushed.name, 'edited', 'the local edit reaches the wire (R20.2, R21.1)');
+    assert.equal(pushed.name, 'edited', 'the local edit reaches the wire');
   });
 
   it('in one project, the changed-local-outgoing sibling pushes local while the Conflict sibling re-sends the server version', async () => {
@@ -799,11 +793,7 @@ describe('Property 36: Changed-local-outgoing is auto-pushed and only it (plus c
     assert.equal(puts.length, 1);
     const pushedClo = puts[0].body.recordings.find((r) => r.recording_id === clo);
     const pushedDiv = puts[0].body.recordings.find((r) => r.recording_id === div);
-    assert.equal(
-      pushedClo.name,
-      'clo-local',
-      'the changed-local-outgoing edit reaches the wire (R20.2)',
-    );
+    assert.equal(pushedClo.name, 'clo-local', 'the changed-local-outgoing edit reaches the wire');
     assert.equal(pushedDiv.name, 'div-server', 'the Conflict sibling re-sends the server version');
     assert.notEqual(
       pushedDiv.name,
@@ -812,7 +802,7 @@ describe('Property 36: Changed-local-outgoing is auto-pushed and only it (plus c
     );
   });
 
-  it('a project whose metadata and every recording diverge is skipped, while a pushable project alongside it is pushed (R20.4)', async () => {
+  it('a project whose metadata and every recording diverge is skipped, while a pushable project alongside it is pushed', async () => {
     const skip = '018f4e2a-0000-7000-8000-000000000201';
     const push = '018f4e2a-0000-7000-8000-000000000202';
     const skipRec = 'rec-skip';
@@ -900,7 +890,7 @@ describe('Property 36: Changed-local-outgoing is auto-pushed and only it (plus c
     assert.deepEqual(
       pushedIds,
       new Set([push]),
-      'only the pushable project is pushed; the all-deferred project is skipped (R20.4)',
+      'only the pushable project is pushed; the all-deferred project is skipped',
     );
     const pushed = puts.find((p) => p.body.project.project_id === push);
     assert.equal(

@@ -346,7 +346,7 @@
   panel.js renders the Review accept/decline view or the Conflict
   local-vs-incoming chooser into #sync-workflow-body and wires the
   [data-action] controls. Used identically by the extension and desktop
-  panels (R12, R17.2).
+  panels.
 -->
 <section id="view-sync-workflow" class="view hidden">
   <div class="view-back-header">
@@ -532,7 +532,7 @@
   </div>
 
   <!--
-    Reconciliation-policy settings (R22). Two independent, client-local toggles
+    Reconciliation-policy settings. Two independent, client-local toggles
     that move safe-but-incoming reconciliation from "held for review" to
     "applied automatically" without ever auto-resolving a divergence. Both
     default OFF; values are per-client and never sent to the Sync_Server.
@@ -554,10 +554,10 @@
   </div>
 
   <!--
-    Auto-Sync settings (R23). Auto-Sync only changes *what triggers* a cycle.
+    Auto-Sync settings. Auto-Sync only changes *what triggers* a cycle.
     It can be enabled ONLY after a Connection_Test passes for the current server
-    settings (R23.2); changing the endpoint/API key invalidates the test and
-    forces it off until a fresh test passes (R23.3). While active, the manual
+    settings; changing the endpoint/API key invalidates the test and
+    forces it off until a fresh test passes. While active, the manual
     Sync button is hidden and an "Auto-sync active" indicator is shown.
   -->
   <div class="settings-group" id="settings-auto-sync">

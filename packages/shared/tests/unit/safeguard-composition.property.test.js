@@ -7,14 +7,14 @@
  * The pull path layers two pre-existing safeguards in front of acceptance:
  *   1. **Stamp compatibility** — a pulled payload whose `docent_format` does not
  *      match this client's platform/schema version is skipped as a COMPATIBILITY
- *      issue and recorded in `mismatched` (R14.1). It is never a failure and
+ *      issue and recorded in `mismatched`. It is never a failure and
  *      never a Conflict.
  *   2. **Schema validation** — a stamp-compatible payload that fails the platform
- *      validator is reported as an ERROR in `errors` (R14.2). It is never a
+ *      validator is reported as an ERROR in `errors`. It is never a
  *      Conflict either.
  * Per-project errors are also isolated: a non-authentication failure for one
  * project (a network error or a non-401/403 HTTP status) does not stop the rest
- * of the cycle — the remaining projects are still processed (R14.6).
+ * of the cycle — the remaining projects are still processed.
  *
  * This property pins that the three safeguards COMPOSE over a large, mixed input
  * space. For ANY manifest mixing stamp-incompatible, schema-invalid, valid, and
@@ -44,14 +44,12 @@
  * Uses the Node.js built-in test runner + fast-check (fast-check v4:
  * `fc.uuid({ version: 7 })` supplies ids that pass the manifest's UUIDv7 guard).
  *
- * **Validates: Requirements 14.1, 14.2, 14.6**
- *
  * This file is part of Docent.
  * Licensed under the GNU General Public License v3.0
  * See LICENSE in the project root for license information.
  */
 
-// Feature: sync-conflict-resolution, Property 26: Existing safeguards compose without becoming conflicts
+// Existing safeguards compose without becoming conflicts
 
 import { describe, it, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
@@ -215,9 +213,7 @@ function materialize(specs) {
   return { manifest, byId, schemaInvalidIds, nameOf };
 }
 
-// ─── Property 26 ──────────────────────────────────────────────────────────────
-
-describe('Property 26: Existing safeguards compose without becoming conflicts', () => {
+describe('Existing safeguards compose without becoming conflicts', () => {
   it('stamp-incompatible → mismatched, schema-invalid/non-auth → errors, none ever a conflict; valid projects still processed', async () => {
     await fc.assert(
       fc.asyncProperty(arbScenario, async (specs) => {
@@ -240,7 +236,7 @@ describe('Property 26: Existing safeguards compose without becoming conflicts', 
           makeLiveState(),
         );
 
-        // No auth failure anywhere → the cycle runs to completion (R14.6).
+        // No auth failure anywhere → the cycle runs to completion.
         assert.equal(result.halted, false, 'a non-auth cycle never halts');
         assert.equal(result.haltReason, null);
 
@@ -268,7 +264,7 @@ describe('Property 26: Existing safeguards compose without becoming conflicts', 
         assert.deepEqual(result.conflicts, [], 'no conflict unitRefs reported');
         assert.deepEqual(result.review, [], 'no review unitRefs reported');
 
-        // ── R14.1 — stamp-incompatible: skipped as `mismatched`, never a
+        // ── stamp-incompatible: skipped as `mismatched`, never a
         // conflict, never a snapshot, never pulled. ──
         for (const id of stampIncompatibleIds) {
           assert.ok(
@@ -281,7 +277,7 @@ describe('Property 26: Existing safeguards compose without becoming conflicts', 
           assert.ok(!reviewKeys.includes(id), 'stamp-incompatible project is not a review');
         }
 
-        // ── R14.2 — schema-invalid: reported in `errors`, never a conflict,
+        // ── schema-invalid: reported in `errors`, never a conflict,
         // never a snapshot, never pulled. ──
         for (const id of schemaInvalidIdsList) {
           assert.ok(
@@ -294,7 +290,7 @@ describe('Property 26: Existing safeguards compose without becoming conflicts', 
           assert.ok(!reviewKeys.includes(id), 'schema-invalid project is not a review');
         }
 
-        // ── R14.6 — a non-auth per-project error is isolated in `errors`; it
+        // ── a non-auth per-project error is isolated in `errors`; it
         // never becomes a conflict and never blocks the rest of the cycle. ──
         for (const id of fetchErrorIds) {
           assert.ok(
@@ -306,7 +302,7 @@ describe('Property 26: Existing safeguards compose without becoming conflicts', 
           assert.ok(!conflictKeys.includes(id), 'erroring project is not a conflict');
         }
 
-        // ── R14.6 — every valid project is STILL processed, regardless of where
+        // ── every valid project is STILL processed, regardless of where
         // the skips/errors fell in the manifest: the cycle continued past each
         // per-project (non-auth) problem. ──
         assert.deepEqual(

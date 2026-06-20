@@ -1,4 +1,4 @@
-// Secret-at-rest storage (S2).
+// Secret-at-rest storage.
 //
 // The dispatch and sync API keys were previously written verbatim into
 // `%APPDATA%/com.docent.desktop/session.json`. Anyone (or anything) with read
@@ -39,7 +39,7 @@ pub const SECRET_FIELDS: [&str; 2] = [API_KEY_FIELD, SYNC_API_KEY_FIELD];
 pub trait SecretStore {
     /// Whether secret-at-rest storage is active. When `false`, callers skip
     /// the strip/inject entirely and leave the keys inline in the JSON (the
-    /// pre-S2 behaviour). Defaults to `true`; [`DisabledStore`] overrides it.
+    /// prior behaviour). Defaults to `true`; [`DisabledStore`] overrides it.
     fn enabled(&self) -> bool {
         true
     }
@@ -213,7 +213,7 @@ impl SecretStore for DisabledStore {
 }
 
 /// Return the (disabled) secret store on targets without a credential backend.
-/// The keys stay inline in the JSON, matching the pre-S2 behaviour.
+/// The keys stay inline in the JSON, matching the prior behaviour.
 #[cfg(not(windows))]
 pub fn default_store() -> Box<dyn SecretStore> {
     Box::new(DisabledStore)

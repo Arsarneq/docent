@@ -12,7 +12,6 @@
  * as a rejected fetch, timeouts as a rejected fetch after an awaited tick. No
  * real sockets, no wall-clock thresholds, so nothing here is timing-flaky.
  *
- * Validates: #86 acceptance criteria.
  */
 
 import { describe, it, beforeEach, afterEach } from 'node:test';
@@ -272,9 +271,9 @@ describe('#86 conflict and concurrency edge cases', () => {
   });
 });
 
-// ─── S15: project_id URL encoding + manifest validation ──────────────────────
+// ─── project_id URL encoding + manifest validation ──────────────────────
 
-describe('#S15 sync URL safety', () => {
+describe('sync URL safety', () => {
   it('encodeURIComponent is applied to project_id on push', async () => {
     // A push payload built from a project whose id contains URL-significant
     // characters must not be able to reshape the request path.

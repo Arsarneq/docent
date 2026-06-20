@@ -1,6 +1,6 @@
 /**
  * field-sensitivity.test.js — unit tests for the shared sensitive-field /
- * URL-redaction utility (S10). Pins both the masking behaviour and — just as
+ * URL-redaction utility. Pins both the masking behaviour and — just as
  * importantly for a test-generation tool — the NON-masking of legitimate fields.
  *
  * This file is part of Docent.

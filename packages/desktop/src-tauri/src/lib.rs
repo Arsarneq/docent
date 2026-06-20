@@ -4,9 +4,9 @@
 // the event channel between the capture thread and the frontend.
 //
 // Requirements:
-// - 1.1: Tauri v2 application structure
-// - 1.2: Tauri v2 as the application framework
-// - 1.5: Platform-specific code behind a common trait
+// - Tauri v2 application structure
+// - Tauri v2 as the application framework
+// - Platform-specific code behind a common trait
 
 pub mod capture;
 pub mod commands;
@@ -47,7 +47,7 @@ pub fn run() {
     // to the frontend.
     let (action_tx, action_rx) = std::sync::mpsc::channel::<capture::ActionEvent>();
 
-    // Background Auto-Sync keep-alive flag (R23.15). Shared between the command
+    // Background Auto-Sync keep-alive flag. Shared between the command
     // that arms/disarms it (`set_auto_sync_keepalive`) and the window close
     // handler below, which reads it to decide whether a close hides the window
     // (keeping the webview + its Auto-Sync timer alive) or quits the app.
@@ -91,7 +91,7 @@ pub fn run() {
                 }
             });
 
-            // System tray (R23.15): while the background Auto-Sync keep-alive is
+            // System tray: while the background Auto-Sync keep-alive is
             // armed, closing the window only hides it, so the tray is the user's
             // way back to the window and the explicit way to quit. A "Show"
             // item re-reveals + focuses the main window; "Quit" exits the app
@@ -124,7 +124,7 @@ pub fn run() {
             Ok(())
         })
         .on_window_event(move |window, event| {
-            // R23.15: when the background Auto-Sync keep-alive is armed, a window
+            // when the background Auto-Sync keep-alive is armed, a window
             // close request HIDES the window instead of destroying the webview,
             // so the frontend's Auto-Sync timer and the shared `sync()` it
             // invokes keep running headless. When it is disarmed, the close

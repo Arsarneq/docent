@@ -5,9 +5,9 @@
  * All conflict-handling state (baselines, retained snapshots, Review-and-Accept
  * items, and Conflicts) is persisted as one `SyncState` object through the
  * injected {@link SyncStore} adapter. Durability is what lets pending Conflicts
- * and Reviews survive an application restart and be resolved later
- * (Requirement 10.1), and what lets each Sync_Baseline survive a restart so the
- * last-agreed state is not lost (Requirement 1.7).
+ * and Reviews survive an application restart and be resolved later,
+ * and what lets each Sync_Baseline survive a restart so the
+ * last-agreed state is not lost.
  *
  * This property pins that contract: for any well-formed SyncState, saving it
  * through the adapter and loading it back yields an equal SyncState. The fake
@@ -23,7 +23,7 @@
  * See LICENSE in the project root for license information.
  */
 
-// Feature: sync-conflict-resolution, Property 5: SyncState survives a save/load round-trip
+// SyncState survives a save/load round-trip
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
@@ -178,7 +178,7 @@ const arbConflictItem = fc.record({
 });
 
 // `dismissedIncoming` is a `unitRef`-keyed map of the exact declined incoming
-// content digest per Unit (R4.9, R4.10), so a later cycle that pulls the same
+// content digest per Unit, so a later cycle that pulls the same
 // incoming version does not re-offer it. The value is a single digest string;
 // `fc.uuid()` supplies the hyphenated-hex digest shape used elsewhere here.
 const arbDismissedIncoming = fc.dictionary(arbUnitRef, arbId, { maxKeys: 4 });
@@ -186,11 +186,11 @@ const arbDismissedIncoming = fc.dictionary(arbUnitRef, arbId, { maxKeys: 4 });
 // `connectionTest` holds the last Connection_Test outcome, or `null` when
 // untested. These are exactly the values `loadSyncState` preserves verbatim; any
 // other value is normalized back to `null`, so generating only these keeps each
-// generated SyncState a fixed point of normalization (R23.2).
+// generated SyncState a fixed point of normalization.
 const arbConnectionTest = fc.constantFrom('pass', 'auth', 'unreachable', null);
 
-// `settings` is the client-local reconciliation-policy + Auto-Sync block (R22,
-// R23): three boolean toggles, the Connection_Test outcome, and the fingerprint
+// `settings` is the client-local reconciliation-policy + Auto-Sync block:
+// three boolean toggles, the Connection_Test outcome, and the fingerprint
 // the test was taken against (a string, or `null` when untested). All five keys
 // are always present with valid-typed values so the generated object survives the
 // load/save normalization unchanged.
@@ -205,7 +205,7 @@ const arbSettings = fc.record({
 /**
  * An arbitrary, well-formed {@link SyncState}: a positive schema version plus all
  * six keyed/recoverable parts populated — the four deferred-state maps
- * (baselines, snapshots, reviews, conflicts) plus the Revision R1 additions
+ * (baselines, snapshots, reviews, conflicts) plus the later additions
  * `dismissedIncoming` (declined incoming digests) and `settings` (client-local
  * reconciliation-policy + Auto-Sync). `schema` ranges over a few positive
  * versions to exercise forward-migration values, which `loadSyncState` must
@@ -221,9 +221,7 @@ const arbSyncState = fc.record({
   settings: arbSettings,
 });
 
-// ─── Property 5 ────────────────────────────────────────────────────────────────
-
-describe('Property 5: SyncState survives a save/load round-trip', () => {
+describe('SyncState survives a save/load round-trip', () => {
   it('saving an arbitrary SyncState then loading it back yields an equal SyncState', async () => {
     await fc.assert(
       fc.asyncProperty(arbSyncState, async (state) => {
@@ -238,7 +236,7 @@ describe('Property 5: SyncState survives a save/load round-trip', () => {
         // Every part — baselines, snapshots, reviews, conflicts, the declined
         // dismissedIncoming digests, the client-local settings, and the schema
         // version — comes back equal, so all deferred state and policy persists
-        // across a restart (R1.7, R10.1).
+        // across a restart.
         assert.deepStrictEqual(loaded, original);
       }),
       { numRuns: 100 },

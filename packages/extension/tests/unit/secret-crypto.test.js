@@ -1,5 +1,5 @@
 /**
- * secret-crypto.test.js — Unit tests for at-rest API-key encryption (S2)
+ * secret-crypto.test.js — Unit tests for at-rest API-key encryption
  *
  * Exercises the AES-GCM helpers directly: envelope shape, plaintext absence,
  * round-trip, the post-restart (ephemeral key cleared) path, and rejection of

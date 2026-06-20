@@ -8,7 +8,7 @@
  * and the two are resolved through different interfaces: a Review opens the
  * accept/decline view, a Conflict opens the local-vs-incoming chooser. Opening an
  * item with the OTHER type's interface must be rejected and redirected to the
- * correct one (R12.4). If the guard ever let a Conflict be "accepted" through the
+ * correct one. If the guard ever let a Conflict be "accepted" through the
  * Review interface (or a Review be "resolved" through the Conflict chooser), a
  * version could be adopted without the user making the choice that interface is
  * meant to capture — silent data loss.
@@ -32,14 +32,12 @@
  * Uses the Node.js built-in test runner + fast-check (fast-check v4: `fc.uuid()`
  * for ids), mirroring the generators in sync-store-roundtrip.property.test.js.
  *
- * **Validates: Requirements 12.4**
- *
  * This file is part of Docent.
  * Licensed under the GNU General Public License v3.0
  * See LICENSE in the project root for license information.
  */
 
-// Feature: sync-conflict-resolution, Property 22: Item-type routing guard rejects the wrong interface
+// Item-type routing guard rejects the wrong interface
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
@@ -131,9 +129,7 @@ function seedState(entries) {
   return state;
 }
 
-// ─── Property 22 ───────────────────────────────────────────────────────────────
-
-describe('Property 22: Item-type routing guard rejects the wrong interface', () => {
+describe('Item-type routing guard rejects the wrong interface', () => {
   it('routes each deferred item to its own interface and rejects the other (no state change)', () => {
     fc.assert(
       fc.property(arbEntries, (entries) => {
@@ -146,7 +142,7 @@ describe('Property 22: Item-type routing guard rejects the wrong interface', () 
         for (const { spec, type } of entries) {
           const ref = unitRefOf(spec);
 
-          // (a) itemKind routes the Unit to its own interface (R12.4).
+          // (a) itemKind routes the Unit to its own interface.
           assert.equal(itemKind(state, ref), type, `itemKind misrouted ${ref}`);
 
           if (type === 'review') {

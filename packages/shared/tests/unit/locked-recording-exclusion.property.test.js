@@ -4,18 +4,18 @@
  * the same cycle still reconciles normally.
  *
  * A recording open in the Recording_View is a Locked_Recording. The sync cycle
- * must neither apply nor offer any incoming change to it (R6.1, R6.3) — and that
+ * must neither apply nor offer any incoming change to it — and that
  * exclusion covers EVERY inbound outcome a non-locked recording could take this
  * cycle: a deferred Review-and-Accept, a deferred Conflict, a settings-gated
  * AUTO-APPLIED fast-forward update, and a settings-gated AUTO-APPLIED server
  * deletion. None of these may touch a locked recording. Meanwhile the cycle must
- * keep syncing all OTHER projects and recordings (R6.2). Because the lock is
+ * keep syncing all OTHER projects and recordings. Because the lock is
  * consulted only this cycle, and detection runs only on committed
  * `recording.steps`, a locked recording is also kept out of detection/merge
- * (R8.3) — a hard exclusion, not an advisory check (R15.4).
+ * — a hard exclusion, not an advisory check.
  *
  * The exclusion is INBOUND-ONLY. A locked recording is STILL PRESENT in the
- * outbound push at its agreed-or-pulled version (Property 35, task 22.3) — it is
+ * outbound push at its agreed-or-pulled version — it is
  * never dropped — but it receives no inbound change. This test pins the inbound
  * half of that contract: the locked recording gets no Review, no Conflict, no
  * auto-apply, and its LOCAL data is left untouched in the merged-projects list,
@@ -67,7 +67,7 @@
  * outcomes, which is the strongest statement that no locked unit leaked in.
  *
  * Note on snapshot retention: pull lands each accepted payload into a
- * PROJECT-level Sync_Snapshot (R9.1); retaining the incoming copy is harmless
+ * PROJECT-level Sync_Snapshot; retaining the incoming copy is harmless
  * because the lock's guarantee is that no incoming change is ever *applied or
  * offered* for the locked recording — which is exactly what is asserted here.
  *
@@ -83,14 +83,12 @@
  * uuids distinct so a dropped step truly removes a uuid for the non-fast-forward
  * fates).
  *
- * **Validates: Requirements 6.1, 6.2, 6.3, 8.3, 15.4**
- *
  * This file is part of Docent.
  * Licensed under the GNU General Public License v3.0
  * See LICENSE in the project root for license information.
  */
 
-// Feature: sync-conflict-resolution, Property 13: Locked recordings are excluded from inbound merge while other units still reconcile
+// Locked recordings are excluded from inbound merge while other units still reconcile
 
 import { describe, it, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
@@ -336,7 +334,7 @@ function extraStep(rid) {
  * Materialize a scenario into the inputs `sync()` needs plus the per-recording
  * expectations. A recording's identity (`recording_id`, `created_at`) is fixed
  * across its versions; the versions differ in content via a `name` marker (the
- * digest folds name into content identity, R2.8) and/or via the committed step
+ * digest folds name into content identity) and/or via the committed step
  * history. The markers are:
  *
  *   marker 'base' — the agreed (baseline) content
@@ -490,9 +488,7 @@ function seedState(project_id, agreedProject) {
   return seed;
 }
 
-// ─── Property 13 ──────────────────────────────────────────────────────────────
-
-describe('Property 13: Locked recordings are excluded from inbound merge while other units still reconcile', () => {
+describe('Locked recordings are excluded from inbound merge while other units still reconcile', () => {
   it('applies and offers NOTHING to a locked recording (no review/conflict/auto-apply, local untouched) while non-locked units reconcile', async () => {
     await fc.assert(
       fc.asyncProperty(arbScenario, async (scenario) => {
@@ -516,7 +512,7 @@ describe('Property 13: Locked recordings are excluded from inbound merge while o
           makeLiveState(lockedIds),
         );
 
-        // The cycle runs to completion — a locked recording never halts it (R6.2).
+        // The cycle runs to completion — a locked recording never halts it.
         assert.equal(result.halted, false);
         assert.equal(result.haltReason, null);
 
@@ -528,7 +524,7 @@ describe('Property 13: Locked recordings are excluded from inbound merge while o
 
         // The four reported sets must equal EXACTLY the non-locked outcomes: no
         // locked recording appears in ANY inbound set, and every non-locked one
-        // reconciles as its fate dictates (R6.1, R6.2, R6.3, R15.4).
+        // reconciles as its fate dictates.
         const refsForFate = (fate) =>
           expectations
             .filter((e) => e.fate === fate)
@@ -567,7 +563,7 @@ describe('Property 13: Locked recordings are excluded from inbound merge while o
           if (lockedSet.has(e.rid)) {
             // ── Locked recording: fully excluded from the INBOUND merge ──
             // (a) Still PRESENT at its local version — no incoming change applied
-            //     and not removed by an auto-applied deletion (R6.3, R8.3).
+            //     and not removed by an auto-applied deletion.
             const mergedRec = mergedById.get(e.rid);
             assert.ok(
               mergedRec,
@@ -577,7 +573,7 @@ describe('Property 13: Locked recordings are excluded from inbound merge while o
               sameRecording(mergedRec, e.local),
               'locked recording is byte-identical to local (no inbound change applied)',
             );
-            // (b) No inbound outcome of any kind references it (R6.1, R6.3).
+            // (b) No inbound outcome of any kind references it.
             assert.ok(!result.review.includes(e.unitRef), 'locked recording not offered as Review');
             assert.ok(
               !result.conflicts.includes(e.unitRef),
@@ -593,7 +589,7 @@ describe('Property 13: Locked recordings are excluded from inbound merge while o
             );
             assert.equal(state.reviews[e.unitRef], undefined, 'no Review item stored for it');
             assert.equal(state.conflicts[e.unitRef], undefined, 'no Conflict item stored for it');
-            // (c) Its baseline entry is unchanged — no advance, no clear (R8.3).
+            // (c) Its baseline entry is unchanged — no advance, no clear.
             const base = baselineRecording(state, project_id, e.rid);
             assert.ok(base, 'locked recording stays recorded in the baseline (not cleared)');
             assert.ok(
@@ -634,7 +630,7 @@ describe('Property 13: Locked recordings are excluded from inbound merge while o
                 JSON.stringify(recordingProjection(e.incoming)),
                 'Review retains the incoming version',
               );
-              // Local data is preserved unchanged for a deferred Unit (R9.5).
+              // Local data is preserved unchanged for a deferred Unit.
               assert.ok(sameRecording(mergedById.get(e.rid), e.local), 'local untouched on review');
               break;
             }

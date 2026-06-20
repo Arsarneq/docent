@@ -1,5 +1,5 @@
 /**
- * Property 7: Export schema validation
+ * Export schema validation
  *
  * For any valid project containing recordings with steps and actions,
  * exporting the project SHALL produce a JSON structure that validates
@@ -8,13 +8,11 @@
  * excluding deleted), and the project metadata (project_id, name,
  * created_at).
  *
- * **Validates: Requirements 7.1, 7.3, 7.4**
- *
  * This tests the pure export-building logic, not the Tauri invoke calls.
  * We replicate the export logic from panel.js and validate the output
  * against the schema contract.
  *
- * Feature: desktop-capture, Property 7: Export schema validation
+ * Export schema validation
  */
 
 import { describe, it } from 'node:test';
@@ -290,7 +288,7 @@ const arbProject = fc.record({
 
 // ─── Property tests ───────────────────────────────────────────────────────────
 
-describe('Property 7: Export schema validation', () => {
+describe('Export schema validation', () => {
   it('exported JSON validates against the v2.0.0 schema contract', () => {
     fc.assert(
       fc.property(arbProject, (project) => {

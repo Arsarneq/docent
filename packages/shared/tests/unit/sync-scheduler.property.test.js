@@ -1,8 +1,8 @@
 /**
- * sync-scheduler.property.test.js — Property 41 for the shared cooldown-debounced
+ * sync-scheduler.property.test.js — Property test for the shared cooldown-debounced
  * Auto-Sync scheduler (`createSyncScheduler` in `../../sync-scheduler.js`).
  *
- * Property 41 (design.md): *For any* sequence of Auto-Sync triggers (local data
+ * (design.md): *For any* sequence of Auto-Sync triggers (local data
  * events and the ~60s backstop), the scheduler coalesces them through the
  * cooldown so at most one cycle runs per window and never two concurrently; a
  * trigger that fires while capture is active starts no cycle and is dropped (not
@@ -20,14 +20,12 @@
  * `sync-scheduler.test.js`. After EVERY operation the test asserts the
  * scheduler's invariants hold, so a single property exercises every interleaving.
  *
- * **Validates: Requirements 23.2, 23.3, 23.8, 23.9, 23.11, 23.12, 23.14, 23.15, 23.16, 23.17**
- *
  * This file is part of Docent.
  * Licensed under the GNU General Public License v3.0
  * See LICENSE in the project root for license information.
  */
 
-// Feature: sync-conflict-resolution, Property 41: Auto-Sync triggering reuses the gates and never starts overlapping or capture-time cycles
+// Auto-Sync triggering reuses the gates and never starts overlapping or capture-time cycles
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
@@ -68,7 +66,7 @@ const flush = () => new Promise((resolve) => setImmediate(resolve));
  * never-overlap guarantee and the failure-retry behavior are both observable.
  *
  * `started - settled` is the number of cycles currently in flight; the scheduler
- * must keep this at most 1 (R23.14).
+ * must keep this at most 1.
  */
 function makeCycleRunner() {
   const cycles = [];
@@ -126,16 +124,14 @@ const arbScenario = fc.record({
   ops: fc.array(arbOp, { minLength: 1, maxLength: 40 }),
 });
 
-// ─── Property 41 ──────────────────────────────────────────────────────────────
-
-describe('Property 41: Auto-Sync triggering reuses the gates and never overlaps', () => {
+describe('Auto-Sync triggering reuses the gates and never overlaps', () => {
   it('coalesces, never overlaps, drops on capture, retries on failure, and clears on stop', async () => {
     await fc.assert(
       fc.asyncProperty(arbScenario, async ({ cooldownMs, startClock, ops }) => {
         const clock = fakeClock(startClock);
         const runner = makeCycleRunner();
         // Capture state is mutable and read live by the scheduler's predicate —
-        // exactly how a platform's `isCaptureActive` probe behaves (R23.9).
+        // exactly how a platform's `isCaptureActive` probe behaves.
         const capture = { active: false };
 
         const sched = createSyncScheduler({
@@ -150,25 +146,25 @@ describe('Property 41: Auto-Sync triggering reuses the gates and never overlaps'
         let enabled = true;
 
         /**
-         * Invariants that must hold after EVERY operation (the heart of Property 41).
+         * Invariants that must hold after EVERY operation (the heart of this property).
          */
         const checkInvariants = () => {
-          // R23.14 — cycles never overlap: at most one cycle is ever in flight,
+          // cycles never overlap: at most one cycle is ever in flight,
           // and the scheduler's own running flag agrees with reality.
           const live = runner.inFlight();
           assert.ok(live === 0 || live === 1, `at most one cycle in flight, saw ${live}`);
           assert.equal(sched.isRunning(), live === 1, 'isRunning tracks the in-flight cycle');
 
-          // R23.3/R23.11/R23.12 — the scheduler decides WHEN, not WHETHER: its
+          // the scheduler decides WHEN, not WHETHER: its
           // enabled state is governed solely by start()/stop(); it never disables
           // itself because a cycle failed, succeeded, or capture is active.
           assert.equal(sched.isActive(), enabled, 'enablement changes only via start/stop');
 
-          // R23.8/R23.14 — the follow-up is a single boolean: at most one pending
+          // the follow-up is a single boolean: at most one pending
           // cycle is ever queued, and a stopped scheduler holds nothing pending.
           assert.equal(typeof sched.hasPending(), 'boolean', 'pending is a single flag');
           if (!enabled) {
-            assert.equal(sched.hasPending(), false, 'stop() leaves nothing pending (R23.3)');
+            assert.equal(sched.hasPending(), false, 'stop() leaves nothing pending');
           }
         };
 
@@ -183,12 +179,12 @@ describe('Property 41: Auto-Sync triggering reuses the gates and never overlaps'
               const outcome = sched.notify();
 
               if (!enabled) {
-                // A stopped scheduler ignores every trigger (R23.3, R23.11).
+                // A stopped scheduler ignores every trigger.
                 assert.equal(outcome, 'disabled', 'disabled scheduler ignores triggers');
                 assert.equal(runner.count(), beforeCount, 'no cycle starts while disabled');
                 assert.equal(sched.hasPending(), false, 'nothing queued while disabled');
               } else if (capture.active) {
-                // R23.9 — drop, NOT queue: no cycle starts and the pending flag is
+                // drop, NOT queue: no cycle starts and the pending flag is
                 // not advanced by a trigger that arrives during capture.
                 assert.equal(outcome, 'capture-dropped', 'capture trigger is dropped');
                 assert.equal(runner.count(), beforeCount, 'no cycle starts during capture');
@@ -198,7 +194,7 @@ describe('Property 41: Auto-Sync triggering reuses the gates and never overlaps'
                   'a capture-dropped trigger is not queued',
                 );
               } else if (beforeLive === 1) {
-                // R23.14 — a trigger during an in-flight cycle never starts a second
+                // a trigger during an in-flight cycle never starts a second
                 // concurrent cycle; it folds into the single follow-up.
                 assert.equal(outcome, 'coalesced', 'in-flight trigger coalesces');
                 assert.equal(runner.count(), beforeCount, 'no overlapping cycle is started');
@@ -231,8 +227,8 @@ describe('Property 41: Auto-Sync triggering reuses the gates and never overlaps'
               const dispatched = await runner.settleOldest(op.outcome);
               if (had) {
                 assert.equal(dispatched, true, 'an in-flight cycle was settled');
-                // At most ONE follow-up may start when a cycle settles (R23.14);
-                // and a settle while disabled must start none (R23.3 / stop()).
+                // At most ONE follow-up may start when a cycle settles;
+                // and a settle while disabled must start none (via stop()).
                 if (enabled) {
                   assert.ok(
                     runner.count() <= beforeCount + 1,
@@ -257,7 +253,7 @@ describe('Property 41: Auto-Sync triggering reuses the gates and never overlaps'
             case 'stop': {
               sched.stop();
               enabled = false;
-              // R23.3/R23.11 — stop disables and clears the pending follow-up.
+              // stop disables and clears the pending follow-up.
               assert.equal(sched.isActive(), false, 'stop disables the scheduler');
               assert.equal(sched.hasPending(), false, 'stop clears the pending follow-up');
               assert.equal(sched.notify(), 'disabled', 'a stopped scheduler ignores triggers');
@@ -281,7 +277,7 @@ describe('Property 41: Auto-Sync triggering reuses the gates and never overlaps'
     );
   });
 
-  // ── Deterministic regression examples (named scenarios behind Property 41) ──
+  // ── Deterministic regression examples (named scenarios) ──
 
   /** A cycle runner whose single in-flight cycle the test settles on demand. */
   function runnerWithSettle() {
@@ -302,7 +298,7 @@ describe('Property 41: Auto-Sync triggering reuses the gates and never overlaps'
     };
   }
 
-  it('a burst during one window collapses to one in-flight + at most one follow-up (R23.8, R23.14)', async () => {
+  it('a burst during one window collapses to one in-flight + at most one follow-up', async () => {
     const clock = fakeClock();
     const runner = runnerWithSettle();
     const sched = createSyncScheduler({ cooldownMs: 5000, now: clock.now });
@@ -321,7 +317,7 @@ describe('Property 41: Auto-Sync triggering reuses the gates and never overlaps'
     assert.equal(sched.hasPending(), false);
   });
 
-  it('triggers during capture are dropped, never queued (R23.9)', () => {
+  it('triggers during capture are dropped, never queued', () => {
     const clock = fakeClock();
     const runner = runnerWithSettle();
     let capturing = true;
@@ -341,7 +337,7 @@ describe('Property 41: Auto-Sync triggering reuses the gates and never overlaps'
     assert.equal(runner.count(), 1);
   });
 
-  it('a failing cycle leaves the scheduler enabled to retry (R23.12)', async () => {
+  it('a failing cycle leaves the scheduler enabled to retry', async () => {
     const clock = fakeClock();
     let calls = 0;
     const runCycle = () => {

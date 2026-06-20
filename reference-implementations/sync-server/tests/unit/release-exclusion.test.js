@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
 
 /**
- * Release-exclusion guard (Task 11; Requirements 9.3, 9.4, 9.5).
+ * Release-exclusion guard.
  *
  * The entire `reference-implementations/` tree is a repository/testing artifact
  * and must never ship in a product release. Rather than add an opt-out to the
@@ -33,8 +33,8 @@ function read(path) {
   return readFileSync(path, 'utf8');
 }
 
-describe('release exclusion of reference-implementations/ (R9.3, R9.4, R9.5)', () => {
-  it('publish.yml packages only packages/extension/ and never references reference-implementations (R9.3, R9.4)', () => {
+describe('release exclusion of reference-implementations/', () => {
+  it('publish.yml packages only packages/extension/ and never references reference-implementations', () => {
     const yml = read(PUBLISH_YML);
 
     // The publish input is the extension package, and only that.
@@ -57,7 +57,7 @@ describe('release exclusion of reference-implementations/ (R9.3, R9.4, R9.5)', (
     );
   });
 
-  it('publish-desktop.yml builds only packages/desktop/ and never references reference-implementations (R9.3, R9.4)', () => {
+  it('publish-desktop.yml builds only packages/desktop/ and never references reference-implementations', () => {
     const yml = read(PUBLISH_DESKTOP_YML);
 
     // The desktop build is rooted at packages/desktop, and only that.
@@ -75,7 +75,7 @@ describe('release exclusion of reference-implementations/ (R9.3, R9.4, R9.5)', (
     );
   });
 
-  it('check-no-release-outputs.js guards only schemas/dist/ + delta versions and never references reference-implementations (R9.5)', () => {
+  it('check-no-release-outputs.js guards only schemas/dist/ + delta versions and never references reference-implementations', () => {
     const js = read(GUARD_JS);
 
     // The guard scopes itself to the composed schemas and the delta versions.
@@ -91,7 +91,7 @@ describe('release exclusion of reference-implementations/ (R9.3, R9.4, R9.5)', (
     );
 
     // The guard says nothing about reference-implementations/ — it is outside its
-    // scope, so the reference server cannot trip it (R9.5).
+    // scope, so the reference server cannot trip it.
     assert.doesNotMatch(
       js,
       /reference-implementations/,

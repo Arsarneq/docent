@@ -1,6 +1,6 @@
 /**
  * generated-validators.test.js — Verifies the GENERATED Ajv-standalone
- * validators (SECURITY_BACKLOG S12) accept valid payloads and reject the cases
+ * validators accept valid payloads and reject the cases
  * that matter, including the now-required `docent_format` stamp.
  *
  * These import the build-only artifacts in packages/shared/generated/, so they

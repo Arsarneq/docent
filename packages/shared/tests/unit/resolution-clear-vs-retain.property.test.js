@@ -6,11 +6,11 @@
  * bookkeeping must be exact in both directions:
  *
  *   - COMPLETING a resolution clears the corresponding deferred record, returning
- *     the Unit to the NONE state (R12.5). If a completed resolution left the
+ *     the Unit to the NONE state. If a completed resolution left the
  *     record behind, a later sync cycle would re-surface an already-handled item
  *     as a phantom duplicate.
  *   - A resolution that FAILS or is ABANDONED retains the corresponding record and
- *     leaves all state unchanged (R12.6). If a failed/abandoned resolution cleared
+ *     leaves all state unchanged. If a failed/abandoned resolution cleared
  *     (or partially applied) the record, the deferred work would be silently lost
  *     even though the user never resolved it.
  *
@@ -32,14 +32,12 @@
  * Uses the Node.js built-in test runner + fast-check (fast-check v4: `fc.uuid()`
  * for ids), mirroring the generators in the sibling resolution property tests.
  *
- * **Validates: Requirements 12.5, 12.6**
- *
  * This file is part of Docent.
  * Licensed under the GNU General Public License v3.0
  * See LICENSE in the project root for license information.
  */
 
-// Feature: sync-conflict-resolution, Property 23: Completing resolution clears state; failing or abandoning retains it
+// Completing resolution clears state; failing or abandoning retains it
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
@@ -266,7 +264,7 @@ function materialize(scenario) {
   };
 }
 
-// The non-ok reasons a failed/abandoned resolution may report (R12.6).
+// The non-ok reasons a failed/abandoned resolution may report.
 const FAILURE_REASONS = new Set([
   'wrong-interface',
   'no-resolution',
@@ -274,23 +272,21 @@ const FAILURE_REASONS = new Set([
   'apply-failed',
 ]);
 
-// ─── Property 23 ───────────────────────────────────────────────────────────────
-
-describe('Property 23: Completing resolution clears state; failing or abandoning retains it', () => {
+describe('Completing resolution clears state; failing or abandoning retains it', () => {
   it('a completed resolution clears the target item; a failed or abandoned one retains it and changes nothing', () => {
     fc.assert(
       fc.property(arbScenario, (scenario) => {
         const m = materialize(scenario);
 
         // Snapshot the full store and the local projects array BEFORE acting, so
-        // a failed/abandoned resolution can be proven to change nothing (R12.6).
+        // a failed/abandoned resolution can be proven to change nothing.
         const stateBefore = JSON.stringify(m.state);
         const projectsBefore = JSON.stringify(m.projects);
 
         const result = m.invoke();
 
         if (m.expectSuccess) {
-          // ── R12.5 — completing resolution clears the deferred record ───────
+          // ── completing resolution clears the deferred record ───────
           assert.equal(result.ok, true, `${m.caseType} should complete successfully`);
           assert.equal(
             getItem(m.state, m.unitRef),
@@ -312,7 +308,7 @@ describe('Property 23: Completing resolution clears state; failing or abandoning
             );
           }
         } else {
-          // ── R12.6 — a failed/abandoned resolution retains the record ───────
+          // ── a failed/abandoned resolution retains the record ───────
           assert.equal(result.ok, false, `${m.caseType} should not complete`);
           assert.ok(
             FAILURE_REASONS.has(result.reason),
@@ -327,7 +323,7 @@ describe('Property 23: Completing resolution clears state; failing or abandoning
           );
 
           // The whole store is byte-for-byte unchanged — nothing applied, no
-          // baseline advanced, no record cleared or rewritten (R12.6).
+          // baseline advanced, no record cleared or rewritten.
           assert.equal(
             JSON.stringify(m.state),
             stateBefore,

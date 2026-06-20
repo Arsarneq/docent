@@ -1,38 +1,37 @@
 /**
  * baseline-advancement.property.test.js — Property test for the Sync_Baseline
- * advancement rules (Property 3).
+ * advancement rules.
  *
  * The Sync_Baseline is the last *mutually agreed* state per project — a state
  * confirmed common to BOTH the local side and the Sync_Server, never merely the
- * state this client last pushed (R1.1). A push is NOT confirmation of agreement:
+ * state this client last pushed. A push is NOT confirmation of agreement:
  * a concurrent client may overwrite the pushed state before this client observes
- * it, so the baseline must never advance just because a project was pushed
- * (R1.2). It advances ONLY when:
+ * it, so the baseline must never advance just because a project was pushed.
+ * It advances ONLY when:
  *   - a pull confirms the incoming version equals the local version
  *     (`already-converged`), repairing a stale or absent baseline to that
- *     confirmed-agreed state (R1.3); or
- *   - a brand-new unit is auto-added (R3.3); or
+ *     confirmed-agreed state; or
+ *   - a brand-new unit is auto-added; or
  *   - a `changed-incoming` recording is auto-applied as a true fast-forward
  *     because Auto-Accept-Updates is ON and the incoming version is an
- *     append-only superset of the baseline (R4.2); or
+ *     append-only superset of the baseline; or
  *   - an incoming change is adopted through Review-and-Accept or
  *     Conflict_Resolution, in which case it advances PER-UNIT to the
  *     **resolved-against incoming version** — the incoming version the user
- *     resolved against — NOT to the adopted local-or-merged state (R1.4).
+ *     resolved against — NOT to the adopted local-or-merged state.
  * And when a pull-confirmation applies to a project, the baseline is set to the
- * pull-confirmed agreed state, overwriting any prior recorded baseline (R1.5).
+ * pull-confirmed agreed state, overwriting any prior recorded baseline.
  *
  * It NEVER advances on push, for a `changed-local-outgoing` unit, or on a
  * decline:
  *   - a unit pushed (a `local-only-new` project, or a `changed-local-outgoing`
  *     recording whose local side moved while the server stayed at baseline) is
  *     sent on the wire but its baseline is left exactly where it was — the
- *     headline guarantee that a push alone never advances the baseline (R1.2,
- *     R21.2); the baseline advances only once a LATER pull confirms incoming ==
- *     local (R1.3);
- *   - a unit deferred to Review or Conflict leaves the baseline unchanged
- *     (R1.2); and
- *   - declining a Review keeps local and advances NO baseline (R1.8).
+ *     headline guarantee that a push alone never advances the baseline; the baseline advances only once a LATER pull confirms incoming ==
+ *     local;
+ *   - a unit deferred to Review or Conflict leaves the baseline unchanged;
+ * and
+ *   - declining a Review keeps local and advances NO baseline.
  *
  * This file pins those rules over a large input space, in three parts.
  *
@@ -40,33 +39,33 @@
  * projects across eight categories, after one `sync()` cycle (pull, reconcile,
  * then push):
  *   - `local-only-new` (present locally, absent on the server, no baseline) is
- *     PUSHED yet gets NO baseline — a push alone never advances it (R1.2);
+ *     PUSHED yet gets NO baseline — a push alone never advances it;
  *   - `converged` / `converged-stale-baseline` (local equals incoming) advance
  *     the baseline to the pull-confirmed agreed state, repairing/overwriting any
- *     stale recorded baseline (R1.1, R1.3, R1.5);
+ *     stale recorded baseline;
  *   - `brand-new-incoming` (absent locally, present on the server, no baseline)
- *     advances the baseline to the auto-added state (R3.3);
+ *     advances the baseline to the auto-added state;
  *   - `changed-local-outgoing` (local moved, server still at baseline) is PUSHED
  *     but the baseline is left UNCHANGED — a routine outgoing push never advances
- *     it (R21.2, R1.2);
+ *     it;
  *   - `changed-incoming-fast-forward` (local unchanged, incoming an append-only
  *     superset of the baseline) is auto-applied and the baseline advances PER-UNIT
- *     to that incoming version (R4.2);
+ *     to that incoming version;
  *   - `changed-incoming-review` (local unchanged, incoming NOT a fast-forward) and
  *     `diverged` (both sides moved) are deferred (Review / Conflict) but leave the
- *     baseline UNCHANGED — a push plus a deferral never advances it (R1.2).
+ *     baseline UNCHANGED — a push plus a deferral never advances it.
  *
  * **Part B — adoption (outside a cycle) advances to the resolved-against
  * incoming version.** For ANY PENDING Review item or Conflict, accepting the
  * review (`acceptReview`) or resolving the conflict (`resolveConflict`) advances
  * the affected Unit's baseline entry PER-UNIT to the **resolved-against incoming
- * version** (R1.4) — for an accept that equals the adopted state, but for a merge
+ * version** — for an accept that equals the adopted state, but for a merge
  * resolution it is the incoming version, NOT the merged state the user adopted.
  * Adoption does so with NO sync transport at all (no push/pull).
  *
  * **Part C — declining (outside a cycle) advances NOTHING.** Declining a Review
  * keeps the local version and leaves the baseline exactly where it was — absent
- * if there was none, unchanged if one existed — and touches no network (R1.8).
+ * if there was none, unchanged if one existed — and touches no network.
  *
  * `fetch` is mocked exactly as in `sync-client.test.js` / the sibling property
  * tests (`makeResponse`-style stubs dispatched per project_id), PUT bodies are
@@ -78,14 +77,12 @@
  * Uses the Node.js built-in test runner + fast-check (fast-check v4:
  * `fc.uuid({ version: 7 })` supplies ids that pass the manifest's UUIDv7 guard).
  *
- * **Validates: Requirements 1.1, 1.2, 1.3, 1.4, 1.5, 1.8, 3.3, 4.2, 21.2**
- *
  * This file is part of Docent.
  * Licensed under the GNU General Public License v3.0
  * See LICENSE in the project root for license information.
  */
 
-// Feature: sync-conflict-resolution, Property 3: Baseline advances only on confirmed agreement or adoption, never on push
+// Baseline advances only on confirmed agreement or adoption, never on push
 
 import { describe, it, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
@@ -292,9 +289,8 @@ const arbScenario = fc.uniqueArray(arbProjectSpec, {
  * expectation per project describing how its baseline must (or must not) move.
  *
  * Auto-Accept-Updates is seeded ON for the cycle so the fast-forward category
- * auto-applies (R4.2); the setting affects ONLY the two `changed-incoming` cases
- * (a fast-forward auto-applies, a non-fast-forward still defers to Review,
- * R4.3) and never any other category (R22.6).
+ * auto-applies; the setting affects ONLY the two `changed-incoming` cases
+ * (a fast-forward auto-applies, a non-fast-forward still defers to Review) and never any other category.
  *
  * Project metadata is held identical across local/incoming/baseline for the
  * present-on-both-sides categories (only the recording markers/steps differ), so
@@ -307,7 +303,7 @@ function materialize(specs) {
   const payloadById = new Map();
   const seedState = createEmptySyncState();
   // Auto-Accept-Updates ON so a fast-forward `changed-incoming` auto-applies and
-  // advances the baseline per-unit (R4.2, R22.4). Persisted client-locally.
+  // advances the baseline per-unit. Persisted client-locally.
   setSettings(seedState, { autoAcceptUpdates: true });
   const expectations = [];
 
@@ -320,7 +316,7 @@ function materialize(specs) {
     switch (category) {
       case 'local-only-new': {
         // Present locally, absent on the server, no baseline → pushed, but a
-        // push must NOT create a baseline (R1.2).
+        // push must NOT create a baseline.
         const local = projOf(project_id, [recOf(recording_id, 'base', steps)]);
         localProjects.push(local);
         expectations.push({ project_id, recording_id, category, pushed: true, baseline: 'absent' });
@@ -328,8 +324,8 @@ function materialize(specs) {
       }
 
       case 'converged': {
-        // Local equals incoming → pull confirms agreement → advance to it (R1.3).
-        // The assembled payload equals the server, so the project is skipped (R20.4).
+        // Local equals incoming → pull confirms agreement → advance to it.
+        // The assembled payload equals the server, so the project is skipped.
         const local = projOf(project_id, [recOf(recording_id, 'base', steps)]);
         localProjects.push(local);
         onServer(local);
@@ -346,8 +342,8 @@ function materialize(specs) {
 
       case 'converged-stale-baseline': {
         // Local equals incoming, but a STALE baseline is on record → the pull
-        // confirmation must repair/overwrite it to the agreed state (R1.3, R1.5).
-        // The wire payload equals the server, so the project is skipped (R20.4).
+        // confirmation must repair/overwrite it to the agreed state.
+        // The wire payload equals the server, so the project is skipped.
         const local = projOf(project_id, [recOf(recording_id, 'base', steps)]);
         const stale = projOf(project_id, [recOf(recording_id, 'STALE', steps)], '-stale');
         localProjects.push(local);
@@ -367,7 +363,7 @@ function materialize(specs) {
 
       case 'brand-new-incoming': {
         // Absent locally, present on the server, no baseline → auto-add and
-        // record it in the baseline (R3.3). Not local ⇒ not pushed.
+        // record it in the baseline. Not local ⇒ not pushed.
         const incoming = projOf(project_id, [recOf(recording_id, 'base', steps)]);
         onServer(incoming);
         expectations.push({
@@ -384,8 +380,8 @@ function materialize(specs) {
       case 'changed-local-outgoing': {
         // Local moved since the baseline while the server is STILL at the agreed
         // baseline (incoming == baseline) → a routine outgoing change: pushed
-        // automatically, but the baseline is NOT advanced on the push (R21.2,
-        // R1.2). The baseline stays exactly at the prior agreed state.
+        // automatically, but the baseline is NOT advanced on the push. The
+        // baseline stays exactly at the prior agreed state.
         const baseline = projOf(project_id, [recOf(recording_id, 'base', steps)]);
         const local = projOf(project_id, [recOf(recording_id, 'loc', steps)]);
         const incoming = projOf(project_id, [recOf(recording_id, 'base', steps)]); // == baseline
@@ -407,8 +403,8 @@ function materialize(specs) {
       case 'changed-incoming-fast-forward': {
         // Local unchanged since baseline; incoming is an APPEND-ONLY SUPERSET of
         // the baseline (a true fast-forward). With Auto-Accept-Updates ON it is
-        // auto-applied and the baseline advances PER-UNIT to the incoming version
-        // (R4.2). The appended step uses a literal uuid that can never collide
+        // auto-applied and the baseline advances PER-UNIT to the incoming version.
+        // The appended step uses a literal uuid that can never collide
         // with a generated UUIDv7, so the superset relation is deterministic.
         const extraStep = {
           uuid: '__ff_extra__',
@@ -433,7 +429,7 @@ function materialize(specs) {
           category,
           // After the auto-apply the merged local recording EQUALS the incoming
           // (server) version, so the wire payload equals the server and the
-          // project is skipped (R20.4).
+          // project is skipped.
           pushed: false,
           baseline: 'advance',
           expectedDigest: digestProject(advanced),
@@ -447,7 +443,7 @@ function materialize(specs) {
         // Local unchanged since baseline; incoming differs but is NOT a
         // fast-forward (it DROPS the baseline's sentinel step), so even with
         // Auto-Accept-Updates ON it is held for Review and the baseline is left
-        // UNCHANGED (R4.3, R1.2). The sentinel uses a literal uuid that can never
+        // UNCHANGED. The sentinel uses a literal uuid that can never
         // collide with a generated UUIDv7, guaranteeing the non-superset.
         const sentinel = { uuid: '__sentinel__', logical_id: 'z', step_number: 99, deleted: false };
         const baselineRec = recOf(recording_id, 'ci', [...steps, sentinel]);
@@ -464,7 +460,7 @@ function materialize(specs) {
           category,
           // The deferred recording re-sends the agreed-or-pulled (server) version
           // and local metadata converges, so the wire payload equals the server:
-          // the project is skipped (R20.4).
+          // the project is skipped.
           pushed: false,
           baseline: 'unchanged',
           expectedDigest: digestProject(baseline),
@@ -476,8 +472,8 @@ function materialize(specs) {
 
       case 'diverged': {
         // Both sides moved from a common baseline → Conflict, baseline left
-        // UNCHANGED (R1.2, and the concurrent-push case of R18.1). No setting
-        // auto-resolves a divergence (R22.6).
+        // UNCHANGED (including the concurrent-push case). No setting
+        // auto-resolves a divergence.
         const baseline = projOf(project_id, [recOf(recording_id, 'base', steps)]);
         const local = projOf(project_id, [recOf(recording_id, 'loc', steps)]);
         const incoming = projOf(project_id, [recOf(recording_id, 'inc', steps)]);
@@ -490,7 +486,7 @@ function materialize(specs) {
           category,
           // The diverged recording re-sends the agreed-or-pulled (server) version
           // and local metadata converges, so the wire payload equals the server:
-          // the project is skipped (R20.4).
+          // the project is skipped.
           pushed: false,
           baseline: 'unchanged',
           expectedDigest: digestProject(baseline),
@@ -508,9 +504,9 @@ function materialize(specs) {
   return { localProjects, manifest, payloadById, seedState, expectations };
 }
 
-// ─── Property 3, Part A: a sync cycle ─────────────────────────────────────────
+// ─── Part A: a sync cycle ─────────────────────────────────────────
 
-describe('Property 3: Baseline advances only on confirmed agreement or adoption, never on push', () => {
+describe('Baseline advances only on confirmed agreement or adoption, never on push', () => {
   it('a sync cycle advances the baseline only for confirmed agreement, brand-new auto-add, or a fast-forward auto-apply — never merely on push or for a changed-local-outgoing unit', async () => {
     await fc.assert(
       fc.asyncProperty(arbScenario, async (specs) => {
@@ -545,24 +541,24 @@ describe('Property 3: Baseline advances only on confirmed agreement or adoption,
           const baseline = getBaseline(state, project_id);
 
           // A project is pushed IFF its assembled payload differs from the
-          // server's agreed-or-pulled state (R20.4). With one recording per
+          // server's agreed-or-pulled state. With one recording per
           // project here, that is exactly `local-only-new` (no server
           // counterpart) and `changed-local-outgoing` (local moved, server at
           // baseline); a converged, auto-applied-fast-forward, deferred
           // (Review/Conflict), or brand-new-remote project re-sends only the
           // server's own bytes and is skipped. Wherever the baseline did NOT
-          // advance below for a PUSHED project, it is despite the push (R1.2).
+          // advance below for a PUSHED project, it is despite the push.
           const wasPushed = putLog.includes(`${SERVER}/projects/${encodeURIComponent(project_id)}`);
           assert.equal(
             wasPushed,
             exp.pushed,
-            `${exp.category} project ${project_id} push expectation (R20.4)`,
+            `${exp.category} project ${project_id} push expectation`,
           );
 
           switch (exp.baseline) {
             case 'absent': {
               // Pushed a brand-new local project ⇒ NO baseline is created on
-              // push; it can only gain one from a later confirmed pull (R1.2).
+              // push; it can only gain one from a later confirmed pull.
               assert.equal(
                 baseline,
                 null,
@@ -574,8 +570,7 @@ describe('Property 3: Baseline advances only on confirmed agreement or adoption,
             case 'advance': {
               // Confirmed agreement, brand-new auto-add, or a fast-forward
               // auto-apply ⇒ baseline advanced to the agreed/added/incoming
-              // state, with a recoverable copy retained (R1.1, R1.3, R3.3, R4.2,
-              // R1.5).
+              // state, with a recoverable copy retained.
               assert.ok(baseline, `${exp.category} ${project_id} must have a baseline`);
               assert.equal(
                 baseline.digest,
@@ -589,7 +584,7 @@ describe('Property 3: Baseline advances only on confirmed agreement or adoption,
                 'retained agreedState must match the recorded digest',
               );
               // For a fast-forward auto-apply, the per-unit recording baseline
-              // entry equals the resolved-against incoming version (R4.2).
+              // entry equals the resolved-against incoming version.
               if (exp.expectedRecordingDigest) {
                 assert.equal(
                   getRecordingBaselineDigest(baseline, recording_id),
@@ -613,7 +608,7 @@ describe('Property 3: Baseline advances only on confirmed agreement or adoption,
             case 'unchanged': {
               // Pushed (a changed-local-outgoing push) OR deferred (Review/
               // Conflict) ⇒ the baseline is left at its prior recorded value and
-              // never advances to the local or incoming version (R1.2, R21.2).
+              // never advances to the local or incoming version.
               assert.ok(baseline, `${exp.category} ${project_id} keeps its prior baseline`);
               assert.equal(
                 baseline.digest,
@@ -639,7 +634,7 @@ describe('Property 3: Baseline advances only on confirmed agreement or adoption,
                 );
               } else {
                 // A changed-local-outgoing unit is a routine automatic push, never
-                // a deferral (R21.1, R21.4).
+                // a deferral.
                 assert.ok(
                   !reviewSet.has(recordingRef),
                   `${exp.category} ${project_id} must not be a Review`,
@@ -718,7 +713,7 @@ describe('Property 3: Baseline advances only on confirmed agreement or adoption,
         let adoptedRecording;
         if (mode === 'accept') {
           // A PENDING Review item; accepting it adopts the incoming change. The
-          // adopted recording EQUALS the resolved-against incoming version (R4.5).
+          // adopted recording EQUALS the resolved-against incoming version.
           upsertReview(state, unitRef, incomingRecording, FIXED_NOW);
           result = acceptReview(state, [localProject], unitRef, { now: FIXED_NOW });
           adoptedRecording = incomingRecording;
@@ -726,7 +721,7 @@ describe('Property 3: Baseline advances only on confirmed agreement or adoption,
           // A Conflict resolved by MERGING — the user adopts an append-only
           // superset of both histories. The merged recording's name marker
           // ('merged') makes it DISTINCT from the resolved-against incoming
-          // version, so the baseline advancing to the incoming version (R1.4) is
+          // version, so the baseline advancing to the incoming version is
           // observably different from advancing to the adopted (merged) state.
           upsertConflict(state, unitRef, localRecording, incomingRecording, FIXED_NOW);
           const merged = recOf(recording_id, 'merged', [...localSteps, ...incomingSteps]);
@@ -734,7 +729,7 @@ describe('Property 3: Baseline advances only on confirmed agreement or adoption,
           adoptedRecording = merged;
         }
 
-        // Adoption happened entirely client-side — no push, no pull (R1.4).
+        // Adoption happened entirely client-side — no push, no pull.
         assert.equal(fetchCalled, false, 'adoption must not perform any sync transport');
 
         // Adoption succeeded and cleared the deferred item.
@@ -751,8 +746,8 @@ describe('Property 3: Baseline advances only on confirmed agreement or adoption,
           'the adopted recording is applied to local data',
         );
 
-        // The baseline advanced PER-UNIT to the RESOLVED-AGAINST INCOMING version
-        // (R1.4), NOT to the adopted state.
+        // The baseline advanced PER-UNIT to the RESOLVED-AGAINST INCOMING version,
+        // NOT to the adopted state.
         const baseline = getBaseline(state, project_id);
         assert.ok(baseline, 'a baseline exists after adoption');
         assert.equal(
@@ -763,7 +758,7 @@ describe('Property 3: Baseline advances only on confirmed agreement or adoption,
 
         if (mode === 'resolve-merge') {
           // The distinguishing guarantee: the baseline is the INCOMING version,
-          // never the merged state the user actually adopted (R1.4).
+          // never the merged state the user actually adopted.
           assert.notEqual(
             getRecordingBaselineDigest(baseline, recording_id),
             digestRecording(adoptedRecording),
@@ -785,7 +780,7 @@ describe('Property 3: Baseline advances only on confirmed agreement or adoption,
     );
   });
 
-  // ── Part C: declining (outside a cycle) advances NOTHING (R1.8) ───────────
+  // ── Part C: declining (outside a cycle) advances NOTHING ───────────
 
   const arbDecline = fc.record({
     project_id: arbId,
@@ -824,15 +819,15 @@ describe('Property 3: Baseline advances only on confirmed agreement or adoption,
         upsertReview(state, unitRef, incomingRecording, FIXED_NOW);
         const result = declineReview(state, [localProject], unitRef);
 
-        // Declining is entirely client-side and never pushes (R1.8, R4.8).
+        // Declining is entirely client-side and never pushes.
         assert.equal(fetchCalled, false, 'decline must not perform any sync transport');
         assert.equal(result.ok, true, 'declining a PENDING review must succeed');
 
-        // Local is kept unchanged — the incoming change was not applied (R4.8).
+        // Local is kept unchanged — the incoming change was not applied.
         const keptProject = findProject(result.projects, project_id);
         assert.deepStrictEqual(keptProject, localProject, 'declining keeps local unchanged');
 
-        // The baseline did NOT advance (R1.8): absent stays absent; a prior
+        // The baseline did NOT advance: absent stays absent; a prior
         // baseline stays exactly where it was.
         const baseline = getBaseline(state, project_id);
         if (seedStaleBaseline) {
@@ -852,7 +847,7 @@ describe('Property 3: Baseline advances only on confirmed agreement or adoption,
 
   // ── Deterministic regression examples ─────────────────────────────────────
 
-  it('a brand-new local project is pushed but receives no baseline (R1.2)', async () => {
+  it('a brand-new local project is pushed but receives no baseline', async () => {
     const ID = '018f0000-0000-7000-8000-000000000001';
     const local = projOf(ID, [recOf('018f0000-0000-7000-8000-0000000000a1', 'base', [])]);
     const putLog = [];
@@ -877,7 +872,7 @@ describe('Property 3: Baseline advances only on confirmed agreement or adoption,
     assert.equal(getBaseline(store.getState(), ID), null, 'push created no baseline');
   });
 
-  it('an already-converged project repairs a stale baseline to the pull-confirmed agreed state (R1.3, R1.5)', async () => {
+  it('an already-converged project repairs a stale baseline to the pull-confirmed agreed state', async () => {
     const ID = '018f0000-0000-7000-8000-000000000002';
     const RID = '018f0000-0000-7000-8000-0000000000b2';
     const agreed = projOf(ID, [recOf(RID, 'agreed', [])]);
@@ -902,7 +897,7 @@ describe('Property 3: Baseline advances only on confirmed agreement or adoption,
     assert.notEqual(baseline.digest, digestProject(stale), 'the stale baseline was overwritten');
   });
 
-  it('a changed-local-outgoing unit is pushed but its baseline is NOT advanced (R21.2, R1.2)', async () => {
+  it('a changed-local-outgoing unit is pushed but its baseline is NOT advanced', async () => {
     const ID = '018f0000-0000-7000-8000-000000000004';
     const RID = '018f0000-0000-7000-8000-0000000000d4';
     // Last-agreed baseline == the server's current state; local has moved on.
@@ -933,12 +928,12 @@ describe('Property 3: Baseline advances only on confirmed agreement or adoption,
     );
 
     assert.equal(result.halted, false);
-    // The local edit was pushed automatically (R21.1) ...
+    // The local edit was pushed automatically ...
     assert.ok(
       putLog.includes(`${SERVER}/projects/${encodeURIComponent(ID)}`),
       'the changed-local-outgoing unit was pushed',
     );
-    // ... but the baseline stayed at the prior agreed state (R21.2, R1.2).
+    // ... but the baseline stayed at the prior agreed state.
     const baseline = getBaseline(store.getState(), ID);
     assert.equal(
       baseline.digest,
@@ -955,7 +950,7 @@ describe('Property 3: Baseline advances only on confirmed agreement or adoption,
     assert.equal(result.conflicts.length, 0, 'changed-local-outgoing is not a Conflict');
   });
 
-  it('a fast-forward changed-incoming auto-applies and advances the baseline to the incoming version (R4.2)', async () => {
+  it('a fast-forward changed-incoming auto-applies and advances the baseline to the incoming version', async () => {
     const ID = '018f0000-0000-7000-8000-000000000005';
     const RID = '018f0000-0000-7000-8000-0000000000e5';
     const baseStep = { uuid: 'u1', logical_id: 'a', step_number: 0, deleted: false };
@@ -969,7 +964,7 @@ describe('Property 3: Baseline advances only on confirmed agreement or adoption,
     const incoming = projOf(ID, [incomingRec]);
 
     const seed = createEmptySyncState();
-    setSettings(seed, { autoAcceptUpdates: true }); // R4.2 requires the toggle ON
+    setSettings(seed, { autoAcceptUpdates: true }); // the auto-accept path requires the toggle ON
     advanceBaseline(seed, ID, baselineProject, FIXED_NOW);
 
     const putLog = [];
@@ -1009,7 +1004,7 @@ describe('Property 3: Baseline advances only on confirmed agreement or adoption,
     );
   });
 
-  it('accepting a review advances the baseline to the incoming (resolved-against) version (R1.4)', () => {
+  it('accepting a review advances the baseline to the incoming (resolved-against) version', () => {
     const ID = '018f0000-0000-7000-8000-000000000003';
     const RID = '018f0000-0000-7000-8000-0000000000c3';
     const local = projOf(ID, [
@@ -1028,14 +1023,14 @@ describe('Property 3: Baseline advances only on confirmed agreement or adoption,
     assert.equal(result.ok, true);
     const baseline = getBaseline(state, ID);
     // For an accept the resolved-against version equals the adopted version, so
-    // the recording's baseline entry is the incoming recording (R1.4).
+    // the recording's baseline entry is the incoming recording.
     assert.equal(getRecordingBaselineDigest(baseline, RID), digestRecording(incoming));
-    // The accepted recording in local data equals the incoming version (R4.5).
+    // The accepted recording in local data equals the incoming version.
     const acceptedRec = findRecording(findProject(result.projects, ID), RID);
     assert.deepStrictEqual(acceptedRec, incoming);
   });
 
-  it('resolving a conflict by merging advances the baseline to the resolved-against incoming version, not the merged state (R1.4)', () => {
+  it('resolving a conflict by merging advances the baseline to the resolved-against incoming version, not the merged state', () => {
     const ID = '018f0000-0000-7000-8000-000000000006';
     const RID = '018f0000-0000-7000-8000-0000000000f6';
     const localStep = { uuid: 'uL', logical_id: 'a', step_number: 0, deleted: false };
@@ -1058,8 +1053,8 @@ describe('Property 3: Baseline advances only on confirmed agreement or adoption,
     assert.deepStrictEqual(findRecording(findProject(result.projects, ID), RID), merged);
 
     const baseline = getBaseline(state, ID);
-    // ... but the baseline advanced to the RESOLVED-AGAINST INCOMING version
-    // (R1.4), so the merged state reads as changed-local-outgoing next cycle.
+    // ... but the baseline advanced to the RESOLVED-AGAINST INCOMING version,
+    // so the merged state reads as changed-local-outgoing next cycle.
     assert.equal(getRecordingBaselineDigest(baseline, RID), digestRecording(incomingRec));
     assert.notEqual(
       getRecordingBaselineDigest(baseline, RID),
@@ -1068,7 +1063,7 @@ describe('Property 3: Baseline advances only on confirmed agreement or adoption,
     );
   });
 
-  it('declining a review does not advance the baseline (R1.8)', () => {
+  it('declining a review does not advance the baseline', () => {
     const ID = '018f0000-0000-7000-8000-000000000007';
     const RID = '018f0000-0000-7000-8000-000000000a07';
     const local = projOf(ID, [recOf(RID, 'local', [])]);
@@ -1082,9 +1077,9 @@ describe('Property 3: Baseline advances only on confirmed agreement or adoption,
     const result = declineReview(state, [local], `${ID}:${RID}`);
 
     assert.equal(result.ok, true);
-    // No baseline was created by declining (R1.8).
+    // No baseline was created by declining.
     assert.equal(getBaseline(state, ID), null, 'declining advances no baseline');
-    // Local is kept unchanged (R4.8).
+    // Local is kept unchanged.
     assert.deepStrictEqual(findProject(result.projects, ID), local);
   });
 });

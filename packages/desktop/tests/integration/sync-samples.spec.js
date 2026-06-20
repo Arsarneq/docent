@@ -65,7 +65,7 @@ const TAURI_MOCK_JS = `
         switch (cmd) {
           case 'load_state': return _savedState;
           case 'sync_http_request': {
-            // S20: the desktop routes sync through the native sync_http_request
+            // The desktop routes sync through the native sync_http_request
             // command. In this integration env there is no Rust backend, so the
             // mock services it via the page's window.fetch — which here resolves
             // SAME-ORIGIN to the dist server's reverse proxy to the real reference

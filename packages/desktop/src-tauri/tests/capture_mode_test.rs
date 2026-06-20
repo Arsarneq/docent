@@ -1,6 +1,5 @@
-// Property 3: Capture mode selection
+// Capture mode selection
 //
-// **Validates: Requirements 2a.2, 2a.3, 2a.8**
 //
 // For any positional interaction where the accessibility API resolves a
 // specific control type (not a top-level window or generic pane), the
@@ -58,9 +57,7 @@ fn arb_generic_control_type_id() -> impl Strategy<Value = i32> {
 proptest! {
     #![proptest_config(ProptestConfig::with_cases(200))]
 
-    /// Feature: desktop-capture, Property 3: Capture mode selection
-    ///
-    /// **Validates: Requirements 2a.2, 2a.3, 2a.8**
+    /// Capture mode selection
     ///
     /// For any specific control type ID (not Window=50032 or Pane=50033),
     /// `determine_capture_mode` returns `CaptureMode::Accessibility`.
@@ -75,9 +72,7 @@ proptest! {
         );
     }
 
-    /// Feature: desktop-capture, Property 3: Capture mode selection
-    ///
-    /// **Validates: Requirements 2a.2, 2a.3, 2a.8**
+    /// Capture mode selection
     ///
     /// For any generic container control type ID (Window=50032 or Pane=50033),
     /// `determine_capture_mode` returns `CaptureMode::Coordinate`.

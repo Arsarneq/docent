@@ -5,20 +5,20 @@
  * fates.
  *
  * The whole feature exists to replace the legacy silent server-wins merge, where
- * a pulled project could overwrite committed local work. Property 17 pins the
- * three guarantees that replace it (R9):
+ * a pulled project could overwrite committed local work. This property pins the
+ * three guarantees that replace it:
  *
- *   - R9.1 — pulled data lands in a retained `Sync_Snapshot` keyed by
+ *   - pulled data lands in a retained `Sync_Snapshot` keyed by
  *     `project_id`, rather than overwriting local data directly. Every accepted
  *     incoming project is therefore recoverable from the snapshot map after the
  *     cycle, and the local list is never blindly replaced.
- *   - R9.2 — no local or incoming version is discarded except as the explicit
+ *   - no local or incoming version is discarded except as the explicit
  *     outcome of the (separate, user-driven) Conflict_Resolution workflow. A sync
  *     cycle runs no resolution, so NOTHING may be discarded: every committed
  *     local version that existed before the cycle is still recoverable afterwards
  *     (it is kept in the merged local list), and every incoming version is
  *     retained (as a snapshot, and additionally on the Review/Conflict record).
- *   - R9.5 — for any Unit deferred to Review-and-Accept or Conflict, the LOCAL
+ *   - for any Unit deferred to Review-and-Accept or Conflict, the LOCAL
  *     data is preserved byte-identical (no incoming change is applied to it).
  *
  * The property exercises a rich mix of fates so the invariant is not an artifact
@@ -28,17 +28,17 @@
  * sides with a per-project metadata fate (`converged` / `changed-incoming` /
  * `diverged`) plus recordings each carrying a fate (`converged`, `brand-new`,
  * `changed-incoming`, `diverged`, `remote-deleted`). Deterministic regression
- * examples additionally cover the delete-vs-change Conflict cases (R19.2, R19.4)
+ * examples additionally cover the delete-vs-change Conflict cases
  * that the generator does not produce.
  *
  * After the cycle the test asserts, across every fate:
  *   (A) the cycle completes (no halt — the live-work gate is permissive);
  *   (B) every accepted pulled project landed in `state.snapshots` byte-equal to
- *       its allowlisted projection (R9.1 — retained, not applied over local);
+ *       its allowlisted projection (retained, not applied over local);
  *   (C) every committed local version that existed before the cycle is still
- *       present in the merged list, byte-identical (R9.2 — nothing discarded);
+ *       present in the merged list, byte-identical (nothing discarded);
  *   (D) for every deferred Unit (Review or Conflict) the local data is unchanged
- *       and both versions are retained in recoverable form (R9.5, R9.2).
+ *       and both versions are retained in recoverable form.
  *
  * `fetch` is mocked exactly as in `sync-client.test.js` / `brand-new-auto-add` /
  * `deletion-propagation` (`makeResponse`-style Response stubs) and dispatches per
@@ -50,14 +50,12 @@
  * (`fc.uuid({ version: 7 })` supplies project ids that pass the manifest's
  * UUIDv7 guard).
  *
- * **Validates: Requirements 9.1, 9.2, 9.5**
- *
  * This file is part of Docent.
  * Licensed under the GNU General Public License v3.0
  * See LICENSE in the project root for license information.
  */
 
-// Feature: sync-conflict-resolution, Property 17: A sync cycle discards nothing and overwrites nothing without resolution
+// A sync cycle discards nothing and overwrites nothing without resolution
 
 import { describe, it, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
@@ -417,9 +415,7 @@ function materialize(specs) {
   return { seed, payloadById, manifest, localProjects, expectedServerById };
 }
 
-// ─── Property 17 ──────────────────────────────────────────────────────────────
-
-describe('Property 17: A sync cycle discards nothing and overwrites nothing without resolution', () => {
+describe('A sync cycle discards nothing and overwrites nothing without resolution', () => {
   it('retains pulled data in snapshots, discards no local version, and leaves deferred local data unchanged', async () => {
     await fc.assert(
       fc.asyncProperty(arbScenario, async (specs) => {
@@ -448,11 +444,11 @@ describe('Property 17: A sync cycle discards nothing and overwrites nothing with
         const mergedById = new Map(projects.map((p) => [p.project_id, p]));
         const localById = new Map(localProjects.map((p) => [p.project_id, p]));
 
-        // (B) R9.1 — every accepted pulled project landed in a retained snapshot,
+        // (B) every accepted pulled project landed in a retained snapshot,
         // byte-equal to its allowlisted projection, rather than overwriting local.
         for (const [pid, server] of expectedServerById) {
           const snap = state.snapshots?.[pid];
-          assert.ok(snap, `pulled project ${pid} must land in a Sync_Snapshot (R9.1)`);
+          assert.ok(snap, `pulled project ${pid} must land in a Sync_Snapshot`);
           assert.deepEqual(
             snap.payload,
             projectProjection(server),
@@ -460,7 +456,7 @@ describe('Property 17: A sync cycle discards nothing and overwrites nothing with
           );
         }
 
-        // (C) R9.2 — every committed local version that existed before the cycle
+        // (C) every committed local version that existed before the cycle
         // is still recoverable: present in the merged list, byte-identical. A
         // sync cycle runs no resolution, so nothing may be discarded.
         for (const lp of localProjects) {
@@ -482,7 +478,7 @@ describe('Property 17: A sync cycle discards nothing and overwrites nothing with
           }
         }
 
-        // (D) R9.5 / R9.2 — for every deferred Unit the local data is unchanged
+        // (D) for every deferred Unit the local data is unchanged
         // and both versions are retained in recoverable form.
         const assertLocalUnchanged = (ref) => {
           const { pid, rid } = parseRef(ref);
@@ -494,17 +490,17 @@ describe('Property 17: A sync cycle discards nothing and overwrites nothing with
             assert.deepEqual(
               metaSkeleton(mp),
               metaSkeleton(lp),
-              'deferred project metadata is preserved unchanged (R9.5)',
+              'deferred project metadata is preserved unchanged',
             );
           } else {
             const lr = lp.recordings.find((r) => r.recording_id === rid);
-            if (!lr) return; // local side absent (delete-vs-change R19.2)
+            if (!lr) return; // local side absent (delete-vs-change)
             const mr = mp.recordings.find((r) => r.recording_id === rid);
             assert.ok(mr, `deferred local recording ${rid} must remain in the merged project`);
             assert.deepEqual(
               recordingProjection(mr),
               recordingProjection(lr),
-              'deferred recording local data is preserved unchanged (R9.5)',
+              'deferred recording local data is preserved unchanged',
             );
           }
         };
@@ -520,7 +516,7 @@ describe('Property 17: A sync cycle discards nothing and overwrites nothing with
           assert.ok(item, `Conflict record for ${ref} must be retained`);
           assert.ok(
             'local' in item && 'incoming' in item,
-            'both versions are retained on the Conflict record (R9.2)',
+            'both versions are retained on the Conflict record',
           );
           assertLocalUnchanged(ref);
         }
@@ -537,7 +533,7 @@ describe('Property 17: A sync cycle discards nothing and overwrites nothing with
 
   // ─── Deterministic regression examples ──────────────────────────────────────
 
-  it('a diverged recording keeps local byte-identical, retains both versions, and snapshots the incoming (R9.1, R9.2, R9.5)', async () => {
+  it('a diverged recording keeps local byte-identical, retains both versions, and snapshots the incoming', async () => {
     const PID = '018f0000-0000-7000-8000-000000000201';
     const RID = '018f0000-0000-7000-8000-0000000000a1';
     const created = '2026-01-01T00:00:00.000Z';
@@ -579,19 +575,19 @@ describe('Property 17: A sync cycle discards nothing and overwrites nothing with
     assert.deepEqual(result.conflicts, [ref], 'the diverged recording is a Conflict');
     assert.deepEqual(result.review, []);
 
-    // Local preserved byte-identical (R9.5).
+    // Local preserved byte-identical.
     const merged = projects.find((p) => p.project_id === PID);
     const mergedRec = merged.recordings.find((r) => r.recording_id === RID);
     assert.deepEqual(recordingProjection(mergedRec), recordingProjection(localRec));
 
     const state = store.getState();
-    // Incoming retained as a snapshot (R9.1) AND on the conflict record (R9.2).
+    // Incoming retained as a snapshot AND on the conflict record.
     assert.deepEqual(state.snapshots[PID].payload, projectProjection(server));
     assert.deepEqual(state.conflicts[ref].local, recordingProjection(localRec));
     assert.deepEqual(state.conflicts[ref].incoming, recordingProjection(serverRec));
   });
 
-  it('a changed-incoming recording leaves local untouched and retains the incoming snapshot (R9.1, R9.5)', async () => {
+  it('a changed-incoming recording leaves local untouched and retains the incoming snapshot', async () => {
     const PID = '018f0000-0000-7000-8000-000000000202';
     const RID = '018f0000-0000-7000-8000-0000000000b1';
     const created = '2026-01-01T00:00:00.000Z';
@@ -626,7 +622,7 @@ describe('Property 17: A sync cycle discards nothing and overwrites nothing with
     assert.deepEqual(result.review, [ref], 'the changed-incoming recording is a Review');
     assert.deepEqual(result.conflicts, []);
 
-    // Local untouched: the incoming change is NOT applied (R9.5).
+    // Local untouched: the incoming change is NOT applied.
     const merged = projects.find((p) => p.project_id === PID);
     const mergedRec = merged.recordings.find((r) => r.recording_id === RID);
     assert.deepEqual(recordingProjection(mergedRec), recordingProjection(mk('agreed')));
@@ -636,7 +632,7 @@ describe('Property 17: A sync cycle discards nothing and overwrites nothing with
     assert.deepEqual(state.reviews[ref].incoming, recordingProjection(serverRec));
   });
 
-  it('delete-vs-change (deleted locally, changed on server) records a Conflict retaining the incoming (R9.2, R19.2)', async () => {
+  it('delete-vs-change (deleted locally, changed on server) records a Conflict retaining the incoming', async () => {
     const PID = '018f0000-0000-7000-8000-000000000203';
     const RID = '018f0000-0000-7000-8000-0000000000c1';
     const created = '2026-01-01T00:00:00.000Z';
@@ -672,13 +668,13 @@ describe('Property 17: A sync cycle discards nothing and overwrites nothing with
 
     const state = store.getState();
     // Local side was absent (deleted) → null; the incoming change is retained,
-    // never discarded (R9.2). The pulled project is also snapshotted (R9.1).
+    // never discarded. The pulled project is also snapshotted.
     assert.equal(state.conflicts[ref].local, null, 'the deleted local side carries no version');
     assert.deepEqual(state.conflicts[ref].incoming, recordingProjection(serverRec));
     assert.deepEqual(state.snapshots[PID].payload, projectProjection(server));
   });
 
-  it('delete-vs-change (deleted on server, changed locally) keeps local recoverable in the conflict (R9.2, R9.5, R19.4)', async () => {
+  it('delete-vs-change (deleted on server, changed locally) keeps local recoverable in the conflict', async () => {
     const PID = '018f0000-0000-7000-8000-000000000204';
     const RID = '018f0000-0000-7000-8000-0000000000d1';
     const created = '2026-01-01T00:00:00.000Z';

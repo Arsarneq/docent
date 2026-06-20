@@ -4,7 +4,6 @@
 // PID filtering, and key mapping logic. They test pure functions and
 // state machines that do not require Windows API calls.
 //
-// **Validates: Requirements 2.1, 2.5, 6.1–6.6**
 
 use docent_desktop_lib::capture::scroll::{
     process_scroll_events, should_keep_event, RawScrollEvent, ScrollAccumulator,

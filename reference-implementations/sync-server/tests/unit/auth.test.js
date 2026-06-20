@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { checkAuth } from '../../auth.js';
 
 /**
- * Tests for optional Bearer authentication (Requirement 5).
+ * Tests for optional Bearer authentication.
  *
  * `checkAuth` reads only `req.headers.authorization`, so a request can be
  * faked with a plain object carrying a `headers` map — no real socket needed.
@@ -22,11 +22,11 @@ function fakeReq(authorization) {
 const TOKEN = 's3cr3t-static-token';
 
 describe('checkAuth — open server (no Static_Token configured)', () => {
-  it('passes when no token is configured and no header is present (R5.4)', () => {
+  it('passes when no token is configured and no header is present', () => {
     assert.deepEqual(checkAuth(null, fakeReq()), { ok: true });
   });
 
-  it('passes and ignores any Authorization header when open (R5.5)', () => {
+  it('passes and ignores any Authorization header when open', () => {
     assert.deepEqual(checkAuth(null, fakeReq('Bearer anything-at-all')), {
       ok: true,
     });
@@ -41,34 +41,34 @@ describe('checkAuth — open server (no Static_Token configured)', () => {
 });
 
 describe('checkAuth — authenticated server (Static_Token configured)', () => {
-  it('returns 401 when the Authorization header is missing (R5.2)', () => {
+  it('returns 401 when the Authorization header is missing', () => {
     assert.deepEqual(checkAuth(TOKEN, fakeReq()), {
       ok: false,
       status: 401,
     });
   });
 
-  it('returns 403 when the Bearer token does not match (R5.3)', () => {
+  it('returns 403 when the Bearer token does not match', () => {
     assert.deepEqual(checkAuth(TOKEN, fakeReq('Bearer wrong-token')), {
       ok: false,
       status: 403,
     });
   });
 
-  it('returns 403 when the header is present but not a Bearer scheme (R5.3)', () => {
+  it('returns 403 when the header is present but not a Bearer scheme', () => {
     assert.deepEqual(checkAuth(TOKEN, fakeReq('Basic dXNlcjpwYXNz')), {
       ok: false,
       status: 403,
     });
   });
 
-  it('passes when the Bearer token matches the Static_Token (R5.1)', () => {
+  it('passes when the Bearer token matches the Static_Token', () => {
     assert.deepEqual(checkAuth(TOKEN, fakeReq(`Bearer ${TOKEN}`)), {
       ok: true,
     });
   });
 
-  it('accepts a case-insensitive Bearer scheme name with the matching token (R5.1)', () => {
+  it('accepts a case-insensitive Bearer scheme name with the matching token', () => {
     assert.deepEqual(checkAuth(TOKEN, fakeReq(`bearer ${TOKEN}`)), {
       ok: true,
     });

@@ -11,14 +11,14 @@
  * re-add it — the Unit-level analogue of resurrecting a tombstoned step. This
  * property pins the three AUTOMATIC deletion outcomes the cycle must produce:
  *
- *   - `deleted-local-clean` (R19.1) — present in the baseline, absent locally,
+ *   - `deleted-local-clean` — present in the baseline, absent locally,
  *     and UNCHANGED on the server (incoming == baseline): the deletion is
  *     propagated. The Unit is NOT re-added to the merged list and is cleared
  *     from the baseline; it is never a Review or a Conflict.
- *   - `deleted-both` (R19.6) — present in the baseline, absent on BOTH sides:
+ *   - `deleted-both` — present in the baseline, absent on BOTH sides:
  *     the deletion is agreed and cleared from the baseline, with no Conflict
  *     (and no Review).
- *   - `deleted-remote-review` (R19.3) — present in the baseline, absent on the
+ *   - `deleted-remote-review` — present in the baseline, absent on the
  *     server, with the LOCAL version unchanged from baseline: the cycle creates
  *     a durable Review-and-Accept item for the deletion rather than removing the
  *     local Unit silently. Local data is left untouched; the deletion is NOT
@@ -40,14 +40,12 @@
  * (`fc.uuid({ version: 7 })` supplies project ids that pass the manifest's
  * UUIDv7 guard).
  *
- * **Validates: Requirements 19.1, 19.3, 19.6**
- *
  * This file is part of Docent.
  * Licensed under the GNU General Public License v3.0
  * See LICENSE in the project root for license information.
  */
 
-// Feature: sync-conflict-resolution, Property 33: Deletions are never silently resurrected or silently applied
+// Deletions are never silently resurrected or silently applied
 
 import { describe, it, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
@@ -287,8 +285,8 @@ function materializeProjectScenario(specs) {
   return { seed, payloadById, manifest, localProjects, groups };
 }
 
-describe('Property 33: Deletions are never silently resurrected or silently applied', () => {
-  it('project-level: propagates clean/agreed deletions and reviews a server-side deletion (R19.1, R19.6, R19.3)', async () => {
+describe('Deletions are never silently resurrected or silently applied', () => {
+  it('project-level: propagates clean/agreed deletions and reviews a server-side deletion', async () => {
     await fc.assert(
       fc.asyncProperty(arbProjectDeletionScenario, async (specs) => {
         const { seed, payloadById, manifest, localProjects, groups } =
@@ -315,7 +313,7 @@ describe('Property 33: Deletions are never silently resurrected or silently appl
         const state = store.getState();
         const mergedIds = new Set(projects.map((p) => p.project_id));
 
-        // ── R19.1 — deleted-local-clean: not re-added, cleared from baseline,
+        // ── deleted-local-clean: not re-added, cleared from baseline,
         // never deferred. ──
         for (const id of groups.localClean) {
           assert.ok(!mergedIds.has(id), `local-clean ${id} must NOT be resurrected into the list`);
@@ -332,7 +330,7 @@ describe('Property 33: Deletions are never silently resurrected or silently appl
           );
         }
 
-        // ── R19.6 — deleted-both: cleared from baseline, no Conflict, no Review. ──
+        // ── deleted-both: cleared from baseline, no Conflict, no Review. ──
         for (const id of groups.both) {
           assert.ok(!mergedIds.has(id), `agreed deletion ${id} must not appear in the list`);
           assert.equal(
@@ -344,7 +342,7 @@ describe('Property 33: Deletions are never silently resurrected or silently appl
           assert.equal(state.conflicts?.[id], undefined, 'an agreed deletion is never a Conflict');
         }
 
-        // ── R19.3 — deleted-remote-review: local kept, Review created, deletion
+        // ── deleted-remote-review: local kept, Review created, deletion
         // not silently applied. ──
         for (const id of groups.remoteReview) {
           assert.ok(mergedIds.has(id), `local ${id} must NOT be silently removed`);
@@ -377,7 +375,7 @@ describe('Property 33: Deletions are never silently resurrected or silently appl
     );
   });
 
-  // ─── Block B — recording-level deleted-local-clean (R19.1) ──────────────────
+  // ─── Block B — recording-level deleted-local-clean ──────────────────
 
   /**
    * A recording inside a project present on both sides. `deletedLocally` marks a
@@ -409,7 +407,7 @@ describe('Property 33: Deletions are never silently resurrected or silently appl
     maxLength: 3,
   });
 
-  it('recording-level: a clean local recording deletion is propagated, not resurrected (R19.1)', async () => {
+  it('recording-level: a clean local recording deletion is propagated, not resurrected', async () => {
     await fc.assert(
       fc.asyncProperty(arbRecordingLocalCleanScenario, async (specs) => {
         const seed = createEmptySyncState();
@@ -496,7 +494,7 @@ describe('Property 33: Deletions are never silently resurrected or silently appl
     );
   });
 
-  // ─── Block C — recording-level deleted-remote-review (R19.3) ────────────────
+  // ─── Block C — recording-level deleted-remote-review ────────────────
 
   /**
    * A recording inside a project present on both sides. `deletedRemotely` marks a
@@ -528,7 +526,7 @@ describe('Property 33: Deletions are never silently resurrected or silently appl
     maxLength: 3,
   });
 
-  it('recording-level: a server-side recording deletion is reviewed, never silently applied (R19.3)', async () => {
+  it('recording-level: a server-side recording deletion is reviewed, never silently applied', async () => {
     await fc.assert(
       fc.asyncProperty(arbRecordingRemoteReviewScenario, async (specs) => {
         const seed = createEmptySyncState();
@@ -624,7 +622,7 @@ describe('Property 33: Deletions are never silently resurrected or silently appl
 
   // ─── Deterministic regression examples ──────────────────────────────────────
 
-  it('a project absent locally but present in the baseline and unchanged on the server is propagated, not resurrected (R19.1)', async () => {
+  it('a project absent locally but present in the baseline and unchanged on the server is propagated, not resurrected', async () => {
     const ID = '018f0000-0000-7000-8000-000000000010';
     const project = cleanProject(ID, 'Deleted Locally', '2026-01-01T00:00:00.000Z', [
       {
@@ -659,7 +657,7 @@ describe('Property 33: Deletions are never silently resurrected or silently appl
     assert.equal(store.getState().baselines[ID], undefined, 'baseline cleared, not resurrected');
   });
 
-  it('a project deleted on both sides is treated as agreed and cleared from the baseline (R19.6)', async () => {
+  it('a project deleted on both sides is treated as agreed and cleared from the baseline', async () => {
     const ID = '018f0000-0000-7000-8000-000000000011';
     const project = cleanProject(ID, 'Deleted Both', '2026-01-01T00:00:00.000Z', []);
     const seed = createEmptySyncState();
@@ -689,7 +687,7 @@ describe('Property 33: Deletions are never silently resurrected or silently appl
     );
   });
 
-  it('a server-side project deletion of a locally-unchanged project becomes a Review, not a silent removal (R19.3)', async () => {
+  it('a server-side project deletion of a locally-unchanged project becomes a Review, not a silent removal', async () => {
     const ID = '018f0000-0000-7000-8000-000000000012';
     const project = cleanProject(ID, 'Deleted On Server', '2026-01-01T00:00:00.000Z', [
       {
@@ -731,7 +729,7 @@ describe('Property 33: Deletions are never silently resurrected or silently appl
     assert.ok(state.baselines[ID], 'baseline retained while the review is pending');
   });
 
-  it('a server-side recording deletion is reviewed while sibling recordings stay converged (R19.3)', async () => {
+  it('a server-side recording deletion is reviewed while sibling recordings stay converged', async () => {
     const ID = '018f0000-0000-7000-8000-000000000013';
     const KEPT = '018f0000-0000-7000-8000-0000000000e1';
     const GONE = '018f0000-0000-7000-8000-0000000000e2';

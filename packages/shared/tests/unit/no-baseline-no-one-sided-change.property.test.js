@@ -7,27 +7,27 @@
  * single side and treat it as safe/routine:
  *   - `changed-incoming` — hands an incoming change to the user as a
  *     Review-and-Accept item *because the local copy is provably unchanged since
- *     the last agreement* (R2.4). It requires `digest_local == digest_baseline`
+ *     the last agreement*. It requires `digest_local == digest_baseline`
  *     AND `digest_incoming != digest_baseline`.
  *   - `changed-local-outgoing` — treats the local copy as a routine outgoing
  *     change to push automatically *because the server is provably still at the
- *     last agreement* (R2.5). It requires `digest_incoming == digest_baseline`
+ *     last agreement*. It requires `digest_incoming == digest_baseline`
  *     AND `digest_local != digest_baseline`.
  *
  * Both judgements are only meaningful when there IS a last-agreed state: each one
  * needs one side to MATCH the baseline so the change can be attributed to the
- * other side. When no baseline exists, there is no last-agreed state to match
- * (R1.6). A correct detector must therefore treat a missing baseline as ABSENCE,
+ * other side. When no baseline exists, there is no last-agreed state to match.
+ * A correct detector must therefore treat a missing baseline as ABSENCE,
  * not as a digest that one side happens to equal — otherwise a "phantom baseline"
  * would mis-route a genuine two-sided divergence into a one-sided change and risk
  * silently adopting incoming work over unconfirmed local work, or silently
- * overwriting an un-reconciled server change with local work (R2.7).
+ * overwriting an un-reconciled server change with local work.
  *
  * With no baseline, the only reachable classifications are `already-converged`
  * (both sides equal), `brand-new` (no local counterpart), `diverged` (both
  * present and differing), or — for a locked recording — `locked-skipped`; never
  * `changed-incoming` and never `changed-local-outgoing`. In particular a
- * local≠incoming Unit with no baseline must be `diverged` (R2.7).
+ * local≠incoming Unit with no baseline must be `diverged`.
  *
  * This test drives both the shared core `classifyUnit` (baseline digest fixed to
  * `null`) and the full `classifyProject` (baseline argument fixed to `null`) over
@@ -36,10 +36,9 @@
  * Uses the Node.js built-in test runner + fast-check (fast-check v4: `fc.uuid()`
  * for ids), mirroring the generators in classify-decision-table.property.test.js.
  *
- * **Validates: Requirements 1.6, 2.4, 2.5, 2.7**
  */
 
-// Feature: sync-conflict-resolution, Property 4: Classification with no baseline never yields a one-sided change via a phantom baseline
+// Classification with no baseline never yields a one-sided change via a phantom baseline
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
@@ -48,12 +47,12 @@ import { classifyProject, classifyUnit } from '../../conflict-detector.js';
 
 // The one-sided classifications that must NEVER arise without a baseline: each
 // attributes the change to a single side by matching the OTHER side to the
-// last-agreed state, which a missing baseline cannot provide (R1.6, R2.4, R2.5).
+// last-agreed state, which a missing baseline cannot provide.
 const ONE_SIDED_KINDS = new Set(['changed-incoming', 'changed-local-outgoing']);
 
 // The classifications reachable when there is NO baseline. The one-sided kinds
 // are deliberately absent: each requires a last-agreed state to match, which a
-// missing baseline does not provide (R1.6). Deletion cases also require a
+// missing baseline does not provide. Deletion cases also require a
 // baseline counterpart, so they too are unreachable here.
 const KINDS_REACHABLE_WITHOUT_BASELINE = new Set([
   'already-converged',
@@ -62,7 +61,7 @@ const KINDS_REACHABLE_WITHOUT_BASELINE = new Set([
   'locked-skipped',
 ]);
 
-// ─── Generators (mirroring the Property 1 decision-table test) ───────────────
+// ─── Generators (mirroring the decision-table test) ───────────────
 
 // Digest symbols (plus null for absence) so every equality relationship between
 // local and incoming arises frequently in the classifyUnit lattice.
@@ -141,13 +140,11 @@ function materialize(scenario) {
   return { local, incoming, lockedRecordingIds };
 }
 
-// ─── Property 4 ────────────────────────────────────────────────────────────────
-
-describe('Property 4: Classification with no baseline never yields a one-sided change via a phantom baseline', () => {
+describe('Classification with no baseline never yields a one-sided change via a phantom baseline', () => {
   it('classifyUnit with a null baseline never returns a one-sided change, for any local/incoming/lock', () => {
     fc.assert(
       fc.property(arbDigest, arbDigest, fc.boolean(), (dl, di, locked) => {
-        // Baseline digest is null: there is no last-agreed state (R1.6).
+        // Baseline digest is null: there is no last-agreed state.
         const kind = classifyUnit(dl, di, null, locked);
         assert.ok(
           !ONE_SIDED_KINDS.has(kind),
@@ -185,7 +182,7 @@ describe('Property 4: Classification with no baseline never yields a one-sided c
     fc.assert(
       fc.property(arbScenario, (scenario) => {
         const { local, incoming, lockedRecordingIds } = materialize(scenario);
-        // No recorded Sync_Baseline for this project (R1.6).
+        // No recorded Sync_Baseline for this project.
         const results = classifyProject(local, incoming, null, lockedRecordingIds);
 
         for (const c of results) {
@@ -210,15 +207,15 @@ describe('Property 4: Classification with no baseline never yields a one-sided c
 
   it('a missing baseline is treated as absence, not as a digest either side matches (the phantom-baseline contrast)', () => {
     // WITH a baseline equal to local (and incoming moved), the same digests are
-    // changed-incoming (R2.4) — local is provably unchanged since agreement.
+    // changed-incoming — local is provably unchanged since agreement.
     assert.equal(classifyUnit('A', 'B', 'A', false), 'changed-incoming');
     // WITH a baseline equal to incoming (and local moved), the same digests are
-    // changed-local-outgoing (R2.5) — the server is provably still at agreement.
+    // changed-local-outgoing — the server is provably still at agreement.
     assert.equal(classifyUnit('B', 'A', 'A', false), 'changed-local-outgoing');
     // WITHOUT a baseline, those identical local/incoming digests must fall
     // through to diverged, never to a one-sided change: there is no last-agreed
     // state for either side to match, so no phantom baseline is invented and the
-    // two-sided-unknown case is divergence (R1.6, R2.7).
+    // two-sided-unknown case is divergence.
     assert.equal(classifyUnit('A', 'B', null, false), 'diverged');
     assert.equal(classifyUnit('B', 'A', null, false), 'diverged');
 

@@ -9,15 +9,14 @@
  * already exists. The store keys every deferred record by `unitRef`
  * (`"<project_id>"` or `"<project_id>:<recording_id>"`) and the upsert helpers are
  * idempotent, so re-detecting the same Unit refreshes its single record (keeping
- * the original `detectedAt`) rather than appending a second one (R10.3, R10.4,
- * R10.5).
+ * the original `detectedAt`) rather than appending a second one.
  *
  * This property pins that by running `sync()` THREE times in a row with the SAME
  * `localProjects`, the SAME mocked server payloads, and a single PERSISTENT
  * in-memory `SyncStore` carried across the cycles. The scenario mixes, per
  * recording, every Unit state the detector can settle into across cycles:
  *
- *   - `converged`               — NONE state (R10.4): local == incoming == baseline;
+ *   - `converged`               — NONE state: local == incoming == baseline;
  *                                 never a Review and never a Conflict.
  *   - `review-changed`          — Review (changed-incoming): local == baseline,
  *                                 incoming differs.
@@ -50,14 +49,12 @@
  * (`fc.uuid({ version: 7 })` supplies project ids that pass the manifest's
  * UUIDv7 guard).
  *
- * **Validates: Requirements 10.3, 10.4, 10.5**
- *
  * This file is part of Docent.
  * Licensed under the GNU General Public License v3.0
  * See LICENSE in the project root for license information.
  */
 
-// Feature: sync-conflict-resolution, Property 19: Detection is idempotent across repeated cycles
+// Detection is idempotent across repeated cycles
 
 import { describe, it, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
@@ -102,7 +99,7 @@ afterEach(() => {
  *   - GET /projects/:id → the project's Full_Project_Payload.
  *
  * The same mock serves every cycle, so the server side is unchanging across the
- * repeated syncs — exactly the "same inputs" Property 19 quantifies over.
+ * repeated syncs — exactly the "same inputs" this property quantifies over.
  *
  * @param {{project_id: string, name: string}[]} manifest
  * @param {Map<string, object>} payloadById
@@ -213,7 +210,7 @@ const arbStep = fc.record({
 /**
  * One recording, tagged with the Unit state it should settle into. The version
  * differences are driven purely by the recording `name` (folded into the content
- * digest, R2.8): the baseline always holds the `'base'` version, and a category's
+ * digest): the baseline always holds the `'base'` version, and a category's
  * local/server names decide its classification. Steps are shared across versions
  * so only the intended field varies.
  */
@@ -394,7 +391,7 @@ function assertSet(actual, expectedSorted, label) {
   assert.deepEqual(sorted, expectedSorted, `${label}: members`);
 }
 
-describe('Property 19: Detection is idempotent across repeated cycles', () => {
+describe('Detection is idempotent across repeated cycles', () => {
   it('keeps exactly one record per Unit across repeated cycles, preserves detectedAt, and never duplicates', async () => {
     await fc.assert(
       fc.asyncProperty(arbScenario, async (projectSpecs) => {
@@ -425,11 +422,11 @@ describe('Property 19: Detection is idempotent across repeated cycles', () => {
         let keys = recordKeys(state);
         assert.deepEqual(keys.reviewKeys, expReview, 'cycle 1: review records');
         assert.deepEqual(keys.conflictKeys, expConflict, 'cycle 1: conflict records');
-        // Mutual exclusion (R10.3): no unitRef is in both maps.
+        // Mutual exclusion: no unitRef is in both maps.
         for (const k of keys.reviewKeys) {
           assert.equal(state.conflicts?.[k], undefined, `cycle 1: ${k} not in both maps`);
         }
-        // NONE Units are processed normally — never spuriously deferred (R10.4).
+        // NONE Units are processed normally — never spuriously deferred.
         for (const ref of convergedRefs) {
           assert.equal(state.reviews?.[ref], undefined, `converged ${ref} is not a Review`);
           assert.equal(state.conflicts?.[ref], undefined, `converged ${ref} is not a Conflict`);
@@ -452,7 +449,7 @@ describe('Property 19: Detection is idempotent across repeated cycles', () => {
           state = store.getState();
           keys = recordKeys(state);
 
-          // Same sets, same counts — nothing accumulated (R10.3).
+          // Same sets, same counts — nothing accumulated.
           assert.deepEqual(keys.reviewKeys, expReview, `cycle ${cycle}: review set stable`);
           assert.deepEqual(keys.conflictKeys, expConflict, `cycle ${cycle}: conflict set stable`);
           assert.equal(
@@ -477,7 +474,7 @@ describe('Property 19: Detection is idempotent across repeated cycles', () => {
             assert.equal(
               state.reviews[k].detectedAt,
               SENTINEL_DETECTED_AT,
-              `cycle ${cycle}: Review ${k} detectedAt preserved (R10.5)`,
+              `cycle ${cycle}: Review ${k} detectedAt preserved`,
             );
           }
           for (const k of keys.conflictKeys) {
@@ -490,7 +487,7 @@ describe('Property 19: Detection is idempotent across repeated cycles', () => {
             assert.equal(
               state.conflicts[k].detectedAt,
               SENTINEL_DETECTED_AT,
-              `cycle ${cycle}: Conflict ${k} detectedAt preserved (R10.5)`,
+              `cycle ${cycle}: Conflict ${k} detectedAt preserved`,
             );
           }
           for (const ref of convergedRefs) {
@@ -572,13 +569,13 @@ describe('Property 19: Detection is idempotent across repeated cycles', () => {
       assert.deepEqual(Object.keys(state.conflicts), [conflictRef]);
       assert.equal(state.reviews[reviewRef].kind, 'review');
       assert.equal(state.conflicts[conflictRef].kind, 'conflict');
-      // detectedAt preserved across cycles (R10.5).
+      // detectedAt preserved across cycles.
       assert.equal(state.reviews[reviewRef].detectedAt, SENTINEL_DETECTED_AT);
       assert.equal(state.conflicts[conflictRef].detectedAt, SENTINEL_DETECTED_AT);
     }
   });
 
-  it('preserves a pre-existing Conflict when a later cycle re-syncs without re-detecting it (R10.5)', async () => {
+  it('preserves a pre-existing Conflict when a later cycle re-syncs without re-detecting it', async () => {
     // A project that is now FULLY converged on both sides: the cycle advances its
     // baseline (already-converged) but does NOT re-detect the recording, so a
     // Conflict already recorded for it must be left untouched — clearing happens

@@ -1,37 +1,36 @@
 /**
  * debug.js — the non-protocol Debug_Affordances for the Reference Sync Server,
- * all served under the distinct `/__debug/` path prefix (Requirement 12).
+ * all served under the distinct `/__debug/` path prefix.
  *
  * These routes exist purely to ease manual end-to-end testing; they are NOT part
- * of the Sync_Protocol and a protocol-only client never depends on them
- * (Requirement 12.1, 12.2). They live behind the `/__debug/` prefix so they can
+ * of the Sync_Protocol and a protocol-only client never depends on them.
+ * They live behind the `/__debug/` prefix so they can
  * never be confused with the three protocol endpoints, and the router applies
- * the same Bearer-token auth to them as to protocol routes (Requirement 5.7), so
+ * the same Bearer-token auth to them as to protocol routes, so
  * a configured token leaves no unauthenticated state-mutating endpoint.
  *
  * Three affordances:
  *
  *   - POST /__debug/reset → clear every stored project and report the count
- *                           removed: `{ ok: true, cleared: <n> }` (R12.3).
+ *                           removed: `{ ok: true, cleared: <n> }`.
  *   - GET  /__debug/dump  → a read-only per-project summary
  *                           `{ count, projects: [{ project_id, name,
  *                           last_modified, etag }] }`, WITHOUT mutating stored
- *                           state (R12.4). The full payload is obtained through
+ *                           state. The full payload is obtained through
  *                           `GET /projects/:id`, not here.
  *   - POST /__debug/seed  → store one or more payloads directly through the
  *                           Storage_Provider exactly as a PUT would (verbatim,
  *                           opaque, server-set `last_modified`) WITHOUT a client
- *                           push (R12.5). The body is either an array of caller
+ *                           push. The body is either an array of caller
  *                           payloads or `{ samples: true }` to use the bundled
- *                           both-platform sample payloads (R12.7). Invalid JSON
- *                           → 400, store unchanged (R12.8). The server never
- *                           reads the `docent_format` stamp of a seeded payload
- *                           (R12.6).
+ *                           both-platform sample payloads. Invalid JSON
+ *                           → 400, store unchanged. The server never
+ *                           reads the `docent_format` stamp of a seeded payload.
  *
  * Opacity: like the protocol handlers, the seed path reads ONLY
  * `payload.project.project_id` (to derive the storage id, exactly as a PUT
  * does) and nothing else — never the `docent_format` stamp, recordings, or
- * steps (Requirement 12.6).
+ * steps.
  *
  * Calling convention: the router resolves the storage seam and the `/__debug/`
  * sub-path, then calls `handleDebug(storage, req, res, subPath)` where `subPath`
@@ -97,9 +96,9 @@ function sendJson(res, status, body, extraHeaders = {}) {
 /**
  * Handle `POST /__debug/reset`: clear every stored project and report how many
  * were removed, so a tester can return the server to a known empty state and a
- * subsequent `GET /projects` returns `[]` (Requirement 12.3).
+ * subsequent `GET /projects` returns `[]`.
  *
- * @param {StorageProvider} storage The injected Storage_Provider (R7.1).
+ * @param {StorageProvider} storage The injected Storage_Provider.
  * @param {import('node:http').IncomingMessage} _req Unused; reset takes no body.
  * @param {import('node:http').ServerResponse} res
  * @returns {Promise<void>}
@@ -113,12 +112,12 @@ export async function debugReset(storage, _req, res) {
  * Handle `GET /__debug/dump`: return a read-only per-project summary of the
  * current stored state — for each project its `project_id`, `name`,
  * server-maintained `last_modified`, and current `etag` — WITHOUT altering
- * stored data (Requirement 12.4). The summary is derived through the storage
+ * stored data. The summary is derived through the storage
  * seam: `list()` for the manifest fields and `read()` per project to compute the
  * content-derived ETag (`deriveETag`). It returns this summary, not verbatim
  * payloads — a full payload is fetched through `GET /projects/:id`.
  *
- * @param {StorageProvider} storage The injected Storage_Provider (R7.1).
+ * @param {StorageProvider} storage The injected Storage_Provider.
  * @param {import('node:http').IncomingMessage} _req Unused; dump takes no body.
  * @param {import('node:http').ServerResponse} res
  * @returns {Promise<void>}
@@ -128,7 +127,7 @@ export async function debugDump(storage, _req, res) {
   const projects = [];
   for (const entry of entries) {
     // Read the verbatim payload only to derive its content ETag; this is a pure
-    // read and never mutates the stored record (Requirement 12.4).
+    // read and never mutates the stored record.
     const record = await storage.read(entry.project_id);
     projects.push({
       project_id: entry.project_id,
@@ -142,8 +141,8 @@ export async function debugDump(storage, _req, res) {
 
 /**
  * Load the bundled both-platform sample payloads (one stamped `extension`, one
- * stamped `desktop-windows`) for the `{ samples: true }` seed path
- * (Requirement 12.7). Read with `fs.readFile` + `JSON.parse` so the affordance
+ * stamped `desktop-windows`) for the `{ samples: true }` seed path.
+ * Read with `fs.readFile` + `JSON.parse` so the affordance
  * stays portable if the server is copied out of the monorepo.
  *
  * @returns {Promise<object[]>} The parsed sample payloads.
@@ -164,11 +163,11 @@ async function loadSamplePayloads() {
  * 12.5). The body is parsed as JSON and must be either:
  *
  *   - an array of caller-supplied Full_Project_Payloads, or
- *   - `{ samples: true }` to seed the bundled both-platform samples (R12.7).
+ *   - `{ samples: true }` to seed the bundled both-platform samples.
  *
  * Invalid JSON is rejected with HTTP 400 and leaves stored data unchanged — the
- * parse happens before any write, so nothing is stored on the 400 path
- * (Requirement 12.8). A valid-JSON body that is neither an array nor
+ * parse happens before any write, so nothing is stored on the 400 path.
+ * A valid-JSON body that is neither an array nor
  * `{ samples: true }` is likewise a malformed seed request → 400.
  *
  * The storage id for each payload is derived from `payload.project.project_id`,
@@ -176,13 +175,13 @@ async function loadSamplePayloads() {
  * seeded payload and never inspects its `docent_format` stamp (Requirement
  * 12.6). Responds `{ ok: true, seeded: <n> }`.
  *
- * @param {StorageProvider} storage The injected Storage_Provider (R7.1).
+ * @param {StorageProvider} storage The injected Storage_Provider.
  * @param {import('node:http').IncomingMessage} req
  * @param {import('node:http').ServerResponse} res
  * @returns {Promise<void>}
  */
 export async function debugSeed(storage, req, res) {
-  // ── Parse the body. Invalid JSON → 400, store unchanged (R12.8): the parse
+  // ── Parse the body. Invalid JSON → 400, store unchanged: the parse
   // precedes every write, so a rejection never touches the store.
   const raw = await readBody(req);
   let parsed;
@@ -208,7 +207,7 @@ export async function debugSeed(storage, req, res) {
   }
 
   // ── Store each payload exactly as a PUT would: verbatim and opaque, with a
-  // server-set `last_modified`, without a client push (R12.5, R12.6). The id is
+  // server-set `last_modified`, without a client push. The id is
   // derived solely from `payload.project.project_id`, like the write handler.
   let seeded = 0;
   for (const payload of payloads) {
@@ -232,7 +231,7 @@ export async function debugSeed(storage, req, res) {
  * each known sub-path (405 on a mismatch) and returns 404 for an unknown debug
  * sub-path, keeping all debug routing in one place.
  *
- * @param {StorageProvider} storage The injected Storage_Provider (R7.1).
+ * @param {StorageProvider} storage The injected Storage_Provider.
  * @param {import('node:http').IncomingMessage} req
  * @param {import('node:http').ServerResponse} res
  * @param {string} subPath The path segment after `/__debug/`

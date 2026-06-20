@@ -6,31 +6,31 @@
  * with the user-gated resolution workflow (`conflict-resolution.js`
  * `acceptReview` / `declineReview` / `resolveConflict`).
  *
- * Property 31 (design): "For any sequence of sync cycles — including concurrent
+ * (design): "For any sequence of sync cycles — including concurrent
  * changes by another client against the opaque last-write-wins server — every
  * committed local version of a Unit remains recoverable (as live local data, a
  * retained Sync_Snapshot, a baseline copy, or a Conflict record) until the user
  * explicitly discards it through Conflict_Resolution. Because pull-then-push
  * detects a divergence before the local version is pushed and a deferred unit is
  * never pushed, no client's local work is overwritten on the server without first
- * surfacing as a Conflict." (R18.2, R20.2)
+ * surfacing as a Conflict."
  *
  * ── Pull-first recovery model (the post-revision invariant) ──────────────────
- * The orchestrator runs PULL → reconcile → per-unit PUSH (R20.1). Pulling first
+ * The orchestrator runs PULL → reconcile → per-unit PUSH. Pulling first
  * is what lets a concurrent server change be classified as a `diverged` Conflict
  * BEFORE this client's push could last-write-wins clobber it; a deferred (Review/
  * Conflict) or locked unit is then pushed only at its agreed-or-pulled version,
- * never at the un-reconciled local edits (R20.2, R20.3). So a committed local
+ * never at the un-reconciled local edits. So a committed local
  * step is preserved across a cycle (it stays live + retained on the Conflict/
  * snapshot/baseline), and a resolved or `changed-local-outgoing` unit propagates
- * as the LOCAL version on a subsequent cycle (R20.2, R20.5) rather than being
+ * as the LOCAL version on a subsequent cycle rather than being
  * silently dropped.
  *
  * Crucially, "keep local" in a resolution keeps the user's CURRENT live work, not
  * the version captured when the Conflict was first detected: a sibling unit's own
  * resolution may have appended records to the live project since detection, and
- * keeping local must carry those forward so the kept local change propagates
- * (R20.2). The captured `item.local`/`item.incoming` are recovery handles; the
+ * keeping local must carry those forward so the kept local change propagates.
+ * The captured `item.local`/`item.incoming` are recovery handles; the
  * live unit is what is re-adopted.
  *
  * ── How the invariant is pinned ──────────────────────────────────────────────
@@ -49,7 +49,7 @@
  *     the local side of a Conflict resolved by accepting a deletion, or the local
  *     side of a Review the user accepted (adopting the incoming version over the
  *     local one). These are the only sanctioned ways committed local work leaves
- *     the recoverable set (R18.2's "until the user explicitly discards it").
+ *     the recoverable set ("until the user explicitly discards it").
  *
  * A step uuid is RECOVERABLE when it is present in any of: the live local
  * projects, a retained Sync_Snapshot, a baseline copy, a Conflict record (either
@@ -63,15 +63,15 @@
  *   - A SYNC CYCLE never grows `discarded`, so the assertion proves a cycle loses
  *     NOTHING — every committed local record stays recoverable across the cycle,
  *     even when another client overwrote the server copy (the diverged /
- *     concurrent-push case central to R18) and even though the server is opaque
+ *     concurrent-push case) and even though the server is opaque
  *     last-write-wins. Pull-first is what makes this hold: the concurrent change
  *     is detected as a Conflict before the push, so the local version is never
- *     clobbered (R20.1, R20.2).
+ *     clobbered.
  *   - A DECLINE or a KEEP/MERGE resolution never grows `discarded` either: a keep
  *     adopts the user's CURRENT live unit folded with the conflicting version's
  *     records (an append-only superset), so every committed local record it
  *     contained survives and the kept local change propagates next cycle rather
- *     than being dropped (R20.2). The assertion proves they lose nothing.
+ *     than being dropped. The assertion proves they lose nothing.
  *   - Only ACCEPT (a Review) and ACCEPT-DELETION (a Conflict) may grow
  *     `discarded`, and then only by the resolved Unit's own local side — so the
  *     assertion still proves every OTHER committed local record stays recoverable.
@@ -86,14 +86,12 @@
  * (`fc.uuid({ version: 7 })` supplies project/recording ids that pass the
  * manifest's UUIDv7 guard).
  *
- * **Validates: Requirements 18.2, 20.2**
- *
  * This file is part of Docent.
  * Licensed under the GNU General Public License v3.0
  * See LICENSE in the project root for license information.
  */
 
-// Feature: sync-conflict-resolution, Property 31: No committed local work is ever permanently lost
+// No committed local work is ever permanently lost
 
 import { describe, it, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
@@ -300,7 +298,7 @@ function normalizeProjects(projects) {
  * The full recoverable set: every step uuid reachable from any recovery handle
  * the design names — live local data, a retained Sync_Snapshot, a baseline copy,
  * a Conflict record (either version), or a Review record's retained incoming
- * version (R18.2).
+ * version.
  *
  * @param {import('../../sync-types.js').SyncState} state
  * @param {object[]} projects
@@ -347,7 +345,7 @@ const arbStepSpec = fc.record({
  * A recording spec. `divergeBaseline` seeds the baseline with an EXTRA agreed
  * step the local side lacks, so the recording starts already differing from its
  * baseline — the precondition that lets a server change classify as a `diverged`
- * Conflict (the concurrent-overwrite case central to R18), not merely a Review.
+ * Conflict (the concurrent-overwrite case), not merely a Review.
  */
 const arbRecSpec = fc.record({
   recording_id: fc.uuid({ version: 7 }),
@@ -534,7 +532,7 @@ function buildServerForCycle(projects, op, nextUuid) {
  * Unit by step `uuid`. Used as the "other" side of {@link buildKeepResolution} so
  * a keep resolution retains every committed record from the CURRENT live unit AND
  * from both captured conflicting versions — an append-only superset that
- * `resolveConflict` accepts and that keeps all three recoverable (R9.3). Project
+ * `resolveConflict` accepts and that keeps all three recoverable. Project
  * copies are unioned per recording (by `recording_id`, steps unioned by `uuid`);
  * recording copies are unioned by their own `steps`. Null entries are tolerated.
  *
@@ -590,10 +588,10 @@ function unionUnit(isProject, ...units) {
  * may have appended records to the live project since detection (e.g. a
  * keep-local on one recording restamps a fresh winning step), and keeping local
  * must carry those forward so the kept local change PROPAGATES rather than being
- * silently dropped (R20.2). So every keep/merge action adopts an append-only
+ * silently dropped. So every keep/merge action adopts an append-only
  * SUPERSET that folds the live unit together with both captured versions: the
- * live work survives, and both captured versions stay recoverable (R9.3). Only an
- * accept-deletion explicitly discards the current local work in the Unit (R18.2).
+ * live work survives, and both captured versions stay recoverable. Only an
+ * accept-deletion explicitly discards the current local work in the Unit.
  */
 function doResolveConflict(state, projects, ref, item, action, nextUuid) {
   const isProject = item.recording_id == null;
@@ -604,7 +602,7 @@ function doResolveConflict(state, projects, ref, item, action, nextUuid) {
 
   // Fold the live unit and both captured versions into one append-only "other"
   // side, so any keep/merge resolution retains every committed record from all
-  // three (R9.3, R20.2).
+  // three.
   const fold = unionUnit(isProject, live, item.local, item.incoming);
 
   let resolvedState;
@@ -613,7 +611,7 @@ function doResolveConflict(state, projects, ref, item, action, nextUuid) {
   if (action === 'delete') {
     resolvedState = DELETE_RESOLUTION;
     // Accepting the deletion is the user explicitly discarding the current local
-    // work in this Unit (R18.2 "until the user explicitly discards it") — both
+    // work in this Unit ("until the user explicitly discards it") — both
     // the live copy and the version captured when the Conflict was detected.
     discardedUuids = new Set([...uuidsInUnitCopy(live), ...uuidsInUnitCopy(item.local)]);
   } else if (!hasAny) {
@@ -625,7 +623,7 @@ function doResolveConflict(state, projects, ref, item, action, nextUuid) {
     // keeps the live work recoverable. The winner side differs only cosmetically
     // (keep-incoming makes the incoming version the active view) — recoverability
     // is identical, since every record from the live unit, the captured local,
-    // and the captured incoming is retained. Keeping discards NOTHING (R20.2).
+    // and the captured incoming is retained. Keeping discards NOTHING.
     const keep =
       action === 'keepIncoming'
         ? (item.incoming ?? live ?? item.local)
@@ -652,9 +650,7 @@ function doResolveReview(state, projects, ref, item, action) {
   return { result, discardedUuids: new Set() };
 }
 
-// ─── Property 31 ──────────────────────────────────────────────────────────────
-
-describe('Property 31: No committed local work is ever permanently lost', () => {
+describe('No committed local work is ever permanently lost', () => {
   it('keeps every committed local step recoverable across arbitrary sync cycles and resolutions, except where the user explicitly discards it', async () => {
     await fc.assert(
       fc.asyncProperty(arbScenario, async ({ initial, ops }) => {
@@ -765,7 +761,7 @@ describe('Property 31: No committed local work is ever permanently lost', () => 
 
   // ─── Deterministic regression examples ──────────────────────────────────────
 
-  it('a diverged conflict (concurrent overwrite) keeps the local step recoverable through the cycle and a keep-local resolution (R18.1, R18.2)', async () => {
+  it('a diverged conflict (concurrent overwrite) keeps the local step recoverable through the cycle and a keep-local resolution', async () => {
     const PID = '018f0000-0000-7000-8000-000000000301';
     const RID = '018f0000-0000-7000-8000-0000000000a1';
     const ref = `${PID}:${RID}`;
@@ -841,7 +837,7 @@ describe('Property 31: No committed local work is ever permanently lost', () => 
     assert.ok(recoverable.has('S1'), 'S1 still recoverable after keep-local resolution');
   });
 
-  it('declining a changed-incoming Review keeps the local step recoverable; the cycle never auto-applies the incoming change (R18.2)', async () => {
+  it('declining a changed-incoming Review keeps the local step recoverable; the cycle never auto-applies the incoming change', async () => {
     const PID = '018f0000-0000-7000-8000-000000000302';
     const RID = '018f0000-0000-7000-8000-0000000000b1';
     const ref = `${PID}:${RID}`;
@@ -899,7 +895,7 @@ describe('Property 31: No committed local work is ever permanently lost', () => 
     assert.ok(recoverable.has('L1'), 'L1 still recoverable after declining the Review');
   });
 
-  it('accepting a deletion discards only the resolved Unit; a sibling project keeps its committed local work recoverable (R18.2)', async () => {
+  it('accepting a deletion discards only the resolved Unit; a sibling project keeps its committed local work recoverable', async () => {
     const KEEP_PID = '018f0000-0000-7000-8000-000000000303';
     const DEL_PID = '018f0000-0000-7000-8000-000000000304';
     const KEEP_RID = '018f0000-0000-7000-8000-0000000000c1';
@@ -994,7 +990,7 @@ describe('Property 31: No committed local work is ever permanently lost', () => 
     );
   });
 
-  it('a keep-local on a recording Conflict then a keep-local on a stale OVERLAPPING project Conflict keeps the restamped local work recoverable (pull-first; R18.2, R20.2)', async () => {
+  it('a keep-local on a recording Conflict then a keep-local on a stale OVERLAPPING project Conflict keeps the restamped local work recoverable (pull-first)', async () => {
     // Regression for the intermittent failure under the pull-first model:
     // counterexample seed 1848596674 (absentProject → changeRec → keepLocal →
     // keepLocal → none). A whole-project absence then reappearance leaves an
@@ -1003,7 +999,7 @@ describe('Property 31: No committed local work is ever permanently lost', () => 
     // restamps a fresh winning step into the LIVE project; resolving the stale
     // project-level Conflict keep-local must keep that CURRENT live work (not the
     // version captured when the project Conflict was first detected), so the
-    // restamped step is never silently dropped (R20.2).
+    // restamped step is never silently dropped.
     const PID = '018f0000-0000-7000-8000-000000000305';
     const RID = '018f0000-0000-7000-8000-0000000000e1';
     const recRef = `${PID}:${RID}`;
@@ -1121,7 +1117,7 @@ describe('Property 31: No committed local work is ever permanently lost', () => 
 
     // op 3 — keep-local on the still-pending OVERLAPPING project-level Conflict.
     // It must keep the CURRENT live project (with the restamped step), not the
-    // stale captured local from op 0, so nothing is dropped (R20.2).
+    // stale captured local from op 0, so nothing is dropped.
     state = await loadSyncState(store);
     res = doResolveConflict(state, projects, PID, state.conflicts[PID], 'keepLocal', nextUuid);
     assert.equal(res.result.ok, true);

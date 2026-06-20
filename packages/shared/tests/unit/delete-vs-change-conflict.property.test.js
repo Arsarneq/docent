@@ -10,15 +10,15 @@
  * would resurrect a deletion, dropping it would discard the change. The cycle
  * must therefore record a `conflict-delete-vs-change` Conflict and apply NO
  * outcome — the choice between keeping the changed version and accepting the
- * deletion is the user's, made later through Conflict_Resolution (R19.5).
+ * deletion is the user's, made later through Conflict_Resolution.
  *
  * Two directions, each at BOTH granularities (project-level and recording-level):
  *
- *   - local-deleted / server-changed (R19.2) — present in the baseline, absent
+ *   - local-deleted / server-changed — present in the baseline, absent
  *     locally, and CHANGED on the server (incoming != baseline): a Conflict whose
  *     LOCAL (deletion) side carries no version (null) and whose INCOMING side
  *     retains the changed server version.
- *   - server-deleted / local-changed (R19.4) — present in the baseline, CHANGED
+ *   - server-deleted / local-changed — present in the baseline, CHANGED
  *     locally, and absent on the server (incoming == null): a Conflict whose
  *     INCOMING (deletion) side carries no version (null) and whose LOCAL side
  *     retains the changed local version.
@@ -42,14 +42,12 @@
  * (`fc.uuid({ version: 7 })` supplies project ids that pass the manifest's
  * UUIDv7 guard).
  *
- * **Validates: Requirements 19.2, 19.4, 19.5**
- *
  * This file is part of Docent.
  * Licensed under the GNU General Public License v3.0
  * See LICENSE in the project root for license information.
  */
 
-// Feature: sync-conflict-resolution, Property 34: Delete-vs-change is a conflict deferred to the user
+// Delete-vs-change is a conflict deferred to the user
 
 import { describe, it, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
@@ -241,7 +239,7 @@ function cleanProject(id, name, created_at, recordings) {
 /**
  * A content change that is GUARANTEED to differ from the original: appending a
  * marker to the (digest-folded) name always yields a different canonical digest
- * (R2.8 — name is part of Unit identity), so the changed side reliably diverges
+ * (name is part of Unit identity), so the changed side reliably diverges
  * from the baseline.
  */
 const CHANGE_MARKER = '\u0394'; // "Δ"
@@ -251,8 +249,8 @@ const CHANGE_MARKER = '\u0394'; // "Δ"
 /**
  * A whole project present in the baseline (the last-agreed state) that realizes
  * one delete-vs-change direction:
- *   - 'local-deleted'  — absent locally; present + CHANGED on the server (R19.2).
- *   - 'server-deleted' — present + CHANGED locally; absent on the server (R19.4).
+ *   - 'local-deleted'  — absent locally; present + CHANGED on the server.
+ *   - 'server-deleted' — present + CHANGED locally; absent on the server.
  */
 const arbProjectDvcSpec = fc.record({
   project_id: fc.uuid({ version: 7 }),
@@ -313,8 +311,8 @@ function materializeProjectScenario(specs) {
   return { seed, payloadById, manifest, localProjects, expectations };
 }
 
-describe('Property 34: Delete-vs-change is a conflict deferred to the user', () => {
-  it('project-level: delete-vs-change records a deferred Conflict, retains the changed side, and never applies an outcome (R19.2, R19.4, R19.5)', async () => {
+describe('Delete-vs-change is a conflict deferred to the user', () => {
+  it('project-level: delete-vs-change records a deferred Conflict, retains the changed side, and never applies an outcome', async () => {
     await fc.assert(
       fc.asyncProperty(arbProjectDvcScenario, async (specs) => {
         const { seed, payloadById, manifest, localProjects, expectations } =
@@ -496,7 +494,7 @@ describe('Property 34: Delete-vs-change is a conflict deferred to the user', () 
     return { seed, payloadById, manifest, localProjects, expectations };
   }
 
-  it('recording-level: delete-vs-change records a deferred Conflict while the converged sibling still reconciles (R19.2, R19.4, R19.5)', async () => {
+  it('recording-level: delete-vs-change records a deferred Conflict while the converged sibling still reconciles', async () => {
     await fc.assert(
       fc.asyncProperty(arbRecordingDvcScenario, async (specs) => {
         const { seed, payloadById, manifest, localProjects, expectations } =
@@ -589,7 +587,7 @@ describe('Property 34: Delete-vs-change is a conflict deferred to the user', () 
 
   // ─── Deterministic regression examples (one per direction × granularity) ─────
 
-  it('project-level: deleted locally, changed on the server → a deferred Conflict, local not resurrected (R19.2)', async () => {
+  it('project-level: deleted locally, changed on the server → a deferred Conflict, local not resurrected', async () => {
     const ID = '018f0000-0000-7000-8000-000000000020';
     const agreed = cleanProject(ID, 'Agreed', '2026-01-01T00:00:00.000Z', [
       {
@@ -646,7 +644,7 @@ describe('Property 34: Delete-vs-change is a conflict deferred to the user', () 
     );
   });
 
-  it('project-level: deleted on the server, changed locally → a deferred Conflict, local preserved (R19.4)', async () => {
+  it('project-level: deleted on the server, changed locally → a deferred Conflict, local preserved', async () => {
     const ID = '018f0000-0000-7000-8000-000000000021';
     const agreed = cleanProject(ID, 'Agreed', '2026-01-01T00:00:00.000Z', [
       {
@@ -710,7 +708,7 @@ describe('Property 34: Delete-vs-change is a conflict deferred to the user', () 
     );
   });
 
-  it('recording-level: deleted locally, changed on the server → a deferred Conflict, sibling still converges (R19.2)', async () => {
+  it('recording-level: deleted locally, changed on the server → a deferred Conflict, sibling still converges', async () => {
     const ID = '018f0000-0000-7000-8000-000000000022';
     const SIB = '018f0000-0000-7000-8000-0000000000c1';
     const TGT = '018f0000-0000-7000-8000-0000000000c2';
@@ -777,7 +775,7 @@ describe('Property 34: Delete-vs-change is a conflict deferred to the user', () 
     assert.deepEqual([...baselineRecIds].sort(), [SIB, TGT].sort(), 'baseline unchanged');
   });
 
-  it('recording-level: deleted on the server, changed locally → a deferred Conflict, local recording preserved (R19.4)', async () => {
+  it('recording-level: deleted on the server, changed locally → a deferred Conflict, local recording preserved', async () => {
     const ID = '018f0000-0000-7000-8000-000000000023';
     const SIB = '018f0000-0000-7000-8000-0000000000d1';
     const TGT = '018f0000-0000-7000-8000-0000000000d2';

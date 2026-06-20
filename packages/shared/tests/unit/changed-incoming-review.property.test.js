@@ -2,22 +2,20 @@
  * changed-incoming-review.property.test.js — Property test that a recording
  * classified `changed-incoming` is DEFERRED to Review-and-Accept and is NEVER
  * auto-applied WHEN Auto-Accept-Updates is OFF, OR when it is ON but the incoming
- * version is NOT an append-only superset of the baseline (not a fast-forward)
- * (Property 8, as revised by R1 / task 22.2).
+ * version is NOT an append-only superset of the baseline (not a fast-forward).
  *
  * `changed-incoming` is the canonical "only the author can judge this" case: a
  * recording the user already has, whose LOCAL copy is unchanged since the last
- * mutually-agreed Sync_Baseline, while the SERVER copy moved (R2.4). Whether such
+ * mutually-agreed Sync_Baseline, while the SERVER copy moved. Whether such
  * an incoming change may be adopted automatically is a client-local POLICY
- * decision, applied by the orchestrator (the classifier stays settings-independent,
- * R22.6):
+ * decision, applied by the orchestrator (the classifier stays settings-independent):
  *   - the incoming version is auto-applied ONLY when Auto-Accept-Updates is ON
  *     AND the incoming version is an append-only superset of the baseline — a
- *     true fast-forward that drops no committed step record (R4.2, R22.4); and
+ *     true fast-forward that drops no committed step record; and
  *   - OTHERWISE — the toggle is OFF, or the incoming version is NOT a fast-forward
  *     (history was rewritten or step records were dropped) — the cycle must DEFER
- *     it to Review-and-Accept rather than apply it (R4.1, R4.3, the
- *     automatic/user-gated boundary R15.2).
+ *     it to Review-and-Accept rather than apply it (the automatic/user-gated
+ *     boundary).
  *
  * This property exercises exactly the DEFER branch. For every generated cycle it
  * holds the orchestrator to one of two settings/shape arms, both of which MUST
@@ -29,18 +27,18 @@
  *   - **toggle ON, non-fast-forward** — Auto-Accept-Updates is ON, but the
  *     incoming version drops a committed step record present in the baseline, so
  *     it is NOT an append-only superset and is held for Review even with the
- *     setting ON (R4.3).
+ *     setting ON.
  *
  * Concretely, under either arm the cycle:
  *   - places the incoming change in a durable Review-and-Accept item instead of
- *     applying it (R4.1) — the item is in `state.reviews` and its `unitRef` is
+ *     applying it — the item is in `state.reviews` and its `unitRef` is
  *     reported in `result.review`;
  *   - reports NOTHING in `result.autoAppliedUpdates` (and nothing in
  *     `autoAppliedDeletions`): the change is provably never auto-applied;
  *   - leaves the LOCAL recording byte-identical in the merged-projects list (the
- *     incoming version is never written over local data, R9.5); and
+ *     incoming version is never written over local data); and
  *   - leaves the project's Sync_Baseline UNCHANGED (a deferral never advances the
- *     baseline — only confirmed agreement or adoption does, R1.2/R1.4), so the
+ *     baseline — only confirmed agreement or adoption does), so the
  *     incoming change has provably not been adopted.
  *
  * The property drives the full `sync()` orchestrator (not the detector in
@@ -62,14 +60,12 @@
  * `fc.uuid({ version: 7 })` supplies project ids that pass the manifest's
  * UUIDv7 guard).
  *
- * **Validates: Requirements 4.1, 4.3, 9.5, 15.2, 22.4**
- *
  * This file is part of Docent.
  * Licensed under the GNU General Public License v3.0
  * See LICENSE in the project root for license information.
  */
 
-// Feature: sync-conflict-resolution, Property 8: Changed-incoming creates a Review item and never auto-applies (toggle OFF or non-fast-forward)
+// Changed-incoming creates a Review item and never auto-applies (toggle OFF or non-fast-forward)
 
 import { describe, it, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
@@ -355,7 +351,7 @@ function materialize(scenario) {
 
       // A fast-forward is only permitted when the toggle is OFF (where it must
       // STILL defer). With the toggle ON we force a non-fast-forward (drop the
-      // first baseline step record), so the change is held for Review per R4.3.
+      // first baseline step record), so the change is held for Review.
       const makeFastForward = !toggle && r.fastForwardWhenOff;
       const incomingSteps = makeFastForward
         ? [...baseSteps, ...extraSteps] // retains every baseline record ⇒ superset
@@ -368,7 +364,7 @@ function materialize(scenario) {
         steps: baseSteps,
       });
       // Incoming name carries a marker suffix, so it is ALWAYS distinct from the
-      // baseline/local name → digestIncoming !== digestBaseline (R2.4), even for
+      // baseline/local name → digestIncoming !== digestBaseline, even for
       // a pure fast-forward, while local stays byte-identical to baseline.
       const incoming = cleanRecording({
         recording_id: r.recording_id,
@@ -441,9 +437,7 @@ function materialize(scenario) {
   return { localProjects, manifest, payloadById, seed, expectations, toggle };
 }
 
-// ─── Property 8 ───────────────────────────────────────────────────────────────
-
-describe('Property 8: Changed-incoming creates a Review item and never auto-applies (toggle OFF or non-fast-forward)', () => {
+describe('Changed-incoming creates a Review item and never auto-applies (toggle OFF or non-fast-forward)', () => {
   it('defers every changed-incoming recording to a Review item, never auto-applies, keeps local byte-identical, and never advances the baseline', async () => {
     await fc.assert(
       fc.asyncProperty(arbScenario, async (scenario) => {
@@ -472,7 +466,7 @@ describe('Property 8: Changed-incoming creates a Review item and never auto-appl
         // The set of all expected changed-incoming unitRefs across the scenario.
         const allChangedRefs = expectations.flatMap((e) => e.changedRefs.map((c) => c.unitRef));
 
-        // ── NEVER auto-applied (the core of the revised property, R4.3/R22.4):
+        // ── NEVER auto-applied (the core of the revised property):
         //    a changed-incoming under toggle OFF, or a non-fast-forward under
         //    toggle ON, is deferred — nothing is reported as auto-applied. ──
         assert.deepEqual(
@@ -487,7 +481,7 @@ describe('Property 8: Changed-incoming creates a Review item and never auto-appl
         );
 
         // ── No Conflicts anywhere: a changed-incoming recording is a Review,
-        //    never a Conflict (R4.1). ──
+        //    never a Conflict. ──
         assert.deepEqual(result.conflicts, [], 'no conflict unitRefs reported');
         assert.deepEqual(
           Object.keys(state.conflicts ?? {}),
@@ -516,7 +510,7 @@ describe('Property 8: Changed-incoming creates a Review item and never auto-appl
           const merged = byId.get(project_id);
           assert.ok(merged, `project ${project_id} must still be present locally`);
 
-          // ── R4.1/R4.3 — each changed-incoming recording is placed in a PENDING
+          // ── each changed-incoming recording is placed in a PENDING
           //    Review-and-Accept item retaining the incoming version. ──
           for (const { recording_id, unitRef, expectedLocal, expectedIncoming } of changedRefs) {
             const review = state.reviews?.[unitRef];
@@ -530,7 +524,7 @@ describe('Property 8: Changed-incoming creates a Review item and never auto-appl
               `${unitRef} must not also be a Conflict (mutual exclusion)`,
             );
 
-            // The retained incoming version is the moved server recording (R4.1):
+            // The retained incoming version is the moved server recording:
             // the change is captured for review, not dropped.
             assert.deepEqual(
               review.incoming,
@@ -538,19 +532,19 @@ describe('Property 8: Changed-incoming creates a Review item and never auto-appl
               'the Review retains the incoming (server) version',
             );
 
-            // ── R9.5 / R15.2 — the merged LOCAL recording is byte-identical and
+            // ── the merged LOCAL recording is byte-identical and
             //    the incoming change is NOT adopted. ──
             const mergedRec = merged.recordings.find((r) => r.recording_id === recording_id);
             assert.ok(mergedRec, `recording ${recording_id} must remain in the merged project`);
             assert.deepEqual(
               mergedRec,
               expectedLocal,
-              'the local recording is left byte-identical (incoming never applied, R9.5)',
+              'the local recording is left byte-identical (incoming never applied)',
             );
             assert.notDeepEqual(
               mergedRec,
               expectedIncoming,
-              'the incoming change is NOT adopted into local data (R15.2)',
+              'the incoming change is NOT adopted into local data',
             );
           }
 
@@ -567,7 +561,7 @@ describe('Property 8: Changed-incoming creates a Review item and never auto-appl
             assert.ok(!(ref in (state.conflicts ?? {})), 'a converged sibling is not conflicted');
           }
 
-          // ── R1.2/R1.4 — a deferral never advances the baseline: it still
+          // ── a deferral never advances the baseline: it still
           //    equals the seeded agreed state, proving the incoming change has
           //    NOT been adopted. ──
           const baseline = getBaseline(state, project_id);
@@ -585,7 +579,7 @@ describe('Property 8: Changed-incoming creates a Review item and never auto-appl
 
   // ── Deterministic regression example: toggle OFF, fast-forward incoming ──────
   // Auto-Accept-Updates is OFF, so even a clean append-only fast-forward (which
-  // would auto-apply were the toggle ON) is deferred to Review (R4.1, R22.4).
+  // would auto-apply were the toggle ON) is deferred to Review.
 
   it('toggle OFF: an append-only fast-forward still becomes a PENDING Review, untouched local + baseline', async () => {
     const ID = '018f0000-0000-7000-8000-000000000001';
@@ -680,7 +674,7 @@ describe('Property 8: Changed-incoming creates a Review item and never auto-appl
   // ── Deterministic regression example: toggle ON, non-fast-forward incoming ───
   // Auto-Accept-Updates is ON, but the incoming version DROPS a committed step
   // record present in the baseline, so it is not an append-only superset and is
-  // held for Review rather than auto-applied (R4.3, R22.4).
+  // held for Review rather than auto-applied.
 
   it('toggle ON: a non-fast-forward (history-dropping) incoming change still becomes a PENDING Review', async () => {
     const ID = '018f0000-0000-7000-8000-000000000011';

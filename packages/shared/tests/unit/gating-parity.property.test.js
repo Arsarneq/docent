@@ -2,7 +2,7 @@
  * gating-parity.property.test.js — Property test that the live-work GATING is
  * identical for a "manually" triggered and an "automatically" triggered sync.
  *
- * Requirement 15.3 demands that the Locked_Recording exclusion and the
+ * The trigger-parity rule demands that the Locked_Recording exclusion and the
  * Capture_Active halt apply IDENTICALLY no matter how the cycle was triggered.
  * The orchestrator honors this structurally: `sync()` has a SINGLE code path and
  * takes NO trigger-type argument, so there is no manual-vs-automatic branch in
@@ -41,14 +41,12 @@
  * supplies a project id passing the manifest's UUIDv7 guard; `fc.uuid()` supplies
  * recording ids).
  *
- * **Validates: Requirements 15.3**
- *
  * This file is part of Docent.
  * Licensed under the GNU General Public License v3.0
  * See LICENSE in the project root for license information.
  */
 
-// Feature: sync-conflict-resolution, Property 29: Gating is identical for manual and automatic triggers
+// Gating is identical for manual and automatic triggers
 
 import { describe, it, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
@@ -249,7 +247,7 @@ const arbScenario = fc
 /**
  * Materialize a scenario into the inputs `sync()` needs. Versions of one
  * recording share its identity and steps and differ only by a content marker
- * carried in `name` — the digest folds name into content identity (R2.8), so a
+ * carried in `name` — the digest folds name into content identity, so a
  * marker change is an ordinary content change.
  *
  *   marker 'base' — the agreed (baseline) content
@@ -363,9 +361,7 @@ async function runCycle(scenario) {
   };
 }
 
-// ─── Property 29 ──────────────────────────────────────────────────────────────
-
-describe('Property 29: Gating is identical for manual and automatic triggers', () => {
+describe('Gating is identical for manual and automatic triggers', () => {
   it('two identical-input cycles (manual vs automatic) gate identically', async () => {
     await fc.assert(
       fc.asyncProperty(arbScenario, async (scenario) => {

@@ -8,7 +8,7 @@
  * inbound merge — no Review, no Conflict, no auto-add, local untouched), but the
  * lock leaves no durable mark. Once the recording is closed (the LiveState's
  * locked set no longer reports it), the very next cycle reconciles it normally
- * and produces whatever outcome its content warrants (R6.5).
+ * and produces whatever outcome its content warrants.
  *
  * This property pins that round trip over a large input space by driving the
  * full `sync()` orchestrator twice against the SAME server payloads and the SAME
@@ -16,7 +16,7 @@
  *
  *   Cycle 1 — the target recording is LOCKED. It is excluded: no Review or
  *     Conflict is recorded or reported for it, it is not auto-added (brand-new
- *     case), and the local copy is left exactly as it was (R6.1–6.3, R6.5).
+ *     case), and the local copy is left exactly as it was.
  *
  *   Cycle 2 — the lock is RELEASED (same inputs otherwise). The target now
  *     produces its expected outcome:
@@ -40,14 +40,12 @@
  * `fc.uuid({ version: 7 })` supplies project ids that pass the manifest's
  * UUIDv7 guard).
  *
- * **Validates: Requirements 6.5**
- *
  * This file is part of Docent.
  * Licensed under the GNU General Public License v3.0
  * See LICENSE in the project root for license information.
  */
 
-// Feature: sync-conflict-resolution, Property 14: Closing a lock makes the recording eligible next cycle (lock/unlock round trip)
+// Closing a lock makes the recording eligible next cycle (lock/unlock round trip)
 
 import { describe, it, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
@@ -325,9 +323,7 @@ function findRec(project, recording_id) {
   return (project?.recordings ?? []).find((r) => r.recording_id === recording_id) ?? null;
 }
 
-// ─── Property 14 ──────────────────────────────────────────────────────────────
-
-describe('Property 14: Closing a lock makes the recording eligible next cycle (lock/unlock round trip)', () => {
+describe('Closing a lock makes the recording eligible next cycle (lock/unlock round trip)', () => {
   it('excludes a locked recording in cycle 1, then reconciles it once unlocked in cycle 2', async () => {
     await fc.assert(
       fc.asyncProperty(arbScenario, async (scenario) => {

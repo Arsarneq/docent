@@ -2,28 +2,27 @@
  * policy-settings-scope.property.test.js — Property test that the two
  * reconciliation-policy settings (Auto-Accept-Updates / Auto-Accept-Deletions)
  * affect ONLY the local-unchanged cases and NEVER auto-resolve a divergence,
- * driving the full `sync()` orchestrator across all four settings combinations
- * (Property 40, R1 / task 22.16).
+ * driving the full `sync()` orchestrator across all four settings combinations.
  *
  * The reconciliation-policy settings are a POLICY preference layered on top of a
- * settings-INDEPENDENT classifier (R22.6): the Conflict_Detector classifies every
+ * settings-INDEPENDENT classifier: the Conflict_Detector classifies every
  * Unit the same way regardless of the toggles, and the orchestrator then decides
  * what an AUTOMATIC outcome may do for the two — and only the two — LOCAL-UNCHANGED
  * cases:
  *
  *   - `changed-incoming` (local == baseline, the server moved): auto-applied as a
  *     fast-forward update IFF Auto-Accept-Updates is ON (and the incoming version
- *     is an append-only superset of the baseline), otherwise held for Review
- *     (R4.2, R22.4); and
+ *     is an append-only superset of the baseline), otherwise held for Review;
+ * and
  *   - `deleted-remote-review` (local == baseline, the server deleted it):
  *     auto-applied as a deletion IFF Auto-Accept-Deletions is ON, otherwise held
- *     for Review (R19.4, R22.5).
+ *     for Review.
  *
  * The settings NEVER touch a BOTH-SIDES-CHANGED case. A `diverged` Unit (both
  * sides moved from a common baseline) and a `conflict-delete-vs-change` Unit
  * (deleted on one side, changed on the other) remain user-gated Conflicts in
  * ALL FOUR settings combinations — neither toggle, in any combination, ever
- * auto-applies, auto-resolves, or even reviews them (R22.6, R19.4). This is what
+ * auto-applies, auto-resolves, or even reviews them. This is what
  * preserves no-silent-loss of authored work regardless of how aggressively a user
  * has opted into automation.
  *
@@ -35,11 +34,11 @@
  * of each Unit kind so all four interact in a single cycle:
  *
  *   - a `changed-incoming` fast-forward recording (local == baseline; the server
- *     appended a committed step → an append-only superset, R4.2);
+ *     appended a committed step → an append-only superset);
  *   - a `deleted-remote-review` recording (local == baseline; absent on the server);
  *   - a `diverged` recording (local, incoming, and baseline all distinct); and
  *   - a `conflict-delete-vs-change` recording (changed locally; absent on the
- *     server → server-deleted/local-changed, R19.5);
+ *     server → server-deleted/local-changed);
  *   - optionally a converged sibling (identical on every side), which must stay
  *     byte-identical and never be reviewed, conflicted, or auto-applied under any
  *     setting.
@@ -70,14 +69,12 @@
  * (`fc.uuid({ version: 7 })` supplies project ids that pass the manifest's
  * UUIDv7 guard; `fc.uuid()` supplies recording ids).
  *
- * **Validates: Requirements 22.4, 22.5, 22.6, 19.4**
- *
  * This file is part of Docent.
  * Licensed under the GNU General Public License v3.0
  * See LICENSE in the project root for license information.
  */
 
-// Feature: sync-conflict-resolution, Property 40: Reconciliation-policy settings only affect local-unchanged cases and never auto-resolve divergence
+// Reconciliation-policy settings only affect local-unchanged cases and never auto-resolve divergence
 
 import { describe, it, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
@@ -277,8 +274,7 @@ function stepFromKey(prefix, key) {
  * kind (plus an optional converged sibling). `ciBaseKeys`/`ciExtraKeys` shape the
  * changed-incoming fast-forward (incoming = base records + appended `x-*`
  * records). The remaining `*Keys` are plain step histories for the other Units;
- * names carry per-side markers so the digest (which folds name into identity,
- * R2.8) distinguishes the versions.
+ * names carry per-side markers so the digest (which folds name into identity) distinguishes the versions.
  */
 const arbProjectSpec = fc.record({
   project_id: fc.uuid({ version: 7 }),
@@ -323,7 +319,7 @@ function materialize(specs) {
 
     // ── changed-incoming fast-forward (LOCAL-UNCHANGED) ──
     // local == baseline (name 'ci', base steps); incoming retains every baseline
-    // step record and appends `x-*` records → an append-only superset (R4.2).
+    // step record and appends `x-*` records → an append-only superset.
     const ciLocal = cleanRecording({
       recording_id: ciId,
       name: 'ci',
@@ -368,7 +364,7 @@ function materialize(specs) {
       steps: divSteps,
     });
 
-    // ── conflict-delete-vs-change (server-deleted / local-changed, R19.5) ──
+    // ── conflict-delete-vs-change (server-deleted / local-changed) ──
     // changed locally (name 'dvc-loc' ≠ baseline 'dvc-base'); absent on the server.
     const dvcSteps = s.dvcKeys.map((k) => stepFromKey('b', k));
     const dvcBase = cleanRecording({
@@ -486,7 +482,7 @@ function sorted(arr) {
  * The settings-INVARIANT Conflict outcome for the both-sides-changed Units: the
  * sorted conflict-ref set, each Conflict's retained local/incoming versions, and
  * the byte-identical merged local recordings. This projection must be deep-equal
- * across all four settings combinations (R22.6).
+ * across all four settings combinations.
  */
 function conflictOutcome(result, state, projects, expectations) {
   const mergedRecById = new Map();
@@ -509,9 +505,7 @@ function conflictOutcome(result, state, projects, expectations) {
   return { conflicts: sorted(result.conflicts), records, merged };
 }
 
-// ─── Property 40 ──────────────────────────────────────────────────────────────
-
-describe('Property 40: Reconciliation-policy settings only affect local-unchanged cases and never auto-resolve divergence', () => {
+describe('Reconciliation-policy settings only affect local-unchanged cases and never auto-resolve divergence', () => {
   it('flips only changed-incoming/deleted-remote-review between auto-apply and Review; diverged & delete-vs-change stay identical Conflicts in all four combinations', async () => {
     await fc.assert(
       fc.asyncProperty(arbScenario, async (specs) => {
@@ -542,12 +536,12 @@ describe('Property 40: Reconciliation-policy settings only affect local-unchange
           assert.deepEqual(
             sorted(result.autoAppliedUpdates),
             combo.autoAcceptUpdates ? sorted(allCiRefs) : [],
-            'changed-incoming fast-forwards are auto-applied iff Auto-Accept-Updates is ON (R22.4)',
+            'changed-incoming fast-forwards are auto-applied iff Auto-Accept-Updates is ON',
           );
           assert.deepEqual(
             sorted(result.autoAppliedDeletions),
             combo.autoAcceptDeletions ? sorted(allDelRefs) : [],
-            'deleted-remote-review Units are auto-applied iff Auto-Accept-Deletions is ON (R22.5)',
+            'deleted-remote-review Units are auto-applied iff Auto-Accept-Deletions is ON',
           );
           // The review set is exactly the local-unchanged Units whose toggle is OFF.
           const expectedReview = sorted([
@@ -560,7 +554,7 @@ describe('Property 40: Reconciliation-policy settings only affect local-unchange
             'Review holds exactly the local-unchanged Units whose toggle is OFF',
           );
           // The conflict set is INVARIANT: the diverged + delete-vs-change Units,
-          // in every combination (R22.6, R19.4).
+          // in every combination.
           assert.deepEqual(
             sorted(result.conflicts),
             expectedConflictRefs,
@@ -617,7 +611,7 @@ describe('Property 40: Reconciliation-policy settings only affect local-unchange
               assert.deepEqual(
                 cleanCopy(recordingProjection(mergedRec(e.ci.recording_id))),
                 e.ci.local,
-                'local is left byte-identical when the change is deferred (R9.5)',
+                'local is left byte-identical when the change is deferred',
               );
             }
 
@@ -660,7 +654,7 @@ describe('Property 40: Reconciliation-policy settings only affect local-unchange
               assert.deepEqual(
                 cleanCopy(recordingProjection(mergedRec(e.del.recording_id))),
                 e.del.local,
-                'a deferred deletion keeps the local recording byte-identical (R19.3)',
+                'a deferred deletion keeps the local recording byte-identical',
               );
             }
 
@@ -668,7 +662,7 @@ describe('Property 40: Reconciliation-policy settings only affect local-unchange
             for (const both of [e.div, e.dvc]) {
               assert.ok(
                 result.conflicts.includes(both.unitRef),
-                'a both-sides-changed Unit is a Conflict in every combination (R22.6)',
+                'a both-sides-changed Unit is a Conflict in every combination',
               );
               assert.ok(
                 !result.review.includes(both.unitRef),
@@ -677,7 +671,7 @@ describe('Property 40: Reconciliation-policy settings only affect local-unchange
               assert.ok(
                 !result.autoAppliedUpdates.includes(both.unitRef) &&
                   !result.autoAppliedDeletions.includes(both.unitRef),
-                'a both-sides-changed Unit is never auto-applied by any setting (R19.4)',
+                'a both-sides-changed Unit is never auto-applied by any setting',
               );
               const conflict = state.conflicts?.[both.unitRef];
               assert.ok(conflict, `a Conflict is recorded for ${both.unitRef}`);
@@ -737,7 +731,7 @@ describe('Property 40: Reconciliation-policy settings only affect local-unchange
         }
 
         // ── The central claim: the Conflict outcome is IDENTICAL across all four
-        //    settings combinations (R22.6). The toggles moved only the
+        //    settings combinations. The toggles moved only the
         //    local-unchanged Units; the divergence outcome is invariant. ──
         for (let i = 1; i < conflictOutcomes.length; i++) {
           assert.deepEqual(

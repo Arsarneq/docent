@@ -1,12 +1,11 @@
 /**
  * failed-add-isolation.property.test.js — Property test that a FAILED brand-new
- * add is isolated so the rest of the sync cycle still completes (design
- * Property 7; Requirements 3.4, 14.6).
+ * add is isolated so the rest of the sync cycle still completes.
  *
- * Requirement 3.4: "IF adding a brand-new Unit (a project or a recording) fails
+ * The isolation guarantee: "IF adding a brand-new Unit (a project or a recording) fails
  * for any reason (e.g. a storage error or insufficient disk space), THEN THE
  * Sync_Client SHALL leave that Unit unsynced and continue processing the
- * remaining Units in the sync cycle." Requirement 14.6 makes the same guarantee
+ * remaining Units in the sync cycle." The same guarantee holds
  * for any non-auth per-project problem.
  *
  * ── The failure-isolation mechanism under test ──────────────────────────────
@@ -23,7 +22,7 @@
  *
  * The design comment notes "the baseline write is done first because its deep
  * clone is the only step that can fail; isolating that failure keeps a single
- * bad Unit from aborting the cycle (R3.4, R14.6)." The whole point is that a
+ * bad Unit from aborting the cycle." The whole point is that a
  * throw here is swallowed and the loop continues to the next Unit.
  *
  * ── How the failure is triggered (and an honest limitation) ─────────────────
@@ -36,7 +35,7 @@
  * content whose clone would throw is filtered out earlier, so a content failure
  * can never reach the brand-new try/catch via `sync()`.
  *
- * R3.4's OTHER example — "a storage error" — IS reachable and is what this test
+ * The OTHER example — "a storage error" — IS reachable and is what this test
  * drives. The injected `SyncStore` returns a `baselines` map that throws on a
  * write for exactly one brand-new project id (simulating a per-key storage
  * failure). That write is `state.baselines[project_id] = {…}` inside
@@ -65,14 +64,12 @@
  * `fc.uuid({ version: 7 })` supplies ids that pass the manifest's UUIDv7 guard),
  * running 200 iterations (minimum 100).
  *
- * **Validates: Requirements 3.4, 14.6**
- *
  * This file is part of Docent.
  * Licensed under the GNU General Public License v3.0
  * See LICENSE in the project root for license information.
  */
 
-// Feature: sync-conflict-resolution, Property 7: A failed add is isolated and the cycle continues
+// A failed add is isolated and the cycle continues
 
 import { describe, it, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
@@ -130,7 +127,7 @@ function installMockFetch(manifest, payloadById) {
 /**
  * In-memory {@link SyncStore} whose loaded `SyncState.baselines` is a Proxy that
  * THROWS when a baseline is written for `failingProjectId`, simulating a per-key
- * storage failure (R3.4's "storage error" example). Every other key writes
+ * storage failure (the "storage error" example). Every other key writes
  * normally through to the target, which the test inspects afterwards.
  *
  * `recordingsWithPendingActions`/locking are not involved; the gate is permissive.
@@ -288,9 +285,7 @@ function materialize(scenario) {
   };
 }
 
-// ─── Property 7 ────────────────────────────────────────────────────────────────
-
-describe('Property 7: A failed add is isolated and the cycle continues', () => {
+describe('A failed add is isolated and the cycle continues', () => {
   it('one brand-new project failing its baseline write is left unsynced while every other unit is still processed', async () => {
     await fc.assert(
       fc.asyncProperty(arbScenario, async (scenario) => {
@@ -323,7 +318,7 @@ describe('Property 7: A failed add is isolated and the cycle continues', () => {
         // ── The cycle completes; the failed add is silent (not an error). ──
         assert.equal(result.halted, false, 'a failed add never halts the cycle');
         assert.equal(result.haltReason, null);
-        assert.deepEqual(result.errors, [], 'a failed add is silent, not an error (R3.4)');
+        assert.deepEqual(result.errors, [], 'a failed add is silent, not an error');
         assert.deepEqual(result.review, [], 'no review items in a pure brand-new cycle');
         assert.deepEqual(result.conflicts, [], 'no conflicts in a pure brand-new cycle');
 
@@ -380,7 +375,7 @@ describe('Property 7: A failed add is isolated and the cycle continues', () => {
         );
 
         // ── Nothing pulled is lost: the failed project is still retained as a
-        //    recoverable Sync_Snapshot even though its add was skipped (R9.1). ──
+        //    recoverable Sync_Snapshot even though its add was skipped. ──
         const saved = getSaved();
         const snapshotKeys = new Set(Object.keys(saved.snapshots ?? {}));
         for (const id of allIncomingIds) {

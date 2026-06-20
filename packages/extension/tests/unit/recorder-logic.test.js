@@ -205,7 +205,7 @@ describe('describeElement', () => {
     assert.equal(desc.text, 'hello world');
   });
 
-  it('captures the autocomplete attribute (S10 sensitivity signal)', () => {
+  it('captures the autocomplete attribute (sensitivity signal)', () => {
     const el = createElement('input', { type: 'text', autocomplete: 'cc-number' });
     assert.equal(describeElement(el).autocomplete, 'cc-number');
   });

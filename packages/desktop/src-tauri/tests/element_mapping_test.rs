@@ -1,6 +1,5 @@
-// Property 5: Native element mapping completeness
+// Native element mapping completeness
 //
-// **Validates: Requirements 3.1, 3.2**
 //
 // For any set of platform-provided accessibility element properties (tag,
 // AutomationId, Name, LocalizedControlType, ValuePattern value), the element
@@ -76,9 +75,7 @@ fn arb_native_properties() -> impl Strategy<Value = NativeElementProperties> {
 proptest! {
     #![proptest_config(ProptestConfig::with_cases(200))]
 
-    /// Feature: desktop-capture, Property 5: Native element mapping completeness
-    ///
-    /// **Validates: Requirements 3.1, 3.2**
+    /// Native element mapping completeness
     ///
     /// For any random property set, `map_element` produces an
     /// `ElementDescription` where:

@@ -1,7 +1,7 @@
 /**
- * E2E — Programmatic-injection latency (the decisive S3 safety test).
+ * E2E — Programmatic-injection latency (the decisive safety test).
  *
- * With S3, the recorder is no longer a passive `document_start` manifest content
+ * With programmatic injection, the recorder is no longer a passive `document_start` manifest content
  * script; the service worker injects it programmatically (injectImmediately:true)
  * on each frame's webNavigation.onCompleted while recording. This test proves the
  * window between "frame finished loading" (T0 = onCompleted) and "recorder ready
@@ -108,7 +108,7 @@ async function getCompletedAt(serviceWorker, url) {
   return serviceWorker.evaluate((u) => globalThis.__onCompletedAt[u] ?? null, url);
 }
 
-test.describe('Programmatic injection latency (S3)', () => {
+test.describe('Programmatic injection latency', () => {
   test('main frame: recorder ready well under the action floor', async ({
     context,
     serviceWorker,

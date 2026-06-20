@@ -1,7 +1,7 @@
 /**
- * tauri-bridge.js — the single access point to the Tauri API (S13).
+ * tauri-bridge.js — the single access point to the Tauri API.
  *
- * The app ships with `withGlobalTauri: false` (SECURITY_BACKLOG S13), so the
+ * The app ships with `withGlobalTauri: false`, so the
  * Tauri API is NOT exposed on `window.__TAURI__` at runtime. Reaching it through
  * an explicit ESM import — rather than a global an injected script could grab —
  * is the whole point: combined with the strict `script-src 'self'` CSP, there is
@@ -26,7 +26,7 @@
  *      the bundled ESM API. An injected `window.__TAURI__` in production would
  *      only let an attacker shim their OWN calls (the real API is reached via the
  *      bundled closure, never published to `window`), so this preference does not
- *      weaken the S13 property.
+ *      weaken the no-ambient-handle property.
  *
  * This file is part of Docent.
  * Licensed under the GNU General Public License v3.0

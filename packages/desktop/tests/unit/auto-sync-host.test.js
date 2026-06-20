@@ -2,12 +2,11 @@
  * auto-sync-host.test.js — Unit tests for the desktop background Auto-Sync host
  * (`src/auto-sync-host.js`).
  *
- * Validates the desktop side of Requirement 23: the host invokes the SAME shared
- * `sync()` with the SAME adapters the manual path uses (R23.13, R23.16), routes
+ * Validates the desktop side of Auto-Sync: the host invokes the SAME shared
+ * `sync()` with the SAME adapters the manual path uses, routes
  * the ~60s backstop + data-event triggers through the shared cooldown-debounced
- * scheduler so a burst coalesces into one cycle and cycles never overlap (R23.7,
- * R23.8, R23.14), drops triggers while capture is active (R23.9), and applies the
- * auth-disable / transient-retry failure policy (R23.11, R23.12).
+ * scheduler so a burst coalesces into one cycle and cycles never overlap, drops triggers while capture is active, and applies the
+ * auth-disable / transient-retry failure policy.
  *
  * All collaborators are injected fakes — no Tauri, no network — so the host's
  * orchestration logic is exercised deterministically (injected clock + a
@@ -96,7 +95,7 @@ function makeHost(overrides = {}) {
 // ─── createAutoSyncHost ─────────────────────────────────────────────────────────
 
 describe('createAutoSyncHost', () => {
-  it('runs one shared cycle on a data event with the manual-path adapters (R23.13, R23.16)', async () => {
+  it('runs one shared cycle on a data event with the manual-path adapters', async () => {
     const { host, calls, getDataHook } = makeHost();
     host.start();
 
@@ -111,7 +110,7 @@ describe('createAutoSyncHost', () => {
     host.stop();
   });
 
-  it('coalesces a burst of data events into one cycle per cooldown window (R23.8)', async () => {
+  it('coalesces a burst of data events into one cycle per cooldown window', async () => {
     const clock = fakeClock();
     const { host, calls, getDataHook } = makeHost({ cooldownMs: 5000, now: clock.now });
     host.start();
@@ -126,7 +125,7 @@ describe('createAutoSyncHost', () => {
     host.stop();
   });
 
-  it('drops triggers while capture is active, re-enabling when it ends (R23.9)', async () => {
+  it('drops triggers while capture is active, re-enabling when it ends', async () => {
     const live = fakeLiveState({ capturing: true });
     const { host, calls, getDataHook } = makeHost({ liveState: live });
     host.start();
@@ -143,7 +142,7 @@ describe('createAutoSyncHost', () => {
     host.stop();
   });
 
-  it('disables Auto-Sync on an auth halt and stops triggering (R23.11)', async () => {
+  it('disables Auto-Sync on an auth halt and stops triggering', async () => {
     const { host, calls, getDataHook } = makeHost({
       syncResult: { halted: true, haltReason: 'auth', pushed: [], pulled: [] },
     });
@@ -162,7 +161,7 @@ describe('createAutoSyncHost', () => {
     assert.equal(calls.sync, 1, 'no further cycles after auth-disable');
   });
 
-  it('stays enabled and retries after a transient error (R23.12)', async () => {
+  it('stays enabled and retries after a transient error', async () => {
     const clock = fakeClock();
     const { host, calls, getDataHook } = makeHost({
       cooldownMs: 0,
@@ -198,7 +197,7 @@ describe('createAutoSyncHost', () => {
 // ─── createDesktopWire ──────────────────────────────────────────────────────────
 
 describe('createDesktopWire', () => {
-  it('fires the periodic backstop through notify and tears it down (R23.7b, R23.3)', () => {
+  it('fires the periodic backstop through notify and tears it down', () => {
     let intervalCb = null;
     let cleared = false;
     let notifies = 0;
@@ -227,7 +226,7 @@ describe('createDesktopWire', () => {
     assert.equal(cleared, true, 'teardown clears the backstop interval');
   });
 
-  it('disarms the data hook on teardown so a late data event does not notify (R23.3)', () => {
+  it('disarms the data hook on teardown so a late data event does not notify', () => {
     let dataCb = null;
     let notifies = 0;
 

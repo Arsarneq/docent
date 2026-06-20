@@ -1,18 +1,18 @@
 /**
  * tests/auth.test.js — the optional-Bearer-authentication integration suite for
- * the Reference Sync Server (Task 10.4; Requirements 5.1–5.7).
+ * the Reference Sync Server.
  *
  * This suite drives the REAL server end-to-end over HTTP (via the Task 10.1
  * harness) to confirm the auth gate the router applies before every handler:
  *
  *   - Open server (no Static_Token): every request is served and ANY
- *     `Authorization` header is ignored (R5.4 / R5.5).
- *   - Gated server (Static_Token set): missing header → 401 (R5.2), wrong Bearer
- *     token → 403 (R5.3), correct Bearer token → served (R5.1).
+ *     `Authorization` header is ignored.
+ *   - Gated server (Static_Token set): missing header → 401, wrong Bearer
+ *     token → 403, correct Bearer token → served.
  *   - An internal handler error maps to HTTP 500 even when the server is open
- *     and no token is configured (R5.6).
+ *     and no token is configured.
  *   - The non-protocol `/__debug/*` affordances are token-gated exactly like the
- *     protocol routes when a token is configured (R5.7).
+ *     protocol routes when a token is configured.
  *
  * Most cases use the harness `startTestServer`/`request`. The 500 case needs a
  * handler to actually throw, which the harness's `FileStorageProvider` will not
@@ -41,7 +41,7 @@ const TOKEN = 'integration-test-token';
  * Start the real server on an ephemeral port with NO token configured and a
  * Storage_Provider stub whose every method throws, so that any request that
  * reaches a handler triggers the router's top-level catch → HTTP 500. This is
- * the local wiring the 500 case (R5.6) needs without modifying any production
+ * the local wiring the 500 case needs without modifying any production
  * module; the stub satisfies the `Storage_Provider` shape (`list`/`read`/`put`/
  * `clear`) and there is no temp dir to clean up.
  *
@@ -49,7 +49,7 @@ const TOKEN = 'integration-test-token';
  */
 async function startServerWithThrowingStorage() {
   const boom = () => {
-    throw new Error('forced handler error for R5.6');
+    throw new Error('forced handler error');
   };
   const throwingStorage = {
     async list() {
@@ -89,7 +89,7 @@ async function startServerWithThrowingStorage() {
 }
 
 describe('auth — open server (no Static_Token configured)', () => {
-  it('serves a request with no Authorization header (R5.4)', async () => {
+  it('serves a request with no Authorization header', async () => {
     const server = await startTestServer();
     try {
       const res = await request(server.baseUrl, 'GET', '/projects');
@@ -100,7 +100,7 @@ describe('auth — open server (no Static_Token configured)', () => {
     }
   });
 
-  it('serves the request and ignores a Bearer Authorization header (R5.5)', async () => {
+  it('serves the request and ignores a Bearer Authorization header', async () => {
     const server = await startTestServer();
     try {
       const res = await request(server.baseUrl, 'GET', '/projects', {
@@ -113,7 +113,7 @@ describe('auth — open server (no Static_Token configured)', () => {
     }
   });
 
-  it('serves the request and ignores a malformed Authorization header (R5.5)', async () => {
+  it('serves the request and ignores a malformed Authorization header', async () => {
     const server = await startTestServer();
     try {
       const res = await request(server.baseUrl, 'GET', '/projects', {
@@ -128,7 +128,7 @@ describe('auth — open server (no Static_Token configured)', () => {
 });
 
 describe('auth — gated server (Static_Token configured)', () => {
-  it('rejects a request with no Authorization header → 401 (R5.2)', async () => {
+  it('rejects a request with no Authorization header → 401', async () => {
     const server = await startTestServer({ token: TOKEN });
     try {
       const res = await request(server.baseUrl, 'GET', '/projects');
@@ -138,7 +138,7 @@ describe('auth — gated server (Static_Token configured)', () => {
     }
   });
 
-  it('rejects a wrong Bearer token → 403 (R5.3)', async () => {
+  it('rejects a wrong Bearer token → 403', async () => {
     const server = await startTestServer({ token: TOKEN });
     try {
       const res = await request(server.baseUrl, 'GET', '/projects', {
@@ -150,7 +150,7 @@ describe('auth — gated server (Static_Token configured)', () => {
     }
   });
 
-  it('accepts the correct Bearer token → 200 (R5.1)', async () => {
+  it('accepts the correct Bearer token → 200', async () => {
     const server = await startTestServer({ token: TOKEN });
     try {
       const res = await request(server.baseUrl, 'GET', '/projects', {
@@ -165,7 +165,7 @@ describe('auth — gated server (Static_Token configured)', () => {
 });
 
 describe('auth — internal error mapping', () => {
-  it('maps a handler-forced error to HTTP 500 even with no token configured (R5.6)', async () => {
+  it('maps a handler-forced error to HTTP 500 even with no token configured', async () => {
     const { baseUrl, close } = await startServerWithThrowingStorage();
     try {
       // GET /projects reaches the manifest handler, which calls storage.list();
@@ -178,7 +178,7 @@ describe('auth — internal error mapping', () => {
   });
 });
 
-describe('auth — debug routes are token-gated when a token is set (R5.7)', () => {
+describe('auth — debug routes are token-gated when a token is set', () => {
   it('rejects POST /__debug/reset with no Authorization header → 401', async () => {
     const server = await startTestServer({ token: TOKEN });
     try {

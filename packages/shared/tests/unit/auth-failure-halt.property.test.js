@@ -6,24 +6,24 @@
  * points in a cycle (the pull manifest GET, any per-project pull GET, or the
  * push PUT). When it does, `sync()` must HALT the whole cycle (`halted: true`,
  * `haltReason: 'auth'`) and leave every Conflict and Review-and-Accept item
- * recoverable (Requirements 14.3, 14.4, 14.5).
+ * recoverable.
  *
- * In the PULL-FIRST cycle order (pull + snapshot → reconcile → persist → push,
- * Requirement 20.1) the guarantee is delivered two different ways depending on
+ * In the PULL-FIRST cycle order (pull + snapshot → reconcile → persist → push)
+ * the guarantee is delivered two different ways depending on
  * where the auth failure lands:
  *
  *   - **Auth failure on the pull (manifest or per-project GET).** The cycle
  *     halts BEFORE reconciliation, and the durable `store` is read/written ONLY
  *     in the reconcile phase, so `store.save()` is never reached. The persisted
  *     SyncState is therefore byte-for-byte the pre-sync seed — every baseline,
- *     snapshot, Conflict, and Review untouched (R14.3–14.5, R20.6).
+ *     snapshot, Conflict, and Review untouched.
  *   - **Auth failure on the push PUT.** Pull + reconcile already completed and
  *     the store was already persisted (the persist is atomic and the sole write
  *     point), so the auth failure cannot corrupt it. The cycle still halts with
  *     `haltReason: 'auth'`, and every Conflict / Review unit remains recoverable
  *     — reconciliation only ever refreshes a deferred item in place or moves it
  *     between Review and Conflict (mutual exclusion), never silently drops it —
- *     so the set of deferred unitRefs is preserved (R14.3–14.5). Baselines may
+ *     so the set of deferred unitRefs is preserved. Baselines may
  *     have advanced and new deferrals may have been recorded, so byte-for-byte
  *     seed equality is NOT asserted for this point.
  *
@@ -48,7 +48,7 @@
  * See LICENSE in the project root for license information.
  */
 
-// Feature: sync-conflict-resolution, Property 27: Auth failure halts and preserves all deferred state
+// Auth failure halts and preserves all deferred state
 
 import { describe, it, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
@@ -315,9 +315,7 @@ function passValidator() {
 }
 passValidator.errors = [];
 
-// ─── Property 27 ──────────────────────────────────────────────────────────────
-
-describe('Property 27: Auth failure halts and preserves all deferred state', () => {
+describe('Auth failure halts and preserves all deferred state', () => {
   it('a 401/403 at any point halts with haltReason "auth" and leaves all durable state untouched', async () => {
     await fc.assert(
       fc.asyncProperty(arbScenario, async (scenario) => {
@@ -342,7 +340,7 @@ describe('Property 27: Auth failure halts and preserves all deferred state', () 
         // The auth path was actually exercised (not short-circuited by a gate).
         assert.ok(fetchCalls.length >= 1, 'at least one request was made');
 
-        // R14.3 — the cycle halts on the auth failure (never a live-work gate,
+        // the cycle halts on the auth failure (never a live-work gate,
         // never an internal-error from reconcile).
         assert.equal(result.halted, true, 'cycle halts on 401/403');
         assert.equal(result.haltReason, 'auth', 'halt reason is auth');
@@ -356,7 +354,7 @@ describe('Property 27: Auth failure halts and preserves all deferred state', () 
           // Review-and-Accept unit is still recoverable in the persisted state
           // (reconciliation only refreshes a deferred item in place or moves it
           // between the mutually-exclusive Review/Conflict maps — it never drops
-          // one). R14.4 + R14.5.
+          // one).
           assert.ok(calls.saves >= 1, 'reconcile persisted before the push auth failure');
           for (const ref of Object.keys(seedBefore.conflicts)) {
             assert.ok(
@@ -374,7 +372,7 @@ describe('Property 27: Auth failure halts and preserves all deferred state', () 
           // Auth failure on the PULL (manifest or per-project GET). The cycle
           // halts BEFORE reconciliation, so the store is never written and the
           // persisted SyncState is byte-for-byte the pre-sync seed — every
-          // baseline, snapshot, Conflict, and Review untouched. R14.3–14.5.
+          // baseline, snapshot, Conflict, and Review untouched.
           assert.equal(calls.saves, 0, 'store.save() is never called on a pull auth halt');
           assert.deepStrictEqual(
             persisted,

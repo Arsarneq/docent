@@ -10,8 +10,8 @@
  * *outbound* payload, and crucially at the version most recently AGREED-OR-PULLED
  * for it: its Sync_Snapshot version when one was pulled this cycle, otherwise its
  * Sync_Baseline version, NEVER its un-reconciled live local edits and NEVER
- * omitted (Requirement 6.4). The lock excludes the inbound merge, not the
- * outbound presence, and the per-unit push assembly (task 22.3) selects the
+ * omitted. The lock excludes the inbound merge, not the
+ * outbound presence, and the per-unit push assembly selects the
  * version: a locked recording is sent like any deferred unit — at the server's
  * agreed-or-pulled copy — so the whole-project write cannot clobber a concurrent
  * server change this client has not reconciled.
@@ -47,7 +47,7 @@
  * See LICENSE in the project root for license information.
  */
 
-// Feature: sync-conflict-resolution, Property 35: A locked recording is preserved in the outbound push at its agreed-or-pulled version
+// A locked recording is preserved in the outbound push at its agreed-or-pulled version
 
 import { describe, it, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
@@ -224,7 +224,7 @@ const arbStep = fc.record({
  * {@link materialize} so it is GLOBALLY unique (locks are keyed by recording_id
  * across all projects, so a duplicate id would otherwise lock its namesake in
  * another project). The steps are shared across a locked recording's three
- * versions so only the recording `name` drives the version difference (R2.8).
+ * versions so only the recording `name` drives the version difference.
  */
 const arbRecordingSpec = fc.record({
   steps: fc.array(arbStep, { maxLength: 3 }),
@@ -249,7 +249,7 @@ const arbScenario = fc.uniqueArray(arbProjectSpec, {
  * and never deferred). Every project also gets a mandatory
  * `changed-local-outgoing` recording (`clo-*`: local moved, server still at
  * baseline) so the project always has a content-differing unit to write and is
- * never skipped (R20.4) — this is what keeps the locked recording's preserved
+ * never skipped — this is what keeps the locked recording's preserved
  * wire-version observable in the push, now that an `already-converged` sibling
  * equals the server and is no longer a reason to write.
  *
@@ -280,8 +280,8 @@ function materialize(projectSpecs) {
     const allRecIds = new Set();
 
     // Mandatory changed-local-outgoing recording: local moved, server still at
-    // baseline ⇒ a genuine content difference, so the project is always pushed
-    // (R20.4). Pushed at its local version.
+    // baseline ⇒ a genuine content difference, so the project is always pushed.
+    // Pushed at its local version.
     const cloId = `${pid}-clo`;
     allRecIds.add(cloId);
     baselineRecs.push(rec(cloId, `clo-base-${cloId}`, []));
@@ -363,9 +363,7 @@ function materialize(projectSpecs) {
   return { seed, localProjects, payloadById, manifest, locked, expectations };
 }
 
-// ─── Property 35 ──────────────────────────────────────────────────────────────
-
-describe('Property 35: A locked recording is preserved in the outbound push at its agreed-or-pulled version', () => {
+describe('A locked recording is preserved in the outbound push at its agreed-or-pulled version', () => {
   it('pushes every locked recording at its agreed-or-pulled (snapshot) version, never the local edits, omitting none', async () => {
     await fc.assert(
       fc.asyncProperty(arbScenario, async (projectSpecs) => {
@@ -391,7 +389,7 @@ describe('Property 35: A locked recording is preserved in the outbound push at i
         // Every local project is pushed exactly once: each carries a mandatory
         // changed-local-outgoing recording whose local version differs from the
         // server, so the project always has something to write and is never
-        // skipped (R20.4).
+        // skipped.
         const puts = capturedPuts();
         const putByProjectId = new Map();
         for (const put of puts) {
@@ -411,7 +409,7 @@ describe('Property 35: A locked recording is preserved in the outbound push at i
           const { recExpect, allRecIds } = expectations.get(pid);
           const pushedById = new Map(body.recordings.map((r) => [r.recording_id, r]));
 
-          // ── No accidental deletion (R6.4) ──────────────────────────────────
+          // ── No accidental deletion ──────────────────────────────────
           // Every recording present on any side appears in the pushed payload —
           // locked recordings included; the verbatim-store server can never read
           // the write as a deletion.
@@ -438,7 +436,7 @@ describe('Property 35: A locked recording is preserved in the outbound push at i
               `recording ${rid} pushed at the ${exp.locked ? 'agreed-or-pulled (snapshot)' : 'local'} version`,
             );
 
-            // The teeth of R6.4 / R20.3: a locked recording is sent at the
+            // The teeth of the rule: a locked recording is sent at the
             // server's agreed-or-pulled version, NEVER its un-reconciled live
             // local edits — so the whole-project write cannot clobber the
             // concurrent server change this client has not reconciled.
@@ -483,7 +481,7 @@ describe('Property 35: A locked recording is preserved in the outbound push at i
         created_at: PROJ_CREATED,
         // r-open has live local edits that must NOT be pushed; r-clo is a
         // changed-local-outgoing sibling (local moved, server at baseline) that
-        // gives the project a reason to write so it is not skipped (R20.4).
+        // gives the project a reason to write so it is not skipped.
         recordings: [rec(lockedId, 'local-edits', steps), rec(cloId, 'clo-local', [])],
       },
     ];
@@ -633,7 +631,7 @@ describe('Property 35: A locked recording is preserved in the outbound push at i
     );
   });
 
-  it('a project whose every recording is locked (each with an agreed-or-pulled version) is SKIPPED — nothing to write (R20.4)', async () => {
+  it('a project whose every recording is locked (each with an agreed-or-pulled version) is SKIPPED — nothing to write', async () => {
     const pid = '018f4e2a-0000-7000-8000-000000000004';
     const steps = [{ uuid: 's1', logical_id: 'a', step_number: 0, deleted: false }];
 
@@ -685,14 +683,14 @@ describe('Property 35: A locked recording is preserved in the outbound push at i
     const puts = capturedPuts();
     // Every recording is locked, so each would be sent at its agreed-or-pulled
     // (server) version, and the project metadata converges — the WHOLE assembled
-    // payload equals the server's own state. Per the maintainer's strict-R20.4
+    // payload equals the server's own state. Per the maintainer's strict-skip
     // decision, the project is SKIPPED rather than re-sending the server's bytes.
     // The held-back local edits reach the server on a later cycle, once the
     // recordings are unlocked and reconciled; nothing is lost by the skip.
     assert.equal(
       puts.length,
       0,
-      'a project whose only non-converged units are locked re-sends only the server state and is skipped (R20.4)',
+      'a project whose only non-converged units are locked re-sends only the server state and is skipped',
     );
   });
 });

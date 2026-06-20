@@ -263,7 +263,7 @@ test.describe('Password Masking', () => {
   });
 });
 
-test.describe('Sensitive Field Masking (S10)', () => {
+test.describe('Sensitive Field Masking', () => {
   const PAGE_HTML = /* html */ `<!DOCTYPE html>
   <html><body>
     <input id="cc" autocomplete="cc-number">

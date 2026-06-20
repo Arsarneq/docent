@@ -4,27 +4,27 @@
  * and free of any user-input or I/O interaction.
  *
  * Classification is the safe-vs-ask decision point of the whole feature, and the
- * design requires it to be a PURE function of its data inputs (R2.9, R10.2):
+ * design requires it to be a PURE function of its data inputs:
  *
  *   - DETERMINISTIC — calling `classifyProject` (and the shared core
  *     `classifyUnit`) repeatedly on the same inputs yields byte-for-byte
- *     identical results, independent of call count or ambient environment
- *     (R2.9). Because the function depends only on its arguments and never on
+ *     identical results, independent of call count or ambient environment.
+ * Because the function depends only on its arguments and never on
  *     platform globals, the same sequence of inputs classifies identically on
- *     the Chrome extension and the desktop app (R17.3).
+ *     the Chrome extension and the desktop app.
  *
  *   - SETTINGS-INDEPENDENT — the classifier returns the bare `ClassKind`; the
  *     reconciliation-policy settings (Auto-Accept-Updates / Auto-Accept-Deletions
  *     and the rest of {@link ReconciliationSettings}) are applied by the
  *     ORCHESTRATOR, never by the detector, so the detector stays pure and
- *     platform-independent (R2.11, R17.3). Its public contract takes only data
+ *     platform-independent. Its public contract takes only data
  *     — `classifyProject(local, incoming, baseline, lockedRecordingIds)` and
  *     `classifyUnit(digestLocal, digestIncoming, digestBaseline, locked)` — with
  *     no settings parameter. We demonstrate this two ways: (a) classification is
  *     unchanged across every Auto-Accept-* setting combination threaded in as an
  *     ignored trailing argument; and (b) a settings "probe" whose every policy
  *     field throws-on-read is never touched, proving the classifier reads no
- *     setting even when one is handed to it (R2.11).
+ *     setting even when one is handed to it.
  *
  *   - FREE OF USER/IO INTERACTION — classification invokes no user-input prompt
  *     and performs no I/O (no `fetch`, no `prompt`/`confirm`), and never mutates
@@ -33,15 +33,14 @@
  *     asserting none are touched; (b) deep-FREEZING every input and asserting the
  *     call neither throws (an in-place mutation would throw in ES-module strict
  *     mode) nor changes the inputs; and (c) snapshotting the canonical content of
- *     the inputs before and after and asserting equality (R2.9, R10.2).
+ *     the inputs before and after and asserting equality.
  *
  * Uses the Node.js built-in test runner + fast-check (fast-check v4: `fc.uuid()`
  * for ids), mirroring the generators in classify-decision-table.property.test.js.
  *
- * **Validates: Requirements 2.9, 2.11, 10.2, 17.3**
  */
 
-// Feature: sync-conflict-resolution, Property 2: Classification is deterministic and free of user/IO interaction
+// Classification is deterministic and free of user/IO interaction
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
@@ -49,7 +48,7 @@ import fc from 'fast-check';
 import { classifyProject, classifyUnit } from '../../conflict-detector.js';
 import { digestProject } from '../../sync-digest.js';
 
-// ─── Generators (mirroring the Property 1 decision-table test) ───────────────
+// ─── Generators (mirroring the decision-table test) ───────────────
 
 // Digest symbols (plus null for absence) so every equality relationship between
 // local, incoming and baseline arises frequently in the classifyUnit lattice.
@@ -110,9 +109,9 @@ const arbScenario = fc.record({
   }),
 });
 
-// Every combination of the reconciliation-policy settings (R22). The classifier
+// Every combination of the reconciliation-policy settings. The classifier
 // must IGNORE these entirely — they are applied by the orchestrator, not the
-// detector (R2.11, design §"the policy settings are applied by the orchestrator")
+// detector (design §"the policy settings are applied by the orchestrator")
 // — so they are only ever threaded in to prove they make no difference.
 const arbSettings = fc.record({
   autoAcceptUpdates: fc.boolean(),
@@ -175,8 +174,8 @@ function snapshot(value) {
 
 /**
  * A settings object whose every policy field throws the moment it is READ. If the
- * classifier ever consults a reconciliation-policy setting (which it must not —
- * R2.11), accessing it here throws and fails the property. The id-style fields a
+ * classifier ever consults a reconciliation-policy setting (which it must
+ * not), accessing it here throws and fails the property. The id-style fields a
  * classifier legitimately reads are absent, so only an illegitimate settings read
  * can trip the trap.
  */
@@ -197,9 +196,7 @@ function makeThrowingSettingsProbe(touched) {
   );
 }
 
-// ─── Property 2 ────────────────────────────────────────────────────────────────
-
-describe('Property 2: Classification is deterministic and free of user/IO interaction', () => {
+describe('Classification is deterministic and free of user/IO interaction', () => {
   it('classifyUnit is deterministic and settings-independent: repeated calls (and an ignored settings arg) yield identical results', () => {
     fc.assert(
       fc.property(
@@ -215,7 +212,7 @@ describe('Property 2: Classification is deterministic and free of user/IO intera
           assert.equal(first, second);
           assert.equal(second, third);
           // The shared core takes no settings; threading one in as an extra arg
-          // must not change the classification (R2.11).
+          // must not change the classification.
           assert.equal(classifyUnit(dl, di, db, locked, settings), first);
         },
       ),
@@ -238,7 +235,7 @@ describe('Property 2: Classification is deterministic and free of user/IO intera
     );
   });
 
-  it('classifyProject is settings-independent: result is identical across every reconciliation-policy setting combination (R2.11)', () => {
+  it('classifyProject is settings-independent: result is identical across every reconciliation-policy setting combination', () => {
     // The classifier returns the bare ClassKind; the orchestrator (not the
     // detector) applies the Auto-Accept-* policy. Threading any settings
     // combination in as an ignored trailing argument must not change the
@@ -260,7 +257,7 @@ describe('Property 2: Classification is deterministic and free of user/IO intera
     );
   });
 
-  it('classifyProject reads no reconciliation-policy setting even when one is supplied (R2.11)', () => {
+  it('classifyProject reads no reconciliation-policy setting even when one is supplied', () => {
     // Hand the classifier a settings object whose every policy field throws on
     // read. If classification consults any setting, the getter throws and the
     // property fails; surviving proves the detector never reads settings.
@@ -331,7 +328,7 @@ describe('Property 2: Classification is deterministic and free of user/IO intera
   it('classifyProject invokes no user-input prompt and performs no I/O', () => {
     // Install recording sentinels over the global I/O and user-input surfaces a
     // classifier might (but must not) reach for. Classification must complete
-    // without touching any of them (R2.9, R10.2).
+    // without touching any of them.
     const calls = [];
     const had = {
       fetch: 'fetch' in globalThis,
@@ -382,7 +379,7 @@ describe('Property 2: Classification is deterministic and free of user/IO intera
     );
   });
 
-  it('classification is independent of ambient platform globals (cross-platform parity, R17.3)', () => {
+  it('classification is independent of ambient platform globals (cross-platform parity)', () => {
     // Result depends ONLY on the data inputs, never on the surrounding platform.
     // Simulate the extension vs desktop environments by toggling ambient globals
     // between calls and asserting the classification is unchanged.

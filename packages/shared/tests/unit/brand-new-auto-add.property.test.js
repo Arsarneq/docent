@@ -4,14 +4,14 @@
  * while a Unit absent locally but present in the baseline is NEVER resurrected.
  *
  * Brand-new is the one inbound case the cycle applies WITHOUT the user (design
- * phase 7, R15.1): a pulled project with no local counterpart and no baseline
- * counterpart is added whole (R3.1); a pulled recording with no local
- * counterpart inside an EXISTING local project is appended as a new sibling
- * (R3.2); and either addition is recorded in the per-project baseline as the new
- * last-agreed state (R3.3). The complement is just as important: a Unit absent
+ * phase 7): a pulled project with no local counterpart and no baseline
+ * counterpart is added whole; a pulled recording with no local
+ * counterpart inside an EXISTING local project is appended as a new sibling;
+ * and either addition is recorded in the per-project baseline as the new
+ * last-agreed state. The complement is just as important: a Unit absent
  * locally but PRESENT in the baseline is a deliberate deletion, not a never-seen
  * Unit, so it must never be re-classified brand-new and never auto-re-added —
- * the Unit-level analogue of not resurrecting a tombstoned step (R2.6, R19).
+ * the Unit-level analogue of not resurrecting a tombstoned step.
  *
  * This property pins all of that over a large input space by driving the full
  * `sync()` orchestrator (not the detector in isolation):
@@ -19,14 +19,14 @@
  *   Part A+B — auto-add. For a manifest mixing EXISTING projects (some receiving
  *   brand-new recordings on the server) and BRAND-NEW projects, after the cycle:
  *     - every brand-new project is present locally and byte-equal to the pulled
- *       (allowlisted) projection, and recorded in the baseline (R3.1, R3.3);
+ *       (allowlisted) projection, and recorded in the baseline;
  *     - every brand-new recording is appended to its existing project as a new
  *       sibling, the project's pre-existing recordings are untouched, and the
- *       new recording is recorded in that project's baseline (R3.2, R3.3);
+ *       new recording is recorded in that project's baseline;
  *     - nothing is ever deferred (no Review, no Conflict) — brand-new and
  *       already-converged are the only outcomes in play.
  *
- *   Part C — no silent resurrection (R2.6, R19.1). For a project (or a single
+ *   Part C — no silent resurrection. For a project (or a single
  *   recording) that is present in the baseline, absent locally, and unchanged on
  *   the server, after the cycle the Unit is NOT re-added and is cleared from the
  *   baseline; it is never treated as brand-new.
@@ -40,14 +40,12 @@
  * `fc.uuid({ version: 7 })` supplies project ids that pass the manifest's
  * UUIDv7 guard).
  *
- * **Validates: Requirements 3.1, 3.2, 3.3, 2.6**
- *
  * This file is part of Docent.
  * Licensed under the GNU General Public License v3.0
  * See LICENSE in the project root for license information.
  */
 
-// Feature: sync-conflict-resolution, Property 6: Brand-new units are auto-added and recorded in the baseline
+// Brand-new units are auto-added and recorded in the baseline
 
 import { describe, it, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
@@ -298,9 +296,9 @@ function materializeAutoAdd(specs) {
   return { localProjects, payloadById, manifest, brandNewProjects, existingWithNewRecs };
 }
 
-// ─── Property 6 — auto-add (Parts A + B) ──────────────────────────────────────
+// ─── auto-add (Parts A + B) ──────────────────────────────────────
 
-describe('Property 6: Brand-new units are auto-added and recorded in the baseline', () => {
+describe('Brand-new units are auto-added and recorded in the baseline', () => {
   it('auto-adds brand-new projects and brand-new recordings, records them in the baseline, and never defers', async () => {
     await fc.assert(
       fc.asyncProperty(arbAutoAddScenario, async (specs) => {
@@ -325,7 +323,7 @@ describe('Property 6: Brand-new units are auto-added and recorded in the baselin
         assert.equal(result.haltReason, null);
 
         // Nothing is ever deferred: brand-new auto-adds and already-converged
-        // advances the baseline; neither produces a Review or a Conflict (R15.1).
+        // advances the baseline; neither produces a Review or a Conflict.
         const state = store.getState();
         assert.deepEqual(result.review, [], 'no review unitRefs reported');
         assert.deepEqual(result.conflicts, [], 'no conflict unitRefs reported');
@@ -334,7 +332,7 @@ describe('Property 6: Brand-new units are auto-added and recorded in the baselin
 
         const byId = new Map(projects.map((p) => [p.project_id, p]));
 
-        // ── R3.1 + R3.3 — every brand-new project is auto-added whole and
+        // ── every brand-new project is auto-added whole and
         // recorded in the baseline as the agreed state. ──
         for (const { project_id, expectedProjection } of brandNewProjects) {
           const merged = byId.get(project_id);
@@ -359,7 +357,7 @@ describe('Property 6: Brand-new units are auto-added and recorded in the baselin
           );
         }
 
-        // ── R3.2 + R3.3 — every brand-new recording is appended to its existing
+        // ── every brand-new recording is appended to its existing
         // project as a new sibling, the pre-existing recordings are untouched,
         // and the addition is recorded in the project's baseline. ──
         for (const { project_id, localRecs, newRecs } of existingWithNewRecs) {
@@ -400,7 +398,7 @@ describe('Property 6: Brand-new units are auto-added and recorded in the baselin
     );
   });
 
-  // ── Part C — no silent resurrection (R2.6, R19.1) ─────────────────────────
+  // ── Part C — no silent resurrection ─────────────────────────
 
   /**
    * A project-level resurrection scenario: a set of projects present in the
@@ -465,7 +463,7 @@ describe('Property 6: Brand-new units are auto-added and recorded in the baselin
         // No deleted project is resurrected into the local list...
         assert.deepEqual(merged, [], 'no absent-but-baselined project is re-added');
 
-        // ...and each is cleared from the baseline (deletion propagated, R19.1).
+        // ...and each is cleared from the baseline (deletion propagated).
         const state = store.getState();
         for (const p of projects) {
           assert.equal(

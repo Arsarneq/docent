@@ -3,16 +3,16 @@
  * helpers in sync-store.js: upsertConflict, upsertReview, clearItem, getItem.
  *
  * These tests pin the durable-state invariants that keep repeated sync cycles
- * predictable (R10):
+ * predictable:
  *
- *   - Idempotence (R10.3)        — re-detecting the same Unit across cycles keeps
+ *   - Idempotence        — re-detecting the same Unit across cycles keeps
  *                                  exactly ONE record per unitRef, refreshing the
  *                                  recoverable copies while preserving the
  *                                  original detectedAt timestamp.
- *   - Mutual exclusion (R10.3)   — a Unit is either in Conflict, in
+ *   - Mutual exclusion   — a Unit is either in Conflict, in
  *                                  Review-and-Accept, or NONE; recording one
  *                                  removes the other for that unitRef.
- *   - NONE handling (R10.4)      — clearItem returns a Unit to NONE and getItem
+ *   - NONE handling      — clearItem returns a Unit to NONE and getItem
  *                                  returns null for a NONE Unit so it is later
  *                                  processed normally rather than as a duplicate.
  *
@@ -82,7 +82,7 @@ function clockReturning(...isoStrings) {
 
 // ─── upsertConflict: idempotence ──────────────────────────────────────────────
 
-describe('upsertConflict — idempotence (R10.3)', () => {
+describe('upsertConflict — idempotence', () => {
   it('keeps exactly one conflict record after repeated upserts for the same unitRef', () => {
     const state = createEmptySyncState();
     upsertConflict(state, RECORDING_REF, makeRecordingCopy(), makeRecordingCopy({ name: 'srv' }));
@@ -159,7 +159,7 @@ describe('upsertConflict — idempotence (R10.3)', () => {
 
 // ─── upsertReview: idempotence ────────────────────────────────────────────────
 
-describe('upsertReview — idempotence (R10.3)', () => {
+describe('upsertReview — idempotence', () => {
   it('keeps exactly one review record after repeated upserts for the same unitRef', () => {
     const state = createEmptySyncState();
     upsertReview(state, RECORDING_REF, makeRecordingCopy({ name: 'srv1' }));
@@ -217,9 +217,9 @@ describe('upsertReview — idempotence (R10.3)', () => {
   });
 });
 
-// ─── Mutual exclusion (R10.3) ─────────────────────────────────────────────────
+// ─── Mutual exclusion ─────────────────────────────────────────────────
 
-describe('mutual exclusion between Conflict and Review (R10.3)', () => {
+describe('mutual exclusion between Conflict and Review', () => {
   it('upserting a conflict removes an existing review for the same unitRef', () => {
     const state = createEmptySyncState();
     upsertReview(state, RECORDING_REF, makeRecordingCopy());
@@ -269,9 +269,9 @@ describe('mutual exclusion between Conflict and Review (R10.3)', () => {
   });
 });
 
-// ─── clearItem (R12.5) → NONE (R10.4) ─────────────────────────────────────────
+// ─── clearItem → NONE ─────────────────────────────────────────
 
-describe('clearItem — returns a Unit to NONE (R12.5, R10.4)', () => {
+describe('clearItem — returns a Unit to NONE', () => {
   it('clears a conflict so the Unit is NONE', () => {
     const state = createEmptySyncState();
     upsertConflict(state, RECORDING_REF, makeRecordingCopy(), makeRecordingCopy());
@@ -309,7 +309,7 @@ describe('clearItem — returns a Unit to NONE (R12.5, R10.4)', () => {
     assert.ok(getItem(state, PROJECT_REF));
   });
 
-  it('also clears any recorded dismissed-incoming marker for the Unit (R12.5)', () => {
+  it('also clears any recorded dismissed-incoming marker for the Unit', () => {
     const state = createEmptySyncState();
     upsertReview(state, RECORDING_REF, makeRecordingCopy());
     recordDismissedIncoming(state, RECORDING_REF, 'digest-abc');
@@ -319,13 +319,13 @@ describe('clearItem — returns a Unit to NONE (R12.5, R10.4)', () => {
 
     // The resolved Unit returns FULLY to NONE: the deferred item is gone AND the
     // dismissal is gone, so a later identical incoming version is classified
-    // afresh rather than suppressed by a stale dismissal (R12.5).
+    // afresh rather than suppressed by a stale dismissal.
     assert.equal(getItem(state, RECORDING_REF), null);
     assert.equal(isDismissedIncoming(state, RECORDING_REF, 'digest-abc'), false);
     assert.equal(state.dismissedIncoming[RECORDING_REF], undefined);
   });
 
-  it('clears a standalone dismissed-incoming marker even with no deferred item (R12.5)', () => {
+  it('clears a standalone dismissed-incoming marker even with no deferred item', () => {
     const state = createEmptySyncState();
     recordDismissedIncoming(state, RECORDING_REF, 'digest-abc');
 
@@ -346,9 +346,9 @@ describe('clearItem — returns a Unit to NONE (R12.5, R10.4)', () => {
   });
 });
 
-// ─── getItem (R10.4) ──────────────────────────────────────────────────────────
+// ─── getItem ──────────────────────────────────────────────────────────
 
-describe('getItem — reads the active deferred item or null for NONE (R10.4)', () => {
+describe('getItem — reads the active deferred item or null for NONE', () => {
   it('returns null for a NONE Unit', () => {
     const state = createEmptySyncState();
     assert.equal(getItem(state, RECORDING_REF), null);
@@ -389,16 +389,16 @@ describe('getItem — reads the active deferred item or null for NONE (R10.4)', 
   });
 });
 
-// ─── recordDismissedIncoming / isDismissedIncoming (R4.9, R4.10) ──────────────
+// ─── recordDismissedIncoming / isDismissedIncoming ──────────────
 
-describe('decline-dismissal of an incoming version (R4.9, R4.10)', () => {
+describe('decline-dismissal of an incoming version', () => {
   it('records a dismissed incoming digest that isDismissedIncoming then reports', () => {
     const state = createEmptySyncState();
     recordDismissedIncoming(state, RECORDING_REF, 'digest-A');
     assert.equal(isDismissedIncoming(state, RECORDING_REF, 'digest-A'), true);
   });
 
-  it('reports a DIFFERENT incoming version as not dismissed (classified afresh, R4.10)', () => {
+  it('reports a DIFFERENT incoming version as not dismissed (classified afresh)', () => {
     const state = createEmptySyncState();
     recordDismissedIncoming(state, RECORDING_REF, 'digest-A');
     assert.equal(isDismissedIncoming(state, RECORDING_REF, 'digest-B'), false);
@@ -431,9 +431,9 @@ describe('decline-dismissal of an incoming version (R4.9, R4.10)', () => {
   });
 });
 
-// ─── getSettings (R22.1, R22.2, R23.1) ────────────────────────────────────────
+// ─── getSettings ────────────────────────────────────────
 
-describe('getSettings — client-local settings with empty defaults (R22.1, R23.1)', () => {
+describe('getSettings — client-local settings with empty defaults', () => {
   it('returns the documented empty defaults for a fresh state', () => {
     const settings = getSettings(createEmptySyncState());
     assert.deepEqual(settings, {
@@ -445,7 +445,7 @@ describe('getSettings — client-local settings with empty defaults (R22.1, R23.
     });
   });
 
-  it('normalizes a pre-R1 state that lacks a settings field to defaults', () => {
+  it('normalizes a legacy state that lacks a settings field to defaults', () => {
     const settings = getSettings({ schema: 1, baselines: {} });
     assert.equal(settings.autoAcceptUpdates, false);
     assert.equal(settings.autoSync, false);
@@ -465,9 +465,9 @@ describe('getSettings — client-local settings with empty defaults (R22.1, R23.
   });
 });
 
-// ─── setSettings (R22.3, R23.1, R23.3) ────────────────────────────────────────
+// ─── setSettings ────────────────────────────────────────
 
-describe('setSettings — partial merge, normalized and client-local (R22.3, R23.3)', () => {
+describe('setSettings — partial merge, normalized and client-local', () => {
   it('changes only the keys present in the partial, preserving the rest', () => {
     const state = createEmptySyncState();
     setSettings(state, { autoAcceptUpdates: true });
@@ -502,7 +502,7 @@ describe('setSettings — partial merge, normalized and client-local (R22.3, R23
     assert.equal(Object.prototype.hasOwnProperty.call(state.settings, 'extra'), false);
   });
 
-  it('normalizes an invalid connectionTest value back to null (R23.2)', () => {
+  it('normalizes an invalid connectionTest value back to null', () => {
     const state = createEmptySyncState();
     setSettings(state, { connectionTest: 'bogus' });
     assert.equal(state.settings.connectionTest, null);

@@ -4,12 +4,11 @@
  *
  * A recording is the author's live narrative. While capture is running, sync
  * must not touch the machine at all: the pre-flight gate is a *hard block*, not
- * an advisory check (Requirement 15.5). So `sync()` must return immediately with
+ * an advisory check. So `sync()` must return immediately with
  * `halted: true` and `haltReason: 'capture-active'`, performing NO push, NO
  * pull, and NO merge for any Unit — observable as "no `fetch` ever happened and
- * the local projects come back untouched" (Requirements 7.1, 7.2). The moment
- * capture ends, the very same state must be allowed to sync again
- * (Requirement 7.4).
+ * the local projects come back untouched". The moment
+ * capture ends, the very same state must be allowed to sync again.
  *
  * This property pins both halves of that contract over a large input space:
  *   - for ANY local projects and ANY locked/pending live-state, while capture is
@@ -35,7 +34,7 @@
  * See LICENSE in the project root for license information.
  */
 
-// Feature: sync-conflict-resolution, Property 15: Capture-active blocks all sync work; ending capture re-enables it
+// Capture-active blocks all sync work; ending capture re-enables it
 
 import { describe, it, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
@@ -151,9 +150,9 @@ const arbProject = fc.record({
  * A live-state scenario. `locked` is an arbitrary id set; `pending` is drawn as
  * a SUBSET of `locked`. The subset relation matters for the "capture ends"
  * branch: with capture off, a recording holding Pending Actions is safe only if
- * it is locked (Requirement 8.4), so keeping `pending ⊆ locked` guarantees the
+ * it is locked, so keeping `pending ⊆ locked` guarantees the
  * re-enabled cycle is gated by capture alone and not by the pending-actions
- * assertion — isolating exactly the behavior Property 15 is about.
+ * assertion — isolating exactly the behavior this property is about.
  */
 const arbScenario = fc
   .record({
@@ -168,9 +167,7 @@ const arbScenario = fc
     }),
   );
 
-// ─── Property 15 ──────────────────────────────────────────────────────────────
-
-describe('Property 15: Capture-active blocks all sync work; ending capture re-enables it', () => {
+describe('Capture-active blocks all sync work; ending capture re-enables it', () => {
   it('while capture is active sync does no work; the same state proceeds once capture ends', async () => {
     await fc.assert(
       fc.asyncProperty(arbScenario, async ({ projects, locked, pending }) => {
@@ -198,7 +195,7 @@ describe('Property 15: Capture-active blocks all sync work; ending capture re-en
           activeLive,
         );
 
-        // R7.1/R7.2/R15.5 — no cycle started: no push, no pull, no merge.
+        // no cycle started: no push, no pull, no merge.
         assert.equal(fetchCalls.length, 0, 'no fetch may occur while capture is active');
         assert.equal(blocked.result.halted, true);
         assert.equal(blocked.result.haltReason, 'capture-active');
@@ -230,7 +227,7 @@ describe('Property 15: Capture-active blocks all sync work; ending capture re-en
           endedLive,
         );
 
-        // R7.4 — once capture ends, a cycle runs: transport happens (at minimum
+        // once capture ends, a cycle runs: transport happens (at minimum
         // the pull manifest GET) and it does NOT halt for capture-active.
         assert.ok(fetchCalls.length >= 1, 'a cycle runs once capture ends');
         assert.notEqual(proceeded.result.haltReason, 'capture-active');

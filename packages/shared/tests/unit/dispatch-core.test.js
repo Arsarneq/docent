@@ -490,9 +490,9 @@ describe('buildPayload — metadata handling', () => {
   });
 });
 
-// ─── S11: plaintext-HTTP + API key rejection ─────────────────────────────────
+// ─── plaintext-HTTP + API key rejection ─────────────────────────────────
 
-describe('validateEndpointUrl — S11 plaintext HTTP guard', () => {
+describe('validateEndpointUrl — plaintext HTTP guard', () => {
   it('rejects http:// when an API key is set (non-loopback host)', () => {
     const err = validateEndpointUrl('http://api.example.com/dispatch', { hasApiKey: true });
     assert.ok(err !== null, 'http + key on a public host must be rejected');
@@ -518,7 +518,7 @@ describe('validateEndpointUrl — S11 plaintext HTTP guard', () => {
       validateEndpointUrl('http://api.example.com/dispatch', { hasApiKey: false }),
       null,
     );
-    // Default (no opts) preserves the pre-S11 behaviour for existing callers.
+    // Default (no opts) preserves the prior behaviour for existing callers.
     assert.equal(validateEndpointUrl('http://api.example.com/dispatch'), null);
   });
 
@@ -528,14 +528,14 @@ describe('validateEndpointUrl — S11 plaintext HTTP guard', () => {
     assert.ok(validateEndpointUrl('http://169.254.1.1/', { hasApiKey: false }) !== null);
   });
 
-  it('still allows private LAN hosts (not blocked by S11)', () => {
+  it('still allows private LAN hosts (not blocked by the plaintext-HTTP guard)', () => {
     assert.equal(validateEndpointUrl('http://192.168.1.10:8080/v1', { hasApiKey: false }), null);
   });
 });
 
-// ─── S4: dispatch retry with backoff on transient failures ────────────────────
+// ─── dispatch retry with backoff on transient failures ────────────────────
 
-describe('sendPayload — S4 retry/backoff', () => {
+describe('sendPayload — retry/backoff', () => {
   // Inject a no-op sleep so retry timing is instant and deterministic.
   const noSleep = () => Promise.resolve();
 

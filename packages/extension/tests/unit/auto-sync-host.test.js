@@ -1,15 +1,15 @@
 /**
  * auto-sync-host.test.js — Smoke test for the extension background Auto-Sync
- * host (`background/service-worker.js`, task 24.4).
+ * host (`background/service-worker.js`).
  *
- * Validates the extension side of Requirement 23's background-host contract:
- *   - R23.15 — the host wires `chrome.alarms` (the ~60s backstop) + the shared
+ * Validates the extension side of the Auto-Sync background-host contract:
+ *   - the host wires `chrome.alarms` (the ~60s backstop) + the shared
  *     cooldown-debounced scheduler in the SERVICE WORKER (where alarms and
  *     data-event hooks fire), not in a panel-only path.
- *   - R23.16 — a triggered cycle invokes the SAME shared `sync()` the manual
+ *   - a triggered cycle invokes the SAME shared `sync()` the manual
  *     panel path uses, through the SAME chrome-backed SyncStore, and persists the
  *     resulting `SyncState` durably so the panel, when next shown, reads it.
- *   - R23.10 — the cycle runs headless: it is driven by a background `chrome.alarms`
+ *   - the cycle runs headless: it is driven by a background `chrome.alarms`
  *     event with no panel/DOM present, so Auto-Sync works with the UI closed.
  *
  * Approach: the service worker imports `chrome.*` + the shared sync modules at
@@ -19,7 +19,7 @@
  * no mocked sync: the test asserts the genuine background contract end to end.
  *
  * The desktop equivalent of this contract is covered by the desktop host unit
- * tests (`packages/desktop/tests/unit/auto-sync-host.test.js`, task 24.5) and the
+ * tests (`packages/desktop/tests/unit/auto-sync-host.test.js`) and the
  * integration suite.
  *
  * Uses the Node.js built-in test runner.
@@ -31,13 +31,13 @@ import assert from 'node:assert/strict';
 import { BACKSTOP_INTERVAL_MS } from '../../shared/sync-scheduler.js';
 import { loadSyncState, getSettings } from '../../shared/sync-store.js';
 
-// ─── Constants mirrored from the service worker (task 24.4) ───────────────────
+// ─── Constants mirrored from the service worker ───────────────────
 
 // chrome.storage.local key the chrome adapter persists the durable SyncState
 // blob under (SYNC_STATE_KEY in sidepanel/adapter-chrome.js, SYNC_STATE_STORAGE_KEY
-// in the SW). The panel reads its indicators from this key (R23.16).
+// in the SW). The panel reads its indicators from this key.
 const SYNC_STATE_KEY = 'docentSyncState';
-// The ~60s periodic backstop alarm name the SW registers (R23.7).
+// The ~60s periodic backstop alarm name the SW registers.
 const AUTO_SYNC_ALARM = 'docent-auto-sync-backstop';
 // Where the SW's sync cycle reads the endpoint from (adapter-chrome SYNC_URL_KEY).
 const SYNC_URL_KEY = 'docentSyncUrl';
@@ -200,7 +200,7 @@ function syncStateBlob(autoSync) {
       autoAcceptUpdates: false,
       autoAcceptDeletions: false,
       autoSync,
-      // A passing Connection_Test is the gate that lets Auto-Sync be on (R23.2).
+      // A passing Connection_Test is the gate that lets Auto-Sync be on.
       connectionTest: autoSync ? 'pass' : null,
       testedSettingsFingerprint: null,
     },
@@ -209,7 +209,7 @@ function syncStateBlob(autoSync) {
 
 /**
  * Toggle the persisted `autoSync` setting and fire the `chrome.storage.onChanged`
- * listener the SW uses to reconcile its background trigger (R23.16). Enabling
+ * listener the SW uses to reconcile its background trigger. Enabling
  * starts the trigger (and registers the alarm); disabling tears it down and
  * resets the shared cooldown so the next enable can dispatch immediately.
  */
@@ -252,7 +252,7 @@ describe('extension background Auto-Sync host (service worker)', () => {
     sendMessageCalls = 0;
   });
 
-  it('wires chrome.alarms + the shared scheduler in the SW, not a panel-only path (R23.15)', async () => {
+  it('wires chrome.alarms + the shared scheduler in the SW, not a panel-only path', async () => {
     // The background trigger sources are registered in the service worker itself:
     // the alarm seam (the ~60s backstop) and the data-event seam (the onMessage
     // dispatcher), plus the autoSync-toggle observer.
@@ -278,7 +278,7 @@ describe('extension background Auto-Sync host (service worker)', () => {
     );
   });
 
-  it('a triggered cycle invokes the shared sync() and persists SyncState the panel reads (R23.16)', async () => {
+  it('a triggered cycle invokes the shared sync() and persists SyncState the panel reads', async () => {
     storageData[SYNC_URL_KEY] = 'https://sync.test';
     await setAutoSync(true);
 
@@ -308,7 +308,7 @@ describe('extension background Auto-Sync host (service worker)', () => {
     await setAutoSync(false);
   });
 
-  it('runs the cycle headless with the UI/panel closed (R23.10, R23.15)', async () => {
+  it('runs the cycle headless with the UI/panel closed', async () => {
     // The host lives in the service worker, independent of the panel: there is no
     // DOM and no panel surface in this context, yet a background alarm still
     // drives a full shared cycle that persists state for the panel to read later.

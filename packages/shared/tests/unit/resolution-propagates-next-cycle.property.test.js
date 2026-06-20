@@ -3,7 +3,7 @@
  * user-gated resolution action PUSHES NOTHING, and that the resolved state
  * propagates on the NEXT sync cycle per the resolved-against baseline.
  *
- * Property 39 (design): "For any resolved Conflict or accepted Review, the
+ * (design): "For any resolved Conflict or accepted Review, the
  * resolution action issues no push; the affected Unit's baseline entry is set to
  * the resolved-against incoming version (per-unit, leaving siblings untouched),
  * removing the entry when the resolved-against side is a deletion. Consequently,
@@ -13,13 +13,11 @@
  * local-new (pushed, re-propagating the survivor); and a server that changed
  * again re-classifies the Unit as `diverged` (a fresh Conflict)."
  *
- * **Validates: Requirements 20.5, 18.3, 1.4, 1.9, 1.10**
- *
  * ── What this property pins ──────────────────────────────────────────────────
  * The resolution helpers (`acceptReview` / `declineReview` / `resolveConflict` in
  * `conflict-resolution.js`) take NO `serverUrl`/`fetch` at all — they only mutate
  * the in-memory SyncState and return the updated `projects`. This test pins both
- * halves of R20.5:
+ * halves of the propagation guarantee:
  *
  *   1. **Resolution pushes nothing.** With a `fetch` spy installed, every
  *      resolution action issues ZERO network requests; it advances the per-unit
@@ -30,23 +28,23 @@
  *      from the advanced baseline:
  *        • keep-local / merge of a Conflict  → `changed-local-outgoing` ⇒ the
  *          resolved local version is pushed (and is provably NOT the server's
- *          version), R20.5;
+ *          version);
  *        • accept of a Review                → `already-converged` ⇒ no divergent
  *          local edit is pushed (the recording reaches the wire equal to the
- *          server's own version), R20.5;
+ *          server's own version);
  *        • a server that changed again       → `diverged` (a fresh Conflict) and
  *          the resolved local edit is held, never pushed over the server's later
- *          change, R18.3;
+ *          change;
  *        • a delete-vs-change keep-survivor  → local-new ⇒ the survivor is pushed,
- *          re-propagating it (R1.10);
+ *          re-propagating it;
  *        • a declined Review                 → the dismissed incoming version is
- *          not re-offered next cycle (R4.10).
+ *          not re-offered next cycle.
  *
  * Throughout, the server payloads carry arbitrary UNRECOGNIZED top-level fields
  * (a `last_modified` plus a generated grab-bag) on the payload root, the project,
  * and every recording. Because the pull reconstruction and the digest project
  * over an explicit allowlist, those fields are dropped before classification, so
- * none of them can shift behavior — that is Requirement 18.3, exercised here
+ * none of them can shift behavior — exercised here
  * inside the full resolve-then-propagate loop.
  *
  * `fetch` is mocked exactly as in the sibling sync property tests
@@ -66,7 +64,7 @@
  * See LICENSE in the project root for license information.
  */
 
-// Feature: sync-conflict-resolution, Property 39: Resolution pushes nothing; the resolved state propagates next cycle per the resolved-against baseline
+// Resolution pushes nothing; the resolved state propagates next cycle per the resolved-against baseline
 
 import { describe, it, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
@@ -217,7 +215,7 @@ function projOf(project_id, recordings) {
 /**
  * Wrap a project copy in the Full_Project_Payload shape the server stores,
  * injecting arbitrary UNRECOGNIZED top-level fields at the root, project, and
- * recording levels (R18.3). The allowlist projection on pull drops them, so the
+ * recording levels. The allowlist projection on pull drops them, so the
  * resolved-then-propagated behavior must be identical with them present.
  *
  * @param {object} project
@@ -260,7 +258,7 @@ const arbStepSpec = fc.record({
 const arbSteps = fc.array(arbStepSpec, { minLength: 1, maxLength: 3 });
 
 // Top-level field allowlists the digest/pull projection keep; any other key is
-// "unrecognized" and must be dropped (R18.3).
+// "unrecognized" and must be dropped.
 const ROOT_RESERVED = new Set(['docent_format', 'project', 'recordings']);
 const PROJECT_RESERVED = new Set(['project_id', 'name', 'created_at', 'metadata']);
 const RECORDING_RESERVED = new Set(['recording_id', 'name', 'created_at', 'metadata', 'steps']);
@@ -346,17 +344,15 @@ function materializeCycle1(scenario) {
   const localProjects = [projOf(project_id, [localRec])];
 
   // Cycle-1 server holds the moved (incoming) version, carrying unrecognized
-  // top-level fields (R18.3).
+  // top-level fields.
   const manifest = [{ project_id, name: projOf(project_id, []).name }];
   const payloadById = new Map([[project_id, buildPayload(projOf(project_id, [serverRec]), extra)]]);
 
   return { seed, localProjects, manifest, payloadById, serverRec, nextUuid };
 }
 
-// ─── Property 39 ──────────────────────────────────────────────────────────────
-
-describe('Property 39: Resolution pushes nothing; the resolved state propagates next cycle per the resolved-against baseline', () => {
-  it('resolving (keep-local/merge) or accepting issues NO network request, then propagates as changed-local-outgoing (pushed) or already-converged (R20.5, R18.3)', async () => {
+describe('Resolution pushes nothing; the resolved state propagates next cycle per the resolved-against baseline', () => {
+  it('resolving (keep-local/merge) or accepting issues NO network request, then propagates as changed-local-outgoing (pushed) or already-converged', async () => {
     await fc.assert(
       fc.asyncProperty(arbScenario, async (scenario) => {
         const { project_id, recording_id, action, extra } = scenario;
@@ -394,7 +390,7 @@ describe('Property 39: Resolution pushes nothing; the resolved state propagates 
         }
         const projectsAfterCycle1 = cycle1.projects;
 
-        // ── Resolution: must issue NO network request (R20.5) ─────────────────
+        // ── Resolution: must issue NO network request ─────────────────
         const state = await loadSyncState(store);
         let resolutionFetches = 0;
         globalThis.fetch = async () => {
@@ -408,7 +404,7 @@ describe('Property 39: Resolution pushes nothing; the resolved state propagates 
           // Keep-local / merge both adopt an append-only superset that retains
           // every record from BOTH sides; its name marker ('local') makes its
           // digest differ from the server's version, so it reads as a one-sided
-          // local change next cycle (R11.1, R9.3).
+          // local change next cycle.
           const resolvedState = buildKeepResolution(item.local, item.incoming, { newId: nextUuid });
           resolution = resolveConflict(state, projectsAfterCycle1, ref, resolvedState, {
             now: FIXED_NOW,
@@ -417,11 +413,7 @@ describe('Property 39: Resolution pushes nothing; the resolved state propagates 
           resolution = acceptReview(state, projectsAfterCycle1, ref, { now: FIXED_NOW });
         }
 
-        assert.equal(
-          resolutionFetches,
-          0,
-          'a resolution action must issue no network request (R20.5)',
-        );
+        assert.equal(resolutionFetches, 0, 'a resolution action must issue no network request');
         assert.equal(resolution.ok, true, 'the resolution applied');
         assert.equal(state.conflicts?.[ref], undefined, 'the Conflict (if any) is cleared');
         assert.equal(state.reviews?.[ref], undefined, 'the Review (if any) is cleared');
@@ -451,7 +443,7 @@ describe('Property 39: Resolution pushes nothing; the resolved state propagates 
         assert.equal(cycle2.result.halted, false, 'cycle 2 must not halt');
 
         // No fresh deferral either way: the Unit reconciles purely from the
-        // advanced per-unit baseline (R1.4, R1.9).
+        // advanced per-unit baseline.
         assert.ok(
           !cycle2.result.conflicts.includes(ref),
           'the resolved Unit is not a fresh Conflict',
@@ -464,7 +456,7 @@ describe('Property 39: Resolution pushes nothing; the resolved state propagates 
         if (isConflictArm) {
           // keep-local / merge ⇒ changed-local-outgoing: the project is pushed
           // and the RESOLVED LOCAL version reaches the wire, provably NOT the
-          // server's own version (R20.5).
+          // server's own version.
           assert.ok(body, 'a keep-local/merge resolution propagates a write on the next cycle');
           const pushedRec = body.recordings.find((r) => r.recording_id === recording_id);
           assert.ok(pushedRec, 'the resolved recording is present in the push');
@@ -472,7 +464,7 @@ describe('Property 39: Resolution pushes nothing; the resolved state propagates 
           assert.equal(
             pushedDigest,
             digestRecording(resolvedRec),
-            'a keep-local/merge resolution propagates as changed-local-outgoing (resolved version pushed, R20.5)',
+            'a keep-local/merge resolution propagates as changed-local-outgoing (resolved version pushed)',
           );
           assert.notEqual(
             pushedDigest,
@@ -483,9 +475,9 @@ describe('Property 39: Resolution pushes nothing; the resolved state propagates 
           // accept ⇒ already-converged: the resolved-against version EQUALS the
           // server's, and (single recording + converged metadata) the whole
           // project equals the server, so it is SKIPPED — no divergent local edit
-          // is propagated, the strongest form of R20.5. If the project IS pushed
+          // is propagated, the strongest form of the guarantee. If the project IS pushed
           // (e.g. a sibling differed), the recording must still reach the wire at
-          // the server's own version. Unrecognized server fields (R18.3) do not
+          // the server's own version. Unrecognized server fields do not
           // perturb this.
           if (body) {
             const pushedRec = body.recordings.find((r) => r.recording_id === recording_id);
@@ -493,14 +485,14 @@ describe('Property 39: Resolution pushes nothing; the resolved state propagates 
             assert.equal(
               digestRecording(pushedRec),
               serverDigest,
-              'an accepted Review reads as already-converged (no divergent local edit pushed, R20.5)',
+              'an accepted Review reads as already-converged (no divergent local edit pushed)',
             );
           } else {
             // Nothing to write: the accepted recording equals the server, so the
-            // project re-sends only the server's state and is skipped (R20.4).
+            // project re-sends only the server's state and is skipped.
             assert.ok(
               true,
-              'an accepted Review converges to the server, so the project has nothing to write (R20.4)',
+              'an accepted Review converges to the server, so the project has nothing to write',
             );
           }
         }
@@ -509,7 +501,7 @@ describe('Property 39: Resolution pushes nothing; the resolved state propagates 
     );
   });
 
-  it('a server that changed again after resolution re-classifies the Unit as a fresh Conflict; the resolved local edit is never pushed over it (R18.3, R20.5)', async () => {
+  it('a server that changed again after resolution re-classifies the Unit as a fresh Conflict; the resolved local edit is never pushed over it', async () => {
     const arbMovedScenario = fc.record({
       project_id: fc.uuid({ version: 7 }),
       recording_id: fc.uuid(),
@@ -563,7 +555,7 @@ describe('Property 39: Resolution pushes nothing; the resolved state propagates 
         const resolution = resolveConflict(state, cycle1.projects, ref, resolvedState, {
           now: FIXED_NOW,
         });
-        assert.equal(resolutionFetches, 0, 'resolution issues no network request (R20.5)');
+        assert.equal(resolutionFetches, 0, 'resolution issues no network request');
         assert.equal(resolution.ok, true);
         await saveSyncState(store, state);
         const resolvedRec = resolution.projects
@@ -572,9 +564,9 @@ describe('Property 39: Resolution pushes nothing; the resolved state propagates 
 
         // Cycle 2: the server MOVED AGAIN (a third version 'server2') before this
         // client's push. Because the baseline advanced to the resolved-against
-        // version (R1.4) while the server moved on, the Unit re-classifies as a
+        // version while the server moved on, the Unit re-classifies as a
         // fresh `diverged` Conflict — the other client's change is surfaced, not
-        // overwritten (R18.3).
+        // overwritten.
         let counter = 0;
         const nextUuid2 = () => {
           counter += 1;
@@ -602,11 +594,11 @@ describe('Property 39: Resolution pushes nothing; the resolved state propagates 
 
         assert.ok(
           cycle2.result.conflicts.includes(ref),
-          'a server that changed again re-classifies the Unit as a fresh Conflict (R18.3)',
+          'a server that changed again re-classifies the Unit as a fresh Conflict',
         );
 
         // If the project is pushed, the deferred recording re-sends the
-        // agreed-or-pulled server version — never the resolved local edit (R20.5/R20.2).
+        // agreed-or-pulled server version — never the resolved local edit.
         const body = capturedPutsByProjectId().get(project_id);
         if (body) {
           const pushedRec = body.recordings.find((r) => r.recording_id === recording_id);
@@ -623,9 +615,9 @@ describe('Property 39: Resolution pushes nothing; the resolved state propagates 
     );
   });
 
-  // ── Deterministic regression examples behind Property 39 ──────────────────
+  // ── Deterministic regression examples ──────────────────
 
-  it('a delete-vs-change Conflict resolved by keeping the survivor pushes nothing, then propagates the survivor as local-new next cycle (R1.10, R20.5)', async () => {
+  it('a delete-vs-change Conflict resolved by keeping the survivor pushes nothing, then propagates the survivor as local-new next cycle', async () => {
     const project_id = '018f4e2a-0000-7000-8000-0000000003a1';
     const recording_id = 'rec-survivor';
     const baseSteps = [{ uuid: 's-base', logical_id: 'a', step_number: 0, deleted: false }];
@@ -678,9 +670,9 @@ describe('Property 39: Resolution pushes nothing; the resolved state propagates 
     const resolution = resolveConflict(state, cycle1.projects, ref, resolvedState, {
       now: FIXED_NOW,
     });
-    assert.equal(resolutionFetches, 0, 'resolution issues no network request (R20.5)');
+    assert.equal(resolutionFetches, 0, 'resolution issues no network request');
     assert.equal(resolution.ok, true);
-    // The per-unit baseline entry was REMOVED (resolved-against side is a deletion, R1.10).
+    // The per-unit baseline entry was REMOVED (resolved-against side is a deletion).
     assert.equal(
       state.baselines[project_id]?.agreedState?.recordings?.length ?? 0,
       0,
@@ -711,7 +703,7 @@ describe('Property 39: Resolution pushes nothing; the resolved state propagates 
     assert.equal(pushedRec.name, 'rec-local', 'the survivor is pushed at its local version');
   });
 
-  it('declining a Review issues no network request and the dismissed incoming version is not re-offered next cycle (R20.5, R4.10)', async () => {
+  it('declining a Review issues no network request and the dismissed incoming version is not re-offered next cycle', async () => {
     const project_id = '018f4e2a-0000-7000-8000-0000000003b2';
     const recording_id = 'rec-decline';
     const baseSteps = [{ uuid: 's-base', logical_id: 'a', step_number: 0, deleted: false }];
@@ -754,12 +746,12 @@ describe('Property 39: Resolution pushes nothing; the resolved state propagates 
       return makeResponse(200, null);
     };
     const resolution = declineReview(state, cycle1.projects, ref);
-    assert.equal(resolutionFetches, 0, 'declining issues no network request (R20.5)');
+    assert.equal(resolutionFetches, 0, 'declining issues no network request');
     assert.equal(resolution.ok, true);
     await saveSyncState(store, state);
 
     // Cycle 2: the SAME incoming version is pulled again — it must NOT be
-    // re-offered as a Review (R4.10).
+    // re-offered as a Review.
     installMockFetch(manifest, serverPayload);
     const cycle2 = await sync(
       SERVER,
@@ -773,7 +765,7 @@ describe('Property 39: Resolution pushes nothing; the resolved state propagates 
     assert.equal(cycle2.result.halted, false);
     assert.ok(
       !cycle2.result.review.includes(ref),
-      'the dismissed incoming version is not re-offered (R4.10)',
+      'the dismissed incoming version is not re-offered',
     );
   });
 });

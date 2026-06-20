@@ -14,7 +14,6 @@
 //!
 //! Run with: cargo test --test coordinate_dpi_test
 //!
-//! Validates: Requirements 2a.4, 2a.5, 2a.10
 
 use docent_desktop_lib::capture::coordinate::{
     create_window_rect, determine_capture_mode, relative_coordinates,

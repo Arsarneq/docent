@@ -1,6 +1,6 @@
 /**
  * tests/conditional-write.test.js — integration suite for the optional
- * conditional-write enhancement (docent#152, Requirement 6) of the Reference
+ * conditional-write enhancement (docent#152) of the Reference
  * Sync Server.
  *
  * These are example/integration tests (design's Testing Strategy): each test
@@ -8,16 +8,16 @@
  * the shared harness, then drives it over HTTP with `fetch`. No mocks — the ETag
  * advertisement, `If-Match` precondition, 412 rejection, last-write-wins, and
  * ETag determinism are all observed exactly as a client would see them
- * (Requirement 11.3: the behavior is visible without inspecting server
+ * (the behavior is visible without inspecting server
  * internals).
  *
- * Coverage (Requirement 6, plus 11.3):
- *   - R6.1: a GET of a stored project carries an `ETag` response header.
- *   - R6.2: a successful PUT carries an `ETag` reflecting the newly stored content.
- *   - R6.3: a PUT whose `If-Match` matches the stored ETag proceeds (200/201).
- *   - R6.4: a PUT whose `If-Match` is stale is rejected 412, store unchanged.
- *   - R6.5: a PUT with NO `If-Match` overwrites (last-write-wins).
- *   - R6.6: the ETag is identical across two unchanged reads and differs after a
+ * Coverage:
+ *   - a GET of a stored project carries an `ETag` response header.
+ *   - a successful PUT carries an `ETag` reflecting the newly stored content.
+ *   - a PUT whose `If-Match` matches the stored ETag proceeds (200/201).
+ *   - a PUT whose `If-Match` is stale is rejected 412, store unchanged.
+ *   - a PUT with NO `If-Match` overwrites (last-write-wins).
+ *   - the ETag is identical across two unchanged reads and differs after a
  *           content change.
  *
  * This file is part of Docent.
@@ -62,7 +62,7 @@ function samplePayload(id = PROJECT_ID, name = 'Conditional-write demo') {
   };
 }
 
-describe('conditional write (docent#152, Requirement 6)', () => {
+describe('conditional write (docent#152)', () => {
   let server;
 
   beforeEach(async () => {
@@ -73,7 +73,7 @@ describe('conditional write (docent#152, Requirement 6)', () => {
     await server.close();
   });
 
-  it('GET /projects/:id of a stored project yields an ETag response header (R6.1)', async () => {
+  it('GET /projects/:id of a stored project yields an ETag response header', async () => {
     const created = await request(server.baseUrl, 'PUT', `/projects/${PROJECT_ID}`, {
       body: samplePayload(),
     });
@@ -86,23 +86,23 @@ describe('conditional write (docent#152, Requirement 6)', () => {
     assert.match(read.headers.etag, /^".+"$/);
   });
 
-  it('a successful PUT advertises an ETag header for create (201) and replace (200) (R6.2)', async () => {
+  it('a successful PUT advertises an ETag header for create (201) and replace (200)', async () => {
     const created = await request(server.baseUrl, 'PUT', `/projects/${PROJECT_ID}`, {
       body: samplePayload(),
     });
     assert.equal(created.status, 201);
-    assert.ok(created.headers.etag, 'a create response must carry a fresh ETag (R6.2)');
+    assert.ok(created.headers.etag, 'a create response must carry a fresh ETag');
 
     const replaced = await request(server.baseUrl, 'PUT', `/projects/${PROJECT_ID}`, {
       body: samplePayload(PROJECT_ID, 'Renamed'),
     });
     assert.equal(replaced.status, 200);
-    assert.ok(replaced.headers.etag, 'a replace response must carry a fresh ETag (R6.2)');
+    assert.ok(replaced.headers.etag, 'a replace response must carry a fresh ETag');
     // Content changed → the replace ETag must differ from the create ETag.
     assert.notEqual(replaced.headers.etag, created.headers.etag);
   });
 
-  it('PUT with a matching If-Match → 200 and a fresh ETag (R6.2, R6.3)', async () => {
+  it('PUT with a matching If-Match → 200 and a fresh ETag', async () => {
     await request(server.baseUrl, 'PUT', `/projects/${PROJECT_ID}`, { body: samplePayload() });
 
     const read = await request(server.baseUrl, 'GET', `/projects/${PROJECT_ID}`);
@@ -123,7 +123,7 @@ describe('conditional write (docent#152, Requirement 6)', () => {
     assert.equal(reread.headers.etag, updated.headers.etag);
   });
 
-  it('PUT with a stale If-Match → 412, and the stored content is unchanged (R6.4)', async () => {
+  it('PUT with a stale If-Match → 412, and the stored content is unchanged', async () => {
     // Create, capture the original ETag.
     await request(server.baseUrl, 'PUT', `/projects/${PROJECT_ID}`, { body: samplePayload() });
     const firstRead = await request(server.baseUrl, 'GET', `/projects/${PROJECT_ID}`);
@@ -151,7 +151,7 @@ describe('conditional write (docent#152, Requirement 6)', () => {
     assert.equal(reread.headers.etag, goodUpdate.headers.etag);
   });
 
-  it('PUT with NO If-Match overwrites (last-write-wins) → 200 (R6.5)', async () => {
+  it('PUT with NO If-Match overwrites (last-write-wins) → 200', async () => {
     await request(server.baseUrl, 'PUT', `/projects/${PROJECT_ID}`, { body: samplePayload() });
 
     // No If-Match header at all → unconditional overwrite regardless of the
@@ -165,16 +165,16 @@ describe('conditional write (docent#152, Requirement 6)', () => {
     assert.equal(reread.body.project.name, 'Overwritten unconditionally');
   });
 
-  it('the ETag is identical across two unchanged reads, and different after a content change (R6.6)', async () => {
+  it('the ETag is identical across two unchanged reads, and different after a content change', async () => {
     await request(server.baseUrl, 'PUT', `/projects/${PROJECT_ID}`, { body: samplePayload() });
 
-    // Two reads of the same unchanged project → same ETag (determinism, R6.6).
+    // Two reads of the same unchanged project → same ETag (determinism).
     const readA = await request(server.baseUrl, 'GET', `/projects/${PROJECT_ID}`);
     const readB = await request(server.baseUrl, 'GET', `/projects/${PROJECT_ID}`);
     assert.ok(readA.headers.etag);
     assert.equal(readA.headers.etag, readB.headers.etag);
 
-    // Change the content → the ETag must change (change-sensitivity, R6.6).
+    // Change the content → the ETag must change (change-sensitivity).
     await request(server.baseUrl, 'PUT', `/projects/${PROJECT_ID}`, {
       body: samplePayload(PROJECT_ID, 'Different content now'),
     });
@@ -182,7 +182,7 @@ describe('conditional write (docent#152, Requirement 6)', () => {
     assert.notEqual(readC.headers.etag, readA.headers.etag);
   });
 
-  it('end-to-end optimistic-concurrency flow stays observable to the client (R6.1–R6.6, R11.3)', async () => {
+  it('end-to-end optimistic-concurrency flow stays observable to the client', async () => {
     // 1. Create via PUT (no If-Match → 201).
     const create = await request(server.baseUrl, 'PUT', `/projects/${PROJECT_ID}`, {
       body: samplePayload(PROJECT_ID, 'v1'),

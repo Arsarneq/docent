@@ -1,6 +1,6 @@
 /**
  * round-trip.test.js — the verbatim round-trip fidelity suite for the Reference
- * Sync Server (Task 10.3; Requirements 4.1, 4.2, 4.3).
+ * Sync Server.
  *
  * The server is opaque: a payload stored through `PUT /projects/:id` and read
  * back through `GET /projects/:id` must be content-equivalent to what was
@@ -9,15 +9,15 @@
  * the REAL server over HTTP via the integration harness and proves that
  * fidelity against a deliberately rich, representative payload:
  *
- *   - a `docent_format` stamp (Requirement 4.2);
- *   - MULTIPLE recordings (Requirement 4.3);
+ *   - a `docent_format` stamp;
+ *   - MULTIPLE recordings;
  *   - full step history INCLUDING deleted steps and re-recorded steps that
- *     reuse a `logical_id` (Requirement 4.3);
+ *     reuse a `logical_id`;
  *   - an unrecognized/unknown top-level field the server does not understand
- *     (Requirement 4.2 — preserved verbatim).
+ *     (preserved verbatim).
  *
- * It also pins the `last_modified` isolation contract (Property 3, Requirements
- * 3.7 / 4.1 / 7.6): the server-maintained `last_modified` lives only in the
+ * It also pins the `last_modified` isolation contract: the server-maintained
+ * `last_modified` lives only in the
  * storage wrapper and surfaces in the manifest, but is NEVER merged into the
  * verbatim payload returned by `GET /projects/:id`.
  *
@@ -37,15 +37,14 @@ const PROJECT_ID = '019e11fd-78ba-7fdb-8362-6fe9f697f641';
 
 /**
  * Build a deliberately rich `Full_Project_Payload` (shape per
- * `docs/sync-protocol.md`) that exercises every fidelity concern of
- * Requirement 4:
+ * `docs/sync-protocol.md`) that exercises every fidelity concern:
  *
- *   - a `docent_format` stamp (R4.2);
- *   - TWO recordings (R4.3);
+ *   - a `docent_format` stamp;
+ *   - TWO recordings;
  *   - full step history with a `deleted: true` step and a re-recorded step that
- *     reuses an earlier step's `logical_id` (R4.3);
+ *     reuses an earlier step's `logical_id`;
  *   - a top-level field the server does not recognize, `x_custom_extension_field`
- *     (R4.2) — the server must preserve it untouched.
+ * — the server must preserve it untouched.
  *
  * A fresh object is returned per call so a test can mutate its local copy
  * without affecting the value sent over the wire.
@@ -94,7 +93,7 @@ function buildRichPayload() {
             ],
             deleted: false,
           },
-          // A DELETED step — full history must be preserved verbatim (R4.3).
+          // A DELETED step — full history must be preserved verbatim.
           {
             uuid: '019e12a4-733d-74d2-acd5-584085fb5800',
             logical_id: '019e12a4-733d-74d2-acd5-584085fb5800',
@@ -124,8 +123,8 @@ function buildRichPayload() {
             deleted: true,
           },
           // A RE-RECORDED step: a new uuid that REUSES the deleted step's
-          // logical_id, representing a fresh recording of the same logical step
-          // (R4.3). The server must keep both versions, in order, untouched.
+          // logical_id, representing a fresh recording of the same logical step.
+          // The server must keep both versions, in order, untouched.
           {
             uuid: '019e12a4-833d-74d2-acd5-584085fb5901',
             logical_id: '019e12a4-733d-74d2-acd5-584085fb5800',
@@ -157,7 +156,7 @@ function buildRichPayload() {
         ],
       },
       {
-        // A SECOND recording (R4.3) — including one with an empty step history,
+        // A SECOND recording — including one with an empty step history,
         // which the server must also preserve verbatim.
         recording_id: '019e2b4a-1234-7abc-9def-abcdef012345',
         name: 'Logout flow',
@@ -194,7 +193,7 @@ function buildRichPayload() {
       },
     ],
     // An UNRECOGNIZED top-level field the server does not understand. A truly
-    // opaque, verbatim store must preserve it exactly (R4.2).
+    // opaque, verbatim store must preserve it exactly.
     x_custom_extension_field: {
       experimental_flag: true,
       nested: { count: 3, labels: ['a', 'b'], ratio: 0.75 },
@@ -203,7 +202,7 @@ function buildRichPayload() {
   };
 }
 
-describe('round-trip fidelity (R4.1, R4.2, R4.3)', () => {
+describe('round-trip fidelity', () => {
   let server;
 
   before(async () => {
@@ -228,9 +227,9 @@ describe('round-trip fidelity (R4.1, R4.2, R4.3)', () => {
     const getRes = await request(server.baseUrl, 'GET', `/projects/${PROJECT_ID}`);
     assert.equal(getRes.status, 200);
 
-    // Verbatim fidelity: the returned payload deep-equals what was written
-    // (R4.1). The server must not reshape, drop the unknown field, reorder
-    // meaningfully, or inject any field (R4.2, R4.3).
+    // Verbatim fidelity: the returned payload deep-equals what was written.
+    // The server must not reshape, drop the unknown field, reorder
+    // meaningfully, or inject any field.
     assert.deepEqual(
       getRes.body,
       written,
@@ -238,7 +237,7 @@ describe('round-trip fidelity (R4.1, R4.2, R4.3)', () => {
     );
   });
 
-  it('preserves the docent_format stamp and the unrecognized top-level field verbatim (R4.2)', async () => {
+  it('preserves the docent_format stamp and the unrecognized top-level field verbatim', async () => {
     const written = buildRichPayload();
     await request(server.baseUrl, 'PUT', `/projects/${PROJECT_ID}`, { body: written });
 
@@ -254,7 +253,7 @@ describe('round-trip fidelity (R4.1, R4.2, R4.3)', () => {
     assert.deepEqual(Object.keys(body).sort(), Object.keys(written).sort());
   });
 
-  it('preserves the complete recordings array and full step history incl. deleted + re-recorded steps (R4.3)', async () => {
+  it('preserves the complete recordings array and full step history incl. deleted + re-recorded steps', async () => {
     const written = buildRichPayload();
     await request(server.baseUrl, 'PUT', `/projects/${PROJECT_ID}`, { body: written });
 
@@ -279,7 +278,7 @@ describe('round-trip fidelity (R4.1, R4.2, R4.3)', () => {
     assert.equal(uuids.size, 2, 'the two versions have distinct uuids');
   });
 
-  it('never injects the wrapper last_modified into the returned payload (R4.1; Property 3)', async () => {
+  it('never injects the wrapper last_modified into the returned payload', async () => {
     const written = buildRichPayload();
     await request(server.baseUrl, 'PUT', `/projects/${PROJECT_ID}`, { body: written });
 
@@ -302,7 +301,7 @@ describe('round-trip fidelity (R4.1, R4.2, R4.3)', () => {
     assert.equal(typeof entry.last_modified, 'string', 'manifest carries a server last_modified');
   });
 
-  it('survives a replace (PUT over an existing project) with full fidelity (R4.1)', async () => {
+  it('survives a replace (PUT over an existing project) with full fidelity', async () => {
     // First write.
     await request(server.baseUrl, 'PUT', `/projects/${PROJECT_ID}`, { body: buildRichPayload() });
 

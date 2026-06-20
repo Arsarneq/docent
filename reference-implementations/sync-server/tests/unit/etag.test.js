@@ -4,8 +4,7 @@ import assert from 'node:assert/strict';
 import { deriveETag } from '../../etag.js';
 
 /**
- * Tests for deterministic, content-derived ETag derivation (Requirements 6.1,
- * 6.6, 8.1, 8.2).
+ * Tests for deterministic, content-derived ETag derivation.
  *
  * The contract is opaque: clients never parse the tag, so the tests assert only
  * the three properties that matter — same content yields the same tag, any
@@ -31,7 +30,7 @@ function samplePayload() {
   };
 }
 
-describe('deriveETag — determinism (R6.6)', () => {
+describe('deriveETag — determinism', () => {
   it('returns the same ETag for the same content across calls', () => {
     const payload = samplePayload();
     assert.equal(deriveETag(payload), deriveETag(payload));
@@ -48,7 +47,7 @@ describe('deriveETag — determinism (R6.6)', () => {
   });
 });
 
-describe('deriveETag — change sensitivity (R6.6)', () => {
+describe('deriveETag — change sensitivity', () => {
   it('returns a different ETag when a project field changes', () => {
     const before = samplePayload();
     const after = samplePayload();
@@ -75,7 +74,7 @@ describe('deriveETag — change sensitivity (R6.6)', () => {
   });
 });
 
-describe('deriveETag — output shape (R6.1, HTTP ETag syntax)', () => {
+describe('deriveETag — output shape (HTTP ETag syntax)', () => {
   it('returns a double-quoted string', () => {
     const tag = deriveETag(samplePayload());
     assert.equal(typeof tag, 'string');

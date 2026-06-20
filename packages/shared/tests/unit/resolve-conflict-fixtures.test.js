@@ -12,13 +12,13 @@
  *      across the local and incoming sides, where the globally-latest record
  *      (highest `uuid`) for a logical step alternates which side it came from.
  *      The adopted Active View must surface exactly the latest LIVE version per
- *      `logical_id`, sorted by `step_number` (R11.1, R11.3).
+ *      `logical_id`, sorted by `step_number`.
  *
  *   2. TOMBSTONES AT VARIOUS POSITIONS — a tombstone that is the latest version
  *      of a logical step (the step must stay deleted), and a tombstone buried in
  *      the MIDDLE of a history that is later superseded by a live re-record (the
  *      step must re-surface). A deleted step is never resurrected by resolution,
- *      and a re-recorded step is never wrongly suppressed (R11.2).
+ *      and a re-recorded step is never wrongly suppressed.
  *
  *   3. DELETE-VS-CHANGE — a Unit deleted on one side and changed on the other,
  *      in both directions (local-deleted / server-changed and
@@ -26,17 +26,14 @@
  *      project). For each, the two explicit outcomes are exercised: KEEP the
  *      surviving changed version (supply it as the resolved state) and ACCEPT the
  *      deletion (the {@link DELETE_RESOLUTION} sentinel). Resolution defaults to
- *      neither (R19.5).
+ *      neither.
  *
- * Each fixture records a Conflict via `upsertConflict` (retaining both versions,
- * R5.2), resolves it through `resolveConflict`, then asserts the adopted state,
+ * Each fixture records a Conflict via `upsertConflict` (retaining both versions), resolves it through `resolveConflict`, then asserts the adopted state,
  * its Active View via `resolveActiveSteps`, the Conflict being cleared, and the
  * baseline outcome.
  *
  * Uses the Node.js built-in test runner (`node --test`), matching the rest of
  * `packages/shared/tests/unit`.
- *
- * **Validates: Requirements 11.1, 11.2, 11.3, 19.5**
  *
  * This file is part of Docent.
  * Licensed under the GNU General Public License v3.0
@@ -90,7 +87,7 @@ function findRecording(project, recording_id) {
 
 /** Assert a recording's Active View is exactly `expected` (ordered list of
  *  `[logical_id, uuid]`), and that it holds at most one active step per
- *  `logical_id` with no tombstones (R11.2, R11.3). */
+ *  `logical_id` with no tombstones. */
 function assertActiveView(recording, expected) {
   const active = resolveActiveSteps(recording);
   assert.deepStrictEqual(
@@ -110,8 +107,7 @@ function assertActiveView(recording, expected) {
   }
 }
 
-/** Assert every input step uuid survives into the resolved history (append-only,
- *  R11.1). */
+/** Assert every input step uuid survives into the resolved history (append-only). */
 function assertAppendOnly(resolvedSteps, ...inputHistories) {
   const present = new Set(resolvedSteps.map((s) => s.uuid));
   for (const history of inputHistories) {
@@ -121,9 +117,9 @@ function assertAppendOnly(resolvedSteps, ...inputHistories) {
   }
 }
 
-// ─── 1. Interleaved re-records (R11.1, R11.3) ──────────────────────────────────
+// ─── 1. Interleaved re-records ──────────────────────────────────
 
-describe('resolveConflict — interleaved re-records resolve to the correct Active View (R11.1, R11.3)', () => {
+describe('resolveConflict — interleaved re-records resolve to the correct Active View', () => {
   it('surfaces the globally-latest live version per logical_id, alternating which side won, sorted by step_number', () => {
     const PROJECT = 'p-interleave';
     const RECORDING = 'r-interleave';
@@ -160,10 +156,10 @@ describe('resolveConflict — interleaved re-records resolve to the correct Acti
     const rec = findRecording(findProject(result.projects, PROJECT), RECORDING);
     assert.deepStrictEqual(rec, m.resolvedRec, 'the adopted recording must equal the chosen state');
 
-    // Every interleaved record from both sides survives (append-only, R11.1).
+    // Every interleaved record from both sides survives (append-only).
     assertAppendOnly(rec.steps, m.localRec.steps, m.incomingRec.steps);
     // 'b' (step_number 1, latest = incoming u06) sorts before 'a' (step_number 2,
-    // latest = local u04). Both latest versions are live (R11.3).
+    // latest = local u04). Both latest versions are live.
     assertActiveView(rec, [
       ['b', 'u06'],
       ['a', 'u04'],
@@ -172,16 +168,16 @@ describe('resolveConflict — interleaved re-records resolve to the correct Acti
     assert.equal(getItem(state, unitRef), null, 'the resolved Conflict must be cleared');
     const baseline = getBaseline(state, PROJECT);
     assert.ok(baseline, 'the baseline must advance to the resolved-against incoming version');
-    // Per-unit resolved-against baseline (R1.4, R1.9): advance to the INCOMING
+    // Per-unit resolved-against baseline: advance to the INCOMING
     // version the user resolved against (not the adopted/merged state), so a merge
-    // reads as changed-local-outgoing next cycle and is pushed (R20.5).
+    // reads as changed-local-outgoing next cycle and is pushed.
     assert.equal(baseline.digest, digestProject(buildProject(PROJECT, [m.incomingRec])));
   });
 });
 
-// ─── 2. Tombstones at various positions (R11.2) ────────────────────────────────
+// ─── 2. Tombstones at various positions ────────────────────────────────
 
-describe('resolveConflict — tombstones stay tombstoned wherever they sit in history (R11.2)', () => {
+describe('resolveConflict — tombstones stay tombstoned wherever they sit in history', () => {
   it('keeps a latest-version tombstone deleted and re-surfaces a step whose tombstone was later superseded', () => {
     const PROJECT = 'p-tomb';
     const RECORDING = 'r-tomb';
@@ -220,7 +216,7 @@ describe('resolveConflict — tombstones stay tombstoned wherever they sit in hi
     assert.equal(result.ok, true);
     const rec = findRecording(findProject(result.projects, PROJECT), RECORDING);
 
-    // All seven records survive, including both tombstones (append-only, R11.1).
+    // All seven records survive, including both tombstones (append-only).
     assertAppendOnly(rec.steps, m.localRec.steps, m.incomingRec.steps);
     assert.equal(rec.steps.length, 7);
 
@@ -268,14 +264,14 @@ describe('resolveConflict — tombstones stay tombstoned wherever they sit in hi
     assert.equal(result.ok, true);
     const rec = findRecording(findProject(result.projects, PROJECT), RECORDING);
     assertAppendOnly(rec.steps, m.localRec.steps, m.incomingRec.steps);
-    // Latest version of 'a' (u03) is a tombstone → no active steps (R11.2).
+    // Latest version of 'a' (u03) is a tombstone → no active steps.
     assertActiveView(rec, []);
   });
 });
 
-// ─── 3. Delete-vs-change at the recording level (R19.5) ────────────────────────
+// ─── 3. Delete-vs-change at the recording level ────────────────────────
 
-describe('resolveConflict — recording-level delete-vs-change: local deleted, server changed (R19.5)', () => {
+describe('resolveConflict — recording-level delete-vs-change: local deleted, server changed', () => {
   // Baseline recording had logical 'a' (u01). The SERVER appended logical 'b'
   // (u02) — the changed version — while LOCAL deleted the whole recording. The
   // Conflict retains both: `local` = the pre-deletion (baseline) copy, `incoming`
@@ -329,7 +325,7 @@ describe('resolveConflict — recording-level delete-vs-change: local deleted, s
     assert.equal(getItem(state, unitRef), null, 'the Conflict must be cleared');
     const baseline = getBaseline(state, PROJECT);
     assert.ok(baseline, 'the baseline advances per-unit to the resolved-against incoming version');
-    // Per-unit resolved-against (R1.4, R1.9): the resolved-against incoming side is
+    // Per-unit resolved-against: the resolved-against incoming side is
     // the server's CHANGE (not a deletion), so the recording's baseline entry is
     // set to it; the kept (re-added) recording then reads as already-converged.
     assert.ok(
@@ -354,7 +350,7 @@ describe('resolveConflict — recording-level delete-vs-change: local deleted, s
     assert.equal(getItem(state, unitRef), null, 'the Conflict must be cleared');
     const baseline = getBaseline(state, PROJECT);
     assert.ok(baseline, 'the baseline advances per-unit to the resolved-against incoming version');
-    // Per-unit resolved-against (R1.4): the resolved-against incoming side is the
+    // Per-unit resolved-against: the resolved-against incoming side is the
     // server's CHANGE (not a deletion), so the baseline entry is set to it. With
     // the recording absent locally, the next cycle reads this as a one-sided local
     // deletion (deleted-local-clean) and propagates it — rather than resurrecting
@@ -366,7 +362,7 @@ describe('resolveConflict — recording-level delete-vs-change: local deleted, s
     );
   });
 
-  it('defaults to NEITHER — an absent resolution is rejected and leaves the Conflict pending (R19.5)', () => {
+  it('defaults to NEITHER — an absent resolution is rejected and leaves the Conflict pending', () => {
     const { state, m } = seed();
     const result = resolveConflict(state, m.localProjects, unitRef, null, { now: FIXED_NOW });
 
@@ -377,7 +373,7 @@ describe('resolveConflict — recording-level delete-vs-change: local deleted, s
   });
 });
 
-describe('resolveConflict — recording-level delete-vs-change: server deleted, local changed (R19.5)', () => {
+describe('resolveConflict — recording-level delete-vs-change: server deleted, local changed', () => {
   // The mirror direction: LOCAL changed the recording (appended logical 'b'),
   // the SERVER deleted it. The recording IS present locally with the change.
   const PROJECT = 'p-dvc-2';
@@ -415,7 +411,7 @@ describe('resolveConflict — recording-level delete-vs-change: server deleted, 
       ['b', 'u02'],
     ]);
     assert.equal(getItem(state, unitRef), null);
-    // Per-unit resolved-against (R1.4, R1.10): the resolved-against incoming side is
+    // Per-unit resolved-against: the resolved-against incoming side is
     // a DELETION, so the recording's baseline entry is REMOVED — the kept survivor
     // reads as local-new next cycle and is re-pushed (re-propagating it).
     const baseline = getBaseline(state, PROJECT);
@@ -448,9 +444,9 @@ describe('resolveConflict — recording-level delete-vs-change: server deleted, 
   });
 });
 
-// ─── 4. Delete-vs-change at the project level (R19.5) ──────────────────────────
+// ─── 4. Delete-vs-change at the project level ──────────────────────────
 
-describe('resolveConflict — project-level delete-vs-change (R19.5)', () => {
+describe('resolveConflict — project-level delete-vs-change', () => {
   // The whole PROJECT diverged as delete-vs-change: LOCAL changed it (a recording
   // gained logical 'b'), the SERVER deleted the project. The Conflict retains the
   // changed local project and the pre-deletion (baseline) project.
@@ -491,7 +487,7 @@ describe('resolveConflict — project-level delete-vs-change (R19.5)', () => {
       ['b', 'u02'],
     ]);
     assert.equal(getItem(state, unitRef), null);
-    // Per-unit resolved-against (R1.4): a project-level Unit advances the whole
+    // Per-unit resolved-against: a project-level Unit advances the whole
     // project baseline to the resolved-against incoming version; that side is a
     // DELETION, so the project baseline is CLEARED — the kept project then reads as
     // local-new next cycle and is re-pushed (re-propagating it).

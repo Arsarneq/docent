@@ -3,7 +3,7 @@
  * pre-flight Pending-Actions safety gate.
  *
  * Pending Actions are uncommitted captured actions that have not yet been folded
- * into a recording's committed `steps` history. Requirement 8 keeps them out of
+ * into a recording's committed `steps` history. The protection rule keeps them out of
  * sync entirely: sync reads only committed `recording.steps` and never the
  * Pending Actions, and a recording that holds Pending Actions must stay protected
  * by either the Locked_Recording exclusion or the Capture_Active halt. If neither
@@ -17,28 +17,26 @@
  *                capture-halted, sync returns immediately with
  *                `halted: true`, `haltReason: 'pending-actions-unprotected'`,
  *                performs NO network work (fetch is never called), and leaves the
- *                durable store untouched and the projects unchanged (R8.2, R8.4).
+ *                durable store untouched and the projects unchanged.
  *   - NO-TRIP  — if EVERY pending-holding recording is protected (locked, or
  *                capture is active), the pending-actions gate never trips: the
  *                halt reason is never 'pending-actions-unprotected'. Capture-active
- *                halts for its own reason; an otherwise-clean cycle proceeds (R8.2).
+ *                halts for its own reason; an otherwise-clean cycle proceeds.
  *   - COMMITTED-ONLY — when a cycle does proceed, every pushed payload carries
  *                exactly the recording's committed `steps`; there is no channel
  *                through which Pending Actions could be observed, because
  *                `LiveState` only exposes pending-holding recording *ids*, never
- *                their content (R8.1, R8.3).
+ *                their content.
  *
  * Uses Node.js built-in test runner + fast-check (fast-check v4: `fc.uuid()` for
  * ids), with a fake `LiveState` and a fake `fetch`.
- *
- * **Validates: Requirements 8.1, 8.2, 8.3, 8.4**
  *
  * This file is part of Docent.
  * Licensed under the GNU General Public License v3.0
  * See LICENSE in the project root for license information.
  */
 
-// Feature: sync-conflict-resolution, Property 16: Pending Actions are never observed; an unprotected pending recording halts sync
+// Pending Actions are never observed; an unprotected pending recording halts sync
 
 import { describe, it, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
@@ -68,7 +66,7 @@ function makeResponse(status, body = null) {
  * Install a fake `fetch` that records every call. PUTs (push) succeed and have
  * their bodies captured; the GET manifest returns an empty list so the pull
  * phase does no per-project work. If the gate halts correctly, `calls` stays
- * empty — that emptiness is the "no network work" assertion (R8.4).
+ * empty — that emptiness is the "no network work" assertion.
  */
 function installFakeFetch() {
   const calls = [];
@@ -89,7 +87,7 @@ function installFakeFetch() {
  * A fake `LiveState`. It exposes ONLY recording ids for the locked set and the
  * pending-holding set — never any Pending Action content — exactly like the real
  * platform adapters, so there is structurally no way for sync to "observe" a
- * Pending Action (R8.1).
+ * Pending Action.
  *
  * @param {{ captureActive: boolean, lockedIds: Iterable<string>, pendingIds: Iterable<string> }} cfg
  * @returns {import('../../sync-types.js').LiveState}
@@ -198,10 +196,8 @@ function committedStepsById(recordings) {
   return map;
 }
 
-// ─── Property 16 ────────────────────────────────────────────────────────────
-
-describe('Property 16: Pending Actions are never observed; an unprotected pending recording halts sync', () => {
-  it('halts immediately with no network work when any pending recording is unprotected (R8.4)', async () => {
+describe('Pending Actions are never observed; an unprotected pending recording halts sync', () => {
+  it('halts immediately with no network work when any pending recording is unprotected', async () => {
     await fc.assert(
       fc.asyncProperty(arbScenario, fc.nat(), async (scenario, victimSeed) => {
         // Force the unprotected-pending condition: capture off, and at least one
@@ -254,7 +250,7 @@ describe('Property 16: Pending Actions are never observed; an unprotected pendin
     );
   });
 
-  it('never trips the pending-actions gate when every pending recording is protected (R8.2)', async () => {
+  it('never trips the pending-actions gate when every pending recording is protected', async () => {
     await fc.assert(
       fc.asyncProperty(arbScenario, async (scenario) => {
         // Enforce protection: when capture is NOT active, every pending-holding
@@ -306,7 +302,7 @@ describe('Property 16: Pending Actions are never observed; an unprotected pendin
     );
   });
 
-  it('pushes only committed recording.steps — Pending Actions are never observed (R8.1, R8.3)', async () => {
+  it('pushes only committed recording.steps — Pending Actions are never observed', async () => {
     await fc.assert(
       fc.asyncProperty(arbScenario, async (scenario) => {
         // A proceeding cycle: capture off and every pending recording locked, so

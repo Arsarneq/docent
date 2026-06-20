@@ -3,24 +3,24 @@
  * derivation of sync-state attention indicators from a SyncState.
  *
  * The Docent_UI surfaces which Units need the user's attention and distinguishes
- * a Review-and-Accept item from a Conflict (R13.1). `deriveIndicators` is the
+ * a Review-and-Accept item from a Conflict. `deriveIndicators` is the
  * pure half of that surface: from the durable `SyncState` it works out exactly
  * which Units need attention, labels each Review vs Conflict, and tags each with
  * the row it belongs on. The two lookups (`getProjectIndicator` /
  * `getRecordingIndicator`) then drive what each project row and recording row
  * shows. This must hold:
  *
- *   - EXACT + LABELLED (R13.1) — the indicators mark exactly the Units recorded
+ *   - EXACT + LABELLED — the indicators mark exactly the Units recorded
  *     in `reviews` ∪ `conflicts`, never more and never fewer, each labelled
  *     `'review'` or `'conflict'` by its record type and placed on the correct
  *     row level (`'project'` for a project Unit, `'recording'` for a recording).
- *   - RECORDING ALWAYS SHOWN (R13.4) — a recording needing attention always has
+ *   - RECORDING ALWAYS SHOWN — a recording needing attention always has
  *     a recording-level indicator, whether or not its project also needs one.
- *   - PROJECT-OWN INDICATOR (R13.5) — the project's OWN indicator
+ *   - PROJECT-OWN INDICATOR — the project's OWN indicator
  *     (`getProjectIndicator`) shows iff the project Unit itself is in review or
  *     conflict; a project whose only attention is in a child recording gets NO
  *     project-OWN indicator.
- *   - PROJECT-ROW ROLL-UP (R13.4–R13.7) — `getProjectRowIndicators` returns the
+ *   - PROJECT-ROW ROLL-UP — `getProjectRowIndicators` returns the
  *     full badge set for a project ROW: the project-own indicator (when present)
  *     plus a deduplicated rolled-up Conflict and/or Review indicator reflecting
  *     whether ANY child recording is in that state. At most one badge per kind,
@@ -33,14 +33,12 @@
  * Uses Node.js built-in test runner + fast-check (fast-check v4: `fc.uuid()` for
  * ids).
  *
- * **Validates: Requirements 13.1, 13.4, 13.5, 13.6, 13.7**
- *
  * This file is part of Docent.
  * Licensed under the GNU General Public License v3.0
  * See LICENSE in the project root for license information.
  */
 
-// Feature: sync-conflict-resolution, Property 24: Attention indicators are derived correctly and distinguish review from conflict
+// Attention indicators are derived correctly and distinguish review from conflict
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
@@ -68,8 +66,8 @@ const arbKind = fc.constantFrom('review', 'conflict');
  *                      each with a unique recording_id and its own kind.
  *
  * Drawing the project-level item independently of the recording-level items is
- * what makes the two distinguishing cases (R13.4: children-only, no project
- * badge; R13.5: project + child both flagged) arise frequently.
+ * what makes the two distinguishing cases (children-only, no project
+ * badge; project + child both flagged) arise frequently.
  */
 const arbProjectAttention = fc.record({
   project_id: fc.uuid(),
@@ -190,7 +188,7 @@ const byUnitRef = (a, b) => a.unitRef.localeCompare(b.unitRef);
 /**
  * Independently re-derive the EXPECTED project-ROW badge set for one project from
  * the scenario (the oracle for {@link getProjectRowIndicators}). Mirrors
- * R13.4–R13.7: the project-own badge (when the project Unit itself has an item),
+ * the project-own badge (when the project Unit itself has an item),
  * then a deduplicated recording Conflict roll-up (when any child is a conflict),
  * then a recording Review roll-up (when any child is a review) — in that order.
  *
@@ -227,10 +225,8 @@ function expectedRowBadges(proj) {
   return out;
 }
 
-// ─── Property 24 ───────────────────────────────────────────────────────────────
-
-describe('Property 24: Attention indicators are derived correctly and distinguish review from conflict', () => {
-  it('marks exactly the Units needing attention, each labelled and levelled correctly (R13.1)', () => {
+describe('Attention indicators are derived correctly and distinguish review from conflict', () => {
+  it('marks exactly the Units needing attention, each labelled and levelled correctly', () => {
     fc.assert(
       fc.property(arbScenario, (scenario) => {
         const state = buildState(scenario);
@@ -248,7 +244,7 @@ describe('Property 24: Attention indicators are derived correctly and distinguis
     );
   });
 
-  it('always shows a recording-level indicator for a recording needing attention (R13.4)', () => {
+  it('always shows a recording-level indicator for a recording needing attention', () => {
     fc.assert(
       fc.property(arbScenario, (scenario) => {
         const state = buildState(scenario);
@@ -273,7 +269,7 @@ describe('Property 24: Attention indicators are derived correctly and distinguis
     );
   });
 
-  it('shows a project-level indicator iff the project Unit itself needs attention (R13.4 / R13.5)', () => {
+  it('shows a project-level indicator iff the project Unit itself needs attention', () => {
     fc.assert(
       fc.property(arbScenario, (scenario) => {
         const state = buildState(scenario);
@@ -283,7 +279,7 @@ describe('Property 24: Attention indicators are derived correctly and distinguis
           const projectInd = getProjectIndicator(indicators, proj.project_id);
 
           if (proj.projectItem != null) {
-            // R13.5 — the project Unit itself needs attention: a project-level
+            // the project Unit itself needs attention: a project-level
             // indicator IS shown, labelled by the project item's own kind.
             assert.ok(projectInd, `expected a project indicator for ${proj.project_id}`);
             assert.equal(projectInd.level, 'project');
@@ -294,11 +290,11 @@ describe('Property 24: Attention indicators are derived correctly and distinguis
             for (const rec of proj.recordings) {
               assert.ok(
                 getRecordingIndicator(indicators, proj.project_id, rec.recording_id),
-                'R13.5: both project-level and recording-level indicators must show',
+                'both project-level and recording-level indicators must show',
               );
             }
           } else {
-            // R13.4 — the project Unit itself does NOT need attention: NO
+            // the project Unit itself does NOT need attention: NO
             // project-level indicator, even when child recordings need one.
             assert.equal(
               projectInd,
@@ -314,7 +310,7 @@ describe('Property 24: Attention indicators are derived correctly and distinguis
 
   // ─── Regression examples pinning the two distinguishing cases ───────────────
 
-  it('child-only attention yields a recording indicator but NO project indicator (R13.4)', () => {
+  it('child-only attention yields a recording indicator but NO project indicator', () => {
     const state = {
       schema: 1,
       baselines: {},
@@ -333,7 +329,7 @@ describe('Property 24: Attention indicators are derived correctly and distinguis
     assert.equal(recInd.kind, 'conflict');
   });
 
-  it('project-and-child attention shows BOTH indicators, each by its own kind (R13.5)', () => {
+  it('project-and-child attention shows BOTH indicators, each by its own kind', () => {
     const state = {
       schema: 1,
       baselines: {},
@@ -358,9 +354,9 @@ describe('Property 24: Attention indicators are derived correctly and distinguis
     assert.equal(recInd.kind, 'conflict');
   });
 
-  // ─── Project-ROW roll-up badges (R13.4–R13.7) ──────────────────────────────
+  // ─── Project-ROW roll-up badges ──────────────────────────────
 
-  describe('getProjectRowIndicators rolls up project + child attention (R13.4–R13.7)', () => {
+  describe('getProjectRowIndicators rolls up project + child attention', () => {
     it('returns exactly the deduplicated project-own + recording-rollup badge set, in order', () => {
       fc.assert(
         fc.property(arbScenario, (scenario) => {
@@ -409,7 +405,7 @@ describe('Property 24: Attention indicators are derived correctly and distinguis
       );
     });
 
-    it('child-only attention still yields a project-row badge — the recording roll-up — even with no project-own badge (R13.6)', () => {
+    it('child-only attention still yields a project-row badge — the recording roll-up — even with no project-own badge', () => {
       fc.assert(
         fc.property(arbScenario, (scenario) => {
           const state = buildState(scenario);
@@ -420,12 +416,12 @@ describe('Property 24: Attention indicators are derived correctly and distinguis
             const rowBadges = getProjectRowIndicators(indicators, proj.project_id);
 
             // Whenever ANY child recording needs attention, the project ROW shows
-            // a badge (so the user sees it without opening the project, R13.6) —
-            // even when the project Unit itself has none (R13.4).
+            // a badge (so the user sees it without opening the project) —
+            // even when the project Unit itself has none.
             if (childKinds.size > 0) {
               assert.ok(
                 rowBadges.length > 0,
-                `project ${proj.project_id} with child attention must show a row badge (R13.6)`,
+                `project ${proj.project_id} with child attention must show a row badge`,
               );
             }
             // The roll-up reflects exactly which child kinds are present.
@@ -444,7 +440,7 @@ describe('Property 24: Attention indicators are derived correctly and distinguis
     });
   });
 
-  it('three conflicting child recordings collapse to a SINGLE conflict roll-up on the project row (R13.6)', () => {
+  it('three conflicting child recordings collapse to a SINGLE conflict roll-up on the project row', () => {
     const state = {
       schema: 1,
       baselines: {},
@@ -469,7 +465,7 @@ describe('Property 24: Attention indicators are derived correctly and distinguis
     });
   });
 
-  it('a project with its own review + a child conflict + a child review shows all THREE row badges (R13.5, R13.6)', () => {
+  it('a project with its own review + a child conflict + a child review shows all THREE row badges', () => {
     const state = {
       schema: 1,
       baselines: {},

@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { handleManifest } from '../../handlers/manifest.js';
 
 /**
- * Tests for the `GET /projects` manifest handler (Requirement 1).
+ * Tests for the `GET /projects` manifest handler.
  *
  * The handler reads only from the injected Storage_Provider's `list()` and
  * writes the response via `res.writeHead`/`res.end`, so both can be faked with
@@ -40,7 +40,7 @@ function fakeStorage(entries) {
 }
 
 describe('handleManifest — GET /projects', () => {
-  it('responds 200 with an empty array when no projects are stored (R1.1, R1.3)', async () => {
+  it('responds 200 with an empty array when no projects are stored', async () => {
     const res = fakeRes();
     await handleManifest(fakeStorage([]), {}, res);
 
@@ -49,7 +49,7 @@ describe('handleManifest — GET /projects', () => {
     assert.deepEqual(JSON.parse(res.body), []);
   });
 
-  it('responds 200 with one entry per stored project (R1.1, R1.2)', async () => {
+  it('responds 200 with one entry per stored project', async () => {
     const entries = [
       {
         project_id: '0190aaaa-bbbb-7ccc-8ddd-000000000001',
@@ -70,7 +70,7 @@ describe('handleManifest — GET /projects', () => {
     assert.deepEqual(JSON.parse(res.body), entries);
   });
 
-  it('passes the manifest straight through without reshaping (R1.2, R1.4)', async () => {
+  it('passes the manifest straight through without reshaping', async () => {
     // The handler must not add, drop, or rename fields — it serializes exactly
     // what storage.list() returns, which carries only the three manifest fields.
     const entries = [

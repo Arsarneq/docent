@@ -4,7 +4,7 @@
  * continue past a state that risks data loss, driving the real `sync()`
  * orchestrator.
  *
- * Requirement 16.2: "IF client-side conflict detection or Conflict_Resolution
+ * The fail-safe rule: "IF client-side conflict detection or Conflict_Resolution
  * fails, THEN THE Sync_Client SHALL block sync operations rather than continuing
  * with potential conflicts." The design encodes this as the "when in doubt,
  * preserve and block" backstop: the detection phase and its persist are wrapped
@@ -47,14 +47,12 @@
  * fast-check v4 (`fc.uuid({ version: 7 })` supplies manifest ids that pass the
  * UUIDv7 guard).
  *
- * **Validates: Requirements 16.2**
- *
  * This file is part of Docent.
  * Licensed under the GNU General Public License v3.0
  * See LICENSE in the project root for license information.
  */
 
-// Feature: sync-conflict-resolution, Property 30: Internal detection or resolution failure blocks sync
+// Internal detection or resolution failure blocks sync
 
 import { describe, it, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
@@ -407,7 +405,7 @@ function assertBlocked({
   seedBefore,
   mode,
 }) {
-  // (A) R16.2 — the cycle BLOCKS rather than continuing.
+  // (A) the cycle BLOCKS rather than continuing.
   assert.equal(result.halted, true, 'an internal failure blocks the cycle');
   assert.equal(result.haltReason, 'internal-error', 'haltReason is internal-error');
 
@@ -435,9 +433,7 @@ function assertBlocked({
   assert.deepEqual(result.conflicts, [], 'nothing is reported in conflict on a block');
 }
 
-// ─── Property 30 ──────────────────────────────────────────────────────────────
-
-describe('Property 30: Internal detection or resolution failure blocks sync', () => {
+describe('Internal detection or resolution failure blocks sync', () => {
   it('an internal failure at load, during detection, or at save blocks the cycle and preserves all state', async () => {
     await fc.assert(
       fc.asyncProperty(arbScenario, async ({ mode, localProjects, serverProjects, state }) => {

@@ -5,16 +5,16 @@
  *
  * When the Conflict_Detector classifies a Unit as `diverged` — both the local
  * and the incoming version differ, and both differ from the Sync_Baseline (the
- * concurrent-push overwrite case, R18.1) — the cycle must:
+ * concurrent-push overwrite case) — the cycle must:
  *
- *   - record a Conflict for that Unit (R5.1), keyed by its `unitRef`, with the
+ *   - record a Conflict for that Unit, keyed by its `unitRef`, with the
  *     `unitRef` surfaced in `result.conflicts`;
  *   - retain BOTH the local and the incoming version in recoverable form on the
- *     Conflict record (R5.2);
+ *     Conflict record;
  *   - apply NO version to the Unit during the cycle — local data is left
  *     byte-identical, the incoming change is never adopted automatically; a
- *     version is applied only as the explicit outcome of Conflict_Resolution
- *     (R5.4, R9.5, R15.2); and
+ *     version is applied only as the explicit outcome of Conflict_Resolution;
+ * and
  *   - leave the per-project Sync_Baseline UNCHANGED (a divergence is not an
  *     agreement, so the baseline never advances for it).
  *
@@ -49,14 +49,12 @@
  * (`fc.uuid({ version: 7 })` supplies project ids that pass the manifest's
  * UUIDv7 guard; `fc.uuid()` supplies recording ids).
  *
- * **Validates: Requirements 5.1, 5.2, 5.4, 9.5, 15.2**
- *
  * This file is part of Docent.
  * Licensed under the GNU General Public License v3.0
  * See LICENSE in the project root for license information.
  */
 
-// Feature: sync-conflict-resolution, Property 11: Divergence records a Conflict retaining both versions, deferred to the user
+// Divergence records a Conflict retaining both versions, deferred to the user
 
 import { describe, it, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
@@ -259,8 +257,8 @@ const arbScenario = fc.uniqueArray(arbProjectSpec, {
 /**
  * Materialize a scenario into the inputs `sync()` needs plus the per-project
  * expectations. Versions of one Unit share its identity and differ only by a
- * content marker carried in `name` — the digest folds name into content identity
- * (R2.8), so a marker change is an ordinary content change:
+ * content marker carried in `name` — the digest folds name into content identity,
+ * so a marker change is an ordinary content change:
  *
  *   marker 'base' — the agreed (baseline) content
  *   marker 'loc'  — a local-side change
@@ -345,9 +343,7 @@ function materialize(specs) {
   return { seed, manifest, payloadById, localProjects, expectations };
 }
 
-// ─── Property 11 ──────────────────────────────────────────────────────────────
-
-describe('Property 11: Divergence records a Conflict retaining both versions, deferred to the user', () => {
+describe('Divergence records a Conflict retaining both versions, deferred to the user', () => {
   it('records a Conflict (both versions retained) for every diverged Unit, applies no version, and leaves the baseline unchanged', async () => {
     await fc.assert(
       fc.asyncProperty(arbScenario, async (specs) => {
@@ -385,7 +381,7 @@ describe('Property 11: Divergence records a Conflict retaining both versions, de
         }
 
         // The reported and stored Conflict sets equal EXACTLY the diverged units;
-        // a pure-divergence cycle defers nothing to Review-and-Accept (R5.1).
+        // a pure-divergence cycle defers nothing to Review-and-Accept.
         assert.deepEqual(
           [...result.conflicts].sort(),
           [...expectedConflicts].sort(),
@@ -403,7 +399,7 @@ describe('Property 11: Divergence records a Conflict retaining both versions, de
           const merged = mergedById.get(e.project_id);
           assert.ok(merged, `project ${e.project_id} is still present after the cycle`);
 
-          // R9.5 / R5.4 — no version is applied to the project during the cycle:
+          // no version is applied to the project during the cycle:
           // the merged project is byte-identical to the local version.
           assert.equal(
             JSON.stringify(projectProjection(merged)),
@@ -424,7 +420,7 @@ describe('Property 11: Divergence records a Conflict retaining both versions, de
             assert.ok(item, `project-level Conflict recorded for ${e.project_id}`);
             assert.equal(item.kind, 'conflict');
             assert.equal(item.recording_id, null);
-            // Both whole-project versions retained in recoverable form (R5.2).
+            // Both whole-project versions retained in recoverable form.
             assert.equal(
               JSON.stringify(item.local),
               JSON.stringify(projectProjection(e.localProject)),
@@ -454,7 +450,7 @@ describe('Property 11: Divergence records a Conflict retaining both versions, de
             assert.ok(item, `recording-level Conflict recorded for ${unitRef}`);
             assert.equal(item.kind, 'conflict');
             assert.equal(item.recording_id, rid);
-            // Both recording versions retained in recoverable form (R5.2).
+            // Both recording versions retained in recoverable form.
             assert.equal(
               JSON.stringify(item.local),
               JSON.stringify(recordingProjection(localRecById.get(rid))),
@@ -465,7 +461,7 @@ describe('Property 11: Divergence records a Conflict retaining both versions, de
               JSON.stringify(recordingProjection(serverRecById.get(rid))),
               'recording Conflict retains the incoming version',
             );
-            // The local recording is preserved unchanged in the merged list (R9.5).
+            // The local recording is preserved unchanged in the merged list.
             assert.equal(
               JSON.stringify(recordingProjection(mergedRecById.get(rid))),
               JSON.stringify(recordingProjection(localRecById.get(rid))),
@@ -615,7 +611,7 @@ describe('Property 11: Divergence records a Conflict retaining both versions, de
     assert.ok(conflict, 'project-level conflict recorded');
     assert.equal(conflict.kind, 'conflict');
     assert.equal(conflict.recording_id, null);
-    // The retained copies are the WHOLE project on each side (R5.2).
+    // The retained copies are the WHOLE project on each side.
     assert.equal(JSON.stringify(conflict.local), JSON.stringify(projectProjection(localProject)));
     assert.equal(
       JSON.stringify(conflict.incoming),

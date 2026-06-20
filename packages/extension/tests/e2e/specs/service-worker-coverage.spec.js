@@ -1073,7 +1073,7 @@ test.describe('SW Message: Synchronous handlers', () => {
     expect(typeof result.tabId).toBe('number');
   });
 
-  test('APPEND_ACTION from a non-recorded sender is acknowledged but dropped (S14)', async ({
+  test('APPEND_ACTION from a non-recorded sender is acknowledged but dropped', async ({
     serviceWorker,
     panelPage,
   }) => {

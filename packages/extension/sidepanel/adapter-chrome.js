@@ -20,20 +20,20 @@ const API_KEY_KEY = 'docentApiKey';
 const THEME_KEY = 'docentTheme';
 const RECORDING_MODE_KEY = 'docentRecordingMode';
 
-// Sync settings are stored separately from dispatch settings (R1-AC1)
+// Sync settings are stored separately from dispatch settings
 const SYNC_URL_KEY = 'docentSyncUrl';
 const SYNC_API_KEY_KEY = 'docentSyncApiKey';
 
 // Durable conflict-handling state (baselines, snapshots, reviews, conflicts).
-// Persisted as one blob so it survives SW suspension and browser restarts
-// (R10.1). The shared sync-store module owns its shape; the adapter only
+// Persisted as one blob so it survives SW suspension and browser restarts.
+// The shared sync-store module owns its shape; the adapter only
 // reads/writes the raw value through chrome.storage.local.
 const SYNC_STATE_KEY = 'docentSyncState';
 
 // ─── Secret helpers ───────────────────────────────────────────────────────────
 
 /**
- * Decode a stored API-key value for reading. Encrypted values (S2) are stored
+ * Decode a stored API-key value for reading. Encrypted values are stored
  * as `{ v, iv, ct }` envelopes and decrypted here; a decrypt failure (e.g. the
  * ephemeral key was cleared by a browser restart) yields null, which callers
  * treat as "no key configured" so the user re-enters it. A bare string is
@@ -112,7 +112,7 @@ const chromeAdapter = {
     }
 
     if (serverUrl === '') {
-      // Clear both sync URL and API key when serverUrl is empty (R1-AC3)
+      // Clear both sync URL and API key when serverUrl is empty
       await chrome.storage.local.remove([SYNC_URL_KEY, SYNC_API_KEY_KEY]);
     } else {
       await chrome.storage.local.set({ [SYNC_URL_KEY]: serverUrl });
@@ -127,7 +127,7 @@ const chromeAdapter = {
   // ── Sync conflict-handling state (SyncStore adapter) ──────────────────────────
 
   /**
-   * Load the persisted durable conflict-handling state blob (R10.1). Returns the
+   * Load the persisted durable conflict-handling state blob. Returns the
    * raw stored value (or null when nothing is persisted yet); the shared
    * sync-store `loadSyncState` normalizes it into the full SyncState shape, so
    * the adapter never has to know the shape. A storage failure yields null so the
@@ -145,7 +145,7 @@ const chromeAdapter = {
   },
 
   /**
-   * Persist the durable conflict-handling state blob (R10.1). The shared
+   * Persist the durable conflict-handling state blob. The shared
    * sync-store `saveSyncState` passes the already-normalized SyncState here; the
    * adapter writes it verbatim under a single key.
    *
@@ -157,10 +157,10 @@ const chromeAdapter = {
   },
 
   /**
-   * Subscribe to changes to the durable SyncState blob written by ANY context
-   * (R23.16). The background service worker hosts the Auto-Sync cycle and owns
+   * Subscribe to changes to the durable SyncState blob written by ANY context.
+   * The background service worker hosts the Auto-Sync cycle and owns
    * the `chrome.alarms` trigger; when a background cycle records new
-   * Review/Conflict items or auto-disables Auto-Sync after a 401/403 (R23.11),
+   * Review/Conflict items or auto-disables Auto-Sync after a 401/403,
    * it rewrites this blob. The panel watches it so its attention indicators and
    * its Settings state (the Auto-Sync toggle, the Connection_Test status, and
    * the manual Sync button's visibility) stay in agreement with what the SW just
@@ -181,7 +181,7 @@ const chromeAdapter = {
 
   /**
    * Read a synchronous-friendly snapshot of the live-work signals the shared
-   * `LiveState` adapter needs (R6, R7, R8): the capture flag, the open recording
+   * `LiveState` adapter needs: the capture flag, the open recording
    * id, and the pending-action count. The service worker is the source of truth
    * for all three (it writes `recording`, `activeRecordingId`, and `pendingCount`
    * to chrome.storage.local), so reading them here keeps the live-work gate

@@ -1,6 +1,5 @@
-// Property 12: Self-capture PID filtering
+// Self-capture PID filtering
 //
-// **Validates: Requirements 16.1, 16.3**
 //
 // For any action event, when self-capture exclusion is enabled and the
 // event's source process ID matches the excluded PID, the event shall be
@@ -17,9 +16,7 @@ use proptest::prelude::*;
 proptest! {
     #![proptest_config(ProptestConfig::with_cases(200))]
 
-    /// Feature: desktop-capture, Property 12: Self-capture PID filtering
-    ///
-    /// **Validates: Requirements 16.1, 16.3**
+    /// Self-capture PID filtering
     ///
     /// When exclusion is enabled (excluded_pid is Some) and the event PID
     /// matches the excluded PID, the event is discarded (should_keep_event
@@ -34,9 +31,7 @@ proptest! {
         );
     }
 
-    /// Feature: desktop-capture, Property 12: Self-capture PID filtering
-    ///
-    /// **Validates: Requirements 16.1, 16.3**
+    /// Self-capture PID filtering
     ///
     /// When exclusion is enabled but the event PID does NOT match the
     /// excluded PID, the event is kept.
@@ -54,9 +49,7 @@ proptest! {
         );
     }
 
-    /// Feature: desktop-capture, Property 12: Self-capture PID filtering
-    ///
-    /// **Validates: Requirements 16.3**
+    /// Self-capture PID filtering
     ///
     /// When exclusion is disabled (excluded_pid is None), ALL events are
     /// kept regardless of their PID.
@@ -70,9 +63,7 @@ proptest! {
         );
     }
 
-    /// Feature: desktop-capture, Property 12: Self-capture PID filtering
-    ///
-    /// **Validates: Requirements 16.1, 16.3**
+    /// Self-capture PID filtering
     ///
     /// For any (event_pid, excluded_pid, exclusion_enabled) triple, the
     /// filtering decision is consistent: discard iff exclusion is enabled

@@ -8,12 +8,12 @@
  * combines the two histories. `resolveConflict` enforces this in two ways, both
  * pinned here:
  *
- *   1. EXPLICIT INPUT REQUIRED (R11.4) — a Conflict opened with no chosen
+ *   1. EXPLICIT INPUT REQUIRED — a Conflict opened with no chosen
  *      `resolvedState` (null/undefined) is rejected as `no-resolution` and leaves
  *      every part of the store and the local projects entirely unchanged. There
  *      is no default winner for a differing `logical_id`; the user must choose.
  *
- *   2. HISTORIES ARE NEVER AUTO-UNIONED (R11.5) — `resolveConflict` never
+ *   2. HISTORIES ARE NEVER AUTO-UNIONED — `resolveConflict` never
  *      fabricates a combined history. It only ADOPTS the exact state the caller
  *      supplies, and it requires that state to retain every record from BOTH
  *      sides (an append-only superset). A chosen state that drops either side's
@@ -29,10 +29,9 @@
  * Uses the Node.js built-in test runner + fast-check (fast-check v4: `fc.uuid()`
  * for ids), mirroring the generator conventions in the sibling property tests.
  *
- * **Validates: Requirements 11.4, 11.5**
  */
 
-// Feature: sync-conflict-resolution, Property 21: Differing per-logical_id records require explicit input; histories are never auto-unioned
+// Differing per-logical_id records require explicit input; histories are never auto-unioned
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
@@ -155,7 +154,7 @@ function materialize(scenario) {
     const localProjects = [otherProject, localProject];
     // Adopting the union replaces the target recording with the union recording.
     const expectedAdopted = buildProject(project_id, [unionResolved]);
-    // Per-unit resolved-against baseline (R1.4, R1.9): the recording's baseline
+    // Per-unit resolved-against baseline: the recording's baseline
     // entry advances to the INCOMING version the user resolved against — NOT the
     // adopted (union) state — so a merge choice reads as changed-local-outgoing
     // next cycle and is pushed. With no prior baseline, the agreed project carries
@@ -192,7 +191,7 @@ function materialize(scenario) {
 
   const localProjects = [otherProject, localCopy];
   const expectedAdopted = unionResolved;
-  // Per-unit resolved-against baseline (R1.4): a project-level resolution advances
+  // Per-unit resolved-against baseline: a project-level resolution advances
   // the whole project baseline to the INCOMING project the user resolved against,
   // not the adopted (union) state.
   const expectedBaselineAgreed = incomingCopy;
@@ -221,15 +220,13 @@ function seedConflict(m) {
   return state;
 }
 
-// ─── Property 21 ─────────────────────────────────────────────────────────────
-
-describe('Property 21: Differing per-logical_id records require explicit input; histories are never auto-unioned', () => {
+describe('Differing per-logical_id records require explicit input; histories are never auto-unioned', () => {
   it('rejects absent resolution, refuses to silently union, and adopts exactly the explicit combined history', () => {
     fc.assert(
       fc.property(arbScenario, (scenario) => {
         const m = materialize(scenario);
 
-        // ── (1) EXPLICIT INPUT REQUIRED (R11.4) ──────────────────────────────
+        // ── (1) EXPLICIT INPUT REQUIRED ──────────────────────────────
         // For a Conflict with differing per-`logical_id` records, an absent
         // chosen state is rejected and leaves ALL state unchanged.
         for (const absent of [null, undefined]) {
@@ -257,7 +254,7 @@ describe('Property 21: Differing per-logical_id records require explicit input; 
           );
         }
 
-        // ── (2) HISTORIES ARE NEVER AUTO-UNIONED (R11.5) ─────────────────────
+        // ── (2) HISTORIES ARE NEVER AUTO-UNIONED ─────────────────────
         // A chosen state that drops EITHER side's records is rejected, never
         // silently repaired by combining the histories.
         for (const dropping of [m.localOnlyResolved, m.incomingOnlyResolved]) {
@@ -324,7 +321,7 @@ describe('Property 21: Differing per-logical_id records require explicit input; 
           );
 
           // The baseline is advanced PER-UNIT to the RESOLVED-AGAINST INCOMING
-          // version (R1.4, R1.9), NOT the adopted (union) state, and the Conflict
+          // version, NOT the adopted (union) state, and the Conflict
           // is cleared.
           const baseline = getBaseline(state, m.project_id);
           assert.ok(baseline, 'the baseline must be advanced to the resolved-against version');
@@ -418,14 +415,14 @@ describe('Property 21: Differing per-logical_id records require explicit input; 
     assert.equal(getItem(state, 'proj-1:rec-1'), null, 'the resolved Conflict must be cleared');
     const baseline = getBaseline(state, 'proj-1');
     assert.ok(baseline);
-    // Per-unit resolved-against baseline (R1.4, R1.9): the baseline advances to the
+    // Per-unit resolved-against baseline: the baseline advances to the
     // INCOMING recording the user resolved against, not the adopted (combined)
     // state, so the merged recording reads as changed-local-outgoing next cycle.
     assert.equal(baseline.digest, digestProject(buildProject('proj-1', [incoming])));
   });
 
   // Reference DELETE_RESOLUTION so the explicit-choice sentinel stays imported as
-  // documentation that resolution defaults to neither keep nor delete (R11.4).
+  // documentation that resolution defaults to neither keep nor delete.
   it('DELETE_RESOLUTION is an explicit, deletion-only choice (not a default)', () => {
     assert.equal(DELETE_RESOLUTION.deleted, true);
   });

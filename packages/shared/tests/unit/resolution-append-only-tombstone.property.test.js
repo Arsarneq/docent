@@ -17,14 +17,14 @@
  * and incoming sides — and a chosen resolved state that is an append-only
  * superset of both. For any such resolution it asserts:
  *
- *   1. APPEND-ONLY (R11.1) — the resolved recording's step history is a superset
+ *   1. APPEND-ONLY — the resolved recording's step history is a superset
  *      of the input records: every step `uuid` present in either conflicting
  *      history survives into the resolved history. A chosen state that DROPS a
  *      record from the conflicting histories is rejected as `not-appendable` and
  *      leaves the store and projects entirely unchanged (a second property).
- *   2. AT MOST ONE ACTIVE STEP PER `logical_id` (R11.3) — the Active View produced
+ *   2. AT MOST ONE ACTIVE STEP PER `logical_id` — the Active View produced
  *      by `resolveActiveSteps` contains no `logical_id` twice.
- *   3. TOMBSTONES STAY TOMBSTONED (R11.2) — for every `logical_id` whose latest
+ *   3. TOMBSTONES STAY TOMBSTONED — for every `logical_id` whose latest
  *      version (highest `uuid`) in the chosen state is a tombstone, that
  *      `logical_id` is absent from the Active View; and every `logical_id` whose
  *      latest version is live surfaces, as that exact active version.
@@ -32,10 +32,9 @@
  * Uses the Node.js built-in test runner + fast-check (fast-check v4: `fc.uuid()`
  * for ids), mirroring the generator conventions in the sibling property tests.
  *
- * **Validates: Requirements 11.1, 11.2, 11.3**
  */
 
-// Feature: sync-conflict-resolution, Property 20: Resolution preserves append-only history and never resurrects tombstones
+// Resolution preserves append-only history and never resurrects tombstones
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
@@ -135,7 +134,7 @@ function latestPerLogicalId(steps) {
  * against its two conflicting input histories.
  */
 function assertResolvedRecording(resolved, localSteps, incomingSteps) {
-  // (1) APPEND-ONLY (R11.1): every input step uuid survives into the resolved history.
+  // (1) APPEND-ONLY: every input step uuid survives into the resolved history.
   const present = new Set(resolved.steps.map((s) => s.uuid));
   for (const s of localSteps) {
     assert.ok(present.has(s.uuid), `local step ${s.uuid} must survive into the resolved history`);
@@ -149,7 +148,7 @@ function assertResolvedRecording(resolved, localSteps, incomingSteps) {
 
   const active = resolveActiveSteps(resolved);
 
-  // (2) AT MOST ONE ACTIVE STEP PER logical_id (R11.3) + every active step is live.
+  // (2) AT MOST ONE ACTIVE STEP PER logical_id + every active step is live.
   const seen = new Set();
   for (const s of active) {
     assert.ok(
@@ -167,7 +166,7 @@ function assertResolvedRecording(resolved, localSteps, incomingSteps) {
     );
   }
 
-  // (3) TOMBSTONES STAY TOMBSTONED (R11.2) + live latest versions surface exactly.
+  // (3) TOMBSTONES STAY TOMBSTONED + live latest versions surface exactly.
   const latest = latestPerLogicalId(resolved.steps);
   for (const [logical_id, record] of latest) {
     const inActive = active.find((a) => a.logical_id === logical_id);
@@ -188,9 +187,9 @@ function assertResolvedRecording(resolved, localSteps, incomingSteps) {
   }
 }
 
-// ─── Property 20: success path ────────────────────────────────────────────────
+// ─── success path ────────────────────────────────────────────────
 
-describe('Property 20: Resolution preserves append-only history and never resurrects tombstones', () => {
+describe('Resolution preserves append-only history and never resurrects tombstones', () => {
   it('resolving to an append-only superset keeps every record, yields ≤1 active step per logical_id, and keeps tombstones tombstoned', () => {
     fc.assert(
       fc.property(
@@ -218,7 +217,7 @@ describe('Property 20: Resolution preserves append-only history and never resurr
 
           const m = jsonNormalize({ localRec, incomingRec, resolvedRec, localProjects });
 
-          // Record the diverged Conflict retaining both histories (R5.2).
+          // Record the diverged Conflict retaining both histories.
           const state = createEmptySyncState();
           upsertConflict(state, unitRef, m.localRec, m.incomingRec, FIXED_NOW);
 
@@ -245,7 +244,7 @@ describe('Property 20: Resolution preserves append-only history and never resurr
             'the resolved recording must equal the chosen state',
           );
 
-          // ── The append-only / tombstone invariants (R11.1, R11.2, R11.3). ──
+          // ── The append-only / tombstone invariants. ──
           assertResolvedRecording(rec, m.localRec.steps, m.incomingRec.steps);
 
           // The Conflict is cleared and the input projects array is untouched.
@@ -261,7 +260,7 @@ describe('Property 20: Resolution preserves append-only history and never resurr
     );
   });
 
-  // ─── Property 20: a record-dropping state is rejected (append-only guard) ────
+  // ─── a record-dropping state is rejected (append-only guard) ────
 
   it('rejects a chosen state that drops a conflicting record as not-appendable, leaving the store and projects unchanged', () => {
     fc.assert(
@@ -315,7 +314,7 @@ describe('Property 20: Resolution preserves append-only history and never resurr
             'projects must be returned unchanged (same ref)',
           );
 
-          // The Conflict is left pending and the store is byte-identical (R9.4, R12.6).
+          // The Conflict is left pending and the store is byte-identical.
           const item = getItem(state, unitRef);
           assert.ok(item && item.kind === 'conflict', 'the Conflict must remain pending');
           assert.deepStrictEqual(state, stateBefore, 'the store must be left entirely unchanged');
