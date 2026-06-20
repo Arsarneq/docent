@@ -55,6 +55,8 @@ lefthook-local.yml
 .windsurf/
 .copilot/
 .claude/
+CLAUDE.md
+CLAUDE.local.md
 
 # Environment
 .env
