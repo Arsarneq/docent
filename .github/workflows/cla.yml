@@ -27,7 +27,7 @@ jobs:
         # removes Node 20 from runners on 2026-09-16. This is an actively
         # maintained, Apache-2.0 community fork with a native Node 24 build and
         # is a drop-in for the same inputs/signing flow. See #121 for rationale.
-        uses: iainmcgin/cla-github-action@v3.0.0
+        uses: iainmcgin/cla-github-action@v3.2.0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
