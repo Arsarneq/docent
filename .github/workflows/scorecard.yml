@@ -1,9 +1,14 @@
 # OpenSSF Scorecard (S19) — weekly supply-chain & project-hygiene posture check.
 # Scores signals like action pinning, branch protection, token permissions,
 # dangerous workflow patterns, and the presence of a security policy, then uploads
-# the result to the Security tab as code-scanning alerts (and to the public OpenSSF
-# API for the README badge). Monitoring/visibility only — it surfaces regressions
-# in S17/S18 + branch protection over time; it does not change CI behaviour.
+# the result to the Security tab as code-scanning alerts. Monitoring/visibility
+# only — it surfaces regressions in S17/S18 + branch protection over time; it does
+# not change CI behaviour.
+#
+# publish_results is OFF: OpenSSF's publish verification rejects SHA-pinned actions
+# ("imposter commit") and requires every action in the workflow to be tag-pinned —
+# which conflicts with our S17/S18 SHA-pinning. We keep the Security-tab SARIF (the
+# actionable monitoring) and forgo the public scorecard.dev badge.
 name: Scorecard supply-chain security
 
 on:
@@ -23,7 +28,6 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       security-events: write # upload the SARIF result to the Security tab
-      id-token: write # publish results to the public OpenSSF API (the badge)
     steps:
       - name: Checkout
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
@@ -31,14 +35,11 @@ jobs:
           persist-credentials: false
 
       - name: Run Scorecard analysis
-        # Tag-pinned, NOT SHA-pinned: the publish_results verification below rejects
-        # a commit SHA ("imposter commit"). This is a low-risk read-only monitoring
-        # action; exempted in scripts/check-action-pins.js. Dependabot bumps the tag.
-        uses: ossf/scorecard-action@v2.4.3
+        uses: ossf/scorecard-action@99c09fe975337306107572b4fdf4db224cf8e2f2 # v2.4.3
         with:
           results_file: results.sarif
           results_format: sarif
-          publish_results: true
+          publish_results: false
 
       - name: Upload SARIF as a workflow artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7

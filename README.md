@@ -6,7 +6,6 @@
 [![Rust coverage](<https://img.shields.io/codecov/c/github/Arsarneq/docent/main?flag=rust&logo=rust&logoColor=white&label=coverage%20(rust)>)](https://app.codecov.io/gh/Arsarneq/docent?flags%5B0%5D=rust)
 [![Mutation Testing](https://github.com/Arsarneq/docent/actions/workflows/mutation.yml/badge.svg)](https://github.com/Arsarneq/docent/actions/workflows/mutation.yml)
 [![CodeQL](https://img.shields.io/badge/CodeQL-enabled-2088FF?logo=github&logoColor=white)](https://github.com/Arsarneq/docent/security/code-scanning)
-[![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/Arsarneq/docent/badge)](https://scorecard.dev/viewer/?uri=github.com/Arsarneq/docent)
 [![Extension v2.0.0](https://img.shields.io/chrome-web-store/v/odhpdgpoknpaakjdkdbjdgpljmpblijh?logo=googlechrome&logoColor=white&label=Chrome%20Web%20Store)](https://chromewebstore.google.com/detail/docent/odhpdgpoknpaakjdkdbjdgpljmpblijh)
 [![Desktop v1.0.0](https://img.shields.io/badge/Desktop_Release-v2.0.0-181717?logo=github&logoColor=white)](https://github.com/Arsarneq/docent/releases/tag/desktop-v2.0.0)
 [![Node.js](https://img.shields.io/badge/Node.js-24%2B-339933?logo=nodedotjs&logoColor=white)](https://nodejs.org/)
