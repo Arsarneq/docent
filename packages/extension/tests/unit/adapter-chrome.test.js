@@ -455,6 +455,79 @@ describe('adapter.getPendingCount()', () => {
   });
 });
 
+describe('adapter.saveSyncState() / loadSyncState()', () => {
+  beforeEach(resetStorage);
+
+  it('round-trips the durable SyncState blob under a single key', async () => {
+    const state = { schema: 1, baselines: {}, settings: { autoSync: true } };
+    await adapter.saveSyncState(state);
+    // Persisted verbatim under the SyncState key, separate from sync settings.
+    assert.deepEqual(storageData.docentSyncState, state);
+    const loaded = await adapter.loadSyncState();
+    assert.deepEqual(loaded, state);
+  });
+
+  it('loadSyncState returns null when nothing is persisted', async () => {
+    const loaded = await adapter.loadSyncState();
+    assert.equal(loaded, null);
+  });
+});
+
+describe('adapter.onSyncStateChange()', () => {
+  it('fires the callback with the new blob when the SyncState key changes', () => {
+    let received = 'unset';
+    adapter.onSyncStateChange((state) => {
+      received = state;
+    });
+
+    const newState = { schema: 1, settings: { autoSync: false, connectionTest: 'auth' } };
+    for (const listener of storageListeners) {
+      listener({ docentSyncState: { newValue: newState } }, 'local');
+    }
+
+    assert.deepEqual(received, newState);
+  });
+
+  it('fires with null when the blob is cleared', () => {
+    let received = 'unset';
+    adapter.onSyncStateChange((state) => {
+      received = state;
+    });
+
+    for (const listener of storageListeners) {
+      listener({ docentSyncState: { newValue: undefined } }, 'local');
+    }
+
+    assert.equal(received, null);
+  });
+
+  it('does not fire for changes to other keys', () => {
+    let fired = false;
+    adapter.onSyncStateChange(() => {
+      fired = true;
+    });
+
+    for (const listener of storageListeners) {
+      listener({ pendingCount: { newValue: 3 } }, 'local');
+    }
+
+    assert.equal(fired, false);
+  });
+
+  it('does not fire for non-local area changes', () => {
+    let fired = false;
+    adapter.onSyncStateChange(() => {
+      fired = true;
+    });
+
+    for (const listener of storageListeners) {
+      listener({ docentSyncState: { newValue: { schema: 1 } } }, 'sync');
+    }
+
+    assert.equal(fired, false);
+  });
+});
+
 describe('adapter.hasNativeFileDialog', () => {
   it('is false for the Chrome extension', () => {
     assert.equal(adapter.hasNativeFileDialog, false);

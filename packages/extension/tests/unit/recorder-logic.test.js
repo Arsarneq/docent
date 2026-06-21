@@ -18,7 +18,10 @@ import {
 
 // ─── Mock DOM helpers ─────────────────────────────────────────────────────────
 
-function createElement(tag, { id, type, name, role, text, value, parent, siblings } = {}) {
+function createElement(
+  tag,
+  { id, type, name, role, text, value, autocomplete, parent, siblings } = {},
+) {
   const el = {
     tagName: tag.toUpperCase(),
     id: id || '',
@@ -31,6 +34,7 @@ function createElement(tag, { id, type, name, role, text, value, parent, sibling
       if (attr === 'name') return name || null;
       if (attr === 'role') return role || null;
       if (attr === 'type') return type || null;
+      if (attr === 'autocomplete') return autocomplete || null;
       return null;
     },
   };
@@ -199,6 +203,21 @@ describe('describeElement', () => {
     const desc = describeElement(el);
 
     assert.equal(desc.text, 'hello world');
+  });
+
+  it('captures the autocomplete attribute (sensitivity signal)', () => {
+    const el = createElement('input', { type: 'text', autocomplete: 'cc-number' });
+    assert.equal(describeElement(el).autocomplete, 'cc-number');
+  });
+
+  it('flags a password element as redacted', () => {
+    const el = createElement('input', { type: 'password', value: 'secret' });
+    assert.equal(describeElement(el).redacted, true);
+  });
+
+  it('leaves a non-password element unredacted', () => {
+    const el = createElement('input', { type: 'text', value: 'hello' });
+    assert.equal(describeElement(el).redacted, undefined);
   });
 });
 

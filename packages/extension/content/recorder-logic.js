@@ -102,8 +102,13 @@ export function describeElement(el, stopAt = null) {
     name: el.getAttribute?.('name') || null,
     role: el.getAttribute?.('role') || null,
     type: el.getAttribute?.('type') || null,
+    // Captured so the service worker can flag sensitive payment fields via the
+    // shared field-sensitivity util; the content script stays pattern-free.
+    autocomplete: el.getAttribute?.('autocomplete') || null,
     text: isPassword ? null : (el.innerText ?? el.value ?? '').trim().slice(0, 100) || null,
     selector: selectorFor(el, stopAt),
+    // Password value is masked at the type site; mark the element redacted.
+    ...(isPassword && { redacted: true }),
   };
 }
 

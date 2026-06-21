@@ -4,7 +4,6 @@
  * Tests escapeHtml() and describeAction() from packages/shared/views/render.js
  * using the Node.js built-in test runner and assert module.
  *
- * Validates: Requirements 10.7
  */
 
 import { describe, it } from 'node:test';

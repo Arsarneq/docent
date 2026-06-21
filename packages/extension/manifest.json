@@ -3,20 +3,20 @@
   "name": "Docent",
   "version": "2.0.0",
   "description": "Captures demonstrated workflows as structured data — not code.",
-  "permissions": ["activeTab", "scripting", "storage", "sidePanel", "tabs", "webNavigation"],
+  "permissions": [
+    "activeTab",
+    "alarms",
+    "scripting",
+    "storage",
+    "sidePanel",
+    "tabs",
+    "webNavigation"
+  ],
   "host_permissions": ["<all_urls>"],
   "background": {
     "service_worker": "background/service-worker.js",
     "type": "module"
   },
-  "content_scripts": [
-    {
-      "matches": ["<all_urls>"],
-      "js": ["content/recorder.js"],
-      "run_at": "document_start",
-      "all_frames": true
-    }
-  ],
   "side_panel": {
     "default_path": "sidepanel/index.html"
   },

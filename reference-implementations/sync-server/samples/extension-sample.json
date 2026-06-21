@@ -1,0 +1,167 @@
+{
+  "docent_format": {
+    "platform": "extension",
+    "schema_version": "2.0.0"
+  },
+  "project": {
+    "project_id": "019e3a01-1c2d-7e44-8a1b-2f6c9d0e5a73",
+    "name": "Extension sample — Login regression suite",
+    "created_at": "2026-05-10T13:04:44.730Z",
+    "metadata": {
+      "jira": "PROJ-123",
+      "tags": ["regression", "login", "extension"]
+    }
+  },
+  "recordings": [
+    {
+      "recording_id": "019e3a01-2f10-7b3c-9c4d-58a1b2c3d4e5",
+      "name": "Happy path login",
+      "created_at": "2026-05-10T16:06:38.968Z",
+      "metadata": { "zephyr": "TC-456" },
+      "steps": [
+        {
+          "uuid": "019e3a01-633d-74d2-acd5-584085fb57f9",
+          "logical_id": "019e3a01-633d-74d2-acd5-584085fb57f9",
+          "step_number": 1,
+          "created_at": "2026-05-10T16:06:39.000Z",
+          "narration": "Navigate to the login page and enter the email address",
+          "narration_source": "typed",
+          "actions": [
+            {
+              "type": "navigate",
+              "timestamp": 1715353599000,
+              "context_id": 1,
+              "capture_mode": "dom",
+              "nav_type": "typed",
+              "url": "https://app.example.com/login"
+            },
+            {
+              "type": "type",
+              "timestamp": 1715353601000,
+              "context_id": 1,
+              "capture_mode": "dom",
+              "element": {
+                "tag": "INPUT",
+                "id": "email",
+                "name": "email",
+                "role": "textbox",
+                "type": "email",
+                "text": null,
+                "selector": "#email"
+              },
+              "value": "user@example.com"
+            }
+          ],
+          "deleted": false
+        },
+        {
+          "uuid": "019e3a01-733d-74d2-acd5-584085fb5800",
+          "logical_id": "019e3a01-733d-74d2-acd5-584085fb5800",
+          "step_number": 2,
+          "created_at": "2026-05-10T16:06:40.000Z",
+          "narration": "Enter the password and submit the login form",
+          "narration_source": "typed",
+          "actions": [
+            {
+              "type": "type",
+              "timestamp": 1715353602000,
+              "context_id": 1,
+              "capture_mode": "dom",
+              "element": {
+                "tag": "INPUT",
+                "id": "password",
+                "name": "password",
+                "role": "textbox",
+                "type": "password",
+                "text": null,
+                "selector": "#password"
+              },
+              "value": "********"
+            },
+            {
+              "type": "click",
+              "timestamp": 1715353603000,
+              "context_id": 1,
+              "capture_mode": "dom",
+              "x": 512,
+              "y": 340,
+              "element": {
+                "tag": "BUTTON",
+                "id": "submit-btn",
+                "name": null,
+                "role": "button",
+                "type": "submit",
+                "text": "Log in",
+                "selector": "#submit-btn"
+              }
+            }
+          ],
+          "deleted": false
+        },
+        {
+          "uuid": "019e3a01-833d-74d2-acd5-584085fb5801",
+          "logical_id": "019e3a01-833d-74d2-acd5-584085fb5801",
+          "step_number": 3,
+          "created_at": "2026-05-10T16:06:41.000Z",
+          "step_type": "validation",
+          "expect": "present",
+          "actions": [
+            {
+              "type": "click",
+              "timestamp": 1715353604000,
+              "context_id": 1,
+              "capture_mode": "dom",
+              "x": 240,
+              "y": 96,
+              "element": {
+                "tag": "DIV",
+                "id": "welcome-banner",
+                "name": null,
+                "role": "status",
+                "type": null,
+                "text": "Welcome back, user",
+                "selector": "#welcome-banner"
+              }
+            }
+          ],
+          "deleted": false
+        }
+      ]
+    },
+    {
+      "recording_id": "019e3a01-9a20-7d4e-8e5f-60b2c3d4e5f6",
+      "name": "Invalid credentials error",
+      "created_at": "2026-05-10T17:12:10.500Z",
+      "steps": [
+        {
+          "uuid": "019e3a01-9b3d-74d2-acd5-584085fb5900",
+          "logical_id": "019e3a01-9b3d-74d2-acd5-584085fb5900",
+          "step_number": 1,
+          "created_at": "2026-05-10T17:12:11.000Z",
+          "narration": "Submit the form with an unknown account and confirm the error appears",
+          "narration_source": "typed",
+          "actions": [
+            {
+              "type": "key",
+              "timestamp": 1715357531000,
+              "context_id": 1,
+              "capture_mode": "dom",
+              "key": "Enter",
+              "modifiers": { "ctrl": false, "shift": false, "alt": false, "meta": false },
+              "element": {
+                "tag": "INPUT",
+                "id": "email",
+                "name": "email",
+                "role": "textbox",
+                "type": "email",
+                "text": null,
+                "selector": "#email"
+              }
+            }
+          ],
+          "deleted": false
+        }
+      ]
+    }
+  ]
+}

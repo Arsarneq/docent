@@ -4,13 +4,15 @@
 // frontend via `invoke("command_name", { args })`.
 //
 // Requirements:
-// - 12.5: Tauri commands for start/stop capture, list windows, check permissions
-// - 14.1: Filesystem persistence (load/save state)
-// - 7.2:  Native save dialog for export
-// - 8.1:  Native open dialog for import
+// - Tauri commands for start/stop capture, list windows, check permissions
+// - Filesystem persistence (load/save state)
+// - Native save dialog for export
+// - Native open dialog for import
 
 use std::fs;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 use std::sync::Mutex;
 
 use tauri::State;
@@ -29,6 +31,14 @@ use crate::secret_store::{self, SecretStore};
 pub struct AppState {
     pub capture: Mutex<Box<dyn CaptureLayer>>,
     pub action_sender: std::sync::mpsc::Sender<crate::capture::ActionEvent>,
+    /// Whether the background Auto-Sync host wants the window kept alive when
+    /// closed. While `true`, the window's close request HIDES the
+    /// window instead of destroying the webview, so the frontend's Auto-Sync
+    /// timer + the shared `sync()` it invokes keep running headless. The
+    /// frontend arms/disarms this via `set_auto_sync_keepalive` as Auto-Sync is
+    /// enabled/disabled. Shared as an `Arc<AtomicBool>` so the `lib.rs` window
+    /// event handler can read it without locking the capture mutex.
+    pub auto_sync_keepalive: Arc<AtomicBool>,
 }
 
 // ---------------------------------------------------------------------------
@@ -141,7 +151,7 @@ pub fn check_permissions(state: State<'_, AppState>) -> Result<PermissionStatus,
 // Persistence commands
 // ---------------------------------------------------------------------------
 
-/// Re-inject the API keys held in the OS credential store (S2) into a raw
+/// Re-inject the API keys held in the OS credential store into a raw
 /// session JSON string read from disk.
 ///
 /// The session file on disk no longer contains `settings.apiKey` /
@@ -195,7 +205,7 @@ pub fn load_state_impl(store: &dyn SecretStore) -> Result<String, String> {
 }
 
 /// Strip the API keys out of a raw session JSON string and persist them to the
-/// OS credential store (S2), returning the JSON that should be written to disk.
+/// OS credential store, returning the JSON that should be written to disk.
 ///
 /// If the JSON is not a parseable object — or secret storage is disabled on
 /// this target — the string is returned unchanged so the previous inline
@@ -231,7 +241,7 @@ pub fn save_state_impl(data: String, store: &dyn SecretStore) -> Result<(), Stri
 /// Load session state from the filesystem.
 ///
 /// Returns the raw JSON string, or an empty object `"{}"` if the file does
-/// not exist or is unreadable (Req 14.4). API keys (S2) are re-injected from
+/// not exist or is unreadable. API keys are re-injected from
 /// the OS credential store before returning.
 #[tauri::command]
 pub fn load_state() -> Result<String, String> {
@@ -241,7 +251,7 @@ pub fn load_state() -> Result<String, String> {
 /// Save session state to the filesystem.
 ///
 /// Writes the provided JSON string to `%APPDATA%/com.docent.desktop/session.json`.
-/// API keys (S2) are stripped out and stored in the OS credential store rather
+/// API keys are stripped out and stored in the OS credential store rather
 /// than written to the file.
 #[tauri::command]
 pub fn save_state(data: String) -> Result<(), String> {
@@ -332,6 +342,24 @@ fn set_target_pid_impl(capture: &CaptureMutex, pid: Option<u32>) -> Result<(), S
 #[tauri::command]
 pub fn set_target_pid(state: State<'_, AppState>, pid: Option<u32>) -> Result<(), String> {
     set_target_pid_impl(&state.capture, pid)
+}
+
+// ---------------------------------------------------------------------------
+// Background Auto-Sync keep-alive command
+// ---------------------------------------------------------------------------
+
+/// Arm or disarm the background Auto-Sync keep-alive.
+///
+/// While armed (`enabled == true`), the window's close request is intercepted in
+/// `lib.rs` and the window is HIDDEN instead of destroyed, so the frontend's
+/// Auto-Sync timer + the shared `sync()` it invokes keep running with the window
+/// closed/minimized. The system tray (set up in `lib.rs`)
+/// lets the user re-show the window or quit. While disarmed, the window closes —
+/// and the app quits — normally. The frontend calls this from its Auto-Sync host
+/// as the `Auto_Sync` setting is enabled/disabled.
+#[tauri::command]
+pub fn set_auto_sync_keepalive(state: State<'_, AppState>, enabled: bool) {
+    state.auto_sync_keepalive.store(enabled, Ordering::SeqCst);
 }
 
 // ---------------------------------------------------------------------------
@@ -697,7 +725,7 @@ mod tests {
         assert_eq!(rec.lock().unwrap().included_pid, None);
     }
 
-    // ── secret-at-rest JSON wrappers (S2) ────────────────────────────────────
+    // ── secret-at-rest JSON wrappers ────────────────────────────────────
     //
     // The wrappers gate on `store.enabled()`. These tests pass an explicitly
     // enabled in-memory mock (the trait default is enabled), so they exercise

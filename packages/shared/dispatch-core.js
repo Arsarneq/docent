@@ -11,6 +11,7 @@
  */
 
 import { stampFromSchema } from './lib/format-stamp.js';
+import { httpRequest } from './lib/http-transport.js';
 
 /**
  * Validates an endpoint URL string.
@@ -21,7 +22,7 @@ import { stampFromSchema } from './lib/format-stamp.js';
  *   this endpoint. When true, a plaintext `http://` endpoint is rejected unless
  *   it targets loopback, because the `Authorization: Bearer` header (and the
  *   session payload, which may contain PII) would travel unencrypted and be
- *   readable by an on-path attacker. See SECURITY_BACKLOG S11.
+ *   readable by an on-path attacker.
  * @returns {string|null} null if valid, error string if invalid
  */
 export function validateEndpointUrl(url, { hasApiKey = false } = {}) {
@@ -49,7 +50,7 @@ export function validateEndpointUrl(url, { hasApiKey = false } = {}) {
 
   // Always reject the link-local / cloud-metadata range (169.254.0.0/16,
   // including the 169.254.169.254 metadata endpoint) — never a legitimate
-  // dispatch/sync target, and a classic SSRF pivot. See SECURITY_BACKLOG S11.
+  // dispatch/sync target, and a classic SSRF pivot.
   if (isLinkLocalIpv4(host)) {
     return 'Endpoint URL must not target a link-local address (169.254.0.0/16)';
   }
@@ -143,7 +144,7 @@ export class DispatchError extends Error {
  * Transient failures (network error, HTTP 429, or 5xx) are retried with
  * exponential backoff + jitter, up to `maxRetries` attempts. A `Retry-After`
  * header on a 429/503 response is honoured when present. Non-transient failures
- * (4xx other than 429) throw immediately. See SECURITY_BACKLOG S4.
+ * (4xx other than 429) throw immediately.
  *
  * @param {string} endpointUrl
  * @param {string|null} apiKey
@@ -187,7 +188,7 @@ export async function sendPayload(endpointUrl, apiKey, payload, opts = {}) {
 
     let response;
     try {
-      response = await fetch(endpointUrl, {
+      response = await httpRequest(endpointUrl, {
         method: 'POST',
         headers,
         body,

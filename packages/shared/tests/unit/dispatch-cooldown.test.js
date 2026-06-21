@@ -1,6 +1,6 @@
 /**
  * dispatch-cooldown.test.js — Unit tests for the post-send cooldown / rapid-
- * resend guard (SECURITY_BACKLOG S4, panel layer).
+ * resend guard (panel layer).
  *
  * Uses an injectable clock so the cooldown can be exercised without timers.
  */

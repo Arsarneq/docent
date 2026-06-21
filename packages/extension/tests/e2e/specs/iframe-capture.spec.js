@@ -13,17 +13,19 @@
  * distinct origins. The parent loads on one host and embeds an iframe served
  * from the other, so the child frame is truly cross-origin to its parent.
  *
- * The content script runs in all frames (manifest `all_frames: true`,
- * `<all_urls>`), and the service worker re-injects into child frames when
- * recording starts / navigation completes — so capture inside cross-origin
- * frames is expected to work (or, if a frame is inaccessible, to simply
- * capture nothing — never to crash the parent's capture).
+ * The service worker injects the recorder programmatically into every frame
+ * while recording — on record-start (all current frames) and on each frame's
+ * webNavigation.onCompleted (covering srcdoc, nested, and dynamically created
+ * child frames) — so capture inside cross-origin frames is expected to work (or,
+ * if a frame is inaccessible, to simply capture nothing — never to crash the
+ * parent's capture).
  */
 
 import { test as base, expect, chromium } from '@playwright/test';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import http from 'http';
+import { installReadyProbe, waitForFrameReady } from '../helpers/frame-ready.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const extensionPath = path.resolve(__dirname, '../../..');
@@ -80,6 +82,7 @@ const test = base.extend({
     } else {
       sw = await context.waitForEvent('serviceworker');
     }
+    await installReadyProbe(sw);
     await use(sw);
   },
 });
@@ -88,6 +91,17 @@ async function startRecording(serviceWorker) {
   await serviceWorker.evaluate(async () => {
     await chrome.storage.local.set({ recording: true, pendingActions: [], pendingCount: 0 });
   });
+}
+
+/**
+ * Wait until the top frame's recorder is ready — observed via the SW's FRAME_READY
+ * message (the recorder's isolated-world flag is invisible to the page). Child
+ * frames are injected per-frame on their own onCompleted; the per-test settle()
+ * below absorbs that, but the top frame being ready is the deterministic signal
+ * that programmatic injection has begun.
+ */
+async function waitForTopFrameReady(serviceWorker, page) {
+  await waitForFrameReady(serviceWorker, page.url());
 }
 
 async function getPendingActions(serviceWorker) {
@@ -130,7 +144,8 @@ test.describe('Cross-origin iframe capture (#93)', () => {
     await startRecording(serviceWorker);
     const page = context.pages()[0] || (await context.newPage());
     await page.goto(`${ORIGIN_A()}/parent`);
-    await page.waitForTimeout(500); // let content script inject into both frames
+    await waitForTopFrameReady(serviceWorker, page);
+    await page.waitForTimeout(300); // let the SW inject into the child frame too
 
     // Click the outer (top-frame) button, then the inner (cross-origin) one.
     await page.locator('#outer').click();
@@ -169,7 +184,8 @@ test.describe('Cross-origin iframe capture (#93)', () => {
     await startRecording(serviceWorker);
     const page = context.pages()[0] || (await context.newPage());
     await page.goto(`${ORIGIN_A()}/p2`);
-    await page.waitForTimeout(500);
+    await waitForTopFrameReady(serviceWorker, page);
+    await page.waitForTimeout(300);
 
     // Interacting with the parent after a cross-origin frame is present must
     // still capture normally (the frame doesn't break the top frame's hooks).
@@ -200,7 +216,8 @@ test.describe('Nested iframe capture (#93)', () => {
     await startRecording(serviceWorker);
     const page = context.pages()[0] || (await context.newPage());
     await page.goto(`${ORIGIN_A()}/top`);
-    await page.waitForTimeout(600); // inject into all three frames
+    await waitForTopFrameReady(serviceWorker, page);
+    await page.waitForTimeout(400); // inject into the two nested frames too
 
     await page.frameLocator('#outer').frameLocator('#inner').locator('#deep').click();
     await settle(serviceWorker, page);
@@ -229,7 +246,7 @@ test.describe('Dynamic iframe capture (#93)', () => {
     await startRecording(serviceWorker);
     const page = context.pages()[0] || (await context.newPage());
     await page.goto(`${ORIGIN_A()}/dynparent`);
-    await page.waitForTimeout(400);
+    await waitForTopFrameReady(serviceWorker, page);
 
     // Create the iframe AFTER load — exercises the SW's frame re-injection.
     await page.evaluate((src) => {

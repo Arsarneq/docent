@@ -352,7 +352,6 @@ describe('Export button still works — sendPayload not called on export', () =>
 
 // ─── Task 13: Property test — Dispatch button state reflects project content ──
 //
-// Validates: Requirements 2.2, 2.4, 2.5
 
 describe('Dispatch button state reflects project content', () => {
   test('enabled iff endpoint configured AND at least one recording has active steps', async () => {
@@ -379,7 +378,6 @@ describe('Dispatch button state reflects project content', () => {
 
 // ─── Task 14: Property test — Recording selector lists exactly recordings with active steps ──
 //
-// Validates: Requirements 3.2, 3.4
 
 describe('Recording selector lists exactly recordings with active steps', () => {
   test('getRecordingsWithActiveSteps returns exactly M recordings with active steps', async () => {
@@ -434,7 +432,6 @@ describe('Recording selector lists exactly recordings with active steps', () => 
 
 // ─── Task 15: Property test — Confirmation dialog displays correct endpoint and step summary ──
 //
-// Validates: Requirements 4.2, 4.3
 
 describe('Confirmation dialog displays correct endpoint and step summary', () => {
   /** Arbitrary recording already resolved (has activeSteps array). */
@@ -515,7 +512,6 @@ describe('Confirmation dialog displays correct endpoint and step summary', () =>
 // ─── Task 16: Property test — Confirmation gate ───────────────────────────────
 //
 // sendPayload must not be called before confirmation, and not at all after cancel.
-// Validates: Requirements 4.1, 4.5
 
 describe('Confirmation gate — no dispatch without confirmation, no dispatch on cancel', () => {
   test('cancel path never calls sendPayload for any dispatch settings and project', async () => {

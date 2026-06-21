@@ -86,14 +86,14 @@
  *
  * @property {() => Promise<SyncSettings>} loadSyncSettings
  *   Load persisted sync settings (server URL and API key).
- *   Sync settings are stored separately from dispatch settings (R1-AC1) —
+ *   Sync settings are stored separately from dispatch settings —
  *   they configure the remote sync server, not the dispatch endpoint.
  *   Returns { serverUrl: null, apiKey: null } when no configuration exists.
  *   Chrome: chrome.storage.local (docentSyncUrl / docentSyncApiKey)
  *   Tauri:  sessionState.settings (syncUrl / syncApiKey)
  *
  * @property {(serverUrl: string, apiKey: string) => Promise<void>} saveSyncSettings
- *   Persist sync settings. These are independent of dispatch settings (R1-AC1).
+ *   Persist sync settings. These are independent of dispatch settings.
  *   Validates that serverUrl starts with http:// or https:// when non-empty.
  *   An empty serverUrl clears both the sync URL and API key from storage.
  *   Chrome: chrome.storage.local

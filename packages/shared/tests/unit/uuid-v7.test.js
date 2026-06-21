@@ -151,7 +151,7 @@ describe('compareUuidv7', () => {
   });
 });
 
-describe('isValidUuidv7 (S15)', () => {
+describe('isValidUuidv7', () => {
   it('accepts a freshly generated uuidv7', () => {
     for (let i = 0; i < 50; i++) {
       assert.ok(isValidUuidv7(uuidv7()));

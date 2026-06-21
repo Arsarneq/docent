@@ -5,15 +5,19 @@ edition = "2021"
 description = "Docent Desktop — captures demonstrated workflows as structured data, not code"
 
 [dependencies]
-tauri = { version = "2", features = [] }
+tauri = { version = "2", features = ["tray-icon"] }
 tauri-plugin-dialog = "2"
 tauri-plugin-fs = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 thiserror = "2"
+# Native HTTP transport: the desktop issues sync/dispatch/connection-test
+# requests from Rust to bypass the webview's CORS. rustls-tls (no native-tls /
+# OpenSSL) keeps this cross-platform for the future Linux target (#84).
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
 
 [target.'cfg(windows)'.dependencies]
-# Secret-at-rest (S2): API keys are stored in the Windows Credential Manager
+# Secret-at-rest: API keys are stored in the Windows Credential Manager
 # rather than in plaintext inside session.json. keyring v3.x is the stable
 # application-facing library API (v4 became a CLI/sample crate — the library
 # moved to keyring-core; see the crate README). Gated to Windows because that

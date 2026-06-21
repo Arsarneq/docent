@@ -21,11 +21,32 @@
  *
  * JS budget history:
  *   - Originally 200KB (hand-written ES modules only).
- *   - Raised to 360KB for SECURITY_BACKLOG S12: each platform now ships a
+ *   - Raised to 360KB for the generated schema validator: each platform now ships a
  *     generated Ajv-standalone validator (~109KB, eval-free, required to
  *     validate untrusted imported/synced payloads under the `script-src 'self'`
  *     CSP). This is a deliberate security artifact, not accidental bloat; the
  *     budget was raised to fit it plus normal headroom.
+ *   - Raised to 480KB for the sync-conflict-resolution feature: graded conflict
+ *     resolution is implemented as a set of shared `packages/shared` modules
+ *     (sync-client rewrite, conflict-detector, conflict-resolution,
+ *     sync-conflict-ui, sync-store, sync-baseline, sync-digest, sync-types) that
+ *     sync-shared copies into the extension so both platforms get identical
+ *     behavior. This ~90KB of shared logic is a deliberate feature
+ *     artifact, not accidental bloat; the budget was raised to fit it plus
+ *     normal headroom.
+ *   - Raised to 600KB for the sync-conflict-resolution pull-first rework:
+ *     the pull-first reconcile rework plus the Auto-Sync background host grew the
+ *     synced shared modules and added two new ones — the shared cooldown-debounced
+ *     `sync-scheduler.js` (~12KB) and `connection-test.js` (~6KB) copied into the
+ *     extension by sync-shared, alongside substantial growth in `sync-client.js`,
+ *     `conflict-resolution.js`, `sync-types.js`, `sync-store.js`,
+ *     `conflict-detector.js`, and `sync-conflict-ui.js`, plus the auto-sync host
+ *     wiring in `background/service-worker.js`. Verified the ~74KB growth (480→554KB
+ *     actual) is entirely this deliberate feature code with no duplicated bundle
+ *     and no new third-party dependency (the largest single file remains the
+ *     generated Ajv validator). This mirrors the desktop limit raised to 520KB in
+ *     this same revision; the extension's equivalent bump was outstanding. Budget
+ *     raised to fit the current ~554KB plus normal headroom.
  *
  * Requires `npm run sync-shared` to have been run first.
  */
@@ -70,12 +91,12 @@ function formatSize(bytes) {
 const extensionExcludes = ['node_modules', 'tests', '.git', 'coverage'];
 
 describe('Build size: Extension', () => {
-  it('total JS size is under 360KB (uncompressed)', () => {
+  it('total JS size is under 600KB (uncompressed)', () => {
     const size = getDirSize(extensionDir, ['.js'], extensionExcludes);
     assert.ok(size > 0, 'No JS files found — has sync-shared been run?');
     assert.ok(
-      size < 360 * 1024,
-      `Extension JS is ${formatSize(size)} (soft limit: 360KB). This is a regression tripwire, not a platform limit — if the growth is an intentional artifact, raise the limit AND its rationale in this file's header; otherwise check for an accidental large dependency.`,
+      size < 600 * 1024,
+      `Extension JS is ${formatSize(size)} (soft limit: 600KB). This is a regression tripwire, not a platform limit — if the growth is an intentional artifact, raise the limit AND its rationale in this file's header; otherwise check for an accidental large dependency.`,
     );
   });
 

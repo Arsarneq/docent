@@ -1,17 +1,15 @@
 /**
- * Property 10: Settings persistence round-trip
+ * Settings persistence round-trip
  *
  * For any dispatch settings (endpoint URL and API key), saving the
  * settings and then loading them SHALL return values identical to
  * what was saved.
  *
- * **Validates: Requirements 9.3**
- *
  * This tests the pure serialization/deserialization logic, not the
  * Tauri invoke calls. The persistence layer is mocked with an
  * in-memory store.
  *
- * Feature: desktop-capture, Property 10: Settings persistence round-trip
+ * Settings persistence round-trip
  */
 
 import { describe, it } from 'node:test';
@@ -55,7 +53,7 @@ function loadSettings(store) {
 
 // ─── Property test ────────────────────────────────────────────────────────────
 
-describe('Property 10: Settings persistence round-trip', () => {
+describe('Settings persistence round-trip', () => {
   it('saving then loading dispatch settings returns identical values', () => {
     fc.assert(
       fc.property(

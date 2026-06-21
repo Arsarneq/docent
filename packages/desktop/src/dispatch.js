@@ -19,9 +19,9 @@ export {
   validateEndpointUrl,
 } from '../shared/dispatch-core.js';
 
-// ─── Tauri globals ────────────────────────────────────────────────────────────
+// ─── Tauri command bridge ──────────────────────────────────────────────
 
-const { invoke } = window.__TAURI__.core;
+import { invoke } from './tauri-bridge.js';
 
 // ─── Settings persistence via filesystem (Tauri invoke) ───────────────────────
 

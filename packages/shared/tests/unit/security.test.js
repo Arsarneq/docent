@@ -182,9 +182,24 @@ describe('Security: content script injection scope (manifest)', () => {
     assert.equal(manifest.manifest_version, 3);
   });
 
-  it('content script does not use match patterns that include chrome:// URLs', () => {
-    for (const cs of manifest.content_scripts) {
-      for (const pattern of cs.matches) {
+  it('declares no passive static content script — the recorder is injected programmatically only while recording', () => {
+    // The recorder is no longer registered statically against <all_urls>; it would
+    // otherwise run in every page and frame at all times. It is now injected
+    // programmatically (chrome.scripting) by the service worker only during an
+    // active recording, so no recorder code is present on a page when idle.
+    const cs = manifest.content_scripts ?? [];
+    assert.equal(cs.length, 0, 'manifest must not register a passive static content script');
+    assert.ok(
+      manifest.permissions.includes('scripting'),
+      'programmatic injection requires the "scripting" permission',
+    );
+  });
+
+  it('any content script match patterns (if ever added) exclude chrome:// and chrome-extension:// URLs', () => {
+    // Defensive: this stays meaningful if a static content_scripts entry is ever
+    // reintroduced — it must never target privileged schemes.
+    for (const cs of manifest.content_scripts ?? []) {
+      for (const pattern of cs.matches ?? []) {
         assert.ok(
           !pattern.includes('chrome://'),
           `Content script should not match chrome:// URLs: ${pattern}`,

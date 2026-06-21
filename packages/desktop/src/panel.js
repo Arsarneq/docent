@@ -33,6 +33,25 @@ import {
 import { createDispatchCooldown } from '../shared/dispatch-cooldown.js';
 import { validatePayload } from '../shared/lib/validate-import.js';
 import { sync } from '../shared/sync-client.js';
+import { saveSyncState, loadSyncState, getSettings, setSettings } from '../shared/sync-store.js';
+import { testConnection, settingsFingerprint } from '../shared/connection-test.js';
+import { createAutoSyncHost } from './auto-sync-host.js';
+import {
+  UI_ACTIONS,
+  deriveIndicators,
+  getProjectRowIndicators,
+  getRecordingIndicator,
+  renderIndicatorBadge,
+  renderProjectRowBadge,
+  renderWorkflow,
+} from '../shared/sync-conflict-ui.js';
+import {
+  acceptReview,
+  declineReview,
+  resolveConflict,
+  buildKeepResolution,
+  DELETE_RESOLUTION,
+} from '../shared/conflict-resolution.js';
 import { buildExport } from '../shared/lib/export-project.js';
 import adapter, { commitWithCompleteness } from './adapter-tauri.js';
 import {
@@ -54,8 +73,7 @@ import {
   findRecording,
 } from '../shared/lib/session.js';
 import { uuidv7 } from '../shared/lib/uuid-v7.js';
-
-const { invoke } = window.__TAURI__.core;
+import { invoke } from './tauri-bridge.js';
 
 // ─── Elements ─────────────────────────────────────────────────────────────────
 
@@ -171,6 +189,15 @@ const settingsSyncApiKey = $('settings-sync-api-key');
 const btnSettingsSyncSave = $('btn-settings-sync-save');
 const btnSync = $('btn-sync');
 
+// Reconciliation-policy + Auto-Sync settings
+const toggleAutoAcceptUpdates = $('toggle-auto-accept-updates');
+const toggleAutoAcceptDeletions = $('toggle-auto-accept-deletions');
+const btnTestConnection = $('btn-test-connection');
+const settingsConnectionStatus = $('settings-connection-status');
+const toggleAutoSync = $('toggle-auto-sync');
+const settingsAutoSyncHint = $('settings-auto-sync-hint');
+const settingsAutoSyncStatus = $('settings-auto-sync-status');
+
 // Recording selector
 const recordingSelectorList = $('recording-selector-list');
 const btnSelectorCancel = $('btn-selector-cancel');
@@ -194,7 +221,7 @@ const selfCaptureToggle = $('self-capture-toggle');
 
 // ─── State ────────────────────────────────────────────────────────────────────
 
-/** @type {{ projects: Array, settings: Object }} */
+/** @type {{ projects: Array, syncState?: Object, settings: Object }} */
 let sessionState = {
   projects: [],
   settings: {
@@ -231,6 +258,10 @@ async function loadState() {
     const parsed = JSON.parse(json);
     sessionState = {
       projects: parsed.projects ?? [],
+      // Durable conflict-handling state (baselines/snapshots/reviews/conflicts)
+      // for graded sync. Preserved verbatim; the shared loadSyncState normalizes
+      // it (or undefined) into a complete SyncState shape when sync reads it.
+      syncState: parsed.syncState ?? undefined,
       settings: {
         endpointUrl: parsed.settings?.endpointUrl ?? null,
         apiKey: parsed.settings?.apiKey ?? null,
@@ -271,6 +302,292 @@ async function saveState() {
     await invoke('save_state', { data: JSON.stringify(sessionState) });
   } catch (err) {
     console.error('[Docent] Failed to save state:', err);
+  }
+}
+
+// ─── Conflict-handling state: SyncStore + LiveState adapters ────────────────────
+//
+// Graded sync conflict resolution lives entirely in packages/shared and is fed
+// two platform-provided seams (see sync-types.js): a durable `SyncStore` and a
+// synchronous `LiveState`. On desktop both are backed by panel state that is
+// itself persisted through the Tauri load_state/save_state blob — identical in
+// behavior to the extension's chrome.storage.local backing, so the shared
+// orchestrator and resolution workflow behave the same on both platforms.
+
+/**
+ * SyncStore adapter — durable read/write of the single
+ * `SyncState` blob (baselines, snapshots, reviews, conflicts). It is persisted
+ * as `sessionState.syncState`, so it rides the same Tauri `save_state` blob the
+ * rest of the desktop state uses and survives application restarts. `load()`
+ * returns the persisted value (or `{}` when nothing is stored yet — the shared
+ * `loadSyncState` normalizes that into a complete empty state); `save(state)`
+ * stores it back into `sessionState` and flushes via `saveState()`.
+ *
+ * @type {import('../shared/sync-types.js').SyncStore}
+ */
+const syncStore = {
+  async load() {
+    return sessionState.syncState ?? {};
+  },
+  async save(state) {
+    sessionState.syncState = state;
+    await saveState();
+  },
+};
+
+/**
+ * LiveState adapter — synchronous answers about what the user is
+ * doing right now, mapped from the desktop panel's existing live flags:
+ *   - `isCaptureActive()`            ← `isRecording`. The desktop's `isRecording`
+ *     flag tracks whether the Rust capture backend is running (toggled by
+ *     start_capture/stop_capture); while true, sync halts entirely.
+ *   - `getLockedRecordingIds()`      ← `activeRecording`. `activeRecording` is
+ *     non-null only while a recording is open in the Recording_View (showView
+ *     clears it on every non-recording view), so it is exactly the
+ *     Open_Recording — a Locked_Recording excluded from the inbound merge.
+ *   - `recordingsWithPendingActions()` ← `pendingCount` + `activeRecording`.
+ *     Uncommitted Pending Actions belong to the open recording, so a non-zero
+ *     `pendingCount` marks that recording as holding Pending Actions; it is
+ *     protected by the lock (it is the open recording) or, while capturing, the
+ *     capture halt.
+ *
+ * @type {import('../shared/sync-types.js').LiveState}
+ */
+const liveState = {
+  isCaptureActive() {
+    return isRecording;
+  },
+  getLockedRecordingIds() {
+    const ids = new Set();
+    if (activeRecording && activeRecording.recording_id) {
+      ids.add(activeRecording.recording_id);
+    }
+    return ids;
+  },
+  recordingsWithPendingActions() {
+    const ids = new Set();
+    if (pendingCount > 0 && activeRecording && activeRecording.recording_id) {
+      ids.add(activeRecording.recording_id);
+    }
+    return ids;
+  },
+};
+
+/**
+ * The current durable {@link SyncState}, or `null` when nothing has been
+ * persisted yet. Used by the render path to derive attention indicators and by
+ * the resolution workflow to look up items. `deriveIndicators`/`renderWorkflow`
+ * tolerate `null`, so callers need not normalize first.
+ *
+ * @returns {import('../shared/sync-types.js').SyncState | null}
+ */
+function getSyncState() {
+  return sessionState.syncState ?? null;
+}
+
+// ─── Background Auto-Sync host ───
+//
+// Auto-Sync changes only *what triggers* a cycle: a ~60s backstop timer plus
+// local data-event hooks, routed through the shared cooldown-debounced scheduler
+// (sync-scheduler.js), invoke the SAME shared `sync()` with the SAME `syncStore`,
+// `liveState`, schema, and validator the manual Sync button uses.
+// The host lives in `auto-sync-host.js` (DOM-free) so the triggered cycle can run
+// even when the window is closed/minimized — on desktop the Tauri webview is kept
+// alive in that case (see src-tauri/src/lib.rs), so this JS host's timer and
+// `sync()` invocation keep running headless. The host persists the
+// resulting SyncState through `syncStore`, so the window — when next shown —
+// derives attention indicators from it.
+
+/** @type {ReturnType<typeof createAutoSyncHost> | null} The running host, or null when Auto-Sync is off. */
+let autoSyncHost = null;
+
+/**
+ * The single data-event callback the running host registered. The panel
+ * calls {@link notifyDataEvent} after a meaningful local data change (step
+ * commit, recording close, project/recording create/delete); that forwards here,
+ * which the shared scheduler coalesces with the backstop into at most one cycle
+ * per cooldown window. `null` while Auto-Sync is off.
+ *
+ * @type {(() => void) | null}
+ */
+let autoSyncDataHook = null;
+
+/**
+ * Fire the Auto-Sync data-event trigger, if Auto-Sync is active. A no-op when
+ * Auto-Sync is off, so call sites can invoke it unconditionally after a local
+ * data mutation. The scheduler drops it while capture is active and coalesces a
+ * burst into one cycle.
+ *
+ * @returns {void}
+ */
+function notifyDataEvent() {
+  if (autoSyncDataHook) autoSyncDataHook();
+}
+
+/**
+ * Read whether Auto-Sync is enabled from the persisted, normalized settings.
+ * Tolerates a never-persisted state (defaults OFF).
+ *
+ * @returns {boolean}
+ */
+function isAutoSyncEnabled() {
+  return getSettings(getSyncState() ?? {}).autoSync === true;
+}
+
+/**
+ * Tell the Rust side whether to keep the webview alive when the window is closed.
+ * While Auto-Sync is active the close request hides the window instead
+ * of destroying the webview, so this host's timer + `sync()` keep running in the
+ * background; while it is off the window closes (and quits) normally. Best-effort:
+ * a missing command (older shell) is logged and ignored so the panel still works.
+ *
+ * @param {boolean} armed
+ * @returns {Promise<void>}
+ */
+async function setBackgroundKeepAlive(armed) {
+  try {
+    await invoke('set_auto_sync_keepalive', { enabled: armed });
+  } catch (err) {
+    console.warn('[Docent] Failed to set Auto-Sync keep-alive:', err);
+  }
+}
+
+/**
+ * Start the background Auto-Sync host if it is not already running. Wires
+ * the shared scheduler to the manual path's adapters and arms the webview
+ * keep-alive so the cycle survives a closed/minimized window. Idempotent.
+ *
+ * @returns {void}
+ */
+function startAutoSyncHost() {
+  if (autoSyncHost) return;
+  if (!syncSettings.serverUrl) return; // enable rule requires an endpoint
+
+  autoSyncHost = createAutoSyncHost({
+    serverUrl: syncSettings.serverUrl,
+    apiKey: syncSettings.apiKey,
+    getProjects: () => sessionState.projects,
+    setProjects: async (mergedProjects) => {
+      sessionState.projects = mergedProjects;
+      await saveState();
+      // Refresh whatever list is in view so freshly pulled/updated projects and
+      // their attention indicators appear even on a background cycle.
+      refreshActiveProjectViews();
+    },
+    getSchema: () => adapter.loadSchema(),
+    getValidator: () => adapter.loadValidator(),
+    store: syncStore,
+    liveState,
+    // The host hands us the scheduler-bound notify; keep it so data events can
+    // fire it. Cleared when the host stops.
+    onDataEvent: (notify) => {
+      autoSyncDataHook = notify;
+    },
+    onCycleComplete: () => {
+      // Re-render so background-recorded Review/Conflict indicators surface when
+      // the window is shown. Cheap and idempotent.
+      refreshActiveProjectViews();
+      updateSyncButton();
+      updateAutoSyncControls();
+    },
+    onAuthDisable: async () => {
+      // a 401/403 disables Auto-Sync and flags Settings for a re-test
+      // rather than retrying bad credentials on the interval. Persist the change
+      // and tear the host down; the user re-tests + re-enables from Settings.
+      await disableAutoSync({ invalidateTest: 'auth' });
+    },
+  });
+
+  autoSyncHost.start();
+  autoSyncDataHook = null; // populated synchronously by start() via onDataEvent
+  // start() calls wire(notify) → onDataEvent(notify) above, so autoSyncDataHook
+  // is set by the time start() returns; guard re-read in case wiring changes.
+  setBackgroundKeepAlive(true);
+  updateSyncButton();
+  updateAutoSyncControls();
+}
+
+/**
+ * Stop the background Auto-Sync host if running and disarm the webview
+ * keep-alive. Idempotent. Does NOT change the persisted `autoSync`
+ * setting — use {@link disableAutoSync} for that.
+ *
+ * @returns {void}
+ */
+function stopAutoSyncHost() {
+  if (autoSyncHost) {
+    autoSyncHost.stop();
+    autoSyncHost = null;
+  }
+  autoSyncDataHook = null;
+  setBackgroundKeepAlive(false);
+  updateSyncButton();
+  updateAutoSyncControls();
+}
+
+/**
+ * Persist `autoSync: false` and tear the host down. Used by the auth-disable
+ * path, by a settings change, and by an explicit user toggle-off.
+ *
+ * The optional `invalidateTest` also clears the prior Connection_Test so Settings
+ * demands a fresh pass before re-enabling. It distinguishes WHY
+ * the pass no longer applies, which the UI surfaces differently:
+ *   - `'auth'`     — a genuine 401/403 occurred; Settings shows an auth error.
+ *   - `'untested'` — the endpoint/key changed, so the prior pass simply no longer
+ *                    applies. This is NOT a failure, so it must NOT be labelled
+ *                    `'auth'` (doing so wrongly shows "Authentication failed" after
+ *                    a plain Save); the test reverts to the untested (`null`) state
+ *                    and Settings prompts "Test the connection to enable Auto-sync."
+ *   - `false`      — leave the Connection_Test untouched (e.g. a manual toggle-off).
+ *
+ * @param {object} [opts]
+ * @param {('auth'|'untested'|false)} [opts.invalidateTest=false]
+ * @returns {Promise<void>}
+ */
+async function disableAutoSync({ invalidateTest = false } = {}) {
+  const state = (await loadSyncState(syncStore)) ?? {};
+  const patch = { autoSync: false };
+  if (invalidateTest) {
+    patch.connectionTest = invalidateTest === 'auth' ? 'auth' : null;
+    patch.testedSettingsFingerprint = null;
+  }
+  setSettings(state, patch);
+  await saveSyncState(syncStore, state);
+  stopAutoSyncHost();
+}
+
+/**
+ * Bring the host into agreement with the persisted `autoSync` setting and the
+ * current endpoint: start it when Auto-Sync is enabled and an endpoint is
+ * present, stop it otherwise. Safe to call on boot and after any
+ * settings change.
+ *
+ * @returns {void}
+ */
+function syncAutoSyncHostState() {
+  if (isAutoSyncEnabled() && syncSettings.serverUrl) {
+    startAutoSyncHost();
+  } else {
+    stopAutoSyncHost();
+  }
+}
+
+/**
+ * Re-resolve the active project from the (possibly replaced) projects array and
+ * re-render whichever list is currently shown, so a background cycle's pulled
+ * data and attention indicators appear without a manual refresh.
+ *
+ * @returns {void}
+ */
+function refreshActiveProjectViews() {
+  if (activeProject) {
+    activeProject =
+      sessionState.projects.find((p) => p.project_id === activeProject.project_id) ?? null;
+  }
+  if (activeProject && !views.project.classList.contains('hidden')) {
+    renderProjectDetail();
+  } else if (!views.projects.classList.contains('hidden')) {
+    renderProjectsList();
   }
 }
 
@@ -328,6 +645,7 @@ function updateBreadcrumb(viewKey) {
 // ─── Breadcrumb navigation ────────────────────────────────────────────────────
 
 bcProjects.addEventListener('click', async () => {
+  const wasRecordingOpen = activeRecording !== null;
   if (isRecording) {
     await invoke('stop_capture');
     isRecording = false;
@@ -336,9 +654,11 @@ bcProjects.addEventListener('click', async () => {
   activeRecording = null;
   updateRecordingUI();
   renderProjectsList();
+  if (wasRecordingOpen) notifyDataEvent(); // recording close
 });
 
 bcProject.addEventListener('click', async () => {
+  const wasRecordingOpen = activeRecording !== null;
   if (isRecording) {
     await invoke('stop_capture');
     isRecording = false;
@@ -347,6 +667,7 @@ bcProject.addEventListener('click', async () => {
   updateRecordingUI();
   renderProjectDetail();
   showView('project');
+  if (wasRecordingOpen) notifyDataEvent(); // recording close
 });
 
 // ─── Projects list ────────────────────────────────────────────────────────────
@@ -360,6 +681,9 @@ function renderProjectsList() {
   projectList.innerHTML = '';
   projectsEmpty.classList.toggle('hidden', projects.length > 0);
 
+  // Derive sync-state attention indicators once for the whole list.
+  const indicators = deriveIndicators(getSyncState());
+
   const htmlItems = renderProjectListHtml(projects);
   projects.forEach((p, i) => {
     const wrapper = document.createElement('template');
@@ -371,6 +695,10 @@ function renderProjectsList() {
     li.querySelector('[data-action="delete"]').addEventListener('click', () =>
       deleteProject(p.project_id, p.name),
     );
+    // Project-row attention badges: the project Unit's own badge
+    // (opens its workflow) plus rolled-up recording-conflict /
+    // recording-review badges (open the project), deduped to one of each.
+    attachProjectRowBadges(li, getProjectRowIndicators(indicators, p.project_id));
     projectList.appendChild(li);
   });
 
@@ -390,6 +718,7 @@ async function deleteProject(project_id, name) {
   if (!confirm(`Delete project "${name}"? This cannot be undone.`)) return;
   sessionState.projects = sessionState.projects.filter((p) => p.project_id !== project_id);
   await saveState();
+  notifyDataEvent(); // project delete is a meaningful local data event
   if (activeProject?.project_id === project_id) {
     activeProject = null;
     activeRecording = null;
@@ -410,6 +739,7 @@ btnNewProjectCreate.addEventListener('click', async () => {
   const project = createProject(name);
   sessionState.projects.push(project);
   await saveState();
+  notifyDataEvent(); // project create is a meaningful local data event
   activeProject = project;
   activeRecording = null;
   renderProjectDetail();
@@ -455,7 +785,7 @@ async function handleImportData(exportData) {
     return;
   }
 
-  // Validate against the platform schema before persisting (S12). Reject-but-log.
+  // Validate against the platform schema before persisting. Reject-but-log.
   const validator = await adapter.loadValidator();
   if (validator) {
     const { valid, errors } = validatePayload(validator, exportData);
@@ -513,6 +843,9 @@ function renderProjectDetail() {
   const recordings = activeProject.recordings ?? [];
   recordingsEmpty.classList.toggle('hidden', recordings.length > 0);
 
+  // Derive recording-level attention indicators for this project.
+  const indicators = deriveIndicators(getSyncState());
+
   const htmlItems = renderRecordingListHtml(recordings);
   recordings.forEach((r, i) => {
     const wrapper = document.createElement('template');
@@ -523,6 +856,12 @@ function renderProjectDetail() {
     );
     li.querySelector('[data-action="delete"]').addEventListener('click', () =>
       deleteRecording(r.recording_id, r.name),
+    );
+    // Recording-level attention badge: always shown when the recording needs
+    // attention; activating it opens the workflow for that Unit.
+    attachAttentionBadge(
+      li,
+      getRecordingIndicator(indicators, activeProject.project_id, r.recording_id),
     );
     recordingList.appendChild(li);
   });
@@ -556,6 +895,7 @@ btnNewRecordingCreate.addEventListener('click', async () => {
   }
   const recording = createRecording(activeProject, name);
   await saveState();
+  notifyDataEvent(); // recording create is a meaningful local data event
   activeRecording = recording;
   activeSteps = [];
   isRecording = true;
@@ -587,6 +927,7 @@ async function deleteRecording(recording_id, name) {
     (r) => r.recording_id !== recording_id,
   );
   await saveState();
+  notifyDataEvent(); // recording delete is a meaningful local data event
   activeRecording = null;
   updateRecordingUI();
   renderProjectDetail();
@@ -862,6 +1203,7 @@ async function commitStepSimple(logicalId) {
 
     activeSteps = resolveActiveSteps(activeRecording);
     await saveState();
+    notifyDataEvent(); // step commit is a meaningful local data event
 
     clearLiveActionList();
     renderStepList();
@@ -945,6 +1287,7 @@ async function commitStep(inputEl, source, logicalId) {
 
     activeSteps = resolveActiveSteps(activeRecording);
     await saveState();
+    notifyDataEvent(); // step commit is a meaningful local data event
 
     inputEl.value = '';
     if (inputEl === narrationInput) btnCommitStep.disabled = true;
@@ -1210,7 +1553,7 @@ function updateDispatchButton() {
   const recordings = activeProject?.recordings ?? [];
   const hasActiveSteps = recordings.some((r) => resolveActiveSteps(r).length > 0);
 
-  // Post-send cooldown (S4): hold the button disabled briefly after a send to
+  // Post-send cooldown: hold the button disabled briefly after a send to
   // guard against rapid re-dispatch, counting down a remaining-seconds hint.
   const cooldownRemaining = dispatchCooldown.remainingMs();
   if (cooldownRemaining > 0) {
@@ -1252,7 +1595,7 @@ btnSettingsSyncSave.addEventListener('click', async () => {
   const url = settingsSyncUrl.value.trim();
   const apiKey = settingsSyncApiKey.value.trim();
 
-  // Validate URL if non-empty (R1-AC2)
+  // Validate URL if non-empty
   if (url) {
     const error = validateEndpointUrl(url, { hasApiKey: !!apiKey });
     if (error) {
@@ -1274,7 +1617,21 @@ btnSettingsSyncSave.addEventListener('click', async () => {
       serverUrl: url || null,
       apiKey: apiKey || null,
     };
+    // changing the endpoint or API key invalidates the prior
+    // Connection_Test and disables Auto-Sync until a fresh test passes. Tear the
+    // background host down here; the user re-tests + re-enables from Settings.
+    // This is a settings change, not an auth failure — invalidate to the untested
+    // state so Settings prompts a re-test rather than reporting "Authentication
+    // failed".
+    await disableAutoSync({ invalidateTest: 'untested' });
+    // Clear any transient Connection_Test result from the previous settings; it
+    // was taken against a now-stale endpoint/key. updateAutoSyncControls re-derives
+    // the correct prompt ("Test the connection to enable Auto-sync.").
+    settingsConnectionStatus.textContent = '';
+    settingsConnectionStatus.classList.add('hidden');
+    settingsConnectionStatus.classList.remove('is-ok', 'is-error');
     updateSyncButton();
+    updateAutoSyncControls();
   } catch (err) {
     settingsSyncError.textContent = err.message;
     settingsSyncError.classList.remove('hidden');
@@ -1282,8 +1639,207 @@ btnSettingsSyncSave.addEventListener('click', async () => {
 });
 
 function updateSyncButton() {
-  btnSync.disabled = !syncSettings.serverUrl || isSyncing;
+  // while Auto-Sync is active, hide the manual Sync button entirely and
+  // provide no manual force-sync affordance (the ~60s backstop makes one
+  // unnecessary). When Auto-Sync is off, show it and gate on an endpoint being
+  // configured and no sync already in flight.
+  const autoActive = autoSyncHost !== null;
+  btnSync.classList.toggle('hidden', autoActive);
+  btnSync.disabled = autoActive || !syncSettings.serverUrl || isSyncing;
 }
+
+// ─── Reconciliation-policy + Auto-Sync settings ──────────────────────
+//
+// These three client-local toggles are the settings half of the feature: the
+// two Auto-Accept policy toggles and the Auto-Sync enable state machine.
+// They are byte-identical in semantics and labels to the extension's, and
+// their values are per-client (persisted via setSettings, never synced). The
+// orchestrator reads the policy toggles each cycle; the
+// background host reads `autoSync` via syncAutoSyncHostState().
+
+/**
+ * Reflect the persisted reconciliation-policy + Auto-Sync settings into the
+ * Settings controls. Reads the normalized settings from the
+ * durable SyncState so a never-persisted state shows the documented OFF defaults.
+ * Also recomputes the Auto-Sync enable rule and the connection/status indicators.
+ *
+ * @returns {void}
+ */
+function loadAndPopulateReconciliationSettings() {
+  const settings = getSettings(getSyncState() ?? {});
+  toggleAutoAcceptUpdates.checked = settings.autoAcceptUpdates === true;
+  toggleAutoAcceptDeletions.checked = settings.autoAcceptDeletions === true;
+  // Clear any transient Connection_Test result line from a previous visit; the
+  // needs-retest case is re-derived by updateAutoSyncControls below.
+  settingsConnectionStatus.textContent = '';
+  settingsConnectionStatus.classList.add('hidden');
+  settingsConnectionStatus.classList.remove('is-ok', 'is-error');
+  updateAutoSyncControls();
+}
+
+/**
+ * Persist a reconciliation-policy toggle. The two settings are
+ * independent booleans applied on the *next* sync cycle; changing one
+ * never retroactively applies or reverses a prior cycle's outcomes.
+ *
+ * @param {'autoAcceptUpdates'|'autoAcceptDeletions'} key
+ * @param {boolean} value
+ * @returns {Promise<void>}
+ */
+async function persistPolicySetting(key, value) {
+  const state = (await loadSyncState(syncStore)) ?? {};
+  setSettings(state, { [key]: value });
+  await saveSyncState(syncStore, state);
+}
+
+toggleAutoAcceptUpdates.addEventListener('change', async () => {
+  await persistPolicySetting('autoAcceptUpdates', toggleAutoAcceptUpdates.checked);
+});
+
+toggleAutoAcceptDeletions.addEventListener('change', async () => {
+  await persistPolicySetting('autoAcceptDeletions', toggleAutoAcceptDeletions.checked);
+});
+
+/**
+ * True when a passing Connection_Test is on record for the *current* server
+ * settings: the stored outcome is `pass` AND the stored fingerprint
+ * matches the plaintext fingerprint of the current endpoint + API key.
+ * A settings change recomputes the fingerprint, so a stale pass no longer
+ * matches and Auto-Sync is no longer enableable until a fresh test passes.
+ *
+ * @returns {boolean}
+ */
+function hasPassingConnectionTest() {
+  if (!syncSettings.serverUrl) return false; // endpoint-present precondition
+  const settings = getSettings(getSyncState() ?? {});
+  if (settings.connectionTest !== 'pass') return false;
+  const current = settingsFingerprint(syncSettings.serverUrl, syncSettings.apiKey);
+  return settings.testedSettingsFingerprint === current;
+}
+
+/**
+ * Recompute the Auto-Sync enable rule and refresh the three indicators in
+ * Settings:
+ *   - the Auto-Sync toggle is enableable ONLY when an endpoint is present AND a
+ *     passing Connection_Test is on record for the current settings; otherwise
+ *     it is disabled and (when off) shows a prompt explaining what is needed;
+ *   - the toggle reflects the persisted `autoSync` value;
+ *   - the "Auto-sync active" status shows only while the host is actually running;
+ *   - the needs-retest flag (set by a 401/403 auto-disable) surfaces as an
+ *     error-flavored connection status.
+ *
+ * @returns {void}
+ */
+function updateAutoSyncControls() {
+  const settings = getSettings(getSyncState() ?? {});
+  const enabled = settings.autoSync === true;
+  const active = autoSyncHost !== null;
+  const canEnable = hasPassingConnectionTest();
+
+  // The toggle is enableable only when the rule is met; keep it checked only
+  // while genuinely enabled so a forced-off state (settings change / auth
+  // disable) is reflected immediately.
+  toggleAutoSync.checked = enabled;
+  toggleAutoSync.disabled = !canEnable && !enabled;
+
+  // Active indicator: only while the background host is running.
+  settingsAutoSyncStatus.classList.toggle('hidden', !active);
+
+  // Enable prompt: when Auto-Sync is off and cannot yet be enabled, explain why
+  // (no endpoint, or no fresh passing test). Hidden once it is enableable/on.
+  if (!enabled && !canEnable) {
+    settingsAutoSyncHint.textContent = !syncSettings.serverUrl
+      ? 'Configure a sync server above to enable Auto-sync.'
+      : 'Test the connection to enable Auto-sync.';
+    settingsAutoSyncHint.classList.remove('hidden');
+  } else {
+    settingsAutoSyncHint.classList.add('hidden');
+  }
+
+  // a prior 401/403 auto-disable stored connectionTest='auth' and cleared
+  // the tested fingerprint. Surface that as a needs-retest prompt so the user
+  // knows to re-test rather than wondering why Auto-sync turned itself off.
+  if (!enabled && settings.connectionTest === 'auth' && syncSettings.serverUrl) {
+    showConnectionStatus('Authentication failed — re-test your connection.', 'is-error');
+  }
+}
+
+/**
+ * Render the Connection_Test result line under the Test-connection button.
+ *
+ * @param {string} message
+ * @param {'is-ok'|'is-error'|''} [flavor='']
+ * @returns {void}
+ */
+function showConnectionStatus(message, flavor = '') {
+  settingsConnectionStatus.textContent = message;
+  settingsConnectionStatus.classList.remove('hidden', 'is-ok', 'is-error');
+  if (flavor) settingsConnectionStatus.classList.add(flavor);
+}
+
+btnTestConnection.addEventListener('click', async () => {
+  // the enable rule verifies an endpoint is present BEFORE invoking the
+  // Connection_Test; never call testConnection with an empty/absent endpoint.
+  if (!syncSettings.serverUrl) {
+    showConnectionStatus('Configure a sync server above first.', 'is-error');
+    return;
+  }
+
+  btnTestConnection.disabled = true;
+  showConnectionStatus('Testing…');
+  try {
+    const { ok, reason } = await testConnection(syncSettings.serverUrl, syncSettings.apiKey);
+    const state = (await loadSyncState(syncStore)) ?? {};
+    if (ok) {
+      // Record the pass against the CURRENT plaintext fingerprint so a later
+      // endpoint/key change invalidates it.
+      setSettings(state, {
+        connectionTest: 'pass',
+        testedSettingsFingerprint: settingsFingerprint(syncSettings.serverUrl, syncSettings.apiKey),
+      });
+      await saveSyncState(syncStore, state);
+      showConnectionStatus('Connection OK — Auto-sync can be enabled.', 'is-ok');
+    } else {
+      // A failing test clears any prior pass so Auto-Sync stays not-enableable.
+      setSettings(state, { connectionTest: reason, testedSettingsFingerprint: null });
+      await saveSyncState(syncStore, state);
+      showConnectionStatus(
+        reason === 'auth'
+          ? 'Authentication failed — check your API key.'
+          : 'Could not reach the server — check the endpoint.',
+        'is-error',
+      );
+    }
+  } catch {
+    showConnectionStatus('Could not reach the server — check the endpoint.', 'is-error');
+  } finally {
+    btnTestConnection.disabled = false;
+    updateAutoSyncControls();
+  }
+});
+
+toggleAutoSync.addEventListener('change', async () => {
+  if (toggleAutoSync.checked) {
+    // Enforce the enable rule defensively even though the toggle is disabled when
+    // it is unmet: only persist autoSync=true when an endpoint is present AND a
+    // fresh Connection_Test passes.
+    if (!hasPassingConnectionTest()) {
+      toggleAutoSync.checked = false;
+      updateAutoSyncControls();
+      return;
+    }
+    const state = (await loadSyncState(syncStore)) ?? {};
+    setSettings(state, { autoSync: true });
+    await saveSyncState(syncStore, state);
+    // Start the background host (24.5) for the now-enabled setting.
+    syncAutoSyncHostState();
+  } else {
+    // Toggling off persists autoSync=false and tears the host down, but does NOT
+    // invalidate the passing Connection_Test (the user can flip it back on).
+    await disableAutoSync();
+  }
+  updateAutoSyncControls();
+});
 
 btnSync.addEventListener('click', () => handleSync());
 
@@ -1295,7 +1851,7 @@ async function handleSync() {
 
   try {
     // Schema (push-side docent_format stamp) + generated validator (applied to
-    // each pulled payload), both from the adapter. See S12.
+    // each pulled payload), both from the adapter.
     const schema = await adapter.loadSchema();
     const validator = await adapter.loadValidator();
 
@@ -1305,13 +1861,15 @@ async function handleSync() {
       sessionState.projects,
       schema,
       validator,
+      syncStore,
+      liveState,
     );
 
-    // Persist merged projects via saveState() (R5-AC5)
+    // Persist merged projects via saveState()
     sessionState.projects = mergedProjects;
     await saveState();
 
-    // Show summary (R5-AC5)
+    // Show summary
     showSyncSummary(result);
 
     // Refresh the projects list UI to reflect pulled/updated projects
@@ -1332,7 +1890,18 @@ async function handleSync() {
 
 function showSyncSummary(result) {
   if (result.halted) {
-    alert('Sync halted: authentication failed. Check your API key in Settings.');
+    // Distinguish WHY the cycle halted so the user can act. Auth is the
+    // only halt that maps to a settings fix; the live-work and internal halts are
+    // transient and resolve by ending capture / closing the open recording / retrying.
+    const haltMessages = {
+      auth: 'Sync halted: authentication failed. Check your API key in Settings.',
+      'capture-active': "Sync paused while you're recording. Stop capture, then sync again.",
+      'pending-actions-unprotected':
+        'Sync paused: a recording has uncommitted actions. Commit or clear them, then sync again.',
+      'internal-error':
+        'Sync stopped to protect your data and made no changes. Your work and any pending items are preserved.',
+    };
+    alert(haltMessages[result.haltReason] ?? 'Sync halted. Please try again.');
     return;
   }
   const parts = [];
@@ -1345,11 +1914,37 @@ function showSyncSummary(result) {
     parts.push(
       `Skipped ${mismatched.length} incompatible project${mismatched.length !== 1 ? 's' : ''}`,
     );
+  // New graded-reconciliation counts: items deferred for the user to act
+  // on — incoming changes to review-and-accept, and divergences in conflict.
+  const review = result.review ?? [];
+  const conflicts = result.conflicts ?? [];
+  // Auto-applied outcomes: fast-forward updates and server-side
+  // deletions applied automatically because the matching Auto-Accept policy is ON.
+  const autoAppliedUpdates = result.autoAppliedUpdates ?? [];
+  const autoAppliedDeletions = result.autoAppliedDeletions ?? [];
+  if (autoAppliedUpdates.length > 0)
+    parts.push(
+      `Auto-applied ${autoAppliedUpdates.length} update${autoAppliedUpdates.length !== 1 ? 's' : ''}`,
+    );
+  if (autoAppliedDeletions.length > 0)
+    parts.push(
+      `Auto-applied ${autoAppliedDeletions.length} deletion${autoAppliedDeletions.length !== 1 ? 's' : ''}`,
+    );
+  if (review.length > 0)
+    parts.push(`${review.length} change${review.length !== 1 ? 's' : ''} to review`);
+  if (conflicts.length > 0)
+    parts.push(`${conflicts.length} conflict${conflicts.length !== 1 ? 's' : ''}`);
   if (result.errors.length > 0)
     parts.push(`${result.errors.length} error${result.errors.length !== 1 ? 's' : ''}`);
   if (parts.length === 0) parts.push('Everything up to date');
 
   let message = parts.join('. ') + '.';
+  // Nudge the user toward the attention indicators when there is something to resolve.
+  if (review.length > 0 || conflicts.length > 0) {
+    message +=
+      '\n\nProjects and recordings needing your attention are marked in the list — ' +
+      'select a marker to review or resolve them.';
+  }
   // Spell out why incompatible projects were skipped so the user can act
   // (update Docent, or pin the producing version).
   if (mismatched.length > 0) {
@@ -1357,6 +1952,216 @@ function showSyncSummary(result) {
       '\n\nSkipped (incompatible format):\n' + mismatched.map((m) => `• ${m.message}`).join('\n');
   }
   alert(message);
+}
+
+// ─── Conflict-resolution workflow (shared indicators + workflow) ────────────────
+//
+// The resolution UI is the parity-bearing half of the feature: both panels
+// render the SAME shared indicators (renderIndicatorBadge) and the SAME workflow
+// (renderWorkflow) from sync-conflict-ui.js, and wire the UI_ACTIONS hooks to the
+// shared resolution functions (acceptReview / declineReview / resolveConflict).
+// Desktop has no static workflow <section> in the shared views.html, so the
+// workflow is hosted in a lazily-created overlay rather than the showView() flow.
+
+let workflowOverlay = null;
+let workflowBody = null;
+
+/**
+ * Attach a shared attention badge to a list row when its Unit needs attention.
+ * The badge HTML (with the stable `data-action="open-workflow"` / `data-unit-ref`
+ * hooks) comes from the shared `renderIndicatorBadge`, so it is byte-identical to
+ * the extension's. Activating it opens the workflow for that Unit.
+ *
+ * @param {HTMLElement} li - the rendered list row
+ * @param {import('../shared/sync-conflict-ui.js').AttentionIndicator | null} indicator
+ * @returns {void}
+ */
+function attachAttentionBadge(li, indicator) {
+  const html = renderIndicatorBadge(indicator);
+  if (!html) return;
+  const wrapper = document.createElement('template');
+  wrapper.innerHTML = html.trim();
+  const badge = wrapper.content.firstChild;
+  // The badge lives alongside the open/delete controls in the row's action area.
+  const actions = li.querySelector('.card-item-actions') ?? li;
+  actions.insertBefore(badge, actions.firstChild);
+  badge.addEventListener('click', () => {
+    if (badge.dataset.action === UI_ACTIONS.OPEN_WORKFLOW) {
+      openConflictWorkflow(badge.dataset.unitRef);
+    }
+  });
+}
+
+/**
+ * Attach the project-ROW attention badges to a project row. Renders
+ * each {@link ProjectRowBadge} from {@link getProjectRowIndicators} and wires its
+ * activation by scope: the project Unit's OWN badge opens that Unit's resolution
+ * workflow (`open-workflow`); a rolled-up recordings badge opens the
+ * project so its per-recording badges become visible (`open-project`).
+ *
+ * @param {HTMLElement} li - the project list row
+ * @param {import('../shared/sync-conflict-ui.js').ProjectRowBadge[]} badges
+ */
+function attachProjectRowBadges(li, badges) {
+  if (!badges || badges.length === 0) return;
+  const actions = li.querySelector('.card-item-actions') ?? li;
+  // Insert in reverse so the rendered order (own, conflict roll-up, review
+  // roll-up) is preserved when each is placed before the existing controls.
+  for (let i = badges.length - 1; i >= 0; i--) {
+    const html = renderProjectRowBadge(badges[i]);
+    if (!html) continue;
+    const wrapper = document.createElement('template');
+    wrapper.innerHTML = html.trim();
+    const badge = wrapper.content.firstChild;
+    badge.addEventListener('click', () => {
+      if (badge.dataset.action === UI_ACTIONS.OPEN_PROJECT) {
+        openProject(badge.dataset.projectId);
+      } else if (badge.dataset.action === UI_ACTIONS.OPEN_WORKFLOW) {
+        openConflictWorkflow(badge.dataset.unitRef);
+      }
+    });
+    actions.insertBefore(badge, actions.firstChild);
+  }
+}
+
+/** Lazily create the overlay that hosts the resolution workflow HTML. */
+function ensureWorkflowOverlay() {
+  if (workflowOverlay) return;
+  workflowOverlay = document.createElement('div');
+  workflowOverlay.id = 'sync-workflow-overlay';
+  workflowOverlay.className = 'sync-workflow-overlay hidden';
+  workflowOverlay.innerHTML =
+    '<div class="sync-workflow-dialog" role="dialog" aria-modal="true" aria-label="Resolve sync item">' +
+    '<button type="button" class="btn btn--ghost btn--sm sync-workflow-close" aria-label="Close">Close</button>' +
+    '<div class="sync-workflow-host"></div>' +
+    '</div>';
+  document.body.appendChild(workflowOverlay);
+  workflowBody = workflowOverlay.querySelector('.sync-workflow-host');
+  // Close on the explicit button or by clicking the backdrop.
+  workflowOverlay.querySelector('.sync-workflow-close').addEventListener('click', closeWorkflow);
+  workflowOverlay.addEventListener('click', (e) => {
+    if (e.target === workflowOverlay) closeWorkflow();
+  });
+}
+
+function closeWorkflow() {
+  if (workflowOverlay) workflowOverlay.classList.add('hidden');
+}
+
+/**
+ * Open the shared resolution workflow for a Unit. The shared
+ * `renderWorkflow` routes the Unit to the correct interface and enforces the
+ * wrong-interface guard: a Review opens the accept/decline view, a
+ * Conflict opens the local-vs-incoming chooser. The returned HTML is inserted
+ * into the overlay and its UI_ACTIONS controls are wired to the shared resolution
+ * functions.
+ *
+ * @param {string} unitRef - the Unit to resolve (from the badge's data-unit-ref)
+ * @param {('review'|'conflict')} [requestedKind] - the interface the user tried
+ *   to open; omit for the normal activate-the-indicator path
+ * @returns {void}
+ */
+function openConflictWorkflow(unitRef, requestedKind = null) {
+  ensureWorkflowOverlay();
+  const { html } = renderWorkflow(getSyncState(), unitRef, requestedKind);
+  workflowBody.innerHTML = html;
+  workflowOverlay.classList.remove('hidden');
+
+  // Wire the shared action hooks to the shared resolution functions. Each
+  // handler persists the mutated SyncState through the SyncStore and re-renders.
+  const onClick = (action, handler) => {
+    const el = workflowBody.querySelector(`[data-action="${action}"]`);
+    if (el && !el.disabled) el.addEventListener('click', handler);
+  };
+  onClick(UI_ACTIONS.ACCEPT_REVIEW, () => handleAcceptReview(unitRef));
+  onClick(UI_ACTIONS.DECLINE_REVIEW, () => handleDeclineReview(unitRef));
+  onClick(UI_ACTIONS.RESOLVE_KEEP_LOCAL, () => handleResolveConflict(unitRef, 'local'));
+  onClick(UI_ACTIONS.RESOLVE_KEEP_INCOMING, () => handleResolveConflict(unitRef, 'incoming'));
+}
+
+/**
+ * Persist the mutated SyncState through the SyncStore adapter and refresh the
+ * affected views. Shared by all resolution outcomes so the durable store and the
+ * UI are updated in lock-step.
+ *
+ * @param {import('../shared/conflict-resolution.js').ResolutionResult} result
+ * @returns {Promise<void>}
+ */
+async function persistResolution(result) {
+  // The shared resolution functions return the updated projects array and mutate
+  // the in-memory SyncState in place. Persisting through the SyncStore adapter
+  // (saveSyncState → syncStore.save) writes the SyncState back into sessionState
+  // AND flushes the whole Tauri blob, so the durable conflict state and the
+  // local projects are persisted together in one write.
+  sessionState.projects = result.projects;
+  await saveSyncState(syncStore, getSyncState() ?? {});
+  // Refresh whichever list is in view so the now-cleared indicator disappears.
+  if (activeProject) {
+    activeProject =
+      sessionState.projects.find((p) => p.project_id === activeProject.project_id) ?? null;
+  }
+  if (activeProject && !views.project.classList.contains('hidden')) {
+    renderProjectDetail();
+  } else {
+    renderProjectsList();
+  }
+}
+
+async function handleAcceptReview(unitRef) {
+  const result = acceptReview(getSyncState(), sessionState.projects, unitRef);
+  if (!result.ok) {
+    alert('Could not apply this change. It may already have been resolved.');
+    return;
+  }
+  await persistResolution(result);
+  closeWorkflow();
+}
+
+async function handleDeclineReview(unitRef) {
+  const result = declineReview(getSyncState(), sessionState.projects, unitRef);
+  if (!result.ok) {
+    alert('Could not decline this change. It may already have been resolved.');
+    return;
+  }
+  await persistResolution(result);
+  closeWorkflow();
+}
+
+/**
+ * Resolve a Conflict by adopting one side. The shared `resolveConflict` requires
+ * an explicit append-only resolved state: keeping a side means
+ * adopting that side's full version while RETAINING every step record from both
+ * histories, so the chosen recording/project copy is augmented with any step
+ * records unique to the other side. A delete-vs-change Conflict where the chosen
+ * side is absent is resolved via the DELETE_RESOLUTION sentinel.
+ *
+ * @param {string} unitRef
+ * @param {('local'|'incoming')} side - which version the user chose to keep
+ * @returns {Promise<void>}
+ */
+async function handleResolveConflict(unitRef, side) {
+  const state = getSyncState();
+  const item = state && state.conflicts ? state.conflicts[unitRef] : null;
+  if (!item) {
+    alert('Could not resolve this item. It may already have been resolved.');
+    return;
+  }
+
+  const chosen = side === 'local' ? item.local : item.incoming;
+  const other = side === 'local' ? item.incoming : item.local;
+  // A delete-vs-change Conflict: the chosen side is absent → accept the deletion.
+  // Otherwise build the explicit append-only resolved state that adopts
+  // the chosen side's Active View while retaining both histories,
+  // using the shared builder so the extension and desktop resolve identically.
+  const resolvedState = chosen == null ? DELETE_RESOLUTION : buildKeepResolution(chosen, other);
+
+  const result = resolveConflict(state, sessionState.projects, unitRef, resolvedState);
+  if (!result.ok) {
+    alert('Could not resolve this conflict. Please try again.');
+    return;
+  }
+  await persistResolution(result);
+  closeWorkflow();
 }
 
 btnSettings.addEventListener('click', () => {
@@ -1371,6 +2176,7 @@ btnSettings.addEventListener('click', () => {
   settingsReturnView = current ? current[0] : 'projects';
   loadAndPopulateDispatchSettings();
   loadAndPopulateSyncSettings();
+  loadAndPopulateReconciliationSettings();
   showView('settings');
 });
 
@@ -1543,3 +2349,9 @@ try {
   console.warn('[Docent] Failed to set initial self-capture exclusion:', err);
 }
 renderProjectsList();
+
+// Bring the background Auto-Sync host into agreement with the persisted setting:
+// start the ~60s backstop + data-event trigger when Auto-Sync is
+// enabled and an endpoint is configured, so triggered cycles run even when the
+// window is later closed/minimized. A no-op when Auto-Sync is off.
+syncAutoSyncHostState();

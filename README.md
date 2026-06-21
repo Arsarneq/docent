@@ -31,6 +31,8 @@ Docent captures interactions and pairs them with step-by-step context. The resul
 
 Both platforms follow the same principle: every captured action is a real user action — nothing programmatic, synthetic, or inferred. Programmatic side-effects (value changes from code, focus moves from scripts, window lifecycle from `window.open()`) are filtered out. A small amount of observed context is recorded alongside the actions to describe them faithfully, always kept distinct from the actions themselves.
 
+Sensitive values are redacted at capture time on both platforms — passwords, credit-card / SSN / secret field values, and auth tokens in captured URLs are masked before anything is stored.
+
 Recordings can be dispatched directly to a configured HTTP endpoint from either platform — no terminal or Node.js required.
 
 See [Capture Principles](docs/capture-principles.md) for the full rules, with platform-specific details in [Extension](docs/capture-principles-extension.md) and [Desktop](docs/capture-principles-desktop.md).
@@ -76,6 +78,8 @@ A person demonstrates a workflow, tagging each step as either "action" (do this)
 ### The format is the contract
 
 Both paths consume the same `.docent.json` format. Docent captures and delivers — it has no opinion about what receives the data or how it's used.
+
+Docent ships the format — the schema, the spec, and the self-describing stamp. It does not ship a consumer, and includes no example consumer implementation. That is by design: the format is the contract; what you build against it is yours.
 
 ---
 
@@ -236,8 +240,8 @@ The dispatch workflow is identical to the extension. Configure an endpoint in Se
 
 The `.docent.json` format is defined by per-platform JSON Schemas — the single source of truth for each Docent platform:
 
-- [Extension schema](schemas/extension.schema.json) — Chrome extension
-- [Desktop Windows schema](schemas/desktop-windows.schema.json) — Windows desktop
+- [Extension schema](schemas/dist/extension.schema.json) — Chrome extension
+- [Desktop Windows schema](schemas/dist/desktop-windows.schema.json) — Windows desktop
 
 See [docs/session-format.md](docs/session-format.md) for the full specification with annotated examples.
 

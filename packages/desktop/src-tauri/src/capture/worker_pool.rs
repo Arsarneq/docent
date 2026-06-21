@@ -821,11 +821,11 @@ fn is_printable_key(key: &str, modifiers: &(bool, bool, bool, bool)) -> bool {
 ///
 /// # Requirements
 ///
-/// - 5.1–5.13: Worker event processing
-/// - 9.1, 9.3–9.6: Type coalescing
-/// - 12.2–12.8: Existing behavior preservation
-/// - 13.4: Worker failure handling (coordinate fallback)
-/// - 14.5: Platform-agnostic coalescing/dedup
+/// - Worker event processing
+/// - Type coalescing
+/// - Existing behavior preservation
+/// - Worker failure handling (coordinate fallback)
+/// - Platform-agnostic coalescing/dedup
 pub fn worker_loop<B: AccessibilityBackend>(
     worker_index: usize,
     mut backend: B,

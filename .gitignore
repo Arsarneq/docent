@@ -11,7 +11,7 @@ packages/desktop/src-tauri/gen/
 packages/*/shared/
 
 # Generated validators (build artifact — Ajv standalone, produced by
-# scripts/build-validators.js via sync-shared; see SECURITY_BACKLOG S12)
+# scripts/build-validators.js via sync-shared)
 packages/shared/generated/
 
 # Generated HTML (assembled from shell + shared views by sync-shared)
@@ -54,6 +54,9 @@ lefthook-local.yml
 .cursor/
 .windsurf/
 .copilot/
+.claude/
+CLAUDE.md
+CLAUDE.local.md
 
 # Environment
 .env

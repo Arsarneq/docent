@@ -1,16 +1,14 @@
 /**
- * Property 11: Session persistence round-trip
+ * Session persistence round-trip
  *
  * For any valid session state (projects with recordings, steps, and
  * settings), serializing the state to JSON and deserializing it back
  * SHALL produce a state equivalent to the original.
  *
- * **Validates: Requirements 14.1, 14.2**
- *
  * This tests the pure serialization/deserialization logic, not the
  * Tauri invoke calls.
  *
- * Feature: desktop-capture, Property 11: Session persistence round-trip
+ * Session persistence round-trip
  */
 
 import { describe, it } from 'node:test';
@@ -156,7 +154,7 @@ function normalize(obj) {
 
 // ─── Property tests ───────────────────────────────────────────────────────────
 
-describe('Property 11: Session persistence round-trip', () => {
+describe('Session persistence round-trip', () => {
   it('serializing and deserializing session state produces equivalent state', () => {
     fc.assert(
       fc.property(arbSessionState, (state) => {

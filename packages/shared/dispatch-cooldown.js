@@ -1,7 +1,7 @@
 /**
  * dispatch-cooldown.js — Post-send cooldown + rapid-resend guard (panel layer)
  *
- * Platform-agnostic state for the UI half of SECURITY_BACKLOG S4. The core half
+ * Platform-agnostic state for the UI half of the dispatch-failure cooldown. The core half
  * (exponential backoff on 429/5xx) lives in dispatch-core.js `sendPayload`; this
  * module is the complementary client-side guard that stops a user hammering the
  * Send button: after a successful dispatch the button is held disabled for a

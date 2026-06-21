@@ -33,9 +33,9 @@ const UIA_PANE_CONTROL_TYPE_ID: i32 = 50033;
 ///   is used.
 ///
 /// # Requirements
-/// - 2a.2: Specific control → accessibility mode
-/// - 2a.3: Top-level window / generic pane → coordinate mode
-/// - 2a.8: `capture_mode` field with `"accessibility"` or `"coordinate"`
+/// - Specific control → accessibility mode
+/// - Top-level window / generic pane → coordinate mode
+/// - `capture_mode` field with `"accessibility"` or `"coordinate"`
 pub fn determine_capture_mode(control_type_id: i32) -> CaptureMode {
     match control_type_id {
         UIA_WINDOW_CONTROL_TYPE_ID | UIA_PANE_CONTROL_TYPE_ID => CaptureMode::Coordinate,
@@ -49,16 +49,15 @@ pub fn determine_capture_mode(control_type_id: i32) -> CaptureMode {
 
 /// Calculate coordinates relative to the application window's top-left corner.
 ///
-/// All values are in **logical pixels** (DPI-scaled, not physical pixels) as
-/// required by Requirement 2a.10.
+/// All values are in **logical pixels** (DPI-scaled, not physical pixels).
 ///
 /// Returns `(rel_x, rel_y)` where:
 /// - `rel_x = abs_x - win_x`
 /// - `rel_y = abs_y - win_y`
 ///
 /// # Requirements
-/// - 2a.4: Coordinates relative to window origin
-/// - 2a.10: Logical pixels (DPI-scaled)
+/// - Coordinates relative to window origin
+/// - Logical pixels (DPI-scaled)
 pub fn relative_coordinates(abs_x: i32, abs_y: i32, win_x: i32, win_y: i32) -> (i32, i32) {
     (abs_x - win_x, abs_y - win_y)
 }
@@ -81,7 +80,7 @@ pub fn relative_coordinates(abs_x: i32, abs_y: i32, win_x: i32, win_y: i32) -> (
 /// - `selector`: `"coord:{rel_x},{rel_y}"`
 ///
 /// # Requirements
-/// - 2a.6: Fallback element description
+/// - Fallback element description
 pub fn fallback_element(window_title: &str, rel_x: i32, rel_y: i32) -> ElementDescription {
     ElementDescription {
         tag: "unknown".to_string(),
@@ -103,8 +102,8 @@ pub fn fallback_element(window_title: &str, rel_x: i32, rel_y: i32) -> ElementDe
 /// All values are in **logical pixels** (DPI-scaled).
 ///
 /// # Requirements
-/// - 2a.5: Record window size and position at capture time
-/// - 2a.10: Logical pixels
+/// - Record window size and position at capture time
+/// - Logical pixels
 pub fn create_window_rect(x: i32, y: i32, width: i32, height: i32) -> WindowRect {
     WindowRect {
         x,

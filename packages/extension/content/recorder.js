@@ -6,8 +6,10 @@
  * capture — this makes recording resilient to SW suspension.
  *
  * Every action is stamped with context_id so the receiving system knows which tab
- * each action occurred on. Runs in all frames (all_frames: true) so
- * interactions inside iframes are also captured.
+ * each action occurred on. Injected programmatically into all frames while
+ * recording (by the service worker, on record-start and on each frame load) so
+ * interactions inside iframes are also captured — there is no passive recorder
+ * present on any page when no recording is active.
  *
  * Captures:
  *   - clicks (interactive elements + fallback to any clicked element)
@@ -139,8 +141,16 @@
       name: el.getAttribute('name') || null,
       role: el.getAttribute('role') || null,
       type: el.getAttribute('type') || null,
+      // Captured so the service worker (the storage chokepoint) can flag sensitive
+      // payment fields via the shared field-sensitivity util — the content script
+      // itself stays pattern-free. Passwords are still masked inline below.
+      autocomplete: el.getAttribute('autocomplete') || null,
       text: isPassword ? null : (el.innerText ?? el.value ?? '').trim().slice(0, 100) || null,
       selector: selectorFor(el),
+      // Mark the password element redacted (its value is masked at the type site
+      // below and its text is nulled above). Non-password sensitive fields are
+      // flagged + masked in the service worker, before storage.
+      ...(isPassword && { redacted: true }),
     };
   }
 
@@ -593,4 +603,20 @@
     },
     { capture: true, passive: true },
   );
+
+  // Readiness signal — reported only AFTER every listener above is attached, so a
+  // reader knows the frame is actually ready to capture (unlike __docentLoaded,
+  // set at the top of this IIFE before any listener exists, which would
+  // under-report). The recorder runs in the content-script ISOLATED world, so a
+  // window.* flag here is invisible to the page's main world; readiness is instead
+  // reported to the service worker via FRAME_READY. That message also confirms —
+  // more strongly than mere frame existence — that this frame's recorder is live,
+  // so the SW trusts its APPEND_ACTIONs. The timestamp is stamped here, before the
+  // message hop, on the same wall clock the SW uses, so the inject→ready window can
+  // be measured without cross-process skew.
+  try {
+    chrome.runtime.sendMessage({ type: 'FRAME_READY', readyAt: Date.now(), url: location.href });
+  } catch {
+    // SW unavailable (e.g. during teardown) — readiness reporting is best-effort.
+  }
 })();

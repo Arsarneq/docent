@@ -1,0 +1,13 @@
+{
+  "name": "docent-reference-sync-server",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Runnable reference implementation of the Docent sync protocol. Repository/testing artifact only — never part of a product release.",
+  "type": "module",
+  "scripts": {
+    "start": "node server.js",
+    "test": "node --test tests/unit/*.test.js tests/integration/*.test.js",
+    "test:unit": "node --test tests/unit/*.test.js",
+    "test:integration": "node --test tests/integration/*.test.js"
+  }
+}

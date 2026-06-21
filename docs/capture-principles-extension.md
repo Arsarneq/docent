@@ -6,8 +6,40 @@ Platform-specific details for the extension. See [core rules](capture-principles
 
 ## Architecture
 
-1. **Content script** (`content/recorder.js`) — DOM events in the page
+1. **Recorder** (`content/recorder.js`) — DOM events in the page, running in the
+   content-script isolated world
 2. **Service worker** (`background/service-worker.js`) — Chrome APIs for browser chrome proxies
+
+The recorder is **not** a passive `<all_urls>` content script. It is injected
+programmatically by the service worker, and **only while a recording is active**:
+
+- On record-start, the service worker injects the recorder into every open
+  http/https tab and frame.
+- For the rest of the recording, each frame is injected as it finishes loading
+  (`webNavigation.onCompleted`), so newly opened tabs, navigations, and
+  dynamically created iframes are covered as they appear.
+
+When no recording is running, no recorder is present on any page — the idle
+surface is just the service worker. (The `host_permissions: <all_urls>` grant is
+retained by decision: it is what lets the service worker inject into any page the
+moment recording starts.)
+
+### Frame trust and readiness
+
+Because actions arrive at the service worker as messages, the service worker only
+trusts the frames it actually injected into. It keeps an in-memory
+**active-frame registry** (tab → injected frames) and validates every inbound
+`APPEND_ACTION` against it: a message is accepted only when it comes from this
+extension, during a live recording, from a frame the service worker injected.
+Anything else — an embedded ad, analytics, or third-party widget that can reach
+the message port — is dropped. The action's `context_id` is stamped from the
+**trusted sender**, never from the message body, so a frame cannot claim to be a
+different tab.
+
+Each injected recorder reports readiness back to the service worker with a
+`FRAME_READY` message rather than setting a page-visible flag — the recorder runs
+in the isolated world, so a `window` flag would both be invisible to the service
+worker and leak recording state to the page.
 
 ---
 

@@ -5,7 +5,6 @@
  * validates the source-layer composition; this checks the synced build output
  * each package actually ships with.
  *
- * Validates:
  * - Extension schema has correct platform-specific content
  * - Desktop schema has correct platform-specific content
  * - Both share the cross-platform definitions

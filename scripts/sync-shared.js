@@ -41,7 +41,7 @@ const PLATFORM_KEY = {
   desktop: 'desktop-windows',
 };
 
-// Generate the platform validators once up front (SECURITY_BACKLOG S12). This
+// Generate the platform validators once up front. This
 // writes packages/shared/generated/validate-<platform>.js for every platform;
 // below, each target receives ONLY its own validator (not the others').
 await buildValidators();

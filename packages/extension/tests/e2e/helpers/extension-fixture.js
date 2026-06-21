@@ -24,6 +24,12 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import http from 'http';
 import fs from 'fs';
+import { installReadyProbe, waitForFrameReady } from './frame-ready.js';
+
+// The active service worker for the current test. Set by the serviceWorker
+// fixture; read by setTestContent (which is a free function with no fixture
+// access). Safe because the e2e config runs with workers: 1 (tests serialise).
+let currentServiceWorker = null;
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const extensionPath = path.resolve(__dirname, '../../..');
@@ -88,7 +94,12 @@ export const test = base.extend({
     } else {
       sw = await context.waitForEvent('serviceworker');
     }
+    // Install the FRAME_READY probe before any navigation so readiness waits can
+    // observe the recorder attaching, and expose the SW to setTestContent.
+    await installReadyProbe(sw);
+    currentServiceWorker = sw;
     await use(sw);
+    currentServiceWorker = null;
   },
 
   // Provide a page that's ready for testing (recording active, on an http URL).
@@ -109,17 +120,24 @@ export const test = base.extend({
       cdpSession = null;
     }
 
-    // Navigate to the local server so the content script is injected.
-    await page.goto(`http://127.0.0.1:${serverPort}/`);
-    await page.waitForTimeout(300); // Let content script initialize
+    // Navigate to the local server. With programmatic injection the recorder is no longer a passive
+    // manifest content script — it is injected by the SW only while recording,
+    // so nothing runs here until recording is turned on below.
+    const pageUrl = `http://127.0.0.1:${serverPort}/`;
+    await page.goto(pageUrl);
 
-    // Start recording via the service worker.
+    // Start recording via the service worker. Flipping `recording` true fires the
+    // SW's storage.onChanged hook, which programmatically injects the recorder
+    // into this tab's frames and seeds the active-frame trust registry.
     await serviceWorker.evaluate(async () => {
       await chrome.storage.local.set({ recording: true, pendingActions: [], pendingCount: 0 });
     });
 
-    // Wait for the content script to pick up the recording state change.
-    await page.waitForTimeout(150);
+    // Wait until the recorder reports FRAME_READY for this frame (via the SW),
+    // instead of a fixed sleep — the frame is ready to capture exactly then. The
+    // recorder's isolated-world window flag is invisible to this main-world page,
+    // so readiness is observed through the service worker.
+    await waitForFrameReady(serviceWorker, pageUrl);
 
     await use(page);
 
@@ -172,8 +190,14 @@ export async function setTestContent(page, html) {
       body: html,
     });
   });
-  await page.goto(`http://127.0.0.1:${serverPort}/test-${Date.now()}`);
-  await page.waitForTimeout(300); // Let content script re-initialize
+  const url = `http://127.0.0.1:${serverPort}/test-${Date.now()}`;
+  await page.goto(url);
+  // After navigation the new document has no recorder until the SW re-injects it
+  // (on webNavigation.onCompleted while recording). Wait until the recorder
+  // reports FRAME_READY (via the SW) rather than a fixed sleep, so capture is
+  // guaranteed live before the test acts. The SW is stashed by the serviceWorker
+  // fixture since this free function has no fixture access.
+  await waitForFrameReady(currentServiceWorker, url);
 }
 
 /**

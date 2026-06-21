@@ -3,7 +3,7 @@
  * validator for each Docent platform and writes it to the (gitignored)
  * build-output dir `packages/shared/generated/`.
  *
- * Why this exists (SECURITY_BACKLOG S12): imported `.docent.json` files and
+ * Why this exists: imported `.docent.json` files and
  * pulled sync payloads must be validated against the published schema before
  * being persisted. Runtime Ajv is not viable on either platform — the extension
  * CSP is `script-src 'self'` (no `unsafe-eval`, so `ajv.compile()`'s `new
@@ -14,7 +14,7 @@
  *
  * One validator per platform: the sync payload now carries the `docent_format`
  * stamp too (it was previously stamp-less — see the sync-protocol change that
- * shipped with S12), so the import envelope and the sync payload are the SAME
+ * added it), so the import envelope and the sync payload are the SAME
  * shape and validate against the SAME composed schema. The single default
  * export is the full-envelope validator used at all three ingestion points
  * (extension import, desktop import, sync pull).
@@ -118,7 +118,7 @@ const HEADER = `/**
  * source of truth). Default export validates the full .docent.json envelope
  * (incl. the docent_format stamp), used for both file import and sync pull.
  * Regenerate with \`npm run sync-shared\`. Build-only and gitignored.
- * See SECURITY_BACKLOG S12.
+ *
  */
 `;
 

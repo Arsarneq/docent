@@ -1,6 +1,6 @@
 /**
  * stamp-compatibility.test.js — Unit tests for checkStampCompatibility
- * (sync schema-mismatch handling, follow-up to S12).
+ * (sync schema-mismatch handling).
  *
  * The helper compares an incoming payload's docent_format stamp against the
  * local client's expected stamp and classifies any mismatch with an actionable

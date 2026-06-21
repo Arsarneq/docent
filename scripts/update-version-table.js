@@ -14,6 +14,19 @@
  *                                               and release LINK (…/releases/tag/desktop-vX.Y.Z)
  *   4. packages/extension/manifest.json       — extension APP version
  *   5. packages/desktop/src-tauri/tauri.conf.json — desktop APP version
+ *   6. reference-implementations/sync-server/samples/<platform>-sample.json
+ *                                               — the `docent_format.schema_version`
+ *                                               stamp of each bundled seed sample
+ *
+ * Item 6 keeps the reference server's bundled seed samples (used by
+ * `POST /__debug/seed { samples: true }`) version-stamped in lockstep with the
+ * schema, so they never silently advertise a stale schema version that the
+ * pulling client would reject. Only the version STRING is rewritten — never the
+ * sample's shape; a shape change is caught earlier, on the feature PR, by the
+ * sample-conformance and client-pull E2E tests. This is consistent with the
+ * release-exclusion principle: that principle keeps the reference server out of
+ * the shipped product BUILD, it does not stop release-time tooling from stamping
+ * version-bearing material the repo owns.
  *
  * Items 4–5 are the trap: the script forces each app version to equal its
  * schema version. Those app/release versions are otherwise owned by the git tag
@@ -168,4 +181,60 @@ if (updateJsonVersion('packages/extension/manifest.json', extVersion)) {
 
 if (updateJsonVersion('packages/desktop/src-tauri/tauri.conf.json', deskVersion)) {
   console.log(`✓ tauri.conf.json version updated to ${deskVersion}`);
+}
+
+// ─── Reference-server seed samples: docent_format.schema_version ──────────────
+//
+// The bundled seed samples carry a `docent_format` stamp. Re-stamp ONLY the
+// schema_version so a seeded sample never advertises a stale version the pulling
+// client would reject. The sample's shape is intentionally left untouched —
+// drift in shape is caught on the feature PR by the conformance + client-pull
+// E2E tests, not here. Keyed by platform so each sample tracks its own schema.
+//
+// This is a SURGICAL text replace of just the version string, NOT a JSON
+// round-trip: the samples contain prettier-inlined objects (e.g. `modifiers`,
+// `tags`) that `JSON.stringify(…, 2)` would expand, producing format churn. The
+// publish workflows deliberately do NOT run prettier over the samples (the
+// reference server must never appear in the publish pipeline — see
+// release-exclusion.test.js), so the write must already be format-clean.
+// `schema_version` only ever appears inside the `docent_format` stamp, so a
+// single-occurrence replace is safe and preserves every other byte exactly.
+const SCHEMA_VERSION_RE = /("schema_version":\s*")[^"]*(")/g;
+
+function updateSampleStampVersion(filePath, version) {
+  const fullPath = join(ROOT, filePath);
+  const content = readFileSync(fullPath, 'utf8');
+
+  const matches = content.match(SCHEMA_VERSION_RE) ?? [];
+  if (matches.length !== 1) {
+    throw new Error(
+      `Expected exactly one "schema_version" in ${filePath}, found ${matches.length}. ` +
+        `The seed sample's docent_format stamp may have changed shape — update this script.`,
+    );
+  }
+
+  const updated = content.replace(SCHEMA_VERSION_RE, `$1${version}$2`);
+  if (updated !== content) {
+    writeFileSync(fullPath, updated, 'utf8');
+    return true;
+  }
+  return false;
+}
+
+if (
+  updateSampleStampVersion(
+    'reference-implementations/sync-server/samples/extension-sample.json',
+    extVersion,
+  )
+) {
+  console.log(`✓ extension-sample.json stamp updated to ${extVersion}`);
+}
+
+if (
+  updateSampleStampVersion(
+    'reference-implementations/sync-server/samples/desktop-windows-sample.json',
+    deskVersion,
+  )
+) {
+  console.log(`✓ desktop-windows-sample.json stamp updated to ${deskVersion}`);
 }

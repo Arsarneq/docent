@@ -7,8 +7,8 @@
 // `windows.rs`.
 //
 // Requirements:
-// - 13.1: Debounce scroll events — record only after scrolling stops for 300ms.
-// - 13.2: Discard scroll events where total distance ≤ 200px in both axes.
+// - Debounce scroll events — record only after scrolling stops for 300ms.
+// - Discard scroll events where total distance ≤ 200px in both axes.
 
 // ---------------------------------------------------------------------------
 // Constants (imported from timing.rs — single source of truth)
@@ -65,8 +65,8 @@ pub struct ScrollResult {
 /// the behaviour is undefined (but will not panic).
 ///
 /// # Requirements
-/// - 13.1: Debounce at 300ms
-/// - 13.2: Discard ≤ 200px in both axes
+/// - Debounce at 300ms
+/// - Discard ≤ 200px in both axes
 pub fn process_scroll_events(events: &[RawScrollEvent]) -> Vec<ScrollResult> {
     if events.is_empty() {
         return Vec::new();
@@ -205,8 +205,8 @@ impl ScrollAccumulator {
 /// - `excluded_pid`: The PID to exclude (if any).
 ///
 /// # Requirements
-/// - 16.1: Exclude events from the app's own process by default.
-/// - 16.3: When exclusion is disabled (excluded_pid is None), keep all events.
+/// - Exclude events from the app's own process by default.
+/// - When exclusion is disabled (excluded_pid is None), keep all events.
 pub fn should_keep_event(event_pid: u32, excluded_pid: Option<u32>) -> bool {
     // PID 0 means the window was already destroyed or invalid — skip it.
     if event_pid == 0 {

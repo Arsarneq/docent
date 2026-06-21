@@ -1,6 +1,5 @@
-// Property 1: Password masking
+// Password masking
 //
-// **Validates: Requirements 2.3**
 //
 // For any text input action where the target element is a password field,
 // the recorded `value` field shall always be `"••••••••"` regardless of
@@ -56,9 +55,7 @@ fn arb_password_value() -> impl Strategy<Value = String> {
 proptest! {
     #![proptest_config(ProptestConfig::with_cases(200))]
 
-    /// Feature: desktop-capture, Property 1: Password masking
-    ///
-    /// **Validates: Requirements 2.3**
+    /// Password masking
     ///
     /// For any random password value, when the native event indicates a
     /// password field (`is_password: true`), the mapped action's `value`
@@ -105,9 +102,7 @@ proptest! {
         }
     }
 
-    /// Feature: desktop-capture, Property 1: Password masking (non-password control)
-    ///
-    /// **Validates: Requirements 2.3**
+    /// Password masking (non-password control)
     ///
     /// For any text input on a non-password field, the value is preserved
     /// as-is (not masked).

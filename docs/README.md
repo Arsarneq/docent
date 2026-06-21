@@ -11,9 +11,16 @@ the [root README](../README.md).
 - [Session Format](session-format.md) — the formal `.docent.json` specification
 - [Sync Protocol](sync-protocol.md) — the REST API for syncing projects between
   clients and a server
+- [Reference Sync Server](reference-sync-server.md) — a small, runnable reference
+  implementation of the [Sync Protocol](sync-protocol.md), for adopters building
+  their own compatible backend
 
 The per-platform [JSON Schemas](../schemas/) are the authoritative source of
 truth for the `.docent.json` format.
+
+This repository intentionally contains no consumer of `.docent.json`, and no
+example consumer. The reference sync server is a sync target — somewhere to store
+and exchange sessions — not a consumer of the format.
 
 ## Contributing
 

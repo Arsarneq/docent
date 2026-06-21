@@ -75,7 +75,7 @@ const UUIDV7_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a
  *
  * Used to validate identifiers that originate from untrusted input (imported
  * files, server-returned sync manifests) before they are interpolated into
- * request URLs or persisted. See SECURITY_BACKLOG S15.
+ * request URLs or persisted.
  *
  * @param {unknown} value
  * @returns {boolean}

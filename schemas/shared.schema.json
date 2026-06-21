@@ -455,6 +455,10 @@
           "type": ["string", "null"],
           "description": "Element subtype when applicable, e.g. \"password\" for masked text inputs. Null otherwise."
         },
+        "autocomplete": {
+          "type": ["string", "null"],
+          "description": "The field's autocomplete hint when present (e.g. \"cc-number\"), used to identify sensitive payment fields. Null when absent or not applicable."
+        },
         "text": {
           "type": ["string", "null"],
           "description": "Visible text, truncated to 100 chars. Null for password fields or when empty."
@@ -462,6 +466,10 @@
         "selector": {
           "type": "string",
           "description": "Locator for the element: a platform-specific selector or accessibility path, or \"coord:x,y\" when only coordinates are available."
+        },
+        "redacted": {
+          "type": "boolean",
+          "description": "True when the captured value and/or text was redacted because the field was sensitive (a password, payment, or other PII field). Absent when nothing was redacted."
         }
       }
     },

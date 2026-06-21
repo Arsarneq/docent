@@ -6,8 +6,6 @@
  * each event at the correct position in the pending actions list based on
  * its sequence_id, delivering immediately (no buffering). These tests verify
  * ordering, completeness, and sequence_id stripping.
- *
- * Feature: capture-worker-pool
  */
 
 import { describe, it, beforeEach } from 'node:test';
@@ -31,11 +29,12 @@ const { resetReorderState, insertOrdered, stripSeqFields } = _testOnly;
 const adapterModule = await import('../../src/adapter-tauri.js');
 const adapter = adapterModule.default;
 
-// ─── Property 4: Events are delivered in sequence order ───────────────────────
-// Feature: capture-worker-pool, Property 4: Reorder buffer ordering
-// **Validates: Requirements 7.3, 7.4**
+const { SENSITIVE_MASK } = await import('../../shared/lib/field-sensitivity.js');
 
-describe('Property 4: Reorder buffer emits events in sequence order', () => {
+// ─── Events are delivered in sequence order ───────────────────────
+// Reorder buffer ordering
+
+describe('Reorder buffer emits events in sequence order', () => {
   beforeEach(() => {
     resetReorderState();
     adapter.clearPendingActions();
@@ -91,11 +90,10 @@ describe('Property 4: Reorder buffer emits events in sequence order', () => {
   });
 });
 
-// ─── Property 5: Completeness guarantee ───────────────────────────────────────
-// Feature: capture-worker-pool, Property 5: Completeness guarantee
-// **Validates: Requirements 8.3, 8.5**
+// ─── Completeness guarantee ───────────────────────────────────────
+// Completeness guarantee
 
-describe('Property 5: Completeness guarantee waits for all events', () => {
+describe('Completeness guarantee waits for all events', () => {
   beforeEach(() => {
     resetReorderState();
     adapter.clearPendingActions();
@@ -166,11 +164,10 @@ describe('Property 5: Completeness guarantee waits for all events', () => {
   });
 });
 
-// ─── Property 11: sequence_id stripped before delivery ────────────────────────
-// Feature: capture-worker-pool, Property 11: sequence_id stripped
-// **Validates: Requirements 6.6, 12.9**
+// ─── sequence_id stripped before delivery ────────────────────────
+// sequence_id stripped
 
-describe('Property 11: sequence_id stripped before delivery', () => {
+describe('sequence_id stripped before delivery', () => {
   beforeEach(() => {
     resetReorderState();
     adapter.clearPendingActions();
@@ -292,5 +289,54 @@ describe('Ordered insertion unit tests', () => {
     assert.strictEqual(delivered[2]._seq, 3);
     assert.strictEqual(delivered[3]._seq, 4);
     assert.strictEqual(delivered[4]._seq, 5);
+  });
+});
+
+// ─── sensitive-value redaction at the desktop storage chokepoint ─────────
+// _insertOrdered runs the shared field-sensitivity util before an action enters
+// the pending list (and so the stored recording). The Rust layer masks passwords
+// natively; this covers cc/ssn/secret fields named in the accessibility tree and
+// sets the `redacted` marker (single-sourced with the extension).
+
+describe('_insertOrdered redacts sensitive field values', () => {
+  beforeEach(() => {
+    resetReorderState();
+    adapter.clearPendingActions();
+  });
+
+  it('masks a sensitive (cc-named) field value, nulls its text, and flags it redacted', () => {
+    insertOrdered({
+      type: 'type',
+      timestamp: 1,
+      element: { tag: 'Edit', name: 'creditCardNumber', selector: 'x', text: '4111111111111111' },
+      value: '4111111111111111',
+    });
+    const a = adapter.getPendingActions()[0];
+    assert.equal(a.value, SENSITIVE_MASK);
+    assert.equal(a.element.text, null);
+    assert.equal(a.element.redacted, true);
+  });
+
+  it('flags a password element (type=password) redacted', () => {
+    insertOrdered({
+      type: 'type',
+      timestamp: 1,
+      element: { tag: 'Edit', name: 'pw', type: 'password', selector: 'x', text: null },
+      value: SENSITIVE_MASK, // Rust already masked the value
+    });
+    assert.equal(adapter.getPendingActions()[0].element.redacted, true);
+  });
+
+  it('leaves a normal field untouched (no over-masking)', () => {
+    insertOrdered({
+      type: 'type',
+      timestamp: 1,
+      element: { tag: 'Edit', name: 'username', selector: 'x', text: 'alice' },
+      value: 'alice',
+    });
+    const a = adapter.getPendingActions()[0];
+    assert.equal(a.value, 'alice');
+    assert.equal(a.element.text, 'alice');
+    assert.equal(a.element.redacted, undefined);
   });
 });

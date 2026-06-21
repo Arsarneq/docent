@@ -20,6 +20,7 @@ import {
   reorderSteps,
   findRecording,
 } from '../../shared/lib/session.js';
+import { isTrustedActionSender } from '../../lib/frame-trust.js';
 
 // ─── Simulated service worker state ──────────────────────────────────────────
 
@@ -879,6 +880,98 @@ describe('SERVICE WORKER: APPEND_ACTION (content script → storage handoff)', (
     await appendSwAction(action);
 
     assert.deepStrictEqual(storageData.pendingActions[0], action);
+  });
+});
+
+// ─── APPEND_ACTION sender validation (frame trust) ────────────────────────────
+// The SW validates each APPEND_ACTION sender against the active-frame registry
+// via the shared frame-trust helper before appending. This replicates the
+// validateAndAppend chokepoint, routing the trust decision through the REAL
+// isTrustedActionSender so the unit test single-sources the predicate rather
+// than re-implementing it.
+
+describe('SERVICE WORKER: APPEND_ACTION sender validation', () => {
+  const RUNTIME_ID = 'docent-extension-id';
+  let storageData;
+  let activeFrames;
+  let liveRecording;
+  let warnings;
+
+  function reset() {
+    storageData = { pendingActions: [], pendingCount: 0 };
+    activeFrames = new Map();
+    liveRecording = true;
+    warnings = 0;
+  }
+
+  function register(tabId, frameId) {
+    let frames = activeFrames.get(tabId);
+    if (!frames) {
+      frames = new Set();
+      activeFrames.set(tabId, frames);
+    }
+    frames.add(frameId);
+  }
+
+  // Mirror of validateAndAppend without chrome.* (no lazy reseed — that needs
+  // webNavigation). Drops untrusted senders silently; stamps context_id from the
+  // trusted sender's tab.
+  async function validateAndAppend(action, sender) {
+    const trusted = isTrustedActionSender({
+      sender,
+      runtimeId: RUNTIME_ID,
+      liveRecording,
+      activeFrames,
+    });
+    if (!trusted) {
+      warnings++;
+      return;
+    }
+    action.context_id = sender.tab.id;
+    storageData.pendingActions = [...storageData.pendingActions, action];
+    storageData.pendingCount = storageData.pendingActions.length;
+  }
+
+  beforeEach(reset);
+
+  it('appends an action from a trusted, recorded frame', async () => {
+    register(7, 0);
+    await validateAndAppend(
+      { type: 'click', context_id: 7 },
+      { id: RUNTIME_ID, frameId: 0, tab: { id: 7 } },
+    );
+    assert.equal(storageData.pendingActions.length, 1);
+    assert.equal(warnings, 0);
+  });
+
+  it('drops (does not append) an action from a frame not in the active set', async () => {
+    register(7, 0);
+    await validateAndAppend({ type: 'click' }, { id: RUNTIME_ID, frameId: 99, tab: { id: 7 } });
+    assert.equal(storageData.pendingActions.length, 0);
+    assert.equal(warnings, 1);
+  });
+
+  it('drops an action from a tab that is not being recorded', async () => {
+    register(7, 0);
+    await validateAndAppend({ type: 'click' }, { id: RUNTIME_ID, frameId: 0, tab: { id: 999 } });
+    assert.equal(storageData.pendingActions.length, 0);
+  });
+
+  it('drops an action from a foreign sender id', async () => {
+    register(7, 0);
+    await validateAndAppend(
+      { type: 'click' },
+      { id: 'evil-extension', frameId: 0, tab: { id: 7 } },
+    );
+    assert.equal(storageData.pendingActions.length, 0);
+  });
+
+  it('stamps context_id from the trusted sender, overwriting a spoofed value', async () => {
+    register(7, 0);
+    const action = { type: 'click', context_id: 1234 };
+    await validateAndAppend(action, { id: RUNTIME_ID, frameId: 0, tab: { id: 7 } });
+    assert.equal(action.context_id, 7);
+    assert.equal(storageData.pendingActions[0].context_id, 7);
   });
 });
 

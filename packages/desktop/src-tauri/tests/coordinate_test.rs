@@ -1,6 +1,5 @@
-// Property 4: Coordinate fallback correctness
+// Coordinate fallback correctness
 //
-// **Validates: Requirements 2a.4, 2a.5, 2a.6**
 //
 // For any action captured in coordinate fallback mode, given an absolute
 // click position (abs_x, abs_y) and a window at position (win_x, win_y)
@@ -46,9 +45,7 @@ fn arb_window_title() -> impl Strategy<Value = String> {
 proptest! {
     #![proptest_config(ProptestConfig::with_cases(200))]
 
-    /// Feature: desktop-capture, Property 4: Coordinate fallback correctness
-    ///
-    /// **Validates: Requirements 2a.4, 2a.5, 2a.6**
+    /// Coordinate fallback correctness
     ///
     /// For any (abs_x, abs_y, win_x, win_y, win_w, win_h, title) tuple:
     /// - `relative_coordinates` returns (abs_x - win_x, abs_y - win_y)

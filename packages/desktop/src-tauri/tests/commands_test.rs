@@ -109,7 +109,7 @@ fn load_state_returns_empty_object_for_unreadable_file() {
 
     let result = load_state_impl(&store());
     assert!(result.is_ok());
-    // Should return "{}" gracefully (Req 14.4)
+    // Should return "{}" gracefully
     assert_eq!(result.unwrap(), "{}");
 }
 

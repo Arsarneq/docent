@@ -263,6 +263,58 @@ test.describe('Password Masking', () => {
   });
 });
 
+test.describe('Sensitive Field Masking', () => {
+  const PAGE_HTML = /* html */ `<!DOCTYPE html>
+  <html><body>
+    <input id="cc" autocomplete="cc-number">
+    <input id="ssn" name="ssn">
+    <input id="user" name="username">
+    <button id="btn">Blur</button>
+  </body></html>`;
+
+  test.beforeEach(async ({ testPage, serviceWorker }) => {
+    await setTestContent(testPage, PAGE_HTML);
+    await testPage.waitForTimeout(200);
+    await clearPendingActions(serviceWorker);
+  });
+
+  test('payment (autocomplete) + SSN (name) values are masked and flagged; a normal field is not', async ({
+    testPage,
+    serviceWorker,
+  }) => {
+    await testPage.click('#cc');
+    await testPage.fill('#cc', '4111111111111111');
+    await testPage.click('#ssn');
+    await testPage.fill('#ssn', '123-45-6789');
+    await testPage.click('#user');
+    await testPage.fill('#user', 'alice');
+    await testPage.click('#btn');
+    await waitForActionsToSettle(serviceWorker, testPage);
+
+    const actions = await getPendingActions(serviceWorker);
+    const types = actions.filter((a) => a.type === 'type');
+
+    // CC (autocomplete=cc-number) and SSN (name=ssn) → masked value, nulled text, redacted.
+    const cc = types.find((a) => a.element?.id === 'cc');
+    const ssn = types.find((a) => a.element?.name === 'ssn');
+    expect(cc?.value).toBe('••••••••');
+    expect(cc?.element.redacted).toBe(true);
+    expect(cc?.element.text).toBe(null);
+    expect(ssn?.value).toBe('••••••••');
+    expect(ssn?.element.redacted).toBe(true);
+
+    // Username → captured normally (no over-masking — Docent needs the fidelity).
+    const user = types.find((a) => a.element?.name === 'username');
+    expect(user?.value).toBe('alice');
+    expect(user?.element.redacted).toBeUndefined();
+
+    // No raw sensitive value leaks anywhere in the stored actions.
+    const json = JSON.stringify(actions);
+    expect(json).not.toContain('4111111111111111');
+    expect(json).not.toContain('123-45-6789');
+  });
+});
+
 test.describe('Double-Click', () => {
   const PAGE_HTML = /* html */ `<!DOCTYPE html>
   <html><body>

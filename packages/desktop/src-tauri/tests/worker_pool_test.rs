@@ -44,15 +44,13 @@ fn is_drag(x1: i32, y1: i32, x2: i32, y2: i32) -> bool {
 }
 
 // ---------------------------------------------------------------------------
-// Property 1: Sequence numbering is monotonically increasing from 1
+// Sequence numbering is monotonically increasing from 1
 // ---------------------------------------------------------------------------
 
 proptest! {
     #![proptest_config(ProptestConfig::with_cases(30))]
 
-    /// Feature: capture-worker-pool, Property 1: Sequence numbering
-    ///
-    /// **Validates: Requirements 1.4, 6.1, 6.2**
+    /// Sequence numbering
     ///
     /// For any N in 1..1000, calling `next_sequence_id()` N times produces
     /// exactly the sequence 1, 2, 3, ..., N with no gaps or duplicates.
@@ -91,15 +89,13 @@ proptest! {
 }
 
 // ---------------------------------------------------------------------------
-// Property 2: Shortest-queue dispatch selects the least busy worker
+// Shortest-queue dispatch selects the least busy worker
 // ---------------------------------------------------------------------------
 
 proptest! {
     #![proptest_config(ProptestConfig::with_cases(20))]
 
-    /// Feature: capture-worker-pool, Property 2: Shortest-queue dispatch
-    ///
-    /// **Validates: Requirements 3.1, 3.2**
+    /// Shortest-queue dispatch
     ///
     /// For any total number of events dispatched to a 3-worker pool where
     /// workers do NOT consume events (queue_len accumulates), the dispatch
@@ -197,15 +193,13 @@ proptest! {
 }
 
 // ---------------------------------------------------------------------------
-// Property 6: Sticky routing for value-change events
+// Sticky routing for value-change events
 // ---------------------------------------------------------------------------
 
 proptest! {
     #![proptest_config(ProptestConfig::with_cases(20))]
 
-    /// Feature: capture-worker-pool, Property 6: Sticky routing
-    ///
-    /// **Validates: Requirements 9.2**
+    /// Sticky routing
     ///
     /// For any sequence of value-change events with the same window_handle,
     /// all events are dispatched to the same worker index.
@@ -287,15 +281,13 @@ proptest! {
 }
 
 // ---------------------------------------------------------------------------
-// Property 9: Click vs drag classification
+// Click vs drag classification
 // ---------------------------------------------------------------------------
 
 proptest! {
     #![proptest_config(ProptestConfig::with_cases(50))]
 
-    /// Feature: capture-worker-pool, Property 9: Click vs drag
-    ///
-    /// **Validates: Requirements 10.2, 10.3**
+    /// Click vs drag
     ///
     /// For any coordinate pair (x1, y1, x2, y2), the classification is:
     /// - drag if max(|x2-x1|, |y2-y1|) > 5
@@ -321,9 +313,7 @@ proptest! {
         );
     }
 
-    /// Feature: capture-worker-pool, Property 9: Click vs drag
-    ///
-    /// **Validates: Requirements 10.2, 10.3**
+    /// Click vs drag
     ///
     /// Movements within the 5-pixel threshold are always classified as clicks.
     #[test]
@@ -349,15 +339,13 @@ proptest! {
 }
 
 // ---------------------------------------------------------------------------
-// Property 10: Drag pair routing to same worker
+// Drag pair routing to same worker
 // ---------------------------------------------------------------------------
 
 proptest! {
     #![proptest_config(ProptestConfig::with_cases(20))]
 
-    /// Feature: capture-worker-pool, Property 10: Drag pair routing
-    ///
-    /// **Validates: Requirements 10.4**
+    /// Drag pair routing
     ///
     /// For any drag event, both the DragStart and Drop RawEvents are
     /// dispatched to the same worker index.
@@ -650,15 +638,13 @@ impl WorkerTestHarness {
 }
 
 // ---------------------------------------------------------------------------
-// Property 3: Sequence_id preservation from RawEvent to ActionEvent
+// Sequence_id preservation from RawEvent to ActionEvent
 // ---------------------------------------------------------------------------
 
 proptest! {
     #![proptest_config(ProptestConfig::with_cases(20))]
 
-    /// Feature: capture-worker-pool, Property 3: Sequence_id preservation
-    ///
-    /// **Validates: Requirements 5.11, 6.3**
+    /// Sequence_id preservation
     ///
     /// For any RawEvent with a given sequence_id processed by a worker,
     /// the resulting ActionEvent carries the same sequence_id value.
@@ -716,15 +702,13 @@ proptest! {
 }
 
 // ---------------------------------------------------------------------------
-// Property 7: Type event coalescing produces one event per keystroke sequence
+// Type event coalescing produces one event per keystroke sequence
 // ---------------------------------------------------------------------------
 
 proptest! {
     #![proptest_config(ProptestConfig::with_cases(10))]
 
-    /// Feature: capture-worker-pool, Property 7: Type coalescing
-    ///
-    /// **Validates: Requirements 9.3, 9.4, 5.4**
+    /// Type coalescing
     ///
     /// For any sequence of rapid value-change events for the same element
     /// within the debounce interval, the worker emits exactly one `type`
@@ -803,15 +787,13 @@ proptest! {
 }
 
 // ---------------------------------------------------------------------------
-// Property 8: Pending type event is flushed before focus or context-switch
+// Pending type event is flushed before focus or context-switch
 // ---------------------------------------------------------------------------
 
 proptest! {
     #![proptest_config(ProptestConfig::with_cases(10))]
 
-    /// Feature: capture-worker-pool, Property 8: Flush on context change
-    ///
-    /// **Validates: Requirements 9.5**
+    /// Flush on context change
     ///
     /// When a worker has a pending type event and receives a focus or
     /// foreground event, the type event is emitted before the focus/context_switch

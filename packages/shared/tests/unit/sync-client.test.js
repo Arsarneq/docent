@@ -4,7 +4,6 @@
  * Tests pushProjects, pullProjects, and sync functions with mocked fetch.
  * Uses Node.js built-in test runner and fast-check for property-based tests.
  *
- * Validates: Requirements R2, R3, R7, R8, R9
  */
 
 import { describe, it, beforeEach, afterEach } from 'node:test';
@@ -101,7 +100,6 @@ describe('pushProjects', () => {
 
   /**
    * Property-based test: pushProjects payload matches Full_Project_Payload shape.
-   * Validates: Requirements R2
    */
   it('payload matches Full_Project_Payload shape (property-based)', async () => {
     await fc.assert(
@@ -304,6 +302,33 @@ describe('pullProjects', () => {
     assert.equal(result.projects.length, 2);
     assert.equal(result.projects[0].project_id, X1);
     assert.equal(result.projects[1].project_id, X2);
+  });
+
+  it("issues every GET with cache: 'no-store' so the webview fetch can't serve a stale payload", async () => {
+    // Regression: the extension transport is the browser's `fetch`. With a server
+    // that sends an ETag but no Cache-Control (the reference server, and adopter
+    // servers), the browser would serve a STALE cached project — the client then
+    // sees already-converged and silently drops an incoming change/review. Every
+    // GET (manifest + per-project) must opt out of the HTTP cache.
+    const ID = '0190a1b2-0000-7000-8000-000000000009';
+    const manifest = [{ project_id: ID, name: 'P', last_modified: '2026-01-01T00:00:00.000Z' }];
+    mockFetch((url) => {
+      if (url.endsWith('/projects')) return makeResponse(200, manifest);
+      if (url.endsWith(`/projects/${ID}`))
+        return makeResponse(200, {
+          project: { project_id: ID, name: 'P', created_at: '2026-01-01T00:00:00.000Z' },
+          recordings: [],
+        });
+      return makeResponse(404);
+    });
+
+    await pullProjects('https://srv.test', null, passValidator);
+
+    assert.ok(fetchCalls.length >= 2, 'manifest + at least one project fetch');
+    for (const call of fetchCalls) {
+      assert.equal(call.options.method, 'GET');
+      assert.equal(call.options.cache, 'no-store', `GET ${call.url} must set cache: 'no-store'`);
+    }
   });
 
   it('network error on manifest returns error with halted=false', async () => {
@@ -561,7 +586,7 @@ describe('sync', () => {
     assert.equal(projects[1].project_id, SERVER_NEW);
   });
 
-  it('executes push before pull (push fetch calls precede pull fetch calls)', async () => {
+  it('executes pull before push (pull fetch calls precede the push PUT)', async () => {
     const SRV1 = '0190a1b2-0000-7000-8000-0000000000c1';
     const localProjects = [makeProject('p1')];
     const manifest = [
@@ -581,14 +606,20 @@ describe('sync', () => {
 
     await sync('https://srv.test', null, localProjects, STUB_SCHEMA, passValidator);
 
-    // First call should be the PUT (push), then GET /projects (pull manifest)
-    assert.equal(fetchCalls[0].options.method, 'PUT');
-    assert.ok(fetchCalls[0].url.includes('/projects/p1'));
+    // Pull-first order: the GET /projects manifest and per-project pull
+    // GET come first; the PUT (push) runs only after pull + reconcile complete.
+    assert.equal(fetchCalls[0].options.method, 'GET');
+    assert.ok(fetchCalls[0].url.endsWith('/projects'));
     assert.equal(fetchCalls[1].options.method, 'GET');
-    assert.ok(fetchCalls[1].url.endsWith('/projects'));
+    assert.ok(fetchCalls[1].url.endsWith(`/projects/${SRV1}`));
+    const putCall = fetchCalls.find((c) => c.options.method === 'PUT');
+    assert.ok(putCall, 'a PUT (push) request was issued after the pull');
+    assert.ok(putCall.url.includes('/projects/p1'));
+    // The push PUT is the LAST request — it never precedes a pull GET.
+    assert.equal(fetchCalls[fetchCalls.length - 1].options.method, 'PUT');
   });
 
-  it('401 on push halts sync, returns halted=true', async () => {
+  it('401 on the pull manifest (the first request) halts sync before any push', async () => {
     const localProjects = [makeProject('p1')];
 
     mockFetch(() => makeResponse(401));
@@ -606,17 +637,21 @@ describe('sync', () => {
     assert.equal(result.pulled.length, 0);
     // Projects unchanged
     assert.deepEqual(projects, localProjects);
-    // No pull calls should have been made (only 1 push call)
+    // Pull-first: the manifest GET is the first request and fails, so no push
+    // is ever attempted (only the 1 manifest call).
     assert.equal(fetchCalls.length, 1);
+    assert.equal(fetchCalls[0].options.method, 'GET');
   });
 
-  it('403 on pull manifest halts sync, returns halted=true', async () => {
+  it('401 on push halts sync after a successful pull+reconcile (nothing pushed)', async () => {
     const localProjects = [makeProject('p1')];
 
+    // Pull manifest succeeds with an empty server (no per-project GETs); the
+    // push PUT then returns 401. In pull-first order the push runs last, so the
+    // pull and reconcile have already completed when the auth failure occurs.
     mockFetch((url, opts) => {
-      if (opts.method === 'PUT') return makeResponse(200, { ok: true });
-      // Pull manifest returns 403
-      if (url.endsWith('/projects') && opts.method === 'GET') return makeResponse(403);
+      if (opts.method === 'PUT') return makeResponse(401);
+      if (url.endsWith('/projects') && opts.method === 'GET') return makeResponse(200, []);
       return makeResponse(404);
     });
 
@@ -629,9 +664,13 @@ describe('sync', () => {
     );
 
     assert.equal(result.halted, true);
-    assert.deepEqual(result.pushed, ['p1']);
+    assert.equal(result.haltReason, 'auth');
+    assert.deepEqual(result.pushed, [], 'the push that returned 401 is not counted as pushed');
     assert.equal(result.pulled.length, 0);
     assert.deepEqual(projects, localProjects);
+    // Order: GET /projects (manifest), then PUT /projects/p1 (the auth failure).
+    assert.equal(fetchCalls[0].options.method, 'GET');
+    assert.equal(fetchCalls[fetchCalls.length - 1].options.method, 'PUT');
   });
 
   it('network error (fetch throws) produces SyncError with null status', async () => {
@@ -731,7 +770,7 @@ describe('sync', () => {
   });
 });
 
-// ─── sync — schema-mismatch handling (follow-up to S12) ───────────────────────
+// ─── sync — schema-mismatch handling ───────────────────────
 
 describe('sync — pull stamp mismatch handling', () => {
   // The local client's stamp comes from STUB_SCHEMA: platform "stub",

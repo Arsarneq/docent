@@ -11,6 +11,7 @@
 import { cpSync, mkdirSync, rmSync, readFileSync, writeFileSync, existsSync } from 'fs';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
+import { buildSync } from 'esbuild';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const root = join(__dirname, '..');
@@ -40,7 +41,13 @@ html = html.replace(/\.\.\/shared\//g, 'shared/');
 writeFileSync(indexPath, html);
 
 // Rewrite JS imports in all .js files in dist/
-for (const file of ['panel.js', 'adapter-tauri.js', 'dispatch.js', 'persistence.js']) {
+for (const file of [
+  'panel.js',
+  'adapter-tauri.js',
+  'auto-sync-host.js',
+  'dispatch.js',
+  'persistence.js',
+]) {
   const filePath = join(distDir, file);
   if (existsSync(filePath)) {
     let js = readFileSync(filePath, 'utf8');
@@ -52,3 +59,31 @@ for (const file of ['panel.js', 'adapter-tauri.js', 'dispatch.js', 'persistence.
 }
 
 console.log('✓ Desktop dist assembled at packages/desktop/dist/');
+
+// 5. Bundle the Tauri bridge. The app ships with `withGlobalTauri: false`,
+// so the frontend reaches the Tauri API via an ESM import of `@tauri-apps/api`
+// (in `tauri-bridge.js`) rather than a `window.__TAURI__` global. Those are bare
+// module specifiers a browser cannot resolve, so esbuild inlines them into a
+// single, self-contained `tauri-bridge.js` that loads under the strict
+// `script-src 'self'` CSP. Only this one file is bundled — every other dist file
+// stays an unbundled ES module, so the per-file Playwright V8-coverage mapping
+// (tests/integration/coverage-fixture.js) is unaffected.
+const bridgeFile = join(distDir, 'tauri-bridge.js');
+if (existsSync(bridgeFile)) {
+  buildSync({
+    entryPoints: [bridgeFile],
+    outfile: bridgeFile,
+    bundle: true,
+    format: 'esm',
+    platform: 'browser',
+    target: 'es2022',
+    allowOverwrite: true,
+    // Resolve @tauri-apps/api from the repo-root node_modules.
+    absWorkingDir: root,
+    logLevel: 'warning',
+  });
+  console.log('✓ Tauri bridge bundled at packages/desktop/dist/tauri-bridge.js');
+} else {
+  console.error('ERROR: packages/desktop/dist/tauri-bridge.js not found after copy.');
+  process.exit(1);
+}
