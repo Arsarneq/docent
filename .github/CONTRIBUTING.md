@@ -4,11 +4,14 @@ Thank you for wanting to contribute. Docent is open source under GPL-3.0.
 
 ## Before You Start
 
-1. **Sign the CLA.** All contributors must sign the Contributor License Agreement.
+1. **Read the [Code of Conduct](CODE_OF_CONDUCT.md).** By participating in this
+   project you agree to uphold it.
+
+2. **Sign the CLA.** All contributors must sign the Contributor License Agreement.
    When you open a pull request, the CLA Assistant bot will prompt you automatically.
    Simply post the comment it requests and you're done.
 
-2. **Check for existing issues.** Your idea or bug may already be tracked.
+3. **Check for existing issues.** Your idea or bug may already be tracked.
    If not, open an issue before starting significant work so we can discuss approach.
    Use the issue templates — [Bug report](ISSUE_TEMPLATE/bug_report.yml) (labels
    the issue `bug`) or [Feature request](ISSUE_TEMPLATE/feature_request.yml)
