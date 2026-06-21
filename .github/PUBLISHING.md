@@ -19,6 +19,16 @@ The publish job then verifies the released commit is current `main` HEAD before 
 
 As part of the run, the pipeline opens a single PR on branch `automated/version-table-update` carrying the regenerated release outputs (bumped leaf delta versions, recomposed `schemas/dist/`, refreshed version tables/badges, app manifests, and seed-sample stamps). On that PR, CI runs a **positive validator** ([`check-no-release-outputs.js`](../scripts/check-no-release-outputs.js)) that asserts the PR contains _only_ those release outputs and that `dist/` composes cleanly from the source layers — so an accidental or unexpected change can never ride in through this mechanism. The PR **auto-merges once it is approved and green**; approving it is the one expected manual step.
 
+## Dry-run a publish (no side-effects)
+
+Both publish workflows accept a manual **`workflow_dispatch`** that runs as a **dry-run**: the full pipeline executes on an ephemeral runner, but every external side-effect is gated off. Use it to rehearse the pipeline — the first live run, or whenever the Chrome Web Store is mid-review and a real `extension-v*` submission isn't yet possible.
+
+Trigger it from the **Actions** tab → _Publish to Chrome Web Store_ / _Publish Desktop App_ → **Run workflow** on `main` (or `gh workflow run publish.yml --ref main`). A dispatch is **always** a dry-run — a real publish happens only by creating a GitHub Release. There is no `dry_run=false` escape hatch; re-run a failed real publish with GitHub's **Re-run jobs** (which preserves the release context).
+
+A dry-run **runs for real**: the full test suite (`needs: [test]`), the build==tested HEAD guard, apply-mode auto-version (into the runner's throwaway checkout), and the package/installer build — the desktop installer is compiled and bundled (tauri-action build-only), and the extension zip is built and asserted upload-ready. It **skips**: the Chrome Web Store upload, the desktop release-asset attach, and the version-table PR (create + auto-merge). The run summary states the mode and what was skipped.
+
+On a no-schema-change `main`, a dry-run rehearses the exact no-bump path a real release takes (auto-version finds nothing → no version PR). The version-PR positive-validator path is exercised only by a real schema-bumping release (or locally — see [docs/local-ci.md](../docs/local-ci.md)). The one thing no dry-run covers is the external API calls themselves (the CWS upload, the release-asset attach) — those run for the first time only on a real release.
+
 ## Chrome Web Store: Privacy practices (manual)
 
 The Chrome Web Store rejects a publish (HTTP 400) until every requested permission has a justification filled under the **Privacy practices** tab of the [developer dashboard](https://chrome.google.com/webstore/devconsole). This is **not API-automatable**. Whenever an extension release adds or changes a permission, fill its justification in the dashboard **before** publishing the release. (The 3.0.0 release needed this for the `alarms` permission added for Auto-Sync.)
@@ -38,7 +48,7 @@ It follows [semantic versioning](https://semver.org/): a breaking change (`!` / 
 
 A release should be **tag + create-release; everything else is mechanical.**
 
-1. Confirm CI is green on `main`.
+1. Confirm CI is green on `main`. _(Optional pre-flight: [dry-run the publish](#dry-run-a-publish-no-side-effects) from the Actions tab to rehearse the whole pipeline with no side-effects — recommended before the first live run.)_
 2. **Extension only:** if the manifest's permissions changed since the last release, fill the new permission's **Privacy practices** justification in the CWS dashboard (above).
 3. Create and publish a GitHub Release with the platform tag (`extension-vX.Y.Z` or `desktop-vX.Y.Z`) — choose the version with the next-release-version helper ([Choosing the release version](#choosing-the-release-version)). Release **extension first** (Chrome Web Store review lag), then desktop. Note any breaking changes in the release notes and bump the major accordingly.
 4. **Approve** the `automated/version-table-update` PR when it appears — it auto-merges once approved and green.

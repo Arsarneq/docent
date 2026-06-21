@@ -3,6 +3,11 @@ name: Publish Desktop App
 on:
   release:
     types: [published]
+  # Dry-run: a manual dispatch rehearses the FULL pipeline (test gate, HEAD guard,
+  # auto-version, installer build) with every external side-effect gated OFF — the
+  # installer is built but NOT attached, and no version-table PR is opened. A real
+  # publish happens ONLY via a published release. See `.github/PUBLISHING.md`.
+  workflow_dispatch:
 
 # Least-privilege default for GITHUB_TOKEN: the reusable `test` job (and any
 # future job) inherits read-only; the `publish-desktop` job below grants itself
@@ -19,13 +24,13 @@ jobs:
   # publish with red tests. Guarded by the same tag check so an extension-v*
   # release doesn't spin the suite here for nothing.
   test:
-    if: startsWith(github.event.release.tag_name, 'desktop-v')
+    if: github.event_name == 'workflow_dispatch' || startsWith(github.event.release.tag_name, 'desktop-v')
     uses: ./.github/workflows/test.yml
     secrets: inherit
 
   publish-desktop:
     needs: [test]
-    if: startsWith(github.event.release.tag_name, 'desktop-v')
+    if: github.event_name == 'workflow_dispatch' || startsWith(github.event.release.tag_name, 'desktop-v')
     strategy:
       fail-fast: false
       matrix:
@@ -43,6 +48,24 @@ jobs:
       pull-requests: write
 
     steps:
+      # workflow_dispatch ⇒ dry-run (build the installer but don't attach it, no
+      # version PR); a published release ⇒ the real publish. shell: bash because the
+      # runner is windows-latest. Single source of truth for the gates below.
+      - name: Resolve release mode
+        id: mode
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "value=dry" >> "$GITHUB_OUTPUT"
+            {
+              echo "## 🧪 Dry run — no external side-effects"
+              echo "Runs the full test gate, the build==tested HEAD guard, auto-version, and the Tauri installer build. The installer is BUILT but NOT attached to a release, and the version-table PR (create + auto-merge) is skipped."
+            } >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "value=release" >> "$GITHUB_OUTPUT"
+            echo "## 🚀 Real release — building + attaching the desktop installer" >> "$GITHUB_STEP_SUMMARY"
+          fi
+
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
         with:
           ref: main
@@ -105,7 +128,7 @@ jobs:
           fi
 
       - name: Create PR for schema version + published schema update if changed
-        if: matrix.os == 'windows-latest' && steps.table-diff.outputs.changed == 'true'
+        if: matrix.os == 'windows-latest' && steps.mode.outputs.value != 'dry' && steps.table-diff.outputs.changed == 'true'
         id: version-pr
         uses: peter-evans/create-pull-request@5f6978faf089d4d20b00c7766989d076bb2fc7f1 # v8
         with:
@@ -119,7 +142,7 @@ jobs:
           delete-branch: true
 
       - name: Auto-merge version table PR
-        if: matrix.os == 'windows-latest' && steps.version-pr.outputs.pull-request-number
+        if: matrix.os == 'windows-latest' && steps.mode.outputs.value != 'dry' && steps.version-pr.outputs.pull-request-number
         run: gh pr merge ${{ steps.version-pr.outputs.pull-request-number }} --auto --squash
         env:
           GH_TOKEN: ${{ github.token }}
@@ -128,6 +151,7 @@ jobs:
         run: node scripts/sync-shared.js desktop
 
       - name: Bump desktop version from release tag
+        if: steps.mode.outputs.value != 'dry'
         shell: bash
         env:
           RELEASE_TAG: ${{ github.event.release.tag_name }}
@@ -150,14 +174,18 @@ jobs:
         run: node scripts/build-desktop-dist.js
 
       - name: Build Tauri application
+        id: tauri
         uses: tauri-apps/tauri-action@fce9c6108b31ea247710505d3aaaa893ee6768d4 # v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           projectPath: packages/desktop
-          tagName: ${{ github.event.release.tag_name }}
-          releaseName: 'Docent Desktop ${{ github.event.release.tag_name }}'
-          releaseBody: ${{ github.event.release.body }}
+          # Dry run ⇒ build-only: empty tag/name/body make tauri-action compile +
+          # bundle the installer WITHOUT creating or attaching a GitHub release. The
+          # real (release-triggered) path passes the tag, so the installer attaches.
+          tagName: ${{ steps.mode.outputs.value == 'release' && github.event.release.tag_name || '' }}
+          releaseName: ${{ steps.mode.outputs.value == 'release' && format('Docent Desktop {0}', github.event.release.tag_name) || '' }}
+          releaseBody: ${{ steps.mode.outputs.value == 'release' && github.event.release.body || '' }}
           releaseDraft: false
           prerelease: false
           # The Tauri auto-updater is intentionally OFF — there is no
@@ -171,3 +199,24 @@ jobs:
           includeUpdaterJson: false
           # Verbose Tauri/cargo build output only when debug logging is on.
           args: ${{ runner.debug == '1' && '--verbose' || '' }}
+
+      # Dry-run substitute for the release-asset attach: prove the installer
+      # actually built (tauri-action ran in build-only mode), without uploading.
+      - name: Validate installer build (dry run)
+        if: steps.mode.outputs.value == 'dry'
+        shell: bash
+        run: |
+          PATHS='${{ steps.tauri.outputs.artifactPaths }}'
+          echo "tauri-action artifactPaths: ${PATHS:-<empty>}"
+          BUNDLE_COUNT=$(find packages/desktop/src-tauri/target -path '*/release/bundle/*' \( -name '*.exe' -o -name '*.msi' \) 2>/dev/null | wc -l | tr -d '[:space:]')
+          if [ -z "$PATHS" ] && [ "$BUNDLE_COUNT" -eq 0 ]; then
+            echo "::error::No installer artifacts found — the Tauri build produced nothing."
+            exit 1
+          fi
+          echo "✓ Installer built (release attach skipped in dry run)."
+          {
+            echo "### Desktop installer (dry run)"
+            echo "- tauri-action artifactPaths: \`${PATHS:-<empty>}\`"
+            echo "- installer bundles found: ${BUNDLE_COUNT}"
+            echo "- GitHub release attach: **skipped**"
+          } >> "$GITHUB_STEP_SUMMARY"
