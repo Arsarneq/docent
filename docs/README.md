@@ -14,6 +14,8 @@ the [root README](../README.md).
 - [Reference Sync Server](reference-sync-server.md) — a small, runnable reference
   implementation of the [Sync Protocol](sync-protocol.md), for adopters building
   their own compatible backend
+- [Running CI locally](local-ci.md) — run the CI test jobs on your own machine
+  with [`act`](https://github.com/nektos/act), and the `windows-latest` boundary
 
 The per-platform [JSON Schemas](../schemas/) are the authoritative source of
 truth for the `.docent.json` format.
