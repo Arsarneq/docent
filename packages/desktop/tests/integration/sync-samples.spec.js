@@ -156,37 +156,35 @@ function startReferenceServer() {
 function proxyToReferenceServer(req, res, referenceBaseUrl) {
   const base = new URL(referenceBaseUrl);
   // Take ONLY the request path; the outbound host always comes from the fixed
-  // base below, never a value the request could influence. Forward just the sync
-  // protocol paths.
+  // base, never a value the request could influence. Forward just the sync
+  // protocol and debug paths the dist server routes here.
   const { pathname, search } = new URL(req.url, base);
-  const isProtocolPath = pathname === '/projects' || pathname.startsWith('/projects/');
+  const isProtocolPath =
+    pathname === '/projects' ||
+    pathname.startsWith('/projects/') ||
+    pathname.startsWith('/__debug/');
   if (!isProtocolPath) {
     res.writeHead(403);
     res.end('Forbidden');
     return;
   }
+  // Build the target from the trusted base (host stays pinned, never
+  // request-derived) and graft on only the validated path/query. Passing the URL
+  // object lets Node format the host correctly — including stripping IPv6
+  // brackets, which a raw `base.hostname` (`[::1]`) would leave in.
+  const target = new URL(base);
+  target.pathname = pathname;
+  target.search = search;
   const chunks = [];
   req.on('data', (c) => chunks.push(c));
   req.on('end', () => {
     const body = Buffer.concat(chunks);
     const headers = { ...req.headers };
     delete headers.host;
-    // Host/port are pinned to the trusted base; only the validated path/query
-    // are taken from the request, so the outbound host is never request-derived.
-    const proxied = http.request(
-      {
-        protocol: base.protocol,
-        hostname: base.hostname,
-        port: base.port,
-        path: pathname + search,
-        method: req.method,
-        headers,
-      },
-      (upstream) => {
-        res.writeHead(upstream.statusCode ?? 502, upstream.headers);
-        upstream.pipe(res);
-      },
-    );
+    const proxied = http.request(target, { method: req.method, headers }, (upstream) => {
+      res.writeHead(upstream.statusCode ?? 502, upstream.headers);
+      upstream.pipe(res);
+    });
     proxied.on('error', () => {
       if (!res.headersSent) res.writeHead(502);
       res.end('Proxy error');
