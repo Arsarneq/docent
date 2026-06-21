@@ -14,6 +14,9 @@ on:
 permissions:
   contents: read
 
+env:
+  NODE_VERSION: '24'
+
 jobs:
   changes:
     runs-on: ubuntu-latest
@@ -25,8 +28,8 @@ jobs:
       referenceServer: ${{ steps.filter.outputs.referenceServer }}
       ci: ${{ steps.filter.outputs.ci }}
     steps:
-      - uses: actions/checkout@v6
-      - uses: dorny/paths-filter@v4
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+      - uses: dorny/paths-filter@fbd0ab8f3e69293af611ebaee6363fc25e6d187d # v4
         id: filter
         with:
           filters: |
@@ -55,7 +58,7 @@ jobs:
     needs: [changes]
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
         with:
           # Full history so the release-output guard can diff against the PR
           # base via merge-base (three-dot). Other steps don't need it but it's
@@ -64,9 +67,9 @@ jobs:
 
       - uses: ./.github/actions/debug-env
 
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
         with:
-          node-version: 20
+          node-version: ${{ env.NODE_VERSION }}
 
       - name: Install dependencies
         run: npm ci
@@ -82,6 +85,11 @@ jobs:
 
       - name: markdownlint
         run: npm run lint:md
+
+      # S17/S18: every Actions `uses:` must be pinned to a commit SHA, not a
+      # mutable tag. Dependabot bumps the SHA + `# version` comment weekly.
+      - name: Check GitHub Actions are SHA-pinned
+        run: npm run check:action-pins
 
       # Guard 2: release-output guard. On a normal feature branch it FAILS if the
       # branch touched release-only outputs (schemas/dist/ or a delta `version`).
@@ -100,7 +108,7 @@ jobs:
           node scripts/check-no-release-outputs.js "origin/$GITHUB_BASE_REF"
 
       - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
         with:
           components: rustfmt
 
@@ -111,13 +119,13 @@ jobs:
   dependency-audit:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
 
       - uses: ./.github/actions/debug-env
 
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
         with:
-          node-version: 20
+          node-version: ${{ env.NODE_VERSION }}
 
       - name: Install root dependencies
         run: npm ci
@@ -126,11 +134,11 @@ jobs:
         run: npm audit --audit-level=high --package-lock-only
 
       - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
 
       - name: Cache cargo-audit
         id: cache-cargo-audit
-        uses: actions/cache@v5
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5
         with:
           path: ~/.cargo/bin/cargo-audit
           key: ${{ runner.os }}-cargo-audit-0.21
@@ -155,13 +163,13 @@ jobs:
       github.event_name == 'push'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
 
       - uses: ./.github/actions/debug-env
 
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
         with:
-          node-version: 20
+          node-version: ${{ env.NODE_VERSION }}
 
       - name: Install root dependencies
         run: npm ci
@@ -207,7 +215,7 @@ jobs:
           cp packages/extension/coverage/lcov.info coverage-artifacts/extension-unit.lcov
 
       - name: Upload JS unit coverage artifact
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: coverage-unit-javascript
           path: coverage-artifacts/*.lcov
@@ -225,13 +233,13 @@ jobs:
       github.event_name == 'push'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
 
       - uses: ./.github/actions/debug-env
 
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
         with:
-          node-version: 20
+          node-version: ${{ env.NODE_VERSION }}
 
       - name: Install root dependencies
         run: npm ci
@@ -253,7 +261,7 @@ jobs:
 
       - name: Upload extension E2E coverage artifact
         if: always()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: coverage-e2e-javascript
           path: packages/extension/tests/e2e/coverage/lcov.info
@@ -261,7 +269,7 @@ jobs:
 
       - name: Upload test results
         if: failure()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: playwright-report
           path: packages/extension/tests/e2e/test-results/
@@ -289,18 +297,18 @@ jobs:
           # are intended to converge into one matrix (#125). (macOS dropped — #83.)
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
 
       - uses: ./.github/actions/debug-env
 
       - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
         with:
           components: llvm-tools-preview
 
       - name: Cache cargo-llvm-cov
         id: cache-llvm-cov
-        uses: actions/cache@v5
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5
         with:
           path: ~/.cargo/bin/cargo-llvm-cov
           key: ${{ runner.os }}-cargo-llvm-cov-0.6
@@ -310,7 +318,7 @@ jobs:
         run: cargo install cargo-llvm-cov
 
       - name: Cache cargo registry and build
-        uses: actions/cache@v5
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5
         with:
           path: |
             ~/.cargo/registry
@@ -385,7 +393,7 @@ jobs:
         run: cargo llvm-cov $RUST_INTEGRATION_TEST_ARGS --ignore-filename-regex "(lib|main)\.rs$" --lcov --output-path coverage-integration.lcov -- --test-threads=1 ${{ runner.debug == '1' && '--nocapture' || '' }}
 
       - name: Upload Rust coverage reports
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: coverage-rust
           path: |
@@ -426,7 +434,7 @@ jobs:
             label: Linux
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
 
       - uses: ./.github/actions/debug-env
 
@@ -449,12 +457,12 @@ jobs:
             librsvg2-dev
 
       - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
         with:
           components: clippy
 
       - name: Cache cargo registry and build
-        uses: actions/cache@v5
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5
         with:
           path: |
             ~/.cargo/registry
@@ -486,13 +494,13 @@ jobs:
       github.event_name == 'push'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
 
       - uses: ./.github/actions/debug-env
 
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
         with:
-          node-version: 20
+          node-version: ${{ env.NODE_VERSION }}
 
       - name: Install root dependencies
         run: npm ci
@@ -514,7 +522,7 @@ jobs:
 
       - name: Upload desktop integration coverage artifact
         if: always()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: coverage-integration-javascript
           path: packages/desktop/tests/integration/coverage/lcov.info
@@ -522,7 +530,7 @@ jobs:
 
       - name: Upload test results
         if: failure()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: desktop-playwright-report
           path: packages/desktop/tests/integration/test-results/
@@ -547,13 +555,13 @@ jobs:
       github.event_name == 'push'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
 
       - uses: ./.github/actions/debug-env
 
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
         with:
-          node-version: 20
+          node-version: ${{ env.NODE_VERSION }}
 
       # The reference server has no runtime deps, but the samples-conformance
       # unit test composes the platform schema (scripts/build-schemas.js → ajv +
@@ -593,12 +601,12 @@ jobs:
     if: always()
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
 
       - uses: ./.github/actions/debug-env
 
       - name: Download all coverage artifacts
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
           pattern: coverage-*
           path: coverage-artifacts
@@ -614,7 +622,7 @@ jobs:
 
       - name: Upload unit JS coverage to Codecov
         if: hashFiles('coverage-artifacts/coverage-unit-javascript/*.lcov') != ''
-        uses: codecov/codecov-action@v7
+        uses: codecov/codecov-action@a99c28d3f0da835de33ff2feb2e15691c7b9641f # v7
         with:
           files: coverage-artifacts/coverage-unit-javascript/shared-desktop-unit.lcov,coverage-artifacts/coverage-unit-javascript/extension-unit.lcov
           disable_search: true
@@ -624,7 +632,7 @@ jobs:
 
       - name: Upload extension E2E coverage to Codecov
         if: hashFiles('coverage-artifacts/coverage-e2e-javascript/lcov.info') != ''
-        uses: codecov/codecov-action@v7
+        uses: codecov/codecov-action@a99c28d3f0da835de33ff2feb2e15691c7b9641f # v7
         with:
           files: coverage-artifacts/coverage-e2e-javascript/lcov.info
           disable_search: true
@@ -634,7 +642,7 @@ jobs:
 
       - name: Upload Rust unit coverage to Codecov
         if: hashFiles('coverage-artifacts/coverage-rust/coverage-unit.lcov') != ''
-        uses: codecov/codecov-action@v7
+        uses: codecov/codecov-action@a99c28d3f0da835de33ff2feb2e15691c7b9641f # v7
         with:
           files: coverage-artifacts/coverage-rust/coverage-unit.lcov
           disable_search: true
@@ -644,7 +652,7 @@ jobs:
 
       - name: Upload Rust integration coverage to Codecov
         if: hashFiles('coverage-artifacts/coverage-rust/coverage-integration.lcov') != ''
-        uses: codecov/codecov-action@v7
+        uses: codecov/codecov-action@a99c28d3f0da835de33ff2feb2e15691c7b9641f # v7
         with:
           files: coverage-artifacts/coverage-rust/coverage-integration.lcov
           disable_search: true
@@ -654,7 +662,7 @@ jobs:
 
       - name: Upload desktop integration JS coverage to Codecov
         if: hashFiles('coverage-artifacts/coverage-integration-javascript/lcov.info') != ''
-        uses: codecov/codecov-action@v7
+        uses: codecov/codecov-action@a99c28d3f0da835de33ff2feb2e15691c7b9641f # v7
         with:
           files: coverage-artifacts/coverage-integration-javascript/lcov.info
           disable_search: true
@@ -667,7 +675,7 @@ jobs:
       # instead of leaving the required project/patch checks unreported.
       - name: Codecov empty upload (no coverage on this commit)
         if: steps.detect.outputs.has_coverage == 'false'
-        uses: codecov/codecov-action@v7
+        uses: codecov/codecov-action@a99c28d3f0da835de33ff2feb2e15691c7b9641f # v7
         with:
           run_command: 'empty-upload'
           force: true
