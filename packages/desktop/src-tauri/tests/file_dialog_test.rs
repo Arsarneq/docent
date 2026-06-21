@@ -5,6 +5,12 @@
 //! discovery step skips any test file whose source contains the `ci-skip`
 //! marker, so there's no filename list to maintain in the workflow.
 //!
+//! NOT a CI coverage gap: the behaviours this relies on — `context_close`
+//! suppression on list-view refresh, select-after-click suppression, and
+//! focus-noise filtering — are pinned deterministically on CI by the
+//! `deduplication::*` tests in `capture_integration.rs`. This local-only test is
+//! the real-file-dialog integration exercise of that already-covered logic.
+//!
 //! Verifies that opening a file dialog and *actually navigating the folder
 //! tree* (clicking the C: drive in the navigation pane, then opening the
 //! "Program Files" folder in the file list) does NOT produce spurious events

@@ -602,7 +602,7 @@ impl WorkerTestHarness {
 
         let thread = thread::spawn(move || {
             let pending = std::sync::Arc::new(Mutex::new(PendingBuffers::default()));
-            worker_loop(0, backend, event_rx, ql, action_tx, ep, pending);
+            worker_loop(0, backend, event_rx, ql, action_tx, ep, pending, None);
         });
 
         Self {
@@ -1675,7 +1675,7 @@ fn excluded_pid_events_are_discarded() {
 
     let thread_handle = thread::spawn(move || {
         let pending = std::sync::Arc::new(Mutex::new(PendingBuffers::default()));
-        worker_loop(0, backend, event_rx, ql, action_tx, ep, pending);
+        worker_loop(0, backend, event_rx, ql, action_tx, ep, pending, None);
     });
 
     // Send an event from the excluded PID.

@@ -826,6 +826,10 @@ fn is_printable_key(key: &str, modifiers: &(bool, bool, bool, bool)) -> bool {
 /// - Existing behavior preservation
 /// - Worker failure handling (coordinate fallback)
 /// - Platform-agnostic coalescing/dedup
+// The `ready` signal plus the existing routing/coalescing dependencies push this
+// one past clippy's 7-arg threshold; they are cohesive worker wiring (channels,
+// counters, shared buffers), not worth a params struct for an internal fn.
+#[allow(clippy::too_many_arguments)]
 pub fn worker_loop<B: AccessibilityBackend>(
     worker_index: usize,
     mut backend: B,
@@ -834,8 +838,22 @@ pub fn worker_loop<B: AccessibilityBackend>(
     action_sender: mpsc::Sender<ActionEvent>,
     excluded_pid: Arc<AtomicU32>,
     pending: SharedPendingBuffers,
+    ready: Option<mpsc::Sender<()>>,
 ) {
-    if let Err(e) = backend.init() {
+    let init_result = backend.init();
+    // Signal that this worker has finished its (possibly cold) init phase so
+    // WindowsCapture::start() can return only once every worker is past its
+    // first UIA/COM instantiation and able to consume events. Without this, an
+    // event dispatched during a multi-second cold init on a fresh/headless
+    // machine sits unconsumed in the worker's queue and is silently dropped on a
+    // fast stop() (the shutdown detach path does not drain the queue). Signal
+    // regardless of success — a worker whose init failed has still finished
+    // initialising (it is respawned on the next dispatch); start() must never
+    // block waiting on it.
+    if let Some(ready) = &ready {
+        let _ = ready.send(());
+    }
+    if let Err(e) = init_result {
         eprintln!("[Worker {worker_index}] init failed: {e}");
         return;
     }
@@ -1933,11 +1951,15 @@ mod tests {
     // accessibility queries, Docent captures *nothing* for the in-flight event
     // and never hangs; when the app is responsive, the event is captured.
 
-    /// Backend whose `focused_element()` either returns at once or blocks
-    /// forever, modelling a responsive vs. an unresponsive application. Every
-    /// other query returns promptly so only the in-handler UIA call is affected.
+    /// Backend whose `focused_element()` and/or `window_title()` either return
+    /// at once or block forever, modelling a responsive vs. an unresponsive
+    /// application. `block_focused` gates the element query (the click/keypress
+    /// path); `block_window_title` gates the title lookup (the foreground /
+    /// context-switch path). Every other query returns promptly so only the
+    /// targeted in-handler UIA call is affected.
     struct ProbeBackend {
         block_focused: bool,
+        block_window_title: bool,
     }
 
     impl AccessibilityBackend for ProbeBackend {
@@ -1969,6 +1991,15 @@ mod tests {
             })
         }
         fn window_title(&self, _window_handle: i64) -> String {
+            if self.block_window_title {
+                // Model an unresponsive provider on the foreground path: the
+                // title lookup never returns. The wedged worker is detached by
+                // bounded shutdown and reclaimed at process exit (same pattern
+                // as `block_focused`).
+                loop {
+                    thread::sleep(Duration::from_secs(3600));
+                }
+            }
             "Probe".to_string()
         }
         fn process_name(&self, _window_handle: i64) -> String {
@@ -1990,13 +2021,28 @@ mod tests {
 
     /// Build a single-worker pool running the real `worker_loop` over a
     /// `ProbeBackend`. Returns the pool and the action receiver.
-    fn pool_with_probe_backend(block_focused: bool) -> (WorkerPool, mpsc::Receiver<ActionEvent>) {
+    fn pool_with_probe_backend(
+        block_focused: bool,
+        block_window_title: bool,
+    ) -> (WorkerPool, mpsc::Receiver<ActionEvent>) {
         let (action_tx, action_rx) = mpsc::channel::<ActionEvent>();
         let pool = WorkerPool::new(1, action_tx, move |idx, rx, queue_len, sender, pending| {
             let excluded_pid = Arc::new(AtomicU32::new(0));
             thread::spawn(move || {
-                let backend = ProbeBackend { block_focused };
-                worker_loop(idx, backend, rx, queue_len, sender, excluded_pid, pending);
+                let backend = ProbeBackend {
+                    block_focused,
+                    block_window_title,
+                };
+                worker_loop(
+                    idx,
+                    backend,
+                    rx,
+                    queue_len,
+                    sender,
+                    excluded_pid,
+                    pending,
+                    None,
+                );
             })
         });
         (pool, action_rx)
@@ -2025,12 +2071,30 @@ mod tests {
         }
     }
 
+    /// A foreground-change RawEvent for the context-switch tests.
+    fn foreground_raw_event() -> RawEvent {
+        RawEvent {
+            event_type: RawEventType::Foreground,
+            sequence_id: 1,
+            timestamp: 1000,
+            screen_x: 0,
+            screen_y: 0,
+            window_handle: 99,
+            process_id: 1,
+            key_code: 0,
+            modifiers: (false, false, false, false),
+            scroll_delta: 0.0,
+            callback_params: [0; 4],
+            pre_captured_element: None,
+        }
+    }
+
     #[test]
     fn responsive_app_keypress_is_captured() {
         // Responsive app: the focused-element query returns promptly, the key
         // is buffered, and the worker's own Shutdown flush emits it. Everything
         // the user put down is captured.
-        let (mut pool, rx) = pool_with_probe_backend(false);
+        let (mut pool, rx) = pool_with_probe_backend(false, false);
         pool.dispatch(printable_key_raw_event());
         // Let the worker process the event before shutting down.
         thread::sleep(Duration::from_millis(100));
@@ -2051,7 +2115,7 @@ mod tests {
         // or duplicated. This is the deterministic equivalent of the
         // navigation_keys real-input integration test (whose capture *count* is
         // environment-dependent and therefore not asserted on CI).
-        let (mut pool, rx) = pool_with_probe_backend(false);
+        let (mut pool, rx) = pool_with_probe_backend(false, false);
         // VK codes: Home 0x24, End 0x23, PageUp 0x21, PageDown 0x22,
         // Delete 0x2E, Backspace 0x08.
         let vks = [0x24u32, 0x23, 0x21, 0x22, 0x2E, 0x08];
@@ -2075,7 +2139,7 @@ mod tests {
         // nothing to rescue — Docent correctly captures NOTHING for the
         // in-flight event — and, critically, shutdown is still bounded (the
         // wedged worker is detached, not joined).
-        let (mut pool, rx) = pool_with_probe_backend(true);
+        let (mut pool, rx) = pool_with_probe_backend(true, false);
         pool.dispatch(printable_key_raw_event());
         // Let the worker pick up the event and block inside focused_element().
         thread::sleep(Duration::from_millis(100));
@@ -2092,6 +2156,66 @@ mod tests {
         assert!(
             drain_events(&rx).is_empty(),
             "an unresponsive app's in-flight keypress must NOT be captured"
+        );
+        // Wedged worker was detached, so a second shutdown is a no-op.
+        assert!(pool.workers.iter().all(|w| w.thread.is_none()));
+    }
+
+    #[test]
+    fn responsive_app_foreground_produces_context_switch() {
+        // Responsive app: a foreground change resolves its title/process via
+        // prompt queries and the context switch is emitted immediately. This is
+        // the DETERMINISTIC equivalent of the `alt_tab_produces_context_switch`
+        // real-input integration test — whose capture *count* is
+        // environment-dependent (synthesised Alt+Tab needs a real interactive
+        // task switcher) and therefore only asserted as no-hang/best-effort.
+        let (mut pool, rx) = pool_with_probe_backend(false, false);
+        pool.dispatch(foreground_raw_event());
+        thread::sleep(Duration::from_millis(100));
+        pool.shutdown_with_timeout(Duration::from_secs(5));
+
+        let switches: Vec<_> = drain_events(&rx)
+            .into_iter()
+            .filter_map(|e| match e.payload {
+                ActionPayload::ContextSwitch { source, title } => Some((source, title)),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(
+            switches,
+            vec![("probe.exe".to_string(), Some("Probe".to_string()))],
+            "a responsive app's foreground change must produce exactly one context switch"
+        );
+    }
+
+    #[test]
+    fn unresponsive_app_foreground_is_not_captured_and_shutdown_is_bounded() {
+        // Unresponsive app on the foreground path: the worker blocks inside the
+        // title lookup, so the context switch is never emitted. Per the product
+        // decision (see the module note above), a context switch is treated like
+        // any other in-flight event — Docent captures NOTHING for it when the
+        // provider hangs, and shutdown is still bounded (the wedged worker is
+        // detached, not joined). This pins down that the foreground path follows
+        // the same lose-on-hang contract as the keypress path, deterministically.
+        let (mut pool, rx) = pool_with_probe_backend(false, true);
+        pool.dispatch(foreground_raw_event());
+        // Let the worker pick up the event and block inside window_title().
+        thread::sleep(Duration::from_millis(100));
+
+        let timeout = Duration::from_millis(300);
+        let start = Instant::now();
+        pool.shutdown_with_timeout(timeout);
+        let elapsed = start.elapsed();
+
+        assert!(
+            elapsed >= timeout && elapsed < Duration::from_secs(3),
+            "shutdown must be bounded even when the foreground title lookup hangs (took {elapsed:?})"
+        );
+        assert!(
+            !drain_events(&rx)
+                .iter()
+                .any(|e| matches!(e.payload, ActionPayload::ContextSwitch { .. })),
+            "an unresponsive app's in-flight context switch must NOT be captured"
         );
         // Wedged worker was detached, so a second shutdown is a no-op.
         assert!(pool.workers.iter().all(|w| w.thread.is_none()));

@@ -21,7 +21,7 @@ use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 use std::sync::mpsc::Sender;
 use std::sync::Arc;
 use std::thread::{self, JoinHandle};
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use windows::core::BOOL;
 use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, POINT, WPARAM};
@@ -58,6 +58,15 @@ use super::worker_pool::{worker_loop, AccessibilityBackend, RawEvent, RawEventTy
 use super::{
     ActionEvent, CaptureError, CaptureLayer, ElementDescription, PermissionStatus, WindowInfo,
 };
+
+/// Number of accessibility worker threads in the pool.
+const WORKER_COUNT: usize = 3;
+
+/// Upper bound `start()` waits for each worker to finish its (possibly cold)
+/// UIA/COM init before proceeding without it. Generous because a fresh or
+/// headless machine's first `CoCreateInstance(CUIAutomation)` can take several
+/// seconds; hitting this bound is pathological and only logs a warning.
+const WORKER_INIT_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// Horizontal mouse wheel message (not always exported by the windows crate).
 const WM_MOUSEHWHEEL: u32 = 0x020E;
@@ -362,11 +371,21 @@ impl CaptureLayer for WindowsCapture {
         self.active.store(true, Ordering::SeqCst);
         let excluded_pid = self.excluded_pid.clone();
 
-        // --- Create WorkerPool with 3 workers ---
-        let mut pool = WorkerPool::new(3, sender.clone(), {
+        // Each worker signals here once it has finished its (possibly cold)
+        // UIA/COM init; start() blocks (bounded) until all are ready, so capture
+        // is genuinely able to consume events when start() returns — no events
+        // dropped during a multi-second cold warm-up on a fresh/headless machine.
+        // See worker_loop for why an event dispatched into a not-yet-initialised
+        // worker would otherwise be lost on a fast stop().
+        let (ready_tx, ready_rx) = std::sync::mpsc::channel::<()>();
+
+        // --- Create WorkerPool with WORKER_COUNT workers ---
+        let mut pool = WorkerPool::new(WORKER_COUNT, sender.clone(), {
             let excluded_pid = excluded_pid.clone();
+            let ready_tx = ready_tx.clone();
             move |index, rx, queue_len, action_sender, pending| {
                 let excluded_pid = excluded_pid.clone();
+                let ready_tx = ready_tx.clone();
                 thread::spawn(move || {
                     let backend = WindowsAccessibilityBackend::new();
                     worker_loop(
@@ -377,12 +396,25 @@ impl CaptureLayer for WindowsCapture {
                         action_sender,
                         excluded_pid,
                         pending,
+                        Some(ready_tx),
                     );
                 })
             }
         });
 
-        // Workers are ready once spawned — init happens inside worker_loop.
+        // Block (bounded) until every worker is past its cold init and looping.
+        // We expect exactly WORKER_COUNT "ready" signals; the generous per-signal
+        // timeout is a safety net so a pathological cold init can't hang capture
+        // start (it only logs and proceeds).
+        for _ in 0..WORKER_COUNT {
+            if ready_rx.recv_timeout(WORKER_INIT_TIMEOUT).is_err() {
+                eprintln!(
+                    "[WindowsCapture] Warning: a worker did not finish init within \
+                     {WORKER_INIT_TIMEOUT:?}; starting anyway (early events may be missed)"
+                );
+                break;
+            }
+        }
 
         // Store the sequence counter so max_sequence_id() works.
         let sequence_counter = Arc::clone(pool.sequence_counter());

@@ -10,7 +10,11 @@
 //! - Window positioned at virtual desktop edges
 //!
 //! Tests that require actual multi-monitor hardware are marked `#[ignore]`
-//! with instructions for manual verification.
+//! with instructions for manual verification. NOT a CI coverage gap: the
+//! coordinate math those would exercise — including negative/secondary-monitor
+//! coordinates — is covered deterministically by the tests above via simulated
+//! bounds (no hardware needed); the `#[ignore]` is purely the real-2-monitor
+//! verification.
 //!
 //! Run with: cargo test --test coordinate_dpi_test
 //!
