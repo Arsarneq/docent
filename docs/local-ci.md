@@ -112,8 +112,8 @@ payload:
 act workflow_dispatch -W .github/workflows/publish.yml -e dispatch-event.json
 ```
 
-with a minimal payload so the build==tested HEAD guard and the `changes` filter
-resolve:
+with a minimal payload so the `changes` paths-filter resolves (it reads
+`repository.default_branch`):
 
 ```json
 {
@@ -123,14 +123,15 @@ resolve:
 ```
 
 If the HEAD guard trips (act's synthetic `github.sha` ≠ your local HEAD), add
-`--env GITHUB_SHA=$(git rev-parse HEAD)`. The **extension** dry-run runs fully
-under `act` (Linux). The **desktop** `publish-desktop` job is `windows-latest`,
+`--env GITHUB_SHA=$(git rev-parse HEAD)`. The extension **publish job** (package
+build + the dry-run validate) runs under `act`; note the gating `test` suite still
+has `windows-latest` legs (`desktop-rust-tests`, `desktop-cross-compile`) that
+act-on-Linux skips. The **desktop** `publish-desktop` job is itself `windows-latest`,
 so its installer build runs only **natively** (`cargo tauri build` from
 `packages/desktop/src-tauri`) or on a real GitHub dispatch — not under `act`.
 
 The reusable-workflow / `secrets: inherit` caveat above applies here too: if the
 gating `test` job won't resolve under `act`, lint the wiring with `actionlint` and
-confirm the full run with a real `workflow_dispatch` on GitHub (Actions tab → the
-publish workflow → **Run workflow**). See
-[.github/PUBLISHING.md](../.github/PUBLISHING.md) → "Dry-run a publish" for what a
-dry-run runs vs. skips.
+confirm the full run with a real `workflow_dispatch` on GitHub. See
+[.github/PUBLISHING.md → Dry-run a publish](../.github/PUBLISHING.md#dry-run-a-publish-no-side-effects)
+for the exact GitHub-UI steps and what a dry-run runs vs. skips.
