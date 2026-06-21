@@ -4,6 +4,12 @@ on:
   release:
     types: [published]
 
+# Least-privilege default for GITHUB_TOKEN: the reusable `test` job (and any
+# future job) inherits read-only; the `publish-desktop` job below grants itself
+# the writes it needs. Closes the CodeQL "workflow does not limit GITHUB_TOKEN" alert.
+permissions:
+  contents: read
+
 jobs:
   # Gate publishing on a green FULL test suite for the release SHA. The suite is
   # the reusable test.yml; `publish-desktop` needs it, so a release can never
