@@ -20,16 +20,9 @@ import { pathToFileURL } from 'node:url';
 const ROOT = resolve(import.meta.dirname, '..');
 const SHA_RE = /^[0-9a-f]{40}$/;
 
-// Actions exempt from SHA-pinning. `ossf/scorecard-action` must be TAG-pinned: the
-// OpenSSF `publish_results` verification rejects a commit SHA ("imposter commit"),
-// and it is a low-risk read-only monitoring action — its job token is `read-all` +
-// `security-events: write` + `id-token` only, with no release/secret/code-write
-// access — so a repointed tag's blast radius is small. Dependabot still bumps it.
-export const TAG_PINNED_ALLOWED = new Set(['ossf/scorecard-action']);
-
 /**
  * Find `uses:` references in a workflow/action file that are NOT SHA-pinned.
- * Local refs (`./…`, `../…`) and the TAG_PINNED_ALLOWED actions are exempt.
+ * Local refs (`./…`, `../…`) are exempt.
  *
  * @returns {Array<{line: number, ref: string}>}
  */
@@ -41,7 +34,6 @@ export function findUnpinned(text) {
     const ref = m[2];
     if (ref.startsWith('./') || ref.startsWith('../')) return; // local action / reusable workflow
     const at = ref.lastIndexOf('@');
-    if (TAG_PINNED_ALLOWED.has(at === -1 ? ref : ref.slice(0, at))) return; // documented exception
     const rev = at === -1 ? '' : ref.slice(at + 1);
     if (!SHA_RE.test(rev)) out.push({ line: i + 1, ref });
   });
