@@ -6,7 +6,7 @@
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { findUnpinned } from '../../../../scripts/check-action-pins.js';
+import { findUnpinned, TAG_PINNED_ALLOWED } from '../../../../scripts/check-action-pins.js';
 
 const SHA = 'a'.repeat(40);
 
@@ -53,5 +53,13 @@ describe('findUnpinned — SHA-pin enforcement for `uses:`', () => {
   it('ignores an uppercase/short hex that is not a full SHA', () => {
     assert.equal(findUnpinned('      - uses: a/b@DEADBEEF').length, 1);
     assert.equal(findUnpinned('      - uses: a/b@abc123').length, 1);
+  });
+
+  it('exempts the documented tag-pinned actions (ossf/scorecard-action)', () => {
+    assert.ok(TAG_PINNED_ALLOWED.has('ossf/scorecard-action'));
+    // a tag is accepted for the exempt action (its publish_results verification rejects a SHA)...
+    assert.deepEqual(findUnpinned('      - uses: ossf/scorecard-action@v2.4.3'), []);
+    // ...but the exemption is scoped to that exact action, not look-alikes.
+    assert.equal(findUnpinned('      - uses: ossf/other-action@v1').length, 1);
   });
 });
