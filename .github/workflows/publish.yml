@@ -26,6 +26,8 @@ jobs:
   test:
     if: github.event_name == 'workflow_dispatch' || startsWith(github.event.release.tag_name, 'extension-v')
     uses: ./.github/workflows/test.yml
+    with:
+      platform: extension
     secrets: inherit
 
   publish:
