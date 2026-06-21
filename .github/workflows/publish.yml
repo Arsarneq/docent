@@ -32,7 +32,7 @@ jobs:
           DOCENT_RELEASE: '1'
 
       - name: Format updated files
-        run: npx prettier --write README.md docs/session-format.md 'schemas/*.delta.json' 'schemas/dist/*.json'
+        run: npx prettier --write README.md docs/session-format.md 'schemas/*.delta.json' 'schemas/dist/*.json' packages/extension/manifest.json packages/desktop/src-tauri/tauri.conf.json
 
       - name: Check for version table / schema changes
         id: table-diff
