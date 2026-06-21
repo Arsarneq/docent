@@ -249,9 +249,16 @@ See [docs/session-format.md](docs/session-format.md) for the full specification 
 
 ## Contributing
 
-See [.github/CONTRIBUTING.md](.github/CONTRIBUTING.md).
+Contributions are welcome — start with the **[contributing guide](.github/CONTRIBUTING.md)**. By participating you agree to the [Code of Conduct](.github/CODE_OF_CONDUCT.md), and all contributors sign the [CLA](CLA.md) (the CLA Assistant bot prompts you automatically on pull requests).
 
-All contributors must sign the [CLA](CLA.md). The CLA Assistant bot handles this automatically on pull requests.
+Project references:
+
+- [Documentation index](docs/README.md) — capture principles, session format, sync protocol, running CI locally
+- [Contributing guide](.github/CONTRIBUTING.md) — setup, structure, conventions, testing, PRs
+- [Code of Conduct](.github/CODE_OF_CONDUCT.md) — the Contributor Covenant we follow
+- [Security policy](.github/SECURITY.md) — reporting a vulnerability
+- [Publishing](.github/PUBLISHING.md) — the per-platform release process
+- [Contributor License Agreement](CLA.md)
 
 ---
 
