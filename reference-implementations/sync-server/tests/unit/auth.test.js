@@ -1,5 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
+import { performance } from 'node:perf_hooks';
 
 import { checkAuth } from '../../auth.js';
 
@@ -72,5 +73,30 @@ describe('checkAuth — authenticated server (Static_Token configured)', () => {
     assert.deepEqual(checkAuth(TOKEN, fakeReq(`bearer ${TOKEN}`)), {
       ok: true,
     });
+  });
+});
+
+describe('checkAuth — Bearer parsing is linear (regression: CodeQL js/polynomial-redos)', () => {
+  it('extracts the token across a multi-space/tab separator run', () => {
+    assert.deepEqual(checkAuth(TOKEN, fakeReq(`Bearer \t  \t${TOKEN}`)), {
+      ok: true,
+    });
+  });
+
+  it('does not backtrack polynomially on a pathological whitespace header', () => {
+    // Pre-fix the scheme was matched with /^Bearer[ \t]+(.*)$/i, whose `[ \t]+`
+    // and `(.*)` overlap (`.` also matches space/tab). A long tab run before a
+    // `$`-defeating newline made it backtrack quadratically (ReDoS). The fix
+    // matches only the non-overlapping scheme prefix and slices the remainder,
+    // so this stays linear — it returns promptly (and rejects).
+    const evil = `Bearer ${'\t'.repeat(100000)}\nx`;
+    const start = performance.now();
+    const result = checkAuth(TOKEN, fakeReq(evil));
+    const elapsed = performance.now() - start;
+    assert.deepEqual(result, { ok: false, status: 403 });
+    assert.ok(
+      elapsed < 1000,
+      `Bearer parse took ${elapsed.toFixed(1)}ms — possible ReDoS regression`,
+    );
   });
 });

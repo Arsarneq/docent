@@ -39,9 +39,13 @@ export function checkAuth(configuredToken, req) {
   }
 
   // Extract the credential following the `Bearer` scheme. The scheme name is
-  // case-insensitive per RFC 6750; the token itself is compared exactly.
-  const match = /^Bearer[ \t]+(.*)$/i.exec(header);
-  const presentedToken = match ? match[1] : null;
+  // case-insensitive per RFC 6750; the token itself is compared exactly. Match
+  // only the scheme and its trailing space/tab run, then take the remainder by
+  // slicing. A single `[ \t]+(.*)` pattern overlaps — `.` also matches space and
+  // tab — which is polynomial-backtracking ReDoS on the attacker-controlled
+  // header; matching a non-overlapping prefix and slicing is linear.
+  const schemeMatch = /^Bearer[ \t]+/i.exec(header);
+  const presentedToken = schemeMatch ? header.slice(schemeMatch[0].length) : null;
 
   // the presented Bearer token matches the configured Static_Token.
   if (presentedToken === configuredToken) {
