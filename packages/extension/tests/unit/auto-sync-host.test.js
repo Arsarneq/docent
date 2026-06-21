@@ -156,15 +156,27 @@ globalThis.chrome = {
   sidePanel: { open: async () => {} },
 };
 
+// Parse a fetch URL for exact pathname/origin matching, rather than substring
+// checks on the raw URL (which a host could sit before/after — flagged by CodeQL).
+// Falls back to a dummy base so a relative URL still parses.
+function parseUrl(u) {
+  try {
+    return new URL(u);
+  } catch {
+    return new URL(u, 'http://localhost');
+  }
+}
+
 globalThis.fetch = async (url) => {
   const u = String(url);
   fetchCalls.push(u);
-  if (u.endsWith('session.schema.json')) {
+  const { pathname } = parseUrl(u);
+  if (pathname.endsWith('/session.schema.json')) {
     return { ok: true, status: 200, json: async () => SCHEMA, text: async () => '' };
   }
   // The shared sync()'s pull phase fetches the manifest at `${serverUrl}/projects`.
   // An empty manifest means a complete, no-op cycle that still persists SyncState.
-  if (u.endsWith('/projects')) {
+  if (pathname === '/projects') {
     return { ok: true, status: 200, json: async () => [], text: async () => '' };
   }
   return { ok: true, status: 200, json: async () => ({}), text: async () => '' };
@@ -185,6 +197,14 @@ async function waitFor(predicate, { tries = 100 } = {}) {
     await tick();
   }
   throw new Error('waitFor: condition not met in time');
+}
+
+/** Did the SW pull the sync manifest at exactly `${origin}/projects`? */
+function fetchedManifestFrom(origin) {
+  return fetchCalls.some((u) => {
+    const parsed = parseUrl(u);
+    return parsed.origin === origin && parsed.pathname === '/projects';
+  });
 }
 
 /** A complete SyncState blob with Auto-Sync toggled as requested. */
@@ -286,7 +306,7 @@ describe('extension background Auto-Sync host (service worker)', () => {
 
     // The cycle routes through the SHARED sync() — proven by its pull-first
     // manifest fetch against the configured endpoint — not a panel message path.
-    await waitFor(() => fetchCalls.includes('https://sync.test/projects'));
+    await waitFor(() => fetchedManifestFrom('https://sync.test'));
     assert.equal(sendMessageCalls, 0, 'the SW ran sync() in-process, not via a panel message');
 
     // sync() persisted the resulting SyncState through the SAME chrome-backed
@@ -321,7 +341,7 @@ describe('extension background Auto-Sync host (service worker)', () => {
 
     fireBackstopAlarm();
 
-    await waitFor(() => fetchCalls.includes('https://sync.test/projects'));
+    await waitFor(() => fetchedManifestFrom('https://sync.test'));
     await waitFor(() => storageData[SYNC_STATE_KEY] && storageData[SYNC_STATE_KEY].schema === 1);
     assert.ok(
       storageData[SYNC_STATE_KEY],

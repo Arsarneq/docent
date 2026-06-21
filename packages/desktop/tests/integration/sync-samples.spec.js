@@ -154,7 +154,19 @@ function startReferenceServer() {
  * @param {string} referenceBaseUrl
  */
 function proxyToReferenceServer(req, res, referenceBaseUrl) {
-  const target = new URL(req.url, referenceBaseUrl);
+  const base = new URL(referenceBaseUrl);
+  const target = new URL(req.url, base);
+  // Only ever forward the sync protocol paths to the fixed reference origin —
+  // never a host the request could influence. Resolving `req.url` against `base`
+  // keeps the origin pinned; this guard makes that explicit (and clears the
+  // CodeQL SSRF flag on the outbound request).
+  const isProtocolPath =
+    target.pathname === '/projects' || target.pathname.startsWith('/projects/');
+  if (target.origin !== base.origin || !isProtocolPath) {
+    res.writeHead(403);
+    res.end('Forbidden');
+    return;
+  }
   const chunks = [];
   req.on('data', (c) => chunks.push(c));
   req.on('end', () => {
