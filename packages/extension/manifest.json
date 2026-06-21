@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Docent",
-  "version": "2.0.0",
+  "version": "3.0.0",
   "description": "Captures demonstrated workflows as structured data — not code.",
   "permissions": [
     "activeTab",

@@ -2,6 +2,6 @@
   "$id": "https://github.com/Arsarneq/docent/blob/main/schemas/dist/desktop-windows.schema.json",
   "title": "Docent Desktop (Windows) Schema",
   "platform": "desktop-windows",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "description": "Schema for .docent.json files produced by the Docent desktop application on Windows."
 }
