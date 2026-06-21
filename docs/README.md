@@ -31,4 +31,5 @@ Contributor and project-governance docs live outside this folder:
 - [Contributing guide](../.github/CONTRIBUTING.md) — development setup, project
   structure, coding conventions, testing, and PR guidelines
 - [Contributor License Agreement](../CLA.md)
-- [Publishing](../.github/PUBLISHING.md) — release process for each platform
+- [Publishing](../.github/PUBLISHING.md) — release process for each platform,
+  including a no-side-effects dry-run pre-flight

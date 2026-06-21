@@ -21,13 +21,22 @@ As part of the run, the pipeline opens a single PR on branch `automated/version-
 
 ## Dry-run a publish (no side-effects)
 
-Both publish workflows accept a manual **`workflow_dispatch`** that runs as a **dry-run**: the full pipeline executes on an ephemeral runner, but every external side-effect is gated off. Use it to rehearse the pipeline — the first live run, or whenever the Chrome Web Store is mid-review and a real `extension-v*` submission isn't yet possible.
+Both publish workflows accept a manual **`workflow_dispatch`** that runs as a **dry-run**: the full pipeline executes on an ephemeral runner, but every external side-effect is gated off — **nothing is published**. Use it to rehearse the pipeline before the first live run, or whenever the Chrome Web Store is mid-review and a real `extension-v*` submission isn't yet possible.
 
-Trigger it from the **Actions** tab → _Publish to Chrome Web Store_ / _Publish Desktop App_ → **Run workflow** on `main` (or `gh workflow run publish.yml --ref main`). A dispatch is **always** a dry-run — a real publish happens only by creating a GitHub Release. There is no `dry_run=false` escape hatch; re-run a failed real publish with GitHub's **Re-run jobs** (which preserves the release context).
+**To run one:**
 
-A dry-run **runs for real**: the full test suite (`needs: [test]`), the build==tested HEAD guard, apply-mode auto-version (into the runner's throwaway checkout), and the package/installer build — the desktop installer is compiled and bundled (tauri-action build-only), and the extension zip is built and asserted upload-ready. It **skips**: the Chrome Web Store upload, the desktop release-asset attach, and the version-table PR (create + auto-merge). The run summary states the mode and what was skipped.
+1. Open the **Actions** tab.
+2. In the **left sidebar**, click the specific workflow — **Publish to Chrome Web Store** (extension) or **Publish Desktop App** (desktop). The **Run workflow** button appears _only_ on a workflow's own page; it is **not** on the default "All workflows" view.
+3. Click **Run workflow**, leave the branch on **`main`**, and click the green **Run workflow** button. (CLI equivalent: `gh workflow run publish.yml --ref main` for the extension, `gh workflow run publish-desktop.yml --ref main` for desktop.)
+4. Open the run and read its **Summary** tab. A dry-run shows a **🧪 Dry run — no external side-effects** banner (a real release shows **🚀 Real release …** instead), plus a package/installer block confirming the upload/attach were skipped. That banner is your confirmation that nothing was published.
 
-On a no-schema-change `main`, a dry-run rehearses the exact no-bump path a real release takes (auto-version finds nothing → no version PR). The version-PR positive-validator path is exercised only by a real schema-bumping release (or locally — see [docs/local-ci.md](../docs/local-ci.md)). The one thing no dry-run covers is the external API calls themselves (the CWS upload, the release-asset attach) — those run for the first time only on a real release.
+The Run-workflow dialog has **no inputs** beyond the branch selector — there is deliberately no dry-run toggle, because **a dispatch is always a dry-run**. A real publish can happen only by creating a GitHub Release with a platform tag; a manual dispatch can never publish, whatever branch you pick.
+
+**What it does:** everything a real release does _except_ the three steps that touch the outside world. It runs the full test gate ([Test gating](#test-gating-and-the-version-pr)), the build==tested HEAD guard, apply-mode auto-version (into the runner's throwaway checkout), and the package/installer build — the extension zip is built and asserted upload-ready, and a GitHub-dispatched **desktop** dry-run compiles the Windows installer for real on a `windows-latest` runner (build-only; nothing attached). It **skips** the three side-effects: the Chrome Web Store upload, the desktop release-asset attach, and the version-table PR (create + auto-merge).
+
+**What it does _not_ cover:** the real external API calls (the CWS upload, the release-asset attach) run only on a real release. The reusable-workflow + `secrets: inherit` test-gate wiring _is_ exercised for real by an on-GitHub dispatch, but a **local** `act` dry-run may not resolve it (see [docs/local-ci.md](../docs/local-ci.md#dry-run-the-publish-workflows-workflow_dispatch)). On a no-schema-change `main`, a dry-run takes the exact no-bump path a real release will (auto-version finds nothing → no version PR); the version-PR positive-validator runs only on a real schema-bumping release.
+
+**If a dry-run fails,** it caught something before the real release — which is the point. Roughly: a red **test gate** → fix the tests; a red **HEAD guard** → `main` advanced or the run isn't at HEAD (re-cut from HEAD); a red **package / installer** step → packaging is broken. Fix the cause, then create the real Release.
 
 ## Chrome Web Store: Privacy practices (manual)
 
@@ -48,11 +57,12 @@ It follows [semantic versioning](https://semver.org/): a breaking change (`!` / 
 
 A release should be **tag + create-release; everything else is mechanical.**
 
-1. Confirm CI is green on `main`. _(Optional pre-flight: [dry-run the publish](#dry-run-a-publish-no-side-effects) from the Actions tab to rehearse the whole pipeline with no side-effects — recommended before the first live run.)_
-2. **Extension only:** if the manifest's permissions changed since the last release, fill the new permission's **Privacy practices** justification in the CWS dashboard (above).
-3. Create and publish a GitHub Release with the platform tag (`extension-vX.Y.Z` or `desktop-vX.Y.Z`) — choose the version with the next-release-version helper ([Choosing the release version](#choosing-the-release-version)). Release **extension first** (Chrome Web Store review lag), then desktop. Note any breaking changes in the release notes and bump the major accordingly.
-4. **Approve** the `automated/version-table-update` PR when it appears — it auto-merges once approved and green.
-5. Confirm the result: the Chrome Web Store listing updates (after review), or the desktop installer is attached to the GitHub Release.
+1. Confirm CI is green on `main`.
+2. **(Recommended before a first live release, or to rehearse)** [Dry-run the publish](#dry-run-a-publish-no-side-effects): dispatch the relevant publish workflow and confirm the run Summary shows the **🧪 Dry run** banner. This proves the pipeline is green end-to-end with no side-effects before you cut the real Release.
+3. **Extension only:** if the manifest's permissions changed since the last release, fill the new permission's **Privacy practices** justification in the CWS dashboard (above).
+4. Create and publish a GitHub Release with the platform tag (`extension-vX.Y.Z` or `desktop-vX.Y.Z`) — choose the version with the next-release-version helper ([Choosing the release version](#choosing-the-release-version)). Release **extension first** (Chrome Web Store review lag), then desktop. Note any breaking changes in the release notes and bump the major accordingly.
+5. **Approve** the `automated/version-table-update` PR when it appears — it auto-merges once approved and green.
+6. Confirm the result: the Chrome Web Store listing updates (after review), or the desktop installer is attached to the GitHub Release. _(If a real publish fails mid-run, use GitHub's **Re-run jobs** on that run — it preserves the release context — rather than cutting a new Release.)_
 
 ## Release assets — what ships vs. the auto-generated source archives
 
@@ -92,6 +102,8 @@ The workflow is defined in [`.github/workflows/publish.yml`](workflows/publish.y
 
 ### Triggering an extension publish
 
+> Rehearse first if you like: a [dry-run](#dry-run-a-publish-no-side-effects) runs this same pipeline with no side-effects.
+
 Create and publish a GitHub release with a tag matching `extension-v*` (e.g. `extension-v3.0.0`). The workflow will:
 
 1. **Run the full test suite for the release commit and gate on it** — publishing does not proceed unless every CI job passes (see [Test gating and the version PR](#test-gating-and-the-version-pr))
@@ -115,6 +127,8 @@ The Tauri **auto-updater is intentionally disabled** — there is no `tauri-plug
 The Windows **installer** is a separate matter: it currently ships **unsigned**, so Windows SmartScreen shows an "Unknown publisher" warning on first run. Free EV code-signing via SignPath Foundation is tracked in [#72](https://github.com/Arsarneq/docent/issues/72); installer signing will be wired into `publish-desktop.yml` once that lands. **There are no required desktop secrets today.**
 
 ### Triggering a desktop publish
+
+> Rehearse first if you like: a [dry-run](#dry-run-a-publish-no-side-effects) runs this same pipeline with no side-effects (building the installer build-only).
 
 Create and publish a GitHub release with a tag matching `desktop-v*` (e.g. `desktop-v2.0.0`). The workflow will:
 
