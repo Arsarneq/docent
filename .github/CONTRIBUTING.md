@@ -189,6 +189,13 @@ lives in.
 ## Pull Request Guidelines
 
 - One logical change per PR
+- **Title the PR as a [Conventional Commit](https://www.conventionalcommits.org/)**
+  (`type(scope): summary` — e.g. `feat(extension): …`, `fix(desktop): …`). Docent
+  **squash-merges**, so the PR title becomes the commit on `main`: it drives release
+  versioning (`npm run version:next` reads it — `feat` → minor, `fix`/`perf` → patch,
+  `!` / `BREAKING CHANGE` → major; `chore`/`ci`/`docs`/`test`/`refactor`/`style`/`build`/`revert`
+  don't bump) and the project history. A CI check (the `PR title` workflow) enforces the
+  format. (GitHub's auto-generated `Revert "…"` title must be renamed to `revert: …`.)
 - **Fill in the [PR template](PULL_REQUEST_TEMPLATE.md)** — it loads automatically
   when you open a PR. Complete every section (write "None." where a section does
   not apply, e.g. Behaviour/Breaking Changes).

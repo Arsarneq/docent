@@ -1,0 +1,32 @@
+# Suggests the version to tag for the next release of each platform, computed
+# from the checked-out ref (main): the schema diff since the last release plus
+# conventional commits since each platform's last tag. Advisory and read-only —
+# run it before cutting a release to decide the extension-v* / desktop-v* tag.
+# It writes nothing and publishes nothing; the suggested tag is the maintainer's
+# call. The result is printed to the logs and the run's summary page.
+name: Next release version
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  suggest:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          # Full history + tags so "commits since the last release tag" resolves.
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 20
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Suggest next release version
+        run: node scripts/next-release-version.js
