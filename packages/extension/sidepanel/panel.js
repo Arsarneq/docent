@@ -110,6 +110,11 @@ const rerecordBanner = $('rerecord-banner');
 const rerecordBannerText = $('rerecord-banner-text');
 const btnRerecordCancel = $('btn-rerecord-cancel');
 
+// Storage-quota warning (#127)
+const storageQuotaBanner = $('storage-quota-banner');
+const storageQuotaBannerText = $('storage-quota-banner-text');
+const btnStorageQuotaResume = $('btn-storage-quota-resume');
+
 // History
 const historyList = $('history-list');
 const btnHistoryBack = $('btn-history-back');
@@ -261,6 +266,34 @@ function clearLiveActionList() {
   pendingActionCount.textContent = '0';
   pendingActionsSection.classList.add('hidden');
 }
+
+// ─── Storage-quota warning (#127) ──────────────────────────────────────────────
+// The service worker pauses capture and publishes a pressure band when
+// chrome.storage.local nears its quota; the panel surfaces a non-blocking banner.
+// It reflects live state — it clears itself once the user frees space.
+function renderStorageQuota(state) {
+  if (!storageQuotaBanner) return;
+  const band = state?.band ?? 'ok';
+  if (band === 'ok') {
+    storageQuotaBanner.classList.add('hidden');
+    return;
+  }
+  const paused = state?.paused === true;
+  storageQuotaBanner.classList.toggle('exceeded', band === 'exceeded');
+  storageQuotaBannerText.textContent =
+    band === 'exceeded'
+      ? 'Storage is full — capture stopped. Export or delete a project to free space.'
+      : paused
+        ? 'Storage is almost full — capture paused. Export or delete a project to free space.'
+        : 'Storage is almost full — still recording. Export or delete a project to free space.';
+  // Offer the override only while auto-paused at the soft warning — the user can
+  // choose to keep recording (#127). A hard `exceeded` can't be overridden.
+  btnStorageQuotaResume?.classList.toggle('hidden', !(band === 'warn' && paused));
+  storageQuotaBanner.classList.remove('hidden');
+}
+btnStorageQuotaResume?.addEventListener('click', () => send({ type: 'STORAGE_RESUME' }));
+adapter.onStorageQuotaChange(renderStorageQuota);
+adapter.loadStorageQuota().then(renderStorageQuota);
 
 // ─── View management ─────────────────────────────────────────────────────────
 

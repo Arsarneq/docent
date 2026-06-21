@@ -12,6 +12,7 @@
 
 import { validateEndpointUrl as _validateEndpointUrl } from '../shared/dispatch-core.js';
 import { encryptSecret, decryptSecret } from './secret-crypto.js';
+import { STORAGE_QUOTA_KEY } from '../lib/storage-quota.js';
 
 // ─── Settings keys ────────────────────────────────────────────────────────────
 
@@ -319,6 +320,34 @@ const chromeAdapter = {
       return pendingCount ?? 0;
     } catch {
       return 0;
+    }
+  },
+
+  // ── Storage quota pressure (#127) ─────────────────────────────────────────
+
+  /**
+   * Subscribe to storage-quota pressure changes the service worker publishes
+   * (band: 'ok' | 'warn' | 'exceeded', plus whether capture is paused). The panel
+   * surfaces a non-blocking banner from this. The callback receives the new state,
+   * or null when the key is cleared.
+   *
+   * @param {(state: {band: string, paused: boolean, bytesInUse: number} | null) => void} callback
+   */
+  onStorageQuotaChange(callback) {
+    chrome.storage.onChanged.addListener((changes, area) => {
+      if (area === 'local' && changes[STORAGE_QUOTA_KEY]) {
+        callback(changes[STORAGE_QUOTA_KEY].newValue ?? null);
+      }
+    });
+  },
+
+  /** Read the current storage-quota pressure state (for the initial panel render). */
+  async loadStorageQuota() {
+    try {
+      const { [STORAGE_QUOTA_KEY]: state } = await chrome.storage.local.get(STORAGE_QUOTA_KEY);
+      return state ?? null;
+    } catch {
+      return null;
     }
   },
 

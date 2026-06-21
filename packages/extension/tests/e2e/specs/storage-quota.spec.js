@@ -9,9 +9,9 @@
  *   - clearing projects frees space and subsequent writes resume,
  *   - a large pending-actions array is stored and read back without crashing.
  *
- * The user-facing "storage almost full" WARNING is intentionally NOT tested
- * here — it does not exist yet and is tracked as a feature in #127. Testing a
- * warning that isn't implemented would be a fabricated assertion.
+ * The warn-and-pause behaviour (#127) — the panel banner, the auto-pause at the
+ * warn threshold, the user's "keep recording" override, and resume on free space —
+ * is covered by the "Storage-quota warning + pause (#127)" suite at the bottom.
  *
  * Determinism: quota failure is injected by monkey-patching
  * `chrome.storage.local.set` inside the service worker to throw a
@@ -239,5 +239,140 @@ test.describe('Storage quota exhaustion (#90)', () => {
     await serviceWorker.evaluate(async () => {
       await chrome.storage.local.set({ pendingActions: [], pendingCount: 0 });
     });
+  });
+});
+
+test.describe('Storage-quota warning + pause (#127)', () => {
+  test.beforeEach(async ({ context, serviceWorker }) => {
+    await waitForInitSettled(context, serviceWorker);
+  });
+
+  async function openPanel(context, serviceWorker) {
+    const extensionId = serviceWorker.url().match(/chrome-extension:\/\/([^/]+)/)[1];
+    const panel = await context.newPage();
+    await panel.goto(`chrome-extension://${extensionId}/sidepanel/index.html`);
+    return panel;
+  }
+
+  // Read the banner element's render state (class/text/override-button) regardless
+  // of whether the recording view is the active one — the render toggles classes on
+  // the element directly, so this reflects renderStorageQuota's decision.
+  const bannerState = (panel) =>
+    panel.$eval('#storage-quota-banner', (el) => ({
+      hidden: el.classList.contains('hidden'),
+      exceeded: el.classList.contains('exceeded'),
+      text: el.querySelector('#storage-quota-banner-text')?.textContent ?? '',
+      resumeOffered: !el.querySelector('#btn-storage-quota-resume')?.classList.contains('hidden'),
+    }));
+
+  const writeQuota = (serviceWorker, state) =>
+    serviceWorker.evaluate((s) => chrome.storage.local.set({ docentStorageQuota: s }), state);
+
+  test('the panel surfaces the right banner for each pressure band', async ({
+    context,
+    serviceWorker,
+  }) => {
+    const panel = await openPanel(context, serviceWorker);
+
+    // warn + paused → visible, "Keep recording" override offered, accent (not danger).
+    await writeQuota(serviceWorker, {
+      band: 'warn',
+      paused: true,
+      override: false,
+      bytesInUse: 9e6,
+    });
+    await expect.poll(async () => (await bannerState(panel)).hidden).toBe(false);
+    let s = await bannerState(panel);
+    expect(s.exceeded).toBe(false);
+    expect(s.text).toContain('almost full');
+    expect(s.text).toContain('paused');
+    expect(s.resumeOffered).toBe(true);
+
+    // warn + override (user kept recording) → still shown, no override button.
+    await writeQuota(serviceWorker, {
+      band: 'warn',
+      paused: false,
+      override: true,
+      bytesInUse: 9e6,
+    });
+    await expect.poll(async () => (await bannerState(panel)).text).toContain('still recording');
+    s = await bannerState(panel);
+    expect(s.hidden).toBe(false);
+    expect(s.resumeOffered).toBe(false);
+
+    // exceeded → danger styling, no override (hard wall can't be overridden).
+    await writeQuota(serviceWorker, {
+      band: 'exceeded',
+      paused: true,
+      override: false,
+      bytesInUse: 1.05e7,
+    });
+    await expect.poll(async () => (await bannerState(panel)).exceeded).toBe(true);
+    s = await bannerState(panel);
+    expect(s.text).toContain('full');
+    expect(s.resumeOffered).toBe(false);
+
+    // ok → hidden again (space freed).
+    await writeQuota(serviceWorker, {
+      band: 'ok',
+      paused: false,
+      override: false,
+      bytesInUse: 1000,
+    });
+    await expect.poll(async () => (await bannerState(panel)).hidden).toBe(true);
+
+    await panel.close();
+  });
+
+  test('SW pauses at the warn threshold, the user can override, and it resumes when freed', async ({
+    context,
+    serviceWorker,
+  }) => {
+    const panel = await openPanel(context, serviceWorker);
+
+    // Report 90% usage (> 80% warn threshold) deterministically — no real 9MB fill.
+    await serviceWorker.evaluate(() => {
+      globalThis.__realGetBytesInUse = chrome.storage.local.getBytesInUse.bind(
+        chrome.storage.local,
+      );
+      chrome.storage.local.getBytesInUse = () =>
+        Promise.resolve(Math.floor(10 * 1024 * 1024 * 0.9));
+    });
+
+    const quota = () =>
+      serviceWorker.evaluate(
+        async () => (await chrome.storage.local.get('docentStorageQuota')).docentStorageQuota,
+      );
+
+    // A panel message (RECORDING_CLEAR → clearPending → evaluate) triggers detection.
+    await panel.evaluate(() => chrome.runtime.sendMessage({ type: 'RECORDING_CLEAR' }));
+    await expect.poll(async () => (await quota())?.paused).toBe(true);
+    let q = await quota();
+    expect(q.band).toBe('warn');
+    expect(q.override).toBe(false);
+
+    // The user overrides via the banner's "Keep recording" button — exercises the
+    // click -> STORAGE_RESUME wiring, not just the SW handler in isolation.
+    await expect(panel.locator('#btn-storage-quota-resume')).toBeVisible();
+    await panel.locator('#btn-storage-quota-resume').click();
+    await expect.poll(async () => (await quota())?.paused).toBe(false);
+    q = await quota();
+    expect(q.band).toBe('warn');
+    expect(q.override).toBe(true);
+
+    // Free space — usage drops below the resume threshold; back to ok, override cleared.
+    await serviceWorker.evaluate(() => {
+      chrome.storage.local.getBytesInUse = () => Promise.resolve(1024);
+    });
+    await panel.evaluate(() => chrome.runtime.sendMessage({ type: 'RECORDING_CLEAR' }));
+    await expect.poll(async () => (await quota())?.band).toBe('ok');
+    q = await quota();
+    expect(q.paused).toBe(false);
+    expect(q.override).toBe(false);
+
+    await serviceWorker.evaluate(() => {
+      chrome.storage.local.getBytesInUse = globalThis.__realGetBytesInUse;
+    });
+    await panel.close();
   });
 });
