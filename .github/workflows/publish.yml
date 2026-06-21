@@ -67,8 +67,14 @@ jobs:
         run: node scripts/sync-shared.js extension
 
       - name: Bump extension version from release tag
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
         run: |
-          VERSION="${GITHUB_REF_NAME#extension-v}"
+          VERSION="${RELEASE_TAG#extension-v}"
+          if [ -z "$VERSION" ] || [ "$VERSION" = "$RELEASE_TAG" ]; then
+            echo "::error::Could not derive version from release tag '$RELEASE_TAG' (expected 'extension-v<x.y.z>')"
+            exit 1
+          fi
           echo "Bumping extension version to $VERSION"
           cd packages/extension
           node -e "
