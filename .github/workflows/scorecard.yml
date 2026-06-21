@@ -31,7 +31,10 @@ jobs:
           persist-credentials: false
 
       - name: Run Scorecard analysis
-        uses: ossf/scorecard-action@99c09fe975337306107572b4fdf4db224cf8e2f2 # v2.4.3
+        # Tag-pinned, NOT SHA-pinned: the publish_results verification below rejects
+        # a commit SHA ("imposter commit"). This is a low-risk read-only monitoring
+        # action; exempted in scripts/check-action-pins.js. Dependabot bumps the tag.
+        uses: ossf/scorecard-action@v2.4.3
         with:
           results_file: results.sarif
           results_format: sarif
