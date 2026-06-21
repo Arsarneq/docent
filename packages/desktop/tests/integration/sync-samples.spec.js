@@ -155,14 +155,12 @@ function startReferenceServer() {
  */
 function proxyToReferenceServer(req, res, referenceBaseUrl) {
   const base = new URL(referenceBaseUrl);
-  const target = new URL(req.url, base);
-  // Only ever forward the sync protocol paths to the fixed reference origin —
-  // never a host the request could influence. Resolving `req.url` against `base`
-  // keeps the origin pinned; this guard makes that explicit (and clears the
-  // CodeQL SSRF flag on the outbound request).
-  const isProtocolPath =
-    target.pathname === '/projects' || target.pathname.startsWith('/projects/');
-  if (target.origin !== base.origin || !isProtocolPath) {
+  // Take ONLY the request path; the outbound host always comes from the fixed
+  // base below, never a value the request could influence. Forward just the sync
+  // protocol paths.
+  const { pathname, search } = new URL(req.url, base);
+  const isProtocolPath = pathname === '/projects' || pathname.startsWith('/projects/');
+  if (!isProtocolPath) {
     res.writeHead(403);
     res.end('Forbidden');
     return;
@@ -173,10 +171,22 @@ function proxyToReferenceServer(req, res, referenceBaseUrl) {
     const body = Buffer.concat(chunks);
     const headers = { ...req.headers };
     delete headers.host;
-    const proxied = http.request(target, { method: req.method, headers }, (upstream) => {
-      res.writeHead(upstream.statusCode ?? 502, upstream.headers);
-      upstream.pipe(res);
-    });
+    // Host/port are pinned to the trusted base; only the validated path/query
+    // are taken from the request, so the outbound host is never request-derived.
+    const proxied = http.request(
+      {
+        protocol: base.protocol,
+        hostname: base.hostname,
+        port: base.port,
+        path: pathname + search,
+        method: req.method,
+        headers,
+      },
+      (upstream) => {
+        res.writeHead(upstream.statusCode ?? 502, upstream.headers);
+        upstream.pipe(res);
+      },
+    );
     proxied.on('error', () => {
       if (!res.headersSent) res.writeHead(502);
       res.end('Proxy error');
