@@ -16,8 +16,15 @@ import { dirname, resolve } from 'node:path';
  *
  * This suite asserts that structural fact so a future change that broadens a
  * pipeline's scope to sweep in `reference-implementations/` is caught here. It
- * reads the real workflow/guard files (it does NOT modify them — Task 11 only
- * verifies the existing exclusion).
+ * reads the real workflow/guard files (it does NOT modify them).
+ *
+ * One documented exception: the release-output guard's POSITIVE mode (run on the
+ * pipeline's own `automated/version-table-update` PR) allow-lists the
+ * reference-server seed-_sample_ stamps. Those are a release OUTPUT — re-stamped
+ * at release by `update-version-table.js`, the same exception that lets release
+ * tooling stamp version-bearing material the repo owns without shipping the
+ * server. The seed-sample stamps are the ONLY reference-implementations mention
+ * permitted in the guard; the publish BUILD pipelines stay free of it entirely.
  *
  * Repo-root-relative paths are resolved from this test file's location:
  *   .../docent/reference-implementations/sync-server/tests/unit  → up 4 → repo root.
@@ -75,10 +82,11 @@ describe('release exclusion of reference-implementations/', () => {
     );
   });
 
-  it('check-no-release-outputs.js guards only schemas/dist/ + delta versions and never references reference-implementations', () => {
+  it('check-no-release-outputs.js: negative guard scopes to schemas/dist/ + delta versions; touches reference-implementations ONLY for the seed-sample stamps', () => {
     const js = read(GUARD_JS);
 
-    // The guard scopes itself to the composed schemas and the delta versions.
+    // The NEGATIVE guard (what a feature branch may not touch) is still scoped to
+    // the composed schemas and the delta versions — nothing broader.
     assert.match(
       js,
       /FORBIDDEN_PATHS = \['schemas\/dist\/'\]/,
@@ -90,12 +98,18 @@ describe('release exclusion of reference-implementations/', () => {
       'check-no-release-outputs.js is expected to guard schemas/*.delta.json versions',
     );
 
-    // The guard says nothing about reference-implementations/ — it is outside its
-    // scope, so the reference server cannot trip it.
-    assert.doesNotMatch(
-      js,
-      /reference-implementations/,
-      'check-no-release-outputs.js must NOT reference reference-implementations/ (it guards only release outputs)',
-    );
+    // The POSITIVE mode (the automated/version-table-update PR) allow-lists every
+    // release output, which includes the reference-server seed-sample stamps —
+    // those ARE a release output (re-stamped by update-version-table.js). So a
+    // reference-implementations mention is permitted HERE, but ONLY for those
+    // seed-sample files — never the server or the tree at large.
+    const refMentions = js.match(/reference-implementations[^\s'"]*/g) || [];
+    for (const m of refMentions) {
+      assert.match(
+        m,
+        /^reference-implementations\/sync-server\/samples\/[a-z-]+-sample\.json$/,
+        `check-no-release-outputs.js may reference reference-implementations ONLY for seed-sample stamps, not "${m}"`,
+      );
+    }
   });
 });

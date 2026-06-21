@@ -194,11 +194,17 @@ if (updateJsonVersion('packages/desktop/src-tauri/tauri.conf.json', deskVersion)
 // This is a SURGICAL text replace of just the version string, NOT a JSON
 // round-trip: the samples contain prettier-inlined objects (e.g. `modifiers`,
 // `tags`) that `JSON.stringify(…, 2)` would expand, producing format churn. The
-// publish workflows deliberately do NOT run prettier over the samples (the
-// reference server must never appear in the publish pipeline — see
-// release-exclusion.test.js), so the write must already be format-clean.
-// `schema_version` only ever appears inside the `docent_format` stamp, so a
-// single-occurrence replace is safe and preserves every other byte exactly.
+// release pipeline's format step (`npm run format` = `prettier --write .`) DOES
+// pass over the samples (they are not in .prettierignore), so the surgical
+// replace must leave them prettier-clean — which it does, swapping only the
+// version string and preserving every other byte. `schema_version` only ever
+// appears inside the `docent_format` stamp, so a single-occurrence replace is
+// safe.
+//
+// LOCKSTEP: these two sample paths are release outputs the version PR carries, so
+// they must stay listed in ALLOWED_RELEASE_OUTPUTS in
+// scripts/check-no-release-outputs.js (and in the seed-sample allowance in
+// release-exclusion.test.js). Keep the three in sync.
 const SCHEMA_VERSION_RE = /("schema_version":\s*")[^"]*(")/g;
 
 function updateSampleStampVersion(filePath, version) {

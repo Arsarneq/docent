@@ -60,8 +60,9 @@ updates automatically. There is no built-in mechanism to hold the emitted schema
 version back when a new release bumps it — the extension always emits the schema
 version it ships with.
 
-**Desktop** users are unaffected: without an auto-updater, you control which
-binary you run and can stay on any version indefinitely.
+**Desktop** users are unaffected: the desktop app has no auto-updater (it is
+intentionally disabled — there is no updater plugin configured), so you control
+which binary you run and can stay on any version indefinitely.
 
 **Extension** users whose downstream consumers depend on a specific schema
 version can pin by installing from source instead of the Chrome Web Store.
@@ -133,8 +134,11 @@ The stamp makes every file self-describing: a consumer can pick the correct
 schema and route migrations without inspecting the contents or guessing. In each
 published schema both values are fixed as `const`, so the stamp is validated, not
 just carried — a file whose stamp does not match a schema's platform/version will
-not validate against it. The values are sourced from the schema itself (the
-single source of truth), never hand-written.
+not validate against it. (Docent's own backward-compatibility test corpus relaxes
+the `schema_version` `const` to validate older exports by _shape_ across versions
+— a test-harness convenience that never weakens the published contract a consumer
+receives.) The values are sourced from the schema itself (the single source of
+truth), never hand-written.
 
 ---
 

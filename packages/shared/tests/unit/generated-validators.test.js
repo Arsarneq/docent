@@ -16,6 +16,8 @@ import assert from 'node:assert/strict';
 import { readFileSync, existsSync } from 'node:fs';
 import { resolve, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { composePlatform } from '../../../../scripts/build-schemas.js';
+import { stampFromSchema } from '../../lib/format-stamp.js';
 
 const __dirname = fileURLToPath(new URL('.', import.meta.url));
 const GENERATED_DIR = resolve(__dirname, '../../generated');
@@ -39,6 +41,14 @@ for (const { key, fixture } of PLATFORMS) {
       );
       validate = (await import(pathToFileURL(file).href)).default;
       validFixture = JSON.parse(readFileSync(join(FIXTURES_DIR, fixture), 'utf8'));
+      // Re-stamp to the CURRENT schema version so a major bump never needs a
+      // manual fixture edit: the generated validator enforces the
+      // schema_version `const`, and stampFromSchema(composePlatform(key)) yields
+      // exactly that current value. The fixture file's frozen stamp is
+      // irrelevant here — cross-version SHAPE compat is backward-compat.test.js's
+      // job; this test only checks the generated validator accepts a valid
+      // CURRENT payload and rejects malformed ones.
+      validFixture.docent_format = stampFromSchema(composePlatform(key));
     });
 
     it('accepts the frozen valid fixture', () => {

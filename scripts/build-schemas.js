@@ -62,7 +62,12 @@
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { resolve, join } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import prettier from 'prettier';
+
+// NOTE: prettier is imported lazily inside format() (the only place it is used),
+// NOT at module top level. Composition (composePlatform/compose) is pure and
+// dependency-free, so importers that only need the in-memory schema — tests,
+// the e2e/integration Playwright runners deriving a docent_format stamp, etc. —
+// never pull in prettier. Only writing schemas/dist/ needs it.
 
 const ROOT = resolve(import.meta.dirname, '..');
 const SCHEMAS_DIR = join(ROOT, 'schemas');
@@ -204,6 +209,7 @@ export function composePlatform(platform) {
 }
 
 async function format(obj) {
+  const prettier = (await import('prettier')).default;
   const config = (await prettier.resolveConfig(join(SCHEMAS_DIR, 'x.json'))) || {};
   // Pre-indent with 2 spaces so every object opens with a newline after `{`.
   // Prettier preserves that expansion for JSON objects (a bare JSON.stringify

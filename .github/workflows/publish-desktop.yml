@@ -5,7 +5,17 @@ on:
     types: [published]
 
 jobs:
+  # Gate publishing on a green FULL test suite for the release SHA. The suite is
+  # the reusable test.yml; `publish-desktop` needs it, so a release can never
+  # publish with red tests. Guarded by the same tag check so an extension-v*
+  # release doesn't spin the suite here for nothing.
+  test:
+    if: startsWith(github.event.release.tag_name, 'desktop-v')
+    uses: ./.github/workflows/test.yml
+    secrets: inherit
+
   publish-desktop:
+    needs: [test]
     if: startsWith(github.event.release.tag_name, 'desktop-v')
     strategy:
       fail-fast: false
@@ -27,6 +37,20 @@ jobs:
       - uses: actions/checkout@v6
         with:
           ref: main
+
+      # Build == tested tree. The `test` gate ran on github.sha (the released
+      # commit); this job builds main. Fail fast if they differ — main advanced
+      # during the gate, or the tag isn't at main HEAD — rather than publish a
+      # tree the gate never tested. (Cut releases from main HEAD.)
+      - name: Verify the released commit is current main HEAD
+        shell: bash
+        run: |
+          HEAD_SHA="$(git rev-parse HEAD)"
+          if [ "$HEAD_SHA" != "${{ github.sha }}" ]; then
+            echo "::error::Released commit ${{ github.sha }} is not current main HEAD ($HEAD_SHA) — the test gate ran on ${{ github.sha }} but publish builds main. Refusing to publish an untested tree; re-cut the release from main HEAD."
+            exit 1
+          fi
+          echo "✓ Released commit is main HEAD ($HEAD_SHA) — build matches the tested tree."
 
       - uses: ./.github/actions/debug-env
 
@@ -51,9 +75,14 @@ jobs:
         env:
           DOCENT_RELEASE: '1'
 
-      - name: Format updated files
+      # Format ALL release outputs, not an enumerated list that can miss a file.
+      # auto-version writes manifest.json / tauri.conf.json / dist/ via
+      # JSON.stringify (not Prettier-shaped); `npm run format` (prettier --write .)
+      # normalises every one of them — plus any future script-written file —
+      # while .prettierignore + already-clean sample stamps stay untouched.
+      - name: Format release outputs
         if: matrix.os == 'windows-latest'
-        run: npx prettier --write README.md docs/session-format.md 'schemas/*.delta.json' 'schemas/dist/*.json' packages/extension/manifest.json packages/desktop/src-tauri/tauri.conf.json
+        run: npm run format
 
       - name: Check for version table / schema changes
         if: matrix.os == 'windows-latest'
@@ -115,8 +144,6 @@ jobs:
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
           projectPath: packages/desktop
           tagName: ${{ github.event.release.tag_name }}
@@ -124,5 +151,14 @@ jobs:
           releaseBody: ${{ github.event.release.body }}
           releaseDraft: false
           prerelease: false
+          # The Tauri auto-updater is intentionally OFF — there is no
+          # tauri-plugin-updater dependency and no plugins.updater in
+          # tauri.conf.json, so no updater bundles or latest.json are produced and
+          # no signing keys (TAURI_SIGNING_PRIVATE_KEY*) are needed. Set this
+          # explicitly so a future updater can't silently ship unsigned.
+          # NOTE: the Windows INSTALLER is a separate concern — it ships UNSIGNED
+          # today (SmartScreen "Unknown publisher"), tracked by #72 (SignPath
+          # Foundation EV signing); wire signing in here once that lands.
+          includeUpdaterJson: false
           # Verbose Tauri/cargo build output only when debug logging is on.
           args: ${{ runner.debug == '1' && '--verbose' || '' }}

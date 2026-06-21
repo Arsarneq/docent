@@ -110,6 +110,18 @@ release pipeline; locally, `npm run sync-shared` and the test suite compose each
 schema from the source layers in-memory, so they always reflect your current
 changes (run `npm run build:schemas` if you want to refresh `dist/` by hand).
 
+A CI guard (`scripts/check-no-release-outputs.js`) fails any feature-branch PR
+that modifies `schemas/dist/` or bumps a leaf delta `version` — those are
+release-pipeline outputs, not feature work. (On the pipeline's own
+`automated/version-table-update` PR the same guard flips to a _positive_ check
+that the PR contains only the regenerated release outputs.)
+
+A schema **major version bump needs no manual test-fixture edits**: the
+backward-compatibility corpus validates by shape (ignoring the version stamp),
+and every test that exercises the real validator derives its `docent_format`
+stamp from the current schema via `stampFromSchema(composePlatform(...))` instead
+of hardcoding a version.
+
 ## Running Tests
 
 Tests are organised by [test-pyramid](https://martinfowler.com/articles/practical-test-pyramid.html)
