@@ -14,6 +14,25 @@ Thank you for wanting to contribute. Docent is open source under GPL-3.0.
    the issue `bug`) or [Feature request](ISSUE_TEMPLATE/feature_request.yml)
    (labels it `enhancement`) — so the report has the details we need.
 
+## Security Issues and Fixes
+
+**Do not use public issues or pull requests for security vulnerabilities** — not
+to report one, and not to fix one. A public report, or a fix whose diff reveals
+the underlying flaw, discloses the vulnerability to everyone before users can
+update.
+
+- **Found a vulnerability?** Report it privately through GitHub's private
+  vulnerability reporting — see the [security policy](SECURITY.md). Do not open a
+  public issue or PR.
+- **Fixing a vulnerability?** Security fixes are prepared in private and shipped
+  before they become public — never as a public PR that lands ahead of the
+  release. The maintainer coordinates this, typically through a
+  [GitHub Security Advisory](https://docs.github.com/en/code-security/security-advisories/working-with-repository-security-advisories/about-repository-security-advisories)
+  and its temporary private fork: the fix is developed there, released, and the
+  advisory published once users can update. If you reported an issue and want to
+  help fix it, you will be invited to the advisory's private fork rather than
+  asked to open a public PR.
+
 ## Development Setup
 
 ### Chrome Extension

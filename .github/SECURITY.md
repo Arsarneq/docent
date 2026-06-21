@@ -34,7 +34,13 @@ A useful report covers:
 
 ## What to expect
 
-This is a solo-maintained project. I aim to acknowledge reports within a few days, but cannot guarantee fixed timelines. I will investigate and coordinate disclosure before any fix is made public.
+This is a solo-maintained project. I aim to acknowledge reports within a few days, but cannot guarantee fixed timelines. I will investigate and coordinate disclosure before any fix is made public. Please give me a reasonable opportunity to investigate and ship a fix before disclosing the issue publicly.
+
+---
+
+## Safe harbor
+
+I consider security research and disclosure conducted in good faith under this policy to be authorised. I will not pursue or support legal action against researchers who act in good faith, follow this policy, avoid privacy violations and service disruption, and give me reasonable time to address an issue before disclosing it publicly. If you are unsure whether something is acceptable, ask first.
 
 ---
 
@@ -44,8 +50,9 @@ Docent has several capabilities with distinct attack surfaces:
 
 ### Interaction capture
 
-- The Chrome extension runs with `<all_urls>` host permissions and captures DOM events across all pages. The desktop application captures native application interactions via OS-level accessibility APIs and input hooks.
-- Vulnerabilities that allow exfiltration of captured data, injection of arbitrary actions into a session, or privilege escalation are in scope.
+- The Chrome extension runs with `<all_urls>` host permissions; the recorder is injected by the service worker only during an active recording, rather than running as a persistent content script. The desktop application captures native application interactions via OS-level accessibility APIs and input hooks.
+- Sensitive field values and credentials are redacted at capture time on both platforms before data is persisted.
+- Vulnerabilities that allow exfiltration of captured data, bypassing or weakening sensitive-value redaction, injection of arbitrary actions into a session, or privilege escalation are in scope.
 
 ### Data transmission
 

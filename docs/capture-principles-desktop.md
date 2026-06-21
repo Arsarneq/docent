@@ -68,6 +68,19 @@ Timing constants and correlation windows live in `src/capture/timing.rs`.
 
 ---
 
+## Sensitive-value redaction
+
+The native capture layer masks password fields directly from the UIA
+`IsPassword` signal. Other sensitive values — credit-card, SSN, and secret fields
+identified by their accessibility name — are masked at the adapter chokepoint
+before an action enters the pending list, so they never reach the stored or
+exported recording. A redacted element has its value masked and its `text`
+nulled, and is flagged `redacted`. The detection rules are shared with the
+extension (a single util), so both platforms mask the same fields. (Tokened-URL
+redaction is extension-only, since the desktop app has no captured URLs.)
+
+---
+
 ## Not Capturable (OS-Level)
 
 - Win+D (show desktop) — system hotkey intercepted before hooks

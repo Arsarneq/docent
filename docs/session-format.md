@@ -112,7 +112,8 @@ The `.docent.json` export file contains `docent_format`, `project`, and
 ## Format stamp
 
 Every `.docent.json` export and every dispatch payload carries a required
-`docent_format` object at its root:
+`docent_format` object at its root — for example (the `schema_version` shown is
+illustrative, not the current version):
 
 ```json
 {
@@ -283,27 +284,27 @@ Every action has:
 
 ### Shared (both platforms)
 
-| Type             | Key fields                                                   | Description                                                  |
-| ---------------- | ------------------------------------------------------------ | ------------------------------------------------------------ |
-| `click`          | `x`, `y`, `element`                                          | Left-click on an element.                                    |
-| `right_click`    | `x`, `y`, `element`                                          | Right-click on an element.                                   |
-| `type`           | `element`, `value`                                           | Text entered into a field. Passwords masked as `"••••••••"`. |
-| `select`         | `element`, `value`                                           | Option selected from a dropdown/list.                        |
-| `key`            | `key`, `modifiers`, `element`                                | Keyboard input. `modifiers`: `{ctrl, shift, alt, meta}`.     |
-| `focus`          | `element`                                                    | Element received focus (non-redundant cases only).           |
-| `drag_start`     | `element`                                                    | Drag operation began.                                        |
-| `drop`           | `x`, `y`, `element`, `source_element`                        | Drop completed. `source_element` is the dragged item.        |
-| `scroll`         | `element`, `scroll_top`, `scroll_left`, `delta_y`, `delta_x` | Scroll gesture (debounced).                                  |
-| `context_switch` | `source`, `title`                                            | User switched to a different window/tab.                     |
-| `context_open`   | `opener_context_id`, `source`                                | New window/tab opened.                                       |
-| `context_close`  | `window_closing`                                             | Window/tab closed.                                           |
+| Type             | Key fields                                                   | Description                                                                                                                                           |
+| ---------------- | ------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `click`          | `x`, `y`, `element`                                          | Left-click on an element.                                                                                                                             |
+| `right_click`    | `x`, `y`, `element`                                          | Right-click on an element.                                                                                                                            |
+| `type`           | `element`, `value`                                           | Text entered into a field. Sensitive values (passwords, credit-card/SSN/secret fields) are masked as `"••••••••"` and the element flagged `redacted`. |
+| `select`         | `element`, `value`                                           | Option selected from a dropdown/list.                                                                                                                 |
+| `key`            | `key`, `modifiers`, `element`                                | Keyboard input. `modifiers`: `{ctrl, shift, alt, meta}`.                                                                                              |
+| `focus`          | `element`                                                    | Element received focus (non-redundant cases only).                                                                                                    |
+| `drag_start`     | `element`                                                    | Drag operation began.                                                                                                                                 |
+| `drop`           | `x`, `y`, `element`, `source_element`                        | Drop completed. `source_element` is the dragged item.                                                                                                 |
+| `scroll`         | `element`, `scroll_top`, `scroll_left`, `delta_y`, `delta_x` | Scroll gesture (debounced).                                                                                                                           |
+| `context_switch` | `source`, `title`                                            | User switched to a different window/tab.                                                                                                              |
+| `context_open`   | `opener_context_id`, `source`                                | New window/tab opened.                                                                                                                                |
+| `context_close`  | `window_closing`                                             | Window/tab closed.                                                                                                                                    |
 
 ### Extension only
 
-| Type          | Key fields         | Description                                                                            |
-| ------------- | ------------------ | -------------------------------------------------------------------------------------- |
-| `navigate`    | `nav_type`, `url`  | Page navigation. `nav_type`: link, typed, reload, back_forward, spa, form_submit, etc. |
-| `file_upload` | `element`, `files` | File(s) selected via input. `files`: `[{name, size, mime}]`.                           |
+| Type          | Key fields         | Description                                                                                                                               |
+| ------------- | ------------------ | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| `navigate`    | `nav_type`, `url`  | Page navigation. `nav_type`: link, typed, reload, back_forward, spa, form_submit, etc. Auth-token query-param values in `url` are masked. |
+| `file_upload` | `element`, `files` | File(s) selected via input. `files`: `[{name, size, mime}]`.                                                                              |
 
 ### Desktop (Windows) only
 
@@ -334,17 +335,17 @@ tree.
 }
 ```
 
-| Field          | Type           | Required | Description                                                                                                                  |
-| -------------- | -------------- | -------- | ---------------------------------------------------------------------------------------------------------------------------- |
-| `tag`          | string         | yes      | HTML tag name (extension) / UIA ControlType, e.g. `Button`, `Edit` (desktop). `"unknown"` in coordinate mode.                |
-| `id`           | string \| null | no       | DOM `id` attribute (extension) / UIA AutomationId, developer-assigned and session-stable (desktop).                          |
-| `name`         | string \| null | no       | `name` attribute (extension) / UIA Name (desktop).                                                                           |
-| `role`         | string \| null | no       | ARIA role (extension) / localized UIA control type (desktop).                                                                |
-| `type`         | string \| null | no       | Input type attribute (extension) / control subtype, e.g. `"password"` (desktop).                                             |
-| `autocomplete` | string \| null | no       | HTML `autocomplete` token, e.g. `"cc-number"` (extension). Used to detect sensitive payment fields. Null/absent on desktop.  |
-| `text`         | string \| null | no       | Visible text (truncated to 100 chars). Null for passwords.                                                                   |
-| `selector`     | string         | yes      | CSS selector (extension) / accessibility tree path joined with `" > "`, or `coord:x,y` in coordinate mode (desktop).         |
-| `redacted`     | boolean        | no       | `true` when the value/text was redacted because the field was sensitive (password, payment, or other PII). Absent otherwise. |
+| Field          | Type           | Required | Description                                                                                                                                |
+| -------------- | -------------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| `tag`          | string         | yes      | HTML tag name (extension) / UIA ControlType, e.g. `Button`, `Edit` (desktop). `"unknown"` in coordinate mode.                              |
+| `id`           | string \| null | no       | DOM `id` attribute (extension) / UIA AutomationId, developer-assigned and session-stable (desktop).                                        |
+| `name`         | string \| null | no       | `name` attribute (extension) / UIA Name (desktop).                                                                                         |
+| `role`         | string \| null | no       | ARIA role (extension) / localized UIA control type (desktop).                                                                              |
+| `type`         | string \| null | no       | Input type attribute (extension) / control subtype, e.g. `"password"` (desktop).                                                           |
+| `autocomplete` | string \| null | no       | HTML `autocomplete` token, e.g. `"cc-number"` (extension). Used to detect sensitive payment fields. Null/absent on desktop.                |
+| `text`         | string \| null | no       | Visible text (truncated to 100 chars). Null for sensitive fields (passwords, credit-card/SSN/secret), where it is also flagged `redacted`. |
+| `selector`     | string         | yes      | CSS selector (extension) / accessibility tree path joined with `" > "`, or `coord:x,y` in coordinate mode (desktop).                       |
+| `redacted`     | boolean        | no       | `true` when the value/text was redacted because the field was sensitive (password, payment, or other PII). Absent otherwise.               |
 
 ---
 

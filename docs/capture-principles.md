@@ -59,6 +59,20 @@ effect** as a proxy:
 
 ---
 
+## Sensitive Values
+
+Capture the action — mask the sensitive value. Docent records that the user typed
+into a field, but when the field is sensitive (a password, or a credit-card / SSN
+/ secret field) the value itself is redacted at capture time and the element is
+flagged `redacted`; the action stays in the stream, the secret does not enter it.
+Detection is deliberately conservative — over-masking a legitimate field would
+degrade the captured workflow — so only strong signals trigger it. Platform
+specifics (and tokened-URL redaction, which is browser-only) are in the
+[extension](capture-principles-extension.md) and [desktop](capture-principles-desktop.md)
+docs.
+
+---
+
 ## Distinguishing Action from Effect
 
 | Signal                                           | User action | Effect                 |

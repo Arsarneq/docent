@@ -18,6 +18,10 @@ the [root README](../README.md).
 The per-platform [JSON Schemas](../schemas/) are the authoritative source of
 truth for the `.docent.json` format.
 
+This repository intentionally contains no consumer of `.docent.json`, and no
+example consumer. The reference sync server is a sync target — somewhere to store
+and exchange sessions — not a consumer of the format.
+
 ## Contributing
 
 Contributor and project-governance docs live outside this folder:
