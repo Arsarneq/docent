@@ -38,6 +38,7 @@ import {
   TAB_REMOVED_SWITCH_SUPPRESSION,
   TAB_CREATED_NAVIGATION_SUPPRESSION,
 } from '../lib/capture-timing.js';
+import { STORAGE_QUOTA_KEY, classifyStoragePressure } from '../lib/storage-quota.js';
 import { isTrustedActionSender } from '../lib/frame-trust.js';
 // Auto-Sync background host. The triggered cycle calls
 // the SAME shared `sync()` the manual panel path does, through the SAME
@@ -137,6 +138,7 @@ chrome.runtime.onInstalled.addListener(async ({ reason }) => {
     'activeProjectId',
     'activeRecordingId',
     'recording',
+    STORAGE_QUOTA_KEY,
   ]);
   projects = stored.projects ?? [];
   activeProjectId = stored.activeProjectId ?? null;
@@ -149,7 +151,24 @@ chrome.runtime.onInstalled.addListener(async ({ reason }) => {
   // background trigger with the persisted `autoSync` setting so Auto-Sync keeps
   // running with the panel closed across SW restarts.
   liveRecording = stored.recording === true;
+
+  // Rehydrate the storage-quota gate (#127) so an MV3 suspension doesn't silently
+  // forget the user's "keep recording" override or the warn hysteresis — otherwise
+  // capture would re-pause on the next wake. (Only the SW writes this key, so the
+  // stored value is the SW's own last state.)
+  const quota = stored[STORAGE_QUOTA_KEY];
+  if (quota) {
+    userOverride = quota.override === true;
+    wasWarn = quota.band === 'warn';
+    storagePaused = quota.paused === true;
+    publishedQuota = { band: quota.band, paused: quota.paused, override: quota.override === true };
+  }
+
   await reconcileAutoSync();
+  // Reconcile the gate against actual usage now (honouring any restored override),
+  // so the in-memory gate and the published key agree immediately on wake rather
+  // than after the next capture/persist/clear.
+  await evaluateStoragePressure();
 })();
 
 // Open side panel when toolbar icon is clicked
@@ -240,13 +259,95 @@ function redactSensitive(action) {
   return action;
 }
 
+// Capture auto-pauses for storage pressure once usage crosses WARN_BYTES — UNLESS
+// the user chose to keep recording (the override). While paused, new captures are
+// dropped (not grown into storage) until the user frees space (usage < RESUME_BYTES,
+// which also clears the override) or overrides. A hard `exceeded` always pauses —
+// nothing writes past a full quota. All mirrored in memory so the queued write
+// callbacks gate synchronously; `wasWarn` carries the band hysteresis across calls.
+let storagePaused = false;
+let userOverride = false; // the user chose to keep recording past the warning (#127)
+let wasWarn = false; // band hysteresis: warn persists until usage < RESUME_BYTES
+// Last { band, paused, override } published — avoids re-writing (and re-firing the
+// panel's onChanged) when nothing the panel cares about has moved.
+let publishedQuota = null;
+
+function isQuotaError(err) {
+  return !!err && (err.name === 'QuotaExceededError' || /quota/i.test(err?.message ?? ''));
+}
+
+// Re-read storage usage, classify the pressure band (with hysteresis), decide the
+// pause (warn auto-pauses unless the user overrode; exceeded always pauses), update
+// the in-memory gate, and publish the state to STORAGE_QUOTA_KEY for the panel —
+// only when it changes, to avoid noisy onChanged churn.
+async function evaluateStoragePressure({ exceeded = false } = {}) {
+  let bytesInUse = 0;
+  try {
+    bytesInUse = await chrome.storage.local.getBytesInUse(null);
+  } catch {
+    if (!exceeded) return; // can't measure and nothing forced it — leave the gate as-is
+  }
+  const band = classifyStoragePressure(bytesInUse, wasWarn, exceeded);
+  wasWarn = band === 'warn';
+  if (band === 'ok') userOverride = false; // back under control — re-arm the warning
+  const paused = band === 'exceeded' || (band === 'warn' && !userOverride);
+  storagePaused = paused;
+  if (
+    publishedQuota &&
+    publishedQuota.band === band &&
+    publishedQuota.paused === paused &&
+    publishedQuota.override === userOverride
+  ) {
+    return;
+  }
+  publishedQuota = { band, paused, override: userOverride };
+  try {
+    await chrome.storage.local.set({
+      [STORAGE_QUOTA_KEY]: { band, paused, override: userOverride, bytesInUse },
+    });
+  } catch (err) {
+    // Genuinely out of room even for this tiny status write — keep the in-memory
+    // gate set, allow a retry next time, and rely on any prior warn state.
+    publishedQuota = null;
+    console.warn('[Docent] could not persist storageQuota state', err);
+  }
+}
+
+// The user chose to keep recording despite the storage-pressure warning (#127).
+// Override the auto-pause; capture resumes until usage drops back to ok (which
+// clears the override) or hits the hard quota wall.
+async function resumeCaptureDespitePressure() {
+  userOverride = true;
+  await evaluateStoragePressure();
+}
+
+// Append already-redacted actions to pendingActions with storage-quota handling.
+// MUST be called inside swWriteQueue. Returns false when the append was dropped
+// (capture paused for storage, or a hard quota failure); true on success.
+async function appendToPending(actions) {
+  if (storagePaused) return false; // paused for storage pressure — drop new captures
+  const { pendingActions } = await chrome.storage.local.get('pendingActions');
+  const updated = [...(pendingActions ?? []), ...actions];
+  try {
+    await chrome.storage.local.set({ pendingActions: updated, pendingCount: updated.length });
+  } catch (err) {
+    if (isQuotaError(err)) {
+      // Hard quota failure. The failed set leaves prior storage intact (read-
+      // modify-write), so existing recordings are safe. Surface it (paused +
+      // exceeded) rather than swallow it, and stop appending.
+      console.warn('[Docent] storage quota exceeded — pausing capture', err);
+      await evaluateStoragePressure({ exceeded: true });
+      return false;
+    }
+    throw err;
+  }
+  await evaluateStoragePressure();
+  return true;
+}
+
 async function appendSwAction(action) {
   const safe = redactSensitive(action);
-  swWriteQueue = swWriteQueue.then(async () => {
-    const { pendingActions } = await chrome.storage.local.get('pendingActions');
-    const updated = [...(pendingActions ?? []), safe];
-    await chrome.storage.local.set({ pendingActions: updated, pendingCount: updated.length });
-  });
+  swWriteQueue = swWriteQueue.then(() => appendToPending([safe]));
   return swWriteQueue;
 }
 
@@ -322,10 +423,8 @@ chrome.webNavigation.onCommitted.addListener(async (details) => {
     if (details.transitionType === 'link') {
       // This is the initial navigation of a tab opened via context menu "Open in new tab".
       // Record it as the proxy for the context menu selection.
-      await (swWriteQueue = swWriteQueue.then(async () => {
-        const { pendingActions } = await chrome.storage.local.get('pendingActions');
-        const updated = [
-          ...(pendingActions ?? []),
+      await (swWriteQueue = swWriteQueue.then(() =>
+        appendToPending([
           redactSensitive({
             type: 'navigate',
             nav_type: 'link',
@@ -335,9 +434,8 @@ chrome.webNavigation.onCommitted.addListener(async (details) => {
             capture_mode: 'dom',
             window_rect: null,
           }),
-        ];
-        await chrome.storage.local.set({ pendingActions: updated, pendingCount: updated.length });
-      }));
+        ]),
+      ));
     }
     // All other navigations on newly created tabs are cascading effects — skip.
     return;
@@ -371,15 +469,7 @@ chrome.webNavigation.onCommitted.addListener(async (details) => {
       const { lastTabNavUrl: stored } = await chrome.storage.local.get('lastTabNavUrl');
       if (normalised === stored) return;
     }
-    await chrome.storage.local.set({ lastTabNavUrl: normalised });
-    setTimeout(async () => {
-      const { lastTabNavUrl: cur } = await chrome.storage.local.get('lastTabNavUrl');
-      if (cur === normalised) await chrome.storage.local.remove('lastTabNavUrl');
-    }, 5000);
-
-    const { pendingActions } = await chrome.storage.local.get('pendingActions');
-    const updated = [
-      ...(pendingActions ?? []),
+    const appended = await appendToPending([
       redactSensitive({
         type: 'navigate',
         nav_type: navType,
@@ -389,8 +479,17 @@ chrome.webNavigation.onCommitted.addListener(async (details) => {
         capture_mode: 'dom',
         window_rect: null,
       }),
-    ];
-    await chrome.storage.local.set({ pendingActions: updated, pendingCount: updated.length });
+    ]);
+    // Only advance the dedup marker once the navigation is actually recorded.
+    // If the capture was dropped by the storage pause, leaving the marker behind
+    // would suppress a later genuine re-navigation to the same URL as a phantom
+    // duplicate (#127 review).
+    if (!appended) return;
+    await chrome.storage.local.set({ lastTabNavUrl: normalised });
+    setTimeout(async () => {
+      const { lastTabNavUrl: cur } = await chrome.storage.local.get('lastTabNavUrl');
+      if (cur === normalised) await chrome.storage.local.remove('lastTabNavUrl');
+    }, 5000);
   }));
 });
 
@@ -507,6 +606,9 @@ function getActiveRecording() {
 
 async function persist() {
   await chrome.storage.local.set({ projects, activeProjectId, activeRecordingId });
+  // Project growth or deletion shifts the pressure band — re-evaluate so the warn
+  // banner appears on growth and clears (capture resumes) when a project is deleted.
+  await evaluateStoragePressure();
 }
 
 async function setRecording(value) {
@@ -549,6 +651,9 @@ async function injectContentScript() {
 
 async function clearPending() {
   await chrome.storage.local.set({ pendingActions: [], pendingCount: 0 });
+  // Freeing pending actions may drop usage below the resume threshold — re-evaluate
+  // so capture resumes (and the panel banner clears) without waiting for the next write.
+  await evaluateStoragePressure();
 }
 
 async function getPendingActions() {
@@ -971,6 +1076,13 @@ async function handle(msg) {
 
     case 'RECORDING_CLEAR': {
       await clearPending();
+      return { ok: true };
+    }
+
+    // The user chose to keep recording past the storage-pressure warning (#127).
+    // Override the auto-pause so capture resumes; it re-arms once they free space.
+    case 'STORAGE_RESUME': {
+      await resumeCaptureDespitePressure();
       return { ok: true };
     }
 

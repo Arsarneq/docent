@@ -62,6 +62,21 @@
       <span id="bc-recording" class="bc-item hidden"></span>
     </nav>
 
+    <!-- Storage-quota warning (#127). View-independent (outside the injected
+         views) so it shows whenever chrome.storage.local nears its quota —
+         recording or not. -->
+    <div
+      id="storage-quota-banner"
+      class="storage-quota-banner hidden"
+      role="status"
+      aria-live="polite"
+    >
+      <span id="storage-quota-banner-text"></span>
+      <button id="btn-storage-quota-resume" class="btn btn--ghost btn--sm hidden">
+        Keep recording
+      </button>
+    </div>
+
     <!-- SHARED_VIEWS -->
 
     <script type="module" src="panel.js"></script>
