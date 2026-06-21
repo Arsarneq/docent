@@ -5,7 +5,7 @@
  * round-trip, the post-restart (ephemeral key cleared) path, and rejection of
  * tampered ciphertext.
  *
- * Node 20 provides Web Crypto (crypto.subtle), btoa/atob, TextEncoder and
+ * Node 24 provides Web Crypto (crypto.subtle), btoa/atob, TextEncoder and
  * TextDecoder as globals, so only chrome.storage.session needs mocking.
  */
 

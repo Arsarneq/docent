@@ -55,7 +55,7 @@ cd packages/extension && npm install
 
 ### Desktop Application (Windows)
 
-Prerequisites: [Rust toolchain](https://rustup.rs/) (stable), Node.js 20+.
+Prerequisites: [Rust toolchain](https://rustup.rs/) (stable), Node.js 24+.
 
 ```bash
 git clone https://github.com/Arsarneq/docent.git

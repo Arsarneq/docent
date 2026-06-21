@@ -10,6 +10,9 @@ on:
 permissions:
   contents: read
 
+env:
+  NODE_VERSION: '24'
+
 jobs:
   # Gate publishing on a green FULL test suite for the release SHA. The suite is
   # the reusable test.yml; `publish` needs it, so a release can never publish
@@ -29,7 +32,7 @@ jobs:
       pull-requests: write
 
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
         with:
           ref: main
 
@@ -48,9 +51,9 @@ jobs:
 
       - uses: ./.github/actions/debug-env
 
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
         with:
-          node-version: 20
+          node-version: ${{ env.NODE_VERSION }}
 
       - name: Install dependencies
         run: npm ci
@@ -80,7 +83,7 @@ jobs:
       - name: Create PR for schema version + published schema update if changed
         if: steps.table-diff.outputs.changed == 'true'
         id: version-pr
-        uses: peter-evans/create-pull-request@v8
+        uses: peter-evans/create-pull-request@5f6978faf089d4d20b00c7766989d076bb2fc7f1 # v8
         with:
           token: ${{ secrets.PERSONAL_ACCESS_TOKEN }}
           base: main
