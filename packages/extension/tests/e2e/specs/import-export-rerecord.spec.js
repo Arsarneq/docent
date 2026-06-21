@@ -98,7 +98,7 @@ test.describe('Import Flow', () => {
   test('importing a .docent.json file adds project to list', async ({ panelPage }) => {
     // Create a valid .docent.json file
     const importData = {
-      docent_format: { platform: 'extension', schema_version: '2.0.0' },
+      docent_format: { platform: 'extension', schema_version: '3.0.0' },
       project: {
         project_id: '019e0000-0000-7000-8000-000000000001',
         name: 'Imported Project',

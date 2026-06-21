@@ -158,7 +158,7 @@ test.describe('Desktop Import Flow', () => {
 
     // Set up the mock to return a valid import JSON
     const importData = {
-      docent_format: { platform: 'desktop-windows', schema_version: '1.0.0' },
+      docent_format: { platform: 'desktop-windows', schema_version: '2.0.0' },
       project: {
         project_id: '019e0000-0000-7000-8000-000000000001',
         name: 'Imported Project',
