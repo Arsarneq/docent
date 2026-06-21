@@ -23,13 +23,24 @@ As part of the run, the pipeline opens a single PR on branch `automated/version-
 
 The Chrome Web Store rejects a publish (HTTP 400) until every requested permission has a justification filled under the **Privacy practices** tab of the [developer dashboard](https://chrome.google.com/webstore/devconsole). This is **not API-automatable**. Whenever an extension release adds or changes a permission, fill its justification in the dashboard **before** publishing the release. (The 3.0.0 release needed this for the `alarms` permission added for Auto-Sync.)
 
+## Choosing the release version
+
+Each platform carries two **independent** version numbers: the **app version** — the git tag (`extension-vX.Y.Z` / `desktop-vX.Y.Z`), written into `manifest.json` / `tauri.conf.json` by the publish workflow — and the **schema version** (`schemas/<platform>.delta.json`, bumped mechanically at release by [`auto-version-schemas.js`](../scripts/auto-version-schemas.js)). They can legitimately diverge: a UI-only release bumps the app, not the schema.
+
+The tag is your call, but the **next-release-version helper** suggests it for each platform from the schema diff since the last release **plus** the conventional commits since that platform's last tag:
+
+- **Locally:** `npm run version:next`
+- **On GitHub:** dispatch the **Next release version** workflow ([`next-release-version.yml`](workflows/next-release-version.yml)) on `main` from the Actions tab — the suggestion appears on the run's summary page.
+
+It follows [semantic versioning](https://semver.org/): a breaking change (`!` / `BREAKING CHANGE`) → **major**, a feature (`feat`) → **minor**, a fix (`fix` / `perf`) → **patch**, and a bump zeroes the lower-precedence components. The suggestion is a **floor** — bump higher if the release carries breaking _behaviour_ the tooling can't classify from the diff or commit messages. (It assumes plain `X.Y.Z` versions; pre-release / build-metadata tags aren't handled.)
+
 ## Release checklist
 
 A release should be **tag + create-release; everything else is mechanical.**
 
 1. Confirm CI is green on `main`.
 2. **Extension only:** if the manifest's permissions changed since the last release, fill the new permission's **Privacy practices** justification in the CWS dashboard (above).
-3. Create and publish a GitHub Release with the platform tag (`extension-vX.Y.Z` or `desktop-vX.Y.Z`). Release **extension first** (Chrome Web Store review lag), then desktop. Note any breaking changes in the release notes and bump the major accordingly.
+3. Create and publish a GitHub Release with the platform tag (`extension-vX.Y.Z` or `desktop-vX.Y.Z`) — choose the version with the next-release-version helper ([Choosing the release version](#choosing-the-release-version)). Release **extension first** (Chrome Web Store review lag), then desktop. Note any breaking changes in the release notes and bump the major accordingly.
 4. **Approve** the `automated/version-table-update` PR when it appears — it auto-merges once approved and green.
 5. Confirm the result: the Chrome Web Store listing updates (after review), or the desktop installer is attached to the GitHub Release.
 

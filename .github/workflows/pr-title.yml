@@ -1,0 +1,27 @@
+# Enforces Conventional Commits PR titles. Docent squash-merges, so the PR title
+# becomes the commit subject on main — the input scripts/next-release-version.js
+# parses for release versioning, and the project's commit history. This keeps it
+# well-formed. See .github/CONTRIBUTING.md ("Pull Request Guidelines").
+name: PR title
+
+on:
+  pull_request:
+    types: [opened, edited, reopened, synchronize]
+
+permissions:
+  contents: read
+
+jobs:
+  conventional-title:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 20
+      - name: Check PR title is a Conventional Commit
+        env:
+          # Passed via env (never interpolated into the shell) so a crafted title
+          # cannot inject commands.
+          PR_TITLE: ${{ github.event.pull_request.title }}
+        run: node scripts/check-pr-title.js
