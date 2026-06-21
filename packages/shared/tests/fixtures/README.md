@@ -49,3 +49,15 @@ Do not "fix" a fixture to make a failing test pass: a failure means a schema
 change broke backward compatibility, which is the signal this corpus exists to
 raise. Decide intentionally whether that break is acceptable (major version bump)
 before touching a fixture.
+
+## Caveat — the `docent_format.schema_version` const
+
+`schema_version` is a `const` per published schema, so a fixture stamped at an
+older version can never validate against a newer schema — the stamp alone
+mismatches, regardless of real data-shape compatibility. A **major** schema bump
+therefore breaks every frozen fixture on the stamp, and the only resolution today
+is to re-stamp + rename the fixtures to the new version (a deliberate
+regeneration, sanctioned only by an intentional major bump). This limits the
+corpus to the _current_ version. Reworking the compat check to ignore the version
+stamp (validate data shape, treat `schema_version` as any-string) would restore
+true cross-version coverage — tracked as tech debt.

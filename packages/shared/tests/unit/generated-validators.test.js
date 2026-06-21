@@ -22,8 +22,8 @@ const GENERATED_DIR = resolve(__dirname, '../../generated');
 const FIXTURES_DIR = resolve(__dirname, '../fixtures');
 
 const PLATFORMS = [
-  { key: 'extension', fixture: 'extension/v2.0.0.docent.json' },
-  { key: 'desktop-windows', fixture: 'desktop-windows/v1.0.0.docent.json' },
+  { key: 'extension', fixture: 'extension/v3.0.0.docent.json' },
+  { key: 'desktop-windows', fixture: 'desktop-windows/v2.0.0.docent.json' },
 ];
 
 for (const { key, fixture } of PLATFORMS) {
