@@ -12,9 +12,17 @@ import { test as base, expect, chromium } from '@playwright/test';
 import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
+import { composePlatform } from '../../../../../scripts/build-schemas.js';
+import { stampFromSchema } from '../../../../../packages/shared/lib/format-stamp.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const extensionPath = path.resolve(__dirname, '../../..');
+
+// Derive the docent_format stamp from the current composed schema rather than
+// hardcoding a version. Import validates the stamp against the schema_version
+// `const`, so a hardcoded version breaks on every schema bump — deriving it
+// means this fixture needs ZERO edits when the schema version changes.
+const EXTENSION_STAMP = stampFromSchema(composePlatform('extension'));
 
 const test = base.extend({
   context: async ({}, use) => {
@@ -98,7 +106,7 @@ test.describe('Import Flow', () => {
   test('importing a .docent.json file adds project to list', async ({ panelPage }) => {
     // Create a valid .docent.json file
     const importData = {
-      docent_format: { platform: 'extension', schema_version: '3.0.0' },
+      docent_format: EXTENSION_STAMP,
       project: {
         project_id: '019e0000-0000-7000-8000-000000000001',
         name: 'Imported Project',

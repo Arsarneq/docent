@@ -4,8 +4,24 @@ on:
   release:
     types: [published]
 
+# Least-privilege default for GITHUB_TOKEN: the reusable `test` job (and any
+# future job) inherits read-only; the `publish` job below grants itself the
+# writes it needs. Closes the CodeQL "workflow does not limit GITHUB_TOKEN" alert.
+permissions:
+  contents: read
+
 jobs:
+  # Gate publishing on a green FULL test suite for the release SHA. The suite is
+  # the reusable test.yml; `publish` needs it, so a release can never publish
+  # with red tests. Guarded by the same tag check so a desktop-v* release doesn't
+  # spin the suite here for nothing.
+  test:
+    if: startsWith(github.event.release.tag_name, 'extension-v')
+    uses: ./.github/workflows/test.yml
+    secrets: inherit
+
   publish:
+    needs: [test]
     if: startsWith(github.event.release.tag_name, 'extension-v')
     runs-on: ubuntu-latest
     permissions:
@@ -16,6 +32,19 @@ jobs:
       - uses: actions/checkout@v6
         with:
           ref: main
+
+      # Build == tested tree. The `test` gate ran on github.sha (the released
+      # commit); this job builds main. Fail fast if they differ — main advanced
+      # during the gate, or the tag isn't at main HEAD — rather than publish a
+      # tree the gate never tested. (Cut releases from main HEAD.)
+      - name: Verify the released commit is current main HEAD
+        run: |
+          HEAD_SHA="$(git rev-parse HEAD)"
+          if [ "$HEAD_SHA" != "${{ github.sha }}" ]; then
+            echo "::error::Released commit ${{ github.sha }} is not current main HEAD ($HEAD_SHA) — the test gate ran on ${{ github.sha }} but publish builds main. Refusing to publish an untested tree; re-cut the release from main HEAD."
+            exit 1
+          fi
+          echo "✓ Released commit is main HEAD ($HEAD_SHA) — build matches the tested tree."
 
       - uses: ./.github/actions/debug-env
 
@@ -31,8 +60,13 @@ jobs:
         env:
           DOCENT_RELEASE: '1'
 
-      - name: Format updated files
-        run: npx prettier --write README.md docs/session-format.md 'schemas/*.delta.json' 'schemas/dist/*.json' packages/extension/manifest.json packages/desktop/src-tauri/tauri.conf.json
+      # Format ALL release outputs, not an enumerated list that can miss a file.
+      # auto-version writes manifest.json / tauri.conf.json / dist/ via
+      # JSON.stringify (not Prettier-shaped); `npm run format` (prettier --write .)
+      # normalises every one of them — plus any future script-written file —
+      # while .prettierignore + already-clean sample stamps stay untouched.
+      - name: Format release outputs
+        run: npm run format
 
       - name: Check for version table / schema changes
         id: table-diff
@@ -121,7 +155,10 @@ jobs:
           echo "$UPLOAD_RESPONSE" | jq .
           UPLOAD_STATUS=$(echo "$UPLOAD_RESPONSE" | jq -r '.uploadState')
           if [ "$UPLOAD_STATUS" != "SUCCESS" ]; then
-            echo "::error::Upload failed with state: $UPLOAD_STATUS"
+            # Surface the real reason in the annotation, not just the state. The
+            # CWS API reports failures as itemError[] (or a top-level error).
+            DETAIL=$(echo "$UPLOAD_RESPONSE" | jq -r 'if .itemError then ([.itemError[] | "\(.error_code): \(.error_detail)"] | join("; ")) elif .error.message then .error.message else "see Upload response above" end')
+            echo "::error::Upload failed (state: $UPLOAD_STATUS) — $DETAIL"
             exit 1
           fi
 
@@ -137,7 +174,11 @@ jobs:
           echo "$PUBLISH_RESPONSE" | jq .
           PUBLISH_STATUS=$(echo "$PUBLISH_RESPONSE" | jq -r '.status[0]')
           if [ "$PUBLISH_STATUS" != "OK" ]; then
-            echo "::error::Publish failed with status: $PUBLISH_STATUS"
+            # The bare status code is often "null"/uninformative — emit the real
+            # message. CWS returns statusDetail[] alongside status[], or a
+            # top-level error object (e.g. the Privacy-practices 400).
+            DETAIL=$(echo "$PUBLISH_RESPONSE" | jq -r 'if .statusDetail then (.statusDetail | join("; ")) elif .error.message then .error.message else "see Publish response above" end')
+            echo "::error::Publish failed (status: $PUBLISH_STATUS) — $DETAIL"
             exit 1
           fi
           echo "Extension published successfully!"

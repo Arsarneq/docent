@@ -48,12 +48,42 @@ function discoverValidators() {
   for (const platform of Object.keys(PLATFORMS)) {
     const schema = composePlatform(platform);
     validators.set(platform, {
-      validate: ajv.compile(schema),
+      validate: ajv.compile(shapeOnly(schema)),
       version: schema.version,
-      file: `${platform}.schema.json (composed from source)`,
+      file: `${platform}.schema.json (composed from source, shape-only)`,
     });
   }
   return validators;
+}
+
+/**
+ * Return a clone of a composed schema with the `docent_format.schema_version`
+ * `const` relaxed to a plain string — so frozen fixtures validate by SHAPE,
+ * regardless of which version stamp they carry.
+ *
+ * Why: backward compatibility means "an old export still fits today's shape". But
+ * the composed schema pins `schema_version` as a `const` (= the current release),
+ * so an older-version fixture would fail on the stamp ALONE — the stamp mismatches
+ * even when the data shape is fully compatible. Relaxing only that one const lets
+ * a v2 fixture validate against a v3 schema if (and only if) the shape still fits,
+ * which is exactly what this corpus is meant to catch. It also means a schema
+ * major bump needs ZERO fixture re-stamping — the firefight that bit the 3.0.0 /
+ * 2.0.0 release.
+ *
+ * GUARDRAIL: this relaxation is LOCAL TO THIS TEST HARNESS — a throwaway in-memory
+ * clone. The published schemas (schemas/dist/), the source layers, and the
+ * generated import/sync validators keep the `const` intact; strict import-time
+ * version-gating is intentional and untouched. The `platform` const is kept here
+ * too (a desktop fixture must not validate against the extension schema).
+ */
+function shapeOnly(schema) {
+  const clone = structuredClone(schema);
+  const sv = clone.$defs?.docent_format?.properties?.schema_version;
+  if (sv) {
+    delete sv.const;
+    sv.type = 'string';
+  }
+  return clone;
 }
 
 /**

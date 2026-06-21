@@ -5,8 +5,11 @@ on:
     branches: [main]
   push:
     branches: [main]
-  release:
-    types: [published]
+  # Called by the publish workflows so a release only proceeds on a green suite
+  # for the release SHA (see publish.yml / publish-desktop.yml). Replaces the old
+  # standalone `release: published` trigger — running the suite via the call (not
+  # a second independent run) is what makes the publish job depend on it.
+  workflow_call:
 
 permissions:
   contents: read
@@ -80,11 +83,18 @@ jobs:
       - name: markdownlint
         run: npm run lint:md
 
-      # Guard 2: fail if a feature branch modified release-only outputs
-      # (schemas/dist/ or a delta `version`). Only meaningful on PRs, where we
-      # have a base branch to diff against; skipped on push/release.
+      # Guard 2: release-output guard. On a normal feature branch it FAILS if the
+      # branch touched release-only outputs (schemas/dist/ or a delta `version`).
+      # On the automation branch the release pipeline opens
+      # (automated/version-table-update) it instead POSITIVELY validates that the
+      # PR is exactly the mechanical regeneration — only release outputs, and a
+      # dist/ that composes from source. The script switches on PR_HEAD_REF. Only
+      # meaningful on PRs, where we have a base branch to diff against; skipped on
+      # push/release.
       - name: No release-only outputs on PR
         if: github.event_name == 'pull_request'
+        env:
+          PR_HEAD_REF: ${{ github.head_ref }}
         run: |
           git fetch --no-tags origin "$GITHUB_BASE_REF"
           node scripts/check-no-release-outputs.js "origin/$GITHUB_BASE_REF"

@@ -21,9 +21,19 @@ import http from 'http';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { composePlatform } from '../../../../scripts/build-schemas.js';
+import { stampFromSchema } from '../../../../packages/shared/lib/format-stamp.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const distPath = path.resolve(__dirname, '../../dist');
+
+// Derive the docent_format stamp from the current composed schema rather than
+// hardcoding a version. Import/pull validate the stamp against the
+// schema_version `const`, so a hardcoded version breaks on every schema bump —
+// deriving it means these fixtures need ZERO edits when the schema version
+// changes. Passed into page.evaluate() blocks as an arg where the payload is
+// built in the browser context.
+const DESKTOP_STAMP = stampFromSchema(composePlatform('desktop-windows'));
 
 // Track invoke calls for verification
 const TAURI_MOCK_JS = `
@@ -249,9 +259,9 @@ test.describe('Desktop Panel — Import Project', () => {
     await page.waitForSelector('#view-projects:not(.hidden)', { timeout: 10000 });
 
     // Set mock import data
-    await page.evaluate(() => {
+    await page.evaluate((stamp) => {
       window.__MOCK_IMPORT_DATA__ = JSON.stringify({
-        docent_format: { platform: 'desktop-windows', schema_version: '2.0.0' },
+        docent_format: stamp,
         project: {
           project_id: '019e0000-0000-7000-8000-000000000099',
           name: 'Imported Project',
@@ -295,7 +305,7 @@ test.describe('Desktop Panel — Import Project', () => {
           },
         ],
       });
-    });
+    }, DESKTOP_STAMP);
 
     await page.click('#btn-import-project');
     await page.waitForTimeout(500);
@@ -309,7 +319,7 @@ test.describe('Desktop Panel — Import Project', () => {
     await page.waitForSelector('#view-projects:not(.hidden)', { timeout: 10000 });
 
     const importData = JSON.stringify({
-      docent_format: { platform: 'desktop-windows', schema_version: '2.0.0' },
+      docent_format: DESKTOP_STAMP,
       project: {
         project_id: '019e0000-0000-7000-8000-000000000200',
         name: 'Original',
@@ -377,7 +387,7 @@ test.describe('Desktop Panel — Sync Flows', () => {
     await page.waitForSelector('#view-projects:not(.hidden)', { timeout: 5000 });
 
     // Mock fetch: push succeeds, pull returns 1 new project
-    await page.evaluate(() => {
+    await page.evaluate((stamp) => {
       window._originalFetch = window.fetch;
       window.fetch = async (url, opts) => {
         // The schema fetch (session.schema.json — used to build the push stamp
@@ -403,7 +413,7 @@ test.describe('Desktop Panel — Sync Flows', () => {
             ok: true,
             status: 200,
             json: async () => ({
-              docent_format: { platform: 'desktop-windows', schema_version: '2.0.0' },
+              docent_format: stamp,
               project: {
                 project_id: '0190a1b2-0000-7000-8000-000000000051',
                 name: 'From Server',
@@ -414,7 +424,7 @@ test.describe('Desktop Panel — Sync Flows', () => {
           };
         return { ok: true, status: 200, json: async () => ({}) };
       };
-    });
+    }, DESKTOP_STAMP);
 
     // Handle sync summary alert
     page.on('dialog', (dialog) => dialog.accept());

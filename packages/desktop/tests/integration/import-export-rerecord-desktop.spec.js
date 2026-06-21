@@ -13,9 +13,17 @@ import http from 'http';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { composePlatform } from '../../../../scripts/build-schemas.js';
+import { stampFromSchema } from '../../../../packages/shared/lib/format-stamp.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const distPath = path.resolve(__dirname, '../../dist');
+
+// Derive the docent_format stamp from the current composed schema rather than
+// hardcoding a version. Import validates the stamp against the schema_version
+// `const`, so a hardcoded version breaks on every schema bump — deriving it
+// means these fixtures need ZERO edits when the schema version changes.
+const DESKTOP_STAMP = stampFromSchema(composePlatform('desktop-windows'));
 
 const TAURI_MOCK_JS = `
   let _savedState = JSON.stringify({ projects: [], settings: {} });
@@ -158,7 +166,7 @@ test.describe('Desktop Import Flow', () => {
 
     // Set up the mock to return a valid import JSON
     const importData = {
-      docent_format: { platform: 'desktop-windows', schema_version: '2.0.0' },
+      docent_format: DESKTOP_STAMP,
       project: {
         project_id: '019e0000-0000-7000-8000-000000000001',
         name: 'Imported Project',

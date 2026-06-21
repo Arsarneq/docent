@@ -1,8 +1,10 @@
 # Backward-compatibility fixture corpus (#87)
 
 Real, frozen `.docent.json` exports used as **regression anchors** for schema
-backward compatibility. Each fixture is validated against the _current_ published
-platform schema by `backward-compat.test.js`.
+backward compatibility. Each fixture is validated for **shape** compatibility
+against the _current_ platform schema by `backward-compat.test.js` (the version
+stamp is deliberately ignored — see
+[Validation is by shape](#validation-is-by-shape-not-by-version-stamp)).
 
 ## Why this exists
 
@@ -50,14 +52,26 @@ change broke backward compatibility, which is the signal this corpus exists to
 raise. Decide intentionally whether that break is acceptable (major version bump)
 before touching a fixture.
 
-## Caveat — the `docent_format.schema_version` const
+## Validation is by SHAPE, not by version stamp
 
-`schema_version` is a `const` per published schema, so a fixture stamped at an
-older version can never validate against a newer schema — the stamp alone
-mismatches, regardless of real data-shape compatibility. A **major** schema bump
-therefore breaks every frozen fixture on the stamp, and the only resolution today
-is to re-stamp + rename the fixtures to the new version (a deliberate
-regeneration, sanctioned only by an intentional major bump). This limits the
-corpus to the _current_ version. Reworking the compat check to ignore the version
-stamp (validate data shape, treat `schema_version` as any-string) would restore
-true cross-version coverage — tracked as tech debt.
+The published schema pins `docent_format.schema_version` as a `const` (= the
+current release), so on a strict validation an older-version fixture would fail on
+the **stamp alone**, even when its data shape is fully compatible. To test what
+actually matters — _does an old export still fit today's shape?_ —
+`backward-compat.test.js` validates each fixture against a clone of the current
+schema with the `schema_version` const **relaxed to a plain string** (the
+`platform` const is kept). A `v2` fixture therefore validates against a `v3`
+schema if, and only if, the shape still fits.
+
+Two consequences:
+
+- **A schema major bump needs ZERO fixture re-stamping.** Frozen fixtures keep
+  validating across versions; only a genuine _shape_ change makes one fail, which
+  is exactly the signal this corpus exists to raise. (This closes the manual
+  re-stamp sweep that bit the 3.0.0 / 2.0.0 release.)
+- **The relaxation is local to this test harness.** The published schemas
+  (`schemas/dist/`), the source layers, and the generated import/sync validators
+  keep the `const` intact — strict import-time version-gating is intentional and
+  untouched. Tests that exercise the real (const-bearing) validator derive their
+  stamp from the current schema via `stampFromSchema(composePlatform(...))` rather
+  than hardcoding a version, so they too need no edit on a bump.
