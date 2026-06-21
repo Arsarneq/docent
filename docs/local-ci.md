@@ -99,3 +99,38 @@ with a payload like
 > the gating `test` job won't resolve locally, validate that wiring with
 > [`actionlint`](https://github.com/rhysd/actionlint) and a throwaway tag/release
 > on a fork instead.
+
+### Dry-run the publish workflows (`workflow_dispatch`)
+
+Both publish workflows also accept a **`workflow_dispatch`**, which runs as a
+**dry-run** — the full pipeline with every external side-effect (Chrome Web Store
+upload, release-asset attach, version-table PR) gated off. This is the most
+`act`-friendly way to exercise them, since `workflow_dispatch` needs no release
+payload:
+
+```bash
+act workflow_dispatch -W .github/workflows/publish.yml -e dispatch-event.json
+```
+
+with a minimal payload so the build==tested HEAD guard and the `changes` filter
+resolve:
+
+```json
+{
+  "repository": { "default_branch": "main" },
+  "ref": "refs/heads/main"
+}
+```
+
+If the HEAD guard trips (act's synthetic `github.sha` ≠ your local HEAD), add
+`--env GITHUB_SHA=$(git rev-parse HEAD)`. The **extension** dry-run runs fully
+under `act` (Linux). The **desktop** `publish-desktop` job is `windows-latest`,
+so its installer build runs only **natively** (`cargo tauri build` from
+`packages/desktop/src-tauri`) or on a real GitHub dispatch — not under `act`.
+
+The reusable-workflow / `secrets: inherit` caveat above applies here too: if the
+gating `test` job won't resolve under `act`, lint the wiring with `actionlint` and
+confirm the full run with a real `workflow_dispatch` on GitHub (Actions tab → the
+publish workflow → **Run workflow**). See
+[.github/PUBLISHING.md](../.github/PUBLISHING.md) → "Dry-run a publish" for what a
+dry-run runs vs. skips.

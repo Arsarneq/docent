@@ -3,6 +3,11 @@ name: Publish to Chrome Web Store
 on:
   release:
     types: [published]
+  # Dry-run: a manual dispatch rehearses the FULL pipeline (test gate, HEAD guard,
+  # auto-version, package build) with every external side-effect gated OFF — no
+  # Chrome Web Store upload, no version-table PR. A real publish happens ONLY via a
+  # published release. See `.github/PUBLISHING.md` → "Dry-run a publish".
+  workflow_dispatch:
 
 # Least-privilege default for GITHUB_TOKEN: the reusable `test` job (and any
 # future job) inherits read-only; the `publish` job below grants itself the
@@ -19,19 +24,35 @@ jobs:
   # with red tests. Guarded by the same tag check so a desktop-v* release doesn't
   # spin the suite here for nothing.
   test:
-    if: startsWith(github.event.release.tag_name, 'extension-v')
+    if: github.event_name == 'workflow_dispatch' || startsWith(github.event.release.tag_name, 'extension-v')
     uses: ./.github/workflows/test.yml
     secrets: inherit
 
   publish:
     needs: [test]
-    if: startsWith(github.event.release.tag_name, 'extension-v')
+    if: github.event_name == 'workflow_dispatch' || startsWith(github.event.release.tag_name, 'extension-v')
     runs-on: ubuntu-latest
     permissions:
       contents: write
       pull-requests: write
 
     steps:
+      # workflow_dispatch ⇒ dry-run (no external side-effects); a published release
+      # ⇒ the real publish. Single source of truth for the side-effect gates below.
+      - name: Resolve release mode
+        id: mode
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "value=dry" >> "$GITHUB_OUTPUT"
+            {
+              echo "## 🧪 Dry run — no external side-effects"
+              echo "Runs the full test gate, the build==tested HEAD guard, auto-version, and the extension package build. SKIPS the Chrome Web Store upload and the version-table PR (create + auto-merge)."
+            } >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "value=release" >> "$GITHUB_OUTPUT"
+            echo "## 🚀 Real release — publishing to the Chrome Web Store" >> "$GITHUB_STEP_SUMMARY"
+          fi
+
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
         with:
           ref: main
@@ -81,7 +102,7 @@ jobs:
           fi
 
       - name: Create PR for schema version + published schema update if changed
-        if: steps.table-diff.outputs.changed == 'true'
+        if: steps.mode.outputs.value != 'dry' && steps.table-diff.outputs.changed == 'true'
         id: version-pr
         uses: peter-evans/create-pull-request@5f6978faf089d4d20b00c7766989d076bb2fc7f1 # v8
         with:
@@ -95,7 +116,7 @@ jobs:
           delete-branch: true
 
       - name: Auto-merge version table PR
-        if: steps.version-pr.outputs.pull-request-number
+        if: steps.mode.outputs.value != 'dry' && steps.version-pr.outputs.pull-request-number
         run: gh pr merge ${{ steps.version-pr.outputs.pull-request-number }} --auto --squash
         env:
           GH_TOKEN: ${{ github.token }}
@@ -104,6 +125,7 @@ jobs:
         run: node scripts/sync-shared.js extension
 
       - name: Bump extension version from release tag
+        if: steps.mode.outputs.value != 'dry'
         env:
           RELEASE_TAG: ${{ github.event.release.tag_name }}
         run: |
@@ -131,6 +153,7 @@ jobs:
             --exclude 'tests/*'
 
       - name: Upload to Chrome Web Store
+        if: steps.mode.outputs.value != 'dry'
         run: |
           # Get access token from refresh token
           TOKEN_RESPONSE=$(curl -s -X POST https://oauth2.googleapis.com/token \
@@ -185,3 +208,27 @@ jobs:
             exit 1
           fi
           echo "Extension published successfully!"
+
+      # Dry-run substitute for the CWS upload: prove the package built and is
+      # upload-ready (zip exists + manifest at the root carries a version), without
+      # contacting the Chrome Web Store.
+      - name: Validate extension package (dry run)
+        if: steps.mode.outputs.value == 'dry'
+        run: |
+          if [ ! -s extension.zip ]; then
+            echo "::error::extension.zip was not produced (or is empty) — the package build failed."
+            exit 1
+          fi
+          SIZE=$(stat -c%s extension.zip)
+          MANIFEST_VERSION=$(unzip -p extension.zip manifest.json | jq -r '.version')
+          if [ -z "$MANIFEST_VERSION" ] || [ "$MANIFEST_VERSION" = "null" ]; then
+            echo "::error::manifest.json is missing from the zip root or has no version."
+            exit 1
+          fi
+          echo "✓ extension.zip built (${SIZE} bytes), manifest version ${MANIFEST_VERSION} — upload-ready (CWS upload skipped in dry run)."
+          {
+            echo "### Extension package (dry run)"
+            echo "- \`extension.zip\`: ${SIZE} bytes"
+            echo "- \`manifest.json\` version: \`${MANIFEST_VERSION}\`"
+            echo "- Chrome Web Store upload: **skipped**"
+          } >> "$GITHUB_STEP_SUMMARY"
