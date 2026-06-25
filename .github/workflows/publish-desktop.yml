@@ -172,6 +172,24 @@ jobs:
           "
           echo "tauri.conf.json version is now $(node -e "console.log(JSON.parse(require('fs').readFileSync('packages/desktop/src-tauri/tauri.conf.json','utf8')).version)")"
 
+          # Build-time OVERLAY of the Rust crate version (Cargo.toml + Cargo.lock),
+          # never committed — this step runs AFTER the version PR is opened. Mirrors
+          # the tauri.conf.json overlay above so the BUILT binary's crate metadata
+          # matches the release TAG on a tag != schema release. Cargo.lock is updated
+          # too (anchored on the docent-desktop block) so the build stays consistent
+          # even if the Tauri build runs cargo with --locked/--frozen.
+          node -e "
+            const fs = require('fs');
+            const toml = 'packages/desktop/src-tauri/Cargo.toml';
+            fs.writeFileSync(toml, fs.readFileSync(toml, 'utf8').replace(/^version = \"[^\"]*\"/m, 'version = \"$VERSION\"'));
+            const lock = 'packages/desktop/src-tauri/Cargo.lock';
+            const re = /(name = \"docent-desktop\"\r?\nversion = \")[^\"]*(\")/;
+            const c = fs.readFileSync(lock, 'utf8');
+            if (!re.test(c)) { console.error('::error::docent-desktop block not found in Cargo.lock'); process.exit(1); }
+            fs.writeFileSync(lock, c.replace(re, (m, p1, p2) => p1 + '$VERSION' + p2));
+          "
+          echo "Cargo.toml version is now $(grep -m1 '^version = ' packages/desktop/src-tauri/Cargo.toml)"
+
       - name: Build desktop frontend dist
         run: node scripts/build-desktop-dist.js
 

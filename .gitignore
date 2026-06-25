@@ -14,9 +14,12 @@ packages/*/shared/
 # scripts/build-validators.js via sync-shared)
 packages/shared/generated/
 
-# Generated HTML (assembled from shell + shared views by sync-shared)
-packages/extension/sidepanel/index.html
-packages/desktop/src/index.html
+# NOTE: the assembled index.html for the extension side panel and the desktop
+# frontend (each built from its index.shell.html + shared/views/views.html by
+# sync-shared) are DELIBERATELY COMMITTED — like schemas/dist/ — and CI verifies
+# they match sync-shared output ("Verify sync-shared output is fresh"). They are
+# intentionally NOT ignored here: an ignore rule on already-tracked files is inert
+# and would only mask staleness. Edit the shells/views and re-run sync-shared.
 
 # Desktop frontend dist (assembled by scripts/build-desktop-dist.js)
 packages/desktop/dist/

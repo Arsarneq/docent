@@ -140,26 +140,50 @@ jobs:
       - name: Install root dependencies
         run: npm ci
 
-      - name: Audit npm dependencies
+      # --- npm side: advisories (npm audit) + license gate (cargo-deny is
+      # Rust-only, so npm keeps its own advisory audit). ---
+      - name: Audit npm dependencies (advisories)
         run: npm audit --audit-level=high --package-lock-only
 
+      # The npm license gate scans every real install root (this is NOT an
+      # npm-workspaces repo), so each root needs its node_modules present.
+      - name: Install extension dependencies
+        run: cd packages/extension && npm ci
+
+      - name: Install extension e2e dependencies
+        run: cd packages/extension/tests/e2e && npm ci
+
+      - name: Install desktop integration dependencies
+        run: cd packages/desktop/tests/integration && npm ci
+
+      - name: Check npm dependency licenses (default-deny allowlist)
+        run: npm run check:licenses
+
+      # --- Rust side: consolidated on cargo-deny (replaces cargo-audit). Licenses
+      # and advisories run as SEPARATE steps so a red gate shows which one failed;
+      # both block (this job is required by ci-gate and by the publish workflows).
+      # Config + the advisory ignore list live in packages/desktop/src-tauri/deny.toml.
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
 
-      - name: Cache cargo-audit
-        id: cache-cargo-audit
+      - name: Cache cargo-deny
+        id: cache-cargo-deny
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5
         with:
-          path: ~/.cargo/bin/cargo-audit
-          key: ${{ runner.os }}-cargo-audit-0.21
+          path: ~/.cargo/bin/cargo-deny
+          key: ${{ runner.os }}-cargo-deny-0.19.9
 
-      - name: Install cargo-audit
-        if: steps.cache-cargo-audit.outputs.cache-hit != 'true'
-        run: cargo install cargo-audit
+      - name: Install cargo-deny
+        if: steps.cache-cargo-deny.outputs.cache-hit != 'true'
+        run: cargo install cargo-deny --version 0.19.9 --locked
 
-      - name: Audit Rust dependencies
+      - name: Check Rust dependency licenses (default-deny allowlist)
         working-directory: packages/desktop/src-tauri
-        run: cargo audit --ignore RUSTSEC-2024-0429
+        run: cargo deny check licenses
+
+      - name: Audit Rust dependencies (advisories)
+        working-directory: packages/desktop/src-tauri
+        run: cargo deny check advisories
 
   unit-tests:
     needs: [lint, changes]

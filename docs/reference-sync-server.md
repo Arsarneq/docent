@@ -270,7 +270,7 @@ anything:
   "projects": [
     {
       "project_id": "019e11fd-78ba-7fdb-8362-6fe9f697f641",
-      "name": "Login regression suite",
+      "name": "Expense report submission",
       "last_modified": "2026-06-04T10:00:00.000Z",
       "etag": "\"a1b2c3...\""
     }

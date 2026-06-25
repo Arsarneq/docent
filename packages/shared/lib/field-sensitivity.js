@@ -15,9 +15,10 @@
  * desktop Rust capture layer cannot import modules, but they do not need to: they
  * only keep the native, signal-based password masking.)
  *
- * Detection is intentionally CONSERVATIVE. Docent's output is used to generate
- * tests, so masking a legitimate field (a username, an email, a search box)
- * destroys the product's value. We mask only on strong signals: the HTML
+ * Detection is intentionally CONSERVATIVE. Over-masking a legitimate field
+ * (a username, an email, a search box) discards data the user really entered
+ * and degrades the fidelity of the captured workflow. We mask only on strong
+ * signals: the HTML
  * `autocomplete` payment tokens, and a tight name/id pattern for clearly
  * financial / secret / SSN fields.
  *

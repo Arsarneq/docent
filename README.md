@@ -6,8 +6,8 @@
 [![Rust coverage](<https://img.shields.io/codecov/c/github/Arsarneq/docent/main?flag=rust&logo=rust&logoColor=white&label=coverage%20(rust)>)](https://app.codecov.io/gh/Arsarneq/docent?flags%5B0%5D=rust)
 [![Mutation Testing](https://github.com/Arsarneq/docent/actions/workflows/mutation.yml/badge.svg)](https://github.com/Arsarneq/docent/actions/workflows/mutation.yml)
 [![CodeQL](https://img.shields.io/badge/CodeQL-enabled-2088FF?logo=github&logoColor=white)](https://github.com/Arsarneq/docent/security/code-scanning)
-[![Extension v2.0.0](https://img.shields.io/chrome-web-store/v/odhpdgpoknpaakjdkdbjdgpljmpblijh?logo=googlechrome&logoColor=white&label=Chrome%20Web%20Store)](https://chromewebstore.google.com/detail/docent/odhpdgpoknpaakjdkdbjdgpljmpblijh)
-[![Desktop v1.0.0](https://img.shields.io/badge/Desktop_Release-v2.0.0-181717?logo=github&logoColor=white)](https://github.com/Arsarneq/docent/releases/tag/desktop-v2.0.0)
+[![Extension v3.0.0](https://img.shields.io/chrome-web-store/v/odhpdgpoknpaakjdkdbjdgpljmpblijh?logo=googlechrome&logoColor=white&label=Chrome%20Web%20Store)](https://chromewebstore.google.com/detail/docent/odhpdgpoknpaakjdkdbjdgpljmpblijh)
+[![Desktop v2.0.0](https://img.shields.io/badge/Desktop_Release-v2.0.0-181717?logo=github&logoColor=white)](https://github.com/Arsarneq/docent/releases/tag/desktop-v2.0.0)
 [![Node.js](https://img.shields.io/badge/Node.js-24%2B-339933?logo=nodedotjs&logoColor=white)](https://nodejs.org/)
 [![Built with Tauri](https://img.shields.io/badge/Built%20with-Tauri-FFC131?logo=tauri&logoColor=white)](https://tauri.app/)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](.github/CONTRIBUTING.md)
@@ -49,7 +49,12 @@ The dispatch payload includes a reading guide and the JSON Schema for the sendin
 
 ---
 
-## Example flow
+## Example consumers
+
+> Docent ships no consumer. The `.docent.json` format is the contract; whatever
+> reads it is built separately and independently. The flows below are
+> **examples** of what a consumer _could_ do — Docent makes no assumptions about
+> which of them (if any) receives a recording.
 
 ### Agentic consumer (narration mode)
 
@@ -57,11 +62,18 @@ The dispatch payload includes a reading guide and the JSON Schema for the sendin
 flowchart LR
     A([Person]) -->|demonstrates workflow| B[Docent]
     B -->|narration + actions| C[.docent.json]
-    C -->|dispatch| D([LLM / Agentic system])
-    D -->|interprets & implements| E([Test suite])
+    C -->|dispatch| D([LLM / agentic consumer])
+    D --> E1([Test suite])
+    D --> E2([Process documentation])
+    D --> E3([RPA flow])
 ```
 
-A person demonstrates a workflow, narrating each step in natural language. The structured output is dispatched to an agentic system (LLM) that interprets the narration and captured interactions to produce a test suite. The LLM has full context — what the user did and what they meant.
+A person demonstrates a workflow, narrating each step in natural language. The
+structured output is dispatched to an agentic consumer (an LLM) that has full
+context — what the user did and what they meant — and can turn it into whatever
+that consumer is built for: a test suite, written process documentation, an RPA
+flow, an accessibility report. Docent neither performs nor ships any of this; it
+delivers the data.
 
 ### Deterministic consumer (simple mode)
 
@@ -70,16 +82,20 @@ flowchart LR
     A([Person]) -->|demonstrates workflow| B[Docent]
     B -->|action/validation + actions| C[.docent.json]
     C -->|dispatch| D([Code mapper])
-    D -->|generates directly| E([Test suite])
+    D -->|generates directly| E([Executable automation])
 ```
 
-A person demonstrates a workflow, tagging each step as either "action" (do this) or "validation" (check this). A deterministic code mapper generates framework-specific test code directly from the structured data — no LLM required. Each action step becomes a replay command, each validation step becomes an assertion.
+A person demonstrates a workflow, tagging each step as either "action" (do this)
+or "validation" (check this). A deterministic code mapper turns the structured
+data directly into executable automation — no LLM required. Each action step
+becomes a replay command, each validation step becomes an assertion. A test
+suite is one such target; the same do/check shape maps just as cleanly to an RPA
+flow or a monitoring check.
 
 ### The format is the contract
 
-Both paths consume the same `.docent.json` format. Docent captures and delivers — it has no opinion about what receives the data or how it's used.
-
-Docent ships the format — the schema, the spec, and the self-describing stamp. It does not ship a consumer, and includes no example consumer implementation. That is by design: the format is the contract; what you build against it is yours.
+Both paths consume the same `.docent.json` format. Docent captures and
+delivers — it has no opinion about what receives the data or how it's used.
 
 ---
 

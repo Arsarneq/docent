@@ -1,6 +1,7 @@
 {
   "name": "docent",
   "description": "Captures demonstrated workflows as structured data — not code.",
+  "license": "GPL-3.0-or-later",
   "private": true,
   "type": "module",
   "engines": {
@@ -14,6 +15,7 @@
     "check:no-release-outputs": "node scripts/check-no-release-outputs.js",
     "check:pr-title": "node scripts/check-pr-title.js",
     "check:action-pins": "node scripts/check-action-pins.js",
+    "check:licenses": "node scripts/check-licenses-npm.js",
     "sync-shared": "node scripts/sync-shared.js",
     "build:desktop-dist": "node scripts/build-desktop-dist.js",
     "dev:desktop": "npm run sync-shared && npm run build:desktop-dist && echo 'Run cargo tauri dev from packages/desktop/src-tauri/'",
@@ -54,6 +56,7 @@
     "eslint-config-prettier": "^10.1.8",
     "fast-check": "^4.8.0",
     "lefthook": "^2.1.9",
+    "license-checker-rseidelsohn": "4.4.2",
     "markdownlint-cli2": "^0.22.1",
     "prettier": "^3.8.4",
     "stylelint": "^17.13.0",

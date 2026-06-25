@@ -147,11 +147,11 @@ truth), never hand-written.
 ```json
 {
   "project_id": "019e11fd-78ba-7fdb-8362-6fe9f697f641",
-  "name": "Login regression suite",
+  "name": "Expense report submission",
   "created_at": "2026-05-10T13:04:44.730Z",
   "metadata": {
-    "jira": "PROJ-123",
-    "tags": ["regression", "login"]
+    "jira": "EXP-123",
+    "tags": ["expenses", "submission"]
   }
 }
 ```
@@ -170,9 +170,9 @@ truth), never hand-written.
 ```json
 {
   "recording_id": "019e12a4-0278-7c8e-aae6-01c26f002efb",
-  "name": "Happy path login",
+  "name": "Submit a new expense report",
   "created_at": "2026-05-10T16:06:38.968Z",
-  "metadata": { "zephyr": "TC-456" },
+  "metadata": { "ticket": "EXP-456" },
   "steps": [ ... ]
 }
 ```
@@ -212,7 +212,7 @@ A step is either **narration mode** or **simple mode**. At least one of
   "logical_id": "019e12a4-633d-74d2-acd5-584085fb57f9",
   "step_number": 1,
   "created_at": "2026-05-10T16:06:39.000Z",
-  "narration": "Navigate to login page and enter credentials",
+  "narration": "Open the expense form and enter the report details",
   "narration_source": "typed",
   "actions": [ ... ],
   "deleted": false
@@ -334,7 +334,7 @@ tree.
   "name": null,
   "role": "button",
   "type": "submit",
-  "text": "Log in",
+  "text": "Submit report",
   "selector": "#submit-btn"
 }
 ```
