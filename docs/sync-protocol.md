@@ -117,7 +117,7 @@ test-specific server support is required.
 [
   {
     "project_id": "019e11fd-78ba-7fdb-8362-6fe9f697f641",
-    "name": "Login regression suite",
+    "name": "Expense report submission",
     "last_modified": "2026-05-10T18:30:00.000Z"
   },
   {
@@ -215,34 +215,36 @@ for `PUT /projects/:id`.
 > validate or route it accordingly, instead of guessing. The server treats the
 > payload as opaque — it stores and returns it verbatim and never reads the stamp.
 
+The `schema_version` shown is illustrative, not the current version.
+
 ```json
 {
   "docent_format": {
     "platform": "extension",
-    "schema_version": "2.0.0"
+    "schema_version": "3.0.0"
   },
   "project": {
     "project_id": "019e11fd-78ba-7fdb-8362-6fe9f697f641",
-    "name": "Login regression suite",
+    "name": "Expense report submission",
     "created_at": "2026-05-10T13:04:44.730Z",
     "metadata": {
-      "jira": "PROJ-123",
-      "tags": ["regression", "login"]
+      "jira": "EXP-123",
+      "tags": ["expenses", "submission"]
     }
   },
   "recordings": [
     {
       "recording_id": "019e12a4-0278-7c8e-aae6-01c26f002efb",
-      "name": "Happy path login",
+      "name": "Submit a new expense report",
       "created_at": "2026-05-10T16:06:38.968Z",
-      "metadata": { "zephyr": "TC-456" },
+      "metadata": { "ticket": "EXP-456" },
       "steps": [
         {
           "uuid": "019e12a4-633d-74d2-acd5-584085fb57f9",
           "logical_id": "019e12a4-633d-74d2-acd5-584085fb57f9",
           "step_number": 1,
           "created_at": "2026-05-10T16:06:39.000Z",
-          "narration": "Navigate to login page and enter credentials",
+          "narration": "Open the expense form and enter the report details",
           "narration_source": "typed",
           "actions": [
             {
@@ -251,7 +253,7 @@ for `PUT /projects/:id`.
               "context_id": 1,
               "capture_mode": "dom",
               "nav_type": "typed",
-              "url": "https://app.example.com/login"
+              "url": "https://app.example.com/expenses"
             },
             {
               "type": "type",
@@ -260,14 +262,14 @@ for `PUT /projects/:id`.
               "capture_mode": "dom",
               "element": {
                 "tag": "INPUT",
-                "id": "email",
-                "name": "email",
+                "id": "amount",
+                "name": "amount",
                 "role": "textbox",
-                "type": "email",
+                "type": "text",
                 "text": null,
-                "selector": "#email"
+                "selector": "#amount"
               },
-              "value": "user@example.com"
+              "value": "129.99"
             }
           ],
           "deleted": false
@@ -293,7 +295,7 @@ for `PUT /projects/:id`.
                 "name": null,
                 "role": "button",
                 "type": "submit",
-                "text": "Log in",
+                "text": "Submit report",
                 "selector": "#submit-btn"
               }
             }
@@ -354,7 +356,7 @@ lightweight summary used by the client to determine which projects to fetch.
 [
   {
     "project_id": "019e11fd-78ba-7fdb-8362-6fe9f697f641",
-    "name": "Login regression suite",
+    "name": "Expense report submission",
     "last_modified": "2026-05-10T18:30:00.000Z"
   },
   {

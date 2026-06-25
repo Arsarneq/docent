@@ -1,21 +1,98 @@
+# cargo-deny configuration — the Rust half of Docent's dependency gate.
+#
+# Run in CI by .github/workflows/test.yml (the `dependency-audit` job, which the
+# publish workflows depend on, so these checks block a release as well as a PR):
+#   cargo deny check licenses     # GPL-3.0 license-compatibility gate
+#   cargo deny check advisories   # RustSec advisory gate (replaces cargo-audit)
+# They are run as SEPARATE steps so a red gate shows which one failed. The
+# cargo-deny version is pinned in the workflow, not here.
+#
+# Kept conceptually in lockstep with the npm half (scripts/check-licenses-npm.js):
+# same allow/deny intent, same default-deny model, same scoped-exception rule.
+
 [advisories]
-vulnerability = "deny"
-unmaintained = "warn"
+version = 2
+# Vulnerabilities and unsound advisories error (cargo-deny default) — that is the
+# blocking behavior we want and must keep. `yanked` stays a warning to match the
+# prior cargo-audit behavior (it never failed a build on a yanked crate).
 yanked = "warn"
+# `unmaintained` advisories: cargo-deny 0.19 errors on these by default, but the
+# prior gate (cargo-audit) never blocked a release on them, and our hits are all
+# UNFIXABLE TRANSITIVE deps we don't control — the GTK3 Linux bindings (not shipped;
+# Windows ships), proc-macro-error via glib-macros, and the unic-* family. Scoped to
+# "workspace" so an unmaintained crate WE pull in directly (actionable) still blocks,
+# while the transitive closure does not regress the gate into blocking releases on
+# advisories with no fix. If a legitimate DIRECT dep ever trips this, add a scoped,
+# commented entry to the `ignore` list below for that specific advisory — do NOT
+# change this mode (and do NOT use "none", which would silence all signal).
+unmaintained = "workspace"
+# Advisories with no available non-breaking fix. Each MUST carry a one-line reason;
+# prefer fixing (e.g. `cargo update -p <crate>`) over adding an entry here.
+ignore = [
+  # RUSTSEC-2024-0429 — glib `VariantStrIter` unsoundness (NULL-deref in next()/
+  # nth()/last()), affected glib >=0.15.0 <0.20.0, fixed in 0.20.0.
+  #
+  # ⚠ The ORIGINAL reason this was suppressed is UNDOCUMENTED: it arrived in commit
+  # 95bacc0 ("ci: sync optimized test.yml to main") with no rationale and appears
+  # nowhere else in git history. The justification below is RECONSTRUCTED from the
+  # advisory + the current dependency graph — NOT a recovered original decision.
+  # Re-examine before relying on it.
+  #
+  # Verified context (2026-06): glib 0.18.5 is pulled ONLY transitively through the
+  # GTK stack (glib → atk → gtk → libappindicator → tray-icon → tauri) and is absent
+  # from the Windows host graph — `cargo tree -i glib@0.18.5` prints nothing without
+  # `--target all` — so it is not in the shipped Windows build. The fix (glib
+  # >= 0.20.0) requires a breaking upgrade of the gtk/atk 0.18 stack, gated by tauri.
+  # Unsoundness, not a remotely-exploitable vulnerability. Re-evaluate when the Linux
+  # backend lands (#84) or the GTK stack moves to glib >= 0.20.
+  "RUSTSEC-2024-0429",
+]
 
 [licenses]
+version = 2
+# GPL-3.0-or-later project → DEFAULT-DENY: any license not on this allowlist FAILS,
+# so a future dependency with a novel incompatible license is caught automatically.
+# Authority for compatibility is the FSF license-compatibility list. Do NOT widen
+# this list to make one specific crate pass — add a scoped exception below instead.
 allow = [
   "MIT",
   "Apache-2.0",
+  # Apache-2.0 plus the LLVM exception (an ADDITIONAL grant — strictly more
+  # permissive than Apache-2.0; the Rust-stdlib license). cargo-deny treats a
+  # `WITH` exception as a distinct licensee, so plain "Apache-2.0" does not cover
+  # it; allowed explicitly. Carried by e.g. target-lexicon.
+  "Apache-2.0 WITH LLVM-exception",
   "BSD-2-Clause",
   "BSD-3-Clause",
   "ISC",
-  "Unicode-3.0",
-  "Unicode-DFS-2016",
   "Zlib",
+  "0BSD",
+  "BSL-1.0",
   "MPL-2.0",
+  "Unicode-DFS-2016",
+  "Unicode-3.0",
+  "CC0-1.0",
+  "Unlicense",
+  # GNU copyleft. GPL-3.0-or-later is our OWN first-party crate (docent-desktop);
+  # the LGPL entries are kept for lockstep intent with the npm allowlist.
+  "GPL-3.0-only",
+  "GPL-3.0-or-later",
+  "LGPL-3.0-only",
+  "LGPL-3.0-or-later",
+  "LGPL-2.1-or-later",
+  # Approved into the GLOBAL allowlist (clean permissive, recur constantly across
+  # both ecosystems; no copyleft):
+  "BlueOak-1.0.0", # OSI-approved permissive (glob / minimatch / lru-cache family)
+  "MIT-0",         # MIT minus the attribution clause — strictly more permissive
 ]
 confidence-threshold = 0.8
+# Scoped, per-crate exceptions. A license listed here is allowed ONLY for the named
+# crate, never globally. Each carries a one-line justification.
+exceptions = [
+  # Mozilla CA root store shipped as DATA (no code copyleft). CDLA-Permissive-2.0
+  # is a permissive data license; scoped to this crate, not added to `allow`.
+  { crate = "webpki-roots", allow = ["CDLA-Permissive-2.0"] },
+]
 
 [bans]
 multiple-versions = "warn"

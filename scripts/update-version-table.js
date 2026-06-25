@@ -162,6 +162,19 @@ if (updateBadgeVersion('README.md', desktopBadgePattern, `Desktop_Release-v${des
 const desktopLinkPattern = /desktop-v[\d.]+\)/g;
 updateBadgeVersion('README.md', desktopLinkPattern, `desktop-v${deskVersion})`);
 
+// Badge ALT-TEXT (raw-markdown + screen-reader fallback). The image URL token and
+// the release link are rewritten above, but each badge's alt-text is a separate
+// string that otherwise drifts. Anchor on the markdown image opener `[![<Label> v…]`
+// so no other "vX.Y.Z" prose in the README can be hit. Whole-token replace (no
+// capture groups) mirrors the URL/link rewrites above.
+//   • Desktop alt tracks deskVersion (same value as its URL token + link).
+//   • Extension alt tracks extVersion deliberately: this describes the REPO/manifest
+//     version, NOT the live Chrome Web Store version the dynamic CWS badge IMAGE
+//     renders. The two legitimately diverge during a CWS review window — do not
+//     "fix" that by pointing the alt-text at the store version.
+updateBadgeVersion('README.md', /\[!\[Desktop v[\d.]+\]/g, `[![Desktop v${deskVersion}]`);
+updateBadgeVersion('README.md', /\[!\[Extension v[\d.]+\]/g, `[![Extension v${extVersion}]`);
+
 // ─── Platform config file versions ───────────────────────────────────────────
 
 function updateJsonVersion(filePath, version) {
@@ -181,6 +194,77 @@ if (updateJsonVersion('packages/extension/manifest.json', extVersion)) {
 
 if (updateJsonVersion('packages/desktop/src-tauri/tauri.conf.json', deskVersion)) {
   console.log(`✓ tauri.conf.json version updated to ${deskVersion}`);
+}
+
+// ─── Desktop crate version: Cargo.toml + Cargo.lock ───────────────────────────
+//
+// Keep the Rust crate version in lockstep with the COMMITTED tauri.conf.json —
+// both track the desktop SCHEMA version (deskVersion). Nothing else writes these,
+// so without this the crate version drifts (the C-1 finding). Edited by surgical,
+// single-match text replaces (Cargo.toml is TOML; Cargo.lock is a generated
+// lockfile) — no toml/cargo dependency, no format churn — mirroring the seed-
+// sample stamp replace below.
+//
+// CONSCIOUS DESIGN (mirrors tauri.conf.json exactly): the value written HERE is the
+// COMMITTED one and tracks the SCHEMA version. The BUILT binary's crate version is
+// overlaid from the release TAG by publish-desktop.yml's tag-bump step (build-only,
+// never committed). On a release where tag != schema, committed and shipped crate
+// versions differ — the same committed-vs-built split tauri.conf.json already has.
+//
+// LOCKSTEP: both paths are release outputs the version PR carries, so they MUST stay
+// listed in ALLOWED_RELEASE_OUTPUTS in scripts/check-no-release-outputs.js, or that
+// guard's POSITIVE mode rejects the pipeline's own PR.
+
+function updateTomlPackageVersion(filePath, version) {
+  const fullPath = join(ROOT, filePath);
+  const content = readFileSync(fullPath, 'utf8');
+  // Anchor on the line-start `version = "..."`: dependency versions are inline
+  // (`tauri = { version = "2" }`), never at line start, so this hits only [package].
+  const re = /^version = "[^"]*"/m;
+  if (!re.test(content)) {
+    throw new Error(`No [package] version line found in ${filePath}`);
+  }
+  const updated = content.replace(re, `version = "${version}"`);
+  if (updated !== content) {
+    writeFileSync(fullPath, updated, 'utf8');
+    return true;
+  }
+  return false;
+}
+
+function updateCargoLockCrateVersion(filePath, crate, version) {
+  const fullPath = join(ROOT, filePath);
+  const content = readFileSync(fullPath, 'utf8');
+  // Anchor on the crate's own [[package]] block — its name line immediately
+  // followed by its version line — so we can never hit a DIFFERENT crate that
+  // shares the same version string. (`\r?\n` tolerates a CRLF checkout.)
+  const pattern = `(name = "${crate}"\\r?\\nversion = ")[^"]*(")`;
+  const matches = content.match(new RegExp(pattern, 'g')) ?? [];
+  if (matches.length !== 1) {
+    throw new Error(
+      `Expected exactly one "${crate}" package block in ${filePath}, found ${matches.length}.`,
+    );
+  }
+  const updated = content.replace(new RegExp(pattern), `$1${version}$2`);
+  if (updated !== content) {
+    writeFileSync(fullPath, updated, 'utf8');
+    return true;
+  }
+  return false;
+}
+
+if (updateTomlPackageVersion('packages/desktop/src-tauri/Cargo.toml', deskVersion)) {
+  console.log(`✓ Cargo.toml [package] version updated to ${deskVersion}`);
+}
+
+if (
+  updateCargoLockCrateVersion(
+    'packages/desktop/src-tauri/Cargo.lock',
+    'docent-desktop',
+    deskVersion,
+  )
+) {
+  console.log(`✓ Cargo.lock docent-desktop version updated to ${deskVersion}`);
 }
 
 // ─── Reference-server seed samples: docent_format.schema_version ──────────────

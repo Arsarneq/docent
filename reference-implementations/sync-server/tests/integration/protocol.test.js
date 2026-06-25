@@ -60,7 +60,7 @@ function makePayload(id, name) {
             logical_id: '019e3a01-633d-74d2-acd5-584085fb57f9',
             step_number: 1,
             created_at: '2026-05-10T16:06:39.000Z',
-            narration: 'Navigate to the login page',
+            narration: 'Navigate to the expense form',
             narration_source: 'typed',
             actions: [
               {
@@ -69,7 +69,7 @@ function makePayload(id, name) {
                 context_id: 1,
                 capture_mode: 'dom',
                 nav_type: 'typed',
-                url: 'https://app.example.com/login',
+                url: 'https://app.example.com/expenses',
               },
             ],
             deleted: false,

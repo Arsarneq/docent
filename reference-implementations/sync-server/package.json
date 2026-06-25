@@ -1,6 +1,7 @@
 {
   "name": "docent-reference-sync-server",
   "version": "1.0.0",
+  "license": "GPL-3.0-or-later",
   "private": true,
   "description": "Runnable reference implementation of the Docent sync protocol. Repository/testing artifact only — never part of a product release.",
   "type": "module",

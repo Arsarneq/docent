@@ -1,7 +1,7 @@
 /**
  * field-sensitivity.test.js — unit tests for the shared sensitive-field /
  * URL-redaction utility. Pins both the masking behaviour and — just as
- * importantly for a test-generation tool — the NON-masking of legitimate fields.
+ * importantly for capture fidelity — the NON-masking of legitimate fields.
  *
  * This file is part of Docent.
  * Licensed under the GNU General Public License v3.0

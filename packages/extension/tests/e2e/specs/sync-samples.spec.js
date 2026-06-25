@@ -181,7 +181,7 @@ test.describe('Sync pulls the bundled seed samples end-to-end (extension)', () =
     // ── The extension sample reconciled into a real project ──────────────────
     // The bundled extension sample's project name (see
     // reference-implementations/sync-server/samples/extension-sample.json).
-    const EXT_PROJECT = 'Extension sample — Login regression suite';
+    const EXT_PROJECT = 'Extension sample — Expense report submission';
     const DESK_PROJECT = 'Desktop (Windows) sample — Invoice export flow';
 
     await expect(panelPage.locator('.card-item-name', { hasText: EXT_PROJECT })).toBeVisible({

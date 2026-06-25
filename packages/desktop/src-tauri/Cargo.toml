@@ -1,8 +1,9 @@
 [package]
 name = "docent-desktop"
-version = "1.0.0"
+version = "2.0.0"
 edition = "2021"
 description = "Docent Desktop — captures demonstrated workflows as structured data, not code"
+license = "GPL-3.0-or-later"
 
 [dependencies]
 tauri = { version = "2", features = ["tray-icon"] }

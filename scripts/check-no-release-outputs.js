@@ -73,6 +73,8 @@ const ALLOWED_RELEASE_OUTPUTS = [
   'docs/session-format.md', // version table
   'packages/extension/manifest.json', // extension app version
   'packages/desktop/src-tauri/tauri.conf.json', // desktop app version
+  'packages/desktop/src-tauri/Cargo.toml', // desktop crate version (lockstep w/ tauri.conf.json)
+  'packages/desktop/src-tauri/Cargo.lock', // desktop crate version (regenerated from Cargo.toml)
   'reference-implementations/sync-server/samples/extension-sample.json', // seed-sample stamp
   'reference-implementations/sync-server/samples/desktop-windows-sample.json',
 ];

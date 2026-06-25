@@ -306,7 +306,7 @@ test.describe('Sync pulls the bundled seed samples end-to-end (desktop)', () => 
     await expect(page.locator('#btn-sync')).toHaveText('Sync', { timeout: 15000 });
 
     const DESK_PROJECT = 'Desktop (Windows) sample — Invoice export flow';
-    const EXT_PROJECT = 'Extension sample — Login regression suite';
+    const EXT_PROJECT = 'Extension sample — Expense report submission';
 
     // The desktop sample reconciled into a real project.
     await expect(page.locator('.card-item-name', { hasText: DESK_PROJECT })).toBeVisible({
