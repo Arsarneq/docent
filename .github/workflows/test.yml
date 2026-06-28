@@ -434,7 +434,12 @@ jobs:
       - name: Run Rust unit tests with coverage
         working-directory: packages/desktop/src-tauri
         shell: bash
-        run: cargo llvm-cov --lib $RUST_UNIT_TEST_ARGS --ignore-filename-regex "(lib|main)\.rs$" --lcov --output-path coverage-unit.lcov ${{ runner.debug == '1' && '-- --nocapture' || '' }}
+        run: |
+          # RUST_UNIT_TEST_ARGS is a space-separated arg list (set into $GITHUB_ENV
+          # above); it stays unquoted on purpose so each filter becomes a separate
+          # cargo argument (and an empty value expands to nothing).
+          # shellcheck disable=SC2086
+          cargo llvm-cov --lib $RUST_UNIT_TEST_ARGS --ignore-filename-regex "(lib|main)\.rs$" --lcov --output-path coverage-unit.lcov ${{ runner.debug == '1' && '-- --nocapture' || '' }}
 
       - name: Run Rust integration tests with coverage
         working-directory: packages/desktop/src-tauri
@@ -447,7 +452,12 @@ jobs:
         # "has been running for over 60 seconds" warnings for tests that have
         # done no work. Running single-threaded removes the phantom warnings at
         # no cost (the suite was already fully serialized).
-        run: cargo llvm-cov $RUST_INTEGRATION_TEST_ARGS --ignore-filename-regex "(lib|main)\.rs$" --lcov --output-path coverage-integration.lcov -- --test-threads=1 ${{ runner.debug == '1' && '--nocapture' || '' }}
+        run: |
+          # RUST_INTEGRATION_TEST_ARGS is a space-separated arg list (set into
+          # $GITHUB_ENV above); it stays unquoted on purpose so each filter becomes
+          # a separate cargo argument (and an empty value expands to nothing).
+          # shellcheck disable=SC2086
+          cargo llvm-cov $RUST_INTEGRATION_TEST_ARGS --ignore-filename-regex "(lib|main)\.rs$" --lcov --output-path coverage-integration.lcov -- --test-threads=1 ${{ runner.debug == '1' && '--nocapture' || '' }}
 
       - name: Upload Rust coverage reports
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
@@ -768,6 +778,22 @@ jobs:
           advanced-security: false
           inputs: .github/workflows/
 
+  # Lints the workflow files themselves (syntax, expression typos, and shellcheck
+  # on run: scripts). Uses the pinned actionlint Docker image so CI matches the
+  # local `docker run rhysd/actionlint` check; intentional shellcheck exceptions
+  # are annotated inline with `# shellcheck disable=…`.
+  actionlint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          persist-credentials: false
+      - name: actionlint
+        run: |
+          docker run --rm -v "$PWD:/repo" --workdir /repo \
+            rhysd/actionlint:1.7.12@sha256:b1934ee5f1c509618f2508e6eb47ee0d3520686341fec936f3b79331f9315667 \
+            -color
+
   ci-gate:
     runs-on: ubuntu-latest
     if: always()
@@ -783,10 +809,11 @@ jobs:
       - reference-server-tests
       - coverage-upload
       - zizmor
+      - actionlint
     steps:
       - name: Check job results
         run: |
-          results=("${{ needs.changes.result }}" "${{ needs.lint.result }}" "${{ needs.dependency-audit.result }}" "${{ needs.unit-tests.result }}" "${{ needs.extension-e2e-tests.result }}" "${{ needs.desktop-rust-tests.result }}" "${{ needs.desktop-cross-compile.result }}" "${{ needs.desktop-integration-tests.result }}" "${{ needs.reference-server-tests.result }}" "${{ needs.coverage-upload.result }}" "${{ needs.zizmor.result }}")
+          results=("${{ needs.changes.result }}" "${{ needs.lint.result }}" "${{ needs.dependency-audit.result }}" "${{ needs.unit-tests.result }}" "${{ needs.extension-e2e-tests.result }}" "${{ needs.desktop-rust-tests.result }}" "${{ needs.desktop-cross-compile.result }}" "${{ needs.desktop-integration-tests.result }}" "${{ needs.reference-server-tests.result }}" "${{ needs.coverage-upload.result }}" "${{ needs.zizmor.result }}" "${{ needs.actionlint.result }}")
           for result in "${results[@]}"; do
             if [[ "$result" != "success" && "$result" != "skipped" ]]; then
               echo "Job failed with result: $result"
