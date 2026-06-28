@@ -1,0 +1,30 @@
+# zizmor (GitHub Actions static analysis) configuration.
+# Findings we have triaged and accepted, each with the reason. Everything else
+# is enforced as a blocking CI check (see the `zizmor` job in test.yml).
+
+rules:
+  # We pin every action to an immutable commit SHA (enforced by the in-repo
+  # pin-guard, scripts/check-action-pins.js). The trailing `# vX` comment is a
+  # human/Dependabot-readable alias, not an exact-tag contract — so a comment
+  # that names a floating major rather than the precise tag is by design, not a
+  # supply-chain gap. Disable this stylistic audit wholesale.
+  ref-version-mismatch:
+    disable: true
+
+  cache-poisoning:
+    ignore:
+      # The only caching-capable action left in these release workflows is
+      # actions/setup-node, used WITHOUT a `cache:` input — so it caches
+      # nothing and there is no poisoning vector (false positive). The genuine
+      # one (rust-cache in the desktop release build) was removed. If a real
+      # cache step is ever added here, drop the relevant entry so it's flagged.
+      - publish.yml
+      - publish-desktop.yml
+
+  dangerous-triggers:
+    ignore:
+      # `pull_request_target` is required for the CLA assistant to comment on and
+      # sign PRs from forks (a plain pull_request trigger has no write token for
+      # forks). Mitigated: the action is SHA-pinned and the job is gated by a
+      # comment/`if:` allowlist, so untrusted PR code never runs with the token.
+      - cla.yml

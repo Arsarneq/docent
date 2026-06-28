@@ -28,7 +28,8 @@ jobs:
     uses: ./.github/workflows/test.yml
     with:
       platform: desktop
-    secrets: inherit
+    secrets:
+      CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
 
   publish-desktop:
     needs: [test]
@@ -70,6 +71,7 @@ jobs:
 
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
         with:
+          persist-credentials: false
           ref: main
 
       # Build == tested tree. The `test` gate ran on github.sha (the released
@@ -97,11 +99,6 @@ jobs:
 
       - name: Install Rust stable
         uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
-
-      - name: Rust cache
-        uses: swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
-        with:
-          workspaces: packages/desktop/src-tauri
 
       - name: Auto-version schemas and update version table
         if: matrix.os == 'windows-latest'
@@ -145,9 +142,10 @@ jobs:
 
       - name: Auto-merge version table PR
         if: matrix.os == 'windows-latest' && steps.mode.outputs.value != 'dry' && steps.version-pr.outputs.pull-request-number
-        run: gh pr merge ${{ steps.version-pr.outputs.pull-request-number }} --auto --squash
+        run: gh pr merge "$PR_NUMBER" --auto --squash
         env:
           GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ steps.version-pr.outputs.pull-request-number }}
 
       - name: Sync shared code into desktop
         run: node scripts/sync-shared.js desktop
@@ -225,8 +223,10 @@ jobs:
       - name: Validate installer build (dry run)
         if: steps.mode.outputs.value == 'dry'
         shell: bash
+        env:
+          ARTIFACT_PATHS: ${{ steps.tauri.outputs.artifactPaths }}
         run: |
-          PATHS='${{ steps.tauri.outputs.artifactPaths }}'
+          PATHS="${ARTIFACT_PATHS}"
           echo "tauri-action artifactPaths: ${PATHS:-<empty>}"
           BUNDLE_COUNT=$(find packages/desktop/src-tauri/target -path '*/release/bundle/*' \( -name '*.exe' -o -name '*.msi' \) 2>/dev/null | wc -l | tr -d '[:space:]')
           if [ -z "$PATHS" ] && [ "$BUNDLE_COUNT" -eq 0 ]; then

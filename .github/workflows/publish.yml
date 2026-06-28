@@ -28,7 +28,8 @@ jobs:
     uses: ./.github/workflows/test.yml
     with:
       platform: extension
-    secrets: inherit
+    secrets:
+      CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
 
   publish:
     needs: [test]
@@ -57,6 +58,7 @@ jobs:
 
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
         with:
+          persist-credentials: false
           ref: main
 
       # Build == tested tree. The `test` gate ran on github.sha (the released
@@ -119,9 +121,10 @@ jobs:
 
       - name: Auto-merge version table PR
         if: steps.mode.outputs.value != 'dry' && steps.version-pr.outputs.pull-request-number
-        run: gh pr merge ${{ steps.version-pr.outputs.pull-request-number }} --auto --squash
+        run: gh pr merge "$PR_NUMBER" --auto --squash
         env:
           GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ steps.version-pr.outputs.pull-request-number }}
 
       - name: Sync shared code into extension
         run: node scripts/sync-shared.js extension

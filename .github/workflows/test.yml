@@ -20,6 +20,13 @@ on:
         type: string
         required: false
         default: ''
+    secrets:
+      # The suite's only secret (coverage upload). Declared + passed explicitly by
+      # the publish callers instead of `secrets: inherit`, so the reusable workflow
+      # never receives every repo secret. Optional: direct push/PR runs read the
+      # token from the repo secret context, not from a caller.
+      CODECOV_TOKEN:
+        required: false
 
 permissions:
   contents: read
@@ -39,6 +46,8 @@ jobs:
       ci: ${{ steps.filter.outputs.ci }}
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          persist-credentials: false
       - uses: dorny/paths-filter@fbd0ab8f3e69293af611ebaee6363fc25e6d187d # v4
         id: filter
         with:
@@ -70,6 +79,7 @@ jobs:
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
         with:
+          persist-credentials: false
           # Full history so the release-output guard can diff against the PR
           # base via merge-base (three-dot). Other steps don't need it but it's
           # harmless.
@@ -130,6 +140,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          persist-credentials: false
 
       - uses: ./.github/actions/debug-env
 
@@ -199,6 +211,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          persist-credentials: false
 
       - uses: ./.github/actions/debug-env
 
@@ -271,6 +285,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          persist-credentials: false
 
       - uses: ./.github/actions/debug-env
 
@@ -337,6 +353,8 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          persist-credentials: false
 
       - uses: ./.github/actions/debug-env
 
@@ -476,6 +494,8 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          persist-credentials: false
 
       - uses: ./.github/actions/debug-env
 
@@ -538,6 +558,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          persist-credentials: false
 
       - uses: ./.github/actions/debug-env
 
@@ -600,6 +622,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          persist-credentials: false
 
       - uses: ./.github/actions/debug-env
 
@@ -646,6 +670,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          persist-credentials: false
 
       - uses: ./.github/actions/debug-env
 
@@ -726,6 +752,21 @@ jobs:
           token: ${{ secrets.CODECOV_TOKEN }}
           verbose: ${{ runner.debug == '1' }}
 
+  # Static analysis of the workflows themselves (template injection, dangerous
+  # triggers, cache poisoning, token scope, etc.). Accepted findings are
+  # documented in .github/zizmor.yml; anything new fails the gate. The tool
+  # version is pinned so a zizmor release can't surprise-break CI.
+  zizmor:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          persist-credentials: false
+      - uses: zizmorcore/zizmor-action@192e21d79ab29983730a13d1382995c2307fbcaa # v0.5.7
+        with:
+          version: 1.26.1
+          advanced-security: false
+          inputs: .github/workflows/
 
   ci-gate:
     runs-on: ubuntu-latest
@@ -741,10 +782,11 @@ jobs:
       - desktop-integration-tests
       - reference-server-tests
       - coverage-upload
+      - zizmor
     steps:
       - name: Check job results
         run: |
-          results=("${{ needs.changes.result }}" "${{ needs.lint.result }}" "${{ needs.dependency-audit.result }}" "${{ needs.unit-tests.result }}" "${{ needs.extension-e2e-tests.result }}" "${{ needs.desktop-rust-tests.result }}" "${{ needs.desktop-cross-compile.result }}" "${{ needs.desktop-integration-tests.result }}" "${{ needs.reference-server-tests.result }}" "${{ needs.coverage-upload.result }}")
+          results=("${{ needs.changes.result }}" "${{ needs.lint.result }}" "${{ needs.dependency-audit.result }}" "${{ needs.unit-tests.result }}" "${{ needs.extension-e2e-tests.result }}" "${{ needs.desktop-rust-tests.result }}" "${{ needs.desktop-cross-compile.result }}" "${{ needs.desktop-integration-tests.result }}" "${{ needs.reference-server-tests.result }}" "${{ needs.coverage-upload.result }}" "${{ needs.zizmor.result }}")
           for result in "${results[@]}"; do
             if [[ "$result" != "success" && "$result" != "skipped" ]]; then
               echo "Job failed with result: $result"
