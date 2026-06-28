@@ -122,8 +122,9 @@ with a minimal payload so the `changes` paths-filter resolves (it reads
 }
 ```
 
-If the HEAD guard trips (act's synthetic `github.sha` ≠ your local HEAD), add
-`--env GITHUB_SHA=$(git rev-parse HEAD)`. The extension **publish job** (package
+(The `main`-HEAD guard is final-release-only — it does **not** run under a
+`workflow_dispatch` dry-run — so `act`'s synthetic `github.sha` can't trip it
+here.) The extension **publish job** (package
 build + the dry-run validate) runs under `act`; note the gating `test` suite still
 has `windows-latest` legs (`desktop-rust-tests`, `desktop-cross-compile`) that
 act-on-Linux skips. The **desktop** `publish-desktop` job is itself `windows-latest`,
