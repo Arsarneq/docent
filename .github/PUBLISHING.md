@@ -15,7 +15,7 @@ Each platform's published JSON Schema under [`schemas/dist/`](../schemas/dist/) 
 
 Publishing is **gated on a green test suite**. Each publish workflow first calls the reusable test suite ([`test.yml`](workflows/test.yml)) for the release commit — scoped to that platform's jobs plus the shared/common ones (lint, audit, unit tests, reference-server), so a failure on the _other_ platform can't block this release — and only runs the publish job if every CI job passes: a release can never publish with red tests.
 
-The publish job then verifies the released commit is current `main` HEAD before building, so it ships **exactly the tree the suite tested** — not a `main` that advanced mid-run. **Cut releases from `main` HEAD;** if `main` has moved on since the tag, the publish fails fast and you re-tag.
+The publish job then verifies the released commit is current `main` HEAD before building, so it ships **exactly the tree the suite tested** — not a `main` that advanced mid-run. **Cut releases from `main` HEAD;** if `main` has moved on since the tag, the publish fails fast and you re-tag. (This `main`-HEAD guard is **final-release-only** — a [pre-release](#pre-release-rc-builds) builds its tagged commit directly.)
 
 As part of the run, the pipeline opens a single PR on branch `automated/version-table-update` carrying the regenerated release outputs (bumped leaf delta versions, recomposed `schemas/dist/`, refreshed version tables/badges, app manifests, and seed-sample stamps). On that PR, CI runs a **positive validator** ([`check-no-release-outputs.js`](../scripts/check-no-release-outputs.js)) that asserts the PR contains _only_ those release outputs and that `dist/` composes cleanly from the source layers — so an accidental or unexpected change can never ride in through this mechanism. The PR **auto-merges once it is approved and green**; approving it is the one expected manual step.
 
@@ -27,16 +27,34 @@ Both publish workflows accept a manual **`workflow_dispatch`** that runs as a **
 
 1. Open the **Actions** tab.
 2. In the **left sidebar**, click the specific workflow — **Publish to Chrome Web Store** (extension) or **Publish Desktop App** (desktop). The **Run workflow** button appears _only_ on a workflow's own page; it is **not** on the default "All workflows" view.
-3. Click **Run workflow**, leave the branch on **`main`**, and click the green **Run workflow** button. (CLI equivalent: `gh workflow run publish.yml --ref main` for the extension, `gh workflow run publish-desktop.yml --ref main` for desktop.)
+3. Click **Run workflow**, leave the branch on **`main`**, and click the green **Run workflow** button. (CLI equivalent: `gh workflow run publish.yml --ref main` for the extension, `gh workflow run publish-desktop.yml --ref main` for desktop.) A dry-run builds the **dispatched ref**, so you can also pick a feature branch to rehearse that branch's publish-workflow changes before merging — not only `main`.
 4. Open the run and read its **Summary** tab. A dry-run shows a **🧪 Dry run — no external side-effects** banner (a real release shows **🚀 Real release …** instead), plus a package/installer block confirming the upload/attach were skipped. That banner is your confirmation that nothing was published.
 
 The Run-workflow dialog has **no inputs** beyond the branch selector — there is deliberately no dry-run toggle, because **a dispatch is always a dry-run**. A real publish can happen only by creating a GitHub Release with a platform tag; a manual dispatch can never publish, whatever branch you pick.
 
-**What it does:** everything a real release does _except_ the three steps that touch the outside world. It runs the full test gate ([Test gating](#test-gating-and-the-version-pr)), the build==tested HEAD guard, apply-mode auto-version (into the runner's throwaway checkout), and the package/installer build — the extension zip is built and asserted upload-ready, and a GitHub-dispatched **desktop** dry-run compiles the Windows installer for real on a `windows-latest` runner (build-only; nothing attached). It **skips** the three side-effects: the Chrome Web Store upload, the desktop release-asset attach, and the version-table PR (create + auto-merge).
+**What it does:** everything a real release does _except_ the three steps that touch the outside world. It runs the full test gate ([Test gating](#test-gating-and-the-version-pr)), apply-mode auto-version (into the runner's throwaway checkout), and the package/installer build — the extension zip is built and asserted upload-ready, and a GitHub-dispatched **desktop** dry-run compiles the Windows installer for real on a `windows-latest` runner (build-only; nothing attached). It **skips** the three side-effects: the Chrome Web Store upload, the desktop release-asset attach, and the version-table PR (create + auto-merge).
 
 **What it does _not_ cover:** the real external API calls (the CWS upload, the release-asset attach) run only on a real release. The reusable-workflow + `secrets: inherit` test-gate wiring _is_ exercised for real by an on-GitHub dispatch, but a **local** `act` dry-run may not resolve it (see [docs/local-ci.md](../docs/local-ci.md#dry-run-the-publish-workflows-workflow_dispatch)). On a no-schema-change `main`, a dry-run takes the exact no-bump path a real release will (auto-version finds nothing → no version PR); the version-PR positive-validator runs only on a real schema-bumping release.
 
-**If a dry-run fails,** it caught something before the real release — which is the point. Roughly: a red **test gate** → fix the tests; a red **HEAD guard** → `main` advanced or the run isn't at HEAD (re-cut from HEAD); a red **package / installer** step → packaging is broken. Fix the cause, then create the real Release.
+**If a dry-run fails,** it caught something before the real release — which is the point. Roughly: a red **test gate** → fix the tests; a red **package / installer** step → packaging is broken. Fix the cause, then create the real Release. (The `main`-HEAD guard does **not** run in a dry-run — it is final-release-only.)
+
+## Pre-release (RC) builds
+
+A **pre-release** ships a beta to testers without touching the store or the committed version. Cut one exactly like a real release, with two differences: **tag it `…-rc.N`** (e.g. `desktop-v2.1.0-rc.1`) and **check "Set as a pre-release"** when creating the GitHub Release.
+
+GitHub's pre-release flag drives the mode; the tag drives the version. The two must agree — a `-rc.N` tag must be marked pre-release, and a clean `X.Y.Z` must not — and [`check-release-tag.js`](../scripts/check-release-tag.js) **fails the run before any build** if they don't.
+
+A pre-release:
+
+- **builds the tagged commit** (no `main`-HEAD guard — a pre-release isn't a `main` snapshot) and **attaches the artifact to the GitHub pre-release**: the **desktop** installer (via `tauri-action`), or the **extension** zip (via `gh release upload`) for sideloading.
+- **does NOT** upload to the Chrome Web Store, and **does NOT** open the `automated/version-table-update` PR — a beta never bumps the committed schema/app version.
+
+Two platform notes:
+
+- **Extension:** Chrome manifest versions can't carry a `-rc.N` suffix, so the packaged manifest version is the base `X.Y.Z`. The "pre-release" identity is the GitHub pre-release you sideload it from, not the package itself.
+- **Desktop:** the installer carries the full `X.Y.Z-rc.N` (Tauri/Cargo accept semver pre-releases), so testers can tell candidate builds apart.
+
+`npm run version:next` ignores pre-release tags — its suggestion is always the next **final** version, measured from the last final release.
 
 ## Chrome Web Store: Privacy practices (manual)
 
@@ -51,7 +69,7 @@ The tag is your call, but the **next-release-version helper** suggests it for ea
 - **Locally:** `npm run version:next`
 - **On GitHub:** dispatch the **Next release version** workflow ([`next-release-version.yml`](workflows/next-release-version.yml)) on `main` from the Actions tab — the suggestion appears on the run's summary page.
 
-It follows [semantic versioning](https://semver.org/): a breaking change (`!` / `BREAKING CHANGE`) → **major**, a feature (`feat`) → **minor**, a fix (`fix` / `perf`) → **patch**, and a bump zeroes the lower-precedence components. The suggestion is a **floor** — bump higher if the release carries breaking _behaviour_ the tooling can't classify from the diff or commit messages. (It assumes plain `X.Y.Z` versions; pre-release / build-metadata tags aren't handled.)
+It follows [semantic versioning](https://semver.org/): a breaking change (`!` / `BREAKING CHANGE`) → **major**, a feature (`feat`) → **minor**, a fix (`fix` / `perf`) → **patch**, and a bump zeroes the lower-precedence components. The suggestion is a **floor** — bump higher if the release carries breaking _behaviour_ the tooling can't classify from the diff or commit messages. (Pre-release tags like `X.Y.Z-rc.N` are skipped — the suggestion is always the next **final** version, measured from the last final release; build-metadata `+build` tags aren't handled.)
 
 ## Release checklist
 

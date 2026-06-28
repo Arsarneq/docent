@@ -51,9 +51,13 @@ jobs:
       pull-requests: write
 
     steps:
-      # workflow_dispatch ⇒ dry-run (build the installer but don't attach it, no
-      # version PR); a published release ⇒ the real publish. shell: bash because the
-      # runner is windows-latest. Single source of truth for the gates below.
+      # Three modes, resolved once and read by every side-effect gate below:
+      #   dry        — workflow_dispatch: build only, no attach, no PR.
+      #   prerelease — a release flagged "pre-release": build + attach the
+      #                installer to the GitHub pre-release; NO version PR.
+      #   final      — a normal published release: attach installer + version PR.
+      # GitHub's release.prerelease flag drives the mode; the tag drives the
+      # version. shell: bash because the runner is windows-latest.
       - name: Resolve release mode
         id: mode
         shell: bash
@@ -64,8 +68,14 @@ jobs:
               echo "## 🧪 Dry run — no external side-effects"
               echo "Builds the dispatched ref and runs the full test gate, auto-version, and the Tauri installer build. SKIPS the HEAD guard. The installer is BUILT but NOT attached to a release, and the version-table PR (create + auto-merge) is skipped."
             } >> "$GITHUB_STEP_SUMMARY"
+          elif [ "${{ github.event.release.prerelease }}" = "true" ]; then
+            echo "value=prerelease" >> "$GITHUB_OUTPUT"
+            {
+              echo "## 🧪 Pre-release — beta installer, no version PR"
+              echo "Builds the tagged commit and attaches the installer to the GitHub pre-release for testers. SKIPS the version-table PR (a pre-release never bumps the committed version)."
+            } >> "$GITHUB_STEP_SUMMARY"
           else
-            echo "value=release" >> "$GITHUB_OUTPUT"
+            echo "value=final" >> "$GITHUB_OUTPUT"
             echo "## 🚀 Real release — building + attaching the desktop installer" >> "$GITHUB_STEP_SUMMARY"
           fi
 
@@ -74,13 +84,25 @@ jobs:
           persist-credentials: false
           ref: ${{ github.sha }}
 
+      # The release.prerelease flag drives the mode while the tag drives the
+      # version — keep them honest: a `-rc.N` tag must be a pre-release and a clean
+      # X.Y.Z must not. A mismatch is a release mistake, caught before any build.
+      - name: Validate release tag vs pre-release flag
+        if: steps.mode.outputs.value != 'dry'
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+          IS_PRERELEASE: ${{ github.event.release.prerelease }}
+          TAG_PREFIX: desktop-v
+        run: node scripts/check-release-tag.js
+
       # Build == tested tree. We check out github.sha — the exact commit the test
-      # gate ran on — so the build always matches what was tested. For a real
+      # gate ran on — so the build always matches what was tested. For a FINAL
       # release we additionally require that commit to be current main HEAD, so
       # the version-table PR (base: main) stays coherent and we never publish a
-      # tree that diverged from main. Skipped for dry-runs (they build any ref).
+      # tree that diverged from main. Skipped for dry-runs and pre-releases
+      # (neither opens a version PR, so neither needs the build to equal main).
       - name: Verify the released commit is current main HEAD
-        if: steps.mode.outputs.value != 'dry'
+        if: steps.mode.outputs.value == 'final'
         shell: bash
         run: |
           git fetch --depth=1 origin main
@@ -130,7 +152,7 @@ jobs:
           fi
 
       - name: Create PR for schema version + published schema update if changed
-        if: matrix.os == 'windows-latest' && steps.mode.outputs.value != 'dry' && steps.table-diff.outputs.changed == 'true'
+        if: matrix.os == 'windows-latest' && steps.mode.outputs.value == 'final' && steps.table-diff.outputs.changed == 'true'
         id: version-pr
         uses: peter-evans/create-pull-request@5f6978faf089d4d20b00c7766989d076bb2fc7f1 # v8
         with:
@@ -144,7 +166,7 @@ jobs:
           delete-branch: true
 
       - name: Auto-merge version table PR
-        if: matrix.os == 'windows-latest' && steps.mode.outputs.value != 'dry' && steps.version-pr.outputs.pull-request-number
+        if: matrix.os == 'windows-latest' && steps.mode.outputs.value == 'final' && steps.version-pr.outputs.pull-request-number
         run: gh pr merge "$PR_NUMBER" --auto --squash
         env:
           GH_TOKEN: ${{ github.token }}
@@ -202,13 +224,14 @@ jobs:
         with:
           projectPath: packages/desktop
           # Dry run ⇒ build-only: empty tag/name/body make tauri-action compile +
-          # bundle the installer WITHOUT creating or attaching a GitHub release. The
-          # real (release-triggered) path passes the tag, so the installer attaches.
-          tagName: ${{ steps.mode.outputs.value == 'release' && github.event.release.tag_name || '' }}
-          releaseName: ${{ steps.mode.outputs.value == 'release' && format('Docent Desktop {0}', github.event.release.tag_name) || '' }}
-          releaseBody: ${{ steps.mode.outputs.value == 'release' && github.event.release.body || '' }}
+          # bundle the installer WITHOUT creating or attaching a GitHub release.
+          # A real release (final OR pre-release) passes the tag, so the installer
+          # attaches to that release; `prerelease` marks it in the pre-release case.
+          tagName: ${{ steps.mode.outputs.value != 'dry' && github.event.release.tag_name || '' }}
+          releaseName: ${{ steps.mode.outputs.value != 'dry' && format('Docent Desktop {0}', github.event.release.tag_name) || '' }}
+          releaseBody: ${{ steps.mode.outputs.value != 'dry' && github.event.release.body || '' }}
           releaseDraft: false
-          prerelease: false
+          prerelease: ${{ steps.mode.outputs.value == 'prerelease' }}
           # The Tauri auto-updater is intentionally OFF — there is no
           # tauri-plugin-updater dependency and no plugins.updater in
           # tauri.conf.json, so no updater bundles or latest.json are produced and

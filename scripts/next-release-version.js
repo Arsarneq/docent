@@ -19,8 +19,9 @@
  *
  * Follows semantic versioning (https://semver.org/): a bump zeroes the
  * lower-precedence components (major -> X.0.0, minor -> X.Y.0, patch -> X.Y.Z+1),
- * reusing auto-version-schemas.js's bumpVersion. Versions are plain X.Y.Z —
- * pre-release (-rc.1) / build-metadata (+build) tags are not handled.
+ * reusing auto-version-schemas.js's bumpVersion. The suggestion is always a final
+ * X.Y.Z: pre-release tags (-rc.1) are skipped when finding the last release, and
+ * build-metadata (+build) tags are not handled.
  *
  * Read-only: never writes repo files. Safe to run anywhere (locally or in CI).
  * In GitHub Actions it also appends a markdown summary to $GITHUB_STEP_SUMMARY,
@@ -66,10 +67,25 @@ function git(args) {
   return execFileSync('git', args, { cwd: ROOT, encoding: 'utf8' });
 }
 
-/** Latest tag matching `<prefix>*`, or null if none is reachable/fetched. */
+/**
+ * Latest FINAL release tag matching `<prefix>*`, or null if none is
+ * reachable/fetched. Pre-release tags (a `-` after the prefix, e.g.
+ * `desktop-v2.1.0-rc.1`) are excluded, so the suggestion is anchored on the last
+ * shipped release rather than an interim RC. The publish workflows' tag/prerelease
+ * cross-check guarantees a `-suffix` tag is exactly a GitHub pre-release.
+ */
 function latestTag(prefix) {
   try {
-    return git(['describe', '--tags', '--abbrev=0', '--match', `${prefix}*`]).trim() || null;
+    const tag = git([
+      'describe',
+      '--tags',
+      '--abbrev=0',
+      '--match',
+      `${prefix}*`,
+      '--exclude',
+      `${prefix}*-*`,
+    ]).trim();
+    return tag || null;
   } catch {
     return null;
   }

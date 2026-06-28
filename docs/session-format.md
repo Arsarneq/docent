@@ -77,6 +77,11 @@ git checkout extension-v2.0.0   # or any release tag
 Chrome will not auto-update an unpacked extension. When you are ready to adopt a
 newer schema version, check out the corresponding tag and reload.
 
+Pre-release tags (`extension-vX.Y.Z-rc.N` / `desktop-vX.Y.Z-rc.N`) are **beta
+builds** and never bump the schema version — a candidate carries whatever schema
+version is committed at the time. Pin to a **final** release tag, not a
+pre-release.
+
 Every exported file carries the `docent_format` stamp, so a consumer can always
 detect which schema version produced a file and fail loudly on a mismatch rather
 than silently misinterpreting data.
