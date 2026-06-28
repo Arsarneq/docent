@@ -17,7 +17,7 @@ Publishing is **gated on a green test suite**. Each publish workflow first calls
 
 The publish job then verifies the released commit is current `main` HEAD before building, so it ships **exactly the tree the suite tested** — not a `main` that advanced mid-run. **Cut releases from `main` HEAD;** if `main` has moved on since the tag, the publish fails fast and you re-tag. (This `main`-HEAD guard is **final-release-only** — a [pre-release](#pre-release-rc-builds) builds its tagged commit directly.)
 
-As part of the run, the pipeline opens a single PR on branch `automated/version-table-update` carrying the regenerated release outputs (bumped leaf delta versions, recomposed `schemas/dist/`, refreshed version tables/badges, app manifests, and seed-sample stamps). On that PR, CI runs a **positive validator** ([`check-no-release-outputs.js`](../scripts/check-no-release-outputs.js)) that asserts the PR contains _only_ those release outputs and that `dist/` composes cleanly from the source layers — so an accidental or unexpected change can never ride in through this mechanism. The PR **auto-merges once it is approved and green**; approving it is the one expected manual step.
+As part of the run, the pipeline opens a single PR on branch `automated/version-table-update` carrying the regenerated release outputs (bumped leaf delta versions, recomposed `schemas/dist/`, refreshed version tables/badges, app manifests, and seed-sample stamps). On that PR, CI runs a **positive validator** ([`check-no-release-outputs.js`](../scripts/check-no-release-outputs.js)) that asserts the PR contains _only_ those release outputs and that `dist/` composes cleanly from the source layers — so an accidental or unexpected change can never ride in through this mechanism. The PR **auto-merges once it is green** — `main` requires **0 approvals**, so no human click gates it; the positive validator (not an approval) is the real gate, which makes a release fully tag-and-go.
 
 ## Dry-run a publish (no side-effects)
 
@@ -79,7 +79,7 @@ A release should be **tag + create-release; everything else is mechanical.**
 2. **(Recommended before a first live release, or to rehearse)** [Dry-run the publish](#dry-run-a-publish-no-side-effects): dispatch the relevant publish workflow and confirm the run Summary shows the **🧪 Dry run** banner. This proves the pipeline is green end-to-end with no side-effects before you cut the real Release.
 3. **Extension only:** if the manifest's permissions changed since the last release, fill the new permission's **Privacy practices** justification in the CWS dashboard (above).
 4. Create and publish a GitHub Release with the platform tag (`extension-vX.Y.Z` or `desktop-vX.Y.Z`) — choose the version with the next-release-version helper ([Choosing the release version](#choosing-the-release-version)). Release **extension first** (Chrome Web Store review lag), then desktop. Note any breaking changes in the release notes and bump the major accordingly.
-5. **Approve** the `automated/version-table-update` PR when it appears — it auto-merges once approved and green.
+5. **No action needed** — the `automated/version-table-update` PR **auto-merges on green** (the `check-no-release-outputs` validator is the gate; `main` requires 0 approvals). Glance at it during the CI window if you like, but nothing blocks on you.
 6. Confirm the result: the Chrome Web Store listing updates (after review), or the desktop installer is attached to the GitHub Release. _(If a real publish fails mid-run, use GitHub's **Re-run jobs** on that run — it preserves the release context — rather than cutting a new Release.)_
 
 ## Release assets — what ships vs. the auto-generated source archives
@@ -125,7 +125,7 @@ The workflow is defined in [`.github/workflows/publish.yml`](workflows/publish.y
 Create and publish a GitHub release with a tag matching `extension-v*` (e.g. `extension-v3.0.0`). The workflow will:
 
 1. **Run the full test suite for the release commit and gate on it** — publishing does not proceed unless every CI job passes (see [Test gating and the version PR](#test-gating-and-the-version-pr))
-2. Auto-version the schemas (classify the change since the last release, bump the affected leaf delta), refresh `schemas/dist/` and the version tables/badges, and open the `automated/version-table-update` PR with the result (auto-merges once approved and green)
+2. Auto-version the schemas (classify the change since the last release, bump the affected leaf delta), refresh `schemas/dist/` and the version tables/badges, and open the `automated/version-table-update` PR with the result (auto-merges on green)
 3. Sync `packages/shared/` into `packages/extension/shared/`
 4. Zip the `packages/extension/` folder
 5. Upload + publish via the Chrome Web Store API
@@ -151,7 +151,7 @@ The Windows **installer** is a separate matter: it currently ships **unsigned**,
 Create and publish a GitHub release with a tag matching `desktop-v*` (e.g. `desktop-v2.0.0`). The workflow will:
 
 1. **Run the full test suite for the release commit and gate on it** — see [Test gating and the version PR](#test-gating-and-the-version-pr)
-2. Auto-version the schemas (classify the change since the last release, bump the affected leaf delta), refresh `schemas/dist/` and the version tables/badges, and open the `automated/version-table-update` PR with the result (auto-merges once approved and green)
+2. Auto-version the schemas (classify the change since the last release, bump the affected leaf delta), refresh `schemas/dist/` and the version tables/badges, and open the `automated/version-table-update` PR with the result (auto-merges on green)
 3. Sync `packages/shared/` into `packages/desktop/shared/`
 4. Build the Tauri application for Windows
 5. Attach the installer to the GitHub release
