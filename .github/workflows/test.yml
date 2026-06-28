@@ -789,10 +789,17 @@ jobs:
         with:
           persist-credentials: false
       - name: actionlint
+        # Pre-pull with retries — Docker Hub occasionally times out, and a blocking
+        # gate shouldn't fail CI for a transient registry hiccup. The run then uses
+        # the now-local image and won't re-pull.
         run: |
-          docker run --rm -v "$PWD:/repo" --workdir /repo \
-            rhysd/actionlint:1.7.12@sha256:b1934ee5f1c509618f2508e6eb47ee0d3520686341fec936f3b79331f9315667 \
-            -color
+          img=rhysd/actionlint:1.7.12@sha256:b1934ee5f1c509618f2508e6eb47ee0d3520686341fec936f3b79331f9315667
+          for i in 1 2 3; do
+            docker pull "$img" && break
+            if [ "$i" = 3 ]; then echo "::error::docker pull failed after 3 attempts"; exit 1; fi
+            echo "docker pull failed (attempt $i) — retrying in 5s…"; sleep 5
+          done
+          docker run --rm -v "$PWD:/repo" --workdir /repo "$img" -color
 
   ci-gate:
     runs-on: ubuntu-latest
