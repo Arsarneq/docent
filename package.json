@@ -44,6 +44,11 @@
     "prepublish": "npm run sync-shared",
     "postinstall": "lefthook install"
   },
+  "overrides": {
+    "js-yaml": "^4.2.0",
+    "markdown-it": "^14.2.0",
+    "qs": "^6.15.2"
+  },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
     "@stryker-mutator/core": "^9.6.1",
