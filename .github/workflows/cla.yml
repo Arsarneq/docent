@@ -6,15 +6,19 @@ on:
   pull_request_target:
     types: [opened, closed, synchronize]
 
+# Least-privilege: read-only by default; the job elevates only the three writes
+# the CLA action actually uses. The action never calls the commit-status/checks
+# API, so no `statuses: write` is granted.
 permissions:
-  actions: write
-  contents: write
-  pull-requests: write
-  statuses: write
+  contents: read
 
 jobs:
   cla_assistant:
     runs-on: ubuntu-latest
+    permissions:
+      actions: write
+      contents: write
+      pull-requests: write
     if: |
       (github.event.comment.body == 'recheck' ||
        github.event.comment.body == 'I have read the CLA Document and I hereby sign the CLA') ||
