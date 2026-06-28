@@ -49,7 +49,7 @@ jobs:
             echo "value=dry" >> "$GITHUB_OUTPUT"
             {
               echo "## 🧪 Dry run — no external side-effects"
-              echo "Runs the full test gate, the build==tested HEAD guard, auto-version, and the extension package build. SKIPS the Chrome Web Store upload and the version-table PR (create + auto-merge)."
+              echo "Builds the dispatched ref and runs the full test gate, auto-version, and the extension package build. SKIPS the HEAD guard, the Chrome Web Store upload, and the version-table PR (create + auto-merge)."
             } >> "$GITHUB_STEP_SUMMARY"
           else
             echo "value=release" >> "$GITHUB_OUTPUT"
@@ -59,20 +59,23 @@ jobs:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
         with:
           persist-credentials: false
-          ref: main
+          ref: ${{ github.sha }}
 
-      # Build == tested tree. The `test` gate ran on github.sha (the released
-      # commit); this job builds main. Fail fast if they differ — main advanced
-      # during the gate, or the tag isn't at main HEAD — rather than publish a
-      # tree the gate never tested. (Cut releases from main HEAD.)
+      # Build == tested tree. We check out github.sha — the exact commit the test
+      # gate ran on — so the build always matches what was tested. For a real
+      # release we additionally require that commit to be current main HEAD, so
+      # the version-table PR (base: main) stays coherent and we never publish a
+      # tree that diverged from main. Skipped for dry-runs (they build any ref).
       - name: Verify the released commit is current main HEAD
+        if: steps.mode.outputs.value != 'dry'
         run: |
-          HEAD_SHA="$(git rev-parse HEAD)"
-          if [ "$HEAD_SHA" != "${{ github.sha }}" ]; then
-            echo "::error::Released commit ${{ github.sha }} is not current main HEAD ($HEAD_SHA) — the test gate ran on ${{ github.sha }} but publish builds main. Refusing to publish an untested tree; re-cut the release from main HEAD."
+          git fetch --depth=1 origin main
+          MAIN_SHA="$(git rev-parse FETCH_HEAD)"
+          if [ "${{ github.sha }}" != "$MAIN_SHA" ]; then
+            echo "::error::Released commit ${{ github.sha }} is not current main HEAD ($MAIN_SHA) — refusing to publish a tree that diverged from main. Re-cut the release from main HEAD."
             exit 1
           fi
-          echo "✓ Released commit is main HEAD ($HEAD_SHA) — build matches the tested tree."
+          echo "✓ Released commit is current main HEAD ($MAIN_SHA) — build matches the tested tree."
 
       - uses: ./.github/actions/debug-env
 
