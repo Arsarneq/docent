@@ -40,8 +40,12 @@ jobs:
       pull-requests: write
 
     steps:
-      # workflow_dispatch ⇒ dry-run (no external side-effects); a published release
-      # ⇒ the real publish. Single source of truth for the side-effect gates below.
+      # Three modes, resolved once and read by every side-effect gate below:
+      #   dry        — workflow_dispatch: build only, no external effects.
+      #   prerelease — a release flagged "pre-release": build + attach the package
+      #                to the GitHub pre-release for sideloading; NO store, NO PR.
+      #   final      — a normal published release: Chrome Web Store + version PR.
+      # GitHub's release.prerelease flag drives the mode; the tag drives the version.
       - name: Resolve release mode
         id: mode
         run: |
@@ -51,8 +55,14 @@ jobs:
               echo "## 🧪 Dry run — no external side-effects"
               echo "Builds the dispatched ref and runs the full test gate, auto-version, and the extension package build. SKIPS the HEAD guard, the Chrome Web Store upload, and the version-table PR (create + auto-merge)."
             } >> "$GITHUB_STEP_SUMMARY"
+          elif [ "${{ github.event.release.prerelease }}" = "true" ]; then
+            echo "value=prerelease" >> "$GITHUB_OUTPUT"
+            {
+              echo "## 🧪 Pre-release — sideload build, no Chrome Web Store"
+              echo "Builds the tagged commit and attaches the extension package to the GitHub pre-release for sideloading. SKIPS the Chrome Web Store upload and the version-table PR (a pre-release never bumps the committed version)."
+            } >> "$GITHUB_STEP_SUMMARY"
           else
-            echo "value=release" >> "$GITHUB_OUTPUT"
+            echo "value=final" >> "$GITHUB_OUTPUT"
             echo "## 🚀 Real release — publishing to the Chrome Web Store" >> "$GITHUB_STEP_SUMMARY"
           fi
 
@@ -61,13 +71,25 @@ jobs:
           persist-credentials: false
           ref: ${{ github.sha }}
 
+      # The release.prerelease flag drives the mode while the tag drives the
+      # version — keep them honest: a `-rc.N` tag must be a pre-release and a clean
+      # X.Y.Z must not. A mismatch is a release mistake, caught before any build.
+      - name: Validate release tag vs pre-release flag
+        if: steps.mode.outputs.value != 'dry'
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+          IS_PRERELEASE: ${{ github.event.release.prerelease }}
+          TAG_PREFIX: extension-v
+        run: node scripts/check-release-tag.js
+
       # Build == tested tree. We check out github.sha — the exact commit the test
-      # gate ran on — so the build always matches what was tested. For a real
+      # gate ran on — so the build always matches what was tested. For a FINAL
       # release we additionally require that commit to be current main HEAD, so
       # the version-table PR (base: main) stays coherent and we never publish a
-      # tree that diverged from main. Skipped for dry-runs (they build any ref).
+      # tree that diverged from main. Skipped for dry-runs and pre-releases
+      # (neither opens a version PR, so neither needs the build to equal main).
       - name: Verify the released commit is current main HEAD
-        if: steps.mode.outputs.value != 'dry'
+        if: steps.mode.outputs.value == 'final'
         run: |
           git fetch --depth=1 origin main
           MAIN_SHA="$(git rev-parse FETCH_HEAD)"
@@ -109,7 +131,7 @@ jobs:
           fi
 
       - name: Create PR for schema version + published schema update if changed
-        if: steps.mode.outputs.value != 'dry' && steps.table-diff.outputs.changed == 'true'
+        if: steps.mode.outputs.value == 'final' && steps.table-diff.outputs.changed == 'true'
         id: version-pr
         uses: peter-evans/create-pull-request@5f6978faf089d4d20b00c7766989d076bb2fc7f1 # v8
         with:
@@ -123,7 +145,7 @@ jobs:
           delete-branch: true
 
       - name: Auto-merge version table PR
-        if: steps.mode.outputs.value != 'dry' && steps.version-pr.outputs.pull-request-number
+        if: steps.mode.outputs.value == 'final' && steps.version-pr.outputs.pull-request-number
         run: gh pr merge "$PR_NUMBER" --auto --squash
         env:
           GH_TOKEN: ${{ github.token }}
@@ -142,6 +164,12 @@ jobs:
             echo "::error::Could not derive version from release tag '$RELEASE_TAG' (expected 'extension-v<x.y.z>')"
             exit 1
           fi
+          # Chrome manifest versions are 1–4 dot-separated integers — they cannot
+          # carry a semver pre-release suffix. A pre-release tag
+          # (extension-v3.1.0-rc.1) therefore ships a manifest version of the base
+          # X.Y.Z (3.1.0); the rc identity lives in the GitHub pre-release it's
+          # sideloaded from, not the package. No-op for a final tag (no suffix).
+          VERSION="${VERSION%%-*}"
           echo "Bumping extension version to $VERSION"
           cd packages/extension
           node -e "
@@ -161,7 +189,7 @@ jobs:
             --exclude 'tests/*'
 
       - name: Upload to Chrome Web Store
-        if: steps.mode.outputs.value != 'dry'
+        if: steps.mode.outputs.value == 'final'
         run: |
           # Get access token from refresh token
           TOKEN_RESPONSE=$(curl -s -X POST https://oauth2.googleapis.com/token \
@@ -216,6 +244,18 @@ jobs:
             exit 1
           fi
           echo "Extension published successfully!"
+
+      # Pre-release: the package isn't sent to the store — it's attached to the
+      # GitHub pre-release so testers can sideload it (manifest carries the base
+      # X.Y.Z; the rc identity is the pre-release they got it from).
+      - name: Attach extension package to the GitHub pre-release
+        if: steps.mode.outputs.value == 'prerelease'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: |
+          gh release upload "$RELEASE_TAG" extension.zip --clobber
+          echo "✓ extension.zip attached to pre-release $RELEASE_TAG for sideloading (not sent to the Chrome Web Store)."
 
       # Dry-run substitute for the CWS upload: prove the package built and is
       # upload-ready (zip exists + manifest at the root carries a version), without
