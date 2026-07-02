@@ -344,17 +344,87 @@ tree.
 }
 ```
 
-| Field          | Type           | Required | Description                                                                                                                                |
-| -------------- | -------------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
-| `tag`          | string         | yes      | HTML tag name (extension) / UIA ControlType, e.g. `Button`, `Edit` (desktop). `"unknown"` in coordinate mode.                              |
-| `id`           | string \| null | no       | DOM `id` attribute (extension) / UIA AutomationId, developer-assigned and session-stable (desktop).                                        |
-| `name`         | string \| null | no       | `name` attribute (extension) / UIA Name (desktop).                                                                                         |
-| `role`         | string \| null | no       | ARIA role (extension) / localized UIA control type (desktop).                                                                              |
-| `type`         | string \| null | no       | Input type attribute (extension) / control subtype, e.g. `"password"` (desktop).                                                           |
-| `autocomplete` | string \| null | no       | HTML `autocomplete` token, e.g. `"cc-number"` (extension). Used to detect sensitive payment fields. Null/absent on desktop.                |
-| `text`         | string \| null | no       | Visible text (truncated to 100 chars). Null for sensitive fields (passwords, credit-card/SSN/secret), where it is also flagged `redacted`. |
-| `selector`     | string         | yes      | CSS selector (extension) / accessibility tree path joined with `" > "`, or `coord:x,y` in coordinate mode (desktop).                       |
-| `redacted`     | boolean        | no       | `true` when the value/text was redacted because the field was sensitive (password, payment, or other PII). Absent otherwise.               |
+| Field          | Type           | Required | Description                                                                                                                                           |
+| -------------- | -------------- | -------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `tag`          | string         | yes      | HTML tag name (extension) / UIA ControlType, e.g. `Button`, `Edit` (desktop). `"unknown"` in coordinate mode.                                         |
+| `id`           | string \| null | no       | DOM `id` attribute (extension) / UIA AutomationId, developer-assigned and session-stable (desktop).                                                   |
+| `name`         | string \| null | no       | `name` attribute (extension) / UIA Name (desktop).                                                                                                    |
+| `role`         | string \| null | no       | ARIA role (extension) / localized UIA control type (desktop).                                                                                         |
+| `type`         | string \| null | no       | Input type attribute (extension) / control subtype, e.g. `"password"` (desktop).                                                                      |
+| `autocomplete` | string \| null | no       | HTML `autocomplete` token, e.g. `"cc-number"` (extension). Used to detect sensitive payment fields. Null/absent on desktop.                           |
+| `text`         | string \| null | no       | Visible text (truncated to 100 chars). Null for sensitive fields (passwords, credit-card/SSN/secret), where it is also flagged `redacted`.            |
+| `selector`     | string         | yes      | CSS selector (extension) / accessibility tree path joined with `" > "`, or `coord:x,y` in coordinate mode (desktop).                                  |
+| `redacted`     | boolean        | no       | `true` when the value/text was redacted because the field was sensitive (password, payment, or other PII). Absent otherwise.                          |
+| `locators`     | array          | no       | Locator candidates — observed facts about how the element could be addressed at capture time. See [Locator candidates](#locator-candidates-locators). |
+
+---
+
+## Locator candidates (`locators`)
+
+Each entry in `locators` is a **candidate**: an observed fact about how the acted-on element
+could be addressed, recorded together with how ambiguous that candidate was at capture time.
+Entries are per-strategy shapes discriminated on `strategy` (the same pattern actions use for
+`type`); the set of valid strategies is platform-specific.
+
+```json
+{
+  "strategy": "test_id",
+  "attribute": "data-testid",
+  "value": "add-to-cart",
+  "match_count": 3,
+  "match_index": 1
+}
+```
+
+### Shared fields (every entry)
+
+| Field         | Type            | Required | Description                                                                                                                                                 |
+| ------------- | --------------- | -------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `strategy`    | string          | yes      | Which entry shape applies (see the per-platform tables below).                                                                                              |
+| `match_count` | integer ≥ 1     | no       | How many elements the candidate matched in its stated scope. Present only where cheap to measure; absent means not measured, never a guess.                 |
+| `match_index` | integer \| null | no       | Zero-based position of the acted-on element among the matches (`0 <= match_index < match_count`). `null`: the candidate did not match the acted-on element. |
+| `masked`      | boolean         | no       | `true` when the value derived from sensitive content and was masked in place. The entry is kept, never omitted; the pair was measured pre-masking.          |
+
+### Measurement semantics
+
+The pair is a snapshot — valid at the recorded `timestamp`, in the stated scope and order,
+measured synchronously in the capture handler **before the action's effects run**:
+
+| Platform  | Scope                                                                                | Order                                                                                |
+| --------- | ------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------ |
+| Extension | The capturing frame's document root (the same boundary selector derivation stops at) | Document order; standard non-piercing matching (shadow roots are not descended into) |
+| Desktop   | The target window                                                                    | Deterministic depth-first pre-order over the UI Automation Control view              |
+
+The order of entries in `locators` is the fixed order the strategy definitions are declared in
+the platform schema — a serialization convention that carries **no preference or ranking**.
+Candidates whose value was empty are omitted rather than included empty; the whole array is
+omitted when no candidates were observed (e.g. coordinate mode).
+
+### Extension strategies
+
+| `strategy`    | Fields (beyond the shared ones) | Derived from                                                               |
+| ------------- | ------------------------------- | -------------------------------------------------------------------------- |
+| `id`          | `value`                         | The `id` attribute                                                         |
+| `test_id`     | `attribute`, `value`            | A test-hook attribute (e.g. `data-testid`); `attribute` records which one  |
+| `name`        | `value`                         | The `name` attribute                                                       |
+| `tag_name`    | `value`                         | The tag name (lower-cased; case preserved for foreign elements)            |
+| `role_name`   | `role`, `name`                  | The element's role and accessible name                                     |
+| `label`       | `mechanism`, `value`            | An associated label; `mechanism` is `for`, `wrapped`, or `aria-labelledby` |
+| `text`        | `value`                         | Visible text (whitespace-normalized, truncated to 100 chars)               |
+| `placeholder` | `value`                         | The `placeholder` attribute                                                |
+| `title`       | `value`                         | The `title` attribute                                                      |
+| `alt_text`    | `value`                         | The `alt` attribute                                                        |
+| `css`         | `value`                         | A CSS selector derived from observed attributes and structure              |
+
+### Desktop strategies
+
+| `strategy`      | Fields (beyond the shared ones) | Derived from                                                              |
+| --------------- | ------------------------------- | ------------------------------------------------------------------------- |
+| `automation_id` | `value`                         | UIA AutomationId (developer-assigned; never the session-scoped RuntimeId) |
+| `role_name`     | `role`, `name`                  | Non-localized UIA control type name + UIA Name (localized)                |
+| `class_name`    | `value`                         | UIA ClassName                                                             |
+| `labeled_by`    | `value`                         | UIA Name of the element referenced by the LabeledBy property              |
+| `tree_path`     | `value`                         | Control types and names from the window root, joined with `" > "`         |
 
 ---
 

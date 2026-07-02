@@ -144,6 +144,307 @@
           "$ref": "#/$defs/action_context_close"
         }
       ]
+    },
+    "locator": {
+      "type": "object",
+      "required": ["strategy"],
+      "properties": {
+        "strategy": {
+          "type": "string",
+          "description": "Locator strategy identifier — selects which entry shape applies."
+        }
+      },
+      "description": "A locator candidate for the acted-on element. Match statistics (match_count / match_index) are measured against the capturing frame's document root (the same boundary selector derivation stops at), in document order, using standard non-piercing matching (shadow roots are not descended into), synchronously in the capture handler before the action's effects run.",
+      "oneOf": [
+        {
+          "$ref": "#/$defs/locator_id"
+        },
+        {
+          "$ref": "#/$defs/locator_test_id"
+        },
+        {
+          "$ref": "#/$defs/locator_name"
+        },
+        {
+          "$ref": "#/$defs/locator_tag_name"
+        },
+        {
+          "$ref": "#/$defs/locator_role_name"
+        },
+        {
+          "$ref": "#/$defs/locator_label"
+        },
+        {
+          "$ref": "#/$defs/locator_text"
+        },
+        {
+          "$ref": "#/$defs/locator_placeholder"
+        },
+        {
+          "$ref": "#/$defs/locator_title"
+        },
+        {
+          "$ref": "#/$defs/locator_alt_text"
+        },
+        {
+          "$ref": "#/$defs/locator_css"
+        }
+      ]
+    },
+    "locator_id": {
+      "properties": {
+        "strategy": {
+          "const": "id"
+        },
+        "value": {
+          "type": "string",
+          "description": "Value of the element's id attribute."
+        },
+        "match_count": {
+          "$ref": "#/$defs/locator_match_count"
+        },
+        "match_index": {
+          "$ref": "#/$defs/locator_match_index"
+        },
+        "masked": {
+          "$ref": "#/$defs/locator_masked"
+        }
+      },
+      "required": ["strategy", "value"],
+      "additionalProperties": false
+    },
+    "locator_test_id": {
+      "properties": {
+        "strategy": {
+          "const": "test_id"
+        },
+        "attribute": {
+          "type": "string",
+          "description": "The attribute that carried the value, e.g. \"data-testid\"."
+        },
+        "value": {
+          "type": "string",
+          "description": "The test attribute's value."
+        },
+        "match_count": {
+          "$ref": "#/$defs/locator_match_count"
+        },
+        "match_index": {
+          "$ref": "#/$defs/locator_match_index"
+        },
+        "masked": {
+          "$ref": "#/$defs/locator_masked"
+        }
+      },
+      "required": ["strategy", "attribute", "value"],
+      "additionalProperties": false
+    },
+    "locator_name": {
+      "properties": {
+        "strategy": {
+          "const": "name"
+        },
+        "value": {
+          "type": "string",
+          "description": "Value of the element's name attribute."
+        },
+        "match_count": {
+          "$ref": "#/$defs/locator_match_count"
+        },
+        "match_index": {
+          "$ref": "#/$defs/locator_match_index"
+        },
+        "masked": {
+          "$ref": "#/$defs/locator_masked"
+        }
+      },
+      "required": ["strategy", "value"],
+      "additionalProperties": false
+    },
+    "locator_tag_name": {
+      "properties": {
+        "strategy": {
+          "const": "tag_name"
+        },
+        "value": {
+          "type": "string",
+          "description": "The element's tag name, lower-cased for HTML elements and case-preserved for foreign (e.g. SVG) elements."
+        },
+        "match_count": {
+          "$ref": "#/$defs/locator_match_count"
+        },
+        "match_index": {
+          "$ref": "#/$defs/locator_match_index"
+        },
+        "masked": {
+          "$ref": "#/$defs/locator_masked"
+        }
+      },
+      "required": ["strategy", "value"],
+      "additionalProperties": false
+    },
+    "locator_role_name": {
+      "properties": {
+        "strategy": {
+          "const": "role_name"
+        },
+        "role": {
+          "type": "string",
+          "description": "The element's ARIA role — the explicit role attribute value, or the role implied by the element."
+        },
+        "name": {
+          "type": "string",
+          "description": "The element's computed accessible name."
+        },
+        "match_count": {
+          "$ref": "#/$defs/locator_match_count"
+        },
+        "match_index": {
+          "$ref": "#/$defs/locator_match_index"
+        },
+        "masked": {
+          "$ref": "#/$defs/locator_masked"
+        }
+      },
+      "required": ["strategy", "role", "name"],
+      "additionalProperties": false
+    },
+    "locator_label": {
+      "properties": {
+        "strategy": {
+          "const": "label"
+        },
+        "mechanism": {
+          "type": "string",
+          "enum": ["for", "wrapped", "aria-labelledby"],
+          "description": "How the label is associated with the element: \"for\" (label for-attribute), \"wrapped\" (element nested inside the label), or \"aria-labelledby\" (referenced by id)."
+        },
+        "value": {
+          "type": "string",
+          "description": "The label's visible text."
+        },
+        "match_count": {
+          "$ref": "#/$defs/locator_match_count"
+        },
+        "match_index": {
+          "$ref": "#/$defs/locator_match_index"
+        },
+        "masked": {
+          "$ref": "#/$defs/locator_masked"
+        }
+      },
+      "required": ["strategy", "mechanism", "value"],
+      "additionalProperties": false
+    },
+    "locator_text": {
+      "properties": {
+        "strategy": {
+          "const": "text"
+        },
+        "value": {
+          "type": "string",
+          "description": "The element's visible text, whitespace-normalized (leading/trailing whitespace removed, internal runs collapsed to single spaces) and truncated to 100 characters."
+        },
+        "match_count": {
+          "$ref": "#/$defs/locator_match_count"
+        },
+        "match_index": {
+          "$ref": "#/$defs/locator_match_index"
+        },
+        "masked": {
+          "$ref": "#/$defs/locator_masked"
+        }
+      },
+      "required": ["strategy", "value"],
+      "additionalProperties": false
+    },
+    "locator_placeholder": {
+      "properties": {
+        "strategy": {
+          "const": "placeholder"
+        },
+        "value": {
+          "type": "string",
+          "description": "Value of the element's placeholder attribute."
+        },
+        "match_count": {
+          "$ref": "#/$defs/locator_match_count"
+        },
+        "match_index": {
+          "$ref": "#/$defs/locator_match_index"
+        },
+        "masked": {
+          "$ref": "#/$defs/locator_masked"
+        }
+      },
+      "required": ["strategy", "value"],
+      "additionalProperties": false
+    },
+    "locator_title": {
+      "properties": {
+        "strategy": {
+          "const": "title"
+        },
+        "value": {
+          "type": "string",
+          "description": "Value of the element's title attribute."
+        },
+        "match_count": {
+          "$ref": "#/$defs/locator_match_count"
+        },
+        "match_index": {
+          "$ref": "#/$defs/locator_match_index"
+        },
+        "masked": {
+          "$ref": "#/$defs/locator_masked"
+        }
+      },
+      "required": ["strategy", "value"],
+      "additionalProperties": false
+    },
+    "locator_alt_text": {
+      "properties": {
+        "strategy": {
+          "const": "alt_text"
+        },
+        "value": {
+          "type": "string",
+          "description": "Value of the element's alt attribute."
+        },
+        "match_count": {
+          "$ref": "#/$defs/locator_match_count"
+        },
+        "match_index": {
+          "$ref": "#/$defs/locator_match_index"
+        },
+        "masked": {
+          "$ref": "#/$defs/locator_masked"
+        }
+      },
+      "required": ["strategy", "value"],
+      "additionalProperties": false
+    },
+    "locator_css": {
+      "properties": {
+        "strategy": {
+          "const": "css"
+        },
+        "value": {
+          "type": "string",
+          "description": "A CSS selector derived for the element from observed attributes and structure."
+        },
+        "match_count": {
+          "$ref": "#/$defs/locator_match_count"
+        },
+        "match_index": {
+          "$ref": "#/$defs/locator_match_index"
+        },
+        "masked": {
+          "$ref": "#/$defs/locator_masked"
+        }
+      },
+      "required": ["strategy", "value"],
+      "additionalProperties": false
     }
   }
 }
