@@ -61,7 +61,7 @@
     "eslint-config-prettier": "^10.1.8",
     "fast-check": "^4.8.0",
     "lefthook": "^2.1.9",
-    "license-checker-rseidelsohn": "4.4.2",
+    "license-checker-rseidelsohn": "5.0.1",
     "markdownlint-cli2": "^0.22.1",
     "prettier": "^3.9.4",
     "stylelint": "^17.14.0",
