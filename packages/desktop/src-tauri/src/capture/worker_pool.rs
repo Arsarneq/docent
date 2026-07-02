@@ -1219,18 +1219,21 @@ fn handle_click<B: AccessibilityBackend>(
         }
     };
 
-    let (rel_x, rel_y) = (raw.screen_x as f64, raw.screen_y as f64);
+    // Emitted verbatim in screen space (physical pixels) — the same values the
+    // hook observed, and the same values a coordinate-mode selector encodes.
+    // Window-relative coordinates land only under new named fields (issue #141).
+    let (screen_x, screen_y) = (raw.screen_x as f64, raw.screen_y as f64);
 
     let payload = if is_right_click {
         ActionPayload::RightClick {
-            x: rel_x,
-            y: rel_y,
+            x: screen_x,
+            y: screen_y,
             element: element_desc.clone(),
         }
     } else {
         ActionPayload::Click {
-            x: rel_x,
-            y: rel_y,
+            x: screen_x,
+            y: screen_y,
             element: element_desc.clone(),
         }
     };

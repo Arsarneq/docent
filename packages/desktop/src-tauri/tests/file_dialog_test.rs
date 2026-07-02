@@ -77,7 +77,7 @@ mod file_dialog_navigation {
     use super::*;
     use windows::core::w;
     use windows::core::BSTR;
-    use windows::Win32::Foundation::{HWND, RECT};
+    use windows::Win32::Foundation::HWND;
     use windows::Win32::System::Com::{
         CoCreateInstance, CoInitializeEx, CLSCTX_ALL, COINIT_APARTMENTTHREADED,
     };
@@ -86,9 +86,7 @@ mod file_dialog_navigation {
         CUIAutomation, IUIAutomation, IUIAutomationElement, PropertyConditionFlags_None,
         TreeScope_Descendants, UIA_NamePropertyId,
     };
-    use windows::Win32::UI::WindowsAndMessaging::{
-        FindWindowW, GetWindowRect, SetForegroundWindow,
-    };
+    use windows::Win32::UI::WindowsAndMessaging::{FindWindowW, SetForegroundWindow};
 
     /// Open a file dialog by launching Notepad and sending Ctrl+O.
     /// Returns the Notepad process PID for cleanup.
@@ -127,16 +125,15 @@ mod file_dialog_navigation {
             thread::sleep(Duration::from_millis(100));
         }
 
-        // Click on the notepad window to ensure it has focus
-        let mut rect = RECT::default();
+        // Bring Notepad to the foreground deterministically. (This used to be a
+        // synthetic click at the window's centre — but if any other window
+        // overlaps that point when the test starts, the click lands on whatever
+        // is on top, stealing focus and occasionally clicking into the user's
+        // session. SetForegroundWindow is what the dialog half of this file
+        // already uses.)
         unsafe {
-            GetWindowRect(notepad_hwnd, &mut rect).unwrap();
+            let _ = SetForegroundWindow(notepad_hwnd);
         }
-        let cx = (rect.left + rect.right) / 2;
-        let cy = (rect.top + rect.bottom) / 2;
-        enigo.move_mouse(cx, cy, Coordinate::Abs).unwrap();
-        thread::sleep(Duration::from_millis(100));
-        enigo.button(enigo::Button::Left, Direction::Click).unwrap();
         thread::sleep(Duration::from_millis(300));
 
         // Send Ctrl+O to open file dialog
@@ -304,8 +301,10 @@ mod file_dialog_navigation {
     /// Navigate the dialog: click the C: drive in the navigation pane, then
     /// open the "Program Files" folder in the file list. Returns `true` if both
     /// targets were found and acted on. A `false` return means the environment
-    /// didn't present the expected tree (e.g. unusual drive labelling) and the
-    /// caller should skip rather than fail.
+    /// didn't present the expected tree (e.g. unusual drive labelling) — the
+    /// caller FAILS loudly on it: this test is local-only, and a red result
+    /// saying "environment mismatch, nothing verified" is honest where a green
+    /// skip would silently claim coverage that didn't happen.
     fn navigate_c_then_program_files(uia: &DialogUia, enigo: &mut Enigo) -> bool {
         // 1. Click the local C: drive tree item. Drive labels vary
         //    ("Local Disk (C:)", "OS (C:)", …) so match the universal "(C:)".
@@ -353,13 +352,15 @@ mod file_dialog_navigation {
         thread::sleep(Duration::from_millis(300));
         capture.stop().unwrap();
 
-        if !navigated {
-            eprintln!(
-                "SKIP: could not locate C: drive and/or Program Files in the dialog; \
-                 environment does not present the expected folder tree."
-            );
-            return;
-        }
+        // A quiet green-on-skip made this test untrustworthy: it could pass
+        // without exercising anything. Local-only test → fail loudly instead.
+        assert!(
+            navigated,
+            "ENVIRONMENT MISMATCH (not a capture bug): could not locate the \
+             \"(C:)\" tree item and/or \"Program Files\" in the file dialog, so \
+             NOTHING was verified. Check drive labelling / navigation-pane \
+             visibility and re-run."
+        );
 
         let events: Vec<_> = rx.try_iter().collect();
         let click_events = clicks(&events);

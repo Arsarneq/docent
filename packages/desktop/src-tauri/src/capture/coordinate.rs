@@ -49,15 +49,21 @@ pub fn determine_capture_mode(control_type_id: i32) -> CaptureMode {
 
 /// Calculate coordinates relative to the application window's top-left corner.
 ///
-/// All values are in **logical pixels** (DPI-scaled, not physical pixels).
+/// Unit-agnostic subtraction: inputs must share one coordinate space. In this
+/// codebase observed coordinates are **physical pixels** (the process opts into
+/// per-monitor-v2 DPI awareness, so the input hook and `GetWindowRect` both
+/// report physical screen values).
+///
+/// NOTE: this helper currently has **no production callers** — the live
+/// pipeline emits raw screen coordinates as-is (see `worker_pool.rs`), and the
+/// exported format carries screen-space values today. Wiring window-relative
+/// coordinates into the format is tracked in issue #141 and lands only under
+/// new, explicitly named fields — never by silently changing the meaning of
+/// the existing ones.
 ///
 /// Returns `(rel_x, rel_y)` where:
 /// - `rel_x = abs_x - win_x`
 /// - `rel_y = abs_y - win_y`
-///
-/// # Requirements
-/// - Coordinates relative to window origin
-/// - Logical pixels (DPI-scaled)
 pub fn relative_coordinates(abs_x: i32, abs_y: i32, win_x: i32, win_y: i32) -> (i32, i32) {
     (abs_x - win_x, abs_y - win_y)
 }
@@ -77,11 +83,14 @@ pub fn relative_coordinates(abs_x: i32, abs_y: i32, win_x: i32, win_y: i32) -> (
 /// - `role`: `None`
 /// - `element_type`: `None`
 /// - `text`: `None`
-/// - `selector`: `"coord:{rel_x},{rel_y}"`
+/// - `selector`: `"coord:{x},{y}"`
 ///
-/// # Requirements
-/// - Fallback element description
-pub fn fallback_element(window_title: &str, rel_x: i32, rel_y: i32) -> ElementDescription {
+/// The point is encoded into the selector **verbatim, in whatever space the
+/// caller supplies**. Every production call site passes raw **screen
+/// coordinates (physical pixels)** — the same values as the action's `x`/`y` —
+/// so today's `coord:` selectors are screen-space, NOT window-relative.
+/// Window-relative capture is tracked in issue #141.
+pub fn fallback_element(window_title: &str, x: i32, y: i32) -> ElementDescription {
     ElementDescription {
         tag: "unknown".to_string(),
         name: Some(window_title.to_string()),
@@ -89,7 +98,7 @@ pub fn fallback_element(window_title: &str, rel_x: i32, rel_y: i32) -> ElementDe
         role: None,
         element_type: None,
         text: None,
-        selector: format!("coord:{rel_x},{rel_y}"),
+        selector: format!("coord:{x},{y}"),
     }
 }
 
@@ -99,11 +108,10 @@ pub fn fallback_element(window_title: &str, rel_x: i32, rel_y: i32) -> ElementDe
 
 /// Create a [`WindowRect`] from the window's position and size.
 ///
-/// All values are in **logical pixels** (DPI-scaled).
-///
-/// # Requirements
-/// - Record window size and position at capture time
-/// - Logical pixels
+/// All values are in **physical pixels**: the production source is
+/// `GetWindowRect` under per-monitor-v2 DPI awareness (see `windows.rs`),
+/// which reports unscaled physical screen coordinates. (Earlier docs claimed
+/// logical pixels — that was never what the pipeline produced.)
 pub fn create_window_rect(x: i32, y: i32, width: i32, height: i32) -> WindowRect {
     WindowRect {
         x,
