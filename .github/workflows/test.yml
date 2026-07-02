@@ -707,7 +707,7 @@ jobs:
 
       - name: Upload unit JS coverage to Codecov
         if: hashFiles('coverage-artifacts/coverage-unit-javascript/*.lcov') != ''
-        uses: codecov/codecov-action@a99c28d3f0da835de33ff2feb2e15691c7b9641f # v7
+        uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v7
         with:
           files: coverage-artifacts/coverage-unit-javascript/shared-desktop-unit.lcov,coverage-artifacts/coverage-unit-javascript/extension-unit.lcov
           disable_search: true
@@ -717,7 +717,7 @@ jobs:
 
       - name: Upload extension E2E coverage to Codecov
         if: hashFiles('coverage-artifacts/coverage-e2e-javascript/lcov.info') != ''
-        uses: codecov/codecov-action@a99c28d3f0da835de33ff2feb2e15691c7b9641f # v7
+        uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v7
         with:
           files: coverage-artifacts/coverage-e2e-javascript/lcov.info
           disable_search: true
@@ -727,7 +727,7 @@ jobs:
 
       - name: Upload Rust unit coverage to Codecov
         if: hashFiles('coverage-artifacts/coverage-rust/coverage-unit.lcov') != ''
-        uses: codecov/codecov-action@a99c28d3f0da835de33ff2feb2e15691c7b9641f # v7
+        uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v7
         with:
           files: coverage-artifacts/coverage-rust/coverage-unit.lcov
           disable_search: true
@@ -737,7 +737,7 @@ jobs:
 
       - name: Upload Rust integration coverage to Codecov
         if: hashFiles('coverage-artifacts/coverage-rust/coverage-integration.lcov') != ''
-        uses: codecov/codecov-action@a99c28d3f0da835de33ff2feb2e15691c7b9641f # v7
+        uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v7
         with:
           files: coverage-artifacts/coverage-rust/coverage-integration.lcov
           disable_search: true
@@ -747,7 +747,7 @@ jobs:
 
       - name: Upload desktop integration JS coverage to Codecov
         if: hashFiles('coverage-artifacts/coverage-integration-javascript/lcov.info') != ''
-        uses: codecov/codecov-action@a99c28d3f0da835de33ff2feb2e15691c7b9641f # v7
+        uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v7
         with:
           files: coverage-artifacts/coverage-integration-javascript/lcov.info
           disable_search: true
@@ -760,7 +760,7 @@ jobs:
       # instead of leaving the required project/patch checks unreported.
       - name: Codecov empty upload (no coverage on this commit)
         if: steps.detect.outputs.has_coverage == 'false'
-        uses: codecov/codecov-action@a99c28d3f0da835de33ff2feb2e15691c7b9641f # v7
+        uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v7
         with:
           run_command: 'empty-upload'
           force: true
