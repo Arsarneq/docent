@@ -47,6 +47,10 @@
  *     generated Ajv validator). This mirrors the desktop limit raised to 520KB in
  *     this same revision; the extension's equivalent bump was outstanding. Budget
  *     raised to fit the current ~554KB plus normal headroom.
+ *   - Raised to 620KB for the locators[] contract shapes (docent#174): the 11
+ *     per-strategy entry schemas added to the extension schema grow the generated
+ *     Ajv validator (the largest single file) by a few KB — 602KB actual at the
+ *     time of the change. Deliberate schema-contract artifact, no new dependency.
  *
  * Requires `npm run sync-shared` to have been run first.
  */
@@ -91,12 +95,12 @@ function formatSize(bytes) {
 const extensionExcludes = ['node_modules', 'tests', '.git', 'coverage'];
 
 describe('Build size: Extension', () => {
-  it('total JS size is under 600KB (uncompressed)', () => {
+  it('total JS size is under 620KB (uncompressed)', () => {
     const size = getDirSize(extensionDir, ['.js'], extensionExcludes);
     assert.ok(size > 0, 'No JS files found — has sync-shared been run?');
     assert.ok(
-      size < 600 * 1024,
-      `Extension JS is ${formatSize(size)} (soft limit: 600KB). This is a regression tripwire, not a platform limit — if the growth is an intentional artifact, raise the limit AND its rationale in this file's header; otherwise check for an accidental large dependency.`,
+      size < 620 * 1024,
+      `Extension JS is ${formatSize(size)} (soft limit: 620KB). This is a regression tripwire, not a platform limit — if the growth is an intentional artifact, raise the limit AND its rationale in this file's header; otherwise check for an accidental large dependency.`,
     );
   });
 

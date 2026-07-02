@@ -243,6 +243,96 @@ describe('Schema validation: extension export', () => {
   });
 });
 
+// ─── locators[] (#174) ────────────────────────────────────────────────────────
+
+function exportWithLocators(locators) {
+  return buildExtensionExport([
+    {
+      type: 'click',
+      timestamp: Date.now(),
+      capture_mode: 'dom',
+      context_id: 1,
+      element: {
+        tag: 'Button',
+        id: null,
+        name: null,
+        role: null,
+        type: null,
+        text: 'OK',
+        selector: '#ok',
+        locators,
+      },
+      x: 0,
+      y: 0,
+    },
+  ]);
+}
+
+describe('Schema validation: extension locators[]', () => {
+  it('accepts an element carrying every core strategy shape', () => {
+    const data = exportWithLocators([
+      { strategy: 'id', value: 'submit-btn', match_count: 1, match_index: 0 },
+      {
+        strategy: 'test_id',
+        attribute: 'data-testid',
+        value: 'add-to-cart',
+        match_count: 3,
+        match_index: 1,
+      },
+      { strategy: 'role_name', role: 'button', name: 'Add to cart' },
+      {
+        strategy: 'label',
+        mechanism: 'for',
+        value: 'Email address',
+        match_count: 1,
+        match_index: 0,
+      },
+      {
+        strategy: 'css',
+        value: 'main > div:nth-of-type(2) > button',
+        match_count: 1,
+        match_index: null,
+      },
+      { strategy: 'text', value: '••••••••', masked: true, match_count: 2, match_index: 0 },
+    ]);
+    const valid = validateExtension(data);
+    assert.ok(valid, `Extension schema validation failed:\n${formatErrors(validateExtension)}`);
+  });
+
+  it('accepts an empty locators array', () => {
+    const valid = validateExtension(exportWithLocators([]));
+    assert.ok(valid, `Extension schema validation failed:\n${formatErrors(validateExtension)}`);
+  });
+
+  it('accepts an element without locators (back-compat)', () => {
+    const data = exportWithLocators([]);
+    delete data.recordings[0].steps[0].actions[0].element.locators;
+    const valid = validateExtension(data);
+    assert.ok(valid, `Extension schema validation failed:\n${formatErrors(validateExtension)}`);
+  });
+
+  const rejects = [
+    ['an unknown strategy', { strategy: 'xpath', value: '//button' }],
+    ['a desktop-only strategy', { strategy: 'automation_id', value: 'btnSave' }],
+    ['match_count of 0', { strategy: 'id', value: 'x', match_count: 0, match_index: 0 }],
+    ['a negative match_index', { strategy: 'id', value: 'x', match_count: 1, match_index: -1 }],
+    ['an extra property on an entry', { strategy: 'id', value: 'x', confidence: 0.9 }],
+    ['a non-boolean masked', { strategy: 'text', value: 'OK', masked: 'yes' }],
+    ['test_id without its attribute', { strategy: 'test_id', value: 'save' }],
+    ['label without its mechanism', { strategy: 'label', value: 'Email' }],
+    [
+      'role_name with a stray value field',
+      { strategy: 'role_name', role: 'button', name: 'OK', value: 'OK' },
+    ],
+  ];
+  for (const [what, entry] of rejects) {
+    it(`rejects ${what}`, () => {
+      const valid = validateExtension(exportWithLocators([entry]));
+      assert.ok(!valid, `Schema should reject ${what}: ${JSON.stringify(entry)}`);
+    });
+  }
+});
+
 // ─── Negative Tests ───────────────────────────────────────────────────────────
 
 describe('Schema validation: extension negative tests', () => {
@@ -291,21 +381,63 @@ describe('Schema validation: extension negative tests', () => {
 // ─── Property-Based Tests ─────────────────────────────────────────────────────
 
 describe('Schema validation: extension property-based (random valid payloads)', () => {
+  // Locator entries: pair generated respecting the documented invariant
+  // (match_index < match_count, or null) — executable documentation of #174.
+  const matchPairArb = fc.oneof(
+    fc.constant({}),
+    fc.integer({ min: 1, max: 50 }).chain((count) =>
+      fc.record({
+        match_count: fc.constant(count),
+        match_index: fc.oneof(fc.constant(null), fc.integer({ min: 0, max: count - 1 })),
+      }),
+    ),
+  );
+  const extensionLocatorArb = fc
+    .oneof(
+      fc.record({ strategy: fc.constant('id'), value: fc.string({ minLength: 1 }) }),
+      fc.record({
+        strategy: fc.constant('test_id'),
+        attribute: fc.constantFrom('data-testid', 'data-test', 'data-qa', 'data-cy'),
+        value: fc.string({ minLength: 1 }),
+      }),
+      fc.record({
+        strategy: fc.constant('role_name'),
+        role: fc.constantFrom('button', 'textbox', 'link'),
+        name: fc.string({ minLength: 1 }),
+      }),
+      fc.record({
+        strategy: fc.constant('label'),
+        mechanism: fc.constantFrom('for', 'wrapped', 'aria-labelledby'),
+        value: fc.string({ minLength: 1 }),
+      }),
+      fc.record({
+        strategy: fc.constant('text'),
+        value: fc.string({ minLength: 1, maxLength: 100 }),
+        masked: fc.boolean(),
+      }),
+      fc.record({ strategy: fc.constant('css'), value: fc.string({ minLength: 1 }) }),
+    )
+    .chain((entry) => matchPairArb.map((pair) => ({ ...entry, ...pair })));
+
   const actionArb = fc.oneof(
     fc.record({
       type: fc.constant('click'),
       timestamp: fc.nat(),
       capture_mode: fc.constant('dom'),
       context_id: fc.nat(),
-      element: fc.record({
-        tag: fc.constantFrom('Button', 'A', 'Input', 'Div', 'Span'),
-        id: fc.option(fc.string({ minLength: 1 }), { nil: null }),
-        name: fc.constant(null),
-        role: fc.constant(null),
-        type: fc.constant(null),
-        text: fc.option(fc.string({ minLength: 1 }), { nil: null }),
-        selector: fc.string(),
-      }),
+      element: fc.record(
+        {
+          tag: fc.constantFrom('Button', 'A', 'Input', 'Div', 'Span'),
+          id: fc.option(fc.string({ minLength: 1 }), { nil: null }),
+          name: fc.constant(null),
+          role: fc.constant(null),
+          type: fc.constant(null),
+          text: fc.option(fc.string({ minLength: 1 }), { nil: null }),
+          selector: fc.string(),
+          locators: fc.array(extensionLocatorArb, { maxLength: 4 }),
+        },
+        { requiredKeys: ['tag', 'id', 'name', 'role', 'type', 'text', 'selector'] },
+      ),
       x: fc.integer(),
       y: fc.integer(),
       window_rect: fc.constant(null),

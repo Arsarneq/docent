@@ -3,5 +3,149 @@
   "title": "Docent Desktop (Windows) Schema",
   "platform": "desktop-windows",
   "version": "2.0.0",
-  "description": "Schema for .docent.json files produced by the Docent desktop application on Windows."
+  "description": "Schema for .docent.json files produced by the Docent desktop application on Windows.",
+  "$defs": {
+    "locator": {
+      "type": "object",
+      "required": ["strategy"],
+      "properties": {
+        "strategy": {
+          "type": "string",
+          "description": "Locator strategy identifier — selects which entry shape applies."
+        }
+      },
+      "description": "A locator candidate for the acted-on element. Match statistics (match_count / match_index) are measured within the target window, over a deterministic depth-first pre-order traversal of the UI Automation Control view, synchronously at capture time before the action's effects run.",
+      "oneOf": [
+        {
+          "$ref": "#/$defs/locator_automation_id"
+        },
+        {
+          "$ref": "#/$defs/locator_role_name"
+        },
+        {
+          "$ref": "#/$defs/locator_class_name"
+        },
+        {
+          "$ref": "#/$defs/locator_labeled_by"
+        },
+        {
+          "$ref": "#/$defs/locator_tree_path"
+        }
+      ]
+    },
+    "locator_automation_id": {
+      "properties": {
+        "strategy": {
+          "const": "automation_id"
+        },
+        "value": {
+          "type": "string",
+          "description": "The element's UIA AutomationId — developer-assigned, distinct from the session-scoped RuntimeId."
+        },
+        "match_count": {
+          "$ref": "#/$defs/locator_match_count"
+        },
+        "match_index": {
+          "$ref": "#/$defs/locator_match_index"
+        },
+        "masked": {
+          "$ref": "#/$defs/locator_masked"
+        }
+      },
+      "required": ["strategy", "value"],
+      "additionalProperties": false
+    },
+    "locator_role_name": {
+      "properties": {
+        "strategy": {
+          "const": "role_name"
+        },
+        "role": {
+          "type": "string",
+          "description": "The element's non-localized UIA control type name, e.g. \"Button\"."
+        },
+        "name": {
+          "type": "string",
+          "description": "The element's UIA Name (localized where the application localizes it)."
+        },
+        "match_count": {
+          "$ref": "#/$defs/locator_match_count"
+        },
+        "match_index": {
+          "$ref": "#/$defs/locator_match_index"
+        },
+        "masked": {
+          "$ref": "#/$defs/locator_masked"
+        }
+      },
+      "required": ["strategy", "role", "name"],
+      "additionalProperties": false
+    },
+    "locator_class_name": {
+      "properties": {
+        "strategy": {
+          "const": "class_name"
+        },
+        "value": {
+          "type": "string",
+          "description": "The element's UIA ClassName."
+        },
+        "match_count": {
+          "$ref": "#/$defs/locator_match_count"
+        },
+        "match_index": {
+          "$ref": "#/$defs/locator_match_index"
+        },
+        "masked": {
+          "$ref": "#/$defs/locator_masked"
+        }
+      },
+      "required": ["strategy", "value"],
+      "additionalProperties": false
+    },
+    "locator_labeled_by": {
+      "properties": {
+        "strategy": {
+          "const": "labeled_by"
+        },
+        "value": {
+          "type": "string",
+          "description": "UIA Name of the element referenced by this element's LabeledBy property."
+        },
+        "match_count": {
+          "$ref": "#/$defs/locator_match_count"
+        },
+        "match_index": {
+          "$ref": "#/$defs/locator_match_index"
+        },
+        "masked": {
+          "$ref": "#/$defs/locator_masked"
+        }
+      },
+      "required": ["strategy", "value"],
+      "additionalProperties": false
+    },
+    "locator_tree_path": {
+      "properties": {
+        "strategy": {
+          "const": "tree_path"
+        },
+        "value": {
+          "type": "string",
+          "description": "Path of control types and names from the window root to the element, segments joined with \" > \"."
+        },
+        "match_count": {
+          "$ref": "#/$defs/locator_match_count"
+        },
+        "match_index": {
+          "$ref": "#/$defs/locator_match_index"
+        },
+        "masked": {
+          "$ref": "#/$defs/locator_masked"
+        }
+      },
+      "required": ["strategy", "value"],
+      "additionalProperties": false
+    }
+  }
 }
