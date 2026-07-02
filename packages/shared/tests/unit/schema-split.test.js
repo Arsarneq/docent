@@ -67,6 +67,10 @@ describe('Extension schema', () => {
   it('shared action types do NOT include window_rect', () => {
     assert.strictEqual(defs.action_click.properties.window_rect, undefined);
   });
+
+  it('has the 11-strategy locator oneOf', () => {
+    assert.strictEqual(defs.locator.oneOf.length, 11);
+  });
 });
 
 describe('Desktop Windows schema', () => {
@@ -112,6 +116,10 @@ describe('Desktop Windows schema', () => {
   it('shared action types do NOT include frame_src', () => {
     assert.strictEqual(defs.action_click.properties.frame_src, undefined);
   });
+
+  it('has the 5-strategy locator oneOf', () => {
+    assert.strictEqual(defs.locator.oneOf.length, 5);
+  });
 });
 
 describe('Shared definitions present in both schemas', () => {
@@ -131,6 +139,9 @@ describe('Shared definitions present in both schemas', () => {
     'iso8601',
     'context_id',
     'metadata',
+    'locator_match_count',
+    'locator_match_index',
+    'locator_masked',
   ];
 
   for (const key of sharedKeys) {

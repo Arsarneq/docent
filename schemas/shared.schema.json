@@ -470,8 +470,29 @@
         "redacted": {
           "type": "boolean",
           "description": "True when the captured value and/or text was redacted because the field was sensitive (a password, payment, or other PII field). Absent when nothing was redacted."
+        },
+        "locators": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/locator"
+          },
+          "description": "Locator candidates: observed facts about how this element could be addressed at capture time. Each entry is a per-strategy shape; the set of valid strategies is platform-specific (see this schema's locator definition). Entries appear in the fixed order their strategy definitions are declared in the locator definition — that order is a serialization convention and carries no preference or ranking. Omitted when no candidates were observed; candidates whose value was empty are omitted rather than included empty."
         }
       }
+    },
+    "locator_match_count": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "How many elements this candidate matched, measured under the scope, order, and timing stated by this schema's locator definition. Present only where it was cheap to measure at capture time; absent means not measured, never a guess."
+    },
+    "locator_match_index": {
+      "type": ["integer", "null"],
+      "minimum": 0,
+      "description": "Zero-based position of the acted-on element in this candidate's match list, measured together with match_count (0 <= match_index < match_count; the upper bound is stated here because it cannot be schema-enforced). Null means this candidate did not match the acted-on element at all. Absent means not measured."
+    },
+    "locator_masked": {
+      "type": "boolean",
+      "description": "True when this candidate's value derived from sensitive content and was masked in place (the same mask glyph as other captured values); the entry is kept, never omitted. match_count and match_index were measured against the real value before masking. Absent when nothing was masked."
     },
     "modifiers": {
       "type": "object",

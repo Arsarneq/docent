@@ -58,7 +58,7 @@ describe('Schema composition: base is platform-agnostic', () => {
     }
   });
 
-  it('base does NOT define platform-specific defs (capture_mode, action oneOf, window_rect, file_dialog, frame_src)', () => {
+  it('base does NOT define platform-specific defs (capture_mode, action oneOf, window_rect, file_dialog, frame_src, locator)', () => {
     for (const platformDef of [
       'capture_mode',
       'action',
@@ -68,6 +68,7 @@ describe('Schema composition: base is platform-agnostic', () => {
       'frame_src',
       'action_navigate',
       'action_file_upload',
+      'locator',
     ]) {
       assert.strictEqual(
         base.$defs[platformDef],
@@ -98,10 +99,105 @@ describe('Schema composition: desktop-family layer carries desktop-common defs',
     assert.strictEqual(desktopFamily.actionContextProperty.name, 'window_rect');
   });
 
-  it('desktop-windows leaf is identity-only (no $defs of its own yet)', () => {
+  it('desktop-windows leaf carries identity + exactly the Windows locator defs, nothing else', () => {
+    // The leaf held no $defs until the locators[] contract (#174) landed: the
+    // locator strategy shapes are genuinely Windows-specific (UIA wording,
+    // Control-view measurement semantics), so they live in the leaf — a future
+    // desktop-linux leaf authors its own against real AT-SPI output (#84).
     const leaf = readJson('desktop-windows.delta.json');
     assert.ok(leaf.title && leaf.version && leaf.$id);
-    assert.strictEqual(leaf.$defs, undefined);
+    assert.deepStrictEqual(Object.keys(leaf.$defs), [
+      'locator',
+      'locator_automation_id',
+      'locator_role_name',
+      'locator_class_name',
+      'locator_labeled_by',
+      'locator_tree_path',
+    ]);
+  });
+});
+
+describe('Schema composition: locators[] contract (#174)', () => {
+  const strategyConsts = (layer) =>
+    layer.$defs.locator.oneOf.map((ref) => {
+      const defName = ref.$ref.replace('#/$defs/', '');
+      return layer.$defs[defName].properties.strategy.const;
+    });
+
+  it('base carries the element.locators ref and exactly the three shared trio defs', () => {
+    assert.strictEqual(base.$defs.element.properties.locators.items.$ref, '#/$defs/locator');
+    const locatorKeys = Object.keys(base.$defs).filter((k) => k.startsWith('locator'));
+    assert.deepStrictEqual(locatorKeys.sort(), [
+      'locator_masked',
+      'locator_match_count',
+      'locator_match_index',
+    ]);
+  });
+
+  it('extension leaf owns locator + exactly the 11 strategies, in contract order', () => {
+    // The oneOf declaration order IS the serialization order the schema
+    // documents as semantics-free — a reorder here is a contract change.
+    const leaf = readJson('extension.delta.json');
+    assert.deepStrictEqual(strategyConsts(leaf), [
+      'id',
+      'test_id',
+      'name',
+      'tag_name',
+      'role_name',
+      'label',
+      'text',
+      'placeholder',
+      'title',
+      'alt_text',
+      'css',
+    ]);
+  });
+
+  it('desktop-windows leaf owns locator + exactly the 5 strategies, in contract order', () => {
+    const leaf = readJson('desktop-windows.delta.json');
+    assert.deepStrictEqual(strategyConsts(leaf), [
+      'automation_id',
+      'role_name',
+      'class_name',
+      'labeled_by',
+      'tree_path',
+    ]);
+  });
+
+  it('desktop.shared (family layer) carries no locator defs', () => {
+    const locatorKeys = Object.keys(desktopFamily.$defs).filter((k) => k.startsWith('locator'));
+    assert.deepStrictEqual(locatorKeys, []);
+  });
+
+  it('composed platforms carry only their own strategy defs', () => {
+    const ext = composePlatform('extension');
+    const desk = composePlatform('desktop-windows');
+    for (const desktopOnly of [
+      'locator_automation_id',
+      'locator_tree_path',
+      'locator_labeled_by',
+    ]) {
+      assert.strictEqual(
+        ext.$defs[desktopOnly],
+        undefined,
+        `extension must not carry ${desktopOnly}`,
+      );
+    }
+    for (const extOnly of ['locator_css', 'locator_test_id', 'locator_label']) {
+      assert.strictEqual(desk.$defs[extOnly], undefined, `desktop must not carry ${extOnly}`);
+    }
+  });
+
+  it('the shared trio defs are identical in both composed platforms', () => {
+    const ext = composePlatform('extension');
+    const desk = composePlatform('desktop-windows');
+    for (const trio of ['locator_match_count', 'locator_match_index', 'locator_masked']) {
+      assert.deepStrictEqual(
+        ext.$defs[trio],
+        desk.$defs[trio],
+        `${trio} diverged across platforms`,
+      );
+    }
   });
 });
 

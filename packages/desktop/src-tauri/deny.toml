@@ -28,24 +28,28 @@ yanked = "warn"
 unmaintained = "workspace"
 # Advisories with no available non-breaking fix. Each MUST carry a one-line reason;
 # prefer fixing (e.g. `cargo update -p <crate>`) over adding an entry here.
+#
+# (RUSTSEC-2024-0429, the glib VariantStrIter unsoundness, was parked here until
+# 2026-07: cargo-deny now reports it "not detected" against this lockfile — the
+# advisory stopped matching upstream while glib is still 0.18.5 — and a dead entry
+# only produces warnings. Removed; if it ever matches again the gate errors loudly
+# and the historical rationale is in git history for re-parking.)
 ignore = [
-  # RUSTSEC-2024-0429 — glib `VariantStrIter` unsoundness (NULL-deref in next()/
-  # nth()/last()), affected glib >=0.15.0 <0.20.0, fixed in 0.20.0.
+  # RUSTSEC-2026-0194 (quadratic run time checking duplicate attributes in a start
+  # tag) and RUSTSEC-2026-0195 (unbounded namespace-declaration allocation in
+  # NsReader) — both quick-xml parser DoS issues, both fixed only in >= 0.41.0.
   #
-  # ⚠ The ORIGINAL reason this was suppressed is UNDOCUMENTED: it arrived in commit
-  # 95bacc0 ("ci: sync optimized test.yml to main") with no rationale and appears
-  # nowhere else in git history. The justification below is RECONSTRUCTED from the
-  # advisory + the current dependency graph — NOT a recovered original decision.
-  # Re-examine before relying on it.
-  #
-  # Verified context (2026-06): glib 0.18.5 is pulled ONLY transitively through the
-  # GTK stack (glib → atk → gtk → libappindicator → tray-icon → tauri) and is absent
-  # from the Windows host graph — `cargo tree -i glib@0.18.5` prints nothing without
-  # `--target all` — so it is not in the shipped Windows build. The fix (glib
-  # >= 0.20.0) requires a breaking upgrade of the gtk/atk 0.18 stack, gated by tauri.
-  # Unsoundness, not a remotely-exploitable vulnerability. Re-evaluate when the Linux
-  # backend lands (#84) or the GTK stack moves to glib >= 0.20.
-  "RUSTSEC-2024-0429",
+  # Verified context (2026-07): quick-xml is pulled ONLY transitively via plist
+  # (plist 1.9.0 pins quick-xml ^0.39; `cargo update -p quick-xml` tops out at
+  # 0.39.4 and `cargo update -p plist` finds nothing newer), under tauri /
+  # tauri-utils — no non-breaking fix path exists until plist releases against
+  # quick-xml >= 0.41 and tauri picks it up. The path parses Tauri's own
+  # Apple-platform property lists during config/bundling, never attacker-controlled
+  # XML in the shipped Windows binary, and both advisories are resource-exhaustion
+  # (CPU/memory) DoS, not corruption. Remove both entries when the plist/tauri
+  # chain resolves quick-xml >= 0.41.
+  "RUSTSEC-2026-0194",
+  "RUSTSEC-2026-0195",
 ]
 
 [licenses]
