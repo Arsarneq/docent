@@ -63,7 +63,7 @@
     "lefthook": "^2.1.9",
     "license-checker-rseidelsohn": "4.4.2",
     "markdownlint-cli2": "^0.22.1",
-    "prettier": "^3.8.4",
+    "prettier": "^3.9.4",
     "stylelint": "^17.13.0",
     "stylelint-config-standard": "^40.0.0"
   }
