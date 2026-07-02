@@ -41,3 +41,4 @@ The dispatch payload has four top-level fields:
 - `capture_mode` indicates how each action was captured: `"dom"` for browser, `"accessibility"` for native UI elements, or `"coordinate"` for fallback coordinate-based capture.
 - Context lifecycle actions (`context_switch`, `context_open`, `context_close`) use a `source` field containing the page URL (browser) or executable path (desktop).
 - Each step has a `deleted` boolean and a `uuid` for version ordering. Multiple steps can share a `logical_id` — these are versions of the same step.
+- An element may include `locators` — observed ways the element could be addressed at capture time. Each entry carries its own match statistics (`match_count` / `match_index`, measured at capture time); the list order carries no ranking. Entries flagged `masked: true` had sensitive values masked in place.

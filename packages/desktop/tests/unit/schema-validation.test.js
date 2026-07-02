@@ -261,6 +261,73 @@ describe('Schema validation: desktop export', () => {
 
 // ─── Negative Tests ───────────────────────────────────────────────────────────
 
+// ─── locators[] (#174) ────────────────────────────────────────────────────────
+
+function exportWithLocators(locators) {
+  return buildDesktopExport([
+    {
+      type: 'click',
+      timestamp: Date.now(),
+      capture_mode: 'accessibility',
+      context_id: 65538,
+      element: {
+        tag: 'Button',
+        id: null,
+        name: 'Delete',
+        role: 'button',
+        type: null,
+        text: 'Delete',
+        selector: 'Window:Contacts > Button:Delete',
+        locators,
+      },
+      x: 150,
+      y: 300,
+      window_rect: { x: 0, y: 0, width: 1920, height: 1080 },
+    },
+  ]);
+}
+
+describe('Schema validation: desktop locators[]', () => {
+  it('accepts an element carrying every desktop strategy shape', () => {
+    const data = exportWithLocators([
+      { strategy: 'automation_id', value: 'btnDelete', match_count: 1, match_index: 0 },
+      { strategy: 'role_name', role: 'Button', name: 'Delete', match_count: 5, match_index: 2 },
+      { strategy: 'class_name', value: '••••••••', masked: true, match_count: 14, match_index: 4 },
+      { strategy: 'labeled_by', value: 'Amount' },
+      {
+        strategy: 'tree_path',
+        value: 'Window:Contacts > Button:Delete',
+        match_count: 1,
+        match_index: null,
+      },
+    ]);
+    assert.ok(validateDesktop(data), `Failed:\n${formatErrors(validateDesktop)}`);
+  });
+
+  it('accepts an empty locators array and an element without locators', () => {
+    assert.ok(validateDesktop(exportWithLocators([])), `Failed:\n${formatErrors(validateDesktop)}`);
+    const data = exportWithLocators([]);
+    delete data.recordings[0].steps[0].actions[0].element.locators;
+    assert.ok(validateDesktop(data), `Failed:\n${formatErrors(validateDesktop)}`);
+  });
+
+  const rejects = [
+    ['an extension-only strategy (css)', { strategy: 'css', value: '#btn' }],
+    [
+      'an extension-only strategy (test_id)',
+      { strategy: 'test_id', attribute: 'data-testid', value: 'x' },
+    ],
+    ['match_count of 0', { strategy: 'automation_id', value: 'x', match_count: 0, match_index: 0 }],
+    ['an extra property on an entry', { strategy: 'automation_id', value: 'x', ranked: 1 }],
+    ['role_name missing its name', { strategy: 'role_name', role: 'Button' }],
+  ];
+  for (const [what, entry] of rejects) {
+    it(`rejects ${what}`, () => {
+      assert.ok(!validateDesktop(exportWithLocators([entry])), `Schema should reject ${what}`);
+    });
+  }
+});
+
 describe('Schema validation: desktop negative tests', () => {
   it('rejects extension-only navigate action', () => {
     const data = buildDesktopExport([
@@ -326,15 +393,48 @@ describe('Schema validation: desktop negative tests', () => {
 // ─── Property-Based Tests ─────────────────────────────────────────────────────
 
 describe('Schema validation: desktop property-based (random valid payloads)', () => {
-  const desktopElement = fc.record({
-    tag: fc.constantFrom('Button', 'Edit', 'ComboBox', 'ListItem', 'TreeItem', 'MenuItem'),
-    id: fc.option(fc.string({ minLength: 1 }), { nil: null }),
-    name: fc.option(fc.string({ minLength: 1 }), { nil: null }),
-    role: fc.option(fc.constantFrom('button', 'textbox', 'listitem', 'menuitem'), { nil: null }),
-    type: fc.constant(null),
-    text: fc.option(fc.string({ minLength: 1 }), { nil: null }),
-    selector: fc.string({ minLength: 1 }),
-  });
+  // Locator entries: pair generated respecting the documented invariant
+  // (match_index < match_count, or null) — executable documentation of #174.
+  const matchPairArb = fc.oneof(
+    fc.constant({}),
+    fc.integer({ min: 1, max: 50 }).chain((count) =>
+      fc.record({
+        match_count: fc.constant(count),
+        match_index: fc.oneof(fc.constant(null), fc.integer({ min: 0, max: count - 1 })),
+      }),
+    ),
+  );
+  const desktopLocatorArb = fc
+    .oneof(
+      fc.record({ strategy: fc.constant('automation_id'), value: fc.string({ minLength: 1 }) }),
+      fc.record({
+        strategy: fc.constant('role_name'),
+        role: fc.constantFrom('Button', 'Edit', 'ListItem'),
+        name: fc.string({ minLength: 1 }),
+      }),
+      fc.record({
+        strategy: fc.constant('class_name'),
+        value: fc.string({ minLength: 1 }),
+        masked: fc.boolean(),
+      }),
+      fc.record({ strategy: fc.constant('labeled_by'), value: fc.string({ minLength: 1 }) }),
+      fc.record({ strategy: fc.constant('tree_path'), value: fc.string({ minLength: 1 }) }),
+    )
+    .chain((entry) => matchPairArb.map((pair) => ({ ...entry, ...pair })));
+
+  const desktopElement = fc.record(
+    {
+      tag: fc.constantFrom('Button', 'Edit', 'ComboBox', 'ListItem', 'TreeItem', 'MenuItem'),
+      id: fc.option(fc.string({ minLength: 1 }), { nil: null }),
+      name: fc.option(fc.string({ minLength: 1 }), { nil: null }),
+      role: fc.option(fc.constantFrom('button', 'textbox', 'listitem', 'menuitem'), { nil: null }),
+      type: fc.constant(null),
+      text: fc.option(fc.string({ minLength: 1 }), { nil: null }),
+      selector: fc.string({ minLength: 1 }),
+      locators: fc.array(desktopLocatorArb, { maxLength: 4 }),
+    },
+    { requiredKeys: ['tag', 'id', 'name', 'role', 'type', 'text', 'selector'] },
+  );
 
   const desktopWindowRect = fc.oneof(
     fc.constant(null),
