@@ -57,14 +57,14 @@
     "ajv-formats": "^3.0.1",
     "c8": "^11.0.0",
     "esbuild": "^0.28.1",
-    "eslint": "^10.5.0",
+    "eslint": "^10.6.0",
     "eslint-config-prettier": "^10.1.8",
     "fast-check": "^4.8.0",
     "lefthook": "^2.1.9",
-    "license-checker-rseidelsohn": "4.4.2",
+    "license-checker-rseidelsohn": "5.0.1",
     "markdownlint-cli2": "^0.22.1",
-    "prettier": "^3.8.4",
-    "stylelint": "^17.13.0",
+    "prettier": "^3.9.4",
+    "stylelint": "^17.14.0",
     "stylelint-config-standard": "^40.0.0"
   }
 }
