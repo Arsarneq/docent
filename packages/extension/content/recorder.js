@@ -108,7 +108,6 @@
 
   // -- BEGIN MIRRORED CAPTURE LOGIC (two-copy: recorder.js <-> recorder-logic.js; parity-tested) --
 
-
   /**
    * Test-hook attributes recognised for the `test_id` locator strategy, in
    * precedence order — the first attribute present on the element wins and is
@@ -480,7 +479,6 @@
       ...(locators.length > 0 && { locators }),
     };
   }
-
 
   // -- END MIRRORED CAPTURE LOGIC --
 
