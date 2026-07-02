@@ -241,6 +241,11 @@ let swWriteQueue = Promise.resolve();
 // the rest with the SHARED field-sensitivity util, before anything is persisted:
 //   - a sensitive non-password field (cc/ssn/secret/payment-autocomplete) has its
 //     value masked and its element text nulled + flagged `redacted`;
+//   - its value-derived locator entries (`text` strategy) have their value masked
+//     IN PLACE with `masked: true` — the entry is kept, never omitted, and its
+//     match statistics (measured pre-masking at capture) stay untouched.
+//     Identity-derived entries (id/test_id/name/…) are markup, not user data,
+//     and are never masked;
 //   - a `navigate` URL has its sensitive query-param values stripped.
 // Applied at EVERY pendingActions write (here + the inline navigate writes), so
 // no captured value reaches storage unredacted. Mutates the soon-to-be-stored
@@ -252,6 +257,14 @@ function redactSensitive(action) {
     if (typeof action.value === 'string') action.value = SENSITIVE_MASK;
     el.text = null;
     el.redacted = true;
+    if (Array.isArray(el.locators)) {
+      for (const loc of el.locators) {
+        if (loc && loc.strategy === 'text' && typeof loc.value === 'string') {
+          loc.value = SENSITIVE_MASK;
+          loc.masked = true;
+        }
+      }
+    }
   }
   if (action.type === 'navigate' && typeof action.url === 'string') {
     action.url = redactUrl(action.url);

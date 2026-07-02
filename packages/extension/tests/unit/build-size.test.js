@@ -51,6 +51,12 @@
  *     per-strategy entry schemas added to the extension schema grow the generated
  *     Ajv validator (the largest single file) by a few KB — 602KB actual at the
  *     time of the change. Deliberate schema-contract artifact, no new dependency.
+ *   - Raised to 645KB for locators[] EMISSION (docent#132/#172): the measured
+ *     locator-candidate builder + uniqueness-aware selector derivation live twice
+ *     by necessity (content scripts cannot import modules — the parity-tested
+ *     mirrored block in content/recorder.js and content/recorder-logic.js),
+ *     ~11KB each including the contract-bearing doc comments — 625.5KB actual.
+ *     Deliberate capture-feature artifact, no new dependency.
  *
  * Requires `npm run sync-shared` to have been run first.
  */
@@ -95,12 +101,12 @@ function formatSize(bytes) {
 const extensionExcludes = ['node_modules', 'tests', '.git', 'coverage'];
 
 describe('Build size: Extension', () => {
-  it('total JS size is under 620KB (uncompressed)', () => {
+  it('total JS size is under 645KB (uncompressed)', () => {
     const size = getDirSize(extensionDir, ['.js'], extensionExcludes);
     assert.ok(size > 0, 'No JS files found — has sync-shared been run?');
     assert.ok(
-      size < 620 * 1024,
-      `Extension JS is ${formatSize(size)} (soft limit: 620KB). This is a regression tripwire, not a platform limit — if the growth is an intentional artifact, raise the limit AND its rationale in this file's header; otherwise check for an accidental large dependency.`,
+      size < 645 * 1024,
+      `Extension JS is ${formatSize(size)} (soft limit: 645KB). This is a regression tripwire, not a platform limit — if the growth is an intentional artifact, raise the limit AND its rationale in this file's header; otherwise check for an accidental large dependency.`,
     );
   });
 

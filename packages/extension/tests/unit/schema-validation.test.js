@@ -14,6 +14,7 @@ import addFormats from 'ajv-formats';
 import fc from 'fast-check';
 import { composePlatform } from '../../../../scripts/build-schemas.js';
 import { stampFromSchema } from '../../shared/lib/format-stamp.js';
+import { describeElement } from '../../content/recorder-logic.js';
 import {
   createProject,
   createRecording,
@@ -301,6 +302,48 @@ describe('Schema validation: extension locators[]', () => {
 
   it('accepts an empty locators array', () => {
     const valid = validateExtension(exportWithLocators([]));
+    assert.ok(valid, `Extension schema validation failed:\n${formatErrors(validateExtension)}`);
+  });
+
+  it('closed loop: the real describeElement output validates against the schema', () => {
+    // Ties actual capture emission to the contract: what the recorder logic
+    // produces for a measurable element must be schema-valid as captured.
+    const el = {
+      tagName: 'BUTTON',
+      id: 'save',
+      type: null,
+      innerText: '  Save   report ',
+      parentElement: null,
+      children: [],
+      getAttribute: (attr) => ({ 'data-testid': 'save-tid', name: 'save' })[attr] ?? null,
+    };
+    const doc = {
+      body: null,
+      querySelectorAll: (sel) =>
+        ({
+          '#save': [el],
+          '[id="save"]': [el],
+          '[data-testid="save-tid"]': [el],
+          '[name="save"]': [el],
+          button: [el],
+        })[sel] ?? [],
+    };
+    el.ownerDocument = doc;
+
+    const element = describeElement(el);
+    assert.ok(Array.isArray(element.locators) && element.locators.length >= 5);
+    const data = buildExtensionExport([
+      {
+        type: 'click',
+        timestamp: Date.now(),
+        capture_mode: 'dom',
+        context_id: 1,
+        element,
+        x: 10,
+        y: 20,
+      },
+    ]);
+    const valid = validateExtension(data);
     assert.ok(valid, `Extension schema validation failed:\n${formatErrors(validateExtension)}`);
   });
 

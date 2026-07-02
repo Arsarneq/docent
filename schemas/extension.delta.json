@@ -154,7 +154,7 @@
           "description": "Locator strategy identifier — selects which entry shape applies."
         }
       },
-      "description": "A locator candidate for the acted-on element. Match statistics (match_count / match_index) are measured against the capturing frame's document root (the same boundary selector derivation stops at), in document order, using standard non-piercing matching (shadow roots are not descended into), synchronously in the capture handler before the action's effects run.",
+      "description": "A locator candidate for the acted-on element. Match statistics (match_count / match_index) are measured against the capturing frame's document root (the same boundary selector derivation stops at), in document order, using standard non-piercing matching (shadow roots are not descended into), synchronously at the moment the acted-on element is described for capture: for immediately-captured actions that is inside the capture handler, before the action's effects run; for deliberately debounced or deferred captures (Tab-correlated focus, scroll settle, contenteditable typing pauses) it is when the capture commits, against the then-current document.",
       "oneOf": [
         {
           "$ref": "#/$defs/locator_id"
@@ -343,7 +343,7 @@
         },
         "value": {
           "type": "string",
-          "description": "The element's visible text, whitespace-normalized (leading/trailing whitespace removed, internal runs collapsed to single spaces) and truncated to 100 characters."
+          "description": "The element's rendered (visible) text, whitespace-normalized (leading/trailing whitespace removed, internal runs collapsed to single spaces). The candidate is omitted when the element has no rendered text (a form control's value is not rendered text) or when the normalized text exceeds 100 characters — a truncated value would not be an exact observed value. Match statistics count the same-tag-name elements in the stated scope whose rendered text, under this same normalization, equals this value; the pair is absent when that set was too large to measure cheaply."
         },
         "match_count": {
           "$ref": "#/$defs/locator_match_count"
