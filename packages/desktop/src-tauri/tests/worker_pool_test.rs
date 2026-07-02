@@ -567,9 +567,12 @@ impl AccessibilityBackend for MockBackend {
     }
 
     fn window_rect(&self, _window_handle: i64) -> Option<docent_desktop_lib::capture::WindowRect> {
+        // Deliberately NOT at the origin: at (0,0) screen coordinates and
+        // window-relative coordinates coincide, so any coordinate-space bug is
+        // invisible to every assertion written against this mock (issue #141).
         Some(docent_desktop_lib::capture::WindowRect {
-            x: 0,
-            y: 0,
+            x: 100,
+            y: 50,
             width: 1920,
             height: 1080,
         })
@@ -1213,9 +1216,11 @@ impl AccessibilityBackend for PoisonEventBackend {
         window_handle
     }
     fn window_rect(&self, _window_handle: i64) -> Option<docent_desktop_lib::capture::WindowRect> {
+        // Non-origin for the same reason as MockBackend's rect: at (0,0) a
+        // coordinate-space mix-up is invisible to assertions.
         Some(docent_desktop_lib::capture::WindowRect {
-            x: 0,
-            y: 0,
+            x: 100,
+            y: 50,
             width: 1920,
             height: 1080,
         })
@@ -1305,6 +1310,111 @@ fn poison_event_does_not_kill_worker() {
 
     assert_eq!(click_events[0].sequence_id, Some(1));
     assert_eq!(click_events[1].sequence_id, Some(3));
+}
+
+// ---------------------------------------------------------------------------
+// Coordinate-space truth-lock (issue #141)
+// ---------------------------------------------------------------------------
+
+/// A backend that cannot resolve any element, forcing the coordinate-fallback
+/// path, with its window deliberately NOT at the screen origin.
+struct NoElementBackend;
+
+impl AccessibilityBackend for NoElementBackend {
+    fn init(&mut self) -> Result<(), CaptureError> {
+        Ok(())
+    }
+    fn cleanup(&mut self) {}
+    fn element_at_point(&self, _x: i32, _y: i32) -> Option<ElementDescription> {
+        None
+    }
+    fn focused_element(&self) -> Option<ElementDescription> {
+        None
+    }
+    fn window_title(&self, _window_handle: i64) -> String {
+        "Plain Window".to_string()
+    }
+    fn process_name(&self, _window_handle: i64) -> String {
+        "test.exe".to_string()
+    }
+    fn read_file_dialog_path(&self, _window_handle: i64) -> Option<(String, String)> {
+        None
+    }
+    fn root_window_handle(&self, window_handle: i64) -> i64 {
+        window_handle
+    }
+    fn window_rect(&self, _window_handle: i64) -> Option<docent_desktop_lib::capture::WindowRect> {
+        Some(docent_desktop_lib::capture::WindowRect {
+            x: 100,
+            y: 50,
+            width: 1920,
+            height: 1080,
+        })
+    }
+    fn selected_item_name(&self, _window_handle: i64) -> Option<(ElementDescription, String)> {
+        None
+    }
+}
+
+/// Truth-lock for the format's CURRENT coordinate semantics (issue #141):
+/// with the window at a non-origin position, a coordinate-fallback click emits
+/// the raw SCREEN point — identically in the action's `x`/`y` and in the
+/// `coord:` selector — and never a window-relative one. If window-relative
+/// values ever ship, they must arrive as new named fields; this test failing
+/// on `x`/`y` or `coord:` means emitted meaning changed in place, which the
+/// version classifier cannot see (`scripts/bump-schema.js` exists for that).
+#[test]
+fn coordinate_fallback_emits_screen_space_verbatim_for_non_origin_window() {
+    use docent_desktop_lib::capture::CaptureMode;
+
+    let harness = WorkerTestHarness::new(NoElementBackend);
+    harness.send_event(RawEvent {
+        event_type: RawEventType::Click,
+        sequence_id: 1,
+        timestamp: 1000,
+        screen_x: 412,
+        screen_y: 633,
+        window_handle: 1,
+        process_id: 1,
+        key_code: 0,
+        modifiers: (false, false, false, false),
+        scroll_delta: 0.0,
+        callback_params: [0; 4],
+        pre_captured_element: None,
+    });
+
+    thread::sleep(Duration::from_millis(100));
+    let events = harness.shutdown();
+
+    let click = events
+        .iter()
+        .find(|e| matches!(e.payload, ActionPayload::Click { .. }))
+        .expect("expected a Click event from the coordinate-fallback path");
+
+    assert_eq!(click.capture_mode, CaptureMode::Coordinate);
+    assert_eq!(
+        click.window_rect,
+        Some(docent_desktop_lib::capture::WindowRect {
+            x: 100,
+            y: 50,
+            width: 1920,
+            height: 1080,
+        }),
+        "window_rect is carried verbatim (physical pixels)"
+    );
+
+    if let ActionPayload::Click { x, y, ref element } = click.payload {
+        // Screen space, verbatim: NOT (412-100, 633-50) = (312, 583).
+        assert_eq!((x, y), (412.0, 633.0), "action x/y are raw screen values");
+        assert_eq!(
+            element.selector, "coord:412,633",
+            "the coord: selector encodes the same raw screen point"
+        );
+        assert_eq!(element.tag, "unknown");
+        assert_eq!(element.name.as_deref(), Some("Plain Window"));
+    } else {
+        unreachable!("filtered to Click above");
+    }
 }
 
 // ---------------------------------------------------------------------------

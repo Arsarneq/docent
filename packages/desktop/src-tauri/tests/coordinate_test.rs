@@ -1,13 +1,22 @@
-// Coordinate fallback correctness
+// Coordinate helper correctness — PURE-HELPER property tests.
 //
+// SCOPE (be precise about what this suite proves): these tests exercise the
+// coordinate module's pure functions (`relative_coordinates`,
+// `fallback_element`, `create_window_rect`) **in isolation**, feeding each
+// helper's output into the next. The production wiring is deliberately NOT in
+// the loop here — and in the live pipeline `relative_coordinates` currently
+// has no callers at all: emitted actions and `coord:` selectors carry raw
+// SCREEN coordinates, not window-relative ones (issue #141 tracks wiring
+// window-relative capture under new named fields). The pipeline-level truth is
+// locked by worker_pool_test.rs, which uses a non-origin mock window rect so
+// screen and window-relative values can never be confused.
 //
-// For any action captured in coordinate fallback mode, given an absolute
-// click position (abs_x, abs_y) and a window at position (win_x, win_y)
-// with size (win_w, win_h):
-// - The recorded coordinates are (abs_x - win_x, abs_y - win_y).
-// - The `window_rect` contains { x: win_x, y: win_y, width: win_w, height: win_h }.
-// - The `element` field has tag: "unknown", name: window_title, id: null,
-//   role: null, type: null, text: null, and selector: "coord:{rx},{ry}".
+// What these properties DO prove, for same-space inputs:
+// - `relative_coordinates(abs, win)` is (abs_x - win_x, abs_y - win_y).
+// - `window_rect` round-trips { x, y, width, height } verbatim.
+// - The fallback `element` has tag: "unknown", name: window_title, id: null,
+//   role: null, type: null, text: null, and selector: "coord:{x},{y}" encoding
+//   exactly the point it was given.
 
 use docent_desktop_lib::capture::coordinate::{
     create_window_rect, fallback_element, relative_coordinates,

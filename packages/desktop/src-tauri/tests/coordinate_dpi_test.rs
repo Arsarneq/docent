@@ -1,8 +1,14 @@
-//! Integration tests for multi-monitor and DPI-aware coordinate handling.
+//! Multi-monitor and DPI coordinate math — PURE-HELPER tests.
 //!
-//! These tests verify the full pipeline from window position → click →
-//! ActionEvent with correct x/y coordinates. They exercise the coordinate
-//! module's logic in realistic scenarios:
+//! SCOPE: despite exercising realistic monitor layouts, these tests call only
+//! the coordinate module's pure helpers (`relative_coordinates`,
+//! `create_window_rect`, `determine_capture_mode`) plus a TEST-LOCAL
+//! physical↔logical conversion — no ActionEvent is ever produced and the
+//! production pipeline is not in the loop. (An earlier version of this header
+//! claimed "full pipeline" coverage; that overstated it. The pipeline emits
+//! raw screen coordinates today — physical pixels under per-monitor-v2 DPI
+//! awareness, with no logical conversion in production — see issue #141 and
+//! worker_pool_test.rs for the pipeline-level truth-lock.) Scenarios covered:
 //!
 //! - Primary monitor at standard DPI (100%)
 //! - Negative screen coordinates (secondary monitor to the left)

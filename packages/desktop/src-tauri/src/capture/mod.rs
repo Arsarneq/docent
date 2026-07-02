@@ -101,7 +101,11 @@ pub enum CaptureMode {
 // Window rectangle
 // ---------------------------------------------------------------------------
 
-/// Window position and size at capture time (logical pixels, DPI-scaled).
+/// Window position and size at capture time, in **physical pixels** — the
+/// values come from `GetWindowRect` under per-monitor-v2 DPI awareness, the
+/// same space as the input hook's screen coordinates. (Earlier docs claimed
+/// logical pixels; issue #141 tracks stating space + unit on every
+/// coordinate-bearing field.)
 #[derive(Debug, Serialize, Clone, PartialEq, Eq)]
 pub struct WindowRect {
     pub x: i32,

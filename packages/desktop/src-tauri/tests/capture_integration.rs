@@ -24,6 +24,19 @@ use serial_test::serial;
 #[cfg(target_os = "windows")]
 use docent_desktop_lib::capture::windows::WindowsCapture;
 
+/// STATIC's default window procedure answers `WM_NCHITTEST` with
+/// `HTTRANSPARENT`, making a bare STATIC test window **click-through**:
+/// synthetic input aimed at it lands in whatever the user has underneath
+/// (their editor, their terminal), while the test stays green on clicks it
+/// never owned. Every STATIC test window therefore carries `SS_NOTIFY`
+/// (hit-testable, `HTCLIENT`) — this constant — and `WS_EX_TOPMOST` (wins
+/// stacking despite the foreground lock). The ownership guard in
+/// `os_chrome::coordinate_fallback_for_plain_window` enforces the property at
+/// runtime and names the covering window if it ever regresses.
+#[cfg(target_os = "windows")]
+const SS_NOTIFY_STYLE: windows::Win32::UI::WindowsAndMessaging::WINDOW_STYLE =
+    windows::Win32::UI::WindowsAndMessaging::WINDOW_STYLE(0x0000_0100);
+
 /// A target window hosted on its **own dedicated thread that runs a real,
 /// continuous `GetMessage` pump** — i.e. a *responsive* application.
 ///
@@ -58,7 +71,7 @@ impl ResponsiveWindow {
         use windows::Win32::System::Threading::GetCurrentThreadId;
         use windows::Win32::UI::WindowsAndMessaging::{
             CreateWindowExW, DestroyWindow, DispatchMessageW, GetMessageW, SetForegroundWindow,
-            TranslateMessage, MSG, WINDOW_EX_STYLE, WS_OVERLAPPEDWINDOW, WS_VISIBLE,
+            TranslateMessage, MSG, WS_OVERLAPPEDWINDOW, WS_VISIBLE,
         };
 
         let title = title.to_string();
@@ -66,10 +79,10 @@ impl ResponsiveWindow {
         let handle = thread::spawn(move || unsafe {
             let title_wide: Vec<u16> = title.encode_utf16().chain(std::iter::once(0)).collect();
             let hwnd = CreateWindowExW(
-                WINDOW_EX_STYLE::default(),
+                windows::Win32::UI::WindowsAndMessaging::WS_EX_TOPMOST,
                 windows::core::w!("STATIC"),
                 windows::core::PCWSTR(title_wide.as_ptr()),
-                WS_OVERLAPPEDWINDOW | WS_VISIBLE,
+                WS_OVERLAPPEDWINDOW | WS_VISIBLE | SS_NOTIFY_STYLE,
                 200,
                 200,
                 600,
@@ -267,17 +280,17 @@ mod user_actions {
     use windows::Win32::Foundation::HWND;
     use windows::Win32::Foundation::RECT;
     use windows::Win32::UI::WindowsAndMessaging::{
-        CreateWindowExW, DestroyWindow, GetWindowRect, SetForegroundWindow, WINDOW_EX_STYLE,
-        WS_OVERLAPPEDWINDOW, WS_VISIBLE,
+        CreateWindowExW, DestroyWindow, GetWindowRect, SetForegroundWindow, WS_OVERLAPPEDWINDOW,
+        WS_VISIBLE,
     };
 
     /// Create a test window and return its handle + center coordinates.
     unsafe fn create_target_window() -> (HWND, i32, i32) {
         let hwnd = CreateWindowExW(
-            WINDOW_EX_STYLE::default(),
+            windows::Win32::UI::WindowsAndMessaging::WS_EX_TOPMOST,
             w!("STATIC"),
             w!("Docent Test Target"),
-            WS_OVERLAPPEDWINDOW | WS_VISIBLE,
+            WS_OVERLAPPEDWINDOW | WS_VISIBLE | SS_NOTIFY_STYLE,
             200,
             200,
             600,
@@ -1002,17 +1015,17 @@ mod user_actions_advanced {
     use windows::Win32::Foundation::HWND;
     use windows::Win32::Foundation::RECT;
     use windows::Win32::UI::WindowsAndMessaging::{
-        CreateWindowExW, DestroyWindow, GetWindowRect, SetForegroundWindow, WINDOW_EX_STYLE,
-        WS_OVERLAPPEDWINDOW, WS_VISIBLE,
+        CreateWindowExW, DestroyWindow, GetWindowRect, SetForegroundWindow, WS_OVERLAPPEDWINDOW,
+        WS_VISIBLE,
     };
 
     unsafe fn create_target_window(title: &str, x: i32, y: i32) -> (HWND, i32, i32) {
         let title_wide: Vec<u16> = title.encode_utf16().chain(std::iter::once(0)).collect();
         let hwnd = CreateWindowExW(
-            WINDOW_EX_STYLE::default(),
+            windows::Win32::UI::WindowsAndMessaging::WS_EX_TOPMOST,
             w!("STATIC"),
             windows::core::PCWSTR(title_wide.as_ptr()),
-            WS_OVERLAPPEDWINDOW | WS_VISIBLE,
+            WS_OVERLAPPEDWINDOW | WS_VISIBLE | SS_NOTIFY_STYLE,
             x,
             y,
             400,
@@ -1173,16 +1186,16 @@ mod side_effects_more {
     use windows::Win32::UI::WindowsAndMessaging::WS_EX_TOPMOST;
     use windows::Win32::UI::WindowsAndMessaging::{
         CreateWindowExW, DestroyWindow, SetWindowTextW, ShowWindow, SW_HIDE, SW_SHOW,
-        WINDOW_EX_STYLE, WS_OVERLAPPEDWINDOW, WS_POPUP, WS_VISIBLE,
+        WS_OVERLAPPEDWINDOW, WS_POPUP, WS_VISIBLE,
     };
 
     unsafe fn create_test_window(title: &str) -> HWND {
         let title_wide: Vec<u16> = title.encode_utf16().chain(std::iter::once(0)).collect();
         CreateWindowExW(
-            WINDOW_EX_STYLE::default(),
+            windows::Win32::UI::WindowsAndMessaging::WS_EX_TOPMOST,
             w!("STATIC"),
             windows::core::PCWSTR(title_wide.as_ptr()),
-            WS_OVERLAPPEDWINDOW | WS_VISIBLE,
+            WS_OVERLAPPEDWINDOW | WS_VISIBLE | SS_NOTIFY_STYLE,
             100,
             100,
             400,
@@ -1364,10 +1377,10 @@ mod capture_behaviour {
     unsafe fn create_target_window(title: &str) -> (HWND, i32, i32) {
         let title_wide: Vec<u16> = title.encode_utf16().chain(std::iter::once(0)).collect();
         let hwnd = CreateWindowExW(
-            WINDOW_EX_STYLE::default(),
+            windows::Win32::UI::WindowsAndMessaging::WS_EX_TOPMOST,
             w!("STATIC"),
             windows::core::PCWSTR(title_wide.as_ptr()),
-            WS_OVERLAPPEDWINDOW | WS_VISIBLE,
+            WS_OVERLAPPEDWINDOW | WS_VISIBLE | SS_NOTIFY_STYLE,
             200,
             200,
             600,
@@ -1667,17 +1680,17 @@ mod user_actions_extended {
     use windows::core::w;
     use windows::Win32::Foundation::{HWND, RECT};
     use windows::Win32::UI::WindowsAndMessaging::{
-        CreateWindowExW, DestroyWindow, GetWindowRect, SetForegroundWindow, WINDOW_EX_STYLE,
-        WS_OVERLAPPEDWINDOW, WS_VISIBLE,
+        CreateWindowExW, DestroyWindow, GetWindowRect, SetForegroundWindow, WS_OVERLAPPEDWINDOW,
+        WS_VISIBLE,
     };
 
     unsafe fn create_target_window(title: &str) -> (HWND, i32, i32) {
         let title_wide: Vec<u16> = title.encode_utf16().chain(std::iter::once(0)).collect();
         let hwnd = CreateWindowExW(
-            WINDOW_EX_STYLE::default(),
+            windows::Win32::UI::WindowsAndMessaging::WS_EX_TOPMOST,
             w!("STATIC"),
             windows::core::PCWSTR(title_wide.as_ptr()),
-            WS_OVERLAPPEDWINDOW | WS_VISIBLE,
+            WS_OVERLAPPEDWINDOW | WS_VISIBLE | SS_NOTIFY_STYLE,
             200,
             200,
             600,
@@ -1939,16 +1952,16 @@ mod scroll_behaviour {
     use windows::core::w;
     use windows::Win32::Foundation::{HWND, RECT};
     use windows::Win32::UI::WindowsAndMessaging::{
-        CreateWindowExW, DestroyWindow, GetWindowRect, SetForegroundWindow, WINDOW_EX_STYLE,
-        WS_OVERLAPPEDWINDOW, WS_VISIBLE,
+        CreateWindowExW, DestroyWindow, GetWindowRect, SetForegroundWindow, WS_OVERLAPPEDWINDOW,
+        WS_VISIBLE,
     };
 
     unsafe fn create_target_window() -> (HWND, i32, i32) {
         let hwnd = CreateWindowExW(
-            WINDOW_EX_STYLE::default(),
+            windows::Win32::UI::WindowsAndMessaging::WS_EX_TOPMOST,
             w!("STATIC"),
             w!("Scroll Test"),
-            WS_OVERLAPPEDWINDOW | WS_VISIBLE,
+            WS_OVERLAPPEDWINDOW | WS_VISIBLE | SS_NOTIFY_STYLE,
             200,
             200,
             600,
@@ -2054,17 +2067,17 @@ mod user_actions_missing {
     use windows::core::w;
     use windows::Win32::Foundation::{HWND, RECT};
     use windows::Win32::UI::WindowsAndMessaging::{
-        CreateWindowExW, DestroyWindow, GetWindowRect, SetForegroundWindow, WINDOW_EX_STYLE,
-        WS_OVERLAPPEDWINDOW, WS_VISIBLE,
+        CreateWindowExW, DestroyWindow, GetWindowRect, SetForegroundWindow, WS_OVERLAPPEDWINDOW,
+        WS_VISIBLE,
     };
 
     unsafe fn create_target_window(title: &str) -> (HWND, i32, i32) {
         let title_wide: Vec<u16> = title.encode_utf16().chain(std::iter::once(0)).collect();
         let hwnd = CreateWindowExW(
-            WINDOW_EX_STYLE::default(),
+            windows::Win32::UI::WindowsAndMessaging::WS_EX_TOPMOST,
             w!("STATIC"),
             windows::core::PCWSTR(title_wide.as_ptr()),
-            WS_OVERLAPPEDWINDOW | WS_VISIBLE,
+            WS_OVERLAPPEDWINDOW | WS_VISIBLE | SS_NOTIFY_STYLE,
             200,
             200,
             600,
@@ -2131,16 +2144,16 @@ mod side_effects_missing {
     use windows::Win32::Foundation::HWND;
     use windows::Win32::UI::WindowsAndMessaging::ScrollWindow;
     use windows::Win32::UI::WindowsAndMessaging::{
-        CreateWindowExW, DestroyWindow, WINDOW_EX_STYLE, WS_OVERLAPPEDWINDOW, WS_VISIBLE,
+        CreateWindowExW, DestroyWindow, WS_OVERLAPPEDWINDOW, WS_VISIBLE,
     };
 
     unsafe fn create_test_window(title: &str) -> HWND {
         let title_wide: Vec<u16> = title.encode_utf16().chain(std::iter::once(0)).collect();
         CreateWindowExW(
-            WINDOW_EX_STYLE::default(),
+            windows::Win32::UI::WindowsAndMessaging::WS_EX_TOPMOST,
             w!("STATIC"),
             windows::core::PCWSTR(title_wide.as_ptr()),
-            WS_OVERLAPPEDWINDOW | WS_VISIBLE,
+            WS_OVERLAPPEDWINDOW | WS_VISIBLE | SS_NOTIFY_STYLE,
             100,
             100,
             400,
@@ -2201,17 +2214,17 @@ mod capture_behaviour_missing {
     use windows::core::w;
     use windows::Win32::Foundation::{HWND, RECT};
     use windows::Win32::UI::WindowsAndMessaging::{
-        CreateWindowExW, DestroyWindow, GetWindowRect, SetForegroundWindow, WINDOW_EX_STYLE,
-        WS_OVERLAPPEDWINDOW, WS_VISIBLE,
+        CreateWindowExW, DestroyWindow, GetWindowRect, SetForegroundWindow, WS_OVERLAPPEDWINDOW,
+        WS_VISIBLE,
     };
 
     unsafe fn create_target_window(title: &str) -> (HWND, i32, i32) {
         let title_wide: Vec<u16> = title.encode_utf16().chain(std::iter::once(0)).collect();
         let hwnd = CreateWindowExW(
-            WINDOW_EX_STYLE::default(),
+            windows::Win32::UI::WindowsAndMessaging::WS_EX_TOPMOST,
             w!("STATIC"),
             windows::core::PCWSTR(title_wide.as_ptr()),
-            WS_OVERLAPPEDWINDOW | WS_VISIBLE,
+            WS_OVERLAPPEDWINDOW | WS_VISIBLE | SS_NOTIFY_STYLE,
             200,
             200,
             600,
@@ -2347,10 +2360,10 @@ mod completeness {
     unsafe fn create_target_window(title: &str) -> (HWND, i32, i32) {
         let title_wide: Vec<u16> = title.encode_utf16().chain(std::iter::once(0)).collect();
         let hwnd = CreateWindowExW(
-            WINDOW_EX_STYLE::default(),
+            windows::Win32::UI::WindowsAndMessaging::WS_EX_TOPMOST,
             w!("STATIC"),
             windows::core::PCWSTR(title_wide.as_ptr()),
-            WS_OVERLAPPEDWINDOW | WS_VISIBLE,
+            WS_OVERLAPPEDWINDOW | WS_VISIBLE | SS_NOTIFY_STYLE,
             200,
             200,
             600,
@@ -2707,10 +2720,10 @@ mod selection {
         // Create parent window.
         let parent = unsafe {
             CreateWindowExW(
-                WINDOW_EX_STYLE::default(),
+                windows::Win32::UI::WindowsAndMessaging::WS_EX_TOPMOST,
                 w!("STATIC"),
                 w!("Selection Test"),
-                WS_OVERLAPPEDWINDOW | WS_VISIBLE,
+                WS_OVERLAPPEDWINDOW | WS_VISIBLE | SS_NOTIFY_STYLE,
                 200,
                 200,
                 400,
@@ -2806,17 +2819,17 @@ mod deduplication {
     use windows::core::w;
     use windows::Win32::Foundation::{HWND, RECT};
     use windows::Win32::UI::WindowsAndMessaging::{
-        CreateWindowExW, DestroyWindow, GetWindowRect, SetForegroundWindow, WINDOW_EX_STYLE,
-        WS_OVERLAPPEDWINDOW, WS_VISIBLE,
+        CreateWindowExW, DestroyWindow, GetWindowRect, SetForegroundWindow, WS_OVERLAPPEDWINDOW,
+        WS_VISIBLE,
     };
 
     unsafe fn create_target_window(title: &str) -> (HWND, i32, i32) {
         let title_wide: Vec<u16> = title.encode_utf16().chain(std::iter::once(0)).collect();
         let hwnd = CreateWindowExW(
-            WINDOW_EX_STYLE::default(),
+            windows::Win32::UI::WindowsAndMessaging::WS_EX_TOPMOST,
             w!("STATIC"),
             windows::core::PCWSTR(title_wide.as_ptr()),
-            WS_OVERLAPPEDWINDOW | WS_VISIBLE,
+            WS_OVERLAPPEDWINDOW | WS_VISIBLE | SS_NOTIFY_STYLE,
             200,
             200,
             600,
@@ -2969,10 +2982,10 @@ mod deduplication {
         // the creation, so it won't be captured as context_open.
         let hwnd = unsafe {
             CreateWindowExW(
-                WINDOW_EX_STYLE::default(),
+                windows::Win32::UI::WindowsAndMessaging::WS_EX_TOPMOST,
                 w!("STATIC"),
                 w!("Ephemeral Window"),
-                WS_OVERLAPPEDWINDOW | WS_VISIBLE,
+                WS_OVERLAPPEDWINDOW | WS_VISIBLE | SS_NOTIFY_STYLE,
                 100,
                 100,
                 400,
@@ -3084,17 +3097,19 @@ mod os_chrome {
     use windows::core::w;
     use windows::Win32::Foundation::{HWND, RECT};
     use windows::Win32::UI::WindowsAndMessaging::{
-        CreateWindowExW, DestroyWindow, GetWindowRect, SetForegroundWindow, WINDOW_EX_STYLE,
+        CreateWindowExW, DestroyWindow, GetWindowRect, SetForegroundWindow, WS_EX_TOPMOST,
         WS_OVERLAPPEDWINDOW, WS_VISIBLE,
     };
 
     unsafe fn create_target_window(title: &str) -> (HWND, i32, i32) {
         let wide_title: Vec<u16> = title.encode_utf16().chain(std::iter::once(0)).collect();
+        // SS_NOTIFY_STYLE + TOPMOST: see the file-level constant's doc — a bare
+        // STATIC window is click-through and loses the stacking race.
         let hwnd = CreateWindowExW(
-            WINDOW_EX_STYLE::default(),
+            WS_EX_TOPMOST,
             w!("STATIC"),
             windows::core::PCWSTR(wide_title.as_ptr()),
-            WS_OVERLAPPEDWINDOW | WS_VISIBLE,
+            WS_OVERLAPPEDWINDOW | WS_VISIBLE | SS_NOTIFY_STYLE,
             200,
             200,
             600,
@@ -3203,9 +3218,16 @@ mod os_chrome {
     /// Manual test 10: Click in a window without accessibility tree produces
     /// coordinate fallback (capture_mode: "coordinate").
     /// We use a plain STATIC window which has minimal accessibility.
+    ///
+    /// The capture mode is provider-dependent (a STATIC window may or may not
+    /// resolve an element), so this test does NOT pin the mode — it branches on
+    /// the mode that actually occurred and asserts that mode's own contract,
+    /// instead of asserting only "some click happened" (which verified neither).
     #[test]
     #[serial]
     fn coordinate_fallback_for_plain_window() {
+        use docent_desktop_lib::capture::CaptureMode;
+
         let (tx, rx) = mpsc::channel::<ActionEvent>();
         let mut capture = WindowsCapture::new();
         capture.set_excluded_pid(None);
@@ -3216,6 +3238,46 @@ mod os_chrome {
         // coordinate fallback depending on the element resolution.
         let (hwnd, cx, cy) = unsafe { create_target_window("Coordinate Test") };
         thread::sleep(Duration::from_millis(200));
+
+        // Guard: the click point must actually belong to our window before we
+        // synthesize input — otherwise the click leaks into whatever overlaps
+        // that point (desktop churn from a previous test, another app) and the
+        // assertions below fail with confusing downstream evidence.
+        {
+            use windows::Win32::Foundation::POINT;
+            use windows::Win32::UI::WindowsAndMessaging::{GetAncestor, WindowFromPoint, GA_ROOT};
+            let start = std::time::Instant::now();
+            loop {
+                let under = unsafe { WindowFromPoint(POINT { x: cx, y: cy }) };
+                let root = unsafe { GetAncestor(under, GA_ROOT) };
+                if under == hwnd || root == hwnd {
+                    break;
+                }
+                if start.elapsed() >= Duration::from_millis(2000) {
+                    let (class, title) = unsafe {
+                        use windows::Win32::UI::WindowsAndMessaging::{
+                            GetClassNameW, GetWindowTextW,
+                        };
+                        let mut class_buf = [0u16; 256];
+                        let n = GetClassNameW(root, &mut class_buf);
+                        let mut title_buf = [0u16; 256];
+                        let m = GetWindowTextW(root, &mut title_buf);
+                        (
+                            String::from_utf16_lossy(&class_buf[..n.max(0) as usize]),
+                            String::from_utf16_lossy(&title_buf[..m.max(0) as usize]),
+                        )
+                    };
+                    panic!(
+                        "SETUP FAILURE (environment, not capture): the test window \
+                         never owned its own centre point ({cx},{cy}) — something \
+                         overlaps it; clicking would leak into the session. \
+                         [covering window: class={class:?} title={title:?} \
+                         hwnd={hwnd:?} under={under:?} root={root:?}]"
+                    );
+                }
+                thread::sleep(Duration::from_millis(100));
+            }
+        }
 
         let mut enigo = Enigo::new(&Settings::default()).unwrap();
         enigo.move_mouse(cx, cy, Coordinate::Abs).unwrap();
@@ -3229,10 +3291,44 @@ mod os_chrome {
         capture.stop().unwrap();
         let events: Vec<_> = rx.try_iter().collect();
 
-        // Should have a click event. The capture_mode may be "accessibility"
-        // or "coordinate" depending on the STATIC window's UIA provider.
         let click_events = clicks(&events);
         assert!(!click_events.is_empty(), "Expected at least 1 click event");
+
+        for click in &click_events {
+            let ActionPayload::Click { x, y, ref element } = click.payload else {
+                unreachable!("clicks() filters to Click");
+            };
+            // Emitted x/y are the raw SCREEN point in BOTH modes (issue #141;
+            // the pipeline truth-lock lives in worker_pool_test.rs). Tolerance
+            // covers SendInput's absolute-coordinate rounding — a window-origin
+            // sized error would still fail loudly.
+            assert!(
+                (x - cx as f64).abs() <= 2.0 && (y - cy as f64).abs() <= 2.0,
+                "click x/y should be the raw screen point ({cx},{cy}), got ({x},{y})"
+            );
+            match click.capture_mode {
+                CaptureMode::Coordinate => {
+                    // Coordinate mode's own contract: unknown element, and the
+                    // coord: selector encodes exactly the emitted x/y.
+                    assert_eq!(element.tag, "unknown");
+                    assert_eq!(
+                        element.selector,
+                        format!("coord:{},{}", x as i32, y as i32),
+                        "coord: selector must encode the same raw point as x/y"
+                    );
+                }
+                CaptureMode::Accessibility => {
+                    // Accessibility mode's own contract: a resolved element,
+                    // never a coord: placeholder.
+                    assert_ne!(element.tag, "unknown");
+                    assert!(
+                        !element.selector.starts_with("coord:"),
+                        "accessibility-mode element must not carry a coord: selector"
+                    );
+                }
+                ref other => panic!("unexpected capture mode on desktop: {other:?}"),
+            }
+        }
     }
 }
 
@@ -3249,16 +3345,16 @@ mod taskbar_chrome {
     use windows::Win32::Foundation::{HWND, RECT};
     use windows::Win32::UI::WindowsAndMessaging::{
         CreateWindowExW, DestroyWindow, FindWindowW, GetWindowRect, SetForegroundWindow,
-        WINDOW_EX_STYLE, WS_OVERLAPPEDWINDOW, WS_VISIBLE,
+        WS_OVERLAPPEDWINDOW, WS_VISIBLE,
     };
 
     unsafe fn create_target_window(title: &str) -> (HWND, i32, i32) {
         let wide_title: Vec<u16> = title.encode_utf16().chain(std::iter::once(0)).collect();
         let hwnd = CreateWindowExW(
-            WINDOW_EX_STYLE::default(),
+            windows::Win32::UI::WindowsAndMessaging::WS_EX_TOPMOST,
             w!("STATIC"),
             windows::core::PCWSTR(wide_title.as_ptr()),
-            WS_OVERLAPPEDWINDOW | WS_VISIBLE,
+            WS_OVERLAPPEDWINDOW | WS_VISIBLE | SS_NOTIFY_STYLE,
             200,
             200,
             600,
