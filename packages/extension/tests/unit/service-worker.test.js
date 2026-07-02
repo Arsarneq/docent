@@ -21,6 +21,7 @@ import {
   findRecording,
 } from '../../shared/lib/session.js';
 import { isTrustedActionSender } from '../../lib/frame-trust.js';
+import { isSensitiveField, redactUrl, SENSITIVE_MASK } from '../../shared/lib/field-sensitivity.js';
 
 // ─── Simulated service worker state ──────────────────────────────────────────
 
@@ -768,6 +769,110 @@ describe('SERVICE WORKER: PROJECT_EXPORT', () => {
   it('returns error with no active project', async () => {
     const result = await handle({ type: 'PROJECT_EXPORT' });
     assert.equal(result.ok, false);
+  });
+});
+
+// ─── Redaction chokepoint (locator masking) ────────────────────────────────────
+// Replicates redactSensitive from the service worker (same replication
+// convention as the rest of this file — the SW cannot be imported), using the
+// REAL shared field-sensitivity util. Locator masking is IN PLACE: the entry
+// is kept, its value masked with the shared glyphs, `masked: true` set, and
+// the match statistics (measured pre-masking at capture) left untouched.
+
+describe('SERVICE WORKER: redactSensitive masks value-derived locator entries in place', () => {
+  // Replicate the redactSensitive logic from the service worker.
+  function redactSensitive(action) {
+    if (!action || typeof action !== 'object') return action;
+    const el = action.element;
+    if (el && typeof el === 'object' && !el.redacted && isSensitiveField(el)) {
+      if (typeof action.value === 'string') action.value = SENSITIVE_MASK;
+      el.text = null;
+      el.redacted = true;
+      if (Array.isArray(el.locators)) {
+        for (const loc of el.locators) {
+          if (loc && loc.strategy === 'text' && typeof loc.value === 'string') {
+            loc.value = SENSITIVE_MASK;
+            loc.masked = true;
+          }
+        }
+      }
+    }
+    if (action.type === 'navigate' && typeof action.url === 'string') {
+      action.url = redactUrl(action.url);
+    }
+    return action;
+  }
+
+  function sensitiveAction() {
+    return {
+      type: 'type',
+      timestamp: 1000,
+      value: '4111 1111 1111 1111',
+      element: {
+        tag: 'INPUT',
+        id: 'card_number',
+        name: 'card_number',
+        type: 'text',
+        text: '4111 1111 1111 1111',
+        selector: '#card_number',
+        locators: [
+          { strategy: 'id', value: 'card_number', match_count: 1, match_index: 0 },
+          { strategy: 'name', value: 'card_number', match_count: 1, match_index: 0 },
+          { strategy: 'tag_name', value: 'input', match_count: 3, match_index: 1 },
+          { strategy: 'text', value: '4111 1111 1111 1111', match_count: 2, match_index: 0 },
+          { strategy: 'css', value: '#card_number', match_count: 1, match_index: 0 },
+        ],
+      },
+    };
+  }
+
+  it('masks the text entry in place, keeping the pre-masking pair', () => {
+    const action = redactSensitive(sensitiveAction());
+    const textEntry = action.element.locators.find((l) => l.strategy === 'text');
+    assert.equal(textEntry.value, SENSITIVE_MASK);
+    assert.equal(textEntry.masked, true);
+    assert.equal(textEntry.match_count, 2);
+    assert.equal(textEntry.match_index, 0);
+    assert.equal(action.element.locators.length, 5, 'entries are never omitted');
+  });
+
+  it('never masks identity-derived entries', () => {
+    const action = redactSensitive(sensitiveAction());
+    for (const strategy of ['id', 'name', 'tag_name', 'css']) {
+      const entry = action.element.locators.find((l) => l.strategy === strategy);
+      assert.notEqual(entry.value, SENSITIVE_MASK, `${strategy} must not be masked`);
+      assert.equal(entry.masked, undefined);
+    }
+  });
+
+  it('leaves a non-sensitive element and its locators untouched', () => {
+    const action = {
+      type: 'click',
+      element: {
+        tag: 'BUTTON',
+        id: 'save',
+        name: 'save',
+        type: 'button',
+        text: 'Save',
+        selector: '#save',
+        locators: [{ strategy: 'text', value: 'Save', match_count: 3, match_index: 1 }],
+      },
+    };
+    const out = redactSensitive(action);
+    assert.equal(out.element.locators[0].value, 'Save');
+    assert.equal(out.element.locators[0].masked, undefined);
+    assert.equal(out.element.redacted, undefined);
+  });
+
+  it('tolerates an element without locators', () => {
+    const action = {
+      type: 'type',
+      value: 'secret',
+      element: { tag: 'INPUT', id: 'ssn', name: 'ssn', type: 'text', text: 'x' },
+    };
+    const out = redactSensitive(action);
+    assert.equal(out.element.redacted, true);
+    assert.equal(out.value, SENSITIVE_MASK);
   });
 });
 

@@ -388,7 +388,11 @@ Entries are per-strategy shapes discriminated on `strategy` (the same pattern ac
 ### Measurement semantics
 
 The pair is a snapshot — valid at the recorded `timestamp`, in the stated scope and order,
-measured synchronously in the capture handler **before the action's effects run**:
+measured synchronously **at the moment the acted-on element is described for capture**: for
+immediately-captured actions that is inside the capture handler, before the action's effects
+run; for deliberately debounced or deferred captures (Tab-correlated focus, scroll settle,
+contenteditable typing pauses) it is when the capture commits, against the then-current
+document:
 
 | Platform  | Scope                                                                                | Order                                                                                |
 | --------- | ------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------ |
@@ -402,19 +406,19 @@ omitted when no candidates were observed (e.g. coordinate mode).
 
 ### Extension strategies
 
-| `strategy`    | Fields (beyond the shared ones) | Derived from                                                               |
-| ------------- | ------------------------------- | -------------------------------------------------------------------------- |
-| `id`          | `value`                         | The `id` attribute                                                         |
-| `test_id`     | `attribute`, `value`            | A test-hook attribute (e.g. `data-testid`); `attribute` records which one  |
-| `name`        | `value`                         | The `name` attribute                                                       |
-| `tag_name`    | `value`                         | The tag name (lower-cased; case preserved for foreign elements)            |
-| `role_name`   | `role`, `name`                  | The element's role and accessible name                                     |
-| `label`       | `mechanism`, `value`            | An associated label; `mechanism` is `for`, `wrapped`, or `aria-labelledby` |
-| `text`        | `value`                         | Visible text (whitespace-normalized, truncated to 100 chars)               |
-| `placeholder` | `value`                         | The `placeholder` attribute                                                |
-| `title`       | `value`                         | The `title` attribute                                                      |
-| `alt_text`    | `value`                         | The `alt` attribute                                                        |
-| `css`         | `value`                         | A CSS selector derived from observed attributes and structure              |
+| `strategy`    | Fields (beyond the shared ones) | Derived from                                                                                                                         |
+| ------------- | ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
+| `id`          | `value`                         | The `id` attribute                                                                                                                   |
+| `test_id`     | `attribute`, `value`            | A test-hook attribute (e.g. `data-testid`); `attribute` records which one                                                            |
+| `name`        | `value`                         | The `name` attribute                                                                                                                 |
+| `tag_name`    | `value`                         | The tag name (lower-cased; case preserved for foreign elements)                                                                      |
+| `role_name`   | `role`, `name`                  | The element's role and accessible name                                                                                               |
+| `label`       | `mechanism`, `value`            | An associated label; `mechanism` is `for`, `wrapped`, or `aria-labelledby`                                                           |
+| `text`        | `value`                         | Rendered text, whitespace-normalized; omitted when none or > 100 chars. The pair counts same-tag elements with equal normalized text |
+| `placeholder` | `value`                         | The `placeholder` attribute                                                                                                          |
+| `title`       | `value`                         | The `title` attribute                                                                                                                |
+| `alt_text`    | `value`                         | The `alt` attribute                                                                                                                  |
+| `css`         | `value`                         | A CSS selector derived from observed attributes and structure                                                                        |
 
 ### Desktop strategies
 
