@@ -128,8 +128,9 @@ jobs:
           node scripts/check-no-release-outputs.js "origin/$GITHUB_BASE_REF"
 
       - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
+        uses: dtolnay/rust-toolchain@fa04a1451ff1842e2626ccb99004d0195b455a88 # master
         with:
+          toolchain: stable
           components: rustfmt
 
       - name: cargo fmt check
@@ -176,7 +177,9 @@ jobs:
       # both block (this job is required by ci-gate and by the publish workflows).
       # Config + the advisory ignore list live in packages/desktop/src-tauri/deny.toml.
       - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
+        uses: dtolnay/rust-toolchain@fa04a1451ff1842e2626ccb99004d0195b455a88 # master
+        with:
+          toolchain: stable
 
       - name: Cache cargo-deny
         id: cache-cargo-deny
@@ -359,8 +362,9 @@ jobs:
       - uses: ./.github/actions/debug-env
 
       - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
+        uses: dtolnay/rust-toolchain@fa04a1451ff1842e2626ccb99004d0195b455a88 # master
         with:
+          toolchain: stable
           components: llvm-tools-preview
 
       - name: Cache cargo-llvm-cov
@@ -528,8 +532,9 @@ jobs:
             librsvg2-dev
 
       - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
+        uses: dtolnay/rust-toolchain@fa04a1451ff1842e2626ccb99004d0195b455a88 # master
         with:
+          toolchain: stable
           components: clippy
 
       - name: Cache cargo registry and build
