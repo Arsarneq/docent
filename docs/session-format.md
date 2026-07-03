@@ -1,7 +1,12 @@
 # Docent Session Format
 
-The `.docent.json` format is the contract between Docent and any downstream system.
-This document is the formal specification.
+The `.docent.json` format is Docent's contract with anything that consumes a
+recording. It is defined per platform by independently versioned JSON Schemas,
+and this document is the formal specification for both. It is not Docent's only
+external contract: sync servers implement the [Sync Protocol](sync-protocol.md)
+and treat this format as an opaque payload. All of Docent's external contracts
+are data — versioned schemas and a documented protocol — never shipped code or
+a shipped consumer.
 
 ---
 
