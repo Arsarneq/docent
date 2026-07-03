@@ -51,8 +51,9 @@ The dispatch payload includes a reading guide and the JSON Schema for the sendin
 
 ## Example consumers
 
-> Docent ships no consumer. The `.docent.json` format is the contract; whatever
-> reads it is built separately and independently. The flows below are
+> Docent ships no consumer. Its contract with a consumer is data — the
+> `.docent.json` format, a versioned JSON Schema per platform; whatever reads a
+> recording is built separately and independently. The flows below are
 > **examples** of what a consumer _could_ do — Docent makes no assumptions about
 > which of them (if any) receives a recording.
 
@@ -92,10 +93,15 @@ becomes a replay command, each validation step becomes an assertion. A test
 suite is one such target; the same do/check shape maps just as cleanly to an RPA
 flow or a monitoring check.
 
-### The format is the contract
+### The contract is data
 
 Both paths consume the same `.docent.json` format. Docent captures and
 delivers — it has no opinion about what receives the data or how it's used.
+The same rule holds at every surface Docent exposes: recordings are defined by
+per-platform versioned [JSON Schemas](#session-format), dispatch payloads carry
+their own schema and reading guide, and sync servers implement a documented
+[REST protocol](docs/sync-protocol.md). Each contract is data; none of it is
+shipped code.
 
 ---
 
