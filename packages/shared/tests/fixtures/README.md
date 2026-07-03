@@ -52,6 +52,21 @@ change broke backward compatibility, which is the signal this corpus exists to
 raise. Decide intentionally whether that break is acceptable (major version bump)
 before touching a fixture.
 
+## Sufficiency baseline
+
+`sufficiency-baseline.json` is the committed output of the replay-sufficiency
+lint (`scripts/sufficiency-lint.js` — the static predicates of
+[Replay Sufficiency](../../../../docs/replay-sufficiency.md)) over this corpus,
+locked exactly by `sufficiency-lint.test.js`. Because these fixtures are
+**historical** exports, the baseline documents historical truth: it locks the
+_rules_ and the corpus's known findings, not current capture output —
+recordings produced by current code join via the scripted-truth corpus work
+and flow through the same lint. A baseline diff in either direction is a
+signal: a NEW finding means a predicate or fixture changed; a VANISHED finding
+means the baseline is stale. Regenerate deliberately
+(`npm run sufficiency:check -- --write-baseline packages/shared/tests/fixtures/sufficiency-baseline.json`),
+never to silence a diff — the same doctrine as the fixtures above.
+
 ## Validation is by SHAPE, not by version stamp
 
 The published schema pins `docent_format.schema_version` as a `const` (= the
