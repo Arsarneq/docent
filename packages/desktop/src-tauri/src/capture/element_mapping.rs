@@ -204,6 +204,9 @@ pub fn map_element(props: &NativeElementProperties) -> ElementDescription {
         level: (props.level >= 1).then_some(props.level),
         framework_id: non_empty(&props.framework_id),
         locators: build_locators(props),
+        // Stamped by the worker at the describe site (docent#220) — the
+        // mapping layer has no clock and no event timestamp.
+        described_after_ms: None,
     }
 }
 
@@ -743,6 +746,23 @@ mod tests {
         for key in ["position_in_set", "size_of_set", "level", "framework_id"] {
             assert!(json.get(key).is_none(), "{key} must be absent, not null");
         }
+    }
+
+    #[test]
+    fn described_after_ms_pins_absent_by_default_and_zero_when_stamped() {
+        // The mapping layer never stamps it (docent#220): key absent.
+        let el = map_element(&full_props());
+        assert_eq!(el.described_after_ms, None);
+        let json = serde_json::to_value(&el).unwrap();
+        assert!(
+            json.get("described_after_ms").is_none(),
+            "described_after_ms must be absent, not null"
+        );
+        // Stamped 0 (hook pre-capture) serializes as a literal 0, not absent.
+        let mut el = el;
+        el.described_after_ms = Some(0);
+        let json = serde_json::to_value(&el).unwrap();
+        assert_eq!(json["described_after_ms"], 0);
     }
 
     #[test]

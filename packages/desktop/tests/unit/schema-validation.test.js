@@ -368,6 +368,41 @@ describe('Schema validation: provider-reported element facts', () => {
   });
 });
 
+// ─── Describe latency (#220) ──────────────────────────────────────────────────
+
+describe('Schema validation: described_after_ms', () => {
+  function exportWithLatency(value) {
+    const data = exportWithLocators([
+      { strategy: 'automation_id', value: 'btnDelete', match_count: 1, match_index: 0 },
+    ]);
+    data.recordings[0].steps[0].actions[0].element.described_after_ms = value;
+    return data;
+  }
+
+  it('accepts 0 (described at the input itself)', () => {
+    const data = exportWithLatency(0);
+    assert.ok(validateDesktop(data), `Failed:\n${formatErrors(validateDesktop)}`);
+  });
+
+  it('accepts a large observed latency', () => {
+    const data = exportWithLatency(30_000);
+    assert.ok(validateDesktop(data), `Failed:\n${formatErrors(validateDesktop)}`);
+  });
+
+  it('accepts null (equivalent to absent)', () => {
+    const data = exportWithLatency(null);
+    assert.ok(validateDesktop(data), `Failed:\n${formatErrors(validateDesktop)}`);
+  });
+
+  it('rejects a negative latency', () => {
+    assert.ok(!validateDesktop(exportWithLatency(-1)));
+  });
+
+  it('rejects a non-integer latency', () => {
+    assert.ok(!validateDesktop(exportWithLatency('120')));
+  });
+});
+
 describe('Schema validation: desktop negative tests', () => {
   it('rejects extension-only navigate action', () => {
     const data = buildDesktopExport([
@@ -476,6 +511,7 @@ describe('Schema validation: desktop property-based (random valid payloads)', ()
       size_of_set: fc.oneof(fc.constant(null), fc.integer({ min: 1, max: 500 })),
       level: fc.oneof(fc.constant(null), fc.integer({ min: 1, max: 20 })),
       framework_id: fc.oneof(fc.constant(null), fc.constantFrom('Win32', 'WPF', 'XAML')),
+      described_after_ms: fc.oneof(fc.constant(null), fc.integer({ min: 0, max: 60_000 })),
     },
     { requiredKeys: ['tag', 'id', 'name', 'role', 'type', 'text', 'selector'] },
   );

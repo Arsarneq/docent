@@ -393,6 +393,7 @@ describe('_redactSensitive leaves locators and provider facts untouched', () => 
         size_of_set: 4,
         level: 1,
         framework_id: 'WPF',
+        described_after_ms: 42,
         locators: [
           { strategy: 'automation_id', value: 'card_number', match_count: 1, match_index: 0 },
           {
@@ -426,6 +427,7 @@ describe('_redactSensitive leaves locators and provider facts untouched', () => 
     assert.equal(stored.element.size_of_set, 4);
     assert.equal(stored.element.level, 1);
     assert.equal(stored.element.framework_id, 'WPF');
+    assert.equal(stored.element.described_after_ms, 42);
     const masked = stored.element.locators.some((l) => l.masked);
     assert.equal(masked, false, 'no desktop locator entry may carry masked');
   });
@@ -447,6 +449,7 @@ describe('_redactSensitive leaves locators and provider facts untouched', () => 
         type: null,
         text: 'Save',
         selector: 'Window:App > Button:Save',
+        described_after_ms: 0,
         locators: [{ strategy: 'automation_id', value: 'btnSave', match_count: 1, match_index: 0 }],
       },
     };

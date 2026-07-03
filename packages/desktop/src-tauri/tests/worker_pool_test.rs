@@ -475,7 +475,7 @@ use std::thread;
 use std::time::Duration;
 
 use docent_desktop_lib::capture::worker_pool::{worker_loop, AccessibilityBackend, PendingBuffers};
-use docent_desktop_lib::capture::{ActionPayload, CaptureError, ElementDescription};
+use docent_desktop_lib::capture::{ActionPayload, CaptureError, CaptureMode, ElementDescription};
 
 /// A mock accessibility backend for testing the worker_loop.
 ///
@@ -1351,6 +1351,8 @@ fn locator_rich_element() -> ElementDescription {
                 value: "Window:App > Edit:Amount".to_string(),
             },
         ],
+        // The backend emits no latency; the worker stamps it (docent#220).
+        described_after_ms: None,
     }
 }
 
@@ -1414,11 +1416,138 @@ fn locators_and_provider_facts_pass_through_the_pipeline_verbatim() {
         .find(|e| matches!(e.payload, ActionPayload::Click { .. }))
         .expect("expected a Click event");
     if let ActionPayload::Click { ref element, .. } = click.payload {
-        assert_eq!(
-            *element,
-            locator_rich_element(),
-            "element must pass through verbatim"
+        // The describe-latency stamp is the ONE deliberate worker-side
+        // mutation (docent#220) — everything else must ride verbatim.
+        assert!(
+            element.described_after_ms.is_some(),
+            "dequeue-described element must carry the describe latency"
         );
+        let mut unstamped = element.clone();
+        unstamped.described_after_ms = None;
+        assert_eq!(
+            unstamped,
+            locator_rich_element(),
+            "element must pass through verbatim (modulo the latency stamp)"
+        );
+    } else {
+        unreachable!("filtered to Click above");
+    }
+}
+
+/// Pre-captured hook clicks were described at the input itself — the worker
+/// must export that as a latency of exactly 0, and must not re-describe.
+#[test]
+fn pre_captured_click_exports_zero_describe_latency() {
+    let harness = WorkerTestHarness::new(LocatorBackend);
+    harness.send_event(RawEvent {
+        event_type: RawEventType::Click,
+        sequence_id: 1,
+        timestamp: 1000,
+        screen_x: 10,
+        screen_y: 20,
+        window_handle: 1,
+        process_id: 1,
+        key_code: 0,
+        modifiers: (false, false, false, false),
+        scroll_delta: 0.0,
+        callback_params: [0; 4],
+        pre_captured_element: Some(locator_rich_element()),
+    });
+
+    thread::sleep(Duration::from_millis(100));
+    let events = harness.shutdown();
+
+    let click = events
+        .iter()
+        .find(|e| matches!(e.payload, ActionPayload::Click { .. }))
+        .expect("expected a Click event");
+    if let ActionPayload::Click { ref element, .. } = click.payload {
+        assert_eq!(
+            element.described_after_ms,
+            Some(0),
+            "hook pre-captured elements are described at input time"
+        );
+    } else {
+        unreachable!("filtered to Click above");
+    }
+}
+
+/// A described element whose click downgrades to coordinate mode must shed
+/// every element-identity claim (docent#220): coordinate mode records where
+/// the user acted, and the schema documents locators as absent there.
+#[test]
+fn coordinate_downgrade_strips_locators_facts_and_latency() {
+    struct WindowElementBackend;
+    impl AccessibilityBackend for WindowElementBackend {
+        fn init(&mut self) -> Result<(), CaptureError> {
+            Ok(())
+        }
+        fn cleanup(&mut self) {}
+        fn element_at_point(&self, _x: i32, _y: i32) -> Option<ElementDescription> {
+            // A window background: real description, measured locators —
+            // but tag "Window" downgrades the click to coordinate mode.
+            Some(ElementDescription {
+                tag: "Window".to_string(),
+                ..locator_rich_element()
+            })
+        }
+        fn focused_element(&self) -> Option<ElementDescription> {
+            None
+        }
+        fn window_title(&self, _window_handle: i64) -> String {
+            "App".to_string()
+        }
+        fn process_name(&self, _window_handle: i64) -> String {
+            "test.exe".to_string()
+        }
+        fn read_file_dialog_path(&self, _window_handle: i64) -> Option<(String, String)> {
+            None
+        }
+        fn root_window_handle(&self, window_handle: i64) -> i64 {
+            window_handle
+        }
+        fn window_rect(
+            &self,
+            _window_handle: i64,
+        ) -> Option<docent_desktop_lib::capture::WindowRect> {
+            None
+        }
+        fn selected_item_name(&self, _window_handle: i64) -> Option<(ElementDescription, String)> {
+            None
+        }
+    }
+
+    let harness = WorkerTestHarness::new(WindowElementBackend);
+    harness.send_event(RawEvent {
+        event_type: RawEventType::Click,
+        sequence_id: 1,
+        timestamp: 1000,
+        screen_x: 10,
+        screen_y: 20,
+        window_handle: 1,
+        process_id: 1,
+        key_code: 0,
+        modifiers: (false, false, false, false),
+        scroll_delta: 0.0,
+        callback_params: [0; 4],
+        pre_captured_element: None,
+    });
+
+    thread::sleep(Duration::from_millis(100));
+    let events = harness.shutdown();
+
+    let click = events
+        .iter()
+        .find(|e| matches!(e.payload, ActionPayload::Click { .. }))
+        .expect("expected a Click event");
+    assert!(matches!(click.capture_mode, CaptureMode::Coordinate));
+    if let ActionPayload::Click { ref element, .. } = click.payload {
+        assert!(element.locators.is_empty(), "coordinate mode: no locators");
+        assert_eq!(element.position_in_set, None);
+        assert_eq!(element.size_of_set, None);
+        assert_eq!(element.level, None);
+        assert_eq!(element.framework_id, None);
+        assert_eq!(element.described_after_ms, None);
     } else {
         unreachable!("filtered to Click above");
     }

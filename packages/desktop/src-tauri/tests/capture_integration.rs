@@ -202,7 +202,9 @@ fn assert_captured_context_switches_well_formed(events: &[ActionEvent]) {
 /// empty sets); when present, every entry carries a non-empty value/name,
 /// the pair invariants hold (`Found(i)` implies `i < count`; an index is only
 /// present alongside a count), and provider-reported set ordinals are >= 1.
-/// Coordinate-mode elements carry no locators at all.
+/// Coordinate-mode elements carry no locators and no describe latency;
+/// accessibility-described elements always carry `described_after_ms`
+/// (docent#220 — 0 for hook pre-captures, the real gap for worker describes).
 #[cfg(target_os = "windows")]
 fn assert_captured_element_locators_well_formed(events: &[ActionEvent]) {
     use docent_desktop_lib::capture::{CaptureMode, LocatorEntry};
@@ -212,6 +214,15 @@ fn assert_captured_element_locators_well_formed(events: &[ActionEvent]) {
             assert!(
                 el.locators.is_empty(),
                 "coordinate-mode elements must carry no locators"
+            );
+            assert_eq!(
+                el.described_after_ms, None,
+                "coordinate-mode elements make no identity claims"
+            );
+        } else {
+            assert!(
+                el.described_after_ms.is_some(),
+                "accessibility-described elements must carry the describe latency (docent#220)"
             );
         }
         for v in [el.position_in_set, el.size_of_set, el.level]
