@@ -11,6 +11,9 @@ the [root README](../README.md).
 - [Replay Sufficiency](replay-sufficiency.md) — what a recording must be
   sufficient for: the principle, its scope boundaries, and the field taxonomy
   the guarantee stands on
+- [Locator Resolution](locator-resolution.md) — the reference procedure that
+  defines what "the recording's locators resolve correctly" means, and the
+  conformance-vector scope
 - [Session Format](session-format.md) — the formal `.docent.json` specification
 - [Sync Protocol](sync-protocol.md) — the REST API for syncing projects between
   clients and a server
