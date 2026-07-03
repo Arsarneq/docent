@@ -36,7 +36,10 @@ The dispatch payload has four top-level fields:
 
 ## Notes
 
-- Passwords are always captured as `"••••••••"`.
+- Passwords are always captured as `"••••••••"`. Masked and redacted values in
+  general are replay parameters: the recording states where a value goes (the
+  element's identity and its `redacted`/`masked` flags), and the reader
+  supplies the value itself when reproducing the session.
 - `context_id` values are session-scoped identifiers (browser tab IDs or desktop window handles) — they are not persistent across restarts.
 - `capture_mode` indicates how each action was captured: `"dom"` for browser, `"accessibility"` for native UI elements, or `"coordinate"` for fallback coordinate-based capture.
 - Context lifecycle actions (`context_switch`, `context_open`, `context_close`) use a `source` field containing the page URL (browser) or executable path (desktop).

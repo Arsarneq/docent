@@ -26,6 +26,18 @@ A single recording can mix both modes.
 
 ---
 
+## Capture Surface
+
+The capture surface is enumerated positively and treated as **closed**: the
+two low-level input hooks (`WH_MOUSE_LL`, `WH_KEYBOARD_LL`), the correlated
+WinEvent classes in the [Input Correlation](#input-correlation) table, and the
+OS/shell proxies in the table below. An interaction that reaches none of them
+is not captured — no per-case listing needed. The only negative entries kept
+are the [exceptions within the surface](#exceptions-within-the-surface):
+interactions that would appear to be covered by this description but are not.
+
+---
+
 ## OS/Shell Proxies
 
 These user actions happen outside the hooks' visibility:
@@ -104,13 +116,21 @@ acted, not which element the accessibility layer resolved.
 
 ---
 
-## Not Capturable (OS-Level)
+## Exceptions Within the Surface
 
-- Win+D (show desktop) — system hotkey intercepted before hooks
-- Win+L (lock screen) — system hotkey intercepted before hooks
-- Ctrl+Shift+Esc (Task Manager) — system hotkey intercepted before hooks
+Interactions that would appear to be inside the
+[capture surface](#capture-surface) above but are not captured. An entry
+belongs here only when the surface description alone would mislead:
+
+- Win+D (show desktop) — a keypress, but the system intercepts it before the
+  hooks
+- Win+L (lock screen) — a keypress, but the system intercepts it before the
+  hooks
+- Ctrl+Shift+Esc (Task Manager) — a keypress, but the system intercepts it
+  before the hooks
 - Assistive-technology-driven actions that call UI Automation patterns
   directly (voice control, screen readers invoking `SelectionItem.Select`)
-  — they produce no low-level input, so the input-correlation gates above
-  classify their effects as programmatic. A known limitation of the
-  correlation doctrine, affecting every correlated event class equally.
+  — they produce correlated-looking WinEvents but no low-level input, so the
+  input-correlation gates above classify their effects as programmatic. A
+  known limitation of the correlation doctrine, affecting every correlated
+  event class equally.
