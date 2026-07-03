@@ -82,25 +82,33 @@ describe('classifyChange: patch (description-only)', () => {
 
 describe('classifyChange: x- annotations', () => {
   // `x-` keys are contract annotations the tooling reads (e.g.
-  // `x-value-derived`). Introducing one documents existing behaviour (patch);
-  // changing or removing one rewrites what the contract says about that
-  // behaviour, which the classifier escalates (major, never-under-report).
-  // The def under annotation exists in BOTH schemas — a wholly new def
-  // short-circuits earlier as definition-added and never reaches the
-  // interception.
+  // `x-value-derived`). Introducing a KNOWN annotation documents existing
+  // behaviour (patch — the add-is-documentation property is verified by
+  // drift guards, per annotation kind); introducing an unknown kind, or
+  // changing/removing any annotation, rewrites what the contract says, which
+  // the classifier escalates (major, never-under-report). The def under
+  // annotation exists in BOTH schemas — a wholly new def short-circuits
+  // earlier as definition-added and never reaches the interception.
 
-  it('annotation added with value true → patch', () => {
+  it('known annotation added with value true → patch', () => {
     const a = baseSchema();
     const b = baseSchema();
     b.$defs.action_click['x-value-derived'] = true;
     assert.equal(classifyChange(a, b).level, 'patch');
   });
 
-  it('annotation added with value false → patch', () => {
+  it('known annotation added with value false → patch', () => {
     const a = baseSchema();
     const b = baseSchema();
     b.$defs.action_click['x-value-derived'] = false;
     assert.equal(classifyChange(a, b).level, 'patch');
+  });
+
+  it('unknown annotation kind added → major (never-under-report)', () => {
+    const a = baseSchema();
+    const b = baseSchema();
+    b.$defs.action_click['x-replay-critical'] = true;
+    assert.equal(classifyChange(a, b).level, 'major');
   });
 
   it('annotation changed true → false → major', () => {

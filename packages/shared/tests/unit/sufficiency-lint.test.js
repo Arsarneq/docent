@@ -252,6 +252,27 @@ describe('Sufficiency lint: predicate pins', () => {
     assert.ok(ids(wrongValue).includes('fail:masked-locator-honesty'));
   });
 
+  it('masked-locator-honesty fires on masked: true on a non-redacted element', () => {
+    // No chokepoint masks an entry without also redacting the element — a
+    // masked entry on a non-redacted element is a shape only bugs or hand
+    // edits produce, and it must not lint clean.
+    const bad = lintRecordingFile(
+      doc('extension', [
+        {
+          type: 'click',
+          x: 1,
+          y: 2,
+          context_id: 1,
+          capture_mode: 'dom',
+          element: el({
+            locators: [{ strategy: 'text', value: '••••••••', masked: true, match_count: 1, match_index: 0 }], // prettier-ignore
+          }),
+        },
+      ]),
+    );
+    assert.ok(ids(bad).includes('fail:masked-locator-honesty'));
+  });
+
   it('masked-locator-honesty fires on an identity entry claiming masked: true', () => {
     const bad = lintRecordingFile(
       doc('extension', [

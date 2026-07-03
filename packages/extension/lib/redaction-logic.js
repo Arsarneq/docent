@@ -13,8 +13,12 @@
 //     Identity-derived entries (id/test_id/name/…) are markup, not user data,
 //     and are never masked;
 //   - a `navigate` URL has its sensitive query-param values stripped.
-// Applied at EVERY pendingActions write, so no captured value reaches storage
-// unredacted. Mutates the soon-to-be-stored action in place.
+// The service worker owns the pendingActions write sites and applies this at
+// each of them; this only masks. Mutates the soon-to-be-stored action in place.
+//
+// This file is part of Docent.
+// Licensed under the GNU General Public License v3.0
+// See LICENSE in the project root for license information.
 
 import { isSensitiveField, redactUrl, SENSITIVE_MASK } from '../shared/lib/field-sensitivity.js';
 

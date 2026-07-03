@@ -209,6 +209,25 @@ export function composePlatform(platform) {
 }
 
 /**
+ * Enumerate a schema's locator strategy definitions: the members of
+ * `locator.oneOf`, dereferenced into `$defs` (an inline member is returned as
+ * itself, with a null name). The single home for the `#/$defs/` dereference
+ * convention — the sufficiency lint, the composition tests, and the
+ * per-platform redaction drift guards all enumerate strategies through this,
+ * so they can never disagree on what "the platform's strategies" means.
+ * Returns [] when the schema declares no locator def.
+ *
+ * @param {object} schema - a composed platform schema or a source layer
+ * @returns {Array<{name: string|null, def: object}>}
+ */
+export function locatorStrategyDefs(schema) {
+  return (schema.$defs?.locator?.oneOf ?? []).map((member) => {
+    const name = typeof member.$ref === 'string' ? member.$ref.replace('#/$defs/', '') : null;
+    return { name, def: name ? schema.$defs[name] : member };
+  });
+}
+
+/**
  * Return a clone of a composed schema with the `docent_format.schema_version`
  * `const` relaxed to a plain string, so historical recordings validate by
  * SHAPE regardless of which version stamp they carry.

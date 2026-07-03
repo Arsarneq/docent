@@ -46,6 +46,12 @@ the schema composed from the current source layers and classifies the change:
 - **Minor** (x.1.0): new optional fields, new action types, new enum values on existing fields
 - **Major** (1.0.0): new required fields, removed fields, renamed fields, changed semantics, changed types, removed enum values, tightened constraints
 
+`x-`-prefixed keys on schema definitions are **annotations** — machine-read contract
+markers, not validation keywords (validators ignore them; `x-value-derived` below is one).
+Introducing an annotation the classifier knows documents behaviour that already ships
+(patch); changing or removing one, or introducing a kind the classifier has never judged,
+rewrites what the contract says and escalates to major.
+
 The classifier is intentionally conservative: anything it cannot confidently
 place as patch or minor is escalated to **major**, so a release can never
 silently under-version a breaking change. Contributors do not bump versions by
@@ -395,6 +401,13 @@ Entries are per-strategy shapes discriminated on `strategy` (the same pattern ac
 | `match_count` | integer ≥ 1     | no       | How many elements the candidate matched in its stated scope. Present only where cheap to measure; absent means not measured, never a guess.                 |
 | `match_index` | integer \| null | no       | Zero-based position of the acted-on element among the matches (`0 <= match_index < match_count`). `null`: the candidate did not match the acted-on element. |
 | `masked`      | boolean         | no       | `true` when the value derived from sensitive content and was masked in place. The entry is kept, never omitted; the pair was measured pre-masking.          |
+
+Which strategies `masked` can honestly apply to is stated by the contract itself: every
+strategy definition declares the **`x-value-derived`** annotation (boolean) — `true` means
+the redaction chokepoint masks that strategy's value in place when the element is sensitive.
+It is an operational marker of what redaction does today, not a data-safety claim; the
+[Value-Derived Strategies](locator-resolution.md#value-derived-strategies) section of the
+resolution procedure defines it, and the sufficiency lint enforces the masking it promises.
 
 ### Measurement semantics
 

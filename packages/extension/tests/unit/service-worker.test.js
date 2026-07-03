@@ -23,7 +23,8 @@ import {
 import { isTrustedActionSender } from '../../lib/frame-trust.js';
 import { redactSensitive } from '../../lib/redaction-logic.js';
 import { SENSITIVE_MASK } from '../../shared/lib/field-sensitivity.js';
-import { composePlatform } from '../../../../scripts/build-schemas.js';
+import { composePlatform, locatorStrategyDefs } from '../../../../scripts/build-schemas.js';
+import { valueDerivedStrategies } from '../../../../scripts/sufficiency-lint.js';
 
 // ─── Simulated service worker state ──────────────────────────────────────────
 
@@ -860,14 +861,12 @@ describe('SERVICE WORKER: redactSensitive masks value-derived locator entries in
     // sensitive element carrying one entry per emitted strategy and checks the
     // two sides of the seam against each other — if the code starts masking a
     // strategy the schema does not annotate (or stops masking one it does),
-    // this fails, forcing annotation and behaviour to move together.
-    const composed = composePlatform('extension');
-    const defs = composed.$defs.locator.oneOf.map(
-      (ref) => composed.$defs[ref.$ref.replace('#/$defs/', '')],
-    );
-    const annotated = defs
-      .filter((def) => def['x-value-derived'] === true)
-      .map((def) => def.properties.strategy.const);
+    // this fails, forcing annotation and behaviour to move together. The
+    // annotated set comes from valueDerivedStrategies — the exact reader the
+    // sufficiency lint's masked-locator-honesty predicate enforces — so the
+    // guard pins the code against the set the lint actually uses.
+    const defs = locatorStrategyDefs(composePlatform('extension')).map(({ def }) => def);
+    const annotated = [...valueDerivedStrategies('extension')];
 
     const action = redactSensitive({
       type: 'type',

@@ -28,7 +28,11 @@ import { resolve, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import Ajv from 'ajv/dist/2020.js';
 import addFormats from 'ajv-formats';
-import { PLATFORMS, composePlatform } from '../../../../scripts/build-schemas.js';
+import {
+  PLATFORMS,
+  composePlatform,
+  locatorStrategyDefs,
+} from '../../../../scripts/build-schemas.js';
 
 const __dirname = fileURLToPath(new URL('.', import.meta.url));
 const SCHEMAS_DIR = resolve(__dirname, '../../../../schemas');
@@ -119,10 +123,7 @@ describe('Schema composition: desktop-family layer carries desktop-common defs',
 
 describe('Schema composition: locators[] contract (#174)', () => {
   const strategyConsts = (layer) =>
-    layer.$defs.locator.oneOf.map((ref) => {
-      const defName = ref.$ref.replace('#/$defs/', '');
-      return layer.$defs[defName].properties.strategy.const;
-    });
+    locatorStrategyDefs(layer).map(({ def }) => def.properties.strategy.const);
 
   it('base carries the element.locators ref and exactly the three shared trio defs', () => {
     assert.strictEqual(base.$defs.element.properties.locators.items.$ref, '#/$defs/locator');
@@ -169,33 +170,20 @@ describe('Schema composition: locators[] contract (#174)', () => {
     // place (see docs/replay-sufficiency.md — masked values are consumer
     // parameters). Absence must mean nothing: an undeclared def would be
     // indistinguishable from "author forgot", so every strategy def declares
-    // it, and a future strategy cannot ship without taking a stance. The
-    // shared trio (match_count/match_index/masked) and the base `locator`
-    // container deliberately never carry it.
+    // it, and a future strategy cannot ship without taking a stance (the
+    // sufficiency lint additionally refuses at runtime). The exact per-platform
+    // set is pinned where its canonical reader lives, in the sufficiency-lint
+    // suite. The shared trio (match_count/match_index/masked) and the base
+    // `locator` container deliberately never carry the annotation.
     for (const platform of Object.keys(PLATFORMS)) {
-      const composed = composePlatform(platform);
-      for (const ref of composed.$defs.locator.oneOf) {
-        const defName = ref.$ref.replace('#/$defs/', '');
-        const def = composed.$defs[defName];
+      for (const { name, def } of locatorStrategyDefs(composePlatform(platform))) {
         assert.equal(
           typeof def['x-value-derived'],
           'boolean',
-          `${platform}: ${defName} must declare x-value-derived`,
+          `${platform}: ${name} must declare x-value-derived`,
         );
       }
     }
-  });
-
-  it('value-derived strategies are exactly {text} on extension and {} on desktop-windows', () => {
-    const valueDerived = (platform) =>
-      composePlatform(platform)
-        .$defs.locator.oneOf.map(
-          (ref) => composePlatform(platform).$defs[ref.$ref.replace('#/$defs/', '')],
-        )
-        .filter((def) => def['x-value-derived'] === true)
-        .map((def) => def.properties.strategy.const);
-    assert.deepStrictEqual(valueDerived('extension'), ['text']);
-    assert.deepStrictEqual(valueDerived('desktop-windows'), []);
   });
 
   it('desktop.shared (family layer) carries no locator defs', () => {

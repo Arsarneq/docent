@@ -27,6 +27,13 @@ const RANK = { none: 0, patch: 1, minor: 2, major: 3 };
 // patch; the rest are ignored).
 const IGNORED_KEYS = new Set(['$schema', '$id', 'title', 'version']);
 
+// `x-`-prefixed annotations whose INTRODUCTION is known to document behaviour
+// that already ships, verified outside this classifier (for `x-value-derived`,
+// the per-platform drift guards pin the annotation against the real redaction
+// code). Only these may classify as patch when added; an annotation kind this
+// tooling has never judged escalates per the charter.
+const PATCH_ON_ADD_ANNOTATIONS = new Set(['x-value-derived']);
+
 function higher(a, b) {
   return RANK[a] >= RANK[b] ? a : b;
 }
@@ -106,16 +113,22 @@ function walk(oldNode, newNode, path, add) {
 
     // `x-`-prefixed keys are contract ANNOTATIONS (metadata the tooling reads,
     // e.g. `x-value-derived`), never validation keywords — Ajv ignores them.
-    // Introducing one documents existing behaviour → patch. But changing or
-    // removing one rewrites what the contract SAYS about that behaviour (for
-    // `x-value-derived`: which emitted values are masked in place) — a
-    // semantics change this classifier cannot judge, so per the
-    // never-under-report charter it escalates to major. Checked before any
-    // recursion so object-valued annotations cannot re-enter the walk.
+    // Introducing a KNOWN annotation documents behaviour that already ships →
+    // patch. Everything else — changing one, removing one, or introducing a
+    // kind not in the allowlist — rewrites what the contract SAYS (for
+    // `x-value-derived`: which emitted values are masked in place) in ways
+    // this classifier cannot judge, so per the never-under-report charter it
+    // escalates to major. Checked before any recursion so object-valued
+    // annotations cannot re-enter the walk.
     if (key.startsWith('x-')) {
-      if (!inOld) add('patch', `${childPath}: annotation added`);
-      else if (!inNew) add('major', `${childPath}: annotation removed`);
-      else add('major', `${childPath}: annotation changed`);
+      if (!inOld) {
+        if (PATCH_ON_ADD_ANNOTATIONS.has(key)) add('patch', `${childPath}: annotation added`);
+        else add('major', `${childPath}: unknown annotation added`);
+      } else if (!inNew) {
+        add('major', `${childPath}: annotation removed`);
+      } else {
+        add('major', `${childPath}: annotation changed`);
+      }
       continue;
     }
 

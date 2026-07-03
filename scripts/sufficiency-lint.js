@@ -29,9 +29,10 @@
  * `x-value-derived` (operational marker — what the redaction chokepoint masks
  * in place today), and the `masked-locator-honesty` predicate enforces the
  * masking that annotation promises. The lint never hardcodes per-platform
- * strategy knowledge — it reads the annotation from the composed schema, and
- * the per-platform capture suites pin the annotation against the real
- * redaction code.
+ * strategy knowledge — it reads the annotation from the composed schema,
+ * refuses to run on a strategy def that does not declare it (absence must
+ * mean nothing, never a silent false), and the per-platform capture suites
+ * pin the annotation against the real redaction code.
  *
  * Modes:
  *   node scripts/sufficiency-lint.js <file-or-dir>... [--json] [--strict]
@@ -49,7 +50,12 @@ import { resolve, join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import Ajv from 'ajv/dist/2020.js';
 import addFormats from 'ajv-formats';
-import { PLATFORMS, composePlatform, relaxVersionStamp } from './build-schemas.js';
+import {
+  PLATFORMS,
+  composePlatform,
+  relaxVersionStamp,
+  locatorStrategyDefs,
+} from './build-schemas.js';
 import { SENSITIVE_MASK } from '../packages/shared/lib/field-sensitivity.js';
 
 const REPO_ROOT = resolve(fileURLToPath(new URL('.', import.meta.url)), '..');
@@ -92,24 +98,37 @@ const valueDerivedCache = new Map();
 /**
  * The strategies whose recorded locator value the redaction chokepoint masks
  * in place — read from the platform's contract, never hardcoded: every
- * strategy def referenced from `locator.oneOf` declares `x-value-derived`
- * (completeness is pinned in the schema-composition suite), and the annotated
- * defs' `strategy` consts form the set. An annotated def the lint cannot map
- * to entries (no string `strategy` const) is refused loudly. Exported so the
- * capture drift guards and tests probe exactly the set the predicate uses.
+ * strategy def enumerated from `locator.oneOf` (via build-schemas'
+ * locatorStrategyDefs) declares `x-value-derived`, and the annotated defs'
+ * `strategy` consts form the set. Malformed contracts are refused loudly, in
+ * the gap-probe spirit (a promise kept in code, not memory): a def that does
+ * not declare the annotation (absence would silently mean false — the exact
+ * "author forgot" the explicit-declaration rule exists to prevent), an
+ * annotated def with no string `strategy` const (the set cannot be mapped to
+ * entries), and an annotated def with no `value` field (nothing to mask in
+ * place). Exported so the capture drift guards and tests probe exactly the
+ * set the predicate uses.
  */
 export function valueDerivedStrategies(platform) {
   if (!valueDerivedCache.has(platform)) {
-    const schema = composedFor(platform);
     const derived = new Set();
-    for (const member of schema.$defs?.locator?.oneOf ?? []) {
-      const defName = typeof member.$ref === 'string' ? member.$ref.replace('#/$defs/', '') : null;
-      const def = defName ? schema.$defs[defName] : member;
-      if (def?.['x-value-derived'] !== true) continue;
+    for (const { name, def } of locatorStrategyDefs(composedFor(platform))) {
+      const label = name ?? '(inline)';
+      if (typeof def?.['x-value-derived'] !== 'boolean') {
+        throw new Error(
+          `${platform}: locator strategy def ${label} does not declare x-value-derived — declare it explicitly (absence must mean nothing) before linting this platform`,
+        );
+      }
+      if (def['x-value-derived'] !== true) continue;
       const strategy = def.properties?.strategy?.const;
       if (typeof strategy !== 'string') {
         throw new Error(
-          `${platform}: value-derived locator def ${defName ?? '(inline)'} carries no string strategy const — the annotation cannot be mapped to locator entries`,
+          `${platform}: value-derived locator def ${label} carries no string strategy const — the annotation cannot be mapped to locator entries`,
+        );
+      }
+      if (!def.properties?.value) {
+        throw new Error(
+          `${platform}: value-derived locator def ${label} declares no value field — there is nothing for the chokepoint to mask in place`,
         );
       }
       derived.add(strategy);
@@ -238,25 +257,31 @@ export const PREDICATES = [
   {
     id: 'masked-locator-honesty',
     class: 'fail',
-    title: 'redacted elements mask exactly the value-derived locator entries',
+    title:
+      'locator masking matches the contract: value-derived entries on redacted elements, nothing else',
     // The contract's x-value-derived annotation states which strategies the
     // chokepoint masks in place. On a redacted element, every value-derived
     // entry must carry the exact mask with `masked: true` (an unmasked one
-    // leaks the sensitive value); a non-value-derived entry must never claim
-    // `masked: true` (the annotation would be lying about the chokepoint).
-    // Match statistics are legal on masked entries — they were measured
-    // pre-masking at capture and are deliberately kept.
-    appliesTo: (a) =>
-      hasElement(a) && a.element.redacted === true && Array.isArray(a.element.locators),
+    // leaks the sensitive value) and a non-value-derived entry must never
+    // claim `masked: true` (the annotation would be lying about the
+    // chokepoint). Off redacted elements no entry may claim `masked: true` at
+    // all — no chokepoint produces that shape, and a consumer would treat the
+    // entry as a masked replay parameter for an element the recording never
+    // declared sensitive. Match statistics are legal on masked entries — they
+    // were measured pre-masking at capture and are deliberately kept.
+    appliesTo: (a) => hasElement(a) && Array.isArray(a.element.locators),
     check: (a, platform) => {
       const derived = valueDerivedStrategies(platform);
+      const redacted = a.element.redacted === true;
       for (const loc of a.element.locators) {
-        if (derived.has(loc.strategy)) {
+        if (redacted && derived.has(loc.strategy)) {
           if (loc.masked !== true || loc.value !== SENSITIVE_MASK) {
             return `value-derived locator "${loc.strategy}" on a redacted element is not masked in place`;
           }
         } else if (loc.masked === true) {
-          return `locator "${loc.strategy}" claims masked: true but the contract does not mark it value-derived`;
+          return redacted
+            ? `locator "${loc.strategy}" claims masked: true but the contract does not mark it value-derived`
+            : `locator "${loc.strategy}" claims masked: true on a non-redacted element`;
         }
       }
       return null;
@@ -420,6 +445,10 @@ export function lintRecordingFile(doc) {
     throw new Error(`unknown platform stamp: ${JSON.stringify(platform)}`);
   }
   assertGapPredicatesCurrent(platform);
+  // Same refuse-loudly discipline for the annotation contract: an undeclared
+  // strategy def must halt the lint here, not silently lint as identity-derived
+  // in whatever actions happen to carry locators.
+  valueDerivedStrategies(platform);
   const findings = [];
   for (let r = 0; r < (doc.recordings || []).length; r++) {
     const recording = doc.recordings[r];

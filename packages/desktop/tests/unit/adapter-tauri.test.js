@@ -13,7 +13,8 @@
 import { describe, it, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { mock } from 'node:test';
-import { composePlatform } from '../../../../scripts/build-schemas.js';
+import { composePlatform, locatorStrategyDefs } from '../../../../scripts/build-schemas.js';
+import { valueDerivedStrategies } from '../../../../scripts/sufficiency-lint.js';
 
 // ─── Global mocks ─────────────────────────────────────────────────────────────
 
@@ -441,13 +442,10 @@ describe('_redactSensitive leaves locators and provider facts untouched', () => 
     // checks the two sides of the seam: if the code starts masking an entry
     // the schema does not annotate — or a def gets annotated true while the
     // code stays hands-off — this fails, forcing the two to move together.
-    const composed = composePlatform('desktop-windows');
-    const defs = composed.$defs.locator.oneOf.map(
-      (ref) => composed.$defs[ref.$ref.replace('#/$defs/', '')],
-    );
-    const annotated = defs
-      .filter((def) => def['x-value-derived'] === true)
-      .map((def) => def.properties.strategy.const);
+    // The annotated set comes from valueDerivedStrategies — the exact reader
+    // the sufficiency lint's masked-locator-honesty predicate enforces.
+    const defs = locatorStrategyDefs(composePlatform('desktop-windows')).map(({ def }) => def);
+    const annotated = [...valueDerivedStrategies('desktop-windows')];
     const entryFor = (def) => {
       const entry = {};
       for (const [prop, shape] of Object.entries(def.properties)) {
@@ -482,10 +480,14 @@ describe('_redactSensitive leaves locators and provider facts untouched', () => 
       .filter((loc) => loc.masked === true)
       .map((loc) => loc.strategy);
     assert.deepStrictEqual(maskedStrategies.sort(), [...annotated].sort());
+    // Byte-identical pass-through is TODAY'S desktop contract, pinned because
+    // the annotated set is empty. A desktop strategy becoming value-derived
+    // changes this contract: update this pin (to the per-entry shape the
+    // extension guard uses) together with the annotation and the chokepoint.
     assert.deepStrictEqual(
       out.element.locators,
       expectedLocators,
-      'desktop locator entries must be byte-identical through redaction',
+      'today no desktop strategy is value-derived, so redaction must pass every locator entry through byte-identical — if a strategy just became value-derived, update this pin alongside the annotation',
     );
   });
 
