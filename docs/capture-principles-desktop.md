@@ -45,13 +45,13 @@ The Input_Thread distinguishes user-caused state changes from programmatic
 ones using **input correlation**: WinEvent callbacks are only dispatched when
 correlated with a preceding low-level input event.
 
-| WinEvent                   | Correlation source  | Additional filter                        |
-| -------------------------- | ------------------- | ---------------------------------------- |
-| `EVENT_SYSTEM_FOREGROUND`  | Any low-level input | —                                        |
-| `EVENT_OBJECT_FOCUS`       | Any low-level input | Suppressed after click (redundant)       |
-| `EVENT_OBJECT_CREATE`      | Any low-level input | —                                        |
-| `EVENT_OBJECT_DESTROY`     | Any low-level input | Only if previously opened                |
-| `EVENT_OBJECT_VALUECHANGE` | Keyboard input only | Same root window as keyboard             |
+| WinEvent                   | Correlation source  | Additional filter                                                          |
+| -------------------------- | ------------------- | -------------------------------------------------------------------------- |
+| `EVENT_SYSTEM_FOREGROUND`  | Any low-level input | —                                                                          |
+| `EVENT_OBJECT_FOCUS`       | Any low-level input | Suppressed after click (redundant)                                         |
+| `EVENT_OBJECT_CREATE`      | Any low-level input | —                                                                          |
+| `EVENT_OBJECT_DESTROY`     | Any low-level input | Only if previously opened                                                  |
+| `EVENT_OBJECT_VALUECHANGE` | Keyboard input only | Same root window as keyboard                                               |
 | `EVENT_OBJECT_SELECTION`   | Any low-level input | Same root window as the input; suppressed ≤200ms after a click (redundant) |
 
 **Window-scoping:** Value changes and selections are only correlated with
