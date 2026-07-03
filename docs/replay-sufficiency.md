@@ -139,10 +139,12 @@ sufficient when all three hold:
    present or legally absent, and their cross-field invariants hold. A pure
    function of the file, checkable by machine.
 2. **Resolution conformance** — the recording's locators resolve to the
-   acted-on elements under a documented reference resolution procedure,
-   verified against ground-truth conformance vectors emitted at capture time
-   (the recorder knows the acted-on element, so it can export the expected
-   answer alongside the candidates).
+   acted-on elements under the documented
+   [reference resolution procedure](locator-resolution.md), verified against
+   ground-truth conformance vectors emitted at capture time (the recorder
+   knows the acted-on element, so it can export the expected answer alongside
+   the candidates). The procedure consults informative measurement facts only
+   as conservative gates — the guarantee never stands on them.
 3. **Capture completeness** — the capture pipeline reproduces known truth on
    scripted sessions: controlled applications where the input sequence is
    scripted, so the produced recording can be compared against it exactly.

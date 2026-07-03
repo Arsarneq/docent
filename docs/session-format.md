@@ -422,6 +422,9 @@ the platform schema — a serialization convention that carries **no preference 
 Candidates whose value was empty are omitted rather than included empty; the whole array is
 omitted when no candidates were observed (e.g. coordinate mode).
 
+What "the recording's locators resolve correctly" means — and the conformance-vector scope —
+is defined by the [reference resolution procedure](locator-resolution.md).
+
 Note: the provider-reported set ordinals (`position_in_set`/`size_of_set`) and a measured
 `match_count` can legitimately disagree — under UI virtualization only realized items exist in
 the walked tree, while the provider reports the logical set. The disagreement is itself
