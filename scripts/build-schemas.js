@@ -208,6 +208,33 @@ export function composePlatform(platform) {
   return compose(chain.map((file) => readJson(join(SCHEMAS_DIR, file))));
 }
 
+/**
+ * Return a clone of a composed schema with the `docent_format.schema_version`
+ * `const` relaxed to a plain string, so historical recordings validate by
+ * SHAPE regardless of which version stamp they carry.
+ *
+ * GUARDRAIL: for in-memory test/lint harness use only — the published schemas
+ * (schemas/dist/), the source layers, and the generated import/sync
+ * validators keep the `const` intact; strict import-time version-gating is
+ * intentional and untouched. The `platform` const is deliberately kept (a
+ * desktop file must never validate as extension).
+ *
+ * Shared by the backward-compat corpus test and the sufficiency lint so the
+ * two harnesses can never drift apart on what "shape-valid" means.
+ *
+ * @param {object} schema - a composed platform schema (composePlatform output)
+ * @returns {object} a relaxed in-memory clone
+ */
+export function relaxVersionStamp(schema) {
+  const clone = structuredClone(schema);
+  const stamp = clone.$defs?.docent_format?.properties?.schema_version;
+  if (stamp && 'const' in stamp) {
+    delete stamp.const;
+    stamp.type = 'string';
+  }
+  return clone;
+}
+
 async function format(obj) {
   const prettier = (await import('prettier')).default;
   const config = (await prettier.resolveConfig(join(SCHEMAS_DIR, 'x.json'))) || {};

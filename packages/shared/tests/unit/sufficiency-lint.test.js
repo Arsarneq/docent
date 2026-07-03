@@ -13,6 +13,12 @@
  *     `node scripts/sufficiency-lint.js packages/shared/tests/fixtures
  *      --write-baseline packages/shared/tests/fixtures/sufficiency-baseline.json`.
  *
+ * Discovery and serialization come FROM the lint (collectFiles/toBaseline),
+ * so this lock covers exactly the file set and entry format the CLI's
+ * --write-baseline produces — the two can never diverge. Validity of every
+ * fixture is asserted by the same pass: lintFile throws on schema-invalid
+ * input or an unknown platform stamp.
+ *
  * These fixtures are HISTORICAL exports, so this lock guards the rules and
  * the corpus's documented truth — not current capture output. Recordings
  * produced by current code join the corpus with the scripted-truth work, and
@@ -25,54 +31,34 @@
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync, readdirSync } from 'node:fs';
-import { resolve, join, relative } from 'node:path';
+import { readFileSync } from 'node:fs';
+import { resolve, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
   lintFile,
   lintRecordingFile,
+  collectFiles,
+  toBaseline,
   diffBaselines,
 } from '../../../../scripts/sufficiency-lint.js';
 
 const __dirname = fileURLToPath(new URL('.', import.meta.url));
 const FIXTURES_DIR = resolve(__dirname, '../fixtures');
-const REPO_ROOT = resolve(__dirname, '../../../..');
 const BASELINE_PATH = join(FIXTURES_DIR, 'sufficiency-baseline.json');
-
-function corpusFiles() {
-  const files = [];
-  for (const platform of readdirSync(FIXTURES_DIR, { withFileTypes: true })) {
-    if (!platform.isDirectory()) continue;
-    for (const f of readdirSync(join(FIXTURES_DIR, platform.name))) {
-      if (f.endsWith('.docent.json')) {
-        files.push(join(FIXTURES_DIR, platform.name, f));
-      }
-    }
-  }
-  return files.sort((a, b) => a.localeCompare(b, 'en'));
-}
 
 describe('Sufficiency lint: corpus baseline lock', () => {
   it('findings over the frozen corpus equal the committed baseline exactly', () => {
     const expected = JSON.parse(readFileSync(BASELINE_PATH, 'utf8'));
-    const actual = {};
-    for (const file of corpusFiles()) {
-      const { findings } = lintFile(file);
-      const key = relative(REPO_ROOT, file).replaceAll('\\', '/');
-      actual[key] = findings.map((f) => `${f.class}:${f.id} ${f.pointer}`).sort();
+    const results = new Map();
+    for (const file of collectFiles([FIXTURES_DIR])) {
+      results.set(file, lintFile(file)); // throws on invalid input
     }
-    const diff = diffBaselines(expected, actual);
+    const diff = diffBaselines(expected, toBaseline(results));
     assert.deepEqual(
       diff,
       [],
       `sufficiency baseline mismatch — decide intentionally, never silence:\n${diff.join('\n')}`,
     );
-  });
-
-  it('every corpus fixture is a contract-valid recording (lint refuses otherwise)', () => {
-    for (const file of corpusFiles()) {
-      lintFile(file); // throws on schema-invalid input or unknown stamp
-    }
   });
 });
 
@@ -113,9 +99,9 @@ describe('Sufficiency lint: predicate pins', () => {
     assert.ok(!ids(good).includes('fail:element-locators'));
   });
 
-  it('locator-pair-invariants fires on index-without-count and index >= count', () => {
+  it('locator-pair-invariants fires on a NUMERIC index without count, not on the legal null', () => {
     const base = { type: 'click', x: 1, y: 2, context_id: 1, capture_mode: 'dom' };
-    const orphanIndex = lintRecordingFile(
+    const orphanNumeric = lintRecordingFile(
       doc('extension', [
         {
           ...base,
@@ -123,7 +109,19 @@ describe('Sufficiency lint: predicate pins', () => {
         },
       ]),
     );
-    assert.ok(ids(orphanIndex).includes('fail:locator-pair-invariants'));
+    assert.ok(ids(orphanNumeric).includes('fail:locator-pair-invariants'));
+    // match_index: null WITHOUT match_count is the only expressible encoding
+    // of "measured, matched zero elements" (match_count has minimum 1) —
+    // legal and honest, never a finding.
+    const legalNull = lintRecordingFile(
+      doc('extension', [
+        {
+          ...base,
+          element: el({ locators: [{ strategy: 'css', value: '#a', match_index: null }] }),
+        },
+      ]),
+    );
+    assert.ok(!ids(legalNull).includes('fail:locator-pair-invariants'));
     const outOfRange = lintRecordingFile(
       doc('extension', [
         {
@@ -154,24 +152,38 @@ describe('Sufficiency lint: predicate pins', () => {
     assert.ok(!ids(good).includes('fail:coordinate-geometry'));
   });
 
-  it('coordinate-no-identity-claims fires when a coordinate element carries locators', () => {
-    const bad = lintRecordingFile(
-      doc('desktop-windows', [
-        {
-          type: 'click',
-          x: 1,
-          y: 2,
-          context_id: 1,
-          capture_mode: 'coordinate',
-          window_rect: { x: 0, y: 0, width: 10, height: 10 },
-          element: el({ locators: [{ strategy: 'class_name', value: 'X' }] }),
-        },
-      ]),
+  it('coordinate-no-identity-claims fires on locators AND on any identity fact', () => {
+    const mk = (elExtra) => ({
+      type: 'click',
+      x: 1,
+      y: 2,
+      context_id: 1,
+      capture_mode: 'coordinate',
+      window_rect: { x: 0, y: 0, width: 10, height: 10 },
+      element: el(elExtra),
+    });
+    const withLocators = lintRecordingFile(
+      doc('desktop-windows', [mk({ locators: [{ strategy: 'class_name', value: 'X' }] })]),
     );
-    assert.ok(ids(bad).includes('fail:coordinate-no-identity-claims'));
+    assert.ok(ids(withLocators).includes('fail:coordinate-no-identity-claims'));
+    // The full identity-claim set mirrors the desktop capture's
+    // strip_identity_claims: provider facts count too, not just locators.
+    for (const fact of [
+      { position_in_set: 1 },
+      { size_of_set: 2 },
+      { level: 1 },
+      { framework_id: 'Win32' },
+      { described_after_ms: 0 },
+    ]) {
+      const withFact = lintRecordingFile(doc('desktop-windows', [mk(fact)]));
+      assert.ok(
+        ids(withFact).includes('fail:coordinate-no-identity-claims'),
+        `expected identity-claim finding for ${Object.keys(fact)[0]}`,
+      );
+    }
   });
 
-  it('type-value-nonempty fires on empty value but tolerates redacted elements', () => {
+  it('type-value-nonempty fires on empty value but leaves redacted to masking-honesty', () => {
     const base = { type: 'type', context_id: 1, capture_mode: 'dom' };
     const bad = lintRecordingFile(doc('extension', [{ ...base, value: '', element: el() }]));
     assert.ok(ids(bad).includes('fail:type-value-nonempty'));
@@ -181,19 +193,26 @@ describe('Sufficiency lint: predicate pins', () => {
     assert.ok(!ids(redacted).includes('fail:type-value-nonempty'));
   });
 
-  it('masking-honesty fires on a redacted element that still carries text', () => {
-    const bad = lintRecordingFile(
+  it('masking-honesty requires the EXACT mask: empty value on a redacted action fails', () => {
+    const base = { type: 'type', context_id: 1, capture_mode: 'dom' };
+    // An empty value would erase the parameter-slot marker the scope
+    // boundaries stand on — only the exact mask glyph is honest.
+    const empty = lintRecordingFile(
+      doc('extension', [{ ...base, value: '', element: el({ redacted: true, text: null }) }]),
+    );
+    assert.ok(ids(empty).includes('fail:masking-honesty'));
+    const masked = lintRecordingFile(
       doc('extension', [
-        {
-          type: 'type',
-          value: '••••••••',
-          context_id: 1,
-          capture_mode: 'dom',
-          element: el({ redacted: true, text: 'leaked' }),
-        },
+        { ...base, value: '••••••••', element: el({ redacted: true, text: null }) },
       ]),
     );
-    assert.ok(ids(bad).includes('fail:masking-honesty'));
+    assert.ok(!ids(masked).includes('fail:masking-honesty'));
+    const leakedText = lintRecordingFile(
+      doc('extension', [
+        { ...base, value: '••••••••', element: el({ redacted: true, text: 'leaked' }) },
+      ]),
+    );
+    assert.ok(ids(leakedText).includes('fail:masking-honesty'));
   });
 
   it('key-nonempty fires on an empty key', () => {
@@ -233,7 +252,7 @@ describe('Sufficiency lint: predicate pins', () => {
     assert.ok(!ids(good).includes('fail:context-introduced'));
   });
 
-  it('start-point gap covers the initial context only when a source/url states it', () => {
+  it('start-point counts coverage only when the context BEGINS with a stated start', () => {
     const click = {
       type: 'click',
       x: 1,
@@ -242,15 +261,15 @@ describe('Sufficiency lint: predicate pins', () => {
       capture_mode: 'dom',
       element: el({ locators: [{ strategy: 'css', value: '#a' }] }),
     };
+    const nav = { type: 'navigate', url: 'https://x', context_id: 1, capture_mode: 'dom' };
     const uncovered = lintRecordingFile(doc('extension', [click]));
     assert.ok(ids(uncovered).includes('gap:start-point'));
-    const covered = lintRecordingFile(
-      doc('extension', [
-        { type: 'navigate', url: 'https://x', context_id: 1, capture_mode: 'dom' },
-        click,
-      ]),
-    );
+    const covered = lintRecordingFile(doc('extension', [nav, click]));
     assert.ok(!ids(covered).includes('gap:start-point'));
+    // A LATE navigate states where the recording went, not where the earlier
+    // click began — the gap must survive it.
+    const lateNav = lintRecordingFile(doc('extension', [click, nav]));
+    assert.ok(ids(lateNav).includes('gap:start-point'));
   });
 
   it('viewport-context gap fires once per browser recording with point actions', () => {

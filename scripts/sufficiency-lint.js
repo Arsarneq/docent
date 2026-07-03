@@ -10,15 +10,27 @@
  * runs: the platform comes from the `docent_format.platform` stamp and must be
  * a leaf in build-schemas' PLATFORMS map (the contract is composed per leaf:
  * base → family → leaf delta), and the file is validated against the composed
- * schema. Schema-invalid files and unknown stamps are refused loudly — the
- * lint never reasons about a file the contract does not recognize.
+ * schema (version stamp relaxed via build-schemas' relaxVersionStamp, shared
+ * with the backward-compat harness). Schema-invalid files and unknown stamps
+ * are refused loudly — the lint never reasons about a file the contract does
+ * not recognize.
  *
  * Findings come in two classes, never conflated:
  *   fail — the current format can carry the fact and this recording doesn't
  *          (insufficient).
  *   gap  — the format itself cannot state the fact yet (not applicable today;
- *          each maps to an open capture issue and flips to `fail` when the
- *          capture work lands).
+ *          each maps to open capture work). Every gap predicate carries a
+ *          schema probe: the moment the composed schema CAN express the fact,
+ *          the lint refuses to run until the predicate is promoted to `fail`
+ *          — the flip is self-detecting, never a memory exercise.
+ *
+ * Known not-yet-checkable invariant (documented, not faked): masked-in-place
+ * locator values on redacted elements. Which locator strategies derive from
+ * the sensitive value is not stated by the contract (every strategy def
+ * carries the shared `masked` field), so a static check would need to
+ * hardcode per-platform strategy knowledge. Candidate contract enrichment for
+ * the resolution-specification work: mark value-derived strategies in the
+ * schema, then add the predicate here.
  *
  * Modes:
  *   node scripts/sufficiency-lint.js <file-or-dir>... [--json] [--strict]
@@ -36,11 +48,14 @@ import { resolve, join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import Ajv from 'ajv/dist/2020.js';
 import addFormats from 'ajv-formats';
-import { PLATFORMS, composePlatform } from './build-schemas.js';
+import { PLATFORMS, composePlatform, relaxVersionStamp } from './build-schemas.js';
+import { SENSITIVE_MASK } from '../packages/shared/lib/field-sensitivity.js';
 
 const REPO_ROOT = resolve(fileURLToPath(new URL('.', import.meta.url)), '..');
 
-const PASSWORD_MASK = '••••••••';
+/** Action types that introduce a context into the stream. One constant so the
+ * ordering predicates can never drift apart on what "introduced" means. */
+const CONTEXT_INTRODUCING_TYPES = new Set(['context_open', 'context_switch']);
 
 // ─── Platform / family resolution ────────────────────────────────────────────
 
@@ -54,21 +69,12 @@ function isDesktopFamily(platform) {
   return PLATFORMS[platform].includes('desktop.shared.schema.json');
 }
 
-/**
- * Relax the `docent_format.schema_version` const to a plain string so
- * historical fixtures validate by SHAPE. Same guardrail as the twin in
- * packages/shared/tests/unit/backward-compat.test.js: this clone is local to
- * the lint — published schemas and import validators keep the const intact.
- * The `platform` const is kept (a desktop file must not lint as extension).
- */
-function shapeOnly(schema) {
-  const clone = structuredClone(schema);
-  const stamp = clone.$defs?.docent_format?.properties?.schema_version;
-  if (stamp && 'const' in stamp) {
-    delete stamp.const;
-    stamp.type = 'string';
+const schemaCache = new Map();
+function composedFor(platform) {
+  if (!schemaCache.has(platform)) {
+    schemaCache.set(platform, composePlatform(platform));
   }
-  return clone;
+  return schemaCache.get(platform);
 }
 
 const validatorCache = new Map();
@@ -76,7 +82,7 @@ function validatorFor(platform) {
   if (!validatorCache.has(platform)) {
     const ajv = new Ajv({ allErrors: true, strict: false });
     addFormats(ajv);
-    validatorCache.set(platform, ajv.compile(shapeOnly(composePlatform(platform))));
+    validatorCache.set(platform, ajv.compile(relaxVersionStamp(composedFor(platform))));
   }
   return validatorCache.get(platform);
 }
@@ -98,6 +104,16 @@ function hasPoint(action) {
   return typeof action.x === 'number' && typeof action.y === 'number';
 }
 
+/** The element facts that constitute identity claims in coordinate mode —
+ * mirrors strip_identity_claims in the desktop capture worker. */
+const IDENTITY_FACT_FIELDS = [
+  'position_in_set',
+  'size_of_set',
+  'level',
+  'framework_id',
+  'described_after_ms',
+];
+
 export const PREDICATES = [
   {
     id: 'element-locators',
@@ -116,10 +132,11 @@ export const PREDICATES = [
     appliesTo: (a) => hasElement(a) && Array.isArray(a.element.locators),
     check: (a) => {
       for (const loc of a.element.locators) {
-        const hasIndex = 'match_index' in loc;
-        const hasCount = 'match_count' in loc;
-        if (hasIndex && !hasCount) {
-          return `locator "${loc.strategy}" carries match_index without match_count`;
+        // match_index: null WITHOUT match_count is the only expressible
+        // encoding of "measured, matched zero elements" (match_count has
+        // minimum 1) — legal and honest. Only a NUMERIC index needs a count.
+        if (typeof loc.match_index === 'number' && !('match_count' in loc)) {
+          return `locator "${loc.strategy}" carries a numeric match_index without match_count`;
         }
         if (
           typeof loc.match_index === 'number' &&
@@ -154,8 +171,10 @@ export const PREDICATES = [
       if (Array.isArray(el.locators) && el.locators.length > 0) {
         return 'coordinate-mode element carries locators';
       }
-      if (el.described_after_ms != null) {
-        return 'coordinate-mode element carries described_after_ms';
+      for (const field of IDENTITY_FACT_FIELDS) {
+        if (el[field] != null) {
+          return `coordinate-mode element carries ${field}`;
+        }
       }
       return null;
     },
@@ -170,14 +189,16 @@ export const PREDICATES = [
   {
     id: 'masking-honesty',
     class: 'fail',
-    title: 'redacted elements mask the value and null the text',
+    title: 'redacted elements mask the value exactly and null the text',
     appliesTo: (a) => hasElement(a) && a.element.redacted === true,
     check: (a) => {
       if (a.element.text != null) {
         return 'redacted element still carries text';
       }
-      if ('value' in a && a.value !== PASSWORD_MASK && a.value !== '') {
-        return 'redacted action carries an unmasked value';
+      // A redacted value is always the exact mask — an empty value would
+      // erase the parameter-slot marker the scope boundaries stand on.
+      if ('value' in a && a.value !== SENSITIVE_MASK) {
+        return 'redacted action does not carry the exact mask as its value';
       }
       return null;
     },
@@ -193,7 +214,10 @@ export const PREDICATES = [
 
 /**
  * Recording-level predicates — one finding per recording, pointed at the
- * offending context, to keep baselines readable.
+ * offending context, to keep baselines readable. Gap predicates additionally
+ * carry `obsoleteProbe(schema)`: a pattern check against the composed schema
+ * that detects when the format HAS become able to express the fact, at which
+ * point the lint refuses to run until the predicate is promoted to `fail`.
  */
 export const RECORDING_PREDICATES = [
   {
@@ -210,8 +234,7 @@ export const RECORDING_PREDICATES = [
         if (initial === null) initial = ctx;
         if (!seen.has(ctx)) {
           seen.add(ctx);
-          const introduces = action.type === 'context_open' || action.type === 'context_switch';
-          if (ctx !== initial && !introduces) {
+          if (ctx !== initial && !CONTEXT_INTRODUCING_TYPES.has(action.type)) {
             findings.push(
               `context ${ctx} first appears on a "${action.type}" action with no introducing lifecycle action`,
             );
@@ -227,34 +250,37 @@ export const RECORDING_PREDICATES = [
     title: 'each context states where reproduction begins',
     // The format cannot state a starting point for the recording's initial
     // context today (no recording-level start URL / app identity — the
-    // capture backlog's recording-context work); introduced contexts may
-    // carry one via their lifecycle action's `source`.
+    // capture backlog's recording-context work). A context counts as covered
+    // only when its FIRST action already states the start (a navigate, or an
+    // introducing lifecycle action carrying `source`): a source appearing
+    // after other actions in the context states where the recording WENT,
+    // not where reproduction of the earlier actions BEGINS.
     check: (recording, platform) => {
       const findings = [];
+      const seen = new Set();
       const covered = new Set();
       let initial = null;
       for (const { action } of iterateActions(recording)) {
         const ctx = action.context_id;
         if (ctx == null) continue;
         if (initial === null) initial = ctx;
-        if (covered.has(ctx)) continue;
-        if (
-          (action.type === 'context_open' || action.type === 'context_switch') &&
-          typeof action.source === 'string' &&
-          action.source !== ''
-        ) {
-          covered.add(ctx);
-        }
-        if (action.type === 'navigate' && typeof action.url === 'string' && action.url !== '') {
-          covered.add(ctx);
-        }
+        if (seen.has(ctx)) continue;
+        seen.add(ctx);
+        const statesStart =
+          (CONTEXT_INTRODUCING_TYPES.has(action.type) &&
+            typeof action.source === 'string' &&
+            action.source !== '') ||
+          (action.type === 'navigate' && typeof action.url === 'string' && action.url !== '');
+        if (statesStart) covered.add(ctx);
       }
       if (initial !== null && !covered.has(initial)) {
         const what = isDesktopFamily(platform) ? 'application identity' : 'starting URL';
-        findings.push(`initial context ${initial} has no stated ${what}`);
+        findings.push(`initial context ${initial} does not begin with a stated ${what}`);
       }
       return findings;
     },
+    obsoleteProbe: (schema) =>
+      probeProperties(schema, /^(start_url|start_source|starting_context|app_identity)$/i),
   },
   {
     id: 'viewport-context',
@@ -272,8 +298,47 @@ export const RECORDING_PREDICATES = [
       }
       return [];
     },
+    obsoleteProbe: (schema) => probeProperties(schema, /viewport|device_pixel_ratio/i),
   },
 ];
+
+/**
+ * Search every `properties` map in the composed schema for a property name
+ * matching `pattern`. Returns the first match path or null. Used by gap
+ * predicates to self-detect that the format has grown the capability they
+ * declare missing.
+ */
+function probeProperties(schema, pattern, path = '$') {
+  if (schema == null || typeof schema !== 'object') return null;
+  if (schema.properties && typeof schema.properties === 'object') {
+    for (const name of Object.keys(schema.properties)) {
+      if (pattern.test(name)) return `${path}.properties.${name}`;
+    }
+  }
+  for (const [key, value] of Object.entries(schema)) {
+    const hit = probeProperties(value, pattern, `${path}.${key}`);
+    if (hit) return hit;
+  }
+  return null;
+}
+
+/**
+ * Refuse to lint a platform whose composed schema can now express a fact a
+ * gap predicate still declares inexpressible — the promised gap→fail flip
+ * must happen in code, not in memory.
+ */
+function assertGapPredicatesCurrent(platform) {
+  const schema = composedFor(platform);
+  for (const p of RECORDING_PREDICATES) {
+    if (p.class !== 'gap' || !p.obsoleteProbe) continue;
+    const hit = p.obsoleteProbe(schema);
+    if (hit) {
+      throw new Error(
+        `gap predicate "${p.id}" is obsolete for ${platform}: the composed schema now expresses the fact at ${hit} — promote the predicate to a fail check`,
+      );
+    }
+  }
+}
 
 // ─── Engine ───────────────────────────────────────────────────────────────────
 
@@ -295,6 +360,7 @@ export function lintRecordingFile(doc) {
   if (!PLATFORMS[platform]) {
     throw new Error(`unknown platform stamp: ${JSON.stringify(platform)}`);
   }
+  assertGapPredicatesCurrent(platform);
   const findings = [];
   for (let r = 0; r < (doc.recordings || []).length; r++) {
     const recording = doc.recordings[r];
@@ -336,10 +402,17 @@ export function lintFile(path) {
   return { platform, findings: lintRecordingFile(doc) };
 }
 
-function collectFiles(paths) {
+/**
+ * Collect `.docent.json` files from a mix of file and directory paths
+ * (directories are recursed). Relative inputs resolve against the repo root,
+ * not the caller's cwd, so the CLI behaves identically from any directory.
+ * Exported so the corpus lock test discovers exactly the same file set the
+ * CLI does.
+ */
+export function collectFiles(paths) {
   const files = [];
   for (const p of paths) {
-    const abs = resolve(p);
+    const abs = resolve(REPO_ROOT, p);
     if (statSync(abs).isDirectory()) {
       const walk = (dir) => {
         for (const entry of readdirSync(dir, { withFileTypes: true })) {
@@ -356,14 +429,36 @@ function collectFiles(paths) {
   return files.sort((a, b) => a.localeCompare(b, 'en'));
 }
 
-/** Baseline shape: { "<repo-relative path>": ["<id> <pointer>", ...] } */
-function toBaseline(results) {
+/**
+ * Serialize lint results into the baseline shape:
+ * `{ "<repo-relative forward-slash path>": ["<class>:<id> <pointer>", ...] }`
+ * (entries sorted). Exported so the corpus lock test and any tooling compare
+ * against exactly what `--write-baseline` writes.
+ */
+export function toBaseline(results) {
   const out = {};
   for (const [file, { findings }] of results) {
     const key = relative(REPO_ROOT, file).replaceAll('\\', '/');
     out[key] = findings.map((f) => `${f.class}:${f.id} ${f.pointer}`).sort();
   }
   return out;
+}
+
+/**
+ * Compare two baseline objects. Returns human-readable difference lines —
+ * `NEW` entries exist only in `actual`, `VANISHED` only in `expected`; an
+ * empty array means the baselines match exactly.
+ */
+export function diffBaselines(expected, actual) {
+  const lines = [];
+  const files = new Set([...Object.keys(expected), ...Object.keys(actual)]);
+  for (const f of [...files].sort()) {
+    const exp = new Set(expected[f] || []);
+    const act = new Set(actual[f] || []);
+    for (const e of act) if (!exp.has(e)) lines.push(`NEW      ${f}: ${e}`);
+    for (const e of exp) if (!act.has(e)) lines.push(`VANISHED ${f}: ${e}`);
+  }
+  return lines;
 }
 
 // ─── CLI ─────────────────────────────────────────────────────────────────────
@@ -374,7 +469,9 @@ function main(argv) {
     const i = args.indexOf(name);
     if (i === -1) return null;
     const v = args.splice(i, 2)[1];
-    if (!v) throw new Error(`${name} requires a path`);
+    if (!v || v.startsWith('--')) {
+      throw new Error(`${name} requires a path`);
+    }
     return v;
   };
   const has = (name) => {
@@ -419,7 +516,14 @@ function main(argv) {
   }
 
   if (json) {
-    console.log(JSON.stringify(Object.fromEntries(results), null, 2));
+    // Keyed like the baseline (repo-relative, forward slashes) so the output
+    // is diffable against it and portable across machines.
+    const out = {};
+    for (const [file, { platform, findings }] of results) {
+      const key = relative(REPO_ROOT, file).replaceAll('\\', '/');
+      out[key] = { platform, findings };
+    }
+    console.log(JSON.stringify(out, null, 2));
   } else {
     for (const [file, { platform, findings }] of results) {
       const rel = relative(REPO_ROOT, file).replaceAll('\\', '/');
@@ -446,18 +550,6 @@ function main(argv) {
   }
 
   return strict && fails > 0 ? 1 : 0;
-}
-
-export function diffBaselines(expected, actual) {
-  const lines = [];
-  const files = new Set([...Object.keys(expected), ...Object.keys(actual)]);
-  for (const f of [...files].sort()) {
-    const exp = new Set(expected[f] || []);
-    const act = new Set(actual[f] || []);
-    for (const e of act) if (!exp.has(e)) lines.push(`NEW      ${f}: ${e}`);
-    for (const e of exp) if (!act.has(e)) lines.push(`VANISHED ${f}: ${e}`);
-  }
-  return lines;
 }
 
 const isMain = process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url);
