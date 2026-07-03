@@ -1113,6 +1113,9 @@ fn process_raw_event<B: AccessibilityBackend>(
             handle_foreground(raw, backend, action_sender, context_id, window_rect.clone());
         }
         RawEventType::WindowCreate => {
+            // The executable path is the documented `source` for desktop
+            // context lifecycle actions; empty reads stay honest as None.
+            let process = backend.process_name(raw.window_handle);
             let _ = action_sender.send(ActionEvent {
                 timestamp: raw.timestamp,
                 context_id,
@@ -1121,8 +1124,14 @@ fn process_raw_event<B: AccessibilityBackend>(
                 window_rect: window_rect.clone(),
                 sequence_id: Some(raw.sequence_id),
                 payload: ActionPayload::ContextOpen {
-                    opener_context_id: context_id,
-                    source: None,
+                    // The pipeline does not observe which window caused this
+                    // create — null is the honest value, never a self-reference.
+                    opener_context_id: None,
+                    source: if process.is_empty() {
+                        None
+                    } else {
+                        Some(process)
+                    },
                 },
             });
         }
