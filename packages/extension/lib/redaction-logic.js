@@ -22,6 +22,12 @@
 
 import { isSensitiveField, redactUrl, SENSITIVE_MASK } from '../shared/lib/field-sensitivity.js';
 
+/**
+ * Redact sensitive content from a captured action, in place.
+ *
+ * @param {object} action — the soon-to-be-stored action; mutated in place
+ * @returns {object} the same action, for call-site chaining
+ */
 export function redactSensitive(action) {
   if (!action || typeof action !== 'object') return action;
   const el = action.element;
