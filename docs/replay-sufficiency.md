@@ -104,10 +104,14 @@ here, not from a failed replay:
   available, an action carries a screen point and window geometry instead of
   element identity; reproduction depends on reproducing that geometry, and no
   element-level claims are made.
-- **Not-capturable interactions** — each platform documents what its capture
-  layer cannot see, including OS-intercepted hotkeys and assistive
-  technologies that drive accessibility APIs directly without low-level input:
-  [extension](capture-principles-extension.md), [desktop](capture-principles-desktop.md).
+- **Interactions outside the capture surface** — each platform enumerates the
+  surface its capture layer observes and treats it as closed: an interaction
+  that reaches none of it is not captured, with no per-case listing to go
+  stale. The short exception lists cover only the non-obvious corners —
+  interactions that appear to be within the surface but are intercepted
+  before it or bypass it (OS-level hotkeys, assistive technologies that drive
+  accessibility APIs directly): [extension](capture-principles-extension.md),
+  [desktop](capture-principles-desktop.md).
 
 ---
 

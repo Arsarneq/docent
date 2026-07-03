@@ -43,6 +43,19 @@ worker and leak recording state to the page.
 
 ---
 
+## Capture Surface
+
+The capture surface is enumerated positively and treated as **closed**: the
+recorder listens for a fixed set of trusted DOM events (the exact set lives in
+`content/recorder.js`), and the service worker captures the browser-chrome
+proxies in the table below. An interaction that reaches neither is not
+captured — no per-case listing needed, and nothing new the platform grows is
+captured implicitly. The only negative entries kept are the
+[exceptions within the surface](#exceptions-within-the-surface): interactions
+that would appear to be covered by this description but are not.
+
+---
+
 ## Browser Chrome Proxies
 
 These user actions happen in browser chrome (not visible to the content script):
@@ -72,9 +85,16 @@ These user actions happen in browser chrome (not visible to the content script):
 
 ---
 
-## Known Limitations
+## Exceptions Within the Surface
 
-- Keyboard shortcuts not in `CAPTURE_KEYS` are not captured as key events
-- Arrow keys in native `<select>` are swallowed by the browser
+Interactions that would appear to be inside the
+[capture surface](#capture-surface) above but are not captured (or are
+captured with a caveat). An entry belongs here only when the surface
+description alone would mislead:
+
+- Keyboard shortcuts not in `CAPTURE_KEYS` are not captured as key events —
+  the keyboard surface is the whitelist, not all keys
+- Arrow keys in native `<select>` are swallowed by the browser before the
+  recorder's listeners see them
 - `window.open()` detection uses a timing window (see `capture-timing.js`)
 - `window.close()` detection uses a timing window on programmatic tabs
