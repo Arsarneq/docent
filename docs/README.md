@@ -8,6 +8,9 @@ the [root README](../README.md).
 - [Capture Principles](capture-principles.md) — the core rules for what Docent
   captures, with platform-specific details for the
   [extension](capture-principles-extension.md) and [desktop](capture-principles-desktop.md)
+- [Replay Sufficiency](replay-sufficiency.md) — what a recording must be
+  sufficient for: the principle, its scope boundaries, and the field taxonomy
+  the guarantee stands on
 - [Session Format](session-format.md) — the formal `.docent.json` specification
 - [Sync Protocol](sync-protocol.md) — the REST API for syncing projects between
   clients and a server
@@ -22,7 +25,8 @@ truth for the `.docent.json` format.
 
 This repository intentionally contains no consumer of `.docent.json`, and no
 example consumer. The reference sync server is a sync target — somewhere to store
-and exchange sessions — not a consumer of the format.
+and exchange sessions — not a consumer of the format. What a recording must be
+sufficient _for_ is nonetheless defined: [Replay Sufficiency](replay-sufficiency.md).
 
 ## Contributing
 

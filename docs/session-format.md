@@ -6,7 +6,8 @@ and this document is the formal specification for both. It is not Docent's only
 external contract: sync servers implement the [Sync Protocol](sync-protocol.md)
 and treat this format as an opaque payload. All of Docent's external contracts
 are data — versioned schemas and a documented protocol — never shipped code or
-a shipped consumer.
+a shipped consumer. What a recording must be sufficient _for_ is defined by
+the [Replay Sufficiency](replay-sufficiency.md) principle.
 
 ---
 
@@ -471,3 +472,7 @@ their semantics changed without a major version bump.
 
 Fields may be **added** in minor versions. Consumers should ignore unknown fields
 rather than failing on them.
+
+Which fields the replay-sufficiency guarantee stands on — the normative subset
+versus informative evidence and context — is classified in
+[Replay Sufficiency — Field Taxonomy](replay-sufficiency.md#field-taxonomy--normative-vs-informative).

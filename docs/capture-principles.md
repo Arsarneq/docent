@@ -1,7 +1,10 @@
 # Capture Principles
 
 The core rules for how Docent captures user interactions. Applies to both
-the Chrome extension and the desktop application.
+the Chrome extension and the desktop application. This document governs what
+may enter a recording; its companion,
+[Replay Sufficiency](replay-sufficiency.md), governs what the recording must
+be sufficient for.
 
 Platform-specific details:
 

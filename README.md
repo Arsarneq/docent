@@ -103,6 +103,12 @@ their own schema and reading guide, and sync servers implement a documented
 [REST protocol](docs/sync-protocol.md). Each contract is data; none of it is
 shipped code.
 
+The affirmative half of that neutrality is a promise about the data itself:
+**replay sufficiency** — assuming the application unchanged, a consumer holding
+only the recording can reproduce the session from a different machine. See
+[Replay Sufficiency](docs/replay-sufficiency.md) for the principle, its scope
+boundaries, and what makes it testable.
+
 ---
 
 ## Schema versions
