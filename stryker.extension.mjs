@@ -9,6 +9,7 @@ export default {
       'packages/extension/tests/unit/navigation-logic.test.js',
       'packages/extension/tests/unit/recorder-logic.test.js',
       'packages/extension/tests/unit/recording-mode.test.js',
+      'packages/extension/tests/unit/service-worker.test.js',
     ].join(' '),
   },
   reporters: ['clear-text', 'html'],

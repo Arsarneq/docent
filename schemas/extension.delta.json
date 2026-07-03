@@ -192,6 +192,7 @@
       ]
     },
     "locator_id": {
+      "x-value-derived": false,
       "properties": {
         "strategy": {
           "const": "id"
@@ -214,6 +215,7 @@
       "additionalProperties": false
     },
     "locator_test_id": {
+      "x-value-derived": false,
       "properties": {
         "strategy": {
           "const": "test_id"
@@ -240,6 +242,7 @@
       "additionalProperties": false
     },
     "locator_name": {
+      "x-value-derived": false,
       "properties": {
         "strategy": {
           "const": "name"
@@ -262,6 +265,7 @@
       "additionalProperties": false
     },
     "locator_tag_name": {
+      "x-value-derived": false,
       "properties": {
         "strategy": {
           "const": "tag_name"
@@ -284,6 +288,7 @@
       "additionalProperties": false
     },
     "locator_role_name": {
+      "x-value-derived": false,
       "properties": {
         "strategy": {
           "const": "role_name"
@@ -310,6 +315,7 @@
       "additionalProperties": false
     },
     "locator_label": {
+      "x-value-derived": false,
       "properties": {
         "strategy": {
           "const": "label"
@@ -337,6 +343,7 @@
       "additionalProperties": false
     },
     "locator_text": {
+      "x-value-derived": true,
       "properties": {
         "strategy": {
           "const": "text"
@@ -359,6 +366,7 @@
       "additionalProperties": false
     },
     "locator_placeholder": {
+      "x-value-derived": false,
       "properties": {
         "strategy": {
           "const": "placeholder"
@@ -381,6 +389,7 @@
       "additionalProperties": false
     },
     "locator_title": {
+      "x-value-derived": false,
       "properties": {
         "strategy": {
           "const": "title"
@@ -403,6 +412,7 @@
       "additionalProperties": false
     },
     "locator_alt_text": {
+      "x-value-derived": false,
       "properties": {
         "strategy": {
           "const": "alt_text"
@@ -425,6 +435,7 @@
       "additionalProperties": false
     },
     "locator_css": {
+      "x-value-derived": false,
       "properties": {
         "strategy": {
           "const": "css"

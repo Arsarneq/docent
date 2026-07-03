@@ -80,6 +80,75 @@ describe('classifyChange: patch (description-only)', () => {
   });
 });
 
+describe('classifyChange: x- annotations', () => {
+  // `x-` keys are contract annotations the tooling reads (e.g.
+  // `x-value-derived`). Introducing a KNOWN annotation documents existing
+  // behaviour (patch — the add-is-documentation property is verified by
+  // drift guards, per annotation kind); introducing an unknown kind, or
+  // changing/removing any annotation, rewrites what the contract says, which
+  // the classifier escalates (major, never-under-report). The def under
+  // annotation exists in BOTH schemas — a wholly new def short-circuits
+  // earlier as definition-added and never reaches the interception.
+
+  it('known annotation added with value true → patch', () => {
+    const a = baseSchema();
+    const b = baseSchema();
+    b.$defs.action_click['x-value-derived'] = true;
+    assert.equal(classifyChange(a, b).level, 'patch');
+  });
+
+  it('known annotation added with value false → patch', () => {
+    const a = baseSchema();
+    const b = baseSchema();
+    b.$defs.action_click['x-value-derived'] = false;
+    assert.equal(classifyChange(a, b).level, 'patch');
+  });
+
+  it('unknown annotation kind added → major (never-under-report)', () => {
+    const a = baseSchema();
+    const b = baseSchema();
+    b.$defs.action_click['x-replay-critical'] = true;
+    assert.equal(classifyChange(a, b).level, 'major');
+  });
+
+  it('annotation changed true → false → major', () => {
+    const a = baseSchema();
+    const b = baseSchema();
+    a.$defs.action_click['x-value-derived'] = true;
+    b.$defs.action_click['x-value-derived'] = false;
+    assert.equal(classifyChange(a, b).level, 'major');
+  });
+
+  it('annotation changed false → true → major', () => {
+    const a = baseSchema();
+    const b = baseSchema();
+    a.$defs.action_click['x-value-derived'] = false;
+    b.$defs.action_click['x-value-derived'] = true;
+    assert.equal(classifyChange(a, b).level, 'major');
+  });
+
+  it('annotation removed → major', () => {
+    const a = baseSchema();
+    const b = baseSchema();
+    a.$defs.action_click['x-value-derived'] = true;
+    assert.equal(classifyChange(a, b).level, 'major');
+  });
+
+  it('object-valued annotation change does not re-enter the walk → major, once', () => {
+    const a = baseSchema();
+    const b = baseSchema();
+    a.$defs.action_click['x-meta'] = { nested: { deep: 1 } };
+    b.$defs.action_click['x-meta'] = { nested: { deep: 2 } };
+    const result = classifyChange(a, b);
+    assert.equal(result.level, 'major');
+    assert.equal(
+      result.reasons.filter((r) => r.message.includes('x-meta')).length,
+      1,
+      'the annotation is classified once, not recursed into',
+    );
+  });
+});
+
 describe('classifyChange: minor', () => {
   it('new OPTIONAL property → minor', () => {
     const a = baseSchema();

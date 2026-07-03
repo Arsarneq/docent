@@ -447,7 +447,7 @@ export function getHighestSeenSeq() {
   return _highestSeenSeq;
 }
 
-// Test-only exports for reorder internals
+// Test-only exports for reorder internals and the redaction chokepoint
 export const _testOnly = {
   get highestSeenSeq() {
     return _highestSeenSeq;
@@ -455,4 +455,5 @@ export const _testOnly = {
   resetReorderState: _resetReorderState,
   insertOrdered: _insertOrdered,
   stripSeqFields: _stripSeqFields,
+  redactSensitive: _redactSensitive,
 };
