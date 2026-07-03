@@ -33,7 +33,11 @@ globalThis.window = {
 globalThis.fetch = mockFetch;
 
 // Dynamic import after globals are set up
-const { default: adapter, commitWithCompleteness } = await import('../../src/adapter-tauri.js');
+const {
+  default: adapter,
+  commitWithCompleteness,
+  _testOnly,
+} = await import('../../src/adapter-tauri.js');
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -360,5 +364,100 @@ describe('commitWithCompleteness()', () => {
     adapter.clearPendingActions();
     await commitWithCompleteness();
     // Should complete without waiting
+  });
+});
+
+// ─── _redactSensitive: locator pass-through (docent#138/#139) ─────────────────
+// First regression coverage for the redaction chokepoint. Locator entries are
+// identity-derived on desktop (ids, control types, labels, tree paths — the
+// signals detection keys on), so they pass through UNTOUCHED while the value
+// and text are masked. Masking a label would destroy the locator and mask a
+// non-secret.
+
+describe('_redactSensitive leaves locators and provider facts untouched', () => {
+  function sensitiveAction() {
+    return {
+      type: 'type',
+      timestamp: 1000,
+      sequence_id: 1,
+      value: '4111 1111 1111 1111',
+      element: {
+        tag: 'Edit',
+        id: 'card_number',
+        name: 'card_number',
+        role: 'edit',
+        type: null,
+        text: '4111 1111 1111 1111',
+        selector: 'Window:Checkout > Edit:Card number',
+        position_in_set: 2,
+        size_of_set: 4,
+        level: 1,
+        framework_id: 'WPF',
+        locators: [
+          { strategy: 'automation_id', value: 'card_number', match_count: 1, match_index: 0 },
+          {
+            strategy: 'role_name',
+            role: 'Edit',
+            name: 'Card number',
+            match_count: 2,
+            match_index: 1,
+          },
+          { strategy: 'class_name', value: 'Edit', match_count: 6, match_index: 3 },
+          { strategy: 'labeled_by', value: 'Card number' },
+          { strategy: 'tree_path', value: 'Window:Checkout > Edit:Card number' },
+        ],
+      },
+    };
+  }
+
+  it('masks value/text and flags redacted, but locators + facts are deep-equal untouched', () => {
+    adapter.clearPendingActions();
+    _testOnly.resetReorderState();
+    const original = sensitiveAction();
+    const expectedLocators = structuredClone(original.element.locators);
+    _testOnly.insertOrdered(sensitiveAction());
+
+    const [stored] = adapter.getPendingActions();
+    assert.notEqual(stored.value, '4111 1111 1111 1111');
+    assert.equal(stored.element.text, null);
+    assert.equal(stored.element.redacted, true);
+    assert.deepStrictEqual(stored.element.locators, expectedLocators);
+    assert.equal(stored.element.position_in_set, 2);
+    assert.equal(stored.element.size_of_set, 4);
+    assert.equal(stored.element.level, 1);
+    assert.equal(stored.element.framework_id, 'WPF');
+    const masked = stored.element.locators.some((l) => l.masked);
+    assert.equal(masked, false, 'no desktop locator entry may carry masked');
+  });
+
+  it('leaves a non-sensitive action entirely untouched', () => {
+    adapter.clearPendingActions();
+    _testOnly.resetReorderState();
+    const action = {
+      type: 'click',
+      timestamp: 1000,
+      sequence_id: 1,
+      x: 1,
+      y: 2,
+      element: {
+        tag: 'Button',
+        id: 'btnSave',
+        name: 'Save',
+        role: 'button',
+        type: null,
+        text: 'Save',
+        selector: 'Window:App > Button:Save',
+        locators: [{ strategy: 'automation_id', value: 'btnSave', match_count: 1, match_index: 0 }],
+      },
+    };
+    const expected = structuredClone(action);
+    delete expected.sequence_id; // stripped before storage
+    _testOnly.insertOrdered(action);
+
+    const [stored] = adapter.getPendingActions();
+    // `_seq` is the adapter's transient reorder marker (stripped at commit
+    // time by _stripSeqFields) — not part of the redaction contract under test.
+    const { _seq, ...storedWithoutSeq } = stored;
+    assert.deepStrictEqual(storedWithoutSeq, expected);
   });
 });

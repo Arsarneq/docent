@@ -112,6 +112,12 @@ function _resetReorderState() {
 // the stored/exported recording). `isSensitiveField` also matches the
 // password element_type, so this is also where the desktop `redacted` marker is
 // set, keeping the marker single-sourced with the extension. Mutates in place.
+//
+// `element.locators` passes through UNTOUCHED by design: every desktop locator
+// strategy is identity-derived (ids, control types, labels, tree paths — the
+// very signals the detection keys on), never the typed value, which lives in
+// `action.value`/`element.text` and is masked here. Masking a label would both
+// destroy the locator and mask a non-secret — redaction stays conservative.
 function _redactSensitive(action) {
   const el = action && action.element;
   if (el && typeof el === 'object' && !el.redacted && isSensitiveField(el)) {

@@ -79,6 +79,16 @@ nulled, and is flagged `redacted`. The detection rules are shared with the
 extension (a single util), so both platforms mask the same fields. (Tokened-URL
 redaction is extension-only, since the desktop app has no captured URLs.)
 
+Locator candidates (`locators[]`) pass the redaction chokepoint untouched by
+design: every desktop strategy is identity-derived — ids, control types,
+labels, and tree paths, the very signals the detection keys on — never the
+typed value, which lives in `value`/`text` and is masked as above. Masking a
+label would both destroy the locator and mask a non-secret; redaction stays
+conservative. Locator match statistics are measured on the worker at the
+moment the element is described (asynchronously, after the input that caused
+it), never inside the low-level input hook — hook-described click elements
+carry candidate values only, with the pair absent.
+
 ---
 
 ## Not Capturable (OS-Level)

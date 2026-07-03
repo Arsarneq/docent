@@ -63,6 +63,7 @@ fn arb_native_properties() -> impl Strategy<Value = NativeElementProperties> {
                     is_password,
                     value,
                     tree_path,
+                    ..Default::default()
                 }
             },
         )

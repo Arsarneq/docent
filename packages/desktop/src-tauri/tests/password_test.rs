@@ -31,6 +31,7 @@ fn arb_password_element() -> impl Strategy<Value = ElementDescription> {
             element_type: Some("password".to_string()),
             text,
             selector,
+            ..Default::default()
         })
 }
 
@@ -119,6 +120,7 @@ proptest! {
             element_type: None,
             text: None,
             selector: String::new(),
+            ..Default::default()
         };
 
         let event = NativeEvent::TextInput {
