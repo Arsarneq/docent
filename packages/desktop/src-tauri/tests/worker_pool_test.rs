@@ -1554,6 +1554,57 @@ fn coordinate_downgrade_strips_locators_facts_and_latency() {
 }
 
 // ---------------------------------------------------------------------------
+// context_open facts (issue #229)
+// ---------------------------------------------------------------------------
+
+/// context_open must carry the observed executable path as `source` and must
+/// never fabricate an opener: the pipeline does not observe which window
+/// caused the create, so `opener_context_id` is null — not a self-reference.
+#[test]
+fn context_open_carries_process_source_and_no_fabricated_opener() {
+    let harness = WorkerTestHarness::new(LocatorBackend);
+    harness.send_event(RawEvent {
+        event_type: RawEventType::WindowCreate,
+        sequence_id: 1,
+        timestamp: 1000,
+        screen_x: 0,
+        screen_y: 0,
+        window_handle: 42,
+        process_id: 7,
+        key_code: 0,
+        modifiers: (false, false, false, false),
+        scroll_delta: 0.0,
+        callback_params: [0; 4],
+        pre_captured_element: None,
+    });
+
+    thread::sleep(Duration::from_millis(100));
+    let events = harness.shutdown();
+
+    let open = events
+        .iter()
+        .find(|e| matches!(e.payload, ActionPayload::ContextOpen { .. }))
+        .expect("expected a ContextOpen event");
+    if let ActionPayload::ContextOpen {
+        ref opener_context_id,
+        ref source,
+    } = open.payload
+    {
+        assert_eq!(
+            *source,
+            Some("test.exe".to_string()),
+            "source must carry the observed executable path"
+        );
+        assert_eq!(
+            *opener_context_id, None,
+            "opener is not observed — null, never the window's own id"
+        );
+    } else {
+        unreachable!("filtered to ContextOpen above");
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Coordinate-space truth-lock (issue #141)
 // ---------------------------------------------------------------------------
 
