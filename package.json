@@ -11,6 +11,7 @@
     "build:schemas": "node scripts/build-schemas.js",
     "version:schemas": "node scripts/auto-version-schemas.js",
     "version:schemas:check": "node scripts/auto-version-schemas.js --check",
+    "sufficiency:check": "node scripts/sufficiency-lint.js packages/shared/tests/fixtures --baseline packages/shared/tests/fixtures/sufficiency-baseline.json",
     "version:next": "node scripts/next-release-version.js",
     "check:no-release-outputs": "node scripts/check-no-release-outputs.js",
     "check:pr-title": "node scripts/check-pr-title.js",
