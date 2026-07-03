@@ -18,6 +18,9 @@
 
 > Captures demonstrated workflows as structured data — not code.
 
+<!-- This tagline is mirrored in the repo's GitHub About description —
+     if you change it, update the About to match. -->
+
 Docent captures user interactions alongside step-by-step context and exports the result as structured JSON. It runs as a Chrome extension for browser workflows and as a native desktop application (Windows) for native application workflows. Both platforms produce `.docent.json` files with the same core structure, differentiated by platform-specific action types and fields.
 
 ---
