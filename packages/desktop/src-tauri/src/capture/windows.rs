@@ -283,9 +283,17 @@ thread_local! {
     static INPUT_UIA: std::cell::RefCell<Option<IUIAutomation>> =
         const { std::cell::RefCell::new(None) };
 
-    /// Timestamp of the most recent low-level input event (mouse click or key press).
-    /// Used to correlate WinEvent callbacks with user actions.
+    /// Timestamp of the most recent low-level input event (button press or
+    /// release, key press, or wheel). Used to correlate WinEvent callbacks
+    /// with user actions.
     static INPUT_LAST_INPUT_TIMESTAMP: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+
+    /// Window handle that received the most recent low-level input event.
+    /// Used to scope selection correlation to the same root window: dialog
+    /// initialization noise (a Save As dialog pre-selecting its filename box)
+    /// correlates in time with the Ctrl+O or click that opened the dialog,
+    /// but fires in a root window the user has not acted in yet.
+    static INPUT_LAST_INPUT_WINDOW: std::cell::Cell<i64> = const { std::cell::Cell::new(0) };
 
     /// Timestamp of the most recent low-level keyboard event only.
     /// Used specifically for value-change correlation — mouse clicks should not
@@ -304,11 +312,22 @@ thread_local! {
     /// classified as a click, not a drag). Used to suppress duplicate
     /// EVENT_OBJECT_SELECTION that fires immediately after a click.
     static INPUT_LAST_CLICK_TIMESTAMP: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+}
 
-    /// Window handle (root) where the last click occurred. Used to suppress
-    /// selection events from dialog initialization (different root window
-    /// than where the user clicked).
-    static INPUT_LAST_CLICK_WINDOW: std::cell::Cell<i64> = const { std::cell::Cell::new(0) };
+/// Record a low-level input event (button press or release, key press, or
+/// wheel) for WinEvent correlation: the timestamp gates whether a subsequent
+/// WinEvent is user-caused at all, the window scopes selection correlation to
+/// the root the input landed in.
+fn note_input(timestamp: u64, window_handle: i64) {
+    INPUT_LAST_INPUT_TIMESTAMP.with(|t| t.set(timestamp));
+    INPUT_LAST_INPUT_WINDOW.with(|w| w.set(window_handle));
+}
+
+/// True when `timestamp` falls within `window_ms` of the most recent
+/// low-level input event of any kind.
+fn input_correlated(timestamp: u64, window_ms: u64) -> bool {
+    let last_input = INPUT_LAST_INPUT_TIMESTAMP.with(|t| t.get());
+    timing::is_correlated(timestamp, last_input, window_ms)
 }
 
 // ---------------------------------------------------------------------------
@@ -689,6 +708,7 @@ fn input_thread_main(
         INPUT_PID_CACHE.with(|c| c.borrow_mut().clear());
         INPUT_UIA.with(|u| *u.borrow_mut() = None);
         INPUT_LAST_INPUT_TIMESTAMP.with(|t| t.set(0));
+        INPUT_LAST_INPUT_WINDOW.with(|w| w.set(0));
         INPUT_LAST_KEYBOARD_TIMESTAMP.with(|t| t.set(0));
         return Err(e);
     }
@@ -731,10 +751,10 @@ fn input_thread_main(
     INPUT_PID_CACHE.with(|c| c.borrow_mut().clear());
     INPUT_UIA.with(|u| *u.borrow_mut() = None);
     INPUT_LAST_INPUT_TIMESTAMP.with(|t| t.set(0));
+    INPUT_LAST_INPUT_WINDOW.with(|w| w.set(0));
     INPUT_LAST_KEYBOARD_TIMESTAMP.with(|t| t.set(0));
     INPUT_LAST_KEYBOARD_WINDOW.with(|w| w.set(0));
     INPUT_LAST_CLICK_TIMESTAMP.with(|t| t.set(0));
-    INPUT_LAST_CLICK_WINDOW.with(|w| w.set(0));
 
     Ok(())
 }
@@ -913,8 +933,7 @@ unsafe extern "system" fn input_win_event_proc(
             // Only dispatch context_switch if correlated with recent user input.
             // Programmatic foreground changes (notifications, minimize/restore by
             // other apps) will not have a preceding input event within the window.
-            let last_input = INPUT_LAST_INPUT_TIMESTAMP.with(|t| t.get());
-            if !timing::is_correlated(timestamp, last_input, timing::FOREGROUND_CORRELATION_MS) {
+            if !input_correlated(timestamp, timing::FOREGROUND_CORRELATION_MS) {
                 return; // Programmatic — suppress.
             }
 
@@ -973,12 +992,7 @@ unsafe extern "system" fn input_win_event_proc(
                 }
             }
             // Only dispatch if correlated with recent user input.
-            let last_input = INPUT_LAST_INPUT_TIMESTAMP.with(|t| t.get());
-            if !timing::is_correlated(
-                timestamp,
-                last_input,
-                timing::WINDOW_LIFECYCLE_CORRELATION_MS,
-            ) {
+            if !input_correlated(timestamp, timing::WINDOW_LIFECYCLE_CORRELATION_MS) {
                 return; // Programmatic window creation — suppress.
             }
             input_dispatch_raw_event(RawEvent {
@@ -1042,12 +1056,7 @@ unsafe extern "system" fn input_win_event_proc(
                         return; // Never opened — don't close.
                     }
                     // Only dispatch if correlated with recent user input.
-                    let last_input = INPUT_LAST_INPUT_TIMESTAMP.with(|t| t.get());
-                    if !timing::is_correlated(
-                        timestamp,
-                        last_input,
-                        timing::WINDOW_LIFECYCLE_CORRELATION_MS,
-                    ) {
+                    if !input_correlated(timestamp, timing::WINDOW_LIFECYCLE_CORRELATION_MS) {
                         return; // Programmatic window destruction — suppress.
                     }
                     input_dispatch_raw_event(RawEvent {
@@ -1072,8 +1081,7 @@ unsafe extern "system" fn input_win_event_proc(
             // Only dispatch focus if correlated with recent user input.
             // Programmatic focus changes (e.g., SetFocus calls from apps)
             // will not have a preceding input event within the window.
-            let last_input = INPUT_LAST_INPUT_TIMESTAMP.with(|t| t.get());
-            if !timing::is_correlated(timestamp, last_input, timing::FOCUS_CORRELATION_MS) {
+            if !input_correlated(timestamp, timing::FOCUS_CORRELATION_MS) {
                 return; // Programmatic focus — suppress.
             }
 
@@ -1159,6 +1167,40 @@ unsafe extern "system" fn input_win_event_proc(
         }
 
         x if x == EVENT_OBJECT_SELECTION => {
+            // A selection is user-caused only when correlated with recent
+            // input — uncorrelated events are the application's own doing
+            // (timers, async loads, background refresh), and idle background
+            // apps fire them continuously. Same doctrine as the focus gate.
+            if !input_correlated(timestamp, timing::SELECTION_CORRELATION_MS) {
+                return; // No recent user input — programmatic selection.
+            }
+
+            // ...and only when it fires in the same root window that
+            // received the input. This filters dialog initialization noise
+            // regardless of input kind (a Save As dialog's filename ComboBox
+            // fires selection events when it opens, whether the dialog was
+            // opened by a click on "Open..." or by Ctrl+O).
+            let input_window = INPUT_LAST_INPUT_WINDOW.with(|w| w.get());
+            if input_window != 0 && input_window != window_handle {
+                use windows::Win32::UI::WindowsAndMessaging::{GetAncestor, GA_ROOT};
+                let sel_root = GetAncestor(hwnd, GA_ROOT);
+                let input_hwnd = HWND(input_window as *mut _);
+                let input_root = GetAncestor(input_hwnd, GA_ROOT);
+                let sel_root_h = if sel_root.0.is_null() {
+                    hwnd.0 as i64
+                } else {
+                    sel_root.0 as i64
+                };
+                let input_root_h = if input_root.0.is_null() {
+                    input_window
+                } else {
+                    input_root.0 as i64
+                };
+                if sel_root_h != input_root_h {
+                    return; // Different root window — dialog init noise.
+                }
+            }
+
             // Suppress selection events that follow a mouse click.
             // The click already captures what was selected — the selection
             // event is redundant. We check:
@@ -1171,32 +1213,6 @@ unsafe extern "system" fn input_win_event_proc(
             let last_click = INPUT_LAST_CLICK_TIMESTAMP.with(|t| t.get());
             if last_click > 0 && timestamp.saturating_sub(last_click) < 200 {
                 return; // Recent click — suppress.
-            }
-
-            // Suppress selection events from a different root window than
-            // the last click. This filters dialog initialization noise
-            // (e.g. Save As dialog's filename ComboBox fires selection
-            // events when it opens, but the user's click was on "Open..."
-            // in a different window).
-            let last_click_window = INPUT_LAST_CLICK_WINDOW.with(|w| w.get());
-            if last_click_window != 0 && last_click_window != window_handle {
-                use windows::Win32::UI::WindowsAndMessaging::{GetAncestor, GA_ROOT};
-                let sel_root = GetAncestor(hwnd, GA_ROOT);
-                let click_hwnd = HWND(last_click_window as *mut _);
-                let click_root = GetAncestor(click_hwnd, GA_ROOT);
-                let sel_root_h = if sel_root.0.is_null() {
-                    hwnd.0 as i64
-                } else {
-                    sel_root.0 as i64
-                };
-                let click_root_h = if click_root.0.is_null() {
-                    last_click_window
-                } else {
-                    click_root.0 as i64
-                };
-                if sel_root_h != click_root_h {
-                    return; // Different root window — dialog init noise.
-                }
             }
             input_dispatch_raw_event(RawEvent {
                 event_type: RawEventType::Selection,
@@ -1262,14 +1278,13 @@ unsafe extern "system" fn input_mouse_ll_proc(
 
             match msg {
                 WM_LBUTTONDOWN => {
-                    // Update last-input timestamp for correlation.
-                    INPUT_LAST_INPUT_TIMESTAMP.with(|t| t.set(timestamp));
+                    // Record the input for correlation.
+                    note_input(timestamp, window_handle);
                     // Store mouse-down position for drag detection.
                     INPUT_MOUSE_DOWN_POS.with(|p| p.set(Some(pt)));
                     // Set click timestamp on mousedown (not just mouseup) because
                     // EVENT_OBJECT_SELECTION can fire between mousedown and mouseup.
                     INPUT_LAST_CLICK_TIMESTAMP.with(|t| t.set(timestamp));
-                    INPUT_LAST_CLICK_WINDOW.with(|w| w.set(window_handle));
 
                     // If clicking on a different top-level window, proactively
                     // dispatch a Foreground event. Some window classes (e.g.
@@ -1317,6 +1332,9 @@ unsafe extern "system" fn input_mouse_ll_proc(
                     }
                 }
                 WM_LBUTTONUP => {
+                    // A release is input too: selections completed at the end
+                    // of a long drag correlate with the release, not the press.
+                    note_input(timestamp, window_handle);
                     let was_drag = INPUT_MOUSE_DOWN_POS.with(|p| {
                         let down = p.get();
                         down.is_some_and(|down_pt| {
@@ -1379,14 +1397,13 @@ unsafe extern "system" fn input_mouse_ll_proc(
                             pre_captured_element: pre_element,
                         });
                         INPUT_LAST_CLICK_TIMESTAMP.with(|t| t.set(timestamp));
-                        INPUT_LAST_CLICK_WINDOW.with(|w| w.set(window_handle));
                     }
 
                     INPUT_MOUSE_DOWN_POS.with(|p| p.set(None));
                 }
                 WM_RBUTTONDOWN => {
-                    // Update last-input timestamp for correlation.
-                    INPUT_LAST_INPUT_TIMESTAMP.with(|t| t.set(timestamp));
+                    // Record the input for correlation.
+                    note_input(timestamp, window_handle);
                     let pre_element = input_pre_capture_element(pt.x, pt.y);
                     input_dispatch_raw_event(RawEvent {
                         event_type: RawEventType::RightClick,
@@ -1404,6 +1421,9 @@ unsafe extern "system" fn input_mouse_ll_proc(
                     });
                 }
                 WM_MOUSEWHEEL => {
+                    // Wheel is input: wheel-rotated selections (ComboBox,
+                    // lists) must correlate like any other user action.
+                    note_input(timestamp, window_handle);
                     let delta = (mouse_struct.mouseData >> 16) as i16 as f64;
                     input_dispatch_raw_event(RawEvent {
                         event_type: RawEventType::Scroll,
@@ -1421,6 +1441,7 @@ unsafe extern "system" fn input_mouse_ll_proc(
                     });
                 }
                 WM_MOUSEHWHEEL => {
+                    note_input(timestamp, window_handle);
                     let delta = (mouse_struct.mouseData >> 16) as i16 as f64;
                     input_dispatch_raw_event(RawEvent {
                         event_type: RawEventType::Scroll,
@@ -1438,8 +1459,8 @@ unsafe extern "system" fn input_mouse_ll_proc(
                     });
                 }
                 WM_MBUTTONDOWN => {
-                    // Update last-input timestamp for correlation.
-                    INPUT_LAST_INPUT_TIMESTAMP.with(|t| t.set(timestamp));
+                    // Record the input for correlation.
+                    note_input(timestamp, window_handle);
                     let pre_element = input_pre_capture_element(pt.x, pt.y);
                     input_dispatch_raw_event(RawEvent {
                         event_type: RawEventType::Click,
@@ -1493,8 +1514,9 @@ unsafe extern "system" fn input_keyboard_ll_proc(
                 let timestamp = current_timestamp_ms();
                 let window_handle = hwnd.0 as i64;
 
-                // Update both timestamps for correlation.
-                INPUT_LAST_INPUT_TIMESTAMP.with(|t| t.set(timestamp));
+                // Record the input for correlation (plus the keyboard-only
+                // pair used by value-change correlation).
+                note_input(timestamp, window_handle);
                 INPUT_LAST_KEYBOARD_TIMESTAMP.with(|t| t.set(timestamp));
                 INPUT_LAST_KEYBOARD_WINDOW.with(|w| w.set(window_handle));
 

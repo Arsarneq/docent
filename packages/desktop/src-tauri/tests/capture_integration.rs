@@ -2498,6 +2498,236 @@ mod completeness {
         (hwnd, cx, cy)
     }
 
+    /// Fire a genuine EVENT_OBJECT_SELECTION through the real WinEvent hook —
+    /// deterministic stand-in for an application changing its own selection.
+    unsafe fn fire_selection(hwnd: HWND) {
+        use windows::Win32::UI::Accessibility::NotifyWinEvent;
+        use windows::Win32::UI::WindowsAndMessaging::{
+            CHILDID_SELF, EVENT_OBJECT_SELECTION, OBJID_CLIENT,
+        };
+        NotifyWinEvent(
+            EVENT_OBJECT_SELECTION,
+            hwnd,
+            OBJID_CLIENT.0,
+            CHILDID_SELF as i32,
+        );
+    }
+
+    /// Force the test window to the foreground and refuse to proceed if that
+    /// did not take: a bare SetForegroundWindow is silently denied by the
+    /// Windows foreground lock when the test process is not itself in front
+    /// (file_dialog_test's force_foreground documents the same). Without
+    /// foreground, the WinEvent pipeline's foreground-PID filter silently
+    /// drops this test's events (making the negative tests pass vacuously),
+    /// and any synthesized input leaks into the user's session.
+    fn assert_took_foreground(hwnd: HWND) {
+        use windows::Win32::System::Threading::{AttachThreadInput, GetCurrentThreadId};
+        use windows::Win32::UI::WindowsAndMessaging::{
+            BringWindowToTop, GetForegroundWindow, GetWindowThreadProcessId,
+        };
+        unsafe {
+            let our_thread = GetCurrentThreadId();
+            let fg = GetForegroundWindow();
+            let fg_thread = GetWindowThreadProcessId(fg, None);
+            let attached = fg_thread != 0 && fg_thread != our_thread;
+            if attached {
+                let _ = AttachThreadInput(our_thread, fg_thread, true);
+            }
+            let _ = BringWindowToTop(hwnd);
+            let _ = SetForegroundWindow(hwnd);
+            if attached {
+                let _ = AttachThreadInput(our_thread, fg_thread, false);
+            }
+        }
+        let start = std::time::Instant::now();
+        loop {
+            if unsafe { GetForegroundWindow() } == hwnd {
+                return;
+            }
+            if start.elapsed() > Duration::from_millis(2000) {
+                panic!(
+                    "SETUP FAILURE (environment, not capture): the test window never \
+                     became the foreground window — refusing to run against a \
+                     pipeline that would filter this test's events"
+                );
+            }
+            thread::sleep(Duration::from_millis(50));
+        }
+    }
+
+    /// EVENT_OBJECT_SELECTION with no correlated user input is the
+    /// application's own doing (timers, async loads, background refresh) and
+    /// must not be recorded — idle background apps fire these continuously,
+    /// which used to leak phantom `select` actions into recordings.
+    /// (Non-vacuity of this test's zero-assert is proven by
+    /// `input_correlated_selection_event_is_captured`, which shows the same
+    /// delivery path producing a select when input correlates.)
+    #[test]
+    #[serial]
+    fn uncorrelated_selection_event_is_not_captured() {
+        let (tx, rx) = mpsc::channel::<ActionEvent>();
+        let mut capture = WindowsCapture::new();
+        capture.set_excluded_pid(None);
+        capture.start(tx).unwrap();
+        thread::sleep(Duration::from_millis(200));
+
+        let (hwnd, _cx, _cy) = unsafe { create_target_window("Selection Gate Test") };
+        assert_took_foreground(hwnd);
+        thread::sleep(Duration::from_millis(300));
+
+        // No input of any kind is synthesized in this test.
+        unsafe { fire_selection(hwnd) };
+        thread::sleep(Duration::from_millis(500));
+
+        unsafe {
+            let _ = DestroyWindow(hwnd);
+        }
+        capture.stop().unwrap();
+        let events: Vec<_> = rx.try_iter().collect();
+
+        let selected = selects(&events);
+        assert!(
+            selected.is_empty(),
+            "an input-uncorrelated selection event must not become a select action; got {selected:?}"
+        );
+    }
+
+    /// The same selection event correlated with recent real input IS captured
+    /// — keyboard-driven selection is the legitimate source of `select`
+    /// actions, and the correlation gate must not swallow it.
+    #[test]
+    #[serial]
+    fn input_correlated_selection_event_is_captured() {
+        let (tx, rx) = mpsc::channel::<ActionEvent>();
+        let mut capture = WindowsCapture::new();
+        capture.set_excluded_pid(None);
+        capture.start(tx).unwrap();
+        thread::sleep(Duration::from_millis(200));
+
+        let (hwnd, _cx, _cy) = unsafe { create_target_window("Selection Gate Test 2") };
+        assert_took_foreground(hwnd);
+        thread::sleep(Duration::from_millis(300));
+
+        // Real keyboard input into the (verified-foreground) test window,
+        // then the selection event arrives well inside the correlation window.
+        let mut enigo = Enigo::new(&Settings::default()).unwrap();
+        enigo.key(enigo::Key::PageDown, Direction::Click).unwrap();
+        thread::sleep(Duration::from_millis(100));
+        unsafe { fire_selection(hwnd) };
+        thread::sleep(Duration::from_millis(500));
+
+        unsafe {
+            let _ = DestroyWindow(hwnd);
+        }
+        capture.stop().unwrap();
+        let events: Vec<_> = rx.try_iter().collect();
+
+        assert!(
+            !selects(&events).is_empty(),
+            "an input-correlated selection event must be captured as a select action"
+        );
+    }
+
+    /// A selection firing in a DIFFERENT root window than the one that
+    /// received the input is dialog-initialization-class noise (a dialog
+    /// pre-selecting its own controls on open) and must not be recorded —
+    /// including on the pure-keyboard path, where no click-based filter can
+    /// help. The same-root fire afterwards proves the events were deliverable.
+    #[test]
+    #[serial]
+    fn selection_from_a_different_root_than_the_input_is_not_captured() {
+        use windows::Win32::UI::WindowsAndMessaging::WS_EX_NOACTIVATE;
+
+        let (tx, rx) = mpsc::channel::<ActionEvent>();
+        let mut capture = WindowsCapture::new();
+        capture.set_excluded_pid(None);
+        capture.start(tx).unwrap();
+        thread::sleep(Duration::from_millis(200));
+
+        let (hwnd_a, _cx, _cy) = unsafe { create_target_window("Selection Root A") };
+        assert_took_foreground(hwnd_a);
+        // A second top-level window in the same process that never receives
+        // input (WS_EX_NOACTIVATE: created without stealing focus).
+        let hwnd_b = unsafe {
+            CreateWindowExW(
+                WS_EX_NOACTIVATE,
+                w!("STATIC"),
+                w!("Selection Root B"),
+                WS_OVERLAPPEDWINDOW | WS_VISIBLE | SS_NOTIFY_STYLE,
+                850,
+                200,
+                300,
+                200,
+                None,
+                None,
+                None,
+                Some(ptr::null()),
+            )
+            .expect("Failed to create second window")
+        };
+        thread::sleep(Duration::from_millis(300));
+
+        // Keyboard input lands in window A; a selection then fires in root B
+        // (suppressed — the user has not acted there) and in root A (kept).
+        let mut enigo = Enigo::new(&Settings::default()).unwrap();
+        enigo.key(enigo::Key::PageDown, Direction::Click).unwrap();
+        thread::sleep(Duration::from_millis(100));
+        unsafe { fire_selection(hwnd_b) };
+        unsafe { fire_selection(hwnd_a) };
+        thread::sleep(Duration::from_millis(500));
+
+        unsafe {
+            let _ = DestroyWindow(hwnd_b);
+            let _ = DestroyWindow(hwnd_a);
+        }
+        capture.stop().unwrap();
+        let events: Vec<_> = rx.try_iter().collect();
+
+        // Both fires are deterministic synthetic events, so the count is
+        // exact: the same-root one, and only it.
+        let selected = selects(&events);
+        assert_eq!(
+            selected.len(),
+            1,
+            "only the same-root selection may be captured; got {selected:?}"
+        );
+    }
+
+    /// Wheel rotation is user input too (a Win32 ComboBox rotates its
+    /// selection on wheel) — wheel-correlated selections must be captured.
+    #[test]
+    #[serial]
+    fn wheel_correlated_selection_event_is_captured() {
+        let (tx, rx) = mpsc::channel::<ActionEvent>();
+        let mut capture = WindowsCapture::new();
+        capture.set_excluded_pid(None);
+        capture.start(tx).unwrap();
+        thread::sleep(Duration::from_millis(200));
+
+        let (hwnd, cx, cy) = unsafe { create_target_window("Selection Wheel Test") };
+        assert_took_foreground(hwnd);
+        thread::sleep(Duration::from_millis(300));
+
+        // Wheel over the (verified-foreground) test window is the only input.
+        let mut enigo = Enigo::new(&Settings::default()).unwrap();
+        enigo.move_mouse(cx, cy, Coordinate::Abs).unwrap();
+        enigo.scroll(1, enigo::Axis::Vertical).unwrap();
+        thread::sleep(Duration::from_millis(100));
+        unsafe { fire_selection(hwnd) };
+        thread::sleep(Duration::from_millis(500));
+
+        unsafe {
+            let _ = DestroyWindow(hwnd);
+        }
+        capture.stop().unwrap();
+        let events: Vec<_> = rx.try_iter().collect();
+
+        assert!(
+            !selects(&events).is_empty(),
+            "a wheel-correlated selection event must be captured as a select action"
+        );
+    }
+
     #[test]
     #[serial]
     fn mouse_move_alone_produces_nothing() {

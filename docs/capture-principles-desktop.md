@@ -45,19 +45,23 @@ The Input_Thread distinguishes user-caused state changes from programmatic
 ones using **input correlation**: WinEvent callbacks are only dispatched when
 correlated with a preceding low-level input event.
 
-| WinEvent                   | Correlation source  | Additional filter                        |
-| -------------------------- | ------------------- | ---------------------------------------- |
-| `EVENT_SYSTEM_FOREGROUND`  | Any low-level input | —                                        |
-| `EVENT_OBJECT_FOCUS`       | Any low-level input | Suppressed after click (redundant)       |
-| `EVENT_OBJECT_CREATE`      | Any low-level input | —                                        |
-| `EVENT_OBJECT_DESTROY`     | Any low-level input | Only if previously opened                |
-| `EVENT_OBJECT_VALUECHANGE` | Keyboard input only | Same root window as keyboard             |
-| `EVENT_OBJECT_SELECTION`   | —                   | Suppressed after click; same root window |
+| WinEvent                   | Correlation source  | Additional filter                                                          |
+| -------------------------- | ------------------- | -------------------------------------------------------------------------- |
+| `EVENT_SYSTEM_FOREGROUND`  | Any low-level input | —                                                                          |
+| `EVENT_OBJECT_FOCUS`       | Any low-level input | Suppressed after click (redundant)                                         |
+| `EVENT_OBJECT_CREATE`      | Any low-level input | —                                                                          |
+| `EVENT_OBJECT_DESTROY`     | Any low-level input | Only if previously opened                                                  |
+| `EVENT_OBJECT_VALUECHANGE` | Keyboard input only | Same root window as keyboard                                               |
+| `EVENT_OBJECT_SELECTION`   | Any low-level input | Same root window as the input; suppressed ≤200ms after a click (redundant) |
 
 **Window-scoping:** Value changes and selections are only correlated with
-input from the same root window. This prevents dialog initialization noise
-(e.g. Ctrl+S in Notepad does not correlate with Save As dialog's filename
-field pre-fill).
+input from the same root window — value changes against the keyboard input's
+root, selections against the root of the most recent input of any kind. This
+prevents dialog initialization noise (e.g. Ctrl+S in Notepad does not
+correlate with the Save As dialog's filename field pre-fill or its pre-selected
+filename ComboBox — the dialog's root received no input yet). "Any low-level
+input" means button presses and releases, key presses, and wheel — all of
+which refresh the correlation state.
 
 **Printable key buffering:** Printable keystrokes are buffered. If a
 value-change event arrives (producing a `type` action), the buffered keys
@@ -105,3 +109,8 @@ acted, not which element the accessibility layer resolved.
 - Win+D (show desktop) — system hotkey intercepted before hooks
 - Win+L (lock screen) — system hotkey intercepted before hooks
 - Ctrl+Shift+Esc (Task Manager) — system hotkey intercepted before hooks
+- Assistive-technology-driven actions that call UI Automation patterns
+  directly (voice control, screen readers invoking `SelectionItem.Select`)
+  — they produce no low-level input, so the input-correlation gates above
+  classify their effects as programmatic. A known limitation of the
+  correlation doctrine, affecting every correlated event class equally.
