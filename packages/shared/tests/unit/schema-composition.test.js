@@ -164,6 +164,40 @@ describe('Schema composition: locators[] contract (#174)', () => {
     ]);
   });
 
+  it('every strategy def on every platform declares x-value-derived explicitly', () => {
+    // The annotation marks the strategies the redaction chokepoint masks in
+    // place (see docs/replay-sufficiency.md — masked values are consumer
+    // parameters). Absence must mean nothing: an undeclared def would be
+    // indistinguishable from "author forgot", so every strategy def declares
+    // it, and a future strategy cannot ship without taking a stance. The
+    // shared trio (match_count/match_index/masked) and the base `locator`
+    // container deliberately never carry it.
+    for (const platform of Object.keys(PLATFORMS)) {
+      const composed = composePlatform(platform);
+      for (const ref of composed.$defs.locator.oneOf) {
+        const defName = ref.$ref.replace('#/$defs/', '');
+        const def = composed.$defs[defName];
+        assert.equal(
+          typeof def['x-value-derived'],
+          'boolean',
+          `${platform}: ${defName} must declare x-value-derived`,
+        );
+      }
+    }
+  });
+
+  it('value-derived strategies are exactly {text} on extension and {} on desktop-windows', () => {
+    const valueDerived = (platform) =>
+      composePlatform(platform)
+        .$defs.locator.oneOf.map(
+          (ref) => composePlatform(platform).$defs[ref.$ref.replace('#/$defs/', '')],
+        )
+        .filter((def) => def['x-value-derived'] === true)
+        .map((def) => def.properties.strategy.const);
+    assert.deepStrictEqual(valueDerived('extension'), ['text']);
+    assert.deepStrictEqual(valueDerived('desktop-windows'), []);
+  });
+
   it('desktop.shared (family layer) carries no locator defs', () => {
     const locatorKeys = Object.keys(desktopFamily.$defs).filter((k) => k.startsWith('locator'));
     assert.deepStrictEqual(locatorKeys, []);

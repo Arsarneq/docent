@@ -104,6 +104,21 @@ function walk(oldNode, newNode, path, add) {
 
     if (inOld && inNew && deepEqual(ov, nv)) continue;
 
+    // `x-`-prefixed keys are contract ANNOTATIONS (metadata the tooling reads,
+    // e.g. `x-value-derived`), never validation keywords — Ajv ignores them.
+    // Introducing one documents existing behaviour → patch. But changing or
+    // removing one rewrites what the contract SAYS about that behaviour (for
+    // `x-value-derived`: which emitted values are masked in place) — a
+    // semantics change this classifier cannot judge, so per the
+    // never-under-report charter it escalates to major. Checked before any
+    // recursion so object-valued annotations cannot re-enter the walk.
+    if (key.startsWith('x-')) {
+      if (!inOld) add('patch', `${childPath}: annotation added`);
+      else if (!inNew) add('major', `${childPath}: annotation removed`);
+      else add('major', `${childPath}: annotation changed`);
+      continue;
+    }
+
     switch (key) {
       case 'description': {
         // Wording-only change anywhere → patch (per docs: description clarifications).

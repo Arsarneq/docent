@@ -21,7 +21,9 @@ import {
   findRecording,
 } from '../../shared/lib/session.js';
 import { isTrustedActionSender } from '../../lib/frame-trust.js';
-import { isSensitiveField, redactUrl, SENSITIVE_MASK } from '../../shared/lib/field-sensitivity.js';
+import { redactSensitive } from '../../lib/redaction-logic.js';
+import { SENSITIVE_MASK } from '../../shared/lib/field-sensitivity.js';
+import { composePlatform } from '../../../../scripts/build-schemas.js';
 
 // ─── Simulated service worker state ──────────────────────────────────────────
 
@@ -773,36 +775,13 @@ describe('SERVICE WORKER: PROJECT_EXPORT', () => {
 });
 
 // ─── Redaction chokepoint (locator masking) ────────────────────────────────────
-// Replicates redactSensitive from the service worker (same replication
-// convention as the rest of this file — the SW cannot be imported), using the
-// REAL shared field-sensitivity util. Locator masking is IN PLACE: the entry
-// is kept, its value masked with the shared glyphs, `masked: true` set, and
-// the match statistics (measured pre-masking at capture) left untouched.
+// Exercises the REAL redactSensitive from lib/redaction-logic.js (extracted
+// from the service worker so this suite needs no hand-copied replica).
+// Locator masking is IN PLACE: the entry is kept, its value masked with the
+// shared glyphs, `masked: true` set, and the match statistics (measured
+// pre-masking at capture) left untouched.
 
 describe('SERVICE WORKER: redactSensitive masks value-derived locator entries in place', () => {
-  // Replicate the redactSensitive logic from the service worker.
-  function redactSensitive(action) {
-    if (!action || typeof action !== 'object') return action;
-    const el = action.element;
-    if (el && typeof el === 'object' && !el.redacted && isSensitiveField(el)) {
-      if (typeof action.value === 'string') action.value = SENSITIVE_MASK;
-      el.text = null;
-      el.redacted = true;
-      if (Array.isArray(el.locators)) {
-        for (const loc of el.locators) {
-          if (loc && loc.strategy === 'text' && typeof loc.value === 'string') {
-            loc.value = SENSITIVE_MASK;
-            loc.masked = true;
-          }
-        }
-      }
-    }
-    if (action.type === 'navigate' && typeof action.url === 'string') {
-      action.url = redactUrl(action.url);
-    }
-    return action;
-  }
-
   function sensitiveAction() {
     return {
       type: 'type',
@@ -873,6 +852,55 @@ describe('SERVICE WORKER: redactSensitive masks value-derived locator entries in
     const out = redactSensitive(action);
     assert.equal(out.element.redacted, true);
     assert.equal(out.value, SENSITIVE_MASK);
+  });
+
+  it("drift guard: the masked set equals the schema's x-value-derived strategies", () => {
+    // The schema annotates which strategies the redaction chokepoint masks in
+    // place (`x-value-derived`). This drives the REAL redactSensitive on a
+    // sensitive element carrying one entry per emitted strategy and checks the
+    // two sides of the seam against each other — if the code starts masking a
+    // strategy the schema does not annotate (or stops masking one it does),
+    // this fails, forcing annotation and behaviour to move together.
+    const composed = composePlatform('extension');
+    const defs = composed.$defs.locator.oneOf.map(
+      (ref) => composed.$defs[ref.$ref.replace('#/$defs/', '')],
+    );
+    const annotated = defs
+      .filter((def) => def['x-value-derived'] === true)
+      .map((def) => def.properties.strategy.const);
+
+    const action = redactSensitive({
+      type: 'type',
+      value: '4111 1111 1111 1111',
+      element: {
+        tag: 'INPUT',
+        id: 'card_number',
+        name: 'card_number',
+        type: 'text',
+        text: '4111 1111 1111 1111',
+        selector: '#card_number',
+        locators: defs.map((def) => ({
+          strategy: def.properties.strategy.const,
+          value: `value-${def.properties.strategy.const}`,
+          match_count: 1,
+          match_index: 0,
+        })),
+      },
+    });
+
+    const maskedStrategies = action.element.locators
+      .filter((loc) => loc.masked === true)
+      .map((loc) => loc.strategy);
+    assert.deepStrictEqual(maskedStrategies.sort(), [...annotated].sort());
+    for (const loc of action.element.locators) {
+      if (loc.masked === true) {
+        assert.equal(loc.value, SENSITIVE_MASK, `${loc.strategy} masked but value not the mask`);
+      } else {
+        assert.equal(loc.value, `value-${loc.strategy}`, `${loc.strategy} value must be verbatim`);
+      }
+      assert.equal(loc.match_count, 1, `${loc.strategy} match stats must survive masking`);
+      assert.equal(loc.match_index, 0, `${loc.strategy} match stats must survive masking`);
+    }
   });
 });
 

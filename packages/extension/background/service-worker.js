@@ -30,7 +30,7 @@ import {
   resolveActiveSteps,
 } from '../shared/lib/session.js';
 import { uuidv7 } from '../shared/lib/uuid-v7.js';
-import { isSensitiveField, redactUrl, SENSITIVE_MASK } from '../shared/lib/field-sensitivity.js';
+import { redactSensitive } from '../lib/redaction-logic.js';
 import {
   TAB_CREATED_USER_ACTION_WINDOW,
   TAB_CLOSED_USER_ACTION_WINDOW,
@@ -236,41 +236,11 @@ chrome.webNavigation.onBeforeNavigate.addListener((details) => {
 // (e.g. context_open + navigate) fire simultaneously.
 let swWriteQueue = Promise.resolve();
 
-// Sensitive-data redaction at the storage chokepoint. The content script
-// already masks passwords inline (native `type=password` signal); this catches
-// the rest with the SHARED field-sensitivity util, before anything is persisted:
-//   - a sensitive non-password field (cc/ssn/secret/payment-autocomplete) has its
-//     value masked and its element text nulled + flagged `redacted`;
-//   - its value-derived locator entries (`text` strategy) have their value masked
-//     IN PLACE with `masked: true` — the entry is kept, never omitted, and its
-//     match statistics (measured pre-masking at capture) stay untouched.
-//     Identity-derived entries (id/test_id/name/…) are markup, not user data,
-//     and are never masked;
-//   - a `navigate` URL has its sensitive query-param values stripped.
-// Applied at EVERY pendingActions write (here + the inline navigate writes), so
-// no captured value reaches storage unredacted. Mutates the soon-to-be-stored
-// action in place.
-function redactSensitive(action) {
-  if (!action || typeof action !== 'object') return action;
-  const el = action.element;
-  if (el && typeof el === 'object' && !el.redacted && isSensitiveField(el)) {
-    if (typeof action.value === 'string') action.value = SENSITIVE_MASK;
-    el.text = null;
-    el.redacted = true;
-    if (Array.isArray(el.locators)) {
-      for (const loc of el.locators) {
-        if (loc && loc.strategy === 'text' && typeof loc.value === 'string') {
-          loc.value = SENSITIVE_MASK;
-          loc.masked = true;
-        }
-      }
-    }
-  }
-  if (action.type === 'navigate' && typeof action.url === 'string') {
-    action.url = redactUrl(action.url);
-  }
-  return action;
-}
+// Sensitive-data redaction at the storage chokepoint lives in
+// lib/redaction-logic.js (pure, single-sourced with the unit suite — the
+// frame-trust.js discipline). Applied at EVERY pendingActions write (here +
+// the inline navigate writes), so no captured value reaches storage
+// unredacted.
 
 // Capture auto-pauses for storage pressure once usage crosses WARN_BYTES — UNLESS
 // the user chose to keep recording (the override). While paused, new captures are

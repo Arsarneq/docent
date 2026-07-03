@@ -34,6 +34,7 @@
       ]
     },
     "locator_automation_id": {
+      "x-value-derived": false,
       "properties": {
         "strategy": {
           "const": "automation_id"
@@ -56,6 +57,7 @@
       "additionalProperties": false
     },
     "locator_role_name": {
+      "x-value-derived": false,
       "properties": {
         "strategy": {
           "const": "role_name"
@@ -82,6 +84,7 @@
       "additionalProperties": false
     },
     "locator_class_name": {
+      "x-value-derived": false,
       "properties": {
         "strategy": {
           "const": "class_name"
@@ -104,6 +107,7 @@
       "additionalProperties": false
     },
     "locator_labeled_by": {
+      "x-value-derived": false,
       "properties": {
         "strategy": {
           "const": "labeled_by"
@@ -126,6 +130,7 @@
       "additionalProperties": false
     },
     "locator_tree_path": {
+      "x-value-derived": false,
       "properties": {
         "strategy": {
           "const": "tree_path"

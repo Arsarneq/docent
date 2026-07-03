@@ -13,6 +13,7 @@
 import { describe, it, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { mock } from 'node:test';
+import { composePlatform } from '../../../../scripts/build-schemas.js';
 
 // ─── Global mocks ─────────────────────────────────────────────────────────────
 
@@ -430,6 +431,62 @@ describe('_redactSensitive leaves locators and provider facts untouched', () => 
     assert.equal(stored.element.described_after_ms, 42);
     const masked = stored.element.locators.some((l) => l.masked);
     assert.equal(masked, false, 'no desktop locator entry may carry masked');
+  });
+
+  it("drift guard: the masked set equals the schema's x-value-derived strategies (empty)", () => {
+    // The schema annotates every desktop strategy `x-value-derived: false` —
+    // the chokepoint masks none of them. This drives the REAL _redactSensitive
+    // on a sensitive element carrying one entry per emitted strategy (built
+    // from the composed schema, so a new strategy joins automatically) and
+    // checks the two sides of the seam: if the code starts masking an entry
+    // the schema does not annotate — or a def gets annotated true while the
+    // code stays hands-off — this fails, forcing the two to move together.
+    const composed = composePlatform('desktop-windows');
+    const defs = composed.$defs.locator.oneOf.map(
+      (ref) => composed.$defs[ref.$ref.replace('#/$defs/', '')],
+    );
+    const annotated = defs
+      .filter((def) => def['x-value-derived'] === true)
+      .map((def) => def.properties.strategy.const);
+    const entryFor = (def) => {
+      const entry = {};
+      for (const [prop, shape] of Object.entries(def.properties)) {
+        if (prop === 'strategy') entry.strategy = shape.const;
+        else if (prop === 'match_count') entry.match_count = 1;
+        else if (prop === 'match_index') entry.match_index = 0;
+        else if (prop !== 'masked') entry[prop] = `probe-${prop}`;
+      }
+      return entry;
+    };
+
+    const action = {
+      type: 'type',
+      timestamp: 1000,
+      value: '4111 1111 1111 1111',
+      element: {
+        tag: 'Edit',
+        id: 'card_number',
+        name: 'card_number',
+        role: 'edit',
+        type: null,
+        text: '4111 1111 1111 1111',
+        selector: 'Window:Checkout > Edit:Card number',
+        locators: defs.map(entryFor),
+      },
+    };
+    const expectedLocators = structuredClone(action.element.locators);
+    const out = _testOnly.redactSensitive(action);
+
+    assert.equal(out.element.redacted, true, 'the fixture must be genuinely sensitive');
+    const maskedStrategies = out.element.locators
+      .filter((loc) => loc.masked === true)
+      .map((loc) => loc.strategy);
+    assert.deepStrictEqual(maskedStrategies.sort(), [...annotated].sort());
+    assert.deepStrictEqual(
+      out.element.locators,
+      expectedLocators,
+      'desktop locator entries must be byte-identical through redaction',
+    );
   });
 
   it('leaves a non-sensitive action entirely untouched', () => {
