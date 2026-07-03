@@ -710,6 +710,28 @@ fn current_timestamp_ms() -> u64 {
         .as_millis() as u64
 }
 
+/// Stamp the observed input→describe latency (docent#220) on a description
+/// built at worker-dequeue time, relative to the raw event whose timestamp
+/// the resulting action exports. Both clocks share the Unix-ms base
+/// (`current_timestamp_ms` here and in the hook), so the difference is the
+/// real gap between the input and the moment the description was captured.
+fn stamp_described_after(element: &mut ElementDescription, raw_timestamp: u64) {
+    element.described_after_ms = Some(current_timestamp_ms().saturating_sub(raw_timestamp));
+}
+
+/// Clear element-identity claims from a description emitted in coordinate
+/// mode (docent#220): coordinate mode records where the user acted, not which
+/// element the accessibility layer resolved there — the schema documents
+/// locators (and the describe-latency fact) as absent in that mode.
+fn strip_identity_claims(element: &mut ElementDescription) {
+    element.locators = Vec::new();
+    element.position_in_set = None;
+    element.size_of_set = None;
+    element.level = None;
+    element.framework_id = None;
+    element.described_after_ms = None;
+}
+
 /// Lock a worker's shared pending buffers, tolerating poisoning.
 ///
 /// If a worker thread panicked while holding the lock, the buffers are still
@@ -1189,19 +1211,23 @@ fn handle_click<B: AccessibilityBackend>(
     // 2. Worker's own ElementFromPoint query
     // 3. Option D: if the window closed between capture and query,
     //    use the window title from the original HWND
-    let (capture_mode, element_desc) = if let Some(ref pre) = raw.pre_captured_element {
+    let (capture_mode, mut element_desc) = if let Some(ref pre) = raw.pre_captured_element {
         // Input_Thread already captured the element — use it directly.
         let mode = if pre.tag == "Window" || pre.tag == "Pane" {
             CaptureMode::Coordinate
         } else {
             CaptureMode::Accessibility
         };
-        (mode, pre.clone())
+        let mut el = pre.clone();
+        // Described inside the input hook, at the event itself.
+        el.described_after_ms = Some(0);
+        (mode, el)
     } else {
         // No pre-captured element — query from the worker.
         let element = backend.element_at_point(raw.screen_x, raw.screen_y);
         match element {
-            Some(el) => {
+            Some(mut el) => {
+                stamp_described_after(&mut el, raw.timestamp);
                 let mode = if el.tag == "Window" || el.tag == "Pane" {
                     CaptureMode::Coordinate
                 } else {
@@ -1218,6 +1244,9 @@ fn handle_click<B: AccessibilityBackend>(
             }
         }
     };
+    if matches!(capture_mode, CaptureMode::Coordinate) {
+        strip_identity_claims(&mut element_desc);
+    }
 
     // Emitted verbatim in screen space (physical pixels) — the same values the
     // hook observed, and the same values a coordinate-mode selector encodes.
@@ -1289,10 +1318,11 @@ fn handle_focus<B: AccessibilityBackend>(
     last_focus_selector: &mut String,
     window_rect: Option<WindowRect>,
 ) {
-    let element = match backend.focused_element() {
+    let mut element = match backend.focused_element() {
         Some(el) => el,
         None => return, // Can't resolve focused element — skip.
     };
+    stamp_described_after(&mut element, raw.timestamp);
 
     // Focus deduplication: skip if same selector as last focus event.
     if element.selector == *last_focus_selector {
@@ -1325,10 +1355,13 @@ fn handle_value_change<B: AccessibilityBackend>(
     window_rect: Option<WindowRect>,
 ) {
     // Backend (UIA) call happens BEFORE taking the buffer lock.
-    let element = match backend.focused_element() {
+    let mut element = match backend.focused_element() {
         Some(el) => el,
         None => return,
     };
+    // The first value-change describes the element; that element (and the
+    // matching timestamp) is what the coalesced type action exports.
+    stamp_described_after(&mut element, raw.timestamp);
 
     let is_password = element.element_type.as_deref() == Some("password");
     let value = if is_password {
@@ -1438,6 +1471,10 @@ fn handle_selection<B: AccessibilityBackend>(
             }
         }
     };
+    // Every arm above resolved its description at dequeue time — including
+    // the window-title fallback, which reads its data at this moment too.
+    let mut final_element = final_element;
+    stamp_described_after(&mut final_element, raw.timestamp);
 
     let _ = action_sender.send(ActionEvent {
         timestamp: raw.timestamp,
@@ -1474,7 +1511,7 @@ fn handle_keyboard<B: AccessibilityBackend>(
 
     // Backend (UIA) call happens BEFORE taking the buffer lock — never hold
     // the lock across a platform call (see PendingBuffers locking discipline).
-    let element = backend.focused_element().unwrap_or_else(|| {
+    let mut element = backend.focused_element().unwrap_or_else(|| {
         let title = backend.window_title(raw.window_handle);
         ElementDescription {
             tag: "Unknown".to_string(),
@@ -1487,6 +1524,7 @@ fn handle_keyboard<B: AccessibilityBackend>(
             ..Default::default()
         }
     });
+    stamp_described_after(&mut element, raw.timestamp);
 
     let event = ActionEvent {
         timestamp: raw.timestamp,
@@ -1561,12 +1599,13 @@ fn handle_drag_start<B: AccessibilityBackend>(
     last_drag_element: &mut Option<ElementDescription>,
     window_rect: Option<WindowRect>,
 ) {
-    let element = backend
+    let mut element = backend
         .element_at_point(raw.screen_x, raw.screen_y)
         .unwrap_or_else(|| {
             let title = backend.window_title(raw.window_handle);
             coordinate::fallback_element(&title, raw.screen_x, raw.screen_y)
         });
+    stamp_described_after(&mut element, raw.timestamp);
 
     *last_drag_element = Some(element.clone());
 
@@ -1589,13 +1628,15 @@ fn handle_drop<B: AccessibilityBackend>(
     last_drag_element: &mut Option<ElementDescription>,
     window_rect: Option<WindowRect>,
 ) {
-    let element = backend
+    let mut element = backend
         .element_at_point(raw.screen_x, raw.screen_y)
         .unwrap_or_else(|| {
             let title = backend.window_title(raw.window_handle);
             coordinate::fallback_element(&title, raw.screen_x, raw.screen_y)
         });
+    stamp_described_after(&mut element, raw.timestamp);
 
+    // The source element keeps the stamp from its own describe at drag-start.
     let source_element = last_drag_element.take();
 
     let _ = action_sender.send(ActionEvent {

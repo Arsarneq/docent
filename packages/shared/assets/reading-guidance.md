@@ -42,3 +42,4 @@ The dispatch payload has four top-level fields:
 - Context lifecycle actions (`context_switch`, `context_open`, `context_close`) use a `source` field containing the page URL (browser) or executable path (desktop).
 - Each step has a `deleted` boolean and a `uuid` for version ordering. Multiple steps can share a `logical_id` — these are versions of the same step.
 - An element may include `locators` — observed ways the element could be addressed at capture time. Each entry may carry its own match statistics (`match_count` / `match_index`, measured at capture time; absent means not measured); the list order carries no ranking. Entries flagged `masked: true` had sensitive values masked in place.
+- An element may include `described_after_ms` — how many milliseconds after the action's timestamp its description (and any match statistics) was observed. `0` means at the input itself; larger values mean the interface may already have reacted to the action.

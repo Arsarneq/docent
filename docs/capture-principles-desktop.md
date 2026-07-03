@@ -89,6 +89,15 @@ moment the element is described (asynchronously, after the input that caused
 it), never inside the low-level input hook — hook-described click elements
 carry candidate values only, with the pair absent.
 
+That describe moment is itself exported as an observed fact: every
+accessibility-described element carries `described_after_ms`, the measured gap
+between the input and the moment its description was captured — `0` for
+hook-described clicks, the real gap for worker describes (which can grow under
+queue backlog; the number says so instead of hiding it). Coordinate-mode
+elements make no element-identity claims at all: locators, provider facts, and
+the describe latency are absent there — coordinate mode records where the user
+acted, not which element the accessibility layer resolved.
+
 ---
 
 ## Not Capturable (OS-Level)

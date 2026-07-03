@@ -496,6 +496,11 @@
             "$ref": "#/$defs/locator"
           },
           "description": "Locator candidates: observed facts about how this element could be addressed at capture time. Each entry is a per-strategy shape; the set of valid strategies is platform-specific (see this schema's locator definition). Entries appear in the fixed order their strategy definitions are declared in the locator definition — that order is a serialization convention and carries no preference or ranking. Omitted when no candidates were observed; candidates whose value was empty are omitted rather than included empty."
+        },
+        "described_after_ms": {
+          "type": ["integer", "null"],
+          "minimum": 0,
+          "description": "Milliseconds between the action's timestamp and the moment this element description (including any locator match measurements) was captured, as observed by the capture layer. 0 means the element was described at the input itself. Larger values mean the description reflects the interface as it stood that long after the input — the action's effects may already have run. Null or absent when not observed."
         }
       }
     },

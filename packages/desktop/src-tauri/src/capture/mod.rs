@@ -187,6 +187,11 @@ pub enum LocatorEntry {
 ///   FrameworkId, e.g. "Win32"/"WPF"/"XAML"); absent when not reported.
 /// - `locators`: locator candidates (docent#139); omitted entirely when none
 ///   were observed (e.g. coordinate mode, fallback descriptions).
+/// - `described_after_ms`: observed input→describe latency (docent#220). 0 =
+///   described at input time (hook pre-capture); larger = the description was
+///   built that long after the action's exported timestamp, against the tree
+///   as it stood then. Absent for coordinate fallbacks (no accessibility
+///   description was captured).
 #[derive(Debug, Serialize, Clone, PartialEq, Eq, Default)]
 pub struct ElementDescription {
     pub tag: String,
@@ -207,6 +212,8 @@ pub struct ElementDescription {
     pub framework_id: Option<String>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub locators: Vec<LocatorEntry>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub described_after_ms: Option<u64>,
 }
 
 // ---------------------------------------------------------------------------
