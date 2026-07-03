@@ -30,10 +30,13 @@ use windows::Win32::System::Com::{
     COINIT_MULTITHREADED,
 };
 use windows::Win32::UI::Accessibility::{
-    CUIAutomation, IUIAutomation, IUIAutomationElement, IUIAutomationSelectionPattern,
-    SetWinEventHook, UIA_AutomationIdPropertyId, UIA_ControlTypePropertyId,
-    UIA_IsPasswordPropertyId, UIA_LocalizedControlTypePropertyId, UIA_NamePropertyId,
-    UIA_SelectionPatternId, UIA_ValueValuePropertyId, UnhookWinEvent, HWINEVENTHOOK,
+    CUIAutomation, IUIAutomation, IUIAutomationCondition, IUIAutomationElement,
+    IUIAutomationSelectionPattern, SetWinEventHook, TreeScope_Subtree, UIA_AutomationIdPropertyId,
+    UIA_ClassNamePropertyId, UIA_ControlTypePropertyId, UIA_FrameworkIdPropertyId,
+    UIA_IsControlElementPropertyId, UIA_IsPasswordPropertyId, UIA_LabeledByPropertyId,
+    UIA_LevelPropertyId, UIA_LocalizedControlTypePropertyId, UIA_NamePropertyId,
+    UIA_NativeWindowHandlePropertyId, UIA_PositionInSetPropertyId, UIA_SelectionPatternId,
+    UIA_SizeOfSetPropertyId, UIA_ValueValuePropertyId, UnhookWinEvent, HWINEVENTHOOK,
 };
 use windows::Win32::UI::HiDpi::{
     SetProcessDpiAwarenessContext, DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2,
@@ -52,7 +55,9 @@ use windows::Win32::UI::WindowsAndMessaging::{
     WM_QUIT, WM_RBUTTONDOWN, WM_SYSKEYDOWN, WS_CHILD,
 };
 
-use super::element_mapping::{map_element, NativeElementProperties};
+use super::element_mapping::{
+    map_element, LocatorMeasurements, MeasuredIndex, MeasuredPair, NativeElementProperties,
+};
 use super::timing;
 use super::worker_pool::{worker_loop, AccessibilityBackend, RawEvent, RawEventType, WorkerPool};
 use super::{
@@ -769,7 +774,11 @@ unsafe fn input_pre_capture_element(x: i32, y: i32) -> Option<super::ElementDesc
         let uia = uia.as_ref()?;
         let pt = POINT { x, y };
         let element = uia.ElementFromPoint(pt).ok()?;
-        uia_element_to_description(uia, &element)
+        // Unmeasured by design: this runs inside the low-level mouse hook's
+        // latency budget (Windows silently unhooks slow LL hooks), so the
+        // FindAll-based match measurement is off-limits here. Locator entries
+        // carry values only; the pair ships absent (= not measured).
+        uia_element_to_description_unmeasured(uia, &element)
     })
 }
 
@@ -1568,19 +1577,68 @@ pub(crate) fn control_type_name(id: i32) -> &'static str {
     }
 }
 
+/// Identity-scan cap per measured locator candidate: at most this many
+/// `CompareElements` COM calls per `FindAll` result. Past the cap,
+/// `match_count` ships with `match_index` absent (not measured).
+const MAX_MATCH_SCAN: i32 = 50;
+
+/// Cap on the ancestor walk when building the tree path (pre-existing bound,
+/// promoted to a named constant).
+const MAX_TREE_PATH_ANCESTORS: usize = 20;
+
 /// Convert a UIA element to an `ElementDescription` using the element mapping
-/// module. Requires a reference to the `IUIAutomation` instance for tree
-/// walking (building the tree path).
+/// module, INCLUDING measured locator match statistics (docent#139). This is
+/// the worker path: measurement adds bounded work (up to 3 `FindAll` calls +
+/// a capped identity scan) and must never run inside the low-level input hook
+/// — hook code uses [`uia_element_to_description_unmeasured`] instead.
 pub(crate) unsafe fn uia_element_to_description(
     uia: &IUIAutomation,
     element: &IUIAutomationElement,
 ) -> Option<ElementDescription> {
+    let (mut props, control_type_id, window_root) = gather_native_properties(uia, element);
+    if let Some(root) = window_root {
+        props.measurements = measure_candidates(uia, &root, element, control_type_id, &props);
+    }
+    Some(map_element(&props))
+}
+
+/// Convert a UIA element to an `ElementDescription` WITHOUT measuring match
+/// statistics — candidate values only, pairs absent (the schema's "not
+/// measured"). Used by the input-hook pre-capture path, which sits in the
+/// system-wide low-level mouse hook: Windows silently unhooks slow LL hooks,
+/// so `FindAll` traversals are off-limits there.
+pub(crate) unsafe fn uia_element_to_description_unmeasured(
+    uia: &IUIAutomation,
+    element: &IUIAutomationElement,
+) -> Option<ElementDescription> {
+    let (props, _control_type_id, _window_root) = gather_native_properties(uia, element);
+    Some(map_element(&props))
+}
+
+/// Read every native property the element description needs (docent#138:
+/// the original six plus ClassName, FrameworkId, LabeledBy-name, and the
+/// provider-reported set ordinals), plus the tree path annotated with the
+/// window-root position. Returns the raw control-type id (measurement
+/// conditions match on it) and the top-level window element (the measurement
+/// scope), when resolvable.
+unsafe fn gather_native_properties(
+    uia: &IUIAutomation,
+    element: &IUIAutomationElement,
+) -> (NativeElementProperties, i32, Option<IUIAutomationElement>) {
     let control_type_id = get_i32_property(element, UIA_ControlTypePropertyId);
     let automation_id = get_string_property(element, UIA_AutomationIdPropertyId);
     let name = get_string_property(element, UIA_NamePropertyId);
     let localized_type = get_string_property(element, UIA_LocalizedControlTypePropertyId);
     let value = get_string_property(element, UIA_ValueValuePropertyId);
     let is_password = get_bool_property(element, UIA_IsPasswordPropertyId);
+    let class_name = get_string_property(element, UIA_ClassNamePropertyId);
+    let framework_id = get_string_property(element, UIA_FrameworkIdPropertyId);
+    let labeled_by = get_labeled_by_name(element);
+    let position_in_set = get_i32_property(element, UIA_PositionInSetPropertyId);
+    let size_of_set = get_i32_property(element, UIA_SizeOfSetPropertyId);
+    let level = get_i32_property(element, UIA_LevelPropertyId);
+
+    let (tree_path, window_root_offset, window_root) = build_tree_path_with_root(uia, element);
 
     let props = NativeElementProperties {
         tag: control_type_name(control_type_id).to_string(),
@@ -1589,10 +1647,152 @@ pub(crate) unsafe fn uia_element_to_description(
         localized_control_type: localized_type,
         is_password,
         value,
-        tree_path: build_tree_path(uia, element),
+        tree_path,
+        class_name,
+        framework_id,
+        labeled_by,
+        position_in_set,
+        size_of_set,
+        level,
+        window_root_offset,
+        measurements: Default::default(),
     };
+    (props, control_type_id, window_root)
+}
 
-    Some(map_element(&props))
+/// Read the accessible name of the element referenced by the LabeledBy
+/// property. The property's VARIANT wraps an `IUIAutomationElement` behind
+/// `IUnknown`; any failure along the way yields `""` (total, like every
+/// property helper here).
+unsafe fn get_labeled_by_name(element: &IUIAutomationElement) -> String {
+    use windows::core::Interface;
+    use windows::Win32::System::Variant::VT_UNKNOWN;
+    element
+        .GetCurrentPropertyValue(UIA_LabeledByPropertyId)
+        .ok()
+        .and_then(|v| {
+            let inner = &v.Anonymous.Anonymous;
+            if inner.vt == VT_UNKNOWN {
+                inner
+                    .Anonymous
+                    .punkVal
+                    .as_ref()
+                    .and_then(|unk| unk.cast::<IUIAutomationElement>().ok())
+            } else {
+                None
+            }
+        })
+        .map(|label| get_string_property(&label, UIA_NamePropertyId))
+        .unwrap_or_default()
+}
+
+/// Build a BSTR-typed VARIANT for property conditions on string properties.
+unsafe fn bstr_variant(value: &str) -> windows::Win32::System::Variant::VARIANT {
+    windows::Win32::System::Variant::VARIANT::from(windows::core::BSTR::from(value))
+}
+
+/// AND a candidate's property condition with `IsControlElement == true`,
+/// emulating the Control view for `FindAll` (which has no view parameter).
+unsafe fn control_view_condition(
+    uia: &IUIAutomation,
+    condition: &IUIAutomationCondition,
+) -> Option<IUIAutomationCondition> {
+    let control = uia
+        .CreatePropertyCondition(
+            UIA_IsControlElementPropertyId,
+            &windows::Win32::System::Variant::VARIANT::from(true),
+        )
+        .ok()?;
+    uia.CreateAndCondition(condition, &control).ok()
+}
+
+/// Measure one candidate: ONE `FindAll(TreeScope_Subtree, …)` over the window
+/// root (window itself included), then a bounded identity scan. Returns
+/// `None` when the query failed or matched nothing (pair absent = not
+/// measured; the schema minimum for `match_count` is 1).
+unsafe fn measure_pair(
+    uia: &IUIAutomation,
+    scope: &IUIAutomationElement,
+    target: &IUIAutomationElement,
+    condition: &IUIAutomationCondition,
+) -> Option<MeasuredPair> {
+    let cond = control_view_condition(uia, condition)?;
+    let found = scope.FindAll(TreeScope_Subtree, &cond).ok()?;
+    let len = found.Length().ok()?;
+    if len <= 0 {
+        return None;
+    }
+    let scan = len.min(MAX_MATCH_SCAN);
+    for i in 0..scan {
+        if let Ok(el) = found.GetElement(i) {
+            if uia
+                .CompareElements(&el, target)
+                .map(|b| b.as_bool())
+                .unwrap_or(false)
+            {
+                return Some(MeasuredPair {
+                    count: len as u32,
+                    index: MeasuredIndex::Found(i as u32),
+                });
+            }
+        }
+    }
+    let index = if len > MAX_MATCH_SCAN {
+        MeasuredIndex::NotMeasured
+    } else {
+        MeasuredIndex::NotMatched
+    };
+    Some(MeasuredPair {
+        count: len as u32,
+        index,
+    })
+}
+
+/// Measure the three condition-expressible candidates (docent#139):
+/// automation_id, role_name (raw ControlType id + Name), class_name.
+/// `labeled_by` and `tree_path` are never measured (the cheapness rule):
+/// label-relation equality is not property-condition-expressible, and path
+/// counting is O(nodes × depth).
+unsafe fn measure_candidates(
+    uia: &IUIAutomation,
+    scope: &IUIAutomationElement,
+    target: &IUIAutomationElement,
+    control_type_id: i32,
+    props: &NativeElementProperties,
+) -> LocatorMeasurements {
+    let mut m = LocatorMeasurements::default();
+
+    if !props.automation_id.is_empty() {
+        if let Ok(cond) = uia.CreatePropertyCondition(
+            UIA_AutomationIdPropertyId,
+            &bstr_variant(&props.automation_id),
+        ) {
+            m.automation_id = measure_pair(uia, scope, target, &cond);
+        }
+    }
+
+    if !props.name.is_empty() {
+        let type_cond = uia.CreatePropertyCondition(
+            UIA_ControlTypePropertyId,
+            &windows::Win32::System::Variant::VARIANT::from(control_type_id),
+        );
+        let name_cond = uia.CreatePropertyCondition(UIA_NamePropertyId, &bstr_variant(&props.name));
+        if let (Ok(type_cond), Ok(name_cond)) = (type_cond, name_cond) {
+            if let Ok(cond) = uia.CreateAndCondition(&type_cond, &name_cond) {
+                m.role_name = measure_pair(uia, scope, target, &cond);
+            }
+        }
+    }
+
+    if !props.class_name.is_empty() {
+        if let Ok(cond) =
+            uia.CreatePropertyCondition(UIA_ClassNamePropertyId, &bstr_variant(&props.class_name))
+        {
+            m.class_name = measure_pair(uia, scope, target, &cond);
+        }
+    }
+
+    m
 }
 
 /// Get an i32 property from a UIA element via VARIANT.
@@ -1651,10 +1851,61 @@ unsafe fn get_bool_property(
         .unwrap_or(false)
 }
 
-/// Build the tree path for a UIA element by walking up the control view.
-/// Requires a reference to the `IUIAutomation` instance for the tree walker.
-unsafe fn build_tree_path(uia: &IUIAutomation, element: &IUIAutomationElement) -> Vec<String> {
+/// Resolve the top-level (GA_ROOT) window handle for a native window handle
+/// reported by UIA. Returns 0 when unresolvable.
+unsafe fn top_level_hwnd(native_hwnd: i32) -> i64 {
+    use windows::Win32::UI::WindowsAndMessaging::{GetAncestor, GA_ROOT};
+    if native_hwnd == 0 {
+        return 0;
+    }
+    let hwnd = HWND(native_hwnd as isize as *mut _);
+    let root = GetAncestor(hwnd, GA_ROOT);
+    if root.0.is_null() {
+        native_hwnd as i64
+    } else {
+        root.0 as i64
+    }
+}
+
+/// Build the tree path for a UIA element by walking up the control view,
+/// annotated with the window root (docent#139).
+///
+/// The walk itself is unchanged from the original `build_tree_path` (same
+/// segments, same cap, same selector output). Additionally, the top-level
+/// window handle is resolved from the FIRST hwnd-backed node on the walk up —
+/// the element itself for classic Win32, or the nearest host window for
+/// windowless providers (WPF/XAML children, Chromium content, DirectUI), which
+/// report `NativeWindowHandle` = 0 for themselves while the walk passes
+/// through their hwnd-backed host. The visited node whose handle IS that
+/// top-level handle marks the window-root position in the path, and the
+/// top-level window ELEMENT (via `ElementFromHandle`) becomes the measurement
+/// scope. When no hwnd-backed node is seen within the walk cap, the offset
+/// and scope are `None` — locator measurement is skipped and the `tree_path`
+/// entry is omitted, so the recorded value never contradicts the schema's
+/// "from the window root".
+unsafe fn build_tree_path_with_root(
+    uia: &IUIAutomation,
+    element: &IUIAutomationElement,
+) -> (Vec<String>, Option<usize>, Option<IUIAutomationElement>) {
     let mut path = Vec::new();
+    // Pre-reverse index of the node identified as the top-level window.
+    let mut root_pre_index: Option<usize> = None;
+    // Resolved lazily from the first hwnd-backed node the walk visits.
+    let mut root_hwnd: i64 = 0;
+
+    // Reads a node's native handle, resolves the top-level handle from the
+    // first non-zero one, and reports whether this node IS the top-level
+    // window. Total: any failure reads as handle 0.
+    let mut note_node = |node: &IUIAutomationElement| -> bool {
+        let handle = get_i32_property(node, UIA_NativeWindowHandlePropertyId);
+        if handle == 0 {
+            return false;
+        }
+        if root_hwnd == 0 {
+            root_hwnd = top_level_hwnd(handle);
+        }
+        handle as i64 == root_hwnd
+    };
 
     let control_type_id = get_i32_property(element, UIA_ControlTypePropertyId);
     let name = get_string_property(element, UIA_NamePropertyId);
@@ -1666,12 +1917,15 @@ unsafe fn build_tree_path(uia: &IUIAutomation, element: &IUIAutomationElement) -
         format!("{tag}:{name}")
     };
     path.push(segment);
+    if note_node(element) {
+        root_pre_index = Some(0);
+    }
 
     let walker = uia.ControlViewWalker().ok();
 
     if let Some(walker) = walker {
         let mut current = element.clone();
-        for _ in 0..20 {
+        for _ in 0..MAX_TREE_PATH_ANCESTORS {
             match walker.GetParentElement(&current) {
                 Ok(parent) => {
                     let parent_type_id = get_i32_property(&parent, UIA_ControlTypePropertyId);
@@ -1684,6 +1938,9 @@ unsafe fn build_tree_path(uia: &IUIAutomation, element: &IUIAutomationElement) -
                         format!("{parent_tag}:{parent_name}")
                     };
                     path.push(seg);
+                    if note_node(&parent) && root_pre_index.is_none() {
+                        root_pre_index = Some(path.len() - 1);
+                    }
                     current = parent;
                 }
                 Err(_) => break,
@@ -1692,7 +1949,19 @@ unsafe fn build_tree_path(uia: &IUIAutomation, element: &IUIAutomationElement) -
     }
 
     path.reverse();
-    path
+    // Convert the pre-reverse index to the post-reverse offset. The offset
+    // stands on its own: it records that the root node was positively
+    // identified IN the path, independent of scope resolution below.
+    let window_root_offset = root_pre_index.map(|i| path.len() - 1 - i);
+
+    let window_root = if root_hwnd != 0 {
+        uia.ElementFromHandle(HWND(root_hwnd as isize as *mut _))
+            .ok()
+    } else {
+        None
+    };
+
+    (path, window_root_offset, window_root)
 }
 
 // ---------------------------------------------------------------------------

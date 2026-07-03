@@ -98,7 +98,10 @@ pub fn fallback_element(window_title: &str, x: i32, y: i32) -> ElementDescriptio
         role: None,
         element_type: None,
         text: None,
+        // Coordinate mode observes no element facts and no locator
+        // candidates (the schema's whole-array-omitted case).
         selector: format!("coord:{x},{y}"),
+        ..Default::default()
     }
 }
 

@@ -527,6 +527,7 @@ impl AccessibilityBackend for MockBackend {
             element_type: None,
             text: None,
             selector: self.selector.clone(),
+            ..Default::default()
         })
     }
 
@@ -547,6 +548,7 @@ impl AccessibilityBackend for MockBackend {
             element_type: None,
             text: Some(text),
             selector: self.selector.clone(),
+            ..Default::default()
         })
     }
 
@@ -1188,6 +1190,7 @@ impl AccessibilityBackend for PoisonEventBackend {
             element_type: None,
             text: None,
             selector: "Button#btn1".to_string(),
+            ..Default::default()
         })
     }
 
@@ -1200,6 +1203,7 @@ impl AccessibilityBackend for PoisonEventBackend {
             element_type: None,
             text: Some("hello".to_string()),
             selector: "Edit#input1".to_string(),
+            ..Default::default()
         })
     }
 
@@ -1310,6 +1314,114 @@ fn poison_event_does_not_kill_worker() {
 
     assert_eq!(click_events[0].sequence_id, Some(1));
     assert_eq!(click_events[1].sequence_id, Some(3));
+}
+
+// ---------------------------------------------------------------------------
+// Locator pass-through (issues #138/#139)
+// ---------------------------------------------------------------------------
+
+/// A backend whose elements carry locator candidates and provider facts —
+/// guards the pipeline against silently stripping them between the backend
+/// and the emitted ActionEvent.
+struct LocatorBackend;
+
+fn locator_rich_element() -> ElementDescription {
+    use docent_desktop_lib::capture::{LocatorEntry, LocatorMatch};
+    ElementDescription {
+        tag: "Edit".to_string(),
+        id: Some("txtAmount".to_string()),
+        name: Some("Amount".to_string()),
+        role: Some("edit".to_string()),
+        element_type: None,
+        text: Some("100".to_string()),
+        selector: "Window:App > Edit:Amount".to_string(),
+        position_in_set: Some(2),
+        size_of_set: Some(5),
+        level: Some(1),
+        framework_id: Some("WPF".to_string()),
+        locators: vec![
+            LocatorEntry::AutomationId {
+                value: "txtAmount".to_string(),
+                stats: LocatorMatch {
+                    match_count: Some(1),
+                    match_index: Some(Some(0)),
+                },
+            },
+            LocatorEntry::TreePath {
+                value: "Window:App > Edit:Amount".to_string(),
+            },
+        ],
+    }
+}
+
+impl AccessibilityBackend for LocatorBackend {
+    fn init(&mut self) -> Result<(), CaptureError> {
+        Ok(())
+    }
+    fn cleanup(&mut self) {}
+    fn element_at_point(&self, _x: i32, _y: i32) -> Option<ElementDescription> {
+        Some(locator_rich_element())
+    }
+    fn focused_element(&self) -> Option<ElementDescription> {
+        Some(locator_rich_element())
+    }
+    fn window_title(&self, _window_handle: i64) -> String {
+        "App".to_string()
+    }
+    fn process_name(&self, _window_handle: i64) -> String {
+        "test.exe".to_string()
+    }
+    fn read_file_dialog_path(&self, _window_handle: i64) -> Option<(String, String)> {
+        None
+    }
+    fn root_window_handle(&self, window_handle: i64) -> i64 {
+        window_handle
+    }
+    fn window_rect(&self, _window_handle: i64) -> Option<docent_desktop_lib::capture::WindowRect> {
+        None
+    }
+    fn selected_item_name(&self, _window_handle: i64) -> Option<(ElementDescription, String)> {
+        None
+    }
+}
+
+/// Locator candidates and provider facts produced by the backend must reach
+/// the emitted ActionEvent verbatim — nothing in the worker pipeline may
+/// strip or rewrite them.
+#[test]
+fn locators_and_provider_facts_pass_through_the_pipeline_verbatim() {
+    let harness = WorkerTestHarness::new(LocatorBackend);
+    harness.send_event(RawEvent {
+        event_type: RawEventType::Click,
+        sequence_id: 1,
+        timestamp: 1000,
+        screen_x: 10,
+        screen_y: 20,
+        window_handle: 1,
+        process_id: 1,
+        key_code: 0,
+        modifiers: (false, false, false, false),
+        scroll_delta: 0.0,
+        callback_params: [0; 4],
+        pre_captured_element: None,
+    });
+
+    thread::sleep(Duration::from_millis(100));
+    let events = harness.shutdown();
+
+    let click = events
+        .iter()
+        .find(|e| matches!(e.payload, ActionPayload::Click { .. }))
+        .expect("expected a Click event");
+    if let ActionPayload::Click { ref element, .. } = click.payload {
+        assert_eq!(
+            *element,
+            locator_rich_element(),
+            "element must pass through verbatim"
+        );
+    } else {
+        unreachable!("filtered to Click above");
+    }
 }
 
 // ---------------------------------------------------------------------------

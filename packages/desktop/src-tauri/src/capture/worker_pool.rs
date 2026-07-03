@@ -1432,6 +1432,7 @@ fn handle_selection<B: AccessibilityBackend>(
                     role: Some("listitem".to_string()),
                     element_type: None,
                     text: None,
+                    ..Default::default()
                 };
                 (fallback, String::new())
             }
@@ -1483,6 +1484,7 @@ fn handle_keyboard<B: AccessibilityBackend>(
             element_type: None,
             text: None,
             selector: String::new(),
+            ..Default::default()
         }
     });
 
@@ -1738,6 +1740,7 @@ mod tests {
                     element_type: None,
                     text: None,
                     selector: "win > edit".to_string(),
+                    ..Default::default()
                 },
             },
         }
@@ -1991,6 +1994,7 @@ mod tests {
                 element_type: None,
                 text: None,
                 selector: "win > edit".to_string(),
+                ..Default::default()
             })
         }
         fn window_title(&self, _window_handle: i64) -> String {

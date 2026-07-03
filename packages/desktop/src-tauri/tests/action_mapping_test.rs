@@ -85,6 +85,7 @@ fn arb_element() -> impl Strategy<Value = ElementDescription> {
                 element_type,
                 text,
                 selector,
+                ..Default::default()
             },
         )
 }

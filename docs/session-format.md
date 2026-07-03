@@ -349,18 +349,22 @@ tree.
 }
 ```
 
-| Field          | Type           | Required | Description                                                                                                                                           |
-| -------------- | -------------- | -------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `tag`          | string         | yes      | HTML tag name (extension) / UIA ControlType, e.g. `Button`, `Edit` (desktop). `"unknown"` in coordinate mode.                                         |
-| `id`           | string \| null | no       | DOM `id` attribute (extension) / UIA AutomationId, developer-assigned and session-stable (desktop).                                                   |
-| `name`         | string \| null | no       | `name` attribute (extension) / UIA Name (desktop).                                                                                                    |
-| `role`         | string \| null | no       | ARIA role (extension) / localized UIA control type (desktop).                                                                                         |
-| `type`         | string \| null | no       | Input type attribute (extension) / control subtype, e.g. `"password"` (desktop).                                                                      |
-| `autocomplete` | string \| null | no       | HTML `autocomplete` token, e.g. `"cc-number"` (extension). Used to detect sensitive payment fields. Null/absent on desktop.                           |
-| `text`         | string \| null | no       | Visible text (truncated to 100 chars). Null for sensitive fields (passwords, credit-card/SSN/secret), where it is also flagged `redacted`.            |
-| `selector`     | string         | yes      | CSS selector (extension) / accessibility tree path joined with `" > "`, or `coord:x,y` in coordinate mode (desktop).                                  |
-| `redacted`     | boolean        | no       | `true` when the value/text was redacted because the field was sensitive (password, payment, or other PII). Absent otherwise.                          |
-| `locators`     | array          | no       | Locator candidates — observed facts about how the element could be addressed at capture time. See [Locator candidates](#locator-candidates-locators). |
+| Field             | Type            | Required | Description                                                                                                                                                                                                                        |
+| ----------------- | --------------- | -------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `tag`             | string          | yes      | HTML tag name (extension) / UIA ControlType, e.g. `Button`, `Edit` (desktop). `"unknown"` in coordinate mode.                                                                                                                      |
+| `id`              | string \| null  | no       | DOM `id` attribute (extension) / UIA AutomationId, developer-assigned and session-stable (desktop).                                                                                                                                |
+| `name`            | string \| null  | no       | `name` attribute (extension) / UIA Name (desktop).                                                                                                                                                                                 |
+| `role`            | string \| null  | no       | ARIA role (extension) / localized UIA control type (desktop).                                                                                                                                                                      |
+| `type`            | string \| null  | no       | Input type attribute (extension) / control subtype, e.g. `"password"` (desktop).                                                                                                                                                   |
+| `autocomplete`    | string \| null  | no       | HTML `autocomplete` token, e.g. `"cc-number"` (extension). Used to detect sensitive payment fields. Null/absent on desktop.                                                                                                        |
+| `text`            | string \| null  | no       | Visible text (truncated to 100 chars). Null for sensitive fields (passwords, credit-card/SSN/secret), where it is also flagged `redacted`.                                                                                         |
+| `selector`        | string          | yes      | CSS selector (extension) / accessibility tree path joined with `" > "`, or `coord:x,y` in coordinate mode (desktop).                                                                                                               |
+| `redacted`        | boolean         | no       | `true` when the value/text was redacted because the field was sensitive (password, payment, or other PII). Absent otherwise.                                                                                                       |
+| `position_in_set` | integer \| null | no       | One-based position within the element's logical set of peers (UIA PositionInSet, desktop). Provider-reported; the logical set can differ from what is rendered (virtualized lists). Null/absent on extension or when not reported. |
+| `size_of_set`     | integer \| null | no       | Size of that logical set (UIA SizeOfSet, desktop). Null/absent on extension or when not reported.                                                                                                                                  |
+| `level`           | integer \| null | no       | One-based hierarchical depth (UIA Level, desktop — e.g. tree-item depth). Null/absent on extension or when not reported.                                                                                                           |
+| `framework_id`    | string \| null  | no       | Per-element UI-framework identity (UIA FrameworkId, desktop — e.g. `Win32`, `WPF`, `XAML`; apps can mix frameworks). Null/absent on extension or when not reported.                                                                |
+| `locators`        | array           | no       | Locator candidates — observed facts about how the element could be addressed at capture time. See [Locator candidates](#locator-candidates-locators).                                                                              |
 
 ---
 
@@ -393,21 +397,29 @@ Entries are per-strategy shapes discriminated on `strategy` (the same pattern ac
 ### Measurement semantics
 
 The pair is a snapshot — valid at the recorded `timestamp`, in the stated scope and order,
-measured synchronously **at the moment the acted-on element is described for capture**: for
-immediately-captured actions that is inside the capture handler, before the action's effects
-run; for deliberately debounced or deferred captures (Tab-correlated focus, scroll settle,
-contenteditable typing pauses) it is when the capture commits, against the then-current
-document:
+measured **at the moment the acted-on element is described for capture**. On the extension,
+that is inside the capture handler (before the action's effects run) for immediately-captured
+actions, and at capture-commit for deliberately debounced or deferred captures (Tab-correlated
+focus, scroll settle, contenteditable typing pauses). On desktop, elements are described
+asynchronously on a worker after the input that caused them, so the measurement reflects the
+tree as it stands when the description is built — the action's effects may already be
+underway; desktop click actions whose element was described directly at input time carry
+candidate values only, with the pair absent (not measured):
 
-| Platform  | Scope                                                                                | Order                                                                                |
-| --------- | ------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------ |
-| Extension | The capturing frame's document root (the same boundary selector derivation stops at) | Document order; standard non-piercing matching (shadow roots are not descended into) |
-| Desktop   | The target window                                                                    | Deterministic depth-first pre-order over the UI Automation Control view              |
+| Platform  | Scope                                                                                | Order                                                                                                        |
+| --------- | ------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------ |
+| Extension | The capturing frame's document root (the same boundary selector derivation stops at) | Document order; standard non-piercing matching (shadow roots are not descended into)                         |
+| Desktop   | The acted-on element's top-level window (the window itself included)                 | Depth-first pre-order (tree order, as returned by the automation engine) over the UI Automation Control view |
 
 The order of entries in `locators` is the fixed order the strategy definitions are declared in
 the platform schema — a serialization convention that carries **no preference or ranking**.
 Candidates whose value was empty are omitted rather than included empty; the whole array is
 omitted when no candidates were observed (e.g. coordinate mode).
+
+Note: the provider-reported set ordinals (`position_in_set`/`size_of_set`) and a measured
+`match_count` can legitimately disagree — under UI virtualization only realized items exist in
+the walked tree, while the provider reports the logical set. The disagreement is itself
+signal that the container is virtualized.
 
 ### Extension strategies
 

@@ -118,6 +118,59 @@ pub struct WindowRect {
 // Element description
 // ---------------------------------------------------------------------------
 
+/// Measured match statistics for a locator candidate — mirrors the
+/// `locator_match_count` / `locator_match_index` definitions in the platform
+/// schema. Both fields are independently optional: an absent field means
+/// "not measured", never a guess.
+#[derive(Debug, Serialize, Clone, Copy, PartialEq, Eq, Default)]
+pub struct LocatorMatch {
+    /// How many elements the candidate matched in its stated scope.
+    /// `None` = not measured (key absent in the emitted JSON).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub match_count: Option<u32>,
+    /// Zero-based position of the acted-on element among the matches.
+    /// Outer `None` = not measured (key absent). `Some(None)` = JSON `null`
+    /// (the candidate did not match the acted-on element). `Some(Some(i))` =
+    /// the ordinal.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub match_index: Option<Option<u32>>,
+}
+
+/// One `locators[]` entry. Variants mirror the per-strategy shapes in
+/// `schemas/desktop-windows.delta.json` exactly; the declaration order here is
+/// the schema's `oneOf` order — a serialization convention that carries no
+/// ranking. `LabeledBy` and `TreePath` carry no stats field: their pair is
+/// never measured (the schema's cheapness rule), which this representation
+/// makes unrepresentable rather than merely unlikely. `masked` is deliberately
+/// not modeled: no desktop strategy is value-derived, so it can never be true
+/// in the current contract.
+#[derive(Debug, Serialize, Clone, PartialEq, Eq)]
+#[serde(tag = "strategy", rename_all = "snake_case")]
+pub enum LocatorEntry {
+    AutomationId {
+        value: String,
+        #[serde(flatten)]
+        stats: LocatorMatch,
+    },
+    RoleName {
+        role: String,
+        name: String,
+        #[serde(flatten)]
+        stats: LocatorMatch,
+    },
+    ClassName {
+        value: String,
+        #[serde(flatten)]
+        stats: LocatorMatch,
+    },
+    LabeledBy {
+        value: String,
+    },
+    TreePath {
+        value: String,
+    },
+}
+
 /// Description of a UI element, mapped from the platform's accessibility API.
 ///
 /// Field mapping per platform:
@@ -128,7 +181,13 @@ pub struct WindowRect {
 /// - `element_type`: Control subtype (e.g. `"password"`)
 /// - `text`:     Visible text, truncated to 100 chars. Null for passwords.
 /// - `selector`: Accessibility tree path or `"coord:{x},{y}"`
-#[derive(Debug, Serialize, Clone, PartialEq, Eq)]
+/// - `position_in_set`/`size_of_set`/`level`: provider-reported set ordinals
+///   (Windows UIA PositionInSet/SizeOfSet/Level); absent when not reported.
+/// - `framework_id`: per-element UI-framework identity (Windows UIA
+///   FrameworkId, e.g. "Win32"/"WPF"/"XAML"); absent when not reported.
+/// - `locators`: locator candidates (docent#139); omitted entirely when none
+///   were observed (e.g. coordinate mode, fallback descriptions).
+#[derive(Debug, Serialize, Clone, PartialEq, Eq, Default)]
 pub struct ElementDescription {
     pub tag: String,
     pub id: Option<String>,
@@ -138,6 +197,16 @@ pub struct ElementDescription {
     pub element_type: Option<String>,
     pub text: Option<String>,
     pub selector: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub position_in_set: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub size_of_set: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub level: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub framework_id: Option<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub locators: Vec<LocatorEntry>,
 }
 
 // ---------------------------------------------------------------------------
@@ -161,6 +230,10 @@ pub struct Modifiers {
 ///
 /// Each variant corresponds to an action type in the v2.0.0 schema.
 /// The variant is flattened into the parent `ActionEvent` during serialisation.
+// Variants embed full `ElementDescription` values (Drop carries two); events
+// occur at human-input rate, so the variant-size spread is not worth boxing
+// every construction and match site.
+#[allow(clippy::large_enum_variant)]
 #[derive(Debug, Serialize, Clone)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum ActionPayload {

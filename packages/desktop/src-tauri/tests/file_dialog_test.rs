@@ -81,12 +81,52 @@ mod file_dialog_navigation {
     use windows::Win32::System::Com::{
         CoCreateInstance, CoInitializeEx, CLSCTX_ALL, COINIT_APARTMENTTHREADED,
     };
+    use windows::Win32::System::Threading::{AttachThreadInput, GetCurrentThreadId};
     use windows::Win32::System::Variant::VARIANT;
     use windows::Win32::UI::Accessibility::{
         CUIAutomation, IUIAutomation, IUIAutomationElement, PropertyConditionFlags_None,
         TreeScope_Descendants, UIA_NamePropertyId,
     };
-    use windows::Win32::UI::WindowsAndMessaging::{FindWindowW, SetForegroundWindow};
+    use windows::Win32::UI::WindowsAndMessaging::{
+        BringWindowToTop, FindWindowW, GetForegroundWindow, GetWindowThreadProcessId,
+        SetForegroundWindow,
+    };
+
+    /// Bring `hwnd` to the foreground reliably, and report whether it actually
+    /// took. A bare `SetForegroundWindow` from a process that is not already
+    /// the foreground process is silently DENIED by Windows' foreground lock —
+    /// so a test binary run as part of a suite (with the user's editor in
+    /// front) cannot focus a window it spawned. Attaching this thread's input
+    /// queue to the current foreground thread lifts that restriction for the
+    /// duration of the call. The result is polled, because the OS applies
+    /// foreground changes asynchronously.
+    ///
+    /// Callers MUST refuse to synthesize input when this returns false —
+    /// otherwise the keystrokes/clicks leak into whatever the user has focused.
+    unsafe fn force_foreground(hwnd: HWND) -> bool {
+        let our_thread = GetCurrentThreadId();
+        let fg = GetForegroundWindow();
+        let fg_thread = GetWindowThreadProcessId(fg, None);
+        let attached = fg_thread != 0 && fg_thread != our_thread;
+        if attached {
+            let _ = AttachThreadInput(our_thread, fg_thread, true);
+        }
+        let _ = BringWindowToTop(hwnd);
+        let _ = SetForegroundWindow(hwnd);
+        if attached {
+            let _ = AttachThreadInput(our_thread, fg_thread, false);
+        }
+        let start = std::time::Instant::now();
+        loop {
+            if GetForegroundWindow() == hwnd {
+                return true;
+            }
+            if start.elapsed() > Duration::from_millis(2000) {
+                return false;
+            }
+            thread::sleep(Duration::from_millis(50));
+        }
+    }
 
     /// Open a file dialog by launching Notepad and sending Ctrl+O.
     /// Returns the Notepad process PID for cleanup.
@@ -125,15 +165,20 @@ mod file_dialog_navigation {
             thread::sleep(Duration::from_millis(100));
         }
 
-        // Bring Notepad to the foreground deterministically. (This used to be a
-        // synthetic click at the window's centre — but if any other window
-        // overlaps that point when the test starts, the click lands on whatever
-        // is on top, stealing focus and occasionally clicking into the user's
-        // session. SetForegroundWindow is what the dialog half of this file
-        // already uses.)
-        unsafe {
-            let _ = SetForegroundWindow(notepad_hwnd);
-        }
+        // Bring Notepad to the foreground and REFUSE to send input if it did
+        // not take: a bare SetForegroundWindow is denied by the foreground lock
+        // when the test binary is not itself in front (e.g. running as part of
+        // a suite), and firing Ctrl+O at a Notepad that never came forward
+        // leaks the keystroke into whatever the user has focused.
+        assert!(
+            unsafe { force_foreground(notepad_hwnd) },
+            "SETUP FAILURE (environment, not capture): Notepad never became the \
+             foreground window, so its file dialog cannot be driven and \
+             synthetic input would leak into the active session. This is the \
+             Windows foreground-lock denial that hits when the test process is \
+             not itself in front — run this ci-skip test with its window \
+             focused, or in isolation."
+        );
         thread::sleep(Duration::from_millis(300));
 
         // Send Ctrl+O to open file dialog
@@ -274,9 +319,14 @@ mod file_dialog_navigation {
         let dialog_hwnd = wait_for_dialog(5000).expect("File dialog did not appear within 5s");
         thread::sleep(Duration::from_millis(500));
 
-        unsafe {
-            let _ = SetForegroundWindow(dialog_hwnd);
-        }
+        // Same guard as the Notepad focus: the navigation clicks below must not
+        // leak into the user's session if the dialog fails to come forward.
+        assert!(
+            unsafe { force_foreground(dialog_hwnd) },
+            "SETUP FAILURE (environment, not capture): the file dialog never \
+             became the foreground window; navigation clicks would leak into \
+             the active session."
+        );
         thread::sleep(Duration::from_millis(300));
 
         (capture, rx, enigo, pid, dialog_hwnd)

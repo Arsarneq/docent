@@ -14,7 +14,7 @@
           "description": "Locator strategy identifier — selects which entry shape applies."
         }
       },
-      "description": "A locator candidate for the acted-on element. Match statistics (match_count / match_index) are measured within the target window, over a deterministic depth-first pre-order traversal of the UI Automation Control view, synchronously at capture time before the action's effects run.",
+      "description": "A locator candidate for the acted-on element. Match statistics (match_count / match_index) are measured within the acted-on element's top-level window (the window itself included), over the UI Automation Control view in depth-first pre-order (tree order, as returned by the automation engine), at the moment the acted-on element is described for capture. This platform describes elements asynchronously on a worker after the input that caused them, so the measurement reflects the tree as it stands when the description is built — the action's effects may already be underway. Click actions whose element was described directly at input time carry candidate values only, with the pair absent (not measured).",
       "oneOf": [
         {
           "$ref": "#/$defs/locator_automation_id"

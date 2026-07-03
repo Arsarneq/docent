@@ -195,6 +195,102 @@ fn assert_captured_context_switches_well_formed(events: &[ActionEvent]) {
     }
 }
 
+/// Assert that every captured element's locator candidates (docent#138/#139)
+/// are well-formed — environment-independent invariants only, never counts
+/// (see [`stop_capture_bounded`]): locators are OPTIONAL per element (the
+/// input-hook path and provider variance legitimately produce value-only or
+/// empty sets); when present, every entry carries a non-empty value/name,
+/// the pair invariants hold (`Found(i)` implies `i < count`; an index is only
+/// present alongside a count), and provider-reported set ordinals are >= 1.
+/// Coordinate-mode elements carry no locators at all.
+#[cfg(target_os = "windows")]
+fn assert_captured_element_locators_well_formed(events: &[ActionEvent]) {
+    use docent_desktop_lib::capture::{CaptureMode, LocatorEntry};
+
+    fn check_element(el: &docent_desktop_lib::capture::ElementDescription, mode: &CaptureMode) {
+        if matches!(mode, CaptureMode::Coordinate) {
+            assert!(
+                el.locators.is_empty(),
+                "coordinate-mode elements must carry no locators"
+            );
+        }
+        for v in [el.position_in_set, el.size_of_set, el.level]
+            .into_iter()
+            .flatten()
+        {
+            assert!(v >= 1, "provider set ordinals must be >= 1, got {v}");
+        }
+        if let Some(fw) = &el.framework_id {
+            assert!(
+                !fw.is_empty(),
+                "framework_id must be non-empty when present"
+            );
+        }
+        for entry in &el.locators {
+            let stats = match entry {
+                LocatorEntry::AutomationId { value, stats } => {
+                    assert!(!value.is_empty(), "automation_id value must be non-empty");
+                    Some(stats)
+                }
+                LocatorEntry::RoleName { role, name, stats } => {
+                    assert!(!role.is_empty(), "role_name role must be non-empty");
+                    assert!(!name.is_empty(), "role_name name must be non-empty");
+                    Some(stats)
+                }
+                LocatorEntry::ClassName { value, stats } => {
+                    assert!(!value.is_empty(), "class_name value must be non-empty");
+                    Some(stats)
+                }
+                LocatorEntry::LabeledBy { value } => {
+                    assert!(!value.is_empty(), "labeled_by value must be non-empty");
+                    None
+                }
+                LocatorEntry::TreePath { value } => {
+                    assert!(!value.is_empty(), "tree_path value must be non-empty");
+                    None
+                }
+            };
+            if let Some(stats) = stats {
+                if stats.match_index.is_some() {
+                    assert!(
+                        stats.match_count.is_some(),
+                        "an index may only appear alongside a count"
+                    );
+                }
+                if let (Some(count), Some(Some(i))) = (stats.match_count, stats.match_index) {
+                    assert!(i < count, "match_index {i} must be < match_count {count}");
+                }
+                if let Some(count) = stats.match_count {
+                    assert!(count >= 1, "match_count must be >= 1, got {count}");
+                }
+            }
+        }
+    }
+
+    for e in events {
+        match &e.payload {
+            ActionPayload::Click { element, .. }
+            | ActionPayload::RightClick { element, .. }
+            | ActionPayload::Type { element, .. }
+            | ActionPayload::Select { element, .. }
+            | ActionPayload::Key { element, .. }
+            | ActionPayload::Focus { element }
+            | ActionPayload::DragStart { element } => check_element(element, &e.capture_mode),
+            ActionPayload::Drop {
+                element,
+                source_element,
+                ..
+            } => {
+                check_element(element, &e.capture_mode);
+                if let Some(src) = source_element {
+                    check_element(src, &e.capture_mode);
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
 // ─── Test Harness ───────────────────────────────────────────────────────────
 
 /// Filter events by payload type.
@@ -399,6 +495,7 @@ mod user_actions {
         drop(window);
         let events = stop_capture_bounded(capture, &rx);
         assert_captured_keys_well_formed(&events);
+        assert_captured_element_locators_well_formed(&events);
     }
 
     #[test]
@@ -571,6 +668,7 @@ mod user_actions {
         drop(window);
         let events = stop_capture_bounded(capture, &rx);
         assert_captured_keys_well_formed(&events);
+        assert_captured_element_locators_well_formed(&events);
     }
 }
 
@@ -1126,6 +1224,7 @@ mod user_actions_advanced {
         drop(window);
         let events = stop_capture_bounded(capture, &rx);
         assert_captured_keys_well_formed(&events);
+        assert_captured_element_locators_well_formed(&events);
     }
 
     #[test]
@@ -1147,6 +1246,7 @@ mod user_actions_advanced {
         drop(window);
         let events = stop_capture_bounded(capture, &rx);
         assert_captured_keys_well_formed(&events);
+        assert_captured_element_locators_well_formed(&events);
     }
 
     #[test]
@@ -1170,6 +1270,7 @@ mod user_actions_advanced {
         drop(window);
         let events = stop_capture_bounded(capture, &rx);
         assert_captured_keys_well_formed(&events);
+        assert_captured_element_locators_well_formed(&events);
     }
 }
 
@@ -1666,6 +1767,7 @@ mod capture_behaviour {
         // guarantee is pinned at the worker layer (worker_pool.rs
         // `responsive_app_foreground_produces_context_switch`).
         assert_captured_context_switches_well_formed(&events);
+        assert_captured_element_locators_well_formed(&events);
     }
 }
 
@@ -1797,6 +1899,7 @@ mod user_actions_extended {
         drop(window);
         let events = stop_capture_bounded(capture, &rx);
         assert_captured_keys_well_formed(&events);
+        assert_captured_element_locators_well_formed(&events);
     }
 
     #[test]
@@ -1938,6 +2041,7 @@ mod user_actions_extended {
         drop(window);
         let events = stop_capture_bounded(capture, &rx);
         assert_captured_keys_well_formed(&events);
+        assert_captured_element_locators_well_formed(&events);
     }
 }
 
@@ -2642,6 +2746,7 @@ mod completeness {
         drop(window);
         let events = stop_capture_bounded(capture, &rx);
         assert_captured_keys_well_formed(&events);
+        assert_captured_element_locators_well_formed(&events);
     }
 
     #[test]
@@ -3469,6 +3574,7 @@ mod taskbar_chrome {
 
         let events = stop_capture_bounded(capture, &rx);
         assert_captured_keys_well_formed(&events);
+        assert_captured_element_locators_well_formed(&events);
     }
 
     /// Manual test 15: Click system tray area (notification area).

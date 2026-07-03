@@ -328,6 +328,46 @@ describe('Schema validation: desktop locators[]', () => {
   }
 });
 
+// ─── Provider-reported element facts (#138) ───────────────────────────────────
+
+describe('Schema validation: provider-reported element facts', () => {
+  function exportWithFacts(facts) {
+    const data = exportWithLocators([
+      { strategy: 'automation_id', value: 'btnDelete', match_count: 1, match_index: 0 },
+    ]);
+    Object.assign(data.recordings[0].steps[0].actions[0].element, facts);
+    return data;
+  }
+
+  it('accepts an element carrying all four facts', () => {
+    const data = exportWithFacts({
+      position_in_set: 2,
+      size_of_set: 5,
+      level: 1,
+      framework_id: 'WPF',
+    });
+    assert.ok(validateDesktop(data), `Failed:\n${formatErrors(validateDesktop)}`);
+  });
+
+  it('accepts null facts (equivalent to absent)', () => {
+    const data = exportWithFacts({
+      position_in_set: null,
+      size_of_set: null,
+      level: null,
+      framework_id: null,
+    });
+    assert.ok(validateDesktop(data), `Failed:\n${formatErrors(validateDesktop)}`);
+  });
+
+  it('rejects position_in_set of 0 (one-based; 0 means the provider did not report)', () => {
+    assert.ok(!validateDesktop(exportWithFacts({ position_in_set: 0 })));
+  });
+
+  it('rejects a non-string framework_id', () => {
+    assert.ok(!validateDesktop(exportWithFacts({ framework_id: 5 })));
+  });
+});
+
 describe('Schema validation: desktop negative tests', () => {
   it('rejects extension-only navigate action', () => {
     const data = buildDesktopExport([
@@ -432,6 +472,10 @@ describe('Schema validation: desktop property-based (random valid payloads)', ()
       text: fc.option(fc.string({ minLength: 1 }), { nil: null }),
       selector: fc.string({ minLength: 1 }),
       locators: fc.array(desktopLocatorArb, { maxLength: 4 }),
+      position_in_set: fc.oneof(fc.constant(null), fc.integer({ min: 1, max: 500 })),
+      size_of_set: fc.oneof(fc.constant(null), fc.integer({ min: 1, max: 500 })),
+      level: fc.oneof(fc.constant(null), fc.integer({ min: 1, max: 20 })),
+      framework_id: fc.oneof(fc.constant(null), fc.constantFrom('Win32', 'WPF', 'XAML')),
     },
     { requiredKeys: ['tag', 'id', 'name', 'role', 'type', 'text', 'selector'] },
   );

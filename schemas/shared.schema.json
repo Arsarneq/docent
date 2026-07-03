@@ -459,6 +459,25 @@
           "type": ["string", "null"],
           "description": "The field's autocomplete hint when present (e.g. \"cc-number\"), used to identify sensitive payment fields. Null when absent or not applicable."
         },
+        "position_in_set": {
+          "type": ["integer", "null"],
+          "minimum": 1,
+          "description": "One-based position of the element within the logical set of related items it belongs to, as reported by the source accessibility layer. The logical set can differ from what is currently rendered. Null or absent when not reported."
+        },
+        "size_of_set": {
+          "type": ["integer", "null"],
+          "minimum": 1,
+          "description": "Number of items in the logical set of related items this element belongs to (the counterpart of position_in_set), as reported by the source accessibility layer. Null or absent when not reported."
+        },
+        "level": {
+          "type": ["integer", "null"],
+          "minimum": 1,
+          "description": "One-based depth of the element within a hierarchical set (e.g. an item's depth in a tree), as reported by the source accessibility layer. Null or absent when not reported."
+        },
+        "framework_id": {
+          "type": ["string", "null"],
+          "description": "Identifier of the UI framework that supplies this element, as reported by the source accessibility layer. Applications can mix frameworks, so this is recorded per element. Null or absent when not reported."
+        },
         "text": {
           "type": ["string", "null"],
           "description": "Visible text, truncated to 100 chars. Null for password fields or when empty."

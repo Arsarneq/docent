@@ -22,6 +22,10 @@ pub const PASSWORD_MASK: &str = "••••••••";
 /// Each variant represents a distinct interaction type detected by the OS
 /// hooks and accessibility API. The `map_event` function converts these
 /// into schema-compliant `ActionEvent`s.
+// Variants embed full `ElementDescription` values (Drop carries two); events
+// occur at human-input rate, so the variant-size spread is not worth boxing
+// every construction and match site.
+#[allow(clippy::large_enum_variant)]
 #[derive(Debug, Clone)]
 pub enum NativeEvent {
     /// Mouse click on an element.
@@ -255,6 +259,7 @@ mod tests {
             element_type: None,
             text: Some("OK".to_string()),
             selector: "Window:App > Button:OK".to_string(),
+            ..Default::default()
         }
     }
 
