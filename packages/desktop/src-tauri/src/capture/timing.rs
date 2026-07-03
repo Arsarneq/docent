@@ -28,6 +28,15 @@ pub const FOCUS_CORRELATION_MS: u64 = 100;
 /// async rendering pipeline.
 pub const VALUE_CHANGE_CORRELATION_MS: u64 = 1000;
 
+/// Selection correlation window. Selection changes ride the same pipeline as
+/// value changes (input → app updates selection state → accessibility fires
+/// EVENT_OBJECT_SELECTION), so the same worst-case latency class applies —
+/// including the UWP async-rendering lag; the alias keeps the two windows
+/// coupled if that measurement is ever retuned. An uncorrelated selection
+/// event is the application's own doing (timers, async loads, background
+/// refresh) and must not be recorded as a user action.
+pub const SELECTION_CORRELATION_MS: u64 = VALUE_CHANGE_CORRELATION_MS;
+
 // ─── Scroll ─────────────────────────────────────────────────────────────────
 
 /// Debounce interval in milliseconds. A scroll action is emitted only after
