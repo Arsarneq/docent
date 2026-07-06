@@ -174,9 +174,10 @@ fn write_dump(session: &str, events: &[ActionEvent]) {
     .expect("write dump");
 }
 
-/// Run one mouse-driven session: start capture, create the (unraised) window,
-/// run the scripted input against its centre, stop bounded, write the dump.
-fn run_mouse_session(session: &str, script: impl FnOnce(&mut Enigo, i32, i32)) {
+/// Run one mouse-driven session: start capture, create the (unraised) session
+/// and primer windows, run the scripted input against their centres, stop
+/// bounded, write the dump.
+fn run_mouse_session(session: &str, script: impl FnOnce(&mut Enigo, (i32, i32), (i32, i32))) {
     let (tx, rx) = mpsc::channel::<ActionEvent>();
     let mut capture = WindowsCapture::new();
     capture.set_excluded_pid(None);
@@ -195,7 +196,7 @@ fn run_mouse_session(session: &str, script: impl FnOnce(&mut Enigo, i32, i32)) {
     thread::sleep(Duration::from_millis(200));
 
     let mut enigo = Enigo::new(&Settings::default()).unwrap();
-    script(&mut enigo, win.cx, win.cy);
+    script(&mut enigo, (win.cx, win.cy), (primer.cx, primer.cy));
     drop(primer);
     // Let worker describes and coalescing settle before stopping.
     thread::sleep(Duration::from_millis(800));
@@ -216,7 +217,7 @@ fn run_mouse_session(session: &str, script: impl FnOnce(&mut Enigo, i32, i32)) {
 #[test]
 #[serial]
 fn d_click() {
-    run_mouse_session("d-click", |enigo, cx, cy| {
+    run_mouse_session("d-click", |enigo, (cx, cy), _primer| {
         enigo.move_mouse(cx, cy, Coordinate::Abs).unwrap();
         thread::sleep(Duration::from_millis(50));
         enigo.button(enigo::Button::Left, Direction::Click).unwrap();
@@ -229,11 +230,28 @@ fn d_click() {
 #[test]
 #[serial]
 fn d_double_click() {
-    run_mouse_session("d-double-click", |enigo, cx, cy| {
+    run_mouse_session("d-double-click", |enigo, (cx, cy), _primer| {
         enigo.move_mouse(cx, cy, Coordinate::Abs).unwrap();
         thread::sleep(Duration::from_millis(50));
         enigo.button(enigo::Button::Left, Direction::Click).unwrap();
         thread::sleep(Duration::from_millis(80));
+        enigo.button(enigo::Button::Left, Direction::Click).unwrap();
+    });
+}
+
+/// User switches between two windows by clicking each in turn: activation
+/// context_switch + click on the session window, then the same pair on the
+/// primer — the context-lifecycle class, driven entirely by real clicks.
+#[test]
+#[serial]
+fn d_context_switch() {
+    run_mouse_session("d-context-switch", |enigo, (cx, cy), (px, py)| {
+        enigo.move_mouse(cx, cy, Coordinate::Abs).unwrap();
+        thread::sleep(Duration::from_millis(50));
+        enigo.button(enigo::Button::Left, Direction::Click).unwrap();
+        thread::sleep(Duration::from_millis(400));
+        enigo.move_mouse(px, py, Coordinate::Abs).unwrap();
+        thread::sleep(Duration::from_millis(50));
         enigo.button(enigo::Button::Left, Direction::Click).unwrap();
     });
 }

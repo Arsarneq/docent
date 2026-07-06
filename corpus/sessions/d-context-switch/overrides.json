@@ -1,0 +1,19 @@
+{
+  "session": "d-context-switch",
+  "platform": "desktop-windows",
+  "notes": "all three context_switch sources are the producing test binary path (build-hashed)",
+  "relaxations": [
+    {
+      "pointer": "rec[0].step[0].action[0]",
+      "relax": "path"
+    },
+    {
+      "pointer": "rec[0].step[0].action[2]",
+      "relax": "path"
+    },
+    {
+      "pointer": "rec[0].step[0].action[4]",
+      "relax": "path"
+    }
+  ]
+}
