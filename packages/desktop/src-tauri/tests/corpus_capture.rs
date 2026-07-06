@@ -61,6 +61,7 @@ enum Child {
     None,
     ScrollEdit,
     TypeEdit,
+    PasswordEdit,
 }
 
 /// SS_NOTIFY: a bare STATIC answers WM_NCHITTEST with HTTRANSPARENT
@@ -113,7 +114,8 @@ impl SessionWindow {
             .expect("Failed to create session window");
             if child != Child::None {
                 use windows::Win32::UI::WindowsAndMessaging::{
-                    SetWindowTextW, ES_AUTOVSCROLL, ES_MULTILINE, WS_BORDER, WS_CHILD, WS_VSCROLL,
+                    SetWindowTextW, ES_AUTOVSCROLL, ES_MULTILINE, ES_PASSWORD, WS_BORDER, WS_CHILD,
+                    WS_VSCROLL,
                 };
                 let edit = CreateWindowExW(
                     Default::default(),
@@ -135,7 +137,11 @@ impl SessionWindow {
                             },
                         )
                         | windows::Win32::UI::WindowsAndMessaging::WINDOW_STYLE(
-                            ES_AUTOVSCROLL as u32, // harmless on single-line
+                            if child == Child::PasswordEdit {
+                                ES_PASSWORD as u32
+                            } else {
+                                ES_AUTOVSCROLL as u32
+                            },
                         ),
                     10,
                     10,
@@ -431,5 +437,24 @@ fn d_type_edit() {
             thread::sleep(Duration::from_millis(60));
         }
         thread::sleep(Duration::from_millis(600));
+    });
+}
+
+/// The d-type-edit pattern against an ES_PASSWORD EDIT: the native
+/// IsPassword signal masks the typed value at capture — truth pins the exact
+/// mask, the redacted flag, and nulled text (the desktop chokepoint contract
+/// PR #248 drift-guards; here it runs against a REAL capture).
+#[test]
+#[serial]
+fn d_redaction() {
+    run_mouse_session_with("d-redaction", Child::PasswordEdit, |enigo, win, _primer| {
+        enigo.move_mouse(win.cx, win.cy, Coordinate::Abs).unwrap();
+        thread::sleep(Duration::from_millis(50));
+        enigo.button(enigo::Button::Left, Direction::Click).unwrap();
+        thread::sleep(Duration::from_millis(350));
+        for c in "hunter".chars() {
+            enigo.key(enigo::Key::Unicode(c), Direction::Click).unwrap();
+            thread::sleep(Duration::from_millis(60));
+        }
     });
 }

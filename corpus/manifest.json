@@ -191,6 +191,15 @@
       "overrides": "overrides.json",
       "knownDiffIssues": [],
       "notes": "click-to-focus the empty EDIT, then per-char layout-VK typing at human cadence: printables buffer and the value-change coalesces one type(hello). AUTHORING NOTES: enigo.text() injects VK_PACKET keystrokes that leak as phantom key(VK_0xE7) actions nondeterministically (unicode-injection/IME class — issue candidate); under post-compile load, partial key leaks (key(E),key(L)) were observed once — supersede race, watch on CI. element.text is stably the first value-change snapshot (h)"
+    },
+    {
+      "id": "d-redaction",
+      "platform": "desktop-windows",
+      "driver": "corpus_capture::d_redaction",
+      "truth": "truth.docent.json",
+      "overrides": "overrides.json",
+      "knownDiffIssues": [],
+      "notes": "the d-type-edit pattern against an ES_PASSWORD EDIT: native IsPassword masking at capture — truth pins the exact mask, redacted flag, nulled text, and untouched identity-derived locators (the desktop chokepoint contract, on a real capture)"
     }
   ]
 }
