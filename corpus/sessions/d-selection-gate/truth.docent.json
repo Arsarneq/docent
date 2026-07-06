@@ -1,0 +1,130 @@
+{
+  "docent_format": {
+    "platform": "desktop-windows",
+    "schema_version": "2.0.0"
+  },
+  "project": {
+    "project_id": "019f3857-852f-70a1-a4cb-e489e7981b74",
+    "name": "corpus d-selection-gate",
+    "created_at": "2026-07-06T16:51:27.663Z"
+  },
+  "recordings": [
+    {
+      "recording_id": "019f3857-852f-737b-b7ca-f6f71f7a42d1",
+      "name": "d-selection-gate",
+      "created_at": "2026-07-06T16:51:27.663Z",
+      "steps": [
+        {
+          "uuid": "019f3857-852f-7ee7-93b3-8e3a38a78bac",
+          "logical_id": "019f3857-852f-77ae-aa7f-a7dcef2f14ff",
+          "step_number": 1,
+          "created_at": "2026-07-06T16:51:27.663Z",
+          "actions": [
+            {
+              "timestamp": 1783356686187,
+              "context_id": 1573742,
+              "capture_mode": "accessibility",
+              "frame_src": null,
+              "window_rect": {
+                "x": 200,
+                "y": 200,
+                "width": 600,
+                "height": 400
+              },
+              "type": "context_switch",
+              "source": "corpus_capture-806379f16d469119.exe",
+              "title": "Docent Corpus Session"
+            },
+            {
+              "timestamp": 1783356686189,
+              "context_id": 1573742,
+              "capture_mode": "accessibility",
+              "frame_src": null,
+              "window_rect": {
+                "x": 200,
+                "y": 200,
+                "width": 600,
+                "height": 400
+              },
+              "type": "click",
+              "x": 500,
+              "y": 400,
+              "element": {
+                "tag": "Text",
+                "id": null,
+                "name": "Docent Corpus Session",
+                "role": "text",
+                "type": null,
+                "text": "Docent Corpus Session",
+                "selector": "Pane:Desktop 1 > Text:Docent Corpus Session",
+                "framework_id": "Win32",
+                "locators": [
+                  {
+                    "strategy": "role_name",
+                    "role": "Text",
+                    "name": "Docent Corpus Session"
+                  },
+                  {
+                    "strategy": "class_name",
+                    "value": "Static"
+                  },
+                  {
+                    "strategy": "tree_path",
+                    "value": "Text:Docent Corpus Session"
+                  }
+                ],
+                "described_after_ms": 0
+              }
+            },
+            {
+              "timestamp": 1783356686578,
+              "context_id": 1573742,
+              "capture_mode": "accessibility",
+              "frame_src": null,
+              "window_rect": {
+                "x": 200,
+                "y": 200,
+                "width": 600,
+                "height": 400
+              },
+              "type": "select",
+              "element": {
+                "tag": "Text",
+                "id": null,
+                "name": "Docent Corpus Session",
+                "role": "text",
+                "type": null,
+                "text": "Docent Corpus Session",
+                "selector": "Pane:Desktop 1 > Text:Docent Corpus Session",
+                "framework_id": "Win32",
+                "locators": [
+                  {
+                    "strategy": "role_name",
+                    "role": "Text",
+                    "name": "Docent Corpus Session",
+                    "match_count": 1,
+                    "match_index": 0
+                  },
+                  {
+                    "strategy": "class_name",
+                    "value": "Static",
+                    "match_count": 1,
+                    "match_index": 0
+                  },
+                  {
+                    "strategy": "tree_path",
+                    "value": "Text:Docent Corpus Session"
+                  }
+                ],
+                "described_after_ms": 44
+              },
+              "value": "Docent Corpus Session"
+            }
+          ],
+          "deleted": false,
+          "narration": "d-selection-gate"
+        }
+      ]
+    }
+  ]
+}

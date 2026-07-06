@@ -1,5 +1,6 @@
 {
   "d-click": [],
   "d-double-click": [],
-  "d-context-switch": []
+  "d-context-switch": [],
+  "d-selection-gate": []
 }

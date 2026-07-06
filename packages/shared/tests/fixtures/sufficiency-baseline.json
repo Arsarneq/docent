@@ -2,6 +2,7 @@
   "corpus/sessions/d-click/truth.docent.json": [],
   "corpus/sessions/d-context-switch/truth.docent.json": [],
   "corpus/sessions/d-double-click/truth.docent.json": [],
+  "corpus/sessions/d-selection-gate/truth.docent.json": [],
   "corpus/sessions/ext-click-basic/truth.docent.json": [
     "gap:start-point rec[0]",
     "gap:viewport-context rec[0]"

@@ -155,6 +155,15 @@
       "overrides": "overrides.json",
       "knownDiffIssues": [],
       "notes": "user clicks session window then primer window: two activation context_switches + clicks; the primer teardown reverts foreground to the session window (trailing click-correlated context_switch)"
+    },
+    {
+      "id": "d-selection-gate",
+      "platform": "desktop-windows",
+      "driver": "corpus_capture::d_selection_gate",
+      "truth": "truth.docent.json",
+      "overrides": "overrides.json",
+      "knownDiffIssues": [],
+      "notes": "input-correlated application selection: activation context_switch + click, then a same-root EVENT_OBJECT_SELECTION fired past the click-redundancy window is captured as select (negatives pinned in capture_integration.rs completeness module)"
     }
   ]
 }
