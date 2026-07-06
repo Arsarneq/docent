@@ -34,7 +34,7 @@
           "description": "Window height in logical pixels."
         }
       },
-      "description": "Window position and size at capture time. Present on coordinate-mode actions."
+      "description": "Window position and size at capture time, resolved from the action window handle regardless of capture mode."
     },
     "window_rect_or_null": {
       "oneOf": [
@@ -45,7 +45,7 @@
           "type": "null"
         }
       ],
-      "description": "Window rectangle or null. Present on coordinate-mode actions, null for accessibility-mode."
+      "description": "Window rectangle or null: resolved from the action window handle regardless of capture mode; null when no window handle was resolvable."
     },
     "action_file_dialog": {
       "properties": {
