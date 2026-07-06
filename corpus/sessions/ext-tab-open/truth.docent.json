@@ -1,0 +1,92 @@
+{
+  "docent_format": {
+    "platform": "extension",
+    "schema_version": "3.0.0"
+  },
+  "project": {
+    "project_id": "019f37d8-1e79-7f4f-9eaf-7dae3477baf3",
+    "name": "corpus ext-tab-open",
+    "created_at": "2026-07-06T14:32:18.297Z"
+  },
+  "recordings": [
+    {
+      "recording_id": "019f37d8-1e79-7665-9004-eaf2f33ddd87",
+      "name": "ext-tab-open",
+      "created_at": "2026-07-06T14:32:18.297Z",
+      "steps": [
+        {
+          "uuid": "019f37d8-1e7a-7ff2-9a32-601fb2ad3f2e",
+          "logical_id": "019f37d8-1e7a-739a-90c6-50392a7066f7",
+          "step_number": 1,
+          "created_at": "2026-07-06T14:32:18.298Z",
+          "actions": [
+            {
+              "capture_mode": "dom",
+              "context_id": 1095744702,
+              "element": {
+                "autocomplete": null,
+                "id": "open-b",
+                "locators": [
+                  {
+                    "match_count": 1,
+                    "match_index": 0,
+                    "strategy": "id",
+                    "value": "open-b"
+                  },
+                  {
+                    "attribute": "data-testid",
+                    "match_count": 1,
+                    "match_index": 0,
+                    "strategy": "test_id",
+                    "value": "open-b"
+                  },
+                  {
+                    "match_count": 1,
+                    "match_index": 0,
+                    "strategy": "tag_name",
+                    "value": "a"
+                  },
+                  {
+                    "match_count": 1,
+                    "match_index": 0,
+                    "strategy": "text",
+                    "value": "Open B"
+                  },
+                  {
+                    "match_count": 1,
+                    "match_index": 0,
+                    "strategy": "css",
+                    "value": "#open-b"
+                  }
+                ],
+                "name": null,
+                "role": null,
+                "selector": "#open-b",
+                "tag": "A",
+                "text": "Open B",
+                "type": null
+              },
+              "frame_src": null,
+              "timestamp": 1783348336984,
+              "type": "click",
+              "window_rect": null,
+              "x": 32,
+              "y": 16
+            },
+            {
+              "capture_mode": "dom",
+              "context_id": 1095744703,
+              "nav_type": "link",
+              "timestamp": 1783348337051,
+              "type": "navigate",
+              "url": "http://127.0.0.1:41730/ext-tab-open/b.html",
+              "window_rect": null
+            }
+          ],
+          "deleted": false,
+          "narration": "ext-tab-open"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,136 @@
+{
+  "docent_format": {
+    "platform": "extension",
+    "schema_version": "3.0.0"
+  },
+  "project": {
+    "project_id": "019f37d8-265f-7c75-9474-498affb4af53",
+    "name": "corpus ext-iframe",
+    "created_at": "2026-07-06T14:32:20.319Z"
+  },
+  "recordings": [
+    {
+      "recording_id": "019f37d8-265f-7e23-ba75-24cad52616c5",
+      "name": "ext-iframe",
+      "created_at": "2026-07-06T14:32:20.319Z",
+      "steps": [
+        {
+          "uuid": "019f37d8-265f-7ea7-bc14-f889a2f4702d",
+          "logical_id": "019f37d8-265f-7af8-a9a2-8712ed5429b5",
+          "step_number": 1,
+          "created_at": "2026-07-06T14:32:20.319Z",
+          "actions": [
+            {
+              "capture_mode": "dom",
+              "context_id": 1997042541,
+              "element": {
+                "autocomplete": null,
+                "id": "top-btn",
+                "locators": [
+                  {
+                    "match_count": 1,
+                    "match_index": 0,
+                    "strategy": "id",
+                    "value": "top-btn"
+                  },
+                  {
+                    "attribute": "data-testid",
+                    "match_count": 1,
+                    "match_index": 0,
+                    "strategy": "test_id",
+                    "value": "top-btn"
+                  },
+                  {
+                    "match_count": 1,
+                    "match_index": 0,
+                    "strategy": "tag_name",
+                    "value": "button"
+                  },
+                  {
+                    "match_count": 1,
+                    "match_index": 0,
+                    "strategy": "text",
+                    "value": "Top button"
+                  },
+                  {
+                    "match_count": 1,
+                    "match_index": 0,
+                    "strategy": "css",
+                    "value": "#top-btn"
+                  }
+                ],
+                "name": null,
+                "role": null,
+                "selector": "#top-btn",
+                "tag": "BUTTON",
+                "text": "Top button",
+                "type": null
+              },
+              "frame_src": null,
+              "timestamp": 1783348339400,
+              "type": "click",
+              "window_rect": null,
+              "x": 47,
+              "y": 207
+            },
+            {
+              "capture_mode": "dom",
+              "context_id": 1997042541,
+              "element": {
+                "autocomplete": null,
+                "id": "frame-btn",
+                "locators": [
+                  {
+                    "match_count": 1,
+                    "match_index": 0,
+                    "strategy": "id",
+                    "value": "frame-btn"
+                  },
+                  {
+                    "attribute": "data-testid",
+                    "match_count": 1,
+                    "match_index": 0,
+                    "strategy": "test_id",
+                    "value": "frame-btn"
+                  },
+                  {
+                    "match_count": 1,
+                    "match_index": 0,
+                    "strategy": "tag_name",
+                    "value": "button"
+                  },
+                  {
+                    "match_count": 1,
+                    "match_index": 0,
+                    "strategy": "text",
+                    "value": "Frame button"
+                  },
+                  {
+                    "match_count": 1,
+                    "match_index": 0,
+                    "strategy": "css",
+                    "value": "#frame-btn"
+                  }
+                ],
+                "name": null,
+                "role": null,
+                "selector": "#frame-btn",
+                "tag": "BUTTON",
+                "text": "Frame button",
+                "type": null
+              },
+              "frame_src": "http://127.0.0.1:41730/ext-iframe/frame.html",
+              "timestamp": 1783348339468,
+              "type": "click",
+              "window_rect": null,
+              "x": 55,
+              "y": 18
+            }
+          ],
+          "deleted": false,
+          "narration": "ext-iframe"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,187 @@
+{
+  "docent_format": {
+    "platform": "extension",
+    "schema_version": "3.0.0"
+  },
+  "project": {
+    "project_id": "019f37d8-5903-73d2-beeb-a925856d2002",
+    "name": "corpus ext-type-submit-suppression",
+    "created_at": "2026-07-06T14:32:33.283Z"
+  },
+  "recordings": [
+    {
+      "recording_id": "019f37d8-5903-70cd-a992-6b419e46a1c9",
+      "name": "ext-type-submit-suppression",
+      "created_at": "2026-07-06T14:32:33.283Z",
+      "steps": [
+        {
+          "uuid": "019f37d8-5903-7318-b956-e8b1d056f1bc",
+          "logical_id": "019f37d8-5903-7a7c-9409-e5c7f87aea91",
+          "step_number": 1,
+          "created_at": "2026-07-06T14:32:33.283Z",
+          "actions": [
+            {
+              "capture_mode": "dom",
+              "context_id": 1616494171,
+              "element": {
+                "autocomplete": null,
+                "id": "q",
+                "locators": [
+                  {
+                    "match_count": 1,
+                    "match_index": 0,
+                    "strategy": "id",
+                    "value": "q"
+                  },
+                  {
+                    "attribute": "data-testid",
+                    "match_count": 1,
+                    "match_index": 0,
+                    "strategy": "test_id",
+                    "value": "q"
+                  },
+                  {
+                    "match_count": 1,
+                    "match_index": 0,
+                    "strategy": "name",
+                    "value": "q"
+                  },
+                  {
+                    "match_count": 1,
+                    "match_index": 0,
+                    "strategy": "tag_name",
+                    "value": "input"
+                  },
+                  {
+                    "match_count": 1,
+                    "match_index": 0,
+                    "strategy": "css",
+                    "value": "#q"
+                  }
+                ],
+                "name": "q",
+                "role": null,
+                "selector": "#q",
+                "tag": "INPUT",
+                "text": null,
+                "type": "text"
+              },
+              "frame_src": null,
+              "timestamp": 1783348352235,
+              "type": "click",
+              "window_rect": null,
+              "x": 96,
+              "y": 18
+            },
+            {
+              "type": "type",
+              "timestamp": 1783348352635,
+              "element": {
+                "autocomplete": null,
+                "id": "q",
+                "locators": [
+                  {
+                    "match_count": 1,
+                    "match_index": 0,
+                    "strategy": "id",
+                    "value": "q"
+                  },
+                  {
+                    "attribute": "data-testid",
+                    "match_count": 1,
+                    "match_index": 0,
+                    "strategy": "test_id",
+                    "value": "q"
+                  },
+                  {
+                    "match_count": 1,
+                    "match_index": 0,
+                    "strategy": "name",
+                    "value": "q"
+                  },
+                  {
+                    "match_count": 1,
+                    "match_index": 0,
+                    "strategy": "tag_name",
+                    "value": "input"
+                  },
+                  {
+                    "match_count": 1,
+                    "match_index": 0,
+                    "strategy": "css",
+                    "value": "#q"
+                  }
+                ],
+                "name": "q",
+                "role": null,
+                "selector": "#q",
+                "tag": "INPUT",
+                "text": null,
+                "type": "text"
+              },
+              "value": "hello corpus",
+              "context_id": 1616494171,
+              "capture_mode": "dom",
+              "frame_src": null
+            },
+            {
+              "capture_mode": "dom",
+              "context_id": 1616494171,
+              "element": {
+                "autocomplete": null,
+                "id": "submit",
+                "locators": [
+                  {
+                    "match_count": 1,
+                    "match_index": 0,
+                    "strategy": "id",
+                    "value": "submit"
+                  },
+                  {
+                    "attribute": "data-testid",
+                    "match_count": 1,
+                    "match_index": 0,
+                    "strategy": "test_id",
+                    "value": "submit"
+                  },
+                  {
+                    "match_count": 1,
+                    "match_index": 0,
+                    "strategy": "tag_name",
+                    "value": "button"
+                  },
+                  {
+                    "match_count": 1,
+                    "match_index": 0,
+                    "strategy": "text",
+                    "value": "Search"
+                  },
+                  {
+                    "match_count": 1,
+                    "match_index": 0,
+                    "strategy": "css",
+                    "value": "#submit"
+                  }
+                ],
+                "name": null,
+                "role": null,
+                "selector": "#submit",
+                "tag": "BUTTON",
+                "text": "Search",
+                "type": "submit"
+              },
+              "frame_src": null,
+              "timestamp": 1783348352383,
+              "type": "click",
+              "window_rect": null,
+              "x": 218,
+              "y": 18
+            }
+          ],
+          "deleted": false,
+          "narration": "ext-type-submit-suppression"
+        }
+      ]
+    }
+  ]
+}
