@@ -10,5 +10,6 @@
   "d-scroll-floor": [
     "missing-action rec[0].step[0].action[2]:scroll expected=\"{\\\"capture_mode\\\":\\\"accessibility\\\",\\\"context_id\\\":\\\"<ctx:1>\\\",\\\"delta_x\\\":0,\\\"delta_y\\\":\\\"<measured>\\\",\\\"element\\\":{\\\"…"
   ],
-  "d-type-edit": []
+  "d-type-edit": [],
+  "d-redaction": []
 }
