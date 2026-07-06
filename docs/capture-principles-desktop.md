@@ -17,10 +17,10 @@ by `sequence_id` before committing.
 
 ## Capture Modes
 
-| Mode            | When                                        | Element description                           |
-| --------------- | ------------------------------------------- | --------------------------------------------- |
-| `accessibility` | ElementFromPoint returns a specific control | Full: tag, id, name, role, text, tree path    |
-| `coordinate`    | ElementFromPoint returns Window/Pane only   | Fallback: tag="unknown", selector="coord:x,y" |
+| Mode            | When                                        | Element description                                                                                                                                     |
+| --------------- | ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `accessibility` | ElementFromPoint returns a specific control | Full: tag, id, name, role, text, tree path                                                                                                              |
+| `coordinate`    | ElementFromPoint returns Window/Pane only   | Fallback: the window-level description (window control type + tree path) when the window resolved; tag="unknown", selector="coord:x,y" when nothing did |
 
 A single recording can mix both modes.
 

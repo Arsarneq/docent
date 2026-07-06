@@ -289,15 +289,15 @@ Every action has:
 
 **Desktop (Windows) only:**
 
-- `window_rect` (object \| null) — window position/size `{x, y, width, height}`, or null for accessibility-mode actions.
+- `window_rect` (object \| null) — window position/size `{x, y, width, height}`, resolved from the action's window handle regardless of capture mode; null when no window handle was resolvable.
 
 ### Capture modes
 
-| Platform  | Values            | Description                                                           |
-| --------- | ----------------- | --------------------------------------------------------------------- |
-| Extension | `"dom"`           | Always DOM-based capture.                                             |
-| Desktop   | `"accessibility"` | Native UI Automation API. Full element description.                   |
-| Desktop   | `"coordinate"`    | Fallback. Element lacks accessibility data. `window_rect` is present. |
+| Platform  | Values            | Description                                                                                                                                                                                                                                                                                                          |
+| --------- | ----------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Extension | `"dom"`           | Always DOM-based capture.                                                                                                                                                                                                                                                                                            |
+| Desktop   | `"accessibility"` | Native UI Automation API. Full element description.                                                                                                                                                                                                                                                                  |
+| Desktop   | `"coordinate"`    | Fallback: no specific control resolved at the point. The element carries the window-level description (window control type + tree path) when the window resolved, or `tag: "unknown"` with a `coord:x,y` selector when nothing did; either way it makes no element-identity claims (no locators, no provider facts). |
 
 ---
 
@@ -358,14 +358,14 @@ tree.
 
 | Field                | Type            | Required | Description                                                                                                                                                                                                                                                     |
 | -------------------- | --------------- | -------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `tag`                | string          | yes      | HTML tag name (extension) / UIA ControlType, e.g. `Button`, `Edit` (desktop). `"unknown"` in coordinate mode.                                                                                                                                                   |
+| `tag`                | string          | yes      | HTML tag name (extension) / UIA ControlType, e.g. `Button`, `Edit` (desktop). In coordinate mode: the window's control type when the window resolved, `"unknown"` when nothing did.                                                                             |
 | `id`                 | string \| null  | no       | DOM `id` attribute (extension) / UIA AutomationId, developer-assigned and session-stable (desktop).                                                                                                                                                             |
 | `name`               | string \| null  | no       | `name` attribute (extension) / UIA Name (desktop).                                                                                                                                                                                                              |
 | `role`               | string \| null  | no       | ARIA role (extension) / localized UIA control type (desktop).                                                                                                                                                                                                   |
 | `type`               | string \| null  | no       | Input type attribute (extension) / control subtype, e.g. `"password"` (desktop).                                                                                                                                                                                |
 | `autocomplete`       | string \| null  | no       | HTML `autocomplete` token, e.g. `"cc-number"` (extension). Used to detect sensitive payment fields. Null/absent on desktop.                                                                                                                                     |
 | `text`               | string \| null  | no       | Visible text (truncated to 100 chars). Null for sensitive fields (passwords, credit-card/SSN/secret), where it is also flagged `redacted`.                                                                                                                      |
-| `selector`           | string          | yes      | CSS selector (extension) / accessibility tree path joined with `" > "`, or `coord:x,y` in coordinate mode (desktop).                                                                                                                                            |
+| `selector`           | string          | yes      | CSS selector (extension) / accessibility tree path joined with `" > "` (desktop). In coordinate mode: the window's tree path when the window resolved, or `coord:x,y` when nothing did.                                                                         |
 | `redacted`           | boolean         | no       | `true` when the value/text was redacted because the field was sensitive (password, payment, or other PII). Absent otherwise.                                                                                                                                    |
 | `position_in_set`    | integer \| null | no       | One-based position within the element's logical set of peers (UIA PositionInSet, desktop). Provider-reported; the logical set can differ from what is rendered (virtualized lists). Null/absent on extension or when not reported.                              |
 | `size_of_set`        | integer \| null | no       | Size of that logical set (UIA SizeOfSet, desktop). Null/absent on extension or when not reported.                                                                                                                                                               |
