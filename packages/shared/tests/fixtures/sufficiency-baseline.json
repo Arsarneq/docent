@@ -1,6 +1,7 @@
 {
   "corpus/sessions/d-click/truth.docent.json": [],
   "corpus/sessions/d-context-switch/truth.docent.json": [],
+  "corpus/sessions/d-coordinate/truth.docent.json": [],
   "corpus/sessions/d-double-click/truth.docent.json": [],
   "corpus/sessions/d-redaction/truth.docent.json": [],
   "corpus/sessions/d-scroll-above-floor/truth.docent.json": [

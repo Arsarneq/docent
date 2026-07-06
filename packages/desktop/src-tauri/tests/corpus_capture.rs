@@ -87,19 +87,53 @@ struct SessionWindow {
 
 impl SessionWindow {
     fn new(title: &'static str, x: i32, y: i32) -> Self {
-        Self::build(title, x, y, Child::None)
+        Self::build2(title, x, y, Child::None, false)
     }
 
     fn build(title: &'static str, x: i32, y: i32, child: Child) -> Self {
+        Self::build2(title, x, y, child, false)
+    }
+
+    /// plain: a custom-registered class with DefWindowProc — hit-testable
+    /// client area but no accessibility content, so element resolution finds
+    /// only the window itself and capture falls back to coordinate mode
+    /// deterministically (an SS_NOTIFY STATIC always resolves accessibility).
+    fn build2(title: &'static str, x: i32, y: i32, child: Child, plain: bool) -> Self {
         use std::sync::mpsc as smpsc;
         use windows::Win32::System::Threading::GetCurrentThreadId;
 
         let (tx, rx) = smpsc::channel::<(u32, isize, i32, i32)>();
         let handle = thread::spawn(move || unsafe {
             let title_wide: Vec<u16> = title.encode_utf16().chain(std::iter::once(0)).collect();
+            let class = if plain {
+                use windows::Win32::Foundation::{LPARAM, LRESULT, WPARAM};
+                use windows::Win32::UI::WindowsAndMessaging::{
+                    DefWindowProcW, RegisterClassW, WNDCLASSW,
+                };
+                unsafe extern "system" fn plain_proc(
+                    h: HWND,
+                    m: u32,
+                    w: WPARAM,
+                    l: LPARAM,
+                ) -> LRESULT {
+                    DefWindowProcW(h, m, w, l)
+                }
+                static REGISTER: std::sync::Once = std::sync::Once::new();
+                REGISTER.call_once(|| {
+                    let wc = WNDCLASSW {
+                        lpfnWndProc: Some(plain_proc),
+                        lpszClassName: w!("DocentCorpusPlain"),
+                        ..Default::default()
+                    };
+                    let _ = RegisterClassW(&wc);
+                });
+                w!("DocentCorpusPlain")
+            } else {
+                w!("STATIC")
+            };
             let hwnd = CreateWindowExW(
                 WS_EX_TOPMOST,
-                w!("STATIC"),
+                class,
                 windows::core::PCWSTR(title_wide.as_ptr()),
                 WS_OVERLAPPEDWINDOW | WS_VISIBLE | SS_NOTIFY_STYLE,
                 x,
@@ -291,6 +325,26 @@ fn run_mouse_session(
     run_mouse_session_with(session, Child::None, script)
 }
 
+/// Ownership guard (the coordinate_fallback_for_plain_window precedent):
+/// the click point must belong to OUR window before input is synthesized —
+/// otherwise the click leaks into whatever overlaps that point.
+fn assert_owns_point(hwnd: HWND, x: i32, y: i32) {
+    use windows::Win32::Foundation::POINT;
+    use windows::Win32::UI::WindowsAndMessaging::{GetAncestor, WindowFromPoint, GA_ROOT};
+    let start = Instant::now();
+    loop {
+        let under = unsafe { WindowFromPoint(POINT { x, y }) };
+        let root = unsafe { GetAncestor(under, GA_ROOT) };
+        if under == hwnd || root == hwnd {
+            return;
+        }
+        if start.elapsed() > Duration::from_millis(2000) {
+            panic!("SETUP FAILURE (environment, not capture): the click point does not belong to the session window - refusing to synthesize input that would leak into another application");
+        }
+        thread::sleep(Duration::from_millis(50));
+    }
+}
+
 /// One deliberate left click at the window centre.
 #[test]
 #[serial]
@@ -457,4 +511,41 @@ fn d_redaction() {
             thread::sleep(Duration::from_millis(60));
         }
     });
+}
+
+/// A click on the PLAIN custom-class window (DefWindowProc, no accessibility
+/// content): element resolution finds only the window, so capture falls back
+/// to coordinate mode - screen point + window geometry, no element-identity
+/// claims. The ownership guard runs before input (a click-through or covered
+/// point must never leak input into another application).
+#[test]
+#[serial]
+fn d_coordinate() {
+    let (tx, rx) = mpsc::channel::<ActionEvent>();
+    let mut capture = WindowsCapture::new();
+    capture.set_excluded_pid(None);
+    capture.start(tx).expect("Failed to start capture");
+    thread::sleep(Duration::from_millis(200));
+
+    let win = SessionWindow::build2("Docent Corpus Plain", 200, 200, Child::None, true);
+    let primer = SessionWindow::new("Docent Corpus Primer", 900, 620);
+    thread::sleep(Duration::from_millis(200));
+    assert_owns_point(win.hwnd, win.cx, win.cy);
+
+    let mut enigo = Enigo::new(&Settings::default()).unwrap();
+    enigo.move_mouse(win.cx, win.cy, Coordinate::Abs).unwrap();
+    thread::sleep(Duration::from_millis(50));
+    enigo.button(enigo::Button::Left, Direction::Click).unwrap();
+    thread::sleep(Duration::from_millis(800));
+
+    drop(primer);
+    drop(win);
+    let start = Instant::now();
+    capture.stop().unwrap();
+    assert!(
+        start.elapsed() < Duration::from_secs(20),
+        "capture.stop() must not hang"
+    );
+    let events: Vec<ActionEvent> = rx.try_iter().collect();
+    write_dump("d-coordinate", &events);
 }
