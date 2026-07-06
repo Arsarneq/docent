@@ -78,7 +78,15 @@ struct SessionWindow {
 }
 
 impl SessionWindow {
+    fn new_with_scroll_edit(title: &'static str, x: i32, y: i32, scroll_edit: bool) -> Self {
+        Self::build(title, x, y, scroll_edit)
+    }
+
     fn new(title: &'static str, x: i32, y: i32) -> Self {
+        Self::build(title, x, y, false)
+    }
+
+    fn build(title: &'static str, x: i32, y: i32, scroll_edit: bool) -> Self {
         use std::sync::mpsc as smpsc;
         use windows::Win32::System::Threading::GetCurrentThreadId;
 
@@ -100,6 +108,45 @@ impl SessionWindow {
                 Some(std::ptr::null()),
             )
             .expect("Failed to create session window");
+            if scroll_edit {
+                use windows::Win32::UI::WindowsAndMessaging::{
+                    SetWindowTextW, ES_AUTOVSCROLL, ES_MULTILINE, WS_BORDER, WS_CHILD, WS_VSCROLL,
+                };
+                let edit = CreateWindowExW(
+                    Default::default(),
+                    w!("EDIT"),
+                    w!(""),
+                    WS_CHILD
+                        | WS_VISIBLE
+                        | WS_BORDER
+                        | WS_VSCROLL
+                        | windows::Win32::UI::WindowsAndMessaging::WINDOW_STYLE(
+                            ES_MULTILINE as u32,
+                        )
+                        | windows::Win32::UI::WindowsAndMessaging::WINDOW_STYLE(
+                            ES_AUTOVSCROLL as u32,
+                        ),
+                    10,
+                    10,
+                    560,
+                    340,
+                    Some(hwnd),
+                    None,
+                    None,
+                    Some(std::ptr::null()),
+                )
+                .expect("Failed to create scroll edit");
+                let lines: String = (1..=80)
+                    .map(|i| {
+                        format!(
+                            "corpus line {i}
+"
+                        )
+                    })
+                    .collect();
+                let wide: Vec<u16> = lines.encode_utf16().chain(std::iter::once(0)).collect();
+                let _ = SetWindowTextW(edit, windows::core::PCWSTR(wide.as_ptr()));
+            }
             let mut rect = RECT::default();
             GetWindowRect(hwnd, &mut rect).unwrap();
             tx.send((
@@ -176,9 +223,11 @@ fn write_dump(session: &str, events: &[ActionEvent]) {
 
 /// Run one mouse-driven session: start capture, create the (unraised) session
 /// and primer windows, run the scripted input against their centres, stop
-/// bounded, write the dump.
-fn run_mouse_session(
+/// bounded, write the dump. `scroll_edit` adds the multiline EDIT child to
+/// the session window (created on the window's own thread).
+fn run_mouse_session_with(
     session: &str,
+    scroll_edit: bool,
     script: impl FnOnce(&mut Enigo, &SessionWindow, &SessionWindow),
 ) {
     let (tx, rx) = mpsc::channel::<ActionEvent>();
@@ -187,7 +236,7 @@ fn run_mouse_session(
     capture.start(tx).expect("Failed to start capture");
     thread::sleep(Duration::from_millis(200));
 
-    let win = SessionWindow::new("Docent Corpus Session", 200, 200);
+    let win = SessionWindow::new_with_scroll_edit("Docent Corpus Session", 200, 200, scroll_edit);
     // The PRIMER equalizes the pre-click foreground state across environments:
     // created LAST, it holds the foreground locally (creation from a
     // foreground-privileged process auto-activates — a programmatic, correctly
@@ -214,6 +263,13 @@ fn run_mouse_session(
     );
     let events: Vec<ActionEvent> = rx.try_iter().collect();
     write_dump(session, &events);
+}
+
+fn run_mouse_session(
+    session: &str,
+    script: impl FnOnce(&mut Enigo, &SessionWindow, &SessionWindow),
+) {
+    run_mouse_session_with(session, false, script)
 }
 
 /// One deliberate left click at the window centre.
@@ -293,5 +349,25 @@ fn d_selection_gate() {
         // Past the 200ms click-redundancy suppression, still input-correlated.
         thread::sleep(Duration::from_millis(350));
         unsafe { fire_selection(win.hwnd) };
+    });
+}
+
+/// Wheel scroll over content that REALLY scrolls (a multiline EDIT child,
+/// created on the window thread — a cross-thread child deadlocks parent
+/// teardown): 5 notches, far past the significance floor
+/// (SCROLL_MIN_DISTANCE_PX in src/capture/timing.rs). docent#228: current
+/// capture derives scroll actions from wheel notches and fabricates
+/// scroll_top/scroll_left as 0.0 with element: null; the truth carries the
+/// real movement (the scroll-amounts relaxation keeps 0-vs-nonzero visible).
+#[test]
+#[serial]
+fn d_scroll_above_floor() {
+    run_mouse_session_with("d-scroll-above-floor", true, |enigo, win, _primer| {
+        enigo.move_mouse(win.cx, win.cy, Coordinate::Abs).unwrap();
+        thread::sleep(Duration::from_millis(50));
+        enigo.button(enigo::Button::Left, Direction::Click).unwrap();
+        thread::sleep(Duration::from_millis(350));
+        enigo.scroll(5, enigo::Axis::Vertical).unwrap();
+        thread::sleep(Duration::from_millis(600));
     });
 }

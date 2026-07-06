@@ -164,6 +164,15 @@
       "overrides": "overrides.json",
       "knownDiffIssues": [],
       "notes": "input-correlated application selection: activation context_switch + click, then a same-root EVENT_OBJECT_SELECTION fired past the click-redundancy window is captured as select (negatives pinned in capture_integration.rs completeness module)"
+    },
+    {
+      "id": "d-scroll-above-floor",
+      "platform": "desktop-windows",
+      "driver": "corpus_capture::d_scroll_above_floor",
+      "truth": "truth.docent.json",
+      "overrides": "overrides.json",
+      "knownDiffIssues": ["#228"],
+      "notes": "wheel scroll over a really-scrolling multiline EDIT: truth names the element and the nonzero position; current capture fabricates scroll_top/scroll_left 0.0 with element null (#228) — the two baseline entries are exactly that defect pair"
     }
   ]
 }

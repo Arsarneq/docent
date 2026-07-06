@@ -2,6 +2,9 @@
   "corpus/sessions/d-click/truth.docent.json": [],
   "corpus/sessions/d-context-switch/truth.docent.json": [],
   "corpus/sessions/d-double-click/truth.docent.json": [],
+  "corpus/sessions/d-scroll-above-floor/truth.docent.json": [
+    "fail:element-locators rec[0].step[0].action[2]:scroll"
+  ],
   "corpus/sessions/d-selection-gate/truth.docent.json": [],
   "corpus/sessions/ext-click-basic/truth.docent.json": [
     "gap:start-point rec[0]",

@@ -1,0 +1,15 @@
+{
+  "session": "d-scroll-above-floor",
+  "platform": "desktop-windows",
+  "notes": "switch source is the build-hashed binary path; scroll magnitudes are line-height/notch dependent (0-vs-nonzero stays exact via the class map)",
+  "relaxations": [
+    {
+      "pointer": "rec[0].step[0].action[0]",
+      "relax": "path"
+    },
+    {
+      "pointer": "rec[0].step[0].action[2]",
+      "relax": "scroll-amounts"
+    }
+  ]
+}
