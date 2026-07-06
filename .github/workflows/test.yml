@@ -358,6 +358,7 @@ jobs:
       (github.event_name == 'pull_request' &&
         (needs.changes.outputs.desktop == 'true' ||
           needs.changes.outputs.shared == 'true' ||
+          needs.changes.outputs.corpus == 'true' ||
           needs.changes.outputs.ci == 'true')) ||
       ((github.event_name == 'release' || github.event_name == 'workflow_dispatch') &&
         (inputs.platform == '' || inputs.platform == 'desktop'))
@@ -491,6 +492,63 @@ jobs:
             packages/desktop/src-tauri/coverage-unit.lcov
             packages/desktop/src-tauri/coverage-integration.lcov
           retention-days: 1
+
+      - name: Upload corpus event dumps
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: corpus-desktop-events
+          path: corpus/out/desktop-windows-events/
+          retention-days: 1
+
+  # Assemble the desktop corpus event dumps through the real frontend pipeline
+  # and diff the envelopes against committed truth (corpus/README.md). Runs on
+  # ubuntu so the diff logic lives in one place and the Windows job stays lean.
+  desktop-corpus-diff:
+    needs: [desktop-rust-tests, changes]
+    if: |
+      github.event_name == 'push' ||
+      (github.event_name == 'pull_request' &&
+        (needs.changes.outputs.desktop == 'true' ||
+          needs.changes.outputs.shared == 'true' ||
+          needs.changes.outputs.corpus == 'true' ||
+          needs.changes.outputs.ci == 'true')) ||
+      ((github.event_name == 'release' || github.event_name == 'workflow_dispatch') &&
+        (inputs.platform == '' || inputs.platform == 'desktop'))
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Install root dependencies
+        run: npm ci
+
+      - name: Sync shared code
+        run: npm run sync-shared
+
+      - name: Download corpus event dumps
+        uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53 # v6
+        with:
+          name: corpus-desktop-events
+          path: corpus/out/desktop-windows-events/
+
+      - name: Assemble desktop corpus envelopes
+        run: npm run corpus:assemble:desktop
+
+      - name: Corpus truth diff (desktop)
+        run: npm run corpus:check:desktop
+
+      - name: Upload corpus output
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: corpus-desktop-output
+          path: corpus/out/
+          retention-days: 7
 
   # Cross-platform COMPILE gate (#97). This is the comprehensive "builds on
   # every target we ship for" job: it `cargo check`s + clippy-checks the crate
@@ -836,6 +894,7 @@ jobs:
       - unit-tests
       - extension-e2e-tests
       - desktop-rust-tests
+      - desktop-corpus-diff
       - desktop-cross-compile
       - desktop-integration-tests
       - reference-server-tests
@@ -845,7 +904,7 @@ jobs:
     steps:
       - name: Check job results
         run: |
-          results=("${{ needs.changes.result }}" "${{ needs.lint.result }}" "${{ needs.dependency-audit.result }}" "${{ needs.unit-tests.result }}" "${{ needs.extension-e2e-tests.result }}" "${{ needs.desktop-rust-tests.result }}" "${{ needs.desktop-cross-compile.result }}" "${{ needs.desktop-integration-tests.result }}" "${{ needs.reference-server-tests.result }}" "${{ needs.coverage-upload.result }}" "${{ needs.zizmor.result }}" "${{ needs.actionlint.result }}")
+          results=("${{ needs.changes.result }}" "${{ needs.lint.result }}" "${{ needs.dependency-audit.result }}" "${{ needs.unit-tests.result }}" "${{ needs.extension-e2e-tests.result }}" "${{ needs.desktop-rust-tests.result }}" "${{ needs.desktop-corpus-diff.result }}" "${{ needs.desktop-cross-compile.result }}" "${{ needs.desktop-integration-tests.result }}" "${{ needs.reference-server-tests.result }}" "${{ needs.coverage-upload.result }}" "${{ needs.zizmor.result }}" "${{ needs.actionlint.result }}")
           for result in "${results[@]}"; do
             if [[ "$result" != "success" && "$result" != "skipped" ]]; then
               echo "Job failed with result: $result"

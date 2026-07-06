@@ -1,0 +1,11 @@
+{
+  "session": "d-double-click",
+  "platform": "desktop-windows",
+  "notes": "the activation context_switch source is the producing test binary path (build-hashed) — machine/build-dependent by nature",
+  "relaxations": [
+    {
+      "pointer": "rec[0].step[0].action[0]",
+      "relax": "path"
+    }
+  ]
+}

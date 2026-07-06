@@ -271,44 +271,46 @@ describe('corpus-compare: baseline mechanics', () => {
   });
 });
 
-describe('corpus hygiene locks (committed tree)', () => {
-  const manifestPath = join(CORPUS_DIR, 'manifest.json');
-  const sessions = discoverSessions(manifestPath, 'extension');
+for (const platform of ['extension', 'desktop-windows']) {
+  describe(`corpus hygiene locks (committed tree, ${platform})`, () => {
+    const manifestPath = join(CORPUS_DIR, 'manifest.json');
+    const sessions = discoverSessions(manifestPath, platform);
 
-  it('every active session has a truth file, and every truth validates per its stamp', async () => {
-    // Validation goes through the comparator's own loader by round-tripping a
-    // trivial self-diff (loadValidated is internal; compareSession needs a
-    // produced file, so validate via lintFile which applies the same
-    // relaxed-stamp schema bar).
-    const { lintFile } = await import('../../../../scripts/sufficiency-lint.js');
-    for (const s of sessions.filter((x) => x.status === 'active')) {
-      assert.ok(existsSync(s.truthPath), `${s.id} has no truth file`);
-      assert.doesNotThrow(() => lintFile(s.truthPath), `${s.id} truth is not schema-valid`);
-    }
-  });
+    it('every active session has a truth file, and every truth validates per its stamp', async () => {
+      // Validation goes through the comparator's own loader by round-tripping a
+      // trivial self-diff (loadValidated is internal; compareSession needs a
+      // produced file, so validate via lintFile which applies the same
+      // relaxed-stamp schema bar).
+      const { lintFile } = await import('../../../../scripts/sufficiency-lint.js');
+      for (const s of sessions.filter((x) => x.status === 'active')) {
+        assert.ok(existsSync(s.truthPath), `${s.id} has no truth file`);
+        assert.doesNotThrow(() => lintFile(s.truthPath), `${s.id} truth is not schema-valid`);
+      }
+    });
 
-  it('every baseline key names a manifest session, and every active session has a key', () => {
-    const baseline = JSON.parse(
-      readFileSync(join(CORPUS_DIR, 'known-diffs.extension.json'), 'utf8'),
-    );
-    const ids = new Set(sessions.map((s) => s.id));
-    for (const key of Object.keys(baseline)) {
-      assert.ok(ids.has(key), `baseline key "${key}" names no manifest session`);
-    }
-    for (const s of sessions.filter((x) => x.status === 'active')) {
-      assert.ok(s.id in baseline, `active session "${s.id}" missing from the baseline`);
-    }
-  });
-
-  it('every sidecar parses, uses known kinds, and points inside its truth', () => {
-    for (const s of sessions) {
-      if (!s.overridesPath || !existsSync(s.overridesPath)) continue;
-      const sidecar = JSON.parse(readFileSync(s.overridesPath, 'utf8'));
-      const truth = JSON.parse(readFileSync(s.truthPath, 'utf8'));
-      // Applying the relaxations to a self-diff throws on any malformed entry.
-      assert.doesNotThrow(() =>
-        diffEnvelopes(truth, structuredClone(truth), sidecar.relaxations ?? [], s.id),
+    it('every baseline key names a manifest session, and every active session has a key', () => {
+      const baseline = JSON.parse(
+        readFileSync(join(CORPUS_DIR, `known-diffs.${platform}.json`), 'utf8'),
       );
-    }
+      const ids = new Set(sessions.map((s) => s.id));
+      for (const key of Object.keys(baseline)) {
+        assert.ok(ids.has(key), `baseline key "${key}" names no manifest session`);
+      }
+      for (const s of sessions.filter((x) => x.status === 'active')) {
+        assert.ok(s.id in baseline, `active session "${s.id}" missing from the baseline`);
+      }
+    });
+
+    it('every sidecar parses, uses known kinds, and points inside its truth', () => {
+      for (const s of sessions) {
+        if (!s.overridesPath || !existsSync(s.overridesPath)) continue;
+        const sidecar = JSON.parse(readFileSync(s.overridesPath, 'utf8'));
+        const truth = JSON.parse(readFileSync(s.truthPath, 'utf8'));
+        // Applying the relaxations to a self-diff throws on any malformed entry.
+        assert.doesNotThrow(() =>
+          diffEnvelopes(truth, structuredClone(truth), sidecar.relaxations ?? [], s.id),
+        );
+      }
+    });
   });
-});
+}

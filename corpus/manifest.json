@@ -128,6 +128,24 @@
       "script": "script.js",
       "knownDiffIssues": ["#232", "#251"],
       "notes": "net-zero jiggle inside one debounce window; truth carries the settled net-zero scroll (#232). Produced delta reflects the post-movement baseline anchor (#251)"
+    },
+    {
+      "id": "d-click",
+      "platform": "desktop-windows",
+      "driver": "corpus_capture::d_click",
+      "truth": "truth.docent.json",
+      "knownDiffIssues": [],
+      "notes": "activation context_switch (the first click activates the never-raised window — deterministic via the primer window) + one deliberate click",
+      "overrides": "overrides.json"
+    },
+    {
+      "id": "d-double-click",
+      "platform": "desktop-windows",
+      "driver": "corpus_capture::d_double_click",
+      "truth": "truth.docent.json",
+      "knownDiffIssues": [],
+      "notes": "activation context_switch + two rapid clicks; no double_click type exists in the format, so truth is two click actions",
+      "overrides": "overrides.json"
     }
   ]
 }
