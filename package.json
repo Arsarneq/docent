@@ -45,7 +45,9 @@
     "update-version-table": "node scripts/update-version-table.js",
     "bump:schema": "node scripts/bump-schema.js",
     "prepublish": "npm run sync-shared",
-    "postinstall": "lefthook install"
+    "postinstall": "lefthook install",
+    "corpus:assemble:desktop": "node scripts/corpus-assemble-desktop.js",
+    "corpus:check:desktop": "node scripts/corpus-compare.js --platform desktop-windows --baseline corpus/known-diffs.desktop-windows.json --lint"
   },
   "overrides": {
     "js-yaml": "^4.2.0",

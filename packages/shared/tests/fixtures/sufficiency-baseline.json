@@ -1,4 +1,6 @@
 {
+  "corpus/sessions/d-click/truth.docent.json": ["gap:start-point rec[0]"],
+  "corpus/sessions/d-double-click/truth.docent.json": ["gap:start-point rec[0]"],
   "corpus/sessions/ext-click-basic/truth.docent.json": [
     "gap:start-point rec[0]",
     "gap:viewport-context rec[0]"

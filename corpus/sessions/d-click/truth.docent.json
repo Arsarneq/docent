@@ -1,0 +1,71 @@
+{
+  "docent_format": {
+    "platform": "desktop-windows",
+    "schema_version": "2.0.0"
+  },
+  "project": {
+    "project_id": "019f380d-354e-7175-bb3b-1b0c9e627884",
+    "name": "corpus d-click",
+    "created_at": "2026-07-06T15:30:17.550Z"
+  },
+  "recordings": [
+    {
+      "recording_id": "019f380d-354e-7d80-aa89-2fccd2852f14",
+      "name": "d-click",
+      "created_at": "2026-07-06T15:30:17.550Z",
+      "steps": [
+        {
+          "uuid": "019f380d-354f-7e82-8b10-8f1f35d34e93",
+          "logical_id": "019f380d-354f-77fa-b9f5-be2fe91b570b",
+          "step_number": 1,
+          "created_at": "2026-07-06T15:30:17.551Z",
+          "actions": [
+            {
+              "timestamp": 1783351798533,
+              "context_id": 3475426,
+              "capture_mode": "accessibility",
+              "frame_src": null,
+              "window_rect": {
+                "x": 200,
+                "y": 200,
+                "width": 600,
+                "height": 400
+              },
+              "type": "click",
+              "x": 500,
+              "y": 400,
+              "element": {
+                "tag": "Text",
+                "id": null,
+                "name": "Docent Corpus Session",
+                "role": "text",
+                "type": null,
+                "text": "Docent Corpus Session",
+                "selector": "Pane:Desktop 1 > Text:Docent Corpus Session",
+                "framework_id": "Win32",
+                "locators": [
+                  {
+                    "strategy": "role_name",
+                    "role": "Text",
+                    "name": "Docent Corpus Session"
+                  },
+                  {
+                    "strategy": "class_name",
+                    "value": "Static"
+                  },
+                  {
+                    "strategy": "tree_path",
+                    "value": "Text:Docent Corpus Session"
+                  }
+                ],
+                "described_after_ms": 0
+              }
+            }
+          ],
+          "deleted": false,
+          "narration": "d-click"
+        }
+      ]
+    }
+  ]
+}
