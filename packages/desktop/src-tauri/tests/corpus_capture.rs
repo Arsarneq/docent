@@ -43,7 +43,7 @@ use std::sync::mpsc;
 use std::thread;
 use std::time::{Duration, Instant};
 
-use enigo::{Coordinate, Direction, Enigo, Mouse, Settings};
+use enigo::{Coordinate, Direction, Enigo, Keyboard, Mouse, Settings};
 use serial_test::serial;
 
 use docent_desktop_lib::capture::windows::WindowsCapture;
@@ -55,6 +55,13 @@ use windows::Win32::UI::WindowsAndMessaging::{
     CreateWindowExW, DestroyWindow, DispatchMessageW, GetMessageW, GetWindowRect, TranslateMessage,
     MSG, WINDOW_STYLE, WS_EX_TOPMOST, WS_OVERLAPPEDWINDOW, WS_VISIBLE,
 };
+
+#[derive(PartialEq, Clone, Copy)]
+enum Child {
+    None,
+    ScrollEdit,
+    TypeEdit,
+}
 
 /// SS_NOTIFY: a bare STATIC answers WM_NCHITTEST with HTTRANSPARENT
 /// (click-through); this style makes it hit-testable. Same rationale as
@@ -78,15 +85,11 @@ struct SessionWindow {
 }
 
 impl SessionWindow {
-    fn new_with_scroll_edit(title: &'static str, x: i32, y: i32, scroll_edit: bool) -> Self {
-        Self::build(title, x, y, scroll_edit)
-    }
-
     fn new(title: &'static str, x: i32, y: i32) -> Self {
-        Self::build(title, x, y, false)
+        Self::build(title, x, y, Child::None)
     }
 
-    fn build(title: &'static str, x: i32, y: i32, scroll_edit: bool) -> Self {
+    fn build(title: &'static str, x: i32, y: i32, child: Child) -> Self {
         use std::sync::mpsc as smpsc;
         use windows::Win32::System::Threading::GetCurrentThreadId;
 
@@ -108,7 +111,7 @@ impl SessionWindow {
                 Some(std::ptr::null()),
             )
             .expect("Failed to create session window");
-            if scroll_edit {
+            if child != Child::None {
                 use windows::Win32::UI::WindowsAndMessaging::{
                     SetWindowTextW, ES_AUTOVSCROLL, ES_MULTILINE, WS_BORDER, WS_CHILD, WS_VSCROLL,
                 };
@@ -119,12 +122,20 @@ impl SessionWindow {
                     WS_CHILD
                         | WS_VISIBLE
                         | WS_BORDER
-                        | WS_VSCROLL
+                        | if child == Child::ScrollEdit {
+                            WS_VSCROLL
+                        } else {
+                            Default::default()
+                        }
                         | windows::Win32::UI::WindowsAndMessaging::WINDOW_STYLE(
-                            ES_MULTILINE as u32,
+                            if child == Child::ScrollEdit {
+                                ES_MULTILINE as u32
+                            } else {
+                                0
+                            },
                         )
                         | windows::Win32::UI::WindowsAndMessaging::WINDOW_STYLE(
-                            ES_AUTOVSCROLL as u32,
+                            ES_AUTOVSCROLL as u32, // harmless on single-line
                         ),
                     10,
                     10,
@@ -135,17 +146,19 @@ impl SessionWindow {
                     None,
                     Some(std::ptr::null()),
                 )
-                .expect("Failed to create scroll edit");
-                let lines: String = (1..=80)
-                    .map(|i| {
-                        format!(
-                            "corpus line {i}
+                .expect("Failed to create edit child");
+                if child == Child::ScrollEdit {
+                    let lines: String = (1..=80)
+                        .map(|i| {
+                            format!(
+                                "corpus line {i}
 "
-                        )
-                    })
-                    .collect();
-                let wide: Vec<u16> = lines.encode_utf16().chain(std::iter::once(0)).collect();
-                let _ = SetWindowTextW(edit, windows::core::PCWSTR(wide.as_ptr()));
+                            )
+                        })
+                        .collect();
+                    let wide: Vec<u16> = lines.encode_utf16().chain(std::iter::once(0)).collect();
+                    let _ = SetWindowTextW(edit, windows::core::PCWSTR(wide.as_ptr()));
+                }
             }
             let mut rect = RECT::default();
             GetWindowRect(hwnd, &mut rect).unwrap();
@@ -227,7 +240,7 @@ fn write_dump(session: &str, events: &[ActionEvent]) {
 /// the session window (created on the window's own thread).
 fn run_mouse_session_with(
     session: &str,
-    scroll_edit: bool,
+    child: Child,
     script: impl FnOnce(&mut Enigo, &SessionWindow, &SessionWindow),
 ) {
     let (tx, rx) = mpsc::channel::<ActionEvent>();
@@ -236,7 +249,7 @@ fn run_mouse_session_with(
     capture.start(tx).expect("Failed to start capture");
     thread::sleep(Duration::from_millis(200));
 
-    let win = SessionWindow::new_with_scroll_edit("Docent Corpus Session", 200, 200, scroll_edit);
+    let win = SessionWindow::build("Docent Corpus Session", 200, 200, child);
     // The PRIMER equalizes the pre-click foreground state across environments:
     // created LAST, it holds the foreground locally (creation from a
     // foreground-privileged process auto-activates — a programmatic, correctly
@@ -269,7 +282,7 @@ fn run_mouse_session(
     session: &str,
     script: impl FnOnce(&mut Enigo, &SessionWindow, &SessionWindow),
 ) {
-    run_mouse_session_with(session, false, script)
+    run_mouse_session_with(session, Child::None, script)
 }
 
 /// One deliberate left click at the window centre.
@@ -362,14 +375,18 @@ fn d_selection_gate() {
 #[test]
 #[serial]
 fn d_scroll_above_floor() {
-    run_mouse_session_with("d-scroll-above-floor", true, |enigo, win, _primer| {
-        enigo.move_mouse(win.cx, win.cy, Coordinate::Abs).unwrap();
-        thread::sleep(Duration::from_millis(50));
-        enigo.button(enigo::Button::Left, Direction::Click).unwrap();
-        thread::sleep(Duration::from_millis(350));
-        enigo.scroll(5, enigo::Axis::Vertical).unwrap();
-        thread::sleep(Duration::from_millis(600));
-    });
+    run_mouse_session_with(
+        "d-scroll-above-floor",
+        Child::ScrollEdit,
+        |enigo, win, _primer| {
+            enigo.move_mouse(win.cx, win.cy, Coordinate::Abs).unwrap();
+            thread::sleep(Duration::from_millis(50));
+            enigo.button(enigo::Button::Left, Direction::Click).unwrap();
+            thread::sleep(Duration::from_millis(350));
+            enigo.scroll(5, enigo::Axis::Vertical).unwrap();
+            thread::sleep(Duration::from_millis(600));
+        },
+    );
 }
 
 /// One wheel notch over the really-scrolling EDIT — under the significance
@@ -378,12 +395,41 @@ fn d_scroll_above_floor() {
 #[test]
 #[serial]
 fn d_scroll_floor() {
-    run_mouse_session_with("d-scroll-floor", true, |enigo, win, _primer| {
+    run_mouse_session_with(
+        "d-scroll-floor",
+        Child::ScrollEdit,
+        |enigo, win, _primer| {
+            enigo.move_mouse(win.cx, win.cy, Coordinate::Abs).unwrap();
+            thread::sleep(Duration::from_millis(50));
+            enigo.button(enigo::Button::Left, Direction::Click).unwrap();
+            thread::sleep(Duration::from_millis(350));
+            enigo.scroll(1, enigo::Axis::Vertical).unwrap();
+            thread::sleep(Duration::from_millis(600));
+        },
+    );
+}
+
+/// Click the empty single-line EDIT (focus follows the click-driven
+/// activation), then type: printable keys buffer and the same-root
+/// value-change coalesces them into one type action (docent#220-era
+/// semantics). Focus-dependent — the count-determinism hedge applies if the
+/// headless runner refuses focus-driven typing.
+#[test]
+#[serial]
+fn d_type_edit() {
+    run_mouse_session_with("d-type-edit", Child::TypeEdit, |enigo, win, _primer| {
         enigo.move_mouse(win.cx, win.cy, Coordinate::Abs).unwrap();
         thread::sleep(Duration::from_millis(50));
         enigo.button(enigo::Button::Left, Direction::Click).unwrap();
         thread::sleep(Duration::from_millis(350));
-        enigo.scroll(1, enigo::Axis::Vertical).unwrap();
+        // Per-character Key::Unicode clicks with a human-ish cadence: layout
+        // VKs, so printables buffer and the value-change supersedes them
+        // (enigo.text() would inject VK_PACKET keystrokes — see the session
+        // notes: that path leaks phantom keys nondeterministically).
+        for c in "hello".chars() {
+            enigo.key(enigo::Key::Unicode(c), Direction::Click).unwrap();
+            thread::sleep(Duration::from_millis(60));
+        }
         thread::sleep(Duration::from_millis(600));
     });
 }

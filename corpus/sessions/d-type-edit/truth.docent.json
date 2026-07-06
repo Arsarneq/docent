@@ -1,0 +1,118 @@
+{
+  "docent_format": {
+    "platform": "desktop-windows",
+    "schema_version": "2.0.0"
+  },
+  "project": {
+    "project_id": "019f38b4-2d72-7348-a4a5-c1f3bf1afdf0",
+    "name": "corpus d-type-edit",
+    "created_at": "2026-07-06T18:32:40.050Z"
+  },
+  "recordings": [
+    {
+      "recording_id": "019f38b4-2d72-744c-8ab5-d72a3d837dc8",
+      "name": "d-type-edit",
+      "created_at": "2026-07-06T18:32:40.050Z",
+      "steps": [
+        {
+          "uuid": "019f38b4-2d72-7ef9-8397-b3d0ef4cf8bc",
+          "logical_id": "019f38b4-2d72-7438-a2a7-5f95fee11235",
+          "step_number": 1,
+          "created_at": "2026-07-06T18:32:40.050Z",
+          "actions": [
+            {
+              "timestamp": 1783362757570,
+              "context_id": 6555564,
+              "capture_mode": "accessibility",
+              "frame_src": null,
+              "window_rect": {
+                "x": 200,
+                "y": 200,
+                "width": 600,
+                "height": 400
+              },
+              "type": "context_switch",
+              "source": "corpus_capture-806379f16d469119.exe",
+              "title": "Docent Corpus Session"
+            },
+            {
+              "timestamp": 1783362757572,
+              "context_id": 6555564,
+              "capture_mode": "accessibility",
+              "frame_src": null,
+              "window_rect": {
+                "x": 200,
+                "y": 200,
+                "width": 600,
+                "height": 400
+              },
+              "type": "click",
+              "x": 500,
+              "y": 400,
+              "element": {
+                "tag": "Edit",
+                "id": null,
+                "name": null,
+                "role": "edit",
+                "type": null,
+                "text": null,
+                "selector": "Pane:Desktop 1 > Text:Docent Corpus Session > Edit",
+                "framework_id": "Win32",
+                "locators": [
+                  {
+                    "strategy": "class_name",
+                    "value": "Edit"
+                  },
+                  {
+                    "strategy": "tree_path",
+                    "value": "Text:Docent Corpus Session > Edit"
+                  }
+                ],
+                "described_after_ms": 0
+              }
+            },
+            {
+              "timestamp": 1783362757977,
+              "context_id": 6555564,
+              "capture_mode": "accessibility",
+              "frame_src": null,
+              "window_rect": {
+                "x": 200,
+                "y": 200,
+                "width": 600,
+                "height": 400
+              },
+              "type": "type",
+              "element": {
+                "tag": "Edit",
+                "id": null,
+                "name": null,
+                "role": "edit",
+                "type": null,
+                "text": "h",
+                "selector": "Pane:Desktop 1 > Text:Docent Corpus Session > Edit",
+                "framework_id": "Win32",
+                "locators": [
+                  {
+                    "strategy": "class_name",
+                    "value": "Edit",
+                    "match_count": 1,
+                    "match_index": 0
+                  },
+                  {
+                    "strategy": "tree_path",
+                    "value": "Text:Docent Corpus Session > Edit"
+                  }
+                ],
+                "described_after_ms": 32
+              },
+              "value": "hello"
+            }
+          ],
+          "deleted": false,
+          "narration": "d-type-edit"
+        }
+      ]
+    }
+  ]
+}

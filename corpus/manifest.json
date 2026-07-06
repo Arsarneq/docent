@@ -182,6 +182,15 @@
       "overrides": "overrides.json",
       "knownDiffIssues": ["#232"],
       "notes": "one wheel notch over the really-scrolling EDIT — under the significance floor, current capture discards the scroll entirely; truth carries it (missing-action baseline entry)"
+    },
+    {
+      "id": "d-type-edit",
+      "platform": "desktop-windows",
+      "driver": "corpus_capture::d_type_edit",
+      "truth": "truth.docent.json",
+      "overrides": "overrides.json",
+      "knownDiffIssues": [],
+      "notes": "click-to-focus the empty EDIT, then per-char layout-VK typing at human cadence: printables buffer and the value-change coalesces one type(hello). AUTHORING NOTES: enigo.text() injects VK_PACKET keystrokes that leak as phantom key(VK_0xE7) actions nondeterministically (unicode-injection/IME class — issue candidate); under post-compile load, partial key leaks (key(E),key(L)) were observed once — supersede race, watch on CI. element.text is stably the first value-change snapshot (h)"
     }
   ]
 }
