@@ -41,7 +41,7 @@ CI artifact only (excluded from every release, like `reference-implementations/`
 
 ## Layout
 
-```
+```text
 manifest.json                  the session catalogue (id, platform, page,
                                script, knownDiffIssues, notes, status)
 known-diffs.extension.json     per-platform both-direction baseline
