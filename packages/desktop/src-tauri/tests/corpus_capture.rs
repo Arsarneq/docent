@@ -45,8 +45,9 @@ use docent_desktop_lib::capture::{ActionEvent, CaptureLayer};
 use windows::core::w;
 use windows::Win32::Foundation::{HWND, RECT};
 use windows::Win32::UI::WindowsAndMessaging::{
-    CreateWindowExW, DestroyWindow, GetWindowRect, SetForegroundWindow, WINDOW_STYLE,
-    WS_EX_TOPMOST, WS_OVERLAPPEDWINDOW, WS_VISIBLE,
+    CreateWindowExW, DestroyWindow, DispatchMessageW, GetMessageW, GetWindowRect,
+    SetForegroundWindow, TranslateMessage, MSG, WINDOW_STYLE, WS_EX_TOPMOST, WS_OVERLAPPEDWINDOW,
+    WS_VISIBLE,
 };
 
 /// SS_NOTIFY: a bare STATIC answers WM_NCHITTEST with HTTRANSPARENT
@@ -54,35 +55,90 @@ use windows::Win32::UI::WindowsAndMessaging::{
 /// capture_integration.rs's constant.
 const SS_NOTIFY_STYLE: WINDOW_STYLE = WINDOW_STYLE(0x0000_0100);
 
-/// Create the controlled session window at a FIXED position/size (the corpus
-/// normalizes coordinates to placeholders, but fixed geometry keeps the
-/// element-resolution path itself deterministic).
-unsafe fn create_session_window(title: windows::core::PCWSTR) -> (HWND, i32, i32) {
-    let hwnd = CreateWindowExW(
-        WS_EX_TOPMOST,
-        w!("STATIC"),
-        title,
-        WS_OVERLAPPEDWINDOW | WS_VISIBLE | SS_NOTIFY_STYLE,
-        200,
-        200,
-        600,
-        400,
-        None,
-        None,
-        None,
-        Some(std::ptr::null()),
-    )
-    .expect("Failed to create session window");
-    let _ = SetForegroundWindow(hwnd);
-    thread::sleep(Duration::from_millis(100));
+/// The controlled session window, hosted on its OWN thread running a
+/// continuous `GetMessageW` pump (the ResponsiveWindow discipline from
+/// capture_integration.rs). The pump is what makes foreground ownership
+/// attainable on a headless CI runner: window activation completes only when
+/// the owning thread processes its activation messages — a pumpless window
+/// never reports as foreground there, and the assert_took_foreground guard
+/// would (correctly) refuse every session. It also keeps the window
+/// responsive to the capture workers' synchronous accessibility queries.
+/// Fixed position/size: the corpus normalizes coordinates to placeholders,
+/// but fixed geometry keeps element resolution itself deterministic.
+struct SessionWindow {
+    thread_id: u32,
+    handle: Option<std::thread::JoinHandle<()>>,
+    hwnd: HWND,
+    cx: i32,
+    cy: i32,
+}
 
-    let mut rect = RECT::default();
-    GetWindowRect(hwnd, &mut rect).unwrap();
-    (
-        (hwnd),
-        (rect.left + rect.right) / 2,
-        (rect.top + rect.bottom) / 2,
-    )
+impl SessionWindow {
+    fn new() -> Self {
+        use std::sync::mpsc as smpsc;
+        use windows::Win32::System::Threading::GetCurrentThreadId;
+
+        let (tx, rx) = smpsc::channel::<(u32, isize, i32, i32)>();
+        let handle = thread::spawn(move || unsafe {
+            let hwnd = CreateWindowExW(
+                WS_EX_TOPMOST,
+                w!("STATIC"),
+                w!("Docent Corpus Session"),
+                WS_OVERLAPPEDWINDOW | WS_VISIBLE | SS_NOTIFY_STYLE,
+                200,
+                200,
+                600,
+                400,
+                None,
+                None,
+                None,
+                Some(std::ptr::null()),
+            )
+            .expect("Failed to create session window");
+            let _ = SetForegroundWindow(hwnd);
+
+            let mut rect = RECT::default();
+            GetWindowRect(hwnd, &mut rect).unwrap();
+            tx.send((
+                GetCurrentThreadId(),
+                hwnd.0 as isize,
+                (rect.left + rect.right) / 2,
+                (rect.top + rect.bottom) / 2,
+            ))
+            .expect("failed to hand back window info");
+
+            // Continuous blocking pump; exits when Drop posts WM_QUIT.
+            let mut msg = MSG::default();
+            while GetMessageW(&mut msg, None, 0, 0).as_bool() {
+                let _ = TranslateMessage(&msg);
+                DispatchMessageW(&msg);
+            }
+            let _ = DestroyWindow(hwnd);
+        });
+
+        let (thread_id, hwnd_raw, cx, cy) = rx.recv().expect("window thread failed to start");
+        thread::sleep(Duration::from_millis(100));
+        Self {
+            thread_id,
+            handle: Some(handle),
+            hwnd: HWND(hwnd_raw as *mut core::ffi::c_void),
+            cx,
+            cy,
+        }
+    }
+}
+
+impl Drop for SessionWindow {
+    fn drop(&mut self) {
+        use windows::Win32::Foundation::{LPARAM, WPARAM};
+        use windows::Win32::UI::WindowsAndMessaging::{PostThreadMessageW, WM_QUIT};
+        unsafe {
+            let _ = PostThreadMessageW(self.thread_id, WM_QUIT, WPARAM(0), LPARAM(0));
+        }
+        if let Some(h) = self.handle.take() {
+            let _ = h.join();
+        }
+    }
 }
 
 /// Foreground ownership guard (the completeness-module discipline): steal the
@@ -163,18 +219,16 @@ fn run_mouse_session(session: &str, script: impl FnOnce(&mut Enigo, i32, i32)) {
     capture.start(tx).expect("Failed to start capture");
     thread::sleep(Duration::from_millis(200));
 
-    let (hwnd, cx, cy) = unsafe { create_session_window(w!("Docent Corpus Session")) };
-    assert_took_foreground(hwnd);
+    let win = SessionWindow::new();
+    assert_took_foreground(win.hwnd);
     thread::sleep(Duration::from_millis(200));
 
     let mut enigo = Enigo::new(&Settings::default()).unwrap();
-    script(&mut enigo, cx, cy);
+    script(&mut enigo, win.cx, win.cy);
     // Let worker describes and coalescing settle before stopping.
     thread::sleep(Duration::from_millis(800));
 
-    unsafe {
-        let _ = DestroyWindow(hwnd);
-    }
+    drop(win);
     let start = Instant::now();
     capture.stop().unwrap();
     assert!(
