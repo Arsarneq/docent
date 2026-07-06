@@ -146,6 +146,15 @@
       "knownDiffIssues": [],
       "notes": "activation context_switch + two rapid clicks; no double_click type exists in the format, so truth is two click actions",
       "overrides": "overrides.json"
+    },
+    {
+      "id": "d-context-switch",
+      "platform": "desktop-windows",
+      "driver": "corpus_capture::d_context_switch",
+      "truth": "truth.docent.json",
+      "overrides": "overrides.json",
+      "knownDiffIssues": [],
+      "notes": "user clicks session window then primer window: two activation context_switches + clicks; the primer teardown reverts foreground to the session window (trailing click-correlated context_switch)"
     }
   ]
 }
