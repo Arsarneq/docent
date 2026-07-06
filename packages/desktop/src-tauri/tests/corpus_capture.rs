@@ -1,21 +1,28 @@
 //! Scripted-truth capture-corpus producer (desktop leg; doctrine in
 //! corpus/README.md at the repo root).
 //!
-//! Each test is one corpus session: it creates a controlled window, OWNS the
-//! foreground (AttachThreadInput; panics "SETUP FAILURE" if the environment
-//! refuses — a session whose events would be filtered must never run), drives
-//! real OS input via Enigo, and serializes the captured ActionEvents — with
-//! the same serde shape Tauri's `emit` uses — to
+//! Each test is one corpus session: it creates a controlled window that is
+//! DELIBERATELY NOT raised to the foreground (a programmatic raise succeeds
+//! locally but is denied on the headless runner, which would make the stream
+//! environment-dependent — instead the session's FIRST CLICK activates the
+//! window in every environment, so the resulting context_switch is a
+//! deterministic part of each session's truth), drives real OS input via
+//! Enigo, and serializes the captured ActionEvents — with the same serde
+//! shape Tauri's `emit` uses — to
 //! `corpus/out/desktop-windows-events/<session>.events.json`. The Node
 //! assembler (`scripts/corpus-assemble-desktop.js`) replays the dump through
 //! the real frontend pipeline into a `.docent.json` envelope, which
 //! `scripts/corpus-compare.js` diffs against the session's committed truth.
 //!
-//! Unlike `capture_integration.rs` (whose keyboard/foreground tests
-//! deliberately avoid counted assertions), every corpus session runs strictly
-//! foreground-owned, so its event stream is assertable — the corpus's truth
-//! diff IS the assertion. Tests here only assert the environment contract
-//! (foreground ownership, bounded stop) and that the dump was written.
+//! Window OWNERSHIP is proven by the truth diff itself: the captured element
+//! identity (this window's title/class/selector) would differ if input had
+//! landed anywhere else, and the corpus baseline would go red. Pure-mouse
+//! input lands by position at the hook level and needs no focus; keyboard-
+//! driven tranche-2 sessions DO need real focus and must establish it with a
+//! real click first (the user_click_switches_window precedent), reshaped or
+//! dropped per the count-determinism hedge if CI cannot sustain it. Tests
+//! here only assert the environment contract (bounded stop) and that the
+//! dump was written.
 //!
 //! Tranche 1 (pure-mouse classes the integration suite proves CI-stable):
 //! d-click, d-double-click. Remaining catalogue (d-coordinate — needs the
@@ -45,9 +52,8 @@ use docent_desktop_lib::capture::{ActionEvent, CaptureLayer};
 use windows::core::w;
 use windows::Win32::Foundation::{HWND, RECT};
 use windows::Win32::UI::WindowsAndMessaging::{
-    CreateWindowExW, DestroyWindow, DispatchMessageW, GetMessageW, GetWindowRect,
-    SetForegroundWindow, TranslateMessage, MSG, WINDOW_STYLE, WS_EX_TOPMOST, WS_OVERLAPPEDWINDOW,
-    WS_VISIBLE,
+    CreateWindowExW, DestroyWindow, DispatchMessageW, GetMessageW, GetWindowRect, TranslateMessage,
+    MSG, WINDOW_STYLE, WS_EX_TOPMOST, WS_OVERLAPPEDWINDOW, WS_VISIBLE,
 };
 
 /// SS_NOTIFY: a bare STATIC answers WM_NCHITTEST with HTTRANSPARENT
@@ -57,14 +63,12 @@ const SS_NOTIFY_STYLE: WINDOW_STYLE = WINDOW_STYLE(0x0000_0100);
 
 /// The controlled session window, hosted on its OWN thread running a
 /// continuous `GetMessageW` pump (the ResponsiveWindow discipline from
-/// capture_integration.rs). The pump is what makes foreground ownership
-/// attainable on a headless CI runner: window activation completes only when
-/// the owning thread processes its activation messages — a pumpless window
-/// never reports as foreground there, and the assert_took_foreground guard
-/// would (correctly) refuse every session. It also keeps the window
-/// responsive to the capture workers' synchronous accessibility queries.
-/// Fixed position/size: the corpus normalizes coordinates to placeholders,
-/// but fixed geometry keeps element resolution itself deterministic.
+/// capture_integration.rs): the pump lets click-driven activation complete
+/// and keeps the window responsive to the capture workers' synchronous
+/// accessibility queries. Never raised programmatically — the session's first
+/// click activates it, deterministically in every environment (see the file
+/// header). Fixed position/size: the corpus normalizes coordinates to
+/// placeholders, but fixed geometry keeps element resolution deterministic.
 struct SessionWindow {
     thread_id: u32,
     handle: Option<std::thread::JoinHandle<()>>,
@@ -74,19 +78,20 @@ struct SessionWindow {
 }
 
 impl SessionWindow {
-    fn new() -> Self {
+    fn new(title: &'static str, x: i32, y: i32) -> Self {
         use std::sync::mpsc as smpsc;
         use windows::Win32::System::Threading::GetCurrentThreadId;
 
         let (tx, rx) = smpsc::channel::<(u32, isize, i32, i32)>();
         let handle = thread::spawn(move || unsafe {
+            let title_wide: Vec<u16> = title.encode_utf16().chain(std::iter::once(0)).collect();
             let hwnd = CreateWindowExW(
                 WS_EX_TOPMOST,
                 w!("STATIC"),
-                w!("Docent Corpus Session"),
+                windows::core::PCWSTR(title_wide.as_ptr()),
                 WS_OVERLAPPEDWINDOW | WS_VISIBLE | SS_NOTIFY_STYLE,
-                200,
-                200,
+                x,
+                y,
                 600,
                 400,
                 None,
@@ -95,8 +100,6 @@ impl SessionWindow {
                 Some(std::ptr::null()),
             )
             .expect("Failed to create session window");
-            let _ = SetForegroundWindow(hwnd);
-
             let mut rect = RECT::default();
             GetWindowRect(hwnd, &mut rect).unwrap();
             tx.send((
@@ -141,52 +144,6 @@ impl Drop for SessionWindow {
     }
 }
 
-/// Best-effort foreground raise (AttachThreadInput technique). On a headless
-/// CI runner the steal can be denied outright (there may be no attachable
-/// foreground thread), so this NEVER panics for the pure-mouse sessions in
-/// this tranche: their input lands by POSITION at the hook level regardless
-/// of focus (the guardless click test in capture_integration.rs is CI-green),
-/// and window OWNERSHIP is proven downstream by the truth diff itself — the
-/// captured element identity (this window's title/class/selector) would
-/// differ if input had landed anywhere else, and the corpus baseline would go
-/// red. Keyboard-driven tranche-2 sessions DO need real focus; they must
-/// require this to return true and be reshaped or dropped per the
-/// count-determinism hedge if CI cannot grant it.
-fn try_take_foreground(hwnd: HWND) -> bool {
-    use windows::Win32::System::Threading::{AttachThreadInput, GetCurrentThreadId};
-    use windows::Win32::UI::WindowsAndMessaging::{
-        BringWindowToTop, GetForegroundWindow, GetWindowThreadProcessId,
-    };
-    unsafe {
-        let our_thread = GetCurrentThreadId();
-        let fg = GetForegroundWindow();
-        let fg_thread = GetWindowThreadProcessId(fg, None);
-        let attached = fg_thread != 0 && fg_thread != our_thread;
-        if attached {
-            let _ = AttachThreadInput(our_thread, fg_thread, true);
-        }
-        let _ = BringWindowToTop(hwnd);
-        let _ = SetForegroundWindow(hwnd);
-        if attached {
-            let _ = AttachThreadInput(our_thread, fg_thread, false);
-        }
-    }
-    let start = Instant::now();
-    loop {
-        if unsafe { windows::Win32::UI::WindowsAndMessaging::GetForegroundWindow() } == hwnd {
-            return true;
-        }
-        if start.elapsed() > Duration::from_millis(2000) {
-            eprintln!(
-                "corpus: window did not become foreground (headless runner?) — \
-                 proceeding; ownership is proven by the truth diff's element identity"
-            );
-            return false;
-        }
-        thread::sleep(Duration::from_millis(50));
-    }
-}
-
 #[derive(serde::Serialize)]
 struct Dump<'a> {
     session: &'a str,
@@ -217,8 +174,8 @@ fn write_dump(session: &str, events: &[ActionEvent]) {
     .expect("write dump");
 }
 
-/// Run one mouse-driven session: start capture, own the foreground, run the
-/// scripted input against the window centre, stop bounded, write the dump.
+/// Run one mouse-driven session: start capture, create the (unraised) window,
+/// run the scripted input against its centre, stop bounded, write the dump.
 fn run_mouse_session(session: &str, script: impl FnOnce(&mut Enigo, i32, i32)) {
     let (tx, rx) = mpsc::channel::<ActionEvent>();
     let mut capture = WindowsCapture::new();
@@ -226,12 +183,20 @@ fn run_mouse_session(session: &str, script: impl FnOnce(&mut Enigo, i32, i32)) {
     capture.start(tx).expect("Failed to start capture");
     thread::sleep(Duration::from_millis(200));
 
-    let win = SessionWindow::new();
-    let _ = try_take_foreground(win.hwnd);
+    let win = SessionWindow::new("Docent Corpus Session", 200, 200);
+    // The PRIMER equalizes the pre-click foreground state across environments:
+    // created LAST, it holds the foreground locally (creation from a
+    // foreground-privileged process auto-activates — a programmatic, correctly
+    // filtered activation), while on a headless runner neither window
+    // activates. Either way the session window is NOT foreground when the
+    // first scripted click lands, so that click's activation context_switch
+    // is a deterministic part of every session's truth.
+    let primer = SessionWindow::new("Docent Corpus Primer", 900, 620);
     thread::sleep(Duration::from_millis(200));
 
     let mut enigo = Enigo::new(&Settings::default()).unwrap();
     script(&mut enigo, win.cx, win.cy);
+    drop(primer);
     // Let worker describes and coalescing settle before stopping.
     thread::sleep(Duration::from_millis(800));
 

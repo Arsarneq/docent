@@ -4,25 +4,40 @@
     "schema_version": "2.0.0"
   },
   "project": {
-    "project_id": "019f380d-354e-7175-bb3b-1b0c9e627884",
+    "project_id": "019f3839-e9df-7a84-a148-1a2ffcf20431",
     "name": "corpus d-click",
-    "created_at": "2026-07-06T15:30:17.550Z"
+    "created_at": "2026-07-06T16:19:07.360Z"
   },
   "recordings": [
     {
-      "recording_id": "019f380d-354e-7d80-aa89-2fccd2852f14",
+      "recording_id": "019f3839-e9e0-7e40-8dae-979c4ca4e195",
       "name": "d-click",
-      "created_at": "2026-07-06T15:30:17.550Z",
+      "created_at": "2026-07-06T16:19:07.360Z",
       "steps": [
         {
-          "uuid": "019f380d-354f-7e82-8b10-8f1f35d34e93",
-          "logical_id": "019f380d-354f-77fa-b9f5-be2fe91b570b",
+          "uuid": "019f3839-e9e1-7536-9cf7-01d6702a8670",
+          "logical_id": "019f3839-e9e1-7d23-bca6-07b5c438b7ae",
           "step_number": 1,
-          "created_at": "2026-07-06T15:30:17.551Z",
+          "created_at": "2026-07-06T16:19:07.361Z",
           "actions": [
             {
-              "timestamp": 1783351798533,
-              "context_id": 3475426,
+              "timestamp": 1783354744532,
+              "context_id": 197272,
+              "capture_mode": "accessibility",
+              "frame_src": null,
+              "window_rect": {
+                "x": 200,
+                "y": 200,
+                "width": 600,
+                "height": 400
+              },
+              "type": "context_switch",
+              "source": "corpus_capture-806379f16d469119.exe",
+              "title": "Docent Corpus Session"
+            },
+            {
+              "timestamp": 1783354744535,
+              "context_id": 197272,
               "capture_mode": "accessibility",
               "frame_src": null,
               "window_rect": {

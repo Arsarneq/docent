@@ -135,7 +135,8 @@
       "driver": "corpus_capture::d_click",
       "truth": "truth.docent.json",
       "knownDiffIssues": [],
-      "notes": "one deliberate click on the controlled window (accessibility-described; SS_NOTIFY STATIC is UIA-resolvable)"
+      "notes": "activation context_switch (the first click activates the never-raised window — deterministic via the primer window) + one deliberate click",
+      "overrides": "overrides.json"
     },
     {
       "id": "d-double-click",
@@ -143,7 +144,8 @@
       "driver": "corpus_capture::d_double_click",
       "truth": "truth.docent.json",
       "knownDiffIssues": [],
-      "notes": "two rapid clicks; no double_click type exists in the format, so truth is two click actions"
+      "notes": "activation context_switch + two rapid clicks; no double_click type exists in the format, so truth is two click actions",
+      "overrides": "overrides.json"
     }
   ]
 }
