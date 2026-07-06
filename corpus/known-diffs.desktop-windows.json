@@ -6,5 +6,8 @@
   "d-scroll-above-floor": [
     "wrong-field rec[0].step[0].action[2]:scroll element expected={\"id\":null,\"name\":null,\"role\":null,\"selector\":\"Window:Docent Corpus Session > Edit\",\"tag\":\"Edit\",\"text\":null,\"type\":null… actual=null",
     "wrong-field rec[0].step[0].action[2]:scroll scroll_top expected=\"<measured>\" actual=0"
+  ],
+  "d-scroll-floor": [
+    "missing-action rec[0].step[0].action[2]:scroll expected=\"{\\\"capture_mode\\\":\\\"accessibility\\\",\\\"context_id\\\":\\\"<ctx:1>\\\",\\\"delta_x\\\":0,\\\"delta_y\\\":\\\"<measured>\\\",\\\"element\\\":{\\\"…"
   ]
 }
