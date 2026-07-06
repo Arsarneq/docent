@@ -1,0 +1,11 @@
+{
+  "session": "d-type-edit",
+  "platform": "desktop-windows",
+  "notes": "activation context_switch source is the build-hashed binary path",
+  "relaxations": [
+    {
+      "pointer": "rec[0].step[0].action[0]",
+      "relax": "path"
+    }
+  ]
+}
