@@ -1,4 +1,60 @@
 {
+  "corpus/sessions/ext-click-basic/truth.docent.json": [
+    "gap:start-point rec[0]",
+    "gap:viewport-context rec[0]"
+  ],
+  "corpus/sessions/ext-dnd-native/truth.docent.json": [
+    "gap:start-point rec[0]",
+    "gap:viewport-context rec[0]"
+  ],
+  "corpus/sessions/ext-file-upload/truth.docent.json": [
+    "gap:start-point rec[0]",
+    "gap:viewport-context rec[0]"
+  ],
+  "corpus/sessions/ext-iframe/truth.docent.json": [
+    "gap:start-point rec[0]",
+    "gap:viewport-context rec[0]"
+  ],
+  "corpus/sessions/ext-key/truth.docent.json": [
+    "gap:start-point rec[0]",
+    "gap:viewport-context rec[0]"
+  ],
+  "corpus/sessions/ext-navigate/truth.docent.json": [
+    "gap:start-point rec[0]",
+    "gap:viewport-context rec[0]"
+  ],
+  "corpus/sessions/ext-pointer-drag/truth.docent.json": [
+    "gap:start-point rec[0]",
+    "gap:viewport-context rec[0]"
+  ],
+  "corpus/sessions/ext-redaction/truth.docent.json": [
+    "gap:start-point rec[0]",
+    "gap:viewport-context rec[0]"
+  ],
+  "corpus/sessions/ext-scroll-above-floor/truth.docent.json": ["gap:start-point rec[0]"],
+  "corpus/sessions/ext-scroll-floor/truth.docent.json": ["gap:start-point rec[0]"],
+  "corpus/sessions/ext-scroll-netzero/truth.docent.json": ["gap:start-point rec[0]"],
+  "corpus/sessions/ext-select/truth.docent.json": [
+    "gap:start-point rec[0]",
+    "gap:viewport-context rec[0]"
+  ],
+  "corpus/sessions/ext-side-effects/truth.docent.json": [
+    "gap:start-point rec[0]",
+    "gap:viewport-context rec[0]"
+  ],
+  "corpus/sessions/ext-tab-open/truth.docent.json": [
+    "fail:context-introduced rec[0]",
+    "gap:start-point rec[0]",
+    "gap:viewport-context rec[0]"
+  ],
+  "corpus/sessions/ext-type-blur/truth.docent.json": [
+    "gap:start-point rec[0]",
+    "gap:viewport-context rec[0]"
+  ],
+  "corpus/sessions/ext-type-submit-suppression/truth.docent.json": [
+    "gap:start-point rec[0]",
+    "gap:viewport-context rec[0]"
+  ],
   "packages/shared/tests/fixtures/desktop-windows/v2.0.0.docent.json": [
     "fail:element-locators rec[0].step[0].action[0]:type",
     "fail:element-locators rec[0].step[1].action[0]:key",

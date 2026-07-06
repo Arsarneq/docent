@@ -1,8 +1,9 @@
 /**
  * Capture Timing Configuration
  *
- * Central configuration for all timing windows used to distinguish
- * user actions from side-effects. All values in milliseconds.
+ * Central configuration for the timing windows and thresholds used to
+ * distinguish user actions from side-effects. Values are in milliseconds
+ * unless a constant's name states another unit.
  *
  * These windows exist because Chrome's APIs don't provide causality
  * information — we only know WHAT happened, not WHY. Timing is used
@@ -41,6 +42,19 @@ export const TAB_FOCUS_CORRELATION_WINDOW = 150;
 
 /** Suppress click-caused focus on the same element. */
 export const CLICK_FOCUS_DEDUP_WINDOW = 100;
+
+/**
+ * Scroll settle debounce: a scroll action is committed once no further scroll
+ * event arrives for this long, accumulating the deltas in between.
+ */
+export const SCROLL_DEBOUNCE = 300;
+
+/**
+ * Scroll significance floor in PIXELS (not milliseconds): a settled scroll
+ * whose net movement is at or below this on both axes is discarded as
+ * incidental (docent#232 tracks the deliberate-insufficiency consequences).
+ */
+export const SCROLL_MIN_DISTANCE_PX = 200;
 
 // ─── Service Worker Timing ──────────────────────────────────────────────────
 

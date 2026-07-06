@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>corpus: ext-redaction</title>
+  </head>
+  <body>
+    <input id="password" name="password" data-testid="password" type="password" />
+    <input
+      id="cc-number"
+      name="cc-number"
+      data-testid="cc-number"
+      type="text"
+      autocomplete="cc-number"
+    />
+    <!-- A sensitive SELECT with visible option text: unlike inputs (empty
+         innerText), its element carries a text-strategy locator, so the truth
+         can pin the masked-in-place entry — the redaction chokepoint's
+         strongest invariant, exercised on a real capture. -->
+    <select id="cc-exp" name="cc-exp" data-testid="cc-exp" autocomplete="cc-exp">
+      <option value="12-2026">12 / 2026</option>
+      <option value="01-2027">01 / 2027</option>
+    </select>
+  </body>
+</html>

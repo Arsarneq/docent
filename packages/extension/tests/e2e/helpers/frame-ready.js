@@ -54,3 +54,29 @@ export async function waitForFrameReady(
     await new Promise((r) => setTimeout(r, interval));
   }
 }
+
+/**
+ * Wait until the recorder at `url` has reported FRAME_READY NEWER than
+ * `sinceTs`. The probe map is last-write-wins per URL, so after a reload or a
+ * revisit of the same URL the plain waitForFrameReady would return the stale
+ * pre-navigation timestamp while the new document has no recorder yet. Callers
+ * capture Date.now() before navigating and pass it here; suites whose URLs are
+ * stable across loads (the capture corpus) must use this variant after every
+ * navigation.
+ */
+export async function waitForFrameReadySince(
+  serviceWorker,
+  url,
+  sinceTs,
+  { timeout = 10_000, interval = 20 } = {},
+) {
+  const deadline = Date.now() + timeout;
+  for (;;) {
+    const at = await getFrameReadyAt(serviceWorker, url);
+    if (at != null && at > sinceTs) return at;
+    if (Date.now() > deadline) {
+      throw new Error(`Timed out waiting for FRAME_READY newer than ${sinceTs} from ${url}`);
+    }
+    await new Promise((r) => setTimeout(r, interval));
+  }
+}

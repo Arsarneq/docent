@@ -1,0 +1,30 @@
+{
+  "ext-click-basic": [],
+  "ext-type-blur": [],
+  "ext-select": [],
+  "ext-key": [],
+  "ext-navigate": [],
+  "ext-tab-open": [],
+  "ext-iframe": [],
+  "ext-file-upload": [],
+  "ext-dnd-native": [],
+  "ext-scroll-above-floor": [
+    "missing-action rec[0].step[0].action[0]:scroll expected=\"{\\\"capture_mode\\\":\\\"dom\\\",\\\"context_id\\\":\\\"<ctx:1>\\\",\\\"delta_x\\\":0,\\\"delta_y\\\":400,\\\"element\\\":{\\\"autocomplete\\\":null,\\…"
+  ],
+  "ext-side-effects": [],
+  "ext-redaction": [],
+  "ext-type-submit-suppression": [
+    "missing-action rec[0].step[0].action[1]:type expected=\"{\\\"capture_mode\\\":\\\"dom\\\",\\\"context_id\\\":\\\"<ctx:1>\\\",\\\"element\\\":{\\\"autocomplete\\\":null,\\\"id\\\":\\\"q\\\",\\\"locators\\\":[{\\\"m…"
+  ],
+  "ext-pointer-drag": [
+    "extra-action produced:rec[0].step[0].action[0]:click actual=\"{\\\"capture_mode\\\":\\\"dom\\\",\\\"context_id\\\":\\\"<ctx:1>\\\",\\\"element\\\":{\\\"autocomplete\\\":null,\\\"id\\\":\\\"thumb\\\",\\\"locators\\\":[…",
+    "missing-action rec[0].step[0].action[0]:drag_start expected=\"{\\\"capture_mode\\\":\\\"dom\\\",\\\"context_id\\\":\\\"<ctx:1>\\\",\\\"element\\\":{\\\"autocomplete\\\":null,\\\"id\\\":\\\"thumb\\\",\\\"locators\\\":[…",
+    "missing-action rec[0].step[0].action[1]:drop expected=\"{\\\"capture_mode\\\":\\\"dom\\\",\\\"context_id\\\":\\\"<ctx:1>\\\",\\\"element\\\":{\\\"autocomplete\\\":null,\\\"id\\\":\\\"thumb\\\",\\\"locators\\\":[…"
+  ],
+  "ext-scroll-floor": [
+    "missing-action rec[0].step[0].action[0]:scroll expected=\"{\\\"capture_mode\\\":\\\"dom\\\",\\\"context_id\\\":\\\"<ctx:1>\\\",\\\"delta_x\\\":0,\\\"delta_y\\\":150,\\\"element\\\":{\\\"autocomplete\\\":null,\\…"
+  ],
+  "ext-scroll-netzero": [
+    "wrong-field rec[0].step[0].action[0]:scroll delta_y expected=0 actual=-300"
+  ]
+}

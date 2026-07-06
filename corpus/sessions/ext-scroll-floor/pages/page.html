@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>corpus: ext-scroll-floor</title>
+    <style>
+      #scrollbox {
+        height: 300px;
+        width: 400px;
+        overflow-y: scroll;
+      }
+      #filler {
+        /* Max scrollable range 150px — under the 200px significance floor, the
+           small-lazy-container class docent#232 documents. */
+        height: 450px;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="scrollbox" data-testid="scrollbox">
+      <div id="filler">Short content</div>
+    </div>
+  </body>
+</html>

@@ -45,13 +45,18 @@ import {
 
 const __dirname = fileURLToPath(new URL('.', import.meta.url));
 const FIXTURES_DIR = resolve(__dirname, '../fixtures');
+// The scripted-truth corpus's committed truth files are lint corpus members
+// too (their gap/fail findings live in the same baseline). Deliberately
+// corpus/sessions — never corpus/ — so the gitignored corpus/out/ produced
+// envelopes can never leak into the lock after a local produce run.
+const CORPUS_SESSIONS_DIR = resolve(__dirname, '../../../../corpus/sessions');
 const BASELINE_PATH = join(FIXTURES_DIR, 'sufficiency-baseline.json');
 
 describe('Sufficiency lint: corpus baseline lock', () => {
   it('findings over the frozen corpus equal the committed baseline exactly', () => {
     const expected = JSON.parse(readFileSync(BASELINE_PATH, 'utf8'));
     const results = new Map();
-    for (const file of collectFiles([FIXTURES_DIR])) {
+    for (const file of collectFiles([FIXTURES_DIR, CORPUS_SESSIONS_DIR])) {
       results.set(file, lintFile(file)); // throws on invalid input
     }
     const diff = diffBaselines(expected, toBaseline(results));
