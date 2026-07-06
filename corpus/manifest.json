@@ -173,6 +173,15 @@
       "overrides": "overrides.json",
       "knownDiffIssues": ["#228"],
       "notes": "wheel scroll over a really-scrolling multiline EDIT: truth names the element and the nonzero position; current capture fabricates scroll_top/scroll_left 0.0 with element null (#228) — the two baseline entries are exactly that defect pair"
+    },
+    {
+      "id": "d-scroll-floor",
+      "platform": "desktop-windows",
+      "driver": "corpus_capture::d_scroll_floor",
+      "truth": "truth.docent.json",
+      "overrides": "overrides.json",
+      "knownDiffIssues": ["#232"],
+      "notes": "one wheel notch over the really-scrolling EDIT — under the significance floor, current capture discards the scroll entirely; truth carries it (missing-action baseline entry)"
     }
   ]
 }

@@ -371,3 +371,19 @@ fn d_scroll_above_floor() {
         thread::sleep(Duration::from_millis(600));
     });
 }
+
+/// One wheel notch over the really-scrolling EDIT — under the significance
+/// floor (SCROLL_MIN_DISTANCE_PX), so current capture discards the scroll
+/// entirely (docent#232). The truth carries it.
+#[test]
+#[serial]
+fn d_scroll_floor() {
+    run_mouse_session_with("d-scroll-floor", true, |enigo, win, _primer| {
+        enigo.move_mouse(win.cx, win.cy, Coordinate::Abs).unwrap();
+        thread::sleep(Duration::from_millis(50));
+        enigo.button(enigo::Button::Left, Direction::Click).unwrap();
+        thread::sleep(Duration::from_millis(350));
+        enigo.scroll(1, enigo::Axis::Vertical).unwrap();
+        thread::sleep(Duration::from_millis(600));
+    });
+}
