@@ -29,6 +29,10 @@ packages/desktop/dist/
 # ...except the frozen backward-compat test fixtures (#87), which are
 # intentionally committed regression anchors, not real user exports.
 !packages/shared/tests/fixtures/**/*.docent.json
+# ...and the capture corpus's truth files: authored expected envelopes for
+# scripted sessions on committed pages, not real user exports. The corpus's
+# per-run produced output stays ignored via corpus/out/ below.
+!corpus/sessions/**/*.docent.json
 
 # CLA signatures (managed by cla-assistant bot, stored in signatures/ branch)
 signatures/
@@ -67,3 +71,4 @@ CLAUDE.local.md
 
 # Security backlog (private — not for public disclosure)
 SECURITY_BACKLOG.md
+corpus/out/

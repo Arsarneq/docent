@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>corpus: ext-pointer-drag</title>
+    <style>
+      #track {
+        width: 400px;
+        height: 24px;
+        border: 1px solid black;
+        position: relative;
+      }
+      #thumb {
+        width: 24px;
+        height: 24px;
+        background: black;
+        position: absolute;
+        left: 0;
+        top: 0;
+      }
+    </style>
+  </head>
+  <body>
+    <!-- A pointer-capture slider (the dnd-kit/slider/splitter gesture class,
+         docent#231): pointerdown captures the pointer; moves never fire HTML5
+         drag events. -->
+    <div id="track" data-testid="track">
+      <div id="thumb" data-testid="thumb"></div>
+    </div>
+    <script>
+      const thumb = document.getElementById('thumb');
+      thumb.addEventListener('pointerdown', (e) => {
+        thumb.setPointerCapture(e.pointerId);
+      });
+      thumb.addEventListener('pointermove', (e) => {
+        if (thumb.hasPointerCapture(e.pointerId)) {
+          thumb.style.left = Math.max(0, Math.min(376, e.clientX - 20)) + 'px';
+        }
+      });
+      thumb.addEventListener('pointerup', (e) => {
+        thumb.releasePointerCapture(e.pointerId);
+      });
+    </script>
+  </body>
+</html>

@@ -1,0 +1,85 @@
+{
+  "docent_format": {
+    "platform": "extension",
+    "schema_version": "3.0.0"
+  },
+  "project": {
+    "project_id": "019f37d8-68c9-76a0-b257-ec0b5582775a",
+    "name": "corpus ext-scroll-floor",
+    "created_at": "2026-07-06T14:32:37.321Z"
+  },
+  "recordings": [
+    {
+      "recording_id": "019f37d8-68c9-7502-926e-d9aa26f2cb3f",
+      "name": "ext-scroll-floor",
+      "created_at": "2026-07-06T14:32:37.321Z",
+      "steps": [
+        {
+          "uuid": "019f37d8-68c9-73a6-9742-3fb0df3776e7",
+          "logical_id": "019f37d8-68c9-7cd8-9768-439f297d15b6",
+          "step_number": 1,
+          "created_at": "2026-07-06T14:32:37.321Z",
+          "actions": [
+            {
+              "capture_mode": "dom",
+              "context_id": 1279653059,
+              "delta_x": 0,
+              "delta_y": 150,
+              "element": {
+                "autocomplete": null,
+                "id": "scrollbox",
+                "locators": [
+                  {
+                    "match_count": 1,
+                    "match_index": 0,
+                    "strategy": "id",
+                    "value": "scrollbox"
+                  },
+                  {
+                    "attribute": "data-testid",
+                    "match_count": 1,
+                    "match_index": 0,
+                    "strategy": "test_id",
+                    "value": "scrollbox"
+                  },
+                  {
+                    "match_count": 2,
+                    "match_index": 0,
+                    "strategy": "tag_name",
+                    "value": "div"
+                  },
+                  {
+                    "match_count": 2,
+                    "match_index": 0,
+                    "strategy": "text",
+                    "value": "Short content"
+                  },
+                  {
+                    "match_count": 1,
+                    "match_index": 0,
+                    "strategy": "css",
+                    "value": "#scrollbox"
+                  }
+                ],
+                "name": null,
+                "role": null,
+                "selector": "#scrollbox",
+                "tag": "DIV",
+                "text": "Short content",
+                "type": null
+              },
+              "frame_src": null,
+              "scroll_left": 0,
+              "scroll_top": 150,
+              "timestamp": 1783348358766,
+              "type": "scroll",
+              "window_rect": null
+            }
+          ],
+          "deleted": false,
+          "narration": "ext-scroll-floor"
+        }
+      ]
+    }
+  ]
+}

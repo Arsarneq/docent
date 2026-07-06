@@ -43,6 +43,7 @@ jobs:
       shared: ${{ steps.filter.outputs.shared }}
       schema: ${{ steps.filter.outputs.schema }}
       referenceServer: ${{ steps.filter.outputs.referenceServer }}
+      corpus: ${{ steps.filter.outputs.corpus }}
       ci: ${{ steps.filter.outputs.ci }}
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
@@ -62,6 +63,8 @@ jobs:
               - 'schemas/**'
             referenceServer:
               - 'reference-implementations/**'
+            corpus:
+              - 'corpus/**'
             ci:
               - '.github/workflows/**'
               - 'scripts/**'
@@ -207,6 +210,7 @@ jobs:
       needs.changes.outputs.desktop == 'true' ||
       needs.changes.outputs.shared == 'true' ||
       needs.changes.outputs.schema == 'true' ||
+      needs.changes.outputs.corpus == 'true' ||
       needs.changes.outputs.ci == 'true' ||
       github.event_name == 'release' ||
       github.event_name == 'push' ||
@@ -282,6 +286,7 @@ jobs:
           needs.changes.outputs.shared == 'true' ||
           needs.changes.outputs.schema == 'true' ||
           needs.changes.outputs.referenceServer == 'true' ||
+          needs.changes.outputs.corpus == 'true' ||
           needs.changes.outputs.ci == 'true')) ||
       ((github.event_name == 'release' || github.event_name == 'workflow_dispatch') &&
         (inputs.platform == '' || inputs.platform == 'extension'))
@@ -314,6 +319,21 @@ jobs:
       - name: Run Playwright tests
         working-directory: packages/extension/tests/e2e
         run: xvfb-run npx playwright test
+
+      - name: Produce capture corpus (extension)
+        working-directory: packages/extension/tests/e2e
+        run: xvfb-run npx playwright test --config playwright.corpus.config.js
+
+      - name: Corpus truth diff
+        run: npm run corpus:check
+
+      - name: Upload corpus output
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: corpus-extension-output
+          path: corpus/out/
+          retention-days: 7
 
       - name: Upload extension E2E coverage artifact
         if: always()

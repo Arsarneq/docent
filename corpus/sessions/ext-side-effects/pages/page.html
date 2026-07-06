@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>corpus: ext-side-effects</title>
+    <style>
+      #panel {
+        height: 200px;
+        width: 400px;
+        overflow-y: scroll;
+      }
+      #panel-filler {
+        height: 1000px;
+      }
+    </style>
+  </head>
+  <body>
+    <!-- The click is the user action; everything its handler does below is a
+         code-driven effect and must NOT enter the action stream. -->
+    <button id="trigger" data-testid="trigger">Trigger effects</button>
+    <button id="plain" data-testid="plain">Plain</button>
+    <input id="victim" name="victim" type="text" />
+    <div id="panel"><div id="panel-filler">Tall content</div></div>
+    <script>
+      document.getElementById('trigger').addEventListener('click', () => {
+        const panel = document.getElementById('panel');
+        panel.scrollTop = 600; // programmatic scroll
+        const victim = document.getElementById('victim');
+        victim.focus(); // programmatic focus
+        victim.value = 'set by code'; // programmatic value change
+        victim.dispatchEvent(new Event('change', { bubbles: true })); // synthetic event
+      });
+    </script>
+  </body>
+</html>

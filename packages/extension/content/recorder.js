@@ -37,6 +37,8 @@
   // ─── Timing Constants ───────────────────────────────────────────────────────
   // Source of truth: lib/capture-timing.js
   // Content scripts can't use ES imports, so values are duplicated here.
+  // The scroll handler below additionally duplicates SCROLL_DEBOUNCE (300) and
+  // SCROLL_MIN_DISTANCE_PX (200) inline at its setTimeout/threshold sites.
   const ENTER_SYNTHETIC_CLICK_WINDOW = 50;
   const SELECT_SYNTHETIC_CLICK_WINDOW = 50;
   const TAB_FOCUS_CORRELATION_WINDOW = 150;

@@ -1,0 +1,365 @@
+{
+  "docent_format": {
+    "platform": "extension",
+    "schema_version": "3.0.0"
+  },
+  "project": {
+    "project_id": "019f37d8-50ce-7752-9bce-b489bf28c184",
+    "name": "corpus ext-redaction",
+    "created_at": "2026-07-06T14:32:31.182Z"
+  },
+  "recordings": [
+    {
+      "recording_id": "019f37d8-50ce-7af3-8572-9619a6ab3ee0",
+      "name": "ext-redaction",
+      "created_at": "2026-07-06T14:32:31.182Z",
+      "steps": [
+        {
+          "uuid": "019f37d8-50ce-7756-81a9-f3e302f2737c",
+          "logical_id": "019f37d8-50ce-7b09-96a9-6203375aac83",
+          "step_number": 1,
+          "created_at": "2026-07-06T14:32:31.182Z",
+          "actions": [
+            {
+              "capture_mode": "dom",
+              "context_id": 2030507537,
+              "element": {
+                "autocomplete": null,
+                "id": "password",
+                "locators": [
+                  {
+                    "match_count": 1,
+                    "match_index": 0,
+                    "strategy": "id",
+                    "value": "password"
+                  },
+                  {
+                    "attribute": "data-testid",
+                    "match_count": 1,
+                    "match_index": 0,
+                    "strategy": "test_id",
+                    "value": "password"
+                  },
+                  {
+                    "match_count": 1,
+                    "match_index": 0,
+                    "strategy": "name",
+                    "value": "password"
+                  },
+                  {
+                    "match_count": 2,
+                    "match_index": 0,
+                    "strategy": "tag_name",
+                    "value": "input"
+                  },
+                  {
+                    "match_count": 1,
+                    "match_index": 0,
+                    "strategy": "css",
+                    "value": "#password"
+                  }
+                ],
+                "name": "password",
+                "redacted": true,
+                "role": null,
+                "selector": "#password",
+                "tag": "INPUT",
+                "text": null,
+                "type": "password"
+              },
+              "frame_src": null,
+              "timestamp": 1783348350069,
+              "type": "click",
+              "window_rect": null,
+              "x": 96,
+              "y": 18
+            },
+            {
+              "capture_mode": "dom",
+              "context_id": 2030507537,
+              "element": {
+                "autocomplete": null,
+                "id": "password",
+                "locators": [
+                  {
+                    "match_count": 1,
+                    "match_index": 0,
+                    "strategy": "id",
+                    "value": "password"
+                  },
+                  {
+                    "attribute": "data-testid",
+                    "match_count": 1,
+                    "match_index": 0,
+                    "strategy": "test_id",
+                    "value": "password"
+                  },
+                  {
+                    "match_count": 1,
+                    "match_index": 0,
+                    "strategy": "name",
+                    "value": "password"
+                  },
+                  {
+                    "match_count": 2,
+                    "match_index": 0,
+                    "strategy": "tag_name",
+                    "value": "input"
+                  },
+                  {
+                    "match_count": 1,
+                    "match_index": 0,
+                    "strategy": "css",
+                    "value": "#password"
+                  }
+                ],
+                "name": "password",
+                "redacted": true,
+                "role": null,
+                "selector": "#password",
+                "tag": "INPUT",
+                "text": null,
+                "type": "password"
+              },
+              "frame_src": null,
+              "timestamp": 1783348350205,
+              "type": "type",
+              "value": "••••••••",
+              "window_rect": null
+            },
+            {
+              "capture_mode": "dom",
+              "context_id": 2030507537,
+              "element": {
+                "autocomplete": "cc-number",
+                "id": "cc-number",
+                "locators": [
+                  {
+                    "match_count": 1,
+                    "match_index": 0,
+                    "strategy": "id",
+                    "value": "cc-number"
+                  },
+                  {
+                    "attribute": "data-testid",
+                    "match_count": 1,
+                    "match_index": 0,
+                    "strategy": "test_id",
+                    "value": "cc-number"
+                  },
+                  {
+                    "match_count": 1,
+                    "match_index": 0,
+                    "strategy": "name",
+                    "value": "cc-number"
+                  },
+                  {
+                    "match_count": 2,
+                    "match_index": 1,
+                    "strategy": "tag_name",
+                    "value": "input"
+                  },
+                  {
+                    "match_count": 1,
+                    "match_index": 0,
+                    "strategy": "css",
+                    "value": "#cc-number"
+                  }
+                ],
+                "name": "cc-number",
+                "redacted": true,
+                "role": null,
+                "selector": "#cc-number",
+                "tag": "INPUT",
+                "text": null,
+                "type": "text"
+              },
+              "frame_src": null,
+              "timestamp": 1783348350206,
+              "type": "click",
+              "window_rect": null,
+              "x": 277,
+              "y": 18
+            },
+            {
+              "capture_mode": "dom",
+              "context_id": 2030507537,
+              "element": {
+                "autocomplete": "cc-number",
+                "id": "cc-number",
+                "locators": [
+                  {
+                    "match_count": 1,
+                    "match_index": 0,
+                    "strategy": "id",
+                    "value": "cc-number"
+                  },
+                  {
+                    "attribute": "data-testid",
+                    "match_count": 1,
+                    "match_index": 0,
+                    "strategy": "test_id",
+                    "value": "cc-number"
+                  },
+                  {
+                    "match_count": 1,
+                    "match_index": 0,
+                    "strategy": "name",
+                    "value": "cc-number"
+                  },
+                  {
+                    "match_count": 2,
+                    "match_index": 1,
+                    "strategy": "tag_name",
+                    "value": "input"
+                  },
+                  {
+                    "match_count": 1,
+                    "match_index": 0,
+                    "strategy": "css",
+                    "value": "#cc-number"
+                  }
+                ],
+                "name": "cc-number",
+                "redacted": true,
+                "role": null,
+                "selector": "#cc-number",
+                "tag": "INPUT",
+                "text": null,
+                "type": "text"
+              },
+              "frame_src": null,
+              "timestamp": 1783348350266,
+              "type": "type",
+              "value": "••••••••",
+              "window_rect": null
+            },
+            {
+              "capture_mode": "dom",
+              "context_id": 2030507537,
+              "element": {
+                "autocomplete": "cc-exp",
+                "id": "cc-exp",
+                "locators": [
+                  {
+                    "match_count": 1,
+                    "match_index": 0,
+                    "strategy": "id",
+                    "value": "cc-exp"
+                  },
+                  {
+                    "attribute": "data-testid",
+                    "match_count": 1,
+                    "match_index": 0,
+                    "strategy": "test_id",
+                    "value": "cc-exp"
+                  },
+                  {
+                    "match_count": 1,
+                    "match_index": 0,
+                    "strategy": "name",
+                    "value": "cc-exp"
+                  },
+                  {
+                    "match_count": 1,
+                    "match_index": 0,
+                    "strategy": "tag_name",
+                    "value": "select"
+                  },
+                  {
+                    "masked": true,
+                    "match_count": 1,
+                    "match_index": 0,
+                    "strategy": "text",
+                    "value": "••••••••"
+                  },
+                  {
+                    "match_count": 1,
+                    "match_index": 0,
+                    "strategy": "css",
+                    "value": "#cc-exp"
+                  }
+                ],
+                "name": "cc-exp",
+                "redacted": true,
+                "role": null,
+                "selector": "#cc-exp",
+                "tag": "SELECT",
+                "text": null,
+                "type": null
+              },
+              "frame_src": null,
+              "timestamp": 1783348350273,
+              "type": "click",
+              "window_rect": null,
+              "x": 409,
+              "y": 18
+            },
+            {
+              "capture_mode": "dom",
+              "context_id": 2030507537,
+              "element": {
+                "autocomplete": "cc-exp",
+                "id": "cc-exp",
+                "locators": [
+                  {
+                    "match_count": 1,
+                    "match_index": 0,
+                    "strategy": "id",
+                    "value": "cc-exp"
+                  },
+                  {
+                    "attribute": "data-testid",
+                    "match_count": 1,
+                    "match_index": 0,
+                    "strategy": "test_id",
+                    "value": "cc-exp"
+                  },
+                  {
+                    "match_count": 1,
+                    "match_index": 0,
+                    "strategy": "name",
+                    "value": "cc-exp"
+                  },
+                  {
+                    "match_count": 1,
+                    "match_index": 0,
+                    "strategy": "tag_name",
+                    "value": "select"
+                  },
+                  {
+                    "masked": true,
+                    "match_count": 1,
+                    "match_index": 0,
+                    "strategy": "text",
+                    "value": "••••••••"
+                  },
+                  {
+                    "match_count": 1,
+                    "match_index": 0,
+                    "strategy": "css",
+                    "value": "#cc-exp"
+                  }
+                ],
+                "name": "cc-exp",
+                "redacted": true,
+                "role": null,
+                "selector": "#cc-exp",
+                "tag": "SELECT",
+                "text": null,
+                "type": null
+              },
+              "frame_src": null,
+              "timestamp": 1783348350294,
+              "type": "select",
+              "value": "••••••••",
+              "window_rect": null
+            }
+          ],
+          "deleted": false,
+          "narration": "ext-redaction"
+        }
+      ]
+    }
+  ]
+}

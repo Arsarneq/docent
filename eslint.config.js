@@ -133,6 +133,19 @@ export default [
     },
   },
   {
+    // Capture corpus (repo/CI artifact): the page server runs under Node; the
+    // session drivers run in the corpus Playwright spec's Node context.
+    files: ['corpus/**/*.js'],
+    languageOptions: {
+      globals: {
+        process: 'readonly',
+        console: 'readonly',
+        Buffer: 'readonly',
+        URL: 'readonly',
+      },
+    },
+  },
+  {
     // Reference implementations (Node.js, standard library only) — repo/testing
     // artifacts, excluded from releases but held to the same lint bar as the
     // rest of the repo.
@@ -160,6 +173,7 @@ export default [
       'packages/desktop/src-tauri/**',
       'packages/*/tests/**',
       'coverage/**',
+      'corpus/out/**',
     ],
   },
 ];

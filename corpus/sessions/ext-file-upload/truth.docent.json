@@ -1,0 +1,141 @@
+{
+  "docent_format": {
+    "platform": "extension",
+    "schema_version": "3.0.0"
+  },
+  "project": {
+    "project_id": "019f37d8-2de2-71d4-9173-c80e7e4c0af4",
+    "name": "corpus ext-file-upload",
+    "created_at": "2026-07-06T14:32:22.243Z"
+  },
+  "recordings": [
+    {
+      "recording_id": "019f37d8-2de3-75ac-9760-98608d5fc688",
+      "name": "ext-file-upload",
+      "created_at": "2026-07-06T14:32:22.243Z",
+      "steps": [
+        {
+          "uuid": "019f37d8-2de3-7b3d-94b6-97a37e044840",
+          "logical_id": "019f37d8-2de3-7e9a-aa3b-5d8913656c37",
+          "step_number": 1,
+          "created_at": "2026-07-06T14:32:22.243Z",
+          "actions": [
+            {
+              "capture_mode": "dom",
+              "context_id": 1901632459,
+              "element": {
+                "autocomplete": null,
+                "id": "file",
+                "locators": [
+                  {
+                    "match_count": 1,
+                    "match_index": 0,
+                    "strategy": "id",
+                    "value": "file"
+                  },
+                  {
+                    "attribute": "data-testid",
+                    "match_count": 1,
+                    "match_index": 0,
+                    "strategy": "test_id",
+                    "value": "file"
+                  },
+                  {
+                    "match_count": 1,
+                    "match_index": 0,
+                    "strategy": "name",
+                    "value": "attachment"
+                  },
+                  {
+                    "match_count": 1,
+                    "match_index": 0,
+                    "strategy": "tag_name",
+                    "value": "input"
+                  },
+                  {
+                    "match_count": 1,
+                    "match_index": 0,
+                    "strategy": "css",
+                    "value": "#file"
+                  }
+                ],
+                "name": "attachment",
+                "role": null,
+                "selector": "#file",
+                "tag": "INPUT",
+                "text": null,
+                "type": "file"
+              },
+              "frame_src": null,
+              "timestamp": 1783348341386,
+              "type": "click",
+              "window_rect": null,
+              "x": 134,
+              "y": 18
+            },
+            {
+              "capture_mode": "dom",
+              "context_id": 1901632459,
+              "element": {
+                "autocomplete": null,
+                "id": "file",
+                "locators": [
+                  {
+                    "match_count": 1,
+                    "match_index": 0,
+                    "strategy": "id",
+                    "value": "file"
+                  },
+                  {
+                    "attribute": "data-testid",
+                    "match_count": 1,
+                    "match_index": 0,
+                    "strategy": "test_id",
+                    "value": "file"
+                  },
+                  {
+                    "match_count": 1,
+                    "match_index": 0,
+                    "strategy": "name",
+                    "value": "attachment"
+                  },
+                  {
+                    "match_count": 1,
+                    "match_index": 0,
+                    "strategy": "tag_name",
+                    "value": "input"
+                  },
+                  {
+                    "match_count": 1,
+                    "match_index": 0,
+                    "strategy": "css",
+                    "value": "#file"
+                  }
+                ],
+                "name": "attachment",
+                "role": null,
+                "selector": "#file",
+                "tag": "INPUT",
+                "text": null,
+                "type": "file"
+              },
+              "files": [
+                {
+                  "mime": "text/plain",
+                  "name": "hello.txt",
+                  "size": 13
+                }
+              ],
+              "frame_src": null,
+              "timestamp": 1783348341405,
+              "type": "file_upload",
+              "window_rect": null
+            }
+          ],
+          "deleted": false,
+          "narration": "ext-file-upload"
+        }
+      ]
+    }
+  ]
+}

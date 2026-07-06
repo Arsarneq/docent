@@ -1,0 +1,182 @@
+{
+  "docent_format": {
+    "platform": "extension",
+    "schema_version": "3.0.0"
+  },
+  "project": {
+    "project_id": "019f37d7-f35d-79ef-bb93-0ee1730edc4c",
+    "name": "corpus ext-click-basic",
+    "created_at": "2026-07-06T14:32:07.261Z"
+  },
+  "recordings": [
+    {
+      "recording_id": "019f37d7-f35f-7f1d-96ea-ce0352d0f9b6",
+      "name": "ext-click-basic",
+      "created_at": "2026-07-06T14:32:07.263Z",
+      "steps": [
+        {
+          "uuid": "019f37d7-f35f-78ec-90cc-7d1e3a341b3c",
+          "logical_id": "019f37d7-f35f-7041-bb24-cd2e7f03b7bf",
+          "step_number": 1,
+          "created_at": "2026-07-06T14:32:07.263Z",
+          "actions": [
+            {
+              "capture_mode": "dom",
+              "context_id": 124686705,
+              "element": {
+                "autocomplete": null,
+                "id": "save",
+                "locators": [
+                  {
+                    "match_count": 1,
+                    "match_index": 0,
+                    "strategy": "id",
+                    "value": "save"
+                  },
+                  {
+                    "attribute": "data-testid",
+                    "match_count": 1,
+                    "match_index": 0,
+                    "strategy": "test_id",
+                    "value": "save"
+                  },
+                  {
+                    "match_count": 2,
+                    "match_index": 0,
+                    "strategy": "tag_name",
+                    "value": "button"
+                  },
+                  {
+                    "match_count": 1,
+                    "match_index": 0,
+                    "strategy": "text",
+                    "value": "Save"
+                  },
+                  {
+                    "match_count": 1,
+                    "match_index": 0,
+                    "strategy": "title",
+                    "value": "Save the form"
+                  },
+                  {
+                    "match_count": 1,
+                    "match_index": 0,
+                    "strategy": "css",
+                    "value": "#save"
+                  }
+                ],
+                "name": null,
+                "role": null,
+                "selector": "#save",
+                "tag": "BUTTON",
+                "text": "Save",
+                "type": null
+              },
+              "frame_src": null,
+              "timestamp": 1783348326303,
+              "type": "click",
+              "window_rect": null,
+              "x": 31,
+              "y": 51
+            },
+            {
+              "capture_mode": "dom",
+              "context_id": 124686705,
+              "element": {
+                "autocomplete": null,
+                "id": "logo",
+                "locators": [
+                  {
+                    "match_count": 1,
+                    "match_index": 0,
+                    "strategy": "id",
+                    "value": "logo"
+                  },
+                  {
+                    "attribute": "data-testid",
+                    "match_count": 1,
+                    "match_index": 0,
+                    "strategy": "test_id",
+                    "value": "logo"
+                  },
+                  {
+                    "match_count": 1,
+                    "match_index": 0,
+                    "strategy": "tag_name",
+                    "value": "img"
+                  },
+                  {
+                    "match_count": 1,
+                    "match_index": 0,
+                    "strategy": "alt_text",
+                    "value": "Docent logo"
+                  },
+                  {
+                    "match_count": 1,
+                    "match_index": 0,
+                    "strategy": "css",
+                    "value": "#logo"
+                  }
+                ],
+                "name": null,
+                "role": null,
+                "selector": "#logo",
+                "tag": "IMG",
+                "text": null,
+                "type": null
+              },
+              "frame_src": null,
+              "timestamp": 1783348326351,
+              "type": "click",
+              "window_rect": null,
+              "x": 82,
+              "y": 32
+            },
+            {
+              "capture_mode": "dom",
+              "context_id": 124686705,
+              "element": {
+                "autocomplete": null,
+                "id": null,
+                "locators": [
+                  {
+                    "match_count": 2,
+                    "match_index": 1,
+                    "strategy": "tag_name",
+                    "value": "button"
+                  },
+                  {
+                    "match_count": 1,
+                    "match_index": 0,
+                    "strategy": "text",
+                    "value": "Plain"
+                  },
+                  {
+                    "match_count": 1,
+                    "match_index": 0,
+                    "strategy": "css",
+                    "value": "button:nth-of-type(2)"
+                  }
+                ],
+                "name": null,
+                "role": null,
+                "selector": "button:nth-of-type(2)",
+                "tag": "BUTTON",
+                "text": "Plain",
+                "type": null
+              },
+              "frame_src": null,
+              "timestamp": 1783348326398,
+              "type": "click",
+              "window_rect": null,
+              "x": 133,
+              "y": 51
+            }
+          ],
+          "deleted": false,
+          "narration": "ext-click-basic"
+        }
+      ]
+    }
+  ]
+}

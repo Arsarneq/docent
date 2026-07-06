@@ -1,0 +1,133 @@
+{
+  "description": "Scripted-truth capture-corpus session catalogue. Doctrine in README.md. status: active | retired (retired entries stay listed with a reason — removals are loud, never silent).",
+  "sessions": [
+    {
+      "id": "ext-click-basic",
+      "platform": "extension",
+      "page": "page.html",
+      "script": "script.js",
+      "knownDiffIssues": [],
+      "notes": "clicks on button/image/plain elements; carries title, alt_text and structural-css locator coverage"
+    },
+    {
+      "id": "ext-type-blur",
+      "platform": "extension",
+      "page": "form.html",
+      "script": "script.js",
+      "knownDiffIssues": [],
+      "notes": "type then blur by clicking a neutral button (never Tab — correlation race); name + placeholder coverage"
+    },
+    {
+      "id": "ext-select",
+      "platform": "extension",
+      "page": "page.html",
+      "script": "script.js",
+      "knownDiffIssues": [],
+      "notes": "keyboard-driven native select (click + ArrowDown x2 + Enter); selectOption is untrusted and never used"
+    },
+    {
+      "id": "ext-key",
+      "platform": "extension",
+      "page": "page.html",
+      "script": "script.js",
+      "knownDiffIssues": [],
+      "notes": "captured control keys on a focused input (Enter, Escape)"
+    },
+    {
+      "id": "ext-navigate",
+      "platform": "extension",
+      "page": "a.html",
+      "script": "script.js",
+      "knownDiffIssues": [],
+      "notes": "link navigation, typed navigation, reload — all loopback"
+    },
+    {
+      "id": "ext-tab-open",
+      "platform": "extension",
+      "page": "a.html",
+      "script": "script.js",
+      "knownDiffIssues": [],
+      "notes": "user click on a target=_blank link: the click is the action, the tab is its effect — truth records the click + the new context chrome-initiated navigate. The missing context_open is #252 (a sufficiency-lint fail, not a corpus diff); context_switch/close have no trusted-input driver — loudly excluded in README"
+    },
+    {
+      "id": "ext-iframe",
+      "platform": "extension",
+      "page": "page.html",
+      "script": "script.js",
+      "knownDiffIssues": [],
+      "notes": "clicks in the top document and inside an iframe; frame_src null vs frame URL"
+    },
+    {
+      "id": "ext-file-upload",
+      "platform": "extension",
+      "page": "page.html",
+      "script": "script.js",
+      "knownDiffIssues": [],
+      "notes": "file chooser with buffer-supplied file (deterministic name/size/mime)"
+    },
+    {
+      "id": "ext-dnd-native",
+      "platform": "extension",
+      "page": "page.html",
+      "script": "script.js",
+      "knownDiffIssues": [],
+      "notes": "native HTML5 drag and drop: drag_start + drop with source_element"
+    },
+    {
+      "id": "ext-scroll-above-floor",
+      "platform": "extension",
+      "page": "page.html",
+      "script": "script.js",
+      "knownDiffIssues": ["#251"],
+      "notes": "container scroll past the significance floor; one settled scroll action. Current capture records nothing: the burst baseline is anchored post-first-movement (#251)"
+    },
+    {
+      "id": "ext-side-effects",
+      "platform": "extension",
+      "page": "page.html",
+      "script": "script.js",
+      "knownDiffIssues": [],
+      "notes": "clicks whose handlers trigger programmatic scroll/focus/value changes; truth is the clicks only (action-vs-effect boundary; docent#224 class boundary)"
+    },
+    {
+      "id": "ext-redaction",
+      "platform": "extension",
+      "page": "form.html",
+      "script": "script.js",
+      "knownDiffIssues": [],
+      "notes": "password + cc-number typing (masked values, redacted flags) and a sensitive select with visible text (masked-in-place text locator entry)"
+    },
+    {
+      "id": "ext-type-submit-suppression",
+      "platform": "extension",
+      "page": "form.html",
+      "script": "script.js",
+      "knownDiffIssues": ["#223"],
+      "notes": "type then click submit within the suppression window; truth carries the type action current capture loses"
+    },
+    {
+      "id": "ext-pointer-drag",
+      "platform": "extension",
+      "page": "page.html",
+      "script": "script.js",
+      "knownDiffIssues": ["#231"],
+      "notes": "setPointerCapture slider drag; truth carries drag_start+drop current capture loses"
+    },
+    {
+      "id": "ext-scroll-floor",
+      "platform": "extension",
+      "page": "page.html",
+      "script": "script.js",
+      "knownDiffIssues": ["#232"],
+      "notes": "sub-floor container scroll; truth carries the scroll current capture discards"
+    },
+    {
+      "id": "ext-scroll-netzero",
+      "platform": "extension",
+      "page": "page.html",
+      "script": "script.js",
+      "knownDiffIssues": ["#232", "#251"],
+      "notes": "net-zero jiggle inside one debounce window; truth carries the settled net-zero scroll (#232). Produced delta reflects the post-movement baseline anchor (#251)"
+    }
+  ]
+}

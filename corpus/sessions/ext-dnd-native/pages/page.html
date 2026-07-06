@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>corpus: ext-dnd-native</title>
+    <style>
+      #drag,
+      #drop {
+        width: 120px;
+        height: 120px;
+        border: 2px solid black;
+        display: inline-block;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="drag" data-testid="drag" draggable="true">Drag me</div>
+    <div id="drop" data-testid="drop">Drop here</div>
+    <script>
+      const drop = document.getElementById('drop');
+      drop.addEventListener('dragover', (e) => e.preventDefault());
+      drop.addEventListener('drop', (e) => e.preventDefault());
+    </script>
+  </body>
+</html>
