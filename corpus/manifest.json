@@ -47,7 +47,7 @@
       "page": "a.html",
       "script": "script.js",
       "knownDiffIssues": [],
-      "notes": "user click on a target=_blank link: the click is the action, the tab is its effect — truth records the click + the new context chrome-initiated navigate(link). context_open/switch/close have no trusted-input driver (browser chrome); loudly excluded in README"
+      "notes": "user click on a target=_blank link: the click is the action, the tab is its effect — truth records the click + the new context chrome-initiated navigate. The missing context_open is #252 (a sufficiency-lint fail, not a corpus diff); context_switch/close have no trusted-input driver — loudly excluded in README"
     },
     {
       "id": "ext-iframe",
@@ -78,8 +78,8 @@
       "platform": "extension",
       "page": "page.html",
       "script": "script.js",
-      "knownDiffIssues": [],
-      "notes": "container scroll past the significance floor; one settled scroll action"
+      "knownDiffIssues": ["#251"],
+      "notes": "container scroll past the significance floor; one settled scroll action. Current capture records nothing: the burst baseline is anchored post-first-movement (#251)"
     },
     {
       "id": "ext-side-effects",
@@ -126,8 +126,8 @@
       "platform": "extension",
       "page": "page.html",
       "script": "script.js",
-      "knownDiffIssues": ["#232"],
-      "notes": "net-zero jiggle inside one debounce window; truth carries the settled net-zero scroll current capture discards"
+      "knownDiffIssues": ["#232", "#251"],
+      "notes": "net-zero jiggle inside one debounce window; truth carries the settled net-zero scroll (#232). Produced delta reflects the post-movement baseline anchor (#251)"
     }
   ]
 }
