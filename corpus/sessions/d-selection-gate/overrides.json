@@ -1,0 +1,11 @@
+{
+  "session": "d-selection-gate",
+  "platform": "desktop-windows",
+  "notes": "activation context_switch source is the build-hashed producing binary path",
+  "relaxations": [
+    {
+      "pointer": "rec[0].step[0].action[0]",
+      "relax": "path"
+    }
+  ]
+}

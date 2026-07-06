@@ -177,7 +177,10 @@ fn write_dump(session: &str, events: &[ActionEvent]) {
 /// Run one mouse-driven session: start capture, create the (unraised) session
 /// and primer windows, run the scripted input against their centres, stop
 /// bounded, write the dump.
-fn run_mouse_session(session: &str, script: impl FnOnce(&mut Enigo, (i32, i32), (i32, i32))) {
+fn run_mouse_session(
+    session: &str,
+    script: impl FnOnce(&mut Enigo, &SessionWindow, &SessionWindow),
+) {
     let (tx, rx) = mpsc::channel::<ActionEvent>();
     let mut capture = WindowsCapture::new();
     capture.set_excluded_pid(None);
@@ -196,7 +199,7 @@ fn run_mouse_session(session: &str, script: impl FnOnce(&mut Enigo, (i32, i32), 
     thread::sleep(Duration::from_millis(200));
 
     let mut enigo = Enigo::new(&Settings::default()).unwrap();
-    script(&mut enigo, (win.cx, win.cy), (primer.cx, primer.cy));
+    script(&mut enigo, &win, &primer);
     drop(primer);
     // Let worker describes and coalescing settle before stopping.
     thread::sleep(Duration::from_millis(800));
@@ -217,7 +220,8 @@ fn run_mouse_session(session: &str, script: impl FnOnce(&mut Enigo, (i32, i32), 
 #[test]
 #[serial]
 fn d_click() {
-    run_mouse_session("d-click", |enigo, (cx, cy), _primer| {
+    run_mouse_session("d-click", |enigo, win, _primer| {
+        let (cx, cy) = (win.cx, win.cy);
         enigo.move_mouse(cx, cy, Coordinate::Abs).unwrap();
         thread::sleep(Duration::from_millis(50));
         enigo.button(enigo::Button::Left, Direction::Click).unwrap();
@@ -230,7 +234,8 @@ fn d_click() {
 #[test]
 #[serial]
 fn d_double_click() {
-    run_mouse_session("d-double-click", |enigo, (cx, cy), _primer| {
+    run_mouse_session("d-double-click", |enigo, win, _primer| {
+        let (cx, cy) = (win.cx, win.cy);
         enigo.move_mouse(cx, cy, Coordinate::Abs).unwrap();
         thread::sleep(Duration::from_millis(50));
         enigo.button(enigo::Button::Left, Direction::Click).unwrap();
@@ -245,7 +250,8 @@ fn d_double_click() {
 #[test]
 #[serial]
 fn d_context_switch() {
-    run_mouse_session("d-context-switch", |enigo, (cx, cy), (px, py)| {
+    run_mouse_session("d-context-switch", |enigo, win, primer| {
+        let ((cx, cy), (px, py)) = ((win.cx, win.cy), (primer.cx, primer.cy));
         enigo.move_mouse(cx, cy, Coordinate::Abs).unwrap();
         thread::sleep(Duration::from_millis(50));
         enigo.button(enigo::Button::Left, Direction::Click).unwrap();
@@ -253,5 +259,39 @@ fn d_context_switch() {
         enigo.move_mouse(px, py, Coordinate::Abs).unwrap();
         thread::sleep(Duration::from_millis(50));
         enigo.button(enigo::Button::Left, Direction::Click).unwrap();
+    });
+}
+
+/// Deterministic application-side selection signal (the completeness-module
+/// helper): a synthetic EVENT_OBJECT_SELECTION on the window, which capture
+/// records only when correlated with recent real input in the same root.
+unsafe fn fire_selection(hwnd: HWND) {
+    use windows::Win32::UI::Accessibility::NotifyWinEvent;
+    use windows::Win32::UI::WindowsAndMessaging::{
+        CHILDID_SELF, EVENT_OBJECT_SELECTION, OBJID_CLIENT,
+    };
+    NotifyWinEvent(
+        EVENT_OBJECT_SELECTION,
+        hwnd,
+        OBJID_CLIENT.0,
+        CHILDID_SELF as i32,
+    );
+}
+
+/// The selection-gate class: a real click activates the session window, and
+/// an application selection fired in the SAME root within the correlation
+/// window is captured as a select action. (The uncorrelated/cross-root
+/// negatives are pinned by the completeness module in capture_integration.rs;
+/// the corpus pins the positive stream.)
+#[test]
+#[serial]
+fn d_selection_gate() {
+    run_mouse_session("d-selection-gate", |enigo, win, _primer| {
+        enigo.move_mouse(win.cx, win.cy, Coordinate::Abs).unwrap();
+        thread::sleep(Duration::from_millis(50));
+        enigo.button(enigo::Button::Left, Direction::Click).unwrap();
+        // Past the 200ms click-redundancy suppression, still input-correlated.
+        thread::sleep(Duration::from_millis(350));
+        unsafe { fire_selection(win.hwnd) };
     });
 }
