@@ -1,0 +1,69 @@
+{
+  "docent_format": {
+    "platform": "desktop-windows",
+    "schema_version": "2.0.0"
+  },
+  "project": {
+    "project_id": "019f38cf-b84f-7fbd-8231-62eed7ef7e9c",
+    "name": "corpus d-coordinate",
+    "created_at": "2026-07-06T19:02:45.071Z"
+  },
+  "recordings": [
+    {
+      "recording_id": "019f38cf-b84f-748b-b357-3790f84dfa1d",
+      "name": "d-coordinate",
+      "created_at": "2026-07-06T19:02:45.071Z",
+      "steps": [
+        {
+          "uuid": "019f38cf-b850-7242-b75a-f2b233b99270",
+          "logical_id": "019f38cf-b850-7251-a9f4-0e1858ee8f5c",
+          "step_number": 1,
+          "created_at": "2026-07-06T19:02:45.072Z",
+          "actions": [
+            {
+              "timestamp": 1783364563907,
+              "context_id": 13174668,
+              "capture_mode": "accessibility",
+              "frame_src": null,
+              "window_rect": {
+                "x": 200,
+                "y": 200,
+                "width": 600,
+                "height": 400
+              },
+              "type": "context_switch",
+              "source": "corpus_capture-806379f16d469119.exe",
+              "title": "Docent Corpus Plain"
+            },
+            {
+              "timestamp": 1783364563908,
+              "context_id": 13174668,
+              "capture_mode": "coordinate",
+              "frame_src": null,
+              "window_rect": {
+                "x": 200,
+                "y": 200,
+                "width": 600,
+                "height": 400
+              },
+              "type": "click",
+              "x": 500,
+              "y": 400,
+              "element": {
+                "tag": "Window",
+                "id": null,
+                "name": "Docent Corpus Plain",
+                "role": "window",
+                "type": null,
+                "text": "Docent Corpus Plain",
+                "selector": "Pane:Desktop 1 > Window:Docent Corpus Plain"
+              }
+            }
+          ],
+          "deleted": false,
+          "narration": "d-coordinate"
+        }
+      ]
+    }
+  ]
+}
