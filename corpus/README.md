@@ -124,9 +124,14 @@ snapshot, or a committed-field **equality** — never a run of the resolution
 procedure. The `"resolved"` guarantee **emerges** from the counts and equalities;
 it is nowhere computed. For every committed vector:
 
-1. it names an active manifest session of its platform;
-2. `element_facts` + `locators` equal a captured element of that session
-   (`element_facts` is that element minus its nested locators);
+1. it names an active manifest session of its platform, or an enumerated
+   dedicated vector fixture (the truth-less desktop source — see below);
+2. **session-sourced:** `element_facts` + `locators` equal a captured element of
+   that session (`element_facts` is that element minus its nested locators);
+   **fixture-sourced (desktop):** the producer-emitted `element_facts` +
+   `locators` are self-describing — internally consistent and well-formed for
+   their strategies (the labeled_by/tree_path additive-stats augmentation is the
+   only permitted extra);
 3. an eligible candidate is measured-unique (`match_count: 1`, `match_index: 0`);
 4. `ground_truth.node_id` exists in `tree_snapshot`;
 5. over the committed snapshot every eligible candidate (not masked, `match_index`
@@ -156,6 +161,71 @@ Extension snapshots are static by the page-authoring rules above (no animation,
 no time/locale-dependent text, fixed viewport), so `produced == committed` holds
 byte-deterministically across runs. (Localized and environment-string
 normalization of a snapshot is a desktop concern — the extension leg needs none.)
+
+### Desktop leg
+
+The desktop leg reuses this machinery — the same meta-schema, the same six locks,
+the produced==committed oracle — with a desktop-shaped snapshot and evaluator.
+The differences are all data:
+
+- **Snapshot node (`desktop_node`).** A serialized node of the UI Automation
+  Control view: `control_type` (non-localized), `name`, `automation_id`,
+  `class_name`, `text`, a `labeled_by` relation edge (`target_node_id` |
+  `target_name`), and `children`. The bound scope is the acted-on top-level
+  **window, itself included** — the full Control view, no chrome excised (the
+  desktop measurement scope in
+  [docs/locator-resolution.md](../docs/locator-resolution.md)) — so uniqueness
+  and `tree_path` are counted over exactly what a query sees at the window.
+- **Locale determinism by authored provenance.** A committed snapshot must not
+  freeze OS-locale strings. `control_type` / `automation_id` / `class_name` /
+  structure are kept verbatim (stable, count-relevant); the localized `name` of
+  any node that does **not** carry an authored content `automation_id` — whatever
+  its tree position, so OS descendants (a scrollbar, a menu item) are covered — is
+  normalized to a reserved placeholder. The window root keeps its authored title.
+  A content query's value is an authored non-localized string that never equals
+  the placeholder, so normalizing OS Names cannot change the match count for any
+  content-targeting query.
+- **Fixture-sourced, producer-emitted.** Desktop vectors are sourced from a
+  dedicated vector-only fixture window (`vector-fixtures.json`), not a manifest
+  corpus session: it has no `truth.docent.json`, no known-diffs baseline key, and
+  no sufficiency-baseline entry. Its `element_facts` + `locators` are captured
+  through the real desktop path (never hand-authored); the vector is
+  self-describing, so lock (2) checks internal consistency. The vector-carrying
+  action is a worker-described one (its element carries measured stats); an
+  input-time click element is unmeasured and sources no vector.
+- **Harness-measured `labeled_by` / `tree_path`.** Capture skips match stats for
+  these two (`labeled_by` is not a UIA property-condition; `tree_path` counting
+  is O(nodes × depth)). The offline harness has no runtime budget, so it measures
+  both by evaluating their stated query over the committed snapshot and records
+  the resulting `match_count` / `match_index` — derived FROM the snapshot, so lock
+  (5) re-derives them. This is the only place a vector's `locators` may exceed the
+  captured element, and only on those two strategies.
+- **Reproduce discipline: normalized, not byte-identical.** A desktop
+  `element_facts` carries environment-variant fields a static DOM does not:
+  `described_after_ms` (worker latency) and a `selector` whose ancestry above the
+  window is the virtual-desktop root. The produced==committed oracle compares
+  under the **reused shipped comparator class rules** (`corpus-compare.js`),
+  symmetric on both sides — `described_after_ms` 0-exact / positive→placeholder,
+  the selector's above-window ancestry→placeholder — while `element.role`
+  (localized) is compared **exact** and is never a corroboration or query input.
+  The retained OS-chrome subtree structure is fixed-CI-runner-bounded: produced on
+  a pinned Windows image, so an image bump is a deliberate re-baseline
+  (reproducibility, not cross-version invariance — the 4a cross-machine discipline
+  applied to the snapshot).
+- **Coverage: four of the five emitted strategies.** `automation_id`,
+  `role_name`, `class_name`, and `tree_path` are each the measured-unique
+  candidate in a committed fixture vector (`vectors-coverage.json`,
+  `desktop-windows`). `labeled_by` is a **tracked gap** (`desktop-windows-gaps`),
+  pending a follow-up: a Win32 control surfaces a preceding label as the element's
+  Name but not as the UIA LabeledBy relation element, and a minimal server-side
+  override cannot add the relation without replacing the system control's provider
+  and losing its native `Edit` control type — so a live vector needs a provider
+  that _merges_ the relation onto the native control
+  (`IRawElementProviderHwndOverride`). Its resolution, snapshot edge, and harness
+  augmentation are implemented and unit-tested; the provider-backed fixture is a
+  tracked follow-up, not an accepted omission. The coverage lock requires every
+  emitted strategy to be either covered or a gap-with-a-reason, so the gap is never
+  silently dropped.
 
 ## Out of scripted reach (loud exclusions)
 

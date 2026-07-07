@@ -1,5 +1,5 @@
 {
-  "description": "Per-strategy conformance-vector coverage ledger. Each emitted locator strategy maps to the committed vector in which it is a measured-unique candidate (match_count 1, match_index 0) for the ground-truth element, recorded at element granularity (session, vector, element, action_index). role_name and label are schema-reserved and not emitted, so they are outside vector scope. A hygiene lock ties every emitted strategy to a real committed vector.",
+  "description": "Per-strategy conformance-vector coverage ledger. Each emitted locator strategy maps to the committed vector in which it is a measured-unique candidate (match_count 1, match_index 0) for the ground-truth element, recorded at element granularity. A hygiene lock ties every emitted strategy to a real committed vector, per platform. Extension: role_name and label are schema-reserved and not emitted, so they are outside vector scope. Desktop: every emitted strategy is either covered by a committed vector or listed under desktop-windows-gaps with a reason (a loud, accounted-for gap — never silently dropped); the union equals the emitted set.",
   "extension": {
     "id": {
       "session": "ext-click-basic",
@@ -54,6 +54,33 @@
       "vector": "email",
       "element": "input#email",
       "action_index": 0
+    }
+  },
+  "desktop-windows": {
+    "automation_id": {
+      "fixture": "desktop-fixture",
+      "vector": "edit-1002",
+      "element": "Edit (automation_id 1002)"
+    },
+    "role_name": {
+      "fixture": "desktop-fixture",
+      "vector": "edit-1002",
+      "element": "Edit (automation_id 1002)"
+    },
+    "class_name": {
+      "fixture": "desktop-fixture",
+      "vector": "edit-1002",
+      "element": "Edit (automation_id 1002)"
+    },
+    "tree_path": {
+      "fixture": "desktop-fixture",
+      "vector": "edit-1002",
+      "element": "Edit (automation_id 1002)"
+    }
+  },
+  "desktop-windows-gaps": {
+    "labeled_by": {
+      "reason": "A Win32 STATIC preceding an EDIT surfaces as the EDIT's UIA Name but NOT as the UIA LabeledBy relation element — the relation is exposed only by a control with its own UIA provider. Adding it to the controlled fixture requires a server-side provider that MERGES the relation onto the native control (IRawElementProviderHwndOverride): a minimal WM_GETOBJECT override instead replaces the system EDIT's provider and loses its ControlType=Edit identity, which the other four strategies depend on (verified live). This is a tracked follow-up, not an accepted omission: labeled_by resolution, the snapshot edge, and the harness augmentation are implemented and unit-tested; only the live fixture vector is pending the provider-backed control."
     }
   }
 }

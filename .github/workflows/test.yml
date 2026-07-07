@@ -555,6 +555,121 @@ jobs:
           path: corpus/out/
           retention-days: 7
 
+  # Produce the desktop conformance vector on a PINNED Windows image ([Q-2]).
+  # The full-window UIA snapshot retains the OS-chrome subtree (window included —
+  # the spec's desktop bound scope), whose structure/ids are Windows-version-
+  # bounded; pinning windows-2022 (NOT the inherited windows-latest) makes an OS
+  # image bump a DELIBERATE, reviewed re-baseline of the committed vector rather
+  # than a silent churn. This job only PRODUCES (emits the vector source dump as
+  # an artifact); the ubuntu desktop-vectors-diff job does the normalized diff +
+  # locks (the Rust job has no Node) — the shipped 4a desktop-rust-tests ->
+  # desktop-corpus-diff produce/diff split, applied to vectors.
+  desktop-vectors-produce:
+    needs: [lint, changes]
+    if: |
+      github.event_name == 'push' ||
+      (github.event_name == 'pull_request' &&
+        (needs.changes.outputs.desktop == 'true' ||
+          needs.changes.outputs.shared == 'true' ||
+          needs.changes.outputs.corpus == 'true' ||
+          needs.changes.outputs.ci == 'true')) ||
+      ((github.event_name == 'release' || github.event_name == 'workflow_dispatch') &&
+        (inputs.platform == '' || inputs.platform == 'desktop'))
+    timeout-minutes: 30
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          persist-credentials: false
+
+      - uses: ./.github/actions/debug-env
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@fa04a1451ff1842e2626ccb99004d0195b455a88 # master
+        with:
+          toolchain: stable
+
+      - name: Cache cargo registry and build
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            packages/desktop/src-tauri/target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('packages/desktop/src-tauri/Cargo.lock') }}
+
+      - name: Create frontend dist directory
+        working-directory: packages/desktop
+        run: New-Item -ItemType Directory -Force -Path dist | Out-Null
+        shell: pwsh
+
+      # Produces corpus/out/desktop-windows-vectors/<fixture>.vecdump.json via
+      # real UIA capture over the vector fixture window. #[serial] + single-thread
+      # for the shared input layer (same as the corpus integration tests).
+      - name: Produce desktop conformance vector
+        working-directory: packages/desktop/src-tauri
+        run: cargo test --test corpus_capture v_vector_fixture -- --test-threads=1 ${{ runner.debug == '1' && '--nocapture' || '' }}
+
+      - name: Upload desktop vector dumps
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: corpus-desktop-vectors
+          path: corpus/out/desktop-windows-vectors/
+          retention-days: 1
+
+  # Assemble the desktop vector dump into its committed shape, NORMALIZED-diff it
+  # against the committed vector (the produce==committed oracle — normalized, not
+  # byte-identical, reusing the shipped 4a class rules — [Z-1]/[Q-1]), and run the
+  # structural hygiene locks + meta-schema. Runs on ubuntu so the diff logic lives
+  # in one place ([Q-3]: this ubuntu normalized diff IS the reproduce+drift gate;
+  # no same-OS Windows probe). Mirrors the shipped 4a desktop-corpus-diff job.
+  desktop-vectors-diff:
+    needs: [desktop-vectors-produce, changes]
+    if: |
+      github.event_name == 'push' ||
+      (github.event_name == 'pull_request' &&
+        (needs.changes.outputs.desktop == 'true' ||
+          needs.changes.outputs.shared == 'true' ||
+          needs.changes.outputs.corpus == 'true' ||
+          needs.changes.outputs.ci == 'true')) ||
+      ((github.event_name == 'release' || github.event_name == 'workflow_dispatch') &&
+        (inputs.platform == '' || inputs.platform == 'desktop'))
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Install root dependencies
+        run: npm ci
+
+      - name: Sync shared code
+        run: npm run sync-shared
+
+      - name: Download desktop vector dumps
+        uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53 # v6
+        with:
+          name: corpus-desktop-vectors
+          path: corpus/out/desktop-windows-vectors/
+
+      - name: Assemble + normalized diff (desktop vectors)
+        run: npm run vectors:assemble:desktop
+
+      - name: Vector hygiene locks + meta-schema (desktop)
+        run: node --test packages/shared/tests/unit/conformance-vectors.test.js
+
+      - name: Upload vector output
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: corpus-desktop-vectors-output
+          path: corpus/out/
+          retention-days: 7
+
   # Cross-platform COMPILE gate (#97). This is the comprehensive "builds on
   # every target we ship for" job: it `cargo check`s + clippy-checks the crate
   # on Windows and Linux, but runs NO tests. It complements the
@@ -900,6 +1015,8 @@ jobs:
       - extension-e2e-tests
       - desktop-rust-tests
       - desktop-corpus-diff
+      - desktop-vectors-produce
+      - desktop-vectors-diff
       - desktop-cross-compile
       - desktop-integration-tests
       - reference-server-tests
@@ -909,7 +1026,7 @@ jobs:
     steps:
       - name: Check job results
         run: |
-          results=("${{ needs.changes.result }}" "${{ needs.lint.result }}" "${{ needs.dependency-audit.result }}" "${{ needs.unit-tests.result }}" "${{ needs.extension-e2e-tests.result }}" "${{ needs.desktop-rust-tests.result }}" "${{ needs.desktop-corpus-diff.result }}" "${{ needs.desktop-cross-compile.result }}" "${{ needs.desktop-integration-tests.result }}" "${{ needs.reference-server-tests.result }}" "${{ needs.coverage-upload.result }}" "${{ needs.zizmor.result }}" "${{ needs.actionlint.result }}")
+          results=("${{ needs.changes.result }}" "${{ needs.lint.result }}" "${{ needs.dependency-audit.result }}" "${{ needs.unit-tests.result }}" "${{ needs.extension-e2e-tests.result }}" "${{ needs.desktop-rust-tests.result }}" "${{ needs.desktop-corpus-diff.result }}" "${{ needs.desktop-vectors-produce.result }}" "${{ needs.desktop-vectors-diff.result }}" "${{ needs.desktop-cross-compile.result }}" "${{ needs.desktop-integration-tests.result }}" "${{ needs.reference-server-tests.result }}" "${{ needs.coverage-upload.result }}" "${{ needs.zizmor.result }}" "${{ needs.actionlint.result }}")
           for result in "${results[@]}"; do
             if [[ "$result" != "success" && "$result" != "skipped" ]]; then
               echo "Job failed with result: $result"

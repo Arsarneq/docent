@@ -1,0 +1,11 @@
+{
+  "description": "Enumerated dedicated vector-only fixtures — controlled windows/pages that source conformance vectors but are NOT manifest corpus sessions: they have no truth.docent.json, no corpus baseline key, and no sufficiency-baseline entry. Their element_facts and locators are producer-emitted (real capture over the fixture), and their vectors are self-describing (lock (2) checks internal consistency, not a session truth). A vector under corpus/sessions/<id>/vectors/ whose <id> is not a manifest session must be listed here (hygiene lock (1)).",
+  "fixtures": [
+    {
+      "id": "desktop-fixture",
+      "platform": "desktop-windows",
+      "producer": "packages/desktop/src-tauri/tests/corpus_capture.rs::v_vector_fixture",
+      "notes": "A controlled top-level window hosting a STATIC label (authored automation_id) preceding an EDIT (authored automation_id, distinct class); the label supplies the EDIT's UIA Name, so automation_id / role_name / class_name / tree_path are exercisable over a real UIA capture. A Win32 STATIC does not populate the EDIT's UIA LabeledBy relation element, so labeled_by is a documented coverage gap (corpus/vectors-coverage.json)."
+    }
+  ]
+}

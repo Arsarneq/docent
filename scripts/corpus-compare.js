@@ -81,6 +81,29 @@ function validatorFor(platform) {
 
 // ─── Normalization ───────────────────────────────────────────────────────────
 
+// Atomic per-field class rules, exported so other normalizers (e.g. the
+// conformance-vector reproduce check, which normalizes an element_facts +
+// tree_snapshot shape rather than a full envelope) apply the SAME rules instead
+// of re-implementing them. Each is pure and returns its input unchanged when the
+// rule does not apply, so callers assign unconditionally without adding keys.
+
+/**
+ * `described_after_ms` class: a positive worker-describe latency (environment
+ * jitter) → the measured placeholder; `0` (an input-time describe) stays exact;
+ * null/absent/any non-number passes through unchanged.
+ */
+export function normalizeDescribedAfterMs(value) {
+  return typeof value === 'number' && value > 0 ? '<measured>' : value;
+}
+
+/**
+ * Coordinate-mode `selector` class: `coord:x,y` (environment geometry) → a point
+ * placeholder; any other selector (a CSS selector or a tree path) is unchanged.
+ */
+export function normalizeCoordSelector(value) {
+  return typeof value === 'string' && /^coord:\d+,\d+$/.test(value) ? 'coord:<point>' : value;
+}
+
 /**
  * Pure. Deep-clones and never mutates its input. Maps exactly the
  * per-run-nondeterministic field classes to placeholders via a structure-aware
@@ -136,12 +159,13 @@ export function normalizeEnvelope(doc) {
         if (desktop && action.window_rect != null) action.window_rect = '<rect>';
         for (const el of [action.element, action.source_element]) {
           if (!el || typeof el !== 'object') continue;
-          if (typeof el.described_after_ms === 'number' && el.described_after_ms > 0) {
-            el.described_after_ms = '<measured>';
+          // Same class rules, now via the exported single-source helpers (the
+          // `in` guards keep this byte-identical to the previous inline form —
+          // absent keys stay absent, `0` and non-coord selectors stay exact).
+          if ('described_after_ms' in el) {
+            el.described_after_ms = normalizeDescribedAfterMs(el.described_after_ms);
           }
-          if (typeof el.selector === 'string' && /^coord:\d+,\d+$/.test(el.selector)) {
-            el.selector = 'coord:<point>';
-          }
+          if ('selector' in el) el.selector = normalizeCoordSelector(el.selector);
         }
       }
     }

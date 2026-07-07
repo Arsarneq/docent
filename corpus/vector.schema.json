@@ -78,8 +78,8 @@
       }
     },
     "tree_snapshot": {
-      "$ref": "#/$defs/node",
-      "description": "The serialized subtree of the bound scope, captured at the moment the element was described. Canonical: attribute keys sorted, children in document order, node text in the trim-only element.text form."
+      "type": "object",
+      "description": "The serialized subtree of the bound scope, captured at the moment the element was described. The node shape is platform-specific — an extension DOM node (see $defs/node) or a desktop UIA node (see $defs/desktop_node) — selected by `platform` in the conditional below. Canonical: keys/attributes in a fixed order, children in document / Control-view order."
     },
     "ground_truth": {
       "type": "object",
@@ -104,6 +104,16 @@
       "description": "Only expected_outcome resolved vectors are published (the inclusion criterion members)."
     }
   },
+  "allOf": [
+    {
+      "if": { "properties": { "platform": { "const": "extension" } } },
+      "then": { "properties": { "tree_snapshot": { "$ref": "#/$defs/node" } } }
+    },
+    {
+      "if": { "properties": { "platform": { "const": "desktop-windows" } } },
+      "then": { "properties": { "tree_snapshot": { "$ref": "#/$defs/desktop_node" } } }
+    }
+  ],
   "$defs": {
     "node": {
       "type": "object",
@@ -146,6 +156,66 @@
         "children": {
           "type": "array",
           "items": { "$ref": "#/$defs/node" }
+        }
+      }
+    },
+    "desktop_node": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "A serialized node of the desktop UI Automation Control view. The bound scope is the acted-on top-level window (the window itself included), walked in Control-view order. control_type / automation_id / class_name / structure are kept verbatim (stable, count-relevant); the localized Name of any node that does NOT carry an authored content automation_id is normalized to the reserved placeholder, so the committed snapshot does not freeze OS-locale strings.",
+      "required": [
+        "node_id",
+        "control_type",
+        "name",
+        "automation_id",
+        "class_name",
+        "text",
+        "labeled_by",
+        "children"
+      ],
+      "properties": {
+        "node_id": {
+          "type": "string",
+          "description": "Snapshot-local identifier, assigned in Control-view (depth-first pre-order) order."
+        },
+        "control_type": {
+          "type": "string",
+          "description": "The node's non-localized UIA control type name, e.g. \"Edit\", \"Button\", \"Window\" — the same value the platform records as element.tag and role_name.role."
+        },
+        "name": {
+          "type": ["string", "null"],
+          "description": "The node's UIA Name; the reserved placeholder for OS-provided (non-authored) nodes, null when the provider reports none."
+        },
+        "automation_id": {
+          "type": ["string", "null"],
+          "description": "The node's UIA AutomationId; null when the provider reports none."
+        },
+        "class_name": {
+          "type": ["string", "null"],
+          "description": "The node's UIA ClassName; null when the provider reports none."
+        },
+        "text": {
+          "type": ["string", "null"],
+          "description": "The node's visible text (value), 100-capped; null for OS-provided nodes and password fields. Consulted only for corroboration of the ground-truth node, never as a selection query."
+        },
+        "labeled_by": {
+          "type": ["object", "null"],
+          "additionalProperties": false,
+          "description": "The LabeledBy relation edge, so the labeled_by query (elements whose label relation resolves to an element named value) is evaluable over the snapshot; null when the node has no label relation.",
+          "properties": {
+            "target_node_id": {
+              "type": "string",
+              "description": "The node_id of the label element inside this snapshot, when it is present in the walked scope."
+            },
+            "target_name": {
+              "type": "string",
+              "description": "The UIA Name of the label element (the value a labeled_by candidate carries)."
+            }
+          }
+        },
+        "children": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/desktop_node" }
         }
       }
     }

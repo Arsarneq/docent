@@ -47,7 +47,7 @@ use enigo::{Coordinate, Direction, Enigo, Keyboard, Mouse, Settings};
 use serial_test::serial;
 
 use docent_desktop_lib::capture::windows::WindowsCapture;
-use docent_desktop_lib::capture::{ActionEvent, CaptureLayer};
+use docent_desktop_lib::capture::{ActionEvent, ActionPayload, CaptureLayer, ElementDescription};
 
 use windows::core::w;
 use windows::Win32::Foundation::{HWND, RECT};
@@ -56,13 +56,46 @@ use windows::Win32::UI::WindowsAndMessaging::{
     MSG, WINDOW_STYLE, WS_EX_TOPMOST, WS_OVERLAPPEDWINDOW, WS_VISIBLE,
 };
 
+// UIA imports for the conformance-vector Control-view snapshot walker (see the
+// `v_vector_fixture` test at the end of this file). The walker runs on the test
+// thread against the live fixture window; it reuses no crate-private capture
+// helper (those are pub(crate)), so the small UIA property reads and the
+// control-type-id → name table are self-contained here.
+use windows::core::Interface;
+use windows::Win32::System::Com::{
+    CoCreateInstance, CoInitializeEx, CLSCTX_ALL, COINIT_APARTMENTTHREADED,
+};
+use windows::Win32::System::Variant::{VT_BSTR, VT_UNKNOWN};
+use windows::Win32::UI::Accessibility::{
+    CUIAutomation, IUIAutomation, IUIAutomationElement, IUIAutomationTreeWalker,
+    UIA_AutomationIdPropertyId, UIA_ClassNamePropertyId, UIA_ControlTypePropertyId,
+    UIA_LabeledByPropertyId, UIA_NamePropertyId, UIA_ValueValuePropertyId, UIA_PROPERTY_ID,
+};
+
 #[derive(PartialEq, Clone, Copy)]
 enum Child {
     None,
     ScrollEdit,
     TypeEdit,
     PasswordEdit,
+    /// A STATIC label (control id 1001) preceding an EDIT (control id 1002).
+    /// The Win32 control ids surface as UIA AutomationIds (authored content
+    /// provenance), the preceding STATIC supplies the EDIT's UIA Name (its
+    /// accessible name), and the controls carry distinct class names — so the
+    /// automation_id / role_name / class_name / tree_path desktop strategies are
+    /// exercisable over this window. NOTE: a Win32 STATIC does NOT populate the
+    /// EDIT's UIA LabeledBy RELATION element (only a UIA provider / WPF/XAML
+    /// AutomationProperties.LabeledBy does), so labeled_by is not emitted here —
+    /// a documented coverage gap (corpus/vectors-coverage.json). Used by the
+    /// conformance-vector fixture (`v_vector_fixture`), never a manifest session.
+    LabeledEdit,
 }
+
+/// The authored content AutomationIds the vector fixture assigns (Win32 control
+/// ids surfaced by UIA). The snapshot walker preserves the UIA Name of nodes
+/// carrying one of these (authored content); every other node's Name is
+/// OS-provided and normalized to a locale-stable placeholder.
+const FIXTURE_AUTHORED_IDS: &[&str] = &["1001", "1002"];
 
 /// SS_NOTIFY: a bare STATIC answers WM_NCHITTEST with HTTRANSPARENT
 /// (click-through); this style makes it hit-testable. Same rationale as
@@ -146,7 +179,47 @@ impl SessionWindow {
                 Some(std::ptr::null()),
             )
             .expect("Failed to create session window");
-            if child != Child::None {
+            if child == Child::LabeledEdit {
+                use windows::Win32::UI::WindowsAndMessaging::{
+                    ES_AUTOVSCROLL, HMENU, WS_BORDER, WS_CHILD,
+                };
+                // A STATIC label (control id 1001) precedes the EDIT so UIA
+                // derives the EDIT's Name from it (its accessible name = "Amount");
+                // both Win32 control ids surface as UIA AutomationIds (authored
+                // content). (The STATIC does NOT populate the EDIT's UIA LabeledBy
+                // relation — see the Child::LabeledEdit note.) Positions keep the
+                // EDIT under the window centre so the focus click lands on it.
+                let _label = CreateWindowExW(
+                    Default::default(),
+                    w!("STATIC"),
+                    w!("Amount"),
+                    WS_CHILD | WS_VISIBLE,
+                    10,
+                    10,
+                    560,
+                    24,
+                    Some(hwnd),
+                    Some(HMENU(1001isize as *mut core::ffi::c_void)),
+                    None,
+                    Some(std::ptr::null()),
+                )
+                .expect("Failed to create fixture label");
+                let _edit = CreateWindowExW(
+                    Default::default(),
+                    w!("EDIT"),
+                    w!(""),
+                    WS_CHILD | WS_VISIBLE | WS_BORDER | WINDOW_STYLE(ES_AUTOVSCROLL as u32),
+                    10,
+                    44,
+                    560,
+                    300,
+                    Some(hwnd),
+                    Some(HMENU(1002isize as *mut core::ffi::c_void)),
+                    None,
+                    Some(std::ptr::null()),
+                )
+                .expect("Failed to create fixture edit");
+            } else if child != Child::None {
                 use windows::Win32::UI::WindowsAndMessaging::{
                     SetWindowTextW, ES_AUTOVSCROLL, ES_MULTILINE, ES_PASSWORD, WS_BORDER, WS_CHILD,
                     WS_VSCROLL,
@@ -548,4 +621,384 @@ fn d_coordinate() {
     );
     let events: Vec<ActionEvent> = rx.try_iter().collect();
     write_dump("d-coordinate", &events);
+}
+
+// ---------------------------------------------------------------------------
+// Conformance-vector fixture (desktop leg; doctrine in corpus/README.md and
+// docs/locator-resolution.md "Conformance and Vector Scope").
+//
+// This is a dedicated VECTOR-ONLY fixture, NOT a manifest corpus session: it
+// has no truth.docent.json and no known-diffs baseline key (enumerated in
+// corpus/vector-fixtures.json). It captures the acted-on element through the
+// REAL desktop path and serializes a full-window UIA Control-view snapshot, so
+// a committed conformance vector can be assembled from producer-emitted facts
+// (never hand-authored). Node assembly + the hygiene locks live in JS
+// (scripts/corpus-assemble-desktop-vectors.js,
+// packages/shared/tests/unit/conformance-vectors.test.js).
+// ---------------------------------------------------------------------------
+
+/// Reserved placeholder for the normalized Name of OS-provided (non-authored)
+/// nodes — the corpus's environment-string normalization discipline, so a
+/// committed snapshot never freezes an OS-locale string. ASCII + bracketed so
+/// it cannot collide with an authored content Name.
+const NAME_PLACEHOLDER: &str = "[os-name]";
+
+/// The LabeledBy relation edge carried by a snapshot node.
+#[derive(serde::Serialize)]
+struct LabeledByEdge {
+    target_name: String,
+}
+
+/// One serialized node of the UIA Control view — the desktop_node shape in
+/// corpus/vector.schema.json. control_type/automation_id/class_name/structure
+/// are verbatim (stable, count-relevant); Names are normalized per authored
+/// provenance (see [`walk_node`]).
+#[derive(serde::Serialize)]
+struct SnapshotNode {
+    node_id: String,
+    control_type: String,
+    name: Option<String>,
+    automation_id: Option<String>,
+    class_name: Option<String>,
+    text: Option<String>,
+    labeled_by: Option<LabeledByEdge>,
+    children: Vec<SnapshotNode>,
+}
+
+/// The producer-emitted vector source dump: the acted-on element's real capture
+/// facts + the full-window snapshot + the ground-truth node. The Node assembler
+/// splits `element` into element_facts + locators, augments labeled_by/tree_path
+/// with harness-measured stats over the snapshot, and writes the committed
+/// `.vector.json`.
+#[derive(serde::Serialize)]
+struct VecDump<'a> {
+    fixture: &'a str,
+    window_title: String,
+    element: &'a ElementDescription,
+    tree_snapshot: SnapshotNode,
+    ground_truth_node_id: String,
+}
+
+/// Map a UIA control-type id to its non-localized name. Copied VERBATIM from
+/// `capture::windows::control_type_name` (which is `pub(crate)`, so an
+/// integration test cannot call it) — the snapshot's control_type MUST match
+/// exactly what production records as `element.tag` / `role_name.role` /
+/// tree_path segments, or the harness measurement would diverge from capture.
+fn control_type_name(id: i32) -> &'static str {
+    match id {
+        50000 => "Button",
+        50001 => "Calendar",
+        50002 => "CheckBox",
+        50003 => "ComboBox",
+        50004 => "Edit",
+        50005 => "Hyperlink",
+        50006 => "Image",
+        50007 => "ListItem",
+        50008 => "List",
+        50009 => "Menu",
+        50010 => "MenuBar",
+        50011 => "MenuItem",
+        50012 => "ProgressBar",
+        50013 => "RadioButton",
+        50014 => "ScrollBar",
+        50015 => "Slider",
+        50016 => "Spinner",
+        50017 => "StatusBar",
+        50018 => "Tab",
+        50019 => "TabItem",
+        50020 => "Text",
+        50021 => "ToolBar",
+        50022 => "ToolTip",
+        50023 => "Tree",
+        50024 => "TreeItem",
+        50025 => "Custom",
+        50026 => "Group",
+        50027 => "Thumb",
+        50028 => "DataGrid",
+        50029 => "DataItem",
+        50030 => "Document",
+        50031 => "SplitButton",
+        50032 => "Window",
+        50033 => "Pane",
+        50034 => "Header",
+        50035 => "HeaderItem",
+        50036 => "Table",
+        50037 => "TitleBar",
+        50038 => "Separator",
+        50039 => "SemanticZoom",
+        50040 => "AppBar",
+        _ => "Unknown",
+    }
+}
+
+/// Read a BSTR property; empty string when absent (total, like the production
+/// property helpers).
+unsafe fn prop_string(element: &IUIAutomationElement, property_id: UIA_PROPERTY_ID) -> String {
+    element
+        .GetCurrentPropertyValue(property_id)
+        .ok()
+        .and_then(|v| {
+            let inner = &v.Anonymous.Anonymous;
+            if inner.vt == VT_BSTR {
+                let bstr_ptr = &inner.Anonymous.bstrVal;
+                if bstr_ptr.is_empty() {
+                    None
+                } else {
+                    Some(bstr_ptr.to_string())
+                }
+            } else {
+                None
+            }
+        })
+        .unwrap_or_default()
+}
+
+/// Read an i32 property; 0 when absent.
+unsafe fn prop_i32(element: &IUIAutomationElement, property_id: UIA_PROPERTY_ID) -> i32 {
+    element
+        .GetCurrentPropertyValue(property_id)
+        .ok()
+        .and_then(|v| {
+            let val: Result<i32, _> = (&v).try_into();
+            val.ok()
+        })
+        .unwrap_or(0)
+}
+
+/// The accessible Name of the element referenced by LabeledBy; empty when none.
+/// Mirrors `capture::windows::get_labeled_by_name`.
+unsafe fn labeled_by_name(element: &IUIAutomationElement) -> String {
+    element
+        .GetCurrentPropertyValue(UIA_LabeledByPropertyId)
+        .ok()
+        .and_then(|v| {
+            let inner = &v.Anonymous.Anonymous;
+            if inner.vt == VT_UNKNOWN {
+                inner
+                    .Anonymous
+                    .punkVal
+                    .as_ref()
+                    .and_then(|unk| unk.cast::<IUIAutomationElement>().ok())
+            } else {
+                None
+            }
+        })
+        .map(|label| prop_string(&label, UIA_NamePropertyId))
+        .unwrap_or_default()
+}
+
+/// Recursively serialize one Control-view node and its descendants, assigning
+/// pre-order node ids, marking the ground truth by authored AutomationId, and
+/// normalizing OS-provided Names.
+#[allow(clippy::too_many_arguments)]
+unsafe fn walk_node(
+    walker: &IUIAutomationTreeWalker,
+    element: &IUIAutomationElement,
+    counter: &mut usize,
+    depth: usize,
+    ground_truth: &mut Option<String>,
+    target_automation_id: &str,
+) -> SnapshotNode {
+    let node_id = format!("d{}", *counter);
+    *counter += 1;
+
+    let control_type = control_type_name(prop_i32(element, UIA_ControlTypePropertyId)).to_string();
+    let raw_name = prop_string(element, UIA_NamePropertyId);
+    let automation_id = prop_string(element, UIA_AutomationIdPropertyId);
+    let class_name = prop_string(element, UIA_ClassNamePropertyId);
+    let value = prop_string(element, UIA_ValueValuePropertyId);
+    let label = labeled_by_name(element);
+
+    // Authored content provenance ([Q-3]/[Z-2]): a node carrying an authored
+    // content AutomationId — or the window root — keeps its Name; every other
+    // node's Name is OS-provided and normalized, REGARDLESS of tree position.
+    // control_type/automation_id/class_name/structure are always kept verbatim.
+    let authored = FIXTURE_AUTHORED_IDS.contains(&automation_id.as_str());
+    let is_root = depth == 0;
+    let keep_name = authored || is_root;
+
+    if ground_truth.is_none() && !automation_id.is_empty() && automation_id == target_automation_id
+    {
+        *ground_truth = Some(node_id.clone());
+    }
+
+    let name = if raw_name.is_empty() {
+        None
+    } else if keep_name {
+        Some(raw_name)
+    } else {
+        Some(NAME_PLACEHOLDER.to_string())
+    };
+    // text (corroboration only) and the labeled_by edge (an authored label
+    // relation) are kept only for authored content; OS nodes carry neither.
+    let text = if keep_name && !value.is_empty() {
+        Some(value.chars().take(100).collect())
+    } else {
+        None
+    };
+    let labeled_by = if keep_name && !label.is_empty() {
+        Some(LabeledByEdge { target_name: label })
+    } else {
+        None
+    };
+
+    let mut children = Vec::new();
+    if depth < 40 && *counter < 500 {
+        let mut next = walker
+            .GetFirstChildElement(element)
+            .ok()
+            .filter(|e| !e.as_raw().is_null());
+        while let Some(child) = next {
+            children.push(walk_node(
+                walker,
+                &child,
+                counter,
+                depth + 1,
+                ground_truth,
+                target_automation_id,
+            ));
+            next = walker
+                .GetNextSiblingElement(&child)
+                .ok()
+                .filter(|e| !e.as_raw().is_null());
+        }
+    }
+
+    SnapshotNode {
+        node_id,
+        control_type,
+        name,
+        automation_id: (!automation_id.is_empty()).then_some(automation_id),
+        class_name: (!class_name.is_empty()).then_some(class_name),
+        text,
+        labeled_by,
+        children,
+    }
+}
+
+/// Walk the acted-on top-level window's Control view (window itself included —
+/// the spec's desktop bound scope, no excision), returning the snapshot root and
+/// the ground-truth node id. New code: production has only an upward ancestor
+/// walk (tree_path derivation), never a downward subtree serializer.
+unsafe fn walk_window(hwnd: HWND, target_automation_id: &str) -> (SnapshotNode, Option<String>) {
+    // UIA works in either apartment; ignore an already-initialized result.
+    let _ = CoInitializeEx(None, COINIT_APARTMENTTHREADED);
+    let uia: IUIAutomation =
+        CoCreateInstance(&CUIAutomation, None, CLSCTX_ALL).expect("create UIAutomation");
+    let root = uia
+        .ElementFromHandle(hwnd)
+        .expect("resolve the window UIA element");
+    let walker = uia.ControlViewWalker().expect("control view walker");
+    let mut counter = 0usize;
+    let mut ground_truth = None;
+    let snapshot = walk_node(
+        &walker,
+        &root,
+        &mut counter,
+        0,
+        &mut ground_truth,
+        target_automation_id,
+    );
+    (snapshot, ground_truth)
+}
+
+/// Write the producer-emitted vector source dump to the corpus vectors-out
+/// location (repo root = CARGO_MANIFEST_DIR/../../..).
+fn write_vecdump(
+    fixture: &str,
+    window_title: &str,
+    element: &ElementDescription,
+    tree_snapshot: SnapshotNode,
+    ground_truth_node_id: String,
+) {
+    let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../../../corpus/out/desktop-windows-vectors");
+    fs::create_dir_all(&dir).expect("create vectors-out dir");
+    let dump = VecDump {
+        fixture,
+        window_title: window_title.to_string(),
+        element,
+        tree_snapshot,
+        ground_truth_node_id,
+    };
+    fs::write(
+        dir.join(format!("{fixture}.vecdump.json")),
+        serde_json::to_string_pretty(&dump).expect("serialize vecdump"),
+    )
+    .expect("write vecdump");
+}
+
+/// Produce the desktop conformance-vector fixture live: create the labeled-edit
+/// fixture window (unraised), focus the EDIT with a real click, type one
+/// character (the value-change coalesces into a worker-described `type` whose
+/// element carries MEASURED locator stats — an input-time click element is
+/// unmeasured), walk the window's Control view, and dump the acted-on element +
+/// snapshot + ground truth. `use enigo` classifies this as an integration test;
+/// `#[serial]` guards the shared input layer; the fixture needs real focus.
+#[test]
+#[serial]
+fn v_vector_fixture() {
+    const FIXTURE: &str = "desktop-fixture";
+    const WINDOW_TITLE: &str = "Docent Vector Fixture";
+    const TARGET_AUTOMATION_ID: &str = "1002"; // the EDIT's Win32 control id
+
+    let (tx, rx) = mpsc::channel::<ActionEvent>();
+    let mut capture = WindowsCapture::new();
+    capture.set_excluded_pid(None);
+    capture.start(tx).expect("Failed to start capture");
+    thread::sleep(Duration::from_millis(200));
+
+    let win = SessionWindow::build(WINDOW_TITLE, 250, 250, Child::LabeledEdit);
+    let primer = SessionWindow::new("Docent Corpus Primer", 900, 620);
+    thread::sleep(Duration::from_millis(200));
+
+    let mut enigo = Enigo::new(&Settings::default()).unwrap();
+    enigo.move_mouse(win.cx, win.cy, Coordinate::Abs).unwrap();
+    thread::sleep(Duration::from_millis(50));
+    enigo.button(enigo::Button::Left, Direction::Click).unwrap();
+    thread::sleep(Duration::from_millis(350));
+    // Single layout-VK keystroke (never enigo.text(), which injects VK_PACKET).
+    enigo
+        .key(enigo::Key::Unicode('x'), Direction::Click)
+        .unwrap();
+    thread::sleep(Duration::from_millis(700));
+
+    drop(primer);
+    thread::sleep(Duration::from_millis(300));
+
+    // Walk the acted-on window's Control view while it is still alive.
+    let (snapshot, ground_truth) = unsafe { walk_window(win.hwnd, TARGET_AUTOMATION_ID) };
+
+    let start = Instant::now();
+    capture.stop().unwrap();
+    assert!(
+        start.elapsed() < Duration::from_secs(20),
+        "capture.stop() must not hang (took {:?})",
+        start.elapsed()
+    );
+    let events: Vec<ActionEvent> = rx.try_iter().collect();
+
+    // The vector-carrying element is the worker-described `type` element.
+    let element = events.iter().find_map(|e| match &e.payload {
+        ActionPayload::Type { element, .. } => Some(element.clone()),
+        _ => None,
+    });
+
+    // Surface an environment shortfall loudly rather than writing a half dump:
+    // if the headless runner refuses focus-driven typing, no `type` is captured.
+    let element = element.expect(
+        "no worker-described `type` action captured — the fixture needs real focus-driven typing",
+    );
+    let ground_truth_node_id = ground_truth
+        .expect("the EDIT (authored automation_id 1002) was not found in the Control view");
+
+    write_vecdump(
+        FIXTURE,
+        WINDOW_TITLE,
+        &element,
+        snapshot,
+        ground_truth_node_id,
+    );
+
+    drop(win);
 }
