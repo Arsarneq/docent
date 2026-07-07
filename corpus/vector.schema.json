@@ -96,10 +96,7 @@
       "type": "array",
       "description": "Parallel to locators, one entry per candidate: the node_ids the candidate's stated query selects over tree_snapshot, in document order; null for a candidate ineligible as a selector (masked, or match_index null).",
       "items": {
-        "oneOf": [
-          { "type": "null" },
-          { "type": "array", "items": { "type": "string" } }
-        ]
+        "oneOf": [{ "type": "null" }, { "type": "array", "items": { "type": "string" } }]
       }
     },
     "expected_outcome": {

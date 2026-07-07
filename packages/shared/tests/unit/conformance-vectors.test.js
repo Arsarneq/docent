@@ -139,7 +139,10 @@ describe('conformance vectors: committed tree', () => {
 
       it('lock (4): ground_truth.node_id exists in tree_snapshot', () => {
         const ids = new Set(flattenNodes(vector.tree_snapshot).map((n) => n.node_id));
-        assert.ok(ids.has(vector.ground_truth.node_id), 'ground truth node_id absent from snapshot');
+        assert.ok(
+          ids.has(vector.ground_truth.node_id),
+          'ground truth node_id absent from snapshot',
+        );
       });
 
       it('lock (5): eligible candidates select exactly the ground truth or nothing; recorded matches re-derive', () => {
@@ -153,7 +156,11 @@ describe('conformance vectors: committed tree', () => {
         vector.locators.forEach((l, i) => {
           const eligible = l.masked !== true && l.match_index !== null;
           if (!eligible) {
-            assert.equal(vector.matched_node_ids[i], null, `ineligible candidate ${i} records null`);
+            assert.equal(
+              vector.matched_node_ids[i],
+              null,
+              `ineligible candidate ${i} records null`,
+            );
             return;
           }
           const measured = measureStrategyMatches(vector.tree_snapshot, l);
@@ -183,7 +190,10 @@ describe('conformance vectors: committed tree', () => {
         const factText = vector.element_facts.text;
         if (factText != null) {
           const nodeText = (gtNode.text ?? '').trim();
-          assert.ok(nodeText.includes(factText.trim()), 'element_facts.text is contained in node text');
+          assert.ok(
+            nodeText.includes(factText.trim()),
+            'element_facts.text is contained in node text',
+          );
         }
       });
     });
@@ -300,7 +310,13 @@ describe('conformance vectors: per-strategy coverage ledger', () => {
     it(`${strategy}: its ledgered vector is committed and measured-unique for it`, () => {
       const row = ledger[strategy];
       assert.ok(row, `no ledger row for ${strategy}`);
-      const file = join(CORPUS_DIR, 'sessions', row.session, 'vectors', `${row.vector}.vector.json`);
+      const file = join(
+        CORPUS_DIR,
+        'sessions',
+        row.session,
+        'vectors',
+        `${row.vector}.vector.json`,
+      );
       assert.ok(existsSync(file), `ledger vector ${row.session}/${row.vector} is not committed`);
       const vector = JSON.parse(readFileSync(file, 'utf8'));
       const unique = vector.locators.some(
