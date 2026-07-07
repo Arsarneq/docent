@@ -1,5 +1,5 @@
 {
-  "description": "Per-strategy conformance-vector coverage ledger. Each emitted locator strategy maps to the committed vector in which it is a measured-unique candidate (match_count 1, match_index 0) for the ground-truth element, recorded at element granularity (session, vector, element, action_index). role_name and label are schema-reserved and not emitted, so they are outside vector scope. A hygiene lock ties every emitted strategy to a real committed vector.",
+  "description": "Per-strategy conformance-vector coverage ledger. Each emitted locator strategy maps to the committed vector in which it is a measured-unique candidate (match_count 1, match_index 0) for the ground-truth element, recorded at element granularity. A hygiene lock ties every emitted strategy to a real committed vector, per platform. Extension: role_name and label are schema-reserved and not emitted, so they are outside vector scope. Desktop: every emitted strategy is either covered by a committed vector or listed under desktop-windows-gaps with a reason (a loud, accounted-for gap — never silently dropped); the union equals the emitted set.",
   "extension": {
     "id": {
       "session": "ext-click-basic",
@@ -54,6 +54,33 @@
       "vector": "email",
       "element": "input#email",
       "action_index": 0
+    }
+  },
+  "desktop-windows": {
+    "automation_id": {
+      "fixture": "desktop-fixture",
+      "vector": "edit-1002",
+      "element": "Edit (automation_id 1002)"
+    },
+    "role_name": {
+      "fixture": "desktop-fixture",
+      "vector": "edit-1002",
+      "element": "Edit (automation_id 1002)"
+    },
+    "class_name": {
+      "fixture": "desktop-fixture",
+      "vector": "edit-1002",
+      "element": "Edit (automation_id 1002)"
+    },
+    "tree_path": {
+      "fixture": "desktop-fixture",
+      "vector": "edit-1002",
+      "element": "Edit (automation_id 1002)"
+    }
+  },
+  "desktop-windows-gaps": {
+    "labeled_by": {
+      "reason": "A Win32 STATIC preceding an EDIT surfaces as the EDIT's UIA Name (accessible name) but NOT as the UIA LabeledBy relation element — the relation is exposed only by controls with a UIA provider (e.g. WPF/XAML AutomationProperties.LabeledBy) or a bespoke IRawElementProviderSimple. Emitting it from the controlled Win32 fixture would need a custom server-side UIA provider plus the windows crate's `implement` feature on the shipped desktop crate — disproportionate for one strategy. labeled_by resolution is implemented and unit-tested in the desktop query evaluator; only fixture emission of a live vector is deferred until a labeled_by-bearing control is worth adding."
     }
   }
 }

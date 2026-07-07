@@ -1,0 +1,145 @@
+{
+  "vector_id": "desktop-fixture-edit-1002",
+  "platform": "desktop-windows",
+  "spec": "docs/locator-resolution.md",
+  "scope": {
+    "kind": "window",
+    "window": "Docent Vector Fixture"
+  },
+  "element_facts": {
+    "tag": "Edit",
+    "id": "1002",
+    "name": "Amount",
+    "role": "edit",
+    "type": null,
+    "text": "x",
+    "selector": "Pane:Desktop 1 > Text:Docent Vector Fixture > Edit:Amount",
+    "framework_id": "Win32",
+    "described_after_ms": 117
+  },
+  "locators": [
+    {
+      "strategy": "automation_id",
+      "value": "1002",
+      "match_count": 1,
+      "match_index": 0
+    },
+    {
+      "strategy": "role_name",
+      "role": "Edit",
+      "name": "Amount",
+      "match_count": 1,
+      "match_index": 0
+    },
+    {
+      "strategy": "class_name",
+      "value": "Edit",
+      "match_count": 1,
+      "match_index": 0
+    },
+    {
+      "strategy": "tree_path",
+      "value": "Text:Docent Vector Fixture > Edit:Amount",
+      "match_count": 1,
+      "match_index": 0
+    }
+  ],
+  "tree_snapshot": {
+    "node_id": "d0",
+    "control_type": "Text",
+    "name": "Docent Vector Fixture",
+    "automation_id": null,
+    "class_name": "Static",
+    "text": null,
+    "labeled_by": null,
+    "children": [
+      {
+        "node_id": "d1",
+        "control_type": "Text",
+        "name": "Amount",
+        "automation_id": "1001",
+        "class_name": "Static",
+        "text": null,
+        "labeled_by": null,
+        "children": []
+      },
+      {
+        "node_id": "d2",
+        "control_type": "Edit",
+        "name": "Amount",
+        "automation_id": "1002",
+        "class_name": "Edit",
+        "text": "x",
+        "labeled_by": null,
+        "children": []
+      },
+      {
+        "node_id": "d3",
+        "control_type": "TitleBar",
+        "name": null,
+        "automation_id": null,
+        "class_name": null,
+        "text": null,
+        "labeled_by": null,
+        "children": [
+          {
+            "node_id": "d4",
+            "control_type": "MenuBar",
+            "name": "[os-name]",
+            "automation_id": "MenuBar",
+            "class_name": null,
+            "text": null,
+            "labeled_by": null,
+            "children": [
+              {
+                "node_id": "d5",
+                "control_type": "MenuItem",
+                "name": "[os-name]",
+                "automation_id": null,
+                "class_name": null,
+                "text": null,
+                "labeled_by": null,
+                "children": []
+              }
+            ]
+          },
+          {
+            "node_id": "d6",
+            "control_type": "Button",
+            "name": "[os-name]",
+            "automation_id": null,
+            "class_name": null,
+            "text": null,
+            "labeled_by": null,
+            "children": []
+          },
+          {
+            "node_id": "d7",
+            "control_type": "Button",
+            "name": "[os-name]",
+            "automation_id": null,
+            "class_name": null,
+            "text": null,
+            "labeled_by": null,
+            "children": []
+          },
+          {
+            "node_id": "d8",
+            "control_type": "Button",
+            "name": "[os-name]",
+            "automation_id": null,
+            "class_name": null,
+            "text": null,
+            "labeled_by": null,
+            "children": []
+          }
+        ]
+      }
+    ]
+  },
+  "ground_truth": {
+    "node_id": "d2"
+  },
+  "matched_node_ids": [["d2"], ["d2"], ["d2"], ["d2"]],
+  "expected_outcome": "resolved"
+}
