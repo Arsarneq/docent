@@ -1,0 +1,124 @@
+{
+  "vector_id": "ext-type-blur-email",
+  "platform": "extension",
+  "spec": "docs/locator-resolution.md",
+  "scope": {
+    "kind": "frame",
+    "frame_src": null
+  },
+  "element_facts": {
+    "autocomplete": null,
+    "id": "email",
+    "name": "email",
+    "role": null,
+    "selector": "#email",
+    "tag": "INPUT",
+    "text": null,
+    "type": "text"
+  },
+  "locators": [
+    {
+      "match_count": 1,
+      "match_index": 0,
+      "strategy": "id",
+      "value": "email"
+    },
+    {
+      "attribute": "data-testid",
+      "match_count": 1,
+      "match_index": 0,
+      "strategy": "test_id",
+      "value": "email"
+    },
+    {
+      "match_count": 1,
+      "match_index": 0,
+      "strategy": "name",
+      "value": "email"
+    },
+    {
+      "match_count": 1,
+      "match_index": 0,
+      "strategy": "tag_name",
+      "value": "input"
+    },
+    {
+      "match_count": 1,
+      "match_index": 0,
+      "strategy": "placeholder",
+      "value": "you@example.com"
+    },
+    {
+      "match_count": 1,
+      "match_index": 0,
+      "strategy": "css",
+      "value": "#email"
+    }
+  ],
+  "tree_snapshot": {
+    "node_id": "n0",
+    "tag": "HTML",
+    "attrs": {},
+    "text": "Elsewhere",
+    "children": [
+      {
+        "node_id": "n1",
+        "tag": "HEAD",
+        "attrs": {},
+        "text": "corpus: ext-type-blur",
+        "children": [
+          {
+            "node_id": "n2",
+            "tag": "META",
+            "attrs": {},
+            "text": null,
+            "children": []
+          },
+          {
+            "node_id": "n3",
+            "tag": "TITLE",
+            "attrs": {},
+            "text": "corpus: ext-type-blur",
+            "children": []
+          }
+        ]
+      },
+      {
+        "node_id": "n4",
+        "tag": "BODY",
+        "attrs": {},
+        "text": "Elsewhere",
+        "children": [
+          {
+            "node_id": "n5",
+            "tag": "INPUT",
+            "attrs": {
+              "data-testid": "email",
+              "id": "email",
+              "name": "email",
+              "placeholder": "you@example.com",
+              "type": "text"
+            },
+            "text": null,
+            "children": []
+          },
+          {
+            "node_id": "n6",
+            "tag": "BUTTON",
+            "attrs": {
+              "data-testid": "elsewhere",
+              "id": "elsewhere"
+            },
+            "text": "Elsewhere",
+            "children": []
+          }
+        ]
+      }
+    ]
+  },
+  "ground_truth": {
+    "node_id": "n5"
+  },
+  "matched_node_ids": [["n5"], ["n5"], ["n5"], ["n5"], ["n5"], ["n5"]],
+  "expected_outcome": "resolved"
+}

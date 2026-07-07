@@ -30,6 +30,7 @@
 import { test as base, expect, chromium } from '@playwright/test';
 import path from 'path';
 import fs from 'fs';
+import { isDeepStrictEqual } from 'node:util';
 import { fileURLToPath } from 'url';
 import {
   installReadyProbe,
@@ -37,6 +38,7 @@ import {
   waitForFrameReadySince,
 } from '../helpers/frame-ready.js';
 import { getPendingActions, waitForActionsToSettle } from '../helpers/extension-fixture.js';
+import { createVectorCollector, buildVectors } from '../helpers/vector-snapshot.js';
 import {
   createProject,
   createRecording,
@@ -61,6 +63,14 @@ const baselinePath = path.join(repoRoot, 'corpus', 'known-diffs.extension.json')
 
 const sessions = discoverSessions(manifestPath, 'extension');
 const schema = composePlatform('extension');
+
+// Conformance-vector production is a superset mode of the corpus run, gated so
+// truth production is byte-for-byte unaffected: only when CORPUS_VECTORS is set
+// does the driver receive a live snapshot collector and the run emit + check
+// vectors. Committed vectors live under corpus/sessions/<id>/vectors/; produced
+// ones under the gitignored corpus/out/extension-vectors/.
+const vectorsMode = !!process.env.CORPUS_VECTORS;
+const vectorsOutDir = path.join(outDir, 'extension-vectors');
 
 const test = base.extend({
   context: async ({}, use) => {
@@ -111,6 +121,9 @@ for (const session of sessions) {
     const driver = await import(
       `file://${path.join(repoRoot, 'corpus', 'sessions', session.id, session.script)}`
     );
+    // In vectors mode the driver marks its non-mutating vector-carrying actions;
+    // in truth mode `vector` is null and every `vector?.mark(...)` is a no-op.
+    const collector = vectorsMode ? createVectorCollector(page) : null;
     await driver.default({
       page,
       context,
@@ -120,6 +133,7 @@ for (const session of sessions) {
       gotoReady: (p, url) => gotoReady(p, serviceWorker, url),
       frameReady: (url) => waitForFrameReady(serviceWorker, url),
       frameReadySince: (url, since) => waitForFrameReadySince(serviceWorker, url, since),
+      vector: collector,
     });
 
     await waitForActionsToSettle(serviceWorker, page);
@@ -127,6 +141,30 @@ for (const session of sessions) {
     await serviceWorker.evaluate(async () => {
       await chrome.storage.local.set({ recording: false });
     });
+
+    if (vectorsMode && collector && collector.marks.length > 0) {
+      const produced = buildVectors(session.id, collector.marks, actions);
+      const producedDir = path.join(vectorsOutDir, session.id);
+      fs.mkdirSync(producedDir, { recursive: true });
+      const committedDir = path.join(repoRoot, 'corpus', 'sessions', session.id, 'vectors');
+      for (const vector of produced) {
+        const key = vector.vector_id.slice(session.id.length + 1);
+        fs.writeFileSync(
+          path.join(producedDir, `${key}.vector.json`),
+          JSON.stringify(vector, null, 2) + '\n',
+        );
+        const committedPath = path.join(committedDir, `${key}.vector.json`);
+        if (fs.existsSync(committedPath)) {
+          const committed = JSON.parse(fs.readFileSync(committedPath, 'utf8'));
+          expect(
+            isDeepStrictEqual(committed, vector),
+            `produced vector ${key} does not match its committed file`,
+          ).toBe(true);
+        } else {
+          console.warn(`corpus vectors: no committed ${session.id}/${key} yet — produced only`);
+        }
+      }
+    }
 
     // Assemble through the real shared production path; fixture-style naming
     // so a bootstrap-copied truth needs only review, not renaming.

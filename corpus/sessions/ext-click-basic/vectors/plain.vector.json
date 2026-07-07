@@ -1,0 +1,111 @@
+{
+  "vector_id": "ext-click-basic-plain",
+  "platform": "extension",
+  "spec": "docs/locator-resolution.md",
+  "scope": {
+    "kind": "frame",
+    "frame_src": null
+  },
+  "element_facts": {
+    "autocomplete": null,
+    "id": null,
+    "name": null,
+    "role": null,
+    "selector": "button:nth-of-type(2)",
+    "tag": "BUTTON",
+    "text": "Plain",
+    "type": null
+  },
+  "locators": [
+    {
+      "match_count": 2,
+      "match_index": 1,
+      "strategy": "tag_name",
+      "value": "button"
+    },
+    {
+      "match_count": 1,
+      "match_index": 0,
+      "strategy": "text",
+      "value": "Plain"
+    },
+    {
+      "match_count": 1,
+      "match_index": 0,
+      "strategy": "css",
+      "value": "button:nth-of-type(2)"
+    }
+  ],
+  "tree_snapshot": {
+    "node_id": "n0",
+    "tag": "HTML",
+    "attrs": {},
+    "text": "Save  Plain",
+    "children": [
+      {
+        "node_id": "n1",
+        "tag": "HEAD",
+        "attrs": {},
+        "text": "corpus: ext-click-basic",
+        "children": [
+          {
+            "node_id": "n2",
+            "tag": "META",
+            "attrs": {},
+            "text": null,
+            "children": []
+          },
+          {
+            "node_id": "n3",
+            "tag": "TITLE",
+            "attrs": {},
+            "text": "corpus: ext-click-basic",
+            "children": []
+          }
+        ]
+      },
+      {
+        "node_id": "n4",
+        "tag": "BODY",
+        "attrs": {},
+        "text": "Save  Plain",
+        "children": [
+          {
+            "node_id": "n5",
+            "tag": "BUTTON",
+            "attrs": {
+              "data-testid": "save",
+              "id": "save",
+              "title": "Save the form"
+            },
+            "text": "Save",
+            "children": []
+          },
+          {
+            "node_id": "n6",
+            "tag": "IMG",
+            "attrs": {
+              "alt": "Docent logo",
+              "data-testid": "logo",
+              "id": "logo"
+            },
+            "text": null,
+            "children": []
+          },
+          {
+            "node_id": "n7",
+            "tag": "BUTTON",
+            "attrs": {},
+            "text": "Plain",
+            "children": []
+          }
+        ]
+      }
+    ]
+  },
+  "ground_truth": {
+    "node_id": "n7"
+  },
+  "matched_node_ids": [["n5", "n7"], ["n7"], ["n7"]],
+  "expected_outcome": "resolved"
+}

@@ -1,0 +1,153 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/Arsarneq/docent/corpus/vector.schema.json",
+  "title": "Docent conformance vector",
+  "description": "Structural contract for an inert conformance vector under docs/locator-resolution.md (Conformance and Vector Scope). A vector is committed data: a recorded element's locator candidates and its non-locator facts, a serialized snapshot of the bound scope at the moment the element was described, the ground-truth node inside that snapshot, and the per-candidate node ids each candidate's stated query selects over the snapshot. The .docent.json contract (schemas/) governs the shape of element_facts and locators; this meta-schema governs the vector envelope only.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "vector_id",
+    "platform",
+    "spec",
+    "scope",
+    "element_facts",
+    "locators",
+    "tree_snapshot",
+    "ground_truth",
+    "matched_node_ids",
+    "expected_outcome"
+  ],
+  "properties": {
+    "vector_id": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Stable identifier for this vector, unique within the corpus."
+    },
+    "platform": {
+      "enum": ["extension", "desktop-windows"],
+      "description": "The Docent platform whose strategy table and bound scope this vector is stated under."
+    },
+    "spec": {
+      "const": "docs/locator-resolution.md",
+      "description": "The specification the vector is stated under."
+    },
+    "scope": {
+      "description": "The bound scope the snapshot serializes, per the platform's stated measurement scope.",
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "frame_src"],
+          "properties": {
+            "kind": { "const": "frame" },
+            "frame_src": {
+              "type": ["string", "null"],
+              "description": "The capturing frame's URL; null for the top frame."
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "window"],
+          "properties": {
+            "kind": { "const": "window" },
+            "window": {
+              "type": "string",
+              "description": "The acted-on top-level window's title."
+            }
+          }
+        }
+      ]
+    },
+    "element_facts": {
+      "type": "object",
+      "description": "The recorded element object with its nested locators removed: the non-locator fact source. Deep validity is governed by the .docent.json schema for the platform, not restated here.",
+      "not": { "required": ["locators"] }
+    },
+    "locators": {
+      "type": "array",
+      "minItems": 1,
+      "description": "The recorded locator candidate array for the ground-truth element, verbatim from the session capture. Per-entry field shapes are governed by the .docent.json schema.",
+      "items": {
+        "type": "object",
+        "required": ["strategy"],
+        "properties": {
+          "strategy": { "type": "string" }
+        }
+      }
+    },
+    "tree_snapshot": {
+      "$ref": "#/$defs/node",
+      "description": "The serialized subtree of the bound scope, captured at the moment the element was described. Canonical: attribute keys sorted, children in document order, node text in the trim-only element.text form."
+    },
+    "ground_truth": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["node_id"],
+      "properties": {
+        "node_id": {
+          "type": "string",
+          "description": "The node_id of the acted-on element inside tree_snapshot."
+        }
+      }
+    },
+    "matched_node_ids": {
+      "type": "array",
+      "description": "Parallel to locators, one entry per candidate: the node_ids the candidate's stated query selects over tree_snapshot, in document order; null for a candidate ineligible as a selector (masked, or match_index null).",
+      "items": {
+        "oneOf": [{ "type": "null" }, { "type": "array", "items": { "type": "string" } }]
+      }
+    },
+    "expected_outcome": {
+      "const": "resolved",
+      "description": "Only expected_outcome resolved vectors are published (the inclusion criterion members)."
+    }
+  },
+  "$defs": {
+    "node": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["node_id", "tag", "attrs", "text", "children"],
+      "properties": {
+        "node_id": {
+          "type": "string",
+          "description": "Snapshot-local identifier, assigned in document order."
+        },
+        "tag": {
+          "type": "string",
+          "description": "The element's tag as captured (DOM tagName; upper-case for HTML)."
+        },
+        "attrs": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "The closed set of attributes the emitted strategy queries and the label relation consult; present keys only.",
+          "properties": {
+            "id": { "type": "string" },
+            "name": { "type": "string" },
+            "class": { "type": "string" },
+            "placeholder": { "type": "string" },
+            "title": { "type": "string" },
+            "alt": { "type": "string" },
+            "type": { "type": "string" },
+            "for": { "type": "string" },
+            "aria-labelledby": { "type": "string" },
+            "data-testid": { "type": "string" },
+            "data-test": { "type": "string" },
+            "data-test-id": { "type": "string" },
+            "data-qa": { "type": "string" },
+            "data-cy": { "type": "string" }
+          }
+        },
+        "text": {
+          "type": ["string", "null"],
+          "description": "The node's visible text in the trim-only, 100-char element.text form; null when empty."
+        },
+        "children": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/node" }
+        }
+      }
+    }
+  }
+}

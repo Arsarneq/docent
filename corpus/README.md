@@ -85,6 +85,78 @@ header). Local loop: `npm run corpus:produce:extension`, then
   (`waitForFrameReadySince` — corpus URLs are stable across loads, so the
   plain per-URL wait would return stale).
 
+## Conformance vectors
+
+Inert data for [docs/locator-resolution.md](../docs/locator-resolution.md#conformance-and-vector-scope)
+(Conformance and Vector Scope): committed alongside the sessions whose pages they
+reuse, one file per ground-truth element under `sessions/<id>/vectors/<key>.vector.json`,
+shaped by the meta-schema `vector.schema.json`. A vector carries the recorded
+`locators`, the `element_facts` (the captured element **minus** its nested
+locators — the non-locator fact source), a `tree_snapshot` of the bound scope,
+the `ground_truth` node inside it, and `matched_node_ids` (per candidate, the
+snapshot nodes its stated query selects). Only `expected_outcome: "resolved"`
+vectors ship — the inclusion-criterion members: an element carrying at least one
+eligible candidate recorded measured-unique (`match_count: 1`, `match_index: 0`).
+Nothing here executes the resolution procedure.
+
+### Emission (produced, then reviewed and committed)
+
+A superset of the corpus run, gated on the `CORPUS_VECTORS` env var so truth
+production is byte-for-byte unaffected without it. At a non-mutating,
+non-navigating vector-carrying action, the session driver calls
+`vector.mark(selector, key)`; the snapshot walker (`lib/snapshot-walker.js`,
+injected via `page.evaluate`) serializes the bound frame's `documentElement`,
+marking the ground truth by the **identity** of the element the driver just acted
+on (never a positional index). Canonical serialization — attribute keys sorted,
+children in document order, node text in the trim-only `element.text` form, node
+ids in document order — so a produced snapshot is deterministic. After the run,
+`element_facts` and `locators` are taken from the real recorded action (correlated
+by element identity) and `matched_node_ids` are measured over the produced
+snapshot. Produced vectors land under the gitignored `out/extension-vectors/`;
+the run asserts each produced vector deep-equals its committed file — the
+produce-stage oracle. Bootstrap a new vector by producing it, reviewing it, and
+committing it (the truth doctrine above, applied to vectors).
+
+### Hygiene locks (structural; `packages/shared/tests/unit`)
+
+Each lock is a per-candidate match **count** measured over the committed
+snapshot, or a committed-field **equality** — never a run of the resolution
+procedure. The `"resolved"` guarantee **emerges** from the counts and equalities;
+it is nowhere computed. For every committed vector:
+
+1. it names an active manifest session of its platform;
+2. `element_facts` + `locators` equal a captured element of that session
+   (`element_facts` is that element minus its nested locators);
+3. an eligible candidate is measured-unique (`match_count: 1`, `match_index: 0`);
+4. `ground_truth.node_id` exists in `tree_snapshot`;
+5. over the committed snapshot every eligible candidate (not masked, `match_index`
+   not null) selects exactly the ground-truth node or is non-selecting (0 or >1) —
+   none selects a single other node; the measured-unique candidate selects exactly
+   the ground truth; and the recorded `matched_node_ids` re-derive;
+6. the ground-truth node's committed `tag` (exact) and `text` (containment; vacuous
+   when null) equal `element_facts`.
+
+Lock 5's query evaluator implements the spec's Application step per strategy over
+the serialized snapshot — attribute field-walks, the all-tag normalized-text
+predicate, and Docent's own bounded `css` derivation grammar. A repo-level unit
+test additionally greps the shipped runtime paths for identifiers unique to the
+ordered procedure, so a resolver can never be smuggled into a shipped surface.
+
+### Coverage ledger
+
+`vectors-coverage.json` maps each emitted extension strategy to the committed
+vector where it is the measured-unique candidate, at element granularity
+(`session`, `vector`, `element`, `action_index`). A lock ties every emitted
+strategy to a real committed vector; `role_name` and `label` are schema-reserved
+and not emitted, so they are outside vector scope.
+
+### Determinism
+
+Extension snapshots are static by the page-authoring rules above (no animation,
+no time/locale-dependent text, fixed viewport), so `produced == committed` holds
+byte-deterministically across runs. (Localized and environment-string
+normalization of a snapshot is a desktop concern — the extension leg needs none.)
+
 ## Out of scripted reach (loud exclusions)
 
 - **Autofill fills (docent#233)** — Chrome's autofill dropdown is browser
