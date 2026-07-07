@@ -80,7 +80,7 @@
   },
   "desktop-windows-gaps": {
     "labeled_by": {
-      "reason": "A Win32 STATIC preceding an EDIT surfaces as the EDIT's UIA Name (accessible name) but NOT as the UIA LabeledBy relation element — the relation is exposed only by controls with a UIA provider (e.g. WPF/XAML AutomationProperties.LabeledBy) or a bespoke IRawElementProviderSimple. Emitting it from the controlled Win32 fixture would need a custom server-side UIA provider plus the windows crate's `implement` feature on the shipped desktop crate — disproportionate for one strategy. labeled_by resolution is implemented and unit-tested in the desktop query evaluator; only fixture emission of a live vector is deferred until a labeled_by-bearing control is worth adding."
+      "reason": "A Win32 STATIC preceding an EDIT surfaces as the EDIT's UIA Name but NOT as the UIA LabeledBy relation element — the relation is exposed only by a control with its own UIA provider. Adding it to the controlled fixture requires a server-side provider that MERGES the relation onto the native control (IRawElementProviderHwndOverride): a minimal WM_GETOBJECT override instead replaces the system EDIT's provider and loses its ControlType=Edit identity, which the other four strategies depend on (verified live). This is a tracked follow-up, not an accepted omission: labeled_by resolution, the snapshot edge, and the harness augmentation are implemented and unit-tested; only the live fixture vector is pending the provider-backed control."
     }
   }
 }

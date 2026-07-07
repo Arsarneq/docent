@@ -215,14 +215,17 @@ The differences are all data:
 - **Coverage: four of the five emitted strategies.** `automation_id`,
   `role_name`, `class_name`, and `tree_path` are each the measured-unique
   candidate in a committed fixture vector (`vectors-coverage.json`,
-  `desktop-windows`). `labeled_by` is an **accounted-for gap**
-  (`desktop-windows-gaps`): a Win32 control surfaces a preceding label as the
-  element's Name but not as the UIA LabeledBy relation element (only a
-  provider-backed control exposes the relation), so the controlled fixture cannot
-  emit it without a bespoke UIA provider. Its resolution, snapshot edge, and
-  harness augmentation are implemented and unit-tested; only fixture emission of a
-  live vector is deferred. The coverage lock requires every emitted strategy to be
-  either covered or a gap-with-a-reason, so the gap is never silently dropped.
+  `desktop-windows`). `labeled_by` is a **tracked gap** (`desktop-windows-gaps`),
+  pending a follow-up: a Win32 control surfaces a preceding label as the element's
+  Name but not as the UIA LabeledBy relation element, and a minimal server-side
+  override cannot add the relation without replacing the system control's provider
+  and losing its native `Edit` control type — so a live vector needs a provider
+  that _merges_ the relation onto the native control
+  (`IRawElementProviderHwndOverride`). Its resolution, snapshot edge, and harness
+  augmentation are implemented and unit-tested; the provider-backed fixture is a
+  tracked follow-up, not an accepted omission. The coverage lock requires every
+  emitted strategy to be either covered or a gap-with-a-reason, so the gap is never
+  silently dropped.
 
 ## Out of scripted reach (loud exclusions)
 
