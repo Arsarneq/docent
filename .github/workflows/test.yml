@@ -320,9 +320,14 @@ jobs:
         working-directory: packages/extension/tests/e2e
         run: xvfb-run npx playwright test
 
-      - name: Produce capture corpus (extension)
+      # Superset of truth production: the vectors config also produces the
+      # conformance vectors and asserts each produced vector deep-equals its
+      # committed file (the produce-stage oracle). Truth envelopes are emitted
+      # unchanged, so the Corpus truth diff step below still validates them. The
+      # structural vector hygiene locks run in the unit-tests job via test:shared.
+      - name: Produce capture corpus + conformance vectors (extension)
         working-directory: packages/extension/tests/e2e
-        run: xvfb-run npx playwright test --config playwright.corpus.config.js
+        run: xvfb-run npx playwright test --config playwright.vectors.config.js
 
       - name: Corpus truth diff
         run: npm run corpus:check

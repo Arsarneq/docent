@@ -1,0 +1,59 @@
+{
+  "description": "Per-strategy conformance-vector coverage ledger. Each emitted locator strategy maps to the committed vector in which it is a measured-unique candidate (match_count 1, match_index 0) for the ground-truth element, recorded at element granularity (session, vector, element, action_index). role_name and label are schema-reserved and not emitted, so they are outside vector scope. A hygiene lock ties every emitted strategy to a real committed vector.",
+  "extension": {
+    "id": {
+      "session": "ext-click-basic",
+      "vector": "save",
+      "element": "button#save",
+      "action_index": 0
+    },
+    "test_id": {
+      "session": "ext-click-basic",
+      "vector": "save",
+      "element": "button#save",
+      "action_index": 0
+    },
+    "text": {
+      "session": "ext-click-basic",
+      "vector": "save",
+      "element": "button#save",
+      "action_index": 0
+    },
+    "title": {
+      "session": "ext-click-basic",
+      "vector": "save",
+      "element": "button#save",
+      "action_index": 0
+    },
+    "tag_name": {
+      "session": "ext-click-basic",
+      "vector": "logo",
+      "element": "img#logo",
+      "action_index": 1
+    },
+    "alt_text": {
+      "session": "ext-click-basic",
+      "vector": "logo",
+      "element": "img#logo",
+      "action_index": 1
+    },
+    "css": {
+      "session": "ext-click-basic",
+      "vector": "plain",
+      "element": "button (identifier-less; structural css)",
+      "action_index": 2
+    },
+    "name": {
+      "session": "ext-file-upload",
+      "vector": "file",
+      "element": "input#file",
+      "action_index": 0
+    },
+    "placeholder": {
+      "session": "ext-type-blur",
+      "vector": "email",
+      "element": "input#email",
+      "action_index": 0
+    }
+  }
+}
