@@ -38,10 +38,11 @@
     "test:shared:coverage": "c8 --reporter=text --reporter=lcov node --test packages/shared/tests/unit/*.test.js",
     "test:desktop:coverage": "c8 --reporter=text --reporter=lcov node --test packages/desktop/tests/unit/*.test.js",
     "test:coverage": "c8 --reporter=text --reporter=lcov node --test packages/shared/tests/unit/*.test.js packages/desktop/tests/unit/*.test.js",
-    "lint": "npm run lint:js && npm run lint:css && npm run lint:md && npm run lint:format",
+    "lint": "npm run lint:js && npm run lint:css && npm run lint:md && npm run lint:links && npm run lint:format",
     "lint:js": "eslint packages/shared/ packages/extension/sidepanel/ packages/extension/content/ packages/extension/background/ packages/desktop/src/ scripts/ reference-implementations/ corpus/",
     "lint:css": "stylelint 'packages/shared/views/**/*.css'",
     "lint:md": "markdownlint-cli2 '**/*.md' '#node_modules' '#packages/desktop/src-tauri/target'",
+    "lint:links": "remark . --quiet --frail --ignore-path .gitignore",
     "lint:format": "prettier --check .",
     "format": "prettier --write .",
     "update-version-table": "node scripts/update-version-table.js",
@@ -74,6 +75,8 @@
     "license-checker-rseidelsohn": "5.0.1",
     "markdownlint-cli2": "^0.22.1",
     "prettier": "^3.9.4",
+    "remark-cli": "^12.0.1",
+    "remark-validate-links": "^13.1.0",
     "stylelint": "^17.14.0",
     "stylelint-config-standard": "^40.0.0"
   }
