@@ -109,6 +109,12 @@ jobs:
       - name: markdownlint
         run: npm run lint:md
 
+      # remark-validate-links (--frail): every relative doc link and heading
+      # #anchor must resolve. Complements markdownlint, which does not check link
+      # targets — so a moved/renamed doc that breaks a link fails here, not silently.
+      - name: Validate documentation links
+        run: npm run lint:links
+
       # S17/S18: every Actions `uses:` must be pinned to a commit SHA, not a
       # mutable tag. Dependabot bumps the SHA + `# version` comment weekly.
       - name: Check GitHub Actions are SHA-pinned
