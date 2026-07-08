@@ -24,10 +24,11 @@ the tree inside an existing area rather than forcing a reorganization.
 - [Desktop capture (Windows)](architecture/application/desktop/windows/capture-principles.md) —
   the Windows desktop capture architecture.
 
-The extension is one cross-browser codebase, so it sits flat under
-`application/extension/`; desktop capture is per-OS native stacks (UIA/WinEvent),
-so it nests under `application/desktop/windows/`, with `linux`/`macos` reserved as
-chartered siblings.
+The extension is a single Chrome (Manifest V3) extension — one codebase that runs
+across Chromium-based browsers that support Chrome extensions — so it sits flat
+under `application/extension/`; desktop capture is per-OS native stacks
+(UIA/WinEvent), so it nests under `application/desktop/windows/`, leaving room for a
+future capture surface (e.g. Linux) beside it.
 
 ### Technical — the format and resolution specifications
 
@@ -78,8 +79,8 @@ its first real doc lands (no empty directories):
 - `design/` (and `design/ui_ux/`) — UI/UX and interaction-design records.
 - `user/` — end-user install-and-use guides. _Seed: the extension/desktop usage
   walkthroughs in the root README._
-- `architecture/application/desktop/linux/`, `.../macos/`, and other future capture
-  surfaces — a new surface slots in beside `windows/`.
+- `architecture/application/desktop/linux/` and any other future capture surface —
+  a new surface slots in beside `windows/`.
 
 ## Schemas
 
