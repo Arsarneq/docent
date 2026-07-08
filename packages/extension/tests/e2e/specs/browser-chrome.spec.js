@@ -2,7 +2,7 @@
  * Browser Chrome Tests — Automated equivalents of manual tests
  *
  * Retires manual tests 2, 3, 4, 5, 6, 7, 9, 10 from
- * packages/extension/tests/manual/README.md
+ * docs/test/manual/extension.md
  *
  * Uses chrome.tabs/chrome.windows API via service worker evaluate
  * and Playwright keyboard shortcuts for browser chrome interactions.

@@ -5,6 +5,8 @@ All desktop manual tests have been retired. The capture logic is verified by
 26+ worker pool unit tests in `src-tauri/tests/worker_pool_test.rs`,
 and 3 file dialog tests in `src-tauri/tests/file_dialog_test.rs`.
 
+_Test paths below are relative to `packages/desktop/`._
+
 ## Retired Tests (now automated or logic-tested)
 
 | #   | Test                          | Covered by                                                                                             |

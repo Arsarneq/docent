@@ -6,6 +6,9 @@ against the _current_ platform schema by `backward-compat.test.js` (the version
 stamp is deliberately ignored — see
 [Validation is by shape](#validation-is-by-shape-not-by-version-stamp)).
 
+The corpus lives under `packages/shared/tests/fixtures/`; its validating harness is
+`packages/shared/tests/unit/backward-compat.test.js`.
+
 ## Why this exists
 
 When a platform schema is edited, these fixtures answer one question: **would a
@@ -26,7 +29,8 @@ fixtures/
   (e.g. `extension`, `desktop-windows`).
 - The version in the filename records which schema version produced the export.
 
-The test **auto-discovers** every `<platform>/<file>.docent.json` here and
+The test **auto-discovers** every `<platform>/<file>.docent.json` under
+`packages/shared/tests/fixtures/` and
 validates it against that platform's schema, **composed from the source layers
 in-memory** (via `composePlatform`) — not against the released copy under
 `schemas/dist/`, which can lag a PR's schema changes. Adding a new platform (to
@@ -40,7 +44,7 @@ test changes.
   `<platform>/v<old-version>.docent.json`. It must keep validating against the
   current schema for as long as backward compatibility is intended to hold.
 - **New platform** (e.g. `desktop-linux` when #84 lands): create
-  `fixtures/desktop-linux/` and add a real export. The harness picks it up with
+  `packages/shared/tests/fixtures/desktop-linux/` and add a real export. The harness picks it up with
   no code change. See Arsarneq/docent#84.
 
 ## Important
@@ -54,9 +58,9 @@ before touching a fixture.
 
 ## Sufficiency baseline
 
-`sufficiency-baseline.json` is the committed output of the replay-sufficiency
-lint (`scripts/sufficiency-lint.js` — the static predicates of
-[Replay Sufficiency](../../../../docs/requirements/replay-sufficiency.md)) over this corpus,
+`packages/shared/tests/fixtures/sufficiency-baseline.json` is the committed output of
+the replay-sufficiency lint (`scripts/sufficiency-lint.js` — the static predicates of
+[Replay Sufficiency](../requirements/replay-sufficiency.md)) over this corpus,
 locked exactly by `sufficiency-lint.test.js`. Because these fixtures are
 **historical** exports, the baseline documents historical truth: it locks the
 _rules_ and the corpus's known findings, not current capture output —

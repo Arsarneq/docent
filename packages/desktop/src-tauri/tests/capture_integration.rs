@@ -3433,7 +3433,7 @@ mod deduplication {
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // OS CHROME TESTS — title bar, right-click menu, coordinate fallback
-// Covers manual tests 2, 8, 10 from packages/desktop/tests/manual/README.md
+// Covers manual tests 2, 8, 10 from docs/test/manual/windows.md
 // ═══════════════════════════════════════════════════════════════════════════════
 
 #[cfg(target_os = "windows")]
@@ -3680,7 +3680,7 @@ mod os_chrome {
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // TASKBAR & SYSTEM CHROME TESTS — taskbar, Start menu, system tray
-// Covers manual tests 11, 12, 15 from packages/desktop/tests/manual/README.md
+// Covers manual tests 11, 12, 15 from docs/test/manual/windows.md
 // ═══════════════════════════════════════════════════════════════════════════════
 
 #[cfg(target_os = "windows")]

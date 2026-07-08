@@ -88,13 +88,11 @@ packages/
     sidepanel/      Side panel UI — narration, step list, export, dispatch
     tests/unit/     Extension unit tests (node --test)
     tests/e2e/      Extension E2E tests (Playwright + real Chrome)
-    tests/manual/   Human-only test scenarios
   desktop/          Tauri v2 Desktop Application (Windows)
     src/            JavaScript frontend — panel, adapters, persistence
     src-tauri/      Rust backend — capture layer, Tauri commands
     tests/unit/     Desktop JavaScript unit tests (node --test)
     tests/integration/  Desktop Playwright tests (mocked Tauri backend)
-    tests/manual/   Human-only test scenarios
 scripts/            Build, sync, and automation scripts
 ```
 
