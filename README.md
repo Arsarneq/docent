@@ -38,7 +38,7 @@ Sensitive values are redacted at capture time on both platforms — passwords, c
 
 Recordings can be dispatched directly to a configured HTTP endpoint from either platform — no terminal or Node.js required.
 
-See [Capture Principles](docs/capture-principles.md) for the full rules, with platform-specific details in [Extension](docs/capture-principles-extension.md) and [Desktop](docs/capture-principles-desktop.md).
+See [Capture Principles](docs/architecture/system/capture-principles.md) for the full rules, with platform-specific details in [Extension](docs/architecture/application/extension/capture-principles.md) and [Desktop](docs/architecture/application/desktop/windows/capture-principles.md).
 
 ---
 
@@ -103,13 +103,13 @@ delivers — it has no opinion about what receives the data or how it's used.
 The same rule holds at every surface Docent exposes: recordings are defined by
 per-platform versioned [JSON Schemas](#session-format), dispatch payloads carry
 their own schema and reading guide, and sync servers implement a documented
-[REST protocol](docs/sync-protocol.md). Each contract is data; none of it is
+[REST protocol](docs/api/sync-protocol.md). Each contract is data; none of it is
 shipped code.
 
 The affirmative half of that neutrality is a promise about the data itself:
 **replay sufficiency** — assuming the application unchanged, a consumer holding
 only the recording can reproduce the session from a different machine. See
-[Replay Sufficiency](docs/replay-sufficiency.md) for the principle, its scope
+[Replay Sufficiency](docs/requirements/replay-sufficiency.md) for the principle, its scope
 boundaries, and what makes it testable.
 
 ---
@@ -129,7 +129,7 @@ schema version — so you never need to match versions by hand.
 
 <!-- VERSION_TABLE_END -->
 
-See [docs/session-format.md](docs/session-format.md#versioning) for the full versioning strategy.
+See [docs/technical/session-format.md](docs/technical/session-format.md#versioning) for the full versioning strategy.
 
 ---
 
@@ -274,7 +274,7 @@ The `.docent.json` format is defined by per-platform JSON Schemas — the single
 - [Extension schema](schemas/dist/extension.schema.json) — Chrome extension
 - [Desktop Windows schema](schemas/dist/desktop-windows.schema.json) — Windows desktop
 
-See [docs/session-format.md](docs/session-format.md) for the full specification with annotated examples.
+See [docs/technical/session-format.md](docs/technical/session-format.md) for the full specification with annotated examples.
 
 ---
 
@@ -284,7 +284,7 @@ Contributions are welcome — start with the **[contributing guide](.github/CONT
 
 Project references:
 
-- [Documentation index](docs/README.md) — capture principles, session format, sync protocol, running CI locally
+- [Documentation index](docs/README.md) — the docs map by area: requirements, architecture, technical specs, the sync API, verification, and contributor guides
 - [Contributing guide](.github/CONTRIBUTING.md) — setup, structure, conventions, testing, PRs
 - [Code of Conduct](.github/CODE_OF_CONDUCT.md) — the Contributor Covenant we follow
 - [Security policy](.github/SECURITY.md) — reporting a vulnerability

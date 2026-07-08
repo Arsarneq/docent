@@ -1,7 +1,7 @@
 {
   "vector_id": "desktop-fixture-edit-1002",
   "platform": "desktop-windows",
-  "spec": "docs/locator-resolution.md",
+  "spec": "docs/technical/locator-resolution.md",
   "scope": {
     "kind": "window",
     "window": "Docent Vector Fixture"

@@ -56,7 +56,7 @@ before touching a fixture.
 
 `sufficiency-baseline.json` is the committed output of the replay-sufficiency
 lint (`scripts/sufficiency-lint.js` — the static predicates of
-[Replay Sufficiency](../../../../docs/replay-sufficiency.md)) over this corpus,
+[Replay Sufficiency](../../../../docs/requirements/replay-sufficiency.md)) over this corpus,
 locked exactly by `sufficiency-lint.test.js`. Because these fixtures are
 **historical** exports, the baseline documents historical truth: it locks the
 _rules_ and the corpus's known findings, not current capture output —

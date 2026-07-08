@@ -1,7 +1,7 @@
 /**
  * corpus-compare.js — scripted-truth capture-corpus comparator.
  *
- * Implements the "capture completeness" artifact of docs/replay-sufficiency.md
+ * Implements the "capture completeness" artifact of docs/requirements/replay-sufficiency.md
  * (Falsifiability, item 3): controlled pages/apps where the input sequence is
  * scripted, so the produced recording can be compared against committed truth.
  * A truth file states what a faithful capture IN THE CURRENT FORMAT would

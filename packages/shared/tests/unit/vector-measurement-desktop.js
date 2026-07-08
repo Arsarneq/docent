@@ -5,7 +5,7 @@
  * Given a serialized desktop tree_snapshot (the $defs/desktop_node shape in
  * corpus/vector.schema.json) and one recorded locator candidate, apply exactly
  * that candidate's stated query — the Desktop strategy table in
- * docs/locator-resolution.md — over the inert snapshot and return the node_ids
+ * docs/technical/locator-resolution.md — over the inert snapshot and return the node_ids
  * it selects, in Control-view order. It is measurement only: the same
  * match-counting Docent's capture already performs (windows.rs measure_pair:
  * FindAll + count), run over committed JSON instead of a live UI tree. There is

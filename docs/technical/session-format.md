@@ -3,11 +3,11 @@
 The `.docent.json` format is Docent's contract with anything that consumes a
 recording. It is defined per platform by independently versioned JSON Schemas,
 and this document is the formal specification for both. It is not Docent's only
-external contract: sync servers implement the [Sync Protocol](sync-protocol.md)
+external contract: sync servers implement the [Sync Protocol](../api/sync-protocol.md)
 and treat this format as an opaque payload. All of Docent's external contracts
 are data — versioned schemas and a documented protocol — never shipped code or
 a shipped consumer. What a recording must be sufficient _for_ is defined by
-the [Replay Sufficiency](replay-sufficiency.md) principle.
+the [Replay Sufficiency](../requirements/replay-sufficiency.md) principle.
 
 ---
 
@@ -38,7 +38,7 @@ Schemas are versioned independently per platform:
 <!-- VERSION_TABLE_END -->
 
 **Version bumps** are determined **mechanically at release time** by
-[`scripts/auto-version-schemas.js`](../scripts/auto-version-schemas.js), which
+[`scripts/auto-version-schemas.js`](../../scripts/auto-version-schemas.js), which
 diffs the last released schema (`schemas/dist/<platform>.schema.json`) against
 the schema composed from the current source layers and classifies the change:
 
@@ -78,7 +78,7 @@ which binary you run and can stay on any version indefinitely.
 
 **Extension** users whose downstream consumers depend on a specific schema
 version can pin by installing from source instead of the Chrome Web Store.
-Follow the [development installation steps](../README.md#installation-development),
+Follow the [development installation steps](../../README.md#installation-development),
 but check out the tag that produces the schema version you need before syncing
 and loading:
 
@@ -406,7 +406,7 @@ Which strategies `masked` can honestly apply to is stated by the contract itself
 strategy definition declares the **`x-value-derived`** annotation (boolean) — `true` means
 the redaction chokepoint masks that strategy's value in place when the element is sensitive.
 It is an operational marker of what redaction does today, not a data-safety claim; the
-[Value-Derived Strategies](locator-resolution.md#value-derived-strategies) section of the
+[Value-Derived Strategies](../technical/locator-resolution.md#value-derived-strategies) section of the
 resolution procedure defines it, and the sufficiency lint enforces the masking it promises.
 
 ### Measurement semantics
@@ -436,7 +436,7 @@ Candidates whose value was empty are omitted rather than included empty; the who
 omitted when no candidates were observed (e.g. coordinate mode).
 
 What "the recording's locators resolve correctly" means — and the conformance-vector scope —
-is defined by the [reference resolution procedure](locator-resolution.md).
+is defined by the [reference resolution procedure](../technical/locator-resolution.md).
 
 Note: the provider-reported set ordinals (`position_in_set`/`size_of_set`) and a measured
 `match_count` can legitimately disagree — under UI virtualization only realized items exist in
@@ -475,9 +475,9 @@ signal that the container is virtualized.
 
 Machine-readable schemas for validation:
 
-- [`schemas/dist/extension.schema.json`](../schemas/dist/extension.schema.json) — Chrome extension
-- [`schemas/dist/desktop-windows.schema.json`](../schemas/dist/desktop-windows.schema.json) — Windows desktop
-- [`schemas/shared.schema.json`](../schemas/shared.schema.json) — Shared definitions (not used directly for validation)
+- [`schemas/dist/extension.schema.json`](../../schemas/dist/extension.schema.json) — Chrome extension
+- [`schemas/dist/desktop-windows.schema.json`](../../schemas/dist/desktop-windows.schema.json) — Windows desktop
+- [`schemas/shared.schema.json`](../../schemas/shared.schema.json) — Shared definitions (not used directly for validation)
 
 ---
 
@@ -491,4 +491,4 @@ rather than failing on them.
 
 Which fields the replay-sufficiency guarantee stands on — the normative subset
 versus informative evidence and context — is classified in
-[Replay Sufficiency — Field Taxonomy](replay-sufficiency.md#field-taxonomy--normative-vs-informative).
+[Replay Sufficiency — Field Taxonomy](../requirements/replay-sufficiency.md#field-taxonomy--normative-vs-informative).

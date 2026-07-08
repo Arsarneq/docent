@@ -1,7 +1,7 @@
 /**
  * sufficiency-lint.js — static replay-sufficiency predicates over recordings.
  *
- * Implements the "static predicates" artifact of docs/replay-sufficiency.md
+ * Implements the "static predicates" artifact of docs/requirements/replay-sufficiency.md
  * (Falsifiability, item 1): for each action, the fields the field taxonomy
  * marks normative are present or legally absent, and their cross-field
  * invariants hold. A pure function of the file — no application, no replay.
@@ -141,7 +141,7 @@ export function valueDerivedStrategies(platform) {
 // ─── Predicates ───────────────────────────────────────────────────────────────
 //
 // Each predicate implements one clause of the field taxonomy
-// (docs/replay-sufficiency.md — Field Taxonomy / Scope Boundaries). Checks are
+// (docs/requirements/replay-sufficiency.md — Field Taxonomy / Scope Boundaries). Checks are
 // strictly beyond-schema: anything Ajv already enforces is not re-checked.
 // `check` returns a message string when the predicate finds a problem.
 

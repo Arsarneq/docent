@@ -14,7 +14,7 @@
  * session model and buildExport the desktop panel itself uses, and writes
  * corpus/out/desktop-windows/<session>.docent.json for scripts/corpus-compare.js.
  *
- * Coverage honesty (also in docs/scripted-truth-corpus.md): this replays event ARRIVAL
+ * Coverage honesty (also in docs/verification/scripted-truth-corpus.md): this replays event ARRIVAL
  * ORDER through the real JS pipeline; it does not exercise the live Tauri
  * emit→listen bridge, the panel commit UI, persistence, or arrival timing.
  *

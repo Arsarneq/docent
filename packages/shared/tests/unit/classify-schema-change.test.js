@@ -1,7 +1,7 @@
 /**
  * classify-schema-change.test.js — Unit tests for the mechanical schema-change
  * classifier that drives auto-versioning. Each test encodes one rule from
- * docs/session-format.md (patch/minor/major) plus the conservative
+ * docs/technical/session-format.md (patch/minor/major) plus the conservative
  * escalate-to-major bias for anything ambiguous.
  */
 

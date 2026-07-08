@@ -3,7 +3,7 @@
  * vectors (corpus/sessions/<id>/vectors/*.vector.json), mirroring
  * corpus-compare.test.js.
  *
- * A vector is inert data under docs/locator-resolution.md (Conformance and
+ * A vector is inert data under docs/technical/locator-resolution.md (Conformance and
  * Vector Scope): a recorded element's locator candidates + its non-locator
  * facts, a serialized snapshot of the bound scope, the ground-truth node, and
  * the node_ids each candidate's stated query selects over that snapshot. The

@@ -2,7 +2,7 @@
 
 The reference procedure for resolving a recorded element's `locators[]` to a
 live element. It implements item 2 of
-[Replay Sufficiency — Falsifiability](replay-sufficiency.md#falsifiability):
+[Replay Sufficiency — Falsifiability](../requirements/replay-sufficiency.md#falsifiability):
 this document defines what "the recording's locators resolve correctly"
 _means_, so that conformance is testable against published vectors.
 
@@ -16,7 +16,7 @@ reads "the reference procedure would have succeeded."
 exactly three outcomes. It never decides what a failure _means_ — interpreting
 a `not-resolved` (recording? environment? missing parameter? application
 change?) belongs to
-[Replay Sufficiency — Failure Attribution](replay-sufficiency.md#failure-attribution).
+[Replay Sufficiency — Failure Attribution](../requirements/replay-sufficiency.md#failure-attribution).
 
 **Governing rule.** The procedure consults the recorded match statistics only
 conservatively — for eligibility exclusions — never to decide an outcome. The
@@ -47,7 +47,7 @@ The procedure applies when both preconditions hold; outside them it is
 
 1. **The live scope is uniquely bound.** The scope is the platform's stated
    measurement scope
-   ([Session Format — Measurement semantics](session-format.md#measurement-semantics)):
+   ([Session Format — Measurement semantics](../technical/session-format.md#measurement-semantics)):
    the capturing frame's document root, or the acted-on element's top-level
    window. Frame identity is currently carried only by `frame_src` (null for
    the top frame); when it does not identify exactly one live frame,
@@ -184,7 +184,7 @@ A `not-resolved` carries **diagnostics**: the set of distinct
 candidate-resolved elements (when plural), the corroboration-disqualified
 candidates, and per-candidate match circumstances (unmeasured, masked,
 `match_index: null`, live multi-match). The diagnostics inform — but never
-decide — [failure attribution](replay-sufficiency.md#failure-attribution):
+decide — [failure attribution](../requirements/replay-sufficiency.md#failure-attribution):
 
 - a masked entry whose pre-mask statistics were `match_count: 1` and
   `match_index: 0` points at a **consumer-supplied parameter** (the
@@ -259,7 +259,7 @@ classes outside the criterion — masked-only-unique, fully unmeasured,
 ordinal-only, unbindable scope — are out of vector scope; their sufficiency
 story is owned by the static lint and the capture backlog, not by resolution
 vectors. Per-strategy coverage on both platforms comes from
-[corpus pages](scripted-truth-corpus.md) designed so that each emitted strategy
+[corpus pages](../verification/scripted-truth-corpus.md) designed so that each emitted strategy
 is the measured-unique candidate in at least one vector.
 
 ---

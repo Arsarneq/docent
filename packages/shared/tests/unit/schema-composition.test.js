@@ -167,7 +167,7 @@ describe('Schema composition: locators[] contract (#174)', () => {
 
   it('every strategy def on every platform declares x-value-derived explicitly', () => {
     // The annotation marks the strategies the redaction chokepoint masks in
-    // place (see docs/replay-sufficiency.md — masked values are consumer
+    // place (see docs/requirements/replay-sufficiency.md — masked values are consumer
     // parameters). Absence must mean nothing: an undeclared def would be
     // indistinguishable from "author forgot", so every strategy def declares
     // it, and a future strategy cannot ship without taking a stance (the

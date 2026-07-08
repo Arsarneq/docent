@@ -1,6 +1,6 @@
 # Capture Principles — Desktop Application
 
-Platform-specific details for the desktop app (Windows). See [core rules](capture-principles.md).
+Platform-specific details for the desktop app (Windows). See [core rules](../../../../architecture/system/capture-principles.md).
 
 ---
 

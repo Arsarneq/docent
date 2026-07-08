@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/Arsarneq/docent/corpus/vector.schema.json",
   "title": "Docent conformance vector",
-  "description": "Structural contract for an inert conformance vector under docs/locator-resolution.md (Conformance and Vector Scope). A vector is committed data: a recorded element's locator candidates and its non-locator facts, a serialized snapshot of the bound scope at the moment the element was described, the ground-truth node inside that snapshot, and the per-candidate node ids each candidate's stated query selects over the snapshot. The .docent.json contract (schemas/) governs the shape of element_facts and locators; this meta-schema governs the vector envelope only.",
+  "description": "Structural contract for an inert conformance vector under docs/technical/locator-resolution.md (Conformance and Vector Scope). A vector is committed data: a recorded element's locator candidates and its non-locator facts, a serialized snapshot of the bound scope at the moment the element was described, the ground-truth node inside that snapshot, and the per-candidate node ids each candidate's stated query selects over the snapshot. The .docent.json contract (schemas/) governs the shape of element_facts and locators; this meta-schema governs the vector envelope only.",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -28,7 +28,7 @@
       "description": "The Docent platform whose strategy table and bound scope this vector is stated under."
     },
     "spec": {
-      "const": "docs/locator-resolution.md",
+      "const": "docs/technical/locator-resolution.md",
       "description": "The specification the vector is stated under."
     },
     "scope": {

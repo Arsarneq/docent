@@ -1,7 +1,7 @@
 # Scripted-truth capture corpus
 
 The "capture completeness" artifact of
-[Replay Sufficiency — Falsifiability, item 3](replay-sufficiency.md#falsifiability):
+[Replay Sufficiency — Falsifiability, item 3](../requirements/replay-sufficiency.md#falsifiability):
 controlled pages where the input sequence itself is scripted, so CI diffs the
 produced recording against known truth. This is the artifact that catches
 missing-action capture gaps, which neither the schema, the sufficiency lint,
@@ -15,7 +15,7 @@ CI artifact only (excluded from every release, like `reference-implementations/`
 ## Truth doctrine
 
 - **Truth is derived from the script and the
-  [capture principles](capture-principles.md), never from recorder
+  [capture principles](../architecture/system/capture-principles.md), never from recorder
   output.** A truth file states what a faithful capture _in the current
   format_ would record for its session's scripted input. Bootstrapping a truth
   by copying a produced envelope is allowed — followed by a mandatory
@@ -88,7 +88,7 @@ mechanics — see its header). Local loop: `npm run corpus:produce:extension`, t
 
 ## Conformance vectors
 
-Inert data for [docs/locator-resolution.md](locator-resolution.md#conformance-and-vector-scope)
+Inert data for [docs/technical/locator-resolution.md](../technical/locator-resolution.md#conformance-and-vector-scope)
 (Conformance and Vector Scope): committed alongside the sessions whose pages they
 reuse, one file per ground-truth element under `corpus/sessions/<id>/vectors/<key>.vector.json`,
 shaped by the meta-schema `corpus/vector.schema.json`. A vector carries the recorded
@@ -175,7 +175,7 @@ The differences are all data:
   `target_name`), and `children`. The bound scope is the acted-on top-level
   **window, itself included** — the full Control view, no chrome excised (the
   desktop measurement scope in
-  [docs/locator-resolution.md](locator-resolution.md)) — so uniqueness
+  [docs/technical/locator-resolution.md](../technical/locator-resolution.md)) — so uniqueness
   and `tree_path` are counted over exactly what a query sees at the window.
 - **Locale determinism by authored provenance.** A committed snapshot must not
   freeze OS-locale strings. `control_type` / `automation_id` / `class_name` /

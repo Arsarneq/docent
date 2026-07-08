@@ -70,7 +70,7 @@ const DELTA_RE = /^schemas\/.*\.delta\.json$/;
 const ALLOWED_RELEASE_OUTPUTS = [
   'schemas/dist/', // composed published schemas (build artifacts)
   'README.md', // version table + desktop badge
-  'docs/session-format.md', // version table
+  'docs/technical/session-format.md', // version table
   'packages/extension/manifest.json', // extension app version
   'packages/desktop/src-tauri/tauri.conf.json', // desktop app version
   'packages/desktop/src-tauri/Cargo.toml', // desktop crate version (lockstep w/ tauri.conf.json)

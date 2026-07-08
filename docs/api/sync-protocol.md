@@ -310,11 +310,11 @@ The `schema_version` shown is illustrative, not the current version.
 
 **Top-level fields:**
 
-| Field           | Type   | Required | Description                                                                                                   |
-| --------------- | ------ | -------- | ------------------------------------------------------------------------------------------------------------- |
-| `docent_format` | object | yes      | Self-describing stamp `{ platform, schema_version }`. See [session format](./session-format.md#format-stamp). |
-| `project`       | object | yes      | Project metadata (see below).                                                                                 |
-| `recordings`    | array  | yes      | Array of recording objects (see below).                                                                       |
+| Field           | Type   | Required | Description                                                                                                              |
+| --------------- | ------ | -------- | ------------------------------------------------------------------------------------------------------------------------ |
+| `docent_format` | object | yes      | Self-describing stamp `{ platform, schema_version }`. See [session format](../technical/session-format.md#format-stamp). |
+| `project`       | object | yes      | Project metadata (see below).                                                                                            |
+| `recordings`    | array  | yes      | Array of recording objects (see below).                                                                                  |
 
 **Project fields:**
 
@@ -336,7 +336,7 @@ The `schema_version` shown is illustrative, not the current version.
 | `steps`        | array             | yes      | Full step history including re-recorded and deleted steps. |
 
 The `steps` array contains the **complete version history** — it is not filtered
-to active steps only. See the [Docent Session Format](./session-format.md)
+to active steps only. See the [Docent Session Format](../technical/session-format.md)
 documentation for the full step schema.
 
 > **Forward compatibility.** The client ignores any unrecognized top-level fields
@@ -683,4 +683,4 @@ token be added later without a breaking change.
   token); the client ignores unrecognized fields, so this is non-breaking.
 
 > **Working example.** For a small, runnable implementation of this contract, see
-> the [Reference Sync Server](reference-sync-server.md).
+> the [Reference Sync Server](../../reference-implementations/sync-server/README.md).

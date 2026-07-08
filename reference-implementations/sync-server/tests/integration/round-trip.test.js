@@ -37,7 +37,7 @@ const PROJECT_ID = '019e11fd-78ba-7fdb-8362-6fe9f697f641';
 
 /**
  * Build a deliberately rich `Full_Project_Payload` (shape per
- * `docs/sync-protocol.md`) that exercises every fidelity concern:
+ * `docs/api/sync-protocol.md`) that exercises every fidelity concern:
  *
  *   - a `docent_format` stamp;
  *   - TWO recordings;

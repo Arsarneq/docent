@@ -1,7 +1,7 @@
 /**
  * classify-schema-change.js — Mechanically classifies the change between two
  * composed platform schemas as none / patch / minor / major, per the rules in
- * docs/session-format.md:
+ * docs/technical/session-format.md:
  *
  *   patch — documentation-only changes (description clarifications)
  *   minor — new OPTIONAL fields, new action types, new enum values

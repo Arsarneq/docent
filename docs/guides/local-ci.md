@@ -1,6 +1,6 @@
 # Running CI locally
 
-Docent's CI ([`/.github/workflows/test.yml`](../.github/workflows/test.yml) and the
+Docent's CI ([`/.github/workflows/test.yml`](../../.github/workflows/test.yml) and the
 publish workflows) can be run on your own machine with
 [`act`](https://github.com/nektos/act), which executes GitHub Actions workflows
 in local containers. This is useful for iterating on workflow or test changes
@@ -134,5 +134,5 @@ so its installer build runs only **natively** (`cargo tauri build` from
 The reusable-workflow / `secrets: inherit` caveat above applies here too: if the
 gating `test` job won't resolve under `act`, lint the wiring with `actionlint` and
 confirm the full run with a real `workflow_dispatch` on GitHub. See
-[.github/PUBLISHING.md → Dry-run a publish](../.github/PUBLISHING.md#dry-run-a-publish-no-side-effects)
+[.github/PUBLISHING.md → Dry-run a publish](../../.github/PUBLISHING.md#dry-run-a-publish-no-side-effects)
 for the exact GitHub-UI steps and what a dry-run runs vs. skips.

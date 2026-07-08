@@ -1,7 +1,7 @@
 # Replay Sufficiency
 
 What a recording must be sufficient _for_. The companion principle to
-[Capture Principles](capture-principles.md): that document governs what may
+[Capture Principles](../architecture/system/capture-principles.md): that document governs what may
 enter a recording; this one governs what the recording, taken alone, must
 enable.
 
@@ -36,7 +36,7 @@ the consumer's preparation, not the recording's burden:
   the same application _and_ the same backend data state.
 - **Masked values are consumer-supplied replay parameters.** Sign-in and other
   sensitive flows are recordable: the actions stay in the stream, and redaction
-  masks the values ([Capture Principles — Sensitive Values](capture-principles.md#sensitive-values)).
+  masks the values ([Capture Principles — Sensitive Values](../architecture/system/capture-principles.md#sensitive-values)).
   The recording states _where_ a value goes — the element's identity and its
   `redacted`/`masked` flags — and the consumer supplies _what_. A replay
   halting at a masked password is missing a parameter, not a recording defect.
@@ -110,8 +110,8 @@ here, not from a failed replay:
   stale. The short exception lists cover only the non-obvious corners —
   interactions that appear to be within the surface but are intercepted
   before it or bypass it (OS-level hotkeys, assistive technologies that drive
-  accessibility APIs directly): [extension](capture-principles-extension.md),
-  [desktop](capture-principles-desktop.md).
+  accessibility APIs directly): [extension](../architecture/application/extension/capture-principles.md),
+  [desktop](../architecture/application/desktop/windows/capture-principles.md).
 
 ---
 
@@ -140,14 +140,14 @@ sufficient when all three hold:
    function of the file, checkable by machine.
 2. **Resolution conformance** — the recording's locators resolve to the
    acted-on elements under the documented
-   [reference resolution procedure](locator-resolution.md), verified against
-   ground-truth [conformance vectors](scripted-truth-corpus.md#conformance-vectors)
+   [reference resolution procedure](../technical/locator-resolution.md), verified against
+   ground-truth [conformance vectors](../verification/scripted-truth-corpus.md#conformance-vectors)
    emitted at capture time (the recorder
    knows the acted-on element, so it can export the expected answer alongside
    the candidates). The procedure consults informative measurement facts only
    as conservative gates — the guarantee never stands on them.
 3. **Capture completeness** — the capture pipeline reproduces known truth on
-   [scripted sessions](scripted-truth-corpus.md): controlled applications where the input sequence is
+   [scripted sessions](../verification/scripted-truth-corpus.md): controlled applications where the input sequence is
    scripted, so the produced recording can be compared against it exactly.
    This is what catches missing-action gaps, which no locator machinery can
    see.
@@ -163,7 +163,7 @@ reference procedure would have succeeded."
 ## Field Taxonomy — Normative vs Informative
 
 The sufficiency guarantee stands on a defined subset of the format. Field
-semantics live in the [Session Format](session-format.md) specification; this
+semantics live in the [Session Format](../technical/session-format.md) specification; this
 taxonomy only classifies, by group:
 
 **Normative** — the guarantee stands on these:
@@ -188,5 +188,5 @@ guarantee does not stand on them:
   resolved active view is the replayable sequence.
 
 Consumers should ignore unknown fields (see
-[Field stability](session-format.md#field-stability)); new fields enter as
+[Field stability](../technical/session-format.md#field-stability)); new fields enter as
 informative unless this taxonomy says otherwise.

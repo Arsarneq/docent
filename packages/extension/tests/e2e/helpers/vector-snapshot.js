@@ -95,7 +95,7 @@ export function buildVectors(sessionId, marks, actions) {
     return {
       vector_id: `${sessionId}-${key}`,
       platform: 'extension',
-      spec: 'docs/locator-resolution.md',
+      spec: 'docs/technical/locator-resolution.md',
       scope: { kind: 'frame', frame_src: action.frame_src ?? null },
       element_facts: elementFacts,
       locators,
