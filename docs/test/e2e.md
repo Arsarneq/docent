@@ -1,11 +1,8 @@
 # Automated Capture Tests
 
-Playwright-based tests that verify the extension's event capture behaviour.
-
-## Prerequisites
-
-- Node.js 18+
-- Playwright (`npm install` in this directory)
+Playwright-based tests that verify the extension's event capture behaviour. To run
+them, see [Running Tests](../../.github/CONTRIBUTING.md#running-tests)
+(`npm run test:e2e`).
 
 ## How It Works
 
@@ -16,14 +13,9 @@ Playwright-based tests that verify the extension's event capture behaviour.
 5. Reads `pendingActions` from `chrome.storage.local` via the extension's service worker
 6. Asserts the captured actions match expectations exactly
 
-## Running
-
-```bash
-npx playwright test
-```
-
 ## Coverage
 
 These tests cover the ~48 automatable scenarios from the original test suite.
 The remaining browser chrome interactions (bookmark clicks, session restore)
-are now logic-tested via unit tests in `tests/unit/navigation-logic.test.js`.
+are now logic-tested via unit tests in
+`packages/extension/tests/unit/navigation-logic.test.js`.

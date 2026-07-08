@@ -53,6 +53,17 @@ under `technical/`.
   truth (capture completeness), and the inert conformance vectors for the locator
   procedure.
 
+### Test — does the application behave as designed
+
+- [Test suites](test/README.md) — the inside-out suites that prove the capture
+  software works: the end-to-end capture tests, the retired manual-test histories
+  (extension and Windows desktop), and the backward-compatibility fixture corpus.
+
+`verification/` and `test/` are two lenses on quality: `verification/` looks
+outside-in and proves the recorded **data** satisfies the guarantees the format
+makes to a consumer; `test/` looks inside-out and proves the capture **software**
+behaves as designed. Neither implies the other.
+
 ### Guides — running the project
 
 - [Running CI locally](guides/local-ci.md) — run the CI test jobs on your own
