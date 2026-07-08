@@ -1,5 +1,5 @@
 {
-  "description": "Scripted-truth capture-corpus session catalogue. Doctrine in README.md. status: active | retired (retired entries stay listed with a reason — removals are loud, never silent).",
+  "description": "Scripted-truth capture-corpus session catalogue. Doctrine in docs/scripted-truth-corpus.md. status: active | retired (retired entries stay listed with a reason — removals are loud, never silent).",
   "sessions": [
     {
       "id": "ext-click-basic",
@@ -47,7 +47,7 @@
       "page": "a.html",
       "script": "script.js",
       "knownDiffIssues": [],
-      "notes": "user click on a target=_blank link: the click is the action, the tab is its effect — truth records the click + the new context chrome-initiated navigate. The missing context_open is #252 (a sufficiency-lint fail, not a corpus diff); context_switch/close have no trusted-input driver — loudly excluded in README"
+      "notes": "user click on a target=_blank link: the click is the action, the tab is its effect — truth records the click + the new context chrome-initiated navigate. The missing context_open is #252 (a sufficiency-lint fail, not a corpus diff); context_switch/close have no trusted-input driver — loudly excluded in docs/scripted-truth-corpus.md"
     },
     {
       "id": "ext-iframe",

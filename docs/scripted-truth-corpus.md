@@ -1,7 +1,7 @@
 # Scripted-truth capture corpus
 
 The "capture completeness" artifact of
-[Replay Sufficiency — Falsifiability, item 3](../docs/replay-sufficiency.md#falsifiability):
+[Replay Sufficiency — Falsifiability, item 3](replay-sufficiency.md#falsifiability):
 controlled pages where the input sequence itself is scripted, so CI diffs the
 produced recording against known truth. This is the artifact that catches
 missing-action capture gaps, which neither the schema, the sufficiency lint,
@@ -15,7 +15,7 @@ CI artifact only (excluded from every release, like `reference-implementations/`
 ## Truth doctrine
 
 - **Truth is derived from the script and the
-  [capture principles](../docs/capture-principles.md), never from recorder
+  [capture principles](capture-principles.md), never from recorder
   output.** A truth file states what a faithful capture _in the current
   format_ would record for its session's scripted input. Bootstrapping a truth
   by copying a produced envelope is allowed — followed by a mandatory
@@ -28,7 +28,7 @@ CI artifact only (excluded from every release, like `reference-implementations/`
   gap-predicate territory — truth files are schema-valid current-format
   documents, so such facts structurally cannot appear as corpus diffs.
 - **CI stays green while known capture gaps are open.** The committed
-  `known-diffs.<platform>.json` is locked in BOTH directions by
+  `corpus/known-diffs.<platform>.json` is locked in BOTH directions by
   `npm run corpus:check`: a NEW diff is a capture regression; a VANISHED diff
   means a fix landed — both fail CI until the baseline is deliberately
   regenerated (the comparator's `--write-baseline` flag) and reviewed. The
@@ -42,22 +42,23 @@ CI artifact only (excluded from every release, like `reference-implementations/`
 ## Layout
 
 ```text
-manifest.json                  the session catalogue (id, platform, page,
-                               script, knownDiffIssues, notes, status)
-known-diffs.extension.json     per-platform both-direction baseline
-sessions/<id>/pages/           committed HTML the session runs against
-sessions/<id>/script.js        the input driver (real Playwright input only —
-                               the recorder drops synthetic events)
-sessions/<id>/truth.docent.json  the expected envelope (raw, schema-valid)
-sessions/<id>/overrides.json   optional relaxations sidecar
-out/                           gitignored per-run output (produced envelopes,
-                               diff reports)
+corpus/
+  manifest.json                  the session catalogue (id, platform, page,
+                                 script, knownDiffIssues, notes, status)
+  known-diffs.extension.json     per-platform both-direction baseline
+  sessions/<id>/pages/           committed HTML the session runs against
+  sessions/<id>/script.js        the input driver (real Playwright input only —
+                                 the recorder drops synthetic events)
+  sessions/<id>/truth.docent.json  the expected envelope (raw, schema-valid)
+  sessions/<id>/overrides.json   optional relaxations sidecar
+  out/                           gitignored per-run output (produced envelopes,
+                                 diff reports)
 ```
 
 Runner: `packages/extension/tests/e2e/corpus/corpus.spec.js` (config
-`playwright.corpus.config.js`). Comparator: `scripts/corpus-compare.js`
-(normalization spec, LCS action alignment, baseline mechanics — see its
-header). Local loop: `npm run corpus:produce:extension`, then
+`packages/extension/tests/e2e/playwright.corpus.config.js`). Comparator:
+`scripts/corpus-compare.js` (normalization spec, LCS action alignment, baseline
+mechanics — see its header). Local loop: `npm run corpus:produce:extension`, then
 `npm run corpus:check`.
 
 ## Page-authoring rules
@@ -87,10 +88,10 @@ header). Local loop: `npm run corpus:produce:extension`, then
 
 ## Conformance vectors
 
-Inert data for [docs/locator-resolution.md](../docs/locator-resolution.md#conformance-and-vector-scope)
+Inert data for [docs/locator-resolution.md](locator-resolution.md#conformance-and-vector-scope)
 (Conformance and Vector Scope): committed alongside the sessions whose pages they
-reuse, one file per ground-truth element under `sessions/<id>/vectors/<key>.vector.json`,
-shaped by the meta-schema `vector.schema.json`. A vector carries the recorded
+reuse, one file per ground-truth element under `corpus/sessions/<id>/vectors/<key>.vector.json`,
+shaped by the meta-schema `corpus/vector.schema.json`. A vector carries the recorded
 `locators`, the `element_facts` (the captured element **minus** its nested
 locators — the non-locator fact source), a `tree_snapshot` of the bound scope,
 the `ground_truth` node inside it, and `matched_node_ids` (per candidate, the
@@ -104,7 +105,7 @@ Nothing here executes the resolution procedure.
 A superset of the corpus run, gated on the `CORPUS_VECTORS` env var so truth
 production is byte-for-byte unaffected without it. At a non-mutating,
 non-navigating vector-carrying action, the session driver calls
-`vector.mark(selector, key)`; the snapshot walker (`lib/snapshot-walker.js`,
+`vector.mark(selector, key)`; the snapshot walker (`corpus/lib/snapshot-walker.js`,
 injected via `page.evaluate`) serializes the bound frame's `documentElement`,
 marking the ground truth by the **identity** of the element the driver just acted
 on (never a positional index). Canonical serialization — attribute keys sorted,
@@ -112,7 +113,7 @@ children in document order, node text in the trim-only `element.text` form, node
 ids in document order — so a produced snapshot is deterministic. After the run,
 `element_facts` and `locators` are taken from the real recorded action (correlated
 by element identity) and `matched_node_ids` are measured over the produced
-snapshot. Produced vectors land under the gitignored `out/extension-vectors/`;
+snapshot. Produced vectors land under the gitignored `corpus/out/extension-vectors/`;
 the run asserts each produced vector deep-equals its committed file — the
 produce-stage oracle. Bootstrap a new vector by producing it, reviewing it, and
 committing it (the truth doctrine above, applied to vectors).
@@ -149,7 +150,7 @@ ordered procedure, so a resolver can never be smuggled into a shipped surface.
 
 ### Coverage ledger
 
-`vectors-coverage.json` maps each emitted extension strategy to the committed
+`corpus/vectors-coverage.json` maps each emitted extension strategy to the committed
 vector where it is the measured-unique candidate, at element granularity
 (`session`, `vector`, `element`, `action_index`). A lock ties every emitted
 strategy to a real committed vector; `role_name` and `label` are schema-reserved
@@ -174,7 +175,7 @@ The differences are all data:
   `target_name`), and `children`. The bound scope is the acted-on top-level
   **window, itself included** — the full Control view, no chrome excised (the
   desktop measurement scope in
-  [docs/locator-resolution.md](../docs/locator-resolution.md)) — so uniqueness
+  [docs/locator-resolution.md](locator-resolution.md)) — so uniqueness
   and `tree_path` are counted over exactly what a query sees at the window.
 - **Locale determinism by authored provenance.** A committed snapshot must not
   freeze OS-locale strings. `control_type` / `automation_id` / `class_name` /
@@ -186,7 +187,7 @@ The differences are all data:
   the placeholder, so normalizing OS Names cannot change the match count for any
   content-targeting query.
 - **Fixture-sourced, producer-emitted.** Desktop vectors are sourced from a
-  dedicated vector-only fixture window (`vector-fixtures.json`), not a manifest
+  dedicated vector-only fixture window (`corpus/vector-fixtures.json`), not a manifest
   corpus session: it has no `truth.docent.json`, no known-diffs baseline key, and
   no sufficiency-baseline entry. Its `element_facts` + `locators` are captured
   through the real desktop path (never hand-authored); the vector is
@@ -204,7 +205,7 @@ The differences are all data:
   `element_facts` carries environment-variant fields a static DOM does not:
   `described_after_ms` (worker latency) and a `selector` whose ancestry above the
   window is the virtual-desktop root. The produced==committed oracle compares
-  under the **reused shipped comparator class rules** (`corpus-compare.js`),
+  under the **reused shipped comparator class rules** (`scripts/corpus-compare.js`),
   symmetric on both sides — `described_after_ms` 0-exact / positive→placeholder,
   the selector's above-window ancestry→placeholder — while `element.role`
   (localized) is compared **exact** and is never a corroboration or query input.
@@ -228,7 +229,7 @@ The differences are all data:
   that never enters the shipped build.)
 - **Coverage: all five emitted strategies.** `automation_id`, `role_name`,
   `class_name`, `tree_path`, and `labeled_by` are each the measured-unique
-  candidate in the committed fixture vector (`vectors-coverage.json`,
+  candidate in the committed fixture vector (`corpus/vectors-coverage.json`,
   `desktop-windows`); `desktop-windows-gaps` is an empty object. The coverage lock
   requires every emitted strategy to be either covered or a gap-with-a-reason (the
   union equals the emitted set), so no strategy is ever silently dropped.
@@ -260,13 +261,13 @@ The differences are all data:
   strategy-cross-checked, and reviewed.
 - Truth files are also members of the sufficiency lint's corpus (the
   `sufficiency:check` paths include `corpus/sessions` — never `corpus/`, so
-  the gitignored `out/` can't leak into the lint baseline). Their gap/fail
+  the gitignored `corpus/out/` can't leak into the lint baseline). Their gap/fail
   findings live in `packages/shared/tests/fixtures/sufficiency-baseline.json`.
 
 ## Adding or retiring a session
 
-Add: create `sessions/<id>/` (pages, script, truth per the doctrine above),
-register it in `manifest.json`, produce, review the truth line-by-line,
+Add: create `corpus/sessions/<id>/` (pages, script, truth per the doctrine above),
+register it in `corpus/manifest.json`, produce, review the truth line-by-line,
 regenerate and review both baselines. Retire: never delete silently — set
 `"status": "retired"` in the manifest with a reason (and issue link); the
 entry stays listed. A session that cannot pass CI reliably across its retry

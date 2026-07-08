@@ -506,7 +506,7 @@ jobs:
           retention-days: 1
 
   # Assemble the desktop corpus event dumps through the real frontend pipeline
-  # and diff the envelopes against committed truth (corpus/README.md). Runs on
+  # and diff the envelopes against committed truth (docs/scripted-truth-corpus.md). Runs on
   # ubuntu so the diff logic lives in one place and the Windows job stays lean.
   desktop-corpus-diff:
     needs: [desktop-rust-tests, changes]

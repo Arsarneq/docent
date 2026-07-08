@@ -1,7 +1,7 @@
 /**
  * corpus.spec.js — table-driven runner for the extension leg of the
  * scripted-truth capture corpus (corpus/ at the repo root; doctrine in
- * corpus/README.md).
+ * docs/scripted-truth-corpus.md).
  *
  * One test per active extension session in corpus/manifest.json. Each test:
  *   1. launches a fresh persistent context at the FIXED corpus viewport,
