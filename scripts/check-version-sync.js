@@ -5,7 +5,7 @@
  * The version source of truth is each platform's leaf delta
  * (schemas/<platform>.delta.json) — that is where bump-schema.js writes and
  * where the composed schema's version comes from. This reads those and checks
- * that README.md and docs/session-format.md contain matching version numbers
+ * that README.md and docs/technical/session-format.md contain matching version numbers
  * between their markers.
  *
  * Exits with code 1 if any mismatch is found. Used by CI to catch drift.
@@ -82,7 +82,7 @@ function checkFile(filePath, expectedExt, expectedDesk) {
 let allOk = true;
 
 allOk = checkFile('README.md', extVersion, deskVersion) && allOk;
-allOk = checkFile('docs/session-format.md', extVersion, deskVersion) && allOk;
+allOk = checkFile('docs/technical/session-format.md', extVersion, deskVersion) && allOk;
 
 if (!allOk) {
   console.error('\nVersion mismatch detected. Run `npm run update-version-table` to fix.');

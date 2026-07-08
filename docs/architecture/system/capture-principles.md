@@ -3,13 +3,13 @@
 The core rules for how Docent captures user interactions. Applies to both
 the Chrome extension and the desktop application. This document governs what
 may enter a recording; its companion,
-[Replay Sufficiency](replay-sufficiency.md), governs what the recording must
+[Replay Sufficiency](../../requirements/replay-sufficiency.md), governs what the recording must
 be sufficient for.
 
 Platform-specific details:
 
-- [Extension](capture-principles-extension.md)
-- [Desktop](capture-principles-desktop.md)
+- [Extension](../../architecture/application/extension/capture-principles.md)
+- [Desktop](../../architecture/application/desktop/windows/capture-principles.md)
 
 ---
 
@@ -71,7 +71,7 @@ flagged `redacted`; the action stays in the stream, the secret does not enter it
 Detection is deliberately conservative — over-masking a legitimate field would
 degrade the captured workflow — so only strong signals trigger it. Platform
 specifics (and tokened-URL redaction, which is browser-only) are in the
-[extension](capture-principles-extension.md) and [desktop](capture-principles-desktop.md)
+[extension](../../architecture/application/extension/capture-principles.md) and [desktop](../../architecture/application/desktop/windows/capture-principles.md)
 docs.
 
 ---

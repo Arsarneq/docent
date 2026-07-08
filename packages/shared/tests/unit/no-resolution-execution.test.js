@@ -1,6 +1,6 @@
 /**
  * no-resolution-execution.test.js — repo-level guard that the resolution
- * procedure (docs/locator-resolution.md) is not implemented in any shipped
+ * procedure (docs/technical/locator-resolution.md) is not implemented in any shipped
  * runtime path. Docent ships specifications and inert data, never a resolver;
  * the conformance-vector hygiene locks are measurement (match counts) and
  * committed-field equality only, from which the "resolved" property emerges.

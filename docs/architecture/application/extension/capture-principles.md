@@ -1,6 +1,6 @@
 # Capture Principles — Chrome Extension
 
-Platform-specific details for the extension. See [core rules](capture-principles.md).
+Platform-specific details for the extension. See [core rules](../../../architecture/system/capture-principles.md).
 
 ---
 

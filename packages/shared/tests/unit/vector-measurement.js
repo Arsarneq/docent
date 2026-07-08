@@ -3,7 +3,7 @@
  *
  * A single-purpose helper for the conformance-vector hygiene locks: given a
  * serialized tree_snapshot and one recorded locator candidate, apply exactly
- * that candidate's stated query (docs/locator-resolution.md, the extension
+ * that candidate's stated query (docs/technical/locator-resolution.md, the extension
  * strategy table) over the inert snapshot and return the node_ids it selects,
  * in document order. It is measurement only — the same match-counting Docent's
  * capture already performs (recorder-logic.js matchStats: querySelectorAll +

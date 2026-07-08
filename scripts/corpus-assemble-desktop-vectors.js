@@ -49,7 +49,7 @@ const HARNESS_MEASURED = new Set(['labeled_by', 'tree_path']);
  * element.selector is the full tree path from the UIA root, so it carries
  * environment ancestry above the window — the virtual-desktop root, whose Name
  * ("Desktop 1") varies by which virtual desktop and locale the producer ran on.
- * The bound scope is the window and below (docs/locator-resolution.md), so
+ * The bound scope is the window and below (docs/technical/locator-resolution.md), so
  * everything above the window segment collapses to a single placeholder; the
  * window-and-below portion (the stable, meaningful part, matching the tree_path
  * locator's window-relative scope) stays exact.
@@ -141,7 +141,7 @@ export function buildDesktopVector(dump) {
   const vector = {
     vector_id: `${fixture}-${key}`,
     platform: 'desktop-windows',
-    spec: 'docs/locator-resolution.md',
+    spec: 'docs/technical/locator-resolution.md',
     scope: { kind: 'window', window: window_title },
     element_facts: elementFacts,
     locators,

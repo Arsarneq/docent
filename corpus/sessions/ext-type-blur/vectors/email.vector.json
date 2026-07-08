@@ -1,7 +1,7 @@
 {
   "vector_id": "ext-type-blur-email",
   "platform": "extension",
-  "spec": "docs/locator-resolution.md",
+  "spec": "docs/technical/locator-resolution.md",
   "scope": {
     "kind": "frame",
     "frame_src": null

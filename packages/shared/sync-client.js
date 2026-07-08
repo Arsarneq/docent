@@ -104,7 +104,7 @@ export function buildHeaders(apiKey) {
  * composed schema, the single source of truth). Sync used to omit the stamp,
  * but with client auto-update two clients on one server can be on different
  * schema versions/platforms; the stamp lets the puller detect that. See
- * docs/sync-protocol.md.
+ * docs/api/sync-protocol.md.
  *
  * ── Per-unit assembly mode ─────────────────────────────────────
  * The push is a whole-project write the server stores VERBATIM, so two rules

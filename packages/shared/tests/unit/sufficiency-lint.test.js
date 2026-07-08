@@ -2,7 +2,7 @@
  * sufficiency-lint.test.js — replay-sufficiency baseline lock over the corpus.
  *
  * Runs the sufficiency lint (scripts/sufficiency-lint.js — the static
- * predicates of docs/replay-sufficiency.md, Falsifiability item 1) over every
+ * predicates of docs/requirements/replay-sufficiency.md, Falsifiability item 1) over every
  * frozen fixture under tests/fixtures/ and asserts the findings equal the
  * committed baseline EXACTLY, in both directions:
  *

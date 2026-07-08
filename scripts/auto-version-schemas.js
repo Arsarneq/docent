@@ -6,7 +6,7 @@
  * This is the payoff of separating source layers from the committed build
  * output: schemas/dist/<platform>.schema.json IS the last released contract, so
  * we can diff it against composePlatform(<platform>) and classify the change
- * (none/patch/minor/major) per docs/session-format.md, then bump the version in
+ * (none/patch/minor/major) per docs/technical/session-format.md, then bump the version in
  * the leaf delta to match — no human guesswork.
  *
  * The version stored in the delta is the source of truth. When a delta's

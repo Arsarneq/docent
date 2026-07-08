@@ -9,7 +9,7 @@
  *
  * ⚠️ Writes more than the compatibility tables. A single run edits ALL of:
  *   1. README.md                              — version compatibility table (between markers)
- *   2. docs/session-format.md                 — version table (between markers)
+ *   2. docs/technical/session-format.md                 — version table (between markers)
  *   3. README.md                              — desktop release BADGE (Desktop_Release-vX.Y.Z)
  *                                               and release LINK (…/releases/tag/desktop-vX.Y.Z)
  *   4. packages/extension/manifest.json       — extension APP version
@@ -123,7 +123,7 @@ updateBetweenMarkers(
 );
 console.log(`✓ README.md updated (extension: ${extVersion}, desktop: ${deskVersion})`);
 
-// ─── docs/session-format.md table ─────────────────────────────────────────────
+// ─── docs/technical/session-format.md table ─────────────────────────────────────────────
 
 const specTable = [
   '| Schema file | Platform | Current |',
@@ -132,12 +132,12 @@ const specTable = [
 ].join('\n');
 
 updateBetweenMarkers(
-  'docs/session-format.md',
+  'docs/technical/session-format.md',
   '<!-- VERSION_TABLE_START -->',
   '<!-- VERSION_TABLE_END -->',
   specTable,
 );
-console.log(`✓ docs/session-format.md updated`);
+console.log(`✓ docs/technical/session-format.md updated`);
 
 // ─── README badge versions ────────────────────────────────────────────────────
 
