@@ -5,7 +5,7 @@
       "id": "desktop-fixture",
       "platform": "desktop-windows",
       "producer": "packages/desktop/src-tauri/tests/corpus_capture.rs::v_vector_fixture",
-      "notes": "A controlled top-level window hosting a STATIC label (authored automation_id) preceding an EDIT (authored automation_id, distinct class); the label supplies the EDIT's UIA Name, so automation_id / role_name / class_name / tree_path are exercisable over a real UIA capture. A Win32 STATIC does not populate the EDIT's UIA LabeledBy relation element, so labeled_by is a documented coverage gap (corpus/vectors-coverage.json)."
+      "notes": "A controlled top-level window (a dedicated custom window class) hosting a STATIC label (authored automation_id) preceding an EDIT (authored automation_id, distinct class); the label supplies the EDIT's UIA Name, so automation_id / role_name / class_name / tree_path are exercisable over a real UIA capture. The window's procedure answers the UIA object request with a fragment-root provider whose IRawElementProviderHwndOverride merges a real UIA LabeledBy relation onto the native EDIT (control type stays Edit), so labeled_by is exercisable too — all five desktop strategies are covered."
     }
   ]
 }

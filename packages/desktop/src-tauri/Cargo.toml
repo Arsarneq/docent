@@ -49,6 +49,14 @@ enigo = "0.6"
 serial_test = "3"
 tempfile = "3"
 
+# SPIKE 2 (test-only): windows-core as a DIRECT dev-dependency exposes the
+# `#[implement]` COM macro for the conformance-vector fixture's UIA
+# OverrideProvider. Same version `windows` already resolves (0.62.2); under the
+# edition-2021 resolver (v2) it never enters the shipped graph (cargo tree -e
+# no-dev confirms). windows-core is already a transitive dep of the shipped build.
+[target.'cfg(windows)'.dev-dependencies]
+windows-core = "0.62"
+
 [lib]
 name = "docent_desktop_lib"
 crate-type = ["lib", "cdylib", "staticlib"]

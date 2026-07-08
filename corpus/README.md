@@ -212,20 +212,26 @@ The differences are all data:
   a pinned Windows image, so an image bump is a deliberate re-baseline
   (reproducibility, not cross-version invariance — the 4a cross-machine discipline
   applied to the snapshot).
-- **Coverage: four of the five emitted strategies.** `automation_id`,
-  `role_name`, `class_name`, and `tree_path` are each the measured-unique
-  candidate in a committed fixture vector (`vectors-coverage.json`,
-  `desktop-windows`). `labeled_by` is a **tracked gap** (`desktop-windows-gaps`),
-  pending a follow-up: a Win32 control surfaces a preceding label as the element's
-  Name but not as the UIA LabeledBy relation element, and a minimal server-side
-  override cannot add the relation without replacing the system control's provider
-  and losing its native `Edit` control type — so a live vector needs a provider
-  that _merges_ the relation onto the native control
-  (`IRawElementProviderHwndOverride`). Its resolution, snapshot edge, and harness
-  augmentation are implemented and unit-tested; the provider-backed fixture is a
-  tracked follow-up, not an accepted omission. The coverage lock requires every
-  emitted strategy to be either covered or a gap-with-a-reason, so the gap is never
-  silently dropped.
+- **`labeled_by` via a merged UIA relation.** A raw Win32 EDIT exposes its
+  preceding label as a Name but not as a UIA LabeledBy relation element. The
+  fixture window is therefore a dedicated custom window class whose window
+  procedure answers the UIA object request with a fragment-root provider
+  implementing `IRawElementProviderHwndOverride`. The override returned for the
+  EDIT host-delegates every property to the native control (so `control_type`
+  stays `Edit`, `automation_id`/`class_name`/`name` flow through) and supplies
+  **only** the LabeledBy relation — a small self-describing element whose Name is
+  the label text. UIA **merges** the override onto the native element, so the
+  relation is genuinely reported to any reader — the direct describe path and the
+  Control-view walk alike — and nothing is synthesized in the reader. The EDIT's
+  snapshot node then carries a real `labeled_by` edge, making `labeled_by` the
+  measured-unique candidate. (`#[implement]` comes from a test-only dev-dependency
+  that never enters the shipped build.)
+- **Coverage: all five emitted strategies.** `automation_id`, `role_name`,
+  `class_name`, `tree_path`, and `labeled_by` are each the measured-unique
+  candidate in the committed fixture vector (`vectors-coverage.json`,
+  `desktop-windows`); `desktop-windows-gaps` is an empty object. The coverage lock
+  requires every emitted strategy to be either covered or a gap-with-a-reason (the
+  union equals the emitted set), so no strategy is ever silently dropped.
 
 ## Out of scripted reach (loud exclusions)
 
