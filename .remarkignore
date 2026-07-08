@@ -1,9 +1,0 @@
-node_modules
-packages/desktop/src-tauri/target
-.kiro
-.claude
-corpus/out
-SECURITY_BACKLOG.md
-packages/*/shared/
-packages/shared/generated/
-packages/desktop/dist/

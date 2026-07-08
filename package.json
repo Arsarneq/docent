@@ -42,7 +42,7 @@
     "lint:js": "eslint packages/shared/ packages/extension/sidepanel/ packages/extension/content/ packages/extension/background/ packages/desktop/src/ scripts/ reference-implementations/ corpus/",
     "lint:css": "stylelint 'packages/shared/views/**/*.css'",
     "lint:md": "markdownlint-cli2 '**/*.md' '#node_modules' '#packages/desktop/src-tauri/target'",
-    "lint:links": "remark . --quiet --frail",
+    "lint:links": "remark . --quiet --frail --ignore-path .gitignore",
     "lint:format": "prettier --check .",
     "format": "prettier --write .",
     "update-version-table": "node scripts/update-version-table.js",
