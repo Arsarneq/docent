@@ -13,9 +13,9 @@
     "role": "edit",
     "type": null,
     "text": "x",
-    "selector": "Pane:Desktop 1 > Text:Docent Vector Fixture > Edit:Amount",
+    "selector": "Pane:Desktop 1 > Window:Docent Vector Fixture > Edit:Amount",
     "framework_id": "Win32",
-    "described_after_ms": 117
+    "described_after_ms": 99
   },
   "locators": [
     {
@@ -38,18 +38,24 @@
       "match_index": 0
     },
     {
+      "strategy": "labeled_by",
+      "value": "Amount",
+      "match_count": 1,
+      "match_index": 0
+    },
+    {
       "strategy": "tree_path",
-      "value": "Text:Docent Vector Fixture > Edit:Amount",
+      "value": "Window:Docent Vector Fixture > Edit:Amount",
       "match_count": 1,
       "match_index": 0
     }
   ],
   "tree_snapshot": {
     "node_id": "d0",
-    "control_type": "Text",
+    "control_type": "Window",
     "name": "Docent Vector Fixture",
     "automation_id": null,
-    "class_name": "Static",
+    "class_name": "DocentVectorFixture",
     "text": null,
     "labeled_by": null,
     "children": [
@@ -70,7 +76,9 @@
         "automation_id": "1002",
         "class_name": "Edit",
         "text": "x",
-        "labeled_by": null,
+        "labeled_by": {
+          "target_name": "Amount"
+        },
         "children": []
       },
       {
@@ -140,6 +148,6 @@
   "ground_truth": {
     "node_id": "d2"
   },
-  "matched_node_ids": [["d2"], ["d2"], ["d2"], ["d2"]],
+  "matched_node_ids": [["d2"], ["d2"], ["d2"], ["d2"], ["d2"]],
   "expected_outcome": "resolved"
 }

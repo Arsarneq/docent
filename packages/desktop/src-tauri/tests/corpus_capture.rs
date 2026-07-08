@@ -49,28 +49,38 @@ use serial_test::serial;
 use docent_desktop_lib::capture::windows::WindowsCapture;
 use docent_desktop_lib::capture::{ActionEvent, ActionPayload, CaptureLayer, ElementDescription};
 
-use windows::core::w;
-use windows::Win32::Foundation::{HWND, RECT};
+use windows::core::{w, BSTR};
+use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, RECT, WPARAM};
 use windows::Win32::UI::WindowsAndMessaging::{
-    CreateWindowExW, DestroyWindow, DispatchMessageW, GetMessageW, GetWindowRect, TranslateMessage,
-    MSG, WINDOW_STYLE, WS_EX_TOPMOST, WS_OVERLAPPEDWINDOW, WS_VISIBLE,
+    CreateWindowExW, DefWindowProcW, DestroyWindow, DispatchMessageW, GetMessageW, GetWindowRect,
+    RegisterClassW, TranslateMessage, MSG, WINDOW_STYLE, WM_GETOBJECT, WNDCLASSW, WS_EX_TOPMOST,
+    WS_OVERLAPPEDWINDOW, WS_VISIBLE,
 };
 
 // UIA imports for the conformance-vector Control-view snapshot walker (see the
-// `v_vector_fixture` test at the end of this file). The walker runs on the test
-// thread against the live fixture window; it reuses no crate-private capture
+// `v_vector_fixture` test at the end of this file) AND the labeled_by fixture's
+// UIA OverrideProvider (see the provider section below). The walker runs on the
+// test thread against the live fixture window; it reuses no crate-private capture
 // helper (those are pub(crate)), so the small UIA property reads and the
 // control-type-id → name table are self-contained here.
 use windows::core::Interface;
 use windows::Win32::System::Com::{
-    CoCreateInstance, CoInitializeEx, CLSCTX_ALL, COINIT_APARTMENTTHREADED,
+    CoCreateInstance, CoInitializeEx, CLSCTX_ALL, COINIT_APARTMENTTHREADED, SAFEARRAY,
 };
-use windows::Win32::System::Variant::{VT_BSTR, VT_UNKNOWN};
+use windows::Win32::System::Variant::{VARIANT, VARIANT_0_0, VT_BSTR, VT_UNKNOWN};
 use windows::Win32::UI::Accessibility::{
-    CUIAutomation, IUIAutomation, IUIAutomationElement, IUIAutomationTreeWalker,
+    CUIAutomation, IRawElementProviderFragment, IRawElementProviderFragmentRoot,
+    IRawElementProviderFragmentRoot_Impl, IRawElementProviderFragment_Impl,
+    IRawElementProviderHwndOverride, IRawElementProviderHwndOverride_Impl,
+    IRawElementProviderSimple, IRawElementProviderSimple_Impl, IUIAutomation, IUIAutomationElement,
+    IUIAutomationTreeWalker, NavigateDirection, ProviderOptions, ProviderOptions_OverrideProvider,
+    ProviderOptions_ServerSideProvider, ProviderOptions_UseComThreading,
     UIA_AutomationIdPropertyId, UIA_ClassNamePropertyId, UIA_ControlTypePropertyId,
-    UIA_LabeledByPropertyId, UIA_NamePropertyId, UIA_ValueValuePropertyId, UIA_PROPERTY_ID,
+    UIA_LabeledByPropertyId, UIA_NamePropertyId, UIA_ValueValuePropertyId,
+    UiaGetReservedNotSupportedValue, UiaHostProviderFromHwnd, UiaRect, UiaReturnRawElementProvider,
+    UiaRootObjectId, UIA_PATTERN_ID, UIA_PROPERTY_ID,
 };
+use windows_core::{implement, Error as ComError, IUnknown, Result as ComResult};
 
 #[derive(PartialEq, Clone, Copy)]
 enum Child {
@@ -78,16 +88,16 @@ enum Child {
     ScrollEdit,
     TypeEdit,
     PasswordEdit,
-    /// A STATIC label (control id 1001) preceding an EDIT (control id 1002).
+    /// A STATIC label (control id 1001) preceding an EDIT (control id 1002),
+    /// hosted in a dedicated custom-class window whose WndProc answers
+    /// WM_GETOBJECT with a UIA OverrideProvider (see the provider section below).
     /// The Win32 control ids surface as UIA AutomationIds (authored content
-    /// provenance), the preceding STATIC supplies the EDIT's UIA Name (its
-    /// accessible name), and the controls carry distinct class names — so the
-    /// automation_id / role_name / class_name / tree_path desktop strategies are
-    /// exercisable over this window. NOTE: a Win32 STATIC does NOT populate the
-    /// EDIT's UIA LabeledBy RELATION element (only a UIA provider / WPF/XAML
-    /// AutomationProperties.LabeledBy does), so labeled_by is not emitted here —
-    /// a documented coverage gap (corpus/vectors-coverage.json). Used by the
-    /// conformance-vector fixture (`v_vector_fixture`), never a manifest session.
+    /// provenance), the STATIC supplies the EDIT's UIA Name, the controls carry
+    /// distinct class names, and the provider MERGES a real UIA LabeledBy relation
+    /// onto the native EDIT (ControlType stays Edit) — so ALL FIVE desktop
+    /// strategies (automation_id / role_name / class_name / labeled_by /
+    /// tree_path) are exercisable over this window. Used by the conformance-vector
+    /// fixture (`v_vector_fixture`), never a manifest corpus session.
     LabeledEdit,
 }
 
@@ -96,6 +106,208 @@ enum Child {
 /// carrying one of these (authored content); every other node's Name is
 /// OS-provided and normalized to a locale-stable placeholder.
 const FIXTURE_AUTHORED_IDS: &[&str] = &["1001", "1002"];
+
+// ---------------------------------------------------------------------------
+// labeled_by fixture — a UIA OverrideProvider that MERGES a real LabeledBy
+// relation onto the native EDIT.
+//
+// A raw Win32 STATIC→EDIT gives the EDIT its accessible Name but NOT a UIA
+// LabeledBy *relation element*. To expose one over a controlled fixture without
+// losing the EDIT's native identity, the fixture window (a dedicated custom
+// class) answers WM_GETOBJECT with a fragment-root provider implementing
+// IRawElementProviderHwndOverride. GetOverrideProviderForHwnd(edit) returns an
+// OverrideProvider (ProviderOptions_OverrideProvider) that host-delegates to the
+// native EDIT (ControlType / AutomationId / ClassName / Name flow through) and
+// supplies ONLY UIA_LabeledBy = a small self-describing LabelProvider whose Name
+// is the label text. UIA MERGES the override onto the native element, so a DIRECT
+// read (capture's ElementFromPoint / ElementFromHandle) AND a Control-view walk
+// both see ControlType=Edit + the real LabeledBy relation. Nothing is fabricated
+// in the reader — UIA genuinely reports the relation, exactly as a WPF/XAML
+// AutomationProperties.LabeledBy does. `#[implement]` comes from windows-core, a
+// test-only dev-dependency (see Cargo.toml) that never enters the shipped build.
+// ---------------------------------------------------------------------------
+
+/// The label text the fixture's EDIT is labeled by (the visible STATIC's text).
+const FIXTURE_LABEL_NAME: &str = "Amount";
+
+fn as_hwnd(x: isize) -> HWND {
+    HWND(x as *mut core::ffi::c_void)
+}
+
+/// Build a `VT_UNKNOWN` VARIANT owning `unknown` — the shape UIA expects for an
+/// element-valued property (and that `get_labeled_by_name` reads). Written via a
+/// raw pointer because Rust does not auto-`DerefMut` a `ManuallyDrop` union
+/// field; the freshly-defaulted VARIANT's empty slot is overwritten, not dropped.
+unsafe fn variant_from_unknown(unknown: IUnknown) -> VARIANT {
+    let mut v = VARIANT::default();
+    let slot = std::ptr::addr_of_mut!(v.Anonymous.Anonymous) as *mut VARIANT_0_0;
+    (*slot).vt = VT_UNKNOWN;
+    (*slot).Anonymous.punkVal = std::mem::ManuallyDrop::new(Some(unknown));
+    v
+}
+
+/// The UIA "not supported" sentinel, wrapped in a VARIANT — returned for every
+/// property the override does not itself supply, so those fall through to the
+/// host (native) provider rather than being blanked.
+unsafe fn not_supported() -> ComResult<VARIANT> {
+    Ok(variant_from_unknown(UiaGetReservedNotSupportedValue()?))
+}
+
+/// A minimal self-describing UIA element (a custom provider object, NOT a bare
+/// host provider — a host provider fails to marshal cross-apartment as an
+/// element-valued property). It is the target of the EDIT's LabeledBy relation;
+/// its Name mirrors the visible STATIC label so `get_labeled_by_name` reads it.
+#[implement(IRawElementProviderSimple)]
+struct LabelProvider;
+
+impl IRawElementProviderSimple_Impl for LabelProvider_Impl {
+    fn ProviderOptions(&self) -> ComResult<ProviderOptions> {
+        Ok(ProviderOptions_ServerSideProvider | ProviderOptions_UseComThreading)
+    }
+    fn GetPatternProvider(&self, _id: UIA_PATTERN_ID) -> ComResult<IUnknown> {
+        Err(ComError::empty())
+    }
+    fn GetPropertyValue(&self, id: UIA_PROPERTY_ID) -> ComResult<VARIANT> {
+        if id == UIA_NamePropertyId {
+            return Ok(VARIANT::from(BSTR::from(FIXTURE_LABEL_NAME)));
+        }
+        if id == UIA_ControlTypePropertyId {
+            return Ok(VARIANT::from(50020i32)); // UIA_TextControlTypeId
+        }
+        unsafe { not_supported() }
+    }
+    fn HostRawElementProvider(&self) -> ComResult<IRawElementProviderSimple> {
+        Err(ComError::empty())
+    }
+}
+
+/// The EDIT override provider: merges onto the native EDIT (host-delegated), adds
+/// ONLY the LabeledBy relation.
+#[implement(IRawElementProviderSimple)]
+struct EditOverride {
+    edit: isize,
+}
+
+impl IRawElementProviderSimple_Impl for EditOverride_Impl {
+    fn ProviderOptions(&self) -> ComResult<ProviderOptions> {
+        Ok(ProviderOptions_ServerSideProvider
+            | ProviderOptions_OverrideProvider
+            | ProviderOptions_UseComThreading)
+    }
+    fn GetPatternProvider(&self, _id: UIA_PATTERN_ID) -> ComResult<IUnknown> {
+        Err(ComError::empty())
+    }
+    fn GetPropertyValue(&self, id: UIA_PROPERTY_ID) -> ComResult<VARIANT> {
+        if id == UIA_LabeledByPropertyId {
+            let label: IRawElementProviderSimple = LabelProvider.into();
+            return Ok(unsafe { variant_from_unknown(label.cast()?) });
+        }
+        // ControlType / Name / AutomationId / ClassName fall through to the EDIT.
+        unsafe { not_supported() }
+    }
+    fn HostRawElementProvider(&self) -> ComResult<IRawElementProviderSimple> {
+        unsafe { UiaHostProviderFromHwnd(as_hwnd(self.edit)) }
+    }
+}
+
+/// The fixture window's fragment-root provider: host-delegates its own properties
+/// (so the snapshot root and OS chrome are preserved) and, via
+/// IRawElementProviderHwndOverride, layers the EditOverride onto the EDIT child.
+#[implement(
+    IRawElementProviderSimple,
+    IRawElementProviderFragment,
+    IRawElementProviderFragmentRoot,
+    IRawElementProviderHwndOverride
+)]
+struct FixtureRoot {
+    parent: isize,
+    edit: isize,
+}
+
+impl IRawElementProviderSimple_Impl for FixtureRoot_Impl {
+    fn ProviderOptions(&self) -> ComResult<ProviderOptions> {
+        Ok(ProviderOptions_ServerSideProvider | ProviderOptions_UseComThreading)
+    }
+    fn GetPatternProvider(&self, _id: UIA_PATTERN_ID) -> ComResult<IUnknown> {
+        Err(ComError::empty())
+    }
+    fn GetPropertyValue(&self, _id: UIA_PROPERTY_ID) -> ComResult<VARIANT> {
+        unsafe { not_supported() }
+    }
+    fn HostRawElementProvider(&self) -> ComResult<IRawElementProviderSimple> {
+        unsafe { UiaHostProviderFromHwnd(as_hwnd(self.parent)) }
+    }
+}
+
+impl IRawElementProviderFragment_Impl for FixtureRoot_Impl {
+    fn Navigate(&self, _dir: NavigateDirection) -> ComResult<IRawElementProviderFragment> {
+        // The EDIT child is placed by the HWND hierarchy, not fragment navigation.
+        Err(ComError::empty())
+    }
+    fn GetRuntimeId(&self) -> ComResult<*mut SAFEARRAY> {
+        Ok(std::ptr::null_mut())
+    }
+    fn BoundingRectangle(&self) -> ComResult<UiaRect> {
+        Ok(UiaRect {
+            left: 0.0,
+            top: 0.0,
+            width: 0.0,
+            height: 0.0,
+        })
+    }
+    fn GetEmbeddedFragmentRoots(&self) -> ComResult<*mut SAFEARRAY> {
+        Ok(std::ptr::null_mut())
+    }
+    fn SetFocus(&self) -> ComResult<()> {
+        Ok(())
+    }
+    fn FragmentRoot(&self) -> ComResult<IRawElementProviderFragmentRoot> {
+        // A fresh instance representing the same (stateless) root.
+        Ok(FixtureRoot {
+            parent: self.parent,
+            edit: self.edit,
+        }
+        .into())
+    }
+}
+
+impl IRawElementProviderFragmentRoot_Impl for FixtureRoot_Impl {
+    fn ElementProviderFromPoint(&self, _x: f64, _y: f64) -> ComResult<IRawElementProviderFragment> {
+        Err(ComError::empty())
+    }
+    fn GetFocus(&self) -> ComResult<IRawElementProviderFragment> {
+        Err(ComError::empty())
+    }
+}
+
+impl IRawElementProviderHwndOverride_Impl for FixtureRoot_Impl {
+    fn GetOverrideProviderForHwnd(&self, h: HWND) -> ComResult<IRawElementProviderSimple> {
+        if h.0 as isize == self.edit {
+            Ok(EditOverride { edit: self.edit }.into())
+        } else {
+            Err(ComError::empty())
+        }
+    }
+}
+
+thread_local! {
+    /// (parent_hwnd, edit_hwnd) for the fixture window on this pump thread, set
+    /// after the children are created; read by [`fixture_wndproc`].
+    static FIXTURE_HWNDS: std::cell::Cell<(isize, isize)> = const { std::cell::Cell::new((0, 0)) };
+}
+
+/// The fixture window's WndProc: answers the UIA object request with the
+/// fragment-root provider, forwards everything else to DefWindowProc.
+unsafe extern "system" fn fixture_wndproc(h: HWND, m: u32, w: WPARAM, l: LPARAM) -> LRESULT {
+    if m == WM_GETOBJECT && l.0 == UiaRootObjectId as isize {
+        let (parent, edit) = FIXTURE_HWNDS.with(|c| c.get());
+        if parent != 0 && edit != 0 && h.0 as isize == parent {
+            let provider: IRawElementProviderSimple = FixtureRoot { parent, edit }.into();
+            return UiaReturnRawElementProvider(h, w, l, &provider);
+        }
+    }
+    DefWindowProcW(h, m, w, l)
+}
 
 /// SS_NOTIFY: a bare STATIC answers WM_NCHITTEST with HTTRANSPARENT
 /// (click-through); this style makes it hit-testable. Same rationale as
@@ -137,12 +349,29 @@ impl SessionWindow {
 
         let (tx, rx) = smpsc::channel::<(u32, isize, i32, i32)>();
         let handle = thread::spawn(move || unsafe {
+            // The labeled_by fixture hosts a UIA provider on this window; give the
+            // pump thread a single-threaded apartment so UIA can marshal the
+            // UseComThreading provider's WM_GETOBJECT calls. Other windows carry no
+            // provider and stay apartment-free.
+            if child == Child::LabeledEdit {
+                let _ = CoInitializeEx(None, COINIT_APARTMENTTHREADED);
+            }
             let title_wide: Vec<u16> = title.encode_utf16().chain(std::iter::once(0)).collect();
-            let class = if plain {
-                use windows::Win32::Foundation::{LPARAM, LRESULT, WPARAM};
-                use windows::Win32::UI::WindowsAndMessaging::{
-                    DefWindowProcW, RegisterClassW, WNDCLASSW,
-                };
+            let class = if child == Child::LabeledEdit {
+                // Dedicated custom class whose WndProc answers WM_GETOBJECT with
+                // the fixture's OverrideProvider (labeled_by coverage). Isolated to
+                // this fixture — no other session's window or pump is perturbed.
+                static REGISTER_FIXTURE: std::sync::Once = std::sync::Once::new();
+                REGISTER_FIXTURE.call_once(|| {
+                    let wc = WNDCLASSW {
+                        lpfnWndProc: Some(fixture_wndproc),
+                        lpszClassName: w!("DocentVectorFixture"),
+                        ..Default::default()
+                    };
+                    let _ = RegisterClassW(&wc);
+                });
+                w!("DocentVectorFixture")
+            } else if plain {
                 unsafe extern "system" fn plain_proc(
                     h: HWND,
                     m: u32,
@@ -186,10 +415,11 @@ impl SessionWindow {
                 // A STATIC label (control id 1001) precedes the EDIT so UIA
                 // derives the EDIT's Name from it (its accessible name = "Amount");
                 // both Win32 control ids surface as UIA AutomationIds (authored
-                // content). (The STATIC does NOT populate the EDIT's UIA LabeledBy
-                // relation — see the Child::LabeledEdit note.) Positions keep the
-                // EDIT under the window centre so the focus click lands on it.
-                let _label = CreateWindowExW(
+                // content). The custom-class WndProc's OverrideProvider then merges
+                // a real LabeledBy relation (→ the label text) onto the native
+                // EDIT. Positions keep the EDIT under the window centre so the
+                // focus click lands on it.
+                let label = CreateWindowExW(
                     Default::default(),
                     w!("STATIC"),
                     w!("Amount"),
@@ -204,7 +434,7 @@ impl SessionWindow {
                     Some(std::ptr::null()),
                 )
                 .expect("Failed to create fixture label");
-                let _edit = CreateWindowExW(
+                let edit = CreateWindowExW(
                     Default::default(),
                     w!("EDIT"),
                     w!(""),
@@ -219,6 +449,10 @@ impl SessionWindow {
                     Some(std::ptr::null()),
                 )
                 .expect("Failed to create fixture edit");
+                let _ = label;
+                // Publish (parent, edit) for fixture_wndproc to build the provider
+                // when UIA requests the window's element.
+                FIXTURE_HWNDS.with(|c| c.set((hwnd.0 as isize, edit.0 as isize)));
             } else if child != Child::None {
                 use windows::Win32::UI::WindowsAndMessaging::{
                     SetWindowTextW, ES_AUTOVSCROLL, ES_MULTILINE, ES_PASSWORD, WS_BORDER, WS_CHILD,
