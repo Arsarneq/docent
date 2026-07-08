@@ -14,6 +14,9 @@ the [root README](../README.md).
 - [Locator Resolution](locator-resolution.md) — the reference procedure that
   defines what "the recording's locators resolve correctly" means, and the
   conformance-vector scope
+- [Scripted-Truth Corpus](scripted-truth-corpus.md) — the falsifiability testing
+  artifact: controlled sessions diffed against committed truth (capture
+  completeness), and inert conformance vectors for the locator procedure
 - [Session Format](session-format.md) — the formal `.docent.json` specification
 - [Sync Protocol](sync-protocol.md) — the REST API for syncing projects between
   clients and a server

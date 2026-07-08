@@ -1,5 +1,5 @@
 //! Scripted-truth capture-corpus producer (desktop leg; doctrine in
-//! corpus/README.md at the repo root).
+//! docs/scripted-truth-corpus.md).
 //!
 //! Each test is one corpus session: it creates a controlled window that is
 //! DELIBERATELY NOT raised to the foreground (a programmatic raise succeeds
@@ -858,8 +858,8 @@ fn d_coordinate() {
 }
 
 // ---------------------------------------------------------------------------
-// Conformance-vector fixture (desktop leg; doctrine in corpus/README.md and
-// docs/locator-resolution.md "Conformance and Vector Scope").
+// Conformance-vector fixture (desktop leg; doctrine in docs/scripted-truth-corpus.md
+// and docs/locator-resolution.md "Conformance and Vector Scope").
 //
 // This is a dedicated VECTOR-ONLY fixture, NOT a manifest corpus session: it
 // has no truth.docent.json and no known-diffs baseline key (enumerated in
