@@ -1,0 +1,290 @@
+/**
+ * check-area-map.test.js — Unit tests for the area-map admission test
+ * (scripts/check-area-map.js) that gates CI. The map is committed data, so
+ * every way it can rot must fail loud: these tests prove each red path fires
+ * on synthetic input (zero-area files, stale patterns, untracked entries,
+ * uncovered docs, stale/unnecessary exceptions, dangling doc pointers) and
+ * that the pattern matcher includes dotfiles under `**` — the semantics that
+ * make "everything under a package belongs to its area" actually total.
+ */
+
+import { describe, it } from 'node:test';
+import assert from 'node:assert/strict';
+import {
+  expandBraces,
+  globToRegExp,
+  extractDocPointers,
+  validateShape,
+  compileMap,
+  resolveFile,
+  auditMap,
+} from '../../../../scripts/check-area-map.js';
+
+/** A minimal well-formed map two areas wide, for overriding per test. */
+function makeMap(overrides = {}) {
+  return {
+    description: 'test map',
+    'repo-wide': { description: 'x', docs: ['README.md'] },
+    areas: {
+      alpha: {
+        code: ['packages/alpha/**'],
+        docs: ['docs/alpha.md'],
+      },
+      tooling: {
+        code: ['scripts/check-*.js', 'package.json'],
+        docs: ['docs/tooling.md'],
+      },
+    },
+    unassigned: [{ path: 'LICENSE', reason: 'license text' }],
+    ...overrides,
+  };
+}
+
+/** Files that satisfy makeMap() exactly (every pattern live, every doc owned). */
+const BASE_FILES = [
+  'README.md',
+  'docs/alpha.md',
+  'docs/tooling.md',
+  'packages/alpha/index.js',
+  'scripts/check-something.js',
+  'package.json',
+  'LICENSE',
+];
+
+function audit({ map = makeMap(), files = BASE_FILES, contents = {} } = {}) {
+  return auditMap({ files, map, readFile: (f) => contents[f] ?? null });
+}
+
+const flatten = (r) => Object.values(r).flat();
+
+describe('globToRegExp — pattern semantics', () => {
+  it('matches dotfiles under ** (ownership is by location, not filename shape)', () => {
+    const re = globToRegExp('packages/alpha/**');
+    assert.equal(re.test('packages/alpha/tests/.gitignore'), true);
+    assert.equal(re.test('packages/alpha/.config/x.json'), true);
+    assert.equal(re.test('packages/alpha/index.js'), true);
+    assert.equal(re.test('packages/other/index.js'), false);
+  });
+
+  it('keeps * within one segment', () => {
+    const re = globToRegExp('scripts/check-*.js');
+    assert.equal(re.test('scripts/check-pr-title.js'), true);
+    assert.equal(re.test('scripts/check-nested/x.js'), false);
+  });
+
+  it('lets a leading **/ match zero directories (root files included)', () => {
+    const re = globToRegExp('**/playwright*.config.js');
+    assert.equal(re.test('playwright.corpus.config.js'), true);
+    assert.equal(re.test('packages/alpha/tests/playwright.config.js'), true);
+    assert.equal(re.test('playwright/other.js'), false);
+  });
+
+  it('anchors a root dotfile pattern to a single segment', () => {
+    const re = globToRegExp('.*');
+    assert.equal(re.test('.editorconfig'), true);
+    assert.equal(re.test('.github/workflows/test.yml'), false);
+  });
+
+  it('rejects unsupported pattern syntax instead of guessing', () => {
+    assert.throws(() => globToRegExp('scripts/[ab].js'));
+    assert.throws(() => globToRegExp('scripts/?.js'));
+  });
+
+  it('rejects ** embedded inside a segment (** is whole-segment only)', () => {
+    assert.throws(() => globToRegExp('packages/**.js'));
+    assert.throws(() => globToRegExp('a/b**/c.js'));
+  });
+});
+
+describe('expandBraces', () => {
+  it('expands alternation into brace-free patterns', () => {
+    assert.deepEqual(expandBraces('a/{x,y-*}.js'), ['a/x.js', 'a/y-*.js']);
+  });
+
+  it('expands nested groups and leaves brace-free patterns alone', () => {
+    assert.deepEqual(expandBraces('a/{x,{y,z}}.js'), ['a/x.js', 'a/y.js', 'a/z.js']);
+    assert.deepEqual(expandBraces('plain.js'), ['plain.js']);
+  });
+
+  it('throws on unbalanced braces', () => {
+    assert.throws(() => expandBraces('a/{x,y.js'));
+  });
+});
+
+describe('auditMap — green path', () => {
+  it('reports nothing on a map that exactly covers its tree', () => {
+    assert.deepEqual(flatten(audit()), []);
+  });
+});
+
+describe('auditMap — coverage (a)', () => {
+  it('flags a tracked file no area owns', () => {
+    const r = audit({ files: [...BASE_FILES, 'orphan/nowhere.txt'] });
+    assert.deepEqual(r.zeroArea, ['orphan/nowhere.txt']);
+  });
+
+  it('resolves a dotfile under a ** area glob (the matcher-semantics red path)', () => {
+    const r = audit({ files: [...BASE_FILES, 'packages/alpha/tests/.gitignore'] });
+    assert.deepEqual(r.zeroArea, []);
+  });
+});
+
+describe('auditMap — staleness (b)', () => {
+  it('flags a pattern matching no tracked file, naming the dead brace member', () => {
+    const map = makeMap();
+    map.areas.tooling.code = ['scripts/{check-*,gone-*}.js', 'package.json'];
+    const r = audit({ map });
+    assert.equal(r.stalePatterns.length, 1);
+    assert.match(r.stalePatterns[0], /scripts\/gone-\*\.js/);
+    assert.match(r.stalePatterns[0], /from "scripts\/\{check-\*,gone-\*\}\.js"/);
+  });
+
+  it('flags untracked doc, source-of-truth, and repo-wide entries', () => {
+    const map = makeMap();
+    map.areas.alpha.docs = ['docs/alpha.md', 'docs/moved-away.md'];
+    map.areas.alpha['source-of-truth'] = ['schemas/gone.json'];
+    map['repo-wide'].docs = ['README.md', 'docs/deleted-hub.md'];
+    const r = audit({ map });
+    assert.deepEqual(r.untrackedEntries.sort(), [
+      'area "alpha": docs/moved-away.md',
+      'area "alpha": schemas/gone.json',
+      'repo-wide: docs/deleted-hub.md',
+    ]);
+  });
+});
+
+describe('auditMap — doc coverage (c)', () => {
+  it("flags a tracked doc under docs/ that no area's doc set contains", () => {
+    const r = audit({ files: [...BASE_FILES, 'docs/unowned-doctrine.md'] });
+    assert.deepEqual(r.uncoveredDocs, ['docs/unowned-doctrine.md']);
+  });
+
+  it('does not flag a repo-wide doc under docs/', () => {
+    const map = makeMap();
+    map['repo-wide'].docs = ['README.md', 'docs/hub.md'];
+    const r = audit({ map, files: [...BASE_FILES, 'docs/hub.md'] });
+    assert.deepEqual(r.uncoveredDocs, []);
+  });
+});
+
+describe('auditMap — unassigned exceptions (d, self-failing)', () => {
+  it('flags an entry matching no tracked file as stale', () => {
+    const map = makeMap();
+    map.unassigned.push({ path: 'REMOVED-FILE', reason: 'gone' });
+    const r = audit({ map });
+    assert.deepEqual(r.staleUnassigned, ['REMOVED-FILE']);
+  });
+
+  it('flags an entry as unnecessary once every matched file resolves to an area', () => {
+    const map = makeMap();
+    map.unassigned.push({ path: 'packages/alpha/vendored.txt', reason: 'covered anyway' });
+    const r = audit({ map, files: [...BASE_FILES, 'packages/alpha/vendored.txt'] });
+    assert.deepEqual(r.unnecessaryUnassigned, ['packages/alpha/vendored.txt']);
+  });
+});
+
+describe('auditMap — doc pointers', () => {
+  it('rescues an otherwise unowned file whose pointer names an owned doc', () => {
+    const r = audit({
+      files: [...BASE_FILES, 'tools/standalone.rs'],
+      contents: { 'tools/standalone.rs': 'fn main() {}\n// see docs/alpha.md\n' },
+    });
+    assert.deepEqual(r.zeroArea, []);
+    assert.deepEqual(r.badPointers, []);
+  });
+
+  it('flags a pointer at an untracked doc', () => {
+    const r = audit({
+      files: [...BASE_FILES, 'tools/standalone.rs'],
+      contents: { 'tools/standalone.rs': '// see docs/never-existed.md\n' },
+    });
+    assert.deepEqual(r.badPointers, [
+      'tools/standalone.rs points at untracked doc docs/never-existed.md',
+    ]);
+    assert.deepEqual(r.zeroArea, ['tools/standalone.rs']);
+  });
+
+  it("flags a pointer at a doc in no area's doc set", () => {
+    const r = audit({
+      files: [...BASE_FILES, 'docs/unowned-doctrine.md', 'tools/standalone.rs'],
+      contents: { 'tools/standalone.rs': '// see docs/unowned-doctrine.md\n' },
+    });
+    assert.deepEqual(r.badPointers, [
+      "tools/standalone.rs points at docs/unowned-doctrine.md, which is in no area's doc set",
+    ]);
+  });
+});
+
+describe('validateShape — malformed maps fail loud', () => {
+  it('requires a description, literal doc paths, and justified exceptions', () => {
+    const bad = makeMap({ description: '' });
+    bad.areas.alpha.docs = ['docs/*.md'];
+    bad.unassigned = [{ path: 'LICENSE', reason: '   ' }];
+    const errors = validateShape(bad);
+    assert.equal(
+      errors.some((e) => e.includes('description')),
+      true,
+    );
+    assert.equal(
+      errors.some((e) => e.includes('not a literal path')),
+      true,
+    );
+    assert.equal(
+      errors.some((e) => e.includes('no reason')),
+      true,
+    );
+  });
+
+  it('rejects duplicate doc entries and unsupported patterns', () => {
+    const bad = makeMap();
+    bad.areas.alpha.docs = ['docs/alpha.md', 'docs/alpha.md'];
+    bad.areas.tooling.code = ['scripts/[ab].js'];
+    const errors = validateShape(bad);
+    assert.equal(
+      errors.some((e) => e.includes('duplicates')),
+      true,
+    );
+    assert.equal(
+      errors.some((e) => e.includes('unsupported pattern syntax')),
+      true,
+    );
+  });
+
+  it('short-circuits auditMap on shape errors', () => {
+    const r = audit({ map: { description: 'x' } });
+    assert.notEqual(r.shapeErrors.length, 0);
+    assert.deepEqual(r.zeroArea, []);
+  });
+});
+
+describe('resolveFile', () => {
+  it('resolves via code patterns, doc-set membership, and pointers — and returns the governing docs', () => {
+    const compiled = compileMap(makeMap());
+    const viaPattern = resolveFile('packages/alpha/x.js', compiled);
+    assert.deepEqual(viaPattern.areas, ['alpha']);
+    assert.deepEqual(viaPattern.docs, ['docs/alpha.md']);
+    assert.deepEqual(resolveFile('docs/tooling.md', compiled).areas, ['tooling']);
+    const withPointer = resolveFile('elsewhere/y.rs', compiled, '// see docs/alpha.md');
+    assert.deepEqual(withPointer.areas, ['alpha']);
+    assert.deepEqual(withPointer.docs, ['docs/alpha.md']);
+    assert.deepEqual(withPointer.pointerTargets, ['docs/alpha.md']);
+  });
+
+  it('reports repo-wide and unassigned membership', () => {
+    const compiled = compileMap(makeMap());
+    assert.equal(resolveFile('README.md', compiled).repoWide, true);
+    assert.equal(resolveFile('LICENSE', compiled).unassigned, true);
+    assert.equal(resolveFile('packages/alpha/x.js', compiled).unassigned, false);
+  });
+});
+
+describe('extractDocPointers', () => {
+  it('extracts and deduplicates pointer targets', () => {
+    const content = '// see docs/a.md\ncode();\n//see docs/b.md\n// see docs/a.md\n';
+    assert.deepEqual(extractDocPointers(content), ['docs/a.md', 'docs/b.md']);
+  });
+
+  it('ignores non-doc references', () => {
+    assert.deepEqual(extractDocPointers('// see scripts/build.js and docs online'), []);
+  });
+});
