@@ -23,10 +23,7 @@
 import { createRequire } from 'node:module';
 import { existsSync } from 'node:fs';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
-
-const require = createRequire(import.meta.url);
-const checker = require('license-checker-rseidelsohn');
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -42,7 +39,7 @@ const INSTALL_ROOTS = [
 // GLOBAL allowlist — GPL-3.0-compatible per the FSF license-compatibility list.
 // Kept in lockstep with deny.toml's [licenses] allow. Do NOT widen this to make a
 // specific package pass — add a scoped EXCEPTION instead.
-const ALLOW = new Set([
+export const ALLOW = new Set([
   'MIT',
   'Apache-2.0',
   'BSD-2-Clause',
@@ -69,7 +66,7 @@ const ALLOW = new Set([
 // package, never globally. Each carries a one-line justification. The package's
 // actual license must match `license` exactly, or the exception does not apply
 // (so a future relicense is re-surfaced rather than silently waved through).
-const EXCEPTIONS = {
+export const EXCEPTIONS = {
   // Dev-only build DATA, does not ship. SPDX Python-2.0 is generally
   // GPL-compatible (the historic choice-of-law incompatibility was resolved).
   argparse: { license: 'Python-2.0' },
@@ -92,8 +89,11 @@ const EXCEPTIONS = {
  * parens, and `X WITH <exception>` (the exception only adds permissions, so the
  * verdict follows the base license X). license-checker appends `*` when it guessed
  * the license from a LICENSE file rather than the manifest — we strip it.
+ * @param {string | undefined} expression SPDX expression (or a bare license id)
+ * @param {Set<string>} allow the allowed license ids
+ * @returns {boolean}
  */
-function isAllowed(expression, allow) {
+export function isAllowed(expression, allow) {
   if (!expression) return false;
   const tokens = String(expression)
     .replace(/\*/g, '')
@@ -148,20 +148,86 @@ function isAllowed(expression, allow) {
   return pos === tokens.length ? result : false;
 }
 
-function packageName(key) {
-  // key is "name@version"; handle scoped "@scope/name@version".
+/**
+ * The package name out of a license-checker key ("name@version", including
+ * scoped "@scope/name@version").
+ * @param {string} key
+ * @returns {string}
+ */
+export function packageName(key) {
   const at = key.lastIndexOf('@');
   return at > 0 ? key.slice(0, at) : key;
 }
 
+/**
+ * What to do when an install root has no node_modules: fail-CLOSED in CI (the
+ * root would go unchecked — the gate's only fail-open path), warn-and-skip
+ * locally for dev convenience.
+ * @param {{ ci: boolean }} opts
+ * @returns {'fail' | 'skip'}
+ */
+export function missingRootDisposition({ ci }) {
+  return ci ? 'fail' : 'skip';
+}
+
+/**
+ * Pure core: classify a license-checker package map against the allow set and
+ * the scoped exceptions.
+ * @param {Record<string, { licenses?: string | string[] }>} packages
+ * @param {object} [opts]
+ * @param {Set<string>} [opts.allow]
+ * @param {Record<string, { license: string }>} [opts.exceptions]
+ * @param {string} [opts.root] install root, for the violation records
+ * @returns {{ violations: { root: string, package: string, license: string }[],
+ *             usedExceptions: Set<string> }}
+ */
+export function classifyPackages(
+  packages,
+  { allow = ALLOW, exceptions = EXCEPTIONS, root = '.' } = {},
+) {
+  const violations = [];
+  const usedExceptions = new Set();
+  for (const [key, info] of Object.entries(packages)) {
+    const name = packageName(key);
+    // Multi-license ARRAYS (the deprecated `licenses: []` manifest form) are
+    // joined with ' AND ' — fail-CLOSED: a legacy OR-dual-licensed package
+    // expressed this way can be spuriously denied. Rare; revisit only if hit.
+    const rawLicense = Array.isArray(info.licenses) ? info.licenses.join(' AND ') : info.licenses;
+    // Strip license-checker's guessed-license `*` ONCE here, so the allow
+    // check AND the exception compare below see the same normalized string
+    // (otherwise a guessed license on an exception package would fail to match).
+    const license = rawLicense ? String(rawLicense).replace(/\*/g, '').trim() : rawLicense;
+
+    if (isAllowed(license, allow)) continue;
+
+    const exc = exceptions[name];
+    if (exc && exc.license === license) {
+      usedExceptions.add(name);
+      continue;
+    }
+    violations.push({ root, package: key, license: license || 'UNKNOWN' });
+  }
+  return { violations, usedExceptions };
+}
+
+/**
+ * Pure core: declared exceptions no scanned package used — possibly stale.
+ * @param {Record<string, { license: string }>} exceptions
+ * @param {Set<string>} usedNames exception names that matched during the scan
+ * @returns {string[]}
+ */
+export function staleExceptions(exceptions, usedNames) {
+  return Object.keys(exceptions).filter((n) => !usedNames.has(n));
+}
+
+/* c8 ignore start — the CLI wrapper below drives license-checker over the real
+ * install roots and is exercised end-to-end by CI's dependency-audit job on
+ * every PR; the decision logic it delegates to (missingRootDisposition,
+ * classifyPackages, staleExceptions, isAllowed) is unit-tested above. */
 function scanRoot(relRoot) {
   const start = path.join(repoRoot, relRoot);
   if (!existsSync(path.join(start, 'node_modules'))) {
-    // Fail-CLOSED in CI: an INSTALL_ROOTS entry with no node_modules is the only
-    // fail-open path in the gate — the root would go unchecked. If CI ever drifts
-    // from the install steps, hard-fail rather than silently pass. Locally, keep
-    // warn-and-skip for dev convenience.
-    if (process.env.CI) {
+    if (missingRootDisposition({ ci: Boolean(process.env.CI) }) === 'fail') {
       console.error(
         `  ✗ ${relRoot}: node_modules absent in CI — this root would go UNCHECKED. ` +
           `Ensure the workflow runs \`npm ci\` for every INSTALL_ROOTS entry.`,
@@ -173,41 +239,20 @@ function scanRoot(relRoot) {
     );
     return { scanned: 0, violations: [], usedExceptions: new Set() };
   }
-  return new Promise((resolve, reject) => {
+  // Loaded lazily so importing this module (for the pure exports above) never
+  // drags the checker engine in.
+  const require = createRequire(import.meta.url);
+  const checker = require('license-checker-rseidelsohn');
+  return new Promise((resolvePromise, reject) => {
     checker.init({ start, excludePrivatePackages: true, color: false }, (err, packages) => {
       if (err) return reject(err);
-      const violations = [];
-      const usedExceptions = new Set();
-      const keys = Object.keys(packages);
-      for (const key of keys) {
-        const info = packages[key];
-        const name = packageName(key);
-        // Multi-license ARRAYS (the deprecated `licenses: []` manifest form) are
-        // joined with ' AND ' — fail-CLOSED: a legacy OR-dual-licensed package
-        // expressed this way can be spuriously denied. Rare; revisit only if hit.
-        const rawLicense = Array.isArray(info.licenses)
-          ? info.licenses.join(' AND ')
-          : info.licenses;
-        // Strip license-checker's guessed-license `*` ONCE here, so the allow
-        // check AND the exception compare below see the same normalized string
-        // (otherwise a guessed license on an exception package would fail to match).
-        const license = rawLicense ? String(rawLicense).replace(/\*/g, '').trim() : rawLicense;
-
-        if (isAllowed(license, ALLOW)) continue;
-
-        const exc = EXCEPTIONS[name];
-        if (exc && exc.license === license) {
-          usedExceptions.add(name);
-          continue;
-        }
-        violations.push({ root: relRoot, package: key, license: license || 'UNKNOWN' });
-      }
-      resolve({ scanned: keys.length, violations, usedExceptions });
+      const { violations, usedExceptions } = classifyPackages(packages, { root: relRoot });
+      resolvePromise({ scanned: Object.keys(packages).length, violations, usedExceptions });
     });
   });
 }
 
-async function main() {
+async function run() {
   console.log('npm license gate (default-deny) — scanning install roots:\n');
   let totalScanned = 0;
   const allViolations = [];
@@ -223,8 +268,18 @@ async function main() {
     }
   }
 
+  // A verdict over zero packages is not a verdict: if no root had node_modules
+  // (a fresh clone), fail loudly instead of printing a green legal gate.
+  if (totalScanned === 0) {
+    console.error(
+      '\n✗ License gate scanned NOTHING — no install root had node_modules.\n' +
+        'Run `npm ci` (per install root) first; a pass over zero packages proves nothing.',
+    );
+    process.exit(1);
+  }
+
   // Surface (don't fail on) exceptions that never matched — they may be stale.
-  const unusedExceptions = Object.keys(EXCEPTIONS).filter((n) => !allUsedExceptions.has(n));
+  const unusedExceptions = staleExceptions(EXCEPTIONS, allUsedExceptions);
   if (unusedExceptions.length > 0) {
     console.warn(
       `\n  ⚠ Declared exceptions not encountered this run (possibly stale): ${unusedExceptions.join(', ')}`,
@@ -251,7 +306,10 @@ async function main() {
   console.log('\n✓ License gate PASSED — every third-party npm dependency is GPL-3.0-compatible.');
 }
 
-main().catch((err) => {
-  console.error('check-licenses-npm.js errored:', err);
-  process.exit(1);
-});
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  run().catch((err) => {
+    console.error('check-licenses-npm.js errored:', err);
+    process.exit(1);
+  });
+}
+/* c8 ignore stop */

@@ -1,0 +1,102 @@
+{
+  "description": "Maps every area of the repository to the code it owns and the documentation that governs it, so 'which docs govern this change?' always has a machine-readable answer. This file is committed data guarded by an admission test: scripts/check-area-map.js fails CI when the map goes stale (a pattern matching no tracked file, an entry pointing at an untracked file), when a tracked file resolves to no area, or when a doc under docs/ belongs to no area's doc set. Code patterns support '*', '**', and {a,b} alternation only, and every brace alternative must match at least one tracked file. Doc entries are literal tracked paths, never patterns. Code files and docs are many-to-many: a file or doc may belong to several areas. A code file may also name a governing doc directly with a '// see docs/<path>.md' comment, which adds every area whose doc set contains that doc.",
+  "repo-wide": {
+    "description": "Docs that apply to every area of the repository — a change anywhere can be governed by them. They resolve in their own right and do not need to belong to an area's doc set (though some also do).",
+    "docs": [
+      "README.md",
+      "docs/README.md",
+      "docs/architecture/system/capture-principles.md",
+      "docs/requirements/replay-sufficiency.md",
+      "docs/technical/session-format.md",
+      ".github/CONTRIBUTING.md"
+    ]
+  },
+  "areas": {
+    "extension": {
+      "code": ["packages/extension/**"],
+      "docs": [
+        "docs/architecture/application/extension/capture-principles.md",
+        "docs/architecture/system/capture-principles.md",
+        "docs/technical/locator-resolution.md",
+        "docs/test/e2e.md",
+        "docs/test/manual/extension.md"
+      ]
+    },
+    "desktop-windows": {
+      "code": ["packages/desktop/**"],
+      "docs": [
+        "docs/architecture/application/desktop/windows/capture-principles.md",
+        "docs/architecture/system/capture-principles.md",
+        "docs/technical/locator-resolution.md",
+        "docs/test/manual/windows.md"
+      ]
+    },
+    "sync": {
+      "code": [
+        "packages/shared/{sync-*,dispatch-*,conflict-*,connection-test}.js",
+        "packages/shared/views/**",
+        "packages/shared/lib/http-transport.js",
+        "packages/shared/tests/**",
+        "reference-implementations/**"
+      ],
+      "docs": ["docs/api/sync-protocol.md"]
+    },
+    "format": {
+      "code": [
+        "schemas/**",
+        "packages/shared/lib/{session,export-project,validate-import,format-stamp,field-sensitivity,uuid-v7}.js",
+        "packages/shared/tests/**",
+        "scripts/{build-schemas,build-validators,auto-version-schemas,bump-schema,classify-schema-change,update-version-table}.js"
+      ],
+      "docs": ["docs/technical/session-format.md"],
+      "source-of-truth": [
+        "schemas/shared.schema.json",
+        "schemas/desktop.shared.schema.json",
+        "schemas/extension.delta.json",
+        "schemas/desktop-windows.delta.json"
+      ]
+    },
+    "verification/corpus": {
+      "code": ["corpus/**", "scripts/corpus-*.js", "scripts/sufficiency-lint.js"],
+      "docs": [
+        "docs/verification/scripted-truth-corpus.md",
+        "docs/requirements/replay-sufficiency.md"
+      ]
+    },
+    "test-infra": {
+      "code": ["**/playwright*.config.js", "packages/shared/tests/fixtures/**"],
+      "docs": ["docs/test/README.md", "docs/test/backward-compat.md", "docs/test/e2e.md"]
+    },
+    "ci/release": {
+      "code": [
+        ".github/**",
+        "scripts/check-*.js",
+        "scripts/{release-context,next-release-version,sync-shared,inject-shared-views,build-desktop-dist,strip-ai-coauthor}.js",
+        "scripts/area-map.json",
+        "docs/clause-registry.json",
+        "lefthook.yml",
+        "package.json",
+        "package-lock.json",
+        "eslint.config.js",
+        "stryker.*.mjs",
+        "codecov.yml",
+        ".*"
+      ],
+      "docs": ["docs/guides/local-ci.md", ".github/PUBLISHING.md"]
+    }
+  },
+  "unassigned": [
+    {
+      "path": "LICENSE",
+      "reason": "License text — not project documentation and owned by no area."
+    },
+    {
+      "path": "CLA.md",
+      "reason": "Contributor license agreement — project governance, not area documentation."
+    },
+    {
+      "path": "packages/shared/assets/**",
+      "reason": "Shipped end-user assets (icons, the reading guide delivered with dispatch payloads) — product artifacts, not project documentation."
+    }
+  ]
+}
