@@ -104,3 +104,84 @@ jobs:
           name: mutation-report-desktop
           path: reports/mutation-desktop/
           retention-days: 30
+
+  # Rust mutation testing, scoped to the capture backend's unit-tested logic
+  # modules (see packages/desktop/src-tauri/.cargo/mutants.toml, including why
+  # the live-input capture path is deliberately out of scope). Measurement
+  # posture for now: missed mutants are reported in the run summary, not
+  # failing — once a few weekly runs establish the baseline, drop the exit-code
+  # tolerance below so a regression reddens the run like the Stryker jobs do.
+  cargo-mutants-desktop:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          persist-credentials: false
+
+      - uses: ./.github/actions/debug-env
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@fa04a1451ff1842e2626ccb99004d0195b455a88 # master
+        with:
+          toolchain: stable
+
+      - name: Cache cargo-mutants
+        id: cache-cargo-mutants
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5
+        with:
+          path: ~/.cargo/bin/cargo-mutants.exe
+          key: ${{ runner.os }}-cargo-mutants-27.1
+
+      - name: Install cargo-mutants
+        if: steps.cache-cargo-mutants.outputs.cache-hit != 'true'
+        run: cargo install cargo-mutants --version 27.1.0 --locked
+
+      - name: Cache cargo registry and build
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            packages/desktop/src-tauri/target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('packages/desktop/src-tauri/Cargo.lock') }}
+
+      # The Tauri build script only needs the frontend dist directory to exist.
+      - name: Create frontend dist directory
+        working-directory: packages/desktop
+        run: New-Item -ItemType Directory -Force -Path dist | Out-Null
+        shell: pwsh
+
+      # --in-place: the build reads ../dist, which sits outside the cargo tree,
+      # so mutants must build in the real tree (serially) rather than in a copy.
+      # Exit codes 2 (missed mutants) and 3 (a mutant timed out — a normal
+      # mutation outcome) are tolerated while this job is measuring its
+      # baseline; a genuine build/tool failure still fails the job.
+      - name: Run cargo-mutants (scoped)
+        working-directory: packages/desktop/src-tauri
+        shell: bash
+        run: |
+          set +e
+          cargo mutants --in-place
+          code=$?
+          if [ "$code" -ne 0 ] && [ "$code" -ne 2 ] && [ "$code" -ne 3 ]; then exit "$code"; fi
+
+      - name: Report outcomes to the run summary
+        if: always()
+        working-directory: packages/desktop/src-tauri
+        shell: bash
+        run: |
+          {
+            echo "## cargo-mutants (desktop capture logic modules)"
+            for f in caught missed timeout unviable; do
+              n=$(wc -l < "mutants.out/$f.txt" 2>/dev/null || echo 0)
+              echo "- $f: $n"
+            done
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload cargo-mutants output
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: mutation-report-desktop-rust
+          path: packages/desktop/src-tauri/mutants.out/
+          retention-days: 30

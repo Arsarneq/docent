@@ -49,6 +49,8 @@ coverage*.lcov
 .c8_output/
 reports/
 .stryker-tmp/
+mutants.out/
+mutants.out.old/
 
 # Lefthook local config
 lefthook-local.yml

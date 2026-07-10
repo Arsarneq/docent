@@ -6,6 +6,7 @@
     "packages/desktop/src/panel.js",
     "packages/shared/views/adapter.js",
     "scripts/**",
+    "!scripts/check-*.js",
     "coverage/**"
   ]
 }

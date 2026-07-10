@@ -1,0 +1,33 @@
+# cargo-mutants configuration — scoped mutation testing for the desktop capture
+# backend's unit-tested logic modules (element/action mapping, coordinate math,
+# scroll handling).
+#
+# Everything outside the four globs below — the live-input capture path — is
+# deliberately unmutated: its only exercising tests synthesize real OS input
+# and are excluded from the per-mutant test runs, so its mutants would survive
+# en masse and tell us nothing. That path is guarded by the input-synthesis
+# integration suites and the scripted-truth corpus instead — an accepted,
+# documented gap of this tool, not an oversight.
+examine_globs = [
+  "src/capture/action_mapping.rs",
+  "src/capture/element_mapping.rs",
+  "src/capture/coordinate.rs",
+  "src/capture/scroll.rs",
+]
+
+# Pin which tests RUN per mutant: --lib keeps the in-module #[cfg(test)] unit
+# tests in the kill set, and the --test entries are every fast, deterministic
+# unit binary (no input synthesis; nothing that opens windows). Note this
+# pins only the test RUN — the per-mutant build still compiles all workspace
+# test targets. New unit-test binaries must be added here to participate.
+additional_cargo_test_args = [
+  "--lib",
+  "--test", "action_mapping_test",
+  "--test", "capture_mode_test",
+  "--test", "coordinate_dpi_test",
+  "--test", "coordinate_test",
+  "--test", "element_mapping_test",
+  "--test", "password_test",
+  "--test", "pid_filter_test",
+  "--test", "scroll_test",
+]
