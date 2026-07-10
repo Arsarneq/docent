@@ -1,0 +1,89 @@
+{
+  "description": "Registry of clause tags for docs that carry stable clause identifiers and normative language. Tags: 'check-exists' — a named, runnable check already guards the clause (check-ref points at it); 'checkable' — a mechanical check can guard the clause but is not built yet (check-ref names the intended check and any interim probe); 'judgment-only' — compliance is a per-change judgment no check can decide (justification says why). Clause identifiers are stable: never renumbered, and a retired identifier stays reserved (listed under 'retired').",
+  "prefixes": {
+    "CP": "docs/architecture/system/capture-principles.md"
+  },
+  "retired": {
+    "CP": []
+  },
+  "clauses": [
+    {
+      "doc": "docs/architecture/system/capture-principles.md",
+      "clause": "CP-1",
+      "tag": "judgment-only",
+      "justification": "Whether a novel event source records what the user did (intent) or what the code did (reaction) is a per-change design judgment; no check can classify sources that do not exist yet."
+    },
+    {
+      "doc": "docs/architecture/system/capture-principles.md",
+      "clause": "CP-2",
+      "tag": "checkable",
+      "check-ref": "Intended: a static check that recorder/service-worker event registrations stay within the enumerated capture surface (not yet built). Interim probe: the scripted-truth corpus diff (scripts/corpus-compare.js via npm run corpus:check and corpus:check:desktop) reddens when an effect enters a scripted session's stream."
+    },
+    {
+      "doc": "docs/architecture/system/capture-principles.md",
+      "clause": "CP-3",
+      "tag": "judgment-only",
+      "justification": "Whether a piece of observed context describes the actions faithfully and is worth recording alongside them is a design judgment per capture feature."
+    },
+    {
+      "doc": "docs/architecture/system/capture-principles.md",
+      "clause": "CP-4",
+      "tag": "judgment-only",
+      "justification": "Whether a new field is context kept distinct from the actions, or an action-stream entry in disguise, is a judgment about semantics, not shape."
+    },
+    {
+      "doc": "docs/architecture/system/capture-principles.md",
+      "clause": "CP-5",
+      "tag": "judgment-only",
+      "justification": "Applying the definition to a novel input class — is it a physical input the user deliberately performed? — is judgment."
+    },
+    {
+      "doc": "docs/architecture/system/capture-principles.md",
+      "clause": "CP-6",
+      "tag": "judgment-only",
+      "justification": "Classifying a novel consequence as effect versus action is judgment; the enumerated classes illustrate the category, they do not close it."
+    },
+    {
+      "doc": "docs/architecture/system/capture-principles.md",
+      "clause": "CP-7",
+      "tag": "judgment-only",
+      "justification": "Choosing what stands in as the proxy for an out-of-visibility action is a per-proxy design judgment."
+    },
+    {
+      "doc": "docs/architecture/system/capture-principles.md",
+      "clause": "CP-8",
+      "tag": "judgment-only",
+      "justification": "Which effect is the immediate one in a new proxy's causal chain is judgment; regressions on existing proxies are probed by the scripted-truth corpus."
+    },
+    {
+      "doc": "docs/architecture/system/capture-principles.md",
+      "clause": "CP-9",
+      "tag": "judgment-only",
+      "justification": "Known duplicate pairs are suppressed and unit-tested per instance, but at-most-one-proxy for a newly designed proxy is judgment."
+    },
+    {
+      "doc": "docs/architecture/system/capture-principles.md",
+      "clause": "CP-10",
+      "tag": "judgment-only",
+      "justification": "Whether a proxy's recorded shape identifies the user action is judgment."
+    },
+    {
+      "doc": "docs/architecture/system/capture-principles.md",
+      "clause": "CP-11",
+      "tag": "check-exists",
+      "check-ref": "Scripted-truth corpus redaction sessions ext-redaction and d-redaction (scripts/corpus-compare.js via npm run corpus:check and corpus:check:desktop) verify mask + redacted flag end-to-end on both platforms; the shared detection util packages/shared/lib/field-sensitivity.js is unit-tested; scripts/sufficiency-lint.js enforces the locator masking the contract promises."
+    },
+    {
+      "doc": "docs/architecture/system/capture-principles.md",
+      "clause": "CP-12",
+      "tag": "judgment-only",
+      "justification": "Whether a detection signal is strong enough to trigger masking is a design judgment; no check can decide signal strength."
+    },
+    {
+      "doc": "docs/architecture/system/capture-principles.md",
+      "clause": "CP-13",
+      "tag": "judgment-only",
+      "justification": "The signals are diagnostic guidance; applying them to a mixed or novel case (the table's Depends rows) is judgment."
+    }
+  ]
+}
