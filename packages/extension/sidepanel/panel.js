@@ -14,6 +14,7 @@
  * Licensed under the GNU General Public License v3.0
  * See LICENSE in the project root for license information.
  */
+// see docs/technical/session-format.md — this panel assembles, exports, and dispatches .docent.json sessions; the per-platform schemas are authoritative for field semantics.
 
 import { validateEndpointUrl, buildPayload, sendPayload, DispatchError } from './dispatch.js';
 import { createDispatchCooldown } from '../shared/dispatch-cooldown.js';
