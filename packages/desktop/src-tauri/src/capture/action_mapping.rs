@@ -3,6 +3,8 @@
 //
 // This module contains NO Windows API calls so it can be compiled and tested
 // on any platform. The actual native event detection lives in `windows.rs`.
+//
+// see docs/technical/session-format.md — the actions mapped here are .docent.json fields; the per-platform schemas are authoritative for field semantics.
 
 use super::{ActionEvent, ActionPayload, CaptureMode, ElementDescription, Modifiers, WindowRect};
 

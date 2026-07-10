@@ -30,6 +30,7 @@
  * Licensed under the GNU General Public License v3.0
  * See LICENSE in the project root for license information.
  */
+// see docs/technical/session-format.md — the actions this recorder captures enter the .docent.json action stream; the per-platform schemas are authoritative for field semantics.
 
 (function () {
   'use strict';

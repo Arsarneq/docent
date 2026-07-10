@@ -18,6 +18,7 @@
  * Licensed under the GNU General Public License v3.0
  * See LICENSE in the project root for license information.
  */
+// see docs/technical/session-format.md — the navigation and context actions this worker records enter the .docent.json action stream; the per-platform schemas are authoritative for field semantics.
 
 import {
   createProject,
