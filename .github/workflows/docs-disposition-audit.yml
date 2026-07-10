@@ -1,0 +1,41 @@
+# Weekly, NON-GATING audit of the "unaffected" judgments in merged PRs'
+# "## Docs disposition" sections: it reports the rate at which a later change
+# edited a doc an earlier, area-overlapping PR judged unaffected. Aggregate
+# numbers only — a probable miss is a review-calibration signal, never a
+# per-PR verdict, and individual labels never appear in these (public) logs.
+# Documentation-reorganisation PRs are excluded as evidence so doc churn
+# cannot poison the measurement.
+#
+# Retirement criterion, registered up front: if after eight weeks the labels
+# run above 70% false positives under manual triage, retire this audit rather
+# than tune it into noise.
+name: docs-disposition-audit
+
+on:
+  schedule:
+    - cron: '0 7 * * 2' # Every Tuesday at 07:00 UTC
+  workflow_dispatch: # Allow manual trigger
+
+permissions:
+  contents: read
+  pull-requests: read
+
+env:
+  NODE_VERSION: '24'
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Audit merged-PR dispositions (aggregate only)
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: node scripts/docs-disposition-audit.js >> "$GITHUB_STEP_SUMMARY"
