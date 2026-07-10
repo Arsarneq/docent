@@ -122,6 +122,21 @@ jobs:
       - name: Validate documentation reachability
         run: npm run lint:reachability
 
+      # scripts/area-map.json (which docs govern which code) is committed data,
+      # so it can rot; this is its admission test. Red when the map goes stale
+      # (a pattern matching nothing, an entry pointing at a moved file), when a
+      # tracked file belongs to no area, or when a doc under docs/ is in no
+      # area's doc set — "which docs govern this change?" must always resolve.
+      - name: Validate area-map coverage
+        run: npm run lint:area-map
+
+      # Docs state rules as stable clause identifiers (e.g. **CP-3.**) and
+      # docs/clause-registry.json records how each is verified. This keeps the
+      # two in one-to-one agreement and every named check resolvable; it checks
+      # form only, never the quality of a judgment.
+      - name: Validate clause-registry parity
+        run: npm run lint:clause-registry
+
       # S17/S18: every Actions `uses:` must be pinned to a commit SHA, not a
       # mutable tag. Dependabot bumps the SHA + `# version` comment weekly.
       - name: Check GitHub Actions are SHA-pinned
