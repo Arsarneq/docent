@@ -210,6 +210,43 @@ lives in.
 - All new functions should have JSDoc comments (JavaScript) or doc comments (Rust)
 - **Bug-fix PRs must include a regression test** (see below)
 
+## Docs Disposition and Change Record
+
+Every PR body carries two further sections; the template scaffolds them, and the
+`Docs disposition format` check verifies their form (form only — what you write in
+them is read by reviewers, never judged by CI).
+
+**`## Docs disposition`** — one line for each doc that governs the code you
+changed. The check derives that set from [`scripts/area-map.json`](../scripts/area-map.json)
+(which maps the repository's code to its governing docs), and its red output
+lists the exact lines it expects, so you never have to guess. Each line is one
+of:
+
+```text
+updated: docs/<path> — <what changed>
+unaffected: docs/<path> — <why this diff cannot violate it>
+```
+
+Where a doc states its rules as identified clauses, each clause tagged
+`judgment-only` in [`docs/clause-registry.json`](../docs/clause-registry.json)
+takes one additional line, anchored by its clause id (clauses guarded by a
+named check need no line of their own):
+
+```text
+unaffected: docs/architecture/system/capture-principles.md §CP-3 — <why this diff cannot violate this rule>
+```
+
+**`## Change record`** — a short, honest record of the work: an `Intent:` line
+(one sentence), an `Outside knowledge:` line (sources you consulted beyond this
+repository — write `none` explicitly if nothing), what you verified and how, and
+a `mutation:` line (mutation testing runs as a standing weekly job, never per
+change — `mutation: no per-change claim; mutation testing runs as a standing weekly job.`).
+
+Dependency-only PRs skip both sections — the check recognises those diffs by
+itself, and only those: lockfiles, dependency-block manifest bumps, and
+same-action pin bumps. A line that parses but says nothing is a review problem,
+not a CI pass: write the reason you actually relied on.
+
 ## Regression Tests
 
 Every bug-fix PR must include a test that reproduces the original failure:

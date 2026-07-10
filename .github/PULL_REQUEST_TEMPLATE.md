@@ -23,3 +23,24 @@
 ## Breaking Changes
 
 <!-- Does this change the .docent.json schema (add/remove/rename fields) or the dispatch payload structure? If no, write "None." -->
+
+## Docs disposition
+
+<!-- One line per doc that governs the code you changed — the "Docs disposition format"
+     check derives the set from scripts/area-map.json and its red output lists the exact
+     lines it expects. Each line is one of:
+       updated: docs/<path> — <what changed>
+       unaffected: docs/<path> — <why this diff cannot violate it>
+     Docs whose rules carry clause ids also take one line per clause tagged judgment-only
+     in docs/clause-registry.json, e.g.:
+       unaffected: docs/architecture/system/capture-principles.md §CP-3 — <why>
+     Dependency-only PRs (lockfiles, dependency bumps, action-pin bumps) skip this section. -->
+
+## Change record
+
+<!-- A short, honest record of the work. Include at least:
+       Intent: <one sentence — what this change sets out to do>
+       Outside knowledge: <sources consulted beyond this repo, or "none">
+       <what you verified and how — tests run, checks observed>
+       mutation: no per-change claim; mutation testing runs as a standing weekly job.
+     Dependency-only PRs skip this section too. -->
