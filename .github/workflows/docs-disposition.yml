@@ -1,0 +1,42 @@
+# Checks the FORM of the two structured PR-body sections — "## Docs disposition"
+# (one line per doc governing the changed code, per scripts/area-map.json, plus
+# one per judgment-verified clause per docs/clause-registry.json) and
+# "## Change record". Form only: it verifies the expected lines exist and parse;
+# the judgments written in them are read by reviewers, never by this check.
+# Re-runs when the PR body is edited. Dependency-only PRs (manifests, lockfiles,
+# action-pin bumps) are exempt — the check itself decides that from the diff.
+name: Docs disposition format
+
+on:
+  pull_request:
+    types: [opened, edited, reopened, synchronize]
+
+permissions:
+  contents: read
+
+env:
+  NODE_VERSION: '24'
+
+jobs:
+  disposition-format:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          persist-credentials: false
+          # Full history so the check can diff against the PR base via
+          # merge-base (three-dot).
+          fetch-depth: 0
+
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Check the PR body sections are well-formed
+        env:
+          # Passed via env (never interpolated into the shell) so a crafted
+          # body cannot inject commands.
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: |
+          git fetch --no-tags origin "$GITHUB_BASE_REF"
+          node scripts/check-docs-disposition.js "origin/$GITHUB_BASE_REF"
