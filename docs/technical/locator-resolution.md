@@ -6,11 +6,25 @@ live element. It implements item 2 of
 this document defines what "the recording's locators resolve correctly"
 _means_, so that conformance is testable against published vectors.
 
-**Status.** This is a specification, not shipped code. Docent publishes this
-procedure and (with the scripted-truth corpus work) inert conformance vectors —
-never an implementation, and no Docent artifact executes the procedure.
-Consumers remain free to resolve however they like; the sufficiency guarantee
-reads "the reference procedure would have succeeded."
+Each rule carries a stable identifier (**LR-n**) so other documents, reviews,
+and checks can cite it precisely. Identifiers are never renumbered; a retired
+identifier stays reserved and is never reused. How each rule is verified — by
+an existing named check, by a check that could be built, or by judgment — is
+recorded per rule in the [clause registry](../clause-registry.json). The key
+words MUST, MUST NOT, SHOULD, and MAY are to be interpreted as described in
+[RFC 2119](https://www.rfc-editor.org/rfc/rfc2119). Keywords appear on a
+clause's operative requirement where it has one; definitional clauses bind as
+stated without a keyword, and subsidiary absolutes inside a clause inherit its
+force. A clause's scope runs from its marker to the next marker or heading;
+identifiers reflect minting order and may appear out of numeric sequence.
+
+**Status.** This is a specification, not shipped code.
+
+**LR-1.** Docent publishes this procedure and (with the scripted-truth corpus
+work) inert conformance vectors — never an implementation; a Docent artifact
+MUST NOT execute the procedure. Consumers remain free to resolve
+however they like; the sufficiency guarantee reads "the reference procedure
+would have succeeded."
 
 **Scope.** The procedure defines _resolution_ for the resolvable core, with
 exactly three outcomes. It never decides what a failure _means_ — interpreting
@@ -18,18 +32,22 @@ a `not-resolved` (recording? environment? missing parameter? application
 change?) belongs to
 [Replay Sufficiency — Failure Attribution](../requirements/replay-sufficiency.md#failure-attribution).
 
-**Governing rule.** The procedure consults the recorded match statistics only
-conservatively — for eligibility exclusions — never to decide an outcome. The
-recording's `locators[]` order remains semantics-free; any evaluation order an
-implementation chooses has no effect on the outcome (see
+**Governing rules.**
+
+**LR-2.** The procedure consults the recorded match statistics only
+conservatively — for eligibility exclusions — it MUST NOT use them to decide
+an outcome.
+
+**LR-3.** The recording's `locators[]` order remains semantics-free; any
+evaluation order an implementation chooses has no effect on the outcome (see
 [No short-circuit](#the-algorithm)).
 
 ---
 
 ## Element Identity
 
-The aggregate outcome counts _distinct_ live elements, so element identity is
-normative:
+**LR-4.** The aggregate outcome counts _distinct_ live elements, so element
+identity is normative:
 
 | Platform  | Two matches are the same element when…                                                                                   |
 | --------- | ------------------------------------------------------------------------------------------------------------------------ |
@@ -42,8 +60,8 @@ All cross-candidate comparison in this procedure uses this definition.
 
 ## Applicability
 
-The procedure applies when both preconditions hold; outside them it is
-**inapplicable** — a stated boundary, not an outcome:
+**LR-5.** The procedure applies when both preconditions hold; outside them it
+is **inapplicable** — a stated boundary, not an outcome:
 
 1. **The live scope is uniquely bound.** The scope is the platform's stated
    measurement scope
@@ -59,37 +77,38 @@ The procedure applies when both preconditions hold; outside them it is
    governed by the static sufficiency lint (`element-locators`), not by this
    procedure. The legacy `selector` string is not a resolution candidate.
 
-Entries in `locators[]` are independent candidates. Strategy uniqueness is not
-assumed — the schema permits multiple entries with the same strategy, and each
-is evaluated on its own.
+**LR-6.** Entries in `locators[]` are independent candidates. Strategy
+uniqueness is not assumed — the schema permits multiple entries with the same
+strategy, and each is evaluated on its own.
 
 ---
 
 ## The Algorithm
 
-Per-candidate verdicts are computed independently for every eligible
-candidate. **No short-circuit:** every eligible candidate is evaluated to
+**LR-7.** Per-candidate verdicts are computed independently for every eligible
+candidate. **No short-circuit:** every eligible candidate MUST be evaluated to
 completion, because cross-candidate disagreement is the procedure's
 wrong-referent check — an implementation that stops at the first success
 conforms only by accident.
 
 ### 1. Eligibility
 
-A candidate is **ineligible as a selector** when:
+**LR-8.** A candidate is **ineligible as a selector** when:
 
 - `masked: true` — its value is the mask, not the observation; or
 - `match_index: null` — the recorder measured this candidate as _not_
   matching the acted-on element; letting it select at replay would be a
   wrong-referent by construction.
 
-Ineligible entries take no part in selection or corroboration. (Future
-volatility metadata may further tighten eligibility; the capture backlog
-tracks per-load volatile identifiers.)
+**LR-9.** Ineligible entries MUST take no part in selection or corroboration.
+(Future volatility metadata may further tighten eligibility; the capture
+backlog tracks per-load volatile identifiers.)
 
 ### 2. Application — the strategy table
 
-How each strategy's recorded fields form the live query. Fields not listed do
-not participate in the query.
+**LR-10.** How each strategy's recorded fields form the live query is defined
+by the platform tables below — both tables are part of this clause; fields not
+listed do not participate in the query.
 
 **Extension** (queries run over the bound document root; standard,
 non-piercing matching):
@@ -108,8 +127,8 @@ non-piercing matching):
 | `role_name`   | _schema-reserved; not currently captured_ (accessible-name computation is pending capture work)                             |
 | `label`       | _schema-reserved; not currently captured_                                                                                   |
 
-Reserved strategies have no application semantics until the capture work that
-emits them lands; conformance vectors cover emitted strategies only.
+**LR-11.** Reserved strategies have no application semantics until the capture
+work that emits them lands; conformance vectors cover emitted strategies only.
 
 **Desktop** (queries run over the bound top-level window, Control view,
 window itself included):
@@ -122,33 +141,37 @@ window itself included):
 | `labeled_by`    | elements whose label relation resolves to an element named `value`                         |
 | `tree_path`     | the element reached by walking `value`'s segments from the window root in the Control view |
 
-`role_name.role` binds to the non-localized control type — the same value as
-the recorded `element.tag` — never to the localized `element.role`.
-`role_name.name` participates in selection only.
+**LR-25.** `role_name.role` binds to the non-localized control type — the
+same value as the recorded `element.tag` — never to the localized
+`element.role`. `role_name.name` participates in selection only.
 
 ### 3. Corroboration — the wrong-referent guard
 
-A candidate's single live match must not contradict the recorded element
-facts. The fact source is **exactly the top-level `element` object's non-null
-fields** — locator entries (masked or not) are never corroboration inputs.
+**LR-12.** A candidate's single live match MUST NOT contradict the recorded
+element facts. The fact source is **exactly the top-level `element` object's
+non-null fields** — locator entries (masked or not) are never corroboration
+inputs.
 
-- **`tag`** — equality. On desktop, `tag` is the non-localized control type;
+- **LR-13.** **`tag`** — equality. On desktop, `tag` is the non-localized control type;
   the localized `element.role` is excluded from contradiction tests
   (locale-fragile by definition).
-- **`text`** — the recorded text is a truncated (100-character) rendering;
+- **LR-14.** **`text`** — the recorded text is a truncated (100-character) rendering;
   comparison is prefix/containment against the live element's visible text
   normalized the same way, never raw equality. When recorded text is null —
   including on `redacted` elements — the test is vacuously satisfied.
-- **Staleness advisory.** Element descriptions can be captured after the
-  action's effects began (`described_after_ms` states the observed gap where
-  recorded; deferred captures without the field carry no signal). A text
-  contradiction **alone** must not reject a candidate when at least one field
-  with discriminating power — `id`, `name`, or a test-attribute value —
+- **LR-15.** **Staleness advisory.** Element descriptions can be captured
+  after the action's effects began (`described_after_ms` states the observed
+  gap where recorded; deferred captures without the field carry no signal). A
+  text contradiction **alone** MUST NOT reject a candidate when at least one
+  field with discriminating power — `id`, `name`, or a test-attribute value —
   positively corroborates. `tag` alone never suffices: any same-tag element
   passes it trivially, and treating it as corroboration would disable this
   guard.
 
 ### 4. Per-candidate verdict
+
+**LR-16.** The per-candidate verdict follows from the candidate's live match
+count and the corroboration result:
 
 | Live matches for the candidate    | Verdict                                                   |
 | --------------------------------- | --------------------------------------------------------- |
@@ -159,20 +182,20 @@ fields** — locator entries (masked or not) are never corroboration inputs.
 
 ### 5. Aggregate
 
-Collect the distinct elements named by candidate-resolved verdicts, using
-[Element Identity](#element-identity). Then apply the **containment filter**,
-which operates on recorded facts only: when candidate-resolved elements stand
+**LR-17.** Collect the distinct elements named by candidate-resolved verdicts,
+using [Element Identity](#element-identity). Then apply the **containment
+filter**, which MUST operate on recorded facts only: when candidate-resolved elements stand
 in an ancestor/descendant or label↔labelled-control relation, keep those
 matching the recorded identity fields, tested in order `tag`, then
 `id`/`name`, then `text`. Exactly one survivor collapses the related set to
-that element; zero survivors or a tie leave the set plural. The filter can
-never reduce the distinct count below what the recorded facts disambiguate.
+that element; zero survivors or a tie leave the set plural. The filter MUST
+NOT reduce the distinct count below what the recorded facts disambiguate.
 
 ---
 
 ## Outcomes
 
-Exactly three:
+**LR-18.** Exactly three:
 
 | Outcome         | Condition                                                                    |
 | --------------- | ---------------------------------------------------------------------------- |
@@ -180,11 +203,11 @@ Exactly three:
 | `resolved`      | exactly one distinct candidate-resolved element after the containment filter |
 | `not-resolved`  | anything else                                                                |
 
-A `not-resolved` carries **diagnostics**: the set of distinct
+**LR-19.** A `not-resolved` carries **diagnostics**: the set of distinct
 candidate-resolved elements (when plural), the corroboration-disqualified
 candidates, and per-candidate match circumstances (unmeasured, masked,
-`match_index: null`, live multi-match). The diagnostics inform — but never
-decide — [failure attribution](../requirements/replay-sufficiency.md#failure-attribution):
+`match_index: null`, live multi-match). The diagnostics inform — they MUST
+NOT decide — [failure attribution](../requirements/replay-sufficiency.md#failure-attribution):
 
 - a masked entry whose pre-mask statistics were `match_count: 1` and
   `match_index: 0` points at a **consumer-supplied parameter** (the
@@ -193,18 +216,18 @@ decide — [failure attribution](../requirements/replay-sufficiency.md#failure-a
 - candidates unmeasured by design (input-time described actions) are never,
   by themselves, evidence of insufficiency.
 
-Consumers MAY refine beyond the procedure — for example, selecting among a
-multi-match by the recorded `match_index` when the live match count equals the
-recorded `match_count`. Such refinements are outside conformance: no published
-vector's outcome depends on them.
+**LR-20.** Consumers MAY refine beyond the procedure — for example, selecting
+among a multi-match by the recorded `match_index` when the live match count
+equals the recorded `match_count`. Such refinements are outside conformance:
+no published vector's outcome depends on them.
 
 ---
 
 ## Worked Examples
 
-Non-normative illustrations, subordinate to the algorithm above: where an
-example and the algorithm text disagree, the algorithm governs and the
-disagreement is a specification bug.
+**LR-21.** Non-normative illustrations, subordinate to the algorithm above:
+where an example and the algorithm text disagree, the algorithm governs and
+the disagreement is a specification bug.
 
 **1. Resolved.** Desktop click; candidates `automation_id{value:"btnSave",
 match_count:1, match_index:0}`, `role_name{role:"Button", name:"Save"}`
@@ -243,17 +266,17 @@ equals 5 — outside conformance; no vector requires it.
 
 ## Conformance and Vector Scope
 
-An implementation **conforms** when, for every published conformance vector,
-it produces the vector's stated outcome — and, for `resolved` vectors, the
-vector's ground-truth element.
+**LR-22.** An implementation **conforms** when, for every published
+conformance vector, it produces the vector's stated outcome — and, for
+`resolved` vectors, the vector's ground-truth element.
 
-Vectors are inert data emitted at capture time by harnesses that observe the
-acted-on element directly (the ground truth is known, never computed by this
-procedure): recorded locators and element facts, a tree snapshot of the bound
-scope, and the ground truth.
+**LR-26.** Vectors are inert data emitted at capture time by harnesses that
+observe the acted-on element directly (the ground truth is known, never
+computed by this procedure): recorded locators and element facts, a tree
+snapshot of the bound scope, and the ground truth.
 
-**Vector inclusion criterion** — decidable from recorded facts alone: the
-element carries at least one eligible candidate recorded
+**LR-23.** **Vector inclusion criterion** — decidable from recorded facts
+alone: the element carries at least one eligible candidate recorded
 measured-unique-and-selecting (`match_count: 1`, `match_index: 0`). Element
 classes outside the criterion — masked-only-unique, fully unmeasured,
 ordinal-only, unbindable scope — are out of vector scope; their sufficiency
@@ -266,7 +289,7 @@ is the measured-unique candidate in at least one vector.
 
 ## Value-Derived Strategies
 
-The schema annotates each locator strategy definition with
+**LR-24.** The schema annotates each locator strategy definition with
 **`x-value-derived`** — an operational marker: `true` means the redaction
 chokepoint masks that strategy's value in place (with `masked: true`) when the
 element is sensitive. It is **not** a claim that unannotated strategies cannot
