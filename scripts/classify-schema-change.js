@@ -3,10 +3,14 @@
  * composed platform schemas as none / patch / minor / major, per the rules in
  * docs/technical/session-format.md:
  *
- *   patch — documentation-only changes (description clarifications)
- *   minor — new OPTIONAL fields, new action types, new enum values
+ *   patch — documentation-only changes (description clarifications), and
+ *           introduction of a known x- annotation
+ *   minor — new OPTIONAL fields, new action types, new enum values, pure
+ *           type widenings, additionalProperties relaxations
  *   major — new REQUIRED fields, removed fields, renamed fields (= remove+add),
- *           changed semantics, changed types, narrowed enums/constraints
+ *           changed semantics, changed/narrowed types, removed enum values,
+ *           introduced/removed/changed value constraints, required-status
+ *           changes
  *
  * Design bias: a version classifier must NEVER under-report. Shipping a breaking
  * change as a "minor" silently breaks consumers; an over-eager "major" is merely
@@ -143,10 +147,23 @@ function walk(oldNode, newNode, path, add) {
         break;
       }
       case 'enum': {
+        // A newly-introduced enum keyword constrains a previously-open value —
+        // a tightening, not a set of "added" values; diffing against the empty
+        // set would misread it as minor.
+        if (!inOld) {
+          add('major', `${childPath}: enum introduced on a previously unconstrained value`);
+          break;
+        }
         diffEnum(ov || [], nv || [], childPath, add);
         break;
       }
       case 'properties': {
+        // Introduction rule again: a properties map appearing on an existing
+        // node starts constraining per-key values that were previously open.
+        if (!inOld) {
+          add('major', `${childPath}: properties introduced on a previously open object`);
+          break;
+        }
         diffProperties(ov || {}, nv || {}, oldNode.required || [], newNode.required || [], childPath, add); // prettier-ignore
         break;
       }
@@ -157,6 +174,12 @@ function walk(oldNode, newNode, path, add) {
       case 'oneOf':
       case 'anyOf':
       case 'allOf': {
+        // Same introduction rule as enum: a union/conjunction keyword appearing
+        // on an existing node adds a validation requirement that was not there.
+        if (!inOld) {
+          add('major', `${childPath}: ${key} constraint introduced`);
+          break;
+        }
         diffMemberSet(ov || [], nv || [], childPath, add);
         break;
       }

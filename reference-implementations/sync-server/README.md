@@ -314,5 +314,5 @@ is left unchanged.
 
 - [Sync Protocol](../../docs/api/sync-protocol.md) — the authoritative protocol contract this
   server implements.
-- [Session Format](../../docs/technical/session-format.md) — the `.docent.json` specification that
-  defines the `Full_Project_Payload` shape.
+- [Session Format](../../docs/technical/session-format.md) — orientation prose for the
+  `.docent.json` format whose schemas define the `Full_Project_Payload` shape.

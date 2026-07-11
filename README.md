@@ -274,7 +274,7 @@ The `.docent.json` format is defined by per-platform JSON Schemas — the single
 - [Extension schema](schemas/dist/extension.schema.json) — Chrome extension
 - [Desktop Windows schema](schemas/dist/desktop-windows.schema.json) — Windows desktop
 
-See [docs/technical/session-format.md](docs/technical/session-format.md) for the full specification with annotated examples.
+See [docs/technical/session-format.md](docs/technical/session-format.md) for annotated orientation prose covering both schemas.
 
 ---
 

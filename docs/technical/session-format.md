@@ -1,9 +1,11 @@
 # Docent Session Format
 
 The `.docent.json` format is Docent's contract with anything that consumes a
-recording. It is defined per platform by independently versioned JSON Schemas,
-and this document is the formal specification for both. It is not Docent's only
-external contract: sync servers implement the [Sync Protocol](../api/sync-protocol.md)
+recording. It is defined per platform by independently versioned JSON Schemas —
+the authoritative source of truth for the format. This document is the
+companion prose that orients a reader in both schemas, with annotated
+examples; where this prose and a schema disagree, the schema governs. The
+format is not Docent's only external contract: sync servers implement the [Sync Protocol](../api/sync-protocol.md)
 and treat this format as an opaque payload. All of Docent's external contracts
 are data — versioned schemas and a documented protocol — never shipped code or
 a shipped consumer. What a recording must be sufficient _for_ is defined by
@@ -43,8 +45,8 @@ diffs the last released schema (`schemas/dist/<platform>.schema.json`) against
 the schema composed from the current source layers and classifies the change:
 
 - **Patch** (x.x.1): documentation-only changes (description clarifications)
-- **Minor** (x.1.0): new optional fields, new action types, new enum values on existing fields
-- **Major** (1.0.0): new required fields, removed fields, renamed fields, changed semantics, changed types, removed enum values, tightened constraints
+- **Minor** (x.1.0): new optional fields, new action types, new enum values on existing fields, pure type widenings (the old accepted type set is kept and extended — e.g. a string field additionally allowing null), and `additionalProperties` relaxations (a closed object opting to accept unknown keys)
+- **Major** (1.0.0): new required fields, removed or renamed fields, changed semantics, changed or narrowed types, removed enum values, added/removed/changed value constraints, and any change to a field's required status in either direction (a field no longer guaranteed present changes what a consumer may rely on)
 
 `x-`-prefixed keys on schema definitions are **annotations** — machine-read contract
 markers, not validation keywords (validators ignore them; `x-value-derived` below is one).
@@ -253,18 +255,18 @@ A step is either **narration mode** or **simple mode**. At least one of
 
 ### Step fields
 
-| Field              | Type                         | Required       | Description                                              |
-| ------------------ | ---------------------------- | -------------- | -------------------------------------------------------- |
-| `uuid`             | UUIDv7                       | yes            | Unique version identifier. Later UUID = newer version.   |
-| `logical_id`       | UUIDv7                       | yes            | Groups versions of the same step.                        |
-| `step_number`      | integer ≥ 1                  | yes            | Display order.                                           |
-| `created_at`       | ISO 8601                     | yes            | When this version was created.                           |
-| `narration`        | string (min 1 char)          | one of         | Free-text intent description. Present in narration mode. |
-| `narration_source` | `"typed"`                    | with narration | How narration was provided.                              |
-| `step_type`        | `"action"` \| `"validation"` | one of         | Step classification. Present in simple mode.             |
-| `expect`           | `"present"` \| `"absent"`    | no             | Assertion type for validation steps.                     |
-| `actions`          | array                        | yes            | Captured user interactions.                              |
-| `deleted`          | boolean                      | yes            | Soft-delete marker.                                      |
+| Field              | Type                         | Required | Description                                                                                             |
+| ------------------ | ---------------------------- | -------- | ------------------------------------------------------------------------------------------------------- |
+| `uuid`             | UUIDv7                       | yes      | Unique version identifier. Later UUID = newer version.                                                  |
+| `logical_id`       | UUIDv7                       | yes      | Groups versions of the same step.                                                                       |
+| `step_number`      | integer ≥ 1                  | yes      | Display order.                                                                                          |
+| `created_at`       | ISO 8601                     | yes      | When this version was created.                                                                          |
+| `narration`        | string (min 1 char)          | one of   | Free-text intent description. Present in narration mode.                                                |
+| `narration_source` | `"typed"`                    | no       | How narration was provided. Written at capture alongside narration; the pairing is not schema-enforced. |
+| `step_type`        | `"action"` \| `"validation"` | one of   | Step classification. Present in simple mode.                                                            |
+| `expect`           | `"present"` \| `"absent"`    | no       | Assertion type for validation steps.                                                                    |
+| `actions`          | array                        | yes      | Captured user interactions.                                                                             |
+| `deleted`          | boolean                      | yes      | Soft-delete marker.                                                                                     |
 
 "one of" means at least one of `narration` or `step_type` must be present.
 
