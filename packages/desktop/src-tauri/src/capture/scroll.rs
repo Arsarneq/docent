@@ -8,7 +8,7 @@
 //
 // Requirements:
 // - Debounce scroll events — record only after scrolling stops for 300ms.
-// - Discard scroll events where total distance ≤ 200px in both axes.
+// - Discard scroll events where net displacement ≤ 200px in both axes.
 
 // ---------------------------------------------------------------------------
 // Constants (imported from timing.rs — single source of truth)
