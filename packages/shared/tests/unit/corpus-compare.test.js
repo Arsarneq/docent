@@ -314,3 +314,86 @@ for (const platform of ['extension', 'desktop-windows']) {
     });
   });
 }
+
+// Regression: a sidecar entry that could never apply — unknown kind, or a
+// pointer matching no truth action — was silently ignored (the per-step
+// pointer gate preceded all validation), so a typo'd sidecar read as a
+// passing diff. Found in the review of the corpus doctrine round (the
+// doctrine promises machinery breakage can never read as a pass).
+describe('sidecar validation: entries that cannot apply are machinery errors', () => {
+  const truth = {
+    docent_format: { platform: 'extension', schema_version: '1.0.0' },
+    project: { project_id: 'p', name: 'P', created_at: 't' },
+    recordings: [
+      {
+        recording_id: 'r',
+        name: 'R',
+        created_at: 't',
+        steps: [
+          {
+            uuid: 'u1',
+            logical_id: 'u1',
+            step_number: 1,
+            created_at: 't',
+            narration: 'n',
+            actions: [
+              {
+                type: 'click',
+                timestamp: 1,
+                x: 1,
+                y: 1,
+                element: { tag: 'a', selector: 's' },
+                context_id: 1,
+                capture_mode: 'dom',
+              },
+            ],
+            deleted: false,
+          },
+        ],
+      },
+    ],
+  };
+
+  it('unknown kind on a resolvable pointer is refused (guard)', () => {
+    assert.throws(
+      () =>
+        diffEnvelopes(
+          truth,
+          truth,
+          [{ pointer: 'rec[0].step[0].action[0]', relax: 'everything' }],
+          's',
+        ),
+      /unknown kind/,
+    );
+  });
+
+  it('regression_dangling_relaxation_pointer_is_a_machinery_error', () => {
+    assert.throws(
+      () =>
+        diffEnvelopes(truth, truth, [{ pointer: 'rec[0].step[9].action[0]', relax: 'path' }], 's'),
+      /matched no truth action|does not exist/,
+    );
+  });
+
+  it('a valid relaxation still applies (guard)', () => {
+    const t2 = JSON.parse(JSON.stringify(truth));
+    t2.recordings[0].steps[0].actions[0] = {
+      type: 'file_dialog',
+      timestamp: 1,
+      dialog_type: 'open',
+      file_path: 'a/b',
+      source: 'dialog',
+      context_id: 1,
+      capture_mode: 'accessibility',
+    };
+    const produced = JSON.parse(JSON.stringify(t2));
+    produced.recordings[0].steps[0].actions[0].file_path = 'c/d';
+    const findings = diffEnvelopes(
+      t2,
+      produced,
+      [{ pointer: 'rec[0].step[0].action[0]', relax: 'path' }],
+      's',
+    );
+    assert.deepEqual(findings, []);
+  });
+});
