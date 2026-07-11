@@ -69,7 +69,6 @@
               "frame_src": null,
               "timestamp": 1783348336984,
               "type": "click",
-              "window_rect": null,
               "x": 32,
               "y": 16
             },
@@ -79,8 +78,7 @@
               "nav_type": "link",
               "timestamp": 1783348337051,
               "type": "navigate",
-              "url": "http://127.0.0.1:41730/ext-tab-open/b.html",
-              "window_rect": null
+              "url": "http://127.0.0.1:41730/ext-tab-open/b.html"
             }
           ],
           "deleted": false,

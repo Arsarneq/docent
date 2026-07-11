@@ -416,7 +416,6 @@ chrome.webNavigation.onCommitted.addListener(async (details) => {
             url: details.url,
             context_id: details.tabId,
             capture_mode: 'dom',
-            window_rect: null,
           }),
         ]),
       ));
@@ -461,7 +460,6 @@ chrome.webNavigation.onCommitted.addListener(async (details) => {
         url: details.url,
         context_id: details.tabId,
         capture_mode: 'dom',
-        window_rect: null,
       }),
     ]);
     // Only advance the dedup marker once the navigation is actually recorded.
@@ -516,7 +514,6 @@ chrome.tabs.onActivated.addListener(async ({ tabId, windowId: _windowId }) => {
     source: tab.url,
     title: tab.title ?? null,
     capture_mode: 'dom',
-    window_rect: null,
   });
 });
 
@@ -542,7 +539,6 @@ chrome.tabs.onCreated.addListener(async (tab) => {
     opener_context_id: tab.openerTabId ?? null,
     source: tab.url || null,
     capture_mode: 'dom',
-    window_rect: null,
   });
 });
 
@@ -572,7 +568,6 @@ chrome.tabs.onRemoved.addListener(async (tabId, removeInfo) => {
     context_id: tabId,
     window_closing: false,
     capture_mode: 'dom',
-    window_rect: null,
   });
 });
 

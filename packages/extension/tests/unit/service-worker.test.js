@@ -1004,7 +1004,6 @@ describe('SERVICE WORKER: APPEND_ACTION (content script → storage handoff)', (
       context_id: 42,
       element: { text: 'Submit', selector: '#btn', tag: 'BUTTON', id: 'btn' },
       frame_src: 'https://example.com/frame',
-      window_rect: null,
       x: 150,
       y: 300,
     };
