@@ -75,7 +75,6 @@
               "frame_src": null,
               "timestamp": 1783348326303,
               "type": "click",
-              "window_rect": null,
               "x": 31,
               "y": 51
             },
@@ -128,7 +127,6 @@
               "frame_src": null,
               "timestamp": 1783348326351,
               "type": "click",
-              "window_rect": null,
               "x": 82,
               "y": 32
             },
@@ -168,7 +166,6 @@
               "frame_src": null,
               "timestamp": 1783348326398,
               "type": "click",
-              "window_rect": null,
               "x": 133,
               "y": 51
             }

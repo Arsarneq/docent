@@ -101,7 +101,6 @@
       ...action,
       context_id: tabId,
       capture_mode: 'dom',
-      window_rect: null,
       frame_src: frameSrc,
     };
     chrome.runtime.sendMessage({ type: 'APPEND_ACTION', action: stamped });

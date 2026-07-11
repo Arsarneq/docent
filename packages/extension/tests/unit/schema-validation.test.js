@@ -483,7 +483,6 @@ describe('Schema validation: extension property-based (random valid payloads)', 
       ),
       x: fc.integer(),
       y: fc.integer(),
-      window_rect: fc.constant(null),
     }),
     fc.record({
       type: fc.constant('type'),
@@ -500,7 +499,6 @@ describe('Schema validation: extension property-based (random valid payloads)', 
         selector: fc.string(),
       }),
       value: fc.string(),
-      window_rect: fc.constant(null),
     }),
     fc.record({
       type: fc.constant('scroll'),
@@ -512,7 +510,6 @@ describe('Schema validation: extension property-based (random valid payloads)', 
       scroll_left: fc.integer(),
       delta_y: fc.integer(),
       delta_x: fc.integer(),
-      window_rect: fc.constant(null),
     }),
   );
 
