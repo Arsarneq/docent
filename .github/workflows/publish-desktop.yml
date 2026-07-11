@@ -220,7 +220,7 @@ jobs:
 
       - name: Build Tauri application
         id: tauri
-        uses: tauri-apps/tauri-action@84b9d35b5fc46c1e45415bdb6144030364f7ebc5 # v0
+        uses: tauri-apps/tauri-action@1deb371b0cd8bd54025b384f1cd735e725c4060f # v1.0.0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
@@ -242,7 +242,7 @@ jobs:
           # NOTE: the Windows INSTALLER is a separate concern — it ships UNSIGNED
           # today (SmartScreen "Unknown publisher"), tracked by #72 (SignPath
           # Foundation EV signing); wire signing in here once that lands.
-          includeUpdaterJson: false
+          uploadUpdaterJson: false
           # Verbose Tauri/cargo build output only when debug logging is on.
           args: ${{ runner.debug == '1' && '--verbose' || '' }}
 
