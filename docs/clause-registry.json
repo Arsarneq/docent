@@ -11,7 +11,7 @@
       "doc": "docs/architecture/system/capture-principles.md",
       "clause": "CP-1",
       "tag": "judgment-only",
-      "justification": "Whether a novel event source records what the user did (intent) or what the code did (reaction) is a per-change design judgment; no check can classify sources that do not exist yet."
+      "justification": "Whether a novel event source records what the user did or what the code did is a per-change design judgment; no check can classify sources that do not exist yet."
     },
     {
       "doc": "docs/architecture/system/capture-principles.md",
@@ -29,7 +29,7 @@
       "doc": "docs/architecture/system/capture-principles.md",
       "clause": "CP-4",
       "tag": "judgment-only",
-      "justification": "Whether a new field is context kept distinct from the actions, or an action-stream entry in disguise, is a judgment about semantics, not shape."
+      "justification": "Whether a new field is context or an action-stream entry in disguise is judgment; no check can decide a field's meaning from its shape."
     },
     {
       "doc": "docs/architecture/system/capture-principles.md",
@@ -41,7 +41,7 @@
       "doc": "docs/architecture/system/capture-principles.md",
       "clause": "CP-6",
       "tag": "judgment-only",
-      "justification": "Classifying a novel consequence as effect versus action is judgment; the enumerated classes illustrate the category, they do not close it."
+      "justification": "Classifying a novel consequence as effect versus action is judgment; no check can classify consequences that do not exist yet."
     },
     {
       "doc": "docs/architecture/system/capture-principles.md",
@@ -83,7 +83,7 @@
       "doc": "docs/architecture/system/capture-principles.md",
       "clause": "CP-13",
       "tag": "judgment-only",
-      "justification": "The signals are diagnostic guidance; applying them to a mixed or novel case (the table's Depends rows) is judgment."
+      "justification": "Applying the signals to a mixed case (the table's Depends rows) or to a signal the table does not list is judgment; no check can decide such a case."
     }
   ]
 }
