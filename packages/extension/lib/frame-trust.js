@@ -1,12 +1,13 @@
 /**
  * frame-trust.js — Pure sender-trust decision for captured actions.
  *
- * The recorder is injected only into frames of tabs we are actively recording
- * (the service worker tracks those frames in an active-frame registry). An
- * `APPEND_ACTION` message must therefore come from a frame we injected into,
- * during a live recording, from our own extension — otherwise a page that can
- * reach the extension's message port could inject arbitrary actions into a
- * session (an embedded ad / analytics / third-party widget).
+ * The service worker tracks the frames of recorded tabs in an active-frame
+ * registry (seeded from the browser's frame table, updated on readiness
+ * reports, reseeded after a worker suspension). An `APPEND_ACTION` message is
+ * trusted only when it comes from our own extension, during a live recording,
+ * from a (tab, frame) pair present in that registry — otherwise a page that
+ * can reach the extension's message port could inject arbitrary actions into
+ * a session (an embedded ad / analytics / third-party widget).
  *
  * Extracted from service-worker.js for unit testability, mirroring
  * navigation-logic.js: a pure predicate over plain data, with no chrome.*

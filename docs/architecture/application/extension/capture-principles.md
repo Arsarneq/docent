@@ -10,6 +10,11 @@ Platform-specific details for the extension. See [core rules](../../../architect
    content-script isolated world
 2. **Service worker** (`background/service-worker.js`) — Chrome APIs for browser chrome proxies
 
+The service worker imports everything it needs **statically at module scope** —
+a Manifest V3 service worker cannot use dynamic `import()` (it throws at
+runtime). A lint rule on the background layer and a guard test enforce this at
+the worker's entry module.
+
 The recorder is **not** a passive `<all_urls>` content script. It is injected
 programmatically by the service worker, and **only while a recording is active**:
 
@@ -26,11 +31,16 @@ moment recording starts.)
 
 ### Frame trust and readiness
 
-Because actions arrive at the service worker as messages, the service worker only
-trusts the frames it actually injected into. It keeps an in-memory
-**active-frame registry** (tab → injected frames) and validates every inbound
-`APPEND_ACTION` against it: a message is accepted only when it comes from this
-extension, during a live recording, from a frame the service worker injected.
+Because actions arrive at the service worker as messages, the service worker
+validates every inbound `APPEND_ACTION` against an in-memory **active-frame
+registry** (tab → frames): a message is accepted only when it comes from this
+extension, during a live recording, from a (tab, frame) pair present in the
+registry. The registry is seeded from the browser's own frame table
+(`webNavigation.getAllFrames`) at record-start, updated as frames report ready,
+and — because it is in-memory and the service worker can be suspended — lazily
+reseeded from the same frame table when an append arrives from a tab with no
+registry entry at all (the suspension signature), rather than false-rejecting a
+legitimate frame whose registration was lost with the suspended worker.
 Anything else — an embedded ad, analytics, or third-party widget that can reach
 the message port — is dropped. The action's `context_id` is stamped from the
 **trusted sender**, never from the message body, so a frame cannot claim to be a
