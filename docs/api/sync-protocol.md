@@ -63,7 +63,7 @@ this — it only stores and returns payloads.
 
 A sync server is a **sync target for Docent clients**, not a consumer-facing read
 API. Systems that consume recordings (an LLM/agentic pipeline, a code mapper, a
-dashboard) should read from the server's underlying **storage** through their own
+dashboard) SHOULD read from the server's underlying **storage** through their own
 service, rather than calling these endpoints directly.
 
 A compliant server therefore does **not** need to emit CORS headers: Docent's own
@@ -73,8 +73,8 @@ than through the webview. Adding permissive CORS (e.g.
 `Access-Control-Allow-Origin: *`) to a server — especially one bound to localhost
 or running without authentication — would let any website the user visits read
 and overwrite their data from the browser. If you intentionally expose your
-server to a trusted browser origin, scope CORS to that exact origin and never use
-`*` on an unauthenticated server.
+server to a trusted browser origin, you SHOULD scope CORS to that exact origin
+and MUST NOT use `*` on an unauthenticated server.
 
 ---
 
@@ -89,8 +89,8 @@ Authorization: Bearer <api_key>
 
 When no API key is configured, the `Authorization` header is omitted entirely.
 
-A server that does not require authentication can ignore this header. A server
-that requires authentication should return `401` or `403` when the token is
+A server that does not require authentication MAY ignore this header. A server
+that requires authentication SHOULD return `401` or `403` when the token is
 missing or invalid — the client will halt the entire sync operation on either
 status code (before any reconcile or push, so no local or durable state is
 touched).
@@ -177,7 +177,7 @@ below for the complete example).
 ### PUT /projects/:id
 
 **SP-4.** Creates or updates a project on the server. The `:id` path
-parameter must match the `project_id` inside the request body.
+parameter MUST match the `project_id` inside the request body.
 
 **Request:**
 
@@ -202,13 +202,20 @@ header is present only when an API key is configured.
 
 **Response:**
 
-The server should respond with `200 OK` when updating an existing project or
-`201 Created` when storing a new project. The response body is not consumed by
-the client — a minimal acknowledgment is sufficient:
+The server SHOULD respond with `200 OK` when updating an existing project or
+`201 Created` when storing a new project. The client treats any `2xx` status as
+success and does not distinguish `200` from `201`, so the code is a recommended
+create-vs-replace convention rather than a value the client depends on. The
+response body is not consumed by the client — a minimal acknowledgment is
+sufficient:
 
 ```json
 { "ok": true }
 ```
+
+A server SHOULD reject a request whose body is not valid JSON, or whose
+`project.project_id` does not match the path `:id`, with `400 Bad Request`,
+leaving any stored project unchanged.
 
 ---
 
@@ -393,14 +400,15 @@ lightweight summary used by the client to determine which projects to fetch.
 
 The client interprets the following HTTP status codes:
 
-| Code | Meaning                                            | Client behavior                                                           |
-| ---- | -------------------------------------------------- | ------------------------------------------------------------------------- |
-| 200  | OK — request succeeded                             | Pull: payload snapshotted and reconciled. Push: project marked as pushed. |
-| 201  | Created — new project stored                       | Same as 200 (treated as success).                                         |
-| 401  | Unauthorized — invalid or missing API key          | Sync halted immediately. Error reported to user.                          |
-| 403  | Forbidden — valid key but insufficient permissions | Sync halted immediately. Error reported to user.                          |
-| 404  | Not found — project does not exist                 | Error recorded for that project. Other projects continue.                 |
-| 500  | Internal server error                              | Error recorded for that project. Other projects continue.                 |
+| Code | Meaning                                                            | Client behavior                                                                                                                       |
+| ---- | ------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------- |
+| 200  | OK — request succeeded                                             | Pull: payload snapshotted and reconciled. Push: project marked as pushed.                                                             |
+| 201  | Created — new project stored                                       | Same as 200 (treated as success).                                                                                                     |
+| 400  | Bad Request — invalid JSON body or path/body `project_id` mismatch | Server rejects the write; store unchanged. The client never sends such a request; a received 400 is non-fatal (skipped like 404/500). |
+| 401  | Unauthorized — invalid or missing API key                          | Sync halted immediately. Error reported to user.                                                                                      |
+| 403  | Forbidden — valid key but insufficient permissions                 | Sync halted immediately. Error reported to user.                                                                                      |
+| 404  | Not found — project does not exist                                 | Error recorded for that project. Other projects continue.                                                                             |
+| 500  | Internal server error                                              | Error recorded for that project. Other projects continue.                                                                             |
 
 **Important:** A `401` or `403` response on any request (pull or push) causes the
 client to halt the entire sync operation. A halt on the pull returns before any
@@ -423,7 +431,7 @@ exclude, they do not merely warn):
 - **Capture-active halt** — if a capture is running, no cycle starts.
 - **Pending-actions safety halt** — a recording holding pending actions
   (actions captured but not yet committed into a step) is always protected:
-  during capture, by the capture halt above; otherwise it must be locked
+  during capture, by the capture halt above; otherwise it MUST be locked
   (below), or the entire cycle halts (halt reason
   `pending-actions-unprotected`) rather than sync around it. This is the
   guarantee that uncommitted captured work is never reached by the later
@@ -437,13 +445,13 @@ exclude, they do not merely warn):
 2. For each entry, the client fetches `GET /projects/<project_id>` to retrieve the
    full payload.
 3. **SP-8.** Each pulled payload is checked before it is accepted:
-   - **Stamp compatibility** — the payload's `docent_format` must match the
+   - **Stamp compatibility** — the payload's `docent_format` MUST match the
      pulling client's platform and schema version. A project from a different
      platform, a different schema version, or with a missing stamp is **skipped
      and reported to the user** (not merged), with the reason (update the client
      or pin the producing version). A stamp-incompatible project is never turned
      into a conflict.
-   - **Schema validation** — the payload must validate against the client's
+   - **Schema validation** — the payload MUST validate against the client's
      platform schema. An invalid payload is skipped and reported as an error
      (never as a conflict).
    - Both checks are per-project: one skipped project does not abort the pull.
@@ -685,7 +693,7 @@ pull-first ordering keeps narrowing it as described above.
 
 ## Optional conditional write
 
-**SP-14.** A server may implement optimistic concurrency as follows. When the
+**SP-14.** A server MAY implement optimistic concurrency as follows. When the
 `If-Match` request header is absent the server behaves as the plain
 last-write-wins store above — the capability has no effect on clients that do not opt in, and a
 server without it remains fully conformant.
@@ -730,7 +738,7 @@ implements this capability; the shipped clients do not yet send `If-Match`.
 - The `docent_format` stamp is part of the stored payload. The server treats it as
   opaque — it does not read or validate it. Only the pulling client uses it (to
   identify the platform/schema version and validate the payload before reconciling).
-- A server may add optional top-level fields; the client ignores unrecognized
+- A server MAY add optional top-level fields; the client ignores unrecognized
   fields, so this is non-breaking. (The optional
   [conditional write](#optional-conditional-write) needed none — it rides on
   HTTP headers.)
