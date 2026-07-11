@@ -291,7 +291,9 @@ Every action has:
 
 **Desktop (Windows) only:**
 
-- `window_rect` (object \| null) — window position/size `{x, y, width, height}`, resolved from the action's window handle regardless of capture mode; null when no window handle was resolvable.
+- `window_rect` (object \| null) — window position/size `{x, y, width, height}` in physical screen pixels, resolved from the action's window handle regardless of capture mode; null when no window handle was resolvable.
+
+**Coordinate spaces:** extension `x`/`y` are viewport coordinates of the capturing frame (CSS pixels); desktop `x`/`y` are physical screen pixels — the same space as `window_rect`.
 
 ### Capture modes
 
@@ -324,10 +326,10 @@ Every action has:
 
 ### Extension only
 
-| Type          | Key fields         | Description                                                                                                                               |
-| ------------- | ------------------ | ----------------------------------------------------------------------------------------------------------------------------------------- |
-| `navigate`    | `nav_type`, `url`  | Page navigation. `nav_type`: link, typed, reload, back_forward, spa, form_submit, etc. Auth-token query-param values in `url` are masked. |
-| `file_upload` | `element`, `files` | File(s) selected via input. `files`: `[{name, size, mime}]`.                                                                              |
+| Type          | Key fields         | Description                                                                                                                                                                                                                                                                                                              |
+| ------------- | ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `navigate`    | `nav_type`, `url`  | Page navigation. `nav_type`: link, typed, reload, back_forward, spa, form_submit, etc. Values of known-sensitive query parameters in `url` (authentication and session tokens, keys and secrets, passwords, one-time codes, signatures) are masked; the schema's `url` description enumerates the exact parameter names. |
+| `file_upload` | `element`, `files` | File(s) selected via input. `files`: `[{name, size, mime}]`.                                                                                                                                                                                                                                                             |
 
 ### Desktop (Windows) only
 
@@ -366,7 +368,7 @@ tree.
 | `role`               | string \| null  | no       | ARIA role (extension) / localized UIA control type (desktop).                                                                                                                                                                                                   |
 | `type`               | string \| null  | no       | Input type attribute (extension) / control subtype, e.g. `"password"` (desktop).                                                                                                                                                                                |
 | `autocomplete`       | string \| null  | no       | HTML `autocomplete` token, e.g. `"cc-number"` (extension). Used to detect sensitive payment fields. Null/absent on desktop.                                                                                                                                     |
-| `text`               | string \| null  | no       | Visible text (truncated to 100 chars). Null for sensitive fields (passwords, credit-card/SSN/secret), where it is also flagged `redacted`.                                                                                                                      |
+| `text`               | string \| null  | no       | Visible text (truncated to 100 chars; a truncation mark may be appended). Null for sensitive fields (passwords, credit-card/SSN/secret), where it is also flagged `redacted`.                                                                                   |
 | `selector`           | string          | yes      | CSS selector (extension) / accessibility tree path joined with `" > "` (desktop). In coordinate mode: the window's tree path when the window resolved, or `coord:x,y` when nothing did.                                                                         |
 | `redacted`           | boolean         | no       | `true` when the value/text was redacted because the field was sensitive (password, payment, or other PII). Absent otherwise.                                                                                                                                    |
 | `position_in_set`    | integer \| null | no       | One-based position within the element's logical set of peers (UIA PositionInSet, desktop). Provider-reported; the logical set can differ from what is rendered (virtualized lists). Null/absent on extension or when not reported.                              |
