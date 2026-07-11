@@ -11,7 +11,9 @@
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { readFileSync, mkdtempSync, writeFileSync, rmSync } from 'node:fs';
+import { execFileSync, spawnSync } from 'node:child_process';
+import os from 'node:os';
 import path from 'node:path';
 import {
   changedLines,
@@ -136,6 +138,29 @@ describe('isDependencyOnlyPackageJsonDiff', () => {
   it('rejects an empty diff', () => {
     assert.equal(isDependencyOnlyPackageJsonDiff(diff([' unchanged'])), false);
   });
+
+  it('needs the block opener in the hunk — a false negative without it (why the caller supplies full context)', () => {
+    // Opener present (full-file context): recognized as a dependency-block bump.
+    const withOpener = diff([
+      '   "devDependencies": {',
+      '     "a": "^1.0.0",',
+      '     "b": "^1.0.0",',
+      '-    "left-pad": "^1.0.0",',
+      '+    "left-pad": "^1.3.0",',
+      '     "z": "^1.0.0"',
+      '   }',
+    ]);
+    assert.equal(isDependencyOnlyPackageJsonDiff(withOpener), true);
+    // Opener dropped (git's default context on a dep far below it): the #268 bug.
+    const openerDropped = diff([
+      '     "a": "^1.0.0",',
+      '     "b": "^1.0.0",',
+      '-    "left-pad": "^1.0.0",',
+      '+    "left-pad": "^1.3.0",',
+      '     "z": "^1.0.0"',
+    ]);
+    assert.equal(isDependencyOnlyPackageJsonDiff(openerDropped), false);
+  });
 });
 
 describe('isDependencyOnlyCargoTomlDiff', () => {
@@ -144,6 +169,18 @@ describe('isDependencyOnlyCargoTomlDiff', () => {
     assert.equal(isDependencyOnlyCargoTomlDiff(inside), true);
     const outside = diff([' [package]', '-version = "1.0.0"', '+version = "2.0.0"']);
     assert.equal(isDependencyOnlyCargoTomlDiff(outside), false);
+  });
+
+  it('needs the section header in the hunk — a false negative without it (same fix as package.json)', () => {
+    const withHeader = diff([
+      ' [dependencies]',
+      ' serde = "1.0.0"',
+      '-tokio = "1.0.0"',
+      '+tokio = "1.1.0"',
+    ]);
+    assert.equal(isDependencyOnlyCargoTomlDiff(withHeader), true);
+    const headerDropped = diff([' serde = "1.0.0"', '-tokio = "1.0.0"', '+tokio = "1.1.0"']);
+    assert.equal(isDependencyOnlyCargoTomlDiff(headerDropped), false);
   });
 });
 
@@ -183,6 +220,74 @@ describe('isExemptDiff — the declared dependency-only exemption', () => {
       false,
     );
     assert.equal(isExemptDiff({ files: [], fileDiff: () => '' }), false);
+  });
+});
+
+describe('run() manifest exemption — full-file context so the block opener is never dropped', () => {
+  // Regression: the disposition gate demanded sections for a pure dependabot
+  // devDependency bump because git's default 3-line context drops the
+  // "devDependencies": {" opener when the changed entry sits more than a few lines
+  // below it, so isDependencyOnlyPackageJsonDiff misjudged it as a change outside a
+  // dependency block. Dependabot cannot add the demanded sections.
+  // Surfaced by https://github.com/Arsarneq/docent/pull/268
+  const SCRIPT = path.resolve(import.meta.dirname, '../../../../scripts/check-docs-disposition.js');
+
+  /**
+   * A package.json whose bumped devDependency sits many lines below the block
+   * opener — deep enough that any realistic reduction of the diff context (not
+   * just the default 3) would drop the opener and reintroduce the bug.
+   */
+  const pkg = (ver) => {
+    const devDependencies = {};
+    for (let i = 0; i < 24; i++) devDependencies[`filler-${String(i).padStart(2, '0')}`] = '^1.0.0';
+    devDependencies['markdownlint-cli2'] = ver;
+    devDependencies['z-last'] = '^1.0.0';
+    return (
+      JSON.stringify(
+        {
+          name: 'fixture',
+          version: '1.0.0',
+          private: true,
+          scripts: { build: 'x' },
+          devDependencies,
+        },
+        null,
+        2,
+      ) + '\n'
+    );
+  };
+
+  it('regression_268_dep_bump_far_below_block_opener_is_exempt', () => {
+    const tmp = mkdtempSync(path.join(os.tmpdir(), 'ddisp-'));
+    try {
+      const g = (args) => execFileSync('git', args, { cwd: tmp, encoding: 'utf8' });
+      g(['init', '-q', '-b', 'main']);
+      g(['config', 'user.email', 't@example.com']);
+      g(['config', 'user.name', 'Test']);
+      writeFileSync(path.join(tmp, 'package.json'), pkg('^0.22.1'));
+      g(['add', '.']);
+      g(['commit', '-qm', 'base']);
+      const base = g(['rev-parse', 'HEAD']).trim();
+      writeFileSync(path.join(tmp, 'package.json'), pkg('^0.23.0'));
+      g(['add', '.']);
+      g(['commit', '-qm', 'bump markdownlint-cli2']);
+
+      // An empty PR body: exempt diffs must pass with no disposition sections.
+      const r = spawnSync('node', [SCRIPT, base], {
+        cwd: tmp,
+        env: { ...process.env, PR_BODY: '' },
+        encoding: 'utf8',
+      });
+      assert.equal(
+        r.status,
+        0,
+        `expected the dependency bump to be exempt (exit 0), got exit ${r.status}.\n` +
+          `stdout: ${r.stdout}\nstderr: ${r.stderr}`,
+      );
+      assert.match(r.stdout, /dependency-only/);
+    } finally {
+      rmSync(tmp, { recursive: true, force: true });
+    }
   });
 });
 

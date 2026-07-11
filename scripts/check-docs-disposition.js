@@ -76,6 +76,15 @@ const PACKAGE_JSON_DEP_BLOCKS =
 const CARGO_DEP_SECTION = /^\s*\[(.+\.)?(dependencies|dev-dependencies|build-dependencies)\]/;
 
 /**
+ * Context lines for the exemption diffs — effectively the whole file (git clamps
+ * to file length). The manifest exemption checks track the enclosing dependency
+ * block through the diff's context lines, so the block opener/header must always
+ * be visible; git's default 3-line context drops it for a dependency listed more
+ * than a few lines below its header and misjudges a pure dependency bump.
+ */
+const MANIFEST_DIFF_CONTEXT = 1_000_000;
+
+/**
  * The changed (+/-) line contents of a unified diff, sign stripped. Excludes
  * exactly the `+++`/`---` file headers, so content beginning with `+` or `-`
  * at column 0 still counts as a changed line.
@@ -123,7 +132,9 @@ export function isPinOnlyWorkflowDiff(diffText) {
 /**
  * Pure core: does a package.json diff change only dependency-block entries?
  * Tracks the enclosing block through the hunk's context lines (indent-matched
- * braces), so an npm-script or metadata edit is never exempt.
+ * braces), so an npm-script or metadata edit is never exempt. The diff MUST
+ * carry full-file context (the caller diffs with `-U${MANIFEST_DIFF_CONTEXT}`)
+ * so the block opener is visible; a hunk that omits it yields a false negative.
  * @param {string} diffText unified diff for one package.json
  * @returns {boolean}
  */
@@ -158,6 +169,9 @@ export function isDependencyOnlyPackageJsonDiff(diffText) {
 
 /**
  * Pure core: does a Cargo.toml diff change only dependency-section entries?
+ * Like the package.json check, this needs full-file context (the caller diffs
+ * with `-U${MANIFEST_DIFF_CONTEXT}`) so the `[dependencies]`-style section header
+ * is visible; a hunk that omits it yields a false negative.
  * @param {string} diffText unified diff for one Cargo.toml
  * @returns {boolean}
  */
@@ -383,7 +397,9 @@ function run() {
     .map((s) => s.trim())
     .filter(Boolean);
 
-  const fileDiff = (f) => git(['diff', `${baseRef}...HEAD`, '--', f]);
+  // Full-file context so the manifest exemption checks always see the enclosing
+  // dependency block's opener/header (see MANIFEST_DIFF_CONTEXT).
+  const fileDiff = (f) => git(['diff', `-U${MANIFEST_DIFF_CONTEXT}`, `${baseRef}...HEAD`, '--', f]);
 
   if (isExemptDiff({ files, fileDiff })) {
     console.log('✓ dependency-only change — no docs disposition required.');
