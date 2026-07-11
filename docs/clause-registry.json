@@ -2,11 +2,13 @@
   "description": "Registry of clause tags for docs that carry stable clause identifiers and normative language. Tags: 'check-exists' — a named, runnable check already guards the clause (check-ref points at it); 'checkable' — a mechanical check can guard the clause but is not built yet (check-ref names the intended check and any interim probe); 'judgment-only' — compliance is a per-change judgment no check can decide (justification says why). Clause identifiers are stable: never renumbered, and a retired identifier stays reserved (listed under 'retired').",
   "prefixes": {
     "CP": "docs/architecture/system/capture-principles.md",
-    "LR": "docs/technical/locator-resolution.md"
+    "LR": "docs/technical/locator-resolution.md",
+    "SF": "docs/technical/session-format.md"
   },
   "retired": {
     "CP": [],
-    "LR": []
+    "LR": [],
+    "SF": []
   },
   "clauses": [
     {
@@ -242,6 +244,90 @@
       "clause": "LR-26",
       "tag": "check-exists",
       "check-ref": "packages/shared/tests/unit/no-resolution-execution.test.js guards the shipped surfaces, and the hygiene locks in packages/shared/tests/unit/conformance-vectors.test.js are structurally counts and committed-field equalities from which the \"resolved\" property emerges without being computed; run via npm run test:shared."
+    },
+    {
+      "doc": "docs/technical/session-format.md",
+      "clause": "SF-1",
+      "tag": "checkable",
+      "check-ref": "Intended: a consistency check asserting the authority-ordering statement stays consistent across its echo surfaces (this doc, docs/README.md, README.md, docs/requirements/replay-sufficiency.md, the sync reference README) — not built. Interim: review; the surfaces were hand-aligned in one change, and future edits to them should cite this clause."
+    },
+    {
+      "doc": "docs/technical/session-format.md",
+      "clause": "SF-2",
+      "tag": "checkable",
+      "check-ref": "Intended: a format prose-pin check comparing the three bump bullets to the classifier rule set (not yet built). Interim probe: the classifier side is pinned by its unit suite (packages/shared/tests/unit/classify-schema-change.test.js; run via npm run test:shared) — prose-to-code alignment stays a review judgment."
+    },
+    {
+      "doc": "docs/technical/session-format.md",
+      "clause": "SF-3",
+      "tag": "check-exists",
+      "check-ref": "The allowlist and escalation live in scripts/classify-schema-change.js (PATCH_ON_ADD_ANNOTATIONS) with unit tests, and the x-value-derived drift guards pin the one known annotation against the real redaction code (packages/shared/tests/unit/schema-composition.test.js and the per-platform guards; run via npm run test:shared). The guard-coupling requirement for a future kind stays a review judgment — no check ties allowlist additions to guard existence."
+    },
+    {
+      "doc": "docs/technical/session-format.md",
+      "clause": "SF-4",
+      "tag": "check-exists",
+      "check-ref": "scripts/check-no-release-outputs.js fails any feature-branch PR that edits schemas/dist/ or bumps a leaf delta version, so hand-bumping cannot merge; the release pipeline computes bumps via scripts/auto-version-schemas.js."
+    },
+    {
+      "doc": "docs/technical/session-format.md",
+      "clause": "SF-5",
+      "tag": "check-exists",
+      "check-ref": "The exact five-field wrapper is asserted by packages/shared/tests/unit/contract.test.js (and the security suite); the three-field export is pinned by the desktop export suite validating buildExport output against the closed schema root (packages/desktop/tests/unit/export.test.js; npm run test:desktop) — the composed root is closed over exactly those three fields."
+    },
+    {
+      "doc": "docs/technical/session-format.md",
+      "clause": "SF-6",
+      "tag": "checkable",
+      "check-ref": "Intended: a pin requiring the shipped guidance asset to be re-confirmed whenever the schema source layers change (not built). Interim: review — whether a semantics change invalidates the guidance prose is judged per change."
+    },
+    {
+      "doc": "docs/technical/session-format.md",
+      "clause": "SF-7",
+      "tag": "check-exists",
+      "check-ref": "Composition and validator tests derive stamps via stampFromSchema(composePlatform(...)) and pin the const behaviour; the backward-compat harness demonstrates the relaxation is harness-local (packages/shared/tests/unit/backward-compat.test.js; run via npm run test:shared)."
+    },
+    {
+      "doc": "docs/technical/session-format.md",
+      "clause": "SF-8",
+      "tag": "check-exists",
+      "check-ref": "The resolution procedure is implemented by resolveActiveSteps (packages/shared/lib/session.js) and pinned by the shared session unit tests; run via npm run test:shared."
+    },
+    {
+      "doc": "docs/technical/session-format.md",
+      "clause": "SF-9",
+      "tag": "check-exists",
+      "check-ref": "The append-only mutations are pinned by the shared session unit tests, including the tombstone full-copy content and fresh created_at assertions added alongside this clause (packages/shared/tests/unit/session.test.js; run via npm run test:shared)."
+    },
+    {
+      "doc": "docs/technical/session-format.md",
+      "clause": "SF-10",
+      "tag": "check-exists",
+      "check-ref": "scripts/sufficiency-lint.js enforces this as the fail-class context-introduced predicate over every linted recording (npm run sufficiency:check)."
+    },
+    {
+      "doc": "docs/technical/session-format.md",
+      "clause": "SF-11",
+      "tag": "judgment-only",
+      "justification": "Whether a capture change preserves the describe-moment snapshot semantics is judgment; the conformance-vector hygiene locks probe recorded stats against committed snapshots (packages/shared/tests/unit/conformance-vectors.test.js)."
+    },
+    {
+      "doc": "docs/technical/session-format.md",
+      "clause": "SF-12",
+      "tag": "checkable",
+      "check-ref": "Intended: a pin asserting emitted locator order equals the schema strategy declaration order (not built). Interim probe: the scripted-truth corpus truths carry ordered locators, so an emitted-order change diffs against committed truth (npm run corpus:check and corpus:check:desktop)."
+    },
+    {
+      "doc": "docs/technical/session-format.md",
+      "clause": "SF-13",
+      "tag": "checkable",
+      "check-ref": "Intended: a test pinning the unavailable-validator degradation (logged, unvalidated import) and the validate-before-persist ordering (not built). Existing coverage: the bounds, bounds-before-validation order, and validator delegation are pinned by packages/shared/tests/unit/validate-import.test.js; the stamp const gate by the composed-schema tests (packages/shared/tests/unit/schema-composition.test.js); both run via npm run test:shared."
+    },
+    {
+      "doc": "docs/technical/session-format.md",
+      "clause": "SF-14",
+      "tag": "checkable",
+      "check-ref": "Intended: a format prose-pin asserting the stated additionalProperties posture over the composed schemas (not yet built). Interim: the schemas are the authority; the composed-schema tests exercise the posture indirectly (npm run test:shared)."
     }
   ]
 }
