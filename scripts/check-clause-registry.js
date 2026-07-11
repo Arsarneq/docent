@@ -9,9 +9,10 @@
  *     clause, no registry row for a clause the doc no longer states;
  *   - each row's tag carries its required field: `judgment-only` states a
  *     justification, `checkable`/`check-exists` state a check-ref;
- *   - every `scripts/*.js` path and `npm run <name>` named in a check-ref
- *     resolves (tracked file / existing package script) — a reference to a
- *     check that does not exist is a red, not a promise;
+ *   - every `scripts/*.js` path, `npm run <name>`, and tracked check-file
+ *     path (under packages/, corpus/, or reference-implementations/, with a
+ *     .js/.mjs/.json/.rs extension) named in a check-ref resolves — a reference to a check that does not exist is a
+ *     red, not a promise;
  *   - retired identifiers stay retired: absent from doc text and active rows.
  *
  * This checks form and resolvability only — whether a check actually guards
@@ -62,14 +63,24 @@ export function extractClauseMarkers(markdown) {
 
 /**
  * Extract the check references a check-ref names: `scripts/<name>.js` paths and
- * `npm run <name>` script names.
+ * `npm run <name>` script names, and tracked check-file paths under
+ * packages/, corpus/, or reference-implementations/ (a path-shaped token is
+ * extracted only when it carries a directory separator, so bare filenames
+ * stay unvalidated prose).
  * @param {string} checkRef
- * @returns {{ scriptPaths: string[], npmScripts: string[] }}
+ * @returns {{ scriptPaths: string[], npmScripts: string[], filePaths: string[] }}
  */
 export function extractCheckRefTargets(checkRef) {
   return {
-    scriptPaths: [...checkRef.matchAll(/scripts\/[A-Za-z0-9_\-.]+\.js/g)].map((m) => m[0]),
+    scriptPaths: [...checkRef.matchAll(/(?<![\w/.-])scripts\/[A-Za-z0-9_\-.]+\.js/g)].map(
+      (m) => m[0],
+    ),
     npmScripts: [...checkRef.matchAll(/npm run ([A-Za-z0-9:_-]+)/g)].map((m) => m[1]),
+    filePaths: [
+      ...checkRef.matchAll(
+        /(?<![\w/.-])(?:packages|corpus|reference-implementations)\/[A-Za-z0-9_\-./]+\.(?:mjs|json|js|rs)\b/g,
+      ),
+    ].map((m) => m[0]),
   };
 }
 
@@ -170,13 +181,16 @@ export function auditClauseRegistry({ registry, files, readFile, packageScripts 
       if (typeof ref !== 'string' || !ref.trim()) {
         r.rowErrors.push(`clause "${id}" is ${row.tag} but states no check-ref`);
       } else {
-        const { scriptPaths, npmScripts } = extractCheckRefTargets(ref);
-        if (row.tag === 'check-exists' && scriptPaths.length + npmScripts.length === 0) {
+        const { scriptPaths, npmScripts, filePaths } = extractCheckRefTargets(ref);
+        if (
+          row.tag === 'check-exists' &&
+          scriptPaths.length + npmScripts.length + filePaths.length === 0
+        ) {
           r.refErrors.push(
-            `clause "${id}" is check-exists but its check-ref names no script or npm run target`,
+            `clause "${id}" is check-exists but its check-ref names no script, npm run target, or tracked check file`,
           );
         }
-        for (const p of scriptPaths) {
+        for (const p of [...scriptPaths, ...filePaths]) {
           if (!tracked.has(p)) r.refErrors.push(`clause "${id}" check-ref names untracked ${p}`);
         }
         for (const s of npmScripts) {
@@ -272,8 +286,8 @@ function run() {
       `  Fix: keep doc clause markers (e.g. **CP-3.**) and registry rows in one-to-one agreement,\n` +
         `  give every judgment-only row a justification and every checkable/check-exists row a\n` +
         `  check-ref that names real scripts, and never reuse a retired identifier. Describe an\n` +
-        `  intended-but-unbuilt check in prose; name a scripts/ path or npm run target only once\n` +
-        `  it exists (a check-exists row must name at least one).`,
+        `  intended-but-unbuilt check in prose; name a scripts/ path, npm run target, or tracked\n` +
+        `  check-file path only once it exists (a check-exists row must name at least one).`,
     );
     process.exit(1);
   }

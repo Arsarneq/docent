@@ -5,14 +5,16 @@
     "LR": "docs/technical/locator-resolution.md",
     "SF": "docs/technical/session-format.md",
     "ECP": "docs/architecture/application/extension/capture-principles.md",
-    "DCP": "docs/architecture/application/desktop/windows/capture-principles.md"
+    "DCP": "docs/architecture/application/desktop/windows/capture-principles.md",
+    "SP": "docs/api/sync-protocol.md"
   },
   "retired": {
     "CP": [],
     "LR": [],
     "SF": [],
     "ECP": [],
-    "DCP": []
+    "DCP": [],
+    "SP": []
   },
   "clauses": [
     {
@@ -151,7 +153,7 @@
       "doc": "docs/technical/locator-resolution.md",
       "clause": "LR-10",
       "tag": "checkable",
-      "check-ref": "Intended: a check that parses the strategy tables and pins them against the vector-measurement evaluators (not built). Interim probe: lock 5’s query evaluator (packages/shared/tests/unit/conformance-vectors.test.js with vector-measurement.js / vector-measurement-desktop.js; run via npm run test:shared) implements the Application step per strategy over committed snapshots — alignment between the doc tables and the evaluator remains a review judgment."
+      "check-ref": "Intended: a check that parses the strategy tables and pins them against the vector-measurement evaluators (not built). Interim probe: lock 5’s query evaluator (packages/shared/tests/unit/conformance-vectors.test.js with packages/shared/tests/unit/vector-measurement.js / packages/shared/tests/unit/vector-measurement-desktop.js; run via npm run test:shared) implements the Application step per strategy over committed snapshots — alignment between the doc tables and the evaluator remains a review judgment."
     },
     {
       "doc": "docs/technical/locator-resolution.md",
@@ -482,6 +484,90 @@
       "clause": "DCP-13",
       "tag": "judgment-only",
       "justification": "Whether a proposed entry meets the admission test — the surface description alone would mislead without it — is judgment at review."
+    },
+    {
+      "doc": "docs/api/sync-protocol.md",
+      "clause": "SP-1",
+      "tag": "check-exists",
+      "check-ref": "The reference server integration suite pins store-and-return-verbatim and no-server-side-state (reference-implementations/sync-server/tests/integration/protocol.test.js, reference-implementations/sync-server/tests/integration/round-trip.test.js; run by the server package test script in CI)."
+    },
+    {
+      "doc": "docs/api/sync-protocol.md",
+      "clause": "SP-2",
+      "tag": "check-exists",
+      "check-ref": "The whole-cycle 401/403 halt (before reconcile or push) is pinned by packages/shared/tests/unit/auth-failure-halt.property.test.js (npm run test:shared); the server-side token handling by reference-implementations/sync-server/tests/integration/auth.test.js."
+    },
+    {
+      "doc": "docs/api/sync-protocol.md",
+      "clause": "SP-3",
+      "tag": "check-exists",
+      "check-ref": "Manifest shape and fields are pinned by reference-implementations/sync-server/tests/integration/protocol.test.js; the client-side connection test that reuses this endpoint by packages/shared/tests/unit/connection-test.test.js (npm run test:shared)."
+    },
+    {
+      "doc": "docs/api/sync-protocol.md",
+      "clause": "SP-4",
+      "tag": "check-exists",
+      "check-ref": "PUT semantics (path/body id match, verbatim replacement, 200/201) are pinned by reference-implementations/sync-server/tests/integration/protocol.test.js and reference-implementations/sync-server/tests/integration/round-trip.test.js."
+    },
+    {
+      "doc": "docs/api/sync-protocol.md",
+      "clause": "SP-5",
+      "tag": "checkable",
+      "check-ref": "Intended: a unit pinning that unrecognized top-level payload fields are ignored on pull (not built as a dedicated case). Interim: the pull path reconstructs projects through an allowlist, so unknown fields are dropped by construction (packages/shared/sync-client.js)."
+    },
+    {
+      "doc": "docs/api/sync-protocol.md",
+      "clause": "SP-6",
+      "tag": "check-exists",
+      "check-ref": "The pull-before-push ordering and its divergence-detection consequence are pinned by packages/shared/tests/unit/pull-precedes-push.property.test.js (npm run test:shared)."
+    },
+    {
+      "doc": "docs/api/sync-protocol.md",
+      "clause": "SP-7",
+      "tag": "check-exists",
+      "check-ref": "The capture halt by packages/shared/tests/unit/capture-active-halt.property.test.js, the pending-actions halt by packages/shared/tests/unit/pending-action-protection.property.test.js, and the inbound locked exclusion by packages/shared/tests/unit/locked-recording-exclusion.property.test.js (npm run test:shared)."
+    },
+    {
+      "doc": "docs/api/sync-protocol.md",
+      "clause": "SP-8",
+      "tag": "check-exists",
+      "check-ref": "The stamp gate (skip-and-report, never a conflict, per-project) is pinned by packages/shared/tests/unit/stamp-compatibility.test.js; pulled-payload schema validation (invalid is an error, never a conflict, per-project) by packages/shared/tests/unit/safeguard-composition.property.test.js (npm run test:shared)."
+    },
+    {
+      "doc": "docs/api/sync-protocol.md",
+      "clause": "SP-9",
+      "tag": "check-exists",
+      "check-ref": "The digest-based classification is pinned by packages/shared/tests/unit/classify-decision-table.property.test.js and packages/shared/tests/unit/classify-deterministic.property.test.js (npm run test:shared)."
+    },
+    {
+      "doc": "docs/api/sync-protocol.md",
+      "clause": "SP-10",
+      "tag": "check-exists",
+      "check-ref": "Baseline advancement (agreement/adoption only, never push) is pinned by packages/shared/tests/unit/baseline-advancement.property.test.js (npm run test:shared)."
+    },
+    {
+      "doc": "docs/api/sync-protocol.md",
+      "clause": "SP-11",
+      "tag": "check-exists",
+      "check-ref": "The two conflict-producing situations (and only those) are pinned by packages/shared/tests/unit/divergence-conflict.property.test.js, packages/shared/tests/unit/delete-vs-change-conflict.property.test.js, and packages/shared/tests/unit/no-baseline-no-one-sided-change.property.test.js (npm run test:shared)."
+    },
+    {
+      "doc": "docs/api/sync-protocol.md",
+      "clause": "SP-12",
+      "tag": "check-exists",
+      "check-ref": "The identity-based append-only-and-nothing-else predicate is pinned by packages/shared/tests/unit/fast-forward-superset.property.test.js; the deletions toggle’s auto-apply outcomes by packages/shared/tests/unit/reported-counts.property.test.js (npm run test:shared)."
+    },
+    {
+      "doc": "docs/api/sync-protocol.md",
+      "clause": "SP-13",
+      "tag": "check-exists",
+      "check-ref": "Per-recording assembly, the no-omission rule, deferred/locked version selection, and the content-decided skip are pinned by packages/shared/tests/unit/per-unit-push-assembly.property.test.js, packages/shared/tests/unit/locked-recording-push-preservation.property.test.js, and packages/shared/tests/unit/changed-local-outgoing-push.property.test.js (npm run test:shared)."
+    },
+    {
+      "doc": "docs/api/sync-protocol.md",
+      "clause": "SP-14",
+      "tag": "check-exists",
+      "check-ref": "The stored-project If-Match rows (match proceeds with fresh ETag; stale 412 leaves the store unchanged) are pinned by reference-implementations/sync-server/tests/integration/conditional-write.test.js; the no-project-stored 412 branch is pinned at the decision-function level by reference-implementations/sync-server/tests/unit/conditional-write.test.js (an end-to-end case for that branch is a named gap)."
     }
   ]
 }
