@@ -30,10 +30,11 @@ under `application/extension/`; desktop capture is per-OS native stacks
 (UIA/WinEvent), so it nests under `application/desktop/windows/`, leaving room for a
 future capture surface (e.g. Linux) beside it.
 
-### Technical — the format and resolution specifications
+### Technical — format orientation and the resolution specification
 
-- [Session Format](technical/session-format.md) — the formal `.docent.json`
-  specification.
+- [Session Format](technical/session-format.md) — orientation prose for the
+  `.docent.json` format; the per-platform [JSON Schemas](../schemas/) are the
+  authoritative specification.
 - [Locator Resolution](technical/locator-resolution.md) — the reference procedure
   that defines what "the recording's locators resolve correctly" means, and the
   conformance-vector scope.
@@ -43,8 +44,9 @@ future capture surface (e.g. Linux) beside it.
 - [Sync Protocol](api/sync-protocol.md) — the REST protocol for syncing projects
   between clients and a server.
 
-`api/` holds wire/transport protocols; the `.docent.json` data-format spec lives
-under `technical/`.
+`api/` holds wire/transport protocols; the `.docent.json` format's orientation
+prose lives under `technical/`, and the schemas themselves — the format's
+authoritative specification — under [`schemas/`](../schemas/).
 
 ### Verification — proving the guarantees
 

@@ -35,6 +35,8 @@ facts such as the window rectangle.
 
 **CP-4.** Recorded context MUST be kept distinct from the actions themselves;
 it MUST NOT be invented and MUST NOT be treated as something the user did.
+Distinct means distinct in meaning, not merely in placement — a field kept
+outside the actions that functions as an action entry violates this rule.
 
 ---
 
@@ -45,6 +47,9 @@ it MUST NOT be invented and MUST NOT be treated as something the user did.
 - Mouse: left-click, right-click, middle-click, double-click, drag, scroll
 - Keyboard: control keys, F-keys, modifier combos, typing text
 - Interactions: selecting from a dropdown, confirming a dialog, choosing a file
+
+The definition is the rule; the listed classes illustrate it and do not close
+it. A novel input class is judged against the definition, not the list.
 
 ---
 
@@ -60,6 +65,9 @@ application code are not user actions and MUST NOT be captured as actions:
 - Synthetic/generated events from the platform
 - Timer-driven UI updates
 - Notifications appearing
+
+The enumerated classes illustrate the category; they do not close it. A novel
+consequence is judged against the category definition above.
 
 ---
 
@@ -108,3 +116,7 @@ observable signals:
 | `event.isTrusted === false`                      | —           | ✅                     |
 | No preceding user input                          | —           | ✅ Likely programmatic |
 | Platform identifies cause (transitionType, etc.) | Depends     | Depends                |
+
+The signals are diagnostic guidance, not a decision procedure; a mixed case
+(the table's Depends rows) or a signal the table does not list is a design
+judgment.
