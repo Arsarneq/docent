@@ -41,7 +41,8 @@
           ]
         },
         "url": {
-          "type": "string"
+          "type": "string",
+          "description": "The destination URL. Values of sensitive query parameters are masked at capture; the masked parameter names (matched case-insensitively) are exactly: token, access_token, id_token, refresh_token, auth, authorization, api_key, apikey, key, secret, client_secret, password, pwd, session, sessionid, sid, otp, code, signature, sig, sso. Other parameters are preserved."
         },
         "context_id": {
           "$ref": "#/$defs/context_id"
