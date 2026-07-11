@@ -54,6 +54,7 @@ import {
   DELETE_RESOLUTION,
 } from '../shared/conflict-resolution.js';
 import { buildExport } from '../shared/lib/export-project.js';
+import { buildImportedProject } from '../shared/lib/import-project.js';
 import adapter, { commitWithCompleteness } from './adapter-tauri.js';
 import {
   escapeHtml,
@@ -73,7 +74,6 @@ import {
   getStepHistory,
   findRecording,
 } from '../shared/lib/session.js';
-import { uuidv7 } from '../shared/lib/uuid-v7.js';
 import { invoke } from './tauri-bridge.js';
 
 // ─── Elements ─────────────────────────────────────────────────────────────────
@@ -801,29 +801,7 @@ async function handleImportData(exportData) {
     console.warn('[Docent] Import validator unavailable — proceeding without schema validation.');
   }
 
-  const imported = exportData.project;
-  const exists = sessionState.projects.some((p) => p.project_id === imported.project_id);
-
-  const newProject = {
-    project_id: exists ? uuidv7() : imported.project_id,
-    name: exists ? `${imported.name} (copy)` : imported.name,
-    created_at: imported.created_at ?? new Date().toISOString(),
-    recordings: (exportData.recordings ?? []).map((r) => ({
-      recording_id: r.recording_id,
-      name: r.name,
-      created_at: r.created_at,
-      steps: (r.steps ?? []).map((s) => ({
-        uuid: s.uuid ?? uuidv7(),
-        logical_id: s.logical_id,
-        step_number: s.step_number,
-        created_at: s.created_at,
-        narration: s.narration,
-        narration_source: s.narration_source ?? 'imported',
-        actions: s.actions ?? [],
-        deleted: s.deleted ?? false,
-      })),
-    })),
-  };
+  const newProject = buildImportedProject(sessionState.projects, exportData);
 
   sessionState.projects.push(newProject);
   await saveState();
