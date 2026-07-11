@@ -70,7 +70,6 @@
               "frame_src": null,
               "timestamp": 1783348350069,
               "type": "click",
-              "window_rect": null,
               "x": 96,
               "y": 18
             },
@@ -124,8 +123,7 @@
               "frame_src": null,
               "timestamp": 1783348350205,
               "type": "type",
-              "value": "••••••••",
-              "window_rect": null
+              "value": "••••••••"
             },
             {
               "capture_mode": "dom",
@@ -177,7 +175,6 @@
               "frame_src": null,
               "timestamp": 1783348350206,
               "type": "click",
-              "window_rect": null,
               "x": 277,
               "y": 18
             },
@@ -231,8 +228,7 @@
               "frame_src": null,
               "timestamp": 1783348350266,
               "type": "type",
-              "value": "••••••••",
-              "window_rect": null
+              "value": "••••••••"
             },
             {
               "capture_mode": "dom",
@@ -291,7 +287,6 @@
               "frame_src": null,
               "timestamp": 1783348350273,
               "type": "click",
-              "window_rect": null,
               "x": 409,
               "y": 18
             },
@@ -352,8 +347,7 @@
               "frame_src": null,
               "timestamp": 1783348350294,
               "type": "select",
-              "value": "••••••••",
-              "window_rect": null
+              "value": "••••••••"
             }
           ],
           "deleted": false,

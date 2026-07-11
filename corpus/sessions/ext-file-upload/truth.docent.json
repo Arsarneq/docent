@@ -69,7 +69,6 @@
               "frame_src": null,
               "timestamp": 1783348341386,
               "type": "click",
-              "window_rect": null,
               "x": 134,
               "y": 18
             },
@@ -128,8 +127,7 @@
               ],
               "frame_src": null,
               "timestamp": 1783348341405,
-              "type": "file_upload",
-              "window_rect": null
+              "type": "file_upload"
             }
           ],
           "deleted": false,
