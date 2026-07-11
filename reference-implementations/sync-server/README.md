@@ -213,11 +213,13 @@ configured token therefore leaves no unauthenticated state-mutating endpoint.
 
 ## Optional conditional write (docent#152)
 
-The server hosts the optional server-side optimistic-concurrency enhancement
-tracked by
-[docent#152](https://github.com/Arsarneq/docent/issues/152). It is an explicit,
-opt-in protocol enhancement: when the relevant headers are absent the server
-behaves as a plain last-write-wins store, exactly as the
+The server implements the protocol's optional
+[conditional write](../../docs/api/sync-protocol.md#optional-conditional-write)
+(the server-side optimistic-concurrency capability delivered under
+[docent#152](https://github.com/Arsarneq/docent/issues/152)). The wire contract
+lives in that protocol section; what follows describes this implementation. It
+is opt-in: when the relevant headers are absent the server behaves as a plain
+last-write-wins store, exactly as the
 [protocol's last-write-wins window](../../docs/api/sync-protocol.md#known-limitation-the-last-write-wins-window)
 describes.
 

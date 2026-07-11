@@ -337,13 +337,14 @@ The `schema_version` shown is illustrative, not the current version.
 
 The `steps` array contains the **complete version history** — it is not filtered
 to active steps only. See the [Docent Session Format](../technical/session-format.md)
-documentation for the full step schema.
+documentation for the step structure (the per-platform schemas define it
+authoritatively).
 
 > **Forward compatibility.** The client ignores any unrecognized top-level fields
-> the server returns. A future protocol version may add an optional
-> concurrency-control token (for example a version or ETag — see the
-> [last-write-wins window](#known-limitation-the-last-write-wins-window) below)
-> without breaking clients built against this specification.
+> the server returns, so a future protocol version can add fields without
+> breaking clients built against this specification. (The optional
+> [conditional write](#optional-conditional-write) below adds no payload field —
+> it rides entirely on HTTP headers.)
 
 ---
 
@@ -403,10 +404,17 @@ whole point: pulling first lets the client observe a concurrent server change
 before it pushes, which is the precondition for detecting a divergence rather
 than overwriting it.
 
-Before any transport, two local gates apply (they block, they do not merely
-check):
+Before any transport, three local protections apply (they block or exclude,
+they do not merely warn):
 
 - **Capture-active halt** — if a capture is running, no cycle starts.
+- **Pending-actions safety halt** — a recording holding pending actions
+  (actions captured but not yet committed into a step) is always protected:
+  during capture, by the capture halt above; otherwise it must be locked
+  (below), or the entire cycle halts (halt reason
+  `pending-actions-unprotected`) rather than sync around it. This is the
+  guarantee that uncommitted captured work is never reached by the later
+  phases.
 - **Locked recordings** — a recording open in the recording view is _locked_ and
   excluded from the inbound merge; every other unit still syncs.
 
@@ -564,9 +572,12 @@ conflict):
 
 - **Auto-accept updates** — a `changed-incoming` review is applied automatically
   **only** when the incoming version is an _append-only fast-forward_ of your
-  baseline (it strictly adds to the step history, dropping nothing). A
-  history-rewriting or otherwise non-fast-forward change still becomes a review
-  even with this on.
+  baseline: it strictly adds new step records, dropping none of the baseline's
+  records (retention is checked by record identity), **and changes nothing
+  else** — same name, same metadata. A change that drops or replaces step
+  records, renames the unit, or edits metadata still becomes a review even with
+  this on (a step append is lossless to adopt silently; a rename of a unit you
+  may have open is a separate, surprising change).
 - **Auto-accept deletions** — a server deletion of a unit you have not changed is
   applied automatically instead of being held for review.
 
@@ -627,9 +638,10 @@ Push never advances the baseline.
 
 ## Known limitation: the last-write-wins window
 
-The server is an opaque **last-write-wins** blob store: every `PUT /projects/:id`
-is accepted unconditionally and overwrites whatever was stored. It has no
-conditional-write primitive (no `If-Match`/ETag), so it cannot reject a write
+In its baseline form the server is an opaque **last-write-wins** blob store:
+every `PUT /projects/:id` is accepted unconditionally and overwrites whatever
+was stored. A server without the optional
+[conditional write](#optional-conditional-write) has no way to reject a write
 that is based on a stale read.
 
 Pull-then-push **narrows but does not fully eliminate** the overwrite window.
@@ -647,13 +659,39 @@ but not silent data loss.
 
 Eliminating the window entirely requires **server-side optimistic concurrency
 control** — a conditional write where the client sends the version it based its
-edit on and the server rejects the write if its stored version has moved. That is
-deliberately **out of scope** for this protocol (it would require the server to
-stop being opaque and start tracking per-project versions) and is tracked as a
-separate future protocol enhancement:
-[docent#152](https://github.com/Arsarneq/docent/issues/152). The forward-compatibility
-rule above (the client ignores unrecognized top-level fields) is what lets that
-token be added later without a breaking change.
+edit on and the server rejects the write if its stored version has moved. The
+protocol defines exactly that as the **optional
+[conditional write](#optional-conditional-write)** below
+([docent#152](https://github.com/Arsarneq/docent/issues/152) delivered its
+server half; the reference server implements it). The shipped clients do not
+yet send `If-Match`, so today the window **closes** only for a client that opts
+in against a server implementing the capability; for everyone else the
+pull-first ordering keeps narrowing it as described above.
+
+---
+
+## Optional conditional write
+
+A server may implement optimistic concurrency as follows. When the `If-Match`
+request header is absent the server behaves as the plain last-write-wins store
+above — the capability has no effect on clients that do not opt in, and a
+server without it remains fully conformant.
+
+- **ETag advertisement** — a successful `GET /projects/:id` and a successful
+  `PUT /projects/:id` return an `ETag` header derived deterministically from the
+  stored payload's content only (never from `last_modified`): two reads of the
+  same unchanged project return the same value, and any change to the content
+  yields a different one.
+- **`If-Match` on `PUT /projects/:id`:**
+
+| `If-Match` on the `PUT`                                              | Behavior                                                                                           |
+| -------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------- |
+| Absent                                                               | Last-write-wins: the payload is stored per the normal `PUT` rules, regardless of the current ETag. |
+| Present and matches the stored ETag                                  | The write proceeds (`200`/`201`) and returns a fresh `ETag`.                                       |
+| Present and does **not** match (including when no project is stored) | `412 Precondition Failed`; the store is left unchanged.                                            |
+
+The [reference server](../../reference-implementations/sync-server/README.md)
+implements this capability; the shipped clients do not yet send `If-Match`.
 
 ---
 
@@ -679,8 +717,10 @@ token be added later without a breaking change.
 - The `docent_format` stamp is part of the stored payload. The server treats it as
   opaque — it does not read or validate it. Only the pulling client uses it (to
   identify the platform/schema version and validate the payload before reconciling).
-- A server may add optional top-level fields (e.g. a future concurrency-control
-  token); the client ignores unrecognized fields, so this is non-breaking.
+- A server may add optional top-level fields; the client ignores unrecognized
+  fields, so this is non-breaking. (The optional
+  [conditional write](#optional-conditional-write) needed none — it rides on
+  HTTP headers.)
 
 > **Working example.** For a small, runnable implementation of this contract, see
 > the [Reference Sync Server](../../reference-implementations/sync-server/README.md).
