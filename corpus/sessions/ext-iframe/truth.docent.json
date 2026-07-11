@@ -69,7 +69,6 @@
               "frame_src": null,
               "timestamp": 1783348339400,
               "type": "click",
-              "window_rect": null,
               "x": 47,
               "y": 207
             },
@@ -122,7 +121,6 @@
               "frame_src": "http://127.0.0.1:41730/ext-iframe/frame.html",
               "timestamp": 1783348339468,
               "type": "click",
-              "window_rect": null,
               "x": 55,
               "y": 18
             }

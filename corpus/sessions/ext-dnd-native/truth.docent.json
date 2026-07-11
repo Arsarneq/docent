@@ -68,8 +68,7 @@
               },
               "frame_src": null,
               "timestamp": 1783348343594,
-              "type": "drag_start",
-              "window_rect": null
+              "type": "drag_start"
             },
             {
               "capture_mode": "dom",
@@ -163,7 +162,6 @@
               },
               "timestamp": 1783348343600,
               "type": "drop",
-              "window_rect": null,
               "x": 198,
               "y": 70
             }
