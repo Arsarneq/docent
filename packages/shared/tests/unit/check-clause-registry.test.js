@@ -85,6 +85,7 @@ describe('extractCheckRefTargets', () => {
     assert.deepEqual(extractCheckRefTargets(ref), {
       scriptPaths: ['scripts/next-check.js', 'scripts/other.js'],
       npmScripts: ['corpus:check', 'lint'],
+      filePaths: [],
     });
   });
 });
@@ -204,7 +205,7 @@ describe('auditClauseRegistry — check-ref resolvability', () => {
     registry.clauses[1]['check-ref'] = 'A check somewhere in CI guards this.';
     const r = audit({ registry });
     assert.deepEqual(r.refErrors, [
-      'clause "TP-2" is check-exists but its check-ref names no script or npm run target',
+      'clause "TP-2" is check-exists but its check-ref names no script, npm run target, or tracked check file',
     ]);
   });
 
@@ -263,5 +264,103 @@ describe('auditClauseRegistry — shape', () => {
     const r = audit({ registry: { description: 'x' } });
     assert.notEqual(r.shapeErrors.length, 0);
     assert.deepEqual(r.markerErrors, []);
+  });
+});
+
+describe('extractCheckRefTargets: tracked check-file paths', () => {
+  it('extracts paths under packages/, corpus/, and reference-implementations/', () => {
+    const { filePaths } = extractCheckRefTargets(
+      'pinned by packages/shared/tests/unit/foo.test.js and corpus/vectors-coverage.json; ' +
+        'the server side by reference-implementations/sync-server/tests/integration/bar.test.js',
+    );
+    assert.deepEqual(filePaths, [
+      'packages/shared/tests/unit/foo.test.js',
+      'corpus/vectors-coverage.json',
+      'reference-implementations/sync-server/tests/integration/bar.test.js',
+    ]);
+  });
+
+  it('does not extract from mid-token prefixes', () => {
+    const { filePaths, scriptPaths } = extractCheckRefTargets(
+      'see sub-packages/foo.js and scripted-truth-corpus/vectors.json and packages/x/scripts/real.js',
+    );
+    assert.deepEqual(filePaths, ['packages/x/scripts/real.js']);
+    assert.deepEqual(scriptPaths, []);
+  });
+
+  it('an untracked path reddens a checkable row too', () => {
+    const registry = {
+      description: 'd',
+      prefixes: { T: 'docs/t.md' },
+      retired: { T: [] },
+      clauses: [
+        {
+          doc: 'docs/t.md',
+          clause: 'T-1',
+          tag: 'checkable',
+          'check-ref': 'Interim probe: packages/shared/tests/unit/gone.test.js.',
+        },
+      ],
+    };
+    const r = auditClauseRegistry({
+      registry,
+      files: ['docs/t.md'],
+      readFile: (f) => (f === 'docs/t.md' ? '**T-1.** rule' : null),
+      packageScripts: [],
+    });
+    assert.equal(r.refErrors.length, 1);
+    assert.ok(r.refErrors[0].includes('untracked'));
+  });
+
+  it('ignores bare filenames without a directory separator', () => {
+    const { filePaths } = extractCheckRefTargets('see foo.test.js and vector-measurement.js');
+    assert.deepEqual(filePaths, []);
+  });
+
+  it('a tracked file path satisfies check-exists on its own', () => {
+    const registry = {
+      description: 'd',
+      prefixes: { T: 'docs/t.md' },
+      retired: { T: [] },
+      clauses: [
+        {
+          doc: 'docs/t.md',
+          clause: 'T-1',
+          tag: 'check-exists',
+          'check-ref': 'pinned by packages/shared/tests/unit/foo.test.js.',
+        },
+      ],
+    };
+    const r = auditClauseRegistry({
+      registry,
+      files: ['docs/t.md', 'packages/shared/tests/unit/foo.test.js'],
+      readFile: (f) => (f === 'docs/t.md' ? '**T-1.** rule' : null),
+      packageScripts: [],
+    });
+    assert.deepEqual(r.refErrors, []);
+  });
+
+  it('an untracked named check file reddens', () => {
+    const registry = {
+      description: 'd',
+      prefixes: { T: 'docs/t.md' },
+      retired: { T: [] },
+      clauses: [
+        {
+          doc: 'docs/t.md',
+          clause: 'T-1',
+          tag: 'check-exists',
+          'check-ref': 'pinned by packages/shared/tests/unit/gone.test.js.',
+        },
+      ],
+    };
+    const r = auditClauseRegistry({
+      registry,
+      files: ['docs/t.md'],
+      readFile: (f) => (f === 'docs/t.md' ? '**T-1.** rule' : null),
+      packageScripts: [],
+    });
+    assert.equal(r.refErrors.length, 1);
+    assert.ok(r.refErrors[0].includes('untracked packages/shared/tests/unit/gone.test.js'));
   });
 });

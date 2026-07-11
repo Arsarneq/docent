@@ -5,8 +5,20 @@ synchronization of projects and recordings between Docent clients and a remote
 server. This document is the formal specification — it contains everything a
 backend developer needs to implement a compatible sync server.
 
-The server is **opaque**: it stores and returns each `Full_Project_Payload`
-verbatim and holds no conflict state of its own. All conflict detection and
+Each rule carries a stable identifier (**SP-n**) so other documents, reviews,
+and checks can cite it precisely. Identifiers are never renumbered; a retired
+identifier stays reserved and is never reused. How each rule is verified — by
+an existing named check, by a check that could be built, or by judgment — is
+recorded per rule in the [clause registry](../clause-registry.json). The key
+words MUST, MUST NOT, SHOULD, and MAY are to be interpreted as described in
+[RFC 2119](https://www.rfc-editor.org/rfc/rfc2119). Keywords appear on a
+clause's operative requirement where it has one; definitional clauses bind as
+stated without a keyword, and subsidiary absolutes inside a clause inherit its
+force. A clause's scope runs from its marker to the next marker or heading;
+identifiers reflect minting order and may appear out of numeric sequence.
+
+**SP-1.** The server is **opaque**: it stores and returns each
+`Full_Project_Payload` verbatim and holds no conflict state of its own. All conflict detection and
 resolution is client-side. A server built against the
 [Endpoints](#endpoints) and [Payload Shapes](#payload-shapes) sections below is
 complete and correct regardless of how the client reconciles — the
@@ -68,8 +80,8 @@ server to a trusted browser origin, scope CORS to that exact origin and never us
 
 ## Authentication
 
-Authentication is optional. When the user configures an API key in Docent, the
-client includes it as a Bearer token on every request:
+**SP-2.** Authentication is optional. When the user configures an API key in
+Docent, the client includes it as a Bearer token on every request:
 
 ```text
 Authorization: Bearer <api_key>
@@ -93,7 +105,8 @@ state, no new endpoints, and no new fields the server must understand.
 
 ### GET /projects
 
-Returns the project manifest — a JSON array listing all projects on the server.
+**SP-3.** Returns the project manifest — a JSON array listing all projects on
+the server.
 
 **Request:**
 
@@ -163,8 +176,8 @@ below for the complete example).
 
 ### PUT /projects/:id
 
-Creates or updates a project on the server. The `:id` path parameter must match
-the `project_id` inside the request body.
+**SP-4.** Creates or updates a project on the server. The `:id` path
+parameter must match the `project_id` inside the request body.
 
 **Request:**
 
@@ -340,7 +353,7 @@ to active steps only. See the [Docent Session Format](../technical/session-forma
 documentation for the step structure (the per-platform schemas define it
 authoritatively).
 
-> **Forward compatibility.** The client ignores any unrecognized top-level fields
+> **SP-5.** **Forward compatibility.** The client ignores any unrecognized top-level fields
 > the server returns, so a future protocol version can add fields without
 > breaking clients built against this specification. (The optional
 > [conditional write](#optional-conditional-write) below adds no payload field —
@@ -399,13 +412,13 @@ skips the failing project and continues with the rest.
 
 ## Sync Behavior
 
-A sync cycle runs **pull → reconcile → push**, in that order. The ordering is the
+**SP-6.** A sync cycle runs **pull → reconcile → push**, in that order. The ordering is the
 whole point: pulling first lets the client observe a concurrent server change
 before it pushes, which is the precondition for detecting a divergence rather
 than overwriting it.
 
-Before any transport, three local protections apply (they block or exclude,
-they do not merely warn):
+**SP-7.** Before any transport, three local protections apply (they block or
+exclude, they do not merely warn):
 
 - **Capture-active halt** — if a capture is running, no cycle starts.
 - **Pending-actions safety halt** — a recording holding pending actions
@@ -423,7 +436,7 @@ they do not merely warn):
 1. The client fetches `GET /projects` to retrieve the manifest.
 2. For each entry, the client fetches `GET /projects/<project_id>` to retrieve the
    full payload.
-3. Each pulled payload is checked before it is accepted:
+3. **SP-8.** Each pulled payload is checked before it is accepted:
    - **Stamp compatibility** — the payload's `docent_format` must match the
      pulling client's platform and schema version. A project from a different
      platform, a different schema version, or with a missing stamp is **skipped
@@ -440,12 +453,12 @@ they do not merely warn):
 
 ### Reconcile phase
 
-For every project and recording (the _units_), the client classifies the unit by
-comparing three states: the **local** version, the **incoming** (pulled) version,
-and the **baseline** — the last state this client and the server mutually agreed
-on. Classification uses content equality (a canonical digest of name, metadata,
-and full step history), not timestamps, because `last_modified` is unreliable
-against an opaque store.
+**SP-9.** For every project and recording (the _units_), the client classifies
+the unit by comparing three states: the **local** version, the **incoming**
+(pulled) version, and the **baseline** — the last state this client and the
+server mutually agreed on. Classification uses content equality (a canonical
+digest of name, metadata, and full step history), not timestamps, because
+`last_modified` is unreliable against an opaque store.
 
 | Classification         | Condition                                                     | Outcome                                                                                                 |
 | ---------------------- | ------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
@@ -470,7 +483,7 @@ Key rules:
   explicit outcome of resolution. Deferred units leave local data untouched.
 - **Durable and idempotent** — conflict and review state persists across restarts
   and never multiplies across repeated syncs.
-- **Baseline advances only on confirmed agreement or adoption, never on push.** A
+- **SP-10.** **Baseline advances only on confirmed agreement or adoption, never on push.** A
   push is not proof of agreement (a concurrent client may overwrite it first), so
   the baseline advances only when a later pull confirms incoming equals local, or
   when the user adopts a change. On adoption it advances to the **resolved-against
@@ -482,8 +495,8 @@ neither applied nor offered until it is closed.
 
 #### What causes a conflict that must be resolved
 
-A **conflict** — the only outcome that forces the user to choose between two
-versions — arises in exactly two situations. Everything else reconciles
+**SP-11.** A **conflict** — the only outcome that forces the user to choose
+between two versions — arises in exactly two situations. Everything else reconciles
 automatically or is held as a non-blocking **review**.
 
 A conflict is recorded when, for a single unit (a project's own
@@ -570,7 +583,7 @@ Two opt-in, client-local settings turn specific reviews into **silent
 auto-applies** (they change only what happens to a review — they never touch a
 conflict):
 
-- **Auto-accept updates** — a `changed-incoming` review is applied automatically
+- **SP-12.** **Auto-accept updates** — a `changed-incoming` review is applied automatically
   **only** when the incoming version is an _append-only fast-forward_ of your
   baseline: it strictly adds new step records, dropping none of the baseline's
   records (retention is checked by record identity), **and changes nothing
@@ -599,8 +612,8 @@ pushed**; a resolved/accepted unit is pushed only on a _subsequent_ cycle (which
 begins with a fresh pull, so a concurrent server change is re-detected rather than
 overwritten).
 
-Because the server only offers a whole-project `PUT`, the client assembles each
-project's payload **per recording**:
+**SP-13.** Because the server only offers a whole-project `PUT`, the client
+assembles each project's payload **per recording**:
 
 - A recording that is **pushable** — clean brand-new-local, changed-local-outgoing,
   already-converged, or an auto-applied incoming version — is sent at its **local**
@@ -672,9 +685,9 @@ pull-first ordering keeps narrowing it as described above.
 
 ## Optional conditional write
 
-A server may implement optimistic concurrency as follows. When the `If-Match`
-request header is absent the server behaves as the plain last-write-wins store
-above — the capability has no effect on clients that do not opt in, and a
+**SP-14.** A server may implement optimistic concurrency as follows. When the
+`If-Match` request header is absent the server behaves as the plain
+last-write-wins store above — the capability has no effect on clients that do not opt in, and a
 server without it remains fully conformant.
 
 - **ETag advertisement** — a successful `GET /projects/:id` and a successful
