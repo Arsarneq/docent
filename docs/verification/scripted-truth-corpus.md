@@ -12,9 +12,21 @@ Nothing here replays a recording or resolves a locator. The corpus produces
 truth files — Docent ships no consumer, and this directory is a repository and
 CI artifact only (excluded from every release, like `reference-implementations/`).
 
+Each rule this document makes in its own right carries a stable identifier
+(**STC-n**) so other documents, reviews, and checks can cite it precisely. Identifiers are never renumbered; a retired
+identifier stays reserved and is never reused. How each rule is verified — by
+an existing named check, by a check that could be built, or by judgment — is
+recorded per rule in the [clause registry](../clause-registry.json). The key
+words MUST, MUST NOT, SHOULD, and MAY are to be interpreted as described in
+[RFC 2119](https://www.rfc-editor.org/rfc/rfc2119). Keywords appear on a
+clause's operative requirement where it has one; definitional clauses bind as
+stated without a keyword, and subsidiary absolutes inside a clause inherit its
+force. A clause's scope runs from its marker to the next marker or heading;
+identifiers reflect minting order and may appear out of numeric sequence.
+
 ## Truth doctrine
 
-- **Truth is derived from the script and the
+- **STC-1.** **Truth is derived from the script and the
   [capture principles](../architecture/system/capture-principles.md), never from recorder
   output.** A truth file states what a faithful capture _in the current
   format_ would record for its session's scripted input. Bootstrapping a truth
@@ -22,19 +34,20 @@ CI artifact only (excluded from every release, like `reference-implementations/`
   line-by-line review against the script; anywhere current capture falls short
   of the reviewed truth, the divergence goes into the known-diffs baseline
   (issue-tagged in the manifest), never silently enshrined into the truth.
-- **Corpus diffs cover only current-format-expressible capture defects**:
+- **STC-2.** **Corpus diffs cover only current-format-expressible capture defects**:
   missing/extra/wrong actions and wrong field values. Facts the format cannot
   state (viewport, start URL, hover, readiness…) are the sufficiency lint's
   gap-predicate territory — truth files are schema-valid current-format
   documents, so such facts structurally cannot appear as corpus diffs.
-- **CI stays green while known capture gaps are open.** The committed
+- **STC-3.** **CI stays green while known capture gaps are open.** The committed
   `corpus/known-diffs.<platform>.json` is locked in BOTH directions by
-  `npm run corpus:check`: a NEW diff is a capture regression; a VANISHED diff
+  `npm run corpus:check` and `corpus:check:desktop`: a NEW diff is a capture
+  regression; a VANISHED diff
   means a fix landed — both fail CI until the baseline is deliberately
   regenerated (the comparator's `--write-baseline` flag) and reviewed. The
   `--strict`/`--lint-strict` flags exist but are CI-wired only once the
   baselines are empty (the gate slice).
-- **Hermetic.** Pages are committed under each session and served from
+- **STC-4.** **Hermetic.** Pages are committed under each session and served from
   loopback at a FIXED port by `corpus/serve.js` — the URL rule is
   `http://127.0.0.1:41730/<session-id>/<filename>` — so URL-bearing fields
   are deterministic; no session touches the public internet.
@@ -44,11 +57,16 @@ CI artifact only (excluded from every release, like `reference-implementations/`
 ```text
 corpus/
   manifest.json                  the session catalogue (id, platform, page,
-                                 script, knownDiffIssues, notes, status)
-  known-diffs.extension.json     per-platform both-direction baseline
-  sessions/<id>/pages/           committed HTML the session runs against
-  sessions/<id>/script.js        the input driver (real Playwright input only —
-                                 the recorder drops synthetic events)
+                                 script or driver, knownDiffIssues, notes,
+                                 status)
+  known-diffs.extension.json     per-platform both-direction baselines
+  known-diffs.desktop-windows.json
+  sessions/<id>/pages/           committed HTML an extension session runs
+                                 against
+  sessions/<id>/script.js        the extension input driver (real Playwright
+                                 input only — the recorder drops synthetic
+                                 events); desktop sessions name a Rust driver
+                                 in the manifest instead
   sessions/<id>/truth.docent.json  the expected envelope (raw, schema-valid)
   sessions/<id>/overrides.json   optional relaxations sidecar
   out/                           gitignored per-run output (produced envelopes,
@@ -58,10 +76,30 @@ corpus/
 Runner: `packages/extension/tests/e2e/corpus/corpus.spec.js` (config
 `packages/extension/tests/e2e/playwright.corpus.config.js`). Comparator:
 `scripts/corpus-compare.js` (normalization spec, LCS action alignment, baseline
-mechanics — see its header). Local loop: `npm run corpus:produce:extension`, then
-`npm run corpus:check`.
+mechanics — see its header). Extension local loop:
+`npm run corpus:produce:extension`, then `npm run corpus:check`. Desktop local
+loop (a Windows machine): the Rust producer
+(`cargo test --manifest-path packages/desktop/src-tauri/Cargo.toml --test corpus_capture -- --test-threads=1`),
+then `npm run corpus:assemble:desktop`, then `npm run corpus:check:desktop`.
+
+## Comparator and relaxations
+
+**STC-5.** A session may carry an `overrides.json` sidecar of **relaxations**,
+and the comparator holds them to a closed contract: the relaxation kinds are
+exactly `match-stats`, `scroll-amounts`, and `path`; sidecar pointers index
+the **truth** document, and relaxations are alignment-scoped on the produced
+side — never raw produced positions; a `match-stats` relaxation is
+locator-entry scoped (its pointer names the entry) and cross-checked against
+the entry's strategy; the `scroll-amounts` class map keeps `0` exact and
+relaxes only the covered scroll fields; redaction differences are never
+relaxable — the comparator refuses the sidecar rather than compare around a
+mask. Every sidecar entry must apply to some truth action — an unknown kind
+or a pointer that matches nothing is refused. Machinery failures exit with a
+distinct code (2), so tooling breakage can never read as a passing diff.
 
 ## Page-authoring rules
+
+**STC-6.** Pages are authored for determinism:
 
 - Interactive elements carry `id` + `data-testid` — EXCEPT elements
   deliberately left identifier-less so the derived `css` locator stays
@@ -86,6 +124,34 @@ mechanics — see its header). Local loop: `npm run corpus:produce:extension`, t
   (`waitForFrameReadySince` — corpus URLs are stable across loads, so the
   plain per-URL wait would return stale).
 
+**STC-7.** Input drivers use only trusted-input-safe APIs — an API that
+synthesizes untrusted events records nothing (Playwright's `selectOption` is
+the known example; sessions drive dropdowns with real clicks and keys). A
+driver never uses Tab to move focus off a field it just typed into (the blur
+races the input-correlation window); deliberate blurs click a neutral target.
+File uploads supply buffer-backed files with fixed names and bytes, never
+machine-local paths.
+
+## Desktop truth sessions
+
+**STC-8.** The desktop truth leg reuses the same doctrine with a two-stage
+pipeline: a Rust integration test drives real OS input against controlled
+windows and serializes the captured events — in the same shape the runtime
+emits — to per-session dump files; `npm run corpus:assemble:desktop` then
+replays each dump through the real frontend pipeline (the reorder buffer, the
+redaction chokepoint, the commit completeness barrier, and the same shared
+session model and export the desktop panel uses) into envelopes for the same
+comparator (`npm run corpus:check:desktop`). In CI the producer runs on the
+Windows job and uploads the dumps; a separate job assembles and diffs them.
+
+**STC-9.** Desktop sessions are designed to be environment-independent: a
+session window is deliberately never raised programmatically (a programmatic
+raise succeeds locally and fails on a headless runner — the divergence would
+make truths machine-dependent); the first scripted click is the deterministic
+activation, and a primer window equalizes the session window's pre-click
+non-foreground status across environments (see the retirement rule below for
+sessions that stay unstable anyway).
+
 ## Conformance vectors
 
 Inert data for [docs/technical/locator-resolution.md](../technical/locator-resolution.md#conformance-and-vector-scope)
@@ -102,8 +168,8 @@ Nothing here executes the resolution procedure.
 
 ### Emission (produced, then reviewed and committed)
 
-A superset of the corpus run, gated on the `CORPUS_VECTORS` env var so truth
-production is byte-for-byte unaffected without it. At a non-mutating,
+**STC-10.** A superset of the corpus run, gated on the `CORPUS_VECTORS` env
+var so truth production is byte-for-byte unaffected without it. At a non-mutating,
 non-navigating vector-carrying action, the session driver calls
 `vector.mark(selector, key)`; the snapshot walker (`corpus/lib/snapshot-walker.js`,
 injected via `page.evaluate`) serializes the bound frame's `documentElement`,
@@ -120,9 +186,9 @@ committing it (the truth doctrine above, applied to vectors).
 
 ### Hygiene locks (structural; `packages/shared/tests/unit`)
 
-Each lock is a per-candidate match **count** measured over the committed
-snapshot, or a committed-field **equality** — never a run of the resolution
-procedure. The `"resolved"` guarantee **emerges** from the counts and equalities;
+**STC-11.** Each lock is a per-candidate match **count** measured over the
+committed snapshot, or a committed-field **equality** — never a run of the
+resolution procedure. The `"resolved"` guarantee **emerges** from the counts and equalities;
 it is nowhere computed. For every committed vector:
 
 1. it names an active manifest session of its platform, or an enumerated
@@ -150,7 +216,7 @@ ordered procedure, so a resolver can never be smuggled into a shipped surface.
 
 ### Coverage ledger
 
-`corpus/vectors-coverage.json` maps each emitted extension strategy to the committed
+**STC-12.** `corpus/vectors-coverage.json` maps each emitted extension strategy to the committed
 vector where it is the measured-unique candidate, at element granularity
 (`session`, `vector`, `element`, `action_index`). A lock ties every emitted
 strategy to a real committed vector; `role_name` and `label` are schema-reserved
@@ -177,7 +243,7 @@ The differences are all data:
   desktop measurement scope in
   [docs/technical/locator-resolution.md](../technical/locator-resolution.md)) — so uniqueness
   and `tree_path` are counted over exactly what a query sees at the window.
-- **Locale determinism by authored provenance.** A committed snapshot must not
+- **STC-15.** **Locale determinism by authored provenance.** A committed snapshot MUST NOT
   freeze OS-locale strings. `control_type` / `automation_id` / `class_name` /
   structure are kept verbatim (stable, count-relevant); the localized `name` of
   any node that does **not** carry an authored content `automation_id` — whatever
@@ -186,7 +252,7 @@ The differences are all data:
   A content query's value is an authored non-localized string that never equals
   the placeholder, so normalizing OS Names cannot change the match count for any
   content-targeting query.
-- **Fixture-sourced, producer-emitted.** Desktop vectors are sourced from a
+- **STC-16.** **Fixture-sourced, producer-emitted.** Desktop vectors are sourced from a
   dedicated vector-only fixture window (`corpus/vector-fixtures.json`), not a manifest
   corpus session: it has no `truth.docent.json`, no known-diffs baseline key, and
   no sufficiency-baseline entry. Its `element_facts` + `locators` are captured
@@ -194,14 +260,14 @@ The differences are all data:
   self-describing, so lock (2) checks internal consistency. The vector-carrying
   action is a worker-described one (its element carries measured stats); an
   input-time click element is unmeasured and sources no vector.
-- **Harness-measured `labeled_by` / `tree_path`.** Capture skips match stats for
+- **STC-17.** **Harness-measured `labeled_by` / `tree_path`.** Capture skips match stats for
   these two (`labeled_by` is not a UIA property-condition; `tree_path` counting
   is O(nodes × depth)). The offline harness has no runtime budget, so it measures
   both by evaluating their stated query over the committed snapshot and records
   the resulting `match_count` / `match_index` — derived FROM the snapshot, so lock
   (5) re-derives them. This is the only place a vector's `locators` may exceed the
   captured element, and only on those two strategies.
-- **Reproduce discipline: normalized, not byte-identical.** A desktop
+- **STC-18.** **Reproduce discipline: normalized, not byte-identical.** A desktop
   `element_facts` carries environment-variant fields a static DOM does not:
   `described_after_ms` (worker latency) and a `selector` whose ancestry above the
   window is the virtual-desktop root. The produced==committed oracle compares
@@ -252,9 +318,12 @@ The differences are all data:
 
 ## Known caveats
 
-- The corpus does not exercise the side-panel commit/export UI (the envelope
-  is assembled through the same shared production functions the panels call);
-  panel flows stay covered by the main e2e suite.
+- **STC-13.** The corpus does not exercise the side-panel commit/export UI
+  (the envelope is assembled through the same shared production functions the
+  panels call); panel flows stay covered by the main e2e suite. The desktop
+  assembler replays event **arrival order** through the real JS pipeline; it
+  does not exercise the live Tauri emit-to-listen bridge, the panel commit UI,
+  persistence, or arrival timing.
 - A `match-stats` relaxation can hide a `locator-pair-invariants` violation
   from the corpus diff — which is why produced files are additionally run
   through the sufficiency lint (`--lint`) and relaxations are per-entry,
@@ -266,9 +335,10 @@ The differences are all data:
 
 ## Adding or retiring a session
 
-Add: create `corpus/sessions/<id>/` (pages, script, truth per the doctrine above),
-register it in `corpus/manifest.json`, produce, review the truth line-by-line,
-regenerate and review both baselines. Retire: never delete silently — set
+**STC-14.** Add: create `corpus/sessions/<id>/` (pages, script, truth per the
+doctrine above), register it in `corpus/manifest.json`, produce, review the
+truth line-by-line, regenerate and review both baselines. Retire: never delete
+silently — set
 `"status": "retired"` in the manifest with a reason (and issue link); the
 entry stays listed. A session that cannot pass CI reliably across its retry
 budget is redesigned or retired — never relaxed into meaninglessness.

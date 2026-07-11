@@ -208,7 +208,7 @@
       "truth": "truth.docent.json",
       "overrides": "overrides.json",
       "knownDiffIssues": [],
-      "notes": "click on a plain custom-class window (DefWindowProc, no accessibility content) — deterministic coordinate-mode fallback: Window element, no locators, window_rect present. WATCH: selector embeds the virtual-desktop name (Desktop 1) and mode-vs-docs drift (selector is a tree path, docs say coord:x,y; tag Window, docs say unknown) — CI adjudicates the former; the latter joins the window_rect doc-drift note"
+      "notes": "click on a plain custom-class window (DefWindowProc, no accessibility content) — deterministic coordinate-mode fallback: Window element, no locators, window_rect present. WATCH: selector embeds the virtual-desktop name (Desktop 1) — CI adjudicates."
     }
   ]
 }

@@ -301,6 +301,10 @@ export function diffEnvelopes(truthDoc, producedDoc, relaxations = [], sessionId
   const produced = normalizeEnvelope(producedDoc);
   const findings = [];
   const add = (f) => findings.push(f);
+  // Every sidecar entry must APPLY to some truth action; an entry that never
+  // matches (typo'd pointer, dangling index) is machinery breakage, not a
+  // passing diff — tracked here and asserted after the walk.
+  const appliedRelaxations = new Set();
 
   diffValue(truth.docent_format, produced.docent_format, 'docent_format', '', add);
   diffValue(truth.project, produced.project, 'project', '', add);
@@ -364,6 +368,7 @@ export function diffEnvelopes(truthDoc, producedDoc, relaxations = [], sessionId
         }
         const pair = pairs.find(([i]) => i === ti);
         applyRelaxation(relax, tActs[ti], pair ? pActs[pair[1]] : null, sessionId);
+        appliedRelaxations.add(relax);
       }
 
       tActs.forEach((a, i) => {
@@ -379,6 +384,18 @@ export function diffEnvelopes(truthDoc, producedDoc, relaxations = [], sessionId
       for (const [i, j] of pairs) {
         diffValue(tActs[i], pActs[j], `${pointerBase}.action[${i}]:${tActs[i].type}`, '', add);
       }
+    }
+  }
+
+  // Two gates by design: the in-loop throw catches a pointer whose rec/step
+  // resolve but whose action index dangles (precise message); this post-walk
+  // gate catches everything else (unknown kind on an unreachable pointer,
+  // rec/step indexes that match nothing, malformed pointers).
+  for (const relax of relaxations) {
+    if (!appliedRelaxations.has(relax)) {
+      throw new MachineryError(
+        `${sessionId}: relaxation ${JSON.stringify(relax.pointer ?? '')} (kind ${JSON.stringify(relax.relax)}) matched no truth action`,
+      );
     }
   }
 

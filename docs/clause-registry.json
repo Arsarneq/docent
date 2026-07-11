@@ -6,7 +6,8 @@
     "SF": "docs/technical/session-format.md",
     "ECP": "docs/architecture/application/extension/capture-principles.md",
     "DCP": "docs/architecture/application/desktop/windows/capture-principles.md",
-    "SP": "docs/api/sync-protocol.md"
+    "SP": "docs/api/sync-protocol.md",
+    "STC": "docs/verification/scripted-truth-corpus.md"
   },
   "retired": {
     "CP": [],
@@ -14,7 +15,8 @@
     "SF": [],
     "ECP": [],
     "DCP": [],
-    "SP": []
+    "SP": [],
+    "STC": []
   },
   "clauses": [
     {
@@ -568,6 +570,114 @@
       "clause": "SP-14",
       "tag": "check-exists",
       "check-ref": "The stored-project If-Match rows (match proceeds with fresh ETag; stale 412 leaves the store unchanged) are pinned by reference-implementations/sync-server/tests/integration/conditional-write.test.js; the no-project-stored 412 branch is pinned at the decision-function level by reference-implementations/sync-server/tests/unit/conditional-write.test.js (an end-to-end case for that branch is a named gap)."
+    },
+    {
+      "doc": "docs/verification/scripted-truth-corpus.md",
+      "clause": "STC-1",
+      "tag": "judgment-only",
+      "justification": "Whether a truth edit derives from the script and the capture principles rather than enshrining recorder output is judgment at the mandatory line-by-line review."
+    },
+    {
+      "doc": "docs/verification/scripted-truth-corpus.md",
+      "clause": "STC-2",
+      "tag": "judgment-only",
+      "justification": "Whether a missing fact is format-expressible (corpus territory) or not (the sufficiency lint’s gap territory) is a per-fact judgment; truth files’ schema validity is enforced by their membership in the lint corpus (npm run sufficiency:check)."
+    },
+    {
+      "doc": "docs/verification/scripted-truth-corpus.md",
+      "clause": "STC-3",
+      "tag": "check-exists",
+      "check-ref": "The both-direction baseline lock is implemented by scripts/corpus-compare.js and pinned by packages/shared/tests/unit/corpus-compare.test.js (npm run test:shared); it gates CI via npm run corpus:check and corpus:check:desktop."
+    },
+    {
+      "doc": "docs/verification/scripted-truth-corpus.md",
+      "clause": "STC-4",
+      "tag": "checkable",
+      "check-ref": "Intended: a page lint rejecting external resources and time/locale-dependent constructs in committed session pages (not built). Interim: corpus/serve.js pins the fixed loopback port, and pages are reviewed against the authoring rules."
+    },
+    {
+      "doc": "docs/verification/scripted-truth-corpus.md",
+      "clause": "STC-5",
+      "tag": "check-exists",
+      "check-ref": "The closed kinds, strategy cross-check, masked-entry refusal, the 0-exact scroll class map, and the every-entry-applies validation are implemented by scripts/corpus-compare.js and pinned by packages/shared/tests/unit/corpus-compare.test.js (npm run test:shared); the alignment-scoping behaviour and the CLI exit-code mapping stay review-held."
+    },
+    {
+      "doc": "docs/verification/scripted-truth-corpus.md",
+      "clause": "STC-6",
+      "tag": "judgment-only",
+      "justification": "Whether a new page obeys the determinism rules is review judgment; cross-run stability of the corpus in CI is the operational probe."
+    },
+    {
+      "doc": "docs/verification/scripted-truth-corpus.md",
+      "clause": "STC-7",
+      "tag": "judgment-only",
+      "justification": "Whether a driver API produces trusted input on a novel interaction is judgment; a violation surfaces as a missing action in the session’s own diff."
+    },
+    {
+      "doc": "docs/verification/scripted-truth-corpus.md",
+      "clause": "STC-8",
+      "tag": "check-exists",
+      "check-ref": "The pipeline runs end-to-end on producer-generated dumps: the Rust corpus test produces them (locally on Windows; the Windows CI job uploads them as an artifact), then npm run corpus:assemble:desktop replays them through the real adapter and npm run corpus:check:desktop diffs against committed truth."
+    },
+    {
+      "doc": "docs/verification/scripted-truth-corpus.md",
+      "clause": "STC-9",
+      "tag": "judgment-only",
+      "justification": "Whether a new session’s design stays environment-independent (no programmatic raise, click-driven activation) is judgment; CI retry-budget stability is the operational probe."
+    },
+    {
+      "doc": "docs/verification/scripted-truth-corpus.md",
+      "clause": "STC-10",
+      "tag": "check-exists",
+      "check-ref": "The produce-stage oracle asserts produced == committed at the two production sites (packages/extension/tests/e2e/corpus/corpus.spec.js exact; scripts/corpus-assemble-desktop-vectors.js under the comparator class rules), and the hygiene locks re-derive the committed vectors’ counts (packages/shared/tests/unit/conformance-vectors.test.js; npm run test:shared)."
+    },
+    {
+      "doc": "docs/verification/scripted-truth-corpus.md",
+      "clause": "STC-11",
+      "tag": "check-exists",
+      "check-ref": "The locks are counts and equalities by construction, and packages/shared/tests/unit/no-resolution-execution.test.js guards that no shipped surface implements the ordered procedure (npm run test:shared)."
+    },
+    {
+      "doc": "docs/verification/scripted-truth-corpus.md",
+      "clause": "STC-12",
+      "tag": "check-exists",
+      "check-ref": "The ledger lock ties every emitted strategy to a committed vector or a reasoned gap (corpus/vectors-coverage.json, locked in packages/shared/tests/unit/conformance-vectors.test.js; npm run test:shared)."
+    },
+    {
+      "doc": "docs/verification/scripted-truth-corpus.md",
+      "clause": "STC-13",
+      "tag": "judgment-only",
+      "justification": "The coverage boundary is a scope statement; whether a change moves behaviour across it (into the unexercised bridge, UI, or persistence surfaces) is judgment."
+    },
+    {
+      "doc": "docs/verification/scripted-truth-corpus.md",
+      "clause": "STC-14",
+      "tag": "judgment-only",
+      "justification": "Whether a retirement reason is honest and a removal decision is the maintainer’s are process judgments no check can decide."
+    },
+    {
+      "doc": "docs/verification/scripted-truth-corpus.md",
+      "clause": "STC-15",
+      "tag": "check-exists",
+      "check-ref": "The desktop hygiene locks run over the committed placeholder-normalized snapshots, so a snapshot freezing an OS-locale Name diverges from the locks’ re-derivations (packages/shared/tests/unit/conformance-vectors.test.js; npm run test:shared); the normalization itself is applied by scripts/corpus-assemble-desktop-vectors.js."
+    },
+    {
+      "doc": "docs/verification/scripted-truth-corpus.md",
+      "clause": "STC-16",
+      "tag": "judgment-only",
+      "justification": "Whether a vector’s element facts were captured through the real desktop path rather than hand-authored is provenance judgment at review; lock 2 checks internal consistency, not origin."
+    },
+    {
+      "doc": "docs/verification/scripted-truth-corpus.md",
+      "clause": "STC-17",
+      "tag": "check-exists",
+      "check-ref": "Lock 2 permits exactly the labeled_by/tree_path additive-stats augmentation and nothing else, and lock 5 re-derives the harness-measured pairs over the committed snapshot (packages/shared/tests/unit/conformance-vectors.test.js; npm run test:shared)."
+    },
+    {
+      "doc": "docs/verification/scripted-truth-corpus.md",
+      "clause": "STC-18",
+      "tag": "judgment-only",
+      "justification": "Whether a produced-vs-committed divergence is an environment variance the comparator class rules absorb or a deliberate re-baseline moment (a runner-image bump) is judgment; the produce-stage oracle reddens either way."
     }
   ]
 }
