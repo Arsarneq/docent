@@ -218,12 +218,15 @@ describe('getStepHistory', () => {
 // ─── deleteStep ───────────────────────────────────────────────────────────────
 
 describe('deleteStep', () => {
-  it('creates a tombstone record for the active step', () => {
+  it('creates a tombstone record for the active step', async () => {
     const p = createProject();
     const rec = createRecording(p, 'R');
     const step = createStep({ narration: 'To delete', step_number: 1, actions: [] });
     addStepRecord(rec, step);
 
+    // Ensure a strictly later timestamp so the fresh-created_at assertion
+    // below cannot be satisfied by a copied value.
+    await new Promise((resolve) => setTimeout(resolve, 5));
     deleteStep(rec, step.logical_id);
 
     assert.equal(rec.steps.length, 2);
@@ -231,6 +234,13 @@ describe('deleteStep', () => {
     assert.equal(tombstone.logical_id, step.logical_id);
     assert.equal(tombstone.deleted, true);
     assert.notEqual(tombstone.uuid, step.uuid); // new uuid
+    // The tombstone is a FULL COPY of the deleted version (content preserved,
+    // history recoverable) with its own creation time — the format doc's
+    // append-only clause states both.
+    assert.equal(tombstone.narration, step.narration);
+    assert.deepEqual(tombstone.actions, step.actions);
+    assert.equal(tombstone.step_number, step.step_number);
+    assert.ok(tombstone.created_at > step.created_at);
   });
 
   it('does nothing for non-existent logical_id', () => {

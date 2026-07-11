@@ -4,8 +4,24 @@ The `.docent.json` format is Docent's contract with anything that consumes a
 recording. It is defined per platform by independently versioned JSON Schemas —
 the authoritative source of truth for the format. This document is the
 companion prose that orients a reader in both schemas, with annotated
-examples; where this prose and a schema disagree, the schema governs. The
-format is not Docent's only external contract: sync servers implement the [Sync Protocol](../api/sync-protocol.md)
+examples.
+
+Each rule this document makes in its own right carries a stable identifier
+(**SF-n**) so other documents, reviews, and checks can cite it precisely.
+Identifiers are never renumbered; a retired identifier stays reserved and is
+never reused. How each rule is verified — by an existing named check, by a
+check that could be built, or by judgment — is recorded per rule in the
+[clause registry](../clause-registry.json). The key words MUST, MUST NOT,
+SHOULD, and MAY are to be interpreted as described in
+[RFC 2119](https://www.rfc-editor.org/rfc/rfc2119). Keywords appear on a
+clause's operative requirement where it has one; definitional clauses bind as
+stated without a keyword, and subsidiary absolutes inside a clause inherit its
+force. A clause's scope runs from its marker to the next marker or heading;
+identifiers reflect minting order and may appear out of numeric sequence.
+
+**SF-1.** Where this prose and a schema disagree, the schema governs.
+
+The format is not Docent's only external contract: sync servers implement the [Sync Protocol](../api/sync-protocol.md)
 and treat this format as an opaque payload. All of Docent's external contracts
 are data — versioned schemas and a documented protocol — never shipped code or
 a shipped consumer. What a recording must be sufficient _for_ is defined by
@@ -39,7 +55,7 @@ Schemas are versioned independently per platform:
 
 <!-- VERSION_TABLE_END -->
 
-**Version bumps** are determined **mechanically at release time** by
+**SF-2.** **Version bumps** are determined **mechanically at release time** by
 [`scripts/auto-version-schemas.js`](../../scripts/auto-version-schemas.js), which
 diffs the last released schema (`schemas/dist/<platform>.schema.json`) against
 the schema composed from the current source layers and classifies the change:
@@ -48,16 +64,19 @@ the schema composed from the current source layers and classifies the change:
 - **Minor** (x.1.0): new optional fields, new action types, new enum values on existing fields, pure type widenings (the old accepted type set is kept and extended — e.g. a string field additionally allowing null), and `additionalProperties` relaxations (a closed object opting to accept unknown keys)
 - **Major** (1.0.0): new required fields, removed or renamed fields, changed semantics, changed or narrowed types, removed enum values, added/removed/changed value constraints, and any change to a field's required status in either direction (a field no longer guaranteed present changes what a consumer may rely on)
 
-`x-`-prefixed keys on schema definitions are **annotations** — machine-read contract
-markers, not validation keywords (validators ignore them; `x-value-derived` below is one).
-Introducing an annotation the classifier knows documents behaviour that already ships
-(patch); changing or removing one, or introducing a kind the classifier has never judged,
-rewrites what the contract says and escalates to major.
+**SF-3.** `x-`-prefixed keys on schema definitions are **annotations** — machine-read
+contract markers, not validation keywords (validators ignore them; `x-value-derived` below
+is one). Introducing an annotation the classifier knows documents behaviour that already
+ships (patch); changing or removing one, or introducing a kind the classifier has never
+judged, rewrites what the contract says and escalates to major. A kind enters the
+classifier's known set only together with a drift guard that pins the annotation against
+the behaviour it documents — for `x-value-derived`, the per-platform guards pin it against
+the real redaction code.
 
-The classifier is intentionally conservative: anything it cannot confidently
-place as patch or minor is escalated to **major**, so a release can never
-silently under-version a breaking change. Contributors do not bump versions by
-hand during development — the release pipeline does it. (To force a level for a
+**SF-4.** The classifier is intentionally conservative: anything it cannot
+confidently place as patch or minor is escalated to **major**, so a release can
+never silently under-version a breaking change. Contributors MUST NOT bump
+versions by hand during development — the release pipeline does it. (To force a level for a
 semantic change the structural diff cannot see — same shape, changed meaning —
 use `scripts/bump-schema.js`.)
 
@@ -104,7 +123,10 @@ than silently misinterpreting data.
 
 ## Dispatch payload structure
 
-When Docent dispatches to an endpoint, the HTTP POST body is:
+**SF-5.** When Docent dispatches to an endpoint, the HTTP POST body is the
+five-field wrapper below. The wrapper itself is not governed by the platform
+schemas (they define the `.docent.json` contents); this section is its
+defining specification.
 
 ```json
 {
@@ -126,6 +148,12 @@ When Docent dispatches to an endpoint, the HTTP POST body is:
 
 The `.docent.json` export file contains `docent_format`, `project`, and
 `recordings` (no `reading_guidance` or `schema` wrapper).
+
+**SF-6.** The shipped `reading_guidance` prose paraphrases schema-governed
+semantics for a reader with no prior Docent knowledge. It MUST track the
+schemas: a change that alters the format's semantics carries a review of the
+shipped guidance asset in the same change, so no payload delivers stale
+guidance beside a current schema.
 
 ---
 
@@ -149,10 +177,10 @@ illustrative, not the current version):
 | `platform`       | string | yes      | Which Docent platform produced the file (e.g. `extension`, `desktop-windows`). |
 | `schema_version` | string | yes      | The schema version the file conforms to.                                       |
 
-The stamp makes every file self-describing: a consumer can pick the correct
-schema and route migrations without inspecting the contents or guessing. In each
-published schema both values are fixed as `const`, so the stamp is validated, not
-just carried — a file whose stamp does not match a schema's platform/version will
+**SF-7.** The stamp makes every file self-describing: a consumer can pick the
+correct schema and route migrations without inspecting the contents or
+guessing. In each published schema both values are fixed as `const`, so the
+stamp is validated, not just carried — a file whose stamp does not match a schema's platform/version will
 not validate against it. (Docent's own backward-compatibility test corpus relaxes
 the `schema_version` `const` to validate older exports by _shape_ across versions
 — a test-harness convenience that never weakens the published contract a consumer
@@ -196,13 +224,13 @@ truth), never hand-written.
 }
 ```
 
-| Field          | Type     | Required | Description                     |
-| -------------- | -------- | -------- | ------------------------------- |
-| `recording_id` | UUIDv7   | yes      | Time-ordered unique identifier. |
-| `name`         | string   | yes      | Human-readable recording name.  |
-| `created_at`   | ISO 8601 | yes      | Creation timestamp.             |
-| `metadata`     | object   | no       | User-defined key-value pairs.   |
-| `steps`        | array    | yes      | Full step history (see below).  |
+| Field          | Type     | Required | Description                                                            |
+| -------------- | -------- | -------- | ---------------------------------------------------------------------- |
+| `recording_id` | UUIDv7   | yes      | Time-ordered unique identifier.                                        |
+| `name`         | string   | yes      | Human-readable recording name.                                         |
+| `created_at`   | ISO 8601 | yes      | Creation timestamp.                                                    |
+| `metadata`     | object   | no       | User-defined key-value pairs. Values are strings or arrays of strings. |
+| `steps`        | array    | yes      | Full step history (see below).                                         |
 
 ---
 
@@ -211,12 +239,20 @@ truth), never hand-written.
 The `steps` array contains the **full version history** of all steps in the
 recording. This includes re-recorded versions and soft-deleted steps.
 
-To resolve the "active" view (what the user last committed):
+**SF-8.** To resolve the "active" view (what the user last committed):
 
 1. Group steps by `logical_id`
 2. Within each group, take the step with the latest `uuid` (UUIDv7 is time-ordered)
 3. Exclude steps where `deleted: true`
 4. Sort by `step_number`
+
+**SF-9.** The step history is append-only: a producer MUST NOT edit a
+version record in place. Every mutation appends a new record with a
+fresh `uuid` — a re-record appends the replacement version; a deletion appends
+a **tombstone**, a full copy of the last active version with a fresh `uuid`, a
+fresh `created_at`, and `deleted: true` (content preserved, so history stays
+recoverable); a reorder appends new records only for the steps whose
+`step_number` changed.
 
 ### Step modes
 
@@ -282,6 +318,13 @@ Every action has:
 | `timestamp`    | integer         | Unix milliseconds when the action occurred.      |
 | `context_id`   | integer \| null | Session-scoped window/tab identifier.            |
 | `capture_mode` | string          | How the action was captured (platform-specific). |
+
+**SF-10.** Contexts are introduced in order: reading the full step history's
+actions in serialization order, every non-null `context_id` is either the
+recording's initial context (the first one observed) or first appears on a
+`context_open` or `context_switch` action. A context that materializes mid-stream on any other
+action type has no introduction, and the recording fails the sufficiency
+lint's fail-class check ([`scripts/sufficiency-lint.js`](../../scripts/sufficiency-lint.js)).
 
 ### Platform-specific fields
 
@@ -415,7 +458,7 @@ resolution procedure defines it, and the sufficiency lint enforces the masking i
 
 ### Measurement semantics
 
-The pair is a snapshot — valid at the recorded `timestamp`, in the stated scope and order,
+**SF-11.** The pair is a snapshot — valid at the recorded `timestamp`, in the stated scope and order,
 measured **at the moment the acted-on element is described for capture**. On the extension,
 that is inside the capture handler (before the action's effects run) for immediately-captured
 actions, and at capture-commit for deliberately debounced or deferred captures (Tab-correlated
@@ -434,8 +477,10 @@ implicit one:
 | Extension | The capturing frame's document root (the same boundary selector derivation stops at) | Document order; standard non-piercing matching (shadow roots are not descended into)                         |
 | Desktop   | The acted-on element's top-level window (the window itself included)                 | Depth-first pre-order (tree order, as returned by the automation engine) over the UI Automation Control view |
 
-The order of entries in `locators` is the fixed order the strategy definitions are declared in
-the platform schema — a serialization convention that carries **no preference or ranking**.
+**SF-12.** The order of entries in `locators` is the fixed order the strategy definitions
+are declared in the platform schema — a serialization convention that carries **no
+preference or ranking** (the consumer-side rule is
+[locator-resolution §LR-3](locator-resolution.md)).
 Candidates whose value was empty are omitted rather than included empty; the whole array is
 omitted when no candidates were observed (e.g. coordinate mode).
 
@@ -485,13 +530,35 @@ Machine-readable schemas for validation:
 
 ---
 
+## Import acceptance
+
+**SF-13.** Whenever the validator packaged with the importing platform is
+available, a `.docent.json` file is accepted for import only after validating
+against the importing platform's schema — including the stamp's `const`
+version gate, so after a schema version bump previously exported files stop
+importing by design (pin the producing version — see
+[Schema version pinning](#schema-version-pinning) — or re-export). Two bounds run before validation:
+payloads whose compact serialization exceeds the 10 MiB bound (measured over
+the re-serialized form) and JSON nested deeper than 64 levels are rejected
+outright. One declared exception: when that packaged validator itself is
+unavailable, the import proceeds unvalidated and the degradation is logged.
+Pulled sync payloads pass the same validation (see the
+[Sync Protocol](../api/sync-protocol.md)'s pull phase).
+
+---
+
 ## Field stability
 
-All fields documented above are **stable** — they will not be removed or have
-their semantics changed without a major version bump.
-
-Fields may be **added** in minor versions. Consumers should ignore unknown fields
-rather than failing on them.
+**SF-14.** All fields documented above are **stable** — they will not be
+removed or have their semantics changed without a major version bump. Fields
+may be **added** in minor versions; consumers SHOULD ignore unknown fields
+rather than failing on them. The schemas state where unknown keys validate:
+**action objects accept unknown fields** (the additive evolution surface — new
+action fields arrive without failing an old validator), and the user-defined
+`metadata` maps accept arbitrary keys with typed values (a data surface, not
+an evolution surface). Every other object is closed
+(`additionalProperties: false`), so unknown keys there are validation errors,
+not extensions.
 
 Which fields the replay-sufficiency guarantee stands on — the normative subset
 versus informative evidence and context — is classified in
