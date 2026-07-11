@@ -300,3 +300,69 @@ describe('bumpVersion', () => {
     assert.throws(() => bumpVersion('1.2', 'patch'));
   });
 });
+
+// Regression: introducing a constraint KEYWORD (enum / oneOf / anyOf / allOf)
+// on an existing node previously fell through the empty-set diff and read as
+// value/branch "additions" (minor) — a tightening shipped as a minor bump,
+// violating the never-under-report charter. Found in the review that aligned
+// the version-bump rules between this classifier and
+// docs/technical/session-format.md (no tracked issue; surfaced in that PR).
+describe('classifyChange: constraint-keyword introduction escalates to major', () => {
+  it('regression_enum_introduced_on_unconstrained_field_is_major', () => {
+    const a = baseSchema();
+    const b = baseSchema();
+    b.$defs.project.properties.name = { type: 'string', enum: ['a', 'b'] };
+    const { level, reasons } = classifyChange(a, b);
+    assert.equal(level, 'major');
+    assert.ok(reasons.some((r) => r.level === 'major' && r.message.includes('enum introduced')));
+  });
+
+  it('regression_anyOf_introduced_on_existing_node_is_major', () => {
+    const a = baseSchema();
+    const b = baseSchema();
+    b.$defs.project.anyOf = [{ required: ['metadata'] }, { required: ['name'] }];
+    assert.equal(classifyChange(a, b).level, 'major');
+  });
+
+  it('regression_oneOf_introduced_on_existing_node_is_major', () => {
+    const a = baseSchema();
+    const b = baseSchema();
+    b.$defs.capture_mode.oneOf = [{ const: 'accessibility' }, { const: 'coordinate' }];
+    assert.equal(classifyChange(a, b).level, 'major');
+  });
+
+  it('regression_allOf_introduced_on_existing_node_is_major', () => {
+    const a = baseSchema();
+    const b = baseSchema();
+    b.$defs.project.allOf = [{ required: ['name'] }];
+    assert.equal(classifyChange(a, b).level, 'major');
+  });
+
+  it('regression_properties_introduced_on_existing_open_object_is_major', () => {
+    const a = baseSchema();
+    const b = baseSchema();
+    b.$defs.project.properties.metadata = {
+      type: 'object',
+      properties: { jira: { type: 'string' } },
+    };
+    const { level, reasons } = classifyChange(a, b);
+    assert.equal(level, 'major');
+    assert.ok(
+      reasons.some((r) => r.level === 'major' && r.message.includes('properties introduced')),
+    );
+  });
+
+  it('a NEW optional property carrying its own enum stays minor', () => {
+    const a = baseSchema();
+    const b = baseSchema();
+    b.$defs.project.properties.note = { type: 'string', enum: ['a', 'b'] };
+    assert.equal(classifyChange(a, b).level, 'minor');
+  });
+
+  it('enum value added to an EXISTING enum stays minor', () => {
+    const a = baseSchema();
+    const b = baseSchema();
+    b.$defs.capture_mode.enum = ['accessibility', 'coordinate', 'hybrid'];
+    assert.equal(classifyChange(a, b).level, 'minor');
+  });
+});
