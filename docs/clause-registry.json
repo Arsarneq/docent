@@ -3,12 +3,16 @@
   "prefixes": {
     "CP": "docs/architecture/system/capture-principles.md",
     "LR": "docs/technical/locator-resolution.md",
-    "SF": "docs/technical/session-format.md"
+    "SF": "docs/technical/session-format.md",
+    "ECP": "docs/architecture/application/extension/capture-principles.md",
+    "DCP": "docs/architecture/application/desktop/windows/capture-principles.md"
   },
   "retired": {
     "CP": [],
     "LR": [],
-    "SF": []
+    "SF": [],
+    "ECP": [],
+    "DCP": []
   },
   "clauses": [
     {
@@ -328,6 +332,156 @@
       "clause": "SF-14",
       "tag": "checkable",
       "check-ref": "Intended: a format prose-pin asserting the stated additionalProperties posture over the composed schemas (not yet built). Interim: the schemas are the authority; the composed-schema tests exercise the posture indirectly (npm run test:shared)."
+    },
+    {
+      "doc": "docs/architecture/application/extension/capture-principles.md",
+      "clause": "ECP-1",
+      "tag": "check-exists",
+      "check-ref": "The background-layer lint rule (eslint.config.js, no-restricted-syntax ImportExpression) fails any dynamic import at lint time, and packages/extension/tests/unit/service-worker-static-import.test.js guards the entry module; run via npm run lint and npm run test:extension."
+    },
+    {
+      "doc": "docs/architecture/application/extension/capture-principles.md",
+      "clause": "ECP-2",
+      "tag": "checkable",
+      "check-ref": "Intended: an end-to-end negative asserting no recorder is present on any page while no recording runs (not built). Interim probe: the injection e2e specs pin the positive half — injection on record-start and per-frame injection on load (packages/extension/tests/e2e/; npm run test:e2e)."
+    },
+    {
+      "doc": "docs/architecture/application/extension/capture-principles.md",
+      "clause": "ECP-3",
+      "tag": "check-exists",
+      "check-ref": "The trust predicate is a pure module pinned by unit tests (packages/extension/lib/frame-trust.js, packages/extension/tests/unit/frame-trust.test.js; run via npm run test:extension), and the frame-trust e2e spec exercises the drop path."
+    },
+    {
+      "doc": "docs/architecture/application/extension/capture-principles.md",
+      "clause": "ECP-4",
+      "tag": "checkable",
+      "check-ref": "Intended: an append-path unit assertion that a message-body context_id is ignored in favour of the sender-derived one (not built as a dedicated case). Interim probe: the service-worker unit suite exercises append stamping (npm run test:extension); the predicate module never reads a body context_id."
+    },
+    {
+      "doc": "docs/architecture/application/extension/capture-principles.md",
+      "clause": "ECP-5",
+      "tag": "check-exists",
+      "check-ref": "The injection-latency e2e spec measures from the navigation-complete signal (service-worker side) to the readiness timestamp the recorder stamps at ready, same machine wall clock, and enforces the half-floor bound (packages/extension/tests/e2e/specs/injection-latency.spec.js; npm run test:e2e)."
+    },
+    {
+      "doc": "docs/architecture/application/extension/capture-principles.md",
+      "clause": "ECP-6",
+      "tag": "checkable",
+      "check-ref": "Intended: a static check that recorder/service-worker event registrations stay within the enumerated surface (the CP-2 check family; not built). Interim probe: the scripted-truth corpus diff reddens when the surface drifts on scripted sessions (npm run corpus:check)."
+    },
+    {
+      "doc": "docs/architecture/application/extension/capture-principles.md",
+      "clause": "ECP-7",
+      "tag": "judgment-only",
+      "justification": "Whether a proxy row still records the immediate effect of the chrome interaction it names is a per-proxy judgment (CP-7..CP-10 apply); the corpus ext-tab-open session probes the click-plus-chrome-navigate boundary."
+    },
+    {
+      "doc": "docs/architecture/application/extension/capture-principles.md",
+      "clause": "ECP-8",
+      "tag": "check-exists",
+      "check-ref": "The corpus drives real trusted input only and its diff reddens if synthetic events enter a scripted session (scripts/corpus-compare.js via npm run corpus:check); the recorder unit tests pin the isTrusted rejection (npm run test:extension)."
+    },
+    {
+      "doc": "docs/architecture/application/extension/capture-principles.md",
+      "clause": "ECP-9",
+      "tag": "check-exists",
+      "check-ref": "The corpus redaction session verifies mask + text-null + redacted end-to-end (npm run corpus:check); the shared detection util is unit-tested (npm run test:shared); scripts/sufficiency-lint.js enforces the locator masking half."
+    },
+    {
+      "doc": "docs/architecture/application/extension/capture-principles.md",
+      "clause": "ECP-10",
+      "tag": "check-exists",
+      "check-ref": "The url masked-parameter enumeration is pinned to the shared detection set by the schema composition test (packages/shared/tests/unit/schema-composition.test.js; npm run test:shared), and redactUrl is unit-tested (npm run test:shared)."
+    },
+    {
+      "doc": "docs/architecture/application/extension/capture-principles.md",
+      "clause": "ECP-11",
+      "tag": "check-exists",
+      "check-ref": "The storage-quota unit tests pin the bands and hysteresis, and two e2e specs pin the pause/override/resume machine including live capture at the boundary (packages/extension/tests/e2e/specs/storage-quota.spec.js and storage-quota-live-capture.spec.js; npm run test:extension and test:e2e)."
+    },
+    {
+      "doc": "docs/architecture/application/extension/capture-principles.md",
+      "clause": "ECP-12",
+      "tag": "judgment-only",
+      "justification": "Whether a proposed entry meets the admission test — the surface description alone would mislead without it — is judgment at review."
+    },
+    {
+      "doc": "docs/architecture/application/desktop/windows/capture-principles.md",
+      "clause": "DCP-1",
+      "tag": "judgment-only",
+      "justification": "Whether a capture change preserves the thread-role split (hooks stay latency-bounded, describes stay on workers) is a design judgment; the input-thread accessibility scope is comment-pinned at its sites."
+    },
+    {
+      "doc": "docs/architecture/application/desktop/windows/capture-principles.md",
+      "clause": "DCP-2",
+      "tag": "check-exists",
+      "check-ref": "Ordered insertion and the highest-sequence completeness barrier (including its graceful timeout) are pinned by the desktop adapter unit tests (commitWithCompleteness and reorder suites; npm run test:desktop)."
+    },
+    {
+      "doc": "docs/architecture/application/desktop/windows/capture-principles.md",
+      "clause": "DCP-3",
+      "tag": "check-exists",
+      "check-ref": "The mode split and mixed recordings are pinned by the capture-mode Rust tests and the corpus coordinate session (npm run test:desktop:rust; npm run corpus:check:desktop)."
+    },
+    {
+      "doc": "docs/architecture/application/desktop/windows/capture-principles.md",
+      "clause": "DCP-4",
+      "tag": "checkable",
+      "check-ref": "Intended: a static check that hook/WinEvent registrations stay within the enumerated surface (the CP-2 check family; not built). Interim probe: the desktop corpus diff reddens when the surface drifts on scripted sessions (npm run corpus:check:desktop)."
+    },
+    {
+      "doc": "docs/architecture/application/desktop/windows/capture-principles.md",
+      "clause": "DCP-5",
+      "tag": "checkable",
+      "check-ref": "Intended: unit pins for the target-when-set filter and the exclusion-beats-target priority (not built). Existing coverage: the exclusion base rule and the destroyed-window skip are pinned by the pid-filter Rust tests, and the command normalization of 0/null by the commands tests (npm run test:desktop:rust)."
+    },
+    {
+      "doc": "docs/architecture/application/desktop/windows/capture-principles.md",
+      "clause": "DCP-6",
+      "tag": "judgment-only",
+      "justification": "Whether a proxy row still records the immediate effect of the shell interaction it names is a per-proxy judgment (CP-7..CP-10 apply)."
+    },
+    {
+      "doc": "docs/architecture/application/desktop/windows/capture-principles.md",
+      "clause": "DCP-7",
+      "tag": "check-exists",
+      "check-ref": "The correlation gates are exercised end-to-end by the enigo integration suites (real input, real WinEvents) and probed by the desktop corpus sessions (npm run test:desktop:rust locally for the integration tier; npm run corpus:check:desktop)."
+    },
+    {
+      "doc": "docs/architecture/application/desktop/windows/capture-principles.md",
+      "clause": "DCP-8",
+      "tag": "check-exists",
+      "check-ref": "The window-scoping rule is exercised by the capture integration tests (the Save As dialog pre-fill case) via npm run test:desktop:rust."
+    },
+    {
+      "doc": "docs/architecture/application/desktop/windows/capture-principles.md",
+      "clause": "DCP-9",
+      "tag": "check-exists",
+      "check-ref": "The buffering supersession is probed by the corpus type-edit session — its known-diff entries track the open supersession defects — via npm run corpus:check:desktop."
+    },
+    {
+      "doc": "docs/architecture/application/desktop/windows/capture-principles.md",
+      "clause": "DCP-10",
+      "tag": "checkable",
+      "check-ref": "Intended: a dedicated classification unit over the press-move-release state machine (not built). Interim probe: the corpus click and double-click sessions pin the click paths (npm run corpus:check:desktop); the drag pair semantics are comment-pinned at the release handler."
+    },
+    {
+      "doc": "docs/architecture/application/desktop/windows/capture-principles.md",
+      "clause": "DCP-11",
+      "tag": "check-exists",
+      "check-ref": "The corpus redaction session verifies mask + text-null + redacted end-to-end on desktop (npm run corpus:check:desktop); the password path is pinned by the password Rust tests (npm run test:desktop:rust); scripts/sufficiency-lint.js enforces the locators-pass-untouched half."
+    },
+    {
+      "doc": "docs/architecture/application/desktop/windows/capture-principles.md",
+      "clause": "DCP-12",
+      "tag": "check-exists",
+      "check-ref": "The worker-pool invariants (sacred-buffer flush, panic respawn and retry, sticky value-change routing) are pinned by the worker-pool Rust tests (npm run test:desktop:rust)."
+    },
+    {
+      "doc": "docs/architecture/application/desktop/windows/capture-principles.md",
+      "clause": "DCP-13",
+      "tag": "judgment-only",
+      "justification": "Whether a proposed entry meets the admission test — the surface description alone would mislead without it — is judgment at review."
     }
   ]
 }

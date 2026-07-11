@@ -2,9 +2,24 @@
 
 Platform-specific details for the desktop app (Windows). See [core rules](../../../../architecture/system/capture-principles.md).
 
+Each rule carries a stable identifier (**DCP-n**) so other documents, reviews,
+and checks can cite it precisely. Identifiers are never renumbered; a retired
+identifier stays reserved and is never reused. How each rule is verified — by
+an existing named check, by a check that could be built, or by judgment — is
+recorded per rule in the [clause registry](../../../../clause-registry.json).
+The key words MUST, MUST NOT, SHOULD, and MAY are to be interpreted as
+described in [RFC 2119](https://www.rfc-editor.org/rfc/rfc2119). Keywords
+appear on a clause's operative requirement where it has one; definitional
+clauses bind as stated without a keyword, and subsidiary absolutes inside a
+clause inherit its force. A clause's scope runs from its marker to the next
+marker or heading; identifiers reflect minting order and may appear out of
+numeric sequence.
+
 ---
 
 ## Architecture
+
+**DCP-1.** Capture runs on three thread roles:
 
 1. **Input Thread** — low-level hooks (WH_MOUSE_LL, WH_KEYBOARD_LL). Its one
    accessibility call is the `ElementFromPoint` pre-capture of clicked
@@ -16,37 +31,58 @@ Platform-specific details for the desktop app (Windows). See [core rules](../../
 2. **Worker Pool** (3 threads) — accessibility queries, produces ActionEvents
 3. **Bridge Thread** — dispatches raw events from input thread to workers
 
-Events may arrive out-of-order from workers. Frontend reorder buffer sorts
-by `sequence_id` before committing.
+**DCP-2.** Events may arrive out-of-order from workers, and ordering is
+restored without delaying the user: the frontend delivers each event
+immediately, splicing it into the pending list by `sequence_id` (ordered
+insertion — no lag waiting on slower workers). Committing a step then applies
+a **completeness barrier**: the commit waits until the highest sequence number
+received reaches the backend's maximum, bounded by a timeout that resolves
+gracefully — a guard against committing while capture output is still in
+flight.
 
 ---
 
 ## Capture Modes
+
+**DCP-3.** An action is captured in one of two modes, and a single recording
+can mix both:
 
 | Mode            | When                                        | Element description                                                                                                                                     |
 | --------------- | ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `accessibility` | ElementFromPoint returns a specific control | Full: tag, id, name, role, text, tree path                                                                                                              |
 | `coordinate`    | ElementFromPoint returns Window/Pane only   | Fallback: the window-level description (window control type + tree path) when the window resolved; tag="unknown", selector="coord:x,y" when nothing did |
 
-A single recording can mix both modes.
-
 ---
 
 ## Capture Surface
 
-The capture surface is enumerated positively and treated as **closed**: the
-two low-level input hooks (`WH_MOUSE_LL`, `WH_KEYBOARD_LL`), the correlated
-WinEvent classes in the [Input Correlation](#input-correlation) table, and the
-OS/shell proxies in the table below. An interaction that reaches none of them
+**DCP-4.** The capture surface is enumerated positively and treated as
+**closed**: the two low-level input hooks (`WH_MOUSE_LL`, `WH_KEYBOARD_LL`),
+the correlated WinEvent classes in the [Input Correlation](#input-correlation)
+table, and the OS/shell proxies in the table below. An interaction that reaches none of them
 is not captured — no per-case listing needed. The only negative entries kept
 are the [exceptions within the surface](#exceptions-within-the-surface):
 interactions that would appear to be covered by this description but are not.
+
+**DCP-5.** Within that surface, three scope filters decide whether an
+in-surface event enters the recording:
+
+- **Target application** — when the user selects a target application, only
+  events from its process are captured; with no target set, all applications
+  are captured.
+- **Self-capture exclusion** — events from Docent's own process are excluded
+  by default (toggleable), and the exclusion takes priority over the target
+  filter, so selecting Docent itself as the target still excludes it while
+  the exclusion is on.
+- **Resolvable window** — an event whose window is already destroyed by the
+  time it is examined (its process can no longer be resolved) is skipped.
 
 ---
 
 ## OS/Shell Proxies
 
-These user actions happen outside the hooks' visibility:
+**DCP-6.** These user actions happen outside the hooks' visibility and are
+captured by proxy as follows:
 
 | User action               | Captured as      |
 | ------------------------- | ---------------- |
@@ -59,9 +95,9 @@ These user actions happen outside the hooks' visibility:
 
 ## Input Correlation
 
-The Input_Thread distinguishes user-caused state changes from programmatic
-ones using **input correlation**: WinEvent callbacks are only dispatched when
-correlated with a preceding low-level input event.
+**DCP-7.** The Input_Thread distinguishes user-caused state changes from
+programmatic ones using **input correlation**: WinEvent callbacks MUST be
+dispatched only when correlated with a preceding low-level input event.
 
 | WinEvent                   | Correlation source  | Additional filter                                                          |
 | -------------------------- | ------------------- | -------------------------------------------------------------------------- |
@@ -72,8 +108,8 @@ correlated with a preceding low-level input event.
 | `EVENT_OBJECT_VALUECHANGE` | Keyboard input only | Same root window as keyboard                                               |
 | `EVENT_OBJECT_SELECTION`   | Any low-level input | Same root window as the input; suppressed ≤200ms after a click (redundant) |
 
-**Window-scoping:** Value changes and selections are only correlated with
-input from the same root window — value changes against the keyboard input's
+**DCP-8.** **Window-scoping:** Value changes and selections are only
+correlated with input from the same root window — value changes against the keyboard input's
 root, selections against the root of the most recent input of any kind. This
 prevents dialog initialization noise (e.g. Ctrl+S in Notepad does not
 correlate with the Save As dialog's filename field pre-fill or its pre-selected
@@ -81,28 +117,39 @@ filename ComboBox — the dialog's root received no input yet). "Any low-level
 input" means button presses and releases, key presses, and wheel — all of
 which refresh the correlation state.
 
-**Printable key buffering:** Printable keystrokes are buffered. If a
-value-change event arrives (producing a `type` action), the buffered keys
-are discarded (superseded). If no value-change arrives (non-editable control
-like Calculator), the keys are emitted individually.
+**DCP-9.** **Printable key buffering:** Printable keystrokes are buffered.
+If a value-change event arrives (producing a `type` action), the buffered
+keys are discarded (superseded). If no value-change arrives (non-editable
+control like Calculator), the keys are emitted individually.
 
 Timing constants and correlation windows live in `src/capture/timing.rs`.
 
 ---
 
+## Pointer gesture classification
+
+**DCP-10.** A left press-move-release is classified at release: movement of
+more than 5 px on either axis between button-down and button-up records a
+`drag_start`/`drop` pair (both dispatched at release, the source described
+from the button-down point); movement within the threshold records a `click`.
+A middle-button press records a `click` (the format has no separate
+middle-click type); a right-button press records a `right_click`.
+
+---
+
 ## Sensitive-value redaction
 
-The native capture layer masks password fields directly from the UIA
-`IsPassword` signal. Other sensitive values — credit-card, SSN, and secret fields
-identified by their accessibility name — are masked at the adapter chokepoint
-before an action enters the pending list, so they never reach the stored or
-exported recording. A redacted element has its value masked and its `text`
+**DCP-11.** The native capture layer masks password fields directly from the
+UIA `IsPassword` signal. Other sensitive values — credit-card, SSN, and secret fields
+identified by their accessibility name — are masked at the adapter
+chokepoint, which processes each action's `element` (and its `value`) before
+the action enters the pending list. A redacted element has its value masked and its `text`
 nulled, and is flagged `redacted`. The detection rules are shared with the
 extension (a single util), so both platforms mask the same fields. (Tokened-URL
 redaction is extension-only, since the desktop app has no captured URLs.)
 
 Locator candidates (`locators[]`) pass the redaction chokepoint untouched by
-design: every desktop strategy is identity-derived — ids, control types,
+design ([locator-resolution §LR-24](../../../../technical/locator-resolution.md)): every desktop strategy is identity-derived — ids, control types,
 labels, and tree paths, the very signals the detection keys on — never the
 typed value, which lives in `value`/`text` and is masked as above. Masking a
 label would both destroy the locator and mask a non-secret; redaction stays
@@ -122,11 +169,26 @@ acted, not which element the accessibility layer resolved.
 
 ---
 
+## Worker delivery guarantees
+
+**DCP-12.** The worker pool holds the completeness story's (DCP-2) invariants:
+completed-but-held actions are flushed on stop, never lost (buffers are
+drained before shutdown, with a bounded detach-and-rescue for a worker wedged
+in an unresponsive accessibility call); a worker panic is detected on the
+next dispatch, the worker is respawned in place at the same index, and the
+send is retried on the fresh worker; value-change, focus, and selection events route **sticky** — the same window
+handle always reaches the same worker — so per-window supersession and
+deduplication stay correct; a drop routes to the worker that took its drag
+start; events without a routing affinity use shortest-queue dispatch.
+
+---
+
 ## Exceptions Within the Surface
 
-Interactions that would appear to be inside the
-[capture surface](#capture-surface) above but are not captured. An entry
-belongs here only when the surface description alone would mislead:
+**DCP-13.** Interactions that would appear to be inside the
+[capture surface](#capture-surface) above but are not captured (or are
+captured with a caveat). An entry belongs here only when the surface
+description alone would mislead:
 
 - Win+D (show desktop) — a keypress, but the system intercepts it before the
   hooks
@@ -140,3 +202,10 @@ belongs here only when the surface description alone would mislead:
   input-correlation gates above classify their effects as programmatic. A
   known limitation of the correlation doctrine, affecting every correlated
   event class equally.
+- Scroll gestures are debounced (300 ms) and coalesced into one `scroll`
+  action per settled sequence; a sequence whose net displacement stays within
+  200 px on both axes is discarded ([docent#232](https://github.com/Arsarneq/docent/issues/232)
+  tracks revising the floor)
+- A file dialog confirmed from the keyboard (Enter on the filename field)
+  produces no `file_dialog` action — the proxy triggers only on a click of
+  the dialog's Save/Open button
