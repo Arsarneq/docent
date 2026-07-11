@@ -163,8 +163,9 @@ reference procedure would have succeeded."
 ## Field Taxonomy — Normative vs Informative
 
 The sufficiency guarantee stands on a defined subset of the format. Field
-semantics live in the [Session Format](../technical/session-format.md) specification; this
-taxonomy only classifies, by group:
+semantics are defined by the per-platform schemas and oriented in
+[Session Format](../technical/session-format.md); this taxonomy only
+classifies, by group:
 
 **Normative** — the guarantee stands on these:
 
