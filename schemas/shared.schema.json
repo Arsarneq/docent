@@ -115,7 +115,7 @@
         "narration_source": {
           "type": "string",
           "const": "typed",
-          "description": "How the narration was provided. Present when narration is present."
+          "description": "How the narration was provided. Written at capture alongside narration; the pairing is not schema-enforced."
         },
         "step_type": {
           "type": "string",
@@ -144,10 +144,12 @@
           "const": "click"
         },
         "x": {
-          "type": "number"
+          "type": "number",
+          "description": "Pointer X at the action, in the capture surface's coordinate space: the capturing document's viewport for in-page capture, or the screen (physical pixels) for native capture."
         },
         "y": {
-          "type": "number"
+          "type": "number",
+          "description": "Pointer Y at the action, in the capture surface's coordinate space: the capturing document's viewport for in-page capture, or the screen (physical pixels) for native capture."
         },
         "element": {
           "$ref": "#/$defs/element"
@@ -167,10 +169,12 @@
           "const": "right_click"
         },
         "x": {
-          "type": "number"
+          "type": "number",
+          "description": "Pointer X at the action, in the capture surface's coordinate space: the capturing document's viewport for in-page capture, or the screen (physical pixels) for native capture."
         },
         "y": {
-          "type": "number"
+          "type": "number",
+          "description": "Pointer Y at the action, in the capture surface's coordinate space: the capturing document's viewport for in-page capture, or the screen (physical pixels) for native capture."
         },
         "element": {
           "$ref": "#/$defs/element"
@@ -194,7 +198,7 @@
         },
         "value": {
           "type": "string",
-          "description": "The entered value. Passwords are always masked."
+          "description": "The entered value. Sensitive values are masked at capture — passwords, payment fields designated by their autocomplete tokens, and fields whose name/id matches the shared financial/secret/SSN pattern — and the element is flagged redacted."
         },
         "context_id": {
           "$ref": "#/$defs/context_id"
@@ -290,10 +294,12 @@
           "const": "drop"
         },
         "x": {
-          "type": "number"
+          "type": "number",
+          "description": "Pointer X at the action, in the capture surface's coordinate space: the capturing document's viewport for in-page capture, or the screen (physical pixels) for native capture."
         },
         "y": {
-          "type": "number"
+          "type": "number",
+          "description": "Pointer Y at the action, in the capture surface's coordinate space: the capturing document's viewport for in-page capture, or the screen (physical pixels) for native capture."
         },
         "element": {
           "$ref": "#/$defs/element"
@@ -480,7 +486,7 @@
         },
         "text": {
           "type": ["string", "null"],
-          "description": "Visible text, truncated to 100 chars. Null for password fields or when empty."
+          "description": "Visible text, truncated to 100 characters (a truncation mark may be appended). Null for password fields or when empty."
         },
         "selector": {
           "type": "string",

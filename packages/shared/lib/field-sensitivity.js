@@ -53,9 +53,11 @@ const SENSITIVE_NAME_RE =
 /**
  * Query-parameter NAMES whose VALUES {@link redactUrl} masks. Matched
  * case-insensitively against the exact param name; other params are preserved so
- * a captured workflow stays replayable.
+ * a captured workflow stays replayable. Exported because the extension schema's
+ * `action_navigate.url` description enumerates this exact set — a composition
+ * test pins the two together so the contract prose cannot drift from the code.
  */
-const SENSITIVE_PARAMS = new Set([
+export const SENSITIVE_PARAMS = new Set([
   'token',
   'access_token',
   'id_token',

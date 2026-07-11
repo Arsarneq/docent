@@ -33,6 +33,7 @@ import {
   composePlatform,
   locatorStrategyDefs,
 } from '../../../../scripts/build-schemas.js';
+import { SENSITIVE_PARAMS } from '../../lib/field-sensitivity.js';
 
 const __dirname = fileURLToPath(new URL('.', import.meta.url));
 const SCHEMAS_DIR = resolve(__dirname, '../../../../schemas');
@@ -275,5 +276,22 @@ describe('Schema composition: platform-unique defs land in the composed output',
     for (const platform of Object.keys(PLATFORMS)) {
       assert.ok(composePlatform(platform).required.includes('docent_format'));
     }
+  });
+});
+
+describe('Schema contract prose pins', () => {
+  it('the navigate url description enumerates exactly the masked query-param set', () => {
+    // The url description is the consumer-facing statement of which query
+    // parameters arrive masked. It enumerates the exact names, so it MUST
+    // track the shared detection set — this pin turns silent drift into a red.
+    const ext = composePlatform('extension');
+    const desc = ext.$defs.action_navigate.properties.url.description;
+    const m = desc.match(/exactly: ([^.]+)\./);
+    assert.ok(m, 'url description must carry the "exactly: <names>." enumeration');
+    const listed = m[1]
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean);
+    assert.deepStrictEqual([...listed].sort(), [...SENSITIVE_PARAMS].sort());
   });
 });

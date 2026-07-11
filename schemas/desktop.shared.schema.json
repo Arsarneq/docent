@@ -19,22 +19,22 @@
       "properties": {
         "x": {
           "type": "integer",
-          "description": "Window X position on screen in logical pixels."
+          "description": "Window X position on screen, in physical pixels."
         },
         "y": {
           "type": "integer",
-          "description": "Window Y position on screen in logical pixels."
+          "description": "Window Y position on screen, in physical pixels."
         },
         "width": {
           "type": "integer",
-          "description": "Window width in logical pixels."
+          "description": "Window width, in physical pixels."
         },
         "height": {
           "type": "integer",
-          "description": "Window height in logical pixels."
+          "description": "Window height, in physical pixels."
         }
       },
-      "description": "Window position and size at capture time, resolved from the action window handle regardless of capture mode."
+      "description": "Window position and size at capture time, resolved from the action window handle regardless of capture mode. All values are physical screen pixels, read under per-monitor-v2 DPI awareness — the same space as the desktop action coordinates."
     },
     "window_rect_or_null": {
       "oneOf": [
