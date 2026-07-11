@@ -90,7 +90,8 @@ export default [
       // including the generated validator, STATICALLY at module scope. This
       // rule fails any dynamic import() in the background layer at lint time so
       // the "works in a Node test, dead in the MV3 SW" class of bug can never
-      // ship again. See docs / the service-worker static-import guard test.
+      // ship again. Stated in the extension capture-principles doc (Architecture);
+      // enforced here and by the service-worker static-import guard test.
       'no-restricted-syntax': [
         'error',
         {

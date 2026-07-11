@@ -202,12 +202,12 @@ fn large_virtual_desktop_coordinates() {
 #[test]
 fn mixed_dpi_primary_100_secondary_150() {
     // Primary at 100% (0,0), secondary at 150% starting at x=1920.
-    // On the secondary monitor, logical coordinates are scaled.
-    // A window at logical (2100, 100) on the secondary monitor:
-    let win_x = 2100; // Already in logical pixels
+    // All values below are physical pixels — the space the process receives
+    // under per-monitor-v2. A window at physical (2100, 100) on the secondary:
+    let win_x = 2100;
     let win_y = 100;
 
-    // Click at logical (2300, 250)
+    // Click at physical (2300, 250)
     let abs_x = 2300;
     let abs_y = 250;
 
@@ -215,10 +215,10 @@ fn mixed_dpi_primary_100_secondary_150() {
     assert_eq!(rel_x, 200);
     assert_eq!(rel_y, 150);
 
-    // The key insight: Windows reports all coordinates in logical pixels
-    // when DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2 is set.
-    // The coordinate module doesn't need to know about DPI — it just
-    // does subtraction on logical values.
+    // The key insight: under DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2 the
+    // process receives physical pixels everywhere — hook coordinates and
+    // GetWindowRect alike — so the coordinate module doesn't need to know
+    // about DPI: it just subtracts values that share one space.
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════

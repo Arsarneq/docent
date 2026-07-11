@@ -6,7 +6,13 @@ Platform-specific details for the desktop app (Windows). See [core rules](../../
 
 ## Architecture
 
-1. **Input Thread** — low-level hooks (WH_MOUSE_LL, WH_KEYBOARD_LL), zero accessibility queries
+1. **Input Thread** — low-level hooks (WH_MOUSE_LL, WH_KEYBOARD_LL). Its one
+   accessibility call is the `ElementFromPoint` pre-capture of clicked
+   elements — at left mouse-up on a non-drag click, and at right/middle
+   button-down — which describes the element while the target window is still
+   alive, inside the hook's latency budget (locator match statistics
+   deliberately unmeasured there); every other accessibility query runs on the
+   workers
 2. **Worker Pool** (3 threads) — accessibility queries, produces ActionEvents
 3. **Bridge Thread** — dispatches raw events from input thread to workers
 

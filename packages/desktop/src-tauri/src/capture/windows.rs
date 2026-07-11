@@ -277,9 +277,10 @@ thread_local! {
         std::cell::RefCell::new(std::collections::HashMap::new());
 
     /// IUIAutomation instance for pre-capturing click elements in the
-    /// Input_Thread. Used ONLY for `ElementFromPoint` on mouse-up events
-    /// with a short timeout. This ensures the element is captured while
-    /// the target window is still alive (before the click is processed).
+    /// Input_Thread. Used ONLY for `ElementFromPoint` — at left mouse-up on a
+    /// non-drag click, and at right/middle button-down — with a short timeout.
+    /// This ensures the element is captured while the target window is still
+    /// alive (before the click is processed).
     static INPUT_UIA: std::cell::RefCell<Option<IUIAutomation>> =
         const { std::cell::RefCell::new(None) };
 
@@ -626,7 +627,7 @@ fn input_thread_main(
     INPUT_INCLUDED_PID.with(|p| *p.borrow_mut() = Some(included_pid));
 
     // Create a lightweight IUIAutomation instance for pre-capturing click
-    // elements. This is used ONLY for ElementFromPoint on mouse-up events.
+    // elements. Used ONLY for the ElementFromPoint pre-capture (left mouse-up on a non-drag click; right/middle button-down).
     let input_uia: Option<IUIAutomation> =
         unsafe { CoCreateInstance(&CUIAutomation, None, CLSCTX_ALL).ok() };
     INPUT_UIA.with(|u| *u.borrow_mut() = input_uia);
@@ -786,8 +787,9 @@ fn input_dispatch_raw_event(mut event: RawEvent) {
 /// Pre-capture the element at the given screen coordinates using the
 /// Input_Thread's IUIAutomation instance. Returns `Some(ElementDescription)`
 /// if the query succeeds quickly, `None` if it fails or the UIA instance
-/// is not available. This is called on mouse-up to capture the element
-/// while the target window is guaranteed to still be alive.
+/// is not available. Called at left mouse-up on a non-drag click and at
+/// right/middle button-down, so the element is captured while the target
+/// window is guaranteed to still be alive.
 unsafe fn input_pre_capture_element(x: i32, y: i32) -> Option<super::ElementDescription> {
     INPUT_UIA.with(|u| {
         let uia = u.borrow();
