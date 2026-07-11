@@ -1,10 +1,12 @@
 {
   "description": "Registry of clause tags for docs that carry stable clause identifiers and normative language. Tags: 'check-exists' — a named, runnable check already guards the clause (check-ref points at it); 'checkable' — a mechanical check can guard the clause but is not built yet (check-ref names the intended check and any interim probe); 'judgment-only' — compliance is a per-change judgment no check can decide (justification says why). Clause identifiers are stable: never renumbered, and a retired identifier stays reserved (listed under 'retired').",
   "prefixes": {
-    "CP": "docs/architecture/system/capture-principles.md"
+    "CP": "docs/architecture/system/capture-principles.md",
+    "LR": "docs/technical/locator-resolution.md"
   },
   "retired": {
-    "CP": []
+    "CP": [],
+    "LR": []
   },
   "clauses": [
     {
@@ -84,6 +86,162 @@
       "clause": "CP-13",
       "tag": "judgment-only",
       "justification": "Applying the signals to a mixed case (the table's Depends rows) or to a signal the table does not list is judgment; no check can decide such a case."
+    },
+    {
+      "doc": "docs/technical/locator-resolution.md",
+      "clause": "LR-1",
+      "tag": "check-exists",
+      "check-ref": "packages/shared/tests/unit/no-resolution-execution.test.js greps the shipped runtime and build-tooling paths for identifiers unique to the ordered procedure (the corroboration guard, the per-candidate verdict, the containment filter); run via npm run test:shared. The test trees are outside its scan scope — their non-execution is held by the vector machinery’s design (the \"resolved\" property emerges from counts and equalities, never computed) and by review."
+    },
+    {
+      "doc": "docs/technical/locator-resolution.md",
+      "clause": "LR-2",
+      "tag": "judgment-only",
+      "justification": "Whether a new use of recorded match statistics stays a conservative eligibility exclusion or starts deciding outcomes is a per-change judgment about the specification."
+    },
+    {
+      "doc": "docs/technical/locator-resolution.md",
+      "clause": "LR-3",
+      "tag": "judgment-only",
+      "justification": "No check can observe a consumer implementation’s evaluation order, and an outcome-invariance test would itself execute the procedure, which LR-1 forbids to every Docent artifact; the hygiene locks’ per-candidate re-derivations are order-free by construction, probing only the repo-side surface."
+    },
+    {
+      "doc": "docs/technical/locator-resolution.md",
+      "clause": "LR-4",
+      "tag": "judgment-only",
+      "justification": "Whether an identity definition for a new platform counts the same distinct elements is judgment; no check can compare automation engines that do not exist yet."
+    },
+    {
+      "doc": "docs/technical/locator-resolution.md",
+      "clause": "LR-5",
+      "tag": "judgment-only",
+      "justification": "Whether a novel scope or frame construct is uniquely bound is judgment; the no-candidates routing is probed operationally by the sufficiency lint (scripts/sufficiency-lint.js, element-locators predicate)."
+    },
+    {
+      "doc": "docs/technical/locator-resolution.md",
+      "clause": "LR-6",
+      "tag": "judgment-only",
+      "justification": "Whether a schema or specification change keeps entries independent candidates is a semantics judgment no check can decide."
+    },
+    {
+      "doc": "docs/technical/locator-resolution.md",
+      "clause": "LR-7",
+      "tag": "judgment-only",
+      "justification": "No check can observe a consumer implementation’s evaluation order; the hygiene locks probe the repo-side consequence (every eligible candidate accounted for over committed snapshots)."
+    },
+    {
+      "doc": "docs/technical/locator-resolution.md",
+      "clause": "LR-8",
+      "tag": "check-exists",
+      "check-ref": "The hygiene locks (packages/shared/tests/unit/conformance-vectors.test.js) evaluate exactly the eligible set — not masked, match_index not null — over every committed vector snapshot, so the eligibility definition is executable and executed; run via npm run test:shared."
+    },
+    {
+      "doc": "docs/technical/locator-resolution.md",
+      "clause": "LR-9",
+      "tag": "judgment-only",
+      "justification": "Whether a new procedure step keeps ineligible entries out of selection and corroboration is judgment about specification edits."
+    },
+    {
+      "doc": "docs/technical/locator-resolution.md",
+      "clause": "LR-10",
+      "tag": "checkable",
+      "check-ref": "Intended: a check that parses the strategy tables and pins them against the vector-measurement evaluators (not built). Interim probe: lock 5’s query evaluator (packages/shared/tests/unit/conformance-vectors.test.js with vector-measurement.js / vector-measurement-desktop.js; run via npm run test:shared) implements the Application step per strategy over committed snapshots — alignment between the doc tables and the evaluator remains a review judgment."
+    },
+    {
+      "doc": "docs/technical/locator-resolution.md",
+      "clause": "LR-11",
+      "tag": "check-exists",
+      "check-ref": "The coverage-ledger lock (corpus/vectors-coverage.json, locked in packages/shared/tests/unit/conformance-vectors.test.js) ties every emitted strategy to a committed vector and keeps reserved strategies outside vector scope; run via npm run test:shared."
+    },
+    {
+      "doc": "docs/technical/locator-resolution.md",
+      "clause": "LR-12",
+      "tag": "judgment-only",
+      "justification": "Which recorded facts corroborate and which contradict in a novel case is judgment; lock 6 probes the committed vectors’ tag/text agreement with element_facts."
+    },
+    {
+      "doc": "docs/technical/locator-resolution.md",
+      "clause": "LR-13",
+      "tag": "judgment-only",
+      "justification": "Applying tag equality to a novel control-type mapping is judgment; lock 6 checks committed vectors’ tag agreement exactly."
+    },
+    {
+      "doc": "docs/technical/locator-resolution.md",
+      "clause": "LR-14",
+      "tag": "judgment-only",
+      "justification": "Whether a text comparison stays a normalized containment test under a specification edit is judgment; lock 6 checks committed vectors’ text containment, including the vacuous-null case."
+    },
+    {
+      "doc": "docs/technical/locator-resolution.md",
+      "clause": "LR-15",
+      "tag": "judgment-only",
+      "justification": "Whether a field has discriminating power in a novel corroboration case is judgment; no check can decide signal strength."
+    },
+    {
+      "doc": "docs/technical/locator-resolution.md",
+      "clause": "LR-16",
+      "tag": "judgment-only",
+      "justification": "Whether a specification edit preserves the verdict mapping is judgment; the locks probe only the committed vectors’ counts."
+    },
+    {
+      "doc": "docs/technical/locator-resolution.md",
+      "clause": "LR-17",
+      "tag": "judgment-only",
+      "justification": "Whether a containment-filter change still operates on recorded facts only, and never collapses beyond what they disambiguate, is judgment."
+    },
+    {
+      "doc": "docs/technical/locator-resolution.md",
+      "clause": "LR-18",
+      "tag": "judgment-only",
+      "justification": "Whether a new failure mode folds into the three outcomes or mints a fourth is judgment."
+    },
+    {
+      "doc": "docs/technical/locator-resolution.md",
+      "clause": "LR-19",
+      "tag": "judgment-only",
+      "justification": "Whether diagnostics stay informative rather than decision-bearing is judgment about specification edits."
+    },
+    {
+      "doc": "docs/technical/locator-resolution.md",
+      "clause": "LR-20",
+      "tag": "judgment-only",
+      "justification": "Whether a proposed vector’s outcome depends on a refinement beyond the procedure is judgment at vector review."
+    },
+    {
+      "doc": "docs/technical/locator-resolution.md",
+      "clause": "LR-21",
+      "tag": "judgment-only",
+      "justification": "Whether a worked example drifted from the algorithm is judgment at review; the algorithm-governs rule decides the repair direction, not whether drift occurred."
+    },
+    {
+      "doc": "docs/technical/locator-resolution.md",
+      "clause": "LR-22",
+      "tag": "check-exists",
+      "check-ref": "The vector machinery makes the definition executable for the published vectors: lock 5 re-derives every candidate’s matches over the committed snapshot and the produce-stage oracle asserts produced == committed (packages/shared/tests/unit/conformance-vectors.test.js; the corpus vectors run); run via npm run test:shared."
+    },
+    {
+      "doc": "docs/technical/locator-resolution.md",
+      "clause": "LR-23",
+      "tag": "check-exists",
+      "check-ref": "Lock 3 (packages/shared/tests/unit/conformance-vectors.test.js) requires an eligible candidate recorded measured-unique (match_count 1, match_index 0) on every committed vector; run via npm run test:shared."
+    },
+    {
+      "doc": "docs/technical/locator-resolution.md",
+      "clause": "LR-24",
+      "tag": "check-exists",
+      "check-ref": "Every strategy definition on every platform must declare x-value-derived (packages/shared/tests/unit/schema-composition.test.js); scripts/sufficiency-lint.js enforces the masking the annotation promises."
+    },
+    {
+      "doc": "docs/technical/locator-resolution.md",
+      "clause": "LR-25",
+      "tag": "check-exists",
+      "check-ref": "The desktop role_name pinning in packages/shared/tests/unit/conformance-vectors.test.js exercises the non-localized binding over committed snapshots (localized name fields are placeholder-normalized, so a localized binding could not match); run via npm run test:shared."
+    },
+    {
+      "doc": "docs/technical/locator-resolution.md",
+      "clause": "LR-26",
+      "tag": "check-exists",
+      "check-ref": "packages/shared/tests/unit/no-resolution-execution.test.js guards the shipped surfaces, and the hygiene locks in packages/shared/tests/unit/conformance-vectors.test.js are structurally counts and committed-field equalities from which the \"resolved\" property emerges without being computed; run via npm run test:shared."
     }
   ]
 }
