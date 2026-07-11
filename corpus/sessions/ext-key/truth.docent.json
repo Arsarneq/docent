@@ -69,7 +69,6 @@
               "frame_src": null,
               "timestamp": 1783348332817,
               "type": "click",
-              "window_rect": null,
               "x": 96,
               "y": 18
             },
@@ -128,8 +127,7 @@
                 "shift": false
               },
               "timestamp": 1783348332823,
-              "type": "key",
-              "window_rect": null
+              "type": "key"
             },
             {
               "capture_mode": "dom",
@@ -186,8 +184,7 @@
                 "shift": false
               },
               "timestamp": 1783348332827,
-              "type": "key",
-              "window_rect": null
+              "type": "key"
             }
           ],
           "deleted": false,

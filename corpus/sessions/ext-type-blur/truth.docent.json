@@ -75,7 +75,6 @@
               "frame_src": null,
               "timestamp": 1783348328553,
               "type": "click",
-              "window_rect": null,
               "x": 96,
               "y": 18
             },
@@ -134,8 +133,7 @@
               "frame_src": null,
               "timestamp": 1783348328630,
               "type": "type",
-              "value": "user@example.com",
-              "window_rect": null
+              "value": "user@example.com"
             },
             {
               "capture_mode": "dom",
@@ -186,7 +184,6 @@
               "frame_src": null,
               "timestamp": 1783348328631,
               "type": "click",
-              "window_rect": null,
               "x": 228,
               "y": 18
             }

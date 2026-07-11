@@ -75,7 +75,6 @@
               "frame_src": null,
               "timestamp": 1783348330859,
               "type": "click",
-              "window_rect": null,
               "x": 38,
               "y": 17
             },
@@ -134,8 +133,7 @@
               "frame_src": null,
               "timestamp": 1783348330889,
               "type": "select",
-              "value": "Blue",
-              "window_rect": null
+              "value": "Blue"
             }
           ],
           "deleted": false,
