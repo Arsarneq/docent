@@ -53,7 +53,6 @@ const contentScriptActionArb = fc.oneof(
     element: elementArb,
     context_id: contextIdArb,
     capture_mode: fc.constant('dom'),
-    window_rect: fc.constant(null),
     frame_src: frameSrcArb,
   }),
   // right_click
@@ -65,7 +64,6 @@ const contentScriptActionArb = fc.oneof(
     element: elementArb,
     context_id: contextIdArb,
     capture_mode: fc.constant('dom'),
-    window_rect: fc.constant(null),
     frame_src: frameSrcArb,
   }),
   // type
@@ -76,7 +74,6 @@ const contentScriptActionArb = fc.oneof(
     value: fc.string({ minLength: 0, maxLength: 200 }),
     context_id: contextIdArb,
     capture_mode: fc.constant('dom'),
-    window_rect: fc.constant(null),
     frame_src: frameSrcArb,
   }),
   // select
@@ -87,7 +84,6 @@ const contentScriptActionArb = fc.oneof(
     value: fc.string({ minLength: 0, maxLength: 100 }),
     context_id: contextIdArb,
     capture_mode: fc.constant('dom'),
-    window_rect: fc.constant(null),
     frame_src: frameSrcArb,
   }),
   // key
@@ -107,7 +103,6 @@ const contentScriptActionArb = fc.oneof(
     element: elementArb,
     context_id: contextIdArb,
     capture_mode: fc.constant('dom'),
-    window_rect: fc.constant(null),
     frame_src: frameSrcArb,
   }),
   // focus
@@ -117,7 +112,6 @@ const contentScriptActionArb = fc.oneof(
     element: elementArb,
     context_id: contextIdArb,
     capture_mode: fc.constant('dom'),
-    window_rect: fc.constant(null),
     frame_src: frameSrcArb,
   }),
   // drag_start
@@ -127,7 +121,6 @@ const contentScriptActionArb = fc.oneof(
     element: elementArb,
     context_id: contextIdArb,
     capture_mode: fc.constant('dom'),
-    window_rect: fc.constant(null),
     frame_src: frameSrcArb,
   }),
   // drop
@@ -140,7 +133,6 @@ const contentScriptActionArb = fc.oneof(
     y: fc.integer({ min: 0, max: 2000 }),
     context_id: contextIdArb,
     capture_mode: fc.constant('dom'),
-    window_rect: fc.constant(null),
     frame_src: frameSrcArb,
   }),
   // scroll
@@ -154,7 +146,6 @@ const contentScriptActionArb = fc.oneof(
     delta_x: fc.integer({ min: -5000, max: 5000 }),
     context_id: contextIdArb,
     capture_mode: fc.constant('dom'),
-    window_rect: fc.constant(null),
     frame_src: frameSrcArb,
   }),
   // file_upload
@@ -172,7 +163,6 @@ const contentScriptActionArb = fc.oneof(
     ),
     context_id: contextIdArb,
     capture_mode: fc.constant('dom'),
-    window_rect: fc.constant(null),
     frame_src: frameSrcArb,
   }),
   // navigate (SPA, from content script)
@@ -183,7 +173,6 @@ const contentScriptActionArb = fc.oneof(
     url: fc.webUrl(),
     context_id: contextIdArb,
     capture_mode: fc.constant('dom'),
-    window_rect: fc.constant(null),
     frame_src: frameSrcArb,
   }),
 );
@@ -208,7 +197,6 @@ const serviceWorkerActionArb = fc.oneof(
     url: fc.webUrl(),
     context_id: contextIdArb,
     capture_mode: fc.constant('dom'),
-    window_rect: fc.constant(null),
   }),
   // context_switch
   fc.record({
@@ -218,7 +206,6 @@ const serviceWorkerActionArb = fc.oneof(
     source: fc.webUrl(),
     title: fc.option(fc.string({ minLength: 1, maxLength: 100 }), { nil: null }),
     capture_mode: fc.constant('dom'),
-    window_rect: fc.constant(null),
   }),
   // context_open
   fc.record({
@@ -228,7 +215,6 @@ const serviceWorkerActionArb = fc.oneof(
     opener_context_id: fc.option(fc.integer({ min: 1, max: 100_000 }), { nil: null }),
     source: fc.option(fc.webUrl(), { nil: null }),
     capture_mode: fc.constant('dom'),
-    window_rect: fc.constant(null),
   }),
   // context_close
   fc.record({
@@ -237,7 +223,6 @@ const serviceWorkerActionArb = fc.oneof(
     context_id: contextIdArb,
     window_closing: fc.boolean(),
     capture_mode: fc.constant('dom'),
-    window_rect: fc.constant(null),
   }),
 );
 
@@ -325,7 +310,6 @@ describe('Extension actions use platform-neutral naming and DOM capture mode', (
         source: fc.webUrl(),
         title: fc.option(fc.string({ minLength: 1, maxLength: 100 }), { nil: null }),
         capture_mode: fc.constant('dom'),
-        window_rect: fc.constant(null),
       }),
       // context_open
       fc.record({
@@ -335,7 +319,6 @@ describe('Extension actions use platform-neutral naming and DOM capture mode', (
         opener_context_id: fc.option(fc.integer({ min: 1, max: 100_000 }), { nil: null }),
         source: fc.option(fc.webUrl(), { nil: null }),
         capture_mode: fc.constant('dom'),
-        window_rect: fc.constant(null),
       }),
       // context_close (no source or url expected)
       fc.record({
@@ -344,7 +327,6 @@ describe('Extension actions use platform-neutral naming and DOM capture mode', (
         context_id: contextIdArb,
         window_closing: fc.boolean(),
         capture_mode: fc.constant('dom'),
-        window_rect: fc.constant(null),
       }),
     );
 
