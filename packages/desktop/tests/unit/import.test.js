@@ -22,25 +22,17 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import fc from 'fast-check';
+import { buildImportedProject } from '../../shared/lib/import-project.js';
 
-// ─── Pure import logic (replicated from panel.js handleImportData) ────────────
+// ─── Import validation stand-in + real mapping under test ─────────────────────
+// The mapping is exercised through the REAL shared builder (buildImportedProject),
+// never a replica: a drifted mapping replica is exactly what let #293 slip — the
+// replica had been corrected while the shipped code had not, so a regression test
+// against it stayed green. validateImportData below is a lightweight stand-in for
+// the schema-validator gate, which is not the subject of these tests.
 
 const UUIDV7_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 const ISO8601_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/;
-
-let uuidCounter = 0;
-
-/**
- * Generate a deterministic UUIDv7-like string for testing.
- * In production this uses the real uuidv7() from shared/lib/uuid-v7.js.
- */
-function testUuidv7() {
-  uuidCounter++;
-  const hex = uuidCounter.toString(16).padStart(12, '0');
-  const ts = Date.now().toString(16).padStart(12, '0');
-  // Build a valid UUIDv7: 8-4-4-4-12
-  return `${ts.slice(0, 8)}-${ts.slice(8, 12)}-7000-8000-${hex}`;
-}
 
 /**
  * Validates that an export data object conforms to the basic schema contract.
@@ -82,46 +74,20 @@ function validateImportData(exportData) {
 }
 
 /**
- * Handles importing export data into a local project list.
+ * Validates then imports export data into a local project list.
  * Returns { success: true, projects } or { success: false, error }.
  *
- * This replicates the pure logic from panel.js handleImportData.
+ * The mapping delegates to the real shared builder — the same one panel.js uses —
+ * so these tests cannot pass against a broken mapping.
  */
 function handleImport(existingProjects, exportData) {
-  // Validate
   const validation = validateImportData(exportData);
   if (!validation.valid) {
     return { success: false, error: validation.error, projects: [...existingProjects] };
   }
 
-  const imported = exportData.project;
-  const exists = existingProjects.some((p) => p.project_id === imported.project_id);
-
-  const newProject = {
-    project_id: exists ? testUuidv7() : imported.project_id,
-    name: exists ? `${imported.name} (copy)` : imported.name,
-    created_at: imported.created_at ?? new Date().toISOString(),
-    recordings: (exportData.recordings ?? []).map((r) => ({
-      recording_id: r.recording_id,
-      name: r.name,
-      created_at: r.created_at,
-      steps: (r.steps ?? []).map((s) => ({
-        uuid: s.uuid ?? testUuidv7(),
-        logical_id: s.logical_id,
-        step_number: s.step_number,
-        created_at: s.created_at,
-        ...(s.narration && { narration: s.narration }),
-        ...(s.narration_source && { narration_source: s.narration_source }),
-        ...(s.step_type && { step_type: s.step_type }),
-        ...(s.expect && { expect: s.expect }),
-        actions: s.actions ?? [],
-        deleted: s.deleted ?? false,
-      })),
-    })),
-  };
-
-  const updatedProjects = [...existingProjects, newProject];
-  return { success: true, projects: updatedProjects };
+  const newProject = buildImportedProject(existingProjects, exportData);
+  return { success: true, projects: [...existingProjects, newProject] };
 }
 
 // ─── Arbitraries ──────────────────────────────────────────────────────────────
@@ -229,9 +195,6 @@ describe('Duplicate import produces distinct copy', () => {
         // Force the local project to have the same project_id as the import
         localProject.project_id = exportData.project.project_id;
         const existingProjects = [localProject];
-
-        // Reset counter for deterministic UUIDs
-        uuidCounter = 0;
 
         const result = handleImport(existingProjects, exportData);
 
