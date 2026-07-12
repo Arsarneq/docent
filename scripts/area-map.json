@@ -63,6 +63,9 @@
         "docs/requirements/replay-sufficiency.md"
       ]
     },
+    "test/strategy": {
+      "docs": ["docs/test/strategy/test-pyramid.md", "docs/test/strategy/coverage.md"]
+    },
     "test-infra": {
       "code": ["**/playwright*.config.js", "packages/shared/tests/fixtures/**"],
       "docs": ["docs/test/README.md", "docs/test/backward-compat.md", "docs/test/e2e.md"]

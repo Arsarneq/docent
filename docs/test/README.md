@@ -15,6 +15,11 @@ CI jobs on your own machine is covered in
 
 ## Documents
 
+- [Test strategy — the pyramid](strategy/test-pyramid.md) — how the suites are
+  layered (unit / integration / e2e) and how each test's layer is determined,
+  including Rust test self-classification.
+- [Test strategy — coverage reporting](strategy/coverage.md) — how coverage reaches
+  Codecov and how it is sliced by flag (layer × language) and component (package).
 - [End-to-end capture tests](e2e.md) — the extension's automated Playwright suite
   that drives real user actions and asserts the captured actions exactly.
 - [Manual tests — extension](manual/extension.md) — the retired manual capture
@@ -31,9 +36,9 @@ Named here so every future test doc has an obvious home; a folder is created onl
 when its first real doc lands (no empty directories — the same anti-scaffolding
 rule as the [documentation map](../README.md)):
 
-- `strategy/` — the test-pyramid layering (unit / integration / e2e), the
-  Codecov flag-and-component model, and mutation-testing doctrine, once written as
-  standalone docs rather than living only in the contributing guide.
+- mutation-testing doctrine under `strategy/` — once written as a standalone doc
+  rather than living only in the mutation-testing config. (The `strategy/` folder
+  already holds the test-pyramid and coverage docs above.)
 - `integration/` — the desktop integration suite (Playwright against a mocked
   Tauri backend), when it grows documentation of its own.
 - `e2e/<surface>/` — the flat `e2e.md` splits per surface if a second surface's
