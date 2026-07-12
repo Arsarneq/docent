@@ -52,8 +52,9 @@ proptest! {
 
     /// Sequence numbering
     ///
-    /// For any N in 1..1000, calling `next_sequence_id()` N times produces
-    /// exactly the sequence 1, 2, 3, ..., N with no gaps or duplicates.
+    /// For any N in 1..1000, assigning ids on the pool's shared sequence counter
+    /// the way the Input_Thread does (`fetch_add(1) + 1`) produces exactly the
+    /// sequence 1, 2, 3, ..., N with no gaps or duplicates.
     #[test]
     fn sequence_numbering_is_monotonically_increasing(n in 1usize..1000) {
         let (action_tx, _action_rx) = mpsc::channel::<ActionEvent>();
@@ -63,7 +64,12 @@ proptest! {
             })
         });
 
-        let ids: Vec<u64> = (0..n).map(|_| pool.next_sequence_id()).collect();
+        // Mirror the Input_Thread's assignment (windows.rs input_dispatch_raw_event)
+        // on the same shared counter the pool exposes.
+        let counter = pool.sequence_counter();
+        let ids: Vec<u64> = (0..n)
+            .map(|_| counter.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1)
+            .collect();
 
         // Verify the sequence is exactly 1, 2, ..., N.
         for (i, &id) in ids.iter().enumerate() {
@@ -134,6 +140,7 @@ proptest! {
                         Ok(WorkerMessage::Event(_)) => {
                             wc.fetch_add(1, Ordering::SeqCst);
                         }
+                        Ok(WorkerMessage::Flush(_)) => {}
                         Ok(WorkerMessage::Shutdown) => break,
                         Err(_) => break,
                     }
@@ -222,6 +229,7 @@ proptest! {
                         Ok(WorkerMessage::Event(_)) => {
                             wc.fetch_add(1, Ordering::SeqCst);
                         }
+                        Ok(WorkerMessage::Flush(_)) => {}
                         Ok(WorkerMessage::Shutdown) => break,
                         Err(_) => break,
                     }
@@ -378,6 +386,7 @@ proptest! {
                             };
                             events.lock().unwrap().push(event_name.to_string());
                         }
+                        Ok(WorkerMessage::Flush(_)) => {}
                         Ok(WorkerMessage::Shutdown) => break,
                         Err(_) => break,
                     }
@@ -625,6 +634,25 @@ impl WorkerTestHarness {
         self.event_tx
             .send(WorkerMessage::Event(Box::new(event)))
             .unwrap();
+    }
+
+    /// Send a commit flush marker (docent#298) and return the acknowledging
+    /// worker index. Does NOT terminate the worker.
+    fn flush(&self) -> usize {
+        let (ack_tx, ack_rx) = mpsc::channel::<usize>();
+        self.event_tx.send(WorkerMessage::Flush(ack_tx)).unwrap();
+        ack_rx
+            .recv_timeout(Duration::from_secs(2))
+            .expect("worker did not acknowledge flush")
+    }
+
+    /// Drain the action events currently available, waiting briefly for each.
+    fn drain_actions(&self) -> Vec<ActionEvent> {
+        let mut events = Vec::new();
+        while let Ok(evt) = self.action_rx.recv_timeout(Duration::from_millis(200)) {
+            events.push(evt);
+        }
+        events
     }
 
     /// Send shutdown and join the worker thread.
@@ -969,6 +997,7 @@ fn worker_panic_respawns_and_redistributes() {
                             }
                             wc.fetch_add(1, Ordering::SeqCst);
                         }
+                        Ok(WorkerMessage::Flush(_)) => {}
                         Ok(WorkerMessage::Shutdown) => break,
                         Err(_) => break,
                     }
@@ -1041,6 +1070,7 @@ fn repeatedly_failing_workers_get_respawned_and_shutdown_completes() {
                         pc.fetch_add(1, Ordering::SeqCst);
                         panic!("simulated worker panic");
                     }
+                    Ok(WorkerMessage::Flush(_)) => {}
                     Ok(WorkerMessage::Shutdown) => {}
                     Err(_) => {}
                 }
@@ -1163,6 +1193,162 @@ fn worker_shutdown_flushes_pending_type_event() {
     } else {
         panic!("expected Type payload");
     }
+}
+
+/// Regression: #298 — a commit flush drains buffered actions mid-capture, and
+/// the worker keeps running afterwards (contrast Shutdown, which drains + exits).
+/// https://github.com/Arsarneq/docent/issues/298
+#[test]
+fn regression_298_flush_drains_pending_and_worker_continues() {
+    let values = vec!["h".to_string(), "he".to_string(), "hel".to_string()];
+    let harness = WorkerTestHarness::new(MockBackend::with_focused_values(values));
+
+    // Buffer a pending type via rapid value-changes (within the 500ms debounce).
+    for i in 0..3 {
+        harness.send_event(RawEvent {
+            event_type: RawEventType::ValueChange,
+            sequence_id: (i + 1) as u64,
+            timestamp: 10_000 + (i as u64 * 10),
+            screen_x: 0,
+            screen_y: 0,
+            window_handle: 100,
+            process_id: 1,
+            key_code: 0,
+            modifiers: (false, false, false, false),
+            scroll_delta: 0.0,
+            callback_params: [0; 4],
+            pre_captured_element: None,
+        });
+    }
+    thread::sleep(Duration::from_millis(50)); // queued, debounce not yet expired
+
+    // The flush drains the buffered type immediately — without waiting out the
+    // 500ms debounce — and the worker acknowledges.
+    let acked = harness.flush();
+    assert_eq!(acked, 0, "the single worker (index 0) should acknowledge");
+
+    let after_flush = harness.drain_actions();
+    let type_events: Vec<&ActionEvent> = after_flush
+        .iter()
+        .filter(|e| matches!(e.payload, ActionPayload::Type { .. }))
+        .collect();
+    assert_eq!(
+        type_events.len(),
+        1,
+        "flush should drain exactly one pending type event, got {}",
+        type_events.len()
+    );
+    if let ActionPayload::Type { ref value, .. } = type_events[0].payload {
+        assert_eq!(value, "hel", "flushed type should carry the final value");
+    } else {
+        panic!("expected a Type payload");
+    }
+
+    // The worker did NOT exit on the flush: a subsequent event still produces an
+    // action (Shutdown would have broken the loop here).
+    harness.send_event(RawEvent {
+        event_type: RawEventType::Click,
+        sequence_id: 4,
+        timestamp: 20_000,
+        screen_x: 100,
+        screen_y: 200,
+        window_handle: 100,
+        process_id: 1,
+        key_code: 0,
+        modifiers: (false, false, false, false),
+        scroll_delta: 0.0,
+        callback_params: [0; 4],
+        pre_captured_element: None,
+    });
+    let after_click = harness.drain_actions();
+    assert!(
+        after_click
+            .iter()
+            .any(|e| matches!(e.payload, ActionPayload::Click { .. })),
+        "worker should keep processing after a flush (expected a Click action)"
+    );
+
+    let _ = harness.shutdown();
+}
+
+/// Regression: #298 — `flush_all` fans the flush to every live worker, drains
+/// their buffers into the action stream, emits exactly one `BarrierComplete`
+/// sentinel LAST (carrying the barrier id), and reports no wedged workers when
+/// all respond.
+/// https://github.com/Arsarneq/docent/issues/298
+#[test]
+fn regression_298_flush_all_drains_workers_and_emits_sentinel_last() {
+    let (action_tx, action_rx) = mpsc::channel::<ActionEvent>();
+    let mut pool = WorkerPool::new(3, action_tx, |index, rx, queue_len, sender, pending| {
+        thread::spawn(move || {
+            let ep = Arc::new(AtomicU32::new(0));
+            let backend = MockBackend::with_focused_values(vec![
+                "a".to_string(),
+                "ab".to_string(),
+                "abc".to_string(),
+            ]);
+            worker_loop(index, backend, rx, queue_len, sender, ep, pending, None);
+        })
+    });
+
+    // Buffer a pending type on one worker (value-changes for the same window are
+    // sticky-routed to a single worker).
+    for i in 0..3 {
+        pool.dispatch(RawEvent {
+            event_type: RawEventType::ValueChange,
+            sequence_id: (i + 1) as u64,
+            timestamp: 10_000 + (i as u64 * 10),
+            screen_x: 0,
+            screen_y: 0,
+            window_handle: 100,
+            process_id: 1,
+            key_code: 0,
+            modifiers: (false, false, false, false),
+            scroll_delta: 0.0,
+            callback_params: [0; 4],
+            pre_captured_element: None,
+        });
+    }
+    thread::sleep(Duration::from_millis(80)); // buffered, debounce not expired
+
+    let wedged = pool.flush_all(7, Duration::from_secs(2));
+    assert!(
+        wedged.is_empty(),
+        "no worker should be wedged, got {wedged:?}"
+    );
+
+    let mut events = Vec::new();
+    while let Ok(evt) = action_rx.recv_timeout(Duration::from_millis(200)) {
+        events.push(evt);
+    }
+
+    let sentinels: Vec<u64> = events
+        .iter()
+        .filter_map(|e| match e.payload {
+            ActionPayload::BarrierComplete { barrier_id } => Some(barrier_id),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        sentinels,
+        vec![7],
+        "exactly one sentinel carrying barrier_id 7"
+    );
+    assert!(
+        matches!(
+            events.last().unwrap().payload,
+            ActionPayload::BarrierComplete { .. }
+        ),
+        "the sentinel must be the LAST event on the stream"
+    );
+    assert!(
+        events
+            .iter()
+            .any(|e| matches!(e.payload, ActionPayload::Type { .. })),
+        "the buffered type action should have been drained before the sentinel"
+    );
+
+    pool.shutdown();
 }
 
 /// A mock backend that panics when `element_at_point` is called with

@@ -100,10 +100,17 @@ function _notifyPendingCount() {
 // on its sequence_id. This means the UI updates instantly — no waiting
 // for slow workers. The final committed step always has correct order.
 
-let _highestSeenSeq = 0;
+// The step-commit flush barrier (docent#298) confirms delivery via a
+// `barrier_complete` sentinel the backend emits LAST on the capture:action
+// stream. `_barrierResolvers` holds the waiter for an in-flight commit keyed by
+// barrier id; a sentinel that arrives before its waiter is registered is parked
+// in `_seenBarriers`.
+const _barrierResolvers = new Map();
+const _seenBarriers = new Set();
 
 function _resetReorderState() {
-  _highestSeenSeq = 0;
+  _barrierResolvers.clear();
+  _seenBarriers.clear();
 }
 
 // Sensitive-data redaction at the desktop storage chokepoint. The Rust
@@ -140,11 +147,6 @@ function _insertOrdered(action) {
     // No sequence_id — append to end
     _pendingActions.push(cleanAction);
   } else {
-    // Track highest seen for completeness guarantee
-    if (seqId > _highestSeenSeq) {
-      _highestSeenSeq = seqId;
-    }
-
     // Find the correct insertion position by sequence_id.
     // Events mostly arrive in order, so searching from the end is fast.
     // We store the sequence_id temporarily on the action for sorting,
@@ -168,37 +170,65 @@ function _insertOrdered(action) {
 }
 
 // ─── Completeness Guarantee ───────────────────────────────────────────────────
-// On step commit, wait for all events up to the max sequence number
-// to arrive before collecting pending actions. Then strip internal _seq
-// fields from all pending actions.
+// On step commit, run the backend flush barrier (docent#298): the Rust worker
+// pool drains every worker's completed-but-held actions into this same
+// capture:action stream and then emits a `barrier_complete` sentinel LAST.
+// Waiting for that sentinel — not merely for the command to return — guarantees
+// every drained action has already been inserted before we collect the step
+// (the command-return and event-emit IPC channels have no mutual ordering).
+// Then strip the internal _seq fields from all pending actions.
+
+/** Resolve (or park) the delivery sentinel for a completed barrier. */
+function _resolveBarrier(barrierId) {
+  const resolve = _barrierResolvers.get(barrierId);
+  if (resolve) {
+    _barrierResolvers.delete(barrierId);
+    resolve();
+  } else {
+    // Arrived before the waiter registered — remember it.
+    _seenBarriers.add(barrierId);
+  }
+}
+
+/**
+ * Wait for the `barrier_complete` sentinel for `barrierId` to arrive on the
+ * capture:action stream. Bounded so a lost sentinel can never hang a commit.
+ */
+function _waitForBarrierSentinel(barrierId, timeoutMs = 5000) {
+  return new Promise((resolve) => {
+    if (_seenBarriers.delete(barrierId)) {
+      resolve();
+      return;
+    }
+    let settled = false;
+    const done = () => {
+      if (settled) return;
+      settled = true;
+      _barrierResolvers.delete(barrierId);
+      resolve();
+    };
+    _barrierResolvers.set(barrierId, done);
+    setTimeout(done, timeoutMs);
+  });
+}
 
 async function commitWithCompleteness() {
-  const maxSeq = await invoke('get_max_sequence_number');
+  const report = await invoke('commit_barrier');
 
-  if (maxSeq === 0 || _highestSeenSeq >= maxSeq) {
-    // All events already received — strip _seq and return
+  // No active capture (barrier_id 0) or an unsupported platform — nothing was
+  // flushed; collect what we have.
+  if (!report || !report.barrier_id) {
     _stripSeqFields();
     return;
   }
 
-  const deadline = Date.now() + 5000; // 5 second timeout
+  if (report.wedged_workers > 0) {
+    console.warn(
+      `[Docent] Commit barrier: ${report.wedged_workers} worker(s) did not flush in time; their buffered actions were rescued.`,
+    );
+  }
 
-  await new Promise((resolve) => {
-    const check = () => {
-      if (_highestSeenSeq >= maxSeq || Date.now() >= deadline) {
-        if (Date.now() >= deadline && _highestSeenSeq < maxSeq) {
-          console.warn(
-            `[Docent] Completeness timeout: seen seq ${_highestSeenSeq}, max was ${maxSeq}`,
-          );
-        }
-        resolve();
-        return;
-      }
-      setTimeout(check, 50);
-    };
-    check();
-  });
-
+  await _waitForBarrierSentinel(report.barrier_id);
   _stripSeqFields();
 }
 
@@ -212,10 +242,20 @@ function _stripSeqFields() {
 
 const _actionEventCallbacks = [];
 
+// Handle one message from the capture:action stream. The step-commit flush
+// barrier (docent#298) rides this same stream: a `barrier_complete` sentinel is
+// consumed here to resolve the pending commit and is never inserted or exported.
+function _handleCaptureAction(action) {
+  if (action && action.type === 'barrier_complete') {
+    _resolveBarrier(action.barrier_id);
+    return;
+  }
+  _insertOrdered(action);
+}
+
 // Start listening for capture:action events from the Rust backend
 listen('capture:action', (event) => {
-  const action = event.payload;
-  _insertOrdered(action);
+  _handleCaptureAction(event.payload);
 });
 
 // ─── Adapter ──────────────────────────────────────────────────────────────────
@@ -444,17 +484,12 @@ export default tauriAdapter;
 
 export { commitWithCompleteness };
 
-export function getHighestSeenSeq() {
-  return _highestSeenSeq;
-}
-
-// Test-only exports for reorder internals and the redaction chokepoint
+// Test-only exports for reorder internals, the redaction chokepoint, and the
+// commit-barrier sentinel path (docent#298).
 export const _testOnly = {
-  get highestSeenSeq() {
-    return _highestSeenSeq;
-  },
   resetReorderState: _resetReorderState,
   insertOrdered: _insertOrdered,
+  handleCaptureAction: _handleCaptureAction,
   stripSeqFields: _stripSeqFields,
   redactSensitive: _redactSensitive,
 };

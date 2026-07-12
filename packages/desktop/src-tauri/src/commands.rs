@@ -19,7 +19,7 @@ use std::sync::Mutex;
 
 use tauri::State;
 
-use crate::capture::{CaptureError, CaptureLayer, PermissionStatus, WindowInfo};
+use crate::capture::{BarrierReport, CaptureError, CaptureLayer, PermissionStatus, WindowInfo};
 use crate::secret_store::{self, SecretStore};
 
 // ---------------------------------------------------------------------------
@@ -271,22 +271,24 @@ pub fn get_self_pid() -> u32 {
     std::process::id()
 }
 
-/// Core logic for `get_max_sequence_number` — testable without a Tauri runtime.
-fn get_max_sequence_number_impl(capture: &CaptureMutex) -> Result<u64, String> {
+/// Core logic for `commit_barrier` — testable without a Tauri runtime.
+fn commit_barrier_impl(capture: &CaptureMutex) -> Result<BarrierReport, String> {
     let capture = lock_capture(capture)?;
-    Ok(capture.max_sequence_id())
+    capture
+        .commit_barrier()
+        .map_err(|e: CaptureError| e.to_string())
 }
 
-/// Return the current maximum sequence number assigned by the capture layer.
+/// Run the step-commit flush barrier (docent#298).
 ///
-/// Used by the frontend completeness guarantee: before committing a step,
-/// the frontend queries this value and waits until all events up to that
-/// sequence number have been received (or a timeout expires).
-///
-/// Returns 0 if no events have been dispatched in the current session.
+/// Drains every capture worker's completed-but-held actions into the
+/// `capture:action` stream, emits a `BarrierComplete` sentinel the frontend
+/// waits on to confirm delivery, and returns `{ barrier_id, wedged_workers }`.
+/// Bounded — a worker wedged in an unresponsive accessibility call cannot stall
+/// the commit; its buffered actions are rescued in place instead.
 #[tauri::command]
-pub fn get_max_sequence_number(state: State<'_, AppState>) -> Result<u64, String> {
-    get_max_sequence_number_impl(&state.capture)
+pub fn commit_barrier(state: State<'_, AppState>) -> Result<BarrierReport, String> {
+    commit_barrier_impl(&state.capture)
 }
 
 /// Core logic for `set_self_capture_exclusion` — testable without a Tauri runtime.
@@ -440,7 +442,9 @@ pub async fn import_file(app: tauri::AppHandle) -> Result<Option<String>, String
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::capture::{ActionEvent, CaptureError, CaptureLayer, PermissionStatus, WindowInfo};
+    use crate::capture::{
+        ActionEvent, BarrierReport, CaptureError, CaptureLayer, PermissionStatus, WindowInfo,
+    };
     use std::sync::mpsc;
     use std::sync::Arc;
 
@@ -453,16 +457,17 @@ mod tests {
         stopped: bool,
         excluded_pid: Option<u32>,
         included_pid: Option<u32>,
+        barrier_calls: u32,
     }
 
     struct MockCapture {
         rec: Arc<Mutex<Recorded>>,
-        max_seq: u64,
         windows: Vec<WindowInfo>,
         permissions_granted: bool,
         fail_start: bool,
         fail_stop: bool,
         fail_list: bool,
+        barrier_wedged: usize,
     }
 
     impl MockCapture {
@@ -470,12 +475,12 @@ mod tests {
             let rec = Arc::new(Mutex::new(Recorded::default()));
             let mock = MockCapture {
                 rec: Arc::clone(&rec),
-                max_seq: 0,
                 windows: Vec::new(),
                 permissions_granted: false,
                 fail_start: false,
                 fail_stop: false,
                 fail_list: false,
+                barrier_wedged: 0,
             };
             (mock, rec)
         }
@@ -525,8 +530,13 @@ mod tests {
             self.rec.lock().unwrap().included_pid = pid;
         }
 
-        fn max_sequence_id(&self) -> u64 {
-            self.max_seq
+        fn commit_barrier(&self) -> Result<BarrierReport, CaptureError> {
+            let mut rec = self.rec.lock().unwrap();
+            rec.barrier_calls += 1;
+            Ok(BarrierReport {
+                barrier_id: rec.barrier_calls as u64,
+                wedged_workers: self.barrier_wedged,
+            })
         }
     }
 
@@ -655,21 +665,29 @@ mod tests {
         assert!(!status.granted);
     }
 
-    // ── get_max_sequence_number_impl ────────────────────────────────────────
+    // ── commit_barrier_impl ─────────────────────────────────────────────────
 
     #[test]
-    fn max_sequence_number_returns_zero_initially() {
-        let (mock, _rec) = MockCapture::new();
+    fn commit_barrier_invokes_the_layer_and_reports() {
+        let (mock, rec) = MockCapture::new();
         let cap = mutex(mock);
-        assert_eq!(get_max_sequence_number_impl(&cap).unwrap(), 0);
+
+        let report = commit_barrier_impl(&cap).unwrap();
+
+        assert_eq!(rec.lock().unwrap().barrier_calls, 1);
+        assert_eq!(report.barrier_id, 1);
+        assert_eq!(report.wedged_workers, 0);
     }
 
     #[test]
-    fn max_sequence_number_returns_layer_value() {
+    fn commit_barrier_reports_wedged_workers() {
         let (mut mock, _rec) = MockCapture::new();
-        mock.max_seq = 99;
+        mock.barrier_wedged = 2;
         let cap = mutex(mock);
-        assert_eq!(get_max_sequence_number_impl(&cap).unwrap(), 99);
+
+        let report = commit_barrier_impl(&cap).unwrap();
+
+        assert_eq!(report.wedged_workers, 2);
     }
 
     // ── set_self_capture_exclusion_impl ─────────────────────────────────────

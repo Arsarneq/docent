@@ -17,7 +17,6 @@ const distPath = path.resolve(__dirname, '../../dist');
 
 const TAURI_MOCK_JS = `
   let _savedState = JSON.stringify({ projects: [], settings: {} });
-  let _maxSeq = 0;
 
   window.__TAURI__ = {
     core: {
@@ -48,7 +47,7 @@ const TAURI_MOCK_JS = `
           case 'start_capture': return;
           case 'stop_capture': return;
           case 'list_windows': return [];
-          case 'get_max_sequence_number': return _maxSeq;
+          case 'commit_barrier': return { barrier_id: 0, wedged_workers: 0 };
           case 'set_self_capture_exclusion': return;
           case 'set_target_pid': return;
           case 'export_file': return;

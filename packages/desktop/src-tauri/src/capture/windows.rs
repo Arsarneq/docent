@@ -17,9 +17,10 @@
 // require a message pump (`GetMessage`/`DispatchMessage`) on the registering
 // thread.
 
+use std::collections::VecDeque;
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 use std::sync::mpsc::Sender;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -51,21 +52,57 @@ use windows::Win32::UI::WindowsAndMessaging::{
     WindowFromPoint, CHILDID_SELF, EVENT_OBJECT_CREATE, EVENT_OBJECT_DESTROY, EVENT_OBJECT_FOCUS,
     EVENT_OBJECT_SELECTION, EVENT_OBJECT_VALUECHANGE, EVENT_SYSTEM_FOREGROUND, GWL_STYLE, GW_OWNER,
     HHOOK, KBDLLHOOKSTRUCT, MSG, MSLLHOOKSTRUCT, OBJID_WINDOW, WH_KEYBOARD_LL, WH_MOUSE_LL,
-    WINEVENT_OUTOFCONTEXT, WM_KEYDOWN, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MBUTTONDOWN, WM_MOUSEWHEEL,
-    WM_QUIT, WM_RBUTTONDOWN, WM_SYSKEYDOWN, WS_CHILD,
+    WINEVENT_OUTOFCONTEXT, WM_APP, WM_KEYDOWN, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MBUTTONDOWN,
+    WM_MOUSEWHEEL, WM_QUIT, WM_RBUTTONDOWN, WM_SYSKEYDOWN, WS_CHILD,
 };
 
 use super::element_mapping::{
     map_element, LocatorMeasurements, MeasuredIndex, MeasuredPair, NativeElementProperties,
 };
 use super::timing;
-use super::worker_pool::{worker_loop, AccessibilityBackend, RawEvent, RawEventType, WorkerPool};
+use super::worker_pool::{
+    worker_loop, AccessibilityBackend, RawEvent, RawEventType, WorkerPool, FLUSH_BARRIER_TIMEOUT,
+};
 use super::{
-    ActionEvent, CaptureError, CaptureLayer, ElementDescription, PermissionStatus, WindowInfo,
+    ActionEvent, BarrierReport, CaptureError, CaptureLayer, ElementDescription, PermissionStatus,
+    WindowInfo,
 };
 
 /// Number of accessibility worker threads in the pool.
 const WORKER_COUNT: usize = 3;
+
+/// Thread message (posted to the Input_Thread) that triggers the commit flush
+/// barrier (docent#298). The command thread posts it after enqueuing a
+/// [`FlushRequest`]; the Input_Thread forwards the request onto its own sender
+/// as a [`BridgeMessage::Flush`] so the flush is FIFO-ordered behind every raw
+/// event the step already produced.
+const WM_APP_FLUSH: u32 = WM_APP + 1;
+
+/// Messages carried on the Input_Thread → bridge channel.
+///
+/// The bridge either dispatches a raw event to the worker pool or, for the
+/// commit flush barrier (docent#298), runs the pool-wide flush and reports the
+/// rescued-worker set back through `done`. Both variants travel on the input
+/// thread's single sender, so a `Flush` is FIFO-ordered behind every `Event`
+/// the input thread has already produced for the step.
+enum BridgeMessage {
+    Event(Box<RawEvent>),
+    Flush {
+        barrier_id: u64,
+        done: std::sync::mpsc::Sender<Vec<usize>>,
+    },
+}
+
+/// A pending commit-barrier request handed from the command thread to the
+/// Input_Thread via [`INPUT_FLUSH_REQUESTS`]. The input thread pops it and
+/// forwards it onto its own sender as a [`BridgeMessage::Flush`].
+struct FlushRequest {
+    barrier_id: u64,
+    done: std::sync::mpsc::Sender<Vec<usize>>,
+}
+
+/// Shared queue of pending commit-barrier requests (command thread → Input_Thread).
+type FlushQueue = Arc<Mutex<VecDeque<FlushRequest>>>;
 
 /// Upper bound `start()` waits for each worker to finish its (possibly cold)
 /// UIA/COM init before proceeding without it. Generous because a fresh or
@@ -231,8 +268,14 @@ const DRAG_THRESHOLD_PX: i32 = 5;
 // to the dispatch channel, sequence counter, and other per-session state.
 
 thread_local! {
-    /// Channel sender for dispatching `RawEvent`s to the bridge thread.
-    static INPUT_RAW_SENDER: std::cell::RefCell<Option<std::sync::mpsc::Sender<RawEvent>>> =
+    /// Channel sender for dispatching messages to the bridge thread.
+    static INPUT_RAW_SENDER: std::cell::RefCell<Option<std::sync::mpsc::Sender<BridgeMessage>>> =
+        const { std::cell::RefCell::new(None) };
+
+    /// Shared queue of pending commit-barrier requests (docent#298). The command
+    /// thread pushes a [`FlushRequest`] and posts `WM_APP_FLUSH`; the message
+    /// pump pops it here and forwards it onto `INPUT_RAW_SENDER`.
+    static INPUT_FLUSH_REQUESTS: std::cell::RefCell<Option<FlushQueue>> =
         const { std::cell::RefCell::new(None) };
 
     /// Shared sequence counter for assigning monotonic sequence IDs.
@@ -350,16 +393,19 @@ pub struct WindowsCapture {
     /// The worker pool that manages accessibility worker threads.
     /// Owned by the bridge thread during capture; stored here only for shutdown.
     worker_pool: Option<WorkerPool>,
-    /// Shared sequence counter — stored here so `max_sequence_id()` works
-    /// even after the pool is moved to the bridge thread.
-    sequence_counter: Option<Arc<AtomicU64>>,
     /// Bridge thread that receives `RawEvent`s from the input thread and
     /// calls `pool.dispatch()`. Owns the `WorkerPool` during capture.
     bridge_thread: Option<JoinHandle<WorkerPool>>,
-    /// The Windows thread ID for the Input_Thread (used to post WM_QUIT).
+    /// The Windows thread ID for the Input_Thread (used to post WM_QUIT and
+    /// WM_APP_FLUSH).
     input_thread_id: Option<u32>,
     /// Join handle for the Input_Thread.
     input_thread: Option<JoinHandle<Result<(), CaptureError>>>,
+    /// Shared queue of pending commit-barrier requests handed to the
+    /// Input_Thread (docent#298). Present only while capturing.
+    flush_requests: Option<FlushQueue>,
+    /// Monotonic source of commit-barrier ids (docent#298).
+    barrier_counter: AtomicU64,
 }
 
 impl WindowsCapture {
@@ -369,10 +415,11 @@ impl WindowsCapture {
             excluded_pid: Arc::new(AtomicU32::new(0)),
             included_pid: Arc::new(AtomicU32::new(0)),
             worker_pool: None,
-            sequence_counter: None,
             bridge_thread: None,
             input_thread_id: None,
             input_thread: None,
+            flush_requests: None,
+            barrier_counter: AtomicU64::new(0),
         }
     }
 }
@@ -441,17 +488,28 @@ impl CaptureLayer for WindowsCapture {
             }
         }
 
-        // Store the sequence counter so max_sequence_id() works.
+        // Clone the shared sequence counter for the Input_Thread, which assigns
+        // a monotonic id to every raw event (docent#139 reorder buffer).
         let sequence_counter = Arc::clone(pool.sequence_counter());
-        self.sequence_counter = Some(Arc::clone(&sequence_counter));
 
-        // --- Create raw event channel (Input_Thread → bridge → pool.dispatch) ---
-        let (raw_tx, raw_rx) = std::sync::mpsc::channel::<RawEvent>();
+        // --- Create bridge channel (Input_Thread → bridge → pool) ---
+        let (raw_tx, raw_rx) = std::sync::mpsc::channel::<BridgeMessage>();
 
-        // Spawn bridge thread: receives RawEvents and calls pool.dispatch().
+        // Shared queue of pending commit-barrier requests (docent#298).
+        let flush_requests: FlushQueue = Arc::new(Mutex::new(VecDeque::new()));
+        self.flush_requests = Some(Arc::clone(&flush_requests));
+
+        // Spawn bridge thread: dispatches raw events, and on a Flush marker runs
+        // the pool-wide commit flush barrier and reports the rescued-worker set.
         let bridge_handle = thread::spawn(move || {
-            while let Ok(event) = raw_rx.recv() {
-                pool.dispatch(event);
+            while let Ok(message) = raw_rx.recv() {
+                match message {
+                    BridgeMessage::Event(event) => pool.dispatch(*event),
+                    BridgeMessage::Flush { barrier_id, done } => {
+                        let wedged = pool.flush_all(barrier_id, FLUSH_BARRIER_TIMEOUT);
+                        let _ = done.send(wedged);
+                    }
+                }
             }
             // Channel closed (input thread dropped raw_tx) — return pool for shutdown.
             pool
@@ -474,6 +532,7 @@ impl CaptureLayer for WindowsCapture {
                 included_pid_for_input,
                 sequence_counter,
                 raw_tx,
+                flush_requests,
             )
         });
 
@@ -536,7 +595,7 @@ impl CaptureLayer for WindowsCapture {
             pool.shutdown();
         }
 
-        self.sequence_counter = None;
+        self.flush_requests = None;
 
         Ok(())
     }
@@ -564,11 +623,50 @@ impl CaptureLayer for WindowsCapture {
         self.included_pid.store(pid.unwrap_or(0), Ordering::SeqCst);
     }
 
-    fn max_sequence_id(&self) -> u64 {
-        self.sequence_counter
-            .as_ref()
-            .map(|c| c.load(Ordering::SeqCst))
-            .unwrap_or(0)
+    fn commit_barrier(&self) -> Result<BarrierReport, CaptureError> {
+        // Not capturing → nothing is buffered; report a no-op.
+        if !self.active.load(Ordering::SeqCst) {
+            return Ok(BarrierReport {
+                barrier_id: 0,
+                wedged_workers: 0,
+            });
+        }
+        let (Some(tid), Some(requests)) = (self.input_thread_id, self.flush_requests.as_ref())
+        else {
+            return Ok(BarrierReport {
+                barrier_id: 0,
+                wedged_workers: 0,
+            });
+        };
+
+        let barrier_id = self.barrier_counter.fetch_add(1, Ordering::SeqCst) + 1;
+        let (done_tx, done_rx) = std::sync::mpsc::channel::<Vec<usize>>();
+
+        // Hand the request to the Input_Thread, then wake its message pump. The
+        // input thread forwards it onto its own sender (single-producer FIFO), so
+        // the flush is ordered behind every raw event of this step — closing the
+        // cross-thread race a command-thread injection would otherwise leave open.
+        if let Ok(mut queue) = requests.lock() {
+            queue.push_back(FlushRequest {
+                barrier_id,
+                done: done_tx,
+            });
+        }
+        unsafe {
+            let _ = PostThreadMessageW(tid, WM_APP_FLUSH, WPARAM(0), LPARAM(0));
+        }
+
+        // Bounded wait for the bridge to finish the flush. Slightly longer than
+        // the pool's own FLUSH_BARRIER_TIMEOUT so the pool always reports first;
+        // on the rare timeout we still return and the frontend proceeds.
+        let wedged = done_rx
+            .recv_timeout(FLUSH_BARRIER_TIMEOUT + Duration::from_secs(1))
+            .unwrap_or_default();
+
+        Ok(BarrierReport {
+            barrier_id,
+            wedged_workers: wedged.len(),
+        })
     }
 }
 
@@ -597,7 +695,8 @@ fn input_thread_main(
     excluded_pid: Arc<AtomicU32>,
     included_pid: Arc<AtomicU32>,
     sequence_counter: Arc<AtomicU64>,
-    raw_tx: std::sync::mpsc::Sender<RawEvent>,
+    raw_tx: std::sync::mpsc::Sender<BridgeMessage>,
+    flush_requests: FlushQueue,
 ) -> Result<(), CaptureError> {
     // --- COM initialisation (STA, needed for the message pump) ---
     unsafe {
@@ -625,6 +724,7 @@ fn input_thread_main(
     INPUT_ACTIVE.with(|a| *a.borrow_mut() = Some(active.clone()));
     INPUT_EXCLUDED_PID.with(|p| *p.borrow_mut() = Some(excluded_pid));
     INPUT_INCLUDED_PID.with(|p| *p.borrow_mut() = Some(included_pid));
+    INPUT_FLUSH_REQUESTS.with(|q| *q.borrow_mut() = Some(flush_requests));
 
     // Create a lightweight IUIAutomation instance for pre-capturing click
     // elements. Used ONLY for the ElementFromPoint pre-capture (left mouse-up on a non-drag click; right/middle button-down).
@@ -706,6 +806,7 @@ fn input_thread_main(
         INPUT_ACTIVE.with(|a| *a.borrow_mut() = None);
         INPUT_EXCLUDED_PID.with(|p| *p.borrow_mut() = None);
         INPUT_INCLUDED_PID.with(|p| *p.borrow_mut() = None);
+        INPUT_FLUSH_REQUESTS.with(|q| *q.borrow_mut() = None);
         INPUT_PID_CACHE.with(|c| c.borrow_mut().clear());
         INPUT_UIA.with(|u| *u.borrow_mut() = None);
         INPUT_LAST_INPUT_TIMESTAMP.with(|t| t.set(0));
@@ -721,6 +822,12 @@ fn input_thread_main(
             let ret = GetMessageW(&mut msg, None, 0, 0);
             if !ret.as_bool() {
                 break; // WM_QUIT or error
+            }
+            // Commit flush barrier (docent#298): a thread message (no window) —
+            // handle it inline rather than dispatching, then continue pumping.
+            if msg.hwnd.0.is_null() && msg.message == WM_APP_FLUSH {
+                input_forward_flush();
+                continue;
             }
             let _ = TranslateMessage(&msg);
             DispatchMessageW(&msg);
@@ -745,6 +852,7 @@ fn input_thread_main(
     INPUT_ACTIVE.with(|a| *a.borrow_mut() = None);
     INPUT_EXCLUDED_PID.with(|p| *p.borrow_mut() = None);
     INPUT_INCLUDED_PID.with(|p| *p.borrow_mut() = None);
+    INPUT_FLUSH_REQUESTS.with(|q| *q.borrow_mut() = None);
     INPUT_FOREGROUND_PID.with(|p| p.set(0));
     INPUT_LAST_FOREGROUND_HWND.with(|p| p.set(0));
     INPUT_MOUSE_DOWN_POS.with(|p| p.set(None));
@@ -779,9 +887,25 @@ fn input_dispatch_raw_event(mut event: RawEvent) {
     // Send to bridge thread.
     INPUT_RAW_SENDER.with(|s| {
         if let Some(sender) = s.borrow().as_ref() {
-            let _ = sender.send(event);
+            let _ = sender.send(BridgeMessage::Event(Box::new(event)));
         }
     });
+}
+
+/// Forward a pending commit-barrier request (docent#298) onto the Input_Thread's
+/// own bridge sender. Called from the message pump on `WM_APP_FLUSH`, so the
+/// resulting [`BridgeMessage::Flush`] is FIFO-ordered behind every raw event the
+/// input thread has already dispatched for the step being committed.
+fn input_forward_flush() {
+    let request =
+        INPUT_FLUSH_REQUESTS.with(|q| q.borrow().as_ref().and_then(|q| q.lock().ok()?.pop_front()));
+    if let Some(FlushRequest { barrier_id, done }) = request {
+        INPUT_RAW_SENDER.with(|s| {
+            if let Some(sender) = s.borrow().as_ref() {
+                let _ = sender.send(BridgeMessage::Flush { barrier_id, done });
+            }
+        });
+    }
 }
 
 /// Pre-capture the element at the given screen coordinates using the

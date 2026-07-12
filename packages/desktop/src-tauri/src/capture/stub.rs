@@ -18,7 +18,7 @@
 
 use std::sync::mpsc::Sender;
 
-use super::{ActionEvent, CaptureError, CaptureLayer, PermissionStatus, WindowInfo};
+use super::{ActionEvent, BarrierReport, CaptureError, CaptureLayer, PermissionStatus, WindowInfo};
 
 /// A no-op [`CaptureLayer`] for not-yet-supported platforms.
 #[derive(Default)]
@@ -75,8 +75,12 @@ impl CaptureLayer for UnsupportedCapture {
 
     fn set_included_pid(&mut self, _pid: Option<u32>) {}
 
-    fn max_sequence_id(&self) -> u64 {
-        0
+    fn commit_barrier(&self) -> Result<BarrierReport, CaptureError> {
+        // No capture backend on this platform, so nothing is ever buffered.
+        Ok(BarrierReport {
+            barrier_id: 0,
+            wedged_workers: 0,
+        })
     }
 }
 
@@ -99,7 +103,10 @@ mod tests {
         assert!(!capture.is_active());
         assert!(!capture.check_permissions().granted);
         assert_eq!(capture.list_windows().unwrap().len(), 0);
-        assert_eq!(capture.max_sequence_id(), 0);
+        // The commit barrier is a no-op on an unsupported platform.
+        let report = capture.commit_barrier().unwrap();
+        assert_eq!(report.barrier_id, 0);
+        assert_eq!(report.wedged_workers, 0);
         // Inert setters must not panic.
         capture.set_excluded_pid(Some(1));
         capture.set_included_pid(None);

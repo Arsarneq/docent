@@ -58,6 +58,7 @@ fn payload_type_name(payload: &ActionPayload) -> &'static str {
         ActionPayload::ContextOpen { .. } => "context_open",
         ActionPayload::ContextClose { .. } => "context_close",
         ActionPayload::FileDialog { .. } => "file_dialog",
+        ActionPayload::BarrierComplete { .. } => "barrier_complete",
     }
 }
 

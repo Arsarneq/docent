@@ -139,8 +139,9 @@ pipeline: a Rust integration test drives real OS input against controlled
 windows and serializes the captured events — in the same shape the runtime
 emits — to per-session dump files; `npm run corpus:assemble:desktop` then
 replays each dump through the real frontend pipeline (the reorder buffer, the
-redaction chokepoint, the commit completeness barrier, and the same shared
-session model and export the desktop panel uses) into envelopes for the same
+redaction chokepoint, the commit flush barrier's frontend collection path, and
+the same shared session model and export the desktop panel uses) into envelopes
+for the same
 comparator (`npm run corpus:check:desktop`). In CI the producer runs on the
 Windows job and uploads the dumps; a separate job assembles and diffs them.
 

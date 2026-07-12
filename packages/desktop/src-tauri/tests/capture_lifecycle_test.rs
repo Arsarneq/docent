@@ -26,7 +26,7 @@ use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
 use docent_desktop_lib::capture::windows::WindowsCapture;
-use docent_desktop_lib::capture::{ActionEvent, CaptureLayer};
+use docent_desktop_lib::capture::{ActionEvent, ActionPayload, CaptureLayer};
 use serial_test::serial;
 
 /// Ceiling for any single start/stop call. Generous so it asserts a *contract*
@@ -63,6 +63,61 @@ fn is_active_tracks_start_then_stop() {
 
     capture.stop().expect("stop should succeed");
     assert!(!capture.is_active(), "inactive after stop");
+}
+
+/// The commit flush barrier (docent#298) runs end to end on a live capture:
+/// `commit_barrier` posts through the Input_Thread, the bridge flushes the pool,
+/// and a `barrier_complete` sentinel for that barrier reaches the action stream.
+/// With no active capture it is a bounded no-op returning `barrier_id` 0.
+#[test]
+#[serial]
+fn commit_barrier_runs_the_flush_and_emits_a_sentinel() {
+    let (tx, rx) = channel();
+    let mut capture = WindowsCapture::new();
+
+    // No active capture → nothing to flush.
+    let idle = capture
+        .commit_barrier()
+        .expect("commit_barrier must not error");
+    assert_eq!(idle.barrier_id, 0, "no active capture → barrier_id 0");
+    assert_eq!(idle.wedged_workers, 0);
+
+    capture.start(tx).expect("start should succeed");
+
+    let report = capture
+        .commit_barrier()
+        .expect("commit_barrier must not error");
+    assert!(
+        report.barrier_id > 0,
+        "an active barrier is assigned a real id"
+    );
+    assert_eq!(report.wedged_workers, 0, "healthy workers are not wedged");
+
+    // commit_barrier returns after the bridge has emitted the sentinel, so it is
+    // already on the action stream. Drain (bounded) until we see it; ignore any
+    // ambient WinEvent-driven actions that may arrive first on a live desktop.
+    let deadline = Instant::now() + Duration::from_secs(5);
+    let mut saw_sentinel = false;
+    while Instant::now() < deadline {
+        match rx.recv_timeout(Duration::from_millis(200)) {
+            Ok(ev) => {
+                if matches!(
+                    ev.payload,
+                    ActionPayload::BarrierComplete { barrier_id } if barrier_id == report.barrier_id
+                ) {
+                    saw_sentinel = true;
+                    break;
+                }
+            }
+            Err(_) => break,
+        }
+    }
+    assert!(
+        saw_sentinel,
+        "a barrier_complete sentinel for this barrier must reach the action stream"
+    );
+
+    capture.stop().expect("stop should succeed");
 }
 
 /// Double-stop is a no-op: calling `stop()` on an already-stopped capture

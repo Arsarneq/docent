@@ -345,27 +345,98 @@ describe('adapter.getPendingCount()', () => {
 // ─── commitWithCompleteness() ─────────────────────────────────────────────────
 
 describe('commitWithCompleteness()', () => {
-  beforeEach(resetMocks);
+  const tick = () => new Promise((r) => setTimeout(r, 0));
 
-  it('strips _seq fields and returns when maxSeq is 0', async () => {
-    mockInvoke.mock.mockImplementation(async (cmd) => {
-      if (cmd === 'get_max_sequence_number') return 0;
-      return undefined;
-    });
+  beforeEach(() => {
+    resetMocks();
+    _testOnly.resetReorderState();
     adapter.clearPendingActions();
-    await commitWithCompleteness();
-    // Should not throw
   });
 
-  it('strips _seq fields when all events already received', async () => {
+  it('invokes commit_barrier (not get_max_sequence_number)', async () => {
+    mockInvoke.mock.mockImplementation(async () => ({ barrier_id: 0, wedged_workers: 0 }));
+    await commitWithCompleteness();
+    const commands = mockInvoke.mock.calls.map((c) => c.arguments[0]);
+    assert.ok(commands.includes('commit_barrier'), 'should invoke commit_barrier');
+    assert.ok(
+      !commands.includes('get_max_sequence_number'),
+      'should NOT invoke the removed get_max_sequence_number',
+    );
+  });
+
+  it('strips _seq and returns immediately when there is no active capture (barrier_id 0)', async () => {
+    mockInvoke.mock.mockImplementation(async () => ({ barrier_id: 0, wedged_workers: 0 }));
+    _testOnly.insertOrdered({ type: 'click', sequence_id: 1, timestamp: 1, element: {} });
+    await commitWithCompleteness();
+    const actions = adapter.getPendingActions();
+    assert.equal(actions.length, 1);
+    assert.equal(actions[0]._seq, undefined, '_seq should be stripped');
+  });
+
+  // Regression: #298 — the barrier must wait for the delivery sentinel, not just
+  // the command return. An in-flight action delivered AFTER commit_barrier
+  // resolves but BEFORE the sentinel must still be captured in the committed
+  // step. (A naive `await invoke('commit_barrier')` alone would drop it, because
+  // the command-return and event-emit IPC channels have no mutual ordering.)
+  // https://github.com/Arsarneq/docent/issues/298
+  it('regression_298_waits_for_the_delivery_sentinel', async () => {
     mockInvoke.mock.mockImplementation(async (cmd) => {
-      if (cmd === 'get_max_sequence_number') return 5;
+      if (cmd === 'commit_barrier') return { barrier_id: 7, wedged_workers: 0 };
       return undefined;
     });
-    // Simulate that _highestSeenSeq >= maxSeq by clearing state
-    adapter.clearPendingActions();
-    await commitWithCompleteness();
-    // Should complete without waiting
+
+    const commit = commitWithCompleteness();
+    let resolved = false;
+    commit.then(() => {
+      resolved = true;
+    });
+
+    // The command has resolved; deliver a late in-flight action (no sentinel yet).
+    await tick();
+    _testOnly.handleCaptureAction({ type: 'click', sequence_id: 9, timestamp: 1, element: {} });
+    await tick();
+    assert.equal(resolved, false, 'commit must not resolve before the sentinel arrives');
+
+    // The sentinel is emitted LAST on the stream → commit resolves.
+    _testOnly.handleCaptureAction({ type: 'barrier_complete', barrier_id: 7 });
+    await commit;
+
+    const actions = adapter.getPendingActions();
+    assert.equal(actions.length, 1, 'the late in-flight action must be in the committed step');
+    assert.equal(actions[0].type, 'click');
+    assert.equal(actions[0]._seq, undefined, '_seq should be stripped after commit');
+  });
+
+  it('resolves when the sentinel arrived before the waiter registered', async () => {
+    mockInvoke.mock.mockImplementation(async (cmd) => {
+      if (cmd === 'commit_barrier') return { barrier_id: 3, wedged_workers: 0 };
+      return undefined;
+    });
+    // Sentinel arrives before commit is even called (parked in _seenBarriers).
+    _testOnly.handleCaptureAction({ type: 'barrier_complete', barrier_id: 3 });
+    await commitWithCompleteness(); // must not hang
+  });
+
+  it('warns but proceeds when workers were wedged', async () => {
+    mockInvoke.mock.mockImplementation(async (cmd) => {
+      if (cmd === 'commit_barrier') return { barrier_id: 4, wedged_workers: 2 };
+      return undefined;
+    });
+    const warnings = [];
+    const originalWarn = console.warn;
+    console.warn = (...args) => warnings.push(args.join(' '));
+    try {
+      const commit = commitWithCompleteness();
+      await tick();
+      _testOnly.handleCaptureAction({ type: 'barrier_complete', barrier_id: 4 });
+      await commit;
+    } finally {
+      console.warn = originalWarn;
+    }
+    assert.ok(
+      warnings.some((w) => w.includes('2 worker')),
+      'should warn about wedged workers',
+    );
   });
 });
 

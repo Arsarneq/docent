@@ -554,26 +554,16 @@ impl Drop for SessionWindow {
 #[derive(serde::Serialize)]
 struct Dump<'a> {
     session: &'a str,
-    max_sequence_number: u64,
     events: &'a [ActionEvent],
 }
 
 /// Serialize the session's events to the corpus event-dump location
 /// (repo root = CARGO_MANIFEST_DIR/../../..).
 fn write_dump(session: &str, events: &[ActionEvent]) {
-    let max_sequence_number = events
-        .iter()
-        .filter_map(|e| e.sequence_id)
-        .max()
-        .unwrap_or(0);
     let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("../../../corpus/out/desktop-windows-events");
     fs::create_dir_all(&dir).expect("create events dir");
-    let dump = Dump {
-        session,
-        max_sequence_number,
-        events,
-    };
+    let dump = Dump { session, events };
     fs::write(
         dir.join(format!("{session}.events.json")),
         serde_json::to_string_pretty(&dump).expect("serialize dump"),

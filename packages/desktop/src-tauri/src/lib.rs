@@ -71,7 +71,7 @@ pub fn run() {
             commands::load_state,
             commands::save_state,
             commands::get_self_pid,
-            commands::get_max_sequence_number,
+            commands::commit_barrier,
             commands::set_self_capture_exclusion,
             commands::set_target_pid,
             commands::set_auto_sync_keepalive,
