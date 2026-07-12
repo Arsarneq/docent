@@ -58,20 +58,25 @@ cd packages/extension && npm install
 
 ### Desktop Application (Windows)
 
-Prerequisites: [Rust toolchain](https://rustup.rs/) (stable), Node.js 24+.
+Prerequisites: Windows 10 or later, the [Rust toolchain](https://rustup.rs/) (stable),
+Node.js 24+, and the Tauri CLI (`cargo install tauri-cli`, which provides `cargo tauri`).
 
 ```bash
 git clone https://github.com/Arsarneq/docent.git
 cd docent
 
-# Sync shared code into all platform packages
-npm run sync-shared
+# Install root dependencies (the dist build uses esbuild and @tauri-apps/api)
+npm install
 
-# Build the Tauri application
-cargo build --manifest-path packages/desktop/src-tauri/Cargo.toml
+# Sync shared code and assemble the desktop frontend bundle (packages/desktop/dist)
+npm run dev:desktop
 
-# Run the application
-cargo run --manifest-path packages/desktop/src-tauri/Cargo.toml
+# Run the application in dev mode (from the Tauri crate)
+cd packages/desktop/src-tauri
+cargo tauri dev
+
+# Or build a release binary
+cargo tauri build
 ```
 
 ## Project Structure
