@@ -49,6 +49,14 @@ recording the user already has is held for review; a unit changed on both sides
 becomes a conflict the user resolves. The server is never involved in any of
 this — it only stores and returns payloads.
 
+Docent's own clients surface the resulting reviews and conflicts as per-unit
+**attention indicators**, derived identically on both platforms by the shared
+[`sync-conflict-ui.js`](../../packages/shared/sync-conflict-ui.js): a recording
+needing attention always shows a recording-level indicator; a project shows its own
+indicator when the project unit itself needs attention, plus a rolled-up indicator
+for any of its recordings that do — so a project row can carry both at once. This is
+client presentation, not part of the wire protocol.
+
 > **Replaces the legacy cycle.** Earlier versions pushed first and then pulled,
 > and the pull did a **server-wins** merge: a pulled project replaced the local
 > project entirely, so local work could be lost without warning. Pushing first
