@@ -73,9 +73,10 @@ never to silence a diff — the same doctrine as the fixtures above.
 
 ## Validation is by SHAPE, not by version stamp
 
-The published schema pins `docent_format.schema_version` as a `const` (= the
-current release), so on a strict validation an older-version fixture would fail on
-the **stamp alone**, even when its data shape is fully compatible. To test what
+A strict validation would fail an older-version fixture on its `schema_version`
+stamp alone — the published schema pins it as a `const`, per
+[session-format § Format stamp](../technical/session-format.md#format-stamp)
+(SF-7) — even when the data shape is fully compatible. To test what
 actually matters — _does an old export still fit today's shape?_ —
 `backward-compat.test.js` validates each fixture against a clone of the current
 schema with the `schema_version` const **relaxed to a plain string** (the
@@ -90,7 +91,8 @@ Two consequences:
   re-stamp sweep that bit the 3.0.0 / 2.0.0 release.)
 - **The relaxation is local to this test harness.** The published schemas
   (`schemas/dist/`), the source layers, and the generated import/sync validators
-  keep the `const` intact — strict import-time version-gating is intentional and
-  untouched. Tests that exercise the real (const-bearing) validator derive their
+  keep the `const` intact — not a change to the intentional
+  [import-time version gate](../technical/session-format.md#import-acceptance)
+  (SF-13), which stays in force. Tests that exercise the real (const-bearing) validator derive their
   stamp from the current schema via `stampFromSchema(composePlatform(...))` rather
   than hardcoding a version, so they too need no edit on a bump.
