@@ -165,6 +165,93 @@ describe('auditMap — doc coverage (c)', () => {
     const r = audit({ map, files: [...BASE_FILES, 'docs/hub.md'] });
     assert.deepEqual(r.uncoveredDocs, []);
   });
+
+  it('flags a tracked .md OUTSIDE docs/ with no doc home (coverage is repo-wide)', () => {
+    // Owned as code (matches alpha's glob) but placed in no doc set — code
+    // membership is not a doc home, so (c) still fires and (a) does not.
+    const r = audit({ files: [...BASE_FILES, 'packages/alpha/GUIDE.md'] });
+    assert.deepEqual(r.uncoveredDocs, ['packages/alpha/GUIDE.md']);
+    assert.deepEqual(r.zeroArea, []);
+  });
+
+  it('exempts a .md an unassigned entry covers, and counts that entry as needed', () => {
+    // A code-covered .md whose only home is an exception: exempt from (c), and
+    // the exception is genuinely needed — without it the doc is uncovered —
+    // even though the file also resolves to an area as code (the needed-fix).
+    const map = makeMap();
+    map.unassigned.push({ path: 'packages/alpha/NOTES.md', reason: 'impl note, not doctrine' });
+    const r = audit({ map, files: [...BASE_FILES, 'packages/alpha/NOTES.md'] });
+    assert.deepEqual(r.uncoveredDocs, []);
+    assert.deepEqual(r.unnecessaryUnassigned, []);
+    assert.deepEqual(r.staleUnassigned, []);
+  });
+
+  it('still flags a redundant exception on an already doc-placed .md as unnecessary', () => {
+    // Contrast: a doc-set .md ALSO listed unassigned does no work — the
+    // needed-fix must not mask a genuinely unnecessary exception.
+    const map = makeMap();
+    map.unassigned.push({ path: 'docs/alpha.md', reason: 'redundant with the alpha doc set' });
+    const r = audit({ map });
+    assert.deepEqual(r.unnecessaryUnassigned, ['docs/alpha.md']);
+  });
+
+  it('counts a GLOB exception as needed via a code-owned .md it covers', () => {
+    // The real map exercises this (packages/shared/assets/** → reading-guidance.md);
+    // pin it synthetically. The glob also matches a code file (index.js) that is
+    // NOT needed — the entry earns its keep solely through the .md's doc-home gap.
+    const map = makeMap();
+    map.unassigned.push({ path: 'packages/alpha/**', reason: 'alpha notes, not doctrine' });
+    const r = audit({ map, files: [...BASE_FILES, 'packages/alpha/NOTES.md'] });
+    assert.deepEqual(r.uncoveredDocs, []);
+    assert.deepEqual(r.unnecessaryUnassigned, []);
+    assert.deepEqual(r.staleUnassigned, []);
+  });
+});
+
+describe('docs-only areas (no code)', () => {
+  /** makeMap plus a code-less area that owns one doc. */
+  function withDocsOnly() {
+    const map = makeMap();
+    map.areas.business = { docs: ['docs/positioning.md'] };
+    return map;
+  }
+
+  it('validateShape accepts an area with a non-empty doc set and no code', () => {
+    assert.deepEqual(validateShape(withDocsOnly()), []);
+  });
+
+  it('validateShape rejects an area that owns neither code nor docs', () => {
+    const map = makeMap();
+    map.areas.hollow = { code: [], docs: [] };
+    const errors = validateShape(map);
+    assert.equal(
+      errors.some((e) => e.includes('hollow') && e.includes('must own')),
+      true,
+    );
+  });
+
+  it('validateShape accepts a code-only area (code present, no docs key)', () => {
+    // The symmetric half of docs-only areas: making `docs` optional lets an
+    // area own only code — the shape a future doc-set-free resolution class
+    // leans on. (Coverage/staleness of its patterns is a separate check.)
+    const map = makeMap();
+    map.areas.codeOnly = { code: ['packages/beta/**'] };
+    assert.deepEqual(validateShape(map), []);
+  });
+
+  it('compileMap and resolveFile place a docs-only area doc without touching code', () => {
+    const compiled = compileMap(withDocsOnly());
+    const r = resolveFile('docs/positioning.md', compiled);
+    assert.deepEqual(r.areas, ['business']);
+    assert.deepEqual(r.docs, ['docs/positioning.md']);
+    // No code pattern, so nothing else resolves to the code-less area.
+    assert.deepEqual(resolveFile('packages/alpha/index.js', compiled).areas, ['alpha']);
+  });
+
+  it('auditMap is clean when a docs-only area covers its tracked doc', () => {
+    const r = audit({ map: withDocsOnly(), files: [...BASE_FILES, 'docs/positioning.md'] });
+    assert.deepEqual(flatten(r), []);
+  });
 });
 
 describe('auditMap — unassigned exceptions (d, self-failing)', () => {
@@ -246,6 +333,21 @@ describe('validateShape — malformed maps fail loud', () => {
     );
     assert.equal(
       errors.some((e) => e.includes('unsupported pattern syntax')),
+      true,
+    );
+  });
+
+  it('rejects a defined-but-non-array code or docs', () => {
+    const bad = makeMap();
+    bad.areas.alpha.code = 'packages/alpha/**';
+    bad.areas.tooling.docs = 'docs/tooling.md';
+    const errors = validateShape(bad);
+    assert.equal(
+      errors.some((e) => e.includes('"code" must be an array')),
+      true,
+    );
+    assert.equal(
+      errors.some((e) => e.includes('"docs" must be an array')),
       true,
     );
   });
