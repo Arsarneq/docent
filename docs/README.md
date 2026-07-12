@@ -61,9 +61,9 @@ authoritative specification — under [`schemas/`](../schemas/).
 ### Test — does the application behave as designed
 
 - [Test suites](test/README.md) — the inside-out lens on the capture software: the
-  test-strategy doctrine (pyramid layering and coverage reporting), the end-to-end
-  capture tests, the retired manual-test histories (extension and Windows desktop),
-  and the backward-compatibility fixture corpus.
+  test-strategy doctrine (pyramid layering, coverage reporting, and mutation testing),
+  the end-to-end capture tests, the retired manual-test histories (extension and
+  Windows desktop), and the backward-compatibility fixture corpus.
 
 `verification/` and `test/` are two lenses on quality: `verification/` looks
 outside-in and proves the recorded **data** satisfies the guarantees the format
