@@ -1,5 +1,5 @@
 {
-  "description": "Maps every area of the repository to the code it owns and the documentation that governs it, so 'which docs govern this change?' always has a machine-readable answer. This file is committed data guarded by an admission test: scripts/check-area-map.js fails CI when the map goes stale (a pattern matching no tracked file, an entry pointing at an untracked file), when a tracked file resolves to no area and is neither a repo-wide doc nor a justified exception, or when any tracked .md doc (anywhere in the repo, not only under docs/) is placed in no area's doc set, repo-wide list, or justified 'unassigned' exception — being matched only by a code pattern is not a doc home. An area owns code, a doc set, or both: a docs-only area (no code) is valid when it carries a non-empty doc set. Code patterns support '*', '**', and {a,b} alternation only, and every brace alternative must match at least one tracked file. Doc entries are literal tracked paths, never patterns. Code files and docs are many-to-many: a file or doc may belong to several areas. A code file may also name a governing doc directly with a '// see docs/<path>.md' comment, which adds every area whose doc set contains that doc.",
+  "description": "Maps every area of the repository to the code it owns and the documentation that governs it, so 'which docs govern this change?' always has a machine-readable answer. This file is committed data guarded by an admission test: scripts/check-area-map.js fails CI when the map goes stale (a pattern matching no tracked file, an entry pointing at an untracked file), when a tracked file resolves to no area and is neither a repo-wide doc nor a justified exception, or when any tracked .md doc (anywhere in the repo, not only under docs/) is placed in no area's doc set, repo-wide list, or justified 'unassigned' exception — being matched only by a code pattern is not a doc home. An area owns code, a doc set, or both: a docs-only area (no code) is valid when it carries a non-empty doc set. Code patterns support '*', '**', and {a,b} alternation only, and every brace alternative must match at least one tracked file. Doc entries are literal tracked paths, never patterns. Code files and docs are many-to-many: a file or doc may belong to several areas. A code file may also name a governing doc directly with a '// see docs/<path>.md' comment, which adds every area whose doc set contains that doc. A file may instead DECLARE its complete governing doc set with a 'declared-governance' entry (a required 'governed-by' array — [] states the governing set is empty): that declared set governs the file's disposition in place of the docs its covering code area would supply, and area membership and '// see' pointers add nothing more. A declared file keeps the code-area coverage its patterns give it (a declaration grants no coverage of its own), and its governance is declared once and from one source (a declared file is not also a repo-wide doc, nor does it carry a '// see' pointer into a doc set).",
   "repo-wide": {
     "description": "Docs that apply to every area of the repository — a change anywhere can be governed by them. They resolve in their own right and do not need to belong to an area's doc set (though some also do).",
     "docs": [
@@ -131,6 +131,33 @@
     {
       "path": "reference-implementations/sync-server/README.md",
       "reason": "Reference sync-server README — implementation notes for a runnable example artifact (never shipped); the protocol it implements is governed by docs/api/sync-protocol.md."
+    }
+  ],
+  "declared-governance": [
+    {
+      "path": "docs/clause-registry.json",
+      "reason": "Registered-clause verification data — records keyed to clause ids, consumed by the docs-disposition check and validated by scripts/check-clause-registry.js.",
+      "governed-by": []
+    },
+    {
+      "path": "packages/shared/tests/unit/check-*.test.js",
+      "reason": "Unit tests for the CI-machinery check scripts — they exercise the check tooling itself; their contract is the behaviour of the scripts under test.",
+      "governed-by": []
+    },
+    {
+      "path": "packages/desktop/src-tauri/.cargo/mutants.toml",
+      "reason": "cargo-mutants configuration — the desktop crate's Rust mutation-run settings.",
+      "governed-by": ["docs/test/strategy/mutation.md"]
+    },
+    {
+      "path": "codecov.yml",
+      "reason": "Codecov configuration — coverage-report and status settings.",
+      "governed-by": ["docs/test/strategy/coverage.md"]
+    },
+    {
+      "path": "stryker.*.mjs",
+      "reason": "Stryker configuration — JavaScript mutation-testing settings.",
+      "governed-by": ["docs/test/strategy/mutation.md"]
     }
   ]
 }

@@ -37,6 +37,7 @@ const MAP = {
     tooling: { code: ['scripts/**'], docs: ['docs/tooling.md'] },
   },
   unassigned: [],
+  'declared-governance': [],
 };
 
 const REGISTRY = {
@@ -317,6 +318,27 @@ describe('docsInScope', () => {
       docsInScope({ files: ['tools/free.rs'], map: MAP, readFile: () => '// see docs/alpha.md' }),
       ['docs/alpha.md', 'docs/hub.md'],
     );
+  });
+
+  it('a declared-governance file resolves to its governed-by, overriding its area docs', () => {
+    // scripts/gen.js is code-owned by tooling (→ docs/tooling.md) but declared governed by docs/alpha.md.
+    const map = {
+      ...MAP,
+      'declared-governance': [
+        { path: 'scripts/gen.js', reason: 'x', 'governed-by': ['docs/alpha.md'] },
+      ],
+    };
+    assert.deepEqual(docsInScope({ files: ['scripts/gen.js'], map, readFile: noContent }), [
+      'docs/alpha.md',
+    ]);
+  });
+
+  it('a declared-governance file with governed-by [] contributes no docs', () => {
+    const map = {
+      ...MAP,
+      'declared-governance': [{ path: 'scripts/data.json', reason: 'x', 'governed-by': [] }],
+    };
+    assert.deepEqual(docsInScope({ files: ['scripts/data.json'], map, readFile: noContent }), []);
   });
 });
 
