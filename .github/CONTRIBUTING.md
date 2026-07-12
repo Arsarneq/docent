@@ -100,28 +100,15 @@ Shared code lives in `packages/shared/` and is copied into each platform package
 by `npm run sync-shared`. After editing shared code, re-run the sync before
 loading the extension or building the desktop app.
 
-The published JSON Schemas (`schemas/dist/extension.schema.json`,
-`schemas/dist/desktop-windows.schema.json`) are **build output**, composed by
-`scripts/build-schemas.js` from a layered chain: a platform-agnostic base
-(`schemas/shared.schema.json`), an optional family layer
-(`schemas/desktop.shared.schema.json`, shared by all desktop surfaces), and a
-per-surface leaf (`schemas/<surface>.delta.json`). Edit a layer — never a file
-under `schemas/dist/` directly. The `dist/` copies are committed only by the
-release pipeline; locally, `npm run sync-shared` and the test suite compose each
-schema from the source layers in-memory, so they always reflect your current
-changes (run `npm run build:schemas` if you want to refresh `dist/` by hand).
+Edit a source layer, never a file under `schemas/dist/` directly — those are
+build output (the composition model is in
+[session-format](../docs/technical/session-format.md#json-schema-files)). A CI
+guard blocks `schemas/dist/` edits and leaf-`version` bumps in feature PRs — see
+[PUBLISHING](PUBLISHING.md#test-gating-and-the-version-pr).
 
-A CI guard (`scripts/check-no-release-outputs.js`) fails any feature-branch PR
-that modifies `schemas/dist/` or bumps a leaf delta `version` — those are
-release-pipeline outputs, not feature work. (On the pipeline's own
-`automated/version-table-update` PR the same guard flips to a _positive_ check
-that the PR contains only the regenerated release outputs.)
-
-A schema **major version bump needs no manual test-fixture edits**: the
-backward-compatibility corpus validates by shape (ignoring the version stamp),
-and every test that exercises the real validator derives its `docent_format`
-stamp from the current schema via `stampFromSchema(composePlatform(...))` instead
-of hardcoding a version.
+A schema **major version bump needs no manual test-fixture re-stamping** — the
+backward-compatibility corpus validates by shape; see
+[backward-compat](../docs/test/backward-compat.md#validation-is-by-shape-not-by-version-stamp).
 
 ## Running Tests
 
@@ -193,10 +180,10 @@ lives in.
 - **Title the PR as a [Conventional Commit](https://www.conventionalcommits.org/)**
   (`type(scope): summary` — e.g. `feat(extension): …`, `fix(desktop): …`). Docent
   **squash-merges**, so the PR title becomes the commit on `main`: it drives release
-  versioning (`npm run version:next` reads it — `feat` → minor, `fix`/`perf` → patch,
-  `!` / `BREAKING CHANGE` → major; `chore`/`ci`/`docs`/`test`/`refactor`/`style`/`build`/`revert`
-  don't bump) and the project history. A CI check (the `PR title` workflow) enforces the
-  format. (GitHub's auto-generated `Revert "…"` title must be renamed to `revert: …`.)
+  versioning and the project history, and a CI check (the `PR title` workflow) enforces
+  the format. How each type maps to a version bump is in
+  [PUBLISHING § Choosing the release version](PUBLISHING.md#choosing-the-release-version).
+  (GitHub's auto-generated `Revert "…"` title must be renamed to `revert: …`.)
 - **Fill in the [PR template](PULL_REQUEST_TEMPLATE.md)** — it loads automatically
   when you open a PR. Complete every section (write "None." where a section does
   not apply, e.g. Behaviour/Breaking Changes).
