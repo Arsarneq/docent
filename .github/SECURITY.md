@@ -62,6 +62,7 @@ Docent has several capabilities with distinct attack surfaces:
 ### Local data persistence
 
 - The desktop application persists session data to the local filesystem. The Chrome extension uses `chrome.storage.local`.
+- The extension encrypts stored dispatch/sync API keys at rest — see [Protecting stored credentials](#protecting-stored-credentials).
 - Vulnerabilities that allow unauthorised access to persisted session data or settings are in scope.
 
 ### OS-level permissions
@@ -74,3 +75,13 @@ Docent has several capabilities with distinct attack surfaces:
 - Vulnerabilities in the receiving endpoint (that is outside this project)
 - Issues requiring physical access to the machine
 - Social engineering
+
+---
+
+## Protecting stored credentials
+
+The Chrome extension encrypts the API keys it stores — the bearer credentials for a configured dispatch endpoint and sync server — at rest. Before a key is written to `chrome.storage.local`, it is encrypted with AES-GCM (Web Crypto), so the on-disk storage holds only ciphertext. The AES key itself lives in `chrome.storage.session`, which the browser keeps in memory and clears on restart — it never touches disk.
+
+This protects against at-rest exposure: another local user, backup or forensic tooling, or a copied profile reading the on-disk storage finds only ciphertext, useless without the in-memory key. It does not protect against code running as the extension itself, which can read the session key and decrypt — the same access it would have had over a plaintext key; narrowing that surface is a separate concern.
+
+Because the AES key is ephemeral, a stored key cannot be decrypted after a browser restart. The extension treats an undecryptable value as "no key configured" and prompts you to re-enter it. This is intentional — the cost of keeping the key off disk — not a fault.
