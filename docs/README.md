@@ -8,7 +8,7 @@ of the project, start with the [root README](../README.md).
 Each area is one class of artifact with a defined charter, so a new doc extends
 the tree inside an existing area rather than forcing a reorganization.
 
-### Requirements — what a recording must guarantee
+### Requirements — product positioning and what a recording must guarantee
 
 - [Product Positioning](requirements/business/positioning.md) — how Docent differs
   (data, not code), the example consumer flows, and the two step-context modes a
@@ -60,9 +60,10 @@ authoritative specification — under [`schemas/`](../schemas/).
 
 ### Test — does the application behave as designed
 
-- [Test suites](test/README.md) — the inside-out suites that prove the capture
-  software works: the end-to-end capture tests, the retired manual-test histories
-  (extension and Windows desktop), and the backward-compatibility fixture corpus.
+- [Test suites](test/README.md) — the inside-out lens on the capture software: the
+  test-strategy doctrine (pyramid layering and coverage reporting), the end-to-end
+  capture tests, the retired manual-test histories (extension and Windows desktop),
+  and the backward-compatibility fixture corpus.
 
 `verification/` and `test/` are two lenses on quality: `verification/` looks
 outside-in and proves the recorded **data** satisfies the guarantees the format
@@ -119,5 +120,6 @@ Contributor and project-governance docs live outside this folder:
   structure, coding conventions, testing, and PR guidelines
 - [Contributor License Agreement](../CLA.md)
 - [Code of Conduct](../.github/CODE_OF_CONDUCT.md) — the Contributor Covenant this project follows
+- [Security policy](../.github/SECURITY.md) — how to report a vulnerability
 - [Publishing](../.github/PUBLISHING.md) — release process for each platform,
   including a no-side-effects dry-run pre-flight
