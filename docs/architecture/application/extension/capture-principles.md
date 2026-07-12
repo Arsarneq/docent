@@ -79,14 +79,14 @@ an end-to-end spec enforces the readiness bound.
 
 ## Capture Surface
 
-**ECP-6.** The capture surface is enumerated positively and treated as
-**closed**: the recorder listens for a fixed set of trusted DOM events (the
-exact set lives in `content/recorder.js`), and the service worker captures the
-browser-chrome proxies in the table below. An interaction that reaches neither is not
-captured — no per-case listing needed, and nothing new the platform grows is
-captured implicitly. The only negative entries kept are the
-[exceptions within the surface](#exceptions-within-the-surface): interactions
-that would appear to be covered by this description but are not.
+**ECP-6.** This platform's capture surface applies
+[core CP-14](../../../architecture/system/capture-principles.md#capture-surface)'s
+closed positive-enumeration principle: the recorder listens for a fixed set of
+trusted DOM events (the exact set lives in `content/recorder.js`), and the
+service worker captures the browser-chrome proxies in the table below.
+Interactions that would appear covered but are not are kept as
+[exceptions within the surface](#exceptions-within-the-surface) (core
+[CP-15](../../../architecture/system/capture-principles.md#capture-surface)).
 
 ---
 
@@ -126,15 +126,13 @@ observable signals:
 ## Sensitive-value redaction
 
 **ECP-9.** Password fields are masked from the field's own signal
-(`type="password"`) when the element is described: the value is masked and the
-element's `text` is nulled at capture. The remaining sensitive classes —
-payment fields designated by their `autocomplete` tokens, and fields whose
-name/id matches the shared financial/secret/SSN pattern — are masked at the
-service worker's storage chokepoint, which processes each action's `element`
-(and its `value`/`url`) before the action is stored — the value masked,
-`text` nulled, and the element flagged `redacted`. The
-detection rules are shared with the desktop app (a single util), so both
-platforms mask the same fields.
+(`type="password"`) when the element is described. The remaining sensitive
+classes — payment fields designated by their `autocomplete` tokens, and fields
+whose name/id matches the shared financial/secret/SSN pattern — are masked at
+the service worker's **storage chokepoint**, which processes each action's
+`element` (and its `value`/`url`) before the action is stored. Both the shared
+detection and the redaction shape are the cross-platform rule
+([core CP-11](../../../architecture/system/capture-principles.md#sensitive-values)).
 
 Locator candidates pass the chokepoint with one exception: the `text` strategy
 is value-derived, so its value is masked in place (`masked: true`) on
@@ -168,10 +166,11 @@ machine, including live-capture behaviour at the boundary.
 
 ## Exceptions Within the Surface
 
-**ECP-12.** Interactions that would appear to be inside the
-[capture surface](#capture-surface) above but are not captured (or are
-captured with a caveat). An entry belongs here only when the surface
-description alone would mislead:
+**ECP-12.** This platform's exceptions within the surface (core
+[CP-15](../../../architecture/system/capture-principles.md#capture-surface)) —
+interactions that would appear to be inside the
+[capture surface](#capture-surface) above but are not captured (or are captured
+with a caveat):
 
 - Keyboard shortcuts not in `CAPTURE_KEYS` are not captured as key events —
   the keyboard surface is the whitelist, not all keys
@@ -179,9 +178,8 @@ description alone would mislead:
   recorder's listeners see them
 - `window.open()` detection uses a timing window (see `capture-timing.js`)
 - `window.close()` detection uses a timing window on programmatic tabs
-- Scroll gestures are debounced (300 ms) and coalesced into one `scroll`
-  action per settled sequence; a sequence whose net displacement stays within
-  200 px on both axes is discarded ([docent#232](https://github.com/Arsarneq/docent/issues/232)
-  tracks revising the floor)
+- Scroll gestures are debounced and coalesced with a sub-threshold discard —
+  the shared rule in
+  [core CP-16](../../../architecture/system/capture-principles.md#capture-surface)
 - Actions performed during a [storage-pressure pause](#storage-pressure) are
   not captured
