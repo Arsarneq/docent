@@ -11,9 +11,9 @@
  *      construction site: every other module reaches
  *      stored projects only through the injected `Storage_Provider` interface,
  *      so an adopter swaps the backend by changing this one line.
- *   3. Creates the `http.Server` from the router and listens, defaulting to the
- *      documented port `3000` when none is configured, then
- *      logs the bound URL.
+ *   3. Creates the `http.Server` from the router and listens on the loopback
+ *      interface ({@link BIND_HOST}), defaulting to the documented port `3000`
+ *      when none is configured, then logs the bound URL.
  *
  * Runtime: Node.js standard library only — `node:http` for the server and
  * `node:url` for the main-module guard — plus the in-package router and
@@ -49,6 +49,15 @@ import { FileStorageProvider } from './storage/file-provider.js';
 
 /** The documented default listening port when none is configured. */
 export const DEFAULT_PORT = 3000;
+
+/**
+ * The interface the server binds. Loopback only, deliberately: the server runs
+ * open (no token) by default, so binding loopback is the security boundary that
+ * keeps a token-free local instance off the network. An adopter who wants it
+ * reachable binds an explicit host and adds a token (see the protocol's
+ * server-scope and authentication guidance) — not this default.
+ */
+export const BIND_HOST = '127.0.0.1';
 
 /** Environment variable read for the listening port. */
 export const PORT_ENV_VAR = 'PORT';
@@ -134,10 +143,11 @@ export function createServer({ token = null, storage = new FileStorageProvider()
 /**
  * Create AND start the server, returning once it is listening.
  *
- * Listens on the given port (or the documented default `3000`)
- * and resolves with the live server, the bound address, and the storage
- * provider. Passing port `0` binds an ephemeral port — the shape the test
- * harness (Task 10.1) uses to run isolated suites without contending for `3000`.
+ * Listens on the loopback interface ({@link BIND_HOST}) on the given port (or
+ * the documented default `3000`) and resolves with the live server, the bound
+ * address, and the storage provider. Passing port `0` binds an ephemeral port —
+ * the shape the test harness (Task 10.1) uses to run isolated suites without
+ * contending for `3000`.
  *
  * @param {object} [options]
  * @param {number} [options.port]   Defaults to {@link DEFAULT_PORT}.
@@ -163,12 +173,15 @@ export function startServer({
 
   return new Promise((resolve, reject) => {
     server.once('error', reject);
-    server.listen(port, () => {
+    server.listen(port, BIND_HOST, () => {
       server.removeListener('error', reject);
       const address = server.address();
       // `address()` is an object for a TCP socket once listening. Derive the
       // actual bound port (important when `port` was 0) and a readable URL.
       const boundPort = typeof address === 'object' && address !== null ? address.port : port;
+      // Format the display host from the bound family so the banner stays honest
+      // if BIND_HOST is ever changed to an IPv6 loopback (`::1`). With the
+      // default IPv4 BIND_HOST this is always `localhost`.
       const host =
         typeof address === 'object' && address !== null && address.family === 'IPv6'
           ? '[::1]'

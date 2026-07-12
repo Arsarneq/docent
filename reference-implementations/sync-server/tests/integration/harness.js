@@ -61,8 +61,8 @@ const TMP_PREFIX = 'docent-sync-server-it-';
 /**
  * @typedef {Object} TestServer
  * @property {string} baseUrl
- *   The bound base URL, e.g. `http://localhost:53124` (or `http://[::1]:…` on a
- *   dual-stack host). Suffix request paths onto it, or pass it to {@link request}.
+ *   The bound base URL, e.g. `http://localhost:53124` (the server binds IPv4
+ *   loopback). Suffix request paths onto it, or pass it to {@link request}.
  * @property {import('node:http').Server} server  The live HTTP server.
  * @property {import('../storage/file-provider.js').FileStorageProvider} storage
  *   The provider backing this server, over the suite's temp dir — useful for a
