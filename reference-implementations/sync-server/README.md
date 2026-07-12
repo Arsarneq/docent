@@ -29,27 +29,17 @@ restating it.
 
 ## Scope: a sync target, not a consumer API
 
-The sync server is an **opaque sync target** — it stores and returns whole
-`Full_Project_Payload`s for Docent clients and holds no other state. It is **not**
-a consumer-facing read API. A system that consumes recordings (an LLM/agentic
-pipeline, a deterministic code mapper, a dashboard) should read from the
-**storage** the server persists to — through its own service — rather than
-calling the sync endpoints directly.
+A sync server is an **opaque sync target** for Docent clients, not a
+consumer-facing read API. The protocol's
+[server-scope and CORS guidance](../../docs/api/sync-protocol.md#server-scope-and-cors)
+defines that scope and why a compliant server needs no CORS headers — where a
+consumer should read from instead, and why permissive CORS on a local,
+optionally-open store is a hazard.
 
-Consistent with that scope, the reference server sends **no CORS headers** and
-binds to loopback. This is deliberate, not an omission:
-
-- **Docent's own clients never need it.** The Chrome extension reaches the server
-  through its `host_permissions`, and the desktop app issues sync requests
-  natively (from Rust) rather than through the webview — so neither relies on the
-  browser's cross-origin rules.
-- **Permissive CORS on a local store is a hazard.** Adding a header such as
-  `Access-Control-Allow-Origin: *` to a loopback-bound, optionally-open server
-  would let _any website the user visits_ read and overwrite their local sync
-  data from the browser. Do not add CORS to feed a browser-based consumer;
-  integrate at the storage layer instead. If you deliberately expose your own
-  server to a trusted browser origin, scope CORS to that exact origin — never
-  `*`, and never on an unauthenticated server.
+This reference server follows that guidance: it sends **no CORS headers** and
+binds to loopback. If you deliberately expose your own server to a trusted
+browser origin, scope CORS to that exact origin — never `*`, and never on an
+unauthenticated server.
 
 ---
 
@@ -223,26 +213,16 @@ last-write-wins store, exactly as the
 [protocol's last-write-wins window](../../docs/api/sync-protocol.md#known-limitation-the-last-write-wins-window)
 describes.
 
-**ETag advertisement.** A successful `GET /projects/:id` and a successful
-`PUT /projects/:id` both return an `ETag` header. The ETag is derived
-deterministically from the stored payload's content only (a SHA-256 over a
-canonical-JSON projection of the payload) — not from `last_modified`. So two
-reads of the same unchanged project return the same ETag, and any change to the
-content yields a different one.
+**ETag advertisement (this implementation).** This server derives the ETag
+deterministically from the stored payload's content only — a SHA-256 over a
+canonical-JSON projection of the payload, never from `last_modified`. What a
+present, matching, or mismatching `If-Match` header does on a write is the
+protocol's wire contract — given in the protocol's
+[Optional conditional write](../../docs/api/sync-protocol.md#optional-conditional-write)
+section and not restated here.
 
-**`If-Match` handling on writes.**
-
-| `If-Match` on the `PUT`                                              | Behavior                                                                                           |
-| -------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------- |
-| Absent                                                               | Last-write-wins: the payload is stored per the normal `PUT` rules, regardless of the current ETag. |
-| Present and matches the stored ETag                                  | The write proceeds (`200`/`201`) and returns a fresh `ETag`.                                       |
-| Present and does **not** match (including when no project is stored) | `412 Precondition Failed`; the store is left unchanged.                                            |
-
-This lets a client send the version it based its edit on and have the server
-reject a write based on a stale read, closing the overwrite window — while
-remaining a valid plain server for clients that omit the header. The
-conditional-write logic lives in its own clearly named unit rather than being a
-hidden side effect of normal write handling.
+The conditional-write logic lives in its own clearly named unit rather than
+being a hidden side effect of normal write handling.
 
 ---
 
