@@ -73,6 +73,9 @@
       "code": ["**/playwright*.config.js", "packages/shared/tests/fixtures/**"],
       "docs": ["docs/test/README.md", "docs/test/backward-compat.md", "docs/test/e2e.md"]
     },
+    "user": {
+      "docs": ["docs/user/extension.md", "docs/user/desktop-windows.md"]
+    },
     "ci/release": {
       "code": [
         ".github/**",

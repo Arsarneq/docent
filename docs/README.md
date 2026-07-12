@@ -69,6 +69,13 @@ outside-in and proves the recorded **data** satisfies the guarantees the format
 makes to a consumer; `test/` looks inside-out and proves the capture **software**
 behaves as designed. Neither implies the other.
 
+### User guides — recording with each platform
+
+- [Chrome extension](user/extension.md) — create a project, record and edit steps,
+  export, and dispatch a recording from the browser.
+- [Desktop application (Windows)](user/desktop-windows.md) — record native Windows
+  workflows and dispatch them.
+
 ### Guides — running the project
 
 - [Running CI locally](guides/local-ci.md) — run the CI test jobs on your own
@@ -91,8 +98,6 @@ its first real doc lands (no empty directories):
 - `requirements/functional/`, `requirements/non-functional/` — functional and
   quality-attribute requirements not yet written as standalone docs.
 - `design/` (and `design/ui_ux/`) — UI/UX and interaction-design records.
-- `user/` — end-user install-and-use guides. _Seed: the extension/desktop usage
-  walkthroughs in the root README._
 - `architecture/application/desktop/linux/` and any other future capture surface —
   a new surface slots in beside `windows/`.
 
