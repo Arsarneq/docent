@@ -10,6 +10,9 @@ the tree inside an existing area rather than forcing a reorganization.
 
 ### Requirements — what a recording must guarantee
 
+- [Product Positioning](requirements/business/positioning.md) — how Docent differs
+  (data, not code), the example consumer flows, and the two step-context modes a
+  recording can carry.
 - [Replay Sufficiency](requirements/replay-sufficiency.md) — what a recording,
   taken alone, must be sufficient for: the principle, its scope boundaries, and
   the normative-vs-informative field taxonomy the guarantee stands on.
@@ -85,8 +88,6 @@ repository and testing artifacts, never shipped in a release:
 Defined here so every future doc has an obvious home; a folder is created only when
 its first real doc lands (no empty directories):
 
-- `requirements/business/` — product positioning and business requirements. _Seed:
-  the root README's "How this differs" / "Example consumers"._
 - `requirements/functional/`, `requirements/non-functional/` — functional and
   quality-attribute requirements not yet written as standalone docs.
 - `design/` (and `design/ui_ux/`) — UI/UX and interaction-design records.
@@ -100,10 +101,9 @@ its first real doc lands (no empty directories):
 The per-platform [JSON Schemas](../schemas/) are the authoritative source of truth
 for the `.docent.json` format.
 
-This repository intentionally contains no consumer of `.docent.json`, and no
-example consumer. The reference sync server is a sync target — somewhere to store
-and exchange sessions — not a consumer of the format. What a recording must be
-sufficient _for_ is nonetheless defined:
+The repository ships no consumer of `.docent.json` and no example consumer — see
+[Product Positioning](requirements/business/positioning.md); what a recording must
+be sufficient _for_ is defined by
 [Replay Sufficiency](requirements/replay-sufficiency.md).
 
 ## Contributing

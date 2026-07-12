@@ -44,73 +44,9 @@ See [Capture Principles](docs/architecture/system/capture-principles.md) for the
 
 ## How this differs
 
-Most browser recording tools produce code — Playwright scripts, Selenium tests, Puppeteer flows. They assume you want to replay what was recorded, and they assume a specific framework to replay it in.
+Most browser recording tools produce code — replay scripts bound to a specific automation framework — and assume you want to replay what was recorded. Docent produces data, not code: each step pairs context — a free-text narration or a structured action/validation classification — with the exact interactions captured, and the output makes no assumption about what receives it or what it does with it. The same neutrality holds at every surface Docent exposes: recordings, dispatch payloads, and the sync servers' [REST protocol](docs/api/sync-protocol.md) are each defined by data, never shipped code. Its affirmative half is a promise about the data itself — [replay sufficiency](docs/requirements/replay-sufficiency.md): assuming the application unchanged, a consumer holding only the recording can reproduce the session from a different machine.
 
-Docent produces data, not code. Each step pairs context — either a free-text narration or a structured action/validation classification — with the exact interactions captured. The output makes no assumptions about what receives it or what it does with it.
-
-The dispatch payload includes a reading guide and the JSON Schema for the sending platform, so any receiving system can interpret it without prior knowledge of Docent.
-
----
-
-## Example consumers
-
-> Docent ships no consumer. Its contract with a consumer is data — the
-> `.docent.json` format, a versioned JSON Schema per platform; whatever reads a
-> recording is built separately and independently. The flows below are
-> **examples** of what a consumer _could_ do — Docent makes no assumptions about
-> which of them (if any) receives a recording.
-
-### Agentic consumer (narration mode)
-
-```mermaid
-flowchart LR
-    A([Person]) -->|demonstrates workflow| B[Docent]
-    B -->|narration + actions| C[.docent.json]
-    C -->|dispatch| D([LLM / agentic consumer])
-    D --> E1([Test suite])
-    D --> E2([Process documentation])
-    D --> E3([RPA flow])
-```
-
-A person demonstrates a workflow, narrating each step in natural language. The
-structured output is dispatched to an agentic consumer (an LLM) that has full
-context — what the user did and what they meant — and can turn it into whatever
-that consumer is built for: a test suite, written process documentation, an RPA
-flow, an accessibility report. Docent neither performs nor ships any of this; it
-delivers the data.
-
-### Deterministic consumer (simple mode)
-
-```mermaid
-flowchart LR
-    A([Person]) -->|demonstrates workflow| B[Docent]
-    B -->|action/validation + actions| C[.docent.json]
-    C -->|dispatch| D([Code mapper])
-    D -->|generates directly| E([Executable automation])
-```
-
-A person demonstrates a workflow, tagging each step as either "action" (do this)
-or "validation" (check this). A deterministic code mapper turns the structured
-data directly into executable automation — no LLM required. Each action step
-becomes a replay command, each validation step becomes an assertion. A test
-suite is one such target; the same do/check shape maps just as cleanly to an RPA
-flow or a monitoring check.
-
-### The contract is data
-
-Both paths consume the same `.docent.json` format. Docent captures and
-delivers — it has no opinion about what receives the data or how it's used.
-The same rule holds at every surface Docent exposes: recordings are defined by
-per-platform versioned [JSON Schemas](#session-format), dispatch payloads carry
-their own schema and reading guide, and sync servers implement a documented
-[REST protocol](docs/api/sync-protocol.md). Each contract is data; none of it is
-shipped code.
-
-The affirmative half of that neutrality is a promise about the data itself:
-**replay sufficiency** — assuming the application unchanged, a consumer holding
-only the recording can reproduce the session from a different machine. See
-[Replay Sufficiency](docs/requirements/replay-sufficiency.md) for the principle, its scope
-boundaries, and what makes it testable.
+See [Product Positioning](docs/requirements/business/positioning.md) for the example consumer flows and the two step-context modes this rests on.
 
 ---
 
