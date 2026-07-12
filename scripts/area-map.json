@@ -1,5 +1,5 @@
 {
-  "description": "Maps every area of the repository to the code it owns and the documentation that governs it, so 'which docs govern this change?' always has a machine-readable answer. This file is committed data guarded by an admission test: scripts/check-area-map.js fails CI when the map goes stale (a pattern matching no tracked file, an entry pointing at an untracked file), when a tracked file resolves to no area, or when a doc under docs/ belongs to no area's doc set. Code patterns support '*', '**', and {a,b} alternation only, and every brace alternative must match at least one tracked file. Doc entries are literal tracked paths, never patterns. Code files and docs are many-to-many: a file or doc may belong to several areas. A code file may also name a governing doc directly with a '// see docs/<path>.md' comment, which adds every area whose doc set contains that doc.",
+  "description": "Maps every area of the repository to the code it owns and the documentation that governs it, so 'which docs govern this change?' always has a machine-readable answer. This file is committed data guarded by an admission test: scripts/check-area-map.js fails CI when the map goes stale (a pattern matching no tracked file, an entry pointing at an untracked file), when a tracked file resolves to no area and is neither a repo-wide doc nor a justified exception, or when any tracked .md doc (anywhere in the repo, not only under docs/) is placed in no area's doc set, repo-wide list, or justified 'unassigned' exception — being matched only by a code pattern is not a doc home. An area owns code, a doc set, or both: a docs-only area (no code) is valid when it carries a non-empty doc set. Code patterns support '*', '**', and {a,b} alternation only, and every brace alternative must match at least one tracked file. Doc entries are literal tracked paths, never patterns. Code files and docs are many-to-many: a file or doc may belong to several areas. A code file may also name a governing doc directly with a '// see docs/<path>.md' comment, which adds every area whose doc set contains that doc.",
   "repo-wide": {
     "description": "Docs that apply to every area of the repository — a change anywhere can be governed by them. They resolve in their own right and do not need to belong to an area's doc set (though some also do).",
     "docs": [
@@ -98,6 +98,26 @@
     {
       "path": "packages/shared/assets/**",
       "reason": "Shipped end-user assets (icons, the reading guide delivered with dispatch payloads) — product artifacts, not project documentation."
+    },
+    {
+      "path": ".github/SECURITY.md",
+      "reason": "Security policy — coordinated-disclosure governance (how a vulnerability is reported and fixed), referenced from .github/CONTRIBUTING.md; a process/governance doc, not code-governing area documentation."
+    },
+    {
+      "path": ".github/CODE_OF_CONDUCT.md",
+      "reason": "Code of Conduct (Contributor Covenant) — community governance, not area documentation."
+    },
+    {
+      "path": ".github/PULL_REQUEST_TEMPLATE.md",
+      "reason": "Pull-request body template — contribution scaffolding whose rules live in .github/CONTRIBUTING.md; a form, not area documentation."
+    },
+    {
+      "path": "reference-implementations/README.md",
+      "reason": "Reference-implementations index — orientation for runnable example artifacts (never shipped in a release), not project doctrine."
+    },
+    {
+      "path": "reference-implementations/sync-server/README.md",
+      "reason": "Reference sync-server README — implementation notes for a runnable example artifact (never shipped); the protocol it implements is governed by docs/api/sync-protocol.md."
     }
   ]
 }
