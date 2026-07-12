@@ -18,9 +18,7 @@
 
 use std::sync::mpsc::Sender;
 
-use super::{
-    ActionEvent, BarrierReport, CaptureError, CaptureLayer, PermissionStatus, WindowInfo,
-};
+use super::{ActionEvent, BarrierReport, CaptureError, CaptureLayer, PermissionStatus, WindowInfo};
 
 /// A no-op [`CaptureLayer`] for not-yet-supported platforms.
 #[derive(Default)]

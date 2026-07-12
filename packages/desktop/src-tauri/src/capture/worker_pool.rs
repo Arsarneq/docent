@@ -2057,6 +2057,46 @@ mod tests {
     }
 
     #[test]
+    fn flush_all_rescues_a_wedged_worker_in_place_and_still_emits_the_sentinel() {
+        // Regression: #298 — a worker that buffered actions then wedged (never
+        // acknowledges the flush) has its buffers rescued IN PLACE by flush_all
+        // (no thread detach, unlike shutdown), is reported in the returned set,
+        // and does not prevent the completion sentinel from being emitted last.
+        let (mut pool, rx) = pool_with(1, |rx, pending, _sender| {
+            lock_buffers(&pending).pending_keys = vec![key_event("x"), key_event("y")];
+            // Consume messages but never acknowledge; block as a wedged UIA call would.
+            loop {
+                let _ = rx.recv();
+                std::thread::sleep(Duration::from_secs(3600));
+            }
+        });
+
+        thread::sleep(Duration::from_millis(50)); // let it seed its buffer
+        let wedged = pool.flush_all(9, Duration::from_millis(200));
+        assert_eq!(
+            wedged,
+            vec![0],
+            "the wedged worker must be reported rescued"
+        );
+
+        let events = drain_events(&rx);
+        assert_eq!(
+            key_names(&events),
+            vec!["x", "y"],
+            "the wedged worker's buffered actions must be rescued in place"
+        );
+        assert!(
+            matches!(
+                events.last().unwrap().payload,
+                ActionPayload::BarrierComplete { barrier_id: 9 }
+            ),
+            "the completion sentinel must still be emitted last"
+        );
+
+        pool.shutdown_with_timeout(Duration::from_millis(200));
+    }
+
+    #[test]
     fn detached_worker_buffered_keys_are_complete_and_correct() {
         // Addresses the specific concern: when a worker is detached and we only
         // have the flushable buffer (no dedup/correlation state), the rescued

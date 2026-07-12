@@ -1312,7 +1312,10 @@ fn regression_298_flush_all_drains_workers_and_emits_sentinel_last() {
     thread::sleep(Duration::from_millis(80)); // buffered, debounce not expired
 
     let wedged = pool.flush_all(7, Duration::from_secs(2));
-    assert!(wedged.is_empty(), "no worker should be wedged, got {wedged:?}");
+    assert!(
+        wedged.is_empty(),
+        "no worker should be wedged, got {wedged:?}"
+    );
 
     let mut events = Vec::new();
     while let Ok(evt) = action_rx.recv_timeout(Duration::from_millis(200)) {
@@ -1326,7 +1329,11 @@ fn regression_298_flush_all_drains_workers_and_emits_sentinel_last() {
             _ => None,
         })
         .collect();
-    assert_eq!(sentinels, vec![7], "exactly one sentinel carrying barrier_id 7");
+    assert_eq!(
+        sentinels,
+        vec![7],
+        "exactly one sentinel carrying barrier_id 7"
+    );
     assert!(
         matches!(
             events.last().unwrap().payload,

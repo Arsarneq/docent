@@ -7,7 +7,7 @@
  * input against controlled windows and serializes the captured ActionEvents —
  * with the same serde shape Tauri's emit uses — to
  * corpus/out/desktop-windows-events/<session>.events.json as
- * `{ session, max_sequence_number, events }`. This script replays each dump
+ * `{ session, events }`. This script replays each dump
  * through the real adapter (packages/desktop/src/adapter-tauri.js: the reorder
  * buffer and the redaction chokepoint via _testOnly.insertOrdered, then the
  * real commitWithCompleteness), assembles the envelope through the same shared
@@ -91,7 +91,7 @@ async function main(argv) {
     for (const event of events) {
       _testOnly.insertOrdered(structuredClone(event)); // real reorder + redaction
     }
-    await commitWithCompleteness(); // real completeness wait + _seq strip
+    await commitWithCompleteness(); // real commit collection + _seq strip
     const actions = adapter.getPendingActions();
 
     const project = createProject(`corpus ${session}`);

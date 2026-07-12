@@ -897,8 +897,8 @@ fn input_dispatch_raw_event(mut event: RawEvent) {
 /// resulting [`BridgeMessage::Flush`] is FIFO-ordered behind every raw event the
 /// input thread has already dispatched for the step being committed.
 fn input_forward_flush() {
-    let request = INPUT_FLUSH_REQUESTS
-        .with(|q| q.borrow().as_ref().and_then(|q| q.lock().ok()?.pop_front()));
+    let request =
+        INPUT_FLUSH_REQUESTS.with(|q| q.borrow().as_ref().and_then(|q| q.lock().ok()?.pop_front()));
     if let Some(FlushRequest { barrier_id, done }) = request {
         INPUT_RAW_SENDER.with(|s| {
             if let Some(sender) = s.borrow().as_ref() {
