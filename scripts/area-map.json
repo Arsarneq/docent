@@ -67,7 +67,11 @@
       ]
     },
     "test/strategy": {
-      "docs": ["docs/test/strategy/test-pyramid.md", "docs/test/strategy/coverage.md"]
+      "docs": [
+        "docs/test/strategy/test-pyramid.md",
+        "docs/test/strategy/coverage.md",
+        "docs/test/strategy/mutation.md"
+      ]
     },
     "test-infra": {
       "code": ["**/playwright*.config.js", "packages/shared/tests/fixtures/**"],
