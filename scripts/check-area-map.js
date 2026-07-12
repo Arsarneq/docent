@@ -11,11 +11,15 @@
  *       own) must match at least one tracked file, and every literal entry
  *       (docs, source-of-truth, repo-wide, unassigned) must point at something
  *       tracked. A dead entry is a red.
- *   (c) doc coverage — every tracked `.md` under `docs/` must be a repo-wide
- *       doc or belong to at least one area's doc set. A governing doc outside
- *       the map is a red.
+ *   (c) doc coverage — every tracked `.md` anywhere in the repo must be a
+ *       repo-wide doc, belong to at least one area's doc set, or match an
+ *       `unassigned` entry. Being owned only by a code pattern is not a
+ *       doc-home decision: a doctrine doc the map places nowhere is a red.
+ *       (Only tracked files are seen — the list is `git ls-files` — so
+ *       gitignored docs are never scanned and never required here.)
  *   (d) self-failing unassigned list — an `unassigned` entry whose files all
- *       resolve through areas anyway is unnecessary and must be removed.
+ *       resolve through areas anyway (and, for a `.md`, are doc-placed anyway)
+ *       is unnecessary and must be removed.
  *
  * What this check deliberately cannot see: a file or doc filed under the WRONG
  * area still passes — the map's content is reviewed, not derived. Pointer
@@ -25,6 +29,10 @@
  * `resolveFile` is the one implementation of "which areas own this file, and
  * which docs govern it" — this check and any other consumer of the map resolve
  * through it, so they cannot drift apart.
+ *
+ * An area owns code, a doc set, or both. A docs-only area (no `code`) is valid
+ * as long as it carries a non-empty `docs` set — the home for governing prose
+ * that no source file backs.
  *
  * Pattern language (closed world — anything else is a shape error): `*` within
  * a path segment, `**` as a whole segment (any depth, dotfiles included),
@@ -156,24 +164,34 @@ export function validateShape(map) {
     return errors;
   }
   for (const [name, area] of Object.entries(map.areas)) {
-    if (!Array.isArray(area.code) || area.code.length === 0) {
-      errors.push(`area "${name}": "code" must be a non-empty array of patterns`);
-    } else {
-      for (const g of area.code) {
-        if (typeof g !== 'string' || !g) {
-          errors.push(`area "${name}": empty or non-string code pattern`);
-          continue;
-        }
-        try {
-          expandBraces(g).forEach(globToRegExp);
-        } catch (e) {
-          errors.push(`area "${name}": ${e.message}`);
+    const hasCode = Array.isArray(area.code) && area.code.length > 0;
+    const hasDocs = Array.isArray(area.docs) && area.docs.length > 0;
+    // An area owns code, a doc set, or both. A docs-only area (no code) is
+    // valid only if it carries a non-empty doc set; an area that owns nothing
+    // describes nothing.
+    if (!hasCode && !hasDocs) {
+      errors.push(`area "${name}": must own a non-empty "code" or "docs" array`);
+    }
+    if (area.code !== undefined) {
+      if (!Array.isArray(area.code)) {
+        errors.push(`area "${name}": "code" must be an array of patterns`);
+      } else {
+        for (const g of area.code) {
+          if (typeof g !== 'string' || !g) {
+            errors.push(`area "${name}": empty or non-string code pattern`);
+            continue;
+          }
+          try {
+            expandBraces(g).forEach(globToRegExp);
+          } catch (e) {
+            errors.push(`area "${name}": ${e.message}`);
+          }
         }
       }
     }
-    if (!Array.isArray(area.docs)) {
+    if (area.docs !== undefined && !Array.isArray(area.docs)) {
       errors.push(`area "${name}": "docs" must be an array`);
-    } else {
+    } else if (Array.isArray(area.docs)) {
       for (const d of area.docs) {
         if (!isLiteralPath(d)) {
           errors.push(`area "${name}": doc entry is not a literal path: ${JSON.stringify(d)}`);
@@ -235,14 +253,14 @@ export function compileMap(map) {
   const areas = new Map();
   for (const [name, area] of Object.entries(map.areas)) {
     areas.set(name, {
-      regexes: area.code.flatMap((g) => expandBraces(g).map(globToRegExp)),
-      docs: new Set(area.docs),
+      regexes: (area.code ?? []).flatMap((g) => expandBraces(g).map(globToRegExp)),
+      docs: new Set(area.docs ?? []),
     });
   }
   return {
     map,
     areas,
-    docSets: new Set(Object.values(map.areas).flatMap((a) => a.docs)),
+    docSets: new Set(Object.values(map.areas).flatMap((a) => a.docs ?? [])),
     repoWideDocs: new Set(map['repo-wide'].docs),
     unassigned: map.unassigned.map((e) => ({
       path: e.path,
@@ -275,7 +293,7 @@ export function resolveFile(file, compiled, content = null) {
   }
   const docs = new Set();
   for (const name of areas) {
-    for (const d of compiled.map.areas[name].docs) docs.add(d);
+    for (const d of compiled.map.areas[name].docs ?? []) docs.add(d);
   }
   return {
     areas: [...areas],
@@ -320,7 +338,7 @@ export function auditMap({ files, map, readFile }) {
 
   // (b) staleness: every brace alternative matches >=1 tracked file.
   for (const [name, area] of Object.entries(map.areas)) {
-    for (const g of area.code) {
+    for (const g of area.code ?? []) {
       for (const alt of expandBraces(g)) {
         const re = globToRegExp(alt);
         if (!files.some((f) => re.test(f))) {
@@ -330,7 +348,7 @@ export function auditMap({ files, map, readFile }) {
         }
       }
     }
-    for (const d of [...area.docs, ...(area['source-of-truth'] ?? [])]) {
+    for (const d of [...(area.docs ?? []), ...(area['source-of-truth'] ?? [])]) {
       if (!tracked.has(d)) result.untrackedEntries.push(`area "${name}": ${d}`);
     }
   }
@@ -338,11 +356,16 @@ export function auditMap({ files, map, readFile }) {
     if (!tracked.has(d)) result.untrackedEntries.push(`repo-wide: ${d}`);
   }
 
-  // (a) coverage + (d) unassigned self-check.
+  // (a) coverage + (c) doc-coverage + (d) unassigned self-check.
   const unassignedHits = new Map(map.unassigned.map((e) => [e.path, { total: 0, needed: 0 }]));
+  const isUnassigned = (f) => compiled.unassigned.some((e) => e.regexes.some((re) => re.test(f)));
   for (const file of files) {
     const bare = resolveFile(file, compiled);
-    let owned = bare.repoWide || compiled.docSets.has(file) || bare.areas.length > 0;
+    // A `.md` is doc-placed when it is repo-wide or in some area's doc set —
+    // code-membership does NOT count, so a doctrine doc owned only by a code
+    // pattern still needs an explicit home.
+    const docPlaced = bare.repoWide || compiled.docSets.has(file);
+    let owned = docPlaced || bare.areas.length > 0;
     if (!owned) {
       // Pointer rescue: a `// see docs/<path>.md` comment names the governing doc.
       const content = readFile(file);
@@ -358,16 +381,22 @@ export function auditMap({ files, map, readFile }) {
         owned = withContent.areas.length > 0;
       }
     }
+    // A file is red without an exception when it resolves to no area (a) or,
+    // for a `.md`, when it is not doc-placed (c). An `unassigned` entry earns
+    // its keep only by covering such a file.
+    const failsCoverage = !owned;
+    const failsDocCoverage = file.endsWith('.md') && !docPlaced;
+    const redWithoutException = failsCoverage || failsDocCoverage;
     if (bare.unassigned) {
       for (const e of compiled.unassigned) {
         if (e.regexes.some((re) => re.test(file))) {
           const hit = unassignedHits.get(e.path);
           hit.total++;
-          if (!owned) hit.needed++;
+          if (redWithoutException) hit.needed++;
         }
       }
     }
-    if (!owned && !bare.unassigned) result.zeroArea.push(file);
+    if (failsCoverage && !bare.unassigned) result.zeroArea.push(file);
   }
   for (const [path, { total, needed }] of unassignedHits) {
     if (total === 0) {
@@ -377,14 +406,17 @@ export function auditMap({ files, map, readFile }) {
     }
   }
 
-  // (c) every tracked doc under docs/ is repo-wide or in some doc set.
+  // (c) every tracked `.md` (repo-wide, not just under docs/) is repo-wide, in
+  // some area's doc set, or a justified `unassigned` exception. Only tracked
+  // files are seen (the caller passes `git ls-files`), so gitignored docs are
+  // never scanned and never required here.
   result.uncoveredDocs = files
     .filter(
       (f) =>
-        f.startsWith('docs/') &&
         f.endsWith('.md') &&
         !compiled.repoWideDocs.has(f) &&
-        !compiled.docSets.has(f),
+        !compiled.docSets.has(f) &&
+        !isUnassigned(f),
     )
     .sort();
 
@@ -439,9 +471,11 @@ function run() {
   }
   if (r.uncoveredDocs.length) {
     problems.push(
-      `✗ ${r.uncoveredDocs.length} doc(s) under docs/ belong to no area's doc set:\n` +
+      `✗ ${r.uncoveredDocs.length} tracked doc(s) have no home in ${MAP_PATH}:\n` +
         r.uncoveredDocs.map((s) => `    ${s}`).join('\n') +
-        `\n\n  Fix: add each doc to the "docs" set of every area it governs in ${MAP_PATH}.`,
+        `\n\n  Fix: add each doc to the "docs" set of every area it governs, list it as a\n` +
+        `  repo-wide doc, or — if it is genuinely governed by no area — add an "unassigned"\n` +
+        `  entry with a reason. Being matched only by a code pattern is not a doc home.`,
     );
   }
   if (r.staleUnassigned.length) {
