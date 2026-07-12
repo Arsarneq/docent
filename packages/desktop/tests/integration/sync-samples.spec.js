@@ -89,7 +89,7 @@ const TAURI_MOCK_JS = `
           case 'start_capture': return;
           case 'stop_capture': return;
           case 'list_windows': return [];
-          case 'get_max_sequence_number': return 0;
+          case 'commit_barrier': return { barrier_id: 0, wedged_workers: 0 };
           case 'set_self_capture_exclusion': return;
           case 'set_target_pid': return;
           case 'export_file': return;

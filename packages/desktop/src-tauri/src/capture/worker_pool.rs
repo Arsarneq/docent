@@ -27,6 +27,14 @@ const WORKER_SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(5);
 /// shutdown. Small enough that normal (fast) exits aren't delayed noticeably.
 const SHUTDOWN_POLL_INTERVAL: Duration = Duration::from_millis(10);
 
+/// Maximum total time [`WorkerPool::flush_all`] waits for every worker to
+/// acknowledge a commit flush barrier (docent#298) before rescuing the
+/// stragglers' buffers in place and returning. Bounds the step-commit latency
+/// exactly as [`WORKER_SHUTDOWN_TIMEOUT`] bounds shutdown; a genuinely wedged
+/// worker (parked in an unresponsive accessibility call) cannot stall commit
+/// past this — its completed-but-held actions are drained by the pool itself.
+pub const FLUSH_BARRIER_TIMEOUT: Duration = Duration::from_secs(5);
+
 // ---------------------------------------------------------------------------
 // RawEventType
 // ---------------------------------------------------------------------------
@@ -109,6 +117,12 @@ pub struct RawEvent {
 pub enum WorkerMessage {
     /// A raw event to process.
     Event(Box<RawEvent>),
+    /// Commit flush barrier (docent#298): drain completed-but-held actions
+    /// (`drain_into`) into the action stream, then acknowledge by sending this
+    /// worker's index on the enclosed channel — **without exiting** the loop
+    /// (capture continues after the step commit). Contrast [`Shutdown`], which
+    /// drains and then exits.
+    Flush(mpsc::Sender<usize>),
     /// Poison pill — drain remaining events then exit.
     Shutdown,
 }
@@ -319,13 +333,11 @@ impl WorkerPool {
         }
     }
 
-    /// Get the next sequence number (monotonically increasing, starts at 1).
-    pub fn next_sequence_id(&self) -> u64 {
-        self.sequence_counter.fetch_add(1, Ordering::SeqCst) + 1
-    }
-
     /// Get the current max sequence number assigned so far.
     /// Returns 0 if no events have been dispatched.
+    ///
+    /// The Input_Thread assigns ids directly on the shared counter returned by
+    /// [`sequence_counter`](Self::sequence_counter); this is the read side.
     pub fn max_sequence_id(&self) -> u64 {
         self.sequence_counter.load(Ordering::SeqCst)
     }
@@ -586,6 +598,99 @@ impl WorkerPool {
                 }
             }
         }
+    }
+
+    /// Flush every live worker's completed-but-held buffers mid-capture — the
+    /// step-commit flush barrier (docent#298) — and wait, bounded by `timeout`,
+    /// for all to acknowledge; then emit a [`ActionPayload::BarrierComplete`]
+    /// sentinel carrying `barrier_id` as the **last** action on the stream so the
+    /// frontend can confirm delivery of every drained action before it collects
+    /// the step. Unlike [`shutdown`](Self::shutdown) the workers keep running and
+    /// no thread is ever detached — this is a non-terminating drain.
+    ///
+    /// A worker that does not acknowledge within `timeout` — genuinely wedged in
+    /// an unresponsive accessibility call, or already dead — has its shared
+    /// buffers rescued in place here (locked and drained, poison-tolerant), so no
+    /// completed action is lost. `drain_into` is idempotent, so if the worker
+    /// later wakes and processes its own `Flush` marker it finds the buffers
+    /// empty. Returns the indices of the workers that had to be rescued — the
+    /// "unresolved workers" report. Sequence ids are deliberately **not** tracked:
+    /// a coalesced type action carries only its last id and a scroll carries none,
+    /// so per-id accounting could be neither complete nor correct.
+    pub fn flush_all(&self, barrier_id: u64, timeout: Duration) -> Vec<usize> {
+        let (ack_tx, ack_rx) = mpsc::channel::<usize>();
+
+        // Fan the flush marker to every worker. A send that fails means the
+        // worker thread is gone (panicked, dropped its receiver): rescue its
+        // buffers directly rather than waiting for an ack that will never come.
+        let mut expected: std::collections::HashSet<usize> = std::collections::HashSet::new();
+        let mut rescue: std::collections::HashSet<usize> = std::collections::HashSet::new();
+        for (i, worker) in self.workers.iter().enumerate() {
+            match worker.sender.send(WorkerMessage::Flush(ack_tx.clone())) {
+                Ok(()) => {
+                    expected.insert(i);
+                }
+                Err(_) => {
+                    rescue.insert(i);
+                }
+            }
+        }
+        // Drop our own handle so a still-buffered clone in a wedged worker's queue
+        // is the only thing left holding the channel open; we bound the wait
+        // explicitly below regardless of disconnection.
+        drop(ack_tx);
+
+        // Bounded wait for acknowledgements against a single shared deadline (not
+        // per-worker), so total commit latency cannot exceed `timeout`.
+        let deadline = Instant::now() + timeout;
+        let mut acked: std::collections::HashSet<usize> = std::collections::HashSet::new();
+        while acked.len() < expected.len() {
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            if remaining.is_zero() {
+                break;
+            }
+            match ack_rx.recv_timeout(remaining) {
+                Ok(idx) => {
+                    acked.insert(idx);
+                }
+                Err(_) => break,
+            }
+        }
+
+        // Rescue any worker that did not acknowledge in time (wedged) as well as
+        // any already-dead worker. The worker never holds `pending` across a
+        // platform accessibility call (see PendingBuffers locking discipline), so
+        // a wedged worker holds no lock here and this always succeeds.
+        for &i in expected.difference(&acked) {
+            rescue.insert(i);
+        }
+        for &i in &rescue {
+            if let Some(worker) = self.workers.get(i) {
+                match worker.pending.lock() {
+                    Ok(mut buffers) => buffers.drain_into(&self.action_sender),
+                    Err(poisoned) => poisoned.into_inner().drain_into(&self.action_sender),
+                }
+            }
+        }
+
+        // Emit the completion sentinel LAST. Each acknowledging worker sent its
+        // drained actions before it acked (drain_into runs before ack.send in the
+        // Flush arm), we waited for every ack, and the in-place rescues above ran
+        // before this send — so on the single MPSC action channel this sentinel is
+        // enqueued after every action belonging to the step.
+        let _ = self.action_sender.send(ActionEvent {
+            timestamp: current_timestamp_ms(),
+            context_id: None,
+            capture_mode: CaptureMode::Accessibility,
+            frame_src: None,
+            window_rect: None,
+            sequence_id: None,
+            payload: ActionPayload::BarrierComplete { barrier_id },
+        });
+
+        let mut rescued: Vec<usize> = rescue.into_iter().collect();
+        rescued.sort_unstable();
+        rescued
     }
 
     /// Find the worker with the shortest queue.
@@ -915,6 +1020,16 @@ pub fn worker_loop<B: AccessibilityBackend>(
                         raw.sequence_id
                     );
                 }
+            }
+            Ok(WorkerMessage::Flush(ack)) => {
+                // Commit flush barrier (docent#298): drain the completed-but-held
+                // buffers into the action stream, then acknowledge — but do NOT
+                // break, unlike Shutdown. Because a worker's channel is FIFO, this
+                // marker is processed only after every event dispatched to this
+                // worker before it, so the drain captures the whole step. Holds the
+                // lock only for the in-memory drain — no backend calls inside.
+                lock_buffers(&pending).drain_into(&action_sender);
+                let _ = ack.send(worker_index);
             }
             Ok(WorkerMessage::Shutdown) => {
                 // Drain remaining events in the queue.

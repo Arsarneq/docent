@@ -31,24 +31,24 @@ const REPO_ROOT = resolve(fileURLToPath(new URL('.', import.meta.url)), '..');
 /**
  * Install the minimal Tauri surface adapter-tauri.js dereferences at module
  * level and during commit, BEFORE the dynamic import (the
- * adapter-tauri.test.js technique). `get_max_sequence_number` answers from the
- * dump so commitWithCompleteness's completeness wait resolves against the
- * producer's own counter.
+ * adapter-tauri.test.js technique). The assembler feeds every event through
+ * `_testOnly.insertOrdered` before commit, so there is nothing for the backend
+ * flush barrier (docent#298) to drain: `commit_barrier` reports no active
+ * capture (`barrier_id: 0`) and `commitWithCompleteness` collects what was
+ * inserted without waiting on a delivery sentinel.
  */
 function installTauriMock() {
-  const state = { maxSeq: 0 };
   globalThis.window = {
     __TAURI__: {
       core: {
         invoke: async (cmd) => {
-          if (cmd === 'get_max_sequence_number') return state.maxSeq;
+          if (cmd === 'commit_barrier') return { barrier_id: 0, wedged_workers: 0 };
           return undefined;
         },
       },
       event: { listen: async () => () => {} },
     },
   };
-  return state;
 }
 
 async function main(argv) {
@@ -59,7 +59,7 @@ async function main(argv) {
     return 2;
   }
 
-  const mockState = installTauriMock();
+  installTauriMock();
   // Real production modules, imported AFTER the mock exists. The adapter is
   // the desktop package's own; session/export come through its synced shared
   // copy — the exact modules the desktop panel runs.
@@ -80,13 +80,12 @@ async function main(argv) {
 
   for (const file of dumps.sort()) {
     const dump = JSON.parse(readFileSync(join(eventsDir, file), 'utf8'));
-    const { session, max_sequence_number: maxSeq, events } = dump;
+    const { session, events } = dump;
     if (!session || !Array.isArray(events)) {
       console.error(`${file}: malformed dump (need session + events[])`);
       return 2;
     }
 
-    mockState.maxSeq = maxSeq ?? 0;
     adapter.clearPendingActions();
     _testOnly.resetReorderState();
     for (const event of events) {

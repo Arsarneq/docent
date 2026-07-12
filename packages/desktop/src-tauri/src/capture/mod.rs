@@ -73,9 +73,30 @@ pub trait CaptureLayer: Send + 'static {
     /// Pass `None` to capture all applications.
     fn set_included_pid(&mut self, pid: Option<u32>);
 
-    /// Return the current maximum sequence number assigned by the input thread.
-    /// Returns 0 if no events have been dispatched in the current capture session.
-    fn max_sequence_id(&self) -> u64;
+    /// Run the step-commit flush barrier (docent#298).
+    ///
+    /// Drains every worker's completed-but-held actions into the action stream,
+    /// emits a [`ActionPayload::BarrierComplete`] sentinel that the frontend
+    /// waits on to confirm delivery, and returns a [`BarrierReport`]. Bounded: a
+    /// worker wedged in an unresponsive accessibility call cannot stall the
+    /// commit — its buffers are rescued in place. On a platform with no capture
+    /// backend this is a no-op returning `barrier_id: 0`.
+    fn commit_barrier(&self) -> Result<BarrierReport, CaptureError>;
+}
+
+/// Outcome of a [`CaptureLayer::commit_barrier`] call, returned to the frontend.
+#[derive(Debug, Serialize, Clone)]
+pub struct BarrierReport {
+    /// Monotonic id of this commit flush barrier. The frontend waits for the
+    /// matching [`ActionPayload::BarrierComplete`] sentinel on the action stream
+    /// before collecting the committed step. `0` when there was no active
+    /// capture (nothing to flush).
+    pub barrier_id: u64,
+    /// Number of workers whose buffers had to be rescued in place because they
+    /// did not acknowledge the flush within the bound (wedged or dead). `0` in
+    /// the common case; a non-zero value means the commit proceeded but a worker
+    /// was slow — the frontend surfaces it as a warning.
+    pub wedged_workers: usize,
 }
 
 // ---------------------------------------------------------------------------
@@ -310,6 +331,13 @@ pub enum ActionPayload {
         file_path: String,
         source: String,
     },
+    /// Internal step-commit flush-barrier sentinel (docent#298). NOT a user
+    /// action: it marks that every completed action produced before the commit
+    /// flush has been emitted on the `capture:action` stream ahead of it. The
+    /// frontend consumes it to confirm delivery, then drops it — like
+    /// `sequence_id`, it is internal to Rust↔frontend communication and never
+    /// enters the pending list or an export. It has no schema counterpart.
+    BarrierComplete { barrier_id: u64 },
 }
 
 // ---------------------------------------------------------------------------

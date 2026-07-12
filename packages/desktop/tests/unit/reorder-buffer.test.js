@@ -90,79 +90,11 @@ describe('Reorder buffer emits events in sequence order', () => {
   });
 });
 
-// ─── Completeness guarantee ───────────────────────────────────────
-// Completeness guarantee
-
-describe('Completeness guarantee waits for all events', () => {
-  beforeEach(() => {
-    resetReorderState();
-    adapter.clearPendingActions();
-  });
-
-  it('after all events 1..maxSeq are inserted, highestSeenSeq >= maxSeq', () => {
-    fc.assert(
-      fc.property(fc.integer({ min: 1, max: 20 }), (maxSeq) => {
-        resetReorderState();
-        adapter.clearPendingActions();
-
-        // Insert events in random order
-        const indices = Array.from({ length: maxSeq }, (_, i) => i + 1);
-        for (let i = indices.length - 1; i > 0; i--) {
-          const j = Math.floor(Math.random() * (i + 1));
-          [indices[i], indices[j]] = [indices[j], indices[i]];
-        }
-
-        for (const seqId of indices) {
-          insertOrdered({
-            type: 'click',
-            timestamp: seqId * 100,
-            sequence_id: seqId,
-            element: { selector: `#el-${seqId}` },
-          });
-        }
-
-        // Completeness condition: highestSeenSeq >= maxSeq
-        const highest = _testOnly.highestSeenSeq;
-        assert.ok(highest >= maxSeq, `highestSeenSeq (${highest}) should be >= maxSeq (${maxSeq})`);
-
-        // All events should be delivered immediately
-        const delivered = adapter.getPendingActions();
-        assert.strictEqual(
-          delivered.length,
-          maxSeq,
-          `Expected ${maxSeq} delivered actions, got ${delivered.length}`,
-        );
-      }),
-      { numRuns: 10 },
-    );
-  });
-
-  it('partial arrival means highestSeenSeq < maxSeq (commit would wait)', () => {
-    fc.assert(
-      fc.property(fc.integer({ min: 3, max: 20 }), (maxSeq) => {
-        resetReorderState();
-        adapter.clearPendingActions();
-
-        // Insert only events 1..maxSeq-1 (skip the last one)
-        for (let i = 1; i < maxSeq; i++) {
-          insertOrdered({
-            type: 'click',
-            timestamp: i * 100,
-            sequence_id: i,
-            element: { selector: `#el-${i}` },
-          });
-        }
-
-        const highest = _testOnly.highestSeenSeq;
-        assert.ok(
-          highest < maxSeq,
-          `highestSeenSeq (${highest}) should be < maxSeq (${maxSeq}) when last event missing`,
-        );
-      }),
-      { numRuns: 10 },
-    );
-  });
-});
+// The step-commit completeness guarantee is no longer a frontend
+// highest-sequence poll — it is the backend flush barrier (docent#298), whose
+// delivery-sentinel behaviour is covered by adapter-tauri.test.js's
+// commitWithCompleteness suite. These tests cover only the ordered-insertion
+// half that still lives in this module.
 
 // ─── sequence_id stripped before delivery ────────────────────────
 // sequence_id stripped
@@ -215,12 +147,16 @@ describe('Ordered insertion unit tests', () => {
     adapter.clearPendingActions();
   });
 
-  it('reset clears state', () => {
+  it('reset is safe and insertion continues to work afterwards', () => {
     insertOrdered({ type: 'click', timestamp: 300, sequence_id: 3, element: { selector: '#a' } });
     assert.strictEqual(adapter.getPendingActions().length, 1);
 
     resetReorderState();
-    assert.strictEqual(_testOnly.highestSeenSeq, 0, 'highestSeenSeq should be 0 after reset');
+    adapter.clearPendingActions();
+
+    insertOrdered({ type: 'click', timestamp: 100, sequence_id: 1, element: { selector: '#b' } });
+    assert.strictEqual(adapter.getPendingActions().length, 1);
+    assert.strictEqual(adapter.getPendingActions()[0]._seq, 1);
   });
 
   it('events without sequence_id pass through directly', () => {
@@ -232,11 +168,6 @@ describe('Ordered insertion unit tests', () => {
     assert.ok(!('sequence_id' in delivered[0]));
   });
 
-  it('events without sequence_id do not affect highestSeenSeq', () => {
-    insertOrdered({ type: 'click', timestamp: 100, element: { selector: '#legacy' } });
-    assert.strictEqual(_testOnly.highestSeenSeq, 0);
-  });
-
   it('consecutive in-order events are delivered immediately', () => {
     insertOrdered({ type: 'click', timestamp: 100, sequence_id: 1, element: { selector: '#a' } });
     assert.strictEqual(adapter.getPendingActions().length, 1);
@@ -246,8 +177,6 @@ describe('Ordered insertion unit tests', () => {
 
     insertOrdered({ type: 'click', timestamp: 300, sequence_id: 3, element: { selector: '#c' } });
     assert.strictEqual(adapter.getPendingActions().length, 3);
-
-    assert.strictEqual(_testOnly.highestSeenSeq, 3);
   });
 
   it('out-of-order events are inserted at the correct position', () => {

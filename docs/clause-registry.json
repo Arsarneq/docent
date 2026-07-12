@@ -419,7 +419,7 @@
       "doc": "docs/architecture/application/desktop/windows/capture-principles.md",
       "clause": "DCP-2",
       "tag": "check-exists",
-      "check-ref": "Ordered insertion and the highest-sequence completeness barrier (including its graceful timeout) are pinned by the desktop adapter unit tests (commitWithCompleteness and reorder suites; npm run test:desktop)."
+      "check-ref": "Ordered insertion is pinned by the desktop reorder-buffer unit tests; the commit flush barrier — drain-and-continue on each worker, bounded fan-out with in-place rescue of a wedged worker, and the completion sentinel emitted last on the action stream — is pinned by the worker-pool flush tests (packages/desktop/src-tauri/tests/worker_pool_test.rs regression_298_*; npm run test:desktop:rust), and the frontend's wait for that sentinel by the commitWithCompleteness suite driving the real adapter against a mocked commit_barrier (npm run test:desktop)."
     },
     {
       "doc": "docs/architecture/application/desktop/windows/capture-principles.md",

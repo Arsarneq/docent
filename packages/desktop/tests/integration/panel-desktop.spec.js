@@ -27,7 +27,6 @@ const distPath = path.resolve(__dirname, '../../dist');
 const TAURI_MOCK_JS = `
   // Mock Tauri v2 globals
   let _savedState = JSON.stringify({ projects: [], settings: {} });
-  let _maxSeq = 0;
 
   window.__TAURI__ = {
     core: {
@@ -58,7 +57,7 @@ const TAURI_MOCK_JS = `
           case 'start_capture': return;
           case 'stop_capture': return;
           case 'list_windows': return [];
-          case 'get_max_sequence_number': return _maxSeq;
+          case 'commit_barrier': return { barrier_id: 0, wedged_workers: 0 };
           case 'set_self_capture_exclusion': return;
           case 'export_file': return;
           case 'import_file': return null;
@@ -1196,7 +1195,7 @@ test.describe('Desktop Panel — Adapter Capture Lifecycle', () => {
     await page.click('#btn-new-recording-create');
     await page.waitForSelector('#view-recording:not(.hidden)', { timeout: 5000 });
 
-    // Simulate capture events with sequence_ids to set highestSeenSeq
+    // Deliver capture events on the capture:action stream (out-of-order ids).
     await page.evaluate(() => {
       const handler = window.__TAURI__._listeners['capture:action'];
       if (handler) {
@@ -1224,13 +1223,10 @@ test.describe('Desktop Panel — Adapter Capture Lifecycle', () => {
     });
     await page.waitForTimeout(200);
 
-    // Verify pending count is 2
+    // Verify pending count reflects the delivered events.
     const pendingCount = await page.evaluate(() => {
-      return window.__TAURI__.core.invoke('get_max_sequence_number').then(() => {
-        // Access adapter internals via the panel's exposed API
-        const badge = document.querySelector('#pending-count');
-        return badge ? badge.textContent : '0';
-      });
+      const badge = document.querySelector('#pending-count');
+      return badge ? badge.textContent : '0';
     });
 
     // Clear and verify reset
@@ -1249,7 +1245,7 @@ test.describe('Desktop Panel — Adapter Capture Lifecycle', () => {
     );
   });
 
-  test('commitWithCompleteness waits for all events before committing', async ({ page }) => {
+  test('commit collects every delivered action into the step', async ({ page }) => {
     await page.goto(`http://127.0.0.1:${serverPort}/`);
     await page.waitForSelector('#view-projects:not(.hidden)', { timeout: 10000 });
 
@@ -1263,11 +1259,6 @@ test.describe('Desktop Panel — Adapter Capture Lifecycle', () => {
     await page.fill('#new-recording-name', 'R');
     await page.click('#btn-new-recording-create');
     await page.waitForSelector('#view-recording:not(.hidden)', { timeout: 5000 });
-
-    // Set max sequence number in mock to simulate backend having dispatched events
-    await page.evaluate(() => {
-      window._maxSeq = 3;
-    });
 
     // Send events with sequence_ids 1 and 2 (missing 3)
     await page.evaluate(() => {

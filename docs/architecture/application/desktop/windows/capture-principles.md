@@ -34,11 +34,29 @@ numeric sequence.
 **DCP-2.** Events may arrive out-of-order from workers, and ordering is
 restored without delaying the user: the frontend delivers each event
 immediately, splicing it into the pending list by `sequence_id` (ordered
-insertion — no lag waiting on slower workers). Committing a step then applies
-a **completeness barrier**: the commit waits until the highest sequence number
-received reaches the backend's maximum, bounded by a timeout that resolves
-gracefully — a guard against committing while capture output is still in
-flight.
+insertion — no lag waiting on slower workers). Committing a step then applies a
+**flush barrier**: the backend drains every worker's completed-but-held buffers
+into the action stream, emits a completion marker onto that same stream after
+them, and the commit collects the step only once it has received that marker —
+so a commit never races a still-in-flight or still-buffered action. Waiting for
+the marker on the action stream, rather than for the drain command to return,
+is what makes the guarantee hold: the command result and the action events
+travel different channels with no mutual ordering.
+
+The barrier does not wait on sequence numbers. The ids delivered to the
+frontend are legitimately a **subset** of those the input thread assigned —
+modifier-only keys are dropped, a typing burst coalesces to one action carrying
+only its last id, and a settled scroll carries no id at all — so "wait until the
+highest id assigned has arrived" is both unsatisfiable in normal use and unable
+to tell a filtered id from a late one. Only the backend knows when each worker
+has finished, which is what the drain-and-acknowledge barrier establishes.
+
+The barrier is **bounded**: a worker wedged in an unresponsive accessibility
+call cannot stall the commit past a timeout, at which point that worker's
+buffered actions are drained in place (its completed actions are never lost) and
+the commit proceeds. It reports the number of workers rescued this way — never a
+per-id account, which the subset above makes impossible — so a slow worker is
+surfaced, not hidden.
 
 ---
 
@@ -172,11 +190,12 @@ acted, not which element the accessibility layer resolved.
 ## Worker delivery guarantees
 
 **DCP-12.** The worker pool holds the completeness story's (DCP-2) invariants:
-completed-but-held actions are flushed on stop, never lost (buffers are
-drained before shutdown, with a bounded detach-and-rescue for a worker wedged
-in an unresponsive accessibility call); a worker panic is detected on the
-next dispatch, the worker is respawned in place at the same index, and the
-send is retried on the fresh worker; value-change, focus, and selection events route **sticky** — the same window
+completed-but-held actions are flushed both on stop and on a commit flush
+barrier, never lost (buffers are drained before shutdown, and drained on the
+barrier while the worker keeps running, each with a bounded detach-or-rescue
+for a worker wedged in an unresponsive accessibility call); a worker panic is
+detected on the next dispatch, the worker is respawned in place at the same
+index, and the send is retried on the fresh worker; value-change, focus, and selection events route **sticky** — the same window
 handle always reaches the same worker — so per-window supersession and
 deduplication stay correct; a drop routes to the worker that took its drag
 start; events without a routing affinity use shortest-queue dispatch.

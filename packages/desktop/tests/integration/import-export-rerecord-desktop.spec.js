@@ -27,7 +27,6 @@ const DESKTOP_STAMP = stampFromSchema(composePlatform('desktop-windows'));
 
 const TAURI_MOCK_JS = `
   let _savedState = JSON.stringify({ projects: [], settings: {} });
-  let _maxSeq = 0;
   let _importResult = null;
   let _lastExport = null;
 
@@ -40,7 +39,7 @@ const TAURI_MOCK_JS = `
           case 'start_capture': return;
           case 'stop_capture': return;
           case 'list_windows': return [];
-          case 'get_max_sequence_number': return _maxSeq;
+          case 'commit_barrier': return { barrier_id: 0, wedged_workers: 0 };
           case 'set_self_capture_exclusion': return;
           case 'export_file':
             _lastExport = { data: args.data, defaultName: args.defaultName };
