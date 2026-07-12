@@ -20,6 +20,15 @@
  *   (d) self-failing unassigned list — an `unassigned` entry whose files all
  *       resolve through areas anyway (and, for a `.md`, are doc-placed anyway)
  *       is unnecessary and must be removed.
+ *   (e) declared governance — a `declared-governance` entry names files that keep
+ *       their code-area coverage but declare their own COMPLETE governing doc set
+ *       explicitly (a `governed-by` array; `[]` states the set is empty), in place
+ *       of the docs their covering area supplies. A declaration whose set already
+ *       equals what the area supplies states nothing new (redundant); a file
+ *       declared twice, or one that also sources governance from a repo-wide doc
+ *       or a `// see docs/…` pointer into a live doc set, is a red (conflict /
+ *       cross-governed — declare in one place); a governed-by target that is
+ *       untracked or homeless (in no doc set and not repo-wide) is a red.
  *
  * What this check deliberately cannot see: a file or doc filed under the WRONG
  * area still passes — the map's content is reviewed, not derived. Pointer
@@ -235,6 +244,39 @@ export function validateShape(map) {
       }
     }
   }
+  if (!Array.isArray(map['declared-governance'])) {
+    errors.push('"declared-governance" must be an array');
+  } else {
+    for (const entry of map['declared-governance']) {
+      if (!entry || typeof entry !== 'object' || typeof entry.path !== 'string' || !entry.path) {
+        errors.push(`declared-governance entry missing "path": ${JSON.stringify(entry)}`);
+        continue;
+      }
+      if (typeof entry.reason !== 'string' || !entry.reason.trim()) {
+        errors.push(
+          `declared-governance entry "${entry.path}" has no reason — every declaration says what the file is`,
+        );
+      }
+      if (!Array.isArray(entry['governed-by'])) {
+        errors.push(
+          `declared-governance entry "${entry.path}": "governed-by" must be present (an array; [] states the governing set is empty) — every declaration names its governing docs`,
+        );
+      } else {
+        for (const d of entry['governed-by']) {
+          if (!isLiteralPath(d)) {
+            errors.push(
+              `declared-governance entry "${entry.path}": governed-by is not a literal path: ${JSON.stringify(d)}`,
+            );
+          }
+        }
+      }
+      try {
+        expandBraces(entry.path).forEach(globToRegExp);
+      } catch (e) {
+        errors.push(`declared-governance entry "${entry.path}": ${e.message}`);
+      }
+    }
+  }
   return errors;
 }
 
@@ -246,7 +288,8 @@ export function validateShape(map) {
  *   areas: Map<string, { regexes: RegExp[], docs: Set<string> }>,
  *   docSets: Set<string>,
  *   repoWideDocs: Set<string>,
- *   unassigned: { path: string, regexes: RegExp[] }[]
+ *   unassigned: { path: string, regexes: RegExp[] }[],
+ *   declaredGovernance: { path: string, regexes: RegExp[], governedBy: string[] }[]
  * }}
  */
 export function compileMap(map) {
@@ -266,38 +309,74 @@ export function compileMap(map) {
       path: e.path,
       regexes: expandBraces(e.path).map(globToRegExp),
     })),
+    declaredGovernance: (map['declared-governance'] ?? []).map((e) => ({
+      path: e.path,
+      regexes: expandBraces(e.path).map(globToRegExp),
+      governedBy: e['governed-by'] ?? [],
+    })),
   };
 }
 
 /**
- * Resolve one file: the areas that own it and the docs that govern it. This is
- * the single implementation of the resolution rule — code patterns, doc-set
- * membership, and (from `content`, when given) `// see docs/<path>.md`
- * pointers, which add every area whose doc set contains the target.
+ * Resolve one file: the areas that own it (for coverage) and the docs that
+ * govern it (for disposition). This is the single implementation of the
+ * resolution rule — code patterns, doc-set membership, and (from `content`,
+ * when given) `// see docs/<path>.md` pointers, which add every area whose doc
+ * set contains the target.
+ *
+ * A file may instead **declare** its complete governing set via a
+ * `declared-governance` entry: then its `docs` are exactly that `governed-by`
+ * set (area docs and pointers contribute nothing more — the complete override),
+ * while `areas` (hence coverage) are unchanged. `areaSuppliedDocs` always
+ * reports the bare code/doc-set-area docs — the file's pre-declaration governing
+ * set — so the admission test can tell whether a declaration does real work.
  * @param {string} file repo-relative path
  * @param {ReturnType<typeof compileMap>} compiled
  * @param {string | null} [content] file content for pointer scanning
- * @returns {{ areas: string[], docs: string[], repoWide: boolean, unassigned: boolean,
- *             pointerTargets: string[] }}
+ * @returns {{ areas: string[], docs: string[], areaSuppliedDocs: string[],
+ *             declaredGovernance: boolean, governedBy: string[], declaredMatchCount: number,
+ *             repoWide: boolean, unassigned: boolean, pointerTargets: string[] }}
  */
 export function resolveFile(file, compiled, content = null) {
-  const areas = new Set();
+  // Areas that own the file via a code pattern or doc-set membership (pointer-independent).
+  const codeAreas = new Set();
   for (const [name, area] of compiled.areas) {
-    if (area.docs.has(file) || area.regexes.some((re) => re.test(file))) areas.add(name);
+    if (area.docs.has(file) || area.regexes.some((re) => re.test(file))) codeAreas.add(name);
   }
+  const areas = new Set(codeAreas);
   const pointerTargets = content ? extractDocPointers(content) : [];
   for (const target of pointerTargets) {
     for (const [name, area] of compiled.areas) {
       if (area.docs.has(target)) areas.add(name);
     }
   }
-  const docs = new Set();
-  for (const name of areas) {
-    for (const d of compiled.map.areas[name].docs ?? []) docs.add(d);
+  // The bare code/doc-set-area docs: the file's pre-declaration governing set.
+  const areaSuppliedDocs = new Set();
+  for (const name of codeAreas) {
+    for (const d of compiled.map.areas[name].docs ?? []) areaSuppliedDocs.add(d);
+  }
+  // A declaration overrides governance with its own complete set.
+  const declaredMatches = (compiled.declaredGovernance ?? []).filter((e) =>
+    e.regexes.some((re) => re.test(file)),
+  );
+  const declaredGovernance = declaredMatches.length > 0;
+  const governedBy = new Set(declaredMatches.flatMap((e) => e.governedBy));
+  let docs;
+  if (declaredGovernance) {
+    docs = new Set(governedBy); // exactly the declared set — area docs and pointers do not apply
+  } else {
+    docs = new Set();
+    for (const name of areas) {
+      for (const d of compiled.map.areas[name].docs ?? []) docs.add(d);
+    }
   }
   return {
     areas: [...areas],
     docs: [...docs],
+    areaSuppliedDocs: [...areaSuppliedDocs],
+    declaredGovernance,
+    governedBy: [...governedBy],
+    declaredMatchCount: declaredMatches.length,
     repoWide: compiled.repoWideDocs.has(file),
     unassigned: compiled.unassigned.some((e) => e.regexes.some((re) => re.test(file))),
     pointerTargets,
@@ -315,7 +394,10 @@ export function resolveFile(file, compiled, content = null) {
  *   shapeErrors: string[], zeroArea: string[],
  *   stalePatterns: string[], untrackedEntries: string[],
  *   uncoveredDocs: string[], staleUnassigned: string[],
- *   unnecessaryUnassigned: string[], badPointers: string[]
+ *   unnecessaryUnassigned: string[], badPointers: string[],
+ *   staleGovernance: string[], redundantGovernance: string[],
+ *   conflictingGovernance: string[], crossGovernedDeclaration: string[],
+ *   badGovernedBy: string[]
  * }}
  */
 export function auditMap({ files, map, readFile }) {
@@ -328,6 +410,11 @@ export function auditMap({ files, map, readFile }) {
     staleUnassigned: [],
     unnecessaryUnassigned: [],
     badPointers: [],
+    staleGovernance: [],
+    redundantGovernance: [],
+    conflictingGovernance: [],
+    crossGovernedDeclaration: [],
+    badGovernedBy: [],
   };
   const shapeErrors = validateShape(map);
   if (shapeErrors.length) return { ...empty, shapeErrors };
@@ -359,6 +446,13 @@ export function auditMap({ files, map, readFile }) {
   // (a) coverage + (c) doc-coverage + (d) unassigned self-check.
   const unassignedHits = new Map(map.unassigned.map((e) => [e.path, { total: 0, needed: 0 }]));
   const isUnassigned = (f) => compiled.unassigned.some((e) => e.regexes.some((re) => re.test(f)));
+  // declared-governance self-check: per entry, does it change any matched file's governing set?
+  const govAcc = compiled.declaredGovernance.map((e) => ({
+    e,
+    total: 0,
+    eligible: 0,
+    allEqual: true,
+  }));
   for (const file of files) {
     const bare = resolveFile(file, compiled);
     // A `.md` is doc-placed when it is repo-wide or in some area's doc set —
@@ -397,6 +491,52 @@ export function auditMap({ files, map, readFile }) {
       }
     }
     if (failsCoverage && !bare.unassigned) result.zeroArea.push(file);
+
+    // declared-governance: conflict, single-source, and per-entry redundancy accounting.
+    if (bare.declaredGovernance) {
+      const conflicted = bare.declaredMatchCount >= 2;
+      if (conflicted) result.conflictingGovernance.push(file);
+      let crossGoverned = bare.repoWide;
+      if (!crossGoverned) {
+        // Read content only to enforce single-source; this runs no pointer validation, so a
+        // declared file's dead `// see` fixture strings (targets in no doc set) stay inert.
+        const content = readFile(file);
+        if (content != null && extractDocPointers(content).some((t) => compiled.docSets.has(t))) {
+          crossGoverned = true;
+        }
+      }
+      if (crossGoverned) result.crossGovernedDeclaration.push(file);
+      const eligible = !conflicted && !crossGoverned;
+      const areaSupplied = new Set(bare.areaSuppliedDocs);
+      for (const acc of govAcc) {
+        if (!acc.e.regexes.some((re) => re.test(file))) continue;
+        acc.total++;
+        if (eligible) {
+          acc.eligible++;
+          const gb = new Set(acc.e.governedBy);
+          if (gb.size !== areaSupplied.size || [...gb].some((d) => !areaSupplied.has(d))) {
+            acc.allEqual = false;
+          }
+        }
+      }
+    }
+  }
+  // A declaration earns its keep by changing the governing set of some eligible matched file.
+  for (const acc of govAcc) {
+    if (acc.total === 0) result.staleGovernance.push(acc.e.path);
+    else if (acc.eligible >= 1 && acc.e.governedBy.length > 0 && acc.allEqual) {
+      result.redundantGovernance.push(acc.e.path);
+    }
+  }
+  // badGovernedBy — a per-entry check on the declared docs, independent of matched files.
+  for (const e of compiled.declaredGovernance) {
+    for (const doc of e.governedBy) {
+      if (!tracked.has(doc)) {
+        result.badGovernedBy.push(`${e.path}: ${doc} (untracked)`);
+      } else if (!compiled.docSets.has(doc) && !compiled.repoWideDocs.has(doc)) {
+        result.badGovernedBy.push(`${e.path}: ${doc} (in no area's doc set nor repo-wide)`);
+      }
+    }
   }
   for (const [path, { total, needed }] of unassignedHits) {
     if (total === 0) {
@@ -424,6 +564,10 @@ export function auditMap({ files, map, readFile }) {
   return result;
 }
 
+/* c8 ignore start — the CLI wrapper reads the tracked-file list from git and the
+ * map from disk, then prints; the shape/coverage/staleness/doc-coverage and the
+ * declared-governance self-check logic it delegates to (validateShape, compileMap,
+ * resolveFile, auditMap) are unit-tested above. */
 function run() {
   const files = execFileSync('git', ['ls-files'], { encoding: 'utf8' })
     .split('\n')
@@ -497,6 +641,38 @@ function run() {
         `\n\n  Fix: point each "// see docs/…" comment at a tracked doc that belongs to an area's doc set.`,
     );
   }
+  if (r.staleGovernance.length) {
+    problems.push(
+      `✗ ${r.staleGovernance.length} "declared-governance" entr(ies) match no tracked file — remove:\n` +
+        r.staleGovernance.map((s) => `    ${s}`).join('\n'),
+    );
+  }
+  if (r.redundantGovernance.length) {
+    problems.push(
+      `✗ ${r.redundantGovernance.length} "declared-governance" entr(ies) are redundant — every matched file's covering area already supplies exactly the declared docs, so the declaration states nothing new; remove:\n` +
+        r.redundantGovernance.map((s) => `    ${s}`).join('\n'),
+    );
+  }
+  if (r.conflictingGovernance.length) {
+    problems.push(
+      `✗ ${r.conflictingGovernance.length} file(s) are declared by multiple "declared-governance" entries — each file's governance is declared once:\n` +
+        r.conflictingGovernance.map((s) => `    ${s}`).join('\n'),
+    );
+  }
+  if (r.crossGovernedDeclaration.length) {
+    problems.push(
+      `✗ ${r.crossGovernedDeclaration.length} "declared-governance" file(s) already carry governance from another source (a repo-wide doc, or a "// see docs/…" pointer into a live doc set):\n` +
+        r.crossGovernedDeclaration.map((s) => `    ${s}`).join('\n') +
+        `\n\n  Fix: a declared file's governing docs are exactly its "governed-by" — declare its governance in one place.`,
+    );
+  }
+  if (r.badGovernedBy.length) {
+    problems.push(
+      `✗ ${r.badGovernedBy.length} "declared-governance" governed-by target(s) do not resolve:\n` +
+        r.badGovernedBy.map((s) => `    ${s}`).join('\n') +
+        `\n\n  Fix: each governed-by doc must be a tracked doc in some area's doc set, or a repo-wide doc.`,
+    );
+  }
 
   if (problems.length) {
     console.error(problems.join('\n\n'));
@@ -505,10 +681,12 @@ function run() {
   console.log(
     `✓ area map covers the tree: ${files.length} tracked files resolve across ` +
       `${Object.keys(map.areas).length} areas (+${map['repo-wide'].docs.length} repo-wide docs, ` +
-      `${map.unassigned.length} justified exceptions).`,
+      `${map.unassigned.length} justified exceptions, ` +
+      `${(map['declared-governance'] ?? []).length} declared-governance entries).`,
   );
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   run();
 }
+/* c8 ignore stop */

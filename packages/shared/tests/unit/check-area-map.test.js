@@ -36,6 +36,7 @@ function makeMap(overrides = {}) {
       },
     },
     unassigned: [{ path: 'LICENSE', reason: 'license text' }],
+    'declared-governance': [],
     ...overrides,
   };
 }
@@ -388,5 +389,251 @@ describe('extractDocPointers', () => {
 
   it('ignores non-doc references', () => {
     assert.deepEqual(extractDocPointers('// see scripts/build.js and docs online'), []);
+  });
+});
+
+describe('validateShape — declared-governance', () => {
+  it('accepts entries with a populated and an empty governed-by', () => {
+    const map = makeMap();
+    map['declared-governance'] = [
+      { path: 'codecov.yml', reason: 'Codecov config', 'governed-by': ['docs/alpha.md'] },
+      { path: 'data.json', reason: 'pure data', 'governed-by': [] },
+    ];
+    assert.deepEqual(validateShape(map), []);
+  });
+
+  it('rejects a missing/non-array governed-by, non-literal targets, empty reason, bad pattern', () => {
+    const bad = (dg) => validateShape(makeMap({ 'declared-governance': dg }));
+    // entry with no path
+    assert.equal(
+      bad([{ reason: 'x', 'governed-by': [] }]).some((e) => e.includes('missing "path"')),
+      true,
+    );
+    // governed-by omitted entirely
+    assert.equal(
+      bad([{ path: 'a.yml', reason: 'x' }]).some(
+        (e) => e.includes('governed-by') && e.includes('must be present'),
+      ),
+      true,
+    );
+    // governed-by present but not an array
+    assert.equal(
+      bad([{ path: 'a.yml', reason: 'x', 'governed-by': 'docs/alpha.md' }]).some(
+        (e) => e.includes('governed-by') && e.includes('must be present'),
+      ),
+      true,
+    );
+    // governed-by holds a non-literal (pattern) path
+    assert.equal(
+      bad([{ path: 'a.yml', reason: 'x', 'governed-by': ['docs/*.md'] }]).some((e) =>
+        e.includes('not a literal path'),
+      ),
+      true,
+    );
+    // empty reason
+    assert.equal(
+      bad([{ path: 'a.yml', reason: '   ', 'governed-by': [] }]).some((e) =>
+        e.includes('no reason'),
+      ),
+      true,
+    );
+    // uncompilable path glob (caught here so compileMap is never reached with it)
+    assert.equal(
+      bad([{ path: 'scripts/[ab].js', reason: 'x', 'governed-by': [] }]).some((e) =>
+        e.includes('unsupported pattern syntax'),
+      ),
+      true,
+    );
+  });
+
+  it('requires the declared-governance array to be present', () => {
+    const map = makeMap();
+    delete map['declared-governance'];
+    assert.equal(
+      validateShape(map).some((e) => e.includes('"declared-governance" must be an array')),
+      true,
+    );
+  });
+});
+
+describe('resolveFile — declared-governance', () => {
+  /** makeMap plus one declared entry over a code-owned file. */
+  function declMap(governedBy) {
+    return makeMap({
+      'declared-governance': [
+        { path: 'packages/alpha/x.yml', reason: 'alpha config', 'governed-by': governedBy },
+      ],
+    });
+  }
+
+  it("a declared file's docs are exactly its governed-by — area docs and a // see pointer do not apply", () => {
+    const compiled = compileMap(declMap(['docs/tooling.md']));
+    // packages/alpha/x.yml matches alpha's code glob (areaSupplied = [docs/alpha.md]) and carries a
+    // live pointer to docs/alpha.md — yet the declaration overrides both to exactly governed-by.
+    const r = resolveFile('packages/alpha/x.yml', compiled, '// see docs/alpha.md');
+    assert.equal(r.declaredGovernance, true);
+    assert.deepEqual(r.docs, ['docs/tooling.md']); // governed-by verbatim, not alpha.md nor the pointer
+    assert.deepEqual(r.governedBy, ['docs/tooling.md']);
+    assert.deepEqual(r.areaSuppliedDocs, ['docs/alpha.md']); // bare code-area docs, pre-override
+    assert.deepEqual(r.areas, ['alpha']); // coverage preserved (declaration grants no coverage of its own)
+  });
+
+  it('a declared file with governed-by [] resolves to no governing docs', () => {
+    const compiled = compileMap(declMap([]));
+    const r = resolveFile('packages/alpha/x.yml', compiled);
+    assert.equal(r.declaredGovernance, true);
+    assert.deepEqual(r.docs, []);
+    assert.deepEqual(r.governedBy, []);
+    assert.deepEqual(r.areaSuppliedDocs, ['docs/alpha.md']);
+  });
+
+  it('a non-declared file resolves byte-identically (declared-governance is inert for it)', () => {
+    const compiled = compileMap(declMap(['docs/tooling.md']));
+    const r = resolveFile('packages/alpha/index.js', compiled);
+    assert.equal(r.declaredGovernance, false);
+    assert.deepEqual(r.areas, ['alpha']);
+    assert.deepEqual(r.docs, ['docs/alpha.md']);
+  });
+});
+
+describe('auditMap — declared-governance', () => {
+  it('is clean with a working declaration (governed-by differs from the area-supplied docs)', () => {
+    // package.json is code-owned by tooling (areaSupplied [docs/tooling.md]); declaring it governed by
+    // docs/alpha.md changes the set → load-bearing, so no stale/redundant/etc.
+    const map = makeMap({
+      'declared-governance': [
+        { path: 'package.json', reason: 'manifest', 'governed-by': ['docs/alpha.md'] },
+      ],
+    });
+    assert.deepEqual(flatten(audit({ map })), []);
+  });
+
+  it('flags a declaration that matches no tracked file as stale', () => {
+    const map = makeMap({
+      'declared-governance': [{ path: 'gone/nothing-*.foo', reason: 'x', 'governed-by': [] }],
+    });
+    assert.deepEqual(audit({ map }).staleGovernance, ['gone/nothing-*.foo']);
+  });
+
+  it('flags a non-empty declaration equal to the area-supplied docs as redundant', () => {
+    const map = makeMap({
+      'declared-governance': [
+        { path: 'package.json', reason: 'x', 'governed-by': ['docs/tooling.md'] },
+      ],
+    });
+    const r = audit({ map });
+    assert.deepEqual(r.redundantGovernance, ['package.json']);
+  });
+
+  it('order-insensitively equates governed-by with area-supplied docs (set compare)', () => {
+    // A file owned by two areas so its area-supplied set has two docs in a fixed order; a declaration
+    // listing them reversed still counts as redundant.
+    const map = makeMap();
+    map.areas.beta = { code: ['packages/alpha/**'], docs: ['docs/beta.md'] }; // co-owns alpha files
+    map['declared-governance'] = [
+      {
+        path: 'packages/alpha/index.js',
+        reason: 'x',
+        'governed-by': ['docs/beta.md', 'docs/alpha.md'],
+      },
+    ];
+    const r = audit({ map, files: [...BASE_FILES, 'docs/beta.md'] });
+    assert.deepEqual(r.redundantGovernance, ['packages/alpha/index.js']);
+  });
+
+  it('never flags an explicit empty pin as redundant — even when the area supplies no docs', () => {
+    const map = makeMap();
+    map.areas.codeonly = { code: ['vendor/**'] }; // code-only area, no docs
+    map['declared-governance'] = [{ path: 'vendor/thing.bin', reason: 'x', 'governed-by': [] }];
+    const r = audit({ map, files: [...BASE_FILES, 'vendor/thing.bin'] });
+    assert.deepEqual(r.redundantGovernance, []); // [] == [] area docs, but an empty pin is kept
+    assert.deepEqual(r.staleGovernance, []);
+    assert.deepEqual(r.zeroArea, []); // covered by the code-only area
+  });
+
+  it('an empty pin over a doc-bearing area (the shipped data/CI-test shape) is neither stale nor redundant', () => {
+    // package.json's covering area (tooling) supplies docs/tooling.md; pinning it to [] drops that
+    // doc from scope — load-bearing, so not redundant, and it matches a file, so not stale.
+    const map = makeMap({
+      'declared-governance': [{ path: 'package.json', reason: 'data', 'governed-by': [] }],
+    });
+    const r = audit({ map });
+    assert.deepEqual(r.redundantGovernance, []);
+    assert.deepEqual(r.staleGovernance, []);
+  });
+
+  it('flags a file declared by two entries as a conflict and skips its per-file evaluation', () => {
+    const map = makeMap({
+      'declared-governance': [
+        { path: 'package.json', reason: 'a', 'governed-by': ['docs/tooling.md'] }, // would be redundant alone
+        { path: 'package.json', reason: 'b', 'governed-by': ['docs/alpha.md'] },
+      ],
+    });
+    const r = audit({ map });
+    assert.deepEqual(r.conflictingGovernance, ['package.json']);
+    // redundancy is skipped for the conflicted file, so the otherwise-redundant entry is NOT flagged
+    assert.deepEqual(r.redundantGovernance, []);
+  });
+
+  it('flags a declared repo-wide doc, and a declared file with a live // see pointer, as cross-governed', () => {
+    const repoWide = makeMap({
+      'declared-governance': [{ path: 'README.md', reason: 'x', 'governed-by': [] }],
+    });
+    assert.deepEqual(audit({ map: repoWide }).crossGovernedDeclaration, ['README.md']);
+
+    const livePointer = makeMap({
+      'declared-governance': [
+        { path: 'packages/alpha/y.rs', reason: 'x', 'governed-by': ['docs/alpha.md'] },
+      ],
+    });
+    const r = audit({
+      map: livePointer,
+      files: [...BASE_FILES, 'packages/alpha/y.rs'],
+      contents: { 'packages/alpha/y.rs': '// see docs/tooling.md\n' }, // tooling.md is in a live doc set
+    });
+    assert.deepEqual(r.crossGovernedDeclaration, ['packages/alpha/y.rs']);
+  });
+
+  it('does NOT flag a declared file whose // see target is in no doc set (dead fixture pointer)', () => {
+    const map = makeMap({
+      'declared-governance': [
+        { path: 'packages/alpha/z.rs', reason: 'x', 'governed-by': ['docs/alpha.md'] },
+      ],
+    });
+    const r = audit({
+      map,
+      files: [...BASE_FILES, 'packages/alpha/z.rs'],
+      contents: { 'packages/alpha/z.rs': '// see docs/never-real.md\n' }, // target in no doc set
+    });
+    assert.deepEqual(r.crossGovernedDeclaration, []);
+  });
+
+  it('badGovernedBy rejects an untracked target but accepts a repo-wide doc', () => {
+    const untracked = makeMap({
+      'declared-governance': [
+        { path: 'package.json', reason: 'x', 'governed-by': ['docs/nope.md'] },
+      ],
+    });
+    assert.equal(
+      audit({ map: untracked }).badGovernedBy.some((s) => s.includes('docs/nope.md')),
+      true,
+    );
+    // README.md is repo-wide (in no area doc set) — a legitimate governor, not badGovernedBy.
+    const repoWideGov = makeMap({
+      'declared-governance': [{ path: 'package.json', reason: 'x', 'governed-by': ['README.md'] }],
+    });
+    assert.deepEqual(audit({ map: repoWideGov }).badGovernedBy, []);
+    // A tracked target that is in no area doc set and not repo-wide is homeless → badGovernedBy.
+    const homeless = makeMap({
+      'declared-governance': [
+        { path: 'package.json', reason: 'x', 'governed-by': ['scripts/check-something.js'] },
+      ],
+    });
+    assert.equal(
+      audit({ map: homeless }).badGovernedBy.some(
+        (s) => s.includes('scripts/check-something.js') && s.includes('no area'),
+      ),
+      true,
+    );
   });
 });
