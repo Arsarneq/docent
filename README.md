@@ -110,7 +110,7 @@ Contributions are welcome — start with the **[contributing guide](.github/CONT
 
 Project references:
 
-- [Documentation index](docs/README.md) — the docs map by area: requirements, architecture, technical specs, the sync API, verification, and contributor guides
+- [Documentation index](docs/README.md) — the docs map by area: requirements, architecture, technical specs, the sync API, verification, tests, the end-user guides, and contributor guides
 - [Contributing guide](.github/CONTRIBUTING.md) — setup, structure, conventions, testing, PRs
 - [Code of Conduct](.github/CODE_OF_CONDUCT.md) — the Contributor Covenant we follow
 - [Security policy](.github/SECURITY.md) — reporting a vulnerability
