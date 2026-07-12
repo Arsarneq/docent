@@ -92,9 +92,13 @@ effects.
 
 **CP-11.** Capture the action — mask the sensitive value. Docent records that
 the user typed into a field, but when the field is sensitive (a password, or a
-credit-card / SSN / secret field) the value MUST be redacted at capture time
-and the element flagged `redacted`; the action stays in the stream, the secret
-MUST NOT enter it.
+credit-card / SSN / secret field) the value MUST be redacted at capture time,
+the element's `text` nulled, and the element flagged `redacted`; the action
+stays in the stream, the secret MUST NOT enter it. Detection is a **single
+shared implementation** used by both
+platforms, so the two mask the same fields — each platform differs only in the
+native signal it reads for password fields and where its capture path applies
+the shared detection.
 
 **CP-12.** Detection MUST be conservative — over-masking a legitimate field
 would degrade the captured workflow — so only strong signals trigger masking.
@@ -120,3 +124,29 @@ observable signals:
 The signals are diagnostic guidance, not a decision procedure; a mixed case
 (the table's Depends rows) or a signal the table does not list is a design
 judgment.
+
+---
+
+## Capture Surface
+
+**CP-14.** Each platform's capture surface is enumerated **positively** and
+treated as **closed**: it lists a fixed set of trusted inputs and the proxies
+that platform captures (the enumerations live in the
+[extension](../../architecture/application/extension/capture-principles.md) and
+[desktop](../../architecture/application/desktop/windows/capture-principles.md)
+docs). An interaction that reaches none of the enumerated surface is **not
+captured** — no per-case listing of what is ignored is needed, and nothing new
+a platform grows is captured implicitly.
+
+**CP-15.** The only negative entries a platform keeps are **exceptions within
+the surface**: interactions that would appear to be covered by the surface
+description but are not captured (or are captured with a caveat). An entry
+belongs on a platform's exception list only when the surface description alone
+would mislead — the closed positive enumeration otherwise answers whether an
+interaction is captured.
+
+**CP-16.** Scroll gestures are debounced (300 ms) and coalesced into one
+`scroll` action per settled sequence; a sequence whose net displacement stays
+within 200 px on both axes is discarded
+([docent#232](https://github.com/Arsarneq/docent/issues/232) tracks revising
+the floor). Both platforms apply this identically.

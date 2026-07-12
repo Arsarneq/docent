@@ -98,6 +98,24 @@
       "justification": "Applying the signals to a mixed case (the table's Depends rows) or to a signal the table does not list is judgment; no check can decide such a case."
     },
     {
+      "doc": "docs/architecture/system/capture-principles.md",
+      "clause": "CP-14",
+      "tag": "judgment-only",
+      "justification": "Whether a platform's capture surface is enumerated positively and treated as closed — nothing the platform grows captured implicitly — is a definitional design judgment; the per-platform enumerations are the checkable clauses (ECP-6/DCP-4, probed by the scripted-truth corpus diff)."
+    },
+    {
+      "doc": "docs/architecture/system/capture-principles.md",
+      "clause": "CP-15",
+      "tag": "judgment-only",
+      "justification": "Whether an interaction belongs on a platform's exception list — the surface description alone would mislead without it — is judgment at review; the same admission test the per-platform ECP-12/DCP-13 apply."
+    },
+    {
+      "doc": "docs/architecture/system/capture-principles.md",
+      "clause": "CP-16",
+      "tag": "check-exists",
+      "check-ref": "The 200 px both-axes discard is pinned on both platforms: the desktop accumulator and its exactly-200px unit case in packages/desktop/src-tauri/tests/scroll_test.rs and the desktop scroll capture (npm run test:desktop:rust), and the extension shouldCaptureScroll boundary in packages/extension/tests/unit/recorder-logic.test.js (npm run test:extension). The 300 ms coalesce is pinned by the desktop scroll/debounce Rust tests (npm run test:desktop:rust) and, on the extension, by the ext-scroll settle corpus sessions (npm run corpus:check), since the extension coalesce is a live settle-timer no unit test drives."
+    },
+    {
       "doc": "docs/technical/locator-resolution.md",
       "clause": "LR-1",
       "tag": "check-exists",
@@ -407,7 +425,7 @@
       "doc": "docs/architecture/application/extension/capture-principles.md",
       "clause": "ECP-12",
       "tag": "judgment-only",
-      "justification": "Whether a proposed entry meets the admission test — the surface description alone would mislead without it — is judgment at review."
+      "justification": "Whether a proposed entry meets the exceptions admission test hoisted to core CP-15 — the surface description alone would mislead without it — is judgment at review."
     },
     {
       "doc": "docs/architecture/application/desktop/windows/capture-principles.md",
@@ -485,7 +503,7 @@
       "doc": "docs/architecture/application/desktop/windows/capture-principles.md",
       "clause": "DCP-13",
       "tag": "judgment-only",
-      "justification": "Whether a proposed entry meets the admission test — the surface description alone would mislead without it — is judgment at review."
+      "justification": "Whether a proposed entry meets the exceptions admission test hoisted to core CP-15 — the surface description alone would mislead without it — is judgment at review."
     },
     {
       "doc": "docs/api/sync-protocol.md",

@@ -74,13 +74,14 @@ can mix both:
 
 ## Capture Surface
 
-**DCP-4.** The capture surface is enumerated positively and treated as
-**closed**: the two low-level input hooks (`WH_MOUSE_LL`, `WH_KEYBOARD_LL`),
-the correlated WinEvent classes in the [Input Correlation](#input-correlation)
-table, and the OS/shell proxies in the table below. An interaction that reaches none of them
-is not captured — no per-case listing needed. The only negative entries kept
-are the [exceptions within the surface](#exceptions-within-the-surface):
-interactions that would appear to be covered by this description but are not.
+**DCP-4.** This platform's capture surface applies
+[core CP-14](../../../../architecture/system/capture-principles.md#capture-surface)'s
+closed positive-enumeration principle: the two low-level input hooks
+(`WH_MOUSE_LL`, `WH_KEYBOARD_LL`), the correlated WinEvent classes in the
+[Input Correlation](#input-correlation) table, and the OS/shell proxies in the
+table below. Interactions that would appear covered but are not are kept as
+[exceptions within the surface](#exceptions-within-the-surface) (core
+[CP-15](../../../../architecture/system/capture-principles.md#capture-surface)).
 
 **DCP-5.** Within that surface, three scope filters decide whether an
 in-surface event enters the recording:
@@ -158,13 +159,14 @@ middle-click type); a right-button press records a `right_click`.
 ## Sensitive-value redaction
 
 **DCP-11.** The native capture layer masks password fields directly from the
-UIA `IsPassword` signal. Other sensitive values — credit-card, SSN, and secret fields
-identified by their accessibility name — are masked at the adapter
-chokepoint, which processes each action's `element` (and its `value`) before
-the action enters the pending list. A redacted element has its value masked and its `text`
-nulled, and is flagged `redacted`. The detection rules are shared with the
-extension (a single util), so both platforms mask the same fields. (Tokened-URL
-redaction is extension-only, since the desktop app has no captured URLs.)
+UIA `IsPassword` signal. Other sensitive values — credit-card, SSN, and secret
+fields identified by their accessibility name — are masked at the **adapter
+chokepoint**, which processes each action's `element` (and its `value`) before
+the action enters the pending list. Both the shared detection and the redaction
+shape are the cross-platform rule
+([core CP-11](../../../../architecture/system/capture-principles.md#sensitive-values)).
+(Tokened-URL redaction is extension-only, since the desktop app has no captured
+URLs.)
 
 Locator candidates (`locators[]`) pass the redaction chokepoint untouched by
 design ([locator-resolution §LR-24](../../../../technical/locator-resolution.md)): every desktop strategy is identity-derived — ids, control types,
@@ -204,10 +206,11 @@ start; events without a routing affinity use shortest-queue dispatch.
 
 ## Exceptions Within the Surface
 
-**DCP-13.** Interactions that would appear to be inside the
-[capture surface](#capture-surface) above but are not captured (or are
-captured with a caveat). An entry belongs here only when the surface
-description alone would mislead:
+**DCP-13.** This platform's exceptions within the surface (core
+[CP-15](../../../../architecture/system/capture-principles.md#capture-surface)) —
+interactions that would appear to be inside the
+[capture surface](#capture-surface) above but are not captured (or are captured
+with a caveat):
 
 - Win+D (show desktop) — a keypress, but the system intercepts it before the
   hooks
@@ -221,10 +224,9 @@ description alone would mislead:
   input-correlation gates above classify their effects as programmatic. A
   known limitation of the correlation doctrine, affecting every correlated
   event class equally.
-- Scroll gestures are debounced (300 ms) and coalesced into one `scroll`
-  action per settled sequence; a sequence whose net displacement stays within
-  200 px on both axes is discarded ([docent#232](https://github.com/Arsarneq/docent/issues/232)
-  tracks revising the floor)
+- Scroll gestures are debounced and coalesced with a sub-threshold discard —
+  the shared rule in
+  [core CP-16](../../../../architecture/system/capture-principles.md#capture-surface)
 - A file dialog confirmed from the keyboard (Enter on the filename field)
   produces no `file_dialog` action — the proxy triggers only on a click of
   the dialog's Save/Open button
