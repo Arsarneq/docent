@@ -69,7 +69,7 @@ The tag is your call, but the **next-release-version helper** suggests it for ea
 - **Locally:** `npm run version:next`
 - **On GitHub:** dispatch the **Next release version** workflow ([`next-release-version.yml`](workflows/next-release-version.yml)) on `main` from the Actions tab — the suggestion appears on the run's summary page.
 
-It follows [semantic versioning](https://semver.org/): a breaking change (`!` / `BREAKING CHANGE`) → **major**, a feature (`feat`) → **minor**, a fix (`fix` / `perf`) → **patch**, and a bump zeroes the lower-precedence components. The suggestion is a **floor** — bump higher if the release carries breaking _behaviour_ the tooling can't classify from the diff or commit messages. (Pre-release tags like `X.Y.Z-rc.N` are skipped — the suggestion is always the next **final** version, measured from the last final release; build-metadata `+build` tags aren't handled.)
+It follows [semantic versioning](https://semver.org/): a breaking change (`!` / `BREAKING CHANGE`) → **major**, a feature (`feat`) → **minor**, a fix (`fix` / `perf`) → **patch**, and a bump zeroes the lower-precedence components. The other recognized types (`chore`, `ci`, `docs`, `test`, `refactor`, `style`, `build`, `revert`) **do not bump** the version on their own — a `!` / `BREAKING CHANGE` still forces **major**, whatever the type. The suggestion is a **floor** — bump higher if the release carries breaking _behaviour_ the tooling can't classify from the diff or commit messages. (Pre-release tags like `X.Y.Z-rc.N` are skipped — the suggestion is always the next **final** version, measured from the last final release; build-metadata `+build` tags aren't handled.)
 
 ## Release checklist
 
