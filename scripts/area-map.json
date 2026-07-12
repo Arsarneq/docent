@@ -56,6 +56,9 @@
         "schemas/desktop-windows.delta.json"
       ]
     },
+    "requirements/business": {
+      "docs": ["docs/requirements/business/positioning.md"]
+    },
     "verification/corpus": {
       "code": ["corpus/**", "scripts/corpus-*.js", "scripts/sufficiency-lint.js"],
       "docs": [
