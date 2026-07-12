@@ -137,133 +137,23 @@ See [docs/technical/session-format.md](docs/technical/session-format.md#versioni
 
 ### Installation (development)
 
-1. Clone the repo
-
-```bash
-git clone https://github.com/Arsarneq/docent.git
-cd docent
-```
-
-2. Sync shared code and install test dependencies
-
-```bash
-npm run dev:extension
-cd packages/extension && npm install
-```
-
-3. Open `chrome://extensions` in Chrome
-4. Enable **Developer mode** (top right)
-5. Click **Load unpacked** and select the `packages/extension/` folder
-6. The Docent icon appears in the Chrome toolbar
+Build and load the unpacked extension from source — see [Contributing → Development Setup](.github/CONTRIBUTING.md#chrome-extension).
 
 ### Using the extension
 
-#### Create a project
-
-1. Click the Docent icon — the side panel opens
-2. Click **+ New** to create a project
-3. Click **+ New recording** — recording begins immediately
-
-#### Record steps
-
-1. Perform the actions in the browser
-2. Provide context for the step (type narration in narration mode, or select action/validation in simple mode)
-3. Click **Done this step**
-4. Repeat for each step
-
-The **Done this step** button is disabled until at least one action has been recorded.
-
-**Clear** discards the recorded actions for the current step without committing the step.
-
-#### Edit steps
-
-| Control         | Action                                               |
-| --------------- | ---------------------------------------------------- |
-| Click narration | View recorded actions for that step (read-only)      |
-| Pencil icon     | Re-record — replace narration and actions for a step |
-| Clock icon      | History — view all previous versions of a step       |
-| Trash icon      | Delete — soft delete, history preserved              |
-| Drag            | Reorder steps                                        |
-
-#### Export
-
-Click **Export** on the project view to download a `.docent.json` file.
-
-#### Import
-
-Click **Import** on the projects list to load a previously exported `.docent.json` file.
-
-### Send (extension)
-
-Dispatch recordings directly from the extension — no terminal or Node.js required.
-
-#### Configure the endpoint
-
-1. Click the gear icon to open Settings
-2. Enter the **Dispatch endpoint** URL (must start with `http://` or `https://`)
-3. Optionally enter an **API key** — sent as `Authorization: Bearer <key>`
-4. Click **Save**
-
-Local endpoints (e.g. `http://localhost:3000`) are supported.
-
-#### Send a recording
-
-1. Open a project
-2. Click **Send** — the button is enabled when an endpoint is configured and the project has recordings with steps
-3. If the project has multiple recordings, choose which to send (or **Send all**)
-4. Review the endpoint URL, recording name(s), and step count in the confirmation view
-5. Click **Send** to dispatch — the full recording history is sent. A success or error message is shown
+Quickstart: click the Docent icon to open the side panel, create a project and start a recording, perform your actions and add each step's context (narration, or an action/validation classification), then **Done this step** — and **Export** a `.docent.json` file or **Send** it to a configured endpoint. The full walkthrough — editing and re-recording steps, history, import, and dispatch setup — is in the [extension user guide](docs/user/extension.md).
 
 ---
 
 ## Desktop Application (Windows)
 
-### Prerequisites
-
-- Windows 10 or later
-- [Rust toolchain](https://rustup.rs/) (for building from source)
-- Node.js 24+
-
 ### Installation (development — desktop)
 
-1. Clone the repo and sync shared code
-
-```bash
-git clone https://github.com/Arsarneq/docent.git
-cd docent
-npm run sync-shared
-npm run build:desktop-dist
-```
-
-2. Build and run the Tauri application in dev mode
-
-```bash
-cd packages/desktop/src-tauri
-cargo tauri dev
-```
-
-Or build a release binary:
-
-```bash
-cd packages/desktop/src-tauri
-cargo tauri build
-```
+Build and run the Tauri desktop app from source — see [Contributing → Development Setup](.github/CONTRIBUTING.md#desktop-application-windows).
 
 ### Using the desktop app
 
-The desktop app provides the same workflow as the Chrome extension:
-
-1. Create a project and a recording
-2. Select a target application from the list of running windows
-3. Perform actions in native applications — interactions are captured automatically
-4. Provide context for each step and click **Done this step**
-5. Export as `.docent.json` or dispatch directly to an endpoint
-
-The desktop capture layer uses the Windows UI Automation accessibility API for rich element descriptions. When an element lacks accessibility data, it falls back to coordinate-based capture for that individual action. A single recording can contain a mix of both modes.
-
-### Send (desktop)
-
-The dispatch workflow is identical to the extension. Configure an endpoint in Settings, then click **Send** on a project.
+Quickstart: create a project and a recording, pick a target application from the running windows, perform actions (captured automatically), add each step's context and **Done this step**, then **Export** a `.docent.json` file or **Send** it to a configured endpoint. The full walkthrough is in the [desktop user guide](docs/user/desktop-windows.md).
 
 ---
 
