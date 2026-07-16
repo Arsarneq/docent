@@ -455,7 +455,7 @@
       "doc": "docs/architecture/application/desktop/windows/capture-principles.md",
       "clause": "DCP-2",
       "tag": "check-exists",
-      "check-ref": "Ordered insertion is pinned by the desktop reorder-buffer unit tests; the commit flush barrier — drain-and-continue on each worker, bounded fan-out with in-place rescue of a wedged worker, and the completion sentinel emitted last on the action stream — is pinned by the worker-pool flush tests (packages/desktop/src-tauri/tests/worker_pool_test.rs regression_298_*; npm run test:desktop:rust), and the frontend's wait for that sentinel by the commitWithCompleteness suite driving the real adapter against a mocked commit_barrier (npm run test:desktop)."
+      "check-ref": "Ordered insertion, the no-id append-at-arrival (an action without a sequence id passes straight through), and the internal-id strip before store/export are pinned by the desktop reorder-buffer unit tests (packages/desktop/tests/unit/reorder-buffer.test.js; npm run test:desktop); the commit flush barrier's drain-and-continue and sentinel-emitted-last by the worker-pool flush tests (packages/desktop/src-tauri/tests/worker_pool_test.rs regression_298_*; npm run test:desktop:rust), and the bounded fan-out's in-place rescue of a wedged worker by the pool's in-module test flush_all_rescues_a_wedged_worker_in_place_and_still_emits_the_sentinel (packages/desktop/src-tauri/src/capture/worker_pool.rs; same command); and the frontend's sentinel handling — waiting for the sentinel, a sentinel that arrives before the waiter registers, immediate collection with the ids stripped on a no-active-capture (id 0) report, and the rescued-workers warning — by the commitWithCompleteness suite driving the real adapter against a mocked commit_barrier (npm run test:desktop). Named gap: no test drives the frontend wait's timeout (a lost sentinel), so the silent-timeout bound is held by the adapter's bounded-wait comment and review; a timeout pin is the intended closure."
     },
     {
       "doc": "docs/architecture/application/desktop/windows/capture-principles.md",
@@ -473,7 +473,7 @@
       "doc": "docs/architecture/application/desktop/windows/capture-principles.md",
       "clause": "DCP-5",
       "tag": "checkable",
-      "check-ref": "Intended: unit pins for the target-when-set filter and the exclusion-beats-target priority (not built). Existing coverage: the exclusion base rule and the destroyed-window skip are pinned by the pid-filter Rust tests, and the command normalization of 0/null by the commands tests (npm run test:desktop:rust)."
+      "check-ref": "Intended: unit pins for the target-when-set filter, the exclusion-beats-target priority, and the owned-window (system dialog) exclusion including its per-process first-event-wins cache semantics (not built). Existing coverage: the exclusion base rule is pinned by the pid-filter Rust tests, the destroyed-window skip by the scroll module's in-crate tests and the windows module's wrapper test, and the bounded process-tree walk and the executable-name recognition's Docent-binary-name branch by the windows module's in-crate unit tests (the webview-runtime-name branch is a named gap — no test asserts it), with the command normalization of 0/null by the commands tests (npm run test:desktop:rust); the toggle's applied-the-moment-it-changes half is pinned by the desktop self-capture-toggle integration spec (npm run test:integration) — its applied-at-start half is a named gap."
     },
     {
       "doc": "docs/architecture/application/desktop/windows/capture-principles.md",
@@ -515,13 +515,19 @@
       "doc": "docs/architecture/application/desktop/windows/capture-principles.md",
       "clause": "DCP-12",
       "tag": "check-exists",
-      "check-ref": "The worker-pool invariants (sacred-buffer flush, panic respawn and retry, sticky value-change routing) are pinned by the worker-pool Rust tests (npm run test:desktop:rust)."
+      "check-ref": "The worker-pool invariants (sacred-buffer flush, panic respawn and retry, sticky value-change routing) are pinned by the worker-pool Rust tests (npm run test:desktop:rust). The rescue-drain idempotence is comment-held at the drain sites in packages/desktop/src-tauri/src/capture/worker_pool.rs — a drain-twice pin is intended (not built). The clause's fenced dead-worker limit: the flush fan-out's channel-gone rescue branch and the stop-join/respawn drop-today halves are pinned by no named test — a dead-worker rescue pin is intended, and the drop-today halves are review-held pending the parked drain-at-join/respawn fix."
     },
     {
       "doc": "docs/architecture/application/desktop/windows/capture-principles.md",
       "clause": "DCP-13",
       "tag": "judgment-only",
       "justification": "Whether a proposed entry meets the exceptions admission test hoisted to core CP-15 — the surface description alone would mislead without it — is judgment at review."
+    },
+    {
+      "doc": "docs/architecture/application/desktop/windows/capture-principles.md",
+      "clause": "DCP-14",
+      "tag": "checkable",
+      "check-ref": "Intended: unit pins for the per-source window attribution and the WinEvent foreground gate (not built). Interim probe: the scripted desktop corpus diff reddens when out-of-scope events enter a scripted session (npm run corpus:check:desktop), and the real-input integration suite drives capture with the gate live (npm run test:desktop:rust)."
     },
     {
       "doc": "docs/api/sync-protocol.md",

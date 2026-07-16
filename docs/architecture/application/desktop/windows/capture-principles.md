@@ -34,10 +34,16 @@ numeric sequence.
 **DCP-2.** Events may arrive out-of-order from workers, and ordering is
 restored without delaying the user: the frontend delivers each event
 immediately, splicing it into the pending list by `sequence_id` (ordered
-insertion — no lag waiting on slower workers). Committing a step then applies a
+insertion — no lag waiting on slower workers); an event that carries no id (a
+settled scroll) is appended at its arrival point, and neither internal ever
+reaches a stored or exported recording — the sequence id is stripped before
+the action is stored or exported, and the barrier completion marker below
+never enters the pending list. Committing a step then applies a
 **flush barrier**: the backend drains every worker's completed-but-held buffers
-into the action stream, emits a completion marker onto that same stream after
-them, and the commit collects the step only once it has received that marker —
+into the action stream, emits a completion marker (the barrier _sentinel_, as
+[the capture pipeline](capture-pipeline.md) and its tests call it) onto that
+same stream after them, and the commit collects the step only once it has
+received that marker —
 so a commit never races a still-in-flight or still-buffered action. Waiting for
 the marker on the action stream, rather than for the drain command to return,
 is what makes the guarantee hold: the command result and the action events
@@ -56,7 +62,15 @@ call cannot stall the commit past a timeout, at which point that worker's
 buffered actions are drained in place (its completed actions are never lost) and
 the commit proceeds. It reports the number of workers rescued this way — never a
 per-id account, which the subset above makes impossible — so a slow worker is
-surfaced, not hidden.
+surfaced, not hidden. The frontend's wait for the marker is also bounded — a
+marker lost in transit cannot hang a commit — but that bound is silent: on
+timeout the wait resolves without any report and the commit proceeds with the
+actions delivered by then. A marker that arrives before the commit starts
+waiting still satisfies the wait. A barrier
+run with no active capture reports that nothing was buffered, and the commit
+collects immediately. The pipeline mechanics behind this clause — channels,
+routing, and the drain paths — are oriented in
+[the capture pipeline](capture-pipeline.md).
 
 ---
 
@@ -84,17 +98,51 @@ table below. Interactions that would appear covered but are not are kept as
 [CP-15](../../../../architecture/system/capture-principles.md#capture-surface)).
 
 **DCP-5.** Within that surface, three scope filters decide whether an
-in-surface event enters the recording:
+in-surface event enters the recording (WinEvents additionally pass the
+[foreground gate](#event-attribution-and-foreground-scope), DCP-14). Each
+filter judges the process of the event's
+[attributed window](#event-attribution-and-foreground-scope) (DCP-14):
 
 - **Target application** — when the user selects a target application, only
-  events from its process are captured; with no target set, all applications
-  are captured.
+  events attributed to its process are captured; with no target set, all
+  applications are captured.
 - **Self-capture exclusion** — events from Docent's own process are excluded
-  by default (toggleable), and the exclusion takes priority over the target
+  by default, on three grounds: processes in Docent's own process **tree**
+  (a bounded walk up the parent chain; the bound lives in code); processes
+  recognized by executable name — the webview runtime's, or Docent's own
+  binary name — which are excluded regardless of tree membership; and
+  processes judged to have their window owned by an excluded process's
+  window (the system dialogs Docent itself opens) — a **per-process**
+  verdict, evaluated on the first event and cached for the capture session,
+  so every window of that process shares whichever verdict came first.
+  The setting is a persisted toggle, default on, applied when the app starts
+  and the moment it changes; the exclusion takes priority over the target
   filter, so selecting Docent itself as the target still excludes it while
   the exclusion is on.
 - **Resolvable window** — an event whose window is already destroyed by the
   time it is examined (its process can no longer be resolved) is skipped.
+
+---
+
+## Event Attribution and Foreground Scope
+
+**DCP-14.** The scope filters (DCP-5) act on an **attributed** process — each
+event source names the window whose process is judged:
+
+| Event source            | Attributed window                                                                        |
+| ----------------------- | ---------------------------------------------------------------------------------------- |
+| Low-level mouse hook    | The window under the cursor (the foreground window when no window resolves at the point) |
+| Low-level keyboard hook | The foreground window                                                                    |
+| WinEvent callbacks      | The window the event names                                                               |
+
+WinEvents are additionally **foreground-gated**: the Input_Thread tracks the
+foreground process — seeded from the foreground window when capture starts,
+updated by foreground-change events and by clicks landing in a different
+top-level window, each only when it passes the scope filters — and a WinEvent other than a
+foreground change MUST NOT be dispatched from any other process. Low-level
+input is deliberately not foreground-gated: keyboard input is attributed to
+the foreground window by construction, and a click into a background window
+is itself the user action that makes that window foreground.
 
 ---
 
@@ -195,9 +243,14 @@ acted, not which element the accessibility layer resolved.
 completed-but-held actions are flushed both on stop and on a commit flush
 barrier, never lost (buffers are drained before shutdown, and drained on the
 barrier while the worker keeps running, each with a bounded detach-or-rescue
-for a worker wedged in an unresponsive accessibility call); a worker panic is
-detected on the next dispatch, the worker is respawned in place at the same
-index, and the send is retried on the fresh worker; value-change, focus, and selection events route **sticky** — the same window
+for a worker wedged in an unresponsive accessibility call) — with one open
+limit: buffers held by a worker that has already **died** are rescued by a
+flush barrier's fan-out, but a stop that joins the dead worker first, or a
+dispatch-time respawn, drops them today (see
+[the pipeline's shutdown doctrine](capture-pipeline.md#shutdown-doctrine)); a rescue drain is
+idempotent — buffers drain once, and a later drain finds nothing to re-emit; a
+worker panic is detected on the next dispatch, the worker is respawned in
+place at the same index, and the send is retried on the fresh worker; value-change, focus, and selection events route **sticky** — the same window
 handle always reaches the same worker — so per-window supersession and
 deduplication stay correct; a drop routes to the worker that took its drag
 start; events without a routing affinity use shortest-queue dispatch.
