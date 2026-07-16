@@ -4,10 +4,11 @@
  * non-doctrine ALLOWLIST below. Exits 0 if so, 1 (listing offenders) if not.
  *
  * Complements `lint:links` (remark-validate-links): that proves existing links
- * RESOLVE; this proves every doc is REACHED. Together they enforce "the index is
- * the schema" — doctrine cannot live off the doc tree. This closes the PR #271
- * drift class: `corpus/README.md` held real doctrine that no doc linked (it was
- * reachable only from code comments), which the link-checker cannot detect.
+ * RESOLVE; this proves every doc is REACHED. The doctrine the two enforce
+ * together is stated in docs/README.md ("Documentation map"). This closes the
+ * PR #271 drift class: `corpus/README.md` held real doctrine that no doc linked
+ * (it was reachable only from code comments), which the link-checker cannot
+ * detect.
  *
  * The walk is AST-based (unified + remark-parse): a `](x.md)` inside a fenced code
  * block is not a link node, so it can never falsely mark `x` reachable and mask a
@@ -158,7 +159,7 @@ function run() {
   if (failed) process.exit(1);
 
   console.log(
-    `✓ documentation reachable: all ${files.length - ALLOWLIST.length} doctrine .md reach from ${START}` +
+    `✓ documentation reachable: all ${files.length - ALLOWLIST.length} tracked .md outside the allowlist reach from ${START}` +
       ` (+${ALLOWLIST.length} allowlisted non-doctrine).`,
   );
 }

@@ -19,7 +19,8 @@
         "docs/architecture/system/capture-principles.md",
         "docs/technical/locator-resolution.md",
         "docs/test/e2e.md",
-        "docs/test/manual/extension.md"
+        "docs/test/manual/extension.md",
+        "docs/user/extension.md"
       ]
     },
     "desktop-windows": {
@@ -30,7 +31,8 @@
         "docs/technical/locator-resolution.md",
         "docs/test/desktop-rust.md",
         "docs/test/integration/desktop.md",
-        "docs/test/manual/windows.md"
+        "docs/test/manual/windows.md",
+        "docs/user/desktop-windows.md"
       ]
     },
     "sync": {
@@ -41,7 +43,11 @@
         "packages/shared/tests/**",
         "reference-implementations/**"
       ],
-      "docs": ["docs/api/sync-protocol.md"]
+      "docs": [
+        "docs/api/sync-protocol.md",
+        "docs/user/desktop-windows.md",
+        "docs/user/extension.md"
+      ]
     },
     "format": {
       "code": [
