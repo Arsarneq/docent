@@ -31,6 +31,7 @@
       "code": ["packages/desktop/**"],
       "docs": [
         "docs/architecture/application/desktop/capture-seam.md",
+        "docs/architecture/application/desktop/windows/application-shell.md",
         "docs/architecture/application/desktop/windows/capture-pipeline.md",
         "docs/architecture/application/desktop/windows/capture-principles.md",
         "docs/architecture/system/capture-principles.md",
