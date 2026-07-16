@@ -575,7 +575,7 @@
       "doc": "docs/api/sync-protocol.md",
       "clause": "SP-12",
       "tag": "check-exists",
-      "check-ref": "The identity-based append-only-and-nothing-else predicate is pinned by packages/shared/tests/unit/fast-forward-superset.property.test.js; the deletions toggle’s auto-apply outcomes by packages/shared/tests/unit/reported-counts.property.test.js (npm run test:shared)."
+      "check-ref": "The identity-based append-only-and-nothing-else predicate is pinned by packages/shared/tests/unit/fast-forward-superset.property.test.js; the deletions toggle’s auto-apply outcomes by packages/shared/tests/unit/reported-counts.property.test.js; recording-level scoping (project metadata never a fast-forward candidate) by packages/shared/tests/unit/interaction-free-automatic.property.test.js (npm run test:shared). The declined-version-is-never-auto-applied cross-reference shares SP-18's named gap."
     },
     {
       "doc": "docs/api/sync-protocol.md",
@@ -588,6 +588,60 @@
       "clause": "SP-14",
       "tag": "check-exists",
       "check-ref": "The stored-project If-Match rows (match proceeds with fresh ETag; stale 412 leaves the store unchanged) are pinned by reference-implementations/sync-server/tests/integration/conditional-write.test.js; the no-project-stored 412 branch is pinned at the decision-function level by reference-implementations/sync-server/tests/unit/conditional-write.test.js (an end-to-end case for that branch is a named gap)."
+    },
+    {
+      "doc": "docs/api/sync-protocol.md",
+      "clause": "SP-15",
+      "tag": "check-exists",
+      "check-ref": "The pull GETs' cache bypass is pinned by the dedicated \"issues every GET with cache: 'no-store'\" case in packages/shared/tests/unit/sync-client.test.js (npm run test:shared); the connection test sets the same bypass at its single request site (packages/shared/connection-test.js) — a dedicated pin for that request is a named gap."
+    },
+    {
+      "doc": "docs/api/sync-protocol.md",
+      "clause": "SP-16",
+      "tag": "check-exists",
+      "check-ref": "Retain-every-record and tombstones-stay-tombstoned are pinned by packages/shared/tests/unit/resolution-append-only-tombstone.property.test.js; the no-default rejection of an absent choice by packages/shared/tests/unit/resolution-clear-vs-retain.property.test.js (with the explicit DELETE_RESOLUTION path driven by packages/shared/tests/unit/resolve-conflict-fixtures.test.js); post-resolution recoverability by packages/shared/tests/unit/resolution-recoverability.property.test.js (npm run test:shared). Named gap: those suites drive resolveConflict with hand-built resolved states — no check pins the shipped construction paths themselves to chosen-side-active-view-wins; a builder-level pin covering both platforms' construction is the intended closure."
+    },
+    {
+      "doc": "docs/api/sync-protocol.md",
+      "clause": "SP-17",
+      "tag": "checkable",
+      "check-ref": "Intended: a two-cycle unit case pinning that a unit already held for review is auto-applied on the first cycle after Auto-accept-updates is enabled, and a payload pin that no settings field enters a pushed body (not built). Interim probe: settings are read from the store at each cycle's reconcile (getSettings in packages/shared/sync-client.js applyAutomaticOutcomes), the per-cycle policy application is pinned across all four settings combinations by packages/shared/tests/unit/policy-settings-scope.property.test.js, and the assembled push payload carries only docent_format/project/recordings (packages/shared/tests/unit/per-unit-push-assembly.property.test.js; npm run test:shared)."
+    },
+    {
+      "doc": "docs/api/sync-protocol.md",
+      "clause": "SP-18",
+      "tag": "check-exists",
+      "check-ref": "Keep-local/never-push, the exact-version dismissal digest, the deletion-marker dismissal, and retained recoverability are pinned by packages/shared/tests/unit/decline-review.property.test.js; the reconcile phase honoring a recorded dismissal on later cycles (same version suppressed, different version classified afresh) by packages/shared/tests/unit/resolution-propagates-next-cycle.property.test.js (npm run test:shared). Named gap: no check combines a recorded dismissal with Auto-accept updates enabled, so the dismissal-precedes-auto-apply guard order in packages/shared/sync-client.js is unpinned."
+    },
+    {
+      "doc": "docs/api/sync-protocol.md",
+      "clause": "SP-19",
+      "tag": "check-exists",
+      "check-ref": "The atomic persist-or-nothing block and the internal-error halt (store never written, local projects returned unchanged, nothing pushed) are pinned by packages/shared/tests/unit/internal-failure-blocking.property.test.js and packages/shared/tests/unit/abort-on-unretainable.property.test.js (npm run test:shared). The shipped client message is presentation and stays review-held."
+    },
+    {
+      "doc": "docs/api/sync-protocol.md",
+      "clause": "SP-20",
+      "tag": "check-exists",
+      "check-ref": "Both deliveries — the pull-phase halt before the store is touched and the push-phase halt after the persisted reconcile — are pinned by packages/shared/tests/unit/auth-failure-halt.property.test.js (failure points: pull-manifest, pull-project, push); the no-PUT-after-a-pre-push-halt ordering by packages/shared/tests/unit/pull-precedes-push.property.test.js (npm run test:shared)."
+    },
+    {
+      "doc": "docs/api/sync-protocol.md",
+      "clause": "SP-21",
+      "tag": "checkable",
+      "check-ref": "Intended: unit pins that the extension's AUTO_SYNC_DATA_EVENTS set (packages/extension/background/service-worker.js) and the desktop panel's notifyDataEvent call sites cover exactly the six events, and that both backstops use BACKSTOP_INTERVAL_MS (not built). Interim probe: backstop-triggered background cycles are exercised end-to-end by packages/extension/tests/unit/auto-sync-host.test.js (chrome.alarms) and packages/desktop/tests/unit/auto-sync-host.test.js (interval + data-event hooks) (npm run test:extension / npm run test:desktop)."
+    },
+    {
+      "doc": "docs/api/sync-protocol.md",
+      "clause": "SP-22",
+      "tag": "check-exists",
+      "check-ref": "Coalescing (at most one cycle per cooldown window, a single pending follow-up), the never-overlap guarantee, the capture-active drop-not-queue, and failure-survival are pinned by packages/shared/tests/unit/sync-scheduler.property.test.js and packages/shared/tests/unit/sync-scheduler.test.js (npm run test:shared)."
+    },
+    {
+      "doc": "docs/api/sync-protocol.md",
+      "clause": "SP-23",
+      "tag": "check-exists",
+      "check-ref": "The fingerprint-exact enable rule, settings-change invalidation, and the auth auto-disable transitions are pinned against the real shared helpers (connection-test fingerprint, sync-store settings, scheduler stop) by packages/shared/tests/unit/sync-settings-state-machine.test.js; the desktop background host's auth-disable policy by packages/desktop/tests/unit/auto-sync-host.test.js (npm run test:shared / npm run test:desktop). The panel DOM wiring is mirrored, not imported, in the state-machine test — that residue is review-held."
     },
     {
       "doc": "docs/verification/scripted-truth-corpus.md",

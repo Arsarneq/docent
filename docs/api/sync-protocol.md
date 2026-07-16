@@ -30,8 +30,9 @@ not as a server obligation.
 ## Overview
 
 Sync may be triggered manually (a Sync button) or automatically (background
-event and interval triggers). Either way, a full sync cycle runs three phases
-**in order**:
+event and interval triggers — see
+[Automatic sync](#automatic-sync-auto-sync)). Either way, a full sync cycle
+runs three phases **in order**:
 
 1. **Pull** — the client fetches the project manifest, then retrieves each
    project's full data into a retained snapshot.
@@ -422,7 +423,9 @@ The client interprets the following HTTP status codes:
 client to halt the entire sync operation. A halt on the pull returns before any
 reconcile or push runs, so all baselines, conflicts, and review items are
 preserved exactly as they were. All other error codes are non-fatal — the client
-skips the failing project and continues with the rest.
+skips the failing project and continues with the rest. What each halt leaves
+behind, by phase, is specified in
+[Cycle atomicity and halt outcomes](#cycle-atomicity-and-halt-outcomes).
 
 ---
 
@@ -466,6 +469,18 @@ exclude, they do not merely warn):
 4. Each accepted payload is landed into a retained **snapshot** rather than
    overwriting local data directly, so both the local version and the incoming
    version stay recoverable through reconciliation.
+
+**SP-15.** The client issues both pull reads — the manifest `GET /projects`
+and each `GET /projects/:id` — and the [connection test](#get-projects) with
+the HTTP cache bypassed (`cache: 'no-store'`): they MUST NOT be satisfied from
+a locally cached response. A cached payload would read as already-converged
+and silently suppress the review or conflict a concurrent server change should
+raise, and a cached connection test would not reflect the live server. This is
+client-side transport behavior, not a server obligation: a server needs no
+cache-control support (it may legitimately send an `ETag` with no
+`Cache-Control` — exactly the combination a browser-backed transport would
+otherwise serve stale), and on a client whose transport has no shared HTTP
+cache the bypass is inert.
 
 ### Reconcile phase
 
@@ -564,6 +579,36 @@ The throughline: a conflict requires **two competing changes to the same unit**
 (or a delete racing a change). One-sided changes, identical changes, and brand-new
 units never force a choice.
 
+#### How a conflict resolves
+
+**SP-16.** Resolution is **per unit** and **always an explicit user choice**:
+a conflicted unit's data changes only through resolution, resolution never
+runs as part of a sync cycle, and an absent choice resolves nothing — in
+particular, a conflict MUST NOT resolve to a deletion on its own. The chosen
+outcome is one of two:
+
+- **Keep a version (local or incoming).** The adopted state MUST retain every
+  step record present in both conflicting histories — it is an append-only
+  superset of the two sides, and a state that would drop a record from either
+  side is rejected rather than adopted. The adopted state is the union of
+  both sides' step records with the **chosen side's active view
+  winning**: per logical step, a fresh version record makes the chosen side's
+  latest version — or its tombstone — the active one, so at most one version
+  per step is active and a step deleted in the chosen version stays deleted.
+  Nothing is dropped; both versions remain recoverable from the resolved
+  history itself. "Keep the changed version" of a delete-vs-change conflict is
+  this same path with the surviving version as the chosen state.
+- **Accept the deletion.** The delete side of a delete-vs-change conflict is
+  adopted only through an explicit delete choice: the unit is removed locally
+  and the deletion propagates on a later push.
+
+Resolution itself pushes nothing; the baseline advances per-unit to the
+resolved-against incoming version (SP-10), so the adopted state is
+re-validated against the server on the next cycle — and re-surfaces as a
+conflict if another client moved it meanwhile. Like the rest of
+reconciliation, all of this is client-side: the server sees a resolution only
+as an ordinary payload on a later push.
+
 #### What results in a non-blocking review
 
 A **review** (review-and-accept) is the softer counterpart to a conflict: the
@@ -606,12 +651,23 @@ conflict):
   else** — same name, same metadata. A change that drops or replaces step
   records, renames the unit, or edits metadata still becomes a review even with
   this on (a step append is lossless to adopt silently; a rename of a unit you
-  may have open is a separate, surprising change).
+  may have open is a separate, surprising change). The predicate is a
+  step-history concept, so auto-apply is scoped to **recording-level** units:
+  a project-level `changed-incoming` (a project-metadata change) always defers
+  to review. A version the user previously
+  [declined](#declining-a-review) is never auto-applied.
 - **Auto-accept deletions** — a server deletion of a unit you have not changed is
   applied automatically instead of being held for review.
 
 Neither setting ever auto-resolves a **divergence**: if your local copy also
 moved from the baseline, it is a conflict regardless of these toggles.
+
+**SP-17.** Both settings are **client-local**: they live only in the client's
+own settings store and are never transmitted to the server. Each cycle's
+reconcile reads them afresh, so a change takes effect from the **next cycle**
+and never resolves anything at the moment of toggling — including for a unit
+already held for review: a pending incoming version that satisfies the
+predicate is applied on the first cycle after the setting is turned on.
 
 What is **NOT** a review:
 
@@ -619,6 +675,21 @@ What is **NOT** a review:
 - **You changed it, the server didn't** — auto-pushed (`changed-local-outgoing`),
   no prompt.
 - **Brand-new or agreed/identical** — auto-added or converged, nothing to review.
+
+#### Declining a review
+
+**SP-18.** Declining a review is a **dismissal of exactly that incoming
+version**, never a counter-write: the local version is kept, nothing is
+pushed, and no baseline advances. The client durably records a content digest
+of the declined incoming version (for a declined server deletion, a stable
+deletion marker), keyed per unit, and later cycles honor it — the same
+incoming version is neither re-offered for review nor auto-applied, while an
+incoming version with any different content matches no recorded dismissal and
+is classified afresh, so a newer server change is offered normally. The
+declined version itself stays retained in recoverable form (the pull snapshot,
+or the review item's own retained copy), so declining loses nothing. A later
+decline replaces the unit's recorded dismissal, and resolving or accepting the
+unit clears it, returning the unit to a clean state.
 
 ### Push phase
 
@@ -662,6 +733,82 @@ authored work is lost). Push reads only committed `recording.steps`; uncommitted
 captured actions live in a separate store and never enter the payload.
 
 Push never advances the baseline.
+
+### Cycle atomicity and halt outcomes
+
+**SP-19.** The reconcile phase persists its outcome **atomically**: the
+client's durable sync state (baselines, snapshots, reviews, conflicts,
+dismissals) transitions from its prior state to the fully-reconciled state in
+a single persist, or not at all. Any internal failure during detection or the
+persist — including a version that cannot be retained in recoverable form
+while a conflict is being recorded — halts the whole cycle with **no
+changes**: no durable state is written, local data is returned untouched (no
+partial merge), and nothing is pushed. Docent's clients surface this halt as
+"Sync stopped to protect your data and made no changes. Your work and any
+pending items are preserved." — client presentation, not wire protocol.
+
+**SP-20.** An authentication halt (`401`/`403` — see
+[Response Codes](#response-codes)) always preserves all durable state; what
+the interrupted cycle keeps differs by the phase the failure lands in:
+
+- **Pull-phase auth halt** — the cycle returns before any reconcile or push,
+  so nothing at all is touched: local data, baselines, snapshots, reviews, and
+  conflicts are exactly as they were.
+- **Push-phase auth halt** — the same cycle's pull and reconcile have already
+  completed and been persisted; that reconcile outcome (newly recorded
+  reviews/conflicts, advanced baselines, merged projects) is kept, and the
+  halt stops only the remaining server writes.
+
+Either way nothing is lost; the phases differ only in whether the current
+cycle's completed reconcile is retained.
+
+### Automatic sync (Auto-Sync)
+
+Auto-Sync changes only **what starts** a cycle. An automatically triggered
+cycle invokes the same shared cycle as a manual one — one code path, so the
+three local protections (SP-7) and every phase above apply identically.
+Nothing in this subsection adds server obligations; it specifies the client's
+trigger and enablement machinery. The observable server-side effect is request
+timing: an idle client with Auto-Sync enabled reads the manifest roughly once
+a minute.
+
+**SP-21.** A cycle is requested by exactly two kinds of trigger:
+
+- **Local data events** — a closed set of six: a step commit, a recording
+  close (capture stop), a project creation, a project deletion, a recording
+  creation, and a recording deletion. No other local event requests a cycle.
+- **A periodic backstop** (~60 s) — so a locally idle client still pulls other
+  clients' changes, and a follow-up deferred by the cooldown (SP-22) is
+  guaranteed a trigger that dispatches it.
+
+**SP-22.** Triggers pass through a coalescing scheduler shared by both
+platforms, whose contract is:
+
+- **At most one cycle per cooldown window** (5 s by default): a burst of
+  triggers collapses into one running cycle plus at most a single pending
+  follow-up, no matter how many triggers arrive.
+- **Cycles MUST NOT overlap**: a trigger arriving while a cycle is in flight
+  is coalesced into the single pending follow-up, which runs when the
+  in-flight cycle settles (subject to the cooldown).
+- **Triggers are dropped, not queued, while capture is active**: no cycle
+  starts during capture, and the dropped trigger is not replayed afterwards —
+  the next data event or backstop tick starts the next cycle. (The in-cycle
+  capture halt (SP-7) remains authoritative; the drop is an optimization in
+  front of it.)
+- A failing cycle leaves scheduling enabled — the next trigger retries;
+  disabling Auto-Sync stops the scheduler and clears any pending follow-up.
+
+**SP-23.** Enabling Auto-Sync is gated on the [connection test](#get-projects),
+and the gate is **fingerprint-exact**: Auto-Sync can be turned on only when an
+endpoint is configured AND a test has passed **against the current settings**
+— the client records the endpoint-plus-key fingerprint the passing test was
+taken against, and the pass counts only while the settings still match it.
+Changing the server settings invalidates the prior test and forces Auto-Sync
+off until a fresh test passes. An authentication failure (`401`/`403`) during
+an automatically triggered cycle durably disables Auto-Sync and records the
+failed-auth test outcome in place of the pass — bad credentials are never
+retried on the backstop interval, and re-enabling requires a fresh passing
+test. All of this state is client-local and never sent to the server.
 
 ---
 
