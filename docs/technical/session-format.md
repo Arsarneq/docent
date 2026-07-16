@@ -181,11 +181,11 @@ illustrative, not the current version):
 correct schema and route migrations without inspecting the contents or
 guessing. In each published schema both values are fixed as `const`, so the
 stamp is validated, not just carried — a file whose stamp does not match a schema's platform/version will
-not validate against it. (Docent's own backward-compatibility test corpus relaxes
-the `schema_version` `const` to validate older exports by _shape_ across versions
-— a test-harness convenience that never weakens the published contract a consumer
-receives.) The values are sourced from the schema itself (the single source of
-truth), never hand-written.
+not validate against it. (Docent's own test and verification harnesses relax the
+`schema_version` `const` to validate recordings by _shape_ across schema versions
+— a harness-local convenience that never weakens the published contract a
+consumer receives.) The values are sourced from the schema itself (the single
+source of truth), never hand-written.
 
 ---
 
@@ -336,7 +336,7 @@ lint's fail-class check ([`scripts/sufficiency-lint.js`](../../scripts/sufficien
 
 - `window_rect` (object \| null) — window position/size `{x, y, width, height}` in physical screen pixels, resolved from the action's window handle regardless of capture mode; null when no window handle was resolvable.
 
-**Coordinate spaces:** extension `x`/`y` are viewport coordinates of the capturing frame (CSS pixels); desktop `x`/`y` are physical screen pixels — the same space as `window_rect`.
+**Coordinate spaces:** each coordinate and scroll-geometry field's space and unit is stated by its schema description — in summary, extension `x`/`y` are viewport coordinates of the capturing frame (CSS pixels), and desktop `x`/`y` are physical screen pixels, the same space as `window_rect`.
 
 ### Capture modes
 
@@ -369,10 +369,10 @@ lint's fail-class check ([`scripts/sufficiency-lint.js`](../../scripts/sufficien
 
 ### Extension only
 
-| Type          | Key fields         | Description                                                                                                                                                                                                                                                                                                              |
-| ------------- | ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `navigate`    | `nav_type`, `url`  | Page navigation. `nav_type`: link, typed, reload, back_forward, spa, form_submit, etc. Values of known-sensitive query parameters in `url` (authentication and session tokens, keys and secrets, passwords, one-time codes, signatures) are masked; the schema's `url` description enumerates the exact parameter names. |
-| `file_upload` | `element`, `files` | File(s) selected via input. `files`: `[{name, size, mime}]`.                                                                                                                                                                                                                                                             |
+| Type          | Key fields         | Description                                                                                                                                                                                                                                                                                                                                                                                                              |
+| ------------- | ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `navigate`    | `nav_type`, `url`  | Page navigation. `nav_type` is one of the schema's closed set: `link`, `typed`, `reload`, `back_forward`, `spa`, `auto_bookmark`, `generated`, `start_page`, `form_submit`, `keyword`. Values of known-sensitive query parameters in `url` (authentication and session tokens, keys and secrets, passwords, one-time codes, signatures) are masked; the schema's `url` description enumerates the exact parameter names. |
+| `file_upload` | `element`, `files` | File(s) selected via input. `files`: `[{name, size, mime}]`.                                                                                                                                                                                                                                                                                                                                                             |
 
 ### Desktop (Windows) only
 

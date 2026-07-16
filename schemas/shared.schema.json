@@ -145,11 +145,11 @@
         },
         "x": {
           "type": "number",
-          "description": "Pointer X at the action, in the capture surface's coordinate space: the capturing document's viewport for in-page capture, or the screen (physical pixels) for native capture."
+          "description": "Pointer X at the action, in the capture surface's coordinate space: the capturing document's viewport (the document's layout pixels) for in-page capture, or the screen (physical pixels) for native capture."
         },
         "y": {
           "type": "number",
-          "description": "Pointer Y at the action, in the capture surface's coordinate space: the capturing document's viewport for in-page capture, or the screen (physical pixels) for native capture."
+          "description": "Pointer Y at the action, in the capture surface's coordinate space: the capturing document's viewport (the document's layout pixels) for in-page capture, or the screen (physical pixels) for native capture."
         },
         "element": {
           "$ref": "#/$defs/element"
@@ -170,11 +170,11 @@
         },
         "x": {
           "type": "number",
-          "description": "Pointer X at the action, in the capture surface's coordinate space: the capturing document's viewport for in-page capture, or the screen (physical pixels) for native capture."
+          "description": "Pointer X at the action, in the capture surface's coordinate space: the capturing document's viewport (the document's layout pixels) for in-page capture, or the screen (physical pixels) for native capture."
         },
         "y": {
           "type": "number",
-          "description": "Pointer Y at the action, in the capture surface's coordinate space: the capturing document's viewport for in-page capture, or the screen (physical pixels) for native capture."
+          "description": "Pointer Y at the action, in the capture surface's coordinate space: the capturing document's viewport (the document's layout pixels) for in-page capture, or the screen (physical pixels) for native capture."
         },
         "element": {
           "$ref": "#/$defs/element"
@@ -295,11 +295,11 @@
         },
         "x": {
           "type": "number",
-          "description": "Pointer X at the action, in the capture surface's coordinate space: the capturing document's viewport for in-page capture, or the screen (physical pixels) for native capture."
+          "description": "Pointer X at the action, in the capture surface's coordinate space: the capturing document's viewport (the document's layout pixels) for in-page capture, or the screen (physical pixels) for native capture."
         },
         "y": {
           "type": "number",
-          "description": "Pointer Y at the action, in the capture surface's coordinate space: the capturing document's viewport for in-page capture, or the screen (physical pixels) for native capture."
+          "description": "Pointer Y at the action, in the capture surface's coordinate space: the capturing document's viewport (the document's layout pixels) for in-page capture, or the screen (physical pixels) for native capture."
         },
         "element": {
           "$ref": "#/$defs/element"
@@ -350,16 +350,20 @@
           "description": "The scrolled element. Null for page-level scroll."
         },
         "scroll_top": {
-          "type": "number"
+          "type": "number",
+          "description": "Vertical scroll offset of the scrolled container (the page when element is null) when the gesture settled: the container's offset in the document's layout pixels for in-page capture; 0 for native capture, which observes wheel input rather than container offsets."
         },
         "scroll_left": {
-          "type": "number"
+          "type": "number",
+          "description": "Horizontal scroll offset of the scrolled container (the page when element is null) when the gesture settled: the container's offset in the document's layout pixels for in-page capture; 0 for native capture, which observes wheel input rather than container offsets."
         },
         "delta_y": {
-          "type": "number"
+          "type": "number",
+          "description": "Net vertical displacement of the settled scroll sequence: the vertical scroll offset observed at the sequence's last scroll event minus the offset observed at its first (in the document's layout pixels) for in-page capture, or the sum of the sequence's raw vertical wheel deltas as reported by the platform's input layer (native wheel-delta units, not pixels; sign follows the platform's wheel convention) for native capture."
         },
         "delta_x": {
-          "type": "number"
+          "type": "number",
+          "description": "Net horizontal displacement of the settled scroll sequence: the horizontal scroll offset observed at the sequence's last scroll event minus the offset observed at its first (in the document's layout pixels) for in-page capture, or the sum of the sequence's raw horizontal wheel deltas as reported by the platform's input layer (native wheel-delta units, not pixels; sign follows the platform's wheel convention) for native capture."
         },
         "context_id": {
           "$ref": "#/$defs/context_id"

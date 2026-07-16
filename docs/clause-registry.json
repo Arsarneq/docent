@@ -311,7 +311,7 @@
       "doc": "docs/technical/session-format.md",
       "clause": "SF-7",
       "tag": "check-exists",
-      "check-ref": "Composition and validator tests derive stamps via stampFromSchema(composePlatform(...)) and pin the const behaviour; the backward-compat harness demonstrates the relaxation is harness-local (packages/shared/tests/unit/backward-compat.test.js; run via npm run test:shared)."
+      "check-ref": "Composition and validator tests derive stamps via stampFromSchema(composePlatform(...)) and pin the const behaviour; every harness relaxation goes through the single clone-only chokepoint relaxVersionStamp (scripts/build-schemas.js), whose harness-locality the backward-compat suite demonstrates (packages/shared/tests/unit/backward-compat.test.js; run via npm run test:shared)."
     },
     {
       "doc": "docs/technical/session-format.md",
