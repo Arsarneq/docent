@@ -16,6 +16,8 @@
       "code": ["packages/extension/**"],
       "docs": [
         "docs/architecture/application/extension/capture-principles.md",
+        "docs/architecture/application/extension/permissions.md",
+        "docs/architecture/application/extension/runtime.md",
         "docs/architecture/system/capture-principles.md",
         "docs/technical/locator-resolution.md",
         "docs/test/e2e.md",

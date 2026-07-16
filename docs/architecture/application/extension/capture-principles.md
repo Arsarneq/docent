@@ -37,10 +37,13 @@ recording is active**:
   (`webNavigation.onCompleted`), so newly opened tabs, navigations, and
   dynamically created iframes are covered as they appear.
 
-When no recording is running, no recorder is present on any page — the idle
-surface is just the service worker. (The `host_permissions: <all_urls>` grant is
-retained by decision: it is what lets the service worker inject into any page the
-moment recording starts.)
+When no recording is running, nothing is injected and nothing captures: the
+service worker injects no recorder, and recorder instances a prior recording
+left in still-open documents are inactive — each deactivates in place through
+its `recording` watch — until navigation replaces their documents. The idle
+surface that acts is just the service worker. (The
+`host_permissions: <all_urls>` grant is retained by decision: it is what lets
+the service worker inject into any page the moment recording starts.)
 
 ### Frame trust and readiness
 
