@@ -19,6 +19,8 @@ The publish job then verifies the released commit is current `main` HEAD before 
 
 As part of the run, the pipeline opens a single PR on branch `automated/version-table-update` carrying the regenerated release outputs (bumped leaf delta versions, recomposed `schemas/dist/`, refreshed version tables/badges, app manifests, and seed-sample stamps). On that PR, CI runs a **positive validator** ([`check-no-release-outputs.js`](../scripts/check-no-release-outputs.js)) that asserts the PR contains _only_ those release outputs and that `dist/` composes cleanly from the source layers — so an accidental or unexpected change can never ride in through this mechanism. The same guard gates the other direction on ordinary PRs: it **fails** a feature-branch PR that modifies `schemas/dist/` or bumps a leaf delta `version` (release-pipeline outputs, not feature work), so a release output can only land through this automated PR. The PR **auto-merges once it is green** — `main` requires **0 approvals**, so no human click gates it; the positive validator (not an approval) is the real gate, which makes a release fully tag-and-go.
 
+The version PR's allowed contents — the **release-output surface** — are enumerated in one place, in [`check-no-release-outputs.js`](../scripts/check-no-release-outputs.js): the exact paths the pipeline writes (the composed `schemas/dist/`, the version tables and badges, the app manifests, the desktop crate files, the seed-sample stamps) plus the leaf delta `version` bumps. The pipeline's writers and that enumeration move **in lockstep**: a change that adds a release output outside the already-enumerated paths and prefixes — e.g. a new propagation target in [`update-version-table.js`](../scripts/update-version-table.js) — must extend the enumeration in the same change, or the positive validator rejects the pipeline's own next version PR as carrying an unexpected file. (A new composed schema under `schemas/dist/` needs no enumeration edit — that directory prefix already admits it, and the recomposition check verifies it composes from the source layers.)
+
 ## Dry-run a publish (no side-effects)
 
 Both publish workflows accept a manual **`workflow_dispatch`** that runs as a **dry-run**: the full pipeline executes on an ephemeral runner, but every external side-effect is gated off — **nothing is published**. Use it to rehearse the pipeline before the first live run, or whenever the Chrome Web Store is mid-review and a real `extension-v*` submission isn't yet possible.
@@ -34,7 +36,7 @@ The Run-workflow dialog has **no inputs** beyond the branch selector — there i
 
 **What it does:** everything a real release does _except_ the three steps that touch the outside world. It runs the full test gate ([Test gating](#test-gating-and-the-version-pr)), apply-mode auto-version (into the runner's throwaway checkout), and the package/installer build — the extension zip is built and asserted upload-ready, and a GitHub-dispatched **desktop** dry-run compiles the Windows installer for real on a `windows-latest` runner (build-only; nothing attached). It **skips** the three side-effects: the Chrome Web Store upload, the desktop release-asset attach, and the version-table PR (create + auto-merge).
 
-**What it does _not_ cover:** the real external API calls (the CWS upload, the release-asset attach) run only on a real release. The reusable-workflow + `secrets: inherit` test-gate wiring _is_ exercised for real by an on-GitHub dispatch, but a **local** `act` dry-run may not resolve it (see [docs/guides/local-ci.md](../docs/guides/local-ci.md#dry-run-the-publish-workflows-workflow_dispatch)). On a no-schema-change `main`, a dry-run takes the exact no-bump path a real release will (auto-version finds nothing → no version PR); the version-PR positive-validator runs only on a real schema-bumping release.
+**What it does _not_ cover:** the real external API calls (the CWS upload, the release-asset attach) run only on a real release. The reusable-workflow test-gate wiring — each publish workflow passes the suite its one declared secret, `CODECOV_TOKEN`, explicitly, so the reusable [`test.yml`](workflows/test.yml) never receives the full repository secret set — _is_ exercised for real by an on-GitHub dispatch, but a **local** `act` dry-run may not resolve it (see [docs/guides/local-ci.md](../docs/guides/local-ci.md#dry-run-the-publish-workflows-workflow_dispatch)). On a no-schema-change `main`, a dry-run takes the exact no-bump path a real release will (auto-version finds nothing → no version PR); the version-PR positive-validator runs only on a real schema-bumping release.
 
 **If a dry-run fails,** it caught something before the real release — which is the point. Roughly: a red **test gate** → fix the tests; a red **package / installer** step → packaging is broken. Fix the cause, then create the real Release. (The `main`-HEAD guard does **not** run in a dry-run — it is final-release-only.)
 
@@ -110,6 +112,8 @@ The workflow is defined in [`.github/workflows/publish.yml`](workflows/publish.y
 | `CHROME_CLIENT_SECRET` | OAuth 2.0 client secret from Google Cloud Console                       |
 | `CHROME_REFRESH_TOKEN` | OAuth 2.0 refresh token obtained via the Chrome Web Store API auth flow |
 
+All four are read by a single step — the final Chrome Web Store upload — so a [dry-run](#dry-run-a-publish-no-side-effects) or [pre-release](#pre-release-rc-builds) never touches them. The workflow's other two secrets are shared with the desktop pipeline and documented under [Shared workflow secrets](#shared-workflow-secrets): `PERSONAL_ACCESS_TOKEN` opens the version-table PR, and `CODECOV_TOKEN` is passed to the gating test suite.
+
 ### Obtaining the Chrome Web Store credentials
 
 1. Go to the [Google Cloud Console](https://console.cloud.google.com/) and create a project
@@ -142,7 +146,7 @@ The workflow is defined in [`.github/workflows/publish-desktop.yml`](workflows/p
 
 The Tauri **auto-updater is intentionally disabled** — there is no `tauri-plugin-updater` dependency and no `plugins.updater` configuration, so the build produces no updater bundles or `latest.json`. The workflow sets `includeUpdaterJson: false` explicitly and passes **no** `TAURI_SIGNING_PRIVATE_KEY` secrets (those would sign updater bundles, which we do not produce).
 
-The Windows **installer** is a separate matter: it currently ships **unsigned**, so Windows SmartScreen shows an "Unknown publisher" warning on first run. Free EV code-signing via SignPath Foundation is tracked in [#72](https://github.com/Arsarneq/docent/issues/72); installer signing will be wired into `publish-desktop.yml` once that lands. **There are no required desktop secrets today.**
+The Windows **installer** is a separate matter: it currently ships **unsigned**, so Windows SmartScreen shows an "Unknown publisher" warning on first run. Free EV code-signing via SignPath Foundation is tracked in [#72](https://github.com/Arsarneq/docent/issues/72); installer signing will be wired into `publish-desktop.yml` once that lands. **There are no desktop-specific secrets today** — the workflow consumes only the [shared workflow secrets](#shared-workflow-secrets) (`PERSONAL_ACCESS_TOKEN` to open the version-table PR, `CODECOV_TOKEN` passed to the gating test suite) plus the automatic `GITHUB_TOKEN`, which `tauri-action` uses to attach the installer to the release.
 
 ### Triggering a desktop publish
 
@@ -160,8 +164,13 @@ Currently only Windows is supported. A Linux build target can be added to the wo
 
 ---
 
-## CLA Assistant
+## Shared workflow secrets
 
-| Secret                  | Description                                                                                                                                 |
-| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
-| `PERSONAL_ACCESS_TOKEN` | A GitHub Personal Access Token with `repo` scope, used by the CLA Assistant workflow to write contributor signatures back to the repository |
+Two configured secrets are consumed by both publish workflows rather than by either platform alone:
+
+| Secret                  | Description                                                                                                                                                                                                                                                                                                         |
+| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `PERSONAL_ACCESS_TOKEN` | A GitHub Personal Access Token with `repo` scope. Both publish workflows open the `automated/version-table-update` PR with it ([Test gating and the version PR](#test-gating-and-the-version-pr)): a PR opened with the workflow's own `GITHUB_TOKEN` would not trigger the CI checks the PR's auto-merge waits on. |
+| `CODECOV_TOKEN`         | The Codecov upload token, read by the reusable test suite's coverage-upload steps. Each publish workflow passes it to [`test.yml`](workflows/test.yml) explicitly — the suite's one declared secret — and direct push/PR test runs read it from the repository secret context.                                      |
+
+The CLA Assistant workflow ([`cla.yml`](workflows/cla.yml)) needs no configured secret — it writes contributor signatures with the workflow's automatic `GITHUB_TOKEN`.
