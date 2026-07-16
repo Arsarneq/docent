@@ -53,10 +53,13 @@ future capture surface (e.g. Linux) beside it.
   that defines what "the recording's locators resolve correctly" means, and the
   conformance-vector scope.
 
-### API — the sync interface
+### API — the wire and transport protocols
 
 - [Sync Protocol](api/sync-protocol.md) — the REST protocol for syncing projects
   between clients and a server.
+- [Dispatch Protocol](api/dispatch.md) — the transport contract for sending
+  recordings to a configured HTTP endpoint: the payload wrapper, the endpoint
+  URL policy, retries, and delivery semantics.
 
 `api/` holds wire/transport protocols; the `.docent.json` format's orientation
 prose lives under `technical/`, and the schemas themselves — the format's

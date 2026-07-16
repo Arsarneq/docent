@@ -45,6 +45,7 @@
       ],
       "docs": [
         "docs/api/sync-protocol.md",
+        "docs/api/dispatch.md",
         "docs/user/desktop-windows.md",
         "docs/user/extension.md"
       ]
