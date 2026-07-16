@@ -22,8 +22,10 @@ identifiers reflect minting order and may appear out of numeric sequence.
 **SF-1.** Where this prose and a schema disagree, the schema governs.
 
 The format is not Docent's only external contract: sync servers implement the [Sync Protocol](../api/sync-protocol.md)
-and treat this format as an opaque payload. All of Docent's external contracts
-are data — versioned schemas and a documented protocol — never shipped code or
+and treat this format as an opaque payload, and dispatch endpoints receive it
+inside the [Dispatch Protocol](../api/dispatch.md)'s payload wrapper. All of
+Docent's external contracts
+are data — versioned schemas and documented protocols — never shipped code or
 a shipped consumer. What a recording must be sufficient _for_ is defined by
 the [Replay Sufficiency](../requirements/replay-sufficiency.md) principle.
 
@@ -123,37 +125,13 @@ than silently misinterpreting data.
 
 ## Dispatch payload structure
 
-**SF-5.** When Docent dispatches to an endpoint, the HTTP POST body is the
-five-field wrapper below. The wrapper itself is not governed by the platform
-schemas (they define the `.docent.json` contents); this section is its
-defining specification.
-
-```json
-{
-  "reading_guidance": "(string) Human-readable prose explaining the payload",
-  "schema": { "(object) The JSON Schema for this platform" },
-  "docent_format": { "platform": "(string)", "schema_version": "(string)" },
-  "project": { ... },
-  "recordings": [ ... ]
-}
-```
-
-| Field              | Type   | Description                                                                                        |
-| ------------------ | ------ | -------------------------------------------------------------------------------------------------- |
-| `reading_guidance` | string | Prose explanation of the payload. Designed for LLM context.                                        |
-| `schema`           | object | The full JSON Schema for the sending platform. Consumers can use this for validation or ignore it. |
-| `docent_format`    | object | Self-describing stamp: `{ platform, schema_version }`. See [Format stamp](#format-stamp).          |
-| `project`          | object | Project metadata.                                                                                  |
-| `recordings`       | array  | Array of recording objects.                                                                        |
-
-The `.docent.json` export file contains `docent_format`, `project`, and
-`recordings` (no `reading_guidance` or `schema` wrapper).
-
-**SF-6.** The shipped `reading_guidance` prose paraphrases schema-governed
-semantics for a reader with no prior Docent knowledge. It MUST track the
-schemas: a change that alters the format's semantics carries a review of the
-shipped guidance asset in the same change, so no payload delivers stale
-guidance beside a current schema.
+When Docent dispatches to a configured endpoint, the HTTP POST body wraps the
+schema-governed data in additional fields. That wrapper's defining
+specification — its fields, the transport contract around it, and the
+obligation that the shipped `reading_guidance` prose track the schemas — is
+the [Dispatch Protocol](../api/dispatch.md). The `.docent.json` export file
+contains `docent_format`, `project`, and `recordings` (no `reading_guidance`
+or `schema` wrapper).
 
 ---
 

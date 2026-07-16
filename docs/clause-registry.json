@@ -7,16 +7,18 @@
     "ECP": "docs/architecture/application/extension/capture-principles.md",
     "DCP": "docs/architecture/application/desktop/windows/capture-principles.md",
     "SP": "docs/api/sync-protocol.md",
-    "STC": "docs/verification/scripted-truth-corpus.md"
+    "STC": "docs/verification/scripted-truth-corpus.md",
+    "DI": "docs/api/dispatch.md"
   },
   "retired": {
     "CP": [],
     "LR": [],
-    "SF": [],
+    "SF": ["SF-5", "SF-6"],
     "ECP": [],
     "DCP": [],
     "SP": [],
-    "STC": []
+    "STC": [],
+    "DI": []
   },
   "clauses": [
     {
@@ -294,18 +296,6 @@
       "clause": "SF-4",
       "tag": "check-exists",
       "check-ref": "scripts/check-no-release-outputs.js fails any feature-branch PR that edits schemas/dist/ or bumps a leaf delta version, so hand-bumping cannot merge; the release pipeline computes bumps via scripts/auto-version-schemas.js."
-    },
-    {
-      "doc": "docs/technical/session-format.md",
-      "clause": "SF-5",
-      "tag": "check-exists",
-      "check-ref": "The exact five-field wrapper is asserted by packages/shared/tests/unit/contract.test.js (and the security suite); the three-field export is pinned by the desktop export suite validating buildExport output against the closed schema root (packages/desktop/tests/unit/export.test.js; npm run test:desktop) — the composed root is closed over exactly those three fields."
-    },
-    {
-      "doc": "docs/technical/session-format.md",
-      "clause": "SF-6",
-      "tag": "checkable",
-      "check-ref": "Intended: a pin requiring the shipped guidance asset to be re-confirmed whenever the schema source layers change (not built). Interim: review — whether a semantics change invalidates the guidance prose is judged per change."
     },
     {
       "doc": "docs/technical/session-format.md",
@@ -750,6 +740,102 @@
       "clause": "STC-18",
       "tag": "judgment-only",
       "justification": "Whether a produced-vs-committed divergence is an environment variance the comparator class rules absorb or a deliberate re-baseline moment (a runner-image bump) is judgment; the produce-stage oracle reddens either way."
+    },
+    {
+      "doc": "docs/api/dispatch.md",
+      "clause": "DI-1",
+      "tag": "judgment-only",
+      "justification": "Whether a specification edit keeps the Request/Payload/Response sections a sufficient endpoint contract — the client-binding sections acquiring no endpoint obligations beyond the named DI-15 exception — is an editorial judgment no check can decide."
+    },
+    {
+      "doc": "docs/api/dispatch.md",
+      "clause": "DI-2",
+      "tag": "check-exists",
+      "check-ref": "The Bearer header presence/omission is pinned by the 'includes Authorization header when apiKey provided' and 'omits Authorization header when apiKey is null' cases in packages/shared/tests/unit/dispatch-core.test.js (npm run test:shared) and by the API-key describe in packages/extension/tests/unit/dispatch.test.js (npm run test:extension). Named gap: no test pins the POST method or the Content-Type header; a request-shape pin is the intended closure."
+    },
+    {
+      "doc": "docs/api/dispatch.md",
+      "clause": "DI-3",
+      "tag": "check-exists",
+      "check-ref": "The exact five-field wrapper is asserted by packages/shared/tests/unit/contract.test.js ('has exactly five top-level keys') and packages/extension/tests/unit/dispatch.test.js (npm run test:shared / test:extension); the three-field export contrast is pinned by the desktop export suite validating buildExport output against the closed schema root (packages/desktop/tests/unit/export.test.js; npm run test:desktop); the stamp-or-fail sourcing by the stampFromSchema throw path (packages/shared/lib/format-stamp.js, exercised by the composition suites; npm run test:shared)."
+    },
+    {
+      "doc": "docs/api/dispatch.md",
+      "clause": "DI-4",
+      "tag": "check-exists",
+      "check-ref": "Field-for-field payload fidelity is pinned by 'buildPayload preserves all project, recording, and step fields' in packages/extension/tests/unit/dispatch.test.js (npm run test:extension) and the metadata/step-mode projections by packages/shared/tests/unit/dispatch-payload.test.js; tombstone retention by 'preserves deleted flag on steps' in packages/shared/tests/unit/dispatch-core.test.js (npm run test:shared). That pending actions live outside recording.steps is the shared session model's structure, review-held here."
+    },
+    {
+      "doc": "docs/api/dispatch.md",
+      "clause": "DI-5",
+      "tag": "checkable",
+      "check-ref": "Intended: a pin requiring the shipped guidance asset to be re-confirmed whenever the schema source layers or this wrapper specification change (not built). Interim: review — whether a semantics or wrapper change invalidates the guidance prose is judged per change."
+    },
+    {
+      "doc": "docs/api/dispatch.md",
+      "clause": "DI-6",
+      "tag": "check-exists",
+      "check-ref": "2xx-with-unparseable-body success ('returns empty object when response is not valid JSON'), per-status DispatchError surfacing (400/401/403/404/500/502), and adversarial response tolerance are pinned by packages/shared/tests/unit/dispatch-core.test.js and packages/shared/tests/unit/security.test.js (npm run test:shared)."
+    },
+    {
+      "doc": "docs/api/dispatch.md",
+      "clause": "DI-7",
+      "tag": "check-exists",
+      "check-ref": "The retry/backoff describe in packages/shared/tests/unit/dispatch-core.test.js pins 503 and 429 retries, the maxRetries exhaustion path, the fail-fast on non-transient 4xx, Retry-After honouring via injected sleep, and network-error retries (npm run test:shared); the AbortError case in the same file pins timeout classification (transient) only — the 30-second per-attempt duration is comment-pinned at its call site and review-held."
+    },
+    {
+      "doc": "docs/api/dispatch.md",
+      "clause": "DI-8",
+      "tag": "judgment-only",
+      "justification": "The delivery posture is the design consequence of DI-7's retry mechanics — no repository check can observe an endpoint's duplicate receipt. The mechanically checkable byte-identity half is split out as DI-16."
+    },
+    {
+      "doc": "docs/api/dispatch.md",
+      "clause": "DI-9",
+      "tag": "check-exists",
+      "check-ref": "Both bounds are pinned by packages/shared/tests/unit/dispatch-core.test.js: 'throws DispatchError with null status for payload > 50MB' (before any request) and 'throws DispatchError for response > 10MB' (declared Content-Length); npm run test:shared."
+    },
+    {
+      "doc": "docs/api/dispatch.md",
+      "clause": "DI-10",
+      "tag": "check-exists",
+      "check-ref": "The rule set is pinned by the validateEndpointUrl describes in packages/shared/tests/unit/dispatch-core.test.js (scheme, malformed, embedded credentials, empty-clears, link-local block, the plaintext-HTTP-with-key guard and its loopback allowance) and the embedded-credential/scheme cases in packages/shared/tests/unit/security.test.js (npm run test:shared); the save-time wiring by the invalid-URL settings cases in packages/desktop/tests/integration/panel-dispatch-sync.spec.js (npm run test:integration) — a dedicated pin for the extension panel's save-time wiring is a named gap (the extension adapter re-validates in saveSettings, exercised by packages/extension/tests/unit/dispatch.test.js)."
+    },
+    {
+      "doc": "docs/api/dispatch.md",
+      "clause": "DI-11",
+      "tag": "check-exists",
+      "check-ref": "The native URL policy (https to any host, http only to loopback, link-local rejected on either scheme, non-HTTP schemes and hostless URLs rejected) is pinned by the validate_sync_url unit tests in packages/desktop/src-tauri/src/sync_http.rs (npm run test:desktop:rust); the 30 s timeout constant and the single-chokepoint claim are comment-pinned at the command and review-held."
+    },
+    {
+      "doc": "docs/api/dispatch.md",
+      "clause": "DI-12",
+      "tag": "check-exists",
+      "check-ref": "The seam contract — lazy fetch default, bound-transport routing, reset, non-function fallback — is pinned by packages/shared/tests/unit/http-transport.test.js (npm run test:shared); the desktop binding is exercised end-to-end by the integration suites driving the real adapter against a mocked sync_http_request command (packages/desktop/tests/integration/panel-dispatch-sync.spec.js; npm run test:integration)."
+    },
+    {
+      "doc": "docs/api/dispatch.md",
+      "clause": "DI-13",
+      "tag": "check-exists",
+      "check-ref": "'dispatch button disabled without endpoint configured' and 'dispatch flow shows confirmation with step count' in packages/desktop/tests/integration/panel-dispatch-sync.spec.js pin the endpoint gate and the confirmation surface (npm run test:integration). Named gaps: the active-steps eligibility filter and the extension panel's mirrored gating have no dedicated pins and are review-held."
+    },
+    {
+      "doc": "docs/api/dispatch.md",
+      "clause": "DI-14",
+      "tag": "check-exists",
+      "check-ref": "The cooldown tracker — block after send, countdown, boundary-as-elapsed, clock-skew tolerance, and the 5 s default — is pinned by packages/shared/tests/unit/dispatch-cooldown.test.js (npm run test:shared); the panels' DOM wiring (disable, hint, no cooldown on failure) is review-held."
+    },
+    {
+      "doc": "docs/api/dispatch.md",
+      "clause": "DI-15",
+      "tag": "judgment-only",
+      "justification": "A deployment-time configuration on an operator's endpoint; no repository check can observe what CORS headers a deployed endpoint emits."
+    },
+    {
+      "doc": "docs/api/dispatch.md",
+      "clause": "DI-16",
+      "tag": "checkable",
+      "check-ref": "Intended: a unit case pinning single-serialization — byte-identical bodies across retry attempts (not built). Interim probe: the serialization call site precedes the attempt loop in packages/shared/dispatch-core.js."
     }
   ]
 }
