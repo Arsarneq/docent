@@ -5,8 +5,9 @@ schedule — workflow by workflow: each gate's trigger, what it verifies, and
 what turns it red, plus the action SHA-pinning policy and the
 workflow-security posture behind the whole set. This guide covers **what**
 the gates are; its companion, [Running CI locally](local-ci.md), covers
-**how** to run the CI jobs on your own machine (`act`, event payloads, and
-the `windows-latest` boundary) and is not repeated here. The workflow files
+**how** to run the gates on your own machine — per-gate direct commands,
+whole jobs under `act`, and the Windows-runner boundary — and is not
+repeated here. The workflow files
 under [`.github/workflows/`](../../.github/workflows/) are the deciding
 mechanism throughout — where this prose and a workflow disagree, the
 workflow governs.
