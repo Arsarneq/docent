@@ -27,6 +27,11 @@ CI jobs on your own machine is covered in
   (real Chrome, real input): the capture specs plus the panel, service-worker,
   and sync flows, and the harness contract they run under (frame readiness,
   one-worker serialization, retries, settle waits).
+- [Desktop Rust tests](desktop-rust.md) — the Tauri crate's cargo suite: the
+  in-module unit tests, the flat test binaries (property tests included), the
+  real-input integration suite, and how each test classifies itself for CI.
+- [Desktop integration tests](integration/desktop.md) — the Playwright suite
+  that drives the built desktop frontend against a mocked Tauri backend.
 - [Manual tests — extension](manual/extension.md) — the retired manual capture
   scenarios, each mapped to the automated test that replaced it.
 - [Manual tests — Windows desktop](manual/windows.md) — the retired manual desktop
@@ -41,8 +46,8 @@ Named here so every future test doc has an obvious home; a folder is created onl
 when its first real doc lands (no empty directories — the same anti-scaffolding
 rule as the [documentation map](../README.md)):
 
-- `integration/` — the desktop integration suite (Playwright against a mocked
-  Tauri backend), when it grows documentation of its own.
+- `integration/<surface>.md` — a new surface's integration suite slots in
+  beside [`integration/desktop.md`](integration/desktop.md).
 - `e2e/<surface>/` — the flat `e2e.md` splits per surface if a second surface's
   end-to-end suite is documented (the extension is the only one today).
 - `manual/<surface>.md` — a new capture surface's manual history slots in beside
