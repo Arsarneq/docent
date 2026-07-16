@@ -28,13 +28,20 @@ repository's code to its governing docs), not by its presence here.
   taken alone, must be sufficient for: the principle, its scope boundaries, and
   the normative-vs-informative field taxonomy the guarantee stands on.
 
-### Architecture — how capture works
+### Architecture — how the platforms are built
 
 - [Capture Principles](architecture/system/capture-principles.md) — the
   cross-platform rules for what may enter a recording (action vs effect, proxy
   capture, sensitive-value masking).
 - [Extension capture](architecture/application/extension/capture-principles.md) —
   the Chrome-extension capture architecture.
+- [Extension runtime](architecture/application/extension/runtime.md) — the
+  extension's MV3 service-worker runtime: lifecycle and the persisted-state
+  model, the panel/recorder/worker message protocol, and the storage
+  write-ownership contract.
+- [Extension permissions](architecture/application/extension/permissions.md) —
+  the extension's closed permission enumeration, each entry's rationale traced
+  to the code that needs it.
 - [Desktop capture (Windows)](architecture/application/desktop/windows/capture-principles.md) —
   the Windows desktop capture architecture.
 

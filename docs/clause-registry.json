@@ -5,6 +5,8 @@
     "LR": "docs/technical/locator-resolution.md",
     "SF": "docs/technical/session-format.md",
     "ECP": "docs/architecture/application/extension/capture-principles.md",
+    "ERT": "docs/architecture/application/extension/runtime.md",
+    "EPM": "docs/architecture/application/extension/permissions.md",
     "DCP": "docs/architecture/application/desktop/windows/capture-principles.md",
     "SP": "docs/api/sync-protocol.md",
     "STC": "docs/verification/scripted-truth-corpus.md",
@@ -15,6 +17,8 @@
     "LR": [],
     "SF": ["SF-5", "SF-6"],
     "ECP": [],
+    "ERT": [],
+    "EPM": [],
     "DCP": [],
     "SP": [],
     "STC": [],
@@ -355,7 +359,7 @@
       "doc": "docs/architecture/application/extension/capture-principles.md",
       "clause": "ECP-2",
       "tag": "checkable",
-      "check-ref": "Intended: an end-to-end negative asserting no recorder is present on any page while no recording runs (not built). Interim probe: the injection e2e specs pin the positive half — injection on record-start and per-frame injection on load (packages/extension/tests/e2e/; npm run test:e2e)."
+      "check-ref": "Intended: an end-to-end negative asserting the idle surface captures nothing — no recorder injected while no recording runs, and a recorder left in a still-open document stays inactive (not built). Interim probe: the injection e2e specs pin the positive half — injection on record-start and per-frame injection on load (packages/extension/tests/e2e/; npm run test:e2e)."
     },
     {
       "doc": "docs/architecture/application/extension/capture-principles.md",
@@ -416,6 +420,30 @@
       "clause": "ECP-12",
       "tag": "judgment-only",
       "justification": "Whether a proposed entry meets the exceptions admission test hoisted to core CP-15 — the surface description alone would mislead without it — is judgment at review."
+    },
+    {
+      "doc": "docs/architecture/application/extension/runtime.md",
+      "clause": "ERT-1",
+      "tag": "judgment-only",
+      "justification": "Whether a new piece of in-memory service-worker state is a mirror of a persisted key, rebuildable from the browser's own tables, or a safely-losable correlation marker is a design judgment per change; the suspension e2e spec (packages/extension/tests/e2e/specs/service-worker-lifecycle.spec.js) probes the shipped state's survival, not future state."
+    },
+    {
+      "doc": "docs/architecture/application/extension/runtime.md",
+      "clause": "ERT-2",
+      "tag": "checkable",
+      "check-ref": "Intended: a dispatcher-level unit assertion that every panel-protocol request and APPEND_ACTION resolves to exactly one { ok } envelope with failures returned in-band, that GET_TAB_ID answers the bare { tabId } shape and FRAME_READY receives no response, and that APPEND_ACTION acknowledges a trust-gate drop with { ok: true } — delivery, not acceptance — with { ok: false } reserved for storage failures (not built as a dedicated case). Interim probe: the service-worker e2e suite exercises the envelopes across the protocol — success paths, error paths, the unknown-type fallback, and the APPEND_ACTION drop acknowledgment (packages/extension/tests/e2e/specs/service-worker-coverage.spec.js; npm run test:e2e) — and the service-worker unit suite pins individual handlers (packages/extension/tests/unit/service-worker.test.js; npm run test:extension)."
+    },
+    {
+      "doc": "docs/architecture/application/extension/runtime.md",
+      "clause": "ERT-3",
+      "tag": "checkable",
+      "check-ref": "Intended: a static scan pinning the extension's chrome.storage write sites (local and session set/remove) to exactly the owners the tables declare (not built). Interim probe: review against the tables; the owning write paths are exercised by the service-worker e2e suites (packages/extension/tests/e2e/specs/service-worker-coverage.spec.js, packages/extension/tests/e2e/specs/service-worker-lifecycle.spec.js; npm run test:e2e) and the adapter unit suite (packages/extension/tests/unit/adapter-chrome.test.js; npm run test:extension)."
+    },
+    {
+      "doc": "docs/architecture/application/extension/permissions.md",
+      "clause": "EPM-1",
+      "tag": "checkable",
+      "check-ref": "Intended: a script diffing packages/extension/manifest.json's permissions/host_permissions arrays against the doc's tables (not built). Interim probe: packages/extension/manifest.json resolves to the extension area in the committed area map, whose doc set contains this doc, so every manifest diff primes it for docs disposition."
     },
     {
       "doc": "docs/architecture/application/desktop/windows/capture-principles.md",
