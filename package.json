@@ -73,7 +73,7 @@
     "esbuild": "^0.28.1",
     "eslint": "^10.6.0",
     "eslint-config-prettier": "^10.1.8",
-    "fast-check": "^4.8.0",
+    "fast-check": "^4.9.0",
     "lefthook": "^2.1.10",
     "license-checker-rseidelsohn": "5.0.1",
     "markdownlint-cli2": "^0.23.0",
