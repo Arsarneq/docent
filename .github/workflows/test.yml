@@ -116,9 +116,8 @@ jobs:
         run: npm run lint:links
 
       # Complements the link-checker above: that proves links RESOLVE; this proves
-      # every tracked .md is REACHED from README.md (or is an allowlisted non-doctrine
-      # asset). Together they enforce "the index is the schema" — no off-map doctrine
-      # linked only from code comments (the PR #271 class).
+      # every tracked .md is REACHED from README.md. The reachability doctrine the
+      # two enforce together is stated in docs/README.md ("Documentation map").
       - name: Validate documentation reachability
         run: npm run lint:reachability
 

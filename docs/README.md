@@ -8,6 +8,17 @@ of the project, start with the [root README](../README.md).
 Each area is one class of artifact with a defined charter, so a new doc extends
 the tree inside an existing area rather than forcing a reorganization.
 
+The map is reachability-complete, and CI enforces it in both directions: every
+relative doc link must resolve, and every tracked Markdown file must be
+reachable by following links from the [root README](../README.md) — a doc the
+link walk cannot reach fails the build (`npm run lint:links` /
+`npm run lint:reachability`), unless it is one of the reachability check's
+explicitly allowlisted non-doctrine assets. The index is the schema in the
+direction that matters: no doctrine can live off this tree. Reachability
+alone does not make a document doctrine — what a document governs is declared
+by [`scripts/area-map.json`](../scripts/area-map.json) (which maps the
+repository's code to its governing docs), not by its presence here.
+
 ### Requirements — product positioning and what a recording must guarantee
 
 - [Product Positioning](requirements/business/positioning.md) — how Docent differs
@@ -62,8 +73,9 @@ authoritative specification — under [`schemas/`](../schemas/).
 
 - [Test suites](test/README.md) — the inside-out lens on the capture software: the
   test-strategy doctrine (pyramid layering, coverage reporting, and mutation testing),
-  the end-to-end capture tests, the retired manual-test histories (extension and
-  Windows desktop), and the backward-compatibility fixture corpus.
+  the per-suite documents (extension end-to-end, desktop Rust, and desktop
+  integration), the retired manual-test histories (extension and Windows desktop),
+  and the backward-compatibility fixture corpus.
 
 `verification/` and `test/` are two lenses on quality: `verification/` looks
 outside-in and proves the recorded **data** satisfies the guarantees the format
@@ -73,9 +85,10 @@ behaves as designed. Neither implies the other.
 ### User guides — recording with each platform
 
 - [Chrome extension](user/extension.md) — create a project, record and edit steps,
-  export, and dispatch a recording from the browser.
-- [Desktop application (Windows)](user/desktop-windows.md) — record native Windows
-  workflows and dispatch them.
+  export and import, dispatch a recording, and keep projects in sync with a
+  server — all from the browser.
+- [Desktop application (Windows)](user/desktop-windows.md) — install the app,
+  record native Windows workflows, dispatch them, and keep projects in sync.
 
 ### Guides — running the project
 

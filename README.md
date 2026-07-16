@@ -38,6 +38,8 @@ Sensitive values are redacted at capture time on both platforms — passwords, c
 
 Recordings can be dispatched directly to a configured HTTP endpoint from either platform — no terminal or Node.js required.
 
+Projects can be kept in sync across machines through a server you host — either platform talks to any server implementing the [Sync Protocol](docs/api/sync-protocol.md).
+
 See [Capture Principles](docs/architecture/system/capture-principles.md) for the full rules, with platform-specific details in [Extension](docs/architecture/application/extension/capture-principles.md) and [Desktop](docs/architecture/application/desktop/windows/capture-principles.md).
 
 ---
@@ -77,7 +79,7 @@ Build and load the unpacked extension from source — see [Contributing → Deve
 
 ### Using the extension
 
-Quickstart: click the Docent icon to open the side panel, create a project and start a recording, perform your actions and add each step's context (narration, or an action/validation classification), then **Done this step** — and **Export** a `.docent.json` file or **Send** it to a configured endpoint. The full walkthrough — editing and re-recording steps, history, import, and dispatch setup — is in the [extension user guide](docs/user/extension.md).
+Quickstart: click the Docent icon to open the side panel, create a project and start a recording, perform your actions and add each step's context (narration, or an action/validation classification), then **Done this step** — and **Export** a `.docent.json` file or **Send** it to a configured endpoint. The full walkthrough — editing and re-recording steps, history, import, dispatch setup, and [sync](docs/user/extension.md#sync) — is in the [extension user guide](docs/user/extension.md).
 
 ---
 
@@ -89,7 +91,7 @@ Build and run the Tauri desktop app from source — see [Contributing → Develo
 
 ### Using the desktop app
 
-Quickstart: create a project and a recording, pick a target application from the running windows, perform actions (captured automatically), add each step's context and **Done this step**, then **Export** a `.docent.json` file or **Send** it to a configured endpoint. The full walkthrough is in the [desktop user guide](docs/user/desktop-windows.md).
+Quickstart: create a project and a recording, pick a target application from the running windows, perform actions (captured automatically), add each step's context and **Done this step**, then **Export** a `.docent.json` file or **Send** it to a configured endpoint. The full walkthrough — including [sync](docs/user/desktop-windows.md#sync) — is in the [desktop user guide](docs/user/desktop-windows.md).
 
 ---
 
