@@ -44,12 +44,20 @@ repository's code to its governing docs), not by its presence here.
   to the code that needs it.
 - [Desktop capture (Windows)](architecture/application/desktop/windows/capture-principles.md) —
   the Windows desktop capture architecture.
+- [Desktop capture pipeline (Windows)](architecture/application/desktop/windows/capture-pipeline.md) —
+  the input-hook → worker-pool delivery pipeline behind the Windows capture
+  layer: ordering, the commit flush barrier, and the no-drop shutdown.
+- [Desktop capture seam](architecture/application/desktop/capture-seam.md) —
+  the cross-platform capture boundary inside the desktop crate: the trait a
+  per-OS backend implements and the compile-everywhere stub posture.
 
 The extension is a single Chrome (Manifest V3) extension — one codebase that runs
 across Chromium-based browsers that support Chrome extensions — so it sits flat
 under `application/extension/`; desktop capture is per-OS native stacks
 (UIA/WinEvent), so it nests under `application/desktop/windows/`, leaving room for a
-future capture surface (e.g. Linux) beside it.
+future capture surface (e.g. Linux) beside it. The seam those per-OS backends
+plug into is OS-agnostic, so its document sits one level up, at
+`application/desktop/`.
 
 ### Technical — format orientation and the resolution specification
 
