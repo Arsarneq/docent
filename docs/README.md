@@ -118,6 +118,9 @@ behaves as designed. Neither implies the other.
 
 ### Guides — running the project
 
+- [CI gates](guides/ci.md) — what CI enforces on a pull request, on `main`, and
+  on a schedule: each workflow's gate, the action SHA-pinning policy, and the
+  workflow-security posture.
 - [Running CI locally](guides/local-ci.md) — run the CI test jobs on your own
   machine with [`act`](https://github.com/nektos/act), and the `windows-latest`
   boundary.

@@ -119,7 +119,7 @@
         "codecov.yml",
         ".*"
       ],
-      "docs": ["docs/guides/local-ci.md", ".github/PUBLISHING.md"]
+      "docs": ["docs/guides/ci.md", "docs/guides/local-ci.md", ".github/PUBLISHING.md"]
     }
   },
   "unassigned": [
