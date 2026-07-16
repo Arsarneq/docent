@@ -23,8 +23,10 @@ CI jobs on your own machine is covered in
 - [Test strategy — mutation testing](strategy/mutation.md) — the weekly mutation-score
   signal (Stryker for JavaScript, cargo-mutants for Rust): what is mutated and why, and
   the ratchet-not-fixed-bar thresholds.
-- [End-to-end capture tests](e2e.md) — the extension's automated Playwright suite
-  that drives real user actions and asserts the captured actions exactly.
+- [End-to-end tests — extension](e2e.md) — the extension's Playwright suite
+  (real Chrome, real input): the capture specs plus the panel, service-worker,
+  and sync flows, and the harness contract they run under (frame readiness,
+  one-worker serialization, retries, settle waits).
 - [Desktop Rust tests](desktop-rust.md) — the Tauri crate's cargo suite: the
   in-module unit tests, the flat test binaries (property tests included), the
   real-input integration suite, and how each test classifies itself for CI.
