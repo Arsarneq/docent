@@ -37,6 +37,30 @@ in-memory** (via `composePlatform`) — not against the released copy under
 `PLATFORMS`) or a new historical version is purely additive: drop a file in, no
 test changes.
 
+## What lives in `fixtures/`
+
+Discovery is by the `.docent.json` suffix — `backward-compat.test.js` globs
+`<platform>/*.docent.json`, and the sufficiency lint's `collectFiles` picks up
+every `.docent.json` recursively — so a file carrying that suffix under this
+directory **is** a corpus member: it gets shape-validated and linted into the
+baseline automatically. That is the admission rule: only a real frozen export
+may carry the suffix here. The directory's residents are exactly:
+
+1. **The frozen-export corpus** — `<platform>/v<version>.docent.json`, real
+   exports frozen at a known schema version (see
+   [Adding a fixture](#adding-a-fixture)).
+2. **`sufficiency-baseline.json`** — the committed lint baseline (see
+   [Sufficiency baseline](#sufficiency-baseline)); its plain `.json` suffix
+   keeps it out of both discovery sweeps.
+3. **`stub-schema.js`** — the one resident unrelated to the corpus: a minimal
+   schema stub carrying just the `docent_format` consts that
+   `buildPayload`/`buildExport` require, imported by the shared unit tests
+   that exercise payload/export projection logic and need `payload.schema` to
+   stay tiny (size- and timing-sensitive assertions). It lives here because it
+   is shared test-fixture data rather than a test, and as a `.js` file it is
+   invisible to both discovery sweeps. Tests asserting real schema content use
+   `composePlatform()` instead.
+
 ## Adding a fixture
 
 - **New historical version** (after a real schema bump): export a representative
@@ -60,16 +84,30 @@ before touching a fixture.
 
 `packages/shared/tests/fixtures/sufficiency-baseline.json` is the committed output of
 the replay-sufficiency lint (`scripts/sufficiency-lint.js` — the static predicates of
-[Replay Sufficiency](../requirements/replay-sufficiency.md)) over this corpus,
-locked exactly by `sufficiency-lint.test.js`. Because these fixtures are
-**historical** exports, the baseline documents historical truth: it locks the
-_rules_ and the corpus's known findings, not current capture output —
-recordings produced by current code join via the scripted-truth corpus work
-and flow through the same lint. A baseline diff in either direction is a
-signal: a NEW finding means a predicate or fixture changed; a VANISHED finding
-means the baseline is stale. Regenerate deliberately
-(`npm run sufficiency:check -- --write-baseline packages/shared/tests/fixtures/sufficiency-baseline.json`),
-never to silence a diff — the same doctrine as the fixtures above.
+[Replay Sufficiency](../requirements/replay-sufficiency.md)) over **two roots**:
+this fixture corpus _and_ the
+[scripted-truth corpus](../verification/scripted-truth-corpus.md)'s committed
+truth recordings under `corpus/sessions/` (the `sufficiency:check` npm script
+names both, and `sufficiency-lint.test.js` locks the findings over the same
+two roots exactly). The frozen fixtures document historical truth — the
+baseline locks the _rules_ and each corpus's known findings, not a claim
+about current capture output; recordings produced by current code enter it as
+scripted-truth sessions land under `corpus/sessions/`. A baseline diff in
+either direction is a signal: a NEW finding means a predicate or corpus file
+changed; a VANISHED finding means the baseline is stale. Regenerate
+deliberately with
+
+```bash
+npm run sufficiency:check -- --write-baseline packages/shared/tests/fixtures/sufficiency-baseline.json
+```
+
+— the npm script supplies both roots, so this is the whole regeneration.
+(Invoking `scripts/sufficiency-lint.js` directly with only the fixtures
+directory writes a partial baseline the lock test rejects — its failure lists
+the missing `corpus/sessions/` entries as NEW, because the lock recomputes
+over both roots and diffs against the committed baseline.) Never regenerate
+to silence a diff —
+the same doctrine as the fixtures above.
 
 ## Validation is by SHAPE, not by version stamp
 
@@ -89,9 +127,15 @@ Two consequences:
   validating across versions; only a genuine _shape_ change makes one fail, which
   is exactly the signal this corpus exists to raise. (This closes the manual
   re-stamp sweep that bit the 3.0.0 / 2.0.0 release.)
-- **The relaxation is local to this test harness.** The published schemas
-  (`schemas/dist/`), the source layers, and the generated import/sync validators
-  keep the `const` intact — not a change to the intentional
+- **The relaxation is one shared in-memory helper with a fixed consumer set.**
+  It is implemented once — `relaxVersionStamp` in `scripts/build-schemas.js` —
+  and consumed by the repository's three verification harnesses: this
+  backward-compat test, the sufficiency lint (`scripts/sufficiency-lint.js`),
+  and the scripted-truth corpus comparison (`scripts/corpus-compare.js`), so
+  the harnesses can never drift apart on what "shape-valid" means. The
+  published schemas (`schemas/dist/`), the source layers, and the generated
+  import/sync validators keep the `const` intact — not a change to the
+  intentional
   [import-time version gate](../technical/session-format.md#import-acceptance)
   (SF-13), which stays in force. Tests that exercise the real (const-bearing) validator derive their
   stamp from the current schema via `stampFromSchema(composePlatform(...))` rather

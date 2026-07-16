@@ -28,6 +28,8 @@
         "docs/architecture/application/desktop/windows/capture-principles.md",
         "docs/architecture/system/capture-principles.md",
         "docs/technical/locator-resolution.md",
+        "docs/test/desktop-rust.md",
+        "docs/test/integration/desktop.md",
         "docs/test/manual/windows.md"
       ]
     },
@@ -75,7 +77,12 @@
     },
     "test-infra": {
       "code": ["**/playwright*.config.js", "packages/shared/tests/fixtures/**"],
-      "docs": ["docs/test/README.md", "docs/test/backward-compat.md", "docs/test/e2e.md"]
+      "docs": [
+        "docs/test/README.md",
+        "docs/test/backward-compat.md",
+        "docs/test/e2e.md",
+        "docs/test/integration/desktop.md"
+      ]
     },
     "user": {
       "docs": ["docs/user/extension.md", "docs/user/desktop-windows.md"]
