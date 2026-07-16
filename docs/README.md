@@ -33,6 +33,14 @@ repository's code to its governing docs), not by its presence here.
 - [Capture Principles](architecture/system/capture-principles.md) — the
   cross-platform rules for what may enter a recording (action vs effect, proxy
   capture, sensitive-value masking).
+- [Shared Core](architecture/system/shared-core.md) — the one-implementation
+  architecture behind both platforms: the behaviour-defining logic in the
+  shared package, the platform-adapter seam it is consumed through, and the
+  build-time sync that copies it into each platform package.
+- [Persistence](architecture/system/persistence.md) — where each platform
+  keeps its data: the extension's `chrome.storage` model and storage-pressure
+  handling, the desktop's session-file and credential-store split, and the
+  deliberately ephemeral state.
 - [Extension capture](architecture/application/extension/capture-principles.md) —
   the Chrome-extension capture architecture.
 - [Extension runtime](architecture/application/extension/runtime.md) — the

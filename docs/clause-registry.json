@@ -10,7 +10,8 @@
     "DCP": "docs/architecture/application/desktop/windows/capture-principles.md",
     "SP": "docs/api/sync-protocol.md",
     "STC": "docs/verification/scripted-truth-corpus.md",
-    "DI": "docs/api/dispatch.md"
+    "DI": "docs/api/dispatch.md",
+    "SC": "docs/architecture/system/shared-core.md"
   },
   "retired": {
     "CP": [],
@@ -22,7 +23,8 @@
     "DCP": [],
     "SP": [],
     "STC": [],
-    "DI": []
+    "DI": [],
+    "SC": []
   },
   "clauses": [
     {
@@ -413,7 +415,7 @@
       "doc": "docs/architecture/application/extension/capture-principles.md",
       "clause": "ECP-11",
       "tag": "check-exists",
-      "check-ref": "The storage-quota unit tests pin the bands and hysteresis, and two e2e specs pin the pause/override/resume machine including live capture at the boundary (packages/extension/tests/e2e/specs/storage-quota.spec.js and storage-quota-live-capture.spec.js; npm run test:extension and test:e2e)."
+      "check-ref": "The storage-quota unit tests pin the bands and hysteresis, and two e2e specs pin the pause/override/resume machine including live capture at the boundary and the never-evicts half (quota exhaustion corrupts no stored projects) (packages/extension/tests/e2e/specs/storage-quota.spec.js and storage-quota-live-capture.spec.js; npm run test:extension and test:e2e)."
     },
     {
       "doc": "docs/architecture/application/extension/capture-principles.md",
@@ -870,6 +872,18 @@
       "clause": "DI-16",
       "tag": "checkable",
       "check-ref": "Intended: a unit case pinning single-serialization — byte-identical bodies across retry attempts (not built). Interim probe: the serialization call site precedes the attempt loop in packages/shared/dispatch-core.js."
+    },
+    {
+      "doc": "docs/architecture/system/shared-core.md",
+      "clause": "SC-1",
+      "tag": "judgment-only",
+      "justification": "Whether a piece of logic is behaviour-defining (shared-layer territory) or platform wiring (adapter/panel territory) is a per-change design judgment, and no static check can recognize a platform-local reimplementation of semantics the shared layer already defines."
+    },
+    {
+      "doc": "docs/architecture/system/shared-core.md",
+      "clause": "SC-2",
+      "tag": "check-exists",
+      "check-ref": "The 'Verify sync-shared output is fresh' CI step (.github/workflows/test.yml) re-runs npm run sync-shared on the PR tree and fails on any git diff in the committed assembled index.html files, so a stale or hand-edited committed copy cannot merge. The gitignored synced trees are outside that diff's reach: for them the rule is held by regeneration (every sync deletes and re-copies the tree) and review. The clause's release-pipeline half (each publish workflow syncs before packaging) is likewise held by the workflow text and review, not by the named freshness check."
     }
   ]
 }

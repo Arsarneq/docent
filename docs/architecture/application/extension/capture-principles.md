@@ -161,7 +161,11 @@ until committed, and capture pauses under storage pressure rather than failing
 mid-write: at 8 MiB in use, new captures stop being appended and the user sees
 a storage warning with an explicit resume control; capture resumes
 automatically once usage drops below 7.5 MiB (hysteresis, so the state cannot
-flap at the boundary). Actions performed while paused are not captured — the
+flap at the boundary). A write that throws `QuotaExceededError` pauses
+capture the same way (the `exceeded` band — nothing writes past a physically
+full quota), and pressure never evicts: stored projects and the
+already-captured buffer are left untouched, with space freed only by the
+user's own actions. Actions performed while paused are not captured — the
 pause is user-visible for exactly that reason. End-to-end specs pin the state
 machine, including live-capture behaviour at the boundary.
 

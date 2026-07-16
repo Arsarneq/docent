@@ -19,6 +19,8 @@
         "docs/architecture/application/extension/permissions.md",
         "docs/architecture/application/extension/runtime.md",
         "docs/architecture/system/capture-principles.md",
+        "docs/architecture/system/persistence.md",
+        "docs/architecture/system/shared-core.md",
         "docs/technical/locator-resolution.md",
         "docs/test/e2e.md",
         "docs/test/manual/extension.md",
@@ -32,6 +34,8 @@
         "docs/architecture/application/desktop/windows/capture-pipeline.md",
         "docs/architecture/application/desktop/windows/capture-principles.md",
         "docs/architecture/system/capture-principles.md",
+        "docs/architecture/system/persistence.md",
+        "docs/architecture/system/shared-core.md",
         "docs/technical/locator-resolution.md",
         "docs/test/desktop-rust.md",
         "docs/test/integration/desktop.md",
@@ -50,6 +54,7 @@
       "docs": [
         "docs/api/sync-protocol.md",
         "docs/api/dispatch.md",
+        "docs/architecture/system/shared-core.md",
         "docs/user/desktop-windows.md",
         "docs/user/extension.md"
       ]
@@ -61,7 +66,7 @@
         "packages/shared/tests/**",
         "scripts/{build-schemas,build-validators,auto-version-schemas,bump-schema,classify-schema-change,update-version-table}.js"
       ],
-      "docs": ["docs/technical/session-format.md"],
+      "docs": ["docs/architecture/system/shared-core.md", "docs/technical/session-format.md"],
       "source-of-truth": [
         "schemas/shared.schema.json",
         "schemas/desktop.shared.schema.json",
@@ -176,6 +181,16 @@
       "path": "stryker.*.mjs",
       "reason": "Stryker configuration — JavaScript mutation-testing settings.",
       "governed-by": ["docs/test/strategy/mutation.md"]
+    },
+    {
+      "path": "scripts/sync-shared.js",
+      "reason": "The shared-code copy mechanism — its copy model, outputs, and freshness rule are owned by the shared-core architecture doc.",
+      "governed-by": ["docs/architecture/system/shared-core.md"]
+    },
+    {
+      "path": "scripts/inject-shared-views.js",
+      "reason": "The shared-views injection — the one-fragment-two-shells assembly the shared-core architecture doc owns.",
+      "governed-by": ["docs/architecture/system/shared-core.md"]
     }
   ]
 }
