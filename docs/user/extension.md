@@ -195,11 +195,11 @@ so and the affected rows are marked in the list.
 
 A sync can instead halt:
 
-| Message                                                                                               | What to do                                                                                                                    |
-| ----------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
-| Sync paused while you're recording. Stop capture, then sync again.                                    | Pause the recording, then sync.                                                                                                  |
-| Sync paused: a recording has uncommitted actions. Commit or clear them, then sync again.              | Commit the pending actions into a step, or **Clear** them, then sync.                                                            |
-| Sync stopped to protect your data and made no changes. Your work and any pending items are preserved. | Sync again — your local data is unchanged.                                                                                       |
+| Message                                                                                               | What to do                                                                                                                                                                      |
+| ----------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Sync paused while you're recording. Stop capture, then sync again.                                    | Pause the recording, then sync.                                                                                                                                                 |
+| Sync paused: a recording has uncommitted actions. Commit or clear them, then sync again.              | Commit the pending actions into a step, or **Clear** them, then sync.                                                                                                           |
+| Sync stopped to protect your data and made no changes. Your work and any pending items are preserved. | Sync again — your local data is unchanged.                                                                                                                                      |
 | Sync halted: authentication failed. Check your API key in Settings.                                   | Fix the API key and test the connection again. A push-phase failure lands after the pull — pulled items were already reconciled: new ones added, the rest held for your review. |
 
 ### Attention badges
