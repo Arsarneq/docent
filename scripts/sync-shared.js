@@ -1,17 +1,10 @@
 /**
  * sync-shared.js — Copies packages/shared/ into target package(s) and
- * writes each target's platform-specific session.schema.json.
+ * writes each target's platform-specific session.schema.json (composed in
+ * memory from the schema source layers, never copied from schemas/dist/).
  *
- * Chrome extensions (and other sandboxed runtimes) cannot import modules from
- * outside their root directory. This script copies the shared package into each
- * target so that relative imports like '../shared/lib/session.js' resolve at
- * runtime.
- *
- * The per-platform session.schema.json written into each target is COMPOSED IN
- * MEMORY from the source layers (composePlatform), NOT copied from
- * schemas/dist/. dist/ is the released artifact and can lag the source layers
- * within a PR; the synced copy must reflect the current source so the app and
- * tests run against the schema this commit actually defines.
+ * The copy model, its rationale, and the freshness rule on the outputs are
+ * documented in the shared-core architecture doc; this header is a pointer.
  *
  * Usage:
  *   node scripts/sync-shared.js                  # sync all packages

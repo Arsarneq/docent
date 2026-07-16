@@ -82,3 +82,5 @@ The app keeps its data on your machine:
   unreadable, the app starts with an empty state.
 - **API keys** — the dispatch and sync keys entered in Settings — are stored
   in Windows Credential Manager, never in the session file.
+- **Uncommitted captured actions** live only in the running app: quitting
+  discards them, while committed steps are already saved in the session file.

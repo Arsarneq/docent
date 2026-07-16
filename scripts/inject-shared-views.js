@@ -1,11 +1,12 @@
 /**
  * inject-shared-views.js — Injects shared/views/views.html into platform HTML shells.
  *
- * Replaces the <!-- SHARED_VIEWS --> marker in each platform's index.html
- * with the content of packages/shared/views/views.html.
- *
- * For the desktop, also replaces "Follow browser" with "Follow system" in
- * the theme option label.
+ * Replaces the <!-- SHARED_VIEWS --> marker in each platform's
+ * index.shell.html with the content of packages/shared/views/views.html,
+ * writing the assembled index.html (one desktop transform: the theme label
+ * "Follow browser" becomes "Follow system"). The one-fragment-two-shells
+ * design and the committed-output freshness rule are documented in the
+ * shared-core architecture doc; this header is a pointer.
  *
  * Usage:
  *   node scripts/inject-shared-views.js
