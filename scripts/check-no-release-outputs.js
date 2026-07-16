@@ -59,10 +59,9 @@ export const AUTOMATED_BRANCH = 'automated/version-table-update';
 // thing the pipeline bumps).
 //
 // LOCKSTEP: this set must mirror what the pipeline actually writes onto the
-// branch. If you add a propagation target to scripts/update-version-table.js
-// (a new doc table, a new seed sample, …) or a new dist file via
-// scripts/auto-version-schemas.js, add it here too — otherwise POSITIVE mode
-// will reject the pipeline's own legitimate PR.
+// branch — extend it in the same change as any new pipeline output that falls
+// outside the existing paths/prefixes. The documented invariant lives in
+// .github/PUBLISHING.md ("Test gating and the version PR").
 const FORBIDDEN_PATHS = ['schemas/dist/'];
 export const DELTA_RE = /^schemas\/.*\.delta\.json$/;
 
