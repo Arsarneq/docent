@@ -302,7 +302,9 @@ actions in serialization order, every non-null `context_id` is either the
 recording's initial context (the first one observed) or first appears on a
 `context_open` or `context_switch` action. A context that materializes mid-stream on any other
 action type has no introduction, and the recording fails the sufficiency
-lint's fail-class check ([`scripts/sufficiency-lint.js`](../../scripts/sufficiency-lint.js)).
+lint's fail-class `context-introduced` check
+([static sufficiency lint](../verification/sufficiency-lint.md), implemented
+by [`scripts/sufficiency-lint.js`](../../scripts/sufficiency-lint.js)).
 
 ### Platform-specific fields
 

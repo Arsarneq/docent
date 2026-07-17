@@ -12,7 +12,8 @@
     "STC": "docs/verification/scripted-truth-corpus.md",
     "DI": "docs/api/dispatch.md",
     "SC": "docs/architecture/system/shared-core.md",
-    "DSH": "docs/architecture/application/desktop/windows/application-shell.md"
+    "DSH": "docs/architecture/application/desktop/windows/application-shell.md",
+    "SL": "docs/verification/sufficiency-lint.md"
   },
   "retired": {
     "CP": [],
@@ -26,7 +27,8 @@
     "STC": [],
     "DI": [],
     "SC": [],
-    "DSH": []
+    "DSH": [],
+    "SL": []
   },
   "clauses": [
     {
@@ -898,6 +900,36 @@
       "clause": "DSH-2",
       "tag": "check-exists",
       "check-ref": "The strip/re-inject pair is pinned by the in-module unit tests in packages/desktop/src-tauri/src/secret_store.rs (strip_then_inject_round_trips asserts the on-disk text contains neither key; strip_deletes_store_entry_for_empty_string and strip_leaves_store_untouched_when_field_absent pin the clear-vs-omit semantics) and at the command wrappers by the secret_wrappers tests in packages/desktop/src-tauri/src/commands.rs (strip_removes_api_key_from_written_json, inject_restores_api_key_into_read_json); run via npm run test:desktop:rust. Named residue: that no other code path writes the session file is held by the file I/O living only in commands.rs (session_file_path is module-private) and review, not by a named check."
+    },
+    {
+      "doc": "docs/verification/sufficiency-lint.md",
+      "clause": "SL-1",
+      "tag": "checkable",
+      "check-ref": "Intended: a red-path unit pin feeding a schema-invalid document and an unknown platform stamp to lintFile and asserting the refusal (not built). Interim probe: the corpus baseline lock (packages/shared/tests/unit/sufficiency-lint.test.js, npm run test:shared) routes every corpus member through the same validating pass — lintFile validates against the composed schema and throws before any predicate runs (scripts/sufficiency-lint.js)."
+    },
+    {
+      "doc": "docs/verification/sufficiency-lint.md",
+      "clause": "SL-2",
+      "tag": "check-exists",
+      "check-ref": "Findings are serialized class-first (\"<class>:<id> <pointer>\") by the lint's toBaseline, so the corpus baseline lock reddens on reclassification of any predicate with baseline entries, and the per-predicate pins hold the rest on minimal documents; the union covers all predicates, neither mechanism alone is universal (packages/shared/tests/unit/sufficiency-lint.test.js; npm run test:shared)."
+    },
+    {
+      "doc": "docs/verification/sufficiency-lint.md",
+      "clause": "SL-3",
+      "tag": "check-exists",
+      "check-ref": "assertGapPredicatesCurrent (scripts/sufficiency-lint.js) probes the live composed schema on every lint pass and throws on an obsolete gap predicate, so the corpus baseline lock (packages/shared/tests/unit/sufficiency-lint.test.js, npm run test:shared), npm run sufficiency:check, and the comparator's --lint runs all refuse to pass the moment a composed schema grows a probed capability. Named residue: that every gap predicate carries a probe at all is review-held — the assertion skips a probe-less gap predicate; the one-line throw that would close it is a known candidate hardening."
+    },
+    {
+      "doc": "docs/verification/sufficiency-lint.md",
+      "clause": "SL-4",
+      "tag": "check-exists",
+      "check-ref": "valueDerivedStrategies (scripts/sufficiency-lint.js) reads x-value-derived from the composed contract and throws on an undeclared, const-less, or value-less strategy def; the unit suite pins the derived set per platform against the annotation (packages/shared/tests/unit/sufficiency-lint.test.js), every strategy def's explicit declaration is enforced by packages/shared/tests/unit/schema-composition.test.js, and the per-platform drift guards pin the annotation against the real redaction code (packages/extension/tests/unit/service-worker.test.js, packages/desktop/tests/unit/adapter-tauri.test.js)."
+    },
+    {
+      "doc": "docs/verification/sufficiency-lint.md",
+      "clause": "SL-5",
+      "tag": "check-exists",
+      "check-ref": "The both-direction lock is packages/shared/tests/unit/sufficiency-lint.test.js (npm run test:shared), with file discovery and baseline serialization imported from scripts/sufficiency-lint.js so the walk, filters, and entry format cannot diverge from --write-baseline output (the two-root list is stated separately in lock and npm script; a divergence there fails the lock loudly); npm run sufficiency:check is the same gate at the CLI. The lock reddens on any predicate or corpus change that shifts findings, forcing the regenerated baseline into the same change; whether a regenerated baseline was honestly reviewed stays review judgment."
     }
   ]
 }
