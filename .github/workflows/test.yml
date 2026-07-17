@@ -136,6 +136,14 @@ jobs:
       - name: Validate clause-registry parity
         run: npm run lint:clause-registry
 
+      # Every repository path a clause cites (its check-ref or justification)
+      # must be governed by the doc that states the clause — so a diff to the
+      # cited code cannot change what a clause stands on without priming its
+      # doc. Deliberately-open couplings are a recorded allowlist in the check;
+      # a new uncovered citation, or a stale allowlist entry, is red.
+      - name: Validate clause-citation governance
+        run: npm run lint:clause-governance
+
       # S17/S18: every Actions `uses:` must be pinned to a commit SHA, not a
       # mutable tag. Dependabot bumps the SHA + `# version` comment weekly.
       - name: Check GitHub Actions are SHA-pinned
@@ -1061,5 +1069,3 @@ jobs:
             fi
           done
           echo "All jobs passed or were skipped"
-
-
