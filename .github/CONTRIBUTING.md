@@ -8,8 +8,12 @@ Thank you for wanting to contribute. Docent is open source under GPL-3.0.
    project you agree to uphold it.
 
 2. **Sign the CLA.** All contributors must sign the Contributor License Agreement.
-   When you open a pull request, the CLA Assistant bot will prompt you automatically.
-   Simply post the comment it requests and you're done.
+   When you open a pull request, the CLA Assistant bot will prompt you
+   automatically, and its check stays red until you post the exact signing
+   comment it requests. You sign once: the recorded signature covers all your
+   future PRs. Where the record lives and which bot accounts skip the prompt
+   are described in the
+   [CI gates guide](../docs/guides/ci.md#cla-assistant).
 
 3. **Check for existing issues.** Your idea or bug may already be tracked.
    If not, open an issue before starting significant work so we can discuss approach.
@@ -79,6 +83,16 @@ cargo tauri dev
 cargo tauri build
 ```
 
+### Git hooks
+
+`npm install` at the repository root also installs the project's git hooks
+(lefthook runs from the `postinstall` script). The `pre-push` hook runs a local
+mirror of CI's leading lint gates, and the `commit-msg` hook strips
+AI-assistant co-author trailers, which would otherwise register a phantom
+contributor that cannot sign the CLA.
+The hooks' exact scope, including where the pre-push mirror is narrower than
+CI, is in [CI gates](../docs/guides/ci.md#local-hooks-lefthook).
+
 ## Project Structure
 
 ```text
@@ -103,7 +117,31 @@ scripts/            Build, sync, and automation scripts
 
 Shared code lives in `packages/shared/` and is copied into each platform package
 by `npm run sync-shared`. After editing shared code, re-run the sync before
-loading the extension or building the desktop app.
+loading the extension or building the desktop app. A sync does more than copy:
+it also regenerates the per-platform import validators and reassembles both
+platforms' panel pages
+([what a sync does](../docs/architecture/system/shared-core.md#what-a-sync-does)).
+
+Each panel page (`index.html`) is assembled from the platform's
+`index.shell.html` and the single shared views fragment
+([one fragment, two shells](../docs/architecture/system/shared-core.md#shared-views--one-fragment-two-shells)),
+and the two assembled files are committed build output. Never hand-edit them:
+edit the shell or the shared views source, re-run `npm run sync-shared`, and
+commit the two regenerated `index.html` files
+([Shared Core §SC-2](../docs/architecture/system/shared-core.md#the-outputs-and-their-freshness)).
+CI re-runs the sync and fails on any diff against the committed copies — the
+sync-shared freshness gate; where it runs is in
+[CI gates](../docs/guides/ci.md#the-lint-and-freshness-gates). The sync's other
+outputs (the synced `packages/*/shared/` trees and the generated validators)
+are gitignored.
+
+The import validators under `packages/shared/generated/` are generated,
+eval-free code: [`scripts/build-validators.js`](../scripts/build-validators.js)
+produces them from the same composed schemas the rest of the toolchain uses,
+and each platform validates imported files and pulled sync payloads with its
+own. Never hand-edit a generated validator — change the schema source layers
+and re-run `npm run sync-shared`; regeneration is the sync's first step, so
+the validators move in lockstep with the schemas.
 
 Edit a source layer, never a file under `schemas/dist/` directly — those are
 build output (the composition model is in
@@ -138,6 +176,13 @@ and how a Rust test's pyramid layer is auto-classified are in
 [the test pyramid](../docs/test/strategy/test-pyramid.md); how coverage reaches
 Codecov is in [coverage reporting](../docs/test/strategy/coverage.md).
 
+New code lands with tests: every PR is gated by Codecov's project and patch
+coverage statuses — which statuses gate, and how a PR that produces no
+coverage still passes, is in
+[CI gates](../docs/guides/ci.md#coverage-and-the-codecov-statuses); how
+coverage is measured and sliced is in
+[coverage reporting](../docs/test/strategy/coverage.md).
+
 ## Coding Conventions
 
 ### JavaScript
@@ -147,6 +192,29 @@ Codecov is in [coverage reporting](../docs/test/strategy/coverage.md).
 - `UPPER_SNAKE_CASE` for message type constants
 - JSDoc comments on all exported functions
 - No external runtime dependencies in the extension
+
+### Single-source logic (JavaScript)
+
+- **Pure-logic extraction.** Logic that needs unit testing without a live
+  platform is extracted into a pure module — plain data in and out, no
+  `chrome.*` or DOM calls — that the runtime file imports, so the unit suite
+  exercises the real function rather than a hand-copied replica.
+  `packages/extension/lib/frame-trust.js` and
+  `packages/extension/lib/redaction-logic.js` name this discipline in their
+  headers and are the pattern to copy; the shared sync modules (e.g.
+  `packages/shared/conflict-detector.js`) are platform-call-free by
+  architecture — where shared code must reach platform behaviour it does so
+  through its injected seams, the sync-state store and the rebindable HTTP
+  transport ([Shared Core](../docs/architecture/system/shared-core.md#the-adapter-seam))
+  — which also keeps them unit-testable as pure modules.
+- **The mirrored capture block.** Content scripts cannot import modules, so
+  the extension's capture logic deliberately exists as two textual copies: the
+  testable module `packages/extension/content/recorder-logic.js` and an inline
+  copy between the `BEGIN`/`END MIRRORED CAPTURE LOGIC` markers in
+  `packages/extension/content/recorder.js`. Edit both copies together, inside
+  the markers only — a parity test asserts the two blocks are identical
+  up to its mechanical transformation (export-stripping and indentation) and
+  fails the unit suite when they drift.
 
 ### Rust
 
@@ -178,6 +246,19 @@ Codecov is in [coverage reporting](../docs/test/strategy/coverage.md).
   new ones.
 - All new functions should have JSDoc comments (JavaScript) or doc comments (Rust)
 - **Bug-fix PRs must include a regression test** (see below)
+
+What CI enforces on a PR — the lint and formatting gates, the dependency and
+license audits, the path-filtered test jobs, the coverage statuses, and the
+PR-body and title checks — is inventoried workflow by workflow in
+[CI gates](../docs/guides/ci.md), together with the local command for each
+gate.
+
+Adding a third-party dependency? It must clear the default-deny license
+allowlist (scanned over every install root) and the advisory audits — the
+root-lockfile `npm audit` and the Rust `cargo deny` — whose exact coverage
+([CI gates](../docs/guides/ci.md#dependency-and-license-audit)) is the
+gate's own statement; `npm run check:licenses` runs the npm allowlist
+locally.
 
 ## Docs Disposition and Change Record
 
@@ -215,6 +296,43 @@ Dependency-only PRs skip both sections — the check recognises those diffs by
 itself, and only those: lockfiles, dependency-block manifest bumps, and
 same-action pin bumps. A line that parses but says nothing is a review problem,
 not a CI pass: write the reason you actually relied on.
+
+The judgments are also audited in aggregate: a weekly job measures how often
+a doc judged unaffected was edited shortly after by overlapping work — a
+review-calibration signal, never a per-PR verdict
+([CI gates](../docs/guides/ci.md#weekly-docs-disposition-audit)).
+
+## Extending the Docs Governance
+
+The binding between code and docs is committed, linted data. Four lints keep
+it true — each runs in CI's `lint` job
+([the lint table](../docs/guides/ci.md#the-lint-and-freshness-gates)) and
+locally as `npm run lint:links`, `npm run lint:reachability`,
+`npm run lint:area-map`, and `npm run lint:clause-registry`. What each kind of
+change keeps green:
+
+- **Adding or moving a doc:** link it from the
+  [documentation map](../docs/README.md) — every relative link must resolve
+  (`lint:links`) and every tracked Markdown file must be reachable by
+  following links from the root README (`lint:reachability`) — and give it a
+  home in [`scripts/area-map.json`](../scripts/area-map.json): an area's doc
+  set, the repo-wide list, or a justified exception (`lint:area-map`).
+- **Adding a code file:** it must resolve to an area of the same map — matched
+  by an area's code patterns, naming a governing doc with a
+  `// see docs/<path>.md` comment, or listed as a justified exception —
+  or `lint:area-map` fails on it; extend the map in the same PR that adds the
+  file. A file whose governing docs differ from what its areas supply declares
+  them with a `declared-governance` entry, which overrides governance without
+  granting coverage. The map's own `description` field states the complete
+  resolution rules.
+- **Minting clauses:** a doc that states its rules as identified clauses marks
+  each one with a stable bolded id (e.g. `**SC-2.**`); ids are never
+  renumbered, and a retired id stays reserved. Every clause takes a row in
+  [`docs/clause-registry.json`](../docs/clause-registry.json) recording how it
+  is verified — by a named existing check, an intended check, or a justified
+  judgment — and any check a row references must actually resolve.
+  `lint:clause-registry` holds the doc markers and the registry rows in
+  one-to-one agreement.
 
 ## Regression Tests
 
