@@ -917,7 +917,7 @@
       "doc": "docs/architecture/application/desktop/windows/application-shell.md",
       "clause": "DSH-1",
       "tag": "checkable",
-      "check-ref": "Intended: a script diffing the crate's #[tauri::command] functions and the generate_handler! registration in packages/desktop/src-tauri/src/lib.rs against this doc's table, and the grants in packages/desktop/src-tauri/capabilities/default.json against the doc's stated plugin surface (not built). Interim probe: packages/desktop/src-tauri/src/lib.rs and capabilities/default.json both resolve to the desktop-windows area in the committed area map, whose doc set contains this doc, so command-registration and grant diffs alike prime it for docs disposition; the single capture:action emit site is review-held (the emit call in lib.rs names the channel; nothing pins uniqueness mechanically)."
+      "check-ref": "Intended: a script diffing the crate's #[tauri::command] functions and the generate_handler! registration in packages/desktop/src-tauri/src/lib.rs against this doc's table, and the grants in packages/desktop/src-tauri/capabilities/default.json against the doc's stated plugin surface (not built). Interim probe: packages/desktop/src-tauri/src/lib.rs and capabilities/default.json both resolve to the desktop-windows/shell area in the committed area map (lib.rs also to desktop-windows/capture), whose doc set contains this doc, so command-registration and grant diffs alike prime it for docs disposition; the single capture:action emit site is review-held (the emit call in lib.rs names the channel; nothing pins uniqueness mechanically)."
     },
     {
       "doc": "docs/architecture/application/desktop/windows/application-shell.md",
