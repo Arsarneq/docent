@@ -99,6 +99,10 @@ authoritative specification — under [`schemas/`](../schemas/).
   falsifiability testing artifact: controlled sessions diffed against committed
   truth (capture completeness), and the inert conformance vectors for the locator
   procedure.
+- [Static Sufficiency Lint](verification/sufficiency-lint.md) — the
+  falsifiability testing artifact for the static predicates: machine-checkable
+  invariants over any recording's normative fields, baseline-locked in both
+  directions over the frozen fixtures and the corpus truth files.
 
 ### Test — does the application behave as designed
 

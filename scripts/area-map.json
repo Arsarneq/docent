@@ -82,6 +82,7 @@
       "code": ["corpus/**", "scripts/corpus-*.js", "scripts/sufficiency-lint.js"],
       "docs": [
         "docs/verification/scripted-truth-corpus.md",
+        "docs/verification/sufficiency-lint.md",
         "docs/requirements/replay-sufficiency.md"
       ]
     },
