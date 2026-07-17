@@ -454,13 +454,15 @@
     },
     {
       "path": ".github/workflows/test.yml",
-      "reason": "The CI hub workflow — beyond the CI guides it implements the shared-core freshness gate, the Rust test self-classification, and the coverage staging topology those docs state.",
+      "reason": "The CI hub workflow — beyond the CI guides it implements the shared-core freshness gate, the Rust test self-classification, the coverage staging topology, the release process's platform-scoped call and secret contracts, and the corpus doctrine's producer/differ job topology and pinned-image rule.",
       "governed-by": [
         "docs/guides/ci.md",
         "docs/guides/local-ci.md",
         "docs/architecture/system/shared-core.md",
         "docs/test/strategy/test-pyramid.md",
-        "docs/test/strategy/coverage.md"
+        "docs/test/strategy/coverage.md",
+        ".github/PUBLISHING.md",
+        "docs/verification/scripted-truth-corpus.md"
       ]
     },
     {
@@ -474,7 +476,7 @@
     },
     {
       "path": "scripts/check-no-release-outputs.js",
-      "reason": "The release-output guard — the format doc's version-bump clause names it as the feature-branch dist gate.",
+      "reason": "The release-output guard — the feature-branch dist gate that the format doc's version-bump clause is verified by, per its registry row and the release process doc.",
       "governed-by": [
         "docs/guides/ci.md",
         "docs/guides/local-ci.md",
