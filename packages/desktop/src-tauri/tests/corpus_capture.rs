@@ -18,19 +18,17 @@
 //! identity (this window's title/class/selector) would differ if input had
 //! landed anywhere else, and the corpus baseline would go red. Pure-mouse
 //! input lands by position at the hook level and needs no focus; keyboard-
-//! driven tranche-2 sessions DO need real focus and must establish it with a
-//! real click first (the user_click_switches_window precedent), reshaped or
-//! dropped per the count-determinism hedge if CI cannot sustain it. Tests
-//! here only assert the environment contract (bounded stop) and that the
-//! dump was written.
+//! driven sessions DO need real focus and must establish it with a
+//! real click first (the user_click_switches_window precedent); a session CI
+//! cannot sustain is redesigned or retired per the corpus doctrine's
+//! retirement rule (STC-14). Tests here only assert the environment contract
+//! (bounded stop) and that the dump was written.
 //!
-//! Tranche 1 (pure-mouse classes the integration suite proves CI-stable):
-//! d-click, d-double-click. Remaining catalogue (d-coordinate — needs the
-//! guarded plain-window pattern from os_chrome::coordinate_fallback_for_
-//! plain_window, because an SS_NOTIFY STATIC is UIA-resolvable and lands
-//! accessibility mode — plus d-type-edit, d-context-switch, d-selection-gate,
-//! d-redaction, d-scroll-*) follows the same pattern; see the corpus plan's
-//! desktop-leg section.
+//! The session catalogue is corpus/manifest.json; what earns a desktop
+//! session — the catalogue criterion — is stated in
+//! docs/verification/scripted-truth-corpus.md (Desktop truth sessions,
+//! STC-22). Every active session in the catalogue has its driver test in
+//! this file, one test per session.
 //!
 //! `use enigo` auto-classifies this file as an integration test in CI
 //! (windows-latest, --test-threads=1); #[serial] guards the shared input layer.

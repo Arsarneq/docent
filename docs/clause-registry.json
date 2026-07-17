@@ -782,6 +782,30 @@
       "justification": "Whether a produced-vs-committed divergence is an environment variance the comparator class rules absorb or a deliberate re-baseline moment (a runner-image bump) is judgment; the produce-stage oracle reddens either way."
     },
     {
+      "doc": "docs/verification/scripted-truth-corpus.md",
+      "clause": "STC-19",
+      "tag": "check-exists",
+      "check-ref": "The class rules are implemented once in scripts/corpus-compare.js (normalizeEnvelope plus the exported normalizeDescribedAfterMs / normalizeCoordSelector helpers, reused by scripts/corpus-assemble-desktop-vectors.js) and pinned by the normalization-classes suite in packages/shared/tests/unit/corpus-compare.test.js (uuid grouping, context identity, described_after_ms, coordinates / window_rect / coord-selector, purity and idempotence); run via npm run test:shared. That the enumerated classes stay the complete set under future format growth is review judgment — an unnormalized new field surfaces as a noisy corpus diff, never a silent skip."
+    },
+    {
+      "doc": "docs/verification/scripted-truth-corpus.md",
+      "clause": "STC-20",
+      "tag": "check-exists",
+      "check-ref": "Pinned by the diff-and-alignment suite in packages/shared/tests/unit/corpus-compare.test.js: a deleted middle action is one missing-action with no positional cascade, extra-* findings carry the produced: prefix, and aligned pairs get truth-side wrong-field pointers (npm run test:shared). The normalize-align-relax-walk ordering itself is the structure of diffEnvelopes in scripts/corpus-compare.js and stays review-held."
+    },
+    {
+      "doc": "docs/verification/scripted-truth-corpus.md",
+      "clause": "STC-21",
+      "tag": "check-exists",
+      "check-ref": "applyRelaxation in scripts/corpus-compare.js implements the per-kind field coverage; the relaxations suite in packages/shared/tests/unit/corpus-compare.test.js pins the scroll-amounts 0-vs-nonzero class map, the match-stats strategy cross-check and masked refusal, and the unknown-kind/dangling-pointer refusals, and the committed-tree hygiene lock in the same file parses every committed sidecar and validates its kinds and pointers (npm run test:shared). The pins exercise scroll_top/delta_y, file_path, and the match-stats refusal paths; the remaining covered fields (scroll_left, delta_x, source) and the match-stats replacement itself carry no dedicated pin — that residue, and each kind's covered-field list matching this clause's enumeration, are review-held, not table-diff-checked."
+    },
+    {
+      "doc": "docs/verification/scripted-truth-corpus.md",
+      "clause": "STC-22",
+      "tag": "judgment-only",
+      "justification": "Whether a proposed desktop session pins a distinct capture behaviour, statable as current-format truth and drivable deterministically by trusted OS input, is admission judgment at review; the manifest catalogue and its known-diffs baselines are the observable record, and CI retry-budget stability is the operational probe (the STC-14 rule decides redesign or retirement)."
+    },
+    {
       "doc": "docs/api/dispatch.md",
       "clause": "DI-1",
       "tag": "judgment-only",
