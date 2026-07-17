@@ -72,6 +72,6 @@ what follows describes the one implementation both platforms run.
   resolve for this item.").
 - **Back** leaves the item unresolved and keeps its badge. Which events
   clear a stored review or conflict item — resolution, acceptance, decline,
-  or a reclassification on a later sync — is protocol territory (§SP-16,
-  §SP-18); this view simply renders a badge for every stored item, so a
+  or a reclassification on a later sync — is protocol territory (classification and supersession §SP-9/§SP-11;
+  resolution and declining §SP-16/§SP-18); this view simply renders a badge for every stored item, so a
   badge persists exactly as long as its item does.
