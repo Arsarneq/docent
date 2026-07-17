@@ -123,13 +123,6 @@
         "docs/test/integration/desktop.md"
       ]
     },
-    "user": {
-      "docs": [
-        "docs/user/extension.md",
-        "docs/user/desktop-windows.md",
-        "docs/user/troubleshooting.md"
-      ]
-    },
     "ci/release": {
       "code": [
         ".github/**",
