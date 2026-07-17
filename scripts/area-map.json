@@ -302,7 +302,7 @@
       "governed-by": ["docs/architecture/system/shared-core.md"]
     },
     {
-      "path": "packages/shared/tests/unit/{session,import-project,validate-import,schema-composition,schema-split,classify-schema-change,field-sensitivity,generated-validators,uuid-v7,stamp-compatibility}.test.js",
+      "path": "packages/shared/tests/unit/{session,import-project,validate-import,schema-split,classify-schema-change,field-sensitivity,generated-validators,uuid-v7}.test.js",
       "reason": "Format-subject unit suites — they exercise the shared format modules and schema tooling; their contract is the format doctrine, not the sync protocol their tree-mates ride.",
       "governed-by": [
         "docs/architecture/system/shared-core.md",
@@ -313,7 +313,7 @@
     {
       "path": "packages/shared/tests/unit/backward-compat.test.js",
       "reason": "The backward-compatibility harness — its discovery, validation, and baseline rules are owned by the compat doc that names it.",
-      "governed-by": ["docs/test/backward-compat.md"]
+      "governed-by": ["docs/test/backward-compat.md", "docs/technical/session-format.md"]
     },
     {
       "path": "packages/shared/tests/unit/sufficiency-lint.test.js",
@@ -325,13 +325,17 @@
       "reason": "The conformance-vector locks — they guard clauses of the locator procedure and the corpus doctrine.",
       "governed-by": [
         "docs/technical/locator-resolution.md",
-        "docs/verification/scripted-truth-corpus.md"
+        "docs/verification/scripted-truth-corpus.md",
+        "docs/technical/session-format.md"
       ]
     },
     {
       "path": "packages/shared/tests/unit/no-resolution-execution.test.js",
       "reason": "The no-shipped-resolver guard — it enforces the locator doc's never-an-implementation rule.",
-      "governed-by": ["docs/technical/locator-resolution.md"]
+      "governed-by": [
+        "docs/technical/locator-resolution.md",
+        "docs/verification/scripted-truth-corpus.md"
+      ]
     },
     {
       "path": "packages/shared/tests/unit/vector-measurement*.js",
@@ -345,7 +349,7 @@
     },
     {
       "path": "packages/shared/tests/unit/{docs-disposition-audit,next-release-version,build-size}.test.js",
-      "reason": "Unit tests for CI and build machinery — like the check-script suites, their contract is the behaviour of the tooling under test.",
+      "reason": "Unit tests for CI machinery plus the schema-artifact size budget — no doc states the budget or the tooling contracts, so the governing set is empty.",
       "governed-by": []
     },
     {
@@ -358,7 +362,8 @@
         "docs/architecture/system/shared-core.md",
         "docs/user/extension.md",
         "docs/user/troubleshooting.md",
-        "docs/user/desktop-windows.md"
+        "docs/user/desktop-windows.md",
+        "docs/technical/session-format.md"
       ]
     },
     {
@@ -402,6 +407,28 @@
         "docs/user/troubleshooting.md",
         "docs/user/desktop-windows.md",
         "docs/technical/session-format.md"
+      ]
+    },
+    {
+      "path": "packages/shared/tests/unit/stamp-compatibility.test.js",
+      "reason": "The stamp-gate suite — it pins the sync protocol's skip-and-report mismatch handling over the format's version stamp, so both doctrines govern it.",
+      "governed-by": [
+        "docs/architecture/system/shared-core.md",
+        "docs/technical/session-format.md",
+        "docs/user/troubleshooting.md",
+        "docs/api/sync-protocol.md"
+      ]
+    },
+    {
+      "path": "packages/shared/tests/unit/schema-composition.test.js",
+      "reason": "The composition suite — beyond the format doctrine it is the registry-cited guard for locator, extension-capture, and sufficiency clauses over the composed schemas.",
+      "governed-by": [
+        "docs/architecture/system/shared-core.md",
+        "docs/technical/session-format.md",
+        "docs/user/troubleshooting.md",
+        "docs/technical/locator-resolution.md",
+        "docs/architecture/application/extension/capture-principles.md",
+        "docs/verification/sufficiency-lint.md"
       ]
     }
   ]
