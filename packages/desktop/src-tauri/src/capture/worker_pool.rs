@@ -3,7 +3,7 @@
 // This module contains RawEvent, WorkerPool, dispatch logic, sequence
 // numbering, the AccessibilityBackend trait, and the worker receive loop.
 //
-// see docs/technical/session-format.md — workers assign each action's
+// Governance declared in scripts/area-map.json (see its declared-governance entry): workers assign each action's
 // context_id from the root-window resolution, so context identity (and with
 // it the format's context-introduction rule) is decided here; the
 // per-platform schemas are authoritative for field semantics.

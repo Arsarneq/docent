@@ -27,7 +27,7 @@
  * This file is part of Docent.
  * Licensed under the GNU General Public License v3.0
  */
-// see docs/technical/session-format.md — the element descriptions and locator candidates derived here are .docent.json fields; the per-platform schemas are authoritative for field semantics.
+// Governance declared in scripts/area-map.json (see its declared-governance entry): the element descriptions and locator candidates derived here are .docent.json fields; the per-platform schemas are authoritative for field semantics.
 
 /**
  * List of interactive element selectors used to find the best click target.
