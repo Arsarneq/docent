@@ -155,11 +155,7 @@
     },
     "test-infra/playwright": {
       "code": ["**/playwright*.config.js"],
-      "docs": [
-        "docs/test/README.md",
-        "docs/test/e2e.md",
-        "docs/test/integration/desktop.md"
-      ]
+      "docs": ["docs/test/README.md", "docs/test/e2e.md", "docs/test/integration/desktop.md"]
     },
     "test-infra/fixtures": {
       "code": ["packages/shared/tests/fixtures/**"],
