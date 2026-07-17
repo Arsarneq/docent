@@ -18,8 +18,8 @@
         "packages/extension/manifest.json",
         "packages/extension/icons/**",
         "packages/extension/{package,package-lock}.json",
-        "packages/extension/tests/unit/{recorder-logic,service-worker,adapter-chrome,frame-trust,service-worker-static-import}.test.js",
-        "packages/extension/tests/e2e/specs/{service-worker-lifecycle,service-worker-coverage,injection-latency,storage-quota}.spec.js"
+        "packages/extension/tests/unit/{recorder-logic,service-worker,frame-trust,service-worker-static-import}.test.js",
+        "packages/extension/tests/e2e/specs/{service-worker-lifecycle,service-worker-coverage,injection-latency,storage-quota,locators}.spec.js"
       ],
       "docs": [
         "docs/architecture/application/extension/capture-principles.md",
@@ -37,7 +37,8 @@
     "extension/sidepanel": {
       "code": [
         "packages/extension/sidepanel/**",
-        "packages/extension/tests/unit/{auto-sync-host,dispatch}.test.js"
+        "packages/extension/tests/unit/{auto-sync-host,dispatch,adapter-chrome,panel,secret-crypto}.test.js",
+        "packages/extension/tests/e2e/specs/sync-samples.spec.js"
       ],
       "docs": [
         "docs/architecture/application/extension/capture-principles.md",
