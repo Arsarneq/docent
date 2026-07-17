@@ -7,7 +7,6 @@
       "docs/README.md",
       "docs/architecture/system/capture-principles.md",
       "docs/requirements/replay-sufficiency.md",
-      "docs/technical/session-format.md",
       ".github/CONTRIBUTING.md"
     ]
   },
@@ -160,13 +159,6 @@
         "docs/test/backward-compat.md",
         "docs/test/e2e.md",
         "docs/test/integration/desktop.md"
-      ]
-    },
-    "user": {
-      "docs": [
-        "docs/user/extension.md",
-        "docs/user/desktop-windows.md",
-        "docs/user/troubleshooting.md"
       ]
     },
     "ci/release": {
