@@ -17,7 +17,7 @@
 // require a message pump (`GetMessage`/`DispatchMessage`) on the registering
 // thread.
 //
-// see docs/technical/session-format.md — this provider decides when context
+// Governance declared in scripts/area-map.json (see its declared-governance entry): this provider decides when context
 // lifecycle actions are emitted (the input-correlation gate for
 // context_switch, the tracked-window filter for context_open/context_close),
 // so it bears on the format's context-introduction rule; the per-platform

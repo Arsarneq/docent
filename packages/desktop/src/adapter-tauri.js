@@ -11,7 +11,7 @@
  * Licensed under the GNU General Public License v3.0
  * See LICENSE in the project root for license information.
  */
-// see docs/technical/session-format.md — the actions this adapter collects and redacts become .docent.json data; the per-platform schemas are authoritative for field semantics.
+// Governance declared in scripts/area-map.json (see its declared-governance entry): the actions this adapter collects and redacts become .docent.json data; the per-platform schemas are authoritative for field semantics.
 
 import { validateEndpointUrl as _validateEndpointUrl } from '../shared/dispatch-core.js';
 import { setHttpTransport } from '../shared/lib/http-transport.js';

@@ -166,10 +166,10 @@
       ]
     },
     "requirements/business": {
-      "docs": ["docs/requirements/business/positioning.md"]
-    },
-    "requirements/functional": {
-      "docs": ["docs/requirements/functional/recording-lifecycle.md"]
+      "docs": [
+        "docs/requirements/business/positioning.md",
+        "docs/requirements/functional/recording-lifecycle.md"
+      ]
     },
     "verification/corpus": {
       "code": [
@@ -500,6 +500,214 @@
         "docs/guides/local-ci.md",
         ".github/CONTRIBUTING.md",
         "docs/architecture/application/extension/capture-principles.md"
+      ]
+    },
+    {
+      "path": "packages/extension/background/service-worker.js",
+      "reason": "the extension service worker records navigation and context-lifecycle actions into the .docent.json action stream, so it owes the session-format doc on top of its capture-area governance; declared single-source (its full governing set named directly) so the pointer to the format doc does not resolve at area granularity and drag the format-contract area’s other docs onto it — the amplification the sync re-cut terminated on the shared chokepoints. The per-platform schemas remain authoritative for field semantics.",
+      "governed-by": [
+        "docs/api/sync-protocol.md",
+        "docs/architecture/application/extension/capture-principles.md",
+        "docs/architecture/application/extension/permissions.md",
+        "docs/architecture/application/extension/runtime.md",
+        "docs/architecture/system/capture-principles.md",
+        "docs/architecture/system/persistence.md",
+        "docs/architecture/system/shared-core.md",
+        "docs/technical/locator-resolution.md",
+        "docs/technical/session-format.md",
+        "docs/user/extension.md",
+        "docs/user/troubleshooting.md"
+      ]
+    },
+    {
+      "path": "packages/extension/content/recorder-logic.js",
+      "reason": "the extension recorder logic derives the element descriptions and locator candidates that become .docent.json fields, so it owes the session-format doc on top of its capture-area governance; declared single-source (its full governing set named directly) so the pointer to the format doc does not resolve at area granularity and drag the format-contract area’s other docs onto it — the amplification the sync re-cut terminated on the shared chokepoints. The per-platform schemas remain authoritative for field semantics.",
+      "governed-by": [
+        "docs/api/sync-protocol.md",
+        "docs/architecture/application/extension/capture-principles.md",
+        "docs/architecture/application/extension/permissions.md",
+        "docs/architecture/application/extension/runtime.md",
+        "docs/architecture/system/capture-principles.md",
+        "docs/architecture/system/persistence.md",
+        "docs/architecture/system/shared-core.md",
+        "docs/technical/locator-resolution.md",
+        "docs/technical/session-format.md",
+        "docs/user/extension.md",
+        "docs/user/troubleshooting.md"
+      ]
+    },
+    {
+      "path": "packages/extension/content/recorder.js",
+      "reason": "the extension content recorder captures user actions into the .docent.json action stream, so it owes the session-format doc on top of its capture-area governance; declared single-source (its full governing set named directly) so the pointer to the format doc does not resolve at area granularity and drag the format-contract area’s other docs onto it — the amplification the sync re-cut terminated on the shared chokepoints. The per-platform schemas remain authoritative for field semantics.",
+      "governed-by": [
+        "docs/api/sync-protocol.md",
+        "docs/architecture/application/extension/capture-principles.md",
+        "docs/architecture/application/extension/permissions.md",
+        "docs/architecture/application/extension/runtime.md",
+        "docs/architecture/system/capture-principles.md",
+        "docs/architecture/system/persistence.md",
+        "docs/architecture/system/shared-core.md",
+        "docs/technical/locator-resolution.md",
+        "docs/technical/session-format.md",
+        "docs/user/extension.md",
+        "docs/user/troubleshooting.md"
+      ]
+    },
+    {
+      "path": "packages/extension/lib/capture-timing.js",
+      "reason": "the extension capture-timing gates decide whether context-lifecycle actions are emitted, bearing on the format’s context-introduction rule, so it owes the session-format doc on top of its capture-area governance; declared single-source (its full governing set named directly) so the pointer to the format doc does not resolve at area granularity and drag the format-contract area’s other docs onto it — the amplification the sync re-cut terminated on the shared chokepoints. The per-platform schemas remain authoritative for field semantics.",
+      "governed-by": [
+        "docs/api/sync-protocol.md",
+        "docs/architecture/application/extension/capture-principles.md",
+        "docs/architecture/application/extension/permissions.md",
+        "docs/architecture/application/extension/runtime.md",
+        "docs/architecture/system/capture-principles.md",
+        "docs/architecture/system/persistence.md",
+        "docs/architecture/system/shared-core.md",
+        "docs/technical/locator-resolution.md",
+        "docs/technical/session-format.md",
+        "docs/user/extension.md",
+        "docs/user/troubleshooting.md"
+      ]
+    },
+    {
+      "path": "packages/extension/lib/navigation-logic.js",
+      "reason": "the extension navigation logic decides when a navigate or context_open action enters the stream, bearing on the format’s context-introduction rule, so it owes the session-format doc on top of its capture-area governance; declared single-source (its full governing set named directly) so the pointer to the format doc does not resolve at area granularity and drag the format-contract area’s other docs onto it — the amplification the sync re-cut terminated on the shared chokepoints. The per-platform schemas remain authoritative for field semantics.",
+      "governed-by": [
+        "docs/api/sync-protocol.md",
+        "docs/architecture/application/extension/capture-principles.md",
+        "docs/architecture/application/extension/permissions.md",
+        "docs/architecture/application/extension/runtime.md",
+        "docs/architecture/system/capture-principles.md",
+        "docs/architecture/system/persistence.md",
+        "docs/architecture/system/shared-core.md",
+        "docs/technical/locator-resolution.md",
+        "docs/technical/session-format.md",
+        "docs/user/extension.md",
+        "docs/user/troubleshooting.md"
+      ]
+    },
+    {
+      "path": "packages/desktop/src/adapter-tauri.js",
+      "reason": "the desktop adapter collects and redacts captured actions into .docent.json data, so it owes the session-format doc on top of its capture-area governance; declared single-source (its full governing set named directly) so the pointer to the format doc does not resolve at area granularity and drag the format-contract area’s other docs onto it — the amplification the sync re-cut terminated on the shared chokepoints. The per-platform schemas remain authoritative for field semantics.",
+      "governed-by": [
+        "docs/api/dispatch.md",
+        "docs/api/sync-protocol.md",
+        "docs/architecture/application/desktop/capture-seam.md",
+        "docs/architecture/application/desktop/windows/application-shell.md",
+        "docs/architecture/application/desktop/windows/capture-pipeline.md",
+        "docs/architecture/application/desktop/windows/capture-principles.md",
+        "docs/architecture/system/capture-principles.md",
+        "docs/architecture/system/persistence.md",
+        "docs/architecture/system/shared-core.md",
+        "docs/technical/locator-resolution.md",
+        "docs/technical/session-format.md",
+        "docs/test/desktop-rust.md",
+        "docs/test/integration/desktop.md",
+        "docs/user/desktop-windows.md",
+        "docs/user/troubleshooting.md"
+      ]
+    },
+    {
+      "path": "packages/desktop/src/panel.js",
+      "reason": "the desktop panel assembles, exports, and dispatches .docent.json sessions, so it owes the session-format doc on top of its capture-area governance; declared single-source (its full governing set named directly) so the pointer to the format doc does not resolve at area granularity and drag the format-contract area’s other docs onto it — the amplification the sync re-cut terminated on the shared chokepoints. The per-platform schemas remain authoritative for field semantics.",
+      "governed-by": [
+        "docs/api/dispatch.md",
+        "docs/api/sync-protocol.md",
+        "docs/architecture/application/desktop/capture-seam.md",
+        "docs/architecture/application/desktop/windows/application-shell.md",
+        "docs/architecture/application/desktop/windows/capture-pipeline.md",
+        "docs/architecture/application/desktop/windows/capture-principles.md",
+        "docs/architecture/system/capture-principles.md",
+        "docs/architecture/system/persistence.md",
+        "docs/architecture/system/shared-core.md",
+        "docs/technical/locator-resolution.md",
+        "docs/technical/session-format.md",
+        "docs/test/desktop-rust.md",
+        "docs/test/integration/desktop.md",
+        "docs/user/desktop-windows.md",
+        "docs/user/troubleshooting.md"
+      ]
+    },
+    {
+      "path": "packages/desktop/src-tauri/src/capture/action_mapping.rs",
+      "reason": "the desktop capture layer maps native events to .docent.json action fields, so it owes the session-format doc on top of its capture-area governance; declared single-source (its full governing set named directly) so the pointer to the format doc does not resolve at area granularity and drag the format-contract area’s other docs onto it — the amplification the sync re-cut terminated on the shared chokepoints. The per-platform schemas remain authoritative for field semantics.",
+      "governed-by": [
+        "docs/architecture/application/desktop/capture-seam.md",
+        "docs/architecture/application/desktop/windows/capture-pipeline.md",
+        "docs/architecture/application/desktop/windows/capture-principles.md",
+        "docs/architecture/system/capture-principles.md",
+        "docs/technical/locator-resolution.md",
+        "docs/technical/session-format.md",
+        "docs/test/desktop-rust.md",
+        "docs/user/desktop-windows.md",
+        "docs/user/troubleshooting.md"
+      ]
+    },
+    {
+      "path": "packages/desktop/src-tauri/src/capture/element_mapping.rs",
+      "reason": "the desktop capture layer maps element descriptions and locator candidates to .docent.json fields, so it owes the session-format doc on top of its capture-area governance; declared single-source (its full governing set named directly) so the pointer to the format doc does not resolve at area granularity and drag the format-contract area’s other docs onto it — the amplification the sync re-cut terminated on the shared chokepoints. The per-platform schemas remain authoritative for field semantics.",
+      "governed-by": [
+        "docs/architecture/application/desktop/capture-seam.md",
+        "docs/architecture/application/desktop/windows/capture-pipeline.md",
+        "docs/architecture/application/desktop/windows/capture-principles.md",
+        "docs/architecture/system/capture-principles.md",
+        "docs/technical/locator-resolution.md",
+        "docs/technical/session-format.md",
+        "docs/test/desktop-rust.md",
+        "docs/user/desktop-windows.md",
+        "docs/user/troubleshooting.md"
+      ]
+    },
+    {
+      "path": "packages/desktop/src-tauri/src/capture/windows.rs",
+      "reason": "the desktop Windows provider decides when context lifecycle actions are emitted, so it owes the session-format doc on top of its capture-area governance; declared single-source (its full governing set named directly) so the pointer to the format doc does not resolve at area granularity and drag the format-contract area’s other docs onto it — the amplification the sync re-cut terminated on the shared chokepoints. The per-platform schemas remain authoritative for field semantics.",
+      "governed-by": [
+        "docs/architecture/application/desktop/capture-seam.md",
+        "docs/architecture/application/desktop/windows/capture-pipeline.md",
+        "docs/architecture/application/desktop/windows/capture-principles.md",
+        "docs/architecture/system/capture-principles.md",
+        "docs/technical/locator-resolution.md",
+        "docs/technical/session-format.md",
+        "docs/test/desktop-rust.md",
+        "docs/user/desktop-windows.md",
+        "docs/user/troubleshooting.md"
+      ]
+    },
+    {
+      "path": "packages/desktop/src-tauri/src/capture/worker_pool.rs",
+      "reason": "the desktop worker pool assigns each captured action’s ordering and fields as it enters the stream, so it owes the session-format doc on top of its capture-area governance; declared single-source (its full governing set named directly) so the pointer to the format doc does not resolve at area granularity and drag the format-contract area’s other docs onto it — the amplification the sync re-cut terminated on the shared chokepoints. The per-platform schemas remain authoritative for field semantics.",
+      "governed-by": [
+        "docs/architecture/application/desktop/capture-seam.md",
+        "docs/architecture/application/desktop/windows/capture-pipeline.md",
+        "docs/architecture/application/desktop/windows/capture-principles.md",
+        "docs/architecture/system/capture-principles.md",
+        "docs/technical/locator-resolution.md",
+        "docs/technical/session-format.md",
+        "docs/test/desktop-rust.md",
+        "docs/user/desktop-windows.md",
+        "docs/user/troubleshooting.md"
+      ]
+    },
+    {
+      "path": "packages/desktop/src-tauri/src/commands.rs",
+      "reason": "the desktop Tauri commands relay captured events into .docent.json action data, so it owes the session-format doc on top of its capture-area governance; declared single-source (its full governing set named directly) so the pointer to the format doc does not resolve at area granularity and drag the format-contract area’s other docs onto it — the amplification the sync re-cut terminated on the shared chokepoints. The per-platform schemas remain authoritative for field semantics.",
+      "governed-by": [
+        "docs/api/dispatch.md",
+        "docs/api/sync-protocol.md",
+        "docs/architecture/application/desktop/capture-seam.md",
+        "docs/architecture/application/desktop/windows/application-shell.md",
+        "docs/architecture/application/desktop/windows/capture-pipeline.md",
+        "docs/architecture/application/desktop/windows/capture-principles.md",
+        "docs/architecture/system/capture-principles.md",
+        "docs/architecture/system/persistence.md",
+        "docs/architecture/system/shared-core.md",
+        "docs/technical/locator-resolution.md",
+        "docs/technical/session-format.md",
+        "docs/test/desktop-rust.md",
+        "docs/test/integration/desktop.md",
+        "docs/user/desktop-windows.md",
+        "docs/user/troubleshooting.md"
       ]
     }
   ]

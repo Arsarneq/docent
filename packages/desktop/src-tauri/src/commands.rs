@@ -9,7 +9,7 @@
 // - Native save dialog for export
 // - Native open dialog for import
 //
-// see docs/technical/session-format.md — the capture events these commands relay become .docent.json action data; the per-platform schemas are authoritative for field semantics.
+// Governance declared in scripts/area-map.json (see its declared-governance entry): the capture events these commands relay become .docent.json action data; the per-platform schemas are authoritative for field semantics.
 
 use std::fs;
 use std::path::PathBuf;

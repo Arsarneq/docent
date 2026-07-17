@@ -7,7 +7,7 @@
 // retrieves its own native properties (and maps its own role/control-type
 // system to a `tag` string) before handing a `NativeElementProperties` here.
 //
-// see docs/technical/session-format.md — the element descriptions and locator candidates mapped here are .docent.json fields; the per-platform schemas are authoritative for field semantics.
+// Governance declared in scripts/area-map.json (see its declared-governance entry): the element descriptions and locator candidates mapped here are .docent.json fields; the per-platform schemas are authoritative for field semantics.
 
 use super::{ElementDescription, LocatorEntry, LocatorMatch};
 
