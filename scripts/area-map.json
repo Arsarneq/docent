@@ -462,7 +462,8 @@
         "docs/test/strategy/test-pyramid.md",
         "docs/test/strategy/coverage.md",
         ".github/PUBLISHING.md",
-        "docs/verification/scripted-truth-corpus.md"
+        "docs/verification/scripted-truth-corpus.md",
+        ".github/CONTRIBUTING.md"
       ]
     },
     {
@@ -471,7 +472,8 @@
       "governed-by": [
         "docs/guides/ci.md",
         "docs/guides/local-ci.md",
-        "docs/test/strategy/mutation.md"
+        "docs/test/strategy/mutation.md",
+        ".github/CONTRIBUTING.md"
       ]
     },
     {
@@ -481,7 +483,8 @@
         "docs/guides/ci.md",
         "docs/guides/local-ci.md",
         ".github/PUBLISHING.md",
-        "docs/technical/session-format.md"
+        "docs/technical/session-format.md",
+        ".github/CONTRIBUTING.md"
       ]
     },
     {
