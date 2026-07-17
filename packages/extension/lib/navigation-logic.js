@@ -9,6 +9,7 @@
  * This file is part of Docent.
  * Licensed under the GNU General Public License v3.0
  */
+// see docs/technical/session-format.md — decides when a navigate or context_open action enters the stream, so it bears on the format's context-introduction rule; the per-platform schemas are authoritative for field semantics.
 
 /**
  * URLs that should never be captured.
