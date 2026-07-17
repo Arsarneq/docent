@@ -449,7 +449,7 @@
       "doc": "docs/architecture/application/extension/permissions.md",
       "clause": "EPM-1",
       "tag": "checkable",
-      "check-ref": "Intended: a script diffing packages/extension/manifest.json's permissions/host_permissions arrays against the doc's tables (not built). Interim probe: packages/extension/manifest.json resolves to the extension area in the committed area map, whose doc set contains this doc, so every manifest diff primes it for docs disposition."
+      "check-ref": "Intended: a script diffing packages/extension/manifest.json's permissions/host_permissions arrays against the doc's tables (not built). Interim probe: packages/extension/manifest.json resolves in the committed area map to an area whose doc set contains this doc, so every manifest diff primes it for docs disposition."
     },
     {
       "doc": "docs/architecture/application/desktop/windows/capture-principles.md",
