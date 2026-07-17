@@ -137,7 +137,8 @@
         "scripts/corpus-*.js",
         "scripts/sufficiency-lint.js",
         "packages/desktop/src-tauri/tests/corpus_capture.rs",
-        "packages/desktop/tests/unit/adapter-tauri.test.js"
+        "packages/desktop/tests/unit/adapter-tauri.test.js",
+        "packages/extension/tests/e2e/playwright.{corpus,vectors}.config.js"
       ],
       "docs": [
         "docs/verification/scripted-truth-corpus.md",
@@ -152,14 +153,26 @@
         "docs/test/strategy/mutation.md"
       ]
     },
-    "test-infra": {
-      "code": ["**/playwright*.config.js", "packages/shared/tests/fixtures/**"],
+    "test-infra/playwright": {
+      "code": ["**/playwright*.config.js"],
       "docs": [
         "docs/test/README.md",
-        "docs/test/backward-compat.md",
         "docs/test/e2e.md",
         "docs/test/integration/desktop.md"
       ]
+    },
+    "test-infra/fixtures": {
+      "code": ["packages/shared/tests/fixtures/**"],
+      "docs": ["docs/test/backward-compat.md", "docs/verification/sufficiency-lint.md"]
+    },
+    "verification/vectors": {
+      "code": [
+        "corpus/sessions/*/vectors/**",
+        "corpus/{vector.schema,vectors-coverage,vector-fixtures}.json",
+        "corpus/lib/snapshot-walker.js",
+        "scripts/corpus-assemble-desktop-vectors.js"
+      ],
+      "docs": ["docs/technical/locator-resolution.md"]
     },
     "ci/release": {
       "code": [
