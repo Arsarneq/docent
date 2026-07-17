@@ -24,7 +24,8 @@
         "docs/technical/locator-resolution.md",
         "docs/test/e2e.md",
         "docs/test/manual/extension.md",
-        "docs/user/extension.md"
+        "docs/user/extension.md",
+        "docs/user/troubleshooting.md"
       ]
     },
     "desktop-windows": {
@@ -41,7 +42,8 @@
         "docs/test/desktop-rust.md",
         "docs/test/integration/desktop.md",
         "docs/test/manual/windows.md",
-        "docs/user/desktop-windows.md"
+        "docs/user/desktop-windows.md",
+        "docs/user/troubleshooting.md"
       ]
     },
     "sync": {
@@ -53,11 +55,15 @@
         "reference-implementations/**"
       ],
       "docs": [
-        "docs/api/sync-protocol.md",
         "docs/api/dispatch.md",
+        "docs/api/sync-protocol.md",
         "docs/architecture/system/shared-core.md",
+        "docs/design/ui_ux/shared-interaction-model.md",
+        "docs/design/ui_ux/sync-resolution-ui.md",
+        "docs/requirements/non-functional/accessibility.md",
         "docs/user/desktop-windows.md",
-        "docs/user/extension.md"
+        "docs/user/extension.md",
+        "docs/user/troubleshooting.md"
       ]
     },
     "format": {
@@ -67,7 +73,11 @@
         "packages/shared/tests/**",
         "scripts/{build-schemas,build-validators,auto-version-schemas,bump-schema,classify-schema-change,update-version-table}.js"
       ],
-      "docs": ["docs/architecture/system/shared-core.md", "docs/technical/session-format.md"],
+      "docs": [
+        "docs/architecture/system/shared-core.md",
+        "docs/technical/session-format.md",
+        "docs/user/troubleshooting.md"
+      ],
       "source-of-truth": [
         "schemas/shared.schema.json",
         "schemas/desktop.shared.schema.json",
@@ -77,6 +87,18 @@
     },
     "requirements/business": {
       "docs": ["docs/requirements/business/positioning.md"]
+    },
+    "requirements/functional": {
+      "docs": ["docs/requirements/functional/recording-lifecycle.md"]
+    },
+    "requirements/non-functional": {
+      "docs": ["docs/requirements/non-functional/accessibility.md"]
+    },
+    "design/ui_ux": {
+      "docs": [
+        "docs/design/ui_ux/shared-interaction-model.md",
+        "docs/design/ui_ux/sync-resolution-ui.md"
+      ]
     },
     "verification/corpus": {
       "code": ["corpus/**", "scripts/corpus-*.js", "scripts/sufficiency-lint.js"],
@@ -103,7 +125,11 @@
       ]
     },
     "user": {
-      "docs": ["docs/user/extension.md", "docs/user/desktop-windows.md"]
+      "docs": [
+        "docs/user/extension.md",
+        "docs/user/desktop-windows.md",
+        "docs/user/troubleshooting.md"
+      ]
     },
     "ci/release": {
       "code": [
