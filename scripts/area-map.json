@@ -137,7 +137,8 @@
         "corpus/**",
         "scripts/corpus-*.js",
         "scripts/sufficiency-lint.js",
-        "packages/desktop/src-tauri/tests/corpus_capture.rs"
+        "packages/desktop/src-tauri/tests/corpus_capture.rs",
+        "packages/desktop/tests/unit/adapter-tauri.test.js"
       ],
       "docs": [
         "docs/verification/scripted-truth-corpus.md",
