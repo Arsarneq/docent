@@ -63,12 +63,13 @@ recordings or projects).
 ## Desktop — the session file and the credential store
 
 - **`%APPDATA%/com.docent.desktop/session.json`** is the single persisted
-  blob: the projects and recordings, the active ids, the settings, and the
-  sync reconcile state (`syncState` rides the same blob). The frontend
-  writes it through the `save_state` command on every model mutation and
-  reads it through `load_state` at startup; a missing or unparseable file
+  blob: the projects and recordings, the settings, and the sync reconcile
+  state (`syncState` rides the same blob) — the active project/recording
+  selection lives in the panel's memory only and is not persisted. The
+  frontend writes it through the `save_state` command on every model mutation
+  and reads it through `load_state` at startup; a missing or unparseable file
   starts the app with an empty state
-  ([`persistence.js`](../../../packages/desktop/src/persistence.js),
+  ([`panel.js`](../../../packages/desktop/src/panel.js),
   [`commands.rs`](../../../packages/desktop/src-tauri/src/commands.rs)).
 - **Windows Credential Manager** holds the two API keys — the dispatch
   `apiKey` and the sync `syncApiKey`. The `save_state`/`load_state` commands
@@ -77,7 +78,9 @@ recordings or projects).
   re-injected, so the session file on disk never carries them; clearing a
   key in Settings also deletes its credential entry
   ([`secret_store.rs`](../../../packages/desktop/src-tauri/src/secret_store.rs)).
-  The user-facing statement is the
+  The operative rule, with its clear-vs-omit semantics, is
+  [application-shell §DSH-2](../application/desktop/windows/application-shell.md#session-persistence);
+  the user-facing statement is the
   [desktop guide's Your data section](../../user/desktop-windows.md#your-data).
 
 ---

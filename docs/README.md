@@ -55,6 +55,11 @@ repository's code to its governing docs), not by its presence here.
 - [Desktop capture pipeline (Windows)](architecture/application/desktop/windows/capture-pipeline.md) —
   the input-hook → worker-pool delivery pipeline behind the Windows capture
   layer: ordering, the commit flush barrier, and the no-drop shutdown.
+- [Desktop application shell (Windows)](architecture/application/desktop/windows/application-shell.md) —
+  the Tauri shell around the Windows capture layer: the command surface and
+  the `capture:action` event channel, the session-persistence commands and
+  their credential-store chokepoint, the tray keep-alive behind background
+  Auto-Sync, and the native HTTP transport chokepoint.
 - [Desktop capture seam](architecture/application/desktop/capture-seam.md) —
   the cross-platform capture boundary inside the desktop crate: the trait a
   per-OS backend implements and the compile-everywhere stub posture.
