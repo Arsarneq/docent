@@ -312,7 +312,7 @@
     },
     {
       "path": "packages/shared/tests/unit/backward-compat.test.js",
-      "reason": "The backward-compatibility harness — its discovery, validation, and baseline rules are owned by the compat doc that names it.",
+      "reason": "The backward-compatibility harness — the compat doc owns its discovery and baseline rules, and the format doc's stamp-relaxation clause cites it.",
       "governed-by": ["docs/test/backward-compat.md", "docs/technical/session-format.md"]
     },
     {
@@ -322,7 +322,7 @@
     },
     {
       "path": "packages/shared/tests/unit/conformance-vectors.test.js",
-      "reason": "The conformance-vector locks — they guard clauses of the locator procedure and the corpus doctrine.",
+      "reason": "The conformance-vector locks — they guard clauses of the locator procedure, the corpus doctrine, and the format doc's measurement clause.",
       "governed-by": [
         "docs/technical/locator-resolution.md",
         "docs/verification/scripted-truth-corpus.md",
@@ -331,7 +331,7 @@
     },
     {
       "path": "packages/shared/tests/unit/no-resolution-execution.test.js",
-      "reason": "The no-shipped-resolver guard — it enforces the locator doc's never-an-implementation rule.",
+      "reason": "The no-shipped-resolver guard — it enforces the locator doc's never-an-implementation rule and the corpus doctrine's inert-vector posture.",
       "governed-by": [
         "docs/technical/locator-resolution.md",
         "docs/verification/scripted-truth-corpus.md"
@@ -429,6 +429,21 @@
         "docs/technical/locator-resolution.md",
         "docs/architecture/application/extension/capture-principles.md",
         "docs/verification/sufficiency-lint.md"
+      ]
+    },
+    {
+      "path": "packages/extension/sidepanel/panel.js",
+      "reason": "The extension panel — its committed format pointer would drag the schema-contract set onto a module that emits no locators; this declaration states its true governors: the sidepanel area's docs plus the format doc its commit logic implements.",
+      "governed-by": [
+        "docs/architecture/application/extension/capture-principles.md",
+        "docs/architecture/application/extension/runtime.md",
+        "docs/architecture/system/persistence.md",
+        "docs/architecture/system/shared-core.md",
+        "docs/api/dispatch.md",
+        "docs/api/sync-protocol.md",
+        "docs/user/extension.md",
+        "docs/user/troubleshooting.md",
+        "docs/technical/session-format.md"
       ]
     }
   ]

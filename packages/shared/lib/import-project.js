@@ -13,7 +13,7 @@
  * Licensed under the GNU General Public License v3.0
  * See LICENSE in the project root for license information.
  */
-// see docs/technical/session-format.md — reconstructs steps per the format's step schema; the per-platform schemas are authoritative for field semantics.
+// Governed by the format area (its doc set carries the format doc): reconstructs steps per the format's step schema; the per-platform schemas are authoritative for field semantics.
 
 import { uuidv7 } from './uuid-v7.js';
 
