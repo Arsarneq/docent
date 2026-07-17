@@ -19,7 +19,7 @@ alone does not make a document doctrine — what a document governs is declared
 by [`scripts/area-map.json`](../scripts/area-map.json) (which maps the
 repository's code to its governing docs), not by its presence here.
 
-### Requirements — product positioning and what a recording must guarantee
+### Requirements — positioning, the authoring contract, quality-attribute posture, and what a recording must guarantee
 
 - [Product Positioning](requirements/business/positioning.md) — how Docent differs
   (data, not code), the example consumer flows, and the two step-context modes a
@@ -27,6 +27,13 @@ repository's code to its governing docs), not by its presence here.
 - [Replay Sufficiency](requirements/replay-sufficiency.md) — what a recording,
   taken alone, must be sufficient for: the principle, its scope boundaries, and
   the normative-vs-informative field taxonomy the guarantee stands on.
+- [Recording Lifecycle](requirements/functional/recording-lifecycle.md) — the
+  recording-authoring contract as shipped: what a user can do at each stage
+  (create, capture, commit, edit, export/import, dispatch) and what the system
+  guarantees, citing the owning documents per stage.
+- [Accessibility](requirements/non-functional/accessibility.md) — the panels'
+  accessibility posture as it stands, and its distinction from the capture
+  layer's consumption of accessibility APIs as a data source.
 
 ### Architecture — how the platforms are built
 
@@ -68,9 +75,23 @@ The extension is a single Chrome (Manifest V3) extension — one codebase that r
 across Chromium-based browsers that support Chrome extensions — so it sits flat
 under `application/extension/`; desktop capture is per-OS native stacks
 (UIA/WinEvent), so it nests under `application/desktop/windows/`, leaving room for a
-future capture surface (e.g. Linux) beside it. The seam those per-OS backends
+future capture surface (e.g. Linux) beside it. The application-shell document
+nests under `windows/` on a different rationale: desktop releases are scoped to
+Windows, so the shipped shell — its tray, credential store, and native file
+dialogs — is the Windows one. The seam those per-OS backends
 plug into is OS-agnostic, so its document sits one level up, at
 `application/desktop/`.
+
+### Design — UI/UX and interaction-design records
+
+- [Shared interaction model](design/ui_ux/shared-interaction-model.md) — the
+  cross-platform interaction model behind the "same workflow on both platforms"
+  claim: one panel structure, the same workflow verbs, and the deliberate
+  per-platform differences with their owning documents.
+- [Sync resolution UI](design/ui_ux/sync-resolution-ui.md) — the shipped
+  attention-badge and resolution-workflow UI contract: badge semantics, the
+  review and conflict views, and the one shared implementation both panels
+  render.
 
 ### Technical — format orientation and the resolution specification
 
@@ -124,15 +145,20 @@ behaves as designed. Neither implies the other.
   server — all from the browser.
 - [Desktop application (Windows)](user/desktop-windows.md) — install the app,
   record native Windows workflows, dispatch them, and keep projects in sync.
+- [Troubleshooting](user/troubleshooting.md) — a by-symptom index across both
+  platforms: import/export refusals, send failures, sync halts and attention
+  badges, and capture-side surprises, each routing to the document that owns
+  the behaviour.
 
-### Guides — running the project
+### Guides — the project's CI: what it enforces, and how to run it locally
 
 - [CI gates](guides/ci.md) — what CI enforces on a pull request, on `main`, and
   on a schedule: each workflow's gate, the action SHA-pinning policy, and the
   workflow-security posture.
-- [Running CI locally](guides/local-ci.md) — run the CI test jobs on your own
-  machine with [`act`](https://github.com/nektos/act), and the `windows-latest`
-  boundary.
+- [Running CI locally](guides/local-ci.md) — reproduce the CI gates on your own
+  machine: per-gate direct commands, whole jobs in containers with
+  [`act`](https://github.com/nektos/act), and the Windows boundary two desktop
+  jobs cannot cross.
 
 ## Reference implementations
 
@@ -147,9 +173,6 @@ repository and testing artifacts, never shipped in a release:
 Defined here so every future doc has an obvious home; a folder is created only when
 its first real doc lands (no empty directories):
 
-- `requirements/functional/`, `requirements/non-functional/` — functional and
-  quality-attribute requirements not yet written as standalone docs.
-- `design/` (and `design/ui_ux/`) — UI/UX and interaction-design records.
 - `architecture/application/desktop/linux/` and any other future capture surface —
   a new surface slots in beside `windows/`.
 

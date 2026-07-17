@@ -137,7 +137,7 @@ sufficient when all three hold:
 1. **Static predicates** — for each action, the fields the
    [taxonomy](#field-taxonomy--normative-vs-informative) marks normative are
    present or legally absent, and their cross-field invariants hold. A pure
-   function of the file, checkable by machine.
+   function of the file, [checkable by machine](../verification/sufficiency-lint.md).
 2. **Resolution conformance** — the recording's locators resolve to the
    acted-on elements under the documented
    [reference resolution procedure](../technical/locator-resolution.md), verified against
