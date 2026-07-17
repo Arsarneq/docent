@@ -99,7 +99,6 @@
     },
     "format": {
       "code": [
-        "schemas/**",
         "packages/shared/lib/{session,export-project,import-project,validate-import,format-stamp,field-sensitivity,uuid-v7}.js",
         "packages/shared/tests/**",
         "scripts/{build-schemas,build-validators,auto-version-schemas,bump-schema,classify-schema-change,update-version-table}.js"
@@ -107,6 +106,16 @@
       "docs": [
         "docs/architecture/system/shared-core.md",
         "docs/technical/session-format.md",
+        "docs/user/troubleshooting.md"
+      ]
+    },
+    "format/contract": {
+      "code": ["schemas/**"],
+      "docs": [
+        "docs/technical/session-format.md",
+        "docs/technical/locator-resolution.md",
+        "docs/requirements/replay-sufficiency.md",
+        "docs/api/dispatch.md",
         "docs/user/troubleshooting.md"
       ],
       "source-of-truth": [
