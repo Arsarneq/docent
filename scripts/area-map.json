@@ -11,8 +11,15 @@
     ]
   },
   "areas": {
-    "extension": {
-      "code": ["packages/extension/**"],
+    "extension/capture": {
+      "code": [
+        "packages/extension/{background,content,lib}/**",
+        "packages/extension/manifest.json",
+        "packages/extension/icons/**",
+        "packages/extension/{package,package-lock}.json",
+        "packages/extension/tests/unit/{recorder-logic,service-worker,frame-trust,service-worker-static-import}.test.js",
+        "packages/extension/tests/e2e/specs/{service-worker-lifecycle,service-worker-coverage,injection-latency,storage-quota,locators}.spec.js"
+      ],
       "docs": [
         "docs/architecture/application/extension/capture-principles.md",
         "docs/architecture/application/extension/permissions.md",
@@ -21,10 +28,34 @@
         "docs/architecture/system/persistence.md",
         "docs/architecture/system/shared-core.md",
         "docs/technical/locator-resolution.md",
-        "docs/test/e2e.md",
-        "docs/test/manual/extension.md",
+        "docs/api/sync-protocol.md",
         "docs/user/extension.md",
         "docs/user/troubleshooting.md"
+      ]
+    },
+    "extension/sidepanel": {
+      "code": [
+        "packages/extension/sidepanel/**",
+        "packages/extension/tests/unit/{auto-sync-host,dispatch,adapter-chrome,panel,secret-crypto}.test.js",
+        "packages/extension/tests/e2e/specs/sync-samples.spec.js"
+      ],
+      "docs": [
+        "docs/architecture/application/extension/capture-principles.md",
+        "docs/architecture/application/extension/runtime.md",
+        "docs/architecture/system/persistence.md",
+        "docs/architecture/system/shared-core.md",
+        "docs/api/dispatch.md",
+        "docs/api/sync-protocol.md",
+        "docs/user/extension.md",
+        "docs/user/troubleshooting.md"
+      ]
+    },
+    "extension/tests": {
+      "code": ["packages/extension/tests/**"],
+      "docs": [
+        "docs/architecture/application/extension/capture-principles.md",
+        "docs/test/e2e.md",
+        "docs/test/manual/extension.md"
       ]
     },
     "desktop-windows/capture": {
@@ -106,7 +137,6 @@
     },
     "format": {
       "code": [
-        "schemas/**",
         "packages/shared/lib/{session,export-project,import-project,validate-import,format-stamp,field-sensitivity,uuid-v7}.js",
         "packages/shared/tests/**",
         "scripts/{build-schemas,build-validators,auto-version-schemas,bump-schema,classify-schema-change,update-version-table}.js"
@@ -114,6 +144,16 @@
       "docs": [
         "docs/architecture/system/shared-core.md",
         "docs/technical/session-format.md",
+        "docs/user/troubleshooting.md"
+      ]
+    },
+    "format/contract": {
+      "code": ["schemas/**"],
+      "docs": [
+        "docs/technical/session-format.md",
+        "docs/technical/locator-resolution.md",
+        "docs/requirements/replay-sufficiency.md",
+        "docs/api/dispatch.md",
         "docs/user/troubleshooting.md"
       ],
       "source-of-truth": [
@@ -134,8 +174,12 @@
         "corpus/**",
         "scripts/corpus-*.js",
         "scripts/sufficiency-lint.js",
+        "packages/extension/tests/e2e/corpus/**",
+        "packages/extension/tests/e2e/helpers/vector-snapshot.js",
+        "packages/extension/tests/unit/service-worker.test.js",
         "packages/desktop/src-tauri/tests/corpus_capture.rs",
-        "packages/desktop/tests/unit/adapter-tauri.test.js"
+        "packages/desktop/tests/unit/adapter-tauri.test.js",
+        "packages/extension/tests/e2e/playwright.{corpus,vectors}.config.js"
       ],
       "docs": [
         "docs/verification/scripted-truth-corpus.md",
@@ -150,14 +194,22 @@
         "docs/test/strategy/mutation.md"
       ]
     },
-    "test-infra": {
-      "code": ["**/playwright*.config.js", "packages/shared/tests/fixtures/**"],
-      "docs": [
-        "docs/test/README.md",
-        "docs/test/backward-compat.md",
-        "docs/test/e2e.md",
-        "docs/test/integration/desktop.md"
-      ]
+    "test-infra/playwright": {
+      "code": ["**/playwright*.config.js"],
+      "docs": ["docs/test/README.md", "docs/test/e2e.md", "docs/test/integration/desktop.md"]
+    },
+    "test-infra/fixtures": {
+      "code": ["packages/shared/tests/fixtures/**"],
+      "docs": ["docs/test/backward-compat.md", "docs/verification/sufficiency-lint.md"]
+    },
+    "verification/vectors": {
+      "code": [
+        "corpus/sessions/*/vectors/**",
+        "corpus/{vector.schema,vectors-coverage,vector-fixtures}.json",
+        "corpus/lib/snapshot-walker.js",
+        "scripts/corpus-assemble-desktop-vectors.js"
+      ],
+      "docs": ["docs/technical/locator-resolution.md"]
     },
     "ci/release": {
       "code": [
