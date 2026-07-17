@@ -27,22 +27,54 @@
         "docs/user/troubleshooting.md"
       ]
     },
-    "desktop-windows": {
-      "code": ["packages/desktop/**"],
+    "desktop-windows/capture": {
+      "code": [
+        "packages/desktop/src-tauri/src/capture/**",
+        "packages/desktop/src-tauri/src/{lib,commands}.rs",
+        "packages/desktop/src/{panel,adapter-tauri}.js",
+        "packages/desktop/src-tauri/tests/**",
+        "packages/desktop/tests/unit/{reorder-buffer,adapter-tauri}.test.js"
+      ],
       "docs": [
         "docs/architecture/application/desktop/capture-seam.md",
-        "docs/architecture/application/desktop/windows/application-shell.md",
         "docs/architecture/application/desktop/windows/capture-pipeline.md",
         "docs/architecture/application/desktop/windows/capture-principles.md",
         "docs/architecture/system/capture-principles.md",
+        "docs/technical/locator-resolution.md",
+        "docs/test/desktop-rust.md",
+        "docs/user/desktop-windows.md",
+        "docs/user/troubleshooting.md"
+      ]
+    },
+    "desktop-windows/shell": {
+      "code": [
+        "packages/desktop/src/**",
+        "packages/desktop/src-tauri/src/{main,lib,commands,secret_store,sync_http}.rs",
+        "packages/desktop/src-tauri/*",
+        "packages/desktop/src-tauri/{capabilities,icons,.cargo}/**",
+        "packages/desktop/src-tauri/tests/commands_test.rs",
+        "packages/desktop/tests/unit/{persistence,persistence-unit,auto-sync-host,dispatch,export}.test.js",
+        "packages/desktop/tests/integration/panel-dispatch-sync.spec.js"
+      ],
+      "docs": [
+        "docs/architecture/application/desktop/windows/application-shell.md",
         "docs/architecture/system/persistence.md",
         "docs/architecture/system/shared-core.md",
-        "docs/technical/locator-resolution.md",
+        "docs/api/dispatch.md",
+        "docs/api/sync-protocol.md",
+        "docs/test/desktop-rust.md",
+        "docs/test/integration/desktop.md",
+        "docs/user/desktop-windows.md",
+        "docs/user/troubleshooting.md"
+      ]
+    },
+    "desktop-windows/tests": {
+      "code": ["packages/desktop/tests/**", "packages/desktop/src-tauri/tests/**"],
+      "docs": [
         "docs/test/desktop-rust.md",
         "docs/test/integration/desktop.md",
         "docs/test/manual/windows.md",
-        "docs/user/desktop-windows.md",
-        "docs/user/troubleshooting.md"
+        "docs/test/strategy/coverage.md"
       ]
     },
     "sync": {
@@ -109,7 +141,13 @@
       ]
     },
     "verification/corpus": {
-      "code": ["corpus/**", "scripts/corpus-*.js", "scripts/sufficiency-lint.js"],
+      "code": [
+        "corpus/**",
+        "scripts/corpus-*.js",
+        "scripts/sufficiency-lint.js",
+        "packages/desktop/src-tauri/tests/corpus_capture.rs",
+        "packages/desktop/tests/unit/adapter-tauri.test.js"
+      ],
       "docs": [
         "docs/verification/scripted-truth-corpus.md",
         "docs/verification/sufficiency-lint.md",
