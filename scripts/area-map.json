@@ -7,7 +7,6 @@
       "docs/README.md",
       "docs/architecture/system/capture-principles.md",
       "docs/requirements/replay-sufficiency.md",
-      "docs/technical/session-format.md",
       ".github/CONTRIBUTING.md"
     ]
   },
