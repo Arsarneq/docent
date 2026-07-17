@@ -7,8 +7,8 @@ and routes to the document that owns the behaviour — the user guides
 protocol, and architecture owners each row names. Each row summarises the
 owning rule so the symptom is recognisable; the owning document holds the
 authoritative statement, and when a rule changes there, the matching row
-here changes with it (this index's homing in the platform, sync, format,
-and user areas keeps it in a change's disposition view).
+here changes with it (this index's homing in the platform, sync, and
+format areas keeps it in a change's disposition view).
 
 ## Import and export
 

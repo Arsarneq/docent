@@ -17,6 +17,7 @@
  * The content script (IIFE, not a module) duplicates these values inline
  * with a reference comment pointing here as the source of truth.
  */
+// see docs/technical/session-format.md — these suppression windows decide whether context lifecycle actions are emitted or suppressed, so mis-tuning bears on the format's context-introduction rule; the per-platform schemas are authoritative for field semantics.
 
 // ─── Human-action floor ───────────────────────────────────────────────────────
 
