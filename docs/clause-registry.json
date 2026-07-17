@@ -419,7 +419,7 @@
       "doc": "docs/architecture/application/extension/capture-principles.md",
       "clause": "ECP-11",
       "tag": "check-exists",
-      "check-ref": "The storage-quota unit tests pin the bands and hysteresis, and two e2e specs pin the pause/override/resume machine including live capture at the boundary and the never-evicts half (quota exhaustion corrupts no stored projects) (packages/extension/tests/e2e/specs/storage-quota.spec.js and storage-quota-live-capture.spec.js; npm run test:extension and test:e2e)."
+      "check-ref": "The storage-quota unit tests pin the bands and hysteresis, and two e2e specs pin the pause/override/resume machine including live capture at the boundary and the never-evicts half (quota exhaustion corrupts no stored projects) (packages/extension/tests/e2e/specs/storage-quota.spec.js and packages/extension/tests/e2e/specs/storage-quota-live-capture.spec.js; npm run test:extension and test:e2e)."
     },
     {
       "doc": "docs/architecture/application/extension/capture-principles.md",

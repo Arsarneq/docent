@@ -304,12 +304,12 @@ review-calibration signal, never a per-PR verdict
 
 ## Extending the Docs Governance
 
-The binding between code and docs is committed, linted data. Four lints keep
+The binding between code and docs is committed, linted data. Five lints keep
 it true — each runs in CI's `lint` job
 ([the lint table](../docs/guides/ci.md#the-lint-and-freshness-gates)) and
 locally as `npm run lint:links`, `npm run lint:reachability`,
-`npm run lint:area-map`, and `npm run lint:clause-registry`. What each kind of
-change keeps green:
+`npm run lint:area-map`, `npm run lint:clause-registry`, and
+`npm run lint:clause-governance`. What each kind of change keeps green:
 
 - **Adding or moving a doc:** link it from the
   [documentation map](../docs/README.md) — every relative link must resolve
@@ -332,7 +332,12 @@ change keeps green:
   is verified — by a named existing check, an intended check, or a justified
   judgment — and any check a row references must actually resolve.
   `lint:clause-registry` holds the doc markers and the registry rows in
-  one-to-one agreement.
+  one-to-one agreement. Every repository path a row cites — the code that
+  implements or guards the clause — must in turn be governed by the clause's
+  own doc under the area map, so a change to that code cannot drift from the
+  doctrine it stands on without priming the doc; `lint:clause-governance`
+  holds that edge, with deliberately-open couplings recorded as a justified
+  allowlist in the check.
 
 ## Regression Tests
 
