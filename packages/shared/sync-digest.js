@@ -61,6 +61,7 @@
  * Licensed under the GNU General Public License v3.0
  * See LICENSE in the project root for license information.
  */
+// see docs/technical/session-format.md — the digest's identity projection is defined over the format's committed step-history model (logical_id/uuid versioning, tombstones, re-records), so changes to that model and this projection move together; the per-platform schemas are authoritative for field semantics.
 
 /**
  * Recursively rebuild a JSON-serializable value into a canonical form: object

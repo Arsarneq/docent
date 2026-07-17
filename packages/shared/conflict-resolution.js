@@ -68,6 +68,7 @@
  * Licensed under the GNU General Public License v3.0
  * See LICENSE in the project root for license information.
  */
+// see docs/technical/session-format.md — the adoption chokepoint appends step-history records and enforces the append-only superset rule, so it is bound by the format's step-history rules; the per-platform schemas are authoritative for field semantics.
 
 import { advanceBaseline } from './sync-baseline.js';
 import { clearItem, recordDismissedIncoming } from './sync-store.js';
