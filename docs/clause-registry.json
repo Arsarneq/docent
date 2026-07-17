@@ -11,7 +11,8 @@
     "SP": "docs/api/sync-protocol.md",
     "STC": "docs/verification/scripted-truth-corpus.md",
     "DI": "docs/api/dispatch.md",
-    "SC": "docs/architecture/system/shared-core.md"
+    "SC": "docs/architecture/system/shared-core.md",
+    "DSH": "docs/architecture/application/desktop/windows/application-shell.md"
   },
   "retired": {
     "CP": [],
@@ -24,7 +25,8 @@
     "SP": [],
     "STC": [],
     "DI": [],
-    "SC": []
+    "SC": [],
+    "DSH": []
   },
   "clauses": [
     {
@@ -884,6 +886,18 @@
       "clause": "SC-2",
       "tag": "check-exists",
       "check-ref": "The 'Verify sync-shared output is fresh' CI step (.github/workflows/test.yml) re-runs npm run sync-shared on the PR tree and fails on any git diff in the committed assembled index.html files, so a stale or hand-edited committed copy cannot merge. The gitignored synced trees are outside that diff's reach: for them the rule is held by regeneration (every sync deletes and re-copies the tree) and review. The clause's release-pipeline half (each publish workflow syncs before packaging) is likewise held by the workflow text and review, not by the named freshness check."
+    },
+    {
+      "doc": "docs/architecture/application/desktop/windows/application-shell.md",
+      "clause": "DSH-1",
+      "tag": "checkable",
+      "check-ref": "Intended: a script diffing the crate's #[tauri::command] functions and the generate_handler! registration in packages/desktop/src-tauri/src/lib.rs against this doc's table, and the grants in packages/desktop/src-tauri/capabilities/default.json against the doc's stated plugin surface (not built). Interim probe: packages/desktop/src-tauri/src/lib.rs and capabilities/default.json both resolve to the desktop-windows area in the committed area map, whose doc set contains this doc, so command-registration and grant diffs alike prime it for docs disposition; the single capture:action emit site is review-held (the emit call in lib.rs names the channel; nothing pins uniqueness mechanically)."
+    },
+    {
+      "doc": "docs/architecture/application/desktop/windows/application-shell.md",
+      "clause": "DSH-2",
+      "tag": "check-exists",
+      "check-ref": "The strip/re-inject pair is pinned by the in-module unit tests in packages/desktop/src-tauri/src/secret_store.rs (strip_then_inject_round_trips asserts the on-disk text contains neither key; strip_deletes_store_entry_for_empty_string and strip_leaves_store_untouched_when_field_absent pin the clear-vs-omit semantics) and at the command wrappers by the secret_wrappers tests in packages/desktop/src-tauri/src/commands.rs (strip_removes_api_key_from_written_json, inject_restores_api_key_into_read_json); run via npm run test:desktop:rust. Named residue: that no other code path writes the session file is held by the file I/O living only in commands.rs (session_file_path is module-private) and review, not by a named check."
     }
   ]
 }
