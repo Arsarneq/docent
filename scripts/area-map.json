@@ -12,8 +12,15 @@
     ]
   },
   "areas": {
-    "extension": {
-      "code": ["packages/extension/**"],
+    "extension/capture": {
+      "code": [
+        "packages/extension/{background,content,lib}/**",
+        "packages/extension/manifest.json",
+        "packages/extension/icons/**",
+        "packages/extension/{package,package-lock}.json",
+        "packages/extension/tests/unit/{recorder-logic,service-worker,adapter-chrome,frame-trust,service-worker-static-import}.test.js",
+        "packages/extension/tests/e2e/specs/{service-worker-lifecycle,service-worker-coverage,injection-latency,storage-quota}.spec.js"
+      ],
       "docs": [
         "docs/architecture/application/extension/capture-principles.md",
         "docs/architecture/application/extension/permissions.md",
@@ -22,10 +29,33 @@
         "docs/architecture/system/persistence.md",
         "docs/architecture/system/shared-core.md",
         "docs/technical/locator-resolution.md",
-        "docs/test/e2e.md",
-        "docs/test/manual/extension.md",
+        "docs/api/sync-protocol.md",
         "docs/user/extension.md",
         "docs/user/troubleshooting.md"
+      ]
+    },
+    "extension/sidepanel": {
+      "code": [
+        "packages/extension/sidepanel/**",
+        "packages/extension/tests/unit/{auto-sync-host,dispatch}.test.js"
+      ],
+      "docs": [
+        "docs/architecture/application/extension/capture-principles.md",
+        "docs/architecture/application/extension/runtime.md",
+        "docs/architecture/system/persistence.md",
+        "docs/architecture/system/shared-core.md",
+        "docs/api/dispatch.md",
+        "docs/api/sync-protocol.md",
+        "docs/user/extension.md",
+        "docs/user/troubleshooting.md"
+      ]
+    },
+    "extension/tests": {
+      "code": ["packages/extension/tests/**"],
+      "docs": [
+        "docs/architecture/application/extension/capture-principles.md",
+        "docs/test/e2e.md",
+        "docs/test/manual/extension.md"
       ]
     },
     "desktop-windows": {
@@ -101,7 +131,14 @@
       ]
     },
     "verification/corpus": {
-      "code": ["corpus/**", "scripts/corpus-*.js", "scripts/sufficiency-lint.js"],
+      "code": [
+        "corpus/**",
+        "scripts/corpus-*.js",
+        "scripts/sufficiency-lint.js",
+        "packages/extension/tests/e2e/corpus/**",
+        "packages/extension/tests/e2e/helpers/vector-snapshot.js",
+        "packages/extension/tests/unit/service-worker.test.js"
+      ],
       "docs": [
         "docs/verification/scripted-truth-corpus.md",
         "docs/verification/sufficiency-lint.md",
