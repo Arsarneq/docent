@@ -80,7 +80,6 @@
     "sync": {
       "code": [
         "packages/shared/{sync-*,dispatch-*,conflict-*,connection-test}.js",
-        "packages/shared/views/**",
         "packages/shared/lib/http-transport.js",
         "packages/shared/tests/**",
         "reference-implementations/**"
@@ -89,10 +88,18 @@
         "docs/api/dispatch.md",
         "docs/api/sync-protocol.md",
         "docs/architecture/system/shared-core.md",
+        "docs/user/desktop-windows.md",
+        "docs/user/extension.md",
+        "docs/user/troubleshooting.md"
+      ]
+    },
+    "sync/panel-ui": {
+      "code": ["packages/shared/views/**", "packages/shared/sync-conflict-ui.js"],
+      "docs": [
         "docs/design/ui_ux/shared-interaction-model.md",
         "docs/design/ui_ux/sync-resolution-ui.md",
         "docs/requirements/non-functional/accessibility.md",
-        "docs/user/desktop-windows.md",
+        "docs/architecture/system/shared-core.md",
         "docs/user/extension.md",
         "docs/user/troubleshooting.md"
       ]
@@ -121,15 +128,6 @@
     },
     "requirements/functional": {
       "docs": ["docs/requirements/functional/recording-lifecycle.md"]
-    },
-    "requirements/non-functional": {
-      "docs": ["docs/requirements/non-functional/accessibility.md"]
-    },
-    "design/ui_ux": {
-      "docs": [
-        "docs/design/ui_ux/shared-interaction-model.md",
-        "docs/design/ui_ux/sync-resolution-ui.md"
-      ]
     },
     "verification/corpus": {
       "code": [
@@ -249,6 +247,53 @@
       "path": "scripts/inject-shared-views.js",
       "reason": "The shared-views injection — the one-fragment-two-shells assembly the shared-core architecture doc owns.",
       "governed-by": ["docs/architecture/system/shared-core.md"]
+    },
+    {
+      "path": "packages/shared/tests/unit/{session,import-project,validate-import,schema-composition,schema-split,classify-schema-change,field-sensitivity,generated-validators,uuid-v7,stamp-compatibility,regression}.test.js",
+      "reason": "Format-subject unit suites — they exercise the shared format modules and schema tooling; their contract is the format doctrine, not the sync protocol their tree-mates ride.",
+      "governed-by": [
+        "docs/architecture/system/shared-core.md",
+        "docs/technical/session-format.md",
+        "docs/user/troubleshooting.md"
+      ]
+    },
+    {
+      "path": "packages/shared/tests/unit/backward-compat.test.js",
+      "reason": "The backward-compatibility harness — its discovery, validation, and baseline rules are owned by the compat doc that names it.",
+      "governed-by": ["docs/test/backward-compat.md"]
+    },
+    {
+      "path": "packages/shared/tests/unit/sufficiency-lint.test.js",
+      "reason": "The sufficiency baseline lock — the lint doc owns the both-direction locking and regeneration rules it enforces.",
+      "governed-by": ["docs/verification/sufficiency-lint.md"]
+    },
+    {
+      "path": "packages/shared/tests/unit/conformance-vectors.test.js",
+      "reason": "The conformance-vector locks — they guard clauses of the locator procedure and the corpus doctrine.",
+      "governed-by": [
+        "docs/technical/locator-resolution.md",
+        "docs/verification/scripted-truth-corpus.md"
+      ]
+    },
+    {
+      "path": "packages/shared/tests/unit/no-resolution-execution.test.js",
+      "reason": "The no-shipped-resolver guard — it enforces the locator doc's never-an-implementation rule.",
+      "governed-by": ["docs/technical/locator-resolution.md"]
+    },
+    {
+      "path": "packages/shared/tests/unit/vector-measurement*.js",
+      "reason": "The vector measurement modules — they implement the locator doc's per-strategy query semantics for the harnesses.",
+      "governed-by": ["docs/technical/locator-resolution.md"]
+    },
+    {
+      "path": "packages/shared/tests/unit/corpus-compare.test.js",
+      "reason": "The comparator's unit suite — the corpus doctrine owns the comparison classes and refusal rules it pins.",
+      "governed-by": ["docs/verification/scripted-truth-corpus.md"]
+    },
+    {
+      "path": "packages/shared/tests/unit/{docs-disposition-audit,next-release-version,build-size}.test.js",
+      "reason": "Unit tests for CI and build machinery — like the check-script suites, their contract is the behaviour of the tooling under test.",
+      "governed-by": []
     }
   ]
 }
