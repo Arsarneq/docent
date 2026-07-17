@@ -33,7 +33,8 @@
         "packages/desktop/src-tauri/src/capture/**",
         "packages/desktop/src-tauri/src/{lib,commands}.rs",
         "packages/desktop/src/{panel,adapter-tauri}.js",
-        "packages/desktop/src-tauri/tests/**"
+        "packages/desktop/src-tauri/tests/**",
+        "packages/desktop/tests/unit/{reorder-buffer,adapter-tauri}.test.js"
       ],
       "docs": [
         "docs/architecture/application/desktop/capture-seam.md",
@@ -41,6 +42,7 @@
         "docs/architecture/application/desktop/windows/capture-principles.md",
         "docs/architecture/system/capture-principles.md",
         "docs/technical/locator-resolution.md",
+        "docs/test/desktop-rust.md",
         "docs/user/desktop-windows.md",
         "docs/user/troubleshooting.md"
       ]
@@ -50,7 +52,10 @@
         "packages/desktop/src/**",
         "packages/desktop/src-tauri/src/{main,lib,commands,secret_store,sync_http}.rs",
         "packages/desktop/src-tauri/*",
-        "packages/desktop/src-tauri/{capabilities,icons,.cargo}/**"
+        "packages/desktop/src-tauri/{capabilities,icons,.cargo}/**",
+        "packages/desktop/src-tauri/tests/commands_test.rs",
+        "packages/desktop/tests/unit/{persistence,persistence-unit,auto-sync-host,dispatch,export}.test.js",
+        "packages/desktop/tests/integration/panel-dispatch-sync.spec.js"
       ],
       "docs": [
         "docs/architecture/application/desktop/windows/application-shell.md",
@@ -58,6 +63,8 @@
         "docs/architecture/system/shared-core.md",
         "docs/api/dispatch.md",
         "docs/api/sync-protocol.md",
+        "docs/test/desktop-rust.md",
+        "docs/test/integration/desktop.md",
         "docs/user/desktop-windows.md",
         "docs/user/troubleshooting.md"
       ]
