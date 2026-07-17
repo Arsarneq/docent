@@ -35,7 +35,7 @@
  * Licensed under the GNU General Public License v3.0
  * See LICENSE in the project root for license information.
  */
-// see docs/technical/session-format.md — the conflict resolver appends step-history records (re-record copies and tombstones) directly, so it is bound by the format's append-only step-history rules; the per-platform schemas are authoritative for field semantics.
+// Governance declared in scripts/area-map.json (see its declared-governance entry): the conflict resolver appends step-history records (re-record copies and tombstones) directly, so it is bound by the format's append-only step-history rules; the per-platform schemas are authoritative for field semantics.
 
 import { escapeHtml } from './views/render.js';
 import { resolveActiveSteps } from './lib/session.js';

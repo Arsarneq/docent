@@ -124,7 +124,7 @@
         "docs/user/troubleshooting.md"
       ]
     },
-    "sync/panel-ui": {
+    "panel-ui": {
       "code": ["packages/shared/views/**", "packages/shared/sync-conflict-ui.js"],
       "docs": [
         "docs/design/ui_ux/shared-interaction-model.md",
@@ -132,7 +132,8 @@
         "docs/requirements/non-functional/accessibility.md",
         "docs/architecture/system/shared-core.md",
         "docs/user/extension.md",
-        "docs/user/troubleshooting.md"
+        "docs/user/troubleshooting.md",
+        "docs/user/desktop-windows.md"
       ]
     },
     "format": {
@@ -301,7 +302,7 @@
       "governed-by": ["docs/architecture/system/shared-core.md"]
     },
     {
-      "path": "packages/shared/tests/unit/{session,import-project,validate-import,schema-composition,schema-split,classify-schema-change,field-sensitivity,generated-validators,uuid-v7,stamp-compatibility,regression}.test.js",
+      "path": "packages/shared/tests/unit/{session,import-project,validate-import,schema-composition,schema-split,classify-schema-change,field-sensitivity,generated-validators,uuid-v7,stamp-compatibility}.test.js",
       "reason": "Format-subject unit suites — they exercise the shared format modules and schema tooling; their contract is the format doctrine, not the sync protocol their tree-mates ride.",
       "governed-by": [
         "docs/architecture/system/shared-core.md",
@@ -346,6 +347,62 @@
       "path": "packages/shared/tests/unit/{docs-disposition-audit,next-release-version,build-size}.test.js",
       "reason": "Unit tests for CI and build machinery — like the check-script suites, their contract is the behaviour of the tooling under test.",
       "governed-by": []
+    },
+    {
+      "path": "packages/shared/tests/unit/{render,render-views,sync-conflict-ui}.test.js",
+      "reason": "UI-subject unit suites — they exercise the shared panel fragment's rendering and the conflict-view module; their contract is the panel-ui doctrine, not the sync/format union their tree ride supplies.",
+      "governed-by": [
+        "docs/design/ui_ux/shared-interaction-model.md",
+        "docs/design/ui_ux/sync-resolution-ui.md",
+        "docs/requirements/non-functional/accessibility.md",
+        "docs/architecture/system/shared-core.md",
+        "docs/user/extension.md",
+        "docs/user/troubleshooting.md",
+        "docs/user/desktop-windows.md"
+      ]
+    },
+    {
+      "path": "packages/shared/{conflict-resolution,sync-digest,sync-client}.js",
+      "reason": "Sync chokepoints implementing the format's step-history and field-shape rules — its committed format pointer would, after the schema-contract split, drag that area's locator and taxonomy docs onto a module that emits no locators; this declaration states its true governors: its areas' docs plus the format doc the pointer names.",
+      "governed-by": [
+        "docs/api/dispatch.md",
+        "docs/api/sync-protocol.md",
+        "docs/architecture/system/shared-core.md",
+        "docs/user/desktop-windows.md",
+        "docs/user/extension.md",
+        "docs/user/troubleshooting.md",
+        "docs/technical/session-format.md"
+      ]
+    },
+    {
+      "path": "packages/shared/sync-conflict-ui.js",
+      "reason": "The conflict-view module — both a sync-state consumer and the panel fragment's resolution view — its committed format pointer would, after the schema-contract split, drag that area's locator and taxonomy docs onto a module that emits no locators; this declaration states its true governors: its areas' docs plus the format doc the pointer names.",
+      "governed-by": [
+        "docs/api/dispatch.md",
+        "docs/api/sync-protocol.md",
+        "docs/architecture/system/shared-core.md",
+        "docs/user/desktop-windows.md",
+        "docs/user/extension.md",
+        "docs/user/troubleshooting.md",
+        "docs/design/ui_ux/shared-interaction-model.md",
+        "docs/design/ui_ux/sync-resolution-ui.md",
+        "docs/requirements/non-functional/accessibility.md",
+        "docs/technical/session-format.md"
+      ]
+    },
+    {
+      "path": "packages/shared/views/render.js",
+      "reason": "The shared rendering module — resolves and renders the committed step history for the panel fragment — its committed format pointer would, after the schema-contract split, drag that area's locator and taxonomy docs onto a module that emits no locators; this declaration states its true governors: its areas' docs plus the format doc the pointer names.",
+      "governed-by": [
+        "docs/design/ui_ux/shared-interaction-model.md",
+        "docs/design/ui_ux/sync-resolution-ui.md",
+        "docs/requirements/non-functional/accessibility.md",
+        "docs/architecture/system/shared-core.md",
+        "docs/user/extension.md",
+        "docs/user/troubleshooting.md",
+        "docs/user/desktop-windows.md",
+        "docs/technical/session-format.md"
+      ]
     }
   ]
 }
