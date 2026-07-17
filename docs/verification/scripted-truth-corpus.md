@@ -73,16 +73,89 @@ corpus/
                                  diff reports)
 ```
 
-Runner: `packages/extension/tests/e2e/corpus/corpus.spec.js` (config
-`packages/extension/tests/e2e/playwright.corpus.config.js`). Comparator:
-`scripts/corpus-compare.js` (normalization spec, LCS action alignment, baseline
-mechanics — see its header). Extension local loop:
-`npm run corpus:produce:extension`, then `npm run corpus:check`. Desktop local
-loop (a Windows machine): the Rust producer
-(`cargo test --manifest-path packages/desktop/src-tauri/Cargo.toml --test corpus_capture -- --test-threads=1`),
-then `npm run corpus:assemble:desktop`, then `npm run corpus:check:desktop`.
+## Run surface
+
+The extension runner is `packages/extension/tests/e2e/corpus/corpus.spec.js`,
+with two Playwright configs one level up in `packages/extension/tests/e2e/`: `playwright.corpus.config.js`
+produces truth envelopes only, and `playwright.vectors.config.js` is the same
+run with `CORPUS_VECTORS` set — the vector-emitting superset (STC-10), whose
+truth envelopes are emitted unchanged. The comparator is
+`scripts/corpus-compare.js` (normalization and alignment: STC-19 and STC-20;
+the relaxation contract: STC-5 and STC-21; baseline mechanics: STC-3).
+
+Local loops:
+
+- **Extension:** `npm run corpus:produce:extension`, then
+  `npm run corpus:check`. Vectors: `npm run vectors:produce:extension` runs
+  the vectors config, and `npm run vectors:check` chains it with the hygiene
+  locks.
+- **Desktop (a Windows machine):** the Rust producer
+  (`cargo test --manifest-path packages/desktop/src-tauri/Cargo.toml --test corpus_capture -- --test-threads=1`),
+  then `npm run corpus:assemble:desktop`, then `npm run corpus:check:desktop`.
+  Vectors: `npm run vectors:check:desktop` chains the fixture-only producer
+  (`vectors:produce:desktop` — the `v_vector_fixture` filter of the same Rust
+  test), the assembler (`vectors:assemble:desktop`, which is
+  `scripts/corpus-assemble-desktop-vectors.js`), and the hygiene locks.
+
+In CI ([`test.yml`](../guides/ci.md#path-filtered-test-jobs)) the corpus
+artifacts are produced by five jobs:
+
+- **Extension corpus and vectors** — the `extension-e2e-tests` job produces
+  both through the vectors config (one superset run: truth envelopes plus
+  produced vectors and the produce-stage vector oracle), then runs
+  `npm run corpus:check` in the same job.
+- **Desktop corpus** — the `desktop-rust-tests` job (Windows) runs the
+  producer in its auto-discovered integration tier and uploads the per-session
+  event dumps as an artifact; the `desktop-corpus-diff` job (Linux) downloads
+  them, runs `npm run corpus:assemble:desktop`, then
+  `npm run corpus:check:desktop` (the STC-8 pipeline).
+- **Desktop vectors** — the `desktop-vectors-produce` job (the pinned Windows
+  image — STC-18) runs the `v_vector_fixture` producer and uploads the vector
+  source dump; the `desktop-vectors-diff` job (Linux) runs
+  `npm run vectors:assemble:desktop` (the normalized produced==committed
+  oracle) and the hygiene locks.
+
+The structural hygiene locks (STC-11) additionally run over the committed
+vectors with the shared unit suite, with no producer involved — locally via
+`npm run test:shared`, and in CI's `unit-tests` job, which runs the same
+suite under coverage (`npm run test:coverage`).
 
 ## Comparator and relaxations
+
+**STC-19.** **Comparison is over normalized envelopes.** Before any diff, one
+pure, structure-aware pass maps exactly the per-run-nondeterministic field
+classes below — and no others — to self-announcing placeholders, symmetrically
+on both sides; every field outside the classes MUST compare exact, so an
+unknown future field diffs noisily rather than being skipped silently. The
+classes:
+
+| Class                                                                     | Rule                                                                                                                                    |
+| ------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
+| identifiers (`project_id`, `recording_id`, step `uuid` / `logical_id`)    | ordinal placeholders by first appearance — same value, same placeholder; distinct values stay distinct (`logical_id` grouping survives) |
+| wall-clock stamps (`created_at`, action `timestamp`) and `schema_version` | fixed placeholders                                                                                                                      |
+| context handles (`context_id`, `opener_context_id`)                       | ordinal placeholders through one shared map — same-context vs cross-context identity survives                                           |
+| coordinates (action `x`/`y`; desktop non-null `window_rect`)              | value placeholders; presence vs null vs absence stays exact                                                                             |
+| `described_after_ms`                                                      | positive (worker-describe latency) → placeholder; `0` (an input-time describe) stays exact                                              |
+| coordinate-mode `selector` (`coord:x,y`)                                  | point placeholder; every other selector stays exact                                                                                     |
+
+The pass walks the envelope structure (project → recordings → steps → actions
+→ element/locators), never field names globally, so metadata keys and
+narration text pass through verbatim whatever they are named. The scalar class
+rules are exported as single-source helpers, and the desktop vector reproduce
+oracle (STC-18) reuses them rather than re-implementing them — adding one
+oracle-local rule of its own (the selector's above-window ancestry collapse,
+applied by the vectors assembler, never by this comparator).
+
+**STC-20.** **Order of operations and pointer conventions.** The comparator
+normalizes both sides (STC-19), aligns each step's actions by longest common
+subsequence over the action-type sequence — a missing or extra action costs
+one finding, never a positional cascade — then applies each declared
+relaxation to the truth entry at its pointer and to that entry's aligned
+produced partner, and finally field-walks the aligned pairs. Recordings and
+steps compare positionally: their boundaries are scripted truth, never aligned
+around. Pointers in sidecars (STC-5) and in `missing-*` and `wrong-field`
+findings index the truth document; `extra-*` findings carry a `produced:`
+prefix.
 
 **STC-5.** A session may carry an `overrides.json` sidecar of **relaxations**,
 and the comparator holds them to a closed contract: the relaxation kinds are
@@ -96,6 +169,28 @@ relaxable — the comparator refuses the sidecar rather than compare around a
 mask. Every sidecar entry must apply to some truth action — an unknown kind
 or a pointer that matches nothing is refused. Machinery failures exit with a
 distinct code (2), so tooling breakage can never read as a passing diff.
+
+**STC-21.** **Sidecar shape, and what a relaxation may alter.** The sidecar is
+the session's committed `overrides.json`, named by its `corpus/manifest.json`
+entry's `overrides` key; it declares a `relaxations` array whose entries each
+carry `pointer` (a truth pointer, STC-5), `relax` (the kind), and — for
+`match-stats` — the `strategy` cross-check field. Each kind MUST alter exactly
+its covered fields, replacing values on the truth entry and its aligned
+produced partner alike:
+
+- `match-stats` — the named truth entry's `match_count` and `match_index`
+  (its produced counterpart is found by strategy within the aligned action);
+- `scroll-amounts` — the nonzero values of exactly `scroll_top`,
+  `scroll_left`, `delta_y`, and `delta_x` (STC-5's class map keeps `0` exact);
+- `path` — the machine- and build-dependent path-bearing string fields,
+  `file_path` and `source`.
+
+An entry applies by pointer match — the every-entry-must-apply rule and the
+`match-stats` strategy cross-check are STC-5's; application does not require
+that a covered field's value actually change. One reach limit: an entry
+whose pointer names a truth action inside a step or recording with no
+produced counterpart is never reached by the walk, so it fails STC-5's
+must-apply gate as unmatched rather than being applied.
 
 ## Page-authoring rules
 
@@ -153,6 +248,23 @@ activation, and a primer window equalizes the session window's pre-click
 non-foreground status across environments (see the retirement rule below for
 sessions that stay unstable anyway).
 
+**STC-22.** **Catalogue criterion — what earns a desktop session.** Each
+committed desktop session pins exactly one capture behaviour end-to-end from
+real OS input: an action-emission class (`d-click`; `d-double-click`'s
+two-clicks truth), the activation/foreground proxy (`d-context-switch`), a
+correlation gate (`d-selection-gate`), input coalescing (`d-type-edit`), the
+redaction chokepoint (`d-redaction`), the scroll significance floor from both
+sides (`d-scroll-above-floor`, `d-scroll-floor`), and the capture-mode
+fallback (`d-coordinate`). A desktop capture behaviour earns a session when
+all three hold: its faithful capture is statable as current-format truth
+(STC-2); real OS input can drive it deterministically against a controlled
+window under the environment-independence design (STC-9), using
+trusted-input-safe drivers (the STC-7 rule, applied to OS input); and it pins
+a behaviour no active session already pins — one behaviour per session, so a
+red diff names the behaviour that regressed. A known capture divergence
+enters with its session — baselined (STC-3) and issue-tagged in the manifest
+(STC-1): a defect is baselined, never an admission bar.
+
 ## Conformance vectors
 
 Inert data for [docs/technical/locator-resolution.md](../technical/locator-resolution.md#conformance-and-vector-scope)
@@ -163,9 +275,11 @@ shaped by the meta-schema `corpus/vector.schema.json`. A vector carries the reco
 locators — the non-locator fact source), a `tree_snapshot` of the bound scope,
 the `ground_truth` node inside it, and `matched_node_ids` (per candidate, the
 snapshot nodes its stated query selects). Only `expected_outcome: "resolved"`
-vectors ship — the inclusion-criterion members: an element carrying at least one
-eligible candidate recorded measured-unique (`match_count: 1`, `match_index: 0`).
-Nothing here executes the resolution procedure.
+vectors ship. The inclusion criterion — which elements are in vector scope —
+is owned by
+[locator-resolution §LR-23](../technical/locator-resolution.md#conformance-and-vector-scope);
+this document owns the inventory of shipped vectors and the machinery that
+emits and locks them. Nothing here executes the resolution procedure.
 
 ### Emission (produced, then reviewed and committed)
 
@@ -217,11 +331,15 @@ ordered procedure, so a resolver can never be smuggled into a shipped surface.
 
 ### Coverage ledger
 
-**STC-12.** `corpus/vectors-coverage.json` maps each emitted extension strategy to the committed
-vector where it is the measured-unique candidate, at element granularity
-(`session`, `vector`, `element`, `action_index`). A lock ties every emitted
-strategy to a real committed vector; `role_name` and `label` are schema-reserved
-and not emitted, so they are outside vector scope.
+**STC-12.** `corpus/vectors-coverage.json` maps each emitted strategy, per
+platform, to the committed vector where it is the measured-unique candidate,
+at element granularity (extension rows: `session`, `vector`, `element`,
+`action_index`; desktop rows: `fixture`, `vector`, `element`). A lock ties
+every emitted strategy to a real committed vector — on the desktop, a
+strategy may instead carry a recorded reason on the ledger's gap side, and
+the union equals the emitted set. On the extension, `role_name` and `label`
+are schema-reserved and not emitted, so they are outside the extension's
+vector scope.
 
 ### Determinism
 
@@ -272,9 +390,11 @@ The differences are all data:
   `element_facts` carries environment-variant fields a static DOM does not:
   `described_after_ms` (worker latency) and a `selector` whose ancestry above the
   window is the virtual-desktop root. The produced==committed oracle compares
-  under the **reused shipped comparator class rules** (`scripts/corpus-compare.js`),
-  symmetric on both sides — `described_after_ms` 0-exact / positive→placeholder,
-  the selector's above-window ancestry→placeholder — while `element.role`
+  under the **reused shipped comparator class rules** (`scripts/corpus-compare.js`)
+  plus one oracle-local rule the assembler applies, symmetric on both sides —
+  `described_after_ms` 0-exact / positive→placeholder (comparator classes),
+  the selector's above-window ancestry→placeholder (assembler-local) — while
+  `element.role`
   (localized) is compared **exact** and is never a corroboration or query input.
   The retained OS-chrome subtree structure is fixed-CI-runner-bounded: produced on
   a pinned Windows image, so an image bump is a deliberate re-baseline
@@ -294,12 +414,12 @@ The differences are all data:
   snapshot node then carries a real `labeled_by` edge, making `labeled_by` the
   measured-unique candidate. (`#[implement]` comes from a test-only dev-dependency
   that never enters the shipped build.)
-- **Coverage: all five emitted strategies.** `automation_id`, `role_name`,
-  `class_name`, `tree_path`, and `labeled_by` are each the measured-unique
-  candidate in the committed fixture vector (`corpus/vectors-coverage.json`,
-  `desktop-windows`); `desktop-windows-gaps` is an empty object. The coverage lock
-  requires every emitted strategy to be either covered or a gap-with-a-reason (the
-  union equals the emitted set), so no strategy is ever silently dropped.
+- **Coverage: all five emitted strategies.** Per the coverage ledger
+  (STC-12): `automation_id`, `role_name`, `class_name`, `tree_path`, and
+  `labeled_by` are each the measured-unique candidate in the committed
+  fixture vector (`corpus/vectors-coverage.json`, `desktop-windows`);
+  `desktop-windows-gaps` is an empty object, so no strategy is ever silently
+  dropped.
 
 ## Out of scripted reach (loud exclusions)
 
