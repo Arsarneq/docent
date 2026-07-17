@@ -12,6 +12,7 @@
  * Licensed under the GNU General Public License v3.0
  * See LICENSE in the project root for license information.
  */
+// see docs/technical/session-format.md — resolves and renders the committed step-history model (active-view resolution over logical_id/uuid versions and tombstones), so it is bound by the format's step-resolution rules; the per-platform schemas are authoritative for field semantics.
 
 // ─── Utilities ────────────────────────────────────────────────────────────────
 

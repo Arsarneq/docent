@@ -9,6 +9,7 @@
  * Licensed under the GNU General Public License v3.0
  * See LICENSE in the project root for license information.
  */
+// see docs/technical/session-format.md — the pull path reconstructs projects through an explicit field allowlist over the format's project/recording/step shapes (the same projection the sync digest stands on), so format field changes and this allowlist move together; the per-platform schemas are authoritative for field semantics.
 
 import { isValidUuidv7 } from './lib/uuid-v7.js';
 import { stampFromSchema, checkStampCompatibility } from './lib/format-stamp.js';
