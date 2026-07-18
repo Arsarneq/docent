@@ -73,7 +73,8 @@ import fc from 'fast-check';
 
 import { sync } from '../../sync-client.js';
 import { digestProject } from '../../sync-digest.js';
-import { createEmptySyncState, setSettings } from '../../sync-store.js';
+import { createEmptySyncState, setSettings, upsertReview } from '../../sync-store.js';
+import { deriveIndicators } from '../../sync-conflict-ui.js';
 import { advanceBaseline, getBaseline } from '../../sync-baseline.js';
 import { stampFromSchema } from '../../lib/format-stamp.js';
 import { STUB_SCHEMA } from '../fixtures/stub-schema.js';
@@ -761,5 +762,74 @@ describe('Changed-incoming creates a Review item and never auto-applies (toggle 
 
     // Baseline unchanged.
     assert.equal(getBaseline(state, ID).digest, baselineDigest);
+  });
+
+  // ── Deterministic regression: auto-apply clears a lingering Review ───────────
+  // A Review recorded in a prior cycle (e.g. while Auto-Accept-Updates was off, or
+  // the change was not yet a fast-forward) must be cleared when the same Unit's
+  // incoming later becomes a fast-forward and is auto-applied — otherwise the
+  // adopted Unit keeps a PENDING Review whose attention badge never clears
+  // (deriveIndicators reads state.reviews unconditionally). No GitHub issue — a
+  // confirmed defect worked from the local backlog.
+  it('regression_noissue_autoapply_clears_lingering_review', async () => {
+    const ID = '018f0000-0000-7000-8000-0000000000c1';
+    const REC = '018f0000-0000-7000-8000-0000000000d1';
+    const unitRef = `${ID}:${REC}`;
+
+    const localRec = {
+      recording_id: REC,
+      name: 'rec',
+      created_at: '2026-01-01T00:00:00.000Z',
+      steps: [{ uuid: 's1', logical_id: 'a', step_number: 0, deleted: false }],
+    };
+    // Server APPENDED a committed step (retains s1) → a true fast-forward.
+    const incomingRec = {
+      recording_id: REC,
+      name: 'rec',
+      created_at: '2026-01-01T00:00:00.000Z',
+      steps: [
+        { uuid: 's1', logical_id: 'a', step_number: 0, deleted: false },
+        { uuid: 's2', logical_id: 'a', step_number: 1, deleted: false },
+      ],
+    };
+
+    const localProject = {
+      project_id: ID,
+      name: 'Project',
+      created_at: '2026-01-01T00:00:00.000Z',
+      recordings: [localRec],
+    };
+    const incomingProject = { ...localProject, recordings: [incomingRec] };
+
+    const seed = createEmptySyncState();
+    advanceBaseline(seed, ID, projectProjection(localProject));
+    setSettings(seed, { autoAcceptUpdates: true, autoAcceptDeletions: true });
+    // A Review lingering from a prior cycle for this exact Unit.
+    upsertReview(seed, unitRef, recordingProjection(incomingRec));
+    assert.ok(seed.reviews[unitRef], 'precondition: a Review exists before the cycle');
+
+    installMockFetch(
+      [{ project_id: ID, name: 'Project' }],
+      new Map([[ID, buildPayload(incomingProject)]]),
+    );
+
+    const store = makeStore(seed);
+    const { result } = await sync(
+      SERVER,
+      null,
+      [localProject],
+      STUB_SCHEMA,
+      passValidator,
+      store,
+      makeLiveState(),
+    );
+
+    const state = store.getState();
+    // The fast-forward IS auto-applied — the very branch that must also clear the item.
+    assert.deepEqual(result.autoAppliedUpdates, [unitRef]);
+    // The defect: the adopted Unit kept its prior Review; after the fix it is
+    // returned to NONE and no attention indicator lingers.
+    assert.equal(state.reviews[unitRef], undefined, 'the adopted Unit no longer has a Review');
+    assert.deepEqual(deriveIndicators(state), [], 'no attention indicator lingers');
   });
 });

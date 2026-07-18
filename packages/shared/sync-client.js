@@ -20,6 +20,7 @@ import {
   saveSyncState,
   upsertReview,
   upsertConflict,
+  clearItem,
   getSettings,
   isDismissedIncoming,
 } from './sync-store.js';
@@ -1169,6 +1170,12 @@ function applyAutomaticOutcomes(state, localProjects, pulledProjects, lockedReco
             // per-Unit baseline to it — siblings untouched.
             applyRecordingToMerged(project_id, incomingCopy);
             recordRecordingInBaseline(state, project_id, local ?? incoming, incomingCopy);
+            // Adopting the incoming completes resolution of this Unit, so return
+            // it to NONE — clearing any Review or Conflict deferred in a prior
+            // cycle. Without this a pre-existing Review lingers and its attention
+            // badge never clears (deriveIndicators reads state.reviews
+            // unconditionally), until the user manually accepts an idempotent no-op.
+            clearItem(state, unitRef);
             autoAppliedUpdates.push(unitRef);
           } else {
             // Defer: Auto-Accept-Updates OFF, a non-fast-forward change, or a
@@ -1210,6 +1217,10 @@ function applyAutomaticOutcomes(state, localProjects, pulledProjects, lockedReco
               removeRecordingFromMerged(project_id, recording_id);
               clearRecordingFromBaseline(state, project_id, recording_id);
             }
+            // Adopting the deletion resolves this Unit, so return it to NONE,
+            // clearing any deferred Review or Conflict carried from a prior cycle
+            // (same lingering-badge fix as the update path above).
+            clearItem(state, unitRef);
             autoAppliedDeletions.push(unitRef);
           } else {
             // Defer the deletion to Review-and-Accept. The incoming side
