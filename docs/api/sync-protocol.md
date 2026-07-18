@@ -70,9 +70,9 @@ territory. This is client presentation, not part of the wire protocol.
 ## Server scope and CORS
 
 A sync server is a **sync target for Docent clients**, not a consumer-facing read
-API. Systems that consume recordings (an LLM/agentic pipeline, a code mapper, a
-dashboard) SHOULD read from the server's underlying **storage** through their own
-service, rather than calling these endpoints directly.
+API. Systems that consume recordings SHOULD read from the server's underlying
+**storage** through their own service, rather than calling these endpoints
+directly.
 
 A compliant server therefore does **not** need to emit CORS headers: Docent's own
 clients do not rely on the browser's cross-origin rules — the Chrome extension
