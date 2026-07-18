@@ -186,8 +186,8 @@ jobs:
       - name: Validate CI path-filter contract
         run: npm run lint:ci-filter
 
-      # S17/S18: every Actions `uses:` must be pinned to a commit SHA, not a
-      # mutable tag. Dependabot bumps the SHA + `# version` comment weekly.
+      # Every Actions `uses:` must be pinned to a commit SHA, not a mutable tag.
+      # Dependabot bumps the SHA + `# version` comment weekly.
       - name: Check GitHub Actions are SHA-pinned
         run: npm run check:action-pins
 
@@ -638,15 +638,15 @@ jobs:
           path: corpus/out/
           retention-days: 7
 
-  # Produce the desktop conformance vector on a PINNED Windows image ([Q-2]).
+  # Produce the desktop conformance vector on a PINNED Windows image (STC-18).
   # The full-window UIA snapshot retains the OS-chrome subtree (window included —
   # the spec's desktop bound scope), whose structure/ids are Windows-version-
   # bounded; pinning windows-2022 (NOT the inherited windows-latest) makes an OS
   # image bump a DELIBERATE, reviewed re-baseline of the committed vector rather
   # than a silent churn. This job only PRODUCES (emits the vector source dump as
   # an artifact); the ubuntu desktop-vectors-diff job does the normalized diff +
-  # locks (the Rust job has no Node) — the shipped 4a desktop-rust-tests ->
-  # desktop-corpus-diff produce/diff split, applied to vectors.
+  # locks (the Rust job has no Node) — the shipped desktop-rust-tests ->
+  # desktop-corpus-diff produce/diff split (STC-8), applied to vectors.
   desktop-vectors-produce:
     needs: [lint, changes]
     if: |
@@ -703,10 +703,10 @@ jobs:
 
   # Assemble the desktop vector dump into its committed shape, NORMALIZED-diff it
   # against the committed vector (the produce==committed oracle — normalized, not
-  # byte-identical, reusing the shipped 4a class rules — [Z-1]/[Q-1]), and run the
-  # structural hygiene locks + meta-schema. Runs on ubuntu so the diff logic lives
-  # in one place ([Q-3]: this ubuntu normalized diff IS the reproduce+drift gate;
-  # no same-OS Windows probe). Mirrors the shipped 4a desktop-corpus-diff job.
+  # byte-identical, reusing the shipped comparator class rules — STC-18/STC-19), and
+  # run the structural hygiene locks + meta-schema. Runs on ubuntu so the diff logic
+  # lives in one place (this ubuntu normalized diff IS the reproduce+drift gate;
+  # no same-OS Windows probe). Mirrors the shipped desktop-corpus-diff job (STC-8).
   desktop-vectors-diff:
     needs: [desktop-vectors-produce, changes]
     if: |

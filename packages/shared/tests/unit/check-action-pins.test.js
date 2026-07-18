@@ -1,7 +1,6 @@
 /**
- * check-action-pins.test.js — Unit tests for the GitHub Actions SHA-pin guard
- * (S17/S18): every `uses:` must pin to a 40-char commit SHA; local `./…` refs are
- * exempt.
+ * check-action-pins.test.js — Unit tests for the GitHub Actions SHA-pin guard:
+ * every `uses:` must pin to a 40-char commit SHA; local `./…` refs are exempt.
  */
 
 import { describe, it } from 'node:test';

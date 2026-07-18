@@ -398,7 +398,7 @@ The differences are all data:
   (localized) is compared **exact** and is never a corroboration or query input.
   The retained OS-chrome subtree structure is fixed-CI-runner-bounded: produced on
   a pinned Windows image, so an image bump is a deliberate re-baseline
-  (reproducibility, not cross-version invariance — the 4a cross-machine discipline
+  (reproducibility, not cross-version invariance — the reproduce discipline
   applied to the snapshot).
 - **`labeled_by` via a merged UIA relation.** A raw Win32 EDIT exposes its
   preceding label as a Name but not as a UIA LabeledBy relation element. The

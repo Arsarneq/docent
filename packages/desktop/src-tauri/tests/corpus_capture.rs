@@ -1045,7 +1045,7 @@ unsafe fn walk_node(
     let value = prop_string(element, UIA_ValueValuePropertyId);
     let label = labeled_by_name(element);
 
-    // Authored content provenance ([Q-3]/[Z-2]): a node carrying an authored
+    // Authored content provenance (STC-15): a node carrying an authored
     // content AutomationId — or the window root — keeps its Name; every other
     // node's Name is OS-provided and normalized, REGARDLESS of tree position.
     // control_type/automation_id/class_name/structure are always kept verbatim.

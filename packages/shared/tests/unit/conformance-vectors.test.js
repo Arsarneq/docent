@@ -131,7 +131,7 @@ const DESKTOP_LOCATOR_KEYS = {
   class_name: new Set(['strategy', 'value', 'match_count', 'match_index', 'masked']),
   // labeled_by / tree_path carry {strategy, value}; the harness MAY additionally
   // augment them with a measured match_count/match_index pair (the declared,
-  // bounded augmentation — see [W-2] in the plan). No other strategy is augmented.
+  // bounded augmentation — STC-17). No other strategy is augmented.
   labeled_by: new Set(['strategy', 'value', 'match_count', 'match_index', 'masked']),
   tree_path: new Set(['strategy', 'value', 'match_count', 'match_index', 'masked']),
 };

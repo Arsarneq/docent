@@ -61,7 +61,7 @@ function normalizeSelectorAncestry(selector, window) {
   return wi > 0 ? ['<ancestors>', ...segs.slice(wi)].join(' > ') : selector;
 }
 
-/** Recursively apply the reused 4a scalar class rules in place (both sides). */
+/** Recursively apply the reused comparator scalar class rules (STC-19) in place (both sides). */
 function applyReusedScalarRules(obj) {
   if (obj == null || typeof obj !== 'object') return;
   if (Array.isArray(obj)) {
@@ -77,24 +77,24 @@ function applyReusedScalarRules(obj) {
 
 /**
  * Apply the environment-variant normalization a re-produce comparison needs
- * ([Z-1]/[Q-1]: reproduce is NORMALIZED-identical under the SHIPPED 4a class
- * rules — reused via the exported helpers, never re-implemented — not raw
- * byte/deep-identical), symmetrically to both committed and produced vectors.
+ * (STC-18's reproduce discipline: NORMALIZED-identical under the SHIPPED comparator
+ * class rules (STC-19) — reused via the exported helpers, never re-implemented — not
+ * raw byte/deep-identical), symmetrically to both committed and produced vectors.
  *
  * Coverage of every environment-variant field in the desktop vector shape:
  *  - element_facts.described_after_ms — worker-describe latency, jitters run to
- *    run → the 4a described_after_ms class (0 exact, positive → <measured>).
+ *    run → the described_after_ms class (STC-19: 0 exact, positive → <measured>).
  *  - element_facts.selector — the full-tree-path selector's ancestry above the
  *    bound window (virtual-desktop root) is environment-variant → placeholder
  *    (normalizeSelectorAncestry); the coord-mode selector class is applied too.
  *  - tree_snapshot — carries no environment-variant SCALAR field: node Names are
  *    walker-normalized (OS/non-authored → the reserved placeholder), and the
- *    retained OS-chrome STRUCTURE is fixed-CI-runner-bounded ([Q-2]: produced on
+ *    retained OS-chrome STRUCTURE is fixed-CI-runner-bounded (STC-18: produced on
  *    a pinned windows image), not per-field normalized. The scalar walk still
  *    runs over it, so a future variant field is covered automatically.
  *  - coordinates / window_rect / uuids / timestamps do not appear in the vector
  *    shape (they are action-level; a vector carries element_facts + a snapshot,
- *    no actions), so those 4a classes are not applicable.
+ *    no actions), so those comparator classes are not applicable.
  */
 function normalizeForCompare(vector) {
   const v = structuredClone(vector);

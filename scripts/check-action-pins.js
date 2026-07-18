@@ -4,7 +4,7 @@
  *
  * Pinning to a mutable tag (`actions/checkout@v6`) lets the tag's owner — or an
  * attacker who compromises their account — repoint it at malicious code that then
- * runs in CI (S17). This guard keeps every action SHA-pinned so a future commit,
+ * runs in CI. This guard keeps every action SHA-pinned so a future commit,
  * contributor, or agent can't silently reintroduce a tag pin. Local actions and
  * reusable workflows (`./…`) are exempt — they live in this repo. Dependabot
  * (the `github-actions` ecosystem) bumps the SHA + the trailing `# version`
