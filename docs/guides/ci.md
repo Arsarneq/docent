@@ -200,11 +200,6 @@ whole jobs).
 | Clippy                | `desktop-rust-tests`, `desktop-cross-compile` | Any clippy warning (`-D warnings`).                                                                                                                                                                                                                                                                    | `cargo clippy -- -D warnings` (from `packages/desktop/src-tauri`)         |
 | sync-shared freshness | `unit-tests`                                  | A fresh `npm run sync-shared` + `npm run build:desktop-dist` changes the two committed assembled `index.html` files — i.e. shared views or shells were edited without re-running the sync (the synced `packages/*/shared/` trees are gitignored, so only the committed pages can trip the diff).       | `npm run sync-shared`, then commit the result                             |
 
-Two of the local commands currently misbehave on Windows: the markdownlint
-and Stylelint scripts' glob quoting makes `npm run lint:md` match zero
-files (a silent pass) and `npm run lint:css` fail before linting anything —
-so on Windows, the `lint` job itself is the verifier for those two gates.
-
 ### Dependency and license audit
 
 The `dependency-audit` job runs on every PR and push. On the npm side:

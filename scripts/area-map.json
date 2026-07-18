@@ -354,8 +354,8 @@
       "governed-by": ["docs/verification/scripted-truth-corpus.md"]
     },
     {
-      "path": "packages/shared/tests/unit/{docs-disposition-audit,next-release-version,build-size}.test.js",
-      "reason": "Unit tests for CI machinery plus the schema-artifact size budget — no doc states the budget or the tooling contracts, so the governing set is empty.",
+      "path": "packages/shared/tests/unit/{docs-disposition-audit,next-release-version,build-size,lint-glob-quoting}.test.js",
+      "reason": "Unit tests for CI machinery (the docs-disposition audit, the next-release-version tool, the lint-script glob-quoting guard) plus the schema-artifact size budget — no doc states the budget or the tooling contracts, so the governing set is empty.",
       "governed-by": []
     },
     {
