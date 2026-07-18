@@ -25,13 +25,14 @@
 export function emptyState() {
   return {
     projects: [],
-    activeProjectId: null,
-    activeRecordingId: null,
     settings: {
       endpointUrl: null,
       apiKey: null,
       theme: 'auto',
       selfCaptureExclusion: true,
+      syncUrl: null,
+      syncApiKey: null,
+      recordingMode: 'narration',
     },
   };
 }
@@ -82,21 +83,26 @@ export function deserializeState(json) {
 export async function loadSessionState(invoke) {
   try {
     const json = await invoke('load_state');
-    const state = deserializeState(json);
-    if (state === null) {
+    const parsed = deserializeState(json);
+    if (parsed === null) {
       console.warn('[Docent] Corrupted session file — starting with empty state');
       return emptyState();
     }
-    // Ensure required structure exists
+    // Ensure required structure exists, preserving the full shipped shape.
     return {
-      projects: state.projects ?? [],
-      activeProjectId: state.activeProjectId ?? null,
-      activeRecordingId: state.activeRecordingId ?? null,
+      projects: parsed.projects ?? [],
+      // Durable conflict-handling state (baselines/snapshots/reviews/conflicts)
+      // for graded sync. Preserved verbatim; the shared loadSyncState normalizes
+      // it (or undefined) into a complete SyncState shape when sync reads it.
+      syncState: parsed.syncState ?? undefined,
       settings: {
-        endpointUrl: state.settings?.endpointUrl ?? null,
-        apiKey: state.settings?.apiKey ?? null,
-        theme: state.settings?.theme ?? 'auto',
-        selfCaptureExclusion: state.settings?.selfCaptureExclusion ?? true,
+        endpointUrl: parsed.settings?.endpointUrl ?? null,
+        apiKey: parsed.settings?.apiKey ?? null,
+        theme: parsed.settings?.theme ?? 'auto',
+        selfCaptureExclusion: parsed.settings?.selfCaptureExclusion ?? true,
+        syncUrl: parsed.settings?.syncUrl ?? null,
+        syncApiKey: parsed.settings?.syncApiKey ?? null,
+        recordingMode: parsed.settings?.recordingMode ?? 'narration',
       },
     };
   } catch {
@@ -121,11 +127,13 @@ export async function saveSessionState(invoke, state) {
 /**
  * @typedef {Object} SessionState
  * @property {Array} projects
- * @property {string|null} activeProjectId
- * @property {string|null} activeRecordingId
+ * @property {Object} [syncState] durable graded-sync conflict state (baselines, snapshots, reviews, conflicts)
  * @property {Object} settings
  * @property {string|null} settings.endpointUrl
  * @property {string|null} settings.apiKey
  * @property {string} settings.theme
  * @property {boolean} settings.selfCaptureExclusion
+ * @property {string|null} settings.syncUrl
+ * @property {string|null} settings.syncApiKey
+ * @property {string} settings.recordingMode
  */
