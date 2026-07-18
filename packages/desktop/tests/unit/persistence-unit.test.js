@@ -30,24 +30,23 @@ describe('emptyState()', () => {
     assert.strictEqual(state.projects.length, 0);
   });
 
-  it('returns null activeProjectId', () => {
-    const state = emptyState();
-    assert.strictEqual(state.activeProjectId, null);
-  });
-
-  it('returns null activeRecordingId', () => {
-    const state = emptyState();
-    assert.strictEqual(state.activeRecordingId, null);
-  });
-
-  it('returns settings with default values', () => {
+  it('returns settings with default values (the full shipped shape)', () => {
     const state = emptyState();
     assert.deepStrictEqual(state.settings, {
       endpointUrl: null,
       apiKey: null,
       theme: 'auto',
       selfCaptureExclusion: true,
+      syncUrl: null,
+      syncApiKey: null,
+      recordingMode: 'narration',
     });
+  });
+
+  it('carries no active-id fields (the app tracks active project/recording in memory)', () => {
+    const state = emptyState();
+    assert.ok(!('activeProjectId' in state));
+    assert.ok(!('activeRecordingId' in state));
   });
 
   it('returns a fresh object each call (no shared references)', () => {
@@ -71,13 +70,15 @@ describe('serializeState()', () => {
   it('round-trips with deserializeState', () => {
     const state = {
       projects: [{ project_id: 'abc', name: 'Test', recordings: [] }],
-      activeProjectId: 'abc',
-      activeRecordingId: null,
+      syncState: { baselines: {} },
       settings: {
         endpointUrl: 'http://x.com',
         apiKey: 'key',
         theme: 'dark',
         selfCaptureExclusion: false,
+        syncUrl: 'http://sync.com',
+        syncApiKey: 'sk',
+        recordingMode: 'simple',
       },
     };
     const json = serializeState(state);
@@ -145,13 +146,14 @@ describe('loadSessionState()', () => {
     const invoke = mock.fn(async () => JSON.stringify(partial));
     const state = await loadSessionState(invoke);
 
-    // Defaults should be filled in
-    assert.strictEqual(state.activeProjectId, null);
-    assert.strictEqual(state.activeRecordingId, null);
+    // Defaults should be filled in across the full settings shape.
     assert.strictEqual(state.settings.endpointUrl, null);
     assert.strictEqual(state.settings.apiKey, null);
     assert.strictEqual(state.settings.theme, 'auto');
     assert.strictEqual(state.settings.selfCaptureExclusion, true);
+    assert.strictEqual(state.settings.syncUrl, null);
+    assert.strictEqual(state.settings.syncApiKey, null);
+    assert.strictEqual(state.settings.recordingMode, 'narration');
     // Projects preserved
     assert.deepStrictEqual(state.projects, [{ project_id: 'p1' }]);
   });
@@ -159,25 +161,56 @@ describe('loadSessionState()', () => {
   it('preserves all fields from valid state', async () => {
     const full = {
       projects: [{ project_id: 'p1', name: 'My Project', recordings: [] }],
-      activeProjectId: 'p1',
-      activeRecordingId: 'r1',
+      syncState: { baselines: { p1: { digest: 'd' } } },
       settings: {
         endpointUrl: 'https://api.example.com',
         apiKey: 'secret-key-123',
         theme: 'dark',
         selfCaptureExclusion: false,
+        syncUrl: 'https://sync.example.com',
+        syncApiKey: 'sync-key',
+        recordingMode: 'simple',
       },
     };
     const invoke = mock.fn(async () => JSON.stringify(full));
     const state = await loadSessionState(invoke);
 
     assert.deepStrictEqual(state.projects, full.projects);
-    assert.strictEqual(state.activeProjectId, 'p1');
-    assert.strictEqual(state.activeRecordingId, 'r1');
+    assert.deepStrictEqual(state.syncState, full.syncState);
     assert.strictEqual(state.settings.endpointUrl, 'https://api.example.com');
     assert.strictEqual(state.settings.apiKey, 'secret-key-123');
     assert.strictEqual(state.settings.theme, 'dark');
     assert.strictEqual(state.settings.selfCaptureExclusion, false);
+    assert.strictEqual(state.settings.syncUrl, 'https://sync.example.com');
+    assert.strictEqual(state.settings.syncApiKey, 'sync-key');
+    assert.strictEqual(state.settings.recordingMode, 'simple');
+  });
+
+  it('regression_noissue_loadstate_preserves_sync_settings_and_state', async () => {
+    // Regression: persistence.js dropped syncUrl / syncApiKey / recordingMode and
+    // syncState on load, diverging from the shipped panel.js boot path which
+    // preserves all of them. Wiring persistence.js as the single source requires
+    // it to preserve the full shipped shape. No GitHub issue — a confirmed defect
+    // worked from the local backlog.
+    const full = {
+      projects: [],
+      syncState: { baselines: { p1: { digest: 'd' } } },
+      settings: {
+        endpointUrl: 'https://api.example.com',
+        apiKey: 'k',
+        theme: 'dark',
+        selfCaptureExclusion: false,
+        syncUrl: 'https://sync.example.com',
+        syncApiKey: 'sk',
+        recordingMode: 'simple',
+      },
+    };
+    const invoke = mock.fn(async () => JSON.stringify(full));
+    const state = await loadSessionState(invoke);
+    assert.strictEqual(state.settings.syncUrl, 'https://sync.example.com');
+    assert.strictEqual(state.settings.syncApiKey, 'sk');
+    assert.strictEqual(state.settings.recordingMode, 'simple');
+    assert.deepStrictEqual(state.syncState, full.syncState);
   });
 });
 

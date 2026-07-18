@@ -37,6 +37,7 @@ import { sync } from '../shared/sync-client.js';
 import { saveSyncState, loadSyncState, getSettings, setSettings } from '../shared/sync-store.js';
 import { testConnection, settingsFingerprint } from '../shared/connection-test.js';
 import { createAutoSyncHost } from './auto-sync-host.js';
+import { loadSessionState, saveSessionState } from './persistence.js';
 import {
   UI_ACTIONS,
   deriveIndicators,
@@ -254,40 +255,8 @@ let recordingMode = 'narration'; // 'narration' or 'simple'
 // ─── Persistence ──────────────────────────────────────────────────────────────
 
 async function loadState() {
-  try {
-    const json = await invoke('load_state');
-    const parsed = JSON.parse(json);
-    sessionState = {
-      projects: parsed.projects ?? [],
-      // Durable conflict-handling state (baselines/snapshots/reviews/conflicts)
-      // for graded sync. Preserved verbatim; the shared loadSyncState normalizes
-      // it (or undefined) into a complete SyncState shape when sync reads it.
-      syncState: parsed.syncState ?? undefined,
-      settings: {
-        endpointUrl: parsed.settings?.endpointUrl ?? null,
-        apiKey: parsed.settings?.apiKey ?? null,
-        theme: parsed.settings?.theme ?? 'auto',
-        selfCaptureExclusion: parsed.settings?.selfCaptureExclusion ?? true,
-        syncUrl: parsed.settings?.syncUrl ?? null,
-        syncApiKey: parsed.settings?.syncApiKey ?? null,
-        recordingMode: parsed.settings?.recordingMode ?? 'narration',
-      },
-    };
-  } catch {
-    // Missing or corrupted file — start fresh
-    sessionState = {
-      projects: [],
-      settings: {
-        endpointUrl: null,
-        apiKey: null,
-        theme: 'auto',
-        selfCaptureExclusion: true,
-        syncUrl: null,
-        syncApiKey: null,
-        recordingMode: 'narration',
-      },
-    };
-  }
+  // The persisted shape and its defaults live once in persistence.js.
+  sessionState = await loadSessionState(invoke);
   dispatchSettings = {
     endpointUrl: sessionState.settings.endpointUrl,
     apiKey: sessionState.settings.apiKey,
@@ -300,7 +269,7 @@ async function loadState() {
 
 async function saveState() {
   try {
-    await invoke('save_state', { data: JSON.stringify(sessionState) });
+    await saveSessionState(invoke, sessionState);
   } catch (err) {
     console.error('[Docent] Failed to save state:', err);
   }

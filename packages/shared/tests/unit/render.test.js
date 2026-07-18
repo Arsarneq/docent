@@ -8,7 +8,33 @@
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { escapeHtml, describeAction } from '../../views/render.js';
+
+// ─── render.js single-source resolver ────────────────────────────────────────
+
+describe('render.js uses the canonical active-view resolver', () => {
+  // Regression: render.js carried a private resolveActiveSteps that omitted the
+  // SF-8 sort-by-step_number step — a second, unregistered implementation of the
+  // active-view resolution the clause registry pins to lib/session.js. It has no
+  // live symptom here (the result feeds only a count, which is sort-invariant),
+  // but the divergence is real. Guard the single implementation: render must
+  // import the canonical resolver and define no private copy. No GitHub issue —
+  // a confirmed defect worked from the local backlog.
+  it('regression_noissue_render_uses_canonical_resolveactivesteps', () => {
+    const src = readFileSync(new URL('../../views/render.js', import.meta.url), 'utf8');
+    assert.match(
+      src,
+      /import\s*\{[^}]*\bresolveActiveSteps\b[^}]*\}\s*from\s*['"]\.\.\/lib\/session\.js['"]/,
+      'render.js must import resolveActiveSteps from lib/session.js (the canonical resolver)',
+    );
+    assert.doesNotMatch(
+      src,
+      /function\s+resolveActiveSteps\b/,
+      'render.js must not define a private resolveActiveSteps — the single implementation lives in lib/session.js',
+    );
+  });
+});
 
 // ─── escapeHtml ───────────────────────────────────────────────────────────────
 
