@@ -79,7 +79,7 @@ const validUrlArb = fc.oneof(
   fc.webUrl({ validSchemes: ['https'] }),
 );
 
-// ── Task 2.2: Settings round-trip ──────────────────────────────────────────
+// ── Settings round-trip ──────────────────────────────────────────
 describe('settings round-trip preserves both fields', () => {
   beforeEach(() => {
     storageData = {};
@@ -98,7 +98,7 @@ describe('settings round-trip preserves both fields', () => {
   });
 });
 
-// ── Task 2.3: URL validation rejects non-HTTP(S) inputs ───────────────────
+// ── URL validation rejects non-HTTP(S) inputs ───────────────────
 describe('URL validation rejects non-HTTP(S) inputs', () => {
   beforeEach(() => {
     storageData = {};
@@ -137,7 +137,7 @@ describe('URL validation rejects non-HTTP(S) inputs', () => {
   });
 });
 
-// ── Task 2.4: Local addresses pass validation ──────────────────────────────
+// ── Local addresses pass validation ──────────────────────────────
 describe('local addresses pass validation', () => {
   test('http://localhost variants are valid', async () => {
     await fc.assert(
@@ -173,7 +173,7 @@ describe('local addresses pass validation', () => {
   });
 });
 
-// ── Task 2.5: Payload fidelity ─────────────────────────────────────────────
+// ── Payload fidelity ─────────────────────────────────────────────
 describe('payload fidelity', () => {
   const narrationStepArb = fc.record({
     uuid: fc.uuid(),
@@ -319,7 +319,7 @@ describe('payload fidelity', () => {
   });
 });
 
-// ── Task 2.6: API key produces correct Authorization header ────────────────
+// ── API key produces correct Authorization header ────────────────
 describe('API key produces correct Authorization header', () => {
   beforeEach(() => {
     globalThis.fetch = undefined;
@@ -341,7 +341,7 @@ describe('API key produces correct Authorization header', () => {
   });
 });
 
-// ── Task 2.7: Error messages surface HTTP status codes and network errors ──
+// ── Error messages surface HTTP status codes and network errors ──
 describe('error messages surface HTTP status codes and network errors', () => {
   beforeEach(() => {
     globalThis.fetch = undefined;

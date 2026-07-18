@@ -2,7 +2,7 @@
  * tests/auth.test.js — the optional-Bearer-authentication integration suite for
  * the Reference Sync Server.
  *
- * This suite drives the REAL server end-to-end over HTTP (via the Task 10.1
+ * This suite drives the REAL server end-to-end over HTTP (via the `harness.js`
  * harness) to confirm the auth gate the router applies before every handler:
  *
  *   - Open server (no Static_Token): every request is served and ANY

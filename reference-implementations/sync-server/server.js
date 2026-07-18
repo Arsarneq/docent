@@ -17,8 +17,7 @@
  *
  * Runtime: Node.js standard library only — `node:http` for the server and
  * `node:url` for the main-module guard — plus the in-package router and
- * file-provider. No third-party web framework, no build step (Requirements
- * 8.1, 8.3).
+ * file-provider. No third-party web framework, no build step.
  *
  * Configuration (env takes precedence is documented per key below):
  *
@@ -146,8 +145,8 @@ export function createServer({ token = null, storage = new FileStorageProvider()
  * Listens on the loopback interface ({@link BIND_HOST}) on the given port (or
  * the documented default `3000`) and resolves with the live server, the bound
  * address, and the storage provider. Passing port `0` binds an ephemeral port —
- * the shape the test harness (Task 10.1) uses to run isolated suites without
- * contending for `3000`.
+ * the shape the test harness (`tests/integration/harness.js`) uses to run
+ * isolated suites without contending for `3000`.
  *
  * @param {object} [options]
  * @param {number} [options.port]   Defaults to {@link DEFAULT_PORT}.
@@ -195,7 +194,7 @@ export function startServer({
 
 // ── Main-module guard ───────────────────────────────────────────────────────
 // Only bind a port when this file is the program entry point (`node server.js`,
-// the package "start" script). Importing the module — as tests and the Task 10
+// the package "start" script). Importing the module — as tests and the integration
 // harness do — has no side effect, so a consumer chooses an ephemeral port via
 // startServer() instead of inheriting the default 3000 binding.
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {

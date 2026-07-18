@@ -159,8 +159,8 @@ async function loadSamplePayloads() {
 /**
  * Handle `POST /__debug/seed`: store one or more payloads directly through the
  * Storage_Provider, exactly as a `PUT` would (verbatim, opaque, with a
- * server-set `last_modified`), WITHOUT requiring a client push (Requirement
- * 12.5). The body is parsed as JSON and must be either:
+ * server-set `last_modified`), WITHOUT requiring a client push. The body is
+ * parsed as JSON and must be either:
  *
  *   - an array of caller-supplied Full_Project_Payloads, or
  *   - `{ samples: true }` to seed the bundled both-platform samples.
@@ -172,8 +172,8 @@ async function loadSamplePayloads() {
  *
  * The storage id for each payload is derived from `payload.project.project_id`,
  * exactly as the write handler derives it; the server reads nothing else from a
- * seeded payload and never inspects its `docent_format` stamp (Requirement
- * 12.6). Responds `{ ok: true, seeded: <n> }`.
+ * seeded payload and never inspects its `docent_format` stamp. Responds
+ * `{ ok: true, seeded: <n> }`.
  *
  * @param {StorageProvider} storage The injected Storage_Provider.
  * @param {import('node:http').IncomingMessage} req

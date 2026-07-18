@@ -2,7 +2,7 @@
  * sync-conflict-ui.test.js — Example/unit tests for the shared sync-state
  * indicators and resolution-workflow render module (sync-conflict-ui.js).
  *
- * Task 16.3: render the shared workflow with seeded items and assert each
+ * Render the shared workflow with seeded items and assert each
  * Review and Conflict is presented with the correct controls, that opening an
  * item with the wrong interface is redirected, and that activating an indicator
  * opens the right workflow for that Unit.

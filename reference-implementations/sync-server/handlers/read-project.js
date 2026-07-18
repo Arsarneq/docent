@@ -18,7 +18,7 @@
  * Calling convention: the router resolves the path `:id` and the storage seam,
  * then calls `readProject(storage, req, res, id)`. The handler talks only to the
  * injected `Storage_Provider` and writes the response itself,
- * matching the sibling handlers so the router (Task 8.1) composes uniformly.
+ * matching the sibling handlers so the router (`router.js`) composes uniformly.
  *
  * This file is part of Docent.
  * Licensed under the GNU General Public License v3.0

@@ -100,7 +100,7 @@ const settingsWithEndpointArb = fc.record({
   apiKey: fc.option(fc.string(), { nil: null }),
 });
 
-// ─── Task 12: Unit tests for dispatch UI behaviour ────────────────────────────
+// ─── Unit tests for dispatch UI behaviour ────────────────────────────
 
 describe('Dispatch button disabled when no endpoint configured', () => {
   test('returns false when endpointUrl is null', () => {
@@ -350,7 +350,7 @@ describe('Export button still works — sendPayload not called on export', () =>
   });
 });
 
-// ─── Task 13: Property test — Dispatch button state reflects project content ──
+// ─── Property test — Dispatch button state reflects project content ──
 //
 
 describe('Dispatch button state reflects project content', () => {
@@ -376,7 +376,7 @@ describe('Dispatch button state reflects project content', () => {
   });
 });
 
-// ─── Task 14: Property test — Recording selector lists exactly recordings with active steps ──
+// ─── Property test — Recording selector lists exactly recordings with active steps ──
 //
 
 describe('Recording selector lists exactly recordings with active steps', () => {
@@ -430,7 +430,7 @@ describe('Recording selector lists exactly recordings with active steps', () => 
   });
 });
 
-// ─── Task 15: Property test — Confirmation dialog displays correct endpoint and step summary ──
+// ─── Property test — Confirmation dialog displays correct endpoint and step summary ──
 //
 
 describe('Confirmation dialog displays correct endpoint and step summary', () => {
@@ -509,7 +509,7 @@ describe('Confirmation dialog displays correct endpoint and step summary', () =>
   });
 });
 
-// ─── Task 16: Property test — Confirmation gate ───────────────────────────────
+// ─── Property test — Confirmation gate ───────────────────────────────
 //
 // sendPayload must not be called before confirmation, and not at all after cancel.
 

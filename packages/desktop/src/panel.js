@@ -1785,7 +1785,7 @@ toggleAutoSync.addEventListener('change', async () => {
     const state = (await loadSyncState(syncStore)) ?? {};
     setSettings(state, { autoSync: true });
     await saveSyncState(syncStore, state);
-    // Start the background host (24.5) for the now-enabled setting.
+    // Start the background host for the now-enabled setting.
     syncAutoSyncHostState();
   } else {
     // Toggling off persists autoSync=false and tears the host down, but does NOT

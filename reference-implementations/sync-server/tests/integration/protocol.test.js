@@ -1,6 +1,6 @@
 /**
  * tests/protocol.test.js — manifest, read, and write integration suites for the
- * Reference Sync Server (Task 10.2).
+ * Reference Sync Server.
  *
  * These are example/integration tests (per the design's Testing Strategy): each
  * suite spins the REAL server on an ephemeral port over a fresh temp storage dir
