@@ -56,7 +56,7 @@ import {
 } from '../shared/conflict-resolution.js';
 import { buildExport } from '../shared/lib/export-project.js';
 import { buildImportedProject } from '../shared/lib/import-project.js';
-import adapter, { commitWithCompleteness } from './adapter-tauri.js';
+import adapter, { commitWithCompleteness, stopWithCompleteness } from './adapter-tauri.js';
 import {
   escapeHtml,
   renderProjectList as renderProjectListHtml,
@@ -1123,12 +1123,15 @@ async function commitStepSimple(logicalId) {
     const wasRecording = isRecording;
 
     if (isRecording) {
-      await invoke('stop_capture');
+      // Stop capture and run the fused in-order flush barrier in one call: wait
+      // for its delivery sentinel so every action drained on stop is inserted
+      // before we collect this step (docent#298).
+      await stopWithCompleteness();
       isRecording = false;
+    } else {
+      // Not recording — nothing is in flight; just normalise the pending list.
+      await commitWithCompleteness();
     }
-
-    // Wait for all in-flight worker events to arrive
-    await commitWithCompleteness();
 
     const actions = adapter.getPendingActions();
     const nextStepNumber = logicalId
@@ -1209,12 +1212,15 @@ async function commitStep(inputEl, source, logicalId) {
     const wasRecording = isRecording;
 
     if (isRecording) {
-      await invoke('stop_capture');
+      // Stop capture and run the fused in-order flush barrier in one call: wait
+      // for its delivery sentinel so every action drained on stop is inserted
+      // before we collect this step (docent#298).
+      await stopWithCompleteness();
       isRecording = false;
+    } else {
+      // Not recording — nothing is in flight; just normalise the pending list.
+      await commitWithCompleteness();
     }
-
-    // Wait for all in-flight worker events to arrive
-    await commitWithCompleteness();
 
     const actions = adapter.getPendingActions();
     const nextStepNumber = logicalId

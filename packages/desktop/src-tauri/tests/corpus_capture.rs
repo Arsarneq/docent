@@ -561,7 +561,21 @@ fn write_dump(session: &str, events: &[ActionEvent]) {
     let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("../../../corpus/out/desktop-windows-events");
     fs::create_dir_all(&dir).expect("create events dir");
-    let dump = Dump { session, events };
+    // Stopping capture fuses the commit flush barrier, which emits an internal
+    // `barrier_complete` sentinel on the action stream. Like the sequence id it is
+    // Rust↔frontend plumbing with no schema counterpart, so it never belongs in a
+    // corpus dump: the assembler (scripts/corpus-assemble-desktop.js) replays each
+    // dumped event as a real action, and the dump is the user-action stream the
+    // committed truth is diffed against. Exclude it here.
+    let events: Vec<ActionEvent> = events
+        .iter()
+        .filter(|e| !matches!(e.payload, ActionPayload::BarrierComplete { .. }))
+        .cloned()
+        .collect();
+    let dump = Dump {
+        session,
+        events: &events,
+    };
     fs::write(
         dir.join(format!("{session}.events.json")),
         serde_json::to_string_pretty(&dump).expect("serialize dump"),

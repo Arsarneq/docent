@@ -67,11 +67,12 @@ panic-contained (the worker survives a poison event), so a worker death does
 not strand completed actions in normal operation. For buffers a dead worker
 does hold, the [flush barrier](#the-commit-flush-barrier) is the rescue path:
 its fan-out treats a worker whose channel is gone like a wedged one and drains
-its buffers in place. The other two paths do not drain them today — the
-[shutdown](#shutdown-doctrine) drain rides each worker's own exit or the
-detach rescue, and joins an already-dead worker without draining, while a
-dispatch-time respawn replaces the dead worker's buffers without draining
-them.
+its buffers in place — and because a stop now runs that barrier before its
+teardown ([shutdown](#shutdown-doctrine)), a stop rescues them too. The one path
+that still drops them today is the mid-capture **dispatch-time respawn**, which
+replaces the dead worker's buffers without draining them; the teardown drain
+also joins an already-dead worker without draining, but on a stop the preceding
+barrier has already emptied its buffers.
 
 ## Completed-but-held buffers
 
@@ -90,9 +91,14 @@ drains first empties the buffers, and a later drain finds nothing to re-emit.
 ## The commit flush barrier
 
 The barrier (DCP-2) turns "every in-flight describe has landed" into an
-observable event on the action stream itself:
+observable event on the action stream itself. It runs as capture **stops** to
+commit a step — fused into `stop_capture`, so the in-order flush and the
+deactivation are one atomic backend step with no window between them (a step
+commit reaches completeness through stop alone) — and can also run mid-capture
+on its own (`commit_barrier`, the completeness path when committing while capture
+is already stopped). Either way the mechanism is the same:
 
-1. The commit command queues a flush request and wakes the Input_Thread's
+1. The commit path queues a flush request and wakes the Input_Thread's
    message pump.
 2. The Input_Thread forwards the flush marker onto the **same FIFO channel**
    it dispatches raw events on — so the flush is ordered behind every raw
@@ -117,9 +123,13 @@ never a per-id account).
 
 ## Shutdown doctrine
 
-Stopping capture drains everything a live worker holds — pending completed
-captures are sacred on shutdown (DCP-12, including its one stated dead-worker
-limit, admitted in [Routing and ordering](#routing-and-ordering) above):
+Stopping capture is two in-order phases while the Input_Thread is still
+pumping. It **first runs the flush barrier above** — held completed actions
+drain behind the step's events and the completion sentinel is emitted last, so a
+step commit reaches completeness through stop alone — and **then** deactivates
+and drains again on the way out. Pending completed captures are sacred across
+both phases (DCP-12); the teardown drain below is idempotent over the buffers
+the barrier already emptied:
 
 - A shutdown message rides each worker's FIFO queue behind all of its queued
   events, so a normally-exiting worker first describes everything already
@@ -130,8 +140,11 @@ limit, admitted in [Routing and ordering](#routing-and-ordering) above):
   indefinitely — and before detaching, the pool drains that worker's shared
   buffers itself, so a wedged worker's completed actions are not lost. The
   detached thread is reclaimed at process exit. (A worker that already died
-  reports finished instead of wedged and is joined without this rescue — the
-  dead-worker limit above.)
+  reports finished instead of wedged and is joined without this teardown
+  rescue — but stop's first phase already ran the flush barrier, whose fan-out
+  drains a dead worker's completed buffers in place, so a stop does not lose
+  them; the remaining drop-today case is the mid-capture dispatch respawn, per
+  the dead-worker limit above.)
 - The honest limit of the detach path: raw events still **queued** to a
   wedged worker (dispatched but never described) go down with it — the
   rescue covers completed-but-held actions, which are the only ones that

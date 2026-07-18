@@ -53,7 +53,15 @@ pub trait CaptureLayer: Send + 'static {
     fn start(&mut self, sender: Sender<ActionEvent>) -> Result<(), CaptureError>;
 
     /// Stop capturing interactions.
-    fn stop(&mut self) -> Result<(), CaptureError>;
+    ///
+    /// Runs the in-order commit flush barrier as it stops — draining every
+    /// worker's completed-but-held actions behind the step's events and emitting
+    /// the [`ActionPayload::BarrierComplete`] sentinel last — then tears down, so
+    /// a step commit reaches completeness through `stop` alone (no separate
+    /// [`commit_barrier`](CaptureLayer::commit_barrier) round-trip). Returns the
+    /// [`BarrierReport`]; the frontend waits for the matching sentinel before
+    /// collecting the step. `barrier_id` is `0` when no capture was active.
+    fn stop(&mut self) -> Result<BarrierReport, CaptureError>;
 
     /// Check if capture is currently active.
     fn is_active(&self) -> bool;

@@ -49,8 +49,12 @@ impl CaptureLayer for UnsupportedCapture {
         )))
     }
 
-    fn stop(&mut self) -> Result<(), CaptureError> {
-        Ok(())
+    fn stop(&mut self) -> Result<BarrierReport, CaptureError> {
+        // No capture backend on this platform, so nothing is buffered or flushed.
+        Ok(BarrierReport {
+            barrier_id: 0,
+            wedged_workers: 0,
+        })
     }
 
     fn is_active(&self) -> bool {
@@ -110,6 +114,9 @@ mod tests {
         // Inert setters must not panic.
         capture.set_excluded_pid(Some(1));
         capture.set_included_pid(None);
-        assert!(capture.stop().is_ok());
+        // stop runs no flush on an unsupported platform — a no-op barrier report.
+        let stop_report = capture.stop().unwrap();
+        assert_eq!(stop_report.barrier_id, 0);
+        assert_eq!(stop_report.wedged_workers, 0);
     }
 }

@@ -36,15 +36,16 @@ does not, so the proxy keeps the test faithful to the app's real sync path).
 
 ## What the suite covers
 
-| Spec                                     | Covers                                                                                                                                                                             |
-| ---------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `panel-desktop.spec.js`                  | Core panel UI: project/recording creation, view transitions, step commit via simulated `capture:action` events.                                                                    |
-| `panel-dispatch-sync.spec.js`            | Dispatch confirmation flow, settings persistence, sync button behaviour, re-record flow, project deletion.                                                                         |
-| `panel-advanced-flows.spec.js`           | Dispatch send with stubbed fetch, sync flow, inline rename, the multi-recording dispatch selector, re-record cancel.                                                               |
-| `panel-coverage-boost.spec.js`           | Metadata CRUD, import (including duplicate-project copies), export, sync partial-success and auth-error paths, "Send all", target-app selector, self-capture toggle, drag reorder. |
-| `import-export-rerecord-desktop.spec.js` | Import/export round-trips (format stamp derived from the composed schema, never hardcoded), re-record, drag reorder persistence.                                                   |
-| `accessibility-desktop.spec.js`          | axe-core WCAG 2.1 AA scan of each major panel view (machine-detectable issues only).                                                                                               |
-| `sync-samples.spec.js`                   | The real desktop client pulls the bundled `desktop-windows` seed sample from a running reference sync server and rejects the `extension`-stamped one.                              |
+| Spec                                        | Covers                                                                                                                                                                             |
+| ------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `panel-desktop.spec.js`                     | Core panel UI: project/recording creation, view transitions, step commit via simulated `capture:action` events.                                                                    |
+| `panel-commit-completeness-barrier.spec.js` | Step-commit completeness: a normal recording commit engages the fused stop-path flush barrier and waits for its `barrier_complete` sentinel before finalizing the step.            |
+| `panel-dispatch-sync.spec.js`               | Dispatch confirmation flow, settings persistence, sync button behaviour, re-record flow, project deletion.                                                                         |
+| `panel-advanced-flows.spec.js`              | Dispatch send with stubbed fetch, sync flow, inline rename, the multi-recording dispatch selector, re-record cancel.                                                               |
+| `panel-coverage-boost.spec.js`              | Metadata CRUD, import (including duplicate-project copies), export, sync partial-success and auth-error paths, "Send all", target-app selector, self-capture toggle, drag reorder. |
+| `import-export-rerecord-desktop.spec.js`    | Import/export round-trips (format stamp derived from the composed schema, never hardcoded), re-record, drag reorder persistence.                                                   |
+| `accessibility-desktop.spec.js`             | axe-core WCAG 2.1 AA scan of each major panel view (machine-detectable issues only).                                                                                               |
+| `sync-samples.spec.js`                      | The real desktop client pulls the bundled `desktop-windows` seed sample from a running reference sync server and rejects the `extension`-stamped one.                              |
 
 ## Running the suite
 

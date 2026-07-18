@@ -103,7 +103,7 @@ fn start_capture_impl(
 }
 
 /// Core logic for `stop_capture` — testable without a Tauri runtime.
-fn stop_capture_impl(capture: &CaptureMutex) -> Result<(), String> {
+fn stop_capture_impl(capture: &CaptureMutex) -> Result<BarrierReport, String> {
     let mut capture = lock_capture(capture)?;
     capture.stop().map_err(|e: CaptureError| e.to_string())
 }
@@ -131,9 +131,14 @@ pub fn start_capture(state: State<'_, AppState>, pid: Option<u32>) -> Result<(),
     start_capture_impl(&state.capture, state.action_sender.clone(), pid)
 }
 
-/// Stop the capture layer.
+/// Stop the capture layer, running the commit flush barrier as it stops.
+///
+/// Returns the barrier report `{ barrier_id, wedged_workers }`; the frontend
+/// waits for the matching `barrier_complete` sentinel on the `capture:action`
+/// stream so a committed step captures every drained action. `barrier_id` is `0`
+/// when no capture was active.
 #[tauri::command]
-pub fn stop_capture(state: State<'_, AppState>) -> Result<(), String> {
+pub fn stop_capture(state: State<'_, AppState>) -> Result<BarrierReport, String> {
     stop_capture_impl(&state.capture)
 }
 
@@ -495,12 +500,20 @@ mod tests {
             Ok(())
         }
 
-        fn stop(&mut self) -> Result<(), CaptureError> {
+        fn stop(&mut self) -> Result<BarrierReport, CaptureError> {
             if self.fail_stop {
                 return Err(CaptureError::Platform("mock stop failure".into()));
             }
-            self.rec.lock().unwrap().stopped = true;
-            Ok(())
+            let mut rec = self.rec.lock().unwrap();
+            rec.stopped = true;
+            // The real stop fuses the commit flush barrier, so it reports one too;
+            // model that here (a barrier call, an incrementing id) so the command
+            // test can assert stop runs the barrier.
+            rec.barrier_calls += 1;
+            Ok(BarrierReport {
+                barrier_id: rec.barrier_calls as u64,
+                wedged_workers: self.barrier_wedged,
+            })
         }
 
         fn is_active(&self) -> bool {
@@ -587,15 +600,31 @@ mod tests {
     // ── stop_capture_impl ───────────────────────────────────────────────────
 
     #[test]
-    fn stop_capture_stops_the_layer() {
+    fn stop_capture_stops_the_layer_and_reports_the_fused_barrier() {
         let (mock, rec) = MockCapture::new();
         rec.lock().unwrap().started = true;
         let cap = mutex(mock);
 
-        let result = stop_capture_impl(&cap);
+        let report = stop_capture_impl(&cap).unwrap();
 
-        assert!(result.is_ok());
         assert!(rec.lock().unwrap().stopped);
+        // stop fuses the commit flush barrier: it runs one and reports its id so
+        // the frontend can wait for the delivery sentinel on the stop path alone.
+        assert_eq!(rec.lock().unwrap().barrier_calls, 1);
+        assert_eq!(report.barrier_id, 1);
+        assert_eq!(report.wedged_workers, 0);
+    }
+
+    #[test]
+    fn stop_capture_reports_wedged_workers_from_the_fused_barrier() {
+        let (mut mock, rec) = MockCapture::new();
+        mock.barrier_wedged = 3;
+        rec.lock().unwrap().started = true;
+        let cap = mutex(mock);
+
+        let report = stop_capture_impl(&cap).unwrap();
+
+        assert_eq!(report.wedged_workers, 3);
     }
 
     #[test]
