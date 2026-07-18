@@ -1,48 +1,42 @@
 # Docent — Reading Guidance
 
-This document describes the structure and meaning of a Docent dispatch payload.
+## What this is
 
----
+A Docent payload is a structured recording of real sessions performed in a web browser or a desktop application, captured as structured data rather than as a script. It describes what a person did — in order, with context — so those sessions can be understood and reproduced elsewhere.
 
-## What you are receiving
+Two principles shape everything in it:
 
-A project recorded in a real browser or desktop application. The payload contains
-one or more recordings, each with an ordered list of steps. Each step pairs context
-with the exact actions recorded during that step.
+- Only real user actions are recorded. Every action is a physical thing the user did — a click, some typing, a scroll, a key press, and so on. Consequences of those actions — changes the application made on its own — are deliberately kept out of the action stream.
+- Context is kept separate from the actions. Alongside the actions, the recording carries observed context that describes them, plus, for each step, the person's own narration or classification of intent. Context is never mixed into the actions and never invented.
 
-Each step carries its context in one of two modes:
+The guarantee the data is built for: assuming the same application and the same backend data behind it, a consumer holding only this payload can reproduce a recorded session from a different machine — including on interfaces that load or update asynchronously.
 
-- **Narration mode** — a free-text, natural-language description of the step's intent (`narration`).
-- **Simple mode** — a structured classification (`step_type`: `action` or `validation`; validation steps also carry an `expect` value such as `present` or `absent`).
+## The payload is self-describing
 
-A step has at least one of these; both may be present.
+The payload carries its own schema — the formal JSON Schema that defines every field precisely — and a format stamp identifying which Docent platform produced it and which version of the format it follows.
 
-The full step history is included — all versions of each step (re-recorded, deleted) are present.
-To resolve the "active" view: group steps by `logical_id`, take the latest `uuid` per group,
-and exclude those with `deleted: true`.
+## How it is organised
 
----
+A payload holds a project and its recordings. Each recording is an ordered series of steps. Each step pairs the person's context for that step — a free-text narration, or a short classification of the step's intent — with the exact actions captured while performing it. That classification is not just a label: it separates steps that record interactions the person performed from steps that record an expectation the person was checking rather than an interaction.
 
-## Payload structure
+## Reading the steps
 
-The dispatch payload has four top-level fields:
+A recording keeps the full history of every step: when a step is edited, re-recorded, or deleted, its earlier versions are retained rather than discarded. The current state of the recording — the latest version of each step, in order — is the active view, derived like this:
 
-- `reading_guidance` — this document (human-readable context)
-- `schema` — the JSON Schema object describing the data structure
-- `project` — project metadata (id, name, created_at)
-- `recordings` — array of recordings, each with full step history
+1. Group the versions that belong to the same logical step.
+2. Within each group, keep only the most recent version.
+3. Discard versions marked as deleted.
+4. Order what remains by step number.
 
----
+The versions this leaves out are the earlier and deleted states, retained as history.
 
-## Notes
+## Properties of specific values
 
-- Passwords are always captured as `"••••••••"`. Masked and redacted values in
-  general are replay parameters: the recording states where a value goes (the
-  element's identity and its `redacted`/`masked` flags), and the reader
-  supplies the value itself when reproducing the session.
-- `context_id` values are session-scoped identifiers (browser tab IDs or desktop window handles) — they are not persistent across restarts.
-- `capture_mode` indicates how each action was captured: `"dom"` for browser, `"accessibility"` for native UI elements, or `"coordinate"` for fallback coordinate-based capture.
-- Context lifecycle actions (`context_switch`, `context_open`, `context_close`) use a `source` field containing the page URL (browser) or executable path (desktop).
-- Each step has a `deleted` boolean and a `uuid` for version ordering. Multiple steps can share a `logical_id` — these are versions of the same step.
-- An element may include `locators` — observed ways the element could be addressed at capture time. Each entry may carry its own match statistics (`match_count` / `match_index`, measured at capture time; absent means not measured); the list order carries no ranking. Entries flagged `masked: true` had sensitive values masked in place.
-- An element may include `described_after_ms` — how many milliseconds after the action's timestamp its description (and any match statistics) was observed. `0` means at the input itself; larger values mean the interface may already have reacted to the action.
+- Sensitive values are masked. When the user enters something sensitive, such as a password, the recording records where the value went — the target element, flagged as masked — but not the value itself. A masked field is a parameter to fill when reproducing the session, not missing data.
+- Time is descriptive, not prescriptive. Recorded timestamps and observed delays are facts about what happened; literal timing is specific to the machine that produced it. Where an action depended on the interface becoming ready, that readiness is present as an observable condition in the recorded context.
+- Some identifiers are meaningful only within the session. Certain ids — for example the handle identifying a browser tab or an application window — are valid only for the session that produced them and are not stable across restarts.
+- Actions carry as much identity as was observable. Where the application exposed rich descriptive information, an action identifies the element it targeted in detail; where it did not, the action falls back to a screen position and the surrounding geometry. Each action records which of the two applies.
+
+## Further reading
+
+The full project — capture principles and format specification — is at <https://github.com/Arsarneq/docent>
