@@ -709,6 +709,11 @@
         "docs/user/desktop-windows.md",
         "docs/user/troubleshooting.md"
       ]
+    },
+    {
+      "path": "packages/*/*/index.html",
+      "reason": "Committed panel build outputs — each is assembled from a platform shell plus the single shared views fragment by the shared-code sync and is never hand-edited (edit the shell or the shared views source and re-run the sync). Their only invariant is that they match the regenerated assembly, which the shared-core doc owns (the one-fragment-two-shells assembly and the outputs-freshness rule); the platform behaviour docs their code areas would otherwise supply govern the platforms' code, not this generated HTML. Coverage is unchanged — each still resolves to its package area for the code-ownership totality check.",
+      "governed-by": ["docs/architecture/system/shared-core.md"]
     }
   ]
 }
