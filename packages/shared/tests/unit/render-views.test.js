@@ -8,6 +8,7 @@
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import {
   renderProjectList,
   renderRecordingList,
@@ -288,5 +289,24 @@ describe('renderStepDetail', () => {
     const result = renderStepDetail(actions);
 
     assert.ok(result[0].includes('&lt;b&gt;bold&lt;/b&gt;'));
+  });
+});
+
+// ─── views.html static structure ──────────────────────────────────────────────
+
+describe('views.html structure', () => {
+  // Regression: a second `class` attribute on an element is silently dropped by
+  // HTML parsers (only the first is honoured), so utility spacing classes placed
+  // in a duplicate `class` attribute never applied. No GitHub issue — this is a
+  // confirmed defect worked from the local backlog.
+  it('regression_noissue_views_no_duplicate_class_attributes', () => {
+    const html = readFileSync(new URL('../../views/views.html', import.meta.url), 'utf8');
+    const tags = html.match(/<[a-zA-Z][^>]*>/g) ?? [];
+    const offenders = tags.filter((tag) => (tag.match(/\sclass\s*=/g) ?? []).length > 1);
+    assert.deepEqual(
+      offenders,
+      [],
+      `elements carry more than one \`class\` attribute (HTML parsers keep only the first):\n${offenders.join('\n')}`,
+    );
   });
 });
