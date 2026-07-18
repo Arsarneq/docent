@@ -1,13 +1,13 @@
-# OpenSSF Scorecard (S19) — weekly supply-chain & project-hygiene posture check.
+# OpenSSF Scorecard — weekly supply-chain & project-hygiene posture check.
 # Scores signals like action pinning, branch protection, token permissions,
 # dangerous workflow patterns, and the presence of a security policy, then uploads
 # the result to the Security tab as code-scanning alerts. Monitoring/visibility
-# only — it surfaces regressions in S17/S18 + branch protection over time; it does
+# only — it surfaces regressions in action SHA-pinning + branch protection over time; it does
 # not change CI behaviour.
 #
 # publish_results is OFF: OpenSSF's publish verification rejects SHA-pinned actions
 # ("imposter commit") and requires every action in the workflow to be tag-pinned —
-# which conflicts with our S17/S18 SHA-pinning. We keep the Security-tab SARIF (the
+# which conflicts with our action SHA-pinning. We keep the Security-tab SARIF (the
 # actionable monitoring) and forgo the public scorecard.dev badge.
 name: Scorecard supply-chain security
 
