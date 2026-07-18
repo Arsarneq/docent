@@ -14,6 +14,8 @@
  */
 // Governance declared in scripts/area-map.json (see its declared-governance entry): resolves and renders the committed step-history model (active-view resolution over logical_id/uuid versions and tombstones), so it is bound by the format's step-resolution rules; the per-platform schemas are authoritative for field semantics.
 
+import { resolveActiveSteps } from '../lib/session.js';
+
 // ─── Utilities ────────────────────────────────────────────────────────────────
 
 /**
@@ -126,24 +128,6 @@ export function renderProjectList(projects) {
 }
 
 /**
- * Resolve the active (latest, non-deleted) steps for a recording.
- *
- * Groups steps by logical_id, keeps the one with the highest uuid
- * (latest version), and filters out deleted steps.
- *
- * @param {Array<{logical_id: string, uuid: string, deleted?: boolean}>} steps
- * @returns {Array} active steps
- */
-function resolveActiveSteps(steps) {
-  const groups = new Map();
-  for (const s of steps ?? []) {
-    const existing = groups.get(s.logical_id);
-    if (!existing || s.uuid > existing.uuid) groups.set(s.logical_id, s);
-  }
-  return Array.from(groups.values()).filter((s) => !s.deleted);
-}
-
-/**
  * Render the recording list for a project as HTML.
  *
  * Returns an array of HTML strings, one per recording. The caller
@@ -158,7 +142,9 @@ function resolveActiveSteps(steps) {
  */
 export function renderRecordingList(recordings) {
   return recordings.map((r) => {
-    const activeSteps = resolveActiveSteps(r.steps);
+    // Canonical resolver takes a recording; guard the optional steps array so a
+    // stepless recording resolves to an empty active view rather than throwing.
+    const activeSteps = resolveActiveSteps(r.steps ? r : { steps: [] });
     const count = activeSteps.length;
 
     return `
