@@ -1,6 +1,6 @@
 /**
  * tests/integration/harness.js — the integration-test harness for the Reference
- * Sync Server (design's Testing Strategy).
+ * Sync Server.
  *
  * This module is NOT a test file (no `.test.js` suffix, so `node --test` does
  * not run it directly). It exports the helpers the integration suites

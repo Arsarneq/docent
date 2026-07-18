@@ -3,7 +3,7 @@
  * conditional-write enhancement (docent#152) of the Reference
  * Sync Server.
  *
- * These are example/integration tests (design's Testing Strategy): each test
+ * These are example/integration tests: each test
  * spins the REAL server on an ephemeral port over a fresh temp storage dir via
  * the shared harness, then drives it over HTTP with `fetch`. No mocks — the ETag
  * advertisement, `If-Match` precondition, 412 rejection, last-write-wins, and

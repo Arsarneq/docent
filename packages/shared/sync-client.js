@@ -1452,8 +1452,9 @@ export async function sync(serverUrl, apiKey, localProjects, schema, validator, 
     //
     //   • ABORT-ON-UNRETAINABLE — while recording a Conflict, a version
     //     that cannot be retained in recoverable form makes `upsertConflict`'s
-    //     deep clone throw. Per the design, the ENTIRE sync must abort with
-    //     prior state intact rather than half-record the Conflict.
+    //     deep clone throw. Cycle atomicity (sync-protocol SP-19) requires the
+    //     ENTIRE sync to abort with prior state intact rather than half-record
+    //     the Conflict.
     //   • BLOCK-ON-INTERNAL-FAILURE — any unexpected throw from
     //     `classifyProject`/`applyAutomaticOutcomes` (or the save) blocks sync
     //     rather than continuing with potential conflicts or a partial merge.

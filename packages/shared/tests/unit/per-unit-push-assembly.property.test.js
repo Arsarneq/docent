@@ -17,7 +17,7 @@
  *     version), NOT the un-reconciled live local edits, so the whole-project write
  *     cannot overwrite the concurrent server change.
  *
- * (design): "For any project pushed in a cycle, the assembled
+ * (sync-protocol SP-13): "For any project pushed in a cycle, the assembled
  * `Full_Project_Payload` contains, for each recording: the local version when the
  * recording is clean-local-new, `changed-local-outgoing`, or `already-converged`;
  * and the agreed-or-pulled version when the recording is deferred (Review/Conflict)

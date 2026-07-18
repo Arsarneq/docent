@@ -9,7 +9,7 @@
  * reads from the body is `project.project_id`, solely to confirm it matches the
  * path `:id`.
  *
- * Processing order (matching the design's request flow and precedence rule):
+ * Processing order (the router applies auth → routing before this handler runs):
  *
  *   1. Read + parse the request body.       invalid JSON              → 400
  *   2. Confirm path `:id` == body project id. mismatch                → 400

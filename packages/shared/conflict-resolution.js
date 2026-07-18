@@ -54,12 +54,13 @@
  * corrupted and a decline leaves it byte-identical.
  *
  * ── Note on the signature ─────────────────────────────────────────────────────
- * The design sketch lists `acceptReview(state, store, unitRef)`. Applying the
- * incoming change to the affected recording AND advancing the baseline to the
- * *accepted project state* both require the local project, so — following the
- * synchronous, persistence-separate pattern already used by `advanceBaseline`
- * and the `upsert*` helpers (which take the in-memory `state`, not the adapter) —
- * these helpers take the local `projects` and return the updated `projects` in
+ * A plain `acceptReview(state, store, unitRef)` signature would not suffice:
+ * applying the incoming change to the affected recording AND advancing the
+ * baseline to the *accepted project state* both require the local project, so —
+ * following the synchronous, persistence-separate pattern already used by
+ * `advanceBaseline` and the `upsert*` helpers (which take the in-memory `state`,
+ * not the adapter) — these helpers take the local `projects` and return the
+ * updated `projects` in
  * the result. The caller persists `state` separately. Making the application an
  * explicit, returned result (rather than relying on a caller to re-derive it)
  * keeps adoption the single, auditable place a version is applied.

@@ -2,7 +2,7 @@
  * tests/protocol.test.js — manifest, read, and write integration suites for the
  * Reference Sync Server.
  *
- * These are example/integration tests (per the design's Testing Strategy): each
+ * These are example/integration tests: each
  * suite spins the REAL server on an ephemeral port over a fresh temp storage dir
  * via the harness, then drives the three protocol endpoints over HTTP. Nothing
  * is mocked — the harness runs the same server a deployment would.

@@ -6,7 +6,7 @@
  * with the user-gated resolution workflow (`conflict-resolution.js`
  * `acceptReview` / `declineReview` / `resolveConflict`).
  *
- * (design): "For any sequence of sync cycles — including concurrent
+ * Stated precisely: "For any sequence of sync cycles — including concurrent
  * changes by another client against the opaque last-write-wins server — every
  * committed local version of a Unit remains recoverable (as live local data, a
  * retained Sync_Snapshot, a baseline copy, or a Conflict record) until the user
@@ -295,8 +295,8 @@ function normalizeProjects(projects) {
 }
 
 /**
- * The full recoverable set: every step uuid reachable from any recovery handle
- * the design names — live local data, a retained Sync_Snapshot, a baseline copy,
+ * The full recoverable set: every step uuid reachable from any recovery handle —
+ * live local data, a retained Sync_Snapshot, a baseline copy,
  * a Conflict record (either version), or a Review record's retained incoming
  * version.
  *

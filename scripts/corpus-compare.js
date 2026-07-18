@@ -2,32 +2,17 @@
  * corpus-compare.js — scripted-truth capture-corpus comparator.
  *
  * Implements the "capture completeness" artifact of docs/requirements/replay-sufficiency.md
- * (Falsifiability, item 3): controlled pages/apps where the input sequence is
- * scripted, so the produced recording can be compared against committed truth.
- * A truth file states what a faithful capture IN THE CURRENT FORMAT would
- * record for its scripted session — derived from the script and the capture
- * principles, never from recorder output. Where current capture diverges, the
- * divergence lives in a committed per-platform known-diffs baseline, locked in
- * BOTH directions (a new diff is a regression; a vanished diff is a fix that
- * landed — both force a deliberate update), so CI stays green while known
- * capture gaps are open. Nothing here replays a recording or resolves a
- * locator; the corpus compares recordings to truth files, full stop.
+ * (Falsifiability, item 3): a produced recording is compared against a committed
+ * truth file for a scripted session. Nothing here replays a recording or resolves
+ * a locator; the corpus compares recordings to truth files, full stop.
  *
- * Comparison is over NORMALIZED envelopes: one pure, structure-aware pass maps
- * exactly the per-run-nondeterministic field classes (uuids, wall-clock
- * stamps, context handles, coordinates, measured describe latency) to
- * self-announcing placeholders, symmetrically on both sides, preserving the
- * equality relations the format's semantics stand on (logical_id grouping,
- * same-context vs cross-context identity). Everything else compares exact —
- * an unknown future field diffs noisily rather than being skipped silently.
- *
- * Order of operations (relaxations are alignment-scoped, never positional on
- * the produced side): normalize both sides by class rules → align actions per
- * step by LCS over the type sequence → apply each declared relaxation to the
- * truth entry at its pointer and to that entry's ALIGNED produced partner →
- * field-walk aligned pairs. Pointers in sidecars and in missing-* and
- * wrong-field findings index the TRUTH document; extra-* findings carry a
- * `produced:` prefix.
+ * Comparison doctrine is single-sourced in docs/verification/scripted-truth-corpus.md
+ * — cite, do not restate here: truth-file derivation (STC-1); the per-platform
+ * known-diffs baseline, locked in BOTH directions (STC-3); normalized-envelope
+ * comparison over per-run-nondeterministic field classes (STC-19); order of
+ * operations + truth-document pointer indexing (STC-20); and exit 2 = machinery
+ * error, never a baselineable diff (STC-5). Lint integration
+ * (--lint/--lint-strict): docs/verification/sufficiency-lint.md.
  *
  * Modes:
  *   node scripts/corpus-compare.js --manifest corpus/manifest.json
@@ -35,17 +20,12 @@
  *        [--write-baseline <path>] [--json] [--strict] [--lint]
  *        [--lint-strict] [--list]
  *   default        advisory: report, exit 0
- *   --baseline p   exit 1 when findings differ from the committed baseline in
- *                  EITHER direction
- *   --strict       exit 1 when ANY diff exists (baseline ignored; CI-wired in
- *                  a later slice, once baselines are empty)
- *   --lint         additionally run the sufficiency lint over each produced
- *                  file (advisory)
- *   --lint-strict  exit 1 when the lint reports any fail-class finding on a
- *                  produced file (CI-wired in a later slice)
- * Exit 2 = machinery error (schema-invalid input, unknown stamp, platform
- * mismatch, missing produced/truth counterpart, malformed sidecar), never a
- * baselineable diff.
+ *   --baseline p   exit 1 when findings differ from the committed baseline
+ *   --strict       exit 1 when ANY diff exists (baseline ignored)
+ *   --lint         additionally run the sufficiency lint over each produced file
+ *   --lint-strict  exit 1 on any fail-class lint finding
+ * Exit 2 (machinery error, STC-5): schema-invalid input, unknown stamp, platform
+ * mismatch, missing produced/truth counterpart, or malformed sidecar.
  */
 
 import { readFileSync, writeFileSync, existsSync } from 'node:fs';

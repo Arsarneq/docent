@@ -2,7 +2,7 @@
  * router.js — auth-first request dispatch for the Reference Sync Server.
  *
  * The router is the single composition point that turns an incoming HTTP
- * request into one of the four handlers. It enforces the design's precedence
+ * request into one of the four handlers. It enforces this precedence
  * rule for the routing-level concerns:
  *
  *   auth (401/403)  →  routing (404 / 405)  →  handler

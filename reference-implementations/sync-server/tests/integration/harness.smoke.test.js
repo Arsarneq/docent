@@ -5,7 +5,7 @@ import { access } from 'node:fs/promises';
 import { startTestServer, request } from './harness.js';
 
 /**
- * Harness self-test (design's Testing Strategy).
+ * Harness self-test.
  *
  * This is a minimal smoke test that the integration harness itself works — it
  * does NOT test protocol behavior (the integration suites own that). It confirms the
