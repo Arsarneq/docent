@@ -2754,7 +2754,13 @@ mod completeness {
             let _ = DestroyWindow(hwnd);
         }
         capture.stop().unwrap();
-        let events: Vec<_> = rx.try_iter().collect();
+        // stop() runs the commit flush barrier as it stops, emitting an internal
+        // BarrierComplete sentinel — Rust↔frontend plumbing, not a captured user
+        // action — so exclude it from the "produced nothing" assertion.
+        let events: Vec<_> = rx
+            .try_iter()
+            .filter(|e| !matches!(e.payload, ActionPayload::BarrierComplete { .. }))
+            .collect();
 
         assert_eq!(
             events.len(),

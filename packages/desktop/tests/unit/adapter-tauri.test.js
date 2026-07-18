@@ -38,6 +38,7 @@ globalThis.fetch = mockFetch;
 const {
   default: adapter,
   commitWithCompleteness,
+  stopWithCompleteness,
   _testOnly,
 } = await import('../../src/adapter-tauri.js');
 
@@ -437,6 +438,75 @@ describe('commitWithCompleteness()', () => {
       warnings.some((w) => w.includes('2 worker')),
       'should warn about wedged workers',
     );
+  });
+});
+
+// ─── stopWithCompleteness() ───────────────────────────────────────────────────
+
+describe('stopWithCompleteness()', () => {
+  const tick = () => new Promise((r) => setTimeout(r, 0));
+
+  beforeEach(() => {
+    resetMocks();
+    _testOnly.resetReorderState();
+    adapter.clearPendingActions();
+  });
+
+  it('reaches completeness through stop_capture, not a separate commit_barrier', async () => {
+    mockInvoke.mock.mockImplementation(async (cmd) => {
+      if (cmd === 'stop_capture') return { barrier_id: 5, wedged_workers: 0 };
+      return undefined;
+    });
+    const stop = stopWithCompleteness();
+    await tick();
+    _testOnly.handleCaptureAction({ type: 'barrier_complete', barrier_id: 5 });
+    await stop;
+    const commands = mockInvoke.mock.calls.map((c) => c.arguments[0]);
+    assert.ok(commands.includes('stop_capture'), 'should invoke stop_capture');
+    assert.ok(
+      !commands.includes('commit_barrier'),
+      'the flush is fused into stop_capture — no separate commit_barrier call',
+    );
+  });
+
+  // The fused stop path must wait for the delivery sentinel, not merely the
+  // stop_capture return: an action drained on stop (delivered after the command
+  // resolves but before the sentinel) must still land in the committed step.
+  it('waits for the stop-path delivery sentinel before collecting the step', async () => {
+    mockInvoke.mock.mockImplementation(async (cmd) => {
+      if (cmd === 'stop_capture') return { barrier_id: 8, wedged_workers: 0 };
+      return undefined;
+    });
+
+    const stop = stopWithCompleteness();
+    let resolved = false;
+    stop.then(() => {
+      resolved = true;
+    });
+
+    await tick();
+    _testOnly.handleCaptureAction({ type: 'click', sequence_id: 2, timestamp: 1, element: {} });
+    await tick();
+    assert.equal(resolved, false, 'stop must not resolve before the sentinel arrives');
+
+    _testOnly.handleCaptureAction({ type: 'barrier_complete', barrier_id: 8 });
+    await stop;
+
+    const actions = adapter.getPendingActions();
+    assert.equal(actions.length, 1, 'the action drained on stop must be in the committed step');
+    assert.equal(actions[0]._seq, undefined, '_seq should be stripped after commit');
+  });
+
+  it('collects immediately when stop reports no active capture (barrier_id 0)', async () => {
+    mockInvoke.mock.mockImplementation(async (cmd) => {
+      if (cmd === 'stop_capture') return { barrier_id: 0, wedged_workers: 0 };
+      return undefined;
+    });
+    _testOnly.insertOrdered({ type: 'click', sequence_id: 1, timestamp: 1, element: {} });
+    await stopWithCompleteness(); // must not hang waiting for a sentinel
+    const actions = adapter.getPendingActions();
+    assert.equal(actions.length, 1);
+    assert.equal(actions[0]._seq, undefined, '_seq should be stripped');
   });
 });
 

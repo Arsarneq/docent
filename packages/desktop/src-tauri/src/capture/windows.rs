@@ -436,6 +436,55 @@ impl Default for WindowsCapture {
     }
 }
 
+impl WindowsCapture {
+    /// Run the pool-wide commit flush barrier in-order and wait (bounded) for it
+    /// to complete. Hands a flush request to the Input_Thread and wakes its
+    /// message pump, so the flush marker is forwarded onto the **same FIFO
+    /// channel** as raw events (ordered behind every raw event dispatched so far,
+    /// closing the cross-thread race a command-thread injection would leave
+    /// open); the bridge drains every worker's held buffers and the pool emits
+    /// the `barrier_complete` sentinel last on the action stream. Returns the
+    /// resulting [`BarrierReport`]. The bounded wait is slightly longer than the
+    /// pool's own `FLUSH_BARRIER_TIMEOUT` so the pool always reports first; on the
+    /// rare timeout we still return and the caller proceeds. A missing input
+    /// thread or flush queue — never in normal operation while capture is active —
+    /// yields a no-op `barrier_id: 0` report.
+    ///
+    /// Callers ([`commit_barrier`](CaptureLayer::commit_barrier) and
+    /// [`stop`](CaptureLayer::stop)) guarantee capture is active before calling.
+    fn run_flush_barrier(&self) -> BarrierReport {
+        let (Some(tid), Some(requests)) = (self.input_thread_id, self.flush_requests.as_ref())
+        else {
+            return BarrierReport {
+                barrier_id: 0,
+                wedged_workers: 0,
+            };
+        };
+
+        let barrier_id = self.barrier_counter.fetch_add(1, Ordering::SeqCst) + 1;
+        let (done_tx, done_rx) = std::sync::mpsc::channel::<Vec<usize>>();
+
+        if let Ok(mut queue) = requests.lock() {
+            queue.push_back(FlushRequest {
+                barrier_id,
+                done: done_tx,
+            });
+        }
+        unsafe {
+            let _ = PostThreadMessageW(tid, WM_APP_FLUSH, WPARAM(0), LPARAM(0));
+        }
+
+        let wedged = done_rx
+            .recv_timeout(FLUSH_BARRIER_TIMEOUT + Duration::from_secs(1))
+            .unwrap_or_default();
+
+        BarrierReport {
+            barrier_id,
+            wedged_workers: wedged.len(),
+        }
+    }
+}
+
 // ---------------------------------------------------------------------------
 // CaptureLayer trait implementation
 // ---------------------------------------------------------------------------
@@ -556,10 +605,24 @@ impl CaptureLayer for WindowsCapture {
         Ok(())
     }
 
-    fn stop(&mut self) -> Result<(), CaptureError> {
+    fn stop(&mut self) -> Result<BarrierReport, CaptureError> {
         if !self.active.load(Ordering::SeqCst) {
-            return Ok(());
+            return Ok(BarrierReport {
+                barrier_id: 0,
+                wedged_workers: 0,
+            });
         }
+
+        // Fuse the commit flush barrier INTO stop: while the Input_Thread is
+        // still pumping, run the in-order flush so every held completed action
+        // drains behind this step's raw events and the `barrier_complete`
+        // sentinel is emitted last — THEN deactivate and tear down. A step commit
+        // reaches completeness through stop alone (no separate commit_barrier
+        // round-trip), closing the delivery race with zero JS-round-trip window
+        // and working with self-capture exclusion off. The subsequent shutdown
+        // drain is idempotent over the same buffers (whoever drains first empties
+        // them; a later drain finds nothing to re-emit).
+        let report = self.run_flush_barrier();
 
         // Signal the Input_Thread to stop.
         self.active.store(false, Ordering::SeqCst);
@@ -603,7 +666,7 @@ impl CaptureLayer for WindowsCapture {
 
         self.flush_requests = None;
 
-        Ok(())
+        Ok(report)
     }
 
     fn is_active(&self) -> bool {
@@ -637,42 +700,7 @@ impl CaptureLayer for WindowsCapture {
                 wedged_workers: 0,
             });
         }
-        let (Some(tid), Some(requests)) = (self.input_thread_id, self.flush_requests.as_ref())
-        else {
-            return Ok(BarrierReport {
-                barrier_id: 0,
-                wedged_workers: 0,
-            });
-        };
-
-        let barrier_id = self.barrier_counter.fetch_add(1, Ordering::SeqCst) + 1;
-        let (done_tx, done_rx) = std::sync::mpsc::channel::<Vec<usize>>();
-
-        // Hand the request to the Input_Thread, then wake its message pump. The
-        // input thread forwards it onto its own sender (single-producer FIFO), so
-        // the flush is ordered behind every raw event of this step — closing the
-        // cross-thread race a command-thread injection would otherwise leave open.
-        if let Ok(mut queue) = requests.lock() {
-            queue.push_back(FlushRequest {
-                barrier_id,
-                done: done_tx,
-            });
-        }
-        unsafe {
-            let _ = PostThreadMessageW(tid, WM_APP_FLUSH, WPARAM(0), LPARAM(0));
-        }
-
-        // Bounded wait for the bridge to finish the flush. Slightly longer than
-        // the pool's own FLUSH_BARRIER_TIMEOUT so the pool always reports first;
-        // on the rare timeout we still return and the frontend proceeds.
-        let wedged = done_rx
-            .recv_timeout(FLUSH_BARRIER_TIMEOUT + Duration::from_secs(1))
-            .unwrap_or_default();
-
-        Ok(BarrierReport {
-            barrier_id,
-            wedged_workers: wedged.len(),
-        })
+        Ok(self.run_flush_barrier())
     }
 }
 

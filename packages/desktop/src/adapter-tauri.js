@@ -104,7 +104,11 @@ function _notifyPendingCount() {
 // `barrier_complete` sentinel the backend emits LAST on the capture:action
 // stream. `_barrierResolvers` holds the waiter for an in-flight commit keyed by
 // barrier id; a sentinel that arrives before its waiter is registered is parked
-// in `_seenBarriers`.
+// in `_seenBarriers`. Every `stop_capture` now runs the barrier (the flush is
+// fused into stop), so a non-commit stop (re-record/cancel) emits a sentinel no
+// one waits for — a parked sentinel is therefore evicted after the wait window
+// so `_seenBarriers` cannot grow across a session.
+const _BARRIER_SENTINEL_TIMEOUT_MS = 5000;
 const _barrierResolvers = new Map();
 const _seenBarriers = new Set();
 
@@ -185,8 +189,14 @@ function _resolveBarrier(barrierId) {
     _barrierResolvers.delete(barrierId);
     resolve();
   } else {
-    // Arrived before the waiter registered — remember it.
+    // Arrived before the waiter registered — remember it, but evict after the
+    // wait window: a non-commit stop's sentinel has no waiter, so this bounds
+    // `_seenBarriers` instead of letting it accumulate across a session. The
+    // eviction is pure cleanup, so it must never hold the process/event loop
+    // open (unref where supported — a no-op with the browser's numeric handle).
     _seenBarriers.add(barrierId);
+    const evict = setTimeout(() => _seenBarriers.delete(barrierId), _BARRIER_SENTINEL_TIMEOUT_MS);
+    if (typeof evict?.unref === 'function') evict.unref();
   }
 }
 
@@ -194,7 +204,7 @@ function _resolveBarrier(barrierId) {
  * Wait for the `barrier_complete` sentinel for `barrierId` to arrive on the
  * capture:action stream. Bounded so a lost sentinel can never hang a commit.
  */
-function _waitForBarrierSentinel(barrierId, timeoutMs = 5000) {
+function _waitForBarrierSentinel(barrierId, timeoutMs = _BARRIER_SENTINEL_TIMEOUT_MS) {
   return new Promise((resolve) => {
     if (_seenBarriers.delete(barrierId)) {
       resolve();
@@ -212,11 +222,12 @@ function _waitForBarrierSentinel(barrierId, timeoutMs = 5000) {
   });
 }
 
-async function commitWithCompleteness() {
-  const report = await invoke('commit_barrier');
-
-  // No active capture (barrier_id 0) or an unsupported platform — nothing was
-  // flushed; collect what we have.
+// Wait for a barrier `report`'s delivery sentinel (if the barrier engaged), then
+// strip the internal _seq fields from the collected actions. Shared by the
+// stop-path flush and the mid-capture flush. A falsy or zero `barrier_id` means
+// nothing was flushed — no active capture, or an unsupported platform — so we
+// just normalise what is already pending.
+async function _completeBarrier(report) {
   if (!report || !report.barrier_id) {
     _stripSeqFields();
     return;
@@ -230,6 +241,24 @@ async function commitWithCompleteness() {
 
   await _waitForBarrierSentinel(report.barrier_id);
   _stripSeqFields();
+}
+
+// Stop capture AND run the in-order commit flush barrier atomically in the
+// backend (docent#298): `stop_capture` drains every worker's completed-but-held
+// actions behind this step's events and emits the `barrier_complete` sentinel
+// last, returning its report. Waiting for that sentinel — not merely for the
+// command to return — guarantees every drained action was inserted before the
+// step is collected (the command-return and event-emit IPC channels have no
+// mutual ordering). This is the completeness path for a commit while recording.
+async function stopWithCompleteness() {
+  await _completeBarrier(await invoke('stop_capture'));
+}
+
+// Mid-capture flush without stopping: the completeness path for a commit while
+// capture is NOT active. Nothing is in flight, so the barrier reports
+// `barrier_id: 0` and this collects what is already pending.
+async function commitWithCompleteness() {
+  await _completeBarrier(await invoke('commit_barrier'));
 }
 
 function _stripSeqFields() {
@@ -482,7 +511,7 @@ const tauriAdapter = {
 
 export default tauriAdapter;
 
-export { commitWithCompleteness };
+export { commitWithCompleteness, stopWithCompleteness };
 
 // Test-only exports for reorder internals, the redaction chokepoint, and the
 // commit-barrier sentinel path (docent#298).

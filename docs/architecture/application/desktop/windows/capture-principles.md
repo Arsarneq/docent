@@ -240,13 +240,14 @@ acted, not which element the accessibility layer resolved.
 ## Worker delivery guarantees
 
 **DCP-12.** The worker pool holds the completeness story's (DCP-2) invariants:
-completed-but-held actions are flushed both on stop and on a commit flush
-barrier, never lost (buffers are drained before shutdown, and drained on the
-barrier while the worker keeps running, each with a bounded detach-or-rescue
-for a worker wedged in an unresponsive accessibility call) — with one open
-limit: buffers held by a worker that has already **died** are rescued by a
-flush barrier's fan-out, but a stop that joins the dead worker first, or a
-dispatch-time respawn, drops them today (see
+completed-but-held actions are flushed both on stop — which runs the in-order
+flush barrier as it stops, before the terminating teardown drain — and on a
+mid-capture commit flush barrier (non-terminating, the worker keeps running),
+never lost, each with a bounded detach-or-rescue for a worker wedged in an
+unresponsive accessibility call — with one open limit: buffers held by a worker
+that has already **died** are rescued by a flush barrier's fan-out, so a stop
+(which now runs that barrier before its teardown) does not lose them, but a
+mid-capture dispatch-time respawn drops them today (see
 [the pipeline's shutdown doctrine](capture-pipeline.md#shutdown-doctrine)); a rescue drain is
 idempotent — buffers drain once, and a later drain finds nothing to re-emit; a
 worker panic is detected on the next dispatch, the worker is respawned in
