@@ -45,6 +45,9 @@ jobs:
       referenceServer: ${{ steps.filter.outputs.referenceServer }}
       corpus: ${{ steps.filter.outputs.corpus }}
       ci: ${{ steps.filter.outputs.ci }}
+      ciCore: ${{ steps.filter.outputs.ciCore }}
+      buildScripts: ${{ steps.filter.outputs.buildScripts }}
+      releasePipeline: ${{ steps.filter.outputs.releasePipeline }}
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
@@ -65,16 +68,47 @@ jobs:
               - 'reference-implementations/**'
             corpus:
               - 'corpus/**'
-            ci:
-              - '.github/workflows/**'
-              - 'scripts/**'
+            # Environment-wide inputs every job's build/run depends on: this
+            # workflow, the composite actions it loads, and the root npm
+            # manifests. Fires the full matrix (fixes the `.github/actions/**`
+            # under-trigger). Sibling workflows and inert configs
+            # (.editorconfig/.prettierrc/eslint.config.js/codecov.yml) are
+            # deliberately absent — the always-on lint/zizmor/actionlint/
+            # coverage-upload jobs already cover them.
+            ciCore:
+              - '.github/workflows/test.yml'
+              - '.github/actions/**'
               - 'package.json'
               - 'package-lock.json'
-              - 'eslint.config.js'
-              - '.prettierrc'
+            # The scripts a NON-unit test job actually executes, plus their
+            # scripts/-local import/spawn closure — the only script set the
+            # heavy Windows/Playwright/corpus jobs need. Kept equal to that
+            # closure by scripts/check-ci-filter.js (npm run lint:ci-filter).
+            buildScripts:
+              - 'scripts/sync-shared.js'
+              - 'scripts/inject-shared-views.js'
+              - 'scripts/build-desktop-dist.js'
+              - 'scripts/build-schemas.js'
+              - 'scripts/build-validators.js'
+              - 'scripts/corpus-compare.js'
+              - 'scripts/corpus-assemble-desktop.js'
+              - 'scripts/corpus-assemble-desktop-vectors.js'
+              - 'scripts/sufficiency-lint.js'
+            # Release-pipeline sources that reference-server-tests' release-exclusion
+            # suite reads (readFileSync, not import) to assert the publish pipelines
+            # and the release-output guard never sweep in reference-implementations/.
+            # A source-read coupling the buildScripts closure can't model, so it gets
+            # its own flag; keep it equal to the files that suite reads.
+            releasePipeline:
+              - '.github/workflows/publish.yml'
+              - '.github/workflows/publish-desktop.yml'
+              - 'scripts/check-no-release-outputs.js'
+            # The broad script bucket — gates unit-tests only (its shared unit
+            # suite imports most scripts via packages/shared/tests/unit/check-*.test.js);
+            # .c8rc.json configures that job's JS coverage.
+            ci:
+              - 'scripts/**'
               - '.c8rc.json'
-              - '.editorconfig'
-              - 'codecov.yml'
 
   lint:
     needs: [changes]
@@ -143,6 +177,14 @@ jobs:
       # a new uncovered citation, or a stale allowlist entry, is red.
       - name: Validate clause-citation governance
         run: npm run lint:clause-governance
+
+      # The path-filter split (which test jobs run for a given diff) is a
+      # committed contract: buildScripts must equal the scripts the heavy jobs
+      # run, no heavy job may gate on the broad scripts/** bucket, schema must
+      # gate the desktop-corpus jobs, and each produce/diff pair must co-fire.
+      # This admission test recomputes that and reds on any drift.
+      - name: Validate CI path-filter contract
+        run: npm run lint:ci-filter
 
       # S17/S18: every Actions `uses:` must be pinned to a commit SHA, not a
       # mutable tag. Dependabot bumps the SHA + `# version` comment weekly.
@@ -247,6 +289,7 @@ jobs:
       needs.changes.outputs.schema == 'true' ||
       needs.changes.outputs.corpus == 'true' ||
       needs.changes.outputs.ci == 'true' ||
+      needs.changes.outputs.ciCore == 'true' ||
       github.event_name == 'release' ||
       github.event_name == 'push' ||
       github.event_name == 'workflow_dispatch'
@@ -322,7 +365,8 @@ jobs:
           needs.changes.outputs.schema == 'true' ||
           needs.changes.outputs.referenceServer == 'true' ||
           needs.changes.outputs.corpus == 'true' ||
-          needs.changes.outputs.ci == 'true')) ||
+          needs.changes.outputs.ciCore == 'true' ||
+          needs.changes.outputs.buildScripts == 'true')) ||
       ((github.event_name == 'release' || github.event_name == 'workflow_dispatch') &&
         (inputs.platform == '' || inputs.platform == 'extension'))
     runs-on: ubuntu-latest
@@ -399,7 +443,9 @@ jobs:
         (needs.changes.outputs.desktop == 'true' ||
           needs.changes.outputs.shared == 'true' ||
           needs.changes.outputs.corpus == 'true' ||
-          needs.changes.outputs.ci == 'true')) ||
+          needs.changes.outputs.schema == 'true' ||
+          needs.changes.outputs.ciCore == 'true' ||
+          needs.changes.outputs.buildScripts == 'true')) ||
       ((github.event_name == 'release' || github.event_name == 'workflow_dispatch') &&
         (inputs.platform == '' || inputs.platform == 'desktop'))
     timeout-minutes: 30
@@ -551,7 +597,9 @@ jobs:
         (needs.changes.outputs.desktop == 'true' ||
           needs.changes.outputs.shared == 'true' ||
           needs.changes.outputs.corpus == 'true' ||
-          needs.changes.outputs.ci == 'true')) ||
+          needs.changes.outputs.schema == 'true' ||
+          needs.changes.outputs.ciCore == 'true' ||
+          needs.changes.outputs.buildScripts == 'true')) ||
       ((github.event_name == 'release' || github.event_name == 'workflow_dispatch') &&
         (inputs.platform == '' || inputs.platform == 'desktop'))
     runs-on: ubuntu-latest
@@ -607,7 +655,8 @@ jobs:
         (needs.changes.outputs.desktop == 'true' ||
           needs.changes.outputs.shared == 'true' ||
           needs.changes.outputs.corpus == 'true' ||
-          needs.changes.outputs.ci == 'true')) ||
+          needs.changes.outputs.ciCore == 'true' ||
+          needs.changes.outputs.buildScripts == 'true')) ||
       ((github.event_name == 'release' || github.event_name == 'workflow_dispatch') &&
         (inputs.platform == '' || inputs.platform == 'desktop'))
     timeout-minutes: 30
@@ -666,7 +715,8 @@ jobs:
         (needs.changes.outputs.desktop == 'true' ||
           needs.changes.outputs.shared == 'true' ||
           needs.changes.outputs.corpus == 'true' ||
-          needs.changes.outputs.ci == 'true')) ||
+          needs.changes.outputs.ciCore == 'true' ||
+          needs.changes.outputs.buildScripts == 'true')) ||
       ((github.event_name == 'release' || github.event_name == 'workflow_dispatch') &&
         (inputs.platform == '' || inputs.platform == 'desktop'))
     runs-on: ubuntu-latest
@@ -726,7 +776,7 @@ jobs:
       (github.event_name == 'pull_request' &&
         (needs.changes.outputs.desktop == 'true' ||
           needs.changes.outputs.shared == 'true' ||
-          needs.changes.outputs.ci == 'true')) ||
+          needs.changes.outputs.ciCore == 'true')) ||
       ((github.event_name == 'release' || github.event_name == 'workflow_dispatch') &&
         (inputs.platform == '' || inputs.platform == 'desktop'))
     timeout-minutes: 20
@@ -800,7 +850,8 @@ jobs:
           needs.changes.outputs.shared == 'true' ||
           needs.changes.outputs.schema == 'true' ||
           needs.changes.outputs.referenceServer == 'true' ||
-          needs.changes.outputs.ci == 'true')) ||
+          needs.changes.outputs.ciCore == 'true' ||
+          needs.changes.outputs.buildScripts == 'true')) ||
       ((github.event_name == 'release' || github.event_name == 'workflow_dispatch') &&
         (inputs.platform == '' || inputs.platform == 'desktop'))
     runs-on: ubuntu-latest
@@ -863,7 +914,9 @@ jobs:
       needs.changes.outputs.referenceServer == 'true' ||
       needs.changes.outputs.schema == 'true' ||
       needs.changes.outputs.shared == 'true' ||
-      needs.changes.outputs.ci == 'true' ||
+      needs.changes.outputs.ciCore == 'true' ||
+      needs.changes.outputs.buildScripts == 'true' ||
+      needs.changes.outputs.releasePipeline == 'true' ||
       github.event_name == 'release' ||
       github.event_name == 'push' ||
       github.event_name == 'workflow_dispatch'
