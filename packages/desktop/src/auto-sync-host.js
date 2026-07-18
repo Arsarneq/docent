@@ -12,7 +12,7 @@
  * **Why this is a separate module, not inline in panel.js.** Auto-Sync requires
  * the triggered cycle to run in a context that stays live when the window is
  * closed/minimized, reading the SAME `SyncStore`, `LiveState`, schema, and
- * validator the manual path uses. On desktop the design's chosen keep-alive is
+ * validator the manual path uses. On desktop the keep-alive is
  * "the Tauri webview kept alive": the webview (and therefore this JS host's timer
  * + event hooks + `sync()` invocation) keeps running when the window is hidden
  * rather than destroyed (see `src-tauri/src/lib.rs` — the close request hides the

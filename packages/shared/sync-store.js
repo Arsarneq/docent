@@ -33,8 +33,8 @@
 /**
  * The current `SyncState` shape version. Stamped onto every empty state and
  * onto any loaded state missing a usable version, so a future migration can key
- * off it without breaking existing persisted blobs (design: "state-shape
- * version, for forward migration").
+ * off it without breaking existing persisted blobs — a state-shape version for
+ * forward migration.
  *
  * @type {number}
  */

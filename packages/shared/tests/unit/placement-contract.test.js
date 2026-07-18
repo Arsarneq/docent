@@ -73,7 +73,7 @@ const DESKTOP_PANEL = path.resolve(SHARED_DIR, '../desktop/src/panel.js');
 // ─── (1) PLACEMENT — modules live in packages/shared ───────────
 
 describe('Placement: conflict-handling logic lives in packages/shared', () => {
-  // Module file → the concern it carries, per the design Module Layout.
+  // Module file → the concern it carries.
   const sharedModules = [
     ['conflict-detector.js', 'detection'],
     ['sync-digest.js', 'detection (content identity)'],

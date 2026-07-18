@@ -6,10 +6,11 @@
  *
  * The fail-safe rule: "IF client-side conflict detection or Conflict_Resolution
  * fails, THEN THE Sync_Client SHALL block sync operations rather than continuing
- * with potential conflicts." The design encodes this as the "when in doubt,
- * preserve and block" backstop: the detection phase and its persist are wrapped
- * in a try/catch in `sync()`, and ANY throw before the single `saveSyncState`
- * commit point — whether the store load fails, detection throws, or the save
+ * with potential conflicts." Cycle atomicity (sync-protocol SP-19) encodes this
+ * as the "when in doubt, preserve and block" backstop: the detection phase and
+ * its persist are wrapped in a try/catch in `sync()`, and ANY throw before the
+ * single `saveSyncState` commit point — whether the store load fails, detection
+ * throws, or the save
  * itself fails — aborts/blocks the whole cycle. The cycle then returns
  * `halted: true` with `haltReason: 'internal-error'`, the durable store is left
  * exactly as it was (never half-written), and the unchanged `localProjects` are

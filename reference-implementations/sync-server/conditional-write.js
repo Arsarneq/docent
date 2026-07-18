@@ -2,7 +2,7 @@
  * conditional-write.js — the explicit If-Match / ETag gate for the Reference
  * Sync Server (optional optimistic concurrency, docent#152).
  *
- * The design demands that the conditional-write behavior live in a
+ * The conditional-write behavior lives in a
  * clearly identified, explicitly named unit rather than as an implicit side
  * effect of normal write handling. This module is that unit: the PUT handler
  * calls `evaluateConditionalWrite` BEFORE storing, and acts on its decision.

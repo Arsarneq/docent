@@ -34,8 +34,8 @@
  *     invokes it, and THROWS — so the version passes detection but CANNOT BE
  *     RETAINED when the Conflict is recorded.
  *
- * This isolates the abort to the retention step rather than the digest,
- * exactly as the design's "abort-on-unretainable" path describes. For the
+ * This isolates the abort to the retention step rather than the digest —
+ * the abort-on-unretainable path of cycle atomicity (sync-protocol SP-19). For the
  * resolution facet, where no digest precedes the clone, an unclonable
  * `resolvedState` (a `BigInt` field, or the same throwing-`toJSON` metadata) is
  * sufficient on its own.

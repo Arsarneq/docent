@@ -12,7 +12,7 @@
  * server on this very cycle, without a prompt and without advancing the baseline
  * (the baseline advances only when a later pull confirms incoming == local).
  *
- * (design): "For any sync cycle, a Unit classified
+ * (sync-protocol SP-13): "For any sync cycle, a Unit classified
  * `changed-local-outgoing` has its local version included in the push, and no
  * Unit in an unresolved Conflict or pending Review state has its local version
  * pushed; a project with no pushable, deferred, or locked unit requiring a write

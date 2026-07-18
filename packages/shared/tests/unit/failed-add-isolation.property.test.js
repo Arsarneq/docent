@@ -20,13 +20,14 @@
  *       // Leave this Unit unsynced and continue with the rest.
  *     }
  *
- * The design comment notes "the baseline write is done first because its deep
- * clone is the only step that can fail; isolating that failure keeps a single
+ * The code comment in `sync-client.js` (the isolated-add loop) notes "the
+ * baseline write is done first because its deep clone is the only step that can
+ * fail; isolating that failure keeps a single
  * bad Unit from aborting the cycle." The whole point is that a
  * throw here is swallowed and the loop continues to the next Unit.
  *
  * ── How the failure is triggered (and an honest limitation) ─────────────────
- * The design's literal example is an UNCLONEABLE payload (its deep clone fails).
+ * The triggering example is an UNCLONEABLE payload (its deep clone fails).
  * That cannot be reached through the public `sync()` path: the pull stage runs
  * `validatePayload`, which performs its OWN `JSON.stringify` and rejects any
  * unserializable payload before reconciliation; and even if such a payload got

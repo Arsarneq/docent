@@ -74,8 +74,9 @@ const arbProject = fc.record(
 
 /**
  * `arbServerExtraFields` — arbitrary UNRECOGNIZED top-level fields. Always
- * includes `last_modified` (a real, unreliable server field the design calls
- * out) so every iteration is non-trivial, plus an arbitrary dictionary of other
+ * includes `last_modified` (a real, unreliable server field content
+ * classification disregards — sync-protocol SP-9) so every iteration is
+ * non-trivial, plus an arbitrary dictionary of other
  * keys with any keys that collide with the allowlist filtered out — those would
  * legitimately change identity and are not "unrecognized".
  */

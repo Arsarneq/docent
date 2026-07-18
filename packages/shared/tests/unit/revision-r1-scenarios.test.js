@@ -4,7 +4,7 @@
  * resolution workflow across MULTIPLE cycles, pinning the three timing/round-trip
  * behaviors that the pull-first reorder enables. Where the sibling
  * PROPERTY tests pin universal invariants over randomized inputs, this file pins
- * the exact multi-cycle storylines from the design's "Unit / example tests":
+ * the following exact multi-cycle example storylines:
  *
  *   1. **changed-local-outgoing convergence** — a local-only edit (incoming ==
  *      baseline, local moved) is pushed on this cycle WITHOUT advancing the

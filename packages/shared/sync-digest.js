@@ -4,8 +4,8 @@
  * Graded classification needs a trustworthy notion of "are these two Units the
  * same content?" Against an opaque last-write-wins server, timestamps and
  * `last_modified` are unreliable, so the Conflict_Detector compares **canonical
- * content digests** instead (design: "content-hash equality drives
- * classification, not timestamps").
+ * content digests** instead — classification is by content, not timestamps
+ * (sync-protocol SP-9).
  *
  * This module is pure logic. It exposes three helpers:
  *

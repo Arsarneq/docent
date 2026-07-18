@@ -3,7 +3,7 @@
  * user-gated resolution action PUSHES NOTHING, and that the resolved state
  * propagates on the NEXT sync cycle per the resolved-against baseline.
  *
- * (design): "For any resolved Conflict or accepted Review, the
+ * (sync-protocol SP-10): "For any resolved Conflict or accepted Review, the
  * resolution action issues no push; the affected Unit's baseline entry is set to
  * the resolved-against incoming version (per-unit, leaving siblings untouched),
  * removing the entry when the resolved-against side is a deletion. Consequently,
@@ -265,7 +265,8 @@ const RECORDING_RESERVED = new Set(['recording_id', 'name', 'created_at', 'metad
 
 /**
  * Arbitrary UNRECOGNIZED top-level fields for a given level. Always includes a
- * `last_modified` (a real, unreliable server field the design calls out) so every
+ * `last_modified` (a real, unreliable server field content classification
+ * disregards — sync-protocol SP-9) so every
  * iteration is non-trivial, plus a generated grab-bag with any keys that collide
  * with the level's allowlist filtered out (those would legitimately change
  * identity and are not "unrecognized").

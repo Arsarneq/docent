@@ -3,8 +3,9 @@
  * classification (the Conflict_Detector) is DETERMINISTIC, SETTINGS-INDEPENDENT,
  * and free of any user-input or I/O interaction.
  *
- * Classification is the safe-vs-ask decision point of the whole feature, and the
- * design requires it to be a PURE function of its data inputs:
+ * Classification is the safe-vs-ask decision point of the whole feature. Because
+ * it decides by content alone (sync-protocol SP-9), this test pins it as a PURE
+ * function of its data inputs:
  *
  *   - DETERMINISTIC — calling `classifyProject` (and the shared core
  *     `classifyUnit`) repeatedly on the same inputs yields byte-for-byte
@@ -111,8 +112,7 @@ const arbScenario = fc.record({
 
 // Every combination of the reconciliation-policy settings. The classifier
 // must IGNORE these entirely — they are applied by the orchestrator, not the
-// detector (design §"the policy settings are applied by the orchestrator")
-// — so they are only ever threaded in to prove they make no difference.
+// detector — so they are only ever threaded in to prove they make no difference.
 const arbSettings = fc.record({
   autoAcceptUpdates: fc.boolean(),
   autoAcceptDeletions: fc.boolean(),
