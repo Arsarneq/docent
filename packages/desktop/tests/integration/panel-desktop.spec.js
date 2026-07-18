@@ -1052,6 +1052,47 @@ test.describe('Desktop Panel - Sync Settings', () => {
 
     await expect(page.locator('#btn-sync')).toBeEnabled();
   });
+
+  test('enabling Auto-Sync after a passing connection test starts the background host', async ({
+    page,
+  }) => {
+    // Drives the Auto-Sync ENABLE branch: a passing Connection_Test makes the
+    // toggle enableable, and turning it on runs syncAutoSyncHostState() →
+    // startAutoSyncHost(), which arms the keep-alive and surfaces the
+    // "Auto-sync active" indicator. Stub the single `GET /projects` the
+    // Connection_Test issues so it passes; the mock services the unrecognised
+    // `set_auto_sync_keepalive` invoke as a tolerated no-op.
+    await page.addInitScript(() => {
+      const realFetch = window.fetch.bind(window);
+      window.fetch = (url, opts) =>
+        String(url).includes('/projects')
+          ? Promise.resolve(new Response('[]', { status: 200 }))
+          : realFetch(url, opts);
+    });
+
+    await page.goto(`http://127.0.0.1:${serverPort}/`);
+    await page.waitForSelector('#view-projects:not(.hidden)', { timeout: 10000 });
+
+    await page.click('#btn-settings');
+    await page.waitForSelector('#view-settings:not(.hidden)', { timeout: 5000 });
+
+    // Configure an endpoint, then record a passing Connection_Test against it.
+    await page.fill('#settings-sync-url', 'http://sync.example.com');
+    await page.click('#btn-settings-sync-save');
+    await page.waitForTimeout(300);
+    await page.click('#btn-test-connection');
+    await expect(page.locator('#settings-connection-status')).toContainText('Connection OK');
+
+    // The passing test makes the toggle enableable; turning it on starts the host.
+    const toggle = page.locator('#toggle-auto-sync');
+    await expect(toggle).toBeEnabled();
+    await toggle.check();
+
+    // The host is running: the "Auto-sync active" indicator shows and the toggle
+    // stays on — proving the enable branch, not the guarded early return.
+    await expect(page.locator('#settings-auto-sync-status')).toBeVisible();
+    await expect(toggle).toBeChecked();
+  });
 });
 
 test.describe('Desktop Panel - Re-record Flow', () => {

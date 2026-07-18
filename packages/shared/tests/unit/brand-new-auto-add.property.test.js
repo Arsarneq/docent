@@ -3,8 +3,8 @@
  * auto-added by a sync cycle and recorded in the per-project Sync_Baseline,
  * while a Unit absent locally but present in the baseline is NEVER resurrected.
  *
- * Brand-new is the one inbound case the cycle applies WITHOUT the user (design
- * phase 7): a pulled project with no local counterpart and no baseline
+ * Brand-new is the one inbound case the cycle applies WITHOUT the user: a
+ * pulled project with no local counterpart and no baseline
  * counterpart is added whole; a pulled recording with no local
  * counterpart inside an EXISTING local project is appended as a new sibling;
  * and either addition is recorded in the per-project baseline as the new

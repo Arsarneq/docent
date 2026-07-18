@@ -961,7 +961,7 @@ proptest! {
 }
 
 // ---------------------------------------------------------------------------
-// Unit tests for worker failure handling (Task 7.4)
+// Unit tests for worker failure handling
 // ---------------------------------------------------------------------------
 
 /// Test: simulate worker panic, verify pool respawns the dead worker and

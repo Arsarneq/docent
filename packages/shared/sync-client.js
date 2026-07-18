@@ -869,7 +869,7 @@ function baselineUnitCopy(baseline, recording_id) {
  * server-wins merge whenever a durable `store` is supplied: instead of
  * overwriting local data with the server copy, each Unit is classified against
  * its Sync_Baseline and reconciled by what is provably safe to do without the
- * user (design phase 6–7).
+ * user.
  *
  * The reconciliation set is the union of project ids across the local projects,
  * the accepted pulled projects, and the recorded baselines — so a project absent
@@ -932,7 +932,7 @@ function baselineUnitCopy(baseline, recording_id) {
  *                               is left unchanged.
  *
  * DEFERRED outcomes are recorded as durable, idempotent store items, never
- * auto-applied (design phase 7):
+ * auto-applied:
  *   - `changed-incoming` / `deleted-remote-review` → a Review-and-Accept item
  *     (`upsertReview`) holding the recoverable incoming version, recorded only
  *     when the settings-gated auto-apply above did NOT fire; the incoming change

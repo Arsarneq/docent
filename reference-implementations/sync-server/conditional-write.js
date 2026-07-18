@@ -7,14 +7,14 @@
  * effect of normal write handling. This module is that unit: the PUT handler
  * calls `evaluateConditionalWrite` BEFORE storing, and acts on its decision.
  *
- * Decision table:
+ * Decision table (the sync protocol's SP-14 conditional-write rule):
  *
- *   | If-Match header | stored project | result                        |
- *   | --------------- | -------------- | ----------------------------- |
- *   | absent          | any            | proceed (last-write-wins, 6.5)|
- *   | present         | matches ETag   | proceed (6.3)                 |
- *   | present         | ETag mismatch  | reject 412 (6.4)              |
- *   | present         | absent (null)  | reject 412 (6.4)              |
+ *   | If-Match header | stored project | result                    |
+ *   | --------------- | -------------- | ------------------------- |
+ *   | absent          | any            | proceed (last-write-wins) |
+ *   | present         | matches ETag   | proceed                   |
+ *   | present         | ETag mismatch  | reject 412                |
+ *   | present         | absent (null)  | reject 412                |
  *
  * The precondition is evaluated against the stored project's CURRENT ETag,
  * derived from its content only via `deriveETag(existing.payload)` — never from

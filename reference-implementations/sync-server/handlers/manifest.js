@@ -17,7 +17,7 @@
  *
  * Handler convention (shared by every protocol handler): an async function
  * `(storage, req, res)` that writes the HTTP response directly via
- * `res.writeHead` / `res.end`. The router (Task 8.1) dispatches to it after auth
+ * `res.writeHead` / `res.end`. The router (`router.js`) dispatches to it after auth
  * and wraps the invocation in a top-level try/catch that maps any unhandled
  * error to HTTP 500, so this handler does not catch its own
  * errors.

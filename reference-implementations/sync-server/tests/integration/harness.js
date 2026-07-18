@@ -4,7 +4,7 @@
  *
  * This module is NOT a test file (no `.test.js` suffix, so `node --test` does
  * not run it directly). It exports the helpers the integration suites
- * (Tasks 10.2–10.6) import to drive the REAL server end-to-end:
+ * import to drive the REAL server end-to-end:
  *
  *   - `startTestServer({ token } = {})` — spins the actual `http.Server` on an
  *     ephemeral port (`port: 0`) over a FRESH temp storage directory created
@@ -89,7 +89,7 @@ const TMP_PREFIX = 'docent-sync-server-it-';
  * @param {object} [options]
  * @param {string|null} [options.token]
  *   The Static_Token to configure, or null/undefined for an open server. Pass a
- *   token to exercise the auth-gated paths (Task 10.4).
+ *   token to exercise the auth-gated paths.
  * @returns {Promise<TestServer>} The started server and its teardown handle.
  */
 export async function startTestServer({ token = null } = {}) {

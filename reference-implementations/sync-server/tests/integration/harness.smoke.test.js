@@ -8,7 +8,7 @@ import { startTestServer, request } from './harness.js';
  * Harness self-test (design's Testing Strategy).
  *
  * This is a minimal smoke test that the integration harness itself works — it
- * does NOT test protocol behavior (Tasks 10.2–10.6 own that). It confirms the
+ * does NOT test protocol behavior (the integration suites own that). It confirms the
  * three things every later suite relies on:
  *
  *   1. `startTestServer()` brings the real server up on an ephemeral port with a

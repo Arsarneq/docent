@@ -2,7 +2,7 @@
  * sync-scheduler.property.test.js — Property test for the shared cooldown-debounced
  * Auto-Sync scheduler (`createSyncScheduler` in `../../sync-scheduler.js`).
  *
- * (design.md): *For any* sequence of Auto-Sync triggers (local data
+ * (sync-protocol SP-22): *For any* sequence of Auto-Sync triggers (local data
  * events and the ~60s backstop), the scheduler coalesces them through the
  * cooldown so at most one cycle runs per window and never two concurrently; a
  * trigger that fires while capture is active starts no cycle and is dropped (not

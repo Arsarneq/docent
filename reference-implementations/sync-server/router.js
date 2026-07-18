@@ -64,7 +64,7 @@ function sendJson(res, status, body) {
  * Build the request listener for the Reference Sync Server.
  *
  * The returned function is suitable as the `http.createServer` handler: the
- * server entry point (`server.js`, Task 8.2) constructs the default
+ * server entry point (`server.js`) constructs the default
  * `File_Storage_Provider` and the configured token, then passes them here.
  *
  * @param {object} config

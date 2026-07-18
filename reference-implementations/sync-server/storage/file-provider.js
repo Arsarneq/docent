@@ -108,7 +108,7 @@ export class FileStorageProvider extends StorageProvider {
    *   - the `.` / `..` segments or any embedded `..`.
    *
    * Throws a clear Error; the write/seed handlers translate it into the
-   * appropriate HTTP status (built in later tasks).
+   * appropriate HTTP status.
    *
    * @param {string} id The candidate `project_id`.
    * @throws {Error} When the id is missing, empty, not a string, or contains
