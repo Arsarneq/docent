@@ -127,7 +127,7 @@ jobs:
 
       - name: Cache cargo-mutants
         id: cache-cargo-mutants
-        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v5
         with:
           path: ~/.cargo/bin/cargo-mutants.exe
           key: ${{ runner.os }}-cargo-mutants-27.1
@@ -137,7 +137,7 @@ jobs:
         run: cargo install cargo-mutants --version 27.1.0 --locked
 
       - name: Cache cargo registry and build
-        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v5
         with:
           path: |
             ~/.cargo/registry
