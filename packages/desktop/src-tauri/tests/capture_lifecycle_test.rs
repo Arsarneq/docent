@@ -1,11 +1,12 @@
 //! Capture start/stop lifecycle contract tests (#95).
 //!
 //! These verify the **state-machine contract** of the `CaptureLayer` lifecycle
-//! — idempotent start, no-op stop, correct `is_active()` transitions, and
-//! bounded restart — WITHOUT driving any real input or depending on window
-//! focus. They exercise only `start()`/`stop()`/`is_active()` transitions, so
-//! they are deterministic and CI-safe (unlike the enigo real-input suite in
-//! `capture_integration.rs`).
+//! — idempotent start, no-op stop, correct `is_active()` transitions, bounded
+//! restart, and the commit flush barrier's end-to-end sentinel delivery —
+//! WITHOUT driving any real input or depending on window focus. They exercise
+//! `start()`/`stop()`/`is_active()`/`commit_barrier()` and read the action
+//! stream only for the barrier sentinel, so they are deterministic and CI-safe
+//! (unlike the enigo real-input suite in `capture_integration.rs`).
 //!
 //! Scope note (see #95): the panic/worker-recovery criteria from the original
 //! issue are covered at the worker layer (`worker_pool_test.rs`, added in #118).
@@ -26,6 +27,7 @@ use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
 use docent_desktop_lib::capture::windows::WindowsCapture;
+use docent_desktop_lib::capture::worker_pool::FLUSH_BARRIER_TIMEOUT;
 use docent_desktop_lib::capture::{ActionEvent, ActionPayload, CaptureLayer};
 use serial_test::serial;
 
@@ -93,13 +95,24 @@ fn commit_barrier_runs_the_flush_and_emits_a_sentinel() {
     );
     assert_eq!(report.wedged_workers, 0, "healthy workers are not wedged");
 
-    // commit_barrier returns after the bridge has emitted the sentinel, so it is
-    // already on the action stream. Drain (bounded) until we see it; ignore any
-    // ambient WinEvent-driven actions that may arrive first on a live desktop.
-    let deadline = Instant::now() + Duration::from_secs(5);
+    // The pool enqueues the sentinel into the action channel before it reports
+    // the barrier done, and commit_barrier returns only after that report — so
+    // on the guaranteed path the sentinel is already buffered in `rx` here.
+    // Drain until we see it, honouring the full deadline (a recv timeout below
+    // is deadline expiry by construction, since each wait is sized to the time
+    // remaining — the old fixed 200 ms recv treated any lull as end-of-stream,
+    // silently shrinking the intended wait). The deadline reuses the pool's
+    // own FLUSH_BARRIER_TIMEOUT: pure headroom for a late sentinel, not a
+    // wait the guaranteed path needs. Ambient WinEvent-driven actions
+    // arriving first on a live desktop are drained past.
+    let deadline = Instant::now() + FLUSH_BARRIER_TIMEOUT;
     let mut saw_sentinel = false;
-    while Instant::now() < deadline {
-        match rx.recv_timeout(Duration::from_millis(200)) {
+    loop {
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        if remaining.is_zero() {
+            break;
+        }
+        match rx.recv_timeout(remaining) {
             Ok(ev) => {
                 if matches!(
                     ev.payload,
@@ -109,6 +122,8 @@ fn commit_barrier_runs_the_flush_and_emits_a_sentinel() {
                     break;
                 }
             }
+            // Timeout == deadline expired; Disconnected == the capture side is
+            // gone and no sentinel can arrive. Either way, stop waiting.
             Err(_) => break,
         }
     }

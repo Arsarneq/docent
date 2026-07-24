@@ -54,12 +54,13 @@ use windows::Win32::UI::Input::KeyboardAndMouse::{
 use windows::Win32::UI::WindowsAndMessaging::{
     CallNextHookEx, DispatchMessageW, EnumWindows, GetClassNameW, GetForegroundWindow, GetMessageW,
     GetParent, GetWindow, GetWindowLongW, GetWindowTextW, GetWindowThreadProcessId, IsWindow,
-    IsWindowVisible, PostThreadMessageW, SetWindowsHookExW, TranslateMessage, UnhookWindowsHookEx,
-    WindowFromPoint, CHILDID_SELF, EVENT_OBJECT_CREATE, EVENT_OBJECT_DESTROY, EVENT_OBJECT_FOCUS,
-    EVENT_OBJECT_SELECTION, EVENT_OBJECT_VALUECHANGE, EVENT_SYSTEM_FOREGROUND, GWL_STYLE, GW_OWNER,
-    HHOOK, KBDLLHOOKSTRUCT, MSG, MSLLHOOKSTRUCT, OBJID_WINDOW, WH_KEYBOARD_LL, WH_MOUSE_LL,
-    WINEVENT_OUTOFCONTEXT, WM_APP, WM_KEYDOWN, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MBUTTONDOWN,
-    WM_MOUSEWHEEL, WM_QUIT, WM_RBUTTONDOWN, WM_SYSKEYDOWN, WS_CHILD,
+    IsWindowVisible, PeekMessageW, PostThreadMessageW, SetWindowsHookExW, TranslateMessage,
+    UnhookWindowsHookEx, WindowFromPoint, CHILDID_SELF, EVENT_OBJECT_CREATE, EVENT_OBJECT_DESTROY,
+    EVENT_OBJECT_FOCUS, EVENT_OBJECT_SELECTION, EVENT_OBJECT_VALUECHANGE, EVENT_SYSTEM_FOREGROUND,
+    GWL_STYLE, GW_OWNER, HHOOK, KBDLLHOOKSTRUCT, MSG, MSLLHOOKSTRUCT, OBJID_WINDOW, PM_NOREMOVE,
+    WH_KEYBOARD_LL, WH_MOUSE_LL, WINEVENT_OUTOFCONTEXT, WM_APP, WM_KEYDOWN, WM_LBUTTONDOWN,
+    WM_LBUTTONUP, WM_MBUTTONDOWN, WM_MOUSEWHEEL, WM_QUIT, WM_RBUTTONDOWN, WM_SYSKEYDOWN, WM_USER,
+    WS_CHILD,
 };
 
 use super::element_mapping::{
@@ -446,7 +447,8 @@ impl WindowsCapture {
     /// the `barrier_complete` sentinel last on the action stream. Returns the
     /// resulting [`BarrierReport`]. The bounded wait is slightly longer than the
     /// pool's own `FLUSH_BARRIER_TIMEOUT` so the pool always reports first; on the
-    /// rare timeout we still return and the caller proceeds. A missing input
+    /// rare timeout we log a best-effort warning, still return, and the caller
+    /// proceeds. A missing input
     /// thread or flush queue — never in normal operation while capture is active —
     /// yields a no-op `barrier_id: 0` report.
     ///
@@ -476,7 +478,19 @@ impl WindowsCapture {
 
         let wedged = done_rx
             .recv_timeout(FLUSH_BARRIER_TIMEOUT + Duration::from_secs(1))
-            .unwrap_or_default();
+            .unwrap_or_else(|_| {
+                // Best-effort write, discarded on failure: `eprintln!` panics if
+                // the stderr write errors (e.g. a broken pipe), which would turn
+                // this documented degraded-but-continuing path into a crash.
+                use std::io::Write;
+                let _ = writeln!(
+                    std::io::stderr(),
+                    "[WindowsCapture] Warning: flush barrier {barrier_id} reported nothing \
+                     within {:?}; proceeding without it (its sentinel may never be emitted)",
+                    FLUSH_BARRIER_TIMEOUT + Duration::from_secs(1)
+                );
+                Vec::new()
+            });
 
         BarrierReport {
             barrier_id,
@@ -580,6 +594,25 @@ impl CaptureLayer for WindowsCapture {
 
         let input_handle = thread::spawn(move || -> Result<(), CaptureError> {
             let thread_id = unsafe { windows::Win32::System::Threading::GetCurrentThreadId() };
+            // Create this thread's message queue BEFORE reporting the tid. A
+            // Win32 thread has no message queue until its first USER32 call,
+            // and `PostThreadMessageW` to a queue-less thread fails with
+            // ERROR_INVALID_THREAD_ID — so without this, `start()` could return
+            // (tid received) while a `commit_barrier`/`stop` flush wake posted
+            // right afterwards was silently lost: the flush request would sit
+            // unserved and `run_flush_barrier` would time out into a report with
+            // no `barrier_complete` sentinel ever emitted. Forcing the queue
+            // here closes that lazy-queue race: once `start()` has returned, the
+            // queue exists, so a flush wake is deliverable while the
+            // Input_Thread lives. (Not a liveness guarantee — a COM-init or
+            // hook-registration failure below still exits this thread after the
+            // tid report, and a post against the dead thread fails into
+            // `run_flush_barrier`'s timeout path.) The documented queue-forcing
+            // recipe: PeekMessage, PM_NOREMOVE.
+            unsafe {
+                let mut msg = MSG::default();
+                let _ = PeekMessageW(&mut msg, None, WM_USER, WM_USER, PM_NOREMOVE);
+            }
             let _ = tid_tx.send(thread_id);
             input_thread_main(
                 active,
