@@ -1,17 +1,31 @@
 /**
  * Docent — Background Service Worker
  *
- * Handles on-demand requests from the side panel.
- * Does NOT hold transient recording state in memory — pending actions live in
- * chrome.storage.local (written directly by the content script) so they
- * survive SW suspension.
+ * Hosts the message dispatcher (panel requests and the recorder's capture
+ * path), recorder injection, the browser-chrome proxies, and the background
+ * Auto-Sync host. Actions captured by the recorder arrive as APPEND_ACTION
+ * messages: the worker validates the sender against the active-frame
+ * registry, stamps context_id from the trusted sender, applies the
+ * sensitive-value redaction chokepoint, and appends to pendingActions in
+ * chrome.storage.local through a serialized write queue gated by storage
+ * pressure. The worker also originates its own captures — the browser-chrome
+ * navigation and context proxies below (extension capture-principles ECP-7)
+ * — through the same queue and chokepoint; this worker owns every
+ * pendingActions write (extension runtime ERT-3). The pending buffer and the
+ * model are persisted, so they survive SW suspension; worker memory holds
+ * only state safe to lose with the worker — mirrors of persisted keys
+ * restored at each start, the active-frame registry lazily reseeded on
+ * append, and correlation markers whose loss the proxy detections already
+ * tolerate (extension runtime ERT-1).
  *
- * Persistent state (chrome.storage.local):
+ * Core model and capture keys (chrome.storage.local — the complete key
+ * inventory and write ownership is the ERT-3 table in the runtime doc):
  *   projects[]         — all saved projects
  *   activeProjectId    — project currently open in the panel
  *   activeRecordingId  — recording currently being recorded
  *   recording          — whether the content script should capture events
- *   pendingActions[]   — actions captured since last step boundary (written by content script)
+ *   pendingActions[]   — actions captured since last step boundary (written
+ *                        only by this worker)
  *   pendingCount       — length of pendingActions (for panel commit button)
  *
  * This file is part of Docent.
@@ -145,7 +159,7 @@ chrome.runtime.onInstalled.addListener(async ({ reason }) => {
   activeProjectId = stored.activeProjectId ?? null;
   activeRecordingId = stored.activeRecordingId ?? null;
   // Do NOT reset recording — the user controls that, not the SW.
-  // pendingActions in session storage are preserved across SW restarts.
+  // pendingActions stay in chrome.storage.local — preserved across SW restarts.
 
   // Seed the in-memory capture mirror so the Auto-Sync scheduler's synchronous
   // capture probe is correct from the first trigger, and reconcile the
@@ -227,9 +241,11 @@ chrome.webNavigation.onBeforeNavigate.addListener((details) => {
 });
 
 // ─── Navigation & context lifecycle capture ──────────────────────────────────
-// The content script handles in-page (SPA) navigations.
-// The SW handles everything else: cross-document navigations (including
-// back/forward/reload), context opens, context closes, and context switches.
+// The SW records the browser-chrome proxies: cross-document navigations
+// (including back/forward/reload), context opens, context closes, and context
+// switches. In-page (SPA) navigations are deliberately not captured at all —
+// they are effects of already-captured clicks/keys (extension
+// capture-principles ECP-8).
 // All actions are stamped with context_id so the receiving system knows which
 // context the action occurred in.
 
@@ -396,7 +412,8 @@ chrome.webNavigation.onCommitted.addListener(async (details) => {
   )
     return;
 
-  // Skip SPA navigations — those are handled by the content script
+  // Skip subframe transition types — only top-level document navigations
+  // become navigate proxies.
   const skipTypes = new Set(['auto_subframe', 'manual_subframe']);
   if (skipTypes.has(details.transitionType)) return;
 
