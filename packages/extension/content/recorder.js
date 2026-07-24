@@ -1,15 +1,28 @@
 /**
  * Docent — Content Script Recorder
  *
- * Observes user interactions in the active tab and writes them directly
- * to chrome.storage.local. The service worker is not involved in action
- * capture — this makes recording resilient to SW suspension.
+ * Observes user interactions in the active tab and sends each captured
+ * action to the service worker as an APPEND_ACTION message — the single
+ * path a recorder-captured action takes into storage. The worker
+ * validates the sender against its active-frame registry, re-stamps
+ * context_id from the trusted sender — never from the message body
+ * (extension capture-principles ECP-4) — applies the sensitive-value
+ * redaction chokepoint, and appends to the pendingActions buffer in
+ * chrome.storage.local through a serialized write queue. The buffer is
+ * persisted rather than held in worker memory, so capture in progress
+ * survives service-worker suspension. This recorder's only direct storage
+ * write is the lastUserActionTimestamp correlation signal (extension
+ * runtime ERT-3, the write-ownership contract).
  *
- * Every action is stamped with context_id so the receiving system knows which tab
- * each action occurred on. Injected programmatically into all frames while
+ * Every action carries a context_id so the receiving system knows which tab it
+ * occurred on — stamped provisionally by this recorder, then re-stamped by the
+ * worker from the trusted sender. Injected programmatically into all frames while
  * recording (by the service worker, on record-start and on each frame load) so
- * interactions inside iframes are also captured — there is no passive recorder
- * present on any page when no recording is active.
+ * interactions inside iframes are also captured. Outside a recording nothing
+ * is injected and nothing captures: recorder instances a prior recording left
+ * in still-open documents are inactive — each deactivates in place through
+ * its `recording` watch — until navigation replaces their documents
+ * (extension capture-principles ECP-2).
  *
  * Captures:
  *   - clicks (interactive elements + fallback to any clicked element)
@@ -94,7 +107,9 @@
   // ─── Action writer ────────────────────────────────────────────────────────────
   // Sends actions to the service worker for serialized storage writes.
   // This ensures that clearPendingActions (which also runs in the SW) is properly
-  // serialized with action appends, preventing race conditions.
+  // serialized with action appends, preventing race conditions. The context_id
+  // stamped here is provisional — the worker re-stamps it from the trusted
+  // sender (extension capture-principles ECP-4).
 
   function appendAction(action) {
     const stamped = {
