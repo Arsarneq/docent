@@ -60,7 +60,10 @@ pub trait CaptureLayer: Send + 'static {
     /// a step commit reaches completeness through `stop` alone (no separate
     /// [`commit_barrier`](CaptureLayer::commit_barrier) round-trip). Returns the
     /// [`BarrierReport`]; the frontend waits for the matching sentinel before
-    /// collecting the step. `barrier_id` is `0` when no capture was active.
+    /// collecting the step. `barrier_id` is `0` when no capture was active, and
+    /// the report's `completion` field states how the barrier completed — a
+    /// barrier that could not run marker-ordered recovers the held buffers by
+    /// fallback drain and says so ([`BarrierCompletion`]).
     fn stop(&mut self) -> Result<BarrierReport, CaptureError>;
 
     /// Check if capture is currently active.
@@ -87,9 +90,37 @@ pub trait CaptureLayer: Send + 'static {
     /// emits a [`ActionPayload::BarrierComplete`] sentinel that the frontend
     /// waits on to confirm delivery, and returns a [`BarrierReport`]. Bounded: a
     /// worker wedged in an unresponsive accessibility call cannot stall the
-    /// commit — its buffers are rescued in place. On a platform with no capture
-    /// backend this is a no-op returning `barrier_id: 0`.
+    /// commit — its buffers are rescued in place — and a barrier whose in-order
+    /// path cannot report within its bound recovers the held buffers by fallback
+    /// drain, reported as such in the report's `completion` field. On a platform
+    /// with no capture backend this is a no-op returning `barrier_id: 0`.
     fn commit_barrier(&self) -> Result<BarrierReport, CaptureError>;
+}
+
+/// How a commit flush barrier reached its completion sentinel.
+///
+/// A closed, positive enumeration: every barrier report carries exactly one of
+/// these, so a caller can always tell a marker-ordered completion from the
+/// fallback recovery — a timeout is never shaped like a success.
+#[derive(Debug, Serialize, Clone, Copy, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum BarrierCompletion {
+    /// The barrier ran in order: the flush marker travelled the input-thread
+    /// FIFO behind every raw event of the step, every worker drained (or was
+    /// rescued in place), and the sentinel was emitted last.
+    MarkerOrdered,
+    /// The marker-ordered path did not report within its bound (the input
+    /// thread is dead or its message pump stalled), so the pool's held buffers
+    /// were drained directly — bypassing the stalled input path — and the
+    /// sentinel emitted after them. Every buffered action is recovered, but
+    /// the drain is by arrival, not marker-exact: actions carrying a sequence
+    /// id still splice into place in the frontend's pending list; id-less ones
+    /// (a settled scroll) append at arrival.
+    FallbackDrained,
+    /// No barrier ran: there was no active capture (nothing buffered, nothing
+    /// to flush) or no capture backend exists on this platform. Always paired
+    /// with `barrier_id` 0.
+    NotRun,
 }
 
 /// Outcome of a [`CaptureLayer::commit_barrier`] call, returned to the frontend.
@@ -103,8 +134,14 @@ pub struct BarrierReport {
     /// Number of workers whose buffers had to be rescued in place because they
     /// did not acknowledge the flush within the bound (wedged or dead). `0` in
     /// the common case; a non-zero value means the commit proceeded but a worker
-    /// was slow — the frontend surfaces it as a warning.
+    /// was slow — the frontend surfaces it as a warning. Meaningful only when
+    /// `completion` is [`BarrierCompletion::MarkerOrdered`]: the fallback path
+    /// has no acknowledgement data and reports `0`, with `completion` carrying
+    /// the truth.
     pub wedged_workers: usize,
+    /// How this barrier completed — see [`BarrierCompletion`]. Callers MUST NOT
+    /// treat a report as a marker-ordered success without reading this field.
+    pub completion: BarrierCompletion,
 }
 
 // ---------------------------------------------------------------------------
@@ -407,7 +444,11 @@ pub struct PermissionStatus {
 // ---------------------------------------------------------------------------
 
 /// Errors that can occur during capture operations.
-#[derive(Debug, thiserror::Error)]
+///
+/// `Clone` so a startup error can travel two paths at once: the input thread
+/// sends it through the start-readiness handshake (making `start()` fail loudly
+/// and immediately) and still returns it from its own entry function.
+#[derive(Debug, Clone, thiserror::Error)]
 pub enum CaptureError {
     #[error("COM initialization failed: {0}")]
     ComInit(String),

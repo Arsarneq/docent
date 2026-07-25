@@ -109,6 +109,9 @@ function _notifyPendingCount() {
 // one waits for — a parked sentinel is therefore evicted after the wait window
 // so `_seenBarriers` cannot grow across a session.
 const _BARRIER_SENTINEL_TIMEOUT_MS = 5000;
+// The live wait bound. Separate from the constant only so tests can shrink it
+// (via _testOnly.setBarrierWaitTimeout) and pin the timeout arm deterministically.
+let _barrierWaitTimeoutMs = _BARRIER_SENTINEL_TIMEOUT_MS;
 const _barrierResolvers = new Map();
 const _seenBarriers = new Set();
 
@@ -195,30 +198,33 @@ function _resolveBarrier(barrierId) {
     // eviction is pure cleanup, so it must never hold the process/event loop
     // open (unref where supported — a no-op with the browser's numeric handle).
     _seenBarriers.add(barrierId);
-    const evict = setTimeout(() => _seenBarriers.delete(barrierId), _BARRIER_SENTINEL_TIMEOUT_MS);
+    const evict = setTimeout(() => _seenBarriers.delete(barrierId), _barrierWaitTimeoutMs);
     if (typeof evict?.unref === 'function') evict.unref();
   }
 }
 
 /**
  * Wait for the `barrier_complete` sentinel for `barrierId` to arrive on the
- * capture:action stream. Bounded so a lost sentinel can never hang a commit.
+ * capture:action stream. Bounded so a lost sentinel can never hang a commit —
+ * and truthful about it: resolves `'sentinel'` when the sentinel arrived and
+ * `'timeout'` when the bound expired without it, so the caller can surface an
+ * expiry instead of finalizing as if delivery had been confirmed.
  */
-function _waitForBarrierSentinel(barrierId, timeoutMs = _BARRIER_SENTINEL_TIMEOUT_MS) {
+function _waitForBarrierSentinel(barrierId, timeoutMs = _barrierWaitTimeoutMs) {
   return new Promise((resolve) => {
     if (_seenBarriers.delete(barrierId)) {
-      resolve();
+      resolve('sentinel');
       return;
     }
     let settled = false;
-    const done = () => {
+    const done = (outcome) => {
       if (settled) return;
       settled = true;
       _barrierResolvers.delete(barrierId);
-      resolve();
+      resolve(outcome);
     };
-    _barrierResolvers.set(barrierId, done);
-    setTimeout(done, timeoutMs);
+    _barrierResolvers.set(barrierId, () => done('sentinel'));
+    setTimeout(() => done('timeout'), timeoutMs);
   });
 }
 
@@ -239,7 +245,24 @@ async function _completeBarrier(report) {
     );
   }
 
-  await _waitForBarrierSentinel(report.barrier_id);
+  // Truthful completion: the backend reports how the barrier completed. A
+  // `fallback_drained` report means the in-order path could not finish within
+  // its bound, so the held actions were recovered by draining the pool
+  // directly — completeness holds, strict marker ordering does not (sequence
+  // ids still splice recovered actions into place where present). An absent
+  // field (an older report shape) reads as marker-ordered.
+  if (report.completion === 'fallback_drained') {
+    console.warn(
+      '[Docent] Commit barrier: the in-order flush could not complete; buffered actions were recovered by fallback drain.',
+    );
+  }
+
+  const outcome = await _waitForBarrierSentinel(report.barrier_id);
+  if (outcome === 'timeout') {
+    console.warn(
+      `[Docent] Commit barrier: delivery sentinel for barrier ${report.barrier_id} did not arrive within ${_barrierWaitTimeoutMs}ms; committing the actions delivered so far.`,
+    );
+  }
   _stripSeqFields();
 }
 
@@ -521,4 +544,14 @@ export const _testOnly = {
   handleCaptureAction: _handleCaptureAction,
   stripSeqFields: _stripSeqFields,
   redactSensitive: _redactSensitive,
+  /**
+   * Override the sentinel-wait bound (ms) so the timeout arm is pinnable
+   * without a five-second test. Returns the previous bound so a test can
+   * restore it.
+   */
+  setBarrierWaitTimeout(ms) {
+    const previous = _barrierWaitTimeoutMs;
+    _barrierWaitTimeoutMs = ms;
+    return previous;
+  },
 };

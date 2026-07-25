@@ -57,19 +57,29 @@ highest id assigned has arrived" is both unsatisfiable in normal use and unable
 to tell a filtered id from a late one. Only the backend knows when each worker
 has finished, which is what the drain-and-acknowledge barrier establishes.
 
-The barrier is **bounded**: a worker wedged in an unresponsive accessibility
+The barrier is **bounded** at every tier, and an expired bound MUST be
+distinguishable from success. A worker wedged in an unresponsive accessibility
 call cannot stall the commit past a timeout, at which point that worker's
 buffered actions are drained in place (its completed actions are never lost) and
-the commit proceeds. It reports the number of workers rescued this way — never a
+the commit proceeds; the report counts the workers rescued this way — never a
 per-id account, which the subset above makes impossible — so a slow worker is
-surfaced, not hidden. The frontend's wait for the marker is also bounded — a
-marker lost in transit cannot hang a commit — but that bound is silent: on
-timeout the wait resolves without any report and the commit proceeds with the
+surfaced, not hidden. The barrier run itself is bounded the same way: when the
+marker-ordered flush cannot report within its bound (a dead input thread, a
+stalled message pump), the backend drains every worker's held buffers directly,
+emits the completion marker after them, and the report states the barrier
+completed by **fallback drain** rather than marker-ordered — completeness is
+preserved, marker-exact ordering is the stated trade (delivered sequence ids
+still order the recovered actions where present), and the timeout is never
+shaped as a success. The frontend's wait for the marker is also bounded — a
+marker lost in transit cannot hang a commit — and an expired wait is surfaced
+through the shell's logging affordance before the commit proceeds with the
 actions delivered by then. A marker that arrives before the commit starts
-waiting still satisfies the wait. A barrier
-run with no active capture reports that nothing was buffered, and the commit
-collects immediately. The pipeline mechanics behind this clause — channels,
-routing, and the drain paths — are oriented in
+waiting still satisfies the wait, and a duplicate marker for an
+already-collected barrier is inert. A barrier
+run with no active capture reports that nothing was buffered and that no
+barrier ran, and the commit collects immediately. The pipeline mechanics behind
+this clause — channels, routing, and the drain paths including the fallback —
+are oriented in
 [the capture pipeline](capture-pipeline.md).
 
 ---
@@ -239,19 +249,44 @@ acted, not which element the accessibility layer resolved.
 
 ## Worker delivery guarantees
 
-**DCP-12.** The worker pool holds the completeness story's (DCP-2) invariants:
-completed-but-held actions are flushed both on stop — which runs the in-order
-flush barrier as it stops, before the terminating teardown drain — and on a
-mid-capture commit flush barrier (non-terminating, the worker keeps running),
-never lost, each with a bounded detach-or-rescue for a worker wedged in an
-unresponsive accessibility call — with one open limit: buffers held by a worker
-that has already **died** are rescued by a flush barrier's fan-out, so a stop
-(which now runs that barrier before its teardown) does not lose them, but a
-mid-capture dispatch-time respawn drops them today (see
-[the pipeline's shutdown doctrine](capture-pipeline.md#shutdown-doctrine)); a rescue drain is
-idempotent — buffers drain once, and a later drain finds nothing to re-emit; a
-worker panic is detected on the next dispatch, the worker is respawned in
-place at the same index, and the send is retried on the fresh worker; value-change, focus, and selection events route **sticky** — the same window
+**DCP-12.** The worker pool holds the completeness story's (DCP-2) invariant
+in its strongest form: **every completed action that has reached a worker's
+held buffers survives any commit or stop** — drained into the action stream by
+whichever drain path reaches it first, never silently dropped. The drain paths
+cover every way a buffer can be left behind:
+
+- the worker's own flush — on stop, which runs the in-order flush barrier as
+  it stops, before the terminating teardown drain, and on a mid-capture
+  commit flush barrier (non-terminating; the worker keeps running);
+- the barrier fan-out's bounded in-place rescue of a worker that is wedged in
+  an unresponsive accessibility call or already dead;
+- the barrier's fallback drain when the marker-ordered path cannot complete
+  (DCP-2);
+- the dispatch-time respawn, which drains a dead worker's held buffers before
+  installing its replacement;
+- the teardown drains at stop, on both the joined-dead and detached-wedged
+  branches (see
+  [the pipeline's shutdown doctrine](capture-pipeline.md#shutdown-doctrine)).
+
+Every drain empties the shared buffers under their lock, so drains are
+idempotent — whichever runs first wins, a later drain finds nothing to
+re-emit, and no action is delivered twice. The bounded residue — the losses
+this clause admits, all of them input that never became a buffered action:
+
+- an event held inside a wedged OS-level thread — a hook callback that never
+  returned never dispatched it;
+- raw events dispatched to a worker that is wedged or dies: queued events go
+  down with the dead receiver or the detached thread (a respawn retries only
+  the event whose send detected the death), and the single in-flight action a
+  wedged worker holds mid-build is lost with it;
+- the one poison event whose processing panics on a healthy worker — the
+  panic is contained and the event is dropped by design, never retried;
+- the pathological dispatch drop when every worker slot has been respawned
+  and still cannot accept the event — surfaced on stderr, never silent.
+
+A worker panic is detected on the next dispatch, the worker is respawned in
+place at the same index, and the send is retried on the fresh worker;
+value-change, focus, and selection events route **sticky** — the same window
 handle always reaches the same worker — so per-window supersession and
 deduplication stay correct; a drop routes to the worker that took its drag
 start; events without a routing affinity use shortest-queue dispatch.

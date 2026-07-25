@@ -12,8 +12,9 @@
  *
  * The fix fuses the in-order flush barrier INTO `stop_capture` (drain-then-
  * deactivate, atomic in the Windows capture layer): `stop_capture` returns a
- * real `{ barrier_id, wedged_workers }` report and the commit waits for that
- * barrier's `barrier_complete` sentinel — no separate `commit_barrier` call.
+ * real `{ barrier_id, wedged_workers, completion }` report and the commit waits
+ * for that barrier's `barrier_complete` sentinel — no separate `commit_barrier`
+ * call.
  *
  * This spec drives the real frontend against a mocked Tauri backend that models
  * the fixed contract (`stop_capture` returns a real barrier id and does NOT
@@ -56,9 +57,9 @@ const TAURI_MOCK_JS = `
           case 'load_state': return _savedState;
           case 'save_state': _savedState = args.data; return;
           case 'start_capture': return;
-          case 'stop_capture': return { barrier_id: ${STOP_BARRIER_ID}, wedged_workers: 0 };
+          case 'stop_capture': return { barrier_id: ${STOP_BARRIER_ID}, wedged_workers: 0, completion: 'marker_ordered' };
           case 'list_windows': return [];
-          case 'commit_barrier': return { barrier_id: 0, wedged_workers: 0 };
+          case 'commit_barrier': return { barrier_id: 0, wedged_workers: 0, completion: 'not_run' };
           case 'set_self_capture_exclusion': return;
           case 'export_file': return;
           case 'import_file': return null;

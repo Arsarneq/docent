@@ -18,7 +18,10 @@
 
 use std::sync::mpsc::Sender;
 
-use super::{ActionEvent, BarrierReport, CaptureError, CaptureLayer, PermissionStatus, WindowInfo};
+use super::{
+    ActionEvent, BarrierCompletion, BarrierReport, CaptureError, CaptureLayer, PermissionStatus,
+    WindowInfo,
+};
 
 /// A no-op [`CaptureLayer`] for not-yet-supported platforms.
 #[derive(Default)]
@@ -54,6 +57,7 @@ impl CaptureLayer for UnsupportedCapture {
         Ok(BarrierReport {
             barrier_id: 0,
             wedged_workers: 0,
+            completion: BarrierCompletion::NotRun,
         })
     }
 
@@ -84,6 +88,7 @@ impl CaptureLayer for UnsupportedCapture {
         Ok(BarrierReport {
             barrier_id: 0,
             wedged_workers: 0,
+            completion: BarrierCompletion::NotRun,
         })
     }
 }
@@ -111,6 +116,7 @@ mod tests {
         let report = capture.commit_barrier().unwrap();
         assert_eq!(report.barrier_id, 0);
         assert_eq!(report.wedged_workers, 0);
+        assert_eq!(report.completion, BarrierCompletion::NotRun);
         // Inert setters must not panic.
         capture.set_excluded_pid(Some(1));
         capture.set_included_pid(None);
