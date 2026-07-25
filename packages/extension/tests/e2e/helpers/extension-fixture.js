@@ -3,17 +3,25 @@
  *
  * Extensions require a persistent browser context (not the default incognito).
  * This fixture provides:
- *   - A browser context with the extension loaded
- *   - A helper to start/stop recording
- *   - A helper to read captured pendingActions from chrome.storage.local
- *   - A helper to clear pending actions between tests
+ *   - A browser context with the extension loaded (`context`)
+ *   - The extension's service worker (`serviceWorker`), the storage-access seam
+ *   - A `testPage` on a served URL with recording started (and stopped on
+ *     teardown)
+ *   - Helpers: setTestContent, getPendingActions, clearPendingActions,
+ *     waitForActionsToSettle
  *
  * Key insight: chrome.storage.local is only accessible from extension contexts
  * (service worker, extension pages), not from regular page contexts. We access
  * it via the service worker's evaluate method.
  *
- * Content script injection: The extension's content script only runs on http/https
- * URLs (per manifest matches). We serve test HTML via a simple local HTTP server.
+ * Recorder injection: the extension declares no manifest content_scripts entry.
+ * The service worker injects content/recorder.js programmatically
+ * (chrome.scripting.executeScript), and only while a recording is active: a
+ * sweep of the open http/https tabs at record-start, then each frame as it
+ * finishes loading (webNavigation.onCompleted). A top-level test page must
+ * therefore live on a real http(s) URL for the injection to reach it
+ * (about:blank is not injectable), so we serve test HTML via a local HTTP
+ * server.
  *
  * Coverage: Uses CDP Profiler on the testPage to capture content script
  * (recorder.js) execution in the page's isolated world.
@@ -42,7 +50,8 @@ fs.mkdirSync(rawDir, { recursive: true });
 let contentCoverageCounter = 0;
 
 // ─── Local HTTP server for serving test pages ─────────────────────────────────
-// The content script only injects on http/https URLs, so we need a real server.
+// The SW injects the recorder only into real http(s) pages (about:blank is not
+// injectable), so we need a real server.
 
 let server;
 let serverPort;
