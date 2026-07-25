@@ -61,9 +61,15 @@
     "vectors:check:desktop": "npm run vectors:produce:desktop && npm run vectors:assemble:desktop && node --test packages/shared/tests/unit/conformance-vectors.test.js"
   },
   "overrides": {
+    "@npmcli/config": {
+      "minimatch": "^10.0.3"
+    },
     "js-yaml": "^4.2.0",
     "markdown-it": "^14.2.0",
-    "qs": "^6.15.2"
+    "qs": "^6.15.2",
+    "unified-engine": {
+      "minimatch": "^10.0.3"
+    }
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
