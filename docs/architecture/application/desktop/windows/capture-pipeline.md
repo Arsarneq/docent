@@ -62,17 +62,17 @@ A worker found dead at dispatch (its channel disconnected) is respawned in
 place at the same index and the event is retried on the fresh worker; sticky
 affinities pointing at the dead index are cleared so later events re-route. A
 respawned worker starts fresh — empty queue, empty dedup state, empty held
-buffers. Per-event processing, where held actions are built, is
-panic-contained (the worker survives a poison event), so a worker death does
-not strand completed actions in normal operation. For buffers a dead worker
-does hold, the [flush barrier](#the-commit-flush-barrier) is the rescue path:
-its fan-out treats a worker whose channel is gone like a wedged one and drains
-its buffers in place — and because a stop now runs that barrier before its
-teardown ([shutdown](#shutdown-doctrine)), a stop rescues them too. The one path
-that still drops them today is the mid-capture **dispatch-time respawn**, which
-replaces the dead worker's buffers without draining them; the teardown drain
-also joins an already-dead worker without draining, but on a stop the preceding
-barrier has already emptied its buffers.
+buffers — and the held buffers the dead worker leaves behind are **drained
+into the action stream before the replacement is installed**, so its completed
+actions survive the respawn. Per-event processing, where held actions are
+built, is panic-contained (the worker survives a poison event), so a worker
+death is rare to begin with; when one happens anyway, every path that
+encounters the body drains what it held: the dispatch-time respawn above, the
+[flush barrier](#the-commit-flush-barrier)'s fan-out (which treats a worker
+whose channel is gone like a wedged one and drains its buffers in place), and
+the teardown drains of a [stop](#shutdown-doctrine). Each drain empties the
+shared buffers under their lock, so whichever runs first wins and the others
+find nothing to re-emit.
 
 ## Completed-but-held buffers
 
@@ -117,9 +117,22 @@ is already stopped). Either way the mechanism is the same:
    consumes it to resolve the commit's bounded wait, and it never enters the
    pending list or an export.
 
-The barrier report carries the barrier id and the number of rescued workers —
-a slow worker is surfaced, never hidden (DCP-2 explains why the report is
-never a per-id account).
+The barrier report carries the barrier id, the number of rescued workers — a
+slow worker is surfaced, never hidden (DCP-2 explains why the report is never
+a per-id account) — and **how the barrier completed**. The steps above are the
+marker-ordered completion. When the barrier request itself cannot complete —
+the Input_Thread is dead or its pump stalled past the bound, so the marker is
+never forwarded — the commit path drains every worker's shared buffers
+directly through the pool's drain directory (no input thread or bridge
+involved) and emits the completion sentinel after them: the fallback-drained
+completion. Every buffered action is still recovered and the sentinel still
+resolves the frontend's wait; what is given up is marker-exactness —
+recovered actions enter the stream at drain time, with sequence ids still
+splicing them into place where present. The report states which completion
+happened, so a caller can never read a timeout as a marker-ordered success;
+and if the marker-ordered flush completes late after a fallback (a transient
+stall), its drains find the buffers already empty and its duplicate sentinel
+is inert at the frontend — no action is delivered twice.
 
 ## Shutdown doctrine
 
@@ -139,20 +152,28 @@ the barrier already emptied:
   in an unresponsive accessibility call would otherwise hang shutdown
   indefinitely — and before detaching, the pool drains that worker's shared
   buffers itself, so a wedged worker's completed actions are not lost. The
-  detached thread is reclaimed at process exit. (A worker that already died
-  reports finished instead of wedged and is joined without this teardown
-  rescue — but stop's first phase already ran the flush barrier, whose fan-out
-  drains a dead worker's completed buffers in place, so a stop does not lose
-  them; the remaining drop-today case is the mid-capture dispatch respawn, per
-  the dead-worker limit above.)
-- The honest limit of the detach path: raw events still **queued** to a
-  wedged worker (dispatched but never described) go down with it — the
-  rescue covers completed-but-held actions, which are the only ones that
+  detached thread is reclaimed at process exit. A worker that already died
+  reports finished instead of wedged and is joined — and its held buffers are
+  drained at the join, the same rescue the detach branch performs, so an
+  early-dead worker's completed actions survive stop through the teardown even
+  when the preceding barrier had to complete by fallback.
+- The honest limit of the drain paths: raw events still **queued** to a
+  wedged or dead worker (dispatched but never described) go down with it — a
+  respawn retries only the event whose send detected the death — and the
+  rescues cover completed-but-held actions, which are the only ones that
   exist as actions yet.
 - Capture start blocks (bounded, generously) until every worker has finished
   its possibly-cold accessibility-API initialization — otherwise an event
   dispatched into a still-initializing worker could sit unconsumed and be
   lost to a fast stop.
+- Capture start also verifies the Input_Thread itself: after the thread
+  reports its id (its message queue already forced into existence), start
+  posts a benign probe message to runtime-check that queue and then waits
+  (bounded) for the thread's hooks-registered report. A COM-init or
+  hook-registration failure fails start loudly with the real error — and
+  tears down what was already spawned — instead of returning a session whose
+  input thread is dead on arrival and whose every barrier could only complete
+  by fallback.
 
 Timing constants — correlation windows, debounce intervals, the worker tick —
 live in `src/capture/timing.rs`; the flush and shutdown bounds live beside the
