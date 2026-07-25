@@ -448,7 +448,8 @@ pub async fn import_file(app: tauri::AppHandle) -> Result<Option<String>, String
 mod tests {
     use super::*;
     use crate::capture::{
-        ActionEvent, BarrierReport, CaptureError, CaptureLayer, PermissionStatus, WindowInfo,
+        ActionEvent, BarrierCompletion, BarrierReport, CaptureError, CaptureLayer,
+        PermissionStatus, WindowInfo,
     };
     use std::sync::mpsc;
     use std::sync::Arc;
@@ -513,6 +514,7 @@ mod tests {
             Ok(BarrierReport {
                 barrier_id: rec.barrier_calls as u64,
                 wedged_workers: self.barrier_wedged,
+                completion: BarrierCompletion::MarkerOrdered,
             })
         }
 
@@ -549,6 +551,7 @@ mod tests {
             Ok(BarrierReport {
                 barrier_id: rec.barrier_calls as u64,
                 wedged_workers: self.barrier_wedged,
+                completion: BarrierCompletion::MarkerOrdered,
             })
         }
     }
@@ -625,6 +628,38 @@ mod tests {
         let report = stop_capture_impl(&cap).unwrap();
 
         assert_eq!(report.wedged_workers, 3);
+    }
+
+    #[test]
+    fn stop_capture_passes_the_barrier_completion_through() {
+        let (mock, rec) = MockCapture::new();
+        rec.lock().unwrap().started = true;
+        let cap = mutex(mock);
+
+        let report = stop_capture_impl(&cap).unwrap();
+
+        // The truthful-completion contract: callers read how the barrier
+        // completed from the report itself, so the command must pass the
+        // capture layer's completion through unchanged.
+        assert_eq!(report.completion, BarrierCompletion::MarkerOrdered);
+    }
+
+    #[test]
+    fn barrier_report_serializes_completion_snake_case_for_the_frontend() {
+        // The frontend distinguishes outcomes by the serialized string, so the
+        // wire form is part of the contract.
+        let report = BarrierReport {
+            barrier_id: 3,
+            wedged_workers: 0,
+            completion: BarrierCompletion::FallbackDrained,
+        };
+        let v = serde_json::to_value(&report).unwrap();
+        assert_eq!(v["completion"], "fallback_drained");
+        assert_eq!(v["barrier_id"], 3);
+        let ordered = serde_json::to_value(BarrierCompletion::MarkerOrdered).unwrap();
+        assert_eq!(ordered, "marker_ordered");
+        let not_run = serde_json::to_value(BarrierCompletion::NotRun).unwrap();
+        assert_eq!(not_run, "not_run");
     }
 
     #[test]

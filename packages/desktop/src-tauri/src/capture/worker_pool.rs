@@ -160,6 +160,55 @@ pub struct WorkerHandle {
 /// Shared handle to a worker's flushable buffers.
 pub type SharedPendingBuffers = Arc<Mutex<PendingBuffers>>;
 
+/// The pool's drain directory: one live [`SharedPendingBuffers`] handle per
+/// worker index, kept current by the pool itself (construction and every
+/// respawn replace the slot). Shared with the platform layer so the commit
+/// flush barrier's **fallback drain** can empty every worker's held buffers
+/// without going through the input thread or the bridge — the recovery path
+/// when the marker-ordered barrier cannot report within its bound. A mirror
+/// is required, not a convenience: during capture the pool itself is owned by
+/// the bridge thread's closure, so the platform layer has no path to the
+/// workers at barrier time except through handles retained at start.
+pub type PendingDirectory = Arc<Mutex<Vec<SharedPendingBuffers>>>;
+
+/// Emit the [`ActionPayload::BarrierComplete`] sentinel for `barrier_id` onto
+/// the action stream — the single construction site for the sentinel, shared
+/// by the marker-ordered path ([`WorkerPool::flush_all`]) and the fallback
+/// drain ([`fallback_drain_and_seal`]).
+fn emit_barrier_sentinel(action_sender: &mpsc::Sender<ActionEvent>, barrier_id: u64) {
+    let _ = action_sender.send(ActionEvent {
+        timestamp: current_timestamp_ms(),
+        context_id: None,
+        capture_mode: CaptureMode::Accessibility,
+        frame_src: None,
+        window_rect: None,
+        sequence_id: None,
+        payload: ActionPayload::BarrierComplete { barrier_id },
+    });
+}
+
+/// Drain every buffer in the directory into `action_sender`, then emit the
+/// [`ActionPayload::BarrierComplete`] sentinel for `barrier_id` after them —
+/// the commit flush barrier's fallback drain. Runs on the caller's thread and
+/// touches no worker channel, so it works when the input thread is dead or its
+/// pump is stalled. Safe against every concurrent drain: `drain_into` empties
+/// the buffers under their shared lock (poison-tolerant), so whoever drains
+/// first wins and a later drain finds nothing to re-emit.
+pub fn fallback_drain_and_seal(
+    directory: &PendingDirectory,
+    action_sender: &mpsc::Sender<ActionEvent>,
+    barrier_id: u64,
+) {
+    let handles: Vec<SharedPendingBuffers> = match directory.lock() {
+        Ok(dir) => dir.clone(),
+        Err(poisoned) => poisoned.into_inner().clone(),
+    };
+    for pending in &handles {
+        lock_buffers(pending).drain_into(action_sender);
+    }
+    emit_barrier_sentinel(action_sender, barrier_id);
+}
+
 /// The subset of per-worker state that holds **completed actions awaiting
 /// emission** (as opposed to dedup/correlation state used to judge future
 /// events). These are "sacred": on stop they must be flushed, never lost.
@@ -270,6 +319,10 @@ type SpawnWorkerFn = Box<
 /// replacement is being spawned, so no events are lost.
 pub struct WorkerPool {
     workers: Vec<WorkerHandle>,
+    /// Live per-index pending-buffer handles, mirrored from `workers` so the
+    /// platform layer can run the barrier's fallback drain without the pool
+    /// (see [`PendingDirectory`]). Updated in-place on every respawn.
+    pending_directory: PendingDirectory,
     sequence_counter: Arc<AtomicU64>,
     /// Sticky routing: maps `window_handle` → `worker_index` for value-change
     /// events, ensuring consecutive keystrokes for the same window are
@@ -328,14 +381,26 @@ impl WorkerPool {
             });
         }
 
+        let pending_directory: PendingDirectory = Arc::new(Mutex::new(
+            workers.iter().map(|w| Arc::clone(&w.pending)).collect(),
+        ));
+
         Self {
             workers,
+            pending_directory,
             sequence_counter: Arc::new(AtomicU64::new(0)),
             value_change_affinity: HashMap::new(),
             last_drag_worker: None,
             spawn_worker: Box::new(spawn_worker),
             action_sender,
         }
+    }
+
+    /// Shared handle to the pool's [`PendingDirectory`] — the platform layer
+    /// retains a clone at capture start so the commit flush barrier's fallback
+    /// drain can reach every worker's held buffers directly.
+    pub fn pending_directory(&self) -> &PendingDirectory {
+        &self.pending_directory
     }
 
     /// Get the current max sequence number assigned so far.
@@ -481,16 +546,27 @@ impl WorkerPool {
 
     /// Respawn a dead worker at the given index.
     ///
-    /// Joins the old thread (if any), creates a fresh channel and queue
-    /// counter, calls the stored spawn closure, and swaps the new handle
-    /// into the workers vec. The respawned worker participates in dispatch
-    /// immediately.
+    /// Joins the old thread (if any), **drains the dead worker's held buffers
+    /// into the action stream** (completed actions are sacred — a worker dying
+    /// with a buffered scroll/type/key sequence must not take it down with the
+    /// respawn), creates a fresh channel and queue counter, calls the stored
+    /// spawn closure, and swaps the new handle into the workers vec (updating
+    /// the [`PendingDirectory`] slot in the same step). The respawned worker
+    /// participates in dispatch immediately.
     fn respawn_worker(&mut self, index: usize) {
         // Join the old thread to clean up resources.
         if let Some(worker) = self.workers.get_mut(index) {
             if let Some(handle) = worker.thread.take() {
                 let _ = handle.join(); // Ignore panic payload.
             }
+        }
+
+        // Drain the dead worker's held buffers before its handle is replaced —
+        // the completed actions it buffered would otherwise be dropped with the
+        // old `PendingBuffers`. Idempotent like every drain: if the worker
+        // flushed before dying, this finds the buffers empty.
+        if let Some(worker) = self.workers.get(index) {
+            lock_buffers(&worker.pending).drain_into(&self.action_sender);
         }
 
         // Create fresh channel and queue counter.
@@ -506,6 +582,22 @@ impl WorkerPool {
         );
 
         eprintln!("[WorkerPool] Respawned worker {index}");
+
+        // Keep the drain directory pointing at the LIVE buffers: a fallback
+        // drain against the old handle would empty a dropped buffer and miss
+        // the replacement's.
+        match self.pending_directory.lock() {
+            Ok(mut dir) => {
+                if let Some(slot) = dir.get_mut(index) {
+                    *slot = Arc::clone(&pending);
+                }
+            }
+            Err(poisoned) => {
+                if let Some(slot) = poisoned.into_inner().get_mut(index) {
+                    *slot = Arc::clone(&pending);
+                }
+            }
+        }
 
         self.workers[index] = WorkerHandle {
             sender: tx,
@@ -575,6 +667,16 @@ impl WorkerPool {
             if handle.is_finished() {
                 if let Err(e) = handle.join() {
                     eprintln!("[WorkerPool] Warning: worker {i} panicked: {e:?}");
+                }
+                // A worker that exited through its own Shutdown arm drained on
+                // the way out — but a worker that DIED (panic outside the
+                // per-event guard, failed init) never did, and its held
+                // completed actions are as sacred as a wedged worker's. Drain
+                // here too; like every drain this is idempotent, so the normal
+                // exit path just finds the buffers empty.
+                match worker.pending.lock() {
+                    Ok(mut buffers) => buffers.drain_into(&action_sender),
+                    Err(poisoned) => poisoned.into_inner().drain_into(&action_sender),
                 }
             } else {
                 // Worker is wedged (likely in a blocking platform call).
@@ -683,15 +785,7 @@ impl WorkerPool {
         // Flush arm), we waited for every ack, and the in-place rescues above ran
         // before this send — so on the single MPSC action channel this sentinel is
         // enqueued after every action belonging to the step.
-        let _ = self.action_sender.send(ActionEvent {
-            timestamp: current_timestamp_ms(),
-            context_id: None,
-            capture_mode: CaptureMode::Accessibility,
-            frame_src: None,
-            window_rect: None,
-            sequence_id: None,
-            payload: ActionPayload::BarrierComplete { barrier_id },
-        });
+        emit_barrier_sentinel(&self.action_sender, barrier_id);
 
         let mut rescued: Vec<usize> = rescue.into_iter().collect();
         rescued.sort_unstable();
@@ -2099,6 +2193,28 @@ mod tests {
         );
 
         pool.shutdown_with_timeout(Duration::from_millis(200));
+    }
+
+    #[test]
+    fn drain_into_twice_emits_each_held_action_once() {
+        // The idempotence every rescue path leans on (DCP-12): a drain empties
+        // the buffers under their shared lock, so a second drain — a late
+        // marker-ordered flush after a fallback, a teardown drain after the
+        // barrier — emits nothing. Pins the drain-twice behaviour directly.
+        let (tx, rx) = mpsc::channel::<ActionEvent>();
+        let pending: SharedPendingBuffers = Arc::new(Mutex::new(PendingBuffers::new()));
+        lock_buffers(&pending).pending_keys = vec![key_event("a"), key_event("b")];
+
+        lock_buffers(&pending).drain_into(&tx);
+        lock_buffers(&pending).drain_into(&tx);
+
+        let events = drain_events(&rx);
+        assert_eq!(
+            key_names(&events),
+            vec!["a", "b"],
+            "each held action must be emitted exactly once"
+        );
+        assert_eq!(events.len(), 2, "the second drain must emit nothing");
     }
 
     #[test]

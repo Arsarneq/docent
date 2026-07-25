@@ -28,7 +28,7 @@ use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 use std::sync::mpsc::Sender;
 use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use windows::core::BOOL;
 use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, POINT, WPARAM};
@@ -59,8 +59,8 @@ use windows::Win32::UI::WindowsAndMessaging::{
     EVENT_OBJECT_FOCUS, EVENT_OBJECT_SELECTION, EVENT_OBJECT_VALUECHANGE, EVENT_SYSTEM_FOREGROUND,
     GWL_STYLE, GW_OWNER, HHOOK, KBDLLHOOKSTRUCT, MSG, MSLLHOOKSTRUCT, OBJID_WINDOW, PM_NOREMOVE,
     WH_KEYBOARD_LL, WH_MOUSE_LL, WINEVENT_OUTOFCONTEXT, WM_APP, WM_KEYDOWN, WM_LBUTTONDOWN,
-    WM_LBUTTONUP, WM_MBUTTONDOWN, WM_MOUSEWHEEL, WM_QUIT, WM_RBUTTONDOWN, WM_SYSKEYDOWN, WM_USER,
-    WS_CHILD,
+    WM_LBUTTONUP, WM_MBUTTONDOWN, WM_MOUSEWHEEL, WM_NULL, WM_QUIT, WM_RBUTTONDOWN, WM_SYSKEYDOWN,
+    WM_USER, WS_CHILD,
 };
 
 use super::element_mapping::{
@@ -68,11 +68,12 @@ use super::element_mapping::{
 };
 use super::timing;
 use super::worker_pool::{
-    worker_loop, AccessibilityBackend, RawEvent, RawEventType, WorkerPool, FLUSH_BARRIER_TIMEOUT,
+    fallback_drain_and_seal, worker_loop, AccessibilityBackend, PendingDirectory, RawEvent,
+    RawEventType, WorkerPool, FLUSH_BARRIER_TIMEOUT,
 };
 use super::{
-    ActionEvent, BarrierReport, CaptureError, CaptureLayer, ElementDescription, PermissionStatus,
-    WindowInfo,
+    ActionEvent, BarrierCompletion, BarrierReport, CaptureError, CaptureLayer, ElementDescription,
+    PermissionStatus, WindowInfo,
 };
 
 /// Number of accessibility worker threads in the pool.
@@ -116,6 +117,23 @@ type FlushQueue = Arc<Mutex<VecDeque<FlushRequest>>>;
 /// headless machine's first `CoCreateInstance(CUIAutomation)` can take several
 /// seconds; hitting this bound is pathological and only logs a warning.
 const WORKER_INIT_TIMEOUT: Duration = Duration::from_secs(30);
+
+/// Upper bound `start()` waits for the Input_Thread's startup handshake — the
+/// hooks-registered (or failed) report it sends after COM init and hook
+/// registration. Normally milliseconds; generous for the same cold-machine
+/// reason as [`WORKER_INIT_TIMEOUT`]. Hitting the bound only warns and
+/// proceeds (a definite failure report, by contrast, fails `start()` loudly).
+const INPUT_READY_TIMEOUT: Duration = Duration::from_secs(30);
+
+/// Bounded wait used while cleaning up after a failed `start()`: how long to
+/// wait for a thread that is expected to be exiting before abandoning it.
+const FAILED_START_JOIN_TIMEOUT: Duration = Duration::from_secs(2);
+
+/// Upper bound `start()` waits for the Input_Thread to report its thread id.
+/// The report is sent immediately after the thread forces its message queue
+/// into existence — before COM init and hook registration — so it normally
+/// arrives in microseconds; missing this bound means the thread never ran.
+const INPUT_TID_TIMEOUT: Duration = Duration::from_secs(5);
 
 /// Horizontal mouse wheel message (not always exported by the windows crate).
 const WM_MOUSEHWHEEL: u32 = 0x020E;
@@ -411,6 +429,15 @@ pub struct WindowsCapture {
     /// Shared queue of pending commit-barrier requests handed to the
     /// Input_Thread (docent#298). Present only while capturing.
     flush_requests: Option<FlushQueue>,
+    /// Retained clone of the pool's drain directory. Present only while
+    /// capturing; set and cleared together with `flush_requests`. This is the
+    /// flush barrier's **fallback drain** path: when the marker-ordered
+    /// barrier cannot report within its bound, the held buffers are drained
+    /// through these handles directly, bypassing the input thread.
+    pending_directory: Option<PendingDirectory>,
+    /// Retained clone of the action channel, for the fallback drain's emitted
+    /// actions and sentinel. Present only while capturing.
+    action_sender: Option<Sender<ActionEvent>>,
     /// Monotonic source of commit-barrier ids (docent#298).
     barrier_counter: AtomicU64,
 }
@@ -426,6 +453,8 @@ impl WindowsCapture {
             input_thread_id: None,
             input_thread: None,
             flush_requests: None,
+            pending_directory: None,
+            action_sender: None,
             barrier_counter: AtomicU64::new(0),
         }
     }
@@ -446,20 +475,43 @@ impl WindowsCapture {
     /// open); the bridge drains every worker's held buffers and the pool emits
     /// the `barrier_complete` sentinel last on the action stream. Returns the
     /// resulting [`BarrierReport`]. The bounded wait is slightly longer than the
-    /// pool's own `FLUSH_BARRIER_TIMEOUT` so the pool always reports first; on the
-    /// rare timeout we log a best-effort warning, still return, and the caller
-    /// proceeds. A missing input
-    /// thread or flush queue — never in normal operation while capture is active —
-    /// yields a no-op `barrier_id: 0` report.
+    /// pool's own `FLUSH_BARRIER_TIMEOUT` so the pool always reports first.
+    ///
+    /// On timeout — the input thread is dead or its pump stalled past the bound,
+    /// so the marker-ordered path cannot complete — the **fallback drain** runs:
+    /// every worker's held buffers are drained directly through the retained
+    /// [`PendingDirectory`] (bypassing the stalled input path) and the sentinel
+    /// is emitted after them, so the recovered actions still reach the stream
+    /// and the frontend's wait still resolves. The report says which happened
+    /// ([`BarrierCompletion`]) — a timeout is never shaped like a success. If
+    /// the marker-ordered flush later completes anyway (a transient stall), its
+    /// drains find the buffers already empty (every drain is idempotent under
+    /// the shared lock) and its duplicate sentinel is parked and evicted by the
+    /// frontend — no action can be delivered twice.
+    ///
+    /// A missing input thread, flush queue, drain directory, or action sender —
+    /// never in normal operation while capture is active; the four are set and
+    /// cleared together — yields a no-op `barrier_id: 0` report.
     ///
     /// Callers ([`commit_barrier`](CaptureLayer::commit_barrier) and
     /// [`stop`](CaptureLayer::stop)) guarantee capture is active before calling.
     fn run_flush_barrier(&self) -> BarrierReport {
-        let (Some(tid), Some(requests)) = (self.input_thread_id, self.flush_requests.as_ref())
-        else {
+        self.run_flush_barrier_with(FLUSH_BARRIER_TIMEOUT + Duration::from_secs(1))
+    }
+
+    /// [`run_flush_barrier`](Self::run_flush_barrier) with an explicit bound on
+    /// the report wait (for testing the timeout/fallback arm deterministically).
+    fn run_flush_barrier_with(&self, report_timeout: Duration) -> BarrierReport {
+        let (Some(tid), Some(requests), Some(directory), Some(sender)) = (
+            self.input_thread_id,
+            self.flush_requests.as_ref(),
+            self.pending_directory.as_ref(),
+            self.action_sender.as_ref(),
+        ) else {
             return BarrierReport {
                 barrier_id: 0,
                 wedged_workers: 0,
+                completion: BarrierCompletion::NotRun,
             };
         };
 
@@ -472,29 +524,169 @@ impl WindowsCapture {
                 done: done_tx,
             });
         }
-        unsafe {
-            let _ = PostThreadMessageW(tid, WM_APP_FLUSH, WPARAM(0), LPARAM(0));
+
+        // Fast-fail the wake: a failed post means the marker-ordered path
+        // cannot start — the thread is gone (ERROR_INVALID_THREAD_ID) or its
+        // queue is full, which is a stalled pump — so branch straight to the
+        // fallback drain instead of waiting out a report that cannot come.
+        // The queued FlushRequest is left in place deliberately: if a stalled
+        // pump later recovers and serves it, the marker-ordered drains find
+        // the buffers already empty and the duplicate sentinel is parked and
+        // evicted by the frontend — benign by the same idempotence as a late
+        // completion.
+        let posted = unsafe { PostThreadMessageW(tid, WM_APP_FLUSH, WPARAM(0), LPARAM(0)) };
+        if posted.is_err() {
+            self.warn_and_fallback_drain(
+                barrier_id,
+                "its wake could not be posted to the input thread",
+                directory,
+                sender,
+            );
+            return BarrierReport {
+                barrier_id,
+                // No acknowledgement data exists on this path; `completion`
+                // carries the truth (see BarrierReport's field docs).
+                wedged_workers: 0,
+                completion: BarrierCompletion::FallbackDrained,
+            };
         }
 
-        let wedged = done_rx
-            .recv_timeout(FLUSH_BARRIER_TIMEOUT + Duration::from_secs(1))
-            .unwrap_or_else(|_| {
-                // Best-effort write, discarded on failure: `eprintln!` panics if
-                // the stderr write errors (e.g. a broken pipe), which would turn
-                // this documented degraded-but-continuing path into a crash.
-                use std::io::Write;
-                let _ = writeln!(
-                    std::io::stderr(),
-                    "[WindowsCapture] Warning: flush barrier {barrier_id} reported nothing \
-                     within {:?}; proceeding without it (its sentinel may never be emitted)",
-                    FLUSH_BARRIER_TIMEOUT + Duration::from_secs(1)
+        match done_rx.recv_timeout(report_timeout) {
+            Ok(wedged) => BarrierReport {
+                barrier_id,
+                wedged_workers: wedged.len(),
+                completion: BarrierCompletion::MarkerOrdered,
+            },
+            Err(_) => {
+                self.warn_and_fallback_drain(
+                    barrier_id,
+                    "it reported nothing within the bound",
+                    directory,
+                    sender,
                 );
-                Vec::new()
-            });
+                BarrierReport {
+                    barrier_id,
+                    // No acknowledgement data exists on this path; `completion`
+                    // carries the truth (see BarrierReport's field docs).
+                    wedged_workers: 0,
+                    completion: BarrierCompletion::FallbackDrained,
+                }
+            }
+        }
+    }
 
-        BarrierReport {
-            barrier_id,
-            wedged_workers: wedged.len(),
+    /// Log a barrier's degraded path and run the fallback drain — shared by
+    /// the failed-wake and expired-report arms of
+    /// [`run_flush_barrier_with`](Self::run_flush_barrier_with).
+    fn warn_and_fallback_drain(
+        &self,
+        barrier_id: u64,
+        why: &str,
+        directory: &PendingDirectory,
+        sender: &Sender<ActionEvent>,
+    ) {
+        // Best-effort write, discarded on failure: `eprintln!` panics if the
+        // stderr write errors (e.g. a broken pipe), which would turn this
+        // documented degraded-but-continuing path into a crash.
+        use std::io::Write;
+        let _ = writeln!(
+            std::io::stderr(),
+            "[WindowsCapture] Warning: flush barrier {barrier_id} — {why}; \
+             recovering held buffers by fallback drain"
+        );
+        fallback_drain_and_seal(directory, sender, barrier_id);
+    }
+
+    /// Tear down whatever a failed `start()` already spawned, leaving the
+    /// capture inactive. Joins only threads that are (or promptly become)
+    /// finished — a thread stuck in a blocking startup call is abandoned with a
+    /// warning rather than allowed to hang `start()`'s error path.
+    fn abort_failed_start(&mut self) {
+        self.active.store(false, Ordering::SeqCst);
+        self.input_thread_id = None;
+
+        let input_gone = match self.input_thread.take() {
+            Some(handle) => bounded_join_or_abandon(handle, FAILED_START_JOIN_TIMEOUT, "input"),
+            None => true,
+        };
+
+        if let Some(bridge) = self.bridge_thread.take() {
+            if input_gone {
+                // The input thread is gone, so its bridge sender is dropped and
+                // the bridge exits promptly, returning the pool for shutdown.
+                match bridge.join() {
+                    Ok(mut pool) => pool.shutdown(),
+                    Err(_) => eprintln!(
+                        "[WindowsCapture] Warning: bridge thread panicked during \
+                         failed-start cleanup"
+                    ),
+                }
+            } else {
+                // The abandoned input thread still holds the bridge sender, so
+                // the bridge cannot exit; abandon it (and the pool it owns) too.
+                drop(bridge);
+                eprintln!(
+                    "[WindowsCapture] Warning: bridge thread and worker pool abandoned \
+                     after failed start (reclaimed at process exit)"
+                );
+            }
+        }
+
+        self.flush_requests = None;
+        self.pending_directory = None;
+        self.action_sender = None;
+    }
+}
+
+/// Wait up to `timeout` for `handle` to finish, then join it. Returns `true`
+/// when the thread was joined, `false` when the deadline passed with the
+/// thread still running (the handle is dropped — the thread is abandoned and
+/// reclaimed at process exit).
+fn bounded_join_or_abandon<T>(handle: JoinHandle<T>, timeout: Duration, name: &str) -> bool {
+    let deadline = Instant::now() + timeout;
+    while !handle.is_finished() {
+        if Instant::now() >= deadline {
+            eprintln!(
+                "[WindowsCapture] Warning: {name} thread still running after a failed start; \
+                 abandoning it (reclaimed at process exit)"
+            );
+            drop(handle);
+            return false;
+        }
+        thread::sleep(Duration::from_millis(10));
+    }
+    let _ = handle.join();
+    true
+}
+
+/// Interpret the Input_Thread's startup handshake: the hooks-registered (or
+/// failed) report it sends once COM init and hook registration have resolved.
+///
+/// - A success report → `start()` proceeds.
+/// - A failure report → the startup error, verbatim — `start()` fails loudly
+///   instead of returning a capture session that cannot capture or flush.
+/// - A disconnected channel → the thread exited without reporting (a panic
+///   before the report site); surfaced as a platform error.
+/// - Timeout → warn and proceed: a pathologically slow COM init is not a
+///   definite failure, and failing `start()` while the thread may still come
+///   alive would create a zombie session. The same warn-and-proceed posture as
+///   the worker-init bound; if the thread does die later, the flush barrier's
+///   fallback drain and truthful report cover the session's completeness.
+fn interpret_input_ready(
+    result: Result<Result<(), CaptureError>, std::sync::mpsc::RecvTimeoutError>,
+) -> Result<(), CaptureError> {
+    match result {
+        Ok(Ok(())) => Ok(()),
+        Ok(Err(e)) => Err(e),
+        Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => Err(CaptureError::Platform(
+            "input thread exited before reporting hook registration".into(),
+        )),
+        Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+            eprintln!(
+                "[WindowsCapture] Warning: input thread did not report hook registration \
+                 within {INPUT_READY_TIMEOUT:?}; starting anyway"
+            );
+            Ok(())
         }
     }
 }
@@ -561,6 +753,12 @@ impl CaptureLayer for WindowsCapture {
         // a monotonic id to every raw event (docent#139 reorder buffer).
         let sequence_counter = Arc::clone(pool.sequence_counter());
 
+        // Retain the pool's drain directory and the action channel for the
+        // flush barrier's fallback drain (set and cleared together with
+        // `flush_requests` — run_flush_barrier treats the set as one).
+        self.pending_directory = Some(Arc::clone(pool.pending_directory()));
+        self.action_sender = Some(sender.clone());
+
         // --- Create bridge channel (Input_Thread → bridge → pool) ---
         let (raw_tx, raw_rx) = std::sync::mpsc::channel::<BridgeMessage>();
 
@@ -592,6 +790,13 @@ impl CaptureLayer for WindowsCapture {
 
         let (tid_tx, tid_rx) = std::sync::mpsc::channel::<u32>();
 
+        // Startup handshake: the input thread reports its COM-init + hook
+        // registration outcome here, so a thread that dies right after the tid
+        // report fails `start()` loudly instead of leaving a session that can
+        // never capture or flush.
+        let (hooks_ready_tx, hooks_ready_rx) =
+            std::sync::mpsc::channel::<Result<(), CaptureError>>();
+
         let input_handle = thread::spawn(move || -> Result<(), CaptureError> {
             let thread_id = unsafe { windows::Win32::System::Threading::GetCurrentThreadId() };
             // Create this thread's message queue BEFORE reporting the tid. A
@@ -621,20 +826,42 @@ impl CaptureLayer for WindowsCapture {
                 sequence_counter,
                 raw_tx,
                 flush_requests,
+                hooks_ready_tx,
             )
         });
+        self.input_thread = Some(input_handle);
 
-        match tid_rx.recv_timeout(std::time::Duration::from_secs(5)) {
-            Ok(tid) => self.input_thread_id = Some(tid),
+        let tid = match tid_rx.recv_timeout(INPUT_TID_TIMEOUT) {
+            Ok(tid) => tid,
             Err(_) => {
-                self.active.store(false, Ordering::SeqCst);
+                self.abort_failed_start();
                 return Err(CaptureError::Platform(
                     "input thread did not report its thread ID".into(),
                 ));
             }
+        };
+        self.input_thread_id = Some(tid);
+
+        // Probe the reported queue with a benign WM_NULL. The queue was forced
+        // into existence before the tid report (PeekMessageW above), so this
+        // converts "start() returned ⇒ a flush wake is deliverable" from
+        // comment-held to runtime-checked: a failed post means the thread is
+        // already gone, and a session built on it could never flush.
+        let probe = unsafe { PostThreadMessageW(tid, WM_NULL, WPARAM(0), LPARAM(0)) };
+        if probe.is_err() {
+            self.abort_failed_start();
+            return Err(CaptureError::Platform(
+                "input thread message queue unavailable (WM_NULL probe failed)".into(),
+            ));
         }
 
-        self.input_thread = Some(input_handle);
+        // Wait (bounded) for the hooks-registered handshake; a definite failure
+        // report or a silent exit fails start() loudly — see interpret_input_ready.
+        if let Err(e) = interpret_input_ready(hooks_ready_rx.recv_timeout(INPUT_READY_TIMEOUT)) {
+            self.abort_failed_start();
+            return Err(e);
+        }
+
         Ok(())
     }
 
@@ -643,6 +870,7 @@ impl CaptureLayer for WindowsCapture {
             return Ok(BarrierReport {
                 barrier_id: 0,
                 wedged_workers: 0,
+                completion: BarrierCompletion::NotRun,
             });
         }
 
@@ -669,12 +897,26 @@ impl CaptureLayer for WindowsCapture {
 
         // Join the Input_Thread. When it exits, it drops the raw_tx sender,
         // which causes the bridge thread's recv() to return Err and exit.
+        //
+        // An error or panic from the thread is logged, not returned: the
+        // barrier above already ran (by fallback drain if the thread was
+        // dead), so the recovered actions and the truthful report exist —
+        // aborting teardown here would discard that report and leak the
+        // bridge and pool. The startup-failure class of thread error is
+        // already surfaced loudly by start()'s handshake.
         if let Some(handle) = self.input_thread.take() {
             match handle.join() {
                 Ok(Ok(())) => {}
-                Ok(Err(e)) => return Err(e),
+                Ok(Err(e)) => {
+                    eprintln!(
+                        "[WindowsCapture] Warning: input thread had exited with an error \
+                         ({e}); continuing teardown"
+                    );
+                }
                 Err(_) => {
-                    return Err(CaptureError::Platform("input thread panicked".into()));
+                    eprintln!(
+                        "[WindowsCapture] Warning: input thread panicked; continuing teardown"
+                    );
                 }
             }
         }
@@ -698,6 +940,8 @@ impl CaptureLayer for WindowsCapture {
         }
 
         self.flush_requests = None;
+        self.pending_directory = None;
+        self.action_sender = None;
 
         Ok(report)
     }
@@ -731,6 +975,7 @@ impl CaptureLayer for WindowsCapture {
             return Ok(BarrierReport {
                 barrier_id: 0,
                 wedged_workers: 0,
+                completion: BarrierCompletion::NotRun,
             });
         }
         Ok(self.run_flush_barrier())
@@ -753,6 +998,10 @@ impl CaptureLayer for WindowsCapture {
 ///   sequence IDs to each `RawEvent`.
 /// * `raw_tx` — Channel sender for dispatching `RawEvent`s to the bridge
 ///   thread, which forwards them to `WorkerPool::dispatch()`.
+/// * `hooks_ready` — Startup handshake back to `start()`: `Ok(())` once every
+///   hook is registered and the pump is about to run, or the startup error —
+///   sent before this function returns it — so `start()` fails loudly instead
+///   of returning a session whose input thread is already dead.
 ///
 /// # Requirements
 ///
@@ -764,12 +1013,15 @@ fn input_thread_main(
     sequence_counter: Arc<AtomicU64>,
     raw_tx: std::sync::mpsc::Sender<BridgeMessage>,
     flush_requests: FlushQueue,
+    hooks_ready: std::sync::mpsc::Sender<Result<(), CaptureError>>,
 ) -> Result<(), CaptureError> {
     // --- COM initialisation (STA, needed for the message pump) ---
     unsafe {
-        CoInitializeEx(None, COINIT_APARTMENTTHREADED)
-            .ok()
-            .map_err(|e| CaptureError::ComInit(e.to_string()))?;
+        if let Err(e) = CoInitializeEx(None, COINIT_APARTMENTTHREADED).ok() {
+            let err = CaptureError::ComInit(e.to_string());
+            let _ = hooks_ready.send(Err(err.clone()));
+            return Err(err);
+        }
     }
 
     struct ComGuard;
@@ -879,8 +1131,13 @@ fn input_thread_main(
         INPUT_LAST_INPUT_TIMESTAMP.with(|t| t.set(0));
         INPUT_LAST_INPUT_WINDOW.with(|w| w.set(0));
         INPUT_LAST_KEYBOARD_TIMESTAMP.with(|t| t.set(0));
+        let _ = hooks_ready.send(Err(e.clone()));
         return Err(e);
     }
+
+    // Startup handshake: every hook is registered and the pump is about to
+    // run — report readiness so start() can return a live session.
+    let _ = hooks_ready.send(Ok(()));
 
     // --- Message pump ---
     unsafe {
@@ -2709,6 +2966,210 @@ mod tests {
     fn keep_event_no_exclusion_keeps_all() {
         assert!(windows_should_keep_event(1234, None));
         assert!(windows_should_keep_event(u32::MAX, None));
+    }
+
+    // -- flush-barrier fallback drain (truthful completion) ----------------
+    //
+    // These hand-wire a WindowsCapture whose input thread can never serve a
+    // flush request (a thread id no live thread owns), which is the
+    // deterministic injection for the dead-input-thread / stalled-pump class:
+    // the marker-ordered barrier cannot report, so the timeout arm must
+    // recover the held buffers by fallback drain, emit the sentinel after
+    // them, and say so in the report — never return a success-shaped one.
+
+    use super::super::worker_pool::{PendingBuffers, PendingDirectory, SharedPendingBuffers};
+    use super::super::{
+        ActionEvent, ActionPayload, BarrierCompletion, CaptureError, CaptureMode,
+        ElementDescription, Modifiers,
+    };
+    use super::{
+        interpret_input_ready, PeekMessageW, WindowsCapture, INPUT_READY_TIMEOUT, MSG, PM_NOREMOVE,
+        WM_USER,
+    };
+    use std::collections::VecDeque;
+    use std::sync::{Arc, Mutex};
+    use std::time::Duration;
+
+    /// A buffered key action for seeding a worker's held buffers.
+    fn held_key_event(key: &str) -> ActionEvent {
+        ActionEvent {
+            timestamp: 1,
+            context_id: Some(7),
+            capture_mode: CaptureMode::Accessibility,
+            frame_src: None,
+            window_rect: None,
+            sequence_id: Some(1),
+            payload: ActionPayload::Key {
+                key: key.to_string(),
+                modifiers: Modifiers {
+                    ctrl: false,
+                    shift: false,
+                    alt: false,
+                    meta: false,
+                },
+                element: ElementDescription {
+                    tag: "Edit".to_string(),
+                    selector: "win > edit".to_string(),
+                    ..Default::default()
+                },
+            },
+        }
+    }
+
+    /// A thread id no live thread owns (no thread id the OS would allocate is
+    /// anywhere near this), so every post to it fails — the injected
+    /// dead-input-thread condition, which the fast-fail arm must catch without
+    /// waiting out the report bound.
+    const DEAD_TID: u32 = u32::MAX - 3;
+
+    /// Hand-wire a capture whose session handles exist but whose "input
+    /// thread" is `tid`, with one worker buffer seeded with `key`. Returns the
+    /// capture, the seeded buffer handle, and the action receiver.
+    fn capture_with_seeded_buffer(
+        tid: u32,
+        key: &str,
+    ) -> (
+        WindowsCapture,
+        SharedPendingBuffers,
+        std::sync::mpsc::Receiver<ActionEvent>,
+    ) {
+        let mut capture = WindowsCapture::new();
+        capture.input_thread_id = Some(tid);
+        capture.flush_requests = Some(Arc::new(Mutex::new(VecDeque::new())));
+
+        let pending: SharedPendingBuffers = Arc::new(Mutex::new(PendingBuffers::default()));
+        pending
+            .lock()
+            .unwrap()
+            .pending_keys
+            .push(held_key_event(key));
+        let directory: PendingDirectory = Arc::new(Mutex::new(vec![Arc::clone(&pending)]));
+        capture.pending_directory = Some(directory);
+
+        let (tx, rx) = std::sync::mpsc::channel::<ActionEvent>();
+        capture.action_sender = Some(tx);
+        (capture, pending, rx)
+    }
+
+    /// Assert the fallback contract on a report + stream: fallback-drained
+    /// completion, real id, recovered action first, sentinel last, buffers
+    /// left empty.
+    fn assert_fallback_recovered(
+        report: &super::BarrierReport,
+        pending: &SharedPendingBuffers,
+        rx: &std::sync::mpsc::Receiver<ActionEvent>,
+        key: &str,
+    ) {
+        assert_eq!(
+            report.completion,
+            BarrierCompletion::FallbackDrained,
+            "an unserved barrier must never be shaped like a success"
+        );
+        assert!(report.barrier_id > 0, "the barrier id is still real");
+
+        let events: Vec<ActionEvent> = rx.try_iter().collect();
+        assert!(
+            matches!(events.first().map(|e| &e.payload), Some(ActionPayload::Key { key: k, .. }) if k == key),
+            "the held completed action must be recovered onto the action stream"
+        );
+        assert!(
+            matches!(
+                events.last().map(|e| &e.payload),
+                Some(ActionPayload::BarrierComplete { barrier_id }) if *barrier_id == report.barrier_id
+            ),
+            "the sentinel must be emitted after the recovered actions"
+        );
+        assert!(
+            pending.lock().unwrap().pending_keys.is_empty(),
+            "the drain empties the buffers, so a late marker-ordered drain re-emits nothing"
+        );
+    }
+
+    #[test]
+    fn flush_barrier_timeout_recovers_buffers_by_fallback_drain_and_reports_it() {
+        // The stalled-pump injection: the wake posts into THIS test thread's
+        // message queue (forced into existence below, exactly the recipe the
+        // real input thread uses), but nothing ever pumps it — so the post
+        // succeeds and the report wait must expire into the fallback drain.
+        unsafe {
+            let mut msg = MSG::default();
+            let _ = PeekMessageW(&mut msg, None, WM_USER, WM_USER, PM_NOREMOVE);
+        }
+        let own_tid = unsafe { windows::Win32::System::Threading::GetCurrentThreadId() };
+        let (capture, pending, rx) = capture_with_seeded_buffer(own_tid, "q");
+
+        let report = capture.run_flush_barrier_with(Duration::from_millis(100));
+
+        assert_fallback_recovered(&report, &pending, &rx, "q");
+    }
+
+    #[test]
+    fn flush_barrier_dead_thread_fast_fails_to_fallback_without_waiting() {
+        // The dead-thread injection: the wake post fails outright, so the
+        // fast-fail arm must branch to the fallback drain immediately — the
+        // generous report bound below must never be waited out (pre-fast-fail,
+        // a dead thread cost the caller the full bound).
+        let (capture, pending, rx) = capture_with_seeded_buffer(DEAD_TID, "z");
+
+        let started = std::time::Instant::now();
+        let report = capture.run_flush_barrier_with(Duration::from_secs(60));
+        assert!(
+            started.elapsed() < Duration::from_secs(5),
+            "a failed wake must fall back immediately, not wait out the report bound (took {:?})",
+            started.elapsed()
+        );
+
+        assert_fallback_recovered(&report, &pending, &rx, "z");
+    }
+
+    #[test]
+    fn flush_barrier_without_a_live_session_reports_not_run() {
+        // No input thread / queue / directory / sender — the four are set and
+        // cleared together; without them no barrier can run and the report
+        // must say so instead of minting an id.
+        let capture = WindowsCapture::new();
+        let report = capture.run_flush_barrier();
+        assert_eq!(report.barrier_id, 0);
+        assert_eq!(report.completion, BarrierCompletion::NotRun);
+        assert_eq!(report.wedged_workers, 0);
+    }
+
+    // -- start()'s input-thread readiness handshake ------------------------
+
+    #[test]
+    fn input_ready_success_report_proceeds() {
+        let (tx, rx) = std::sync::mpsc::channel::<Result<(), CaptureError>>();
+        tx.send(Ok(())).unwrap();
+        assert!(interpret_input_ready(rx.recv_timeout(INPUT_READY_TIMEOUT)).is_ok());
+    }
+
+    #[test]
+    fn input_ready_failure_report_fails_start_with_the_real_error() {
+        let (tx, rx) = std::sync::mpsc::channel::<Result<(), CaptureError>>();
+        tx.send(Err(CaptureError::HookFailed("WH_MOUSE_LL: denied".into())))
+            .unwrap();
+        let err = interpret_input_ready(rx.recv_timeout(INPUT_READY_TIMEOUT)).unwrap_err();
+        assert!(
+            matches!(err, CaptureError::HookFailed(ref m) if m.contains("WH_MOUSE_LL")),
+            "the startup error must surface verbatim, got: {err}"
+        );
+    }
+
+    #[test]
+    fn input_ready_silent_exit_fails_start() {
+        let (tx, rx) = std::sync::mpsc::channel::<Result<(), CaptureError>>();
+        drop(tx); // the thread exited without reporting (panic before the report site)
+        let err = interpret_input_ready(rx.recv_timeout(Duration::from_millis(50))).unwrap_err();
+        assert!(matches!(err, CaptureError::Platform(_)));
+    }
+
+    #[test]
+    fn input_ready_timeout_warns_and_proceeds() {
+        // A pathologically slow init is not a definite failure: the handshake
+        // times out into warn-and-proceed (the worker-init posture), never a
+        // zombie-creating hard failure.
+        let (_tx, rx) = std::sync::mpsc::channel::<Result<(), CaptureError>>();
+        assert!(interpret_input_ready(rx.recv_timeout(Duration::from_millis(20))).is_ok());
     }
 
     // -- control_type_name -------------------------------------------------

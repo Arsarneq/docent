@@ -484,7 +484,9 @@ use std::thread;
 use std::time::Duration;
 
 use docent_desktop_lib::capture::worker_pool::{worker_loop, AccessibilityBackend, PendingBuffers};
-use docent_desktop_lib::capture::{ActionPayload, CaptureError, CaptureMode, ElementDescription};
+use docent_desktop_lib::capture::{
+    ActionPayload, CaptureError, CaptureMode, ElementDescription, Modifiers,
+};
 
 /// A mock accessibility backend for testing the worker_loop.
 ///
@@ -2449,5 +2451,152 @@ fn win_l_key_combo_is_captured_if_received() {
         key_events.len(),
         1,
         "Win+L should be captured if it reaches the worker (OS suppresses it before our hook)"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Sacred-buffer drains on the dead-worker paths
+// ---------------------------------------------------------------------------
+//
+// Every action that has reached a worker's held buffers must survive any
+// commit or stop (DCP-12). These pin the two dead-worker paths that used to
+// drop them: the dispatch-time respawn (fresh buffers installed over the dead
+// worker's) and shutdown's join-of-an-already-finished worker (joined without
+// the detach branch's rescue drain). Origin: the flush-barrier dual review on
+// https://github.com/Arsarneq/docent/pull/400.
+
+/// A completed-but-held key ActionEvent for seeding a worker's buffers.
+fn held_key(key: &str) -> ActionEvent {
+    ActionEvent {
+        timestamp: 1,
+        context_id: Some(42),
+        capture_mode: CaptureMode::Accessibility,
+        frame_src: None,
+        window_rect: None,
+        sequence_id: Some(1),
+        payload: ActionPayload::Key {
+            key: key.to_string(),
+            modifiers: Modifiers {
+                ctrl: false,
+                shift: false,
+                alt: false,
+                meta: false,
+            },
+            element: ElementDescription {
+                tag: "Edit".to_string(),
+                selector: "win > edit".to_string(),
+                ..Default::default()
+            },
+        },
+    }
+}
+
+/// Names of the Key actions in a slice of events, in order.
+fn held_key_names(events: &[ActionEvent]) -> Vec<String> {
+    events
+        .iter()
+        .filter_map(|e| match &e.payload {
+            ActionPayload::Key { key, .. } => Some(key.clone()),
+            _ => None,
+        })
+        .collect()
+}
+
+#[test]
+fn respawn_drains_the_dead_workers_held_buffers() {
+    use std::sync::atomic::AtomicUsize;
+
+    let spawn_count = Arc::new(AtomicUsize::new(0));
+    let (action_tx, action_rx) = mpsc::channel::<ActionEvent>();
+    // Seeded-signal channel: the dying worker signals AFTER it has seeded its
+    // buffers and dropped its receiver, so the test proceeds exactly when the
+    // death is observable — no timing sleep to race a loaded machine.
+    let (seeded_tx, seeded_rx) = mpsc::channel::<()>();
+    let spawn_count_in_closure = Arc::clone(&spawn_count);
+
+    let mut pool = WorkerPool::new(
+        1,
+        action_tx,
+        move |_index, rx, _queue_len, _sender, pending| {
+            let generation = spawn_count_in_closure.fetch_add(1, Ordering::SeqCst);
+            let seeded = seeded_tx.clone();
+            thread::spawn(move || {
+                if generation == 0 {
+                    // First generation: buffer completed actions, then die
+                    // without draining (models a worker killed outside the
+                    // per-event panic guard). Signal only after the receiver is
+                    // dropped, so a dispatch after the signal deterministically
+                    // observes the death.
+                    pending.lock().unwrap().pending_keys = vec![held_key("k1"), held_key("k2")];
+                    drop(rx);
+                    let _ = seeded.send(());
+                } else {
+                    // Replacement: a well-behaved worker.
+                    while let Ok(msg) = rx.recv() {
+                        if matches!(msg, WorkerMessage::Shutdown) {
+                            break;
+                        }
+                    }
+                }
+            })
+        },
+    );
+
+    seeded_rx
+        .recv_timeout(Duration::from_secs(5))
+        .expect("the seeded worker must report before the test proceeds");
+
+    // Dispatch: the pool finds the worker dead, respawns it in place, and — the
+    // guarantee under test — drains the dead worker's held buffers into the
+    // action stream instead of replacing them with fresh empty ones. The drain
+    // runs synchronously inside the respawn, so the actions are already on the
+    // channel when dispatch returns.
+    pool.dispatch(make_raw_event(RawEventType::Click, 100));
+
+    let events: Vec<ActionEvent> = action_rx.try_iter().collect();
+    assert_eq!(
+        held_key_names(&events),
+        vec!["k1", "k2"],
+        "the dead worker's held completed actions must be drained at respawn"
+    );
+
+    pool.shutdown();
+}
+
+#[test]
+fn shutdown_drains_the_buffers_of_an_already_dead_worker() {
+    let (action_tx, action_rx) = mpsc::channel::<ActionEvent>();
+    // Seeded-signal channel — same discipline as the respawn test above: the
+    // signal follows the receiver drop, so shutdown deterministically finds a
+    // dead (or imminently finished) worker rather than racing a sleep.
+    let (seeded_tx, seeded_rx) = mpsc::channel::<()>();
+    let mut pool = WorkerPool::new(
+        1,
+        action_tx,
+        move |_index, rx, _queue_len, _sender, pending| {
+            let seeded = seeded_tx.clone();
+            thread::spawn(move || {
+                // Buffer completed actions, then die without draining. At
+                // shutdown this worker reports finished (not wedged), so it is
+                // joined — and the join branch must drain what it held, exactly
+                // as the detach branch rescues a wedged worker's buffers.
+                pending.lock().unwrap().pending_keys = vec![held_key("d1"), held_key("d2")];
+                drop(rx);
+                let _ = seeded.send(());
+            })
+        },
+    );
+
+    seeded_rx
+        .recv_timeout(Duration::from_secs(5))
+        .expect("the seeded worker must report before the test proceeds");
+
+    pool.shutdown();
+
+    let events: Vec<ActionEvent> = action_rx.try_iter().collect();
+    assert_eq!(
+        held_key_names(&events),
+        vec!["d1", "d2"],
+        "an already-dead worker's held completed actions must be drained at shutdown"
     );
 }

@@ -49,6 +49,22 @@ function resetMocks() {
   mockFetch.mock.resetCalls();
 }
 
+/**
+ * Run `fn` with console.warn captured, restoring console.warn in a finally.
+ * Returns the captured warning strings (each call's args joined).
+ */
+async function captureWarnings(fn) {
+  const warnings = [];
+  const originalWarn = console.warn;
+  console.warn = (...args) => warnings.push(args.join(' '));
+  try {
+    await fn();
+  } finally {
+    console.warn = originalWarn;
+  }
+  return warnings;
+}
+
 // ─── send() ───────────────────────────────────────────────────────────────────
 
 describe('adapter.send()', () => {
@@ -423,21 +439,141 @@ describe('commitWithCompleteness()', () => {
       if (cmd === 'commit_barrier') return { barrier_id: 4, wedged_workers: 2 };
       return undefined;
     });
-    const warnings = [];
-    const originalWarn = console.warn;
-    console.warn = (...args) => warnings.push(args.join(' '));
-    try {
+    const warnings = await captureWarnings(async () => {
       const commit = commitWithCompleteness();
       await tick();
       _testOnly.handleCaptureAction({ type: 'barrier_complete', barrier_id: 4 });
       await commit;
-    } finally {
-      console.warn = originalWarn;
-    }
+    });
     assert.ok(
       warnings.some((w) => w.includes('2 worker')),
       'should warn about wedged workers',
     );
+  });
+
+  // The timeout pin: a lost sentinel must neither hang the commit nor pass
+  // silently. The wait resolves at its bound AND the expiry is surfaced through
+  // the existing logging affordance — the caller can no longer read a timeout
+  // as confirmed delivery. (Closes the gap the clause registry named on DCP-2:
+  // no test drove the frontend wait's timeout.)
+  it('surfaces the bounded wait expiring without a sentinel, then proceeds', async () => {
+    mockInvoke.mock.mockImplementation(async (cmd) => {
+      if (cmd === 'commit_barrier') return { barrier_id: 11, wedged_workers: 0 };
+      return undefined;
+    });
+    const previousTimeout = _testOnly.setBarrierWaitTimeout(25);
+    let warnings;
+    try {
+      // No sentinel is ever delivered.
+      warnings = await captureWarnings(() => commitWithCompleteness());
+    } finally {
+      _testOnly.setBarrierWaitTimeout(previousTimeout);
+    }
+    assert.ok(
+      warnings.some((w) => w.includes('sentinel') && w.includes('11')),
+      `the expired wait must be surfaced, got: ${JSON.stringify(warnings)}`,
+    );
+  });
+
+  // Truthful completion: a fallback-drained report (the backend recovered the
+  // held actions by draining the pool directly) is surfaced, never read as a
+  // marker-ordered success — and the commit still completes on its sentinel,
+  // which the fallback path emits after the recovered actions.
+  it('surfaces a fallback_drained completion and still collects on its sentinel', async () => {
+    mockInvoke.mock.mockImplementation(async (cmd) => {
+      if (cmd === 'commit_barrier')
+        return { barrier_id: 12, wedged_workers: 0, completion: 'fallback_drained' };
+      return undefined;
+    });
+    const warnings = await captureWarnings(async () => {
+      const commit = commitWithCompleteness();
+      await tick();
+      // The fallback drain delivers the recovered action, then its sentinel.
+      _testOnly.handleCaptureAction({ type: 'key', sequence_id: 3, timestamp: 1, element: {} });
+      _testOnly.handleCaptureAction({ type: 'barrier_complete', barrier_id: 12 });
+      await commit;
+    });
+    assert.ok(
+      warnings.some((w) => w.includes('fallback drain')),
+      'a fallback-drained completion must be surfaced',
+    );
+    const actions = adapter.getPendingActions();
+    assert.equal(actions.length, 1, 'the recovered action is in the committed step');
+  });
+
+  it('reads a marker_ordered completion silently (no spurious warning)', async () => {
+    mockInvoke.mock.mockImplementation(async (cmd) => {
+      if (cmd === 'commit_barrier')
+        return { barrier_id: 13, wedged_workers: 0, completion: 'marker_ordered' };
+      return undefined;
+    });
+    const warnings = await captureWarnings(async () => {
+      const commit = commitWithCompleteness();
+      await tick();
+      _testOnly.handleCaptureAction({ type: 'barrier_complete', barrier_id: 13 });
+      await commit;
+    });
+    assert.equal(warnings.length, 0, 'a clean marker-ordered barrier warns about nothing');
+  });
+
+  // The additive-field compat posture the Breaking-changes claim leans on: a
+  // report with NO completion field (an older backend shape) reads as
+  // marker-ordered and warns about nothing.
+  it('reads a report without a completion field as marker-ordered (no warning)', async () => {
+    mockInvoke.mock.mockImplementation(async (cmd) => {
+      if (cmd === 'commit_barrier') return { barrier_id: 15, wedged_workers: 0 };
+      return undefined;
+    });
+    const warnings = await captureWarnings(async () => {
+      const commit = commitWithCompleteness();
+      await tick();
+      _testOnly.handleCaptureAction({ type: 'barrier_complete', barrier_id: 15 });
+      await commit;
+    });
+    assert.equal(warnings.length, 0, 'an absent completion field must read as marker-ordered');
+  });
+
+  // The parked-sentinel eviction runs on the LIVE wait bound, so under a
+  // shrunk bound an evicted sentinel cannot satisfy a later wait — the wait
+  // times out and is surfaced instead of resolving from stale parked state.
+  it('evicts a parked sentinel after the live wait bound', async () => {
+    mockInvoke.mock.mockImplementation(async (cmd) => {
+      if (cmd === 'commit_barrier') return { barrier_id: 16, wedged_workers: 0 };
+      return undefined;
+    });
+    const previousTimeout = _testOnly.setBarrierWaitTimeout(25);
+    let warnings;
+    try {
+      // Park a sentinel with no waiter; its eviction timer uses the live bound.
+      _testOnly.handleCaptureAction({ type: 'barrier_complete', barrier_id: 16 });
+      await new Promise((r) => setTimeout(r, 80)); // well past the 25 ms eviction
+      warnings = await captureWarnings(() => commitWithCompleteness());
+    } finally {
+      _testOnly.setBarrierWaitTimeout(previousTimeout);
+    }
+    assert.ok(
+      warnings.some((w) => w.includes('sentinel') && w.includes('16')),
+      'an evicted parked sentinel must not satisfy a later wait',
+    );
+  });
+
+  // A transient stall can produce the same barrier's sentinel twice (the
+  // fallback's, then the late marker-ordered one). The duplicate must be inert:
+  // parked, evicted after the wait window, and never able to corrupt the
+  // pending list or a later commit.
+  it('tolerates a duplicate sentinel for an already-completed barrier', async () => {
+    mockInvoke.mock.mockImplementation(async (cmd) => {
+      if (cmd === 'commit_barrier') return { barrier_id: 14, wedged_workers: 0 };
+      return undefined;
+    });
+    const commit = commitWithCompleteness();
+    await tick();
+    _testOnly.handleCaptureAction({ type: 'barrier_complete', barrier_id: 14 });
+    await commit;
+    // The late duplicate arrives after the commit completed.
+    _testOnly.handleCaptureAction({ type: 'barrier_complete', barrier_id: 14 });
+    const actions = adapter.getPendingActions();
+    assert.equal(actions.length, 0, 'a duplicate sentinel never enters the pending list');
   });
 });
 
