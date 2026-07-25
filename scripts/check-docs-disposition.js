@@ -26,10 +26,14 @@
  * never judges whether a reason is adequate; that stays with review.
  *
  * Declared exemption (not author-based): a PR is exempt when every changed
- * file is a lockfile, a dependency manifest whose changed lines all sit inside
- * dependency blocks, or a workflow file whose change only moves action pins
- * (same action, new SHA). Anything more — an npm script edit, an action
- * identity swap — is a real change and carries the sections.
+ * file is a lockfile; a package.json whose two sides, parsed, differ only in
+ * dependency-resolution fields (dependencies, devDependencies,
+ * peerDependencies, optionalDependencies, overrides — compared structurally,
+ * so nested overrides entries qualify and formatting-only differences count
+ * as no change); a Cargo.toml whose changed lines all sit inside dependency
+ * sections; or a workflow file whose change only moves action pins (same
+ * action, new SHA). Anything more — an npm script edit, an engines bump, an
+ * action identity swap — is a real change and carries the sections.
  *
  * Red output enumerates the exact lines expected, so the check teaches its
  * own fix.
@@ -44,6 +48,7 @@
 import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
+import { isDeepStrictEqual } from 'node:util';
 import { compileMap, resolveFile, globToRegExp, MAP_PATH } from './check-area-map.js';
 
 /** Repo-relative path of the clause registry (same file check-clause-registry.js guards). */
@@ -68,19 +73,31 @@ const manifestRes = MANIFEST_GLOBS.map(globToRegExp);
 /** A workflow line that carries an action pin: `uses: <action>@<40-hex sha>`. */
 const PIN_LINE_RE = /^\s*(?:-\s*)?uses:\s*(\S+)@[0-9a-f]{40}(?:\s*#.*)?$/;
 
-/** package.json blocks whose entries a dependency bump may touch. */
-const PACKAGE_JSON_DEP_BLOCKS =
-  /^\s*"(dependencies|devDependencies|peerDependencies|optionalDependencies|overrides)"\s*:\s*\{/;
+/**
+ * The package.json fields that hold dependency-resolution data — the fields a
+ * dependency-only change may touch, at any nesting depth. Every other field
+ * (scripts, engines, packageManager, version, …) is a real change: engines and
+ * packageManager state the project's toolchain contract, which governed docs
+ * restate, while these five are read only by the package manager's resolver.
+ */
+export const PACKAGE_JSON_DEPENDENCY_FIELDS = [
+  'dependencies',
+  'devDependencies',
+  'peerDependencies',
+  'optionalDependencies',
+  'overrides',
+];
 
 /** Cargo.toml sections whose entries a dependency bump may touch. */
 const CARGO_DEP_SECTION = /^\s*\[(.+\.)?(dependencies|dev-dependencies|build-dependencies)\]/;
 
 /**
- * Context lines for the exemption diffs — effectively the whole file (git clamps
- * to file length). The manifest exemption checks track the enclosing dependency
- * block through the diff's context lines, so the block opener/header must always
- * be visible; git's default 3-line context drops it for a dependency listed more
- * than a few lines below its header and misjudges a pure dependency bump.
+ * Context lines for the exemption diffs — effectively the whole file (git
+ * clamps to file length). The package.json exemption reconstructs both full
+ * sides from the diff text and parses them, and the Cargo.toml exemption
+ * tracks the enclosing dependency section through the context lines — both
+ * need the whole file visible; git's default 3-line context yields fragments
+ * and misjudges a pure dependency bump.
  */
 const MANIFEST_DIFF_CONTEXT = 1_000_000;
 
@@ -130,41 +147,70 @@ export function isPinOnlyWorkflowDiff(diffText) {
 }
 
 /**
- * Pure core: does a package.json diff change only dependency-block entries?
- * Tracks the enclosing block through the hunk's context lines (indent-matched
- * braces), so an npm-script or metadata edit is never exempt. The diff MUST
- * carry full-file context (the caller diffs with `-U${MANIFEST_DIFF_CONTEXT}`)
- * so the block opener is visible; a hunk that omits it yields a false negative.
+ * Both sides of a single-file unified diff, reconstructed from its text.
+ * Complete only when the diff carries full-file context (the caller diffs
+ * with `-U${MANIFEST_DIFF_CONTEXT}`); with partial context the sides are
+ * fragments, which the JSON-parsing caller rejects — fail closed.
+ * @param {string} diffText unified diff for one file
+ * @returns {{ before: string, after: string }}
+ */
+function diffSides(diffText) {
+  const before = [];
+  const after = [];
+  let inHunk = false;
+  for (const raw of diffText.split('\n')) {
+    if (raw.startsWith('@@ ')) {
+      inHunk = true;
+      continue;
+    }
+    if (!inHunk || raw.startsWith('\\')) continue; // headers / "\ No newline …"
+    if (raw.startsWith('+')) after.push(raw.slice(1));
+    else if (raw.startsWith('-')) before.push(raw.slice(1));
+    else {
+      const line = raw.startsWith(' ') ? raw.slice(1) : raw;
+      before.push(line);
+      after.push(line);
+    }
+  }
+  return { before: before.join('\n'), after: after.join('\n') };
+}
+
+/**
+ * Pure core: does a package.json diff change only dependency-resolution data?
+ * Both sides are reconstructed from the diff (which MUST carry full-file
+ * context — the caller diffs with `-U${MANIFEST_DIFF_CONTEXT}`) and parsed as
+ * JSON; the diff qualifies when every top-level field whose parsed value
+ * differs (per node:util isDeepStrictEqual) is one of
+ * PACKAGE_JSON_DEPENDENCY_FIELDS — so a nested overrides entry qualifies
+ * while an npm-script or engines edit never does, and formatting-only
+ * differences (indentation, key order) parse equal and count as no change.
+ * A side that does not parse as a JSON object (a fragment from a
+ * partial-context diff, invalid JSON, a byte-order mark, a file created or
+ * deleted) fails closed as non-exempt. Duplicate keys resolve last-wins,
+ * exactly as the package manager's own JSON.parse-equivalent read does.
  * @param {string} diffText unified diff for one package.json
  * @returns {boolean}
  */
 export function isDependencyOnlyPackageJsonDiff(diffText) {
-  let sawChange = false;
-  let depIndent = null; // indent of the open dependency block, when inside one
-  for (const raw of diffText.split('\n')) {
-    if (/^(\+\+\+ |--- |@@ |diff |index )/.test(raw)) {
-      depIndent = null; // context does not carry across hunks
-      continue;
-    }
-    const changed = /^[+-]/.test(raw);
-    const line = changed ? raw.slice(1) : raw.startsWith(' ') ? raw.slice(1) : raw;
-    if (depIndent === null) {
-      if (PACKAGE_JSON_DEP_BLOCKS.test(line)) depIndent = line.match(/^\s*/)[0].length;
-      if (changed) {
-        sawChange = true;
-        if (!PACKAGE_JSON_DEP_BLOCKS.test(line)) return false; // changed outside a dep block
-      }
-    } else {
-      const closes = new RegExp(`^\\s{${depIndent}}\\}`).test(line);
-      if (changed) {
-        sawChange = true;
-        // Inside a dependency block only simple "name": "range" entries move.
-        if (!closes && !/^\s*"[^"]+"\s*:\s*"[^"]*",?\s*$/.test(line)) return false;
-      }
-      if (closes) depIndent = null;
-    }
+  const { before, after } = diffSides(diffText);
+  let a;
+  let b;
+  try {
+    a = JSON.parse(before);
+    b = JSON.parse(after);
+  } catch {
+    return false;
   }
-  return sawChange;
+  const isPlainObject = (v) => typeof v === 'object' && v !== null && !Array.isArray(v);
+  if (!isPlainObject(a) || !isPlainObject(b)) return false;
+  // Own-property reads: a plain a[f] would resolve a "__proto__" member absent
+  // on one side through the prototype chain (Object.prototype deep-equals {}),
+  // misreading its addition or removal as no change.
+  const own = (o, f) => (Object.hasOwn(o, f) ? o[f] : undefined);
+  const fields = new Set([...Object.keys(a), ...Object.keys(b)]);
+  return [...fields].every(
+    (f) => isDeepStrictEqual(own(a, f), own(b, f)) || PACKAGE_JSON_DEPENDENCY_FIELDS.includes(f),
+  );
 }
 
 /**
