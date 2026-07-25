@@ -8,7 +8,9 @@
 //
 // Requirements:
 // - Debounce scroll events — record only after scrolling stops for 300ms.
-// - Discard scroll events where net displacement ≤ 200px in both axes.
+// - Discard scroll events whose net displacement stays ≤ 200 in both axes,
+//   measured in the native wheel-delta units the deltas arrive in (not
+//   pixels; Windows feeds 120 per wheel detent, so the floor is ~1.7 detents).
 
 // ---------------------------------------------------------------------------
 // Constants (imported from timing.rs — single source of truth)
@@ -28,9 +30,15 @@ use super::timing::{
 pub struct RawScrollEvent {
     /// Unix millisecond timestamp of this scroll event.
     pub timestamp: u64,
-    /// Horizontal scroll delta in pixels (positive = right).
+    /// Horizontal scroll delta as fed by the platform's input layer — native
+    /// wheel-delta units, not pixels; the sign follows the platform's wheel
+    /// convention (Windows feeds the raw `WM_MOUSEHWHEEL` delta: positive =
+    /// wheel tilted right).
     pub delta_x: f64,
-    /// Vertical scroll delta in pixels (positive = down).
+    /// Vertical scroll delta as fed by the platform's input layer — native
+    /// wheel-delta units, not pixels; the sign follows the platform's wheel
+    /// convention (Windows feeds the raw `WM_MOUSEWHEEL` delta: positive =
+    /// wheel rotated forward / away from the user, i.e. scrolling up).
     pub delta_y: f64,
 }
 
@@ -66,7 +74,7 @@ pub struct ScrollResult {
 ///
 /// # Requirements
 /// - Debounce at 300ms
-/// - Discard ≤ 200px in both axes
+/// - Discard ≤ 200 in both axes (native wheel-delta units, not pixels)
 pub fn process_scroll_events(events: &[RawScrollEvent]) -> Vec<ScrollResult> {
     if events.is_empty() {
         return Vec::new();
@@ -266,7 +274,7 @@ mod tests {
         let results = process_scroll_events(&events);
         assert!(
             results.is_empty(),
-            "exactly 200px should be discarded (≤ 200)"
+            "exactly 200 wheel-delta units should be discarded (≤ 200)"
         );
     }
 

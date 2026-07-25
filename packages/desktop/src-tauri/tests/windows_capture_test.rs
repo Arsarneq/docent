@@ -204,7 +204,7 @@ mod scroll_accumulator {
         let result = acc.try_flush(1000 + SCROLL_DEBOUNCE_MS);
         assert!(
             result.is_none(),
-            "exactly 200px should be discarded (≤ 200)"
+            "exactly 200 wheel-delta units should be discarded (≤ 200)"
         );
     }
 

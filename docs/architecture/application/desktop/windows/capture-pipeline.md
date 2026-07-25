@@ -91,12 +91,17 @@ drains first empties the buffers, and a later drain finds nothing to re-emit.
 ## The commit flush barrier
 
 The barrier (DCP-2) turns "every in-flight describe has landed" into an
-observable event on the action stream itself. It runs as capture **stops** to
-commit a step — fused into `stop_capture`, so the in-order flush and the
-deactivation are one atomic backend step with no window between them (a step
-commit reaches completeness through stop alone) — and can also run mid-capture
-on its own (`commit_barrier`, the completeness path when committing while capture
-is already stopped). Either way the mechanism is the same:
+observable event on the action stream itself. It runs while capture is
+active, on two paths: as capture **stops** to commit a step — fused into
+`stop_capture`, so the in-order flush and the deactivation are one atomic
+backend step with no window between them (a step commit reaches completeness
+through stop alone) — and mid-capture on its own (`commit_barrier`), flushing
+without stopping. With no active capture there is nothing buffered and no
+barrier runs: `commit_barrier` reports the `barrier_id: 0` no-op (completion
+`not_run`) instead — the report the frontend's commit path receives when
+committing while capture is already stopped, collecting the already-delivered
+actions with nothing to wait for. When a barrier runs, the mechanism is the
+same on either path:
 
 1. The commit path queues a flush request and wakes the Input_Thread's
    message pump.

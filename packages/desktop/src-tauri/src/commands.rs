@@ -93,8 +93,8 @@ fn start_capture_impl(
 ) -> Result<(), String> {
     let mut capture = lock_capture(capture)?;
 
-    if let Some(target_pid) = pid {
-        capture.set_excluded_pid(Some(target_pid));
+    if let Some(excluded_pid) = pid {
+        capture.set_excluded_pid(Some(excluded_pid));
     }
 
     capture
@@ -122,7 +122,10 @@ fn check_permissions_impl(capture: &CaptureMutex) -> Result<PermissionStatus, St
     Ok(capture.check_permissions())
 }
 
-/// Start the capture layer. Optionally set the target PID for context.
+/// Start the capture layer. An optional `pid` arms self-capture exclusion for
+/// that process before starting — the shipped panel always passes `null` and
+/// arms exclusion through `set_self_capture_exclusion`. PID-based targeting is
+/// `set_target_pid`, never this parameter (docent#319).
 ///
 /// Actions are streamed to the frontend via the `capture:action` event channel
 /// (set up in `lib.rs`).
@@ -585,6 +588,30 @@ mod tests {
 
         assert!(rec.lock().unwrap().started);
         assert_eq!(rec.lock().unwrap().excluded_pid, Some(4321));
+    }
+
+    // Pins the exclude semantics of `start_capture`'s optional pid: it arms
+    // self-capture exclusion and never the target-application filter, so a
+    // future caller cannot pass a pid expecting that process to be targeted.
+    // https://github.com/Arsarneq/docent/issues/319
+    #[test]
+    fn start_capture_pid_reaches_only_the_exclude_sink() {
+        let (mock, rec) = MockCapture::new();
+        let cap = mutex(mock);
+        let (tx, _rx) = mpsc::channel();
+
+        start_capture_impl(&cap, tx, Some(4321)).unwrap();
+
+        let rec = rec.lock().unwrap();
+        assert_eq!(
+            rec.excluded_pid,
+            Some(4321),
+            "the pid arms self-capture exclusion"
+        );
+        assert_eq!(
+            rec.included_pid, None,
+            "the pid must never reach the target-application filter"
+        );
     }
 
     #[test]
