@@ -2,18 +2,26 @@
  * backward-compat.test.js — Schema backward-compatibility regression lock (#87).
  *
  * Validates every frozen `.docent.json` fixture under tests/fixtures/ against
- * the CURRENT published platform schema. A fixture is a real export captured at
- * a known schema version; if a later schema change breaks backward
- * compatibility (adds a required field, renames a property, tightens a type),
- * the matching fixture stops validating and this test fails with a clear diff.
+ * the CURRENT platform schema, composed from the source layers in-memory. A
+ * fixture is a real export captured at a known schema version; if a later
+ * schema change breaks backward compatibility (adds a required field, renames
+ * a property, tightens a type), the matching fixture stops validating and this
+ * test fails with a clear diff.
  *
  * The harness is schema-agnostic and auto-discovering:
- *   - validators come from globbing `schemas/*.schema.json`
- *   - fixtures come from globbing `tests/fixtures/<platform>/v*.docent.json`
- *   - a fixture under `<platform>/` is validated against `schemas/<platform>.schema.json`
+ *   - platforms come from build-schemas' PLATFORMS map; each validator
+ *     compiles the schema composePlatform() composes from the source layers
+ *     (never schemas/dist/, which can lag a PR's schema changes)
+ *   - fixtures come from globbing `tests/fixtures/<platform>/*.docent.json` —
+ *     discovery is by the `.docent.json` suffix alone; `v<version>` is the
+ *     naming convention (a leading `v` is stripped when deriving the
+ *     version, never required)
+ *   - a fixture under `<platform>/` is validated against that platform's
+ *     composed schema
  *
- * Adding a new platform (e.g. desktop-linux, #84) or a new historical version
- * is purely additive: drop a schema and/or a fixture file in. No code changes.
+ * Adding a new historical version is purely additive: drop a fixture file in,
+ * no changes here. A new platform (e.g. desktop-linux, #84) enters through
+ * PLATFORMS in build-schemas.js and is covered here with no test changes.
  *
  * Closes #87.
  */
@@ -56,8 +64,9 @@ function discoverValidators() {
       // const so frozen fixtures validate by SHAPE, regardless of the stamp
       // they carry — backward compatibility means "an old export still fits
       // today's shape", and without the relaxation an older fixture would
-      // fail on the stamp ALONE. Shared with the sufficiency lint so the two
-      // harnesses can never drift on what "shape-valid" means; the guardrails
+      // fail on the stamp ALONE. The relaxation is the shared chokepoint
+      // every by-shape verification harness goes through, so the harnesses
+      // can never drift on what "shape-valid" means; the guardrails
       // (published consts untouched, platform const kept) are documented at
       // the definition.
       validate: ajv.compile(relaxVersionStamp(schema)),
@@ -70,7 +79,9 @@ function discoverValidators() {
 
 /**
  * Discover fixtures as { platform, version, path } from
- * `tests/fixtures/<platform>/v<version>.docent.json`.
+ * `tests/fixtures/<platform>/*.docent.json` — any file carrying the
+ * `.docent.json` suffix is admitted; a leading `v` is stripped when
+ * deriving the version.
  */
 function discoverFixtures() {
   const fixtures = [];

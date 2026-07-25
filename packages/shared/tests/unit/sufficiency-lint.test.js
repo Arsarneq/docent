@@ -2,24 +2,29 @@
  * sufficiency-lint.test.js — replay-sufficiency baseline lock over the corpus.
  *
  * Runs the sufficiency lint (scripts/sufficiency-lint.js — the static
- * predicates of docs/requirements/replay-sufficiency.md, Falsifiability item 1) over every
- * frozen fixture under tests/fixtures/ and asserts the findings equal the
- * committed baseline EXACTLY, in both directions:
+ * predicates of docs/requirements/replay-sufficiency.md, Falsifiability item 1) over the
+ * lint's standing corpus — every frozen fixture under tests/fixtures/ plus
+ * the scripted-truth corpus's committed truth files under corpus/sessions/ —
+ * and asserts the findings equal the committed baseline EXACTLY, in both
+ * directions:
  *
- *   - a NEW finding means a predicate or fixture changed — decide
+ *   - a NEW finding means a predicate or corpus file changed — decide
  *     intentionally, don't silence;
  *   - a VANISHED finding means the baseline is stale (a known gap closed or a
  *     rule was weakened) — regenerate the baseline deliberately via
- *     `node scripts/sufficiency-lint.js packages/shared/tests/fixtures
+ *     `node scripts/sufficiency-lint.js packages/shared/tests/fixtures corpus/sessions
  *      --write-baseline packages/shared/tests/fixtures/sufficiency-baseline.json`.
  *
  * Discovery and serialization come FROM the lint (collectFiles/toBaseline),
- * so this lock covers exactly the file set and entry format the CLI's
- * --write-baseline produces — the two can never diverge. Validity of every
- * fixture is asserted by the same pass: lintFile throws on schema-invalid
- * input or an unknown platform stamp.
+ * so the walk, filters, sorting, and entry format cannot diverge from what
+ * the CLI's --write-baseline produces. The two-root input set itself is
+ * stated separately here and at each CLI invocation (the sufficiency:check
+ * npm script names the same two roots) — a divergence there is not prevented
+ * up front; it fails this lock loudly against the committed baseline.
+ * Validity of every corpus member is asserted by the same pass: lintFile
+ * throws on schema-invalid input or an unknown platform stamp.
  *
- * These fixtures are HISTORICAL exports, so this lock guards the rules and
+ * The frozen fixtures are HISTORICAL exports, so this lock guards the rules and
  * the corpus's documented truth — not current capture output. Recordings
  * produced by current code join the corpus with the scripted-truth work, and
  * flow through this same lint unchanged.

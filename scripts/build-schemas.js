@@ -238,8 +238,11 @@ export function locatorStrategyDefs(schema) {
  * intentional and untouched. The `platform` const is deliberately kept (a
  * desktop file must never validate as extension).
  *
- * Shared by the backward-compat corpus test and the sufficiency lint so the
- * two harnesses can never drift apart on what "shape-valid" means.
+ * The single relaxation chokepoint for the repository's verification
+ * harnesses: every harness that validates recordings by shape obtains its
+ * relaxed schema here, so the harnesses can never drift apart on what
+ * "shape-valid" means. (The current consumer set is enumerated in
+ * docs/test/backward-compat.md, "Validation is by SHAPE".)
  *
  * @param {object} schema - a composed platform schema (composePlatform output)
  * @returns {object} a relaxed in-memory clone
