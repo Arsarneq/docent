@@ -43,9 +43,11 @@ pub const SELECTION_CORRELATION_MS: u64 = VALUE_CHANGE_CORRELATION_MS;
 /// no scroll event arrives for this duration.
 pub const SCROLL_DEBOUNCE_MS: u64 = 300;
 
-/// Minimum scroll distance (in pixels) required in at least one axis for the
-/// scroll to be recorded. Sequences where both `|total_delta_x|` and
-/// `|total_delta_y|` are ≤ this threshold are discarded.
+/// Minimum scroll distance required in at least one axis for the scroll to be
+/// recorded, in the native wheel-delta units the platform's input layer feeds
+/// (not pixels — the `_PX` suffix is historical; Windows feeds 120 per wheel
+/// detent, so 200 is ~1.7 detents). Sequences where both `|total_delta_x|`
+/// and `|total_delta_y|` are ≤ this threshold are discarded.
 pub const SCROLL_MIN_DISTANCE_PX: f64 = 200.0;
 
 // ─── Type Coalescing ────────────────────────────────────────────────────────

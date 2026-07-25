@@ -277,9 +277,10 @@ async function stopWithCompleteness() {
   await _completeBarrier(await invoke('stop_capture'));
 }
 
-// Mid-capture flush without stopping: the completeness path for a commit while
-// capture is NOT active. Nothing is in flight, so the barrier reports
-// `barrier_id: 0` and this collects what is already pending.
+// The completeness path for a commit while capture is NOT active (a commit
+// while recording flushes through stopWithCompleteness instead). With no
+// active capture nothing is in flight, so `commit_barrier` reports the
+// `barrier_id: 0` no-op and this just collects what is already pending.
 async function commitWithCompleteness() {
   await _completeBarrier(await invoke('commit_barrier'));
 }

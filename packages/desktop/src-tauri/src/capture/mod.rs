@@ -1,8 +1,11 @@
 // Capture layer — platform-agnostic trait and shared data types.
 //
 // Each platform (Windows, macOS, Linux) implements the `CaptureLayer` trait.
-// Data structures here map directly to the v2.0.0 schema contract at
-// `packages/shared/session.schema.json`.
+// Data structures here map directly to the desktop `.docent.json` schema
+// contract, composed from the source layers `schemas/shared.schema.json` +
+// `schemas/desktop.shared.schema.json` + `schemas/desktop-windows.delta.json`
+// (published as `schemas/dist/desktop-windows.schema.json`; exported files
+// carry the schema version in their `docent_format` stamp).
 
 pub mod action_mapping;
 pub mod coordinate;
@@ -92,8 +95,9 @@ pub trait CaptureLayer: Send + 'static {
     /// worker wedged in an unresponsive accessibility call cannot stall the
     /// commit — its buffers are rescued in place — and a barrier whose in-order
     /// path cannot report within its bound recovers the held buffers by fallback
-    /// drain, reported as such in the report's `completion` field. On a platform
-    /// with no capture backend this is a no-op returning `barrier_id: 0`.
+    /// drain, reported as such in the report's `completion` field. A no-op
+    /// returning `barrier_id: 0` (completion `not_run`) when no capture is
+    /// active — nothing is buffered — or on a platform with no capture backend.
     fn commit_barrier(&self) -> Result<BarrierReport, CaptureError>;
 }
 
@@ -301,7 +305,7 @@ pub struct Modifiers {
 
 /// Action-specific payload data.
 ///
-/// Each variant corresponds to an action type in the v2.0.0 schema.
+/// Each variant corresponds to an action type in the desktop platform schema.
 /// The variant is flattened into the parent `ActionEvent` during serialisation.
 // Variants embed full `ElementDescription` values (Drop carries two); events
 // occur at human-input rate, so the variant-size spread is not worth boxing

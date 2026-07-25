@@ -4,8 +4,8 @@
 // For any sequence of scroll events with timestamps, the capture layer shall
 // emit a scroll action only when (a) no scroll event occurs for 300ms after
 // the last event in the sequence, AND (b) the total scroll distance exceeds
-// 200 pixels in at least one axis. Sequences that do not meet both conditions
-// shall produce no scroll action.
+// 200 native wheel-delta units (not pixels) in at least one axis. Sequences
+// that do not meet both conditions shall produce no scroll action.
 
 use docent_desktop_lib::capture::scroll::{
     process_scroll_events, RawScrollEvent, ScrollAccumulator,
@@ -147,7 +147,7 @@ proptest! {
     /// Scroll debounce and threshold filtering
     ///
     /// For any emitted scroll result, at least one axis must exceed the
-    /// 200px threshold.
+    /// 200-wheel-delta-unit threshold.
     #[test]
     fn emitted_scrolls_always_exceed_threshold(events in arb_scroll_sequence()) {
         let results = process_scroll_events(&events);

@@ -1965,7 +1965,7 @@ fn scroll_accumulator_flushes_on_shutdown() {
         .unwrap()
         .as_millis() as u64;
 
-    // Send scroll events that exceed the threshold (total > 200px).
+    // Send scroll events that exceed the threshold (total > 200 wheel-delta units).
     for i in 0..3 {
         let raw = RawEvent {
             event_type: RawEventType::Scroll,
