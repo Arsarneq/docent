@@ -293,9 +293,15 @@ a `mutation:` line (mutation testing runs as a standing weekly job, never per
 change — `mutation: no per-change claim; mutation testing runs as a standing weekly job.`).
 
 Dependency-only PRs skip both sections — the check recognises those diffs by
-itself, and only those: lockfiles, dependency-block manifest bumps, and
-same-action pin bumps. A line that parses but says nothing is a review problem,
-not a CI pass: write the reason you actually relied on.
+itself, and only those: lockfiles; `package.json` changes whose parsed sides
+differ at most in the dependency-resolution fields (`dependencies`,
+`devDependencies`, `peerDependencies`, `optionalDependencies`, `overrides` —
+compared structurally, so nested `overrides` entries qualify and
+formatting-only differences count as no change, while `scripts`, `engines`,
+or any other field keeps the sections); `Cargo.toml` changes whose changed
+lines all sit inside dependency sections; and same-action pin bumps. A line
+that parses but says nothing is a review problem, not a CI pass: write the
+reason you actually relied on.
 
 The judgments are also audited in aggregate: a weekly job measures how often
 a doc judged unaffected was edited shortly after by overlapping work — a

@@ -34,7 +34,7 @@
      Docs whose rules carry clause ids also take one line per clause tagged judgment-only
      in docs/clause-registry.json, e.g.:
        unaffected: docs/architecture/system/capture-principles.md §CP-3 — <why>
-     Dependency-only PRs (lockfiles, dependency bumps, action-pin bumps) skip this section. -->
+     Dependency-only PRs (lockfiles, dependency-only manifest changes, action-pin bumps) skip this section. -->
 
 ## Change record
 
