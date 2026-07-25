@@ -1,9 +1,4 @@
 import { defineConfig } from '@playwright/test';
-import path from 'path';
-import { fileURLToPath } from 'url';
-
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const extensionPath = path.resolve(__dirname, '../..');
 
 export default defineConfig({
   testDir: './specs',
@@ -17,17 +12,11 @@ export default defineConfig({
   },
   projects: [
     {
+      // Launch flags live with the launchers, not here: every spec runs the
+      // extension in a persistent context created by the shared fixture (or a
+      // local in-file fixture), whose chromium.launchPersistentContext call
+      // takes its own options — config-level launchOptions never reach it.
       name: 'chromium',
-      use: {
-        launchOptions: {
-          args: [
-            `--disable-extensions-except=${extensionPath}`,
-            `--load-extension=${extensionPath}`,
-            '--no-first-run',
-            '--disable-default-apps',
-          ],
-        },
-      },
     },
   ],
 });
