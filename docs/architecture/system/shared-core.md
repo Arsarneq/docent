@@ -65,10 +65,8 @@ place); tests are excluded from the platform copies.
 ## The adapter seam
 
 The adapter's core surface is declared as the `PlatformAdapter` typedef in
-[`packages/shared/views/adapter.js`](../../../packages/shared/views/adapter.js);
-two of the obligations below — the default step-context mode and the
-platform's generated import validator — are implemented by both adapters
-beyond the typedef. Each platform implements the seam once:
+[`packages/shared/views/adapter.js`](../../../packages/shared/views/adapter.js),
+which states every obligation below. Each platform implements the seam once:
 [`adapter-chrome.js`](../../../packages/extension/sidepanel/adapter-chrome.js)
 over Chrome extension APIs, and
 [`adapter-tauri.js`](../../../packages/desktop/src/adapter-tauri.js) over
