@@ -936,8 +936,8 @@ test.describe('Desktop Panel - Sync Settings', () => {
     // startAutoSyncHost(), which arms the keep-alive and surfaces the
     // "Auto-sync active" indicator. Stub the single `GET /projects` the
     // Connection_Test issues so it passes; the shared mock services
-    // `set_auto_sync_keepalive` and records it, so the arming is observable
-    // instead of resting on the panel's best-effort catch.
+    // `set_auto_sync_keepalive` and records every invoke, so the assertion below
+    // observes the arming directly rather than inferring it from the UI.
     await page.addInitScript(() => {
       const realFetch = window.fetch.bind(window);
       window.fetch = (url, opts) =>

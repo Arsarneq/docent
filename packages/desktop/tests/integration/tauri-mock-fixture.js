@@ -48,7 +48,10 @@
  * that a document this server injected the mock into really carries it, so a
  * mock that never installed reads as the drift it is rather than as an empty
  * record. `_clearInvokeCalls()` deliberately leaves the unknown list alone: a
- * spec resetting its own assertion window never resets the drift signal.
+ * spec resetting its own assertion window never resets the drift signal. The
+ * reach of the assertions in that hook is the document the page holds when the
+ * test ends, so a test that navigates away leaves the earlier document's record
+ * behind.
  *
  * ── The canonical `stop_capture` reports a stopped, idle capture layer ───────
  * It answers the zero barrier report the backend returns when no capture was
@@ -72,8 +75,13 @@
  * Install time rejects an override naming a command the canonical table does not
  * service — an override is a restatement of a serviced command, never a way to
  * widen the surface behind the fail-loud contract's back — and one whose value
- * is not parsable function source text, which would otherwise take the whole
- * served script down as an unrelated page failure.
+ * does not resolve to a function, which it establishes by resolving the source in
+ * the test process. The case that check alone catches is source that resolves but
+ * is not a function: unrefused, the mock would install and the failure would land
+ * at invoke time on a command the mock does service, where the unknown-invoke
+ * guard has nothing to say. Source that resolves there but throws in the page
+ * gets past that check and aborts the served mock script, which the
+ * mock-presence assertion reports.
  *
  * ── Extra routes ─────────────────────────────────────────────────────────────
  * `installTauriMockServer({ routeRequest })` lets a spec answer requests ahead
@@ -275,8 +283,8 @@ function serveDistFile(req, res) {
  * @param {object} [options]
  * @param {Record<string, string>} [options.overrides] command name → function
  *   source text replacing that command's canonical behaviour. Throws here on a
- *   command the canonical table does not service, and on a value that is not
- *   parsable function source text.
+ *   command the canonical table does not service, and on a value that does not
+ *   resolve to a function; each rejection names the command and its own cause.
  * @param {(req: import('http').IncomingMessage, res: import('http').ServerResponse) => boolean} [options.routeRequest]
  *   answers a request ahead of the dist files; returns `true` when it has
  *   handled the request.
@@ -298,13 +306,39 @@ export function installTauriMockServer(options = {}) {
         `[tauri-mock] the override for '${command}' must be function source text, given as a string.`,
       );
     }
-    // Compile the expression here rather than letting a typo reach the page: the
-    // mock is one served script with one parse, so an unparsable override would
-    // take the whole mock down and surface as unrelated panel failures.
+    // Resolve the expression here, so an override's value is known to be a
+    // function before it reaches the page. What resolving catches is source that
+    // resolves to a non-function: unrefused, the mock would install and the
+    // failure would land at invoke time on a command the mock does service,
+    // where the unknown-invoke guard has nothing to say. Source that resolves
+    // here but throws in the page gets past this step and aborts the served
+    // script instead, and the afterEach below reports the mock as
+    // injected-but-not-installed.
+    //
+    // Resolution happens HERE, in the test process — once per spec file, on top
+    // of once per page load in the page itself. So the expression has to resolve
+    // in both realms: reach page globals from inside the function the override
+    // resolves to, never while constructing it, or this step refuses source the
+    // page would have run happily.
+    let makeHandler;
     try {
-      new Function(`return (${source});`);
+      makeHandler = new Function(`return (${source});`);
     } catch (err) {
       throw new Error(`[tauri-mock] the override for '${command}' does not parse: ${err.message}`);
+    }
+    let handler;
+    try {
+      handler = makeHandler();
+    } catch (err) {
+      throw new Error(
+        `[tauri-mock] the override for '${command}' threw while being evaluated: ${err.message}`,
+      );
+    }
+    if (typeof handler !== 'function') {
+      throw new Error(
+        `[tauri-mock] the override for '${command}' must be function source text; ` +
+          `this one evaluates to ${typeof handler}.`,
+      );
     }
   }
 
@@ -347,10 +381,11 @@ export function installTauriMockServer(options = {}) {
     }, MOCK_SCRIPT_PATH);
 
     // Keyed on the injected tag, so this covers exactly the documents the server
-    // injected into — and catches a mock that was injected but did not install
-    // (a script that failed to parse). Without it the guard would read a missing
-    // mock as "no unknown invokes" and pass in the case it exists to shout
-    // about: the mock not being what the spec thinks it is.
+    // injected into — and catches a mock that was injected but did not install,
+    // the way an override resolving in the test process and then throwing in the
+    // page leaves it. Without it the guard would read a missing mock as "no
+    // unknown invokes" and pass in the case it exists to shout about: the mock
+    // not being what the spec thinks it is.
     if (probe.injected) {
       expect(
         probe.installed,

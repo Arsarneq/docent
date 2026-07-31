@@ -47,7 +47,9 @@ page recorded none — so a command the frontend grows, or one the mock stops
 servicing, surfaces as a red test naming it rather than as a panel-side catch
 swallowing the drift. The same hook asserts that a document this server injected
 the mock into really carries it, so a mock that never installed cannot pass as
-an empty record. The guard speaks about the commands the frontend actually
+an empty record. Both assertions read the document the page holds when the test
+ends, so a test that navigates away leaves the earlier document's record behind.
+The guard speaks about the commands the frontend actually
 invokes on a path some spec exercises; holding the crate's registered command
 surface against its own table is
 [DSH-1](../../architecture/application/desktop/windows/application-shell.md#the-command-surface)'s
@@ -59,8 +61,13 @@ replaces a single command's behaviour with spec-supplied source — how
 barrier report whose sentinel the spec then delivers itself. Naming a command
 the canonical mock does not service is an error, so an override can only
 restate a serviced command, never widen the surface behind the fail-loud
-contract; source text that does not parse is refused at the same point, before
-it can take the served mock down as an unrelated page failure.
+contract. The fixture also resolves the source in the test process and refuses a
+value that does not come out a function. The case that refusal alone catches is
+source that resolves but is not a function: the mock would install cleanly and
+the failure would land at invoke time on a command the mock does service, where
+the unknown-invoke guard has nothing to say. Source that resolves there but
+throws in the page gets past the refusal and aborts the served mock script,
+which the mock-presence assertion above reports.
 
 `sync-samples.spec.js` goes one step further: it runs a real reference sync
 server as a child process and reverse-proxies the protocol paths through the
