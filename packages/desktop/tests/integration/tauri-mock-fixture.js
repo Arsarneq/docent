@@ -76,7 +76,11 @@
  * service — an override is a restatement of a serviced command, never a way to
  * widen the surface behind the fail-loud contract's back — and one whose value
  * does not resolve to a function, which it establishes by resolving the source in
- * the test process. The case that check alone catches is source that resolves but
+ * the test process. Because the source resolves in this Node process as well as
+ * in the page, an override reaches page globals from inside the function it
+ * resolves to, never while constructing itself — construction-time `window`
+ * access is refused here though the page would have run it.
+ * The case that check alone catches is source that resolves but
  * is not a function: unrefused, the mock would install and the failure would land
  * at invoke time on a command the mock does service, where the unknown-invoke
  * guard has nothing to say. Source that resolves there but throws in the page
