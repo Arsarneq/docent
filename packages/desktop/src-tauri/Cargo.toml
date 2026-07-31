@@ -46,7 +46,7 @@ tauri-build = { version = "2", features = [] }
 [dev-dependencies]
 proptest = "1"
 enigo = "0.6"
-serial_test = "3"
+serial_test = "4"
 tempfile = "3"
 
 # SPIKE 2 (test-only): windows-core as a DIRECT dev-dependency exposes the
