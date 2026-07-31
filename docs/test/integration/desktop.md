@@ -22,8 +22,9 @@ way out:
   `core.invoke` handles the backend commands (`load_state`/`save_state`
   persist to an in-memory string; `start_capture`/`stop_capture`,
   `commit_barrier`, `set_self_capture_exclusion`, and `export_file` are no-ops
-  that can be asserted on; `list_windows` returns an empty list; `import_file`
-  returns a spec-controlled payload; `sync_http_request` — the native HTTP transport —
+  that can be asserted on; `list_windows` returns the windows a spec supplies,
+  and an empty list where it supplies none; `import_file` returns a
+  spec-controlled payload; `sync_http_request` — the native HTTP transport —
   is adapted onto the page's `window.fetch`, so a spec's fetch stubs service
   the real transport path), and `event.listen` records each handler so a spec
   can fire `capture:action` events directly, simulating captured input

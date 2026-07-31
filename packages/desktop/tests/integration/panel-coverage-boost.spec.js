@@ -527,9 +527,9 @@ test.describe('Desktop Panel — Self-Capture Toggle', () => {
     // rendered unconditionally, outside the sections the view switcher
     // toggles — so it is visible whichever view the panel is showing. It
     // starts checked on both counts: the shell markup ships it checked, and
-    // the panel's startup assignment reads the self-capture-exclusion setting,
-    // which defaults to on. That checked start state is what the uncheck
-    // below acts on.
+    // the panel's startup assignment resolves the self-capture-exclusion
+    // setting to its default, on. That checked start state is what the
+    // uncheck below acts on.
     const toggle = page.locator('#self-capture-toggle');
     await expect(toggle).toBeVisible();
     await expect(toggle).toBeChecked();
