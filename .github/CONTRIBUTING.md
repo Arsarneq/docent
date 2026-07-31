@@ -310,8 +310,29 @@ review-calibration signal, never a per-PR verdict
 
 ## Extending the Docs Governance
 
-The binding between code and docs is committed, linted data. Five lints keep
-it true — each runs in CI's `lint` job
+Every change to this governance — the map, the registry, the lints, or the
+doc set they bind — must preserve what the machinery exists to deliver:
+
+- **Complete** — every tracked file resolves to an explicit governance
+  decision: a governing doc set (possibly empty, where declared) or a
+  recorded, justified exception; every doc stays reachable (or is an
+  allowlisted non-doctrine asset), and every clause stays registered.
+  Nothing falls out of governance silently.
+- **Usable** — the docs serve human readers first: positive descriptions,
+  precise citable clauses, and per-area charters in the
+  [documentation map](../docs/README.md).
+- **Minimal context per area** — working in one area should require reading
+  that area's docs and no more; a change that drags unrelated docs onto a
+  file's governing set is a defect, not a convenience.
+- **No drift** — the binding stays committed, linted data: which docs a
+  change primes surfaces mechanically, and whether the change diverged from
+  them is a recorded human judgment — never left to memory.
+
+A change that would drop real governance rather than trim excess is out of
+scope for a cleanup — raise it as its own PR or issue, where the trade-off
+is stated.
+
+Five lints keep that binding true — each runs in CI's `lint` job
 ([the lint table](../docs/guides/ci.md#the-lint-and-freshness-gates)) and
 locally as `npm run lint:links`, `npm run lint:reachability`,
 `npm run lint:area-map`, `npm run lint:clause-registry`, and
