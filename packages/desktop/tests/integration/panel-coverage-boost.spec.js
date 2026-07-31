@@ -498,15 +498,25 @@ test.describe('Desktop Panel — Target App Selector', () => {
     await page.click('#btn-new-recording-create');
     await page.waitForSelector('#view-recording:not(.hidden)', { timeout: 5000 });
 
-    // Click refresh — the button may not exist on all builds
+    // The refresh button sits in the shell's static target-app controls — a
+    // block rendered unconditionally, outside the sections the view switcher
+    // toggles — so it is visible whichever view the panel is showing.
     const refreshBtn = page.locator('#btn-refresh-apps');
-    if ((await refreshBtn.count()) > 0 && (await refreshBtn.isVisible())) {
-      await refreshBtn.click();
-      await page.waitForTimeout(300);
+    await expect(refreshBtn).toBeVisible();
 
-      const options = await page.locator('#target-app-select option').count();
-      expect(options).toBeGreaterThanOrEqual(3);
-    }
+    await refreshBtn.click();
+
+    // The refresh renders the constant "All applications" entry plus one option
+    // per window the mock supplies, labelled `${process_name} — ${title}` and
+    // valued with the window's pid.
+    const options = page.locator('#target-app-select option');
+    await expect(options).toHaveCount(3);
+    await expect(options).toHaveText([
+      'All applications',
+      'notepad.exe — Untitled - Notepad',
+      'calc.exe — Calculator',
+    ]);
+    await expect(options.nth(1)).toHaveAttribute('value', '5678');
   });
 });
 
@@ -521,17 +531,23 @@ test.describe('Desktop Panel — Self-Capture Toggle', () => {
     // Clear calls and toggle
     await page.evaluate(() => window.__TAURI__._clearInvokeCalls());
 
+    // The toggle sits in the shell's static target-app controls — a block
+    // rendered unconditionally, outside the sections the view switcher
+    // toggles — so it is visible whichever view the panel is showing. It
+    // starts checked: the shell markup ships it checked, and the panel's
+    // startup assignment re-applies the module-default state (also on),
+    // running before the persisted state is loaded.
     const toggle = page.locator('#self-capture-toggle');
-    if (await toggle.isVisible()) {
-      // Toggle off (it starts checked/true)
-      await toggle.uncheck();
-      await page.waitForTimeout(300);
+    await expect(toggle).toBeVisible();
+    await expect(toggle).toBeChecked();
 
-      const calls = await page.evaluate(() => window.__TAURI__._getInvokeCalls());
-      const exclusionCall = calls.find((c) => c.cmd === 'set_self_capture_exclusion');
-      expect(exclusionCall).toBeTruthy();
-      expect(exclusionCall.args.enabled).toBe(false);
-    }
+    await toggle.uncheck();
+    await page.waitForTimeout(300);
+
+    const calls = await page.evaluate(() => window.__TAURI__._getInvokeCalls());
+    const exclusionCall = calls.find((c) => c.cmd === 'set_self_capture_exclusion');
+    expect(exclusionCall).toBeTruthy();
+    expect(exclusionCall.args.enabled).toBe(false);
   });
 });
 

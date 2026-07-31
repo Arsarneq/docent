@@ -491,13 +491,16 @@ test.describe('Desktop Panel — Delete Recording', () => {
 });
 
 test.describe('Desktop Panel — Self-Capture Toggle', () => {
-  test('self-capture toggle is visible in settings', async ({ page }) => {
+  test('self-capture toggle stays visible while the settings view is showing', async ({ page }) => {
     await page.goto(`http://127.0.0.1:${serverPort}/`);
     await page.waitForSelector('#view-projects:not(.hidden)', { timeout: 10000 });
 
     await page.click('#btn-settings');
     await page.waitForSelector('#view-settings:not(.hidden)', { timeout: 5000 });
 
-    await expect(page.locator('#self-capture-toggle')).toBeAttached();
+    // The toggle sits in the shell's static target-app controls — a block
+    // rendered unconditionally, outside the sections the view switcher
+    // toggles — so switching views leaves it on screen.
+    await expect(page.locator('#self-capture-toggle')).toBeVisible();
   });
 });
