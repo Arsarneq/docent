@@ -505,10 +505,18 @@ test.describe('Desktop Panel — Target App Selector', () => {
     await expect(refreshBtn).toBeVisible();
 
     await refreshBtn.click();
-    await page.waitForTimeout(300);
 
-    const options = await page.locator('#target-app-select option').count();
-    expect(options).toBeGreaterThanOrEqual(3);
+    // The refresh renders the constant "All applications" entry plus one option
+    // per window the mock supplies, labelled `${process_name} — ${title}` and
+    // valued with the window's pid.
+    const options = page.locator('#target-app-select option');
+    await expect(options).toHaveCount(3);
+    await expect(options).toHaveText([
+      'All applications',
+      'notepad.exe — Untitled - Notepad',
+      'calc.exe — Calculator',
+    ]);
+    await expect(options.nth(1)).toHaveAttribute('value', '5678');
   });
 });
 
@@ -526,10 +534,9 @@ test.describe('Desktop Panel — Self-Capture Toggle', () => {
     // The toggle sits in the shell's static target-app controls — a block
     // rendered unconditionally, outside the sections the view switcher
     // toggles — so it is visible whichever view the panel is showing. It
-    // starts checked on both counts: the shell markup ships it checked, and
-    // the panel's startup assignment resolves the self-capture-exclusion
-    // setting to its default, on. That checked start state is what the
-    // uncheck below acts on.
+    // starts checked: the shell markup ships it checked, and the panel's
+    // startup assignment re-applies the module-default state (also on),
+    // running before the persisted state is loaded.
     const toggle = page.locator('#self-capture-toggle');
     await expect(toggle).toBeVisible();
     await expect(toggle).toBeChecked();

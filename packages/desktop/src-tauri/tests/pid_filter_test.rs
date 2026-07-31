@@ -81,9 +81,18 @@ proptest! {
     ///
     /// PID 0 (a destroyed or unresolvable window) is discarded for every
     /// exclusion setting, so no excluded-PID value can make such an event
-    /// enter the recording.
+    /// enter the recording. The exclusion setting is drawn across each shape
+    /// it can take — disabled, excluding PID 0 itself, and excluding some
+    /// other process — since `any::<Option<u32>>()` would draw `Some(0)`
+    /// essentially never.
     #[test]
-    fn pid_zero_is_always_discarded(excluded in any::<Option<u32>>()) {
+    fn pid_zero_is_always_discarded(
+        excluded in prop_oneof![
+            Just(None::<u32>),
+            Just(Some(0u32)),
+            any::<u32>().prop_map(Some),
+        ],
+    ) {
         let result = should_keep_event(0, excluded);
         prop_assert!(
             !result,
@@ -96,16 +105,27 @@ proptest! {
     ///
     /// For any (event_pid, excluded_pid, exclusion_enabled) triple, the
     /// filtering decision matches the total model: an event is kept iff its
-    /// PID is nonzero AND exclusion is disabled or the PIDs differ. The event
-    /// PID is drawn from a strategy that includes 0 outright — `any::<u32>()`
-    /// alone effectively never draws it, which would leave the
-    /// resolvable-window half of the model unexercised.
+    /// PID is nonzero AND (exclusion is disabled OR the PIDs differ).
+    ///
+    /// The draws are shaped so each branch of that model is exercised: the
+    /// event PID includes 0 outright, and the excluded PID is either the
+    /// event's own — the exclusion-match branch — or an independent draw.
+    /// Drawing both from `any::<u32>()` leaves PID 0 and the matching pair
+    /// drawn essentially never, so a rule that stopped biting on its own
+    /// branch — an exclusion that kept every event, a PID-0 case that kept
+    /// instead of dropped — would still pass.
     #[test]
     fn filtering_is_consistent(
         event_pid in prop_oneof![1 => Just(0u32), 4 => any::<u32>()],
-        excluded_pid in any::<u32>(),
+        other_pid in any::<u32>(),
+        exclude_the_event_pid in any::<bool>(),
         exclusion_enabled in any::<bool>(),
     ) {
+        let excluded_pid = if exclude_the_event_pid {
+            event_pid
+        } else {
+            other_pid
+        };
         let excluded = if exclusion_enabled {
             Some(excluded_pid)
         } else {
