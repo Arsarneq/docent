@@ -17,15 +17,9 @@
  */
 
 import { test, expect } from './coverage-fixture.js';
-import http from 'http';
-import fs from 'fs';
-import path from 'path';
-import { fileURLToPath } from 'url';
+import { installTauriMockServer } from './tauri-mock-fixture.js';
 import { composePlatform } from '../../../../scripts/build-schemas.js';
 import { stampFromSchema } from '../../../../packages/shared/lib/format-stamp.js';
-
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const distPath = path.resolve(__dirname, '../../dist');
 
 // Derive the docent_format stamp from the current composed schema rather than
 // hardcoding a version. Import/pull validate the stamp against the
@@ -35,116 +29,11 @@ const distPath = path.resolve(__dirname, '../../dist');
 // built in the browser context.
 const DESKTOP_STAMP = stampFromSchema(composePlatform('desktop-windows'));
 
-// Track invoke calls for verification
-const TAURI_MOCK_JS = `
-  let _savedState = JSON.stringify({ projects: [], settings: {} });
-  let _invokeCalls = [];
-
-  window.__TAURI__ = {
-    core: {
-      invoke: async (cmd, args) => {
-        _invokeCalls.push({ cmd, args });
-        switch (cmd) {
-          case 'load_state': return _savedState;
-          case 'sync_http_request': {
-            // The desktop routes sync/dispatch/connection-test through the
-            // native sync_http_request command. In the integration env there is
-            // no Rust backend, so the mock services it via the page's window.fetch
-            // (which these specs stub) and adapts the result into the native
-            // command's { status, headers, body } shape — keeping every existing
-            // fetch stub faithful while exercising the real transport path.
-            const _r = await window.fetch(args.url, {
-              method: args.method,
-              headers: args.headers || {},
-              body: args.body == null ? undefined : args.body,
-            });
-            const _status = typeof _r.status === 'number' ? _r.status : _r.ok ? 200 : 500;
-            let _body = '';
-            if (typeof _r.text === 'function') { try { _body = await _r.text(); } catch (_e) { _body = ''; } }
-            if (!_body && typeof _r.json === 'function') { try { _body = JSON.stringify(await _r.json()); } catch (_e) { _body = ''; } }
-            const _headers = {};
-            if (_r.headers && typeof _r.headers.forEach === 'function') { _r.headers.forEach((v, k) => { _headers[String(k).toLowerCase()] = v; }); }
-            return { status: _status, headers: _headers, body: _body };
-          }
-          case 'save_state': _savedState = args.data; return;
-          case 'start_capture': return;
-          case 'stop_capture': return;
-          case 'list_windows': return window.__MOCK_WINDOWS__ || [];
-          case 'commit_barrier': return { barrier_id: 0, wedged_workers: 0 };
-          case 'set_self_capture_exclusion': return;
-          case 'set_target_pid': return;
-          case 'export_file': return;
-          case 'import_file': return window.__MOCK_IMPORT_DATA__ || null;
-          case 'get_self_pid': return 1234;
-          default: return null;
-        }
-      },
-    },
-    event: {
-      listen: (event, handler) => {
-        window.__TAURI__._listeners = window.__TAURI__._listeners || {};
-        window.__TAURI__._listeners[event] = handler;
-        return Promise.resolve(() => {});
-      },
-    },
-    _listeners: {},
-    _getInvokeCalls: () => _invokeCalls,
-    _clearInvokeCalls: () => { _invokeCalls = []; },
-  };
-`;
-
-let server;
-let serverPort;
-
-test.beforeAll(async () => {
-  server = http.createServer((req, res) => {
-    if (req.url === '/__tauri-mock.js') {
-      res.writeHead(200, { 'Content-Type': 'application/javascript' });
-      res.end(TAURI_MOCK_JS);
-      return;
-    }
-    let filePath = path.resolve(distPath, req.url === '/' ? 'index.html' : req.url.slice(1));
-    if (!filePath.startsWith(distPath)) {
-      res.writeHead(403);
-      res.end('Forbidden');
-      return;
-    }
-    if (!fs.existsSync(filePath)) {
-      res.writeHead(404);
-      res.end('Not found');
-      return;
-    }
-    const ext = path.extname(filePath);
-    const contentTypes = {
-      '.html': 'text/html',
-      '.js': 'application/javascript',
-      '.css': 'text/css',
-      '.json': 'application/json',
-      '.md': 'text/markdown',
-    };
-    let content = fs.readFileSync(filePath, 'utf-8');
-    if (ext === '.html') {
-      content = content.replace(/<meta http-equiv="Content-Security-Policy"[^>]*>/, '');
-      content = content.replace('<head>', '<head><script src="/__tauri-mock.js"></script>');
-    }
-    res.writeHead(200, { 'Content-Type': contentTypes[ext] || 'text/plain' });
-    res.end(content);
-  });
-  await new Promise((resolve) => {
-    server.listen(0, '127.0.0.1', () => {
-      serverPort = server.address().port;
-      resolve();
-    });
-  });
-});
-
-test.afterAll(async () => {
-  server?.close();
-});
+const server = installTauriMockServer();
 
 // Helper: create a project and navigate to project detail
 async function createProject(page, name = 'Test Project') {
-  await page.goto(`http://127.0.0.1:${serverPort}/`);
+  await page.goto(server.url());
   await page.waitForSelector('#view-projects:not(.hidden)', { timeout: 10000 });
   await page.click('#btn-new-project');
   await page.waitForSelector('#view-new-project:not(.hidden)', { timeout: 5000 });
@@ -254,56 +143,58 @@ test.describe('Desktop Panel — Metadata CRUD', () => {
 
 test.describe('Desktop Panel — Import Project', () => {
   test('import via native dialog creates new project', async ({ page }) => {
-    await page.goto(`http://127.0.0.1:${serverPort}/`);
+    await page.goto(server.url());
     await page.waitForSelector('#view-projects:not(.hidden)', { timeout: 10000 });
 
-    // Set mock import data
+    // Set what the native import dialog returns
     await page.evaluate((stamp) => {
-      window.__MOCK_IMPORT_DATA__ = JSON.stringify({
-        docent_format: stamp,
-        project: {
-          project_id: '019e0000-0000-7000-8000-000000000099',
-          name: 'Imported Project',
-          created_at: '2026-01-01T00:00:00.000Z',
-        },
-        recordings: [
-          {
-            recording_id: '019e0000-0000-7000-8000-000000000100',
-            name: 'Imported Flow',
+      window.__TAURI__._setImportResult(
+        JSON.stringify({
+          docent_format: stamp,
+          project: {
+            project_id: '019e0000-0000-7000-8000-000000000099',
+            name: 'Imported Project',
             created_at: '2026-01-01T00:00:00.000Z',
-            steps: [
-              {
-                uuid: '019e0000-0000-7000-8000-000000000101',
-                logical_id: '019e0000-0000-7000-8000-000000000101',
-                step_number: 1,
-                created_at: '2026-01-01T00:00:00.000Z',
-                narration: 'Click login',
-                narration_source: 'typed',
-                actions: [
-                  {
-                    type: 'click',
-                    timestamp: 1000,
-                    capture_mode: 'accessibility',
-                    context_id: 1,
-                    x: 10,
-                    y: 20,
-                    element: {
-                      tag: 'Button',
-                      id: null,
-                      name: null,
-                      role: null,
-                      type: null,
-                      text: 'Login',
-                      selector: 'Login',
-                    },
-                  },
-                ],
-                deleted: false,
-              },
-            ],
           },
-        ],
-      });
+          recordings: [
+            {
+              recording_id: '019e0000-0000-7000-8000-000000000100',
+              name: 'Imported Flow',
+              created_at: '2026-01-01T00:00:00.000Z',
+              steps: [
+                {
+                  uuid: '019e0000-0000-7000-8000-000000000101',
+                  logical_id: '019e0000-0000-7000-8000-000000000101',
+                  step_number: 1,
+                  created_at: '2026-01-01T00:00:00.000Z',
+                  narration: 'Click login',
+                  narration_source: 'typed',
+                  actions: [
+                    {
+                      type: 'click',
+                      timestamp: 1000,
+                      capture_mode: 'accessibility',
+                      context_id: 1,
+                      x: 10,
+                      y: 20,
+                      element: {
+                        tag: 'Button',
+                        id: null,
+                        name: null,
+                        role: null,
+                        type: null,
+                        text: 'Login',
+                        selector: 'Login',
+                      },
+                    },
+                  ],
+                  deleted: false,
+                },
+              ],
+            },
+          ],
+        }),
+      );
     }, DESKTOP_STAMP);
 
     await page.click('#btn-import-project');
@@ -314,7 +205,7 @@ test.describe('Desktop Panel — Import Project', () => {
   });
 
   test('import duplicate project creates copy with new name', async ({ page }) => {
-    await page.goto(`http://127.0.0.1:${serverPort}/`);
+    await page.goto(server.url());
     await page.waitForSelector('#view-projects:not(.hidden)', { timeout: 10000 });
 
     const importData = JSON.stringify({
@@ -329,14 +220,14 @@ test.describe('Desktop Panel — Import Project', () => {
 
     // Import first time
     await page.evaluate((data) => {
-      window.__MOCK_IMPORT_DATA__ = data;
+      window.__TAURI__._setImportResult(data);
     }, importData);
     await page.click('#btn-import-project');
     await page.waitForTimeout(500);
 
     // Import same data again — should create a copy
     await page.evaluate((data) => {
-      window.__MOCK_IMPORT_DATA__ = data;
+      window.__TAURI__._setImportResult(data);
     }, importData);
     await page.click('#btn-import-project');
     await page.waitForTimeout(500);
@@ -373,7 +264,7 @@ test.describe('Desktop Panel — Export Project', () => {
 
 test.describe('Desktop Panel — Sync Flows', () => {
   test('sync partial success — pulled project appears in list', async ({ page }) => {
-    await page.goto(`http://127.0.0.1:${serverPort}/`);
+    await page.goto(server.url());
     await page.waitForSelector('#view-projects:not(.hidden)', { timeout: 10000 });
 
     // Configure sync
@@ -435,7 +326,7 @@ test.describe('Desktop Panel — Sync Flows', () => {
   });
 
   test('sync auth error shows halted alert', async ({ page }) => {
-    await page.goto(`http://127.0.0.1:${serverPort}/`);
+    await page.goto(server.url());
     await page.waitForSelector('#view-projects:not(.hidden)', { timeout: 10000 });
 
     // Configure sync
@@ -475,15 +366,15 @@ test.describe('Desktop Panel — Sync Flows', () => {
 
 test.describe('Desktop Panel — Target App Selector', () => {
   test('refresh populates dropdown with windows', async ({ page }) => {
-    // Set mock windows before page load via evaluate on about:blank
-    await page.goto(`http://127.0.0.1:${serverPort}/`);
+    await page.goto(server.url());
     await page.waitForSelector('#view-projects:not(.hidden)', { timeout: 10000 });
 
+    // Supply the windows the target-app refresh enumerates.
     await page.evaluate(() => {
-      window.__MOCK_WINDOWS__ = [
+      window.__TAURI__._setWindows([
         { hwnd: 1, title: 'Untitled - Notepad', process_name: 'notepad.exe', pid: 5678 },
         { hwnd: 2, title: 'Calculator', process_name: 'calc.exe', pid: 9012 },
-      ];
+      ]);
     });
 
     // Create project + recording to get to recording view
@@ -522,7 +413,7 @@ test.describe('Desktop Panel — Target App Selector', () => {
 
 test.describe('Desktop Panel — Self-Capture Toggle', () => {
   test('toggling self-capture calls invoke with correct value', async ({ page }) => {
-    await page.goto(`http://127.0.0.1:${serverPort}/`);
+    await page.goto(server.url());
     await page.waitForSelector('#view-projects:not(.hidden)', { timeout: 10000 });
 
     await page.click('#btn-settings');
@@ -553,7 +444,7 @@ test.describe('Desktop Panel — Self-Capture Toggle', () => {
 
 test.describe('Desktop Panel — Recording Selector Send All', () => {
   test('send all button shows total step count in confirmation', async ({ page }) => {
-    await page.goto(`http://127.0.0.1:${serverPort}/`);
+    await page.goto(server.url());
     await page.waitForSelector('#view-projects:not(.hidden)', { timeout: 10000 });
 
     // Configure endpoint

@@ -16,10 +16,12 @@
  * for that barrier's `barrier_complete` sentinel — no separate `commit_barrier`
  * call.
  *
- * This spec drives the real frontend against a mocked Tauri backend that models
- * the fixed contract (`stop_capture` returns a real barrier id and does NOT
- * auto-emit the sentinel — the spec controls delivery) and records the invoke
- * order. It asserts, on a normal recording commit, that (1) the step does not
+ * This spec drives the real frontend against the suite's shared Tauri mock
+ * (`tauri-mock-fixture.js`) with one override that models the fixed contract:
+ * `stop_capture` returns a real barrier report and does NOT auto-emit the
+ * sentinel, so this spec controls delivery. Everything else — including the
+ * invoke recorder the command-order assertions read — is the shared mock's.
+ * It asserts, on a normal recording commit, that (1) the step does not
  * finalize until the stop-path sentinel arrives — the gate — (2) the commit runs
  * through `stop_capture` and NOT a separate `commit_barrier`, and (3) an action
  * drained after the commit click but before the sentinel is still captured into
@@ -28,106 +30,22 @@
  */
 
 import { test, expect } from './coverage-fixture.js';
-import http from 'http';
-import fs from 'fs';
-import path from 'path';
-import { fileURLToPath } from 'url';
-
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const distPath = path.resolve(__dirname, '../../dist');
+import { installTauriMockServer } from './tauri-mock-fixture.js';
 
 // The barrier id the fused stop path reports; the commit must wait for the
 // matching `barrier_complete` sentinel on the capture:action stream.
 const STOP_BARRIER_ID = 4242;
 
-// Mock Tauri modelling the FIXED backend contract: `stop_capture` returns a real
-// barrier report and does NOT auto-emit the sentinel (the spec fires it), while
-// `commit_barrier` remains a no-op reporting no active capture. Every invoke is
-// recorded into window.__invokeLog so the spec can assert the commit's command
-// order.
-const TAURI_MOCK_JS = `
-  let _savedState = JSON.stringify({ projects: [], settings: {} });
-  window.__invokeLog = [];
-
-  window.__TAURI__ = {
-    core: {
-      invoke: async (cmd, args) => {
-        window.__invokeLog.push(cmd);
-        switch (cmd) {
-          case 'load_state': return _savedState;
-          case 'save_state': _savedState = args.data; return;
-          case 'start_capture': return;
-          case 'stop_capture': return { barrier_id: ${STOP_BARRIER_ID}, wedged_workers: 0, completion: 'marker_ordered' };
-          case 'list_windows': return [];
-          case 'commit_barrier': return { barrier_id: 0, wedged_workers: 0, completion: 'not_run' };
-          case 'set_self_capture_exclusion': return;
-          case 'export_file': return;
-          case 'import_file': return null;
-          default: return null;
-        }
-      },
-    },
-    event: {
-      listen: (event, handler) => {
-        window.__TAURI__._listeners = window.__TAURI__._listeners || {};
-        window.__TAURI__._listeners[event] = handler;
-        return Promise.resolve(() => {});
-      },
-    },
-    _listeners: {},
-  };
-`;
-
-let server;
-let serverPort;
-
-test.beforeAll(async () => {
-  server = http.createServer((req, res) => {
-    if (req.url === '/__tauri-mock.js') {
-      res.writeHead(200, { 'Content-Type': 'application/javascript' });
-      res.end(TAURI_MOCK_JS);
-      return;
-    }
-
-    let filePath = path.resolve(distPath, req.url === '/' ? 'index.html' : req.url.slice(1));
-    if (!filePath.startsWith(distPath)) {
-      res.writeHead(403);
-      res.end('Forbidden');
-      return;
-    }
-    if (!fs.existsSync(filePath)) {
-      res.writeHead(404);
-      res.end('Not found');
-      return;
-    }
-
-    const ext = path.extname(filePath);
-    const contentTypes = {
-      '.html': 'text/html',
-      '.js': 'application/javascript',
-      '.css': 'text/css',
-      '.json': 'application/json',
-    };
-    let content = fs.readFileSync(filePath, 'utf-8');
-    if (ext === '.html') {
-      content = content.replace(/<meta http-equiv="Content-Security-Policy"[^>]*>/, '');
-      content = content.replace('<head>', '<head><script src="/__tauri-mock.js"></script>');
-    }
-    res.writeHead(200, { 'Content-Type': contentTypes[ext] || 'text/plain' });
-    res.end(content);
-  });
-
-  await new Promise((resolve) => {
-    server.listen(0, '127.0.0.1', () => {
-      serverPort = server.address().port;
-      resolve();
-    });
-  });
+const server = installTauriMockServer({
+  overrides: {
+    stop_capture: `() => ({ barrier_id: ${STOP_BARRIER_ID}, wedged_workers: 0, completion: 'marker_ordered' })`,
+  },
 });
 
-test.afterAll(async () => {
-  server?.close();
-});
+/** The command names the page has invoked, in order. */
+async function invokedCommands(page) {
+  return page.evaluate(() => window.__TAURI__._getInvokeCalls().map((call) => call.cmd));
+}
 
 /** Fire one capture:action payload through the recorded backend listener. */
 async function fireCaptureAction(page, payload) {
@@ -147,7 +65,7 @@ const clickAction = (text) => ({
 
 test.describe('Desktop Panel — commit completeness barrier', () => {
   test('regression_noissue_commit_engages_stop_path_flush_barrier', async ({ page }) => {
-    await page.goto(`http://127.0.0.1:${serverPort}/`);
+    await page.goto(server.url());
     await page.waitForSelector('#view-projects:not(.hidden)', { timeout: 10000 });
 
     // Simple mode so "Done this step" commits without a narration entry.
@@ -178,9 +96,7 @@ test.describe('Desktop Panel — commit completeness barrier', () => {
     await expect(page.locator('#btn-commit-step-simple')).toBeEnabled();
 
     // Snapshot only the commit's invoke order.
-    await page.evaluate(() => {
-      window.__invokeLog.length = 0;
-    });
+    await page.evaluate(() => window.__TAURI__._clearInvokeCalls());
 
     // Commit. The sentinel has NOT been fired yet.
     await page.click('#btn-commit-step-simple');
@@ -192,7 +108,7 @@ test.describe('Desktop Panel — commit completeness barrier', () => {
 
     // (2) The commit ran through the stop path — `stop_capture` invoked, and the
     // flush is NOT a separate `commit_barrier` call (it is fused into stop).
-    const midLog = await page.evaluate(() => window.__invokeLog.slice());
+    const midLog = await invokedCommands(page);
     expect(midLog).toContain('stop_capture');
     expect(midLog).not.toContain('commit_barrier');
 

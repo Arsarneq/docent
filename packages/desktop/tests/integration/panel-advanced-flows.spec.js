@@ -7,119 +7,13 @@
  */
 
 import { test, expect } from './coverage-fixture.js';
-import http from 'http';
-import fs from 'fs';
-import path from 'path';
-import { fileURLToPath } from 'url';
+import { installTauriMockServer } from './tauri-mock-fixture.js';
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const distPath = path.resolve(__dirname, '../../dist');
-
-const TAURI_MOCK_JS = `
-  let _savedState = JSON.stringify({ projects: [], settings: {} });
-
-  window.__TAURI__ = {
-    core: {
-      invoke: async (cmd, args) => {
-        switch (cmd) {
-          case 'load_state': return _savedState;
-          case 'sync_http_request': {
-            // The desktop routes sync/dispatch/connection-test through the
-            // native sync_http_request command. In the integration env there is
-            // no Rust backend, so the mock services it via the page's window.fetch
-            // (which these specs stub) and adapts the result into the native
-            // command's { status, headers, body } shape — keeping every existing
-            // fetch stub faithful while exercising the real transport path.
-            const _r = await window.fetch(args.url, {
-              method: args.method,
-              headers: args.headers || {},
-              body: args.body == null ? undefined : args.body,
-            });
-            const _status = typeof _r.status === 'number' ? _r.status : _r.ok ? 200 : 500;
-            let _body = '';
-            if (typeof _r.text === 'function') { try { _body = await _r.text(); } catch (_e) { _body = ''; } }
-            if (!_body && typeof _r.json === 'function') { try { _body = JSON.stringify(await _r.json()); } catch (_e) { _body = ''; } }
-            const _headers = {};
-            if (_r.headers && typeof _r.headers.forEach === 'function') { _r.headers.forEach((v, k) => { _headers[String(k).toLowerCase()] = v; }); }
-            return { status: _status, headers: _headers, body: _body };
-          }
-          case 'save_state': _savedState = args.data; return;
-          case 'start_capture': return;
-          case 'stop_capture': return;
-          case 'list_windows': return [];
-          case 'commit_barrier': return { barrier_id: 0, wedged_workers: 0 };
-          case 'set_self_capture_exclusion': return;
-          case 'set_target_pid': return;
-          case 'export_file': return;
-          case 'import_file': return null;
-          case 'get_self_pid': return 1234;
-          default: return null;
-        }
-      },
-    },
-    event: {
-      listen: (event, handler) => {
-        window.__TAURI__._listeners = window.__TAURI__._listeners || {};
-        window.__TAURI__._listeners[event] = handler;
-        return Promise.resolve(() => {});
-      },
-    },
-    _listeners: {},
-  };
-`;
-
-let server;
-let serverPort;
-
-test.beforeAll(async () => {
-  server = http.createServer((req, res) => {
-    if (req.url === '/__tauri-mock.js') {
-      res.writeHead(200, { 'Content-Type': 'application/javascript' });
-      res.end(TAURI_MOCK_JS);
-      return;
-    }
-    let filePath = path.resolve(distPath, req.url === '/' ? 'index.html' : req.url.slice(1));
-    if (!filePath.startsWith(distPath)) {
-      res.writeHead(403);
-      res.end('Forbidden');
-      return;
-    }
-    if (!fs.existsSync(filePath)) {
-      res.writeHead(404);
-      res.end('Not found');
-      return;
-    }
-    const ext = path.extname(filePath);
-    const contentTypes = {
-      '.html': 'text/html',
-      '.js': 'application/javascript',
-      '.css': 'text/css',
-      '.json': 'application/json',
-      '.md': 'text/markdown',
-    };
-    let content = fs.readFileSync(filePath, 'utf-8');
-    if (ext === '.html') {
-      content = content.replace(/<meta http-equiv="Content-Security-Policy"[^>]*>/, '');
-      content = content.replace('<head>', '<head><script src="/__tauri-mock.js"></script>');
-    }
-    res.writeHead(200, { 'Content-Type': contentTypes[ext] || 'text/plain' });
-    res.end(content);
-  });
-  await new Promise((resolve) => {
-    server.listen(0, '127.0.0.1', () => {
-      serverPort = server.address().port;
-      resolve();
-    });
-  });
-});
-
-test.afterAll(async () => {
-  server?.close();
-});
+const server = installTauriMockServer();
 
 // Helper: set up a project with endpoint configured and a committed step
 async function setupDispatchReady(page) {
-  await page.goto(`http://127.0.0.1:${serverPort}/`);
+  await page.goto(server.url());
   await page.waitForSelector('#view-projects:not(.hidden)', { timeout: 10000 });
 
   // Configure endpoint
@@ -233,7 +127,7 @@ test.describe('Desktop Panel — Dispatch Send', () => {
 
 test.describe('Desktop Panel — Sync Flow', () => {
   test('sync button triggers sync and shows summary', async ({ page }) => {
-    await page.goto(`http://127.0.0.1:${serverPort}/`);
+    await page.goto(server.url());
     await page.waitForSelector('#view-projects:not(.hidden)', { timeout: 10000 });
 
     // Configure sync settings
@@ -271,7 +165,7 @@ test.describe('Desktop Panel — Sync Flow', () => {
 
 test.describe('Desktop Panel — Inline Rename', () => {
   test('rename project via prompt dialog', async ({ page }) => {
-    await page.goto(`http://127.0.0.1:${serverPort}/`);
+    await page.goto(server.url());
     await page.waitForSelector('#view-projects:not(.hidden)', { timeout: 10000 });
 
     await page.click('#btn-new-project');
@@ -294,7 +188,7 @@ test.describe('Desktop Panel — Inline Rename', () => {
   });
 
   test('rename recording via prompt dialog', async ({ page }) => {
-    await page.goto(`http://127.0.0.1:${serverPort}/`);
+    await page.goto(server.url());
     await page.waitForSelector('#view-projects:not(.hidden)', { timeout: 10000 });
 
     await page.click('#btn-new-project');
@@ -323,7 +217,7 @@ test.describe('Desktop Panel — Inline Rename', () => {
 
 test.describe('Desktop Panel — Recording Selector', () => {
   test('multiple recordings show selector view', async ({ page }) => {
-    await page.goto(`http://127.0.0.1:${serverPort}/`);
+    await page.goto(server.url());
     await page.waitForSelector('#view-projects:not(.hidden)', { timeout: 10000 });
 
     // Configure endpoint
@@ -409,7 +303,7 @@ test.describe('Desktop Panel — Recording Selector', () => {
 
 test.describe('Desktop Panel — Re-record Cancel', () => {
   test('cancel re-record hides banner and restores state', async ({ page }) => {
-    await page.goto(`http://127.0.0.1:${serverPort}/`);
+    await page.goto(server.url());
     await page.waitForSelector('#view-projects:not(.hidden)', { timeout: 10000 });
 
     await page.click('#btn-new-project');
@@ -463,7 +357,7 @@ test.describe('Desktop Panel — Re-record Cancel', () => {
 
 test.describe('Desktop Panel — New Project via Enter Key', () => {
   test('pressing Enter in project name field creates project', async ({ page }) => {
-    await page.goto(`http://127.0.0.1:${serverPort}/`);
+    await page.goto(server.url());
     await page.waitForSelector('#view-projects:not(.hidden)', { timeout: 10000 });
 
     await page.click('#btn-new-project');
@@ -476,7 +370,7 @@ test.describe('Desktop Panel — New Project via Enter Key', () => {
   });
 
   test('pressing Enter in recording name field creates recording', async ({ page }) => {
-    await page.goto(`http://127.0.0.1:${serverPort}/`);
+    await page.goto(server.url());
     await page.waitForSelector('#view-projects:not(.hidden)', { timeout: 10000 });
 
     await page.click('#btn-new-project');
@@ -496,7 +390,7 @@ test.describe('Desktop Panel — New Project via Enter Key', () => {
 
 test.describe('Desktop Panel — Cancel New Project/Recording', () => {
   test('cancel new project returns to projects list', async ({ page }) => {
-    await page.goto(`http://127.0.0.1:${serverPort}/`);
+    await page.goto(server.url());
     await page.waitForSelector('#view-projects:not(.hidden)', { timeout: 10000 });
 
     await page.click('#btn-new-project');
@@ -506,7 +400,7 @@ test.describe('Desktop Panel — Cancel New Project/Recording', () => {
   });
 
   test('cancel new recording returns to project view', async ({ page }) => {
-    await page.goto(`http://127.0.0.1:${serverPort}/`);
+    await page.goto(server.url());
     await page.waitForSelector('#view-projects:not(.hidden)', { timeout: 10000 });
 
     await page.click('#btn-new-project');
