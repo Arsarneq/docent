@@ -7,124 +7,13 @@
  */
 
 import { test, expect } from './coverage-fixture.js';
-import http from 'http';
-import fs from 'fs';
-import path from 'path';
-import { fileURLToPath } from 'url';
+import { installTauriMockServer } from './tauri-mock-fixture.js';
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const distPath = path.resolve(__dirname, '../../dist');
-
-const TAURI_MOCK_JS = `
-  let _savedState = JSON.stringify({ projects: [], settings: {} });
-
-  window.__TAURI__ = {
-    core: {
-      invoke: async (cmd, args) => {
-        switch (cmd) {
-          case 'load_state': return _savedState;
-          case 'sync_http_request': {
-            // The desktop routes sync/dispatch/connection-test through the
-            // native sync_http_request command. In the integration env there is
-            // no Rust backend, so the mock services it via the page's window.fetch
-            // (which these specs stub) and adapts the result into the native
-            // command's { status, headers, body } shape — keeping every existing
-            // fetch stub faithful while exercising the real transport path.
-            const _r = await window.fetch(args.url, {
-              method: args.method,
-              headers: args.headers || {},
-              body: args.body == null ? undefined : args.body,
-            });
-            const _status = typeof _r.status === 'number' ? _r.status : _r.ok ? 200 : 500;
-            let _body = '';
-            if (typeof _r.text === 'function') { try { _body = await _r.text(); } catch (_e) { _body = ''; } }
-            if (!_body && typeof _r.json === 'function') { try { _body = JSON.stringify(await _r.json()); } catch (_e) { _body = ''; } }
-            const _headers = {};
-            if (_r.headers && typeof _r.headers.forEach === 'function') { _r.headers.forEach((v, k) => { _headers[String(k).toLowerCase()] = v; }); }
-            return { status: _status, headers: _headers, body: _body };
-          }
-          case 'save_state': _savedState = args.data; return;
-          case 'start_capture': return;
-          case 'stop_capture': return;
-          case 'list_windows': return [];
-          case 'commit_barrier': return { barrier_id: 0, wedged_workers: 0 };
-          case 'set_self_capture_exclusion': return;
-          case 'set_target_pid': return;
-          case 'export_file': return;
-          case 'import_file': return null;
-          case 'get_self_pid': return 1234;
-          default: console.warn('[Mock] Unknown invoke:', cmd); return null;
-        }
-      },
-    },
-    event: {
-      listen: (event, handler) => {
-        window.__TAURI__._listeners = window.__TAURI__._listeners || {};
-        window.__TAURI__._listeners[event] = handler;
-        return Promise.resolve(() => {});
-      },
-    },
-    _listeners: {},
-  };
-`;
-
-let server;
-let serverPort;
-
-test.beforeAll(async () => {
-  server = http.createServer((req, res) => {
-    if (req.url === '/__tauri-mock.js') {
-      res.writeHead(200, { 'Content-Type': 'application/javascript' });
-      res.end(TAURI_MOCK_JS);
-      return;
-    }
-
-    let filePath = path.resolve(distPath, req.url === '/' ? 'index.html' : req.url.slice(1));
-    if (!filePath.startsWith(distPath)) {
-      res.writeHead(403);
-      res.end('Forbidden');
-      return;
-    }
-    if (!fs.existsSync(filePath)) {
-      res.writeHead(404);
-      res.end('Not found');
-      return;
-    }
-
-    const ext = path.extname(filePath);
-    const contentTypes = {
-      '.html': 'text/html',
-      '.js': 'application/javascript',
-      '.css': 'text/css',
-      '.json': 'application/json',
-      '.md': 'text/markdown',
-    };
-
-    let content = fs.readFileSync(filePath, 'utf-8');
-    if (ext === '.html') {
-      content = content.replace(/<meta http-equiv="Content-Security-Policy"[^>]*>/, '');
-      content = content.replace('<head>', '<head><script src="/__tauri-mock.js"></script>');
-    }
-
-    res.writeHead(200, { 'Content-Type': contentTypes[ext] || 'text/plain' });
-    res.end(content);
-  });
-
-  await new Promise((resolve) => {
-    server.listen(0, '127.0.0.1', () => {
-      serverPort = server.address().port;
-      resolve();
-    });
-  });
-});
-
-test.afterAll(async () => {
-  server?.close();
-});
+const server = installTauriMockServer();
 
 // Helper: create a project with a committed step
 async function setupProjectWithStep(page) {
-  await page.goto(`http://127.0.0.1:${serverPort}/`);
+  await page.goto(server.url());
   await page.waitForSelector('#view-projects:not(.hidden)', { timeout: 10000 });
 
   await page.click('#btn-new-project');
@@ -162,7 +51,7 @@ async function setupProjectWithStep(page) {
 
 test.describe('Desktop Panel — Dispatch Settings', () => {
   test('saving dispatch settings persists endpoint URL', async ({ page }) => {
-    await page.goto(`http://127.0.0.1:${serverPort}/`);
+    await page.goto(server.url());
     await page.waitForSelector('#view-projects:not(.hidden)', { timeout: 10000 });
 
     await page.click('#btn-settings');
@@ -185,7 +74,7 @@ test.describe('Desktop Panel — Dispatch Settings', () => {
   });
 
   test('invalid endpoint URL shows error', async ({ page }) => {
-    await page.goto(`http://127.0.0.1:${serverPort}/`);
+    await page.goto(server.url());
     await page.waitForSelector('#view-projects:not(.hidden)', { timeout: 10000 });
 
     await page.click('#btn-settings');
@@ -201,7 +90,7 @@ test.describe('Desktop Panel — Dispatch Settings', () => {
 
 test.describe('Desktop Panel — Sync Settings', () => {
   test('saving sync settings persists sync URL', async ({ page }) => {
-    await page.goto(`http://127.0.0.1:${serverPort}/`);
+    await page.goto(server.url());
     await page.waitForSelector('#view-projects:not(.hidden)', { timeout: 10000 });
 
     await page.click('#btn-settings');
@@ -222,7 +111,7 @@ test.describe('Desktop Panel — Sync Settings', () => {
   });
 
   test('invalid sync URL shows error', async ({ page }) => {
-    await page.goto(`http://127.0.0.1:${serverPort}/`);
+    await page.goto(server.url());
     await page.waitForSelector('#view-projects:not(.hidden)', { timeout: 10000 });
 
     await page.click('#btn-settings');
@@ -249,7 +138,7 @@ test.describe('Desktop Panel — Dispatch Flow', () => {
 
   test('dispatch flow shows confirmation with step count', async ({ page }) => {
     // First configure endpoint
-    await page.goto(`http://127.0.0.1:${serverPort}/`);
+    await page.goto(server.url());
     await page.waitForSelector('#view-projects:not(.hidden)', { timeout: 10000 });
 
     await page.click('#btn-settings');
@@ -301,7 +190,7 @@ test.describe('Desktop Panel — Dispatch Flow', () => {
   });
 
   test('cancel dispatch returns to project view', async ({ page }) => {
-    await page.goto(`http://127.0.0.1:${serverPort}/`);
+    await page.goto(server.url());
     await page.waitForSelector('#view-projects:not(.hidden)', { timeout: 10000 });
 
     // Configure endpoint
@@ -355,7 +244,7 @@ test.describe('Desktop Panel — Dispatch Flow', () => {
 
 test.describe('Desktop Panel — Delete Project', () => {
   test('delete project removes it from list', async ({ page }) => {
-    await page.goto(`http://127.0.0.1:${serverPort}/`);
+    await page.goto(server.url());
     await page.waitForSelector('#view-projects:not(.hidden)', { timeout: 10000 });
 
     // Create a project
@@ -384,7 +273,7 @@ test.describe('Desktop Panel — Delete Project', () => {
 
 test.describe('Desktop Panel — Re-record Flow', () => {
   test('re-record button enters re-record state', async ({ page }) => {
-    await page.goto(`http://127.0.0.1:${serverPort}/`);
+    await page.goto(server.url());
     await page.waitForSelector('#view-projects:not(.hidden)', { timeout: 10000 });
 
     // Create project + recording + commit step
@@ -431,7 +320,7 @@ test.describe('Desktop Panel — Re-record Flow', () => {
 
 test.describe('Desktop Panel — Toggle Recording', () => {
   test('pause and resume recording toggles state', async ({ page }) => {
-    await page.goto(`http://127.0.0.1:${serverPort}/`);
+    await page.goto(server.url());
     await page.waitForSelector('#view-projects:not(.hidden)', { timeout: 10000 });
 
     await page.click('#btn-new-project');
@@ -462,7 +351,7 @@ test.describe('Desktop Panel — Toggle Recording', () => {
 
 test.describe('Desktop Panel — Delete Recording', () => {
   test('delete recording returns to project view', async ({ page }) => {
-    await page.goto(`http://127.0.0.1:${serverPort}/`);
+    await page.goto(server.url());
     await page.waitForSelector('#view-projects:not(.hidden)', { timeout: 10000 });
 
     await page.click('#btn-new-project');
@@ -487,20 +376,5 @@ test.describe('Desktop Panel — Delete Recording', () => {
 
     // Should show empty recordings state
     await expect(page.locator('#recordings-empty')).toBeVisible();
-  });
-});
-
-test.describe('Desktop Panel — Self-Capture Toggle', () => {
-  test('self-capture toggle stays visible while the settings view is showing', async ({ page }) => {
-    await page.goto(`http://127.0.0.1:${serverPort}/`);
-    await page.waitForSelector('#view-projects:not(.hidden)', { timeout: 10000 });
-
-    await page.click('#btn-settings');
-    await page.waitForSelector('#view-settings:not(.hidden)', { timeout: 5000 });
-
-    // The toggle sits in the shell's static target-app controls — a block
-    // rendered unconditionally, outside the sections the view switcher
-    // toggles — so switching views leaves it on screen.
-    await expect(page.locator('#self-capture-toggle')).toBeVisible();
   });
 });

@@ -18,8 +18,8 @@
  * permits loopback HTTP and which does not enforce browser CORS the way a normal
  * page does — so the real app syncs to the no-CORS reference server directly.
  * This integration test, however, does NOT run in Tauri: it serves the built
- * `dist/` in a plain Chromium page (with `window.__TAURI__` mocked and CSP
- * stripped), exactly like the other desktop integration specs. In a plain page a
+ * `dist/` in a plain Chromium page (with `window.__TAURI__` mocked), exactly
+ * like the other desktop integration specs. In a plain page a
  * direct `fetch` to a different-origin loopback port is a cross-origin request
  * the browser subjects to CORS, and the reference server sends no CORS headers —
  * so a direct pull would fail for an environment reason that does NOT exist in
@@ -40,75 +40,18 @@
  */
 
 import { test, expect } from './coverage-fixture.js';
+import { installTauriMockServer } from './tauri-mock-fixture.js';
 import http from 'http';
-import fs from 'fs';
 import path from 'path';
 import { spawn } from 'child_process';
 import { fileURLToPath } from 'url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const distPath = path.resolve(__dirname, '../../dist');
 // reference-implementations/sync-server/server.js, from packages/desktop/tests/integration.
 const SERVER_ENTRY = path.resolve(
   __dirname,
   '../../../../reference-implementations/sync-server/server.js',
 );
-
-// Minimal Tauri mock: in-memory state persistence + capture-event listener
-// registry, matching the other desktop integration specs. No project is seeded
-// locally — the test pulls everything from the reference server.
-const TAURI_MOCK_JS = `
-  let _savedState = JSON.stringify({ projects: [], settings: {} });
-  window.__TAURI__ = {
-    core: {
-      invoke: async (cmd, args) => {
-        switch (cmd) {
-          case 'load_state': return _savedState;
-          case 'sync_http_request': {
-            // The desktop routes sync through the native sync_http_request
-            // command. In this integration env there is no Rust backend, so the
-            // mock services it via the page's window.fetch — which here resolves
-            // SAME-ORIGIN to the dist server's reverse proxy to the real reference
-            // server — and adapts the result into the native command's
-            // { status, headers, body } shape. This exercises the real transport
-            // path end-to-end against the real server.
-            const _r = await window.fetch(args.url, {
-              method: args.method,
-              headers: args.headers || {},
-              body: args.body == null ? undefined : args.body,
-            });
-            const _status = typeof _r.status === 'number' ? _r.status : _r.ok ? 200 : 500;
-            let _body = '';
-            if (typeof _r.text === 'function') { try { _body = await _r.text(); } catch (_e) { _body = ''; } }
-            if (!_body && typeof _r.json === 'function') { try { _body = JSON.stringify(await _r.json()); } catch (_e) { _body = ''; } }
-            const _headers = {};
-            if (_r.headers && typeof _r.headers.forEach === 'function') { _r.headers.forEach((v, k) => { _headers[String(k).toLowerCase()] = v; }); }
-            return { status: _status, headers: _headers, body: _body };
-          }
-          case 'save_state': _savedState = args.data; return;
-          case 'start_capture': return;
-          case 'stop_capture': return;
-          case 'list_windows': return [];
-          case 'commit_barrier': return { barrier_id: 0, wedged_workers: 0 };
-          case 'set_self_capture_exclusion': return;
-          case 'set_target_pid': return;
-          case 'export_file': return;
-          case 'import_file': return null;
-          case 'get_self_pid': return 1234;
-          default: return null;
-        }
-      },
-    },
-    event: {
-      listen: (event, handler) => {
-        window.__TAURI__._listeners = window.__TAURI__._listeners || {};
-        window.__TAURI__._listeners[event] = handler;
-        return Promise.resolve(() => {});
-      },
-    },
-    _listeners: {},
-  };
-`;
 
 /**
  * Spawn the real Reference Sync Server on an ephemeral port; resolve with its
@@ -194,8 +137,6 @@ function proxyToReferenceServer(req, res, referenceBaseUrl) {
   });
 }
 
-let server;
-let serverPort;
 let referenceServer;
 
 test.beforeAll(async () => {
@@ -215,81 +156,43 @@ test.beforeAll(async () => {
   });
   expect(seedRes.status).toBe(200);
   expect(await seedRes.json()).toEqual({ ok: true, seeded: 2 });
+});
 
-  // Dist server: serves the built desktop frontend AND same-origin-proxies the
-  // sync protocol paths to the reference server (the CORS workaround).
-  server = http.createServer((req, res) => {
-    // Sync protocol paths → reverse-proxy to the reference server (same-origin
-    // to the webview, so no CORS). Covers /projects, /projects/:id, /__debug/*.
+test.afterAll(async () => {
+  referenceServer?.stop();
+});
+
+// The shared dist server (mock injection, static frontend) plus this
+// spec's extra route: the sync protocol paths reverse-proxy to the reference
+// server, so the webview's fetch stays SAME-ORIGIN and no CORS applies. The
+// route registers before the dist files, and runs per request — by which time
+// the beforeAll above has the reference server's base URL.
+const server = installTauriMockServer({
+  routeRequest: (req, res) => {
     if (
       req.url === '/projects' ||
       req.url.startsWith('/projects/') ||
       req.url.startsWith('/__debug/')
     ) {
       proxyToReferenceServer(req, res, referenceServer.baseUrl);
-      return;
+      return true;
     }
-
-    if (req.url === '/__tauri-mock.js') {
-      res.writeHead(200, { 'Content-Type': 'application/javascript' });
-      res.end(TAURI_MOCK_JS);
-      return;
-    }
-
-    let filePath = path.resolve(distPath, req.url === '/' ? 'index.html' : req.url.slice(1));
-    if (!filePath.startsWith(distPath)) {
-      res.writeHead(403);
-      res.end('Forbidden');
-      return;
-    }
-    if (!fs.existsSync(filePath)) {
-      res.writeHead(404);
-      res.end('Not found');
-      return;
-    }
-
-    const ext = path.extname(filePath);
-    const contentTypes = {
-      '.html': 'text/html',
-      '.js': 'application/javascript',
-      '.css': 'text/css',
-      '.json': 'application/json',
-      '.md': 'text/markdown',
-    };
-    let content = fs.readFileSync(filePath, 'utf-8');
-    if (ext === '.html') {
-      content = content.replace(/<meta http-equiv="Content-Security-Policy"[^>]*>/, '');
-      content = content.replace('<head>', '<head><script src="/__tauri-mock.js"></script>');
-    }
-    res.writeHead(200, { 'Content-Type': contentTypes[ext] || 'text/plain' });
-    res.end(content);
-  });
-
-  await new Promise((resolve) => {
-    server.listen(0, '127.0.0.1', () => {
-      serverPort = server.address().port;
-      resolve();
-    });
-  });
-});
-
-test.afterAll(async () => {
-  server?.close();
-  referenceServer?.stop();
+    return false;
+  },
 });
 
 test.describe('Sync pulls the bundled seed samples end-to-end (desktop)', () => {
   test('pulls and reconciles the desktop sample; rejects the extension sample as a stamp mismatch', async ({
     page,
   }) => {
-    await page.goto(`http://127.0.0.1:${serverPort}/`);
+    await page.goto(server.url());
     await page.waitForSelector('#view-projects:not(.hidden)', { timeout: 10000 });
 
     // Configure the sync endpoint to the SAME-ORIGIN dist server (which proxies
     // the protocol paths to the reference server). Same origin ⇒ no CORS.
     await page.click('#btn-settings');
     await page.waitForSelector('#view-settings:not(.hidden)', { timeout: 5000 });
-    await page.fill('#settings-sync-url', `http://127.0.0.1:${serverPort}`);
+    await page.fill('#settings-sync-url', server.origin());
     await page.click('#btn-settings-sync-save');
     await page.waitForTimeout(300);
     await page.click('#btn-settings-back');

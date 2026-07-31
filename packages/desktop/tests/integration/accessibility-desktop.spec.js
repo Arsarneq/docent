@@ -2,7 +2,8 @@
  * Desktop Panel Accessibility Audit — axe-core WCAG 2.1 AA
  *
  * Scans each major panel view for accessibility violations in the desktop context.
- * Uses the same Tauri mock approach as panel-desktop.spec.js.
+ * Drives the real panel against the suite's shared Tauri mock
+ * (`tauri-mock-fixture.js`).
  *
  * Note: This catches machine-detectable issues only. Full WCAG compliance
  * requires manual testing with assistive technologies and expert review.
@@ -11,98 +12,10 @@
  */
 
 import { test, expect } from './coverage-fixture.js';
+import { installTauriMockServer } from './tauri-mock-fixture.js';
 import AxeBuilder from '@axe-core/playwright';
-import http from 'http';
-import fs from 'fs';
-import path from 'path';
-import { fileURLToPath } from 'url';
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const distPath = path.resolve(__dirname, '../../dist');
-
-const TAURI_MOCK_JS = `
-  let _savedState = JSON.stringify({ projects: [], settings: {} });
-
-  window.__TAURI__ = {
-    core: {
-      invoke: async (cmd, args) => {
-        switch (cmd) {
-          case 'load_state': return _savedState;
-          case 'save_state': _savedState = args.data; return;
-          case 'start_capture': return;
-          case 'stop_capture': return;
-          case 'list_windows': return [];
-          case 'commit_barrier': return { barrier_id: 0, wedged_workers: 0 };
-          case 'set_self_capture_exclusion': return;
-          case 'export_file': return;
-          case 'import_file': return null;
-          default: return null;
-        }
-      },
-    },
-    event: {
-      listen: (event, handler) => {
-        window.__TAURI__._listeners = window.__TAURI__._listeners || {};
-        window.__TAURI__._listeners[event] = handler;
-        return Promise.resolve(() => {});
-      },
-    },
-    _listeners: {},
-  };
-`;
-
-let server;
-let serverPort;
-
-test.beforeAll(async () => {
-  server = http.createServer((req, res) => {
-    if (req.url === '/__tauri-mock.js') {
-      res.writeHead(200, { 'Content-Type': 'application/javascript' });
-      res.end(TAURI_MOCK_JS);
-      return;
-    }
-
-    let filePath = path.resolve(distPath, req.url === '/' ? 'index.html' : req.url.slice(1));
-    if (!filePath.startsWith(distPath)) {
-      res.writeHead(403);
-      res.end('Forbidden');
-      return;
-    }
-    if (!fs.existsSync(filePath)) {
-      res.writeHead(404);
-      res.end('Not found');
-      return;
-    }
-
-    const ext = path.extname(filePath);
-    const contentTypes = {
-      '.html': 'text/html',
-      '.js': 'application/javascript',
-      '.css': 'text/css',
-      '.json': 'application/json',
-    };
-
-    let content = fs.readFileSync(filePath, 'utf-8');
-    if (ext === '.html') {
-      content = content.replace(/<meta http-equiv="Content-Security-Policy"[^>]*>/, '');
-      content = content.replace('<head>', '<head><script src="/__tauri-mock.js"></script>');
-    }
-
-    res.writeHead(200, { 'Content-Type': contentTypes[ext] || 'text/plain' });
-    res.end(content);
-  });
-
-  await new Promise((resolve) => {
-    server.listen(0, '127.0.0.1', () => {
-      serverPort = server.address().port;
-      resolve();
-    });
-  });
-});
-
-test.afterAll(async () => {
-  server?.close();
-});
+const server = installTauriMockServer();
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -123,7 +36,7 @@ function formatViolations(violations) {
 }
 
 async function navigateAndWait(page) {
-  await page.goto(`http://127.0.0.1:${serverPort}/`);
+  await page.goto(server.url());
   await page.waitForSelector('#view-projects:not(.hidden)', { timeout: 10000 });
 }
 
