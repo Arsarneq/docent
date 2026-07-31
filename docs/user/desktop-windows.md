@@ -53,6 +53,14 @@ coordinate-based capture for that individual action. A single recording can cont
 mix of both modes. (For the full capture rules, see
 [Desktop capture (Windows)](../architecture/application/desktop/windows/capture-principles.md).)
 
+Docent excludes its own process from capture by default, so a recording stays about
+the application you are demonstrating instead of filling up with the clicks and
+typing you do in the Docent window itself. The **Exclude Docent from capture**
+checkbox below the target-application selector controls this, and a change takes
+effect immediately. Which windows the exclusion covers — the file dialogs and
+other windows Docent itself puts on screen — is part of the same
+[capture rules](../architecture/application/desktop/windows/capture-principles.md).
+
 ## Send
 
 The dispatch workflow is identical to the extension: configure an endpoint in
