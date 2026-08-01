@@ -54,9 +54,10 @@ some spec exercises. Holding the crate's registered command surface against its
 own table is
 [DSH-1](../../architecture/application/desktop/windows/application-shell.md#the-command-surface)'s
 job, done by the command-surface admission test its registry row names. The
-same check holds this mock's serviced-command list equal to the crate's
-registered surface — the list's definition — so the mock services every crate
-command, and a backend command cannot land without this suite seeing it.
+same check holds the mock's serviced-command surface — the override allow-list
+and the canonical switch's case labels alike — equal to the crate's registered
+surface, so the mock services every crate command and a backend command cannot
+land without this suite seeing it.
 
 **Per-spec behaviour rides an override seam.** `installTauriMockServer({ overrides })`
 replaces a single command's behaviour with spec-supplied source — how

@@ -14,19 +14,21 @@
  *      registration, and the doc table's command rows are equal — each
  *      pairwise difference is reported in both directions;
  *   2. the doc's one event row names `capture:action`, and the crate sources
- *      contain exactly one emit-family call site (`emit` / `emit_to` /
- *      `emit_filter`) whose channel is that literal (sources are
- *      comment-stripped first, so doc comments naming the channel never
- *      count); an emit-family call whose channel the scan cannot read as a
- *      string literal fails the check rather than passing;
+ *      contain exactly one emit-family call site — every emit method the
+ *      Emitter trait exposes (`emit`, `emit_str`, `emit_to`, `emit_str_to`,
+ *      `emit_filter`, `emit_str_filter`) — whose channel is that literal
+ *      (sources are comment-stripped first, so doc comments naming the
+ *      channel never count); an emit-family call whose channel the scan
+ *      cannot read as a string literal fails the check rather than passing;
  *   3. the grants declared by the tracked capability files under
  *      `capabilities/` equal the grant identifiers the clause's section names
  *      in backticks — the admission shape is a namespaced identifier ending
  *      in `:default`, `:allow-…`, or `:deny-…`, so other backticked tokens
  *      (command names, the event channel) never read as grants — again in
  *      both directions;
- *   4. the desktop integration suite's mock command list
- *      (`tauri-mock-fixture.js` `CANONICAL_COMMANDS`) equals the crate's
+ *   4. the desktop integration suite's mock serviced-command surface — both
+ *      the `CANONICAL_COMMANDS` override allow-list and the injected mock
+ *      script's `case` labels (`tauri-mock-fixture.js`) — equals the crate's
  *      command set, so the suite's one drift-visible consumer of the surface
  *      can neither lag a command the crate gains nor keep servicing one it
  *      loses (that leg's doctrine home is docs/test/integration/desktop.md).
@@ -35,9 +37,11 @@
  * broken read of the surface (or a moved surface) and fails loudly rather
  * than passing vacuously.
  *
- * Honest limits: an emit issued through a wrapping helper rather than an
- * Emitter-family method is invisible to the scan, and the table's
- * Direction / What-it-does / Who-calls-it prose is review-held, never parsed.
+ * Honest limits: an emit issued through a wrapping helper or through
+ * non-method call syntax (`Emitter::emit(app, …)`) is invisible to the scan;
+ * a `#[tauri::command]` declared inside a test-only module would count as
+ * shipped surface; and the table's Direction / What-it-does / Who-calls-it
+ * prose is review-held, never parsed.
  *
  * Usage:
  *   node scripts/check-command-surface.js   # or: npm run lint:command-surface
@@ -46,6 +50,7 @@
 import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
+import { parseTables, readListEntries } from './check-test-inventory.js';
 
 /** Repo-relative path of the doc whose DSH-1 table states the contract. */
 export const DOC_PATH = 'docs/architecture/application/desktop/windows/application-shell.md';
@@ -60,6 +65,8 @@ export const MOCK_PATH = 'packages/desktop/tests/integration/tauri-mock-fixture.
 
 /** The one event channel the backend emits, per the doc's event row. */
 export const EVENT_CHANNEL = 'capture:action';
+/** The clause id the whole contract is anchored to. */
+export const CLAUSE_ID = 'DSH-1';
 
 /**
  * A capability-grant identifier: one or more namespace segments ending in
@@ -91,7 +98,13 @@ export function stripRustComments(source) {
   while (i < n) {
     const c = source[i];
     const next = source[i + 1];
-    if (c === '/' && next === '/') {
+    if (c === "'") {
+      // A simple char literal ('x', '\n', '\'') is skipped wholesale so a
+      // quote inside one cannot open a phantom string; a lifetime tick ('a)
+      // falls through and is treated as an ordinary character.
+      const lit = /^'(?:\\.|[^\\'])'/.exec(source.slice(i, i + 4));
+      i += lit ? lit[0].length : 1;
+    } else if (c === '/' && next === '/') {
       const end = source.indexOf('\n', i);
       const stop = end === -1 ? n : end;
       blank(i, stop);
@@ -168,33 +181,59 @@ export function extractHandlerCommands(strippedLib) {
 }
 
 /**
- * Slice the doc text to the DSH-1 clause's scope: from its marker to the next
- * clause marker or heading (the doc's own scope rule).
+ * Blank out fenced code blocks (``` … ```), preserving newlines, so a marker,
+ * heading, table, or grant-shaped token inside an illustrative fence is never
+ * read as live doc text.
+ * @param {string} text Markdown text
+ * @returns {string} the text with fenced content replaced by blank lines
+ */
+export function stripMarkdownFences(text) {
+  const lines = text.split('\n');
+  let inFence = false;
+  return lines
+    .map((line) => {
+      if (/^\s*```/.test(line)) {
+        inFence = !inFence;
+        return '';
+      }
+      return inFence ? '' : line;
+    })
+    .join('\n');
+}
+
+/**
+ * Slice the doc text to the clause's scope: from its marker to the next
+ * clause marker or heading (the doc's own scope rule). Fences are stripped
+ * first, so fenced examples can neither anchor nor truncate the slice.
  * @param {string} docText the application-shell doc
  * @returns {string} the clause's text, or '' when the marker is absent
  */
 export function extractDsh1Section(docText) {
-  const marker = '**DSH-1.**';
-  const start = docText.indexOf(marker);
+  const defenced = stripMarkdownFences(docText);
+  const marker = `**${CLAUSE_ID}.**`;
+  const start = defenced.indexOf(marker);
   if (start === -1) return '';
-  const rest = docText.slice(start + marker.length);
+  const rest = defenced.slice(start + marker.length);
   const end = rest.search(/\n#{2,}\s|\*\*[A-Z][A-Z0-9]*-[1-9][0-9]*\.\*\*/);
-  return end === -1 ? docText.slice(start) : docText.slice(start, start + marker.length + end);
+  return end === -1 ? defenced.slice(start) : defenced.slice(start, start + marker.length + end);
 }
 
 /**
- * Parse the DSH-1 table's first column into command rows and event rows.
- * Header and separator rows carry no backticked first cell and are skipped.
- * @param {string} section the DSH-1 clause text
+ * Parse the clause table's first column into command rows and event rows,
+ * through the shared fence-aware table parser. Header and separator rows
+ * carry no backticked first cell and are skipped.
+ * @param {string} section the clause's text
  * @returns {{ commands: string[], events: string[] }} names in table order
  */
 export function extractDocRows(section) {
   const commands = [];
   const events = [];
-  for (const line of section.split('\n')) {
-    const m = line.match(/^\|\s*`([^`]+)`\s*(\(event\))?\s*\|/);
-    if (!m) continue;
-    (m[2] ? events : commands).push(m[1]);
+  for (const table of parseTables(section)) {
+    for (const row of table.rows) {
+      const m = (row[0] ?? '').match(/^`([^`]+)`\s*(\(event\))?$/);
+      if (!m) continue;
+      (m[2] ? events : commands).push(m[1]);
+    }
   }
   return { commands, events };
 }
@@ -225,11 +264,13 @@ export function extractEmitSites(strippedByPath) {
   const sites = [];
   const STR = /^\s*"((?:[^"\\]|\\.)*)"/;
   const SECOND_STR = /^\s*"(?:[^"\\]|\\.)*"\s*,\s*"((?:[^"\\]|\\.)*)"/;
+  const FAMILY = /\.(emit|emit_str|emit_to|emit_str_to|emit_filter|emit_str_filter)\s*\(/g;
   for (const [path, source] of strippedByPath) {
-    for (const m of source.matchAll(/\.(emit|emit_to|emit_filter)\s*\(/g)) {
+    for (const m of source.matchAll(FAMILY)) {
       const line = source.slice(0, m.index).split('\n').length;
       const rest = source.slice(m.index + m[0].length);
-      const arg = rest.match(m[1] === 'emit_to' ? SECOND_STR : STR);
+      const second = m[1] === 'emit_to' || m[1] === 'emit_str_to';
+      const arg = rest.match(second ? SECOND_STR : STR);
       sites.push({ path, method: m[1], channel: arg ? arg[1] : null, line });
     }
   }
@@ -237,14 +278,27 @@ export function extractEmitSites(strippedByPath) {
 }
 
 /**
- * Parse the mock fixture's `CANONICAL_COMMANDS` array literal.
+ * Read the mock fixture's `CANONICAL_COMMANDS` array through the shared
+ * loud-on-anything-unmodelled list reader: a spread, a variable, or a
+ * restructured literal is an error, never a silently partial read.
  * @param {string} fixtureSource tauri-mock-fixture.js source
- * @returns {string[]} the serviced command names, in list order
+ * @returns {{ commands: string[], error: string | null }}
  */
 export function extractMockCommands(fixtureSource) {
-  const m = fixtureSource.match(/CANONICAL_COMMANDS\s*=\s*\[([\s\S]*?)\]/);
-  if (!m) return [];
-  return [...m[1].matchAll(/'([^']+)'/g)].map((x) => x[1]);
+  const read = readListEntries(fixtureSource, 'CANONICAL_COMMANDS');
+  return 'error' in read
+    ? { commands: [], error: read.error }
+    : { commands: read.entries, error: null };
+}
+
+/**
+ * Extract the command names the injected mock script's invoke switch actually
+ * services — its `case 'name':` labels in the fixture's script template.
+ * @param {string} fixtureSource tauri-mock-fixture.js source
+ * @returns {string[]} serviced case labels, in switch order
+ */
+export function extractMockServicedCases(fixtureSource) {
+  return [...fixtureSource.matchAll(/^\s*case '([A-Za-z0-9_]+)':/gm)].map((m) => m[1]);
 }
 
 /**
@@ -283,7 +337,8 @@ function duplicatesIn(names, what) {
  * @param {{ path: string, method: string, channel: string | null, line: number }[]} s.emitSites
  * @param {string[]} s.fileGrants permissions across the tracked capability files
  * @param {string[]} s.docGrants grant identifiers the doc section names
- * @param {string[]} s.mockCommands the mock fixture's serviced commands
+ * @param {string[]} s.mockCommands the mock's CANONICAL_COMMANDS entries
+ * @param {string[]} s.mockCases the injected mock script's serviced case labels
  * @returns {string[]} problems; empty when the contract holds
  */
 export function evaluateCommandSurface(s) {
@@ -292,11 +347,12 @@ export function evaluateCommandSurface(s) {
   const surfaces = [
     [s.commandFns, `no #[tauri::command] functions found under ${SRC_DIR} — the scan is broken or the commands moved`], // prettier-ignore
     [s.handlerCommands, `no generate_handler! registrations found in ${LIB_PATH}`],
-    [s.docCommands, `no command rows found in the DSH-1 table of ${DOC_PATH}`],
-    [s.docEvents, `no event row found in the DSH-1 table of ${DOC_PATH}`],
+    [s.docCommands, `no command rows found in the ${CLAUSE_ID} table of ${DOC_PATH}`],
+    [s.docEvents, `no event row found in the ${CLAUSE_ID} table of ${DOC_PATH}`],
     [s.fileGrants, `no permissions found under ${CAPABILITIES_DIR}`],
-    [s.docGrants, `no grant identifiers found in the DSH-1 section of ${DOC_PATH}`],
+    [s.docGrants, `no grant identifiers found in the ${CLAUSE_ID} section of ${DOC_PATH}`],
     [s.mockCommands, `no CANONICAL_COMMANDS entries found in ${MOCK_PATH}`],
+    [s.mockCases, `no serviced case labels found in the mock's invoke switch (${MOCK_PATH})`],
   ];
   for (const [list, message] of surfaces) {
     if (list.length === 0) problems.push(message);
@@ -314,6 +370,7 @@ export function evaluateCommandSurface(s) {
     [s.handlerCommands, `the generate_handler! list`],
     [s.docCommands, `the doc table`],
     [s.mockCommands, `the mock's CANONICAL_COMMANDS list`],
+    [s.mockCases, `the mock's invoke switch`],
   ]) {
     problems.push(...duplicatesIn(list, what));
   }
@@ -321,18 +378,20 @@ export function evaluateCommandSurface(s) {
   problems.push(
     ...missingFrom(s.commandFns, s.handlerCommands, `has #[tauri::command] but is not registered in generate_handler! (${LIB_PATH})`), // prettier-ignore
     ...missingFrom(s.handlerCommands, s.commandFns, `is registered in generate_handler! but no #[tauri::command] function defines it`), // prettier-ignore
-    ...missingFrom(s.commandFns, s.docCommands, `has #[tauri::command] but no row in the DSH-1 table (${DOC_PATH})`), // prettier-ignore
-    ...missingFrom(s.docCommands, s.commandFns, `has a DSH-1 table row but no #[tauri::command] function defines it`), // prettier-ignore
-    ...missingFrom(s.commandFns, s.mockCommands, `has #[tauri::command] but the integration mock services no such command (${MOCK_PATH})`), // prettier-ignore
-    ...missingFrom(s.mockCommands, s.commandFns, `is serviced by the integration mock but no #[tauri::command] function defines it`), // prettier-ignore
+    ...missingFrom(s.commandFns, s.docCommands, `has #[tauri::command] but no row in the ${CLAUSE_ID} table (${DOC_PATH})`), // prettier-ignore
+    ...missingFrom(s.docCommands, s.commandFns, `has a ${CLAUSE_ID} table row but no #[tauri::command] function defines it`), // prettier-ignore
+    ...missingFrom(s.commandFns, s.mockCommands, `has #[tauri::command] but the mock's CANONICAL_COMMANDS list does not carry it (${MOCK_PATH})`), // prettier-ignore
+    ...missingFrom(s.mockCommands, s.commandFns, `is in the mock's CANONICAL_COMMANDS list but no #[tauri::command] function defines it`), // prettier-ignore
+    ...missingFrom(s.commandFns, s.mockCases, `has #[tauri::command] but the mock's invoke switch has no case servicing it (${MOCK_PATH})`), // prettier-ignore
+    ...missingFrom(s.mockCases, s.commandFns, `is serviced by the mock's invoke switch but no #[tauri::command] function defines it`), // prettier-ignore
   );
 
   const badEventRows = s.docEvents.filter((e) => e !== EVENT_CHANNEL);
   for (const e of badEventRows) {
-    problems.push(`the DSH-1 table carries an event row \`${e}\` — the one backend event channel is \`${EVENT_CHANNEL}\``); // prettier-ignore
+    problems.push(`the ${CLAUSE_ID} table carries an event row \`${e}\` — the one backend event channel is \`${EVENT_CHANNEL}\``); // prettier-ignore
   }
   if (s.docEvents.length > 1) {
-    problems.push(`the DSH-1 table carries ${s.docEvents.length} event rows — the contract states exactly one event channel`); // prettier-ignore
+    problems.push(`the ${CLAUSE_ID} table carries ${s.docEvents.length} event rows — the contract states exactly one event channel`); // prettier-ignore
   }
   for (const e of s.emitSites.filter((x) => x.channel === null)) {
     problems.push(`${e.path}:${e.line} calls .${e.method}( with a channel the scan cannot read as a string literal — event channels must be literal so the single-channel contract stays checkable`); // prettier-ignore
@@ -353,8 +412,8 @@ export function evaluateCommandSurface(s) {
   }
 
   problems.push(
-    ...missingFrom(s.fileGrants, s.docGrants, `is granted under ${CAPABILITIES_DIR} but the DSH-1 section does not name it`), // prettier-ignore
-    ...missingFrom(s.docGrants, s.fileGrants, `is named as a grant in the DSH-1 section but no tracked capability file grants it`), // prettier-ignore
+    ...missingFrom(s.fileGrants, s.docGrants, `is granted under ${CAPABILITIES_DIR} but the ${CLAUSE_ID} section does not name it`), // prettier-ignore
+    ...missingFrom(s.docGrants, s.fileGrants, `is named as a grant in the ${CLAUSE_ID} section but no tracked capability file grants it`), // prettier-ignore
   );
 
   return problems;
@@ -403,6 +462,10 @@ export function auditTree(readFile, rustFiles, capabilityFiles) {
     }
   }
 
+  const mockSource = readFile(MOCK_PATH).replace(/\r\n/g, '\n');
+  const mockRead = extractMockCommands(mockSource);
+  if (mockRead.error) collectionProblems.push(`${MOCK_PATH}: ${mockRead.error}`);
+
   const s = {
     commandFns: [...strippedByPath.values()].flatMap((src) => extractCommandFns(src)),
     handlerCommands,
@@ -412,7 +475,8 @@ export function auditTree(readFile, rustFiles, capabilityFiles) {
     emitSites: extractEmitSites(strippedByPath),
     fileGrants,
     docGrants: extractDocGrants(section),
-    mockCommands: extractMockCommands(readFile(MOCK_PATH).replace(/\r\n/g, '\n')),
+    mockCommands: mockRead.commands,
+    mockCases: extractMockServicedCases(mockSource),
   };
   return {
     problems: [...collectionProblems, ...evaluateCommandSurface(s)],

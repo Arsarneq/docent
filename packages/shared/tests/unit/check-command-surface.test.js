@@ -30,6 +30,7 @@ import {
   extractDocGrants,
   extractEmitSites,
   extractMockCommands,
+  extractMockServicedCases,
   evaluateCommandSurface,
   auditTree,
 } from '../../../../scripts/check-command-surface.js';
@@ -48,6 +49,7 @@ function makeSurface(overrides = {}) {
     fileGrants: ['core:default', 'dialog:allow-open'],
     docGrants: ['core:default', 'dialog:allow-open'],
     mockCommands: ['start_capture', 'stop_capture'],
+    mockCases: ['start_capture', 'stop_capture'],
     ...overrides,
   };
 }
@@ -91,19 +93,35 @@ describe('evaluateCommandSurface — command-set equality (both ways, each pair)
     );
   });
 
-  it('fires when the mock services fewer commands than the crate defines', () => {
+  it('fires when the mock list carries fewer commands than the crate defines', () => {
     const problems = evaluateCommandSurface(makeSurface({ mockCommands: ['start_capture'] }));
     assert.ok(
-      problems.some((p) => p.includes('stop_capture') && p.includes('integration mock services no such command')), // prettier-ignore
+      problems.some((p) => p.includes('stop_capture') && p.includes("CANONICAL_COMMANDS list does not carry it")), // prettier-ignore
     );
   });
 
-  it('fires when the mock services a command the crate does not define', () => {
+  it('fires when the mock list carries a command the crate does not define', () => {
     const problems = evaluateCommandSurface(
       makeSurface({ mockCommands: ['start_capture', 'stop_capture', 'check_permissions'] }),
     );
     assert.ok(
-      problems.some((p) => p.includes('check_permissions') && p.includes('serviced by the integration mock')), // prettier-ignore
+      problems.some((p) => p.includes('check_permissions') && p.includes("CANONICAL_COMMANDS list but no #[tauri::command]")), // prettier-ignore
+    );
+  });
+
+  it('fires when the mock invoke switch has no case for a crate command', () => {
+    const problems = evaluateCommandSurface(makeSurface({ mockCases: ['start_capture'] }));
+    assert.ok(
+      problems.some((p) => p.includes('stop_capture') && p.includes('no case servicing it')),
+    );
+  });
+
+  it('fires when the mock invoke switch services a command the crate does not define', () => {
+    const problems = evaluateCommandSurface(
+      makeSurface({ mockCases: ['start_capture', 'stop_capture', 'get_self_pid'] }),
+    );
+    assert.ok(
+      problems.some((p) => p.includes('get_self_pid') && p.includes("serviced by the mock's invoke switch")), // prettier-ignore
     );
   });
 
@@ -200,6 +218,7 @@ describe('evaluateCommandSurface — empty parses are structural failures', () =
     ['fileGrants', 'no permissions'],
     ['docGrants', 'no grant identifiers'],
     ['mockCommands', 'no CANONICAL_COMMANDS entries'],
+    ['mockCases', 'no serviced case labels'],
   ]) {
     it(`fires when ${key} parses empty`, () => {
       const problems = evaluateCommandSurface(makeSurface({ [key]: [] }));
@@ -263,17 +282,25 @@ describe('stripRustComments — the emit scan cannot count comment mentions', ()
 });
 
 describe('extractEmitSites — the emit family', () => {
-  it('reads emit_to channels from the second literal and emit_filter from the first', () => {
+  it('reads the channel from the right argument for every Emitter emit method', () => {
     const src = [
+      'h.emit("capture:action", &e);',
+      'h.emit_str("capture:action", s);',
       'h.emit_to("main", "capture:action", &e);',
+      'h.emit_str_to("main", "capture:action", s);',
       'h.emit_filter("capture:action", &e, |t| true);',
+      'h.emit_str_filter("capture:action", s, |t| true);',
     ].join('\n');
     const sites = extractEmitSites(new Map([['a.rs', src]]));
     assert.deepEqual(
       sites.map((s) => [s.method, s.channel]),
       [
+        ['emit', 'capture:action'],
+        ['emit_str', 'capture:action'],
         ['emit_to', 'capture:action'],
+        ['emit_str_to', 'capture:action'],
         ['emit_filter', 'capture:action'],
+        ['emit_str_filter', 'capture:action'],
       ],
     );
   });
@@ -284,6 +311,24 @@ describe('extractEmitSites — the emit family', () => {
       sites.map((s) => [s.method, s.channel]),
       [['emit', null]],
     );
+  });
+
+  it('a char literal cannot open a phantom string that hides or invents a site', () => {
+    const src = [
+      "fn q() -> char { '\"' }",
+      '/// doc: handle.emit("capture:action", &e)',
+      'fn forward(h: H, e: E) { let _ = h.emit("capture:action", &e); }',
+    ].join('\n');
+    const sites = extractEmitSites(new Map([['a.rs', stripRustComments(src)]]));
+    assert.equal(sites.length, 1);
+    assert.equal(sites[0].line, 3);
+  });
+
+  it('a lifetime tick is not read as a char literal', () => {
+    const src = "fn f<'a>(x: &'a str) {} // gone";
+    const stripped = stripRustComments(src);
+    assert.ok(stripped.includes("&'a str"));
+    assert.ok(!stripped.includes('gone'));
   });
 });
 
@@ -368,6 +413,32 @@ describe('extractDsh1Section / extractDocRows / extractDocGrants', () => {
     assert.deepEqual(extractDocGrants(section), ['core:event:allow-listen']);
   });
 
+  it('fenced examples are neither table rows nor grants nor scope boundaries', () => {
+    const fenced = [
+      '**DSH-1.** The contract.',
+      '',
+      '| Name | D | W | C |',
+      '| ---- | - | - | - |',
+      '| `start_capture` | a | b | c |',
+      '',
+      'Grants: `core:default`. An illustrative example:',
+      '',
+      '```markdown',
+      '| `example_cmd` | a | b | c |',
+      'a fenced grant `fs:allow-write` and a fenced marker **DSH-9.**',
+      '## a fenced heading',
+      '```',
+      '',
+      'More prose after the fence.',
+      '',
+      '## Next Section',
+    ].join('\n');
+    const section = extractDsh1Section(fenced);
+    assert.ok(section.includes('More prose after the fence'), 'the fence must not truncate');
+    assert.deepEqual(extractDocRows(section).commands, ['start_capture']);
+    assert.deepEqual(extractDocGrants(section), ['core:default']);
+  });
+
   it('the clause scope ends at the next clause marker, not only at a heading', () => {
     const twoClauses = [
       '**DSH-1.** The contract.',
@@ -413,7 +484,12 @@ describe('auditTree — synthetic tree', () => {
     'fn run() { h.emit("capture:action", &e); }',
     'generate_handler![start_capture]',
   ].join('\n');
-  const MOCK = "const CANONICAL_COMMANDS = ['start_capture'];";
+  const MOCK = [
+    "const CANONICAL_COMMANDS = ['start_capture'];",
+    'switch (cmd) {',
+    "  case 'start_capture': return;",
+    '}',
+  ].join('\n');
 
   /** A readFile over a synthetic file map, with the crate source at LIB_PATH. */
   function treeReader(capabilities) {
@@ -450,14 +526,38 @@ describe('auditTree — synthetic tree', () => {
   });
 });
 
-describe('extractMockCommands', () => {
+describe('extractMockCommands / extractMockServicedCases', () => {
   it('parses the CANONICAL_COMMANDS array literal', () => {
     const src = "const CANONICAL_COMMANDS = [\n  'load_state',\n  'save_state',\n];";
-    assert.deepEqual(extractMockCommands(src), ['load_state', 'save_state']);
+    assert.deepEqual(extractMockCommands(src), {
+      commands: ['load_state', 'save_state'],
+      error: null,
+    });
   });
 
-  it('returns empty when the list is absent', () => {
-    assert.deepEqual(extractMockCommands('const OTHER = 1;'), []);
+  it('errors when the list is absent', () => {
+    const read = extractMockCommands('const OTHER = 1;');
+    assert.deepEqual(read.commands, []);
+    assert.match(read.error, /no `CANONICAL_COMMANDS/);
+  });
+
+  it('errors loudly on an element form it does not model — never a silent partial read', () => {
+    const src = "const CANONICAL_COMMANDS = [\n  'a',\n  ...EXTRA,\n];\nconst EXTRA = ['b'];";
+    const read = extractMockCommands(src);
+    assert.deepEqual(read.commands, []);
+    assert.match(read.error, /does not model/);
+  });
+
+  it('reads the serviced case labels out of the injected script template', () => {
+    const src = [
+      'switch (cmd) {',
+      "          case 'load_state': return _savedState;",
+      "          case 'save_state': _savedState = args.data; return;",
+      '          default:',
+      '            throw new Error("nope");',
+      '        }',
+    ].join('\n');
+    assert.deepEqual(extractMockServicedCases(src), ['load_state', 'save_state']);
   });
 });
 
