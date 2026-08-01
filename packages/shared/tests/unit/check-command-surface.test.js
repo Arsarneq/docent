@@ -424,7 +424,9 @@ describe('extractDsh1Section / extractDocRows / extractDocGrants', () => {
     ]);
     const problems = evaluateCommandSurface(makeSurface({ docUnreadableRows: rows.unreadable }));
     assert.ok(problems.some((p) => p.includes('cannot read') && p.includes('capture:status')));
-    assert.ok(problems.some((p) => p.includes('(empty first cell)')));
+    // Pins the delimiters too: the cell is set off by em dashes, so the
+    // stand-in renders as its own parentheses, never doubled ones.
+    assert.ok(problems.some((p) => p.includes('read — (empty first cell) — rows')));
   });
 
   it('a tilde fence hides its content like a backtick fence', () => {

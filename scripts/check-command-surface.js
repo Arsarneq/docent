@@ -12,7 +12,9 @@
  *
  *   1. the `#[tauri::command]` function set, the `generate_handler!`
  *      registration, and the doc table's command rows are equal — each
- *      pairwise difference is reported in both directions;
+ *      pairwise difference is reported in both directions, and a body row
+ *      whose first cell is not a lone backticked name (optionally suffixed
+ *      `(event)`) fails the check rather than being skipped;
  *   2. the doc's one event row names `capture:action`, and the crate sources
  *      contain exactly one emit-family call site — every emit method the
  *      Emitter trait exposes (`emit`, `emit_str`, `emit_to`, `emit_str_to`,
@@ -234,7 +236,9 @@ export function extractDsh1Section(docText) {
  * through the shared fence-aware table parser. Header and separator rows are
  * consumed by that parser, so every body row's first cell must be `name` or
  * `name` (event); any other shape — annotated, un-backticked, empty — is
- * returned as unreadable, so no row can slip past either leg silently.
+ * returned as unreadable (an empty cell as the stand-in `(empty first
+ * cell)`, so the gate line never renders a blank), and no row can slip past
+ * either leg silently.
  * @param {string} section the clause's text
  * @returns {{ commands: string[], events: string[], unreadable: string[] }}
  */
@@ -362,7 +366,7 @@ function duplicatesIn(names, what) {
  * @param {number} s.handlerOccurrences how many generate_handler! lists exist
  * @param {string[]} s.docCommands the doc table's command rows
  * @param {string[]} s.docEvents the doc table's event rows
- * @param {string[]} s.docUnreadableRows table body-row first cells, of any shape, the row reader could not read
+ * @param {string[]} s.docUnreadableRows table body-row first cells the row reader could not read — an empty cell arrives as the reader's `(empty first cell)` stand-in, never as a blank
  * @param {{ path: string, method: string, channel: string | null, line: number }[]} s.emitSites
  * @param {string[]} s.fileGrants permissions across the tracked capability files
  * @param {string[]} s.docGrants grant identifiers the doc section names
