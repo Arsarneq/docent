@@ -24,6 +24,8 @@ import {
   TAURI_CONF_PATH,
   MOCK_PATH,
   EVENT_CHANNEL,
+  EMPTY_SURFACES,
+  DUPLICATE_SURFACES,
   stripRustComments,
   extractCommandFns,
   extractHandlerCommands,
@@ -127,13 +129,37 @@ describe('evaluateCommandSurface — command-set equality (both ways, each pair)
       problems.some((p) => p.includes('get_self_pid') && p.includes("serviced by the mock's invoke switch")), // prettier-ignore
     );
   });
+});
 
-  it('fires on a duplicate doc-table row', () => {
-    const problems = evaluateCommandSurface(
-      makeSurface({ docCommands: ['start_capture', 'stop_capture', 'start_capture'] }),
+// Fixture rows for the duplicates family, keyed to the check's own exported
+// DUPLICATE_SURFACES list. The lock below holds the two key sets equal, so a
+// surface added to the check's loop without a fixture row reds here — the
+// addition direction the per-leg tests alone cannot see.
+const DUPLICATE_FIXTURES = {
+  commandFns: ['start_capture', 'stop_capture', 'start_capture'],
+  handlerCommands: ['start_capture', 'stop_capture', 'start_capture'],
+  docCommands: ['start_capture', 'stop_capture', 'start_capture'],
+  mockCommands: ['start_capture', 'stop_capture', 'start_capture'],
+  mockCases: ['start_capture', 'stop_capture', 'start_capture'],
+};
+
+describe('evaluateCommandSurface — duplicates, every leg of the duplicates loop', () => {
+  it('the fixture table covers exactly the check’s duplicates legs (addition lock)', () => {
+    assert.deepEqual(
+      Object.keys(DUPLICATE_FIXTURES).sort(),
+      DUPLICATE_SURFACES.map(([key]) => key).sort(),
     );
-    assert.ok(problems.some((p) => p.includes('start_capture') && p.includes('more than once')));
   });
+
+  for (const [key, what] of DUPLICATE_SURFACES) {
+    it(`fires on a duplicated name in ${what} — a leg the set diffs cannot see`, () => {
+      const problems = evaluateCommandSurface(makeSurface({ [key]: DUPLICATE_FIXTURES[key] }));
+      assert.ok(
+        problems.some((p) => p.includes('more than once') && p.includes(what)),
+        problems.join('\n') || `no duplicates diagnostic for ${what}`,
+      );
+    });
+  }
 });
 
 describe('evaluateCommandSurface — the one event channel', () => {
@@ -213,21 +239,16 @@ describe('evaluateCommandSurface — capability grants', () => {
 });
 
 describe('evaluateCommandSurface — empty parses are structural failures', () => {
-  for (const [key, needle] of [
-    ['commandFns', 'no #[tauri::command] functions'],
-    ['handlerCommands', 'no generate_handler! registrations'],
-    ['docCommands', 'no command rows'],
-    ['docEvents', 'no event row'],
-    ['fileGrants', 'no permissions'],
-    ['docGrants', 'no grant identifiers'],
-    ['mockCommands', 'no CANONICAL_COMMANDS entries'],
-    ['mockCases', 'no serviced case labels'],
-  ]) {
+  it('every leg of the check’s non-empty guard fires (addition lock: driven by its export)', () => {
+    assert.ok(EMPTY_SURFACES.length > 0);
+  });
+
+  for (const [key, message] of EMPTY_SURFACES) {
     it(`fires when ${key} parses empty`, () => {
       const problems = evaluateCommandSurface(makeSurface({ [key]: [] }));
       assert.ok(
-        problems.some((p) => p.includes(needle)),
-        problems.join('\n'),
+        problems.some((p) => p.includes(message)),
+        problems.join('\n') || `no vacuous diagnostic for ${key}`,
       );
     });
   }
