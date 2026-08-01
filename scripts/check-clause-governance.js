@@ -68,8 +68,10 @@ const PATH_RE = /(?:[A-Za-z0-9_\-.]+\/)*[A-Za-z0-9_\-.*{},[\]]+\.[A-Za-z0-9]+/g;
  *      doc is repo-wide — the repo-wide "line only when itself edited" rule
  *      plus the end-to-end checks.
  *   3. The format-authority echo surfaces — the root README and the docs index
- *      carry the session-format ordering clause's echo; the intended
- *      consistency check for those echoes is tracked separately.
+ *      carry the session-format ordering clause's echo. The echo itself is
+ *      held by a named check, so the coupling this allowlist leaves open is
+ *      only the governance edge: both files are repo-wide docs, which this
+ *      check does not credit as governance.
  */
 export const ALLOWLIST = new Map([
   // Class 1 — verification scripts (declined coupling; maintainer's open call).
@@ -118,14 +120,15 @@ export const ALLOWLIST = new Map([
     'DI-3\tpackages/shared/lib/format-stamp.js',
     "the stamp-source implementation DI-3 names; DI-3's wrapper contract is asserted per-diff by the contract, dispatch, and export test suites that carry the dispatch doc, and this file is exercised by the schema-composition suites — the citation names the site, not a per-file governance edge",
   ],
-  // Class 3 — format-authority echo surfaces (intended consistency check tracked separately).
+  // Class 3 — format-authority echo surfaces (echo held by a named check; the
+  // governance edge stays open because both files are repo-wide docs).
   [
     'SF-1\tdocs/README.md',
-    'the docs index echoes the session-format ordering clause; the echo-surface consistency check is tracked separately',
+    'the docs index echoes the session-format ordering clause, and the schema-echo check holds that echo; the edge stays open because a repo-wide doc is not credited as governance, and the index takes a disposition line only when itself edited',
   ],
   [
     'SF-1\tREADME.md',
-    'the root README echoes the session-format ordering clause; the echo-surface consistency check is tracked separately',
+    'the root README echoes the session-format ordering clause, and the schema-echo check holds that echo; the edge stays open because a repo-wide doc is not credited as governance, and the README takes a disposition line only when itself edited',
   ],
 ]);
 

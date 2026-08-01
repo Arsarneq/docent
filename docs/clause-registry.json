@@ -286,8 +286,8 @@
     {
       "doc": "docs/technical/session-format.md",
       "clause": "SF-1",
-      "tag": "checkable",
-      "check-ref": "Intended: a consistency check asserting the authority-ordering statement stays consistent across its echo surfaces (this doc, docs/README.md, README.md, docs/requirements/replay-sufficiency.md, the sync reference README) — not built. Interim: review; the surfaces were hand-aligned in one change, and future edits to them should cite this clause."
+      "tag": "check-exists",
+      "check-ref": "scripts/check-schema-echo.js holds the authority statement on every surface registered in its AUTHORITY_SURFACES table — this document, docs/README.md, README.md, docs/requirements/replay-sufficiency.md, and docs/api/dispatch.md — each read with fences stripped and whitespace collapsed, so a re-wrap cannot red a claim that is still made (npm run lint:schema-echo, a step in CI's lint job). Residue: the leg pins that each surface still makes the claim, never that the surfaces word it equivalently — the prose meaning of each statement, and any surface the table does not register, stay review-held. The reference sync server's README states the sync protocol's authority over that server rather than the schemas' authority over this prose, so it is not one of these surfaces."
     },
     {
       "doc": "docs/technical/session-format.md",
@@ -323,13 +323,13 @@
       "doc": "docs/technical/session-format.md",
       "clause": "SF-9",
       "tag": "check-exists",
-      "check-ref": "The append-only mutations are pinned by the shared session unit tests, including the tombstone full-copy content and fresh created_at assertions added alongside this clause (packages/shared/tests/unit/session.test.js; run via npm run test:shared)."
+      "check-ref": "The append-only mutations are pinned by the shared session unit tests, including the tombstone full-copy content and fresh created_at assertions added alongside this clause (packages/shared/tests/unit/session.test.js; run via npm run test:shared). The clause text states why the history is never pruned and discloses the consequence the ingestion size bound creates (ruling 2026-08-02); no check asserts the absence of a pruning feature, so that half of the clause stays review-held."
     },
     {
       "doc": "docs/technical/session-format.md",
       "clause": "SF-10",
       "tag": "check-exists",
-      "check-ref": "scripts/sufficiency-lint.js enforces this as the fail-class context-introduced predicate over every linted recording (npm run sufficiency:check)."
+      "check-ref": "scripts/sufficiency-lint.js enforces this as the fail-class context-introduced predicate over every linted recording (npm run sufficiency:check). The clause text states the full-history scope and its reason (ruling 2026-08-02); the predicate's domain is exactly that — the full step history, deleted versions included. The resolved active view is a consumer's projection outside this predicate's domain, and no check covers it."
     },
     {
       "doc": "docs/technical/session-format.md",
@@ -352,8 +352,8 @@
     {
       "doc": "docs/technical/session-format.md",
       "clause": "SF-14",
-      "tag": "checkable",
-      "check-ref": "Intended: a format prose-pin asserting the stated additionalProperties posture over the composed schemas (not yet built). Interim: the schemas are the authority; the composed-schema tests exercise the posture indirectly (npm run test:shared)."
+      "tag": "check-exists",
+      "check-ref": "scripts/check-schema-echo.js walks every object subschema of both platforms' schemas — composed in-process from the source layers, never the published copies under schemas/dist/, which lag between releases — and holds each to the posture its class states: action objects declare no additionalProperties, the user-defined metadata maps declare a typed-value additionalProperties schema, the discriminating oneOf hosts declare none, and every other object declares additionalProperties: false. No exemption is taken by name alone: a def registered as a discriminating host must still state oneOf members, and the action wrapper's members and the defs carrying the action prefix are diffed both ways. A def outside every registered class is judged as a closed object, so it reds unless it declares additionalProperties: false (npm run lint:schema-echo, a step in CI's lint job). Residue: the walk judges an object subschema when it states type object or carries properties and sits under one of the composition keywords the walk descends — a schema written outside that reach goes unjudged rather than red; and the check holds its posture model against the schemas in that direction only — it never reads this clause's sentence, so a change to either side leaves their agreement a review judgment; the prose gloss (that fields may be added in minor versions and consumers should ignore unknown ones), and whether a newly opened object is genuinely an evolution surface, stay review-held too."
     },
     {
       "doc": "docs/architecture/application/extension/capture-principles.md",

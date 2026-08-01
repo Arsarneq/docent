@@ -232,6 +232,17 @@ fresh `created_at`, and `deleted: true` (content preserved, so history stays
 recoverable); a reorder appends new records only for the steps whose
 `step_number` changed.
 
+The history and its tombstones are the recording's audit trail: every version
+that was committed and every change made to it, in the order it happened.
+Docent never prunes that trail — which parts of a record stop being worth
+keeping is an opinionated call about someone else's work, and the format does
+not make it. The consequence is disclosed rather than designed away: a
+long-lived recording's history can grow past the size the validated ingestion
+paths accept — import, and the sync pull that runs the same validation (see
+[Import acceptance](#import-acceptance)) — so a file can be exportable and
+still not accepted back. That bound is a safety valve on ingestion, not a
+bound on the format.
+
 ### Step modes
 
 A step is either **narration mode** or **simple mode**. At least one of
@@ -305,6 +316,14 @@ action type has no introduction, and the recording fails the sufficiency
 lint's fail-class `context-introduced` check
 ([static sufficiency lint](../verification/sufficiency-lint.md), implemented
 by [`scripts/sufficiency-lint.js`](../../scripts/sufficiency-lint.js)).
+
+The rule is stated over the **full** step history — superseded and
+soft-deleted versions included — because the history stays recoverable: a
+version that can be read later must be as well-formed as one read today. The
+resolved active view ([SF-8](#steps)) is a projection a consumer applies, and
+it lies outside this rule's domain rather than inside it as a narrower case:
+satisfying the rule over the full history makes no claim about the projection,
+whose introducing action a later deletion can remove.
 
 ### Platform-specific fields
 
@@ -568,7 +587,10 @@ action fields arrive without failing an old validator), and the user-defined
 `metadata` maps accept arbitrary keys with typed values (a data surface, not
 an evolution surface). Every other object is closed
 (`additionalProperties: false`), so unknown keys there are validation errors,
-not extensions.
+not extensions. The `oneOf` hosts that discriminate the action and locator
+shapes sit outside that split without widening it: each states no
+`additionalProperties` of its own, because the member it selects carries the
+posture — an instance is judged by its member's declaration.
 
 Which fields the replay-sufficiency guarantee stands on — the normative subset
 versus informative evidence and context — is classified in
