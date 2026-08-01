@@ -135,28 +135,30 @@ describe('evaluateExtensionSurface — message legs (both ways)', () => {
     assert.ok(problems.some((p) => p.includes('STEP_COMMIT') && p.includes('disjoint')));
   });
 
-  it('fires on a duplicated name in the manifest, doc, and case-label surfaces — the legs the set diffs cannot see', () => {
-    const manifestDup = evaluateExtensionSurface(
-      makeSurface({ manifestPermissions: ['storage', 'tabs', 'storage'] }),
-    );
-    assert.ok(manifestDup.some((p) => p.includes('storage') && p.includes('more than once')));
-    const hostDup = evaluateExtensionSurface(
-      makeSurface({ manifestHostPermissions: ['<all_urls>', '<all_urls>'] }),
-    );
-    assert.ok(hostDup.some((p) => p.includes('<all_urls>') && p.includes('more than once')));
-    const docDup = evaluateExtensionSurface(
-      makeSurface({ docPermissions: ['storage', 'tabs', 'storage'] }),
-    );
-    assert.ok(docDup.some((p) => p.includes('storage') && p.includes('more than once')));
-    const panelDup = evaluateExtensionSurface(
-      makeSurface({ docPanelTypes: ['PROJECTS_LIST', 'STEP_COMMIT', 'STEP_COMMIT'] }),
-    );
-    assert.ok(panelDup.some((p) => p.includes('STEP_COMMIT') && p.includes('more than once')));
-    const caseDup = evaluateExtensionSurface(
-      makeSurface({ caseLabels: ['PROJECTS_LIST', 'STEP_COMMIT', 'PROJECTS_LIST'] }),
-    );
-    assert.ok(caseDup.some((p) => p.includes('PROJECTS_LIST') && p.includes('more than once')));
-  });
+  // Data-driven over every entry of the check's duplicates loop (mirroring
+  // the empty-parse family below): each leg asserts its own surface label,
+  // so dropping or mistyping a loop entry reds here.
+  for (const [key, list, what] of [
+    ['manifestPermissions', ['storage', 'tabs', 'storage'], "the manifest's permissions"],
+    ['manifestHostPermissions', ['<all_urls>', '<all_urls>'], "the manifest's host_permissions"],
+    ['docPermissions', ['storage', 'tabs', 'storage'], 'the Permissions table'],
+    ['docHostPermissions', ['<all_urls>', '<all_urls>'], 'the Host permissions table'],
+    ['docCaptureTypes', ['FRAME_READY', 'FRAME_READY'], 'the capture-path table'],
+    ['docPanelTypes', ['PROJECTS_LIST', 'STEP_COMMIT', 'STEP_COMMIT'], 'the panel-protocol enumeration'], // prettier-ignore
+    [
+      'caseLabels',
+      ['PROJECTS_LIST', 'STEP_COMMIT', 'PROJECTS_LIST'],
+      "the dispatcher's case labels",
+    ],
+  ]) {
+    it(`fires on a duplicated name in ${what} — a leg the set diffs cannot see`, () => {
+      const problems = evaluateExtensionSurface(makeSurface({ [key]: list }));
+      assert.ok(
+        problems.some((p) => p.includes('more than once') && p.includes(what)),
+        problems.join('\n'),
+      );
+    });
+  }
 
   it('fires on an unreadable protocol cell', () => {
     const problems = evaluateExtensionSurface(
@@ -204,18 +206,27 @@ describe('extractManifestSurface', () => {
     assert.ok(read.problems.some((p) => p.includes('does not parse as JSON')));
   });
 
-  it('refuses a permission field that is not an array without throwing', () => {
-    for (const shape of ['42', '{"a":1}', 'true', '"storage"']) {
+  it('refuses a permission field that is not an array without throwing — null included', () => {
+    for (const shape of ['42', '{"a":1}', 'true', '"storage"', 'null']) {
       const read = extractManifestSurface(
         `{"permissions": ${shape}, "host_permissions": ["<all_urls>"]}`,
       );
       assert.deepEqual(read.permissions, []);
       assert.deepEqual(read.hostPermissions, ['<all_urls>']);
       assert.ok(
-        read.problems.some((p) => p.includes('permissions that is not an array')),
+        read.problems.some((p) => p.includes('a permissions that is not an array')),
         `expected the non-array diagnosis for ${shape}, got: ${read.problems.join('\n')}`,
       );
     }
+    const hostRead = extractManifestSurface(
+      '{"permissions": ["storage"], "host_permissions": null}',
+    );
+    assert.deepEqual(hostRead.permissions, ['storage']);
+    assert.deepEqual(hostRead.hostPermissions, []);
+    assert.ok(
+      hostRead.problems.some((p) => p.includes('a host_permissions that is not an array')),
+      hostRead.problems.join('\n'),
+    );
   });
 
   it('refuses a manifest that parses to a non-object without throwing', () => {

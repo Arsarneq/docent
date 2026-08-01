@@ -91,7 +91,7 @@ export function extractManifestSurface(manifestJson) {
   }
   const readArray = (field) => {
     const out = [];
-    const raw = parsed[field] ?? [];
+    const raw = field in parsed ? parsed[field] : [];
     if (!Array.isArray(raw)) {
       problems.push(`${MANIFEST_PATH} carries a ${field} that is not an array (${JSON.stringify(raw)}) — the read cannot run`); // prettier-ignore
       return out;
@@ -107,7 +107,7 @@ export function extractManifestSurface(manifestJson) {
   };
   for (const field of ['optional_permissions', 'optional_host_permissions']) {
     if (field in parsed && !(Array.isArray(parsed[field]) && parsed[field].length === 0)) {
-      problems.push(`${MANIFEST_PATH} declares ${field}, which the permission tables do not model — extend the doc and this check together, drop the key, or leave it the empty array`); // prettier-ignore
+      problems.push(`${MANIFEST_PATH} declares ${field}, which the permission tables do not model — extend the doc and this check together, drop the key, or set it to the empty array`); // prettier-ignore
     }
   }
   return {
