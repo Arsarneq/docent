@@ -1,7 +1,12 @@
 // Property tests for the capture worker pool infrastructure.
 //
-// Tests cover: sequence numbering, shortest-queue dispatch, sticky routing,
-// click vs drag classification, and drag pair routing.
+// The principal subjects: sequence numbering, shortest-queue dispatch, sticky
+// routing, drag-pair routing, and the dead-worker drain rescues (dispatch-time
+// respawn and shutdown join) — the pipeline-level truth-lock — alongside
+// end-to-end action truth-locks over the same pipeline (key, right-click,
+// selection, scroll flush, locator pass-through, excluded-PID discard). The
+// click-vs-drag threshold itself belongs to the Windows provider and is pinned
+// beside it, in the `capture::windows` module's own unit tests.
 
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc;
@@ -31,16 +36,6 @@ fn make_raw_event(event_type: RawEventType, window_handle: i64) -> RawEvent {
         callback_params: [0; 4],
         pre_captured_element: None,
     }
-}
-
-/// Classify a mouse interaction as click or drag based on the 5-pixel
-/// threshold. This is the pure classification rule used by the Input_Thread.
-///
-/// Returns `true` if the movement constitutes a drag, `false` for a click.
-fn is_drag(x1: i32, y1: i32, x2: i32, y2: i32) -> bool {
-    let dx = (x2 - x1).abs();
-    let dy = (y2 - y1).abs();
-    dx.max(dy) > 5
 }
 
 // ---------------------------------------------------------------------------
@@ -285,64 +280,6 @@ proptest! {
         );
 
         pool.shutdown();
-    }
-}
-
-// ---------------------------------------------------------------------------
-// Click vs drag classification
-// ---------------------------------------------------------------------------
-
-proptest! {
-    #![proptest_config(ProptestConfig::with_cases(50))]
-
-    /// Click vs drag
-    ///
-    /// For any coordinate pair (x1, y1, x2, y2), the classification is:
-    /// - drag if max(|x2-x1|, |y2-y1|) > 5
-    /// - click otherwise
-    #[test]
-    fn click_vs_drag_classification(
-        x1 in -10000i32..10000,
-        y1 in -10000i32..10000,
-        x2 in -10000i32..10000,
-        y2 in -10000i32..10000,
-    ) {
-        let dx = (x2 - x1).abs();
-        let dy = (y2 - y1).abs();
-        let expected_drag = dx.max(dy) > 5;
-
-        let result = is_drag(x1, y1, x2, y2);
-
-        prop_assert_eq!(
-            result,
-            expected_drag,
-            "is_drag({}, {}, {}, {}) = {}, expected {} (dx={}, dy={}, max={})",
-            x1, y1, x2, y2, result, expected_drag, dx, dy, dx.max(dy)
-        );
-    }
-
-    /// Click vs drag
-    ///
-    /// Movements within the 5-pixel threshold are always classified as clicks.
-    #[test]
-    fn small_movements_are_clicks(
-        x1 in -10000i32..10000,
-        y1 in -10000i32..10000,
-        dx in -5i32..=5,
-        dy in -5i32..=5,
-    ) {
-        let x2 = x1.saturating_add(dx);
-        let y2 = y1.saturating_add(dy);
-
-        // Only test when the saturating_add didn't clamp (exact arithmetic).
-        prop_assume!(x2 == x1 + dx && y2 == y1 + dy);
-
-        let result = is_drag(x1, y1, x2, y2);
-        prop_assert!(
-            !result,
-            "movement ({},{}) -> ({},{}) with delta ({},{}) should be a click, not a drag",
-            x1, y1, x2, y2, dx, dy
-        );
     }
 }
 

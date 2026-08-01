@@ -282,7 +282,23 @@ fn get_parent_pid(pid: u32) -> Option<u32> {
     }
 }
 
+/// Movement past which a left press-move-release records a drag rather than a
+/// click, in pixels on either axis (desktop capture principles, DCP-10).
 const DRAG_THRESHOLD_PX: i32 = 5;
+
+/// Whether a left press-move-release moved far enough to be a drag: more than
+/// [`DRAG_THRESHOLD_PX`] between button-down and button-up on either axis,
+/// measured as absolute distance so direction does not matter. Movement within
+/// the threshold is a click.
+///
+/// Extracted as pure logic the release handler consumes (the discipline the
+/// contributing guide states for JavaScript, applied here) so the threshold's
+/// boundary is unit-testable without synthesizing real mouse input.
+fn is_drag(down: POINT, up: POINT) -> bool {
+    let dx = (up.x - down.x).abs();
+    let dy = (up.y - down.y).abs();
+    dx > DRAG_THRESHOLD_PX || dy > DRAG_THRESHOLD_PX
+}
 
 // ---------------------------------------------------------------------------
 // Thread-local state for Input_Thread hook callbacks
@@ -338,9 +354,16 @@ thread_local! {
     static INPUT_OPENED_WINDOWS: std::cell::RefCell<std::collections::HashSet<i64>> =
         std::cell::RefCell::new(std::collections::HashSet::new());
 
-    /// Cache for PID exclusion check results. Maps PID → should_keep (true/false).
-    /// Avoids repeated CreateToolhelp32Snapshot calls for the same PID.
-    /// Cleared when capture starts (new session may have different excluded PID).
+    /// Per-process self-capture verdict cache. Maps PID → should_keep, so the
+    /// self-capture grounds are paid for once per process instead of once per
+    /// event: the process-tree walk and the executable-name read each open
+    /// `CreateToolhelp32Snapshot`, and the owned-window ground opens one too
+    /// on the path past its root-owner guards. It is a first-event-wins record,
+    /// not a memo of a recomputable answer: a later window of the same process
+    /// rides the first event's verdict by design, so an entry is never
+    /// refreshed. Lives on the Input_Thread, which is spawned fresh for each
+    /// capture session, and is cleared with the thread's other state when that
+    /// thread tears down — a verdict never outlives the session that made it.
     static INPUT_PID_CACHE: std::cell::RefCell<std::collections::HashMap<u32, bool>> =
         std::cell::RefCell::new(std::collections::HashMap::new());
 
@@ -1290,51 +1313,105 @@ fn input_get_included_pid() -> Option<u32> {
     })
 }
 
-/// Cached PID exclusion check. Uses a thread-local HashMap to avoid
-/// repeated CreateToolhelp32Snapshot calls for the same PID.
-/// The cache is populated on first check and reused for subsequent events.
-/// This covers both the direct PID check AND the is_owned_by_excluded check.
-fn input_should_keep_event_cached(event_pid: u32, excluded_pid: Option<u32>, hwnd: HWND) -> bool {
-    // Fast path: PID 0 is always filtered.
-    if event_pid == 0 {
+/// The scope filters' decision (desktop capture principles, DCP-5) as pure
+/// logic: which filter decides an event, in what order, and the per-process
+/// verdict the self-capture grounds are judged under.
+///
+/// Returns `true` if the event should be **kept**. The decision opens by
+/// delegating to the platform-agnostic base rule
+/// ([`should_keep_event`](super::scroll::should_keep_event)), which carries the
+/// resolvable-window skip and the excluded process's own events, so neither is
+/// restated here. Everything else the decision reaches outside itself is
+/// injected, which is what makes it exercisable without a live capture session:
+/// `cached_verdict` / `record_verdict` read and write the per-process verdict
+/// cache; `tree_and_name_keep` re-applies that base rule and layers Docent's
+/// process tree and the executable-name recognition on top
+/// ([`windows_should_keep_event`]); and `owned_by_excluded` answers whether
+/// this event's window is owned by an excluded process's window
+/// ([`is_owned_by_excluded`], the system dialogs Docent itself opens). No
+/// injected lookup runs once an earlier filter has decided the event, and the
+/// verdict cache is touched only through the two accessors — a thread-local
+/// `RefCell` store therefore stays borrowed only across each accessor call,
+/// never across a Windows lookup.
+///
+/// Two properties the ordering carries, both doctrine:
+///
+/// - the excluded process's own events are dropped by the base rule above the
+///   target filter, so selecting that process as the target still excludes it.
+///   The other self-capture grounds sit below the target filter instead, which
+///   is what spares an out-of-target process their lookups entirely;
+/// - the self-capture verdict is **per-process**: the first event from a
+///   process to reach those grounds pays for the lookups that verdict needs
+///   (the owner walk is spared when the tree and name grounds already exclude
+///   the process), the answer is recorded under its PID, and every later event
+///   from that process — from any of its windows — reads the recorded verdict.
+///
+/// Extracted as pure logic the runtime path consumes (the discipline the
+/// contributing guide states for JavaScript, applied here) so those semantics
+/// are unit-testable without standing up the Win32 hook machinery.
+fn scope_filter_decision(
+    event_pid: u32,
+    included_pid: Option<u32>,
+    excluded_pid: Option<u32>,
+    cached_verdict: impl FnOnce(u32) -> Option<bool>,
+    record_verdict: impl FnOnce(u32, bool),
+    tree_and_name_keep: impl FnOnce(u32, Option<u32>) -> bool,
+    owned_by_excluded: impl FnOnce(u32) -> bool,
+) -> bool {
+    // The base rule, shared with every platform: an event whose window can no
+    // longer be resolved, and the excluded process's own events, are dropped —
+    // the latter before the target filter is consulted at all, which is what
+    // makes the exclusion outrank a target naming that same process.
+    if !super::scroll::should_keep_event(event_pid, excluded_pid) {
         return false;
     }
 
-    // Target app filter: if an included PID is set, only keep events from that PID.
-    if let Some(incl) = input_get_included_pid() {
+    // Target application: with a target set, only its process is captured.
+    if let Some(incl) = included_pid {
         if event_pid != incl {
             return false;
         }
     }
 
-    // Exclusion filter (self-capture).
+    // The remaining self-capture grounds apply only while the exclusion is on.
     let Some(excl) = excluded_pid else {
         return true;
     };
-    // Direct match — no cache needed.
-    if event_pid == excl {
-        return false;
+
+    // Per-process, first-event-wins: every window of a process shares whichever
+    // verdict its first event produced.
+    if let Some(cached) = cached_verdict(event_pid) {
+        return cached;
     }
-    // Check cache — keyed by (event_pid, hwnd) to cover ownership checks.
-    // We use just event_pid as key since ownership is PID-based.
-    INPUT_PID_CACHE.with(|cache| {
-        let map = cache.borrow();
-        if let Some(&result) = map.get(&event_pid) {
-            return result;
-        }
-        drop(map);
-        // Cache miss — do the expensive checks once.
-        let keep = windows_should_keep_event(event_pid, excluded_pid);
-        if !keep {
-            cache.borrow_mut().insert(event_pid, false);
-            return false;
-        }
-        // Also check ownership (is_owned_by_excluded).
-        let owned = unsafe { is_owned_by_excluded(hwnd, excl) };
-        let result = !owned;
-        cache.borrow_mut().insert(event_pid, result);
-        result
-    })
+    let keep = if tree_and_name_keep(event_pid, excluded_pid) {
+        !owned_by_excluded(excl)
+    } else {
+        false
+    };
+    record_verdict(event_pid, keep);
+    keep
+}
+
+/// Apply the scope filters to an event on the Input_Thread: reads the target
+/// application from the thread's shared atomic, backs the per-process verdict
+/// cache with its thread-local map, and supplies the real Windows lookups to
+/// [`scope_filter_decision`]. The cache spares repeated
+/// `CreateToolhelp32Snapshot` walks for a process already judged, and is
+/// cleared with the rest of the thread's state when capture stops. Each
+/// accessor borrows the map for its own call only, so no borrow is held across
+/// a Windows lookup.
+fn input_should_keep_event_cached(event_pid: u32, excluded_pid: Option<u32>, hwnd: HWND) -> bool {
+    scope_filter_decision(
+        event_pid,
+        input_get_included_pid(),
+        excluded_pid,
+        |pid| INPUT_PID_CACHE.with(|cache| cache.borrow().get(&pid).copied()),
+        |pid, keep| {
+            INPUT_PID_CACHE.with(|cache| cache.borrow_mut().insert(pid, keep));
+        },
+        windows_should_keep_event,
+        |excl| unsafe { is_owned_by_excluded(hwnd, excl) },
+    )
 }
 
 // ---------------------------------------------------------------------------
@@ -1785,14 +1862,9 @@ unsafe extern "system" fn input_mouse_ll_proc(
                     // A release is input too: selections completed at the end
                     // of a long drag correlate with the release, not the press.
                     note_input(timestamp, window_handle);
-                    let was_drag = INPUT_MOUSE_DOWN_POS.with(|p| {
-                        let down = p.get();
-                        down.is_some_and(|down_pt| {
-                            let dx = (pt.x - down_pt.x).abs();
-                            let dy = (pt.y - down_pt.y).abs();
-                            dx > DRAG_THRESHOLD_PX || dy > DRAG_THRESHOLD_PX
-                        })
-                    });
+                    let was_drag = INPUT_MOUSE_DOWN_POS
+                        .with(|p| p.get())
+                        .is_some_and(|down_pt| is_drag(down_pt, pt));
 
                     if was_drag {
                         // Drag detected: dispatch DragStart + Drop pair.
@@ -2966,6 +3038,478 @@ mod tests {
     fn keep_event_no_exclusion_keeps_all() {
         assert!(windows_should_keep_event(1234, None));
         assert!(windows_should_keep_event(u32::MAX, None));
+    }
+
+    // -- scope filters: base rule, target, exclusion, per-process verdict ---
+    //
+    // The composed decision the hooks run per event (DCP-5). The verdict cache
+    // and the Windows lookups are injected, so these state the filters' order
+    // and the per-process verdict semantics without a live capture session.
+    // Where a filter is meant to decide the event before an injected lookup is
+    // reached, the cases pass the panicking stubs below, so a reordering that
+    // spends a lookup it should not is a loud failure rather than a silently
+    // different answer.
+
+    use super::{
+        input_should_keep_event_cached, is_drag, scope_filter_decision, AtomicU32,
+        DRAG_THRESHOLD_PX, HWND, INPUT_INCLUDED_PID, INPUT_PID_CACHE, POINT,
+    };
+    use std::cell::{Cell, RefCell};
+    use std::collections::HashMap;
+
+    /// PIDs standing in for the processes these cases talk about.
+    const TARGET_APP: u32 = 4242; // the application the user selected
+    const OTHER_APP: u32 = 777; // some other running application
+    const DOCENT: u32 = 1001; // Docent's own process (the excluded one)
+    const DIALOG_HOST: u32 = 2002; // the process hosting a dialog Docent opened
+
+    /// A verdict cache for one capture session's worth of events, plus a count
+    /// of the owner lookups the decision spent against it.
+    #[derive(Default)]
+    struct Session {
+        verdicts: RefCell<HashMap<u32, bool>>,
+        owner_lookups: Cell<u32>,
+    }
+
+    impl Session {
+        /// Run the decision against this session's store, supplying the two
+        /// Windows lookups this event should see.
+        fn decide(
+            &self,
+            event_pid: u32,
+            included_pid: Option<u32>,
+            excluded_pid: Option<u32>,
+            tree_and_name_keep: impl FnOnce(u32, Option<u32>) -> bool,
+            owned_by_excluded: impl FnOnce(u32) -> bool,
+        ) -> bool {
+            scope_filter_decision(
+                event_pid,
+                included_pid,
+                excluded_pid,
+                |pid| self.verdicts.borrow().get(&pid).copied(),
+                |pid, keep| {
+                    self.verdicts.borrow_mut().insert(pid, keep);
+                },
+                tree_and_name_keep,
+                owned_by_excluded,
+            )
+        }
+
+        /// An owner lookup that answers `owned` and counts itself.
+        fn owner_says(&self, owned: bool) -> impl FnOnce(u32) -> bool + '_ {
+            move |_excluded| {
+                self.owner_lookups.set(self.owner_lookups.get() + 1);
+                owned
+            }
+        }
+
+        fn recorded(&self, pid: u32) -> Option<bool> {
+            self.verdicts.borrow().get(&pid).copied()
+        }
+    }
+
+    /// The process-tree / executable-name chain, answering "not one of ours".
+    fn tree_and_name_admits(_pid: u32, _excluded: Option<u32>) -> bool {
+        true
+    }
+
+    fn unreachable_tree_and_name(_pid: u32, _excluded: Option<u32>) -> bool {
+        panic!("an earlier filter decides this event — the process-tree/name lookup must not run");
+    }
+
+    fn unreachable_owned(_excluded: u32) -> bool {
+        panic!("an earlier filter decides this event — the owned-window lookup must not run");
+    }
+
+    #[test]
+    fn an_unresolvable_window_is_skipped_whatever_the_other_filters_say() {
+        // The decision delegates the resolvable-window skip to the base rule:
+        // an event whose window is already gone (PID 0) is dropped with the
+        // exclusion off and no target set — the arm with nothing else standing
+        // behind it — and stays dropped when a target names it too.
+        let session = Session::default();
+        assert!(
+            !session.decide(0, None, None, unreachable_tree_and_name, unreachable_owned),
+            "an event whose window can no longer be resolved is not captured"
+        );
+        // `Some(0)` is unreachable in production — the target-application
+        // command normalizes 0 to no-target — and is chosen deliberately: it
+        // is the one target value that would admit this event, so the boundary
+        // is tested with the target filter as permissive as it can be.
+        assert!(
+            !session.decide(
+                0,
+                Some(0),
+                None,
+                unreachable_tree_and_name,
+                unreachable_owned
+            ),
+            "and no target selection can admit it"
+        );
+        assert_eq!(
+            session.recorded(0),
+            None,
+            "a skipped unresolvable window records no per-process verdict"
+        );
+    }
+
+    #[test]
+    fn the_target_filter_settles_an_out_of_target_event_before_any_lookup() {
+        // With the exclusion armed AND a target selected, an event from neither
+        // process is settled by the target filter alone: no process-tree walk,
+        // no executable-name read, no owner walk is spent on a process this
+        // recording does not want.
+        let session = Session::default();
+        assert!(
+            !session.decide(
+                OTHER_APP,
+                Some(TARGET_APP),
+                Some(DOCENT),
+                unreachable_tree_and_name,
+                unreachable_owned,
+            ),
+            "an out-of-target event is dropped without spending a self-capture lookup"
+        );
+        assert_eq!(
+            session.recorded(OTHER_APP),
+            None,
+            "and records no per-process verdict, so a later target change is not prejudged"
+        );
+    }
+
+    #[test]
+    fn target_filter_captures_only_the_selected_application() {
+        let session = Session::default();
+        assert!(
+            session.decide(
+                TARGET_APP,
+                Some(TARGET_APP),
+                None,
+                unreachable_tree_and_name,
+                unreachable_owned,
+            ),
+            "an event attributed to the selected target's process is captured"
+        );
+        assert!(
+            !session.decide(
+                OTHER_APP,
+                Some(TARGET_APP),
+                None,
+                unreachable_tree_and_name,
+                unreachable_owned,
+            ),
+            "with a target set, an event from any other process is not captured"
+        );
+    }
+
+    #[test]
+    fn no_target_set_captures_every_application() {
+        let session = Session::default();
+        for pid in [TARGET_APP, OTHER_APP] {
+            assert!(
+                session.decide(
+                    pid,
+                    None,
+                    None,
+                    unreachable_tree_and_name,
+                    unreachable_owned
+                ),
+                "with no target set, every application is captured (PID {pid})"
+            );
+        }
+    }
+
+    #[test]
+    fn self_capture_exclusion_takes_priority_over_the_target_filter() {
+        // Selecting the excluded process as the target still excludes it: the
+        // base rule drops the excluded process's own events before the target
+        // filter is consulted, so the target never gets to admit them.
+        let session = Session::default();
+        assert!(
+            !session.decide(
+                DOCENT,
+                Some(DOCENT),
+                Some(DOCENT),
+                unreachable_tree_and_name,
+                unreachable_owned,
+            ),
+            "the exclusion outranks the target filter while the exclusion is on"
+        );
+        // The control: the same target admits the same process the moment the
+        // exclusion is off, so the drop above is the exclusion's doing and not
+        // the target filter's.
+        let session = Session::default();
+        assert!(
+            session.decide(
+                DOCENT,
+                Some(DOCENT),
+                None,
+                unreachable_tree_and_name,
+                unreachable_owned,
+            ),
+            "with the exclusion off, the selected target is captured like any other"
+        );
+    }
+
+    #[test]
+    fn a_window_owned_by_an_excluded_process_is_excluded() {
+        // A dialog Docent opened runs under another process, so it clears the
+        // process-tree and executable-name grounds; its window's root owner is
+        // Docent's, which is the ground that excludes it.
+        let session = Session::default();
+        let kept = session.decide(
+            DIALOG_HOST,
+            None,
+            Some(DOCENT),
+            tree_and_name_admits,
+            |excluded| {
+                assert_eq!(
+                    excluded, DOCENT,
+                    "the owner check is made against the excluded process"
+                );
+                true
+            },
+        );
+        assert!(!kept, "a system dialog Docent opened is not captured");
+        assert_eq!(
+            session.recorded(DIALOG_HOST),
+            Some(false),
+            "the verdict is recorded for the process, not for the window"
+        );
+    }
+
+    #[test]
+    fn the_self_capture_verdict_is_per_process_and_the_first_event_wins() {
+        // First event excluded — its window IS owned by Docent's. A later event
+        // from a window of the same process that is NOT owned (so on its own it
+        // would be kept) still shares the first event's verdict.
+        let session = Session::default();
+        let first = session.decide(
+            DIALOG_HOST,
+            None,
+            Some(DOCENT),
+            tree_and_name_admits,
+            session.owner_says(true),
+        );
+        let second = session.decide(
+            DIALOG_HOST,
+            None,
+            Some(DOCENT),
+            tree_and_name_admits,
+            session.owner_says(false),
+        );
+        assert!(!first);
+        assert!(
+            !second,
+            "every window of the process shares the verdict its first event produced"
+        );
+        assert_eq!(
+            session.owner_lookups.get(),
+            1,
+            "the verdict is evaluated on the first event and recorded, not re-evaluated per event"
+        );
+
+        // The same rule in the other direction: first event kept, so a later
+        // event from a window that IS owned rides the same recorded verdict.
+        let session = Session::default();
+        let first = session.decide(
+            DIALOG_HOST,
+            None,
+            Some(DOCENT),
+            tree_and_name_admits,
+            session.owner_says(false),
+        );
+        let second = session.decide(
+            DIALOG_HOST,
+            None,
+            Some(DOCENT),
+            tree_and_name_admits,
+            session.owner_says(true),
+        );
+        assert!(first);
+        assert!(
+            second,
+            "a first-event keep is recorded for the process just as a first-event exclusion is"
+        );
+        assert_eq!(session.owner_lookups.get(), 1);
+    }
+
+    #[test]
+    fn a_process_the_tree_and_name_grounds_exclude_never_reaches_the_owner_check() {
+        // Docent's own process tree and the executable-name recognition are
+        // decided before the owner walk, and their verdict is recorded too.
+        let session = Session::default();
+        assert!(
+            !session.decide(
+                DIALOG_HOST,
+                None,
+                Some(DOCENT),
+                |_pid, _excluded| false,
+                unreachable_owned,
+            ),
+            "a process the tree/name grounds exclude is not captured"
+        );
+        assert_eq!(session.recorded(DIALOG_HOST), Some(false));
+        assert!(
+            !session.decide(
+                DIALOG_HOST,
+                None,
+                Some(DOCENT),
+                unreachable_tree_and_name,
+                unreachable_owned,
+            ),
+            "and that verdict is recorded for the process like any other"
+        );
+    }
+
+    // -- the Input_Thread adapter over the decision ------------------------
+
+    /// A PID no live process can be using, so the process-table lookups answer
+    /// it deterministically: it resolves to no executable name, and therefore
+    /// to no Docent-tree membership by name. The adjacent cases
+    /// `get_process_exe_name_unknown_pid_is_none` and
+    /// `is_webview_process_false_for_unknown_pid` pin those two answers.
+    const UNKNOWN_PROCESS: u32 = u32::MAX - 1;
+
+    /// Set the Input_Thread's target-application atomic; `None` writes the
+    /// no-target value the adapter reads as "capture every application".
+    fn set_input_target(pid: Option<u32>) {
+        INPUT_INCLUDED_PID.with(|p| {
+            *p.borrow_mut() = Some(std::sync::Arc::new(AtomicU32::new(pid.unwrap_or(0))));
+        });
+    }
+
+    fn recorded_by_input_thread(pid: u32) -> Option<bool> {
+        INPUT_PID_CACHE.with(|cache| cache.borrow().get(&pid).copied())
+    }
+
+    /// Return the Input_Thread's scope state to its between-sessions shape.
+    fn clear_input_scope_state() {
+        INPUT_INCLUDED_PID.with(|p| *p.borrow_mut() = None);
+        INPUT_PID_CACHE.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn the_input_thread_adapter_applies_the_target_application_it_reads() {
+        // The entry point the hooks actually call. It reads the target from
+        // the Input_Thread's shared atomic, so seeding that atomic is what
+        // lets the composed answer be observed here; the seeded verdicts keep
+        // the processes that get past the target filter off the lookup path.
+        let no_window = HWND(std::ptr::null_mut());
+        set_input_target(Some(TARGET_APP));
+        INPUT_PID_CACHE.with(|cache| {
+            let mut verdicts = cache.borrow_mut();
+            verdicts.insert(TARGET_APP, true);
+            verdicts.insert(OTHER_APP, true);
+        });
+
+        assert!(
+            input_should_keep_event_cached(TARGET_APP, Some(DOCENT), no_window),
+            "the selected target's events reach capture"
+        );
+        assert!(
+            !input_should_keep_event_cached(OTHER_APP, Some(DOCENT), no_window),
+            "the target the adapter reads still drops every other process, recorded verdict or not"
+        );
+        assert!(
+            !input_should_keep_event_cached(DOCENT, Some(DOCENT), no_window),
+            "and the excluded process is dropped whatever the target says"
+        );
+        assert!(
+            !input_should_keep_event_cached(0, Some(DOCENT), no_window),
+            "an unresolvable window is skipped through the adapter too"
+        );
+
+        // Clearing the target restores capture of every application — the
+        // adapter re-reads the atomic per event rather than latching it.
+        set_input_target(None);
+        assert!(
+            input_should_keep_event_cached(OTHER_APP, Some(DOCENT), no_window),
+            "with the target cleared, the same event is captured"
+        );
+
+        clear_input_scope_state();
+    }
+
+    #[test]
+    fn the_input_thread_adapter_records_a_process_verdict_and_then_rides_it() {
+        // The verdict cache's two halves, over the real Windows lookups the
+        // adapter supplies: a process with no verdict yet is judged by them
+        // and the answer written to the Input_Thread's map; a later event from
+        // that process reads the written answer instead of being judged again.
+        let no_window = HWND(std::ptr::null_mut());
+        set_input_target(None);
+        INPUT_PID_CACHE.with(|c| c.borrow_mut().clear());
+
+        // First event: no verdict recorded, so the real lookups run. The
+        // process-tree walk and the executable-name read cannot place this PID
+        // in Docent's tree, and the owner walk — supplied for real, with a
+        // window handle that has no root owner — takes its no-root-owner arm.
+        // So the event is captured, and that answer must reach the cache.
+        assert!(
+            input_should_keep_event_cached(UNKNOWN_PROCESS, Some(DOCENT), no_window),
+            "a process the real lookups cannot tie to Docent is captured"
+        );
+        assert_eq!(
+            recorded_by_input_thread(UNKNOWN_PROCESS),
+            Some(true),
+            "and the adapter writes that verdict to the Input_Thread's verdict cache"
+        );
+
+        // Flip the recorded verdict to the opposite of what those same lookups
+        // would produce. The next event from that process must ride the record
+        // rather than be judged afresh, so this is what the read decides.
+        INPUT_PID_CACHE.with(|c| {
+            c.borrow_mut().insert(UNKNOWN_PROCESS, false);
+        });
+        assert!(
+            !input_should_keep_event_cached(UNKNOWN_PROCESS, Some(DOCENT), no_window),
+            "a later event from that process rides the recorded verdict, not a fresh judgement"
+        );
+
+        clear_input_scope_state();
+    }
+
+    // -- pointer gesture classification (DCP-10) ---------------------------
+
+    fn at(x: i32, y: i32) -> POINT {
+        POINT { x, y }
+    }
+
+    #[test]
+    fn drag_threshold_is_the_documented_five_pixels() {
+        // A value pin on a doctrine constant: the threshold is stated in the
+        // desktop capture principles, so the constant cannot drift away from
+        // the documented value unnoticed.
+        assert_eq!(
+            DRAG_THRESHOLD_PX, 5,
+            "the classification threshold is documented as 5 px on either axis"
+        );
+    }
+
+    #[test]
+    fn movement_within_the_threshold_is_a_click() {
+        // "More than 5 px" is strict, so a release exactly 5 px from the press
+        // is still a click — on either axis and in either direction.
+        assert!(!is_drag(at(100, 100), at(100, 100)), "no movement");
+        assert!(!is_drag(at(100, 100), at(105, 100)), "5 px right");
+        assert!(!is_drag(at(100, 100), at(95, 100)), "5 px left");
+        assert!(!is_drag(at(100, 100), at(100, 105)), "5 px down");
+        assert!(!is_drag(at(100, 100), at(95, 95)), "5 px on both axes");
+    }
+
+    #[test]
+    fn movement_past_the_threshold_on_either_axis_is_a_drag() {
+        // One axis past the threshold is enough, and the distance is absolute,
+        // so the direction of travel does not change the classification.
+        assert!(is_drag(at(100, 100), at(106, 100)), "6 px right");
+        assert!(is_drag(at(100, 100), at(94, 100)), "6 px left");
+        assert!(is_drag(at(100, 100), at(100, 106)), "6 px down");
+        assert!(is_drag(at(100, 100), at(100, 94)), "6 px up");
+        assert!(
+            is_drag(at(100, 100), at(102, 140)),
+            "one axis past the threshold decides even when the other is within it"
+        );
     }
 
     // -- flush-barrier fallback drain (truthful completion) ----------------

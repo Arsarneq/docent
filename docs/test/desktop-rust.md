@@ -37,7 +37,7 @@ Tests live in two places:
 | `pid_filter_test.rs`        | The platform-agnostic PID base filter: own-process events discarded while self-capture exclusion is enabled, every other resolvable process kept whether that setting is on or off, and events from an unresolvable window (PID 0) discarded either way. |
 | `scroll_test.rs`            | Scroll debounce (300 ms settle) and the displacement-floor filter.                                                                                                                                                                                       |
 | `windows_capture_test.rs`   | Pure-function and state-machine units: scroll accumulator, PID filtering, key mapping.                                                                                                                                                                   |
-| `worker_pool_test.rs`       | Worker-pool properties: sequence numbering, shortest-queue dispatch, sticky routing, click-vs-drag classification, drag-pair routing, and the dead-worker drain rescues (dispatch-time respawn and shutdown join) — the pipeline-level truth-lock.       |
+| `worker_pool_test.rs`       | Worker-pool properties: sequence numbering, shortest-queue dispatch, sticky routing, drag-pair routing, and the dead-worker drain rescues (dispatch-time respawn and shutdown join) — the pipeline-level truth-lock.                                     |
 
 **Property-based tests** use [`proptest`](https://docs.rs/proptest) (the
 convention set in the
