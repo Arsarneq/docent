@@ -135,6 +135,17 @@ describe('evaluateExtensionSurface — message legs (both ways)', () => {
     assert.ok(problems.some((p) => p.includes('STEP_COMMIT') && p.includes('disjoint')));
   });
 
+  it('fires on an unreadable protocol cell', () => {
+    const problems = evaluateExtensionSurface(
+      makeSurface({ protocolUnreadable: ['PROJECTS_LIST and friends'] }),
+    );
+    assert.ok(
+      problems.some((p) => p.includes('PROJECTS_LIST and friends') && p.includes('cannot read')),
+    );
+  });
+});
+
+describe('evaluateExtensionSurface — duplicates, every leg of the duplicates loop', () => {
   // Data-driven over every entry of the check's duplicates loop (mirroring
   // the empty-parse family below): each leg asserts its own surface label,
   // so dropping or mistyping a loop entry reds here.
@@ -155,19 +166,10 @@ describe('evaluateExtensionSurface — message legs (both ways)', () => {
       const problems = evaluateExtensionSurface(makeSurface({ [key]: list }));
       assert.ok(
         problems.some((p) => p.includes('more than once') && p.includes(what)),
-        problems.join('\n'),
+        problems.join('\n') || `no duplicates diagnostic for ${what}`,
       );
     });
   }
-
-  it('fires on an unreadable protocol cell', () => {
-    const problems = evaluateExtensionSurface(
-      makeSurface({ protocolUnreadable: ['PROJECTS_LIST and friends'] }),
-    );
-    assert.ok(
-      problems.some((p) => p.includes('PROJECTS_LIST and friends') && p.includes('cannot read')),
-    );
-  });
 });
 
 describe('evaluateExtensionSurface — empty parses are structural failures', () => {
@@ -225,8 +227,17 @@ describe('extractManifestSurface', () => {
     assert.deepEqual(hostRead.hostPermissions, []);
     assert.ok(
       hostRead.problems.some((p) => p.includes('a host_permissions that is not an array')),
-      hostRead.problems.join('\n'),
+      hostRead.problems.join('\n') || 'no non-array diagnostic for host_permissions',
     );
+  });
+
+  it('routes an absent permission key to the empty-parse guard, not the non-array refusal', () => {
+    const read = extractManifestSurface('{"host_permissions": ["<all_urls>"]}');
+    assert.deepEqual(read.permissions, []);
+    assert.deepEqual(read.hostPermissions, ['<all_urls>']);
+    assert.deepEqual(read.problems, []);
+    const problems = evaluateExtensionSurface(makeSurface({ manifestPermissions: read.permissions })); // prettier-ignore
+    assert.ok(problems.some((p) => p.includes('no permissions found')));
   });
 
   it('refuses a manifest that parses to a non-object without throwing', () => {
