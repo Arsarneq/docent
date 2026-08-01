@@ -3,21 +3,24 @@
  * echo contract against the schemas that define the format:
  *
  *   - authority statements (docs/technical/session-format.md §SF-1): every
- *     surface that restates which side governs still carries its claim, so a
- *     rewrite that drops one leaves the ordering asserted somewhere else
- *     rather than nowhere;
- *   - the unknown-key posture (§SF-14): every object subschema of both
- *     composed platforms declares the posture its class states — action
- *     objects open, the user-defined `metadata` maps open with typed values,
- *     the discriminating wrappers silent, every other object closed — and the
- *     action wrapper selects exactly the defs the open posture is granted to;
+ *     registered surface that restates which side governs still carries its
+ *     claim, so a rewrite that drops one leaves the ordering asserted
+ *     somewhere else rather than nowhere; and the register agrees with the
+ *     clause row that discloses it;
+ *   - the unknown-key posture (§SF-14): every object subschema of every
+ *     composed platform declares the posture its class states — action
+ *     objects open, the user-defined `metadata` map open with typed values,
+ *     the discriminating wrappers silent, every other object closed. No
+ *     exemption rests on a name alone: a wrapper must still discriminate, the
+ *     action wrapper must select exactly the defs the prefix grants openness
+ *     to, and each metadata host must reference the one map definition;
  *   - the field tables: each registered table's field names, its `yes` rows
  *     and its `one of` rows equal the composed def's `properties`,
- *     `required`, and `anyOf` branch requirements — both directions, both
- *     platforms, and the two platforms held to the same shared def — over a
- *     table set the document cannot grow silently: every `Field`-headed table
- *     it carries is either a registered leg or a registered review-held
- *     entry, held both ways.
+ *     `required`, and `anyOf` branches — both directions, every platform, and
+ *     the platforms held to the same shared def — over a table set the
+ *     document cannot grow silently: every `Field`-headed table it carries is
+ *     either a registered leg or a registered review-held entry, held both
+ *     ways.
  *
  * Schemas are composed IN-PROCESS from the source layers through
  * `composePlatform` ([`build-schemas.js`](./build-schemas.js)). The published
@@ -50,7 +53,10 @@
  *     schema written outside that reach is not judged at all rather than
  *     judged loudly, so widening the schemas' vocabulary widens the walk too;
  *   - the field-table legs read names, required status, and the `one of`
- *     marking; a row's Type and Description columns are review-held, as are
+ *     marking. `one of` is held as the branch shape the phrase means — one
+ *     `anyOf` branch per marked field, each requiring that field alone — so a
+ *     collapsed branch demanding several at once reds rather than passing on
+ *     the union. A row's Type and Description columns are review-held, as are
  *     the document's prose echoes of field semantics. `UNHELD_FIELD_TABLES`
  *     carries the field tables no def answers, each with its reason, and the
  *     coverage leg holds that register honest in both directions;
@@ -67,7 +73,7 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { composePlatform } from './build-schemas.js';
+import { PLATFORMS, composePlatform } from './build-schemas.js';
 import {
   backtickedName,
   duplicatesIn,
@@ -82,8 +88,14 @@ export const SESSION_FORMAT_DOC_PATH = 'docs/technical/session-format.md';
 export const AUTHORITY_CLAUSE_ID = 'SF-1';
 /** The unknown-key posture clause the posture walk verifies. */
 export const POSTURE_CLAUSE_ID = 'SF-14';
-/** The platforms whose schemas are composed and compared. */
-export const PLATFORM_IDS = ['extension', 'desktop-windows'];
+/** Repo-relative path of the registry whose rows name these checks. */
+export const CLAUSE_REGISTRY_PATH = 'docs/clause-registry.json';
+/**
+ * The platforms whose schemas are composed and compared — derived from the
+ * composer's own chain declarations, so a surface that gains a layer chain
+ * enters this check's legs with it rather than waiting to be hand-added.
+ */
+export const PLATFORM_IDS = Object.keys(PLATFORMS);
 
 /**
  * The surfaces that restate the schemas' authority over the prose, each with
@@ -119,6 +131,16 @@ export const AUTHORITY_SURFACES = [
     'docs/api/dispatch.md',
     /is defined by the per-platform \[JSON Schemas\]/,
     'the dispatch specification deferring the payload data to the schemas',
+  ],
+  [
+    'docs/api/sync-protocol.md',
+    /the per-platform schemas define it authoritatively/,
+    'the sync protocol deferring the step structure to the schemas',
+  ],
+  [
+    'reference-implementations/sync-server/README.md',
+    /whose schemas define the `Full_Project_Payload` shape/,
+    "the reference server's index deferring the payload shape to the schemas",
   ],
 ];
 
@@ -194,8 +216,22 @@ export const WRAPPER_DEFS = ['action', 'locator'];
 export const ACTION_WRAPPER_DEF = 'action';
 /** The `$def` holding the user-defined key-value map. */
 export const METADATA_DEF = 'metadata';
-/** The defs whose `metadata` property must resolve to that map. */
+/**
+ * The defs whose `metadata` property must reference that map, and the
+ * reference form they must use. The composition states the map once and
+ * refers to it, so an inline copy is refused rather than accepted as an
+ * equivalent: two spellings of one contract drift, and the posture walk
+ * judges the shared def, not a copy of it.
+ */
 export const METADATA_HOSTS = ['project', 'recording'];
+/** The reference every metadata host's property must carry. */
+export const METADATA_REF = `#/$defs/${METADATA_DEF}`;
+/**
+ * The keywords a value schema can use to state what a metadata value may be.
+ * The map is open by design, so its exemption rests on the values still being
+ * typed — an empty schema accepts anything and is refused.
+ */
+export const VALUE_CONSTRAINT_KEYWORDS = ['type', 'oneOf', 'anyOf', 'allOf', 'enum', 'const', '$ref']; // prettier-ignore
 
 /**
  * The posture classes and the declaration each one requires. Exported so the
@@ -205,7 +241,7 @@ export const METADATA_HOSTS = ['project', 'recording'];
 export const POSTURE_CLASSES = [
   ['wrapper', 'must declare no additionalProperties — the member the wrapper selects carries the posture'], // prettier-ignore
   ['action', `must declare no additionalProperties — they are the additive evolution surface (§${POSTURE_CLAUSE_ID})`], // prettier-ignore
-  ['metadata-map', `must declare an additionalProperties schema — arbitrary keys with typed values (§${POSTURE_CLAUSE_ID})`], // prettier-ignore
+  ['metadata-map', `must declare an additionalProperties schema that states what a value may be — arbitrary keys, typed values (§${POSTURE_CLAUSE_ID})`], // prettier-ignore
   ['closed', `must declare additionalProperties: false — every other object is closed (§${POSTURE_CLAUSE_ID})`], // prettier-ignore
 ];
 
@@ -304,6 +340,41 @@ export function fieldTableKey(section, headerCell) {
 }
 
 /**
+ * Every field table the registers account for — the held legs plus the
+ * review-held entries. The one derivation, so the coverage leg and the suite
+ * cannot disagree about what "registered" means.
+ * @returns {string[]}
+ */
+export function registeredFieldTableKeys() {
+  return [...FIELD_TABLE_LEGS, ...UNHELD_FIELD_TABLES].map(([section, header]) =>
+    fieldTableKey(section, header),
+  );
+}
+
+/**
+ * The clause row that names this check, read from the registry: the text a
+ * reader consults to learn which surfaces are held. Returns null with a
+ * problem when the registry cannot be read or carries no such row.
+ * @param {string} registryJson the registry's text
+ * @param {string} clauseId the clause whose row to read
+ * @returns {{ text: string | null, problems: string[] }}
+ */
+export function readClauseRow(registryJson, clauseId) {
+  let parsed;
+  try {
+    parsed = JSON.parse(registryJson);
+  } catch {
+    return { text: null, problems: [`${CLAUSE_REGISTRY_PATH} does not parse as JSON — the §${clauseId} register closure cannot run`] }; // prettier-ignore
+  }
+  const rows = Array.isArray(parsed?.clauses) ? parsed.clauses : [];
+  const row = rows.find((r) => r?.clause === clauseId);
+  if (!isPlainObject(row) || typeof row['check-ref'] !== 'string') {
+    return { text: null, problems: [`${CLAUSE_REGISTRY_PATH} carries no §${clauseId} row with a check-ref — the register closure cannot run`] }; // prettier-ignore
+  }
+  return { text: row['check-ref'], problems: [] };
+}
+
+/**
  * Read the action wrapper's membership: the defs its `oneOf` selects and the
  * defs carrying the action prefix, so the two can be diffed. A wrapper that
  * is missing, states no `oneOf`, or lists a member this reader cannot
@@ -371,12 +442,14 @@ export function readDefSurface(schema, platform, defName) {
   }
   const hasAnyOf = Array.isArray(def.anyOf);
   const anyOfRequired = [];
+  const anyOfBranches = [];
   if (hasAnyOf) {
     for (const [i, branch] of def.anyOf.entries()) {
       if (!isPlainObject(branch) || !Array.isArray(branch.required)) {
         problems.push(`the composed ${platform} \`${defName}\` def's anyOf branch ${i} states no required array — the one-of read models required-only branches`); // prettier-ignore
         continue;
       }
+      anyOfBranches.push(branch.required);
       anyOfRequired.push(...branch.required);
     }
   }
@@ -385,6 +458,7 @@ export function readDefSurface(schema, platform, defName) {
     hasAnyOf,
     properties: Object.keys(def.properties),
     required,
+    anyOfBranches,
     anyOfRequired: [...new Set(anyOfRequired)],
     problems,
   };
@@ -459,20 +533,40 @@ export function describeDeclaration(declared) {
   if (declared === undefined) return 'declares none';
   if (declared === false) return 'declares `false`';
   if (declared === true) return 'declares `true`';
-  if (isPlainObject(declared)) return 'declares a schema';
+  if (isPlainObject(declared)) {
+    return statesValueConstraint(declared)
+      ? 'declares a schema'
+      : 'declares a schema that constrains nothing';
+  }
   return `declares ${JSON.stringify(declared)}`;
 }
 
 /**
- * Whether one object subschema satisfies its class's posture.
+ * Whether one object subschema satisfies its class's posture. Every class in
+ * {@link POSTURE_CLASSES} has its own arm; a class outside that list is a
+ * programming error rather than a schema defect, so it throws instead of
+ * inheriting a neighbour's rule — the evaluator reports an unmodelled class
+ * as its own problem before reaching here.
  * @param {string} klass a class name from {@link POSTURE_CLASSES}
  * @param {unknown} declared the subschema's `additionalProperties`, or undefined
  * @returns {boolean}
  */
 export function postureHolds(klass, declared) {
   if (klass === 'wrapper' || klass === 'action') return declared === undefined;
-  if (klass === 'metadata-map') return isPlainObject(declared);
-  return declared === false;
+  if (klass === 'metadata-map') return statesValueConstraint(declared);
+  if (klass === 'closed') return declared === false;
+  throw new Error(`no posture is defined for the class "${klass}"`);
+}
+
+/**
+ * Whether a value schema says anything about what a value may be. `{}` and
+ * `true` accept anything, which is not the typed-value surface the map's
+ * exemption rests on.
+ * @param {unknown} declared an `additionalProperties` declaration
+ * @returns {boolean}
+ */
+export function statesValueConstraint(declared) {
+  return isPlainObject(declared) && VALUE_CONSTRAINT_KEYWORDS.some((k) => k in declared);
 }
 
 /**
@@ -499,7 +593,8 @@ export const EMPTY_SURFACES = [
  * @param {object} s the extracted surfaces
  * @param {{ path: string, description: string, matched: boolean, empty: boolean }[]} s.authority
  * @param {{ platform: string, pointer: string, klass: string, declared: unknown, discriminates: boolean }[]} s.objects
- * @param {{ platform: string, defName: string, resolved: boolean }[]} s.metadataHosts
+ * @param {{ platform: string, defName: string, referenced: boolean, found: boolean }[]} s.metadataHosts
+ * @param {string | null} s.authorityRow the §SF-1 row's check-ref, or null when unreadable
  * @param {{ platform: string, members: string[], prefixed: string[] }[]} s.actionMembers
  * @param {string[]} s.fieldTableKeys every field table the document carries
  * @param {{ defName: string, label: string, fields: string[], yes: string[], no: string[], oneOf: string[] }[]} s.tables
@@ -540,9 +635,13 @@ export function evaluateSchemaEcho(s) {
   }
 
   for (const object of s.objects) {
+    const modelled = POSTURE_CLASSES.find(([name]) => name === object.klass);
+    if (!modelled) {
+      problems.push(`${object.platform} ${object.pointer} is classified \`${object.klass}\`, which the posture model does not define — a class without a stated declaration cannot be judged`); // prettier-ignore
+      continue;
+    }
     if (!postureHolds(object.klass, object.declared)) {
-      const requirement = POSTURE_CLASSES.find(([name]) => name === object.klass)?.[1];
-      problems.push(`${object.platform} ${object.pointer} ${describeDeclaration(object.declared)} — \`${object.klass}\` objects ${requirement}`); // prettier-ignore
+      problems.push(`${object.platform} ${object.pointer} ${describeDeclaration(object.declared)} — \`${object.klass}\` objects ${modelled[1]}`); // prettier-ignore
     }
     // A wrapper's exemption rests on its shape, not on its name: a def that
     // stopped discriminating is an ordinary object whose unknown keys the
@@ -552,9 +651,11 @@ export function evaluateSchemaEcho(s) {
     }
   }
   for (const host of s.metadataHosts) {
-    if (!host.resolved) {
-      problems.push(`the composed ${host.platform} \`${host.defName}\` def's \`${METADATA_DEF}\` property does not resolve to the \`${METADATA_DEF}\` map — §${POSTURE_CLAUSE_ID} states the user-defined maps as the one keyed-value surface`); // prettier-ignore
-    }
+    if (host.referenced) continue;
+    const what = host.found
+      ? `states its own \`${METADATA_DEF}\` shape instead of \`${METADATA_REF}\` — the map is declared once and referenced, so the posture walk judges one definition rather than each copy`
+      : `carries no \`${METADATA_DEF}\` property to reference \`${METADATA_REF}\``;
+    problems.push(`the composed ${host.platform} \`${host.defName}\` def ${what} (§${POSTURE_CLAUSE_ID} states the user-defined maps as the one keyed-value surface)`); // prettier-ignore
   }
 
   for (const membership of s.actionMembers) {
@@ -564,13 +665,21 @@ export function evaluateSchemaEcho(s) {
     );
   }
 
+  // The registry row is where a reader learns which surfaces are held, so the
+  // register and the row are held to the same list: a surface registered here
+  // and absent from the row would be guarded without being disclosed.
+  if (s.authorityRow !== null) {
+    for (const surface of s.authority) {
+      if (!s.authorityRow.includes(surface.path)) {
+        problems.push(`${surface.path} is a registered authority surface but the §${AUTHORITY_CLAUSE_ID} row in ${CLAUSE_REGISTRY_PATH} does not name it — the row states which surfaces are held`); // prettier-ignore
+      }
+    }
+  }
+
   // The field tables the legs hold plus the ones recorded as review-held are
   // the document's whole field-table set, both ways: a new table must join a
   // list, and a registration whose table is gone is stale.
-  const registeredTables = [
-    ...FIELD_TABLE_LEGS.map(([section, header]) => fieldTableKey(section, header)),
-    ...UNHELD_FIELD_TABLES.map(([section, header]) => fieldTableKey(section, header)),
-  ];
+  const registeredTables = registeredFieldTableKeys();
   problems.push(
     ...duplicatesIn(s.fieldTableKeys, `${SESSION_FORMAT_DOC_PATH}'s field tables — a section carrying two of them is one the legs cannot address`), // prettier-ignore
     ...missingFrom(s.fieldTableKeys, registeredTables, `is a field table in ${SESSION_FORMAT_DOC_PATH} that no leg holds and no entry records as review-held`), // prettier-ignore
@@ -606,6 +715,15 @@ export function evaluateSchemaEcho(s) {
         ...missingFrom(table.oneOf, def.anyOfRequired, `is marked "${REQUIRED_ONE_OF}" in ${table.label} but no anyOf branch of ${where} requires it`), // prettier-ignore
         ...missingFrom(def.anyOfRequired, table.oneOf, `is required by an anyOf branch of ${where} but ${table.label} does not mark it "${REQUIRED_ONE_OF}"`), // prettier-ignore
       );
+      // "At least one of" is the branch SHAPE, not just the union: one branch
+      // per field, each requiring that field alone. A collapsed branch
+      // requiring several at once demands all of them, which the union cannot
+      // see and the table's wording would then misstate.
+      for (const [i, branch] of (def.anyOfBranches ?? []).entries()) {
+        if (branch.length !== 1 || !table.oneOf.includes(branch[0])) {
+          problems.push(`anyOf branch ${i} of ${where} requires ${branch.map((f) => `\`${f}\``).join(' + ') || '(nothing)'} — ${table.label} says "${REQUIRED_ONE_OF}", which is one branch per marked field, each requiring that field alone`); // prettier-ignore
+        }
+      }
     }
 
     // The two platforms share every registered def; a leaf or family layer
@@ -619,6 +737,8 @@ export function evaluateSchemaEcho(s) {
         ...missingFrom(other.properties, first.properties, `is a property of ${pair} on the second platform only — the two platforms must share this def`), // prettier-ignore
         ...missingFrom(first.required, other.required, `is required by ${pair} on the first platform only — the two platforms must share this def`), // prettier-ignore
         ...missingFrom(other.required, first.required, `is required by ${pair} on the second platform only — the two platforms must share this def`), // prettier-ignore
+        ...missingFrom(first.anyOfRequired, other.anyOfRequired, `is required by an anyOf branch of ${pair} on the first platform only — the two platforms must share this def`), // prettier-ignore
+        ...missingFrom(other.anyOfRequired, first.anyOfRequired, `is required by an anyOf branch of ${pair} on the second platform only — the two platforms must share this def`), // prettier-ignore
       );
     }
   }
@@ -657,15 +777,20 @@ export function auditTree(readFile, composeFor) {
     for (const object of walkObjectSchemas(schema)) objects.push({ platform, ...object });
     for (const defName of METADATA_HOSTS) {
       const property = schema?.$defs?.[defName]?.properties?.[METADATA_DEF];
-      const resolved =
-        property?.$ref === `#/$defs/${METADATA_DEF}` ||
-        isPlainObject(property?.additionalProperties);
-      metadataHosts.push({ platform, defName, resolved });
+      metadataHosts.push({
+        platform,
+        defName,
+        referenced: property?.$ref === METADATA_REF,
+        found: isPlainObject(property),
+      });
     }
     const membership = readActionMembers(schema, platform);
     anchorProblems.push(...membership.problems);
     actionMembers.push({ platform, members: membership.members, prefixed: membership.prefixed });
   }
+
+  const row = readClauseRow(readFile(CLAUSE_REGISTRY_PATH), AUTHORITY_CLAUSE_ID);
+  anchorProblems.push(...row.problems);
 
   const docText = readFile(SESSION_FORMAT_DOC_PATH);
   const tables = [];
@@ -692,6 +817,7 @@ export function auditTree(readFile, composeFor) {
 
   return {
     authority,
+    authorityRow: row.text,
     objects,
     metadataHosts,
     actionMembers,

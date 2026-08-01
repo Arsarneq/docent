@@ -120,8 +120,9 @@ export const ALLOWLIST = new Map([
     'DI-3\tpackages/shared/lib/format-stamp.js',
     "the stamp-source implementation DI-3 names; DI-3's wrapper contract is asserted per-diff by the contract, dispatch, and export test suites that carry the dispatch doc, and this file is exercised by the schema-composition suites — the citation names the site, not a per-file governance edge",
   ],
-  // Class 3 — format-authority echo surfaces (echo held by a named check; the
-  // governance edge stays open because both files are repo-wide docs).
+  // Class 3 — format-authority echo surfaces. Each echoes the session-format
+  // ordering clause and is held by the schema-echo check; what stays open is
+  // only the governance edge, for the reason each entry states.
   [
     'SF-1\tdocs/README.md',
     'the docs index echoes the session-format ordering clause, and the schema-echo check holds that echo; the edge stays open because a repo-wide doc is not credited as governance, and the index takes a disposition line only when itself edited',
@@ -129,6 +130,14 @@ export const ALLOWLIST = new Map([
   [
     'SF-1\tREADME.md',
     'the root README echoes the session-format ordering clause, and the schema-echo check holds that echo; the edge stays open because a repo-wide doc is not credited as governance, and the README takes a disposition line only when itself edited',
+  ],
+  [
+    'SF-1\tdocs/api/sync-protocol.md',
+    'the sync protocol defers the step structure to the schemas, echoing the ordering clause; the schema-echo check holds that echo, and the protocol doc is governed by the areas that own the protocol rather than by the format doc it defers to',
+  ],
+  [
+    'SF-1\treference-implementations/sync-server/README.md',
+    'the reference server index defers the payload shape to the schemas, echoing the ordering clause; the schema-echo check holds that echo, and the file is a recorded area-map exception — a runnable example artifact, never shipped — rather than governed documentation',
   ],
 ]);
 

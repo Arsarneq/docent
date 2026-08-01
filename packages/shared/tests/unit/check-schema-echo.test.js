@@ -18,10 +18,12 @@ import {
   ACTION_WRAPPER_DEF,
   AUTHORITY_CLAUSE_ID,
   AUTHORITY_SURFACES,
+  CLAUSE_REGISTRY_PATH,
   EMPTY_SURFACES,
   FIELD_TABLE_HEADER,
   FIELD_TABLE_LEGS,
   METADATA_DEF,
+  METADATA_REF,
   PLATFORM_IDS,
   POSTURE_CLASSES,
   REQUIRED_COLUMN,
@@ -39,10 +41,14 @@ import {
   normalizeProse,
   postureHolds,
   readActionMembers,
+  readClauseRow,
   readDefSurface,
+  registeredFieldTableKeys,
+  statesValueConstraint,
   treeSurfaces,
   walkObjectSchemas,
 } from '../../../../scripts/check-schema-echo.js';
+import { PLATFORMS } from '../../../../scripts/build-schemas.js';
 
 const ROOT = resolve(import.meta.dirname, '..', '..', '..', '..');
 const readTree = (path) => readFileSync(resolve(ROOT, path), 'utf8');
@@ -63,14 +69,12 @@ function makeSurface(overrides = {}) {
       { platform: 'extension', pointer: '#/$defs/action_click', klass: 'action', declared: undefined, discriminates: false }, // prettier-ignore
       { platform: 'extension', pointer: '#/$defs/metadata', klass: 'metadata-map', declared: { type: 'string' }, discriminates: false }, // prettier-ignore
     ],
-    metadataHosts: [{ platform: 'extension', defName: 'project', resolved: true }],
+    metadataHosts: [{ platform: 'extension', defName: 'project', referenced: true, found: true }],
     actionMembers: [
       { platform: 'extension', members: ['action_click'], prefixed: ['action_click'] },
     ],
-    fieldTableKeys: [
-      ...FIELD_TABLE_LEGS.map(([section, header]) => fieldTableKey(section, header)),
-      ...UNHELD_FIELD_TABLES.map(([section, header]) => fieldTableKey(section, header)),
-    ],
+    authorityRow: 'docs/x.md is held by this check',
+    fieldTableKeys: registeredFieldTableKeys(),
     tables: [
       {
         defName: 'step',
@@ -89,6 +93,7 @@ function makeSurface(overrides = {}) {
       hasAnyOf: true,
       properties: ['uuid', 'narration', 'step_type', 'expect'],
       required: ['uuid'],
+      anyOfBranches: [['narration'], ['step_type']],
       anyOfRequired: ['narration', 'step_type'],
     })),
     ...overrides,
@@ -203,14 +208,46 @@ describe('evaluateSchemaEcho — the posture walk, every class', () => {
     );
   });
 
-  it('fires when a metadata host stops resolving to the map def', () => {
+  it('fires when a metadata host inlines the map instead of referencing it', () => {
     const problems = evaluateSchemaEcho(
       makeSurface({
-        metadataHosts: [{ platform: 'desktop-windows', defName: 'recording', resolved: false }],
+        metadataHosts: [
+          { platform: 'desktop-windows', defName: 'recording', referenced: false, found: true },
+        ],
       }),
     );
     assert.ok(
-      problems.some((p) => p.includes('recording') && p.includes(METADATA_DEF)),
+      problems.some(
+        (p) => p.includes('recording') && p.includes(METADATA_REF) && p.includes('states its own'),
+      ),
+      problems.join('\n'),
+    );
+  });
+
+  it('fires, differently, when a metadata host carries no such property at all', () => {
+    const problems = evaluateSchemaEcho(
+      makeSurface({
+        metadataHosts: [
+          { platform: 'extension', defName: 'project', referenced: false, found: false },
+        ],
+      }),
+    );
+    assert.ok(
+      problems.some((p) => p.includes('project') && p.includes('carries no')),
+      problems.join('\n'),
+    );
+  });
+
+  it('fires when an object is classified outside the posture model', () => {
+    const problems = evaluateSchemaEcho(
+      makeSurface({
+        objects: [
+          { platform: 'extension', pointer: '#/$defs/mystery', klass: 'invented', declared: false, discriminates: false }, // prettier-ignore
+        ],
+      }),
+    );
+    assert.ok(
+      problems.some((p) => p.includes('invented') && p.includes('does not define')),
       problems.join('\n'),
     );
   });
@@ -255,10 +292,7 @@ describe('evaluateSchemaEcho — the field-table coverage leg (both ways)', () =
   it('fires when the document carries a field table no list registers', () => {
     const problems = evaluateSchemaEcho(
       makeSurface({
-        fieldTableKeys: [
-          ...makeSurface().fieldTableKeys,
-          fieldTableKey('Widget', FIELD_TABLE_HEADER),
-        ],
+        fieldTableKeys: [...registeredFieldTableKeys(), fieldTableKey('Widget', FIELD_TABLE_HEADER)], // prettier-ignore
       }),
     );
     assert.ok(
@@ -269,7 +303,7 @@ describe('evaluateSchemaEcho — the field-table coverage leg (both ways)', () =
 
   it('fires when a registration names a table the document no longer carries', () => {
     const problems = evaluateSchemaEcho(
-      makeSurface({ fieldTableKeys: makeSurface().fieldTableKeys.slice(1) }),
+      makeSurface({ fieldTableKeys: registeredFieldTableKeys().slice(1) }),
     );
     assert.ok(
       problems.some((p) => p.includes('the registration is stale')),
@@ -278,7 +312,7 @@ describe('evaluateSchemaEcho — the field-table coverage leg (both ways)', () =
   });
 
   it('fires when one section carries two field tables the legs cannot address apart', () => {
-    const keys = makeSurface().fieldTableKeys;
+    const keys = registeredFieldTableKeys();
     const problems = evaluateSchemaEcho(makeSurface({ fieldTableKeys: [...keys, keys[0]] }));
     assert.ok(
       problems.some((p) => p.includes('more than once')),
@@ -372,6 +406,64 @@ describe('evaluateSchemaEcho — the "one of" leg', () => {
       problems.some((p) => p.includes('states no anyOf branches') && p.includes('`narration`')),
       problems.join('\n'),
     );
+  });
+
+  it('fires when the branches collapse into one demanding every marked field at once', () => {
+    // The union still matches, so only the branch shape can see this: one
+    // branch requiring both fields means BOTH are required, which is not
+    // "at least one of".
+    const problems = evaluateSchemaEcho(
+      withDef('extension', { anyOfBranches: [['narration', 'step_type']] }),
+    );
+    assert.ok(
+      problems.some((p) => p.includes('anyOf branch 0') && p.includes('`narration` + `step_type`')),
+      problems.join('\n'),
+    );
+  });
+
+  it('fires when a branch requires a field the table does not mark "one of"', () => {
+    const problems = evaluateSchemaEcho(
+      withDef('extension', {
+        anyOfBranches: [['narration'], ['uuid']],
+        anyOfRequired: ['narration', 'step_type'],
+      }),
+    );
+    assert.ok(
+      problems.some((p) => p.includes('anyOf branch 1') && p.includes('`uuid`')),
+      problems.join('\n'),
+    );
+  });
+
+  it('fires when the platforms disagree on which fields an anyOf branch requires', () => {
+    const problems = evaluateSchemaEcho(
+      withDef('desktop-windows', {
+        anyOfBranches: [['narration'], ['step_type'], ['diverged']],
+        anyOfRequired: ['narration', 'step_type', 'diverged'],
+      }),
+    );
+    assert.ok(
+      problems.some(
+        (p) => p.includes('`diverged`') && p.includes('the two platforms must share this def'),
+      ),
+      problems.join('\n'),
+    );
+  });
+});
+
+describe('evaluateSchemaEcho — the authority register and the clause row that discloses it', () => {
+  it('fires when a registered surface is absent from the row', () => {
+    const problems = evaluateSchemaEcho(
+      makeSurface({ authorityRow: 'this row names no surface at all' }),
+    );
+    assert.ok(
+      problems.some((p) => p.includes('docs/x.md') && p.includes(AUTHORITY_CLAUSE_ID)),
+      problems.join('\n'),
+    );
+  });
+
+  it('skips the closure rather than inventing one when the row could not be read', () => {
+    const problems = evaluateSchemaEcho(makeSurface({ authorityRow: null }));
+    assert.deepEqual(problems, []);
   });
 });
 
@@ -505,11 +597,40 @@ describe('UNHELD_FIELD_TABLES — the review-held field tables', () => {
 
   it('the document carries every registered field table and no other', () => {
     const found = extractFieldTableKeys(readTree(SESSION_FORMAT_DOC_PATH));
-    const registered = [
-      ...FIELD_TABLE_LEGS.map(([section, header]) => fieldTableKey(section, header)),
-      ...UNHELD_FIELD_TABLES.map(([section, header]) => fieldTableKey(section, header)),
-    ];
-    assert.deepEqual([...found].sort(), [...registered].sort());
+    assert.deepEqual([...found].sort(), [...registeredFieldTableKeys()].sort());
+  });
+});
+
+describe('PLATFORM_IDS — the platforms this check covers', () => {
+  it('is exactly the composer’s declared chains, so a new surface enters the legs with its chain', () => {
+    assert.deepEqual([...PLATFORM_IDS].sort(), Object.keys(PLATFORMS).sort());
+    assert.ok(PLATFORM_IDS.length > 0);
+  });
+
+  it('the real-tree read covers every one of them', () => {
+    const surfaces = treeSurfaces(ROOT);
+    for (const platform of PLATFORM_IDS) {
+      assert.ok(surfaces.objects.some((o) => o.platform === platform), `${platform} objects`); // prettier-ignore
+      assert.ok(surfaces.actionMembers.some((m) => m.platform === platform), `${platform} members`); // prettier-ignore
+      assert.ok(surfaces.defs.some((d) => d.platform === platform), `${platform} defs`); // prettier-ignore
+    }
+  });
+});
+
+describe('readClauseRow', () => {
+  it('reads the clause’s check-ref from the registry', () => {
+    const read = readClauseRow(readTree(CLAUSE_REGISTRY_PATH), AUTHORITY_CLAUSE_ID);
+    assert.deepEqual(read.problems, []);
+    assert.ok(read.text.includes('check-schema-echo.js'));
+  });
+
+  it('is loud on an unparseable registry and on a missing row', () => {
+    assert.ok(
+      readClauseRow('not json', AUTHORITY_CLAUSE_ID).problems[0].includes('does not parse'),
+    );
+    const absent = readClauseRow(JSON.stringify({ clauses: [] }), AUTHORITY_CLAUSE_ID);
+    assert.equal(absent.text, null);
+    assert.ok(absent.problems[0].includes('no §SF-1 row'));
   });
 });
 
@@ -730,11 +851,20 @@ describe('walkObjectSchemas / classifyObjectSchema / postureHolds', () => {
     assert.ok(postureHolds('wrapper', undefined));
     assert.ok(!postureHolds('wrapper', {}));
     assert.ok(postureHolds('metadata-map', { type: 'string' }));
+    assert.ok(postureHolds('metadata-map', { oneOf: [{ type: 'string' }] }));
+    // An empty schema accepts anything — the map is open in its KEYS, not in
+    // what a value may be, so this is not the exemption's shape.
+    assert.ok(!postureHolds('metadata-map', {}));
     assert.ok(!postureHolds('metadata-map', true));
     assert.ok(!postureHolds('metadata-map', false));
     assert.ok(postureHolds('closed', false));
     assert.ok(!postureHolds('closed', undefined));
     assert.ok(!postureHolds('closed', true));
+    assert.ok(statesValueConstraint({ $ref: '#/$defs/x' }));
+    assert.ok(!statesValueConstraint({ description: 'prose only' }));
+    // A class with no arm is a programming error, never a silent inheritance
+    // of the closed rule.
+    assert.throws(() => postureHolds('invented', false), /no posture is defined/);
     assert.equal(describeDeclaration(undefined), 'declares none');
     assert.equal(describeDeclaration(false), 'declares `false`');
     assert.equal(describeDeclaration(true), 'declares `true`');
