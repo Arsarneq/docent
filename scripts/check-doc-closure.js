@@ -2,8 +2,8 @@
  * check-doc-closure.js — admission test for the CI guides' closure claims:
  *
  *   - the workflow inventory (docs/guides/ci.md § The workflow inventory):
- *     every workflow file under .github/workflows/ has a table row, and every
- *     row names a workflow file that exists;
+ *     every tracked workflow file has a table row, and every row names a
+ *     workflow file that exists;
  *   - the act table (docs/guides/local-ci.md § What can — and can't — run
  *     under `act`): the table keys exactly the job ids of test.yml, both
  *     ways;
@@ -23,11 +23,13 @@
  *
  * Honest limits: the guides' prose paragraphs stay review-held — this check
  * reads the inventory tables, the gates table's Local-command column, the
- * job keys, and `npm run` tokens, never sentence meaning. The gates-table
- * closure runs tree → table: the `lint:*` family and the lint job's
- * `npm run` steps must each have a row, and every row's cited script key
- * must exist — whether a given row still corresponds to a gate that runs
- * (table → tree) is review-held for every row, whatever form its local
+ * job keys, and `npm run` tokens, never sentence meaning; the guide's other
+ * job enumerations (the path-filtered jobs table, the always-run prose) are
+ * outside its legs. The gates-table legs hold three properties: the `lint`
+ * chain runs exactly the `lint:*` family, the family and the lint job's
+ * `npm run` steps each have a row, and every `npm run` command a row cites
+ * names a real script. Whether any given row still corresponds to a gate
+ * that runs is held by review, for every row, whatever form its local
  * command takes. A script name cited outside the `npm run` form (a bare
  * backticked key) is outside the citation leg. The job scan is shaped to
  * test.yml's committed layout (top-level `jobs:`, two-space job keys) and
@@ -136,14 +138,27 @@ export function extractGateRows(docText) {
  * @param {string} yamlText
  * @returns {{ ids: string[], problems: string[] }}
  */
-export function extractJobIds(yamlText) {
-  const lines = yamlText.split(/\r?\n/);
+/**
+ * The one `jobs:` anchor both workflow scans share: the index of the
+ * top-level `jobs:` line, or -1 with the shared diagnosis. A change to what
+ * counts as the anchor lands in both scans structurally.
+ * @param {string[]} lines
+ * @returns {{ start: number, problem: string | null }}
+ */
+function findJobsBlock(lines) {
   const start = lines.findIndex((line) => /^jobs:\s*(#.*)?$/.test(line));
   if (start === -1) {
-    return { ids: [], problems: [`${TEST_WORKFLOW_PATH} carries no top-level \`jobs:\` key — the job scan cannot anchor`] }; // prettier-ignore
+    return { start, problem: `${TEST_WORKFLOW_PATH} carries no top-level \`jobs:\` key — the job scan cannot anchor` }; // prettier-ignore
   }
+  return { start, problem: null };
+}
+
+export function extractJobIds(yamlText) {
+  const lines = yamlText.split(/\r?\n/);
+  const block = findJobsBlock(lines);
+  if (block.problem) return { ids: [], problems: [block.problem] };
   const ids = [];
-  for (let i = start + 1; i < lines.length; i++) {
+  for (let i = block.start + 1; i < lines.length; i++) {
     const line = lines[i];
     if (/^\S/.test(line)) break; // next top-level key ends the block
     const match = /^ {2}([A-Za-z0-9_-]+):/.exec(line);
@@ -164,12 +179,10 @@ export function extractJobIds(yamlText) {
  */
 export function extractJobNpmRunTokens(yamlText, jobId) {
   const lines = yamlText.split(/\r?\n/);
-  const jobsLine = lines.findIndex((line) => /^jobs:\s*(#.*)?$/.test(line));
-  if (jobsLine === -1) {
-    return { tokens: [], problems: [`${TEST_WORKFLOW_PATH} carries no top-level \`jobs:\` key — the step scan cannot anchor`] }; // prettier-ignore
-  }
+  const block = findJobsBlock(lines);
+  if (block.problem) return { tokens: [], problems: [block.problem] };
   let start = -1;
-  for (let i = jobsLine + 1; i < lines.length; i++) {
+  for (let i = block.start + 1; i < lines.length; i++) {
     if (/^\S/.test(lines[i])) break;
     if (lines[i].startsWith(`  ${jobId}:`)) {
       start = i;
@@ -273,7 +286,7 @@ export function collectScriptKeys(manifests) {
  * the list non-empty and its diagnoses distinct.
  */
 export const EMPTY_SURFACES = [
-  ['workflowFiles', `no workflow files found under ${WORKFLOWS_DIR}`],
+  ['workflowFiles', `no tracked workflow files found under ${WORKFLOWS_DIR}`],
   ['workflowRows', `no workflow-inventory rows found in ${CI_DOC_PATH}`],
   ['jobIds', `no job ids found in ${TEST_WORKFLOW_PATH}`],
   ['actRows', `no act-table rows found in ${LOCAL_CI_DOC_PATH}`],
@@ -446,7 +459,10 @@ export function treeSurfaces(root) {
         return '';
       }
     },
-    () => gitList(`${WORKFLOWS_DIR}/*.y*ml`).map((p) => p.split('/').pop()),
+    () =>
+      gitList(`${WORKFLOWS_DIR}/*.y*ml`)
+        .filter((p) => /^\.github\/workflows\/[^/]+\.ya?ml$/.test(p))
+        .map((p) => p.split('/').pop()),
     () => gitList('*.md'),
     () => gitList('*package.json').filter((p) => p.split('/').pop() === 'package.json'),
   );

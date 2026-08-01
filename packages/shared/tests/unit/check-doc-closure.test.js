@@ -190,6 +190,7 @@ describe('evaluateDocClosure — duplicates, every leg of the duplicates loop', 
   });
 
   it('the surface labels are pairwise distinct — a copied leg cannot hide behind its neighbour', () => {
+    assert.ok(DUPLICATE_SURFACES.length > 0);
     const labels = DUPLICATE_SURFACES.map(([, what]) => what);
     assert.equal(new Set(labels).size, labels.length);
   });
@@ -434,6 +435,16 @@ describe('real-tree lock', () => {
     assert.deepEqual(evaluateDocClosure(surfaces), []);
     assert.ok(surfaces.workflowFiles.length > 0);
     assert.ok(surfaces.cites.length > 0);
+  });
+
+  it('a root without the guides fails loudly, never vacuously', () => {
+    // A tracked subdirectory is a working git cwd whose tree carries none of
+    // the check's surfaces — every read misses, and the vacuous guards red.
+    const surfaces = treeSurfaces(resolve(ROOT, 'docs'));
+    assert.ok(surfaces.anchorProblems.length > 0);
+    const problems = evaluateDocClosure(surfaces);
+    assert.ok(problems.some((p) => p.includes('no tracked workflow files found')));
+    assert.ok(problems.some((p) => p.includes('no workflow-inventory rows found')));
   });
 
   it('the constants still point where the check reads', () => {

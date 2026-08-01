@@ -152,6 +152,7 @@ describe('evaluateCommandSurface — duplicates, every leg of the duplicates loo
   });
 
   it('the surface labels are pairwise distinct — a copied leg cannot hide behind its neighbour', () => {
+    assert.ok(DUPLICATE_SURFACES.length > 0);
     const labels = DUPLICATE_SURFACES.map(([, what]) => what);
     assert.equal(new Set(labels).size, labels.length);
   });
