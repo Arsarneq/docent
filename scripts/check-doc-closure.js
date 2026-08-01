@@ -2,8 +2,8 @@
  * check-doc-closure.js — admission test for the CI guides' closure claims:
  *
  *   - the workflow inventory (docs/guides/ci.md § The workflow inventory):
- *     every tracked workflow file has a table row, and every row names a
- *     workflow file that exists;
+ *     every tracked workflow file directly under .github/workflows/ has a
+ *     table row, and every row names a tracked workflow file;
  *   - the act table (docs/guides/local-ci.md § What can — and can't — run
  *     under `act`): the table keys exactly the job ids of test.yml, both
  *     ways;
@@ -24,11 +24,14 @@
  * Honest limits: the guides' prose paragraphs stay review-held — this check
  * reads the inventory tables, the gates table's Local-command column, the
  * job keys, and `npm run` tokens, never sentence meaning; the guide's other
- * job enumerations (the path-filtered jobs table, the always-run prose) are
- * outside its legs. The gates-table legs hold three properties: the `lint`
- * chain runs exactly the `lint:*` family, the family and the lint job's
- * `npm run` steps each have a row, and every `npm run` command a row cites
- * names a real script. Whether any given row still corresponds to a gate
+ * job-naming surfaces — among them the path-filtered jobs table, the
+ * always-run prose, and the gates table's Where column — are outside its
+ * legs, as is a tracked YAML nested below the workflows directory (not a
+ * workflow the platform runs). The gates-table legs hold three properties:
+ * the `lint` chain runs exactly the `lint:*` family, the family and the
+ * lint job's `npm run` steps each have a row, and every `npm run` command a
+ * row cites names a real script — the last held by the citation leg over
+ * all tracked markdown. Whether any given row still corresponds to a gate
  * that runs is held by review, for every row, whatever form its local
  * command takes. A script name cited outside the `npm run` form (a bare
  * backticked key) is outside the citation leg. The job scan is shaped to
@@ -65,6 +68,14 @@ export const LINT_FAMILY_PREFIX = 'lint:';
 
 const NPM_RUN_TOKEN_RE = /npm run ([A-Za-z0-9:_-]+)/g;
 const ELLIPSIS = '…';
+
+/**
+ * The files the workflow-inventory leg closes over: tracked YAML directly
+ * under the workflows directory — a nested YAML is not a workflow the
+ * platform runs. Exported so the suite can pin the boundary in both
+ * directions.
+ */
+export const WORKFLOW_FILE_RE = /^\.github\/workflows\/[^/]+\.ya?ml$/;
 
 /**
  * A first cell of the workflow-inventory table: a backticked file name,
@@ -132,30 +143,31 @@ export function extractGateRows(docText) {
 }
 
 /**
+ * The one `jobs:` anchor both workflow scans share: the index of the
+ * top-level `jobs:` line, or -1 with a diagnosis naming the failing scan.
+ * A change to what counts as the anchor lands in both scans structurally.
+ * @param {string[]} lines
+ * @param {string} scan the calling scan's name, for the diagnosis
+ * @returns {{ start: number, problem: string | null }}
+ */
+function findJobsBlock(lines, scan) {
+  const start = lines.findIndex((line) => /^jobs:\s*(#.*)?$/.test(line));
+  if (start === -1) {
+    return { start, problem: `${TEST_WORKFLOW_PATH} carries no top-level \`jobs:\` key — the ${scan} cannot anchor` }; // prettier-ignore
+  }
+  return { start, problem: null };
+}
+
+/**
  * The job ids of a workflow file: the two-space-indented keys of the
  * top-level `jobs:` block. Shaped to the committed layout — a missing
  * `jobs:` anchor is the extractor's own loud problem, never an empty green.
  * @param {string} yamlText
  * @returns {{ ids: string[], problems: string[] }}
  */
-/**
- * The one `jobs:` anchor both workflow scans share: the index of the
- * top-level `jobs:` line, or -1 with the shared diagnosis. A change to what
- * counts as the anchor lands in both scans structurally.
- * @param {string[]} lines
- * @returns {{ start: number, problem: string | null }}
- */
-function findJobsBlock(lines) {
-  const start = lines.findIndex((line) => /^jobs:\s*(#.*)?$/.test(line));
-  if (start === -1) {
-    return { start, problem: `${TEST_WORKFLOW_PATH} carries no top-level \`jobs:\` key — the job scan cannot anchor` }; // prettier-ignore
-  }
-  return { start, problem: null };
-}
-
 export function extractJobIds(yamlText) {
   const lines = yamlText.split(/\r?\n/);
-  const block = findJobsBlock(lines);
+  const block = findJobsBlock(lines, 'job scan');
   if (block.problem) return { ids: [], problems: [block.problem] };
   const ids = [];
   for (let i = block.start + 1; i < lines.length; i++) {
@@ -179,7 +191,7 @@ export function extractJobIds(yamlText) {
  */
 export function extractJobNpmRunTokens(yamlText, jobId) {
   const lines = yamlText.split(/\r?\n/);
-  const block = findJobsBlock(lines);
+  const block = findJobsBlock(lines, 'step scan');
   if (block.problem) return { tokens: [], problems: [block.problem] };
   let start = -1;
   for (let i = block.start + 1; i < lines.length; i++) {
@@ -283,7 +295,8 @@ export function collectScriptKeys(manifests) {
  * The non-empty guard's legs: every parsed surface, with its empty-parse
  * diagnosis. Exported so the unit suite's family is generated from this
  * list — a leg added here is exercised automatically, and the suite holds
- * the list non-empty and its diagnoses distinct.
+ * the list non-empty and its diagnoses distinct. One leg is not an array:
+ * `scriptKeys` is a Set, and the loop reads it through its own projection.
  */
 export const EMPTY_SURFACES = [
   ['workflowFiles', `no tracked workflow files found under ${WORKFLOWS_DIR}`],
@@ -368,7 +381,7 @@ export function evaluateDocClosure(s) {
   const gateTokens = new Set(s.gateRows.flatMap((r) => r.tokens));
   problems.push(
     ...missingFrom(s.workflowFiles, s.workflowRows, `is a workflow file but the ${CI_DOC_PATH} inventory table does not list it`), // prettier-ignore
-    ...missingFrom(s.workflowRows, s.workflowFiles, `is listed in the ${CI_DOC_PATH} inventory table but no such workflow file exists`), // prettier-ignore
+    ...missingFrom(s.workflowRows, s.workflowFiles, `is listed in the ${CI_DOC_PATH} inventory table but no tracked workflow file matches it (an untracked file needs \`git add\` before the gate can see it)`), // prettier-ignore
     ...missingFrom(s.jobIds, s.actRows, `is a ${TEST_WORKFLOW_PATH} job but the ${LOCAL_CI_DOC_PATH} act table does not key it`), // prettier-ignore
     ...missingFrom(s.actRows, s.jobIds, `is keyed by the ${LOCAL_CI_DOC_PATH} act table but is not a ${TEST_WORKFLOW_PATH} job`), // prettier-ignore
     ...missingFrom(s.chainTokens, s.lintKeys, `is run by the \`lint\` chain but is not a \`${LINT_FAMILY_PREFIX}*\` script`), // prettier-ignore
@@ -461,7 +474,7 @@ export function treeSurfaces(root) {
     },
     () =>
       gitList(`${WORKFLOWS_DIR}/*.y*ml`)
-        .filter((p) => /^\.github\/workflows\/[^/]+\.ya?ml$/.test(p))
+        .filter((p) => WORKFLOW_FILE_RE.test(p))
         .map((p) => p.split('/').pop()),
     () => gitList('*.md'),
     () => gitList('*package.json').filter((p) => p.split('/').pop() === 'package.json'),

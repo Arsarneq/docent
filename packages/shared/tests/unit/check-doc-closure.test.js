@@ -24,6 +24,7 @@ import {
   LINT_JOB_ID,
   EMPTY_SURFACES,
   DUPLICATE_SURFACES,
+  WORKFLOW_FILE_RE,
   linkedFileName,
   extractTableFileNames,
   extractGateRows,
@@ -76,12 +77,14 @@ describe('evaluateDocClosure — workflow-inventory leg (both ways)', () => {
     assert.ok(problems.some((p) => p.includes('ghost.yml') && p.includes('does not list it')));
   });
 
-  it('fires when an inventory row names a workflow that does not exist', () => {
+  it('fires when an inventory row names a workflow the tracked set does not carry', () => {
     const problems = evaluateDocClosure(
       makeSurface({ workflowRows: ['test.yml', 'publish.yml', 'retired.yml'] }),
     );
     assert.ok(
-      problems.some((p) => p.includes('retired.yml') && p.includes('no such workflow file')),
+      problems.some(
+        (p) => p.includes('retired.yml') && p.includes('no tracked workflow file matches it'),
+      ),
     );
   });
 });
@@ -438,13 +441,25 @@ describe('real-tree lock', () => {
   });
 
   it('a root without the guides fails loudly, never vacuously', () => {
-    // A tracked subdirectory is a working git cwd whose tree carries none of
-    // the check's surfaces — every read misses, and the vacuous guards red.
+    // A tracked subdirectory is a working git cwd where the guides, the
+    // workflow file, and every manifest read miss — their fallbacks return
+    // empty and the vacuous guards red. The citation scan still finds this
+    // subtree's own markdown, so that leg is deliberately not part of this
+    // red.
     const surfaces = treeSurfaces(resolve(ROOT, 'docs'));
     assert.ok(surfaces.anchorProblems.length > 0);
+    assert.ok(surfaces.cites.length > 0);
     const problems = evaluateDocClosure(surfaces);
     assert.ok(problems.some((p) => p.includes('no tracked workflow files found')));
     assert.ok(problems.some((p) => p.includes('no workflow-inventory rows found')));
+  });
+
+  it('the workflow-file boundary keeps top-level YAML and drops nested or non-YAML paths', () => {
+    assert.ok(WORKFLOW_FILE_RE.test('.github/workflows/test.yml'));
+    assert.ok(WORKFLOW_FILE_RE.test('.github/workflows/nightly.yaml'));
+    assert.ok(!WORKFLOW_FILE_RE.test('.github/workflows/nested/inner.yml'));
+    assert.ok(!WORKFLOW_FILE_RE.test('.github/workflows/readme.md'));
+    assert.ok(!WORKFLOW_FILE_RE.test('.github/other/test.yml'));
   });
 
   it('the constants still point where the check reads', () => {

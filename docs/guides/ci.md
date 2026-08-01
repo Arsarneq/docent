@@ -14,7 +14,7 @@ workflow governs.
 
 ## The workflow inventory
 
-Every tracked workflow file under
+Every tracked workflow file directly under
 [`.github/workflows/`](../../.github/workflows/) appears in this table; the
 tracked set itself is the closure, so a workflow missing from the table is
 a bug in this guide — and the doc-closure gate
@@ -186,8 +186,9 @@ names the local command (see [Running CI locally](local-ci.md) for running
 whole jobs). The Doc closure row's own check holds this table to three
 properties: `package.json`'s `lint` chain runs exactly the `lint:*` family,
 every `lint:*` script and every `npm run` step of the `lint` job has a row
-here, and every `npm run` command a row cites names a real script. Whether
-a given row still corresponds to a gate that runs is held by review, for
+here, and every `npm run` command a row cites names a real script (the last
+held by the same citation leg that reads all tracked markdown). Whether a
+given row still corresponds to a gate that runs is held by review, for
 every row, whatever form its local command takes.
 
 | Gate                  | Where                                         | Red when                                                                                                                                                                                                                                                                                                                                                                              | Local command                                                             |
