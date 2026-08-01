@@ -4,8 +4,9 @@
  * prose, so every red-path family must fail loud: these tests prove the
  * both-way set diffs on each closure leg, the unreadable-cell and
  * unreadable-citation refusals, the extractor anchor guards, duplicates,
- * the elided-family admission, and empty parses — and, as a real-tree lock,
- * that the shipped tree satisfies every closure.
+ * the elided-family admission, empty parses, and the workflow-file
+ * boundary — and, as a real-tree lock, that the shipped tree satisfies
+ * every closure.
  */
 
 import { describe, it } from 'node:test';

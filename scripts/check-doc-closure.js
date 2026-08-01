@@ -36,7 +36,7 @@
  * local command takes. A script name cited outside the `npm run` form (a
  * bare backticked key) is outside the citation leg. The workflow scans are
  * shaped to test.yml's committed layout — the shared top-level `jobs:`
- * anchor, and the job scan's two-space job keys — and each refuses the
+ * anchor and the two-space job keys both scans read — and each refuses the
  * file loudly, naming itself, if the anchor vanishes. Npm-run citations are
  * resolved against the union of every tracked manifest's script keys, so
  * which package a doc means is review-held — the leg catches a token no
