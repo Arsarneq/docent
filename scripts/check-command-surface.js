@@ -45,7 +45,8 @@
  * shipped surface; the clause's section cannot name a grant-shaped
  * identifier the capability files do not hold (an illustrative mention
  * outside a fence reds the gate); and the table's Direction / What-it-does /
- * Who-calls-it prose is review-held, never parsed.
+ * Who-calls-it prose and the grants paragraph's plugin-resolution prose are
+ * review-held, never parsed.
  *
  * Usage:
  *   node scripts/check-command-surface.js   # or: npm run lint:command-surface
@@ -73,6 +74,8 @@ export const MOCK_PATH = 'packages/desktop/tests/integration/tauri-mock-fixture.
 export const EVENT_CHANNEL = 'capture:action';
 /** The clause id the whole contract is anchored to. */
 export const CLAUSE_ID = 'DSH-1';
+/** The one invoke-switch anchor the mock's serviced-case scan is keyed on. */
+export const MOCK_SWITCH_ANCHOR = 'switch (cmd)';
 
 /**
  * A capability-grant identifier: one or more namespace segments ending in
@@ -228,10 +231,10 @@ export function extractDsh1Section(docText) {
 
 /**
  * Parse the clause table's first column into command rows and event rows,
- * through the shared fence-aware table parser. Header and separator rows
- * carry no backticked first cell and are skipped; a backticked first cell in
- * any other shape is returned as unreadable, so an annotated row can never
- * slip past the event leg silently.
+ * through the shared fence-aware table parser. Header and separator rows are
+ * consumed by that parser, so every body row's first cell must be `name` or
+ * `name` (event); any other shape — annotated, un-backticked, empty — is
+ * returned as unreadable, so no row can slip past either leg silently.
  * @param {string} section the clause's text
  * @returns {{ commands: string[], events: string[], unreadable: string[] }}
  */
@@ -242,10 +245,9 @@ export function extractDocRows(section) {
   for (const table of parseTables(section)) {
     for (const row of table.rows) {
       const cell = (row[0] ?? '').trim();
-      if (!cell.startsWith('`')) continue;
       const m = cell.match(/^`([^`]+)`\s*(\(event\))?$/);
       if (!m) {
-        unreadable.push(cell);
+        unreadable.push(cell === '' ? '(empty first cell)' : cell);
         continue;
       }
       (m[2] ? events : commands).push(m[1]);
@@ -319,7 +321,7 @@ export function extractMockCommands(fixtureSource) {
  * @returns {string[]} serviced case labels, in switch order
  */
 export function extractMockServicedCases(fixtureSource) {
-  const start = fixtureSource.indexOf('switch (cmd)');
+  const start = fixtureSource.indexOf(MOCK_SWITCH_ANCHOR);
   if (start === -1) return [];
   const end = fixtureSource.indexOf('default:', start);
   if (end === -1) return [];
@@ -457,7 +459,8 @@ export function evaluateCommandSurface(s) {
  * Read every surface from the working tree and evaluate the contract.
  * @param {(f: string) => string} readFile repo-relative content reader
  * @param {string[]} rustFiles repo-relative crate source paths to scan
- * @param {string[]} capabilityFiles repo-relative capability .json paths
+ * @param {string[]} capabilityFiles every tracked path under the capability
+ *   directory, whatever its extension — non-JSON entries are refused loudly
  * @returns {{ problems: string[], commandCount: number, grantCount: number }}
  */
 export function auditTree(readFile, rustFiles, capabilityFiles) {
@@ -515,9 +518,9 @@ export function auditTree(readFile, rustFiles, capabilityFiles) {
   const mockSource = readFile(MOCK_PATH).replace(/\r\n/g, '\n');
   const mockRead = extractMockCommands(mockSource);
   if (mockRead.error) collectionProblems.push(`${MOCK_PATH}: ${mockRead.error}`);
-  const switchCount = (mockSource.match(/switch \(cmd\)/g) ?? []).length;
+  const switchCount = mockSource.split(MOCK_SWITCH_ANCHOR).length - 1;
   if (switchCount !== 1) {
-    collectionProblems.push(`${MOCK_PATH} carries ${switchCount} \`switch (cmd)\` blocks — the serviced-case scan models exactly one`); // prettier-ignore
+    collectionProblems.push(`${MOCK_PATH} carries ${switchCount} \`${MOCK_SWITCH_ANCHOR}\` blocks — the serviced-case scan models exactly one`); // prettier-ignore
   }
 
   const s = {

@@ -2,12 +2,13 @@
  * check-command-surface.test.js — Unit tests for the desktop command-surface
  * admission test (scripts/check-command-surface.js). The command surface is a
  * committed contract (application-shell.md §DSH-1), so every way it can rot
- * must fail loud: these tests prove each red path fires on synthetic input
- * (a command missing from or extra in each of the registration, the doc
- * table, and the mock list; a second or mis-channelled emit site; a grant
- * missing from either side; duplicate rows; empty parses), that the Rust
- * comment stripper keeps doc-comment channel mentions out of the emit scan,
- * and — as a real-tree lock — that the shipped tree satisfies the contract.
+ * must fail loud: these tests prove each red-path family fires on synthetic
+ * input — the pairwise set inequalities across every surface the check
+ * compares, the emit-family and channel arms, the capability-source and
+ * fixture-shape refusals, unreadable rows and cells, duplicate structures,
+ * and empty parses — that the Rust comment stripper and the fence stripper
+ * keep comments, literals, and fenced examples out of the scans, and — as a
+ * real-tree lock — that the shipped tree satisfies the whole contract.
  */
 
 import { describe, it } from 'node:test';
@@ -405,16 +406,17 @@ describe('extractDsh1Section / extractDocRows / extractDocGrants', () => {
     });
   });
 
-  it('an annotated first cell is unreadable, never silently skipped', () => {
+  it('an annotated or un-backticked first cell is unreadable, never silently skipped', () => {
     const table = [
       '| Name | D |',
       '| ---- | - |',
       '| `start_capture` | a |',
       '| `capture:status` (event, internal) | a |',
+      '| check_permissions | a |',
     ].join('\n');
     const rows = extractDocRows(table);
     assert.deepEqual(rows.commands, ['start_capture']);
-    assert.deepEqual(rows.unreadable, ['`capture:status` (event, internal)']);
+    assert.deepEqual(rows.unreadable, ['`capture:status` (event, internal)', 'check_permissions']);
     const problems = evaluateCommandSurface(makeSurface({ docUnreadableRows: rows.unreadable }));
     assert.ok(problems.some((p) => p.includes('cannot read') && p.includes('capture:status')));
   });
@@ -630,7 +632,9 @@ describe('real-tree lock', () => {
         .map((s) => s.trim())
         .filter(Boolean);
     const rustFiles = lsFiles(SRC_DIR).filter((f) => f.endsWith('.rs'));
-    const capabilityFiles = lsFiles(CAPABILITIES_DIR).filter((f) => f.endsWith('.json'));
+    // The same unfiltered input set the CLI wrapper passes, so the
+    // format-refusal branch stays locked against the real tree.
+    const capabilityFiles = lsFiles(CAPABILITIES_DIR);
     assert.ok(rustFiles.includes(LIB_PATH), 'the crate entry point must be among the sources');
     assert.ok(capabilityFiles.length >= 1, 'at least one capability file must be tracked');
     const { problems, commandCount } = auditTree(
