@@ -28,7 +28,7 @@ Everything lives under `packages/extension/tests/e2e/`:
    exactly that HTML.
 3. Start recording by flipping `recording: true` in `chrome.storage.local`
    from the service worker. The SW's `storage.onChanged` hook injects the
-   recorder into the open frames and seeds the frame-trust registry
+   recorder into the open frames and seeds the active-frame registry
    ([extension capture principles](../architecture/application/extension/capture-principles.md#frame-trust-and-readiness)).
 4. Wait for the recorder's readiness beacon —
    [`FRAME_READY`](#readiness--frame_ready-never-a-page-flag), never a fixed
@@ -56,7 +56,7 @@ The recorder runs in the content-script **isolated world**. The moment it
 finishes wiring its listeners it reports readiness to the service worker with a
 `FRAME_READY` message (`{ readyAt, url }`, `readyAt` stamped with the
 recorder's `Date.now()`), and the service worker registers the sending
-(tab, frame) pair in its frame-trust registry. The beacon is a production
+(tab, frame) pair in its active-frame registry. The beacon is a production
 signal, not test scaffolding.
 
 Tests observe readiness **through the service worker**, keyed by frame URL:
@@ -131,8 +131,9 @@ the page's extension scripts via CDP, `sidepanel-coverage.spec.js` adds
 
 ## What the suite covers
 
-The `specs/` suite is exactly the files below; a new spec file joins this
-enumeration in the same change that adds it.
+The `specs/` suite is exactly the test files below; a new spec file joins this
+enumeration in the same change that adds it, and a CI lint holds the two in
+agreement.
 
 ### Capture behaviour — real input in, captured actions out
 
@@ -190,8 +191,8 @@ enumeration in the same change that adds it.
 - **Panel or service-worker behaviour**: copy the `panelPage` fixture pattern
   (open `sidepanel/index.html` by extension id) or `evaluate` against the
   `serviceWorker` fixture directly.
-- New files under `specs/` are picked up by `testDir` automatically; the only
-  registry to update is this document's coverage tables.
+- New spec or test files under `specs/` are picked up by `testDir`
+  automatically; the only registry to update is this document's coverage tables.
 - Write for four attempts: fresh context per attempt, no reliance on prior
   state, and waits keyed to observable signals (readiness, settle) rather than
   durations.

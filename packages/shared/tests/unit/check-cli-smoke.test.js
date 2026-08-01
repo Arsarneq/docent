@@ -74,4 +74,17 @@ describe('check-script CLI smoke (deterministic green paths)', () => {
     const out = runScript('check-action-pins.js');
     assert.match(out, /pinned/i);
   });
+
+  it('check-test-inventory: the committed suite documents and coverage lists hold', () => {
+    const out = runScript('check-test-inventory.js');
+    assert.match(out, /test inventories current/);
+  });
+
+  it('check-tracked-ignored: no tracked file matches a .gitignore rule', () => {
+    // Also the one place the git flag combination itself is exercised — the
+    // whole check is that invocation, and a flag git rejects would otherwise
+    // surface only in CI.
+    const out = runScript('check-tracked-ignored.js');
+    assert.match(out, /tracked files and ignore rules agree/);
+  });
 });

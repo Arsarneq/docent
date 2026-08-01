@@ -15,8 +15,11 @@ Tests live in two places:
   `element_mapping`, `scroll`, `timing`, `windows`, `worker_pool`, `stub` —
   plus `commands`, `secret_store`, and `sync_http`). These run under
   `cargo test --lib`.
-- **Test binaries** — a flat `packages/desktop/src-tauri/tests/` directory
-  (Cargo convention), one file per concern:
+- **Test binaries** — the `packages/desktop/src-tauri/tests/` directory (Cargo
+  convention), one file per concern. The binaries are exactly the `.rs` files
+  directly in it — the set CI's discovery step reads — listed below; a new one
+  joins this table in the same change that adds it, and a CI lint holds the two
+  in agreement:
 
 | Test file                   | Covers                                                                                                                                                                                                                                                   |
 | --------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |

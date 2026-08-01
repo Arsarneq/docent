@@ -49,3 +49,9 @@ loaded-but-untracked set includes the desktop `auto-sync-host.js` and
 modules the pages and service worker load, and both platforms' synced
 `shared/` layer — the last structurally so, since the served copies cannot
 map back to their `packages/shared/` sources.
+
+What each list _says_ is machine-checked, even though what it omits is not:
+`scripts/check-test-inventory.js` (the `lint` job's test-inventory gate) holds
+every entry of each registered list to a tracked source file, and an entry that
+carries both a served-URL match and a source path to one and the same file — so
+an entry left behind by a rename reds instead of quietly collecting nothing.

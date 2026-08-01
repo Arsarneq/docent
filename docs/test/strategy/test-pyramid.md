@@ -13,8 +13,9 @@ layer. Each package keeps its tests under `tests/unit`, `tests/integration`, or
 
 ## Rust test self-classification
 
-Rust tests live in a flat `packages/desktop/src-tauri/tests/` directory (Cargo
-convention). Their pyramid layer is auto-discovered by CI from the test source —
+Rust tests live in the `packages/desktop/src-tauri/tests/` directory (Cargo
+convention), one binary per `.rs` file directly in it — the set CI's discovery
+step reads. Their pyramid layer is auto-discovered by CI from the test source —
 there are no test-name lists in the workflow. A test that imports the `enigo`
 crate (synthesises real OS input) counts as **integration**; everything else
 counts as **unit**. To opt a test out of CI entirely (e.g. it depends on
