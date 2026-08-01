@@ -916,8 +916,8 @@
     {
       "doc": "docs/architecture/application/desktop/windows/application-shell.md",
       "clause": "DSH-1",
-      "tag": "checkable",
-      "check-ref": "Intended: a script diffing the crate's #[tauri::command] functions and the generate_handler! registration in packages/desktop/src-tauri/src/lib.rs against this doc's table, and the grants in packages/desktop/src-tauri/capabilities/default.json against the doc's stated plugin surface (not built). Interim probe: packages/desktop/src-tauri/src/lib.rs and capabilities/default.json both resolve to the desktop-windows/shell area in the committed area map (lib.rs also to desktop-windows/capture), whose doc set contains this doc, so command-registration and grant diffs alike prime it for docs disposition; the single capture:action emit site is review-held (the emit call in lib.rs names the channel; nothing pins uniqueness mechanically)."
+      "tag": "check-exists",
+      "check-ref": "scripts/check-command-surface.js (npm run lint:command-surface, a step in CI's lint job) recomputes the whole contract from the tree: the #[tauri::command] functions across the crate sources, the generate_handler! list in packages/desktop/src-tauri/src/lib.rs, and this doc's table must be equal sets, diffed in both directions; the doc's one event row plus exactly one comment-stripped emit call site with the literal capture:action channel pin the single event channel; the grants in packages/desktop/src-tauri/capabilities/default.json are diffed both ways against the grant identifiers this doc names; and the desktop integration suite's mock serviced-command list is held equal to the crate surface. Named residue: an emit whose channel is not a string literal is invisible to the scan, and the table's Direction / What-it-does / Who-calls-it prose is review-held, never parsed."
     },
     {
       "doc": "docs/architecture/application/desktop/windows/application-shell.md",

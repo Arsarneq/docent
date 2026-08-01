@@ -477,6 +477,17 @@
       ]
     },
     {
+      "path": "scripts/check-command-surface.js",
+      "reason": "The desktop command-surface admission test — the application-shell doc's command-table clause is verified by it, per its registry row.",
+      "governed-by": [
+        "docs/guides/ci.md",
+        "docs/guides/local-ci.md",
+        ".github/PUBLISHING.md",
+        "docs/architecture/application/desktop/windows/application-shell.md",
+        ".github/CONTRIBUTING.md"
+      ]
+    },
+    {
       "path": "scripts/check-no-release-outputs.js",
       "reason": "The release-output guard — the feature-branch dist gate that the format doc's version-bump clause is verified by, per its registry row and the release process doc.",
       "governed-by": [
