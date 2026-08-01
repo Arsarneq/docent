@@ -112,7 +112,7 @@ describe('evaluateExtensionSurface — message legs (both ways)', () => {
       makeSurface({ docCaptureTypes: ['FRAME_READY', 'GET_TAB_ID'] }),
     );
     assert.ok(
-      problems.some((p) => p.includes('GET_TAB_ID') && p.includes('no equality guard servicing it')), // prettier-ignore
+      problems.some((p) => p.includes('GET_TAB_ID') && p.includes('no equality guard in the worker module services it')), // prettier-ignore
     );
   });
 
@@ -135,7 +135,7 @@ describe('evaluateExtensionSurface — message legs (both ways)', () => {
     assert.ok(problems.some((p) => p.includes('STEP_COMMIT') && p.includes('disjoint')));
   });
 
-  it('fires on a duplicated name in any surface — the one leg the set diffs cannot see', () => {
+  it('fires on a duplicated name in the doc and case-label surfaces — the legs the set diffs cannot see', () => {
     const docDup = evaluateExtensionSurface(
       makeSurface({ docPermissions: ['storage', 'tabs', 'storage'] }),
     );
@@ -196,7 +196,18 @@ describe('extractManifestSurface', () => {
     assert.ok(read.problems.some((p) => p.includes('does not parse as JSON')));
   });
 
-  it('refuses optional-permission keys the tables do not model — any present non-empty shape', () => {
+  it('refuses a manifest that parses to a non-object without throwing', () => {
+    for (const scalar of ['42', '"hello"', 'true', 'null', '["storage"]']) {
+      const read = extractManifestSurface(scalar);
+      assert.deepEqual(read.permissions, []);
+      assert.ok(
+        read.problems.some((p) => p.includes('not as an object')),
+        `expected the non-object diagnosis for ${scalar}, got: ${read.problems.join('\n')}`,
+      );
+    }
+  });
+
+  it('refuses optional-permission keys the tables do not model — any present shape other than the empty array', () => {
     const read = extractManifestSurface(
       JSON.stringify({
         permissions: ['storage'],

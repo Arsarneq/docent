@@ -10,7 +10,7 @@
  *   - the message surface
  *     (docs/architecture/application/extension/runtime.md §ERT-4): the worker
  *     dispatcher's `switch (msg.type)` case labels must equal the panel
- *     protocol's closed type set, and the listener's `message.type` equality
+ *     protocol's closed type set, and the module's `message.type` equality
  *     literals must equal the capture-path table's types — both read through
  *     a comment-safe tokenizer, both diffed in both directions, with the two
  *     doc enumerations disjoint.
@@ -82,6 +82,9 @@ export function extractManifestSurface(manifestJson) {
     parsed = JSON.parse(manifestJson);
   } catch {
     return { permissions: [], hostPermissions: [], problems: [`${MANIFEST_PATH} does not parse as JSON`] }; // prettier-ignore
+  }
+  if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+    return { permissions: [], hostPermissions: [], problems: [`${MANIFEST_PATH} parses as JSON but not as an object — the permission read cannot run`] }; // prettier-ignore
   }
   const readArray = (field) => {
     const out = [];
@@ -262,7 +265,7 @@ export function extractDispatcherSurface(workerSource) {
  * @param {string[]} s.docPanelTypes the runtime doc's panel-protocol types
  * @param {string[]} s.protocolUnreadable unreadable protocol cells/pieces
  * @param {string[]} s.caseLabels the dispatcher switch's case labels
- * @param {string[]} s.equalityTypes the listener's equality-literal types
+ * @param {string[]} s.equalityTypes the worker module's equality-literal types
  * @returns {string[]} problems; empty when both contracts hold (the
  *   dispatcher anchor guards — switch count, the default arm, nesting — are
  *   the extractor's own problems and are reported beside these)
@@ -301,7 +304,7 @@ export function evaluateExtensionSurface(s) {
 
   // Duplicates are drift signal on the doc surfaces and on case labels (a
   // repeated label is unreachable code); equality guards are exempt — testing
-  // one type twice is legal listener shape, and the extractor deduplicates.
+  // one type twice is legal code shape, and the extractor deduplicates.
   for (const [list, what] of [
     [s.manifestPermissions, `the manifest's permissions`],
     [s.manifestHostPermissions, `the manifest's host_permissions`],
@@ -321,8 +324,8 @@ export function evaluateExtensionSurface(s) {
     ...missingFrom(s.docHostPermissions, s.manifestHostPermissions, `is documented in the Host permissions table but ${MANIFEST_PATH} does not request it`), // prettier-ignore
     ...missingFrom(s.docPanelTypes, s.caseLabels, `is in the panel-protocol enumeration but the dispatcher switch has no case servicing it (${ERT_CLAUSE_ID})`), // prettier-ignore
     ...missingFrom(s.caseLabels, s.docPanelTypes, `is serviced by the dispatcher switch but the panel-protocol enumeration does not state it`), // prettier-ignore
-    ...missingFrom(s.docCaptureTypes, s.equalityTypes, `is in the capture-path table but the listener has no equality guard servicing it (${ERT_CLAUSE_ID})`), // prettier-ignore
-    ...missingFrom(s.equalityTypes, s.docCaptureTypes, `is serviced by a listener equality guard but the capture-path table does not state it`), // prettier-ignore
+    ...missingFrom(s.docCaptureTypes, s.equalityTypes, `is in the capture-path table but no equality guard in the worker module services it (${ERT_CLAUSE_ID})`), // prettier-ignore
+    ...missingFrom(s.equalityTypes, s.docCaptureTypes, `is serviced by an equality guard in the worker module but the capture-path table does not state it`), // prettier-ignore
   );
 
   const overlap = s.docCaptureTypes.filter((t) => s.docPanelTypes.includes(t));
