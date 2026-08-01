@@ -207,6 +207,14 @@ jobs:
       - name: Validate desktop command-surface contract
         run: npm run lint:command-surface
 
+      # The extension's surface contracts are committed too: the manifest's
+      # permission surface must equal the permissions doc's tables (EPM-1),
+      # and the worker dispatcher's serviced message types must equal the
+      # runtime doc's capture-path and panel-protocol enumerations (ERT-4).
+      # This admission test recomputes both and reds on any drift.
+      - name: Validate extension surface contracts
+        run: npm run lint:extension-surface
+
       # An ignore rule has no effect on an already-tracked file, so the tracked
       # set and the .gitignore rules can disagree silently. This asserts they
       # never do — every tracked file is one those rules admit.

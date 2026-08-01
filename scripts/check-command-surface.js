@@ -57,7 +57,13 @@
 import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
-import { parseTables, readListEntries } from './check-test-inventory.js';
+import {
+  duplicatesIn,
+  extractClauseSection,
+  missingFrom,
+  parseTables,
+  readListEntries,
+} from './check-test-inventory.js';
 
 /** Repo-relative path of the doc whose DSH-1 table states the contract. */
 export const DOC_PATH = 'docs/architecture/application/desktop/windows/application-shell.md';
@@ -192,43 +198,14 @@ export function extractHandlerCommands(strippedLib) {
 }
 
 /**
- * Blank out fenced code blocks (``` … ```), preserving newlines, so a marker,
- * heading, table, or grant-shaped token inside an illustrative fence is never
- * read as live doc text.
- * @param {string} text Markdown text
- * @returns {string} the text with fenced content replaced by blank lines
- */
-export function stripMarkdownFences(text) {
-  const lines = text.split('\n');
-  let fence = null;
-  return lines
-    .map((line) => {
-      const open = /^\s*(```|~~~)/.exec(line);
-      if (open) {
-        if (fence === null) fence = open[1];
-        else if (line.trim().startsWith(fence)) fence = null;
-        return '';
-      }
-      return fence !== null ? '' : line;
-    })
-    .join('\n');
-}
-
-/**
- * Slice the doc text to the clause's scope: from its marker to the next
- * clause marker or heading (the doc's own scope rule). Fences are stripped
- * first, so fenced examples can neither anchor nor truncate the slice.
+ * Slice the doc text to the clause's scope, through the shared fence-aware
+ * clause-section extractor — from the marker to the next clause marker or
+ * heading, with fenced examples unable to anchor or truncate the slice.
  * @param {string} docText the application-shell doc
  * @returns {string} the clause's text, or '' when the marker is absent
  */
 export function extractDsh1Section(docText) {
-  const defenced = stripMarkdownFences(docText);
-  const marker = `**${CLAUSE_ID}.**`;
-  const start = defenced.indexOf(marker);
-  if (start === -1) return '';
-  const rest = defenced.slice(start + marker.length);
-  const end = rest.search(/\n#{2,}\s|\*\*[A-Z][A-Z0-9]*-[1-9][0-9]*\.\*\*/);
-  return end === -1 ? defenced.slice(start) : defenced.slice(start, start + marker.length + end);
+  return extractClauseSection(docText, CLAUSE_ID);
 }
 
 /**
@@ -334,31 +311,6 @@ export function extractMockServicedCases(fixtureSource) {
 }
 
 /**
- * Report the elements of `a` missing from `b`, as one problem line per name.
- * @param {string[]} a names present here…
- * @param {string[]} b …must each be present here
- * @param {string} where description of the gap ("in X but not Y")
- * @returns {string[]} problem lines
- */
-function missingFrom(a, b, where) {
-  const bSet = new Set(b);
-  return [...new Set(a)].filter((x) => !bSet.has(x)).map((x) => `\`${x}\` ${where}`);
-}
-
-/**
- * Report duplicate names within one extracted list.
- * @param {string[]} names an extracted name list
- * @param {string} what description of the surface
- * @returns {string[]} problem lines
- */
-function duplicatesIn(names, what) {
-  const seen = new Set();
-  const dup = new Set();
-  for (const n of names) (seen.has(n) ? dup : seen).add(n);
-  return [...dup].map((n) => `\`${n}\` appears more than once in ${what}`);
-}
-
-/**
  * Pure core: evaluate the whole command-surface contract.
  * @param {object} s the extracted surfaces
  * @param {string[]} s.commandFns `#[tauri::command]` function names
@@ -377,6 +329,13 @@ function duplicatesIn(names, what) {
 export function evaluateCommandSurface(s) {
   const problems = [];
 
+  // Unreadable rows are reported ahead of the vacuous guards: the likeliest
+  // cause of an empty table parse is rows that stopped being readable, so
+  // the most useful line must survive the early return.
+  for (const cell of s.docUnreadableRows) {
+    problems.push(`the ${CLAUSE_ID} table carries a first cell the scan cannot read — ${cell} — rows are \`name\` or \`name\` (event), nothing else`); // prettier-ignore
+  }
+
   const surfaces = [
     [s.commandFns, `no #[tauri::command] functions found under ${SRC_DIR} — the scan is broken or the commands moved`], // prettier-ignore
     [s.handlerCommands, `no generate_handler! registrations found in ${LIB_PATH}`],
@@ -387,10 +346,14 @@ export function evaluateCommandSurface(s) {
     [s.mockCommands, `no CANONICAL_COMMANDS entries found in ${MOCK_PATH}`],
     [s.mockCases, `no serviced case labels found in the mock's invoke switch (${MOCK_PATH})`],
   ];
+  let vacuous = false;
   for (const [list, message] of surfaces) {
-    if (list.length === 0) problems.push(message);
+    if (list.length === 0) {
+      problems.push(message);
+      vacuous = true;
+    }
   }
-  if (problems.length) return problems; // empty parses make set diffs meaningless
+  if (vacuous) return problems; // empty parses make set diffs meaningless
 
   if (s.handlerOccurrences !== 1) {
     problems.push(
@@ -419,9 +382,6 @@ export function evaluateCommandSurface(s) {
     ...missingFrom(s.mockCases, s.commandFns, `is serviced by the mock's invoke switch but no #[tauri::command] function defines it`), // prettier-ignore
   );
 
-  for (const cell of s.docUnreadableRows) {
-    problems.push(`the ${CLAUSE_ID} table carries a first cell the scan cannot read — ${cell} — rows are \`name\` or \`name\` (event), nothing else`); // prettier-ignore
-  }
   const badEventRows = s.docEvents.filter((e) => e !== EVENT_CHANNEL);
   for (const e of badEventRows) {
     problems.push(`the ${CLAUSE_ID} table carries an event row \`${e}\` — the one backend event channel is \`${EVENT_CHANNEL}\``); // prettier-ignore

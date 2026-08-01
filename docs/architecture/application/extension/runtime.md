@@ -153,6 +153,15 @@ declared at their call sites. The panel↔worker surface has exactly two
 channels: the request/response messages below, and the watched storage keys
 listed under [Storage keys](#storage-keys-and-write-ownership).
 
+**ERT-4.** The dispatcher's serviced surface is exactly the two enumerations
+this section states — the capture-path table's message types, serviced by the
+listener's dedicated guards ahead of the dispatcher switch, and the panel
+protocol's closed set, serviced by that switch's cases. The two enumerations
+are disjoint, and a type outside them is answered with
+[ERT-2](#response-contract)'s error envelope. A change that adds, removes, or
+renames a serviced message type MUST update the matching enumeration in the
+same change.
+
 ### Capture path
 
 Sent by the recorder to the worker:

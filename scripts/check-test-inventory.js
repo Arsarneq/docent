@@ -156,25 +156,18 @@ const isDelimiterRow = (line) => {
  * Parse the tables out of a Markdown document, each tagged with the `##`
  * section it sits in (deeper headings stay inside their section; a `#` heading
  * starts document-level text again). A table is a header row followed by a
- * delimiter row and the body rows after it; fenced code blocks are skipped, so
- * a table-shaped example inside a fence is never read as one.
+ * delimiter row and the body rows after it; fenced content is blanked first
+ * (via {@link stripFences} — the one fence model), so a table-shaped example
+ * inside a fence is never read as one.
  * @param {string} markdown
  * @returns {{ section: string | null, header: string[], rows: string[][] }[]}
  */
 export function parseTables(markdown) {
-  const lines = markdown.split(/\r?\n/);
+  const lines = stripFences(markdown).split('\n');
   const tables = [];
-  let fence = null;
   let section = null;
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
-    const fenceMatch = FENCE_RE.exec(line);
-    if (fenceMatch) {
-      if (fence === null) fence = fenceMatch[1];
-      else if (line.trim().startsWith(fence)) fence = null;
-      continue;
-    }
-    if (fence !== null) continue;
     const headingMatch = HEADING_RE.exec(line);
     if (headingMatch) {
       const level = headingMatch[1].length;
@@ -202,6 +195,78 @@ export function parseTables(markdown) {
 export function backtickedName(cell) {
   const match = BACKTICKED_NAME_RE.exec((cell ?? '').trim());
   return match ? match[1] : null;
+}
+
+/**
+ * Report the elements of `a` missing from `b`, one problem line per name —
+ * the both-way set-diff wording model the surface checks share.
+ * @param {string[]} a names present here…
+ * @param {string[]} b …must each be present here
+ * @param {string} where description of the gap
+ * @returns {string[]} problem lines
+ */
+export function missingFrom(a, b, where) {
+  const bSet = new Set(b);
+  return [...new Set(a)].filter((x) => !bSet.has(x)).map((x) => `\`${x}\` ${where}`);
+}
+
+/**
+ * Report duplicate names within one extracted list — the one drift the
+ * deduplicating set diffs above cannot see.
+ * @param {string[]} names an extracted name list
+ * @param {string} what description of the surface
+ * @returns {string[]} problem lines
+ */
+export function duplicatesIn(names, what) {
+  const seen = new Set();
+  const dup = new Set();
+  for (const n of names) (seen.has(n) ? dup : seen).add(n);
+  return [...dup].map((n) => `\`${n}\` appears more than once in ${what}`);
+}
+
+/**
+ * Blank out fenced code blocks (``` or ~~~, each closed by its own marker),
+ * preserving newlines, so a marker, heading, table, or token inside an
+ * illustrative fence is never read as live doc text. This is the same fence
+ * model `parseTables` applies internally — exported so every doc-scanning
+ * check agrees on what a fence is.
+ * @param {string} markdown
+ * @returns {string} the text with fence lines and fenced content blanked
+ */
+export function stripFences(markdown) {
+  const lines = markdown.split(/\r?\n/);
+  let fence = null;
+  return lines
+    .map((line) => {
+      const open = FENCE_RE.exec(line);
+      if (open) {
+        if (fence === null) fence = open[1];
+        else if (line.trim().startsWith(fence)) fence = null;
+        return '';
+      }
+      return fence !== null ? '' : line;
+    })
+    .join('\n');
+}
+
+/**
+ * Slice a doc's text to one clause's scope: from its bolded marker
+ * (`**ID.**`) to the next clause marker or heading — the scope rule the
+ * clause-bearing docs state. Fences are stripped first (via
+ * {@link stripFences}), so fenced examples can neither anchor nor truncate
+ * the slice.
+ * @param {string} markdown the doc's text
+ * @param {string} clauseId a clause id, e.g. 'DSH-1'
+ * @returns {string} the clause's text, or '' when the marker is absent
+ */
+export function extractClauseSection(markdown, clauseId) {
+  const defenced = stripFences(markdown);
+  const marker = `**${clauseId}.**`;
+  const start = defenced.indexOf(marker);
+  if (start === -1) return '';
+  const rest = defenced.slice(start + marker.length);
+  const end = rest.search(/\n#{1,6}\s|\*\*[A-Z][A-Z0-9]*-[1-9][0-9]*\.\*\*/);
+  return end === -1 ? defenced.slice(start) : defenced.slice(start, start + marker.length + end);
 }
 
 /* ── JavaScript array literals ───────────────────────────────────────────── */

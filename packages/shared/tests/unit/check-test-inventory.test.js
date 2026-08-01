@@ -26,11 +26,13 @@ import {
   TRACKED_LISTS,
   auditInventories,
   backtickedName,
+  extractClauseSection,
   formatProblems,
   identifiesSameFile,
   parseTables,
   readListEntries,
   splitRow,
+  stripFences,
   tokenizeJs,
 } from '../../../../scripts/check-test-inventory.js';
 
@@ -600,5 +602,79 @@ describe('real-tree lock', () => {
     assert.equal(cargo('nested/main.rs'), false);
     assert.equal(cargo('common/mod.rs'), false);
     assert.equal(cargo('worker_pool_test.proptest-regressions'), false);
+  });
+});
+
+describe('stripFences — the one fence model, exported', () => {
+  it('blanks backtick and tilde fences, each closed by its own marker, preserving line count', () => {
+    const text = [
+      'live',
+      '```',
+      'fenced ``` still open? no — this closes it? no',
+      '```',
+      '~~~',
+      'tilde fenced',
+      '~~~',
+      'after',
+    ].join('\n');
+    const stripped = stripFences(text);
+    assert.equal(stripped.split('\n').length, text.split('\n').length);
+    assert.ok(stripped.includes('live'));
+    assert.ok(stripped.includes('after'));
+    assert.ok(!stripped.includes('fenced'));
+    assert.ok(!stripped.includes('tilde'));
+  });
+
+  it('normalizes CRLF input so consumers need no pre-normalization', () => {
+    const stripped = stripFences('live\r\n```\r\nfenced\r\n```\r\nafter');
+    assert.ok(!stripped.includes('\r'));
+    assert.ok(!stripped.includes('fenced'));
+    assert.ok(stripped.includes('after'));
+  });
+});
+
+describe('extractClauseSection — the shared clause-scope slice', () => {
+  const doc = [
+    '# Title',
+    '',
+    '**XX-1.** First clause text.',
+    'More of the first clause.',
+    '',
+    '**XX-2.** Second clause.',
+    '',
+    '## A Heading',
+    '',
+    'Outside any clause.',
+  ].join('\n');
+
+  it('slices from the marker to the next clause marker', () => {
+    const section = extractClauseSection(doc, 'XX-1');
+    assert.ok(section.includes('First clause text'));
+    assert.ok(section.includes('More of the first clause'));
+    assert.ok(!section.includes('Second clause'));
+  });
+
+  it('a heading of any level ends the slice — level 1 included', () => {
+    const withH1 = doc.replace('## A Heading', '# A Top Heading');
+    const section = extractClauseSection(withH1, 'XX-2');
+    assert.ok(section.includes('Second clause'));
+    assert.ok(!section.includes('Outside any clause'));
+  });
+
+  it('returns the empty string when the marker is absent', () => {
+    assert.equal(extractClauseSection(doc, 'XX-9'), '');
+  });
+
+  it('a fenced marker can neither anchor nor truncate the slice', () => {
+    const fenced = [
+      '```',
+      '**XX-1.** fenced impostor',
+      '```',
+      '**XX-1.** the real clause',
+      'body',
+    ].join('\n');
+    const section = extractClauseSection(fenced, 'XX-1');
+    assert.ok(section.includes('the real clause'));
+    assert.ok(!section.includes('impostor'));
   });
 });

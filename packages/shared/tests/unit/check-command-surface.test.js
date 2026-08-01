@@ -25,7 +25,6 @@ import {
   MOCK_PATH,
   EVENT_CHANNEL,
   stripRustComments,
-  stripMarkdownFences,
   extractCommandFns,
   extractHandlerCommands,
   extractDsh1Section,
@@ -430,8 +429,16 @@ describe('extractDsh1Section / extractDocRows / extractDocGrants', () => {
   });
 
   it('a tilde fence hides its content like a backtick fence', () => {
-    const text = ['live `core:default`', '~~~', 'fenced `fs:allow-write`', '~~~'].join('\n');
-    assert.deepEqual(extractDocGrants(stripMarkdownFences(text)), ['core:default']);
+    const doc = [
+      '**DSH-1.** The contract with `core:default`.',
+      '~~~',
+      'fenced `fs:allow-write`',
+      '~~~',
+      'after the fence',
+    ].join('\n');
+    const section = extractDsh1Section(doc);
+    assert.ok(section.includes('after the fence'), 'the tilde fence must not truncate');
+    assert.deepEqual(extractDocGrants(section), ['core:default']);
   });
 
   it('reads only grant-shaped backticked tokens — the event channel is not a grant', () => {
