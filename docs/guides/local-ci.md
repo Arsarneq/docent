@@ -123,7 +123,9 @@ The publish workflows' closest local rehearsal is the `act` dry-run
 job by its id and carries only the local-run facts — what each job
 verifies, and when it runs, is the companion's job inventory
 ([CI gates § The test suite](ci.md#the-test-suite-testyml)) and is not
-restated here.
+restated here. The keying claim is recomputed both ways on every PR by the
+doc-closure gate
+([CI gates § The lint and freshness gates](ci.md#the-lint-and-freshness-gates)).
 
 | Job (in `test.yml`)         | CI runner                            | Runs under `act`?                                                                                   |
 | --------------------------- | ------------------------------------ | --------------------------------------------------------------------------------------------------- |
