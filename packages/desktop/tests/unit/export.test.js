@@ -12,8 +12,6 @@
  * This tests the pure export-building logic, not the Tauri invoke calls: it
  * exercises the same shared `buildExport` the panel calls, and validates its
  * output against the schema contract.
- *
- * Export schema validation
  */
 
 import { describe, it } from 'node:test';
@@ -360,7 +358,10 @@ describe('Export schema validation', () => {
   // The generated projects carry one version per logical step and never a
   // tombstone, so the history claim above needs a case that actually holds
   // one: a superseded version and a soft-deleted version of the same logical
-  // step must both reach the export, field for field.
+  // step must both reach the export with their content intact. The expected
+  // steps are cloned before the build, so the comparison is by content — the
+  // builder passes step objects through by reference, and comparing against
+  // the very objects it forwarded would pass on identity alone.
   it('export carries a superseded version and a tombstone of the same logical step verbatim', () => {
     const logicalId = '019e12a4-633d-74d2-acd5-584085fb57f9';
     const superseded = {
@@ -397,11 +398,12 @@ describe('Export schema validation', () => {
       ],
     };
 
+    const expectedSteps = structuredClone([superseded, tombstone]);
     const exportData = buildExportData(project);
     validateExport(exportData);
     assert.deepStrictEqual(
       exportData.recordings[0].steps,
-      [superseded, tombstone],
+      expectedSteps,
       'the export must carry every version of the logical step, tombstone included',
     );
   });

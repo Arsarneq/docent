@@ -352,6 +352,25 @@ export function registeredFieldTableKeys() {
 }
 
 /**
+ * A repository path token, mirroring the extraction
+ * [`check-clause-governance.js`](./check-clause-governance.js) applies to the
+ * same registry rows — the one shape a cited path takes in this data.
+ */
+const PATH_TOKEN_RE = /(?:[A-Za-z0-9_\-.]+\/)*[A-Za-z0-9_\-.]+\.[A-Za-z0-9]+/g;
+
+/**
+ * The Markdown paths a clause row cites, deduplicated. Compared as a SET
+ * against the register, so neither side can hide in the other's prose: a
+ * substring test would let `README.md` ride on `docs/README.md`, and would
+ * never see a path the row cites that no surface backs.
+ * @param {string} text a clause row's check-ref
+ * @returns {string[]}
+ */
+export function citedMarkdownPaths(text) {
+  return [...new Set((text ?? '').match(PATH_TOKEN_RE) ?? [])].filter((p) => p.endsWith('.md'));
+}
+
+/**
  * The clause row that names this check, read from the registry: the text a
  * reader consults to learn which surfaces are held. Returns null with a
  * problem when the registry cannot be read or carries no such row.
@@ -415,10 +434,13 @@ export function readActionMembers(schema, platform) {
  * schema's expression of "at least one of"). A def that is missing, carries
  * no `properties`, or carries an `anyOf` branch this reader does not model is
  * a problem, never an empty pass.
+ * Each `anyOf` branch's own `required` array is kept alongside their union:
+ * the union answers which fields the branches mention, the branches answer
+ * whether the shape is one-per-field.
  * @param {object} schema a composed platform schema
  * @param {string} platform the platform id, for diagnoses
  * @param {string} defName the `$defs` key
- * @returns {{ present: boolean, hasAnyOf: boolean, properties: string[], required: string[], anyOfRequired: string[], problems: string[] }}
+ * @returns {{ present: boolean, hasAnyOf: boolean, properties: string[], required: string[], anyOfBranches: string[][], anyOfRequired: string[], problems: string[] }}
  */
 export function readDefSurface(schema, platform, defName) {
   const empty = {
@@ -426,6 +448,7 @@ export function readDefSurface(schema, platform, defName) {
     hasAnyOf: false,
     properties: [],
     required: [],
+    anyOfBranches: [],
     anyOfRequired: [],
   };
   const def = schema?.$defs?.[defName];
@@ -600,7 +623,7 @@ export const EMPTY_SURFACES = [
  * @param {{ defName: string, label: string, fields: string[], yes: string[], no: string[], oneOf: string[] }[]} s.tables
  * @param {string[]} s.tableRows every readable field name, across the tables
  * @param {string[]} s.tableUnreadable refused table cells
- * @param {{ platform: string, defName: string, present: boolean, hasAnyOf: boolean, properties: string[], required: string[], anyOfRequired: string[] }[]} s.defs
+ * @param {{ platform: string, defName: string, present: boolean, hasAnyOf: boolean, properties: string[], required: string[], anyOfBranches: string[][], anyOfRequired: string[] }[]} s.defs
  * @returns {string[]} problems; empty when every echo holds
  */
 export function evaluateSchemaEcho(s) {
@@ -666,14 +689,17 @@ export function evaluateSchemaEcho(s) {
   }
 
   // The registry row is where a reader learns which surfaces are held, so the
-  // register and the row are held to the same list: a surface registered here
-  // and absent from the row would be guarded without being disclosed.
+  // register and the row are held to the same SET, both ways: a surface
+  // registered here and absent from the row would be guarded without being
+  // disclosed, and a path the row cites that no surface backs would be
+  // disclosed without being guarded.
   if (s.authorityRow !== null) {
-    for (const surface of s.authority) {
-      if (!s.authorityRow.includes(surface.path)) {
-        problems.push(`${surface.path} is a registered authority surface but the §${AUTHORITY_CLAUSE_ID} row in ${CLAUSE_REGISTRY_PATH} does not name it — the row states which surfaces are held`); // prettier-ignore
-      }
-    }
+    const cited = citedMarkdownPaths(s.authorityRow);
+    const registered = s.authority.map((surface) => surface.path);
+    problems.push(
+      ...missingFrom(registered, cited, `is a registered authority surface but the §${AUTHORITY_CLAUSE_ID} row in ${CLAUSE_REGISTRY_PATH} does not cite it — the row states which surfaces are held`), // prettier-ignore
+      ...missingFrom(cited, registered, `is cited as an authority surface by the §${AUTHORITY_CLAUSE_ID} row in ${CLAUSE_REGISTRY_PATH} but no registered surface holds it`), // prettier-ignore
+    );
   }
 
   // The field tables the legs hold plus the ones recorded as review-held are
@@ -719,26 +745,32 @@ export function evaluateSchemaEcho(s) {
       // per field, each requiring that field alone. A collapsed branch
       // requiring several at once demands all of them, which the union cannot
       // see and the table's wording would then misstate.
-      for (const [i, branch] of (def.anyOfBranches ?? []).entries()) {
-        if (branch.length !== 1 || !table.oneOf.includes(branch[0])) {
-          problems.push(`anyOf branch ${i} of ${where} requires ${branch.map((f) => `\`${f}\``).join(' + ') || '(nothing)'} — ${table.label} says "${REQUIRED_ONE_OF}", which is one branch per marked field, each requiring that field alone`); // prettier-ignore
+      for (const [i, branch] of def.anyOfBranches.entries()) {
+        const requires = branch.map((f) => `\`${f}\``).join(' + ') || '(nothing)';
+        if (table.oneOf.length === 0) {
+          problems.push(`anyOf branch ${i} of ${where} requires ${requires} but no row of ${table.label} is marked "${REQUIRED_ONE_OF}"`); // prettier-ignore
+        } else if (branch.length !== 1 || !table.oneOf.includes(branch[0])) {
+          problems.push(`anyOf branch ${i} of ${where} requires ${requires} — ${table.label} says "${REQUIRED_ONE_OF}", which is one branch per marked field, each requiring that field alone`); // prettier-ignore
         }
       }
     }
 
-    // The two platforms share every registered def; a leaf or family layer
-    // that replaces one outright would otherwise satisfy the table on the
-    // platform the doc was written against and diverge on the other.
+    // Every composed platform shares each registered def; a leaf or family
+    // layer that replaces one outright would otherwise satisfy the table on
+    // the platform the doc was written against and diverge on the others.
+    // Each diagnosis names the two platforms it compared, so a tree with more
+    // than two reports which pair disagreed.
     const [first, ...rest] = defsFor(table.defName).filter((d) => d.present);
     for (const other of rest) {
-      const pair = `\`${table.defName}\` (${first.platform} vs ${other.platform})`;
+      const def = `\`${table.defName}\``;
+      const shared = 'every composed platform must share this def';
       problems.push(
-        ...missingFrom(first.properties, other.properties, `is a property of ${pair} on the first platform only — the two platforms must share this def`), // prettier-ignore
-        ...missingFrom(other.properties, first.properties, `is a property of ${pair} on the second platform only — the two platforms must share this def`), // prettier-ignore
-        ...missingFrom(first.required, other.required, `is required by ${pair} on the first platform only — the two platforms must share this def`), // prettier-ignore
-        ...missingFrom(other.required, first.required, `is required by ${pair} on the second platform only — the two platforms must share this def`), // prettier-ignore
-        ...missingFrom(first.anyOfRequired, other.anyOfRequired, `is required by an anyOf branch of ${pair} on the first platform only — the two platforms must share this def`), // prettier-ignore
-        ...missingFrom(other.anyOfRequired, first.anyOfRequired, `is required by an anyOf branch of ${pair} on the second platform only — the two platforms must share this def`), // prettier-ignore
+        ...missingFrom(first.properties, other.properties, `is a property of ${def} on ${first.platform} but missing on ${other.platform} — ${shared}`), // prettier-ignore
+        ...missingFrom(other.properties, first.properties, `is a property of ${def} on ${other.platform} but missing on ${first.platform} — ${shared}`), // prettier-ignore
+        ...missingFrom(first.required, other.required, `is required by ${def} on ${first.platform} but not on ${other.platform} — ${shared}`), // prettier-ignore
+        ...missingFrom(other.required, first.required, `is required by ${def} on ${other.platform} but not on ${first.platform} — ${shared}`), // prettier-ignore
+        ...missingFrom(first.anyOfRequired, other.anyOfRequired, `is required by an anyOf branch of ${def} on ${first.platform} but not on ${other.platform} — ${shared}`), // prettier-ignore
+        ...missingFrom(other.anyOfRequired, first.anyOfRequired, `is required by an anyOf branch of ${def} on ${other.platform} but not on ${first.platform} — ${shared}`), // prettier-ignore
       );
     }
   }

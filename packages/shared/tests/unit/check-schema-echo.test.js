@@ -32,6 +32,7 @@ import {
   TRAVERSED_KEYWORDS,
   UNHELD_FIELD_TABLES,
   auditTree,
+  citedMarkdownPaths,
   classifyObjectSchema,
   describeDeclaration,
   evaluateSchemaEcho,
@@ -421,6 +422,19 @@ describe('evaluateSchemaEcho — the "one of" leg', () => {
     );
   });
 
+  it('says what is actually wrong when the def branches but the table marks nothing', () => {
+    const table = makeSurface().tables[0];
+    const problems = evaluateSchemaEcho(
+      makeSurface({ tables: [{ ...table, oneOf: [], no: [...table.no, 'narration', 'step_type'] }] }), // prettier-ignore
+    );
+    assert.ok(
+      problems.some((p) => p.includes('anyOf branch 0') && p.includes('no row of') && p.includes('is marked')), // prettier-ignore
+      problems.join('\n'),
+    );
+    // …and never claims the table said "one of" when it said nothing of the kind.
+    assert.ok(!problems.some((p) => p.includes('which is one branch per marked field')));
+  });
+
   it('fires when a branch requires a field the table does not mark "one of"', () => {
     const problems = evaluateSchemaEcho(
       withDef('extension', {
@@ -443,7 +457,11 @@ describe('evaluateSchemaEcho — the "one of" leg', () => {
     );
     assert.ok(
       problems.some(
-        (p) => p.includes('`diverged`') && p.includes('the two platforms must share this def'),
+        (p) =>
+          p.includes('`diverged`') &&
+          p.includes('anyOf branch') &&
+          p.includes('extension') &&
+          p.includes('desktop-windows'),
       ),
       problems.join('\n'),
     );
@@ -456,7 +474,37 @@ describe('evaluateSchemaEcho — the authority register and the clause row that 
       makeSurface({ authorityRow: 'this row names no surface at all' }),
     );
     assert.ok(
-      problems.some((p) => p.includes('docs/x.md') && p.includes(AUTHORITY_CLAUSE_ID)),
+      problems.some((p) => p.includes('docs/x.md') && p.includes('does not cite it')),
+      problems.join('\n'),
+    );
+  });
+
+  it('fires when the row cites a surface the register does not hold', () => {
+    const problems = evaluateSchemaEcho(
+      makeSurface({ authorityRow: 'docs/x.md and docs/invented.md are held by this check' }),
+    );
+    assert.ok(
+      problems.some(
+        (p) => p.includes('docs/invented.md') && p.includes('no registered surface holds it'),
+      ),
+      problems.join('\n'),
+    );
+  });
+
+  it('does not let a shorter path ride inside a longer one', () => {
+    // `README.md` is a substring of `docs/README.md`: a substring test would
+    // call the root README disclosed by a row that only cites the index.
+    const problems = evaluateSchemaEcho(
+      makeSurface({
+        authority: [
+          { path: 'README.md', description: 'the root README', matched: true, empty: false },
+          { path: 'docs/README.md', description: 'the docs index', matched: true, empty: false },
+        ],
+        authorityRow: 'the register holds docs/README.md',
+      }),
+    );
+    assert.ok(
+      problems.some((p) => p.startsWith('`README.md`') && p.includes('does not cite it')),
       problems.join('\n'),
     );
   });
@@ -468,6 +516,11 @@ describe('evaluateSchemaEcho — the authority register and the clause row that 
 });
 
 describe('evaluateSchemaEcho — the cross-platform def agreement', () => {
+  // Each diagnosis must name the platforms it compared, not their positions:
+  // "the first platform" tells a reader nothing once a third chain exists.
+  const namesBothPlatforms = (p) =>
+    p.includes('extension') && p.includes('desktop-windows') && p.includes('every composed platform must share this def'); // prettier-ignore
+
   it('fires when one platform’s copy of a shared def carries an extra property', () => {
     const problems = evaluateSchemaEcho(
       withDef('desktop-windows', {
@@ -475,19 +528,15 @@ describe('evaluateSchemaEcho — the cross-platform def agreement', () => {
       }),
     );
     assert.ok(
-      problems.some(
-        (p) => p.includes('`divergent`') && p.includes('the two platforms must share this def'),
-      ),
+      problems.some((p) => p.includes('`divergent`') && namesBothPlatforms(p)),
       problems.join('\n'),
     );
   });
 
-  it('fires when the two platforms disagree on the def’s required set', () => {
+  it('fires when the platforms disagree on the def’s required set', () => {
     const problems = evaluateSchemaEcho(withDef('desktop-windows', { required: [] }));
     assert.ok(
-      problems.some(
-        (p) => p.includes('`uuid`') && p.includes('the two platforms must share this def'),
-      ),
+      problems.some((p) => p.includes('`uuid`') && namesBothPlatforms(p)),
       problems.join('\n'),
     );
   });
@@ -602,8 +651,11 @@ describe('UNHELD_FIELD_TABLES — the review-held field tables', () => {
 });
 
 describe('PLATFORM_IDS — the platforms this check covers', () => {
-  it('is exactly the composer’s declared chains, so a new surface enters the legs with its chain', () => {
-    assert.deepEqual([...PLATFORM_IDS].sort(), Object.keys(PLATFORMS).sort());
+  it('the composer declares at least one chain to cover', () => {
+    // The list IS the composer's keys by construction, so the value worth
+    // pinning is that the composer declares any chain at all — an empty
+    // PLATFORMS would make every schema leg vacuous.
+    assert.ok(Object.keys(PLATFORMS).length > 0);
     assert.ok(PLATFORM_IDS.length > 0);
   });
 
@@ -614,6 +666,24 @@ describe('PLATFORM_IDS — the platforms this check covers', () => {
       assert.ok(surfaces.actionMembers.some((m) => m.platform === platform), `${platform} members`); // prettier-ignore
       assert.ok(surfaces.defs.some((d) => d.platform === platform), `${platform} defs`); // prettier-ignore
     }
+  });
+});
+
+describe('citedMarkdownPaths', () => {
+  it('reads whole path tokens, keeps only Markdown, and deduplicates', () => {
+    const cited = citedMarkdownPaths(
+      'scripts/check-schema-echo.js holds docs/README.md, README.md, docs/README.md, and reference-implementations/sync-server/README.md (npm run lint:schema-echo)', // prettier-ignore
+    );
+    assert.deepEqual(cited, [
+      'docs/README.md',
+      'README.md',
+      'reference-implementations/sync-server/README.md',
+    ]);
+  });
+
+  it('reads nothing from a row that cites no path', () => {
+    assert.deepEqual(citedMarkdownPaths('held by review only'), []);
+    assert.deepEqual(citedMarkdownPaths(undefined), []);
   });
 });
 
