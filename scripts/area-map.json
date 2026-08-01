@@ -489,6 +489,19 @@
       ]
     },
     {
+      "path": "scripts/check-test-inventory.js",
+      "reason": "The test-inventory lint and the shared doc-scan primitives (fence model, clause-section slice, table parse, list/token readers) the surface checks verify their clauses through — an edit here changes what those clauses are checked against, so their docs govern it beside the CI guides.",
+      "governed-by": [
+        "docs/guides/ci.md",
+        "docs/guides/local-ci.md",
+        ".github/PUBLISHING.md",
+        "docs/architecture/application/desktop/windows/application-shell.md",
+        "docs/architecture/application/extension/permissions.md",
+        "docs/architecture/application/extension/runtime.md",
+        ".github/CONTRIBUTING.md"
+      ]
+    },
+    {
       "path": "scripts/check-extension-surface.js",
       "reason": "The extension-surface admission test — the permissions doc's manifest clause and the runtime doc's dispatcher clause are verified by it, per their registry rows.",
       "governed-by": [

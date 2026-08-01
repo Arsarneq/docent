@@ -24,11 +24,14 @@
  * Honest limits: a dispatch route outside the tokenized shapes (a computed
  * message type, a negated or reversed-operand type test, an equality test on
  * a receiver other than `message`/`msg`) is invisible to the scan — a nested
- * dispatcher, by contrast, is refused loudly; a regular-expression literal
- * carrying a brace inside the dispatcher body corrupts the depth bound and
- * reds with a misleading diagnosis (loud, never green); the default arm is
- * presence-checked only (the envelope it answers is ERT-2's own
- * verification); the panel table's sender-side claim (the set the panel
+ * dispatcher, by contrast, is refused loudly; the equality scan is
+ * module-wide, not listener-scoped, and where the guards sit is review-held
+ * (ERT-4's ahead-of-the-switch mechanism is stated doctrine the scan does
+ * not verify — token order is not control flow); a regular-expression
+ * literal carrying a brace inside the dispatcher body corrupts the depth
+ * bound and reds with a misleading diagnosis (loud, never green); the
+ * default arm is presence-checked only (the envelope it answers is ERT-2's
+ * own verification); the panel table's sender-side claim (the set the panel
  * sends) is review-held, as is the tables' rationale, payload, and response
  * prose; and the manifest's resource-exposure facts (CSP absence, empty
  * `web_accessible_resources`) stay judgment-held with their doc bullets.
@@ -92,7 +95,7 @@ export function extractManifestSurface(manifestJson) {
     return out;
   };
   for (const field of ['optional_permissions', 'optional_host_permissions']) {
-    if (Array.isArray(parsed[field]) && parsed[field].length > 0) {
+    if (field in parsed && !(Array.isArray(parsed[field]) && parsed[field].length === 0)) {
       problems.push(`${MANIFEST_PATH} declares ${field}, which the permission tables do not model — extend the doc and this check together, or drop the key`); // prettier-ignore
     }
   }
@@ -165,11 +168,12 @@ export function extractProtocolTables(runtimeText) {
  * `switch ((msg|message).type)` (bounded by brace depth, so labels after the
  * `default:` arm still count and a sibling switch elsewhere is never
  * misread), and the `message.type === '…'` (or `msg.type`) equality literals
- * ahead of that switch — the position ERT-4 states for the capture-path
- * guards; an equality guard behind the switch head is refused, never
- * silently counted. Anchor failures — no dispatcher switch, more than one, a
- * missing `default:` arm, a nested switch — are problems of this extractor,
- * so they fire even when other surfaces parse empty.
+ * anywhere in the module — deduplicated, since guarding one type twice is
+ * legal; where in the module they sit is review-held (token order is not
+ * control flow, so a position rule would red legal declaration moves).
+ * Anchor failures — no dispatcher switch, more than one, a missing
+ * `default:` arm, a nested switch — are problems of this extractor, so they
+ * fire even when other surfaces parse empty.
  * @param {string} workerSource service-worker.js source
  * @returns {{ caseLabels: string[], equalityTypes: string[], problems: string[] }}
  */
@@ -203,18 +207,11 @@ export function extractDispatcherSurface(workerSource) {
       at(i + 5, 'punct', '=') &&
       tokens[i + 6]?.type === 'string'
     ) {
-      equalityHits.push({ index: i, type: tokens[i + 6].value });
+      equalityHits.push(tokens[i + 6].value);
     }
   }
 
-  const equalityTypes = [];
-  for (const hit of equalityHits) {
-    if (switchHeads.length === 1 && hit.index > switchHeads[0]) {
-      problems.push(`\`${hit.type}\` is guarded by a message-type equality test behind the dispatcher switch — ${ERT_CLAUSE_ID} states the capture-path guards run ahead of it`); // prettier-ignore
-    } else {
-      equalityTypes.push(hit.type);
-    }
-  }
+  const equalityTypes = [...new Set(equalityHits)];
 
   if (switchHeads.length !== 1) {
     problems.push(`${WORKER_PATH} carries ${switchHeads.length} dispatcher switches over the message type — the scan models exactly one`); // prettier-ignore
@@ -302,6 +299,9 @@ export function evaluateExtensionSurface(s) {
   }
   if (vacuous) return problems; // empty parses make set diffs meaningless
 
+  // Duplicates are drift signal on the doc surfaces and on case labels (a
+  // repeated label is unreachable code); equality guards are exempt — testing
+  // one type twice is legal listener shape, and the extractor deduplicates.
   for (const [list, what] of [
     [s.manifestPermissions, `the manifest's permissions`],
     [s.manifestHostPermissions, `the manifest's host_permissions`],
@@ -310,7 +310,6 @@ export function evaluateExtensionSurface(s) {
     [s.docCaptureTypes, `the capture-path table`],
     [s.docPanelTypes, `the panel-protocol enumeration`],
     [s.caseLabels, `the dispatcher's case labels`],
-    [s.equalityTypes, `the listener's equality literals`],
   ]) {
     problems.push(...duplicatesIn(list, what));
   }

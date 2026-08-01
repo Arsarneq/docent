@@ -196,17 +196,25 @@ describe('extractManifestSurface', () => {
     assert.ok(read.problems.some((p) => p.includes('does not parse as JSON')));
   });
 
-  it('refuses optional-permission keys the tables do not model', () => {
+  it('refuses optional-permission keys the tables do not model — any present non-empty shape', () => {
     const read = extractManifestSurface(
       JSON.stringify({
         permissions: ['storage'],
         host_permissions: ['<all_urls>'],
         optional_permissions: ['downloads'],
-        optional_host_permissions: ['https://x.test/*'],
+        optional_host_permissions: 'not-even-an-array',
       }),
     );
     assert.ok(read.problems.some((p) => p.includes('optional_permissions')));
     assert.ok(read.problems.some((p) => p.includes('optional_host_permissions')));
+    const emptyOk = extractManifestSurface(
+      JSON.stringify({
+        permissions: ['storage'],
+        host_permissions: ['<all_urls>'],
+        optional_permissions: [],
+      }),
+    );
+    assert.deepEqual(emptyOk.problems, []);
   });
 });
 
@@ -364,13 +372,11 @@ describe('extractDispatcherSurface — comment-safe tokenizer reads', () => {
     assert.ok(read.problems.some((p) => p.includes('no default: arm')));
   });
 
-  it('refuses an equality guard behind the dispatcher switch — the stated mechanism holds', () => {
-    const behind = `${worker}\nif (message.type === 'LATE_GUARD') { return; }`;
-    const read = extractDispatcherSurface(behind);
-    assert.ok(!read.equalityTypes.includes('LATE_GUARD'));
-    assert.ok(
-      read.problems.some((p) => p.includes('LATE_GUARD') && p.includes('behind the dispatcher switch')), // prettier-ignore
-    );
+  it('collects equality guards module-wide and deduplicates a repeated guard', () => {
+    const spread = `${worker}\nif (message.type === 'LATE_GUARD') { return; }\nif (message.type === 'FRAME_READY' && busy) { return; }`;
+    const read = extractDispatcherSurface(spread);
+    assert.deepEqual(read.equalityTypes.sort(), ['FRAME_READY', 'LATE_GUARD']);
+    assert.deepEqual(read.problems, []);
   });
 
   it('reports an unreadable dispatcher head as an extractor problem', () => {
