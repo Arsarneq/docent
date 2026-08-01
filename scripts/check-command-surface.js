@@ -312,8 +312,9 @@ export function extractMockServicedCases(fixtureSource) {
 
 /**
  * The non-empty guard's legs: every parsed surface, with its empty-parse
- * diagnosis. Exported so the unit suite can lock its data-driven family to
- * this list — a surface added here without a matching test leg reds there.
+ * diagnosis. Exported so the unit suite's family is generated from this
+ * list — a leg added here is exercised automatically, and the suite holds
+ * the list non-empty and its diagnoses distinct.
  */
 export const EMPTY_SURFACES = [
   ['commandFns', `no #[tauri::command] functions found under ${SRC_DIR} — the scan is broken or the commands moved`], // prettier-ignore
@@ -328,7 +329,8 @@ export const EMPTY_SURFACES = [
 
 /**
  * The duplicates guard's legs — the drift the deduplicating set diffs
- * cannot see. Exported for the same suite lock as {@link EMPTY_SURFACES}.
+ * cannot see. Exported for the suite's generated family plus the
+ * fixture-key equality lock its hand-written fixtures need.
  */
 export const DUPLICATE_SURFACES = [
   ['commandFns', `the #[tauri::command] set`],

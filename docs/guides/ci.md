@@ -182,13 +182,12 @@ two mechanisms keep it mergeable:
 The `lint` job is the sequence of checks below; the sync-shared freshness
 gate runs in `unit-tests`, and clippy runs in the two Rust jobs. Each row
 names the local command (see [Running CI locally](local-ci.md) for running
-whole jobs). The table is closed against the tree by the Doc closure row's
-own check: `package.json`'s `lint` chain must run exactly the `lint:*`
-family, every `lint:*` script and every `npm run` step of the `lint` job
-must have a row here, and every `npm run` command cited in tracked markdown
-must name a real script — rows whose local command is not an `npm run` form
-(rustfmt, clippy, the sync-shared freshness row) are held by review, not by
-the check.
+whole jobs). The Doc closure row's own check closes this table tree → table:
+`package.json`'s `lint` chain must run exactly the `lint:*` family, every
+`lint:*` script and every `npm run` step of the `lint` job must have a row
+here, and every `npm run` command a row cites must name a real script.
+Whether a given row still corresponds to a gate that runs (table → tree) is
+held by review for every row, whatever form its local command takes.
 
 | Gate                  | Where                                         | Red when                                                                                                                                                                                                                                                                                                                                                                        | Local command                                                             |
 | --------------------- | --------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------- |

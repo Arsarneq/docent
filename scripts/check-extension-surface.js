@@ -263,8 +263,9 @@ export function extractDispatcherSurface(workerSource) {
 
 /**
  * The non-empty guard's legs: every parsed surface, with its empty-parse
- * diagnosis. Exported so the unit suite can lock its data-driven family to
- * this list — a surface added here without a matching test leg reds there.
+ * diagnosis. Exported so the unit suite's family is generated from this
+ * list — a leg added here is exercised automatically, and the suite holds
+ * the list non-empty and its diagnoses distinct.
  */
 export const EMPTY_SURFACES = [
   ['manifestPermissions', `no permissions found in ${MANIFEST_PATH}`],
@@ -281,7 +282,8 @@ export const EMPTY_SURFACES = [
  * The duplicates guard's legs — drift signal on the doc surfaces and on case
  * labels (a repeated label is unreachable code); equality guards are exempt:
  * testing one type twice is legal code shape, and the extractor
- * deduplicates. Exported for the same suite lock as {@link EMPTY_SURFACES}.
+ * deduplicates. Exported for the suite's generated family plus the
+ * fixture-key equality lock its hand-written fixtures need.
  */
 export const DUPLICATE_SURFACES = [
   ['manifestPermissions', `the manifest's permissions`],

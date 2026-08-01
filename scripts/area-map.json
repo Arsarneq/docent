@@ -288,6 +288,11 @@
       "governed-by": ["docs/test/strategy/mutation.md", "docs/guides/ci.md"]
     },
     {
+      "path": "packages/desktop/src-tauri/deny.toml",
+      "reason": "cargo-deny configuration — the desktop crate's license/advisory policy; the CI guide states its configuring role in the audit gate, so an edit here primes that claim rather than the shell doctrine its directory would supply.",
+      "governed-by": ["docs/guides/ci.md"]
+    },
+    {
       "path": "codecov.yml",
       "reason": "Codecov configuration — coverage-report and status settings; the CI guide states which of its statuses gate and which are informational, so an edit here primes those claims too.",
       "governed-by": ["docs/test/strategy/coverage.md", "docs/guides/ci.md"]

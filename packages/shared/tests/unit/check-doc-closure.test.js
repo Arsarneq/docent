@@ -10,13 +10,11 @@
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync, readdirSync } from 'node:fs';
-import { execFileSync } from 'node:child_process';
+import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import {
   CI_DOC_PATH,
   LOCAL_CI_DOC_PATH,
-  WORKFLOWS_DIR,
   TEST_WORKFLOW_PATH,
   ROOT_MANIFEST_PATH,
   WORKFLOW_SECTION,
@@ -24,6 +22,8 @@ import {
   ACT_SECTION,
   ACT_HEADER,
   LINT_JOB_ID,
+  EMPTY_SURFACES,
+  DUPLICATE_SURFACES,
   linkedFileName,
   extractTableFileNames,
   extractGateRows,
@@ -33,7 +33,7 @@ import {
   extractNpmRunCites,
   collectScriptKeys,
   evaluateDocClosure,
-  auditTree,
+  treeSurfaces,
 } from '../../../../scripts/check-doc-closure.js';
 
 const ROOT = resolve(import.meta.dirname, '..', '..', '..', '..');
@@ -165,27 +165,38 @@ describe('evaluateDocClosure — npm-run citation leg', () => {
   });
 });
 
+// Fixture rows for the duplicates family, keyed to the check's own exported
+// DUPLICATE_SURFACES list. The lock below holds the two key sets equal, so a
+// surface added to the check's loop without a fixture row reds here — the
+// addition direction the per-leg tests alone cannot see.
+const DUPLICATE_FIXTURES = {
+  workflowRows: ['test.yml', 'publish.yml', 'test.yml'],
+  actRows: ['lint', 'unit-tests', 'lint'],
+  jobIds: ['lint', 'unit-tests', 'lint'],
+  gateRows: [
+    { gate: 'ESLint', tokens: ['lint:js'] },
+    { gate: 'Prettier', tokens: ['lint:format', 'format'] },
+    { gate: 'ESLint', tokens: ['lint:js'] },
+  ],
+  chainTokens: ['lint:js', 'lint:format', 'lint:js'],
+};
+
 describe('evaluateDocClosure — duplicates, every leg of the duplicates loop', () => {
-  // Data-driven over every entry of the check's duplicates loop: each leg
-  // asserts its own surface label, so dropping or mistyping a loop entry
-  // reds here.
-  for (const [key, list, what] of [
-    ['workflowRows', ['test.yml', 'publish.yml', 'test.yml'], 'the workflow-inventory table'],
-    ['actRows', ['lint', 'unit-tests', 'lint'], 'the act table'],
-    ['jobIds', ['lint', 'unit-tests', 'lint'], `${TEST_WORKFLOW_PATH}'s job ids`],
-    [
-      'gateRows',
-      [
-        { gate: 'ESLint', tokens: ['lint:js'] },
-        { gate: 'Prettier', tokens: ['lint:format', 'format'] },
-        { gate: 'ESLint', tokens: ['lint:js'] },
-      ],
-      'the lint-gates table',
-    ],
-    ['chainTokens', ['lint:js', 'lint:format', 'lint:js'], 'the `lint` chain'],
-  ]) {
+  it('the fixture table covers exactly the check’s duplicates legs (addition lock)', () => {
+    assert.deepEqual(
+      Object.keys(DUPLICATE_FIXTURES).sort(),
+      DUPLICATE_SURFACES.map(([key]) => key).sort(),
+    );
+  });
+
+  it('the surface labels are pairwise distinct — a copied leg cannot hide behind its neighbour', () => {
+    const labels = DUPLICATE_SURFACES.map(([, what]) => what);
+    assert.equal(new Set(labels).size, labels.length);
+  });
+
+  for (const [key, what] of DUPLICATE_SURFACES) {
     it(`fires on a duplicate in ${what}`, () => {
-      const problems = evaluateDocClosure(makeSurface({ [key]: list }));
+      const problems = evaluateDocClosure(makeSurface({ [key]: DUPLICATE_FIXTURES[key] }));
       assert.ok(
         problems.some((p) => p.includes('more than once') && p.includes(what)),
         problems.join('\n') || `no duplicates diagnostic for ${what}`,
@@ -195,22 +206,18 @@ describe('evaluateDocClosure — duplicates, every leg of the duplicates loop', 
 });
 
 describe('evaluateDocClosure — empty parses are structural failures', () => {
-  for (const [key, needle, empty] of [
-    ['workflowFiles', 'no workflow files found', []],
-    ['workflowRows', 'no workflow-inventory rows found', []],
-    ['jobIds', 'no job ids found', []],
-    ['actRows', 'no act-table rows found', []],
-    ['gateRows', 'no lint-gates rows found', []],
-    ['chainTokens', 'no npm-run tokens found', []],
-    ['lintKeys', 'no `lint:*` scripts found', []],
-    ['lintStepTokens', 'no npm-run step tokens found', []],
-    ['cites', 'no npm-run citations found', []],
-    ['scriptKeys', 'no script keys found', new Set()],
-  ]) {
+  it('the export is non-empty and its diagnoses pairwise distinct', () => {
+    assert.ok(EMPTY_SURFACES.length > 0);
+    const messages = EMPTY_SURFACES.map(([, message]) => message);
+    assert.equal(new Set(messages).size, messages.length);
+  });
+
+  for (const [key, message] of EMPTY_SURFACES) {
     it(`fires when ${key} parses empty`, () => {
+      const empty = key === 'scriptKeys' ? new Set() : [];
       const problems = evaluateDocClosure(makeSurface({ [key]: empty }));
       assert.ok(
-        problems.some((p) => p.includes(needle)),
+        problems.some((p) => p.includes(message)),
         problems.join('\n') || `no vacuous diagnostic for ${key}`,
       );
     });
@@ -305,6 +312,8 @@ describe('extractJobIds / extractJobNpmRunTokens', () => {
   const wf = [
     'name: test',
     'on: push',
+    'env:',
+    '  lint: "a two-space key before jobs: must not anchor the step scan"',
     'jobs:',
     '  lint:',
     '    runs-on: ubuntu-latest',
@@ -329,10 +338,13 @@ describe('extractJobIds / extractJobNpmRunTokens', () => {
     assert.deepEqual(read.problems, []);
   });
 
-  it('anchors loudly when jobs: is absent', () => {
+  it('anchors loudly when jobs: is absent — both scans', () => {
     const read = extractJobIds('name: test\non: push\n');
     assert.deepEqual(read.ids, []);
     assert.ok(read.problems[0].includes('no top-level `jobs:` key'));
+    const steps = extractJobNpmRunTokens('name: test\non: push\n', 'lint');
+    assert.deepEqual(steps.tokens, []);
+    assert.ok(steps.problems[0].includes('no top-level `jobs:` key'));
   });
 
   it('collects one job’s npm-run tokens, deduplicated and bounded to the job', () => {
@@ -416,17 +428,8 @@ describe('extractNpmRunCites', () => {
 });
 
 describe('real-tree lock', () => {
-  it('the shipped tree satisfies every closure', () => {
-    const gitList = (pattern) =>
-      execFileSync('git', ['ls-files', pattern], { cwd: ROOT, encoding: 'utf8' })
-        .split('\n')
-        .filter(Boolean);
-    const surfaces = auditTree(
-      (f) => readFileSync(resolve(ROOT, f), 'utf8'),
-      () => readdirSync(resolve(ROOT, WORKFLOWS_DIR)).filter((f) => /\.ya?ml$/.test(f)),
-      () => gitList('*.md'),
-      () => gitList('*package.json').filter((p) => p.split('/').pop() === 'package.json'),
-    );
+  it('the shipped tree satisfies every closure — through the CLI’s own tree listing', () => {
+    const surfaces = treeSurfaces(ROOT);
     assert.deepEqual(surfaces.anchorProblems, []);
     assert.deepEqual(evaluateDocClosure(surfaces), []);
     assert.ok(surfaces.workflowFiles.length > 0);

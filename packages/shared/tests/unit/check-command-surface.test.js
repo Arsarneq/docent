@@ -151,6 +151,11 @@ describe('evaluateCommandSurface — duplicates, every leg of the duplicates loo
     );
   });
 
+  it('the surface labels are pairwise distinct — a copied leg cannot hide behind its neighbour', () => {
+    const labels = DUPLICATE_SURFACES.map(([, what]) => what);
+    assert.equal(new Set(labels).size, labels.length);
+  });
+
   for (const [key, what] of DUPLICATE_SURFACES) {
     it(`fires on a duplicated name in ${what} — a leg the set diffs cannot see`, () => {
       const problems = evaluateCommandSurface(makeSurface({ [key]: DUPLICATE_FIXTURES[key] }));
@@ -239,8 +244,10 @@ describe('evaluateCommandSurface — capability grants', () => {
 });
 
 describe('evaluateCommandSurface — empty parses are structural failures', () => {
-  it('every leg of the check’s non-empty guard fires (addition lock: driven by its export)', () => {
+  it('the export is non-empty and its diagnoses pairwise distinct', () => {
     assert.ok(EMPTY_SURFACES.length > 0);
+    const messages = EMPTY_SURFACES.map(([, message]) => message);
+    assert.equal(new Set(messages).size, messages.length);
   });
 
   for (const [key, message] of EMPTY_SURFACES) {

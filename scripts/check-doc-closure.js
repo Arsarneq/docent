@@ -22,24 +22,27 @@
  * — a broken read fails loudly instead of passing vacuously.
  *
  * Honest limits: the guides' prose paragraphs stay review-held — this check
- * reads the two inventory tables, the gates table's Local-command column,
- * the job keys, and `npm run` tokens, never sentence meaning; gates whose
- * local command is not an `npm run` form (rustfmt, clippy, the sync-shared
- * freshness row) and lint-job steps that invoke node directly (the
- * release-output guard) are outside the token legs and review-held; the job
- * scan is shaped to test.yml's committed layout (top-level `jobs:`,
- * two-space job keys) and refuses the file loudly if that anchor vanishes;
- * npm-run citations are resolved against the union of every tracked
- * manifest's script keys, so which package a doc means is review-held —
- * the leg catches a token no manifest defines, not a token cited against
- * the wrong package.
+ * reads the inventory tables, the gates table's Local-command column, the
+ * job keys, and `npm run` tokens, never sentence meaning. The gates-table
+ * closure runs tree → table: the `lint:*` family and the lint job's
+ * `npm run` steps must each have a row, and every row's cited script key
+ * must exist — whether a given row still corresponds to a gate that runs
+ * (table → tree) is review-held for every row, whatever form its local
+ * command takes. A script name cited outside the `npm run` form (a bare
+ * backticked key) is outside the citation leg. The job scan is shaped to
+ * test.yml's committed layout (top-level `jobs:`, two-space job keys) and
+ * refuses the file loudly if that anchor vanishes. Npm-run citations are
+ * resolved against the union of every tracked manifest's script keys, so
+ * which package a doc means is review-held — the leg catches a token no
+ * manifest defines, not a token cited against the wrong package.
  *
  * Usage:
  *   node scripts/check-doc-closure.js  # or: npm run lint:doc-closure
  */
 
-import { readFileSync, readdirSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
+import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { duplicatesIn, missingFrom, parseTables, backtickedName } from './check-test-inventory.js';
 
@@ -151,15 +154,28 @@ export function extractJobIds(yamlText) {
 
 /**
  * The `npm run` tokens of one job's steps, bounded to that job's lines
- * (from its two-space key to the next one). The job's absence is the
- * extractor's own problem.
+ * (from its two-space key inside the `jobs:` block to the next one) — both
+ * workflow scans share the one `jobs:` anchor, so a same-named key under an
+ * earlier top-level block can never win. The anchor's or the job's absence
+ * is the extractor's own problem.
  * @param {string} yamlText
  * @param {string} jobId
  * @returns {{ tokens: string[], problems: string[] }}
  */
 export function extractJobNpmRunTokens(yamlText, jobId) {
   const lines = yamlText.split(/\r?\n/);
-  const start = lines.findIndex((line) => line.startsWith(`  ${jobId}:`));
+  const jobsLine = lines.findIndex((line) => /^jobs:\s*(#.*)?$/.test(line));
+  if (jobsLine === -1) {
+    return { tokens: [], problems: [`${TEST_WORKFLOW_PATH} carries no top-level \`jobs:\` key — the step scan cannot anchor`] }; // prettier-ignore
+  }
+  let start = -1;
+  for (let i = jobsLine + 1; i < lines.length; i++) {
+    if (/^\S/.test(lines[i])) break;
+    if (lines[i].startsWith(`  ${jobId}:`)) {
+      start = i;
+      break;
+    }
+  }
   if (start === -1) {
     return { tokens: [], problems: [`${TEST_WORKFLOW_PATH} has no \`${jobId}\` job — the step scan cannot anchor`] }; // prettier-ignore
   }
@@ -251,6 +267,39 @@ export function collectScriptKeys(manifests) {
 }
 
 /**
+ * The non-empty guard's legs: every parsed surface, with its empty-parse
+ * diagnosis. Exported so the unit suite's family is generated from this
+ * list — a leg added here is exercised automatically, and the suite holds
+ * the list non-empty and its diagnoses distinct.
+ */
+export const EMPTY_SURFACES = [
+  ['workflowFiles', `no workflow files found under ${WORKFLOWS_DIR}`],
+  ['workflowRows', `no workflow-inventory rows found in ${CI_DOC_PATH}`],
+  ['jobIds', `no job ids found in ${TEST_WORKFLOW_PATH}`],
+  ['actRows', `no act-table rows found in ${LOCAL_CI_DOC_PATH}`],
+  ['gateRows', `no lint-gates rows found in ${CI_DOC_PATH}`],
+  ['chainTokens', `no npm-run tokens found in ${ROOT_MANIFEST_PATH}'s \`lint\` chain`],
+  ['lintKeys', `no \`${LINT_FAMILY_PREFIX}*\` scripts found in ${ROOT_MANIFEST_PATH}`],
+  ['lintStepTokens', `no npm-run step tokens found in ${TEST_WORKFLOW_PATH}'s \`${LINT_JOB_ID}\` job`], // prettier-ignore
+  ['cites', `no npm-run citations found in tracked markdown — the citation scan is broken`],
+  ['scriptKeys', `no script keys found in any tracked package.json`],
+];
+
+/**
+ * The duplicates guard's legs — the drift the deduplicating set diffs
+ * cannot see. `gateRows` is read by its gate names. Exported for the same
+ * suite treatment as {@link EMPTY_SURFACES}, plus the fixture-key equality
+ * lock its hand-written fixtures need.
+ */
+export const DUPLICATE_SURFACES = [
+  ['workflowRows', 'the workflow-inventory table'],
+  ['actRows', 'the act table'],
+  ['jobIds', `${TEST_WORKFLOW_PATH}'s job ids`],
+  ['gateRows', 'the lint-gates table'],
+  ['chainTokens', 'the `lint` chain'],
+];
+
+/**
  * Pure core: evaluate every closure leg.
  * @param {object} s the extracted surfaces
  * @param {string[]} s.workflowFiles basenames under .github/workflows/
@@ -288,20 +337,9 @@ export function evaluateDocClosure(s) {
     problems.push(`npm-run citation the scan cannot read — ${cite}`);
   }
 
-  const surfaces = [
-    [s.workflowFiles, `no workflow files found under ${WORKFLOWS_DIR}`],
-    [s.workflowRows, `no workflow-inventory rows found in ${CI_DOC_PATH}`],
-    [s.jobIds, `no job ids found in ${TEST_WORKFLOW_PATH}`],
-    [s.actRows, `no act-table rows found in ${LOCAL_CI_DOC_PATH}`],
-    [s.gateRows, `no lint-gates rows found in ${CI_DOC_PATH}`],
-    [s.chainTokens, `no npm-run tokens found in ${ROOT_MANIFEST_PATH}'s \`lint\` chain`],
-    [s.lintKeys, `no \`${LINT_FAMILY_PREFIX}*\` scripts found in ${ROOT_MANIFEST_PATH}`],
-    [s.lintStepTokens, `no npm-run step tokens found in ${TEST_WORKFLOW_PATH}'s \`${LINT_JOB_ID}\` job`], // prettier-ignore
-    [s.cites, `no npm-run citations found in tracked markdown — the citation scan is broken`],
-    [[...s.scriptKeys], `no script keys found in any tracked package.json`],
-  ];
   let vacuous = false;
-  for (const [list, message] of surfaces) {
+  for (const [key, message] of EMPTY_SURFACES) {
+    const list = key === 'scriptKeys' ? [...s.scriptKeys] : s[key];
     if (list.length === 0) {
       problems.push(message);
       vacuous = true;
@@ -309,15 +347,8 @@ export function evaluateDocClosure(s) {
   }
   if (vacuous) return problems; // empty parses make the closure diffs meaningless
 
-  // prettier-ignore
-  const duplicateSurfaces = [
-    [s.workflowRows, 'the workflow-inventory table'],
-    [s.actRows, 'the act table'],
-    [s.jobIds, `${TEST_WORKFLOW_PATH}'s job ids`],
-    [s.gateRows.map((r) => r.gate), 'the lint-gates table'],
-    [s.chainTokens, 'the `lint` chain'],
-  ];
-  for (const [list, what] of duplicateSurfaces) {
+  for (const [key, what] of DUPLICATE_SURFACES) {
+    const list = key === 'gateRows' ? s.gateRows.map((r) => r.gate) : s[key];
     problems.push(...duplicatesIn(list, what));
   }
 
@@ -393,6 +424,34 @@ export function auditTree(readFile, listWorkflows, listMarkdown, listManifests) 
   };
 }
 
+/**
+ * Read every surface from the real tree at `root` — the one listing the CLI
+ * and the suite's real-tree lock share, so the lock exercises exactly what
+ * CI runs. All listings are git-tracked (the workflow leg included, so an
+ * untracked local `.yml` cannot red a run CI would pass).
+ * @param {string} root repository root (absolute or relative)
+ * @returns {ReturnType<typeof auditTree>}
+ */
+export function treeSurfaces(root) {
+  const resolvePath = (p) => join(root, p);
+  const gitList = (pattern) =>
+    execFileSync('git', ['ls-files', pattern], { cwd: root, encoding: 'utf8' })
+      .split('\n')
+      .filter(Boolean);
+  return auditTree(
+    (path) => {
+      try {
+        return readFileSync(resolvePath(path), 'utf8');
+      } catch {
+        return '';
+      }
+    },
+    () => gitList(`${WORKFLOWS_DIR}/*.y*ml`).map((p) => p.split('/').pop()),
+    () => gitList('*.md'),
+    () => gitList('*package.json').filter((p) => p.split('/').pop() === 'package.json'),
+  );
+}
+
 /* c8 ignore start -- CLI wrapper: the pure pieces above are unit-tested; this
  * glue reads the real tree and formats the verdict. An unreadable surface
  * fails the non-empty guards loudly. */
@@ -400,20 +459,7 @@ const isMain =
   process.argv[1] !== undefined && import.meta.url === pathToFileURL(process.argv[1]).href;
 
 if (isMain) {
-  const gitList = (pattern) =>
-    execFileSync('git', ['ls-files', pattern], { encoding: 'utf8' }).split('\n').filter(Boolean);
-  const surfaces = auditTree(
-    (path) => {
-      try {
-        return readFileSync(path, 'utf8');
-      } catch {
-        return '';
-      }
-    },
-    () => readdirSync(WORKFLOWS_DIR).filter((f) => /\.ya?ml$/.test(f)),
-    () => gitList('*.md'),
-    () => gitList('*package.json').filter((p) => p.split('/').pop() === 'package.json'),
-  );
+  const surfaces = treeSurfaces('.');
   const problems = [...surfaces.anchorProblems, ...evaluateDocClosure(surfaces)];
   if (problems.length > 0) {
     console.error('Doc-closure check failed:\n');
