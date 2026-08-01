@@ -4,16 +4,16 @@
  * and the hand-maintained coverage lists are committed data, so every way they
  * can rot must fail loud: these tests drive each red path over synthetic
  * documents and synthetic sources — an undocumented test file, a row naming a
- * file the suite does not run, a duplicate row, a coverage entry pointing at
- * nothing, an entry whose two halves name different files, and each way the
- * extraction can fail to reach its whole subject. Table parsing is proven to
- * read only the documented section and to ignore prose and fenced blocks (the
- * reason the check reads rows, not text), and the array scan to survive
+ * file that is not a member of the suite, a duplicate row, a coverage entry
+ * pointing at nothing, an entry whose two halves name different files, and each
+ * way the extraction can fail to reach its whole subject. Table parsing is
+ * proven to read only the documented section and to ignore prose and fenced
+ * blocks (the reason the check reads rows, not text), and the array scan survives
  * reformatting while refusing a restructured literal rather than reading part
  * of it. The report is proven to carry every class the audit can raise,
  * including one it has no wording for yet. Real-tree locks prove the shipped
- * inventories hold and that each suite's membership rule still collects what
- * its runner collects.
+ * inventories hold and that each suite's membership rule still matches the
+ * discovery it mirrors.
  */
 
 import { describe, it } from 'node:test';
@@ -45,7 +45,7 @@ const trackedFiles = () =>
 
 /**
  * One synthetic inventory document + the suite it claims to describe. Its
- * runner rule is deliberately the simplest one that can be wrong in both
+ * membership rule is deliberately the simplest one that can be wrong in both
  * directions — top-level `.spec.js` only; the recursive case gets its own
  * inventory in the test that needs it.
  */
@@ -55,7 +55,7 @@ const INVENTORY = [
     section: 'What the suite covers',
     column: 'Spec',
     dir: 'tests/specs',
-    runs: (name) => /^[^/]+\.spec\.js$/.test(name),
+    selects: (name) => /^[^/]+\.spec\.js$/.test(name),
   },
 ];
 
@@ -107,27 +107,27 @@ describe('auditInventories — suite tables vs the suite directory', () => {
     assert.deepEqual(result.absent, []);
   });
 
-  it('flags a documented file the suite does not run (gone from the suite)', () => {
+  it('flags a documented file that is no longer a member (gone from the suite)', () => {
     const result = audit(
       { 'docs/suite.md': suiteDoc(['a.spec.js', 'renamed.spec.js']) },
       { files: ['docs/suite.md', 'tests/specs/a.spec.js'] },
     );
     assert.deepEqual(result.absent, [
-      'docs/suite.md lists `renamed.spec.js`, which is not a test file the suite runs from tests/specs/',
+      'docs/suite.md lists `renamed.spec.js`, which is not a member of the suite in tests/specs/',
     ]);
     assert.deepEqual(result.undocumented, []);
   });
 
   it('flags a documented file that is still tracked but outside the suite', () => {
-    // The row is red because the suite no longer runs the file, not because the
-    // file is gone — a spec moved out of the directory, or (for a suite whose
-    // runner reads only the top level) down into a subdirectory of it.
+    // The row is red because the file is no longer a member, not because it is
+    // gone — a spec moved out of the directory, or (for a suite whose rule reads
+    // only the top level) down into a subdirectory of it.
     const result = audit(
       { 'docs/suite.md': suiteDoc(['moved.spec.js']) },
       { files: ['docs/suite.md', 'tests/elsewhere/moved.spec.js'] },
     );
     assert.deepEqual(result.absent, [
-      'docs/suite.md lists `moved.spec.js`, which is not a test file the suite runs from tests/specs/',
+      'docs/suite.md lists `moved.spec.js`, which is not a member of the suite in tests/specs/',
     ]);
   });
 
@@ -150,9 +150,9 @@ describe('auditInventories — suite tables vs the suite directory', () => {
     assert.deepEqual(result.duplicated, ['docs/suite.md: `a.spec.js` has more than one row']);
   });
 
-  it('counts exactly what the suite runs, by the runner rule the inventory carries', () => {
-    // A helper the runner does not collect is not a suite member; nor is a file
-    // one level deeper, for a runner that reads only the top level.
+  it('counts exactly the members its registered rule selects', () => {
+    // A helper the rule does not select is not a suite member; nor is a file one
+    // level deeper, for a rule that reads only the top level.
     const result = audit(
       { 'docs/suite.md': suiteDoc(['a.spec.js']) },
       {
@@ -168,9 +168,9 @@ describe('auditInventories — suite tables vs the suite directory', () => {
     assert.deepEqual(result.absent, []);
   });
 
-  it('counts a nested test where the runner reaches it, named by its path', () => {
+  it('counts a nested test where the rule admits it, named by its path', () => {
     const files = ['docs/suite.md', 'tests/specs/a.spec.js', 'tests/specs/nested/deep.spec.js'];
-    const recursive = [{ ...INVENTORY[0], runs: (name) => name.endsWith('.spec.js') }];
+    const recursive = [{ ...INVENTORY[0], selects: (name) => name.endsWith('.spec.js') }];
     const missing = audit({ 'docs/suite.md': suiteDoc(['a.spec.js']) }, { files, inventories: recursive }); // prettier-ignore
     assert.deepEqual(missing.undocumented, [
       'tests/specs/nested/deep.spec.js is in the suite but has no row in docs/suite.md',
@@ -561,40 +561,43 @@ describe('real-tree lock', () => {
   it('every configured document, suite, and coverage list is in the tree', () => {
     const files = trackedFiles();
     const tracked = new Set(files);
-    for (const { doc, dir, runs } of DOC_INVENTORIES) {
+    for (const { doc, dir, selects } of DOC_INVENTORIES) {
       assert.ok(tracked.has(doc), `${doc} is tracked`);
       assert.ok(
-        files.some((f) => f.startsWith(`${dir}/`) && runs(f.slice(dir.length + 1))),
+        files.some((f) => f.startsWith(`${dir}/`) && selects(f.slice(dir.length + 1))),
         `${dir} holds tracked test files`,
       );
     }
     for (const { file } of TRACKED_LISTS) assert.ok(tracked.has(file), `${file} is tracked`);
   });
 
-  it('each suite membership rule collects what its runner does', () => {
-    // The rules mirror the runners, so they are pinned against the runners'
-    // own discovery: a rule that drifts admits a file the runner executes with
-    // no row, and the check would stay green on the drift it exists to catch.
-    const runsFor = (dir) => DOC_INVENTORIES.find((inv) => inv.dir === dir).runs;
+  it('each membership rule matches the discovery it mirrors', () => {
+    // The rules mirror the discovery that actually selects each suite's tests,
+    // so they are pinned against it: a rule that drifts lets a file that gets
+    // picked up sit with no row, and the check would stay green on the drift it
+    // exists to catch.
+    const selectsFor = (dir) => DOC_INVENTORIES.find((inv) => inv.dir === dir).selects;
 
     // Playwright's default testMatch, at any depth under its testDir.
     for (const dir of [
       'packages/extension/tests/e2e/specs',
       'packages/desktop/tests/integration',
     ]) {
-      const runs = runsFor(dir);
+      const selects = selectsFor(dir);
       for (const name of ['a.spec.js', 'a.test.js', 'a.spec.mjs', 'a.test.ts', 'deep/a.spec.js']) {
-        assert.equal(runs(name), true, `${dir} runs ${name}`);
+        assert.equal(selects(name), true, `${dir} selects ${name}`);
       }
       for (const name of ['helpers.js', 'playwright.config.js', 'package.json', 'fixture.mjs']) {
-        assert.equal(runs(name), false, `${dir} does not run ${name}`);
+        assert.equal(selects(name), false, `${dir} does not select ${name}`);
       }
     }
 
-    // Cargo: a binary per tests/*.rs, plus one per tests/<name>/main.rs.
-    const cargo = runsFor('packages/desktop/src-tauri/tests');
+    // The desktop crate: one binary per tests/*.rs, which is what CI's
+    // layer-discovery step globs. Cargo would also build tests/<name>/main.rs,
+    // but that step never sees it, so it is not part of the documented suite.
+    const cargo = selectsFor('packages/desktop/src-tauri/tests');
     assert.equal(cargo('worker_pool_test.rs'), true);
-    assert.equal(cargo('nested/main.rs'), true);
+    assert.equal(cargo('nested/main.rs'), false);
     assert.equal(cargo('common/mod.rs'), false);
     assert.equal(cargo('worker_pool_test.proptest-regressions'), false);
   });

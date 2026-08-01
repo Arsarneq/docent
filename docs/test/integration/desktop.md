@@ -114,8 +114,9 @@ the suite runs in the `desktop-integration-tests` job on Linux.
 
 ## Configuration and coverage
 
-`playwright.config.js` keeps the suite deterministic: every `*.spec.js` in the
-directory, 15 s per-test timeout, 1 retry, a single worker, headless.
+`playwright.config.js` keeps the suite deterministic: every spec or test file
+Playwright's default discovery finds under the directory, at any depth, 15 s
+per-test timeout, 1 retry, a single worker, headless.
 Its `globalTeardown` converts the raw V8 coverage collected per page by
 `coverage-fixture.js` into one lcov report, uploaded under the
 `integration,javascript` coverage flag. The files it reports on are a

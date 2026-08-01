@@ -191,8 +191,8 @@ agreement.
 - **Panel or service-worker behaviour**: copy the `panelPage` fixture pattern
   (open `sidepanel/index.html` by extension id) or `evaluate` against the
   `serviceWorker` fixture directly.
-- New files under `specs/` are picked up by `testDir` automatically; the only
-  registry to update is this document's coverage tables.
+- New spec or test files under `specs/` are picked up by `testDir`
+  automatically; the only registry to update is this document's coverage tables.
 - Write for four attempts: fresh context per attempt, no reliance on prior
   state, and waits keyed to observable signals (readiness, settle) rather than
   durations.

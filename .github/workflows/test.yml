@@ -178,14 +178,15 @@ jobs:
       - name: Validate clause-citation governance
         run: npm run lint:clause-governance
 
-      # The suite documents enumerate their suites: in each document's inventory
-      # section, the coverage tables' first column and the test files the suite
-      # runs from the directory it documents (as deep as its runner reaches)
-      # stand in one-to-one agreement, every hand-maintained TRACKED_FILES
-      # coverage entry identifies one tracked source, and an inventory the check
-      # can no longer read where it looks is red rather than skipped. It runs
-      # here, in the always-on job, because the diff that stales an inventory is
-      # often docs-only — and a docs-only PR skips every path-filtered test job.
+      # The suite documents the check registers enumerate their suites: in each
+      # one's inventory section, the coverage tables' first column and the test
+      # files that are members of the suite it documents (the check registers
+      # the rule that decides that) stand in one-to-one agreement, every entry
+      # of the registered hand-maintained TRACKED_FILES lists identifies one
+      # tracked source, and an inventory the check can no longer read where it
+      # looks is red rather than skipped. It runs here, in the always-on job,
+      # because the diff that stales an inventory is often docs-only — and a
+      # docs-only PR skips every path-filtered test job.
       - name: Validate test-suite inventories
         run: npm run lint:test-inventory
 
@@ -530,8 +531,10 @@ jobs:
       #                 launches Notepad — not reliable on CI runners).
       #   integration — synthesises real OS input, identified by importing the
       #                 `enigo` crate (drives real windows).
-      #   unit        — every other test under tests/ (deterministic logic,
-      #                 state machines, property tests) + `--lib` in-module tests.
+      #   unit        — every other test file at the top of tests/ (deterministic
+      #                 logic, state machines, property tests) + `--lib` in-module
+      #                 tests. The glob below is `tests/*.rs`, so this step reads
+      #                 the top level only.
       #
       # A new test classifies itself from its own source: add `use enigo` for
       # integration (otherwise unit), and add a `ci-skip` comment to opt out of

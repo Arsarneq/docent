@@ -5,16 +5,19 @@
  *
  *   (a) suite tables — each suite document devotes a named section to the
  *       tables whose first column enumerates the suite's test files. That
- *       column and the tracked files the suite actually runs — decided by the
- *       same rule its runner discovers tests with — are held in one-to-one
- *       agreement: a test file with no row is red, a row naming a file the
- *       suite does not run is red, and a file carrying two rows is red.
- *   (b) coverage lists — every entry of the two hand-maintained `TRACKED_FILES`
- *       lists (the extension e2e and desktop integration coverage plumbing)
- *       identifies one tracked source file: the path the entry converts
- *       against, together with the URL suffix the suite matches on where the
- *       entry carries one, since an entry whose two halves name different files
- *       collects nothing while looking well-formed.
+ *       column and the suite's own members are held in one-to-one agreement: a
+ *       member with no row is red, a row naming a non-member is red, and a
+ *       member carrying two rows is red. Membership is decided per suite by the
+ *       discovery rule its entry registers below, which mirrors whatever
+ *       actually selects that suite's tests here. Selection is the line, not
+ *       execution — a selected test that some CI run then skips is still a
+ *       member.
+ *   (b) coverage lists — every entry of the registered hand-maintained
+ *       `TRACKED_FILES` lists (the extension e2e and desktop integration
+ *       coverage plumbing) identifies one tracked source file: the path the
+ *       entry converts against, together with the URL suffix the suite matches
+ *       on where the entry carries one, since an entry whose two halves name
+ *       different files collects nothing while looking well-formed.
  *
  * Why the always-on `lint` job: the diff that stales a suite inventory is
  * frequently docs-only, and a docs-only PR skips every path-filtered test job.
@@ -34,11 +37,14 @@
  * reads part of a list, or none of it, would pass forever.
  *
  * What this check deliberately cannot see: whether a row's DESCRIPTION is still
- * true (it compares names, never prose), and the two directions of the coverage
+ * true (it compares names, never prose); the two directions of the coverage
  * lists that are not entry-shaped — a source file the suites load that no list
  * names (the deliberate subset stated in docs/test/strategy/coverage.md), and
  * an entry naming a tracked source the suites never load, which is well-formed
- * here and simply collects nothing.
+ * here and simply collects nothing; and its own registration — a suite document
+ * or a coverage list that exists but is named in neither DOC_INVENTORIES nor
+ * TRACKED_LISTS below is outside this gate until it is registered there, which
+ * a new suite's change has to do for itself.
  *
  * Usage:
  *   node scripts/check-test-inventory.js      # or: npm run lint:test-inventory
@@ -55,20 +61,24 @@ import { pathToFileURL } from 'node:url';
 const PLAYWRIGHT_TEST_FILE = /(^|\/)[^/]+\.(?:spec|test)\.[cm]?[jt]sx?$/;
 
 /**
- * Cargo's integration-test discovery: a test binary per `.rs` file at the top of
- * `tests/`, plus one per `tests/<name>/main.rs`.
+ * The desktop crate's test binaries as CI's layer-discovery step reads them: one
+ * per `.rs` file at the top of `tests/`. Cargo would also build one per
+ * `tests/<name>/main.rs`, but that step (in `.github/workflows/test.yml`) globs
+ * `tests/*.rs`, so that form is outside the suite the desktop document
+ * enumerates — the rule here tracks the pipeline, not Cargo's full capability.
  */
-const CARGO_TEST_BINARY = /^([^/]+\.rs|[^/]+\/main\.rs)$/;
+const CARGO_TEST_BINARY = /^[^/]+\.rs$/;
 
 /**
  * The suite documents and the suites they enumerate. `section` is the `##`
  * heading whose tables make the enumeration claim and `column` their first
  * header cell — together they identify the inventory tables, so a table added
  * elsewhere in the document is free to name whatever it documents. `dir` is the
- * directory the suite runs from, and `runs` decides which paths under it the
- * suite runs: it mirrors that runner's own discovery rule, so what the check
- * demands a row for is what the runner will execute. A test is named in the
- * table by its path from `dir`.
+ * directory the suite lives in, and `selects` decides which paths under it are
+ * its members: it mirrors the discovery that actually selects this suite's tests
+ * here — the test runner's own rule where nothing narrows it, and the CI step's
+ * where one does (see `CARGO_TEST_BINARY`) — so what the check demands a row for
+ * is what gets selected. A member is named in the table by its path from `dir`.
  */
 export const DOC_INVENTORIES = [
   {
@@ -76,21 +86,21 @@ export const DOC_INVENTORIES = [
     section: 'What the suite covers',
     column: 'Spec',
     dir: 'packages/extension/tests/e2e/specs',
-    runs: (name) => PLAYWRIGHT_TEST_FILE.test(name),
+    selects: (name) => PLAYWRIGHT_TEST_FILE.test(name),
   },
   {
     doc: 'docs/test/desktop-rust.md',
     section: 'Suite layout',
     column: 'Test file',
     dir: 'packages/desktop/src-tauri/tests',
-    runs: (name) => CARGO_TEST_BINARY.test(name),
+    selects: (name) => CARGO_TEST_BINARY.test(name),
   },
   {
     doc: 'docs/test/integration/desktop.md',
     section: 'What the suite covers',
     column: 'Spec',
     dir: 'packages/desktop/tests/integration',
-    runs: (name) => PLAYWRIGHT_TEST_FILE.test(name),
+    selects: (name) => PLAYWRIGHT_TEST_FILE.test(name),
   },
 ];
 
@@ -396,7 +406,7 @@ export function auditInventories({
   const tracked = new Set(files);
 
   for (const inventory of inventories) {
-    const { doc, section, column, dir, runs } = inventory;
+    const { doc, section, column, dir, selects } = inventory;
     const content = readFile(doc);
     if (content == null) {
       result.unreadable.push(`${doc}: inventory document could not be read`);
@@ -427,14 +437,14 @@ export function auditInventories({
         documented.add(name);
       }
     }
-    // The suite is the tracked files under `dir` its runner collects, so the
-    // fixtures and configs beside them are helpers, not suite members.
+    // The suite is the tracked files under `dir` its registered rule selects,
+    // so the fixtures and configs beside them are helpers, not suite members.
     const prefix = `${dir}/`;
     const present = new Set(
       files
         .filter((f) => f.startsWith(prefix))
         .map((f) => f.slice(prefix.length))
-        .filter((name) => runs(name)),
+        .filter((name) => selects(name)),
     );
     for (const name of [...present].sort()) {
       if (!documented.has(name)) {
@@ -444,7 +454,7 @@ export function auditInventories({
     for (const name of [...documented].sort()) {
       if (!present.has(name)) {
         result.absent.push(
-          `${doc} lists \`${name}\`, which is not a test file the suite runs from ${prefix}`,
+          `${doc} lists \`${name}\`, which is not a member of the suite in ${prefix}`,
         );
       }
     }
@@ -509,8 +519,8 @@ const PROBLEM_BLOCKS = {
   absent: {
     heading: (n) => `${n} documented test file(s) are not in the suite`,
     fix:
-      `repoint each row at the file the suite now runs, or drop the row — the file was\n` +
-      `  renamed, removed, or moved somewhere this suite's runner does not reach.`,
+      `repoint each row at the file the suite now carries, or drop the row — the file\n` +
+      `  was renamed, removed, or moved outside what this suite's rule selects.`,
   },
   duplicated: {
     heading: (n) => `${n} test file(s) have more than one inventory row`,

@@ -28,7 +28,7 @@ CI jobs on your own machine is covered in
   and sync flows, and the harness contract they run under (frame readiness,
   one-worker serialization, retries, settle waits).
 - [Desktop Rust tests](desktop-rust.md) — the Tauri crate's cargo suite: the
-  in-module unit tests, the flat test binaries (property tests included), the
+  in-module unit tests, the test binaries (property tests included), the
   real-input integration suite, and how each test classifies itself for CI.
 - [Desktop integration tests](integration/desktop.md) — the Playwright suite
   that drives the built desktop frontend against a mocked Tauri backend.
