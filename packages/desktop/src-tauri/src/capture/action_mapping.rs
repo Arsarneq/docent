@@ -1,5 +1,7 @@
 // Action mapping — pure-Rust mapping from native interaction events to the
-// platform-agnostic `ActionEvent` used in the v2.0.0 schema.
+// platform-agnostic `ActionEvent` used in the desktop `.docent.json` schema
+// contract (its layer chain is named in this module's `mod.rs`; exported files
+// carry the schema version in their `docent_format` stamp).
 //
 // This module contains NO Windows API calls so it can be compiled and tested
 // on any platform. The actual native event detection lives in `windows.rs`.

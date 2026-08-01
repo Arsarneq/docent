@@ -1,11 +1,15 @@
 /**
- * naming.property.test.js — Property-based tests for v2.0.0 platform-neutral naming
+ * naming.property.test.js — Property-based tests for the platform-neutral
+ * naming the extension schema contract states (composed from
+ * `schemas/shared.schema.json` + `schemas/extension.delta.json`; the version
+ * that contract carries is stamped into each export's `docent_format`, never
+ * restated here)
  *
  * Extension actions use platform-neutral naming and DOM capture mode
  *
  * Generates random browser action objects that simulate what the content script
  * (recorder.js) and service worker (service-worker.js) produce, then verifies
- * the v2.0.0 naming invariants hold across all generated actions.
+ * those naming invariants hold across all generated actions.
  *
  * Uses Node's built-in test runner (node:test) and fast-check.
  */
@@ -276,10 +280,10 @@ describe('Extension actions use platform-neutral naming and DOM capture mode', (
   test('context lifecycle actions use context_switch/context_open/context_close, never tab_switch/tab_open/tab_close', async () => {
     await fc.assert(
       fc.asyncProperty(extensionActionArb, async (action) => {
-        // Action type must be one of the valid v2.0.0 types
+        // Action type must be one of the contract's valid types
         assert.ok(
           VALID_ACTION_TYPES.has(action.type),
-          `Action type "${action.type}" is not a valid v2.0.0 action type`,
+          `Action type "${action.type}" is not a valid extension action type`,
         );
         // Must never use legacy tab_* type names
         assert.ok(

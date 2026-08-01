@@ -1,6 +1,8 @@
 // Element mapping — pure-Rust mapping from platform-provided accessibility
-// properties to the platform-agnostic `ElementDescription` used in the v2.0.0
-// schema.
+// properties to the platform-agnostic `ElementDescription` used in the desktop
+// `.docent.json` schema contract (its layer chain is named in this module's
+// `mod.rs`; exported files carry the schema version in their `docent_format`
+// stamp).
 //
 // This module contains NO platform API calls and NO platform-specific
 // constants, so it compiles and is testable on any target. Each platform

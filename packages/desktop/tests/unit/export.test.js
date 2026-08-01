@@ -3,10 +3,11 @@
  *
  * For any valid project containing recordings with steps and actions,
  * exporting the project SHALL produce a JSON structure that validates
- * against the v2.0.0 Schema_Contract. The export SHALL include all
- * recordings, all resolved active steps (latest version per logical_id,
- * excluding deleted), and the project metadata (project_id, name,
- * created_at).
+ * against the desktop schema contract composed from its source layers — the
+ * version that contract carries is stamped into the export's `docent_format`,
+ * never restated here. The export SHALL include all recordings, each
+ * recording's full step history (superseded and soft-deleted versions
+ * included), and the project metadata (project_id, name, created_at).
  *
  * This tests the pure export-building logic, not the Tauri invoke calls.
  * We replicate the export logic from panel.js and validate the output
@@ -289,7 +290,7 @@ const arbProject = fc.record({
 // ─── Property tests ───────────────────────────────────────────────────────────
 
 describe('Export schema validation', () => {
-  it('exported JSON validates against the v2.0.0 schema contract', () => {
+  it('exported JSON validates against the composed desktop schema contract', () => {
     fc.assert(
       fc.property(arbProject, (project) => {
         const exportData = buildExportData(project);
