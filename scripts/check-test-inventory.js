@@ -198,6 +198,33 @@ export function backtickedName(cell) {
 }
 
 /**
+ * Report the elements of `a` missing from `b`, one problem line per name —
+ * the both-way set-diff wording model the surface checks share.
+ * @param {string[]} a names present here…
+ * @param {string[]} b …must each be present here
+ * @param {string} where description of the gap
+ * @returns {string[]} problem lines
+ */
+export function missingFrom(a, b, where) {
+  const bSet = new Set(b);
+  return [...new Set(a)].filter((x) => !bSet.has(x)).map((x) => `\`${x}\` ${where}`);
+}
+
+/**
+ * Report duplicate names within one extracted list — the one drift the
+ * deduplicating set diffs above cannot see.
+ * @param {string[]} names an extracted name list
+ * @param {string} what description of the surface
+ * @returns {string[]} problem lines
+ */
+export function duplicatesIn(names, what) {
+  const seen = new Set();
+  const dup = new Set();
+  for (const n of names) (seen.has(n) ? dup : seen).add(n);
+  return [...dup].map((n) => `\`${n}\` appears more than once in ${what}`);
+}
+
+/**
  * Blank out fenced code blocks (``` or ~~~, each closed by its own marker),
  * preserving newlines, so a marker, heading, table, or token inside an
  * illustrative fence is never read as live doc text. This is the same fence

@@ -57,7 +57,13 @@
 import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
-import { extractClauseSection, parseTables, readListEntries } from './check-test-inventory.js';
+import {
+  duplicatesIn,
+  extractClauseSection,
+  missingFrom,
+  parseTables,
+  readListEntries,
+} from './check-test-inventory.js';
 
 /** Repo-relative path of the doc whose DSH-1 table states the contract. */
 export const DOC_PATH = 'docs/architecture/application/desktop/windows/application-shell.md';
@@ -305,31 +311,6 @@ export function extractMockServicedCases(fixtureSource) {
 }
 
 /**
- * Report the elements of `a` missing from `b`, as one problem line per name.
- * @param {string[]} a names present here…
- * @param {string[]} b …must each be present here
- * @param {string} where description of the gap ("in X but not Y")
- * @returns {string[]} problem lines
- */
-function missingFrom(a, b, where) {
-  const bSet = new Set(b);
-  return [...new Set(a)].filter((x) => !bSet.has(x)).map((x) => `\`${x}\` ${where}`);
-}
-
-/**
- * Report duplicate names within one extracted list.
- * @param {string[]} names an extracted name list
- * @param {string} what description of the surface
- * @returns {string[]} problem lines
- */
-function duplicatesIn(names, what) {
-  const seen = new Set();
-  const dup = new Set();
-  for (const n of names) (seen.has(n) ? dup : seen).add(n);
-  return [...dup].map((n) => `\`${n}\` appears more than once in ${what}`);
-}
-
-/**
  * Pure core: evaluate the whole command-surface contract.
  * @param {object} s the extracted surfaces
  * @param {string[]} s.commandFns `#[tauri::command]` function names
@@ -348,6 +329,13 @@ function duplicatesIn(names, what) {
 export function evaluateCommandSurface(s) {
   const problems = [];
 
+  // Unreadable rows are reported ahead of the vacuous guards: the likeliest
+  // cause of an empty table parse is rows that stopped being readable, so
+  // the most useful line must survive the early return.
+  for (const cell of s.docUnreadableRows) {
+    problems.push(`the ${CLAUSE_ID} table carries a first cell the scan cannot read — ${cell} — rows are \`name\` or \`name\` (event), nothing else`); // prettier-ignore
+  }
+
   const surfaces = [
     [s.commandFns, `no #[tauri::command] functions found under ${SRC_DIR} — the scan is broken or the commands moved`], // prettier-ignore
     [s.handlerCommands, `no generate_handler! registrations found in ${LIB_PATH}`],
@@ -358,10 +346,14 @@ export function evaluateCommandSurface(s) {
     [s.mockCommands, `no CANONICAL_COMMANDS entries found in ${MOCK_PATH}`],
     [s.mockCases, `no serviced case labels found in the mock's invoke switch (${MOCK_PATH})`],
   ];
+  let vacuous = false;
   for (const [list, message] of surfaces) {
-    if (list.length === 0) problems.push(message);
+    if (list.length === 0) {
+      problems.push(message);
+      vacuous = true;
+    }
   }
-  if (problems.length) return problems; // empty parses make set diffs meaningless
+  if (vacuous) return problems; // empty parses make set diffs meaningless
 
   if (s.handlerOccurrences !== 1) {
     problems.push(
@@ -390,9 +382,6 @@ export function evaluateCommandSurface(s) {
     ...missingFrom(s.mockCases, s.commandFns, `is serviced by the mock's invoke switch but no #[tauri::command] function defines it`), // prettier-ignore
   );
 
-  for (const cell of s.docUnreadableRows) {
-    problems.push(`the ${CLAUSE_ID} table carries a first cell the scan cannot read — ${cell} — rows are \`name\` or \`name\` (event), nothing else`); // prettier-ignore
-  }
   const badEventRows = s.docEvents.filter((e) => e !== EVENT_CHANNEL);
   for (const e of badEventRows) {
     problems.push(`the ${CLAUSE_ID} table carries an event row \`${e}\` — the one backend event channel is \`${EVENT_CHANNEL}\``); // prettier-ignore

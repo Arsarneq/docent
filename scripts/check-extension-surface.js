@@ -21,15 +21,17 @@
  * arm, and a manifest entry that is not a string is refused — a broken read
  * fails loudly instead of passing vacuously.
  *
- * Honest limits: a dispatch route outside the tokenized shapes (a nested
- * dispatcher, a computed message type, a negated or reversed-operand type
- * test, an equality test on a receiver other than `message`/`msg`) is
- * invisible to the scan; the default arm is presence-checked only (the
- * envelope it answers is ERT-2's own verification); the panel table's
- * sender-side claim (the set the panel sends) is review-held, as is the
- * tables' rationale, payload, and response prose; and the manifest's
- * resource-exposure facts (CSP absence, empty `web_accessible_resources`)
- * stay judgment-held with their doc bullets.
+ * Honest limits: a dispatch route outside the tokenized shapes (a computed
+ * message type, a negated or reversed-operand type test, an equality test on
+ * a receiver other than `message`/`msg`) is invisible to the scan — a nested
+ * dispatcher, by contrast, is refused loudly; a regular-expression literal
+ * carrying a brace inside the dispatcher body corrupts the depth bound and
+ * reds with a misleading diagnosis (loud, never green); the default arm is
+ * presence-checked only (the envelope it answers is ERT-2's own
+ * verification); the panel table's sender-side claim (the set the panel
+ * sends) is review-held, as is the tables' rationale, payload, and response
+ * prose; and the manifest's resource-exposure facts (CSP absence, empty
+ * `web_accessible_resources`) stay judgment-held with their doc bullets.
  *
  * Usage:
  *   node scripts/check-extension-surface.js  # or: npm run lint:extension-surface
@@ -37,7 +39,13 @@
 
 import { readFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
-import { parseTables, tokenizeJs } from './check-test-inventory.js';
+import {
+  backtickedName,
+  duplicatesIn,
+  missingFrom,
+  parseTables,
+  tokenizeJs,
+} from './check-test-inventory.js';
 
 /** Repo-relative path of the extension manifest. */
 export const MANIFEST_PATH = 'packages/extension/manifest.json';
@@ -51,9 +59,12 @@ export const WORKER_PATH = 'packages/extension/background/service-worker.js';
 export const EPM_CLAUSE_ID = 'EPM-1';
 /** The message-surface clause the dispatcher legs verify. */
 export const ERT_CLAUSE_ID = 'ERT-4';
-
-/** A lone backticked token, and nothing else, in a trimmed cell or piece. */
-const LONE_BACKTICKED_RE = /^`([^`]+)`$/;
+/** The `##` section of the runtime doc carrying both protocol tables. */
+export const PROTOCOL_SECTION = 'Message protocol';
+/** The capture-path table's first header cell in that section. */
+export const CAPTURE_TABLE_HEADER = 'Type';
+/** The panel-protocol table's first header cell in that section. */
+export const PANEL_TABLE_HEADER = 'Group';
 
 /**
  * Read the manifest's permission surface. Entries that are not strings are
@@ -80,6 +91,11 @@ export function extractManifestSurface(manifestJson) {
     }
     return out;
   };
+  for (const field of ['optional_permissions', 'optional_host_permissions']) {
+    if (Array.isArray(parsed[field]) && parsed[field].length > 0) {
+      problems.push(`${MANIFEST_PATH} declares ${field}, which the permission tables do not model — extend the doc and this check together, or drop the key`); // prettier-ignore
+    }
+  }
   return {
     permissions: readArray('permissions'),
     hostPermissions: readArray('host_permissions'),
@@ -106,8 +122,8 @@ export function extractSectionTableNames(docText, section, headerCell) {
     if (table.section !== section || (table.header[0] ?? '').trim() !== headerCell) continue;
     for (const row of table.rows) {
       const cell = (row[0] ?? '').trim();
-      const m = cell.match(LONE_BACKTICKED_RE);
-      if (m) names.push(m[1]);
+      const name = backtickedName(cell);
+      if (name !== null) names.push(name);
       else unreadable.push(cell === '' ? '(empty first cell)' : cell);
     }
   }
@@ -116,39 +132,31 @@ export function extractSectionTableNames(docText, section, headerCell) {
 
 /**
  * Read the runtime doc's two protocol enumerations from the Message protocol
- * section: the capture-path table (header `Type | …`, first-column names) and
- * the panel-protocol table (header `Group | Types`, whose Types cells are
- * comma-separated backticked tokens). Any piece that is not a lone backticked
- * token is unreadable, never skipped.
+ * section: the capture-path table (first header cell `Type`, first-column
+ * names via the shared reader) and the panel-protocol table (first header
+ * cell `Group`, whose Types cells are comma-separated backticked tokens).
+ * Any piece that is not a lone backticked token is unreadable, never
+ * skipped.
  * @param {string} runtimeText the runtime doc's text
  * @returns {{ captureTypes: string[], panelTypes: string[], unreadable: string[] }}
  */
 export function extractProtocolTables(runtimeText) {
-  const captureTypes = [];
+  const capture = extractSectionTableNames(runtimeText, PROTOCOL_SECTION, CAPTURE_TABLE_HEADER);
   const panelTypes = [];
-  const unreadable = [];
+  const unreadable = [...capture.unreadable];
   for (const table of parseTables(runtimeText)) {
-    if (table.section !== 'Message protocol') continue;
-    const head = (table.header[0] ?? '').trim();
-    if (head === 'Type') {
-      for (const row of table.rows) {
-        const cell = (row[0] ?? '').trim();
-        const m = cell.match(LONE_BACKTICKED_RE);
-        if (m) captureTypes.push(m[1]);
-        else unreadable.push(cell === '' ? '(empty first cell)' : cell);
-      }
-    } else if (head === 'Group') {
-      for (const row of table.rows) {
-        for (const piece of (row[1] ?? '').split(',')) {
-          const token = piece.trim();
-          const m = token.match(LONE_BACKTICKED_RE);
-          if (m) panelTypes.push(m[1]);
-          else unreadable.push(token === '' ? '(empty Types piece)' : token);
-        }
+    if (table.section !== PROTOCOL_SECTION) continue;
+    if ((table.header[0] ?? '').trim() !== PANEL_TABLE_HEADER) continue;
+    for (const row of table.rows) {
+      for (const piece of (row[1] ?? '').split(',')) {
+        const token = piece.trim();
+        const name = backtickedName(token);
+        if (name !== null) panelTypes.push(name);
+        else unreadable.push(token === '' ? '(empty Types piece)' : token);
       }
     }
   }
-  return { captureTypes, panelTypes, unreadable };
+  return { captureTypes: capture.names, panelTypes, unreadable };
 }
 
 /**
@@ -157,9 +165,11 @@ export function extractProtocolTables(runtimeText) {
  * `switch ((msg|message).type)` (bounded by brace depth, so labels after the
  * `default:` arm still count and a sibling switch elsewhere is never
  * misread), and the `message.type === '…'` (or `msg.type`) equality literals
- * anywhere in the module. Anchor failures — no dispatcher switch, more than
- * one, a missing `default:` arm, a nested switch — are problems of this
- * extractor, so they fire even when other surfaces parse empty.
+ * ahead of that switch — the position ERT-4 states for the capture-path
+ * guards; an equality guard behind the switch head is refused, never
+ * silently counted. Anchor failures — no dispatcher switch, more than one, a
+ * missing `default:` arm, a nested switch — are problems of this extractor,
+ * so they fire even when other surfaces parse empty.
  * @param {string} workerSource service-worker.js source
  * @returns {{ caseLabels: string[], equalityTypes: string[], problems: string[] }}
  */
@@ -167,7 +177,7 @@ export function extractDispatcherSurface(workerSource) {
   const tokens = tokenizeJs(workerSource);
   const problems = [];
   const caseLabels = [];
-  const equalityTypes = [];
+  const equalityHits = [];
   const at = (i, type, value) => tokens[i] && tokens[i].type === type && tokens[i].value === value;
   const isReceiver = (i) =>
     tokens[i] && tokens[i].type === 'word' && (tokens[i].value === 'msg' || tokens[i].value === 'message'); // prettier-ignore
@@ -193,7 +203,16 @@ export function extractDispatcherSurface(workerSource) {
       at(i + 5, 'punct', '=') &&
       tokens[i + 6]?.type === 'string'
     ) {
-      equalityTypes.push(tokens[i + 6].value);
+      equalityHits.push({ index: i, type: tokens[i + 6].value });
+    }
+  }
+
+  const equalityTypes = [];
+  for (const hit of equalityHits) {
+    if (switchHeads.length === 1 && hit.index > switchHeads[0]) {
+      problems.push(`\`${hit.type}\` is guarded by a message-type equality test behind the dispatcher switch — ${ERT_CLAUSE_ID} states the capture-path guards run ahead of it`); // prettier-ignore
+    } else {
+      equalityTypes.push(hit.type);
     }
   }
 
@@ -235,31 +254,6 @@ export function extractDispatcherSurface(workerSource) {
 }
 
 /**
- * Report the elements of `a` missing from `b`, one problem line per name.
- * @param {string[]} a names present here…
- * @param {string[]} b …must each be present here
- * @param {string} where description of the gap
- * @returns {string[]} problem lines
- */
-function missingFrom(a, b, where) {
-  const bSet = new Set(b);
-  return [...new Set(a)].filter((x) => !bSet.has(x)).map((x) => `\`${x}\` ${where}`);
-}
-
-/**
- * Report duplicate names within one extracted list.
- * @param {string[]} names an extracted name list
- * @param {string} what description of the surface
- * @returns {string[]} problem lines
- */
-function duplicatesIn(names, what) {
-  const seen = new Set();
-  const dup = new Set();
-  for (const n of names) (seen.has(n) ? dup : seen).add(n);
-  return [...dup].map((n) => `\`${n}\` appears more than once in ${what}`);
-}
-
-/**
  * Pure core: evaluate both extension surface contracts.
  * @param {object} s the extracted surfaces
  * @param {string[]} s.manifestPermissions manifest `permissions` entries
@@ -279,6 +273,16 @@ function duplicatesIn(names, what) {
 export function evaluateExtensionSurface(s) {
   const problems = [];
 
+  // Unreadable cells are reported ahead of the vacuous guards: the likeliest
+  // cause of an empty table parse is rows that stopped being readable, so the
+  // most useful line must survive the early return.
+  for (const cell of s.permissionsUnreadable) {
+    problems.push(`${PERMISSIONS_DOC_PATH} carries a first cell the scan cannot read — ${cell} — rows are \`name\`, nothing else`); // prettier-ignore
+  }
+  for (const cell of s.protocolUnreadable) {
+    problems.push(`${RUNTIME_DOC_PATH} carries a protocol cell the scan cannot read — ${cell} — types are lone backticked names`); // prettier-ignore
+  }
+
   const surfaces = [
     [s.manifestPermissions, `no permissions found in ${MANIFEST_PATH}`],
     [s.manifestHostPermissions, `no host_permissions found in ${MANIFEST_PATH}`],
@@ -289,17 +293,14 @@ export function evaluateExtensionSurface(s) {
     [s.caseLabels, `no case labels found in the dispatcher switch (${WORKER_PATH})`],
     [s.equalityTypes, `no message-type equality literals found in ${WORKER_PATH}`],
   ];
+  let vacuous = false;
   for (const [list, message] of surfaces) {
-    if (list.length === 0) problems.push(message);
+    if (list.length === 0) {
+      problems.push(message);
+      vacuous = true;
+    }
   }
-  if (problems.length) return problems; // empty parses make set diffs meaningless
-
-  for (const cell of s.permissionsUnreadable) {
-    problems.push(`${PERMISSIONS_DOC_PATH} carries a first cell the scan cannot read — ${cell} — rows are \`name\`, nothing else`); // prettier-ignore
-  }
-  for (const cell of s.protocolUnreadable) {
-    problems.push(`${RUNTIME_DOC_PATH} carries a protocol cell the scan cannot read — ${cell} — types are lone backticked names`); // prettier-ignore
-  }
+  if (vacuous) return problems; // empty parses make set diffs meaningless
 
   for (const [list, what] of [
     [s.manifestPermissions, `the manifest's permissions`],

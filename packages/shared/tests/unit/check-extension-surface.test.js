@@ -195,6 +195,19 @@ describe('extractManifestSurface', () => {
     const read = extractManifestSurface('not json');
     assert.ok(read.problems.some((p) => p.includes('does not parse as JSON')));
   });
+
+  it('refuses optional-permission keys the tables do not model', () => {
+    const read = extractManifestSurface(
+      JSON.stringify({
+        permissions: ['storage'],
+        host_permissions: ['<all_urls>'],
+        optional_permissions: ['downloads'],
+        optional_host_permissions: ['https://x.test/*'],
+      }),
+    );
+    assert.ok(read.problems.some((p) => p.includes('optional_permissions')));
+    assert.ok(read.problems.some((p) => p.includes('optional_host_permissions')));
+  });
 });
 
 describe('extractSectionTableNames / extractProtocolTables', () => {
@@ -261,6 +274,24 @@ describe('extractSectionTableNames / extractProtocolTables', () => {
     assert.deepEqual(read.captureTypes, ['FRAME_READY']);
     assert.deepEqual(read.panelTypes, ['PROJECTS_LIST', 'PROJECT_CREATE', 'STEP_COMMIT']);
     assert.deepEqual(read.unreadable, ['STEP_RAW']);
+  });
+
+  it('refuses an unreadable capture-path first cell', () => {
+    const bad = runtime.replace(
+      '| `FRAME_READY` | a       | b        |',
+      '| FRAME_READY | a | b |',
+    );
+    const read = extractProtocolTables(bad);
+    assert.deepEqual(read.captureTypes, []);
+    assert.ok(read.unreadable.includes('FRAME_READY'));
+  });
+
+  it('unreadable-cell context survives the vacuous early return', () => {
+    const problems = evaluateExtensionSurface(
+      makeSurface({ docCaptureTypes: [], protocolUnreadable: ['FRAME_READY'] }),
+    );
+    assert.ok(problems.some((p) => p.includes('FRAME_READY') && p.includes('cannot read')));
+    assert.ok(problems.some((p) => p.includes('no capture-path types')));
   });
 });
 
@@ -331,6 +362,20 @@ describe('extractDispatcherSurface — comment-safe tokenizer reads', () => {
     const noDefault = worker.replace('    default:\n      return { ok: false };\n', '');
     const read = extractDispatcherSurface(noDefault);
     assert.ok(read.problems.some((p) => p.includes('no default: arm')));
+  });
+
+  it('refuses an equality guard behind the dispatcher switch — the stated mechanism holds', () => {
+    const behind = `${worker}\nif (message.type === 'LATE_GUARD') { return; }`;
+    const read = extractDispatcherSurface(behind);
+    assert.ok(!read.equalityTypes.includes('LATE_GUARD'));
+    assert.ok(
+      read.problems.some((p) => p.includes('LATE_GUARD') && p.includes('behind the dispatcher switch')), // prettier-ignore
+    );
+  });
+
+  it('reports an unreadable dispatcher head as an extractor problem', () => {
+    const read = extractDispatcherSurface('switch (msg.type) nope;');
+    assert.ok(read.problems.some((p) => p.includes('no readable body')));
   });
 });
 
