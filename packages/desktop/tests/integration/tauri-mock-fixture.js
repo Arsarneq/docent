@@ -5,8 +5,10 @@
  * Every spec in this directory drives the real desktop frontend against this
  * single mock, so the suite is one drift-visible consumer of the Tauri command
  * surface (`docs/architecture/application/desktop/windows/application-shell.md`
- * §DSH-1 defines that surface; the canonical table below services the commands
- * the shipped frontend invokes). The served page keeps the panel's shipped
+ * §DSH-1 defines that surface; the canonical table below services the crate's
+ * registered command surface, and the shipped frontend's command invokes
+ * draw from that set — its event listener rides the granted plugin surface
+ * instead). The served page keeps the panel's shipped
  * Content-Security-Policy, and the mock is injected past the policy element, so
  * the suite exercises the frontend — and the mock itself — under the policy the
  * application ships; `serveDistFile` carries the mechanics.
@@ -26,7 +28,7 @@
  *   // ... await page.goto(server.url());
  *
  * ── What the mock services ───────────────────────────────────────────────────
- * The canonical table answers the commands the frontend invokes, and every
+ * The canonical table answers every command the crate registers, and every
  * invoke — serviced or not — is recorded, so a spec can assert on the panel's
  * command traffic through `_getInvokeCalls()` / `_clearInvokeCalls()`.
  * Spec-controlled behaviour rides named hooks on `window.__TAURI__`:
@@ -121,8 +123,14 @@ const CONTENT_TYPES = {
 };
 
 /**
- * The commands the shipped desktop frontend invokes — the surface this mock
- * services, and the only names an override may name.
+ * The desktop crate's registered command surface — every command this mock
+ * services, and the only names an override may name. The command-surface
+ * admission test (scripts/check-command-surface.js, npm run
+ * lint:command-surface) holds this list AND the canonical switch's case
+ * labels in the script below equal to the crate's #[tauri::command] surface
+ * in both directions, so the mock can neither lag a command the crate gains
+ * nor keep servicing one it loses; the shipped frontend invokes commands
+ * from this set.
  */
 const CANONICAL_COMMANDS = [
   'load_state',
@@ -401,8 +409,10 @@ export function installTauriMockServer(options = {}) {
     expect(
       probe.unknown,
       `the panel invoked ${named} — the shared Tauri mock services no such command. ` +
-        `Add it to the canonical table in tauri-mock-fixture.js (an override cannot ` +
-        `introduce a command the table does not already service).`,
+        `The command-surface admission test holds this mock's serviced set equal to the ` +
+        `crate's registered commands, so either stop invoking it or add the command to ` +
+        `the crate (the admission test then requires the canonical entries here); an ` +
+        `override cannot introduce a command the table does not already service.`,
     ).toEqual([]);
   });
 

@@ -4,7 +4,7 @@
 // frontend via `invoke("command_name", { args })`.
 //
 // Requirements:
-// - Tauri commands for start/stop capture, list windows, check permissions
+// - Tauri commands for start/stop capture, list windows
 // - Filesystem persistence (load/save state)
 // - Native save dialog for export
 // - Native open dialog for import
@@ -19,7 +19,7 @@ use std::sync::Mutex;
 
 use tauri::State;
 
-use crate::capture::{BarrierReport, CaptureError, CaptureLayer, PermissionStatus, WindowInfo};
+use crate::capture::{BarrierReport, CaptureError, CaptureLayer, WindowInfo};
 use crate::secret_store::{self, SecretStore};
 
 // ---------------------------------------------------------------------------
@@ -116,12 +116,6 @@ fn list_windows_impl(capture: &CaptureMutex) -> Result<Vec<WindowInfo>, String> 
         .map_err(|e: CaptureError| e.to_string())
 }
 
-/// Core logic for `check_permissions` — testable without a Tauri runtime.
-fn check_permissions_impl(capture: &CaptureMutex) -> Result<PermissionStatus, String> {
-    let capture = lock_capture(capture)?;
-    Ok(capture.check_permissions())
-}
-
 /// Start the capture layer. An optional `pid` arms self-capture exclusion for
 /// that process before starting — the shipped panel always passes `null` and
 /// arms exclusion through `set_self_capture_exclusion`. PID-based targeting is
@@ -136,10 +130,10 @@ pub fn start_capture(state: State<'_, AppState>, pid: Option<u32>) -> Result<(),
 
 /// Stop the capture layer, running the commit flush barrier as it stops.
 ///
-/// Returns the barrier report `{ barrier_id, wedged_workers }`; the frontend
-/// waits for the matching `barrier_complete` sentinel on the `capture:action`
-/// stream so a committed step captures every drained action. `barrier_id` is `0`
-/// when no capture was active.
+/// Returns the barrier report `{ barrier_id, wedged_workers, completion }`;
+/// the frontend waits for the matching `barrier_complete` sentinel on the
+/// `capture:action` stream so a committed step captures every drained action.
+/// `barrier_id` is `0` when no capture was active.
 #[tauri::command]
 pub fn stop_capture(state: State<'_, AppState>) -> Result<BarrierReport, String> {
     stop_capture_impl(&state.capture)
@@ -149,12 +143,6 @@ pub fn stop_capture(state: State<'_, AppState>) -> Result<BarrierReport, String>
 #[tauri::command]
 pub fn list_windows(state: State<'_, AppState>) -> Result<Vec<WindowInfo>, String> {
     list_windows_impl(&state.capture)
-}
-
-/// Check if required platform permissions are granted.
-#[tauri::command]
-pub fn check_permissions(state: State<'_, AppState>) -> Result<PermissionStatus, String> {
-    check_permissions_impl(&state.capture)
 }
 
 // ---------------------------------------------------------------------------
@@ -272,13 +260,6 @@ pub fn save_state(data: String) -> Result<(), String> {
 // Self-capture exclusion commands
 // ---------------------------------------------------------------------------
 
-/// Return the current process ID so the frontend can display it or use it
-/// for self-capture exclusion logic.
-#[tauri::command]
-pub fn get_self_pid() -> u32 {
-    std::process::id()
-}
-
 /// Core logic for `commit_barrier` — testable without a Tauri runtime.
 fn commit_barrier_impl(capture: &CaptureMutex) -> Result<BarrierReport, String> {
     let capture = lock_capture(capture)?;
@@ -291,7 +272,8 @@ fn commit_barrier_impl(capture: &CaptureMutex) -> Result<BarrierReport, String> 
 ///
 /// Drains every capture worker's completed-but-held actions into the
 /// `capture:action` stream, emits a `BarrierComplete` sentinel the frontend
-/// waits on to confirm delivery, and returns `{ barrier_id, wedged_workers }`.
+/// waits on to confirm delivery, and returns
+/// `{ barrier_id, wedged_workers, completion }`.
 /// Bounded — a worker wedged in an unresponsive accessibility call cannot stall
 /// the commit; its buffered actions are rescued in place instead.
 #[tauri::command]
@@ -472,7 +454,6 @@ mod tests {
     struct MockCapture {
         rec: Arc<Mutex<Recorded>>,
         windows: Vec<WindowInfo>,
-        permissions_granted: bool,
         fail_start: bool,
         fail_stop: bool,
         fail_list: bool,
@@ -485,7 +466,6 @@ mod tests {
             let mock = MockCapture {
                 rec: Arc::clone(&rec),
                 windows: Vec::new(),
-                permissions_granted: false,
                 fail_start: false,
                 fail_stop: false,
                 fail_list: false,
@@ -528,7 +508,7 @@ mod tests {
 
         fn check_permissions(&self) -> PermissionStatus {
             PermissionStatus {
-                granted: self.permissions_granted,
+                granted: false,
                 message: None,
             }
         }
@@ -731,29 +711,6 @@ mod tests {
 
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("mock list failure"));
-    }
-
-    // ── check_permissions_impl ──────────────────────────────────────────────
-
-    #[test]
-    fn check_permissions_reports_granted() {
-        let (mut mock, _rec) = MockCapture::new();
-        mock.permissions_granted = true;
-        let cap = mutex(mock);
-
-        let status = check_permissions_impl(&cap).unwrap();
-
-        assert!(status.granted);
-    }
-
-    #[test]
-    fn check_permissions_reports_not_granted() {
-        let (mock, _rec) = MockCapture::new();
-        let cap = mutex(mock);
-
-        let status = check_permissions_impl(&cap).unwrap();
-
-        assert!(!status.granted);
     }
 
     // ── commit_barrier_impl ─────────────────────────────────────────────────

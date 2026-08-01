@@ -198,6 +198,15 @@ jobs:
       - name: Validate CI path-filter contract
         run: npm run lint:ci-filter
 
+      # The desktop crate's command surface is a committed contract
+      # (application-shell.md §DSH-1): the #[tauri::command] set, the
+      # generate_handler! registration, the doc's table, the single
+      # capture:action emit site, the capability grants, and the integration
+      # mock's serviced-command list must all state the same surface. This
+      # admission test recomputes every leg and reds on any drift.
+      - name: Validate desktop command-surface contract
+        run: npm run lint:command-surface
+
       # An ignore rule has no effect on an already-tracked file, so the tracked
       # set and the .gitignore rules can disagree silently. This asserts they
       # never do — every tracked file is one those rules admit.
