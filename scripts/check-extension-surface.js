@@ -22,11 +22,14 @@
  * fails loudly instead of passing vacuously.
  *
  * Honest limits: a dispatch route outside the tokenized shapes (a nested
- * dispatcher, a computed message type, an equality test on a receiver other
- * than `message`/`msg`) is invisible to the scan; the tables' rationale,
- * payload, and response prose is review-held, never parsed; and the
- * manifest's resource-exposure facts (CSP absence, empty
- * `web_accessible_resources`) stay judgment-held with their doc bullets.
+ * dispatcher, a computed message type, a negated or reversed-operand type
+ * test, an equality test on a receiver other than `message`/`msg`) is
+ * invisible to the scan; the default arm is presence-checked only (the
+ * envelope it answers is ERT-2's own verification); the panel table's
+ * sender-side claim (the set the panel sends) is review-held, as is the
+ * tables' rationale, payload, and response prose; and the manifest's
+ * resource-exposure facts (CSP absence, empty `web_accessible_resources`)
+ * stay judgment-held with their doc bullets.
  *
  * Usage:
  *   node scripts/check-extension-surface.js  # or: npm run lint:extension-surface
@@ -34,7 +37,7 @@
 
 import { readFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
-import { parseTables, stripFences, tokenizeJs } from './check-test-inventory.js';
+import { parseTables, tokenizeJs } from './check-test-inventory.js';
 
 /** Repo-relative path of the extension manifest. */
 export const MANIFEST_PATH = 'packages/extension/manifest.json';
@@ -85,18 +88,22 @@ export function extractManifestSurface(manifestJson) {
 }
 
 /**
- * Read the first-column backticked names of every table in the named `##`
- * sections of a doc, fence-aware; a body row whose first cell is not a lone
+ * Read the first-column backticked names of every matching table in a named
+ * `##` section of a doc (fence-aware through the shared table parser). A
+ * table is selected by its section AND its first header cell — the house
+ * pattern — so a future sibling table under the same heading is never
+ * conscripted into the closed set. A body row whose first cell is not a lone
  * backticked name is returned as unreadable, so no row is skipped silently.
  * @param {string} docText the doc's text
- * @param {string} section the `##` section title the tables live under
+ * @param {string} section the `##` section title the table lives under
+ * @param {string} headerCell the table's first header cell
  * @returns {{ names: string[], unreadable: string[] }}
  */
-export function extractSectionTableNames(docText, section) {
+export function extractSectionTableNames(docText, section, headerCell) {
   const names = [];
   const unreadable = [];
-  for (const table of parseTables(stripFences(docText))) {
-    if (table.section !== section) continue;
+  for (const table of parseTables(docText)) {
+    if (table.section !== section || (table.header[0] ?? '').trim() !== headerCell) continue;
     for (const row of table.rows) {
       const cell = (row[0] ?? '').trim();
       const m = cell.match(LONE_BACKTICKED_RE);
@@ -120,7 +127,7 @@ export function extractProtocolTables(runtimeText) {
   const captureTypes = [];
   const panelTypes = [];
   const unreadable = [];
-  for (const table of parseTables(stripFences(runtimeText))) {
+  for (const table of parseTables(runtimeText)) {
     if (table.section !== 'Message protocol') continue;
     const head = (table.header[0] ?? '').trim();
     if (head === 'Type') {
@@ -146,11 +153,15 @@ export function extractProtocolTables(runtimeText) {
 
 /**
  * Read the worker dispatcher's serviced surface through the shared
- * comment-safe tokenizer: the case labels of the one `switch ((msg|message).type)`
- * up to its `default:` arm, and the `message.type === '…'` (or `msg.type`)
- * equality literals anywhere in the module.
+ * comment-safe tokenizer: the case labels anywhere in the body of the one
+ * `switch ((msg|message).type)` (bounded by brace depth, so labels after the
+ * `default:` arm still count and a sibling switch elsewhere is never
+ * misread), and the `message.type === '…'` (or `msg.type`) equality literals
+ * anywhere in the module. Anchor failures — no dispatcher switch, more than
+ * one, a missing `default:` arm, a nested switch — are problems of this
+ * extractor, so they fire even when other surfaces parse empty.
  * @param {string} workerSource service-worker.js source
- * @returns {{ caseLabels: string[], equalityTypes: string[], switchCount: number, hasDefault: boolean, problems: string[] }}
+ * @returns {{ caseLabels: string[], equalityTypes: string[], problems: string[] }}
  */
 export function extractDispatcherSurface(workerSource) {
   const tokens = tokenizeJs(workerSource);
@@ -186,22 +197,41 @@ export function extractDispatcherSurface(workerSource) {
     }
   }
 
+  if (switchHeads.length !== 1) {
+    problems.push(`${WORKER_PATH} carries ${switchHeads.length} dispatcher switches over the message type — the scan models exactly one`); // prettier-ignore
+    return { caseLabels, equalityTypes, problems };
+  }
+
   let hasDefault = false;
-  if (switchHeads.length === 1) {
-    for (let i = switchHeads[0] + 6; i < tokens.length; i++) {
-      if (at(i, 'word', 'case') && tokens[i + 1]?.type === 'string' && at(i + 2, 'punct', ':')) {
-        caseLabels.push(tokens[i + 1].value);
-        i += 2;
-      } else if (at(i, 'word', 'default') && at(i + 1, 'punct', ':')) {
-        hasDefault = true;
-        break;
-      } else if (at(i, 'word', 'switch')) {
-        problems.push(`${WORKER_PATH} nests a switch inside the dispatcher's — the case-label scan models exactly one level`); // prettier-ignore
-        break;
-      }
+  let i = switchHeads[0] + 6;
+  if (!at(i, 'punct', '{')) {
+    problems.push(`${WORKER_PATH}'s dispatcher switch has no readable body — the case-label scan cannot run`); // prettier-ignore
+    return { caseLabels, equalityTypes, problems };
+  }
+  let depth = 1;
+  for (i += 1; i < tokens.length && depth > 0; i++) {
+    const t = tokens[i];
+    if (t.type === 'punct' && t.value === '{') depth++;
+    else if (t.type === 'punct' && t.value === '}') depth--;
+    else if (at(i, 'word', 'switch')) {
+      problems.push(`${WORKER_PATH} nests a switch inside the dispatcher's — the case-label scan models exactly one level`); // prettier-ignore
+      return { caseLabels, equalityTypes, problems };
+    } else if (
+      depth === 1 &&
+      at(i, 'word', 'case') &&
+      tokens[i + 1]?.type === 'string' &&
+      at(i + 2, 'punct', ':')
+    ) {
+      caseLabels.push(tokens[i + 1].value);
+      i += 2;
+    } else if (depth === 1 && at(i, 'word', 'default') && at(i + 1, 'punct', ':')) {
+      hasDefault = true;
     }
   }
-  return { caseLabels, equalityTypes, switchCount: switchHeads.length, hasDefault, problems };
+  if (!hasDefault) {
+    problems.push(`the dispatcher switch has no default: arm — ${ERT_CLAUSE_ID} promises the error envelope for a type outside the enumerations`); // prettier-ignore
+  }
+  return { caseLabels, equalityTypes, problems };
 }
 
 /**
@@ -242,9 +272,9 @@ function duplicatesIn(names, what) {
  * @param {string[]} s.protocolUnreadable unreadable protocol cells/pieces
  * @param {string[]} s.caseLabels the dispatcher switch's case labels
  * @param {string[]} s.equalityTypes the listener's equality-literal types
- * @param {number} s.switchCount how many dispatcher switches were found
- * @param {boolean} s.hasDefault whether the dispatcher switch has a default arm
- * @returns {string[]} problems; empty when both contracts hold
+ * @returns {string[]} problems; empty when both contracts hold (the
+ *   dispatcher anchor guards — switch count, the default arm, nesting — are
+ *   the extractor's own problems and are reported beside these)
  */
 export function evaluateExtensionSurface(s) {
   const problems = [];
@@ -269,12 +299,6 @@ export function evaluateExtensionSurface(s) {
   }
   for (const cell of s.protocolUnreadable) {
     problems.push(`${RUNTIME_DOC_PATH} carries a protocol cell the scan cannot read — ${cell} — types are lone backticked names`); // prettier-ignore
-  }
-  if (s.switchCount !== 1) {
-    problems.push(`${WORKER_PATH} carries ${s.switchCount} dispatcher switches over the message type — the scan models exactly one`); // prettier-ignore
-  }
-  if (s.switchCount === 1 && !s.hasDefault) {
-    problems.push(`the dispatcher switch has no default: arm — ${ERT_CLAUSE_ID} promises the error envelope for a type outside the enumerations`); // prettier-ignore
   }
 
   for (const [list, what] of [
@@ -316,11 +340,11 @@ export function evaluateExtensionSurface(s) {
  */
 export function auditTree(readFile) {
   const manifest = extractManifestSurface(readFile(MANIFEST_PATH));
-  const permDoc = readFile(PERMISSIONS_DOC_PATH).replace(/\r\n/g, '\n');
-  const permissions = extractSectionTableNames(permDoc, 'Permissions');
-  const hostPermissions = extractSectionTableNames(permDoc, 'Host permissions');
-  const protocol = extractProtocolTables(readFile(RUNTIME_DOC_PATH).replace(/\r\n/g, '\n'));
-  const dispatcher = extractDispatcherSurface(readFile(WORKER_PATH).replace(/\r\n/g, '\n'));
+  const permDoc = readFile(PERMISSIONS_DOC_PATH);
+  const permissions = extractSectionTableNames(permDoc, 'Permissions', 'Permission');
+  const hostPermissions = extractSectionTableNames(permDoc, 'Host permissions', 'Host permission');
+  const protocol = extractProtocolTables(readFile(RUNTIME_DOC_PATH));
+  const dispatcher = extractDispatcherSurface(readFile(WORKER_PATH));
 
   const s = {
     manifestPermissions: manifest.permissions,
@@ -333,8 +357,6 @@ export function auditTree(readFile) {
     protocolUnreadable: protocol.unreadable,
     caseLabels: dispatcher.caseLabels,
     equalityTypes: dispatcher.equalityTypes,
-    switchCount: dispatcher.switchCount,
-    hasDefault: dispatcher.hasDefault,
   };
   return {
     problems: [...manifest.problems, ...dispatcher.problems, ...evaluateExtensionSurface(s)],

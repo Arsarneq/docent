@@ -156,25 +156,18 @@ const isDelimiterRow = (line) => {
  * Parse the tables out of a Markdown document, each tagged with the `##`
  * section it sits in (deeper headings stay inside their section; a `#` heading
  * starts document-level text again). A table is a header row followed by a
- * delimiter row and the body rows after it; fenced code blocks are skipped, so
- * a table-shaped example inside a fence is never read as one.
+ * delimiter row and the body rows after it; fenced content is blanked first
+ * (via {@link stripFences} — the one fence model), so a table-shaped example
+ * inside a fence is never read as one.
  * @param {string} markdown
  * @returns {{ section: string | null, header: string[], rows: string[][] }[]}
  */
 export function parseTables(markdown) {
-  const lines = markdown.split(/\r?\n/);
+  const lines = stripFences(markdown).split('\n');
   const tables = [];
-  let fence = null;
   let section = null;
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
-    const fenceMatch = FENCE_RE.exec(line);
-    if (fenceMatch) {
-      if (fence === null) fence = fenceMatch[1];
-      else if (line.trim().startsWith(fence)) fence = null;
-      continue;
-    }
-    if (fence !== null) continue;
     const headingMatch = HEADING_RE.exec(line);
     if (headingMatch) {
       const level = headingMatch[1].length;
@@ -214,7 +207,7 @@ export function backtickedName(cell) {
  * @returns {string} the text with fence lines and fenced content blanked
  */
 export function stripFences(markdown) {
-  const lines = markdown.split('\n');
+  const lines = markdown.split(/\r?\n/);
   let fence = null;
   return lines
     .map((line) => {

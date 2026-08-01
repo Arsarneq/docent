@@ -42,8 +42,6 @@ function makeSurface(overrides = {}) {
     protocolUnreadable: [],
     caseLabels: ['PROJECTS_LIST', 'STEP_COMMIT'],
     equalityTypes: ['FRAME_READY'],
-    switchCount: 1,
-    hasDefault: true,
     ...overrides,
   };
 }
@@ -137,11 +135,19 @@ describe('evaluateExtensionSurface — message legs (both ways)', () => {
     assert.ok(problems.some((p) => p.includes('STEP_COMMIT') && p.includes('disjoint')));
   });
 
-  it('fires when the dispatcher switch count is not one, or the default arm is missing', () => {
-    const two = evaluateExtensionSurface(makeSurface({ switchCount: 2 }));
-    assert.ok(two.some((p) => p.includes('2 dispatcher switches')));
-    const noDefault = evaluateExtensionSurface(makeSurface({ hasDefault: false }));
-    assert.ok(noDefault.some((p) => p.includes('no default: arm')));
+  it('fires on a duplicated name in any surface — the one leg the set diffs cannot see', () => {
+    const docDup = evaluateExtensionSurface(
+      makeSurface({ docPermissions: ['storage', 'tabs', 'storage'] }),
+    );
+    assert.ok(docDup.some((p) => p.includes('storage') && p.includes('more than once')));
+    const panelDup = evaluateExtensionSurface(
+      makeSurface({ docPanelTypes: ['PROJECTS_LIST', 'STEP_COMMIT', 'STEP_COMMIT'] }),
+    );
+    assert.ok(panelDup.some((p) => p.includes('STEP_COMMIT') && p.includes('more than once')));
+    const caseDup = evaluateExtensionSurface(
+      makeSurface({ caseLabels: ['PROJECTS_LIST', 'STEP_COMMIT', 'PROJECTS_LIST'] }),
+    );
+    assert.ok(caseDup.some((p) => p.includes('PROJECTS_LIST') && p.includes('more than once')));
   });
 
   it('fires on an unreadable protocol cell', () => {
@@ -213,13 +219,24 @@ describe('extractSectionTableNames / extractProtocolTables', () => {
     '```',
   ].join('\n');
 
-  it('reads names per section, fence-aware, refusing unreadable cells', () => {
-    const perms = extractSectionTableNames(doc, 'Permissions');
+  it('reads names per section and header cell, fence-aware, refusing unreadable cells', () => {
+    const perms = extractSectionTableNames(doc, 'Permissions', 'Permission');
     assert.deepEqual(perms.names, ['storage']);
     assert.deepEqual(perms.unreadable, ['un-backticked']);
-    const hosts = extractSectionTableNames(doc, 'Host permissions');
+    const hosts = extractSectionTableNames(doc, 'Host permissions', 'Host permission');
     assert.deepEqual(hosts.names, ['<all_urls>']);
     assert.deepEqual(hosts.unreadable, []);
+  });
+
+  it('a sibling table under the same heading with a different header is never conscripted', () => {
+    const withSibling = doc.replace(
+      '## Host permissions',
+      ['| Optional permission | Why |', '| ------------------- | --- |', '| `downloads`         | e   |', '', '## Host permissions'].join('\n'), // prettier-ignore
+    );
+    const perms = extractSectionTableNames(withSibling, 'Permissions', 'Permission');
+    assert.deepEqual(perms.names, ['storage']);
+    assert.ok(!perms.names.includes('downloads'));
+    assert.ok(!perms.unreadable.length || !perms.unreadable.includes('`downloads`'));
   });
 
   const runtime = [
@@ -266,12 +283,29 @@ describe('extractDispatcherSurface — comment-safe tokenizer reads', () => {
     '}',
   ].join('\n');
 
-  it('reads case labels up to default and equality literals, skipping comments', () => {
+  it('reads case labels and equality literals, skipping comments', () => {
     const read = extractDispatcherSurface(worker);
     assert.deepEqual(read.caseLabels, ['PROJECTS_LIST', 'STEP_COMMIT']);
     assert.deepEqual(read.equalityTypes, ['FRAME_READY']);
-    assert.equal(read.switchCount, 1);
-    assert.equal(read.hasDefault, true);
+    assert.deepEqual(read.problems, []);
+  });
+
+  it('collects a case that sits after the default arm — order cannot hide a label', () => {
+    const reordered = worker
+      .replace("    case 'STEP_COMMIT': {\n      return commit();\n    }\n", '')
+      .replace(
+        '    default:\n      return { ok: false };',
+        "    default:\n      return { ok: false };\n    case 'STEP_COMMIT': {\n      return commit();\n    }",
+      );
+    const read = extractDispatcherSurface(reordered);
+    assert.deepEqual(read.caseLabels.sort(), ['PROJECTS_LIST', 'STEP_COMMIT']);
+    assert.deepEqual(read.problems, []);
+  });
+
+  it('a sibling switch after the dispatcher is not misread as nesting', () => {
+    const sibling = `${worker}\nswitch (mode) { default: break; }`;
+    const read = extractDispatcherSurface(sibling);
+    assert.deepEqual(read.caseLabels, ['PROJECTS_LIST', 'STEP_COMMIT']);
     assert.deepEqual(read.problems, []);
   });
 
@@ -281,11 +315,22 @@ describe('extractDispatcherSurface — comment-safe tokenizer reads', () => {
     assert.ok(read.problems.some((p) => p.includes('nests a switch')));
   });
 
-  it('counts zero switches and no default on a source without the dispatcher', () => {
+  it('reports a missing dispatcher as an extractor problem — reachable on the real path', () => {
     const read = extractDispatcherSurface('const x = 1;');
-    assert.equal(read.switchCount, 0);
-    assert.equal(read.hasDefault, false);
+    assert.ok(read.problems.some((p) => p.includes('0 dispatcher switches')));
     assert.deepEqual(read.caseLabels, []);
+  });
+
+  it('reports a second dispatcher switch as an extractor problem — reachable on the real path', () => {
+    const two = `${worker}\nfunction other(message) { switch (message.type) { default: break; } }`;
+    const read = extractDispatcherSurface(two);
+    assert.ok(read.problems.some((p) => p.includes('2 dispatcher switches')));
+  });
+
+  it('reports a missing default arm as an extractor problem', () => {
+    const noDefault = worker.replace('    default:\n      return { ok: false };\n', '');
+    const read = extractDispatcherSurface(noDefault);
+    assert.ok(read.problems.some((p) => p.includes('no default: arm')));
   });
 });
 
