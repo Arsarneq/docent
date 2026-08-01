@@ -362,7 +362,7 @@ function duplicatesIn(names, what) {
  * @param {number} s.handlerOccurrences how many generate_handler! lists exist
  * @param {string[]} s.docCommands the doc table's command rows
  * @param {string[]} s.docEvents the doc table's event rows
- * @param {string[]} s.docUnreadableRows backticked first cells in no readable shape
+ * @param {string[]} s.docUnreadableRows table body-row first cells, of any shape, the row reader could not read
  * @param {{ path: string, method: string, channel: string | null, line: number }[]} s.emitSites
  * @param {string[]} s.fileGrants permissions across the tracked capability files
  * @param {string[]} s.docGrants grant identifiers the doc section names
@@ -416,7 +416,7 @@ export function evaluateCommandSurface(s) {
   );
 
   for (const cell of s.docUnreadableRows) {
-    problems.push(`the ${CLAUSE_ID} table carries a first cell the scan cannot read (${cell}) — rows are \`name\` or \`name\` (event), nothing else`); // prettier-ignore
+    problems.push(`the ${CLAUSE_ID} table carries a first cell the scan cannot read — ${cell} — rows are \`name\` or \`name\` (event), nothing else`); // prettier-ignore
   }
   const badEventRows = s.docEvents.filter((e) => e !== EVENT_CHANNEL);
   for (const e of badEventRows) {

@@ -406,19 +406,25 @@ describe('extractDsh1Section / extractDocRows / extractDocGrants', () => {
     });
   });
 
-  it('an annotated or un-backticked first cell is unreadable, never silently skipped', () => {
+  it('an annotated, un-backticked, or empty first cell is unreadable, never silently skipped', () => {
     const table = [
       '| Name | D |',
       '| ---- | - |',
       '| `start_capture` | a |',
       '| `capture:status` (event, internal) | a |',
       '| check_permissions | a |',
+      '|  | a |',
     ].join('\n');
     const rows = extractDocRows(table);
     assert.deepEqual(rows.commands, ['start_capture']);
-    assert.deepEqual(rows.unreadable, ['`capture:status` (event, internal)', 'check_permissions']);
+    assert.deepEqual(rows.unreadable, [
+      '`capture:status` (event, internal)',
+      'check_permissions',
+      '(empty first cell)',
+    ]);
     const problems = evaluateCommandSurface(makeSurface({ docUnreadableRows: rows.unreadable }));
     assert.ok(problems.some((p) => p.includes('cannot read') && p.includes('capture:status')));
+    assert.ok(problems.some((p) => p.includes('(empty first cell)')));
   });
 
   it('a tilde fence hides its content like a backtick fence', () => {
@@ -636,7 +642,10 @@ describe('real-tree lock', () => {
     // format-refusal branch stays locked against the real tree.
     const capabilityFiles = lsFiles(CAPABILITIES_DIR);
     assert.ok(rustFiles.includes(LIB_PATH), 'the crate entry point must be among the sources');
-    assert.ok(capabilityFiles.length >= 1, 'at least one capability file must be tracked');
+    assert.ok(
+      capabilityFiles.length >= 1,
+      'at least one file must be tracked under the capability directory',
+    );
     const { problems, commandCount } = auditTree(
       (f) => readFileSync(resolve(ROOT, f), 'utf8'),
       rustFiles,

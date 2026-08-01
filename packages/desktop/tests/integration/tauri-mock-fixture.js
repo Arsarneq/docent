@@ -6,8 +6,9 @@
  * single mock, so the suite is one drift-visible consumer of the Tauri command
  * surface (`docs/architecture/application/desktop/windows/application-shell.md`
  * §DSH-1 defines that surface; the canonical table below services the crate's
- * registered command surface, the set the shipped frontend invokes from).
- * The served page keeps the panel's shipped
+ * registered command surface, and the shipped frontend's command invokes
+ * draw from that set — its event listener rides the granted plugin surface
+ * instead). The served page keeps the panel's shipped
  * Content-Security-Policy, and the mock is injected past the policy element, so
  * the suite exercises the frontend — and the mock itself — under the policy the
  * application ships; `serveDistFile` carries the mechanics.
