@@ -40,8 +40,10 @@
  * Honest limits: an emit issued through a wrapping helper or through
  * non-method call syntax (`Emitter::emit(app, …)`) is invisible to the scan;
  * a `#[tauri::command]` declared inside a test-only module would count as
- * shipped surface; and the table's Direction / What-it-does / Who-calls-it
- * prose is review-held, never parsed.
+ * shipped surface; the clause's section cannot name a grant-shaped
+ * identifier the capability files do not hold (an illustrative mention
+ * outside a fence reds the gate); and the table's Direction / What-it-does /
+ * Who-calls-it prose is review-held, never parsed.
  *
  * Usage:
  *   node scripts/check-command-surface.js   # or: npm run lint:command-surface
@@ -189,14 +191,16 @@ export function extractHandlerCommands(strippedLib) {
  */
 export function stripMarkdownFences(text) {
   const lines = text.split('\n');
-  let inFence = false;
+  let fence = null;
   return lines
     .map((line) => {
-      if (/^\s*```/.test(line)) {
-        inFence = !inFence;
+      const open = /^\s*(```|~~~)/.exec(line);
+      if (open) {
+        if (fence === null) fence = open[1];
+        else if (line.trim().startsWith(fence)) fence = null;
         return '';
       }
-      return inFence ? '' : line;
+      return fence !== null ? '' : line;
     })
     .join('\n');
 }
@@ -221,21 +225,29 @@ export function extractDsh1Section(docText) {
 /**
  * Parse the clause table's first column into command rows and event rows,
  * through the shared fence-aware table parser. Header and separator rows
- * carry no backticked first cell and are skipped.
+ * carry no backticked first cell and are skipped; a backticked first cell in
+ * any other shape is returned as unreadable, so an annotated row can never
+ * slip past the event leg silently.
  * @param {string} section the clause's text
- * @returns {{ commands: string[], events: string[] }} names in table order
+ * @returns {{ commands: string[], events: string[], unreadable: string[] }}
  */
 export function extractDocRows(section) {
   const commands = [];
   const events = [];
+  const unreadable = [];
   for (const table of parseTables(section)) {
     for (const row of table.rows) {
-      const m = (row[0] ?? '').match(/^`([^`]+)`\s*(\(event\))?$/);
-      if (!m) continue;
+      const cell = (row[0] ?? '').trim();
+      if (!cell.startsWith('`')) continue;
+      const m = cell.match(/^`([^`]+)`\s*(\(event\))?$/);
+      if (!m) {
+        unreadable.push(cell);
+        continue;
+      }
       (m[2] ? events : commands).push(m[1]);
     }
   }
-  return { commands, events };
+  return { commands, events, unreadable };
 }
 
 /**
@@ -252,11 +264,13 @@ export function extractDocGrants(section) {
 }
 
 /**
- * Find emit-family call sites (`.emit(…)`, `.emit_to(…)`, `.emit_filter(…)`)
+ * Find emit-family call sites — every Emitter emit method (`emit`,
+ * `emit_str`, `emit_to`, `emit_str_to`, `emit_filter`, `emit_str_filter`) —
  * in comment-stripped crate sources. The channel is the first string-literal
- * argument (`emit`/`emit_filter`) or the second (`emit_to`, whose first
- * argument is the target); a call whose channel cannot be read as a string
- * literal is recorded with `channel: null` and fails the evaluation loudly.
+ * argument, except for `emit_to`/`emit_str_to` where it is the second (their
+ * first argument is the target, which must also be a literal for the channel
+ * to be readable); a call whose channel cannot be read is recorded with
+ * `channel: null` and fails the evaluation loudly.
  * @param {Map<string, string>} strippedByPath path → comment-stripped source
  * @returns {{ path: string, method: string, channel: string | null, line: number }[]}
  */
@@ -293,12 +307,20 @@ export function extractMockCommands(fixtureSource) {
 
 /**
  * Extract the command names the injected mock script's invoke switch actually
- * services — its `case 'name':` labels in the fixture's script template.
+ * services — the `case 'name':` labels between `switch (cmd)` and its
+ * `default:` arm in the fixture's script template. A missing switch or
+ * default anchor yields an empty list, which the evaluation reds as a
+ * structural failure rather than passing vacuously.
  * @param {string} fixtureSource tauri-mock-fixture.js source
  * @returns {string[]} serviced case labels, in switch order
  */
 export function extractMockServicedCases(fixtureSource) {
-  return [...fixtureSource.matchAll(/^\s*case '([A-Za-z0-9_]+)':/gm)].map((m) => m[1]);
+  const start = fixtureSource.indexOf('switch (cmd)');
+  if (start === -1) return [];
+  const end = fixtureSource.indexOf('default:', start);
+  if (end === -1) return [];
+  const body = fixtureSource.slice(start, end);
+  return [...body.matchAll(/^\s*case '([A-Za-z0-9_]+)':/gm)].map((m) => m[1]);
 }
 
 /**
@@ -334,6 +356,7 @@ function duplicatesIn(names, what) {
  * @param {number} s.handlerOccurrences how many generate_handler! lists exist
  * @param {string[]} s.docCommands the doc table's command rows
  * @param {string[]} s.docEvents the doc table's event rows
+ * @param {string[]} [s.docUnreadableRows] backticked first cells in no readable shape
  * @param {{ path: string, method: string, channel: string | null, line: number }[]} s.emitSites
  * @param {string[]} s.fileGrants permissions across the tracked capability files
  * @param {string[]} s.docGrants grant identifiers the doc section names
@@ -386,6 +409,9 @@ export function evaluateCommandSurface(s) {
     ...missingFrom(s.mockCases, s.commandFns, `is serviced by the mock's invoke switch but no #[tauri::command] function defines it`), // prettier-ignore
   );
 
+  for (const cell of s.docUnreadableRows ?? []) {
+    problems.push(`the ${CLAUSE_ID} table carries a first cell the scan cannot read (${cell}) — rows are \`name\` or \`name\` (event), nothing else`); // prettier-ignore
+  }
   const badEventRows = s.docEvents.filter((e) => e !== EVENT_CHANNEL);
   for (const e of badEventRows) {
     problems.push(`the ${CLAUSE_ID} table carries an event row \`${e}\` — the one backend event channel is \`${EVENT_CHANNEL}\``); // prettier-ignore
@@ -394,7 +420,11 @@ export function evaluateCommandSurface(s) {
     problems.push(`the ${CLAUSE_ID} table carries ${s.docEvents.length} event rows — the contract states exactly one event channel`); // prettier-ignore
   }
   for (const e of s.emitSites.filter((x) => x.channel === null)) {
-    problems.push(`${e.path}:${e.line} calls .${e.method}( with a channel the scan cannot read as a string literal — event channels must be literal so the single-channel contract stays checkable`); // prettier-ignore
+    const what =
+      e.method === 'emit_to' || e.method === 'emit_str_to'
+        ? 'a target/channel argument pair the scan cannot read as string literals — both must be literal'
+        : 'a channel the scan cannot read as a string literal — the channel must be literal';
+    problems.push(`${e.path}:${e.line} calls .${e.method}( with ${what} so the single-channel contract stays checkable`); // prettier-ignore
   }
   const readable = s.emitSites.filter((e) => e.channel !== null);
   const channelSites = readable.filter((e) => e.channel === EVENT_CHANNEL);
@@ -432,7 +462,7 @@ export function auditTree(readFile, rustFiles, capabilityFiles) {
   );
   const docText = readFile(DOC_PATH).replace(/\r\n/g, '\n');
   const section = extractDsh1Section(docText);
-  const { commands: docCommands, events: docEvents } = extractDocRows(section);
+  const { commands: docCommands, events: docEvents, unreadable: docUnreadableRows } = extractDocRows(section); // prettier-ignore
   const { commands: handlerCommands, occurrences: handlerOccurrences } = extractHandlerCommands(
     strippedByPath.get(LIB_PATH) ?? '',
   );
@@ -472,6 +502,7 @@ export function auditTree(readFile, rustFiles, capabilityFiles) {
     handlerOccurrences,
     docCommands,
     docEvents,
+    docUnreadableRows,
     emitSites: extractEmitSites(strippedByPath),
     fileGrants,
     docGrants: extractDocGrants(section),

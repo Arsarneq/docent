@@ -71,8 +71,8 @@ a command or an event channel MUST update this table in the same change.
 | `capture:action` (event)     | Rust → JS | Streams every captured action (carrying the internal `sequence_id`) and the barrier-completion sentinel to the frontend, in the order the shared action channel received them.                                                                                                                                                                                                                                                                                                  | Emitted by the forwarder thread `lib.rs` spawns; consumed by the adapter's single listener.                                                                         |
 
 The crate's commands are not the whole invokable surface: the webview can
-also invoke the Tauri plugin commands granted by
-[`capabilities/default.json`](../../../../../packages/desktop/src-tauri/capabilities/default.json)
+also invoke the Tauri plugin commands granted by the capability files (today
+[`capabilities/default.json`](../../../../../packages/desktop/src-tauri/capabilities/default.json))
 — the `core:default` set and the dialog plugin's grants (`dialog:default`,
 which resolves to the plugin's message, open, and save commands, plus the
 explicit `dialog:allow-open` and `dialog:allow-save` allowances). The
@@ -82,7 +82,7 @@ invocation that grant authorizes, exercised on every captured action. The
 dialog grants are unused headroom today — no shipped frontend code invokes
 the dialog plugin; the file dialogs are opened from Rust inside
 `export_file`/`import_file`, which capabilities do not gate. The capability
-file is the closed admission gate
+files are the closed admission gate
 for the plugin surface: a command outside the crate's table and the granted
 set is not invokable, and widening a grant widens what the webview can
 reach.

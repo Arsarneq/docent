@@ -23,6 +23,7 @@ import {
   MOCK_PATH,
   EVENT_CHANNEL,
   stripRustComments,
+  stripMarkdownFences,
   extractCommandFns,
   extractHandlerCommands,
   extractDsh1Section,
@@ -181,7 +182,7 @@ describe('evaluateCommandSurface — the one event channel', () => {
       }),
     );
     assert.ok(
-      problems.some((p) => p.includes('src/lib.rs:130') && p.includes('cannot read as a string literal')), // prettier-ignore
+      problems.some((p) => p.includes('src/lib.rs:130') && p.includes('target/channel argument pair the scan cannot read')), // prettier-ignore
     );
   });
 
@@ -398,7 +399,27 @@ describe('extractDsh1Section / extractDocRows / extractDocGrants', () => {
     assert.deepEqual(extractDocRows(extractDsh1Section(doc)), {
       commands: ['start_capture'],
       events: ['capture:action'],
+      unreadable: [],
     });
+  });
+
+  it('an annotated first cell is unreadable, never silently skipped', () => {
+    const table = [
+      '| Name | D |',
+      '| ---- | - |',
+      '| `start_capture` | a |',
+      '| `capture:status` (event, internal) | a |',
+    ].join('\n');
+    const rows = extractDocRows(table);
+    assert.deepEqual(rows.commands, ['start_capture']);
+    assert.deepEqual(rows.unreadable, ['`capture:status` (event, internal)']);
+    const problems = evaluateCommandSurface(makeSurface({ docUnreadableRows: rows.unreadable }));
+    assert.ok(problems.some((p) => p.includes('cannot read') && p.includes('capture:status')));
+  });
+
+  it('a tilde fence hides its content like a backtick fence', () => {
+    const text = ['live `core:default`', '~~~', 'fenced `fs:allow-write`', '~~~'].join('\n');
+    assert.deepEqual(extractDocGrants(stripMarkdownFences(text)), ['core:default']);
   });
 
   it('reads only grant-shaped backticked tokens — the event channel is not a grant', () => {
@@ -488,6 +509,8 @@ describe('auditTree — synthetic tree', () => {
     "const CANONICAL_COMMANDS = ['start_capture'];",
     'switch (cmd) {',
     "  case 'start_capture': return;",
+    '  default:',
+    '    throw new Error("nope");',
     '}',
   ].join('\n');
 
