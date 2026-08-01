@@ -19,6 +19,8 @@ import {
   PERMISSIONS_DOC_PATH,
   RUNTIME_DOC_PATH,
   WORKER_PATH,
+  EMPTY_SURFACES,
+  DUPLICATE_SURFACES,
   extractManifestSurface,
   extractSectionTableNames,
   extractProtocolTables,
@@ -145,25 +147,37 @@ describe('evaluateExtensionSurface — message legs (both ways)', () => {
   });
 });
 
+// Fixture rows for the duplicates family, keyed to the check's own exported
+// DUPLICATE_SURFACES list. The lock below holds the two key sets equal, so a
+// surface added to the check's loop without a fixture row reds here — the
+// addition direction the per-leg tests alone cannot see.
+const DUPLICATE_FIXTURES = {
+  manifestPermissions: ['storage', 'tabs', 'storage'],
+  manifestHostPermissions: ['<all_urls>', '<all_urls>'],
+  docPermissions: ['storage', 'tabs', 'storage'],
+  docHostPermissions: ['<all_urls>', '<all_urls>'],
+  docCaptureTypes: ['FRAME_READY', 'FRAME_READY'],
+  docPanelTypes: ['PROJECTS_LIST', 'STEP_COMMIT', 'STEP_COMMIT'],
+  caseLabels: ['PROJECTS_LIST', 'STEP_COMMIT', 'PROJECTS_LIST'],
+};
+
 describe('evaluateExtensionSurface — duplicates, every leg of the duplicates loop', () => {
-  // Data-driven over every entry of the check's duplicates loop (mirroring
-  // the empty-parse family below): each leg asserts its own surface label,
-  // so dropping or mistyping a loop entry reds here.
-  for (const [key, list, what] of [
-    ['manifestPermissions', ['storage', 'tabs', 'storage'], "the manifest's permissions"],
-    ['manifestHostPermissions', ['<all_urls>', '<all_urls>'], "the manifest's host_permissions"],
-    ['docPermissions', ['storage', 'tabs', 'storage'], 'the Permissions table'],
-    ['docHostPermissions', ['<all_urls>', '<all_urls>'], 'the Host permissions table'],
-    ['docCaptureTypes', ['FRAME_READY', 'FRAME_READY'], 'the capture-path table'],
-    ['docPanelTypes', ['PROJECTS_LIST', 'STEP_COMMIT', 'STEP_COMMIT'], 'the panel-protocol enumeration'], // prettier-ignore
-    [
-      'caseLabels',
-      ['PROJECTS_LIST', 'STEP_COMMIT', 'PROJECTS_LIST'],
-      "the dispatcher's case labels",
-    ],
-  ]) {
+  it('the fixture table covers exactly the check’s duplicates legs (addition lock)', () => {
+    assert.deepEqual(
+      Object.keys(DUPLICATE_FIXTURES).sort(),
+      DUPLICATE_SURFACES.map(([key]) => key).sort(),
+    );
+  });
+
+  it('the surface labels are pairwise distinct — a copied leg cannot hide behind its neighbour', () => {
+    assert.ok(DUPLICATE_SURFACES.length > 0);
+    const labels = DUPLICATE_SURFACES.map(([, what]) => what);
+    assert.equal(new Set(labels).size, labels.length);
+  });
+
+  for (const [key, what] of DUPLICATE_SURFACES) {
     it(`fires on a duplicated name in ${what} — a leg the set diffs cannot see`, () => {
-      const problems = evaluateExtensionSurface(makeSurface({ [key]: list }));
+      const problems = evaluateExtensionSurface(makeSurface({ [key]: DUPLICATE_FIXTURES[key] }));
       assert.ok(
         problems.some((p) => p.includes('more than once') && p.includes(what)),
         problems.join('\n') || `no duplicates diagnostic for ${what}`,
@@ -173,21 +187,18 @@ describe('evaluateExtensionSurface — duplicates, every leg of the duplicates l
 });
 
 describe('evaluateExtensionSurface — empty parses are structural failures', () => {
-  for (const [key, needle] of [
-    ['manifestPermissions', 'no permissions found'],
-    ['manifestHostPermissions', 'no host_permissions found'],
-    ['docPermissions', 'no Permissions table names'],
-    ['docHostPermissions', 'no Host permissions table names'],
-    ['docCaptureTypes', 'no capture-path types'],
-    ['docPanelTypes', 'no panel-protocol types'],
-    ['caseLabels', 'no case labels'],
-    ['equalityTypes', 'no message-type equality literals'],
-  ]) {
+  it('the export is non-empty and its diagnoses pairwise distinct', () => {
+    assert.ok(EMPTY_SURFACES.length > 0);
+    const messages = EMPTY_SURFACES.map(([, message]) => message);
+    assert.equal(new Set(messages).size, messages.length);
+  });
+
+  for (const [key, message] of EMPTY_SURFACES) {
     it(`fires when ${key} parses empty`, () => {
       const problems = evaluateExtensionSurface(makeSurface({ [key]: [] }));
       assert.ok(
-        problems.some((p) => p.includes(needle)),
-        problems.join('\n'),
+        problems.some((p) => p.includes(message)),
+        problems.join('\n') || `no vacuous diagnostic for ${key}`,
       );
     });
   }

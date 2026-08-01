@@ -311,6 +311,36 @@ export function extractMockServicedCases(fixtureSource) {
 }
 
 /**
+ * The non-empty guard's legs: every parsed surface, with its empty-parse
+ * diagnosis. Exported so the unit suite's family is generated from this
+ * list — a leg added here is exercised automatically, and the suite holds
+ * the list non-empty and its diagnoses distinct.
+ */
+export const EMPTY_SURFACES = [
+  ['commandFns', `no #[tauri::command] functions found under ${SRC_DIR} — the scan is broken or the commands moved`], // prettier-ignore
+  ['handlerCommands', `no generate_handler! registrations found in ${LIB_PATH}`],
+  ['docCommands', `no command rows found in the ${CLAUSE_ID} table of ${DOC_PATH}`],
+  ['docEvents', `no event row found in the ${CLAUSE_ID} table of ${DOC_PATH}`],
+  ['fileGrants', `no permissions found under ${CAPABILITIES_DIR}`],
+  ['docGrants', `no grant identifiers found in the ${CLAUSE_ID} section of ${DOC_PATH}`],
+  ['mockCommands', `no CANONICAL_COMMANDS entries found in ${MOCK_PATH}`],
+  ['mockCases', `no serviced case labels found in the mock's invoke switch (${MOCK_PATH})`],
+];
+
+/**
+ * The duplicates guard's legs — the drift the deduplicating set diffs
+ * cannot see. Exported for the suite's generated family plus the
+ * fixture-key equality lock its hand-written fixtures need.
+ */
+export const DUPLICATE_SURFACES = [
+  ['commandFns', `the #[tauri::command] set`],
+  ['handlerCommands', `the generate_handler! list`],
+  ['docCommands', `the doc table`],
+  ['mockCommands', `the mock's CANONICAL_COMMANDS list`],
+  ['mockCases', `the mock's invoke switch`],
+];
+
+/**
  * Pure core: evaluate the whole command-surface contract.
  * @param {object} s the extracted surfaces
  * @param {string[]} s.commandFns `#[tauri::command]` function names
@@ -336,19 +366,9 @@ export function evaluateCommandSurface(s) {
     problems.push(`the ${CLAUSE_ID} table carries a first cell the scan cannot read — ${cell} — rows are \`name\` or \`name\` (event), nothing else`); // prettier-ignore
   }
 
-  const surfaces = [
-    [s.commandFns, `no #[tauri::command] functions found under ${SRC_DIR} — the scan is broken or the commands moved`], // prettier-ignore
-    [s.handlerCommands, `no generate_handler! registrations found in ${LIB_PATH}`],
-    [s.docCommands, `no command rows found in the ${CLAUSE_ID} table of ${DOC_PATH}`],
-    [s.docEvents, `no event row found in the ${CLAUSE_ID} table of ${DOC_PATH}`],
-    [s.fileGrants, `no permissions found under ${CAPABILITIES_DIR}`],
-    [s.docGrants, `no grant identifiers found in the ${CLAUSE_ID} section of ${DOC_PATH}`],
-    [s.mockCommands, `no CANONICAL_COMMANDS entries found in ${MOCK_PATH}`],
-    [s.mockCases, `no serviced case labels found in the mock's invoke switch (${MOCK_PATH})`],
-  ];
   let vacuous = false;
-  for (const [list, message] of surfaces) {
-    if (list.length === 0) {
+  for (const [key, message] of EMPTY_SURFACES) {
+    if (s[key].length === 0) {
       problems.push(message);
       vacuous = true;
     }
@@ -361,14 +381,8 @@ export function evaluateCommandSurface(s) {
     );
   }
 
-  for (const [list, what] of [
-    [s.commandFns, `the #[tauri::command] set`],
-    [s.handlerCommands, `the generate_handler! list`],
-    [s.docCommands, `the doc table`],
-    [s.mockCommands, `the mock's CANONICAL_COMMANDS list`],
-    [s.mockCases, `the mock's invoke switch`],
-  ]) {
-    problems.push(...duplicatesIn(list, what));
+  for (const [key, what] of DUPLICATE_SURFACES) {
+    problems.push(...duplicatesIn(s[key], what));
   }
 
   problems.push(

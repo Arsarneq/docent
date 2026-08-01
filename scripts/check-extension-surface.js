@@ -262,6 +262,40 @@ export function extractDispatcherSurface(workerSource) {
 }
 
 /**
+ * The non-empty guard's legs: every parsed surface, with its empty-parse
+ * diagnosis. Exported so the unit suite's family is generated from this
+ * list — a leg added here is exercised automatically, and the suite holds
+ * the list non-empty and its diagnoses distinct.
+ */
+export const EMPTY_SURFACES = [
+  ['manifestPermissions', `no permissions found in ${MANIFEST_PATH}`],
+  ['manifestHostPermissions', `no host_permissions found in ${MANIFEST_PATH}`],
+  ['docPermissions', `no Permissions table names found in ${PERMISSIONS_DOC_PATH}`],
+  ['docHostPermissions', `no Host permissions table names found in ${PERMISSIONS_DOC_PATH}`],
+  ['docCaptureTypes', `no capture-path types found in ${RUNTIME_DOC_PATH}`],
+  ['docPanelTypes', `no panel-protocol types found in ${RUNTIME_DOC_PATH}`],
+  ['caseLabels', `no case labels found in the dispatcher switch (${WORKER_PATH})`],
+  ['equalityTypes', `no message-type equality literals found in ${WORKER_PATH}`],
+];
+
+/**
+ * The duplicates guard's legs — drift signal on the doc surfaces and on case
+ * labels (a repeated label is unreachable code); equality guards are exempt:
+ * testing one type twice is legal code shape, and the extractor
+ * deduplicates. Exported for the suite's generated family plus the
+ * fixture-key equality lock its hand-written fixtures need.
+ */
+export const DUPLICATE_SURFACES = [
+  ['manifestPermissions', `the manifest's permissions`],
+  ['manifestHostPermissions', `the manifest's host_permissions`],
+  ['docPermissions', `the Permissions table`],
+  ['docHostPermissions', `the Host permissions table`],
+  ['docCaptureTypes', `the capture-path table`],
+  ['docPanelTypes', `the panel-protocol enumeration`],
+  ['caseLabels', `the dispatcher's case labels`],
+];
+
+/**
  * Pure core: evaluate both extension surface contracts.
  * @param {object} s the extracted surfaces
  * @param {string[]} s.manifestPermissions manifest `permissions` entries
@@ -291,38 +325,17 @@ export function evaluateExtensionSurface(s) {
     problems.push(`${RUNTIME_DOC_PATH} carries a protocol cell the scan cannot read — ${cell} — types are lone backticked names`); // prettier-ignore
   }
 
-  const surfaces = [
-    [s.manifestPermissions, `no permissions found in ${MANIFEST_PATH}`],
-    [s.manifestHostPermissions, `no host_permissions found in ${MANIFEST_PATH}`],
-    [s.docPermissions, `no Permissions table names found in ${PERMISSIONS_DOC_PATH}`],
-    [s.docHostPermissions, `no Host permissions table names found in ${PERMISSIONS_DOC_PATH}`],
-    [s.docCaptureTypes, `no capture-path types found in ${RUNTIME_DOC_PATH}`],
-    [s.docPanelTypes, `no panel-protocol types found in ${RUNTIME_DOC_PATH}`],
-    [s.caseLabels, `no case labels found in the dispatcher switch (${WORKER_PATH})`],
-    [s.equalityTypes, `no message-type equality literals found in ${WORKER_PATH}`],
-  ];
   let vacuous = false;
-  for (const [list, message] of surfaces) {
-    if (list.length === 0) {
+  for (const [key, message] of EMPTY_SURFACES) {
+    if (s[key].length === 0) {
       problems.push(message);
       vacuous = true;
     }
   }
   if (vacuous) return problems; // empty parses make set diffs meaningless
 
-  // Duplicates are drift signal on the doc surfaces and on case labels (a
-  // repeated label is unreachable code); equality guards are exempt — testing
-  // one type twice is legal code shape, and the extractor deduplicates.
-  for (const [list, what] of [
-    [s.manifestPermissions, `the manifest's permissions`],
-    [s.manifestHostPermissions, `the manifest's host_permissions`],
-    [s.docPermissions, `the Permissions table`],
-    [s.docHostPermissions, `the Host permissions table`],
-    [s.docCaptureTypes, `the capture-path table`],
-    [s.docPanelTypes, `the panel-protocol enumeration`],
-    [s.caseLabels, `the dispatcher's case labels`],
-  ]) {
-    problems.push(...duplicatesIn(list, what));
+  for (const [key, what] of DUPLICATE_SURFACES) {
+    problems.push(...duplicatesIn(s[key], what));
   }
 
   problems.push(

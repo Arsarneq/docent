@@ -215,6 +215,13 @@ jobs:
       - name: Validate extension surface contracts
         run: npm run lint:extension-surface
 
+      # The CI guides state closures the tree can silently outgrow: ci.md's
+      # workflow-inventory and lint-gates tables, local-ci.md's act table,
+      # and every `npm run` command the docs cite. This admission test
+      # recomputes each against the tree and reds on any drift.
+      - name: Validate doc-closure claims
+        run: npm run lint:doc-closure
+
       # An ignore rule has no effect on an already-tracked file, so the tracked
       # set and the .gitignore rules can disagree silently. This asserts they
       # never do — every tracked file is one those rules admit.

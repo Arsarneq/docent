@@ -332,11 +332,10 @@ A change that would drop real governance rather than trim excess is out of
 scope for a cleanup — raise it as its own PR or issue, where the trade-off
 is stated.
 
-Five lints keep that binding true — each runs in CI's `lint` job
-([the lint table](../docs/guides/ci.md#the-lint-and-freshness-gates)) and
-locally as `npm run lint:links`, `npm run lint:reachability`,
-`npm run lint:area-map`, `npm run lint:clause-registry`, and
-`npm run lint:clause-governance`. What each kind of change keeps green:
+The binding is kept true by the governance lints in CI's `lint` job — each
+inventoried, with its local command, in
+[the lint table](../docs/guides/ci.md#the-lint-and-freshness-gates), which
+is the one home of that list. What each kind of change keeps green:
 
 - **Adding or moving a doc:** link it from the
   [documentation map](../docs/README.md) — every relative link must resolve
