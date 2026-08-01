@@ -122,9 +122,13 @@ filter judges the process of the event's
   recognized by executable name — the webview runtime's, or Docent's own
   binary name — which are excluded regardless of tree membership; and
   processes judged to have their window owned by an excluded process's
-  window (the system dialogs Docent itself opens) — a **per-process**
-  verdict, evaluated on the first event and cached for the capture session,
-  so every window of that process shares whichever verdict came first.
+  window (the system dialogs Docent itself opens). The verdict those grounds
+  reach is **per-process**: it is evaluated on the first event a process sends
+  through them and cached for the capture session, so every window of that
+  process shares whichever verdict came first — including the owned-window
+  ground, which is therefore decided from the first event's window alone. An
+  event the target filter has already dropped never reaches them, so it is
+  judged by no ground and caches nothing.
   The setting is a persisted toggle, default on, applied when the app starts
   and the moment it changes; the exclusion takes priority over the target
   filter, so selecting Docent itself as the target still excludes it while
