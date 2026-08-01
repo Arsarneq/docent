@@ -489,6 +489,18 @@
       ]
     },
     {
+      "path": "scripts/check-extension-surface.js",
+      "reason": "The extension-surface admission test — the permissions doc's manifest clause and the runtime doc's dispatcher clause are verified by it, per their registry rows.",
+      "governed-by": [
+        "docs/guides/ci.md",
+        "docs/guides/local-ci.md",
+        ".github/PUBLISHING.md",
+        "docs/architecture/application/extension/permissions.md",
+        "docs/architecture/application/extension/runtime.md",
+        ".github/CONTRIBUTING.md"
+      ]
+    },
+    {
       "path": "scripts/check-no-release-outputs.js",
       "reason": "The release-output guard — the feature-branch dist gate that the format doc's version-bump clause is verified by, per its registry row and the release process doc.",
       "governed-by": [

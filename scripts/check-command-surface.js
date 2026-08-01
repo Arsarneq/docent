@@ -57,7 +57,7 @@
 import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
-import { parseTables, readListEntries } from './check-test-inventory.js';
+import { extractClauseSection, parseTables, readListEntries } from './check-test-inventory.js';
 
 /** Repo-relative path of the doc whose DSH-1 table states the contract. */
 export const DOC_PATH = 'docs/architecture/application/desktop/windows/application-shell.md';
@@ -192,43 +192,14 @@ export function extractHandlerCommands(strippedLib) {
 }
 
 /**
- * Blank out fenced code blocks (``` … ```), preserving newlines, so a marker,
- * heading, table, or grant-shaped token inside an illustrative fence is never
- * read as live doc text.
- * @param {string} text Markdown text
- * @returns {string} the text with fenced content replaced by blank lines
- */
-export function stripMarkdownFences(text) {
-  const lines = text.split('\n');
-  let fence = null;
-  return lines
-    .map((line) => {
-      const open = /^\s*(```|~~~)/.exec(line);
-      if (open) {
-        if (fence === null) fence = open[1];
-        else if (line.trim().startsWith(fence)) fence = null;
-        return '';
-      }
-      return fence !== null ? '' : line;
-    })
-    .join('\n');
-}
-
-/**
- * Slice the doc text to the clause's scope: from its marker to the next
- * clause marker or heading (the doc's own scope rule). Fences are stripped
- * first, so fenced examples can neither anchor nor truncate the slice.
+ * Slice the doc text to the clause's scope, through the shared fence-aware
+ * clause-section extractor — from the marker to the next clause marker or
+ * heading, with fenced examples unable to anchor or truncate the slice.
  * @param {string} docText the application-shell doc
  * @returns {string} the clause's text, or '' when the marker is absent
  */
 export function extractDsh1Section(docText) {
-  const defenced = stripMarkdownFences(docText);
-  const marker = `**${CLAUSE_ID}.**`;
-  const start = defenced.indexOf(marker);
-  if (start === -1) return '';
-  const rest = defenced.slice(start + marker.length);
-  const end = rest.search(/\n#{2,}\s|\*\*[A-Z][A-Z0-9]*-[1-9][0-9]*\.\*\*/);
-  return end === -1 ? defenced.slice(start) : defenced.slice(start, start + marker.length + end);
+  return extractClauseSection(docText, CLAUSE_ID);
 }
 
 /**

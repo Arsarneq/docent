@@ -204,6 +204,51 @@ export function backtickedName(cell) {
   return match ? match[1] : null;
 }
 
+/**
+ * Blank out fenced code blocks (``` or ~~~, each closed by its own marker),
+ * preserving newlines, so a marker, heading, table, or token inside an
+ * illustrative fence is never read as live doc text. This is the same fence
+ * model `parseTables` applies internally — exported so every doc-scanning
+ * check agrees on what a fence is.
+ * @param {string} markdown
+ * @returns {string} the text with fence lines and fenced content blanked
+ */
+export function stripFences(markdown) {
+  const lines = markdown.split('\n');
+  let fence = null;
+  return lines
+    .map((line) => {
+      const open = FENCE_RE.exec(line);
+      if (open) {
+        if (fence === null) fence = open[1];
+        else if (line.trim().startsWith(fence)) fence = null;
+        return '';
+      }
+      return fence !== null ? '' : line;
+    })
+    .join('\n');
+}
+
+/**
+ * Slice a doc's text to one clause's scope: from its bolded marker
+ * (`**ID.**`) to the next clause marker or heading — the scope rule the
+ * clause-bearing docs state. Fences are stripped first (via
+ * {@link stripFences}), so fenced examples can neither anchor nor truncate
+ * the slice.
+ * @param {string} markdown the doc's text
+ * @param {string} clauseId a clause id, e.g. 'DSH-1'
+ * @returns {string} the clause's text, or '' when the marker is absent
+ */
+export function extractClauseSection(markdown, clauseId) {
+  const defenced = stripFences(markdown);
+  const marker = `**${clauseId}.**`;
+  const start = defenced.indexOf(marker);
+  if (start === -1) return '';
+  const rest = defenced.slice(start + marker.length);
+  const end = rest.search(/\n#{1,6}\s|\*\*[A-Z][A-Z0-9]*-[1-9][0-9]*\.\*\*/);
+  return end === -1 ? defenced.slice(start) : defenced.slice(start, start + marker.length + end);
+}
+
 /* ── JavaScript array literals ───────────────────────────────────────────── */
 
 const WORD_CHAR_RE = /[A-Za-z0-9_$]/;

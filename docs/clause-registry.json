@@ -446,10 +446,16 @@
       "check-ref": "Intended: a static scan pinning the extension's chrome.storage write sites (local and session set/remove) to exactly the owners the tables declare (not built). Interim probe: review against the tables; the owning write paths are exercised by the service-worker e2e suites (packages/extension/tests/e2e/specs/service-worker-coverage.spec.js, packages/extension/tests/e2e/specs/service-worker-lifecycle.spec.js; npm run test:e2e) and the adapter unit suite (packages/extension/tests/unit/adapter-chrome.test.js; npm run test:extension)."
     },
     {
+      "doc": "docs/architecture/application/extension/runtime.md",
+      "clause": "ERT-4",
+      "tag": "check-exists",
+      "check-ref": "scripts/check-extension-surface.js (npm run lint:extension-surface, a step in CI's lint job) reads the worker dispatcher (packages/extension/background/service-worker.js) through the shared comment-safe tokenizer: the one switch over the message type (which must carry the default: arm answering ERT-2's envelope) has its case labels diffed both ways against the panel protocol's Types cells, and the listener's message-type equality literals are diffed both ways against the capture-path table's types; the two doc enumerations must be disjoint, every cell must be a lone backticked name, and empty parses fail loudly. Named residue: a dispatch route outside the tokenized shapes (a nested dispatcher, a computed message type, an equality test on another receiver) is invisible to the scan, and the tables' payload/response prose is review-held, never parsed."
+    },
+    {
       "doc": "docs/architecture/application/extension/permissions.md",
       "clause": "EPM-1",
-      "tag": "checkable",
-      "check-ref": "Intended: a script diffing packages/extension/manifest.json's permissions/host_permissions arrays against the doc's tables (not built). Interim probe: packages/extension/manifest.json resolves in the committed area map to an area whose doc set contains this doc, so every manifest diff primes it for docs disposition."
+      "tag": "check-exists",
+      "check-ref": "scripts/check-extension-surface.js (npm run lint:extension-surface, a step in CI's lint job) diffs packages/extension/manifest.json's permissions and host_permissions arrays both ways against the backticked names in this doc's Permissions and Host permissions tables — fence-aware, refusing unreadable table rows and non-string manifest entries rather than skipping them, with empty parses failing loudly. Named residue: the tables' rationale prose is review-held; the manifest's resource-exposure bullets (the CSP absence and the empty web_accessible_resources) and the clause's Chrome Web Store privacy-practices half stay judgment-held."
     },
     {
       "doc": "docs/architecture/application/desktop/windows/capture-principles.md",
