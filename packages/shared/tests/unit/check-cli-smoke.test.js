@@ -95,6 +95,11 @@ describe('check-script CLI smoke (deterministic green paths)', () => {
     assert.match(out, /doc closure holds/);
   });
 
+  it('check-schema-echo: the committed session-format document matches the composed schemas', () => {
+    const out = runScript('check-schema-echo.js');
+    assert.match(out, /schema echoes consistent/);
+  });
+
   it('check-tracked-ignored: no tracked file matches a .gitignore rule', () => {
     // Also the one place the git flag combination itself is exercised — the
     // whole check is that invocation, and a flag git rejects would otherwise
