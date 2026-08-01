@@ -121,12 +121,13 @@ const CONTENT_TYPES = {
 };
 
 /**
- * The commands the shipped desktop frontend invokes — the surface this mock
+ * The desktop crate's registered command surface — every command this mock
  * services, and the only names an override may name. The command-surface
  * admission test (scripts/check-command-surface.js, npm run
- * lint:command-surface) holds this list equal to the crate's registered
- * command surface, so it can neither lag a command the crate gains nor keep
- * servicing one the crate loses.
+ * lint:command-surface) holds this list equal to the crate's
+ * #[tauri::command] surface in both directions, so it can neither lag a
+ * command the crate gains nor keep servicing one it loses; the shipped
+ * frontend invokes commands from this set.
  */
 const CANONICAL_COMMANDS = [
   'load_state',

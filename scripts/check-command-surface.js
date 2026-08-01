@@ -14,27 +14,30 @@
  *      registration, and the doc table's command rows are equal — each
  *      pairwise difference is reported in both directions;
  *   2. the doc's one event row names `capture:action`, and the crate sources
- *      contain exactly one emit call site whose channel is that literal
- *      (sources are comment-stripped first, so doc comments naming the
- *      channel never count as emit sites);
- *   3. the grants in `capabilities/default.json` equal the grant identifiers
- *      the clause's section names in backticks — the admission shape is
- *      `plugin:default` / `plugin:allow-…` / `plugin:deny-…`, so other
- *      backticked tokens (command names, the event channel) never read as
- *      grants — again in both directions;
+ *      contain exactly one emit-family call site (`emit` / `emit_to` /
+ *      `emit_filter`) whose channel is that literal (sources are
+ *      comment-stripped first, so doc comments naming the channel never
+ *      count); an emit-family call whose channel the scan cannot read as a
+ *      string literal fails the check rather than passing;
+ *   3. the grants declared by the tracked capability files under
+ *      `capabilities/` equal the grant identifiers the clause's section names
+ *      in backticks — the admission shape is a namespaced identifier ending
+ *      in `:default`, `:allow-…`, or `:deny-…`, so other backticked tokens
+ *      (command names, the event channel) never read as grants — again in
+ *      both directions;
  *   4. the desktop integration suite's mock command list
  *      (`tauri-mock-fixture.js` `CANONICAL_COMMANDS`) equals the crate's
  *      command set, so the suite's one drift-visible consumer of the surface
- *      can neither lag a command the frontend gains nor keep servicing one
- *      the crate loses.
+ *      can neither lag a command the crate gains nor keep servicing one it
+ *      loses (that leg's doctrine home is docs/test/integration/desktop.md).
  *
  * Every extracted set must be non-empty — a parse that finds nothing is a
  * broken read of the surface (or a moved surface) and fails loudly rather
  * than passing vacuously.
  *
- * Honest limits: an emit whose channel is not a string literal is invisible
- * to the scan, and the table's Direction / What-it-does / Who-calls-it prose
- * is review-held, never parsed.
+ * Honest limits: an emit issued through a wrapping helper rather than an
+ * Emitter-family method is invisible to the scan, and the table's
+ * Direction / What-it-does / Who-calls-it prose is review-held, never parsed.
  *
  * Usage:
  *   node scripts/check-command-surface.js   # or: npm run lint:command-surface
@@ -50,8 +53,8 @@ export const DOC_PATH = 'docs/architecture/application/desktop/windows/applicati
 export const LIB_PATH = 'packages/desktop/src-tauri/src/lib.rs';
 /** Repo-relative directory of the crate sources the command/emit scans read. */
 export const SRC_DIR = 'packages/desktop/src-tauri/src';
-/** Repo-relative path of the capability file naming the plugin grants. */
-export const CAPABILITIES_PATH = 'packages/desktop/src-tauri/capabilities/default.json';
+/** Repo-relative directory of the capability files naming the plugin grants. */
+export const CAPABILITIES_DIR = 'packages/desktop/src-tauri/capabilities';
 /** Repo-relative path of the integration suite's Tauri mock fixture. */
 export const MOCK_PATH = 'packages/desktop/tests/integration/tauri-mock-fixture.js';
 
@@ -59,11 +62,14 @@ export const MOCK_PATH = 'packages/desktop/tests/integration/tauri-mock-fixture.
 export const EVENT_CHANNEL = 'capture:action';
 
 /**
- * A capability-grant identifier: `plugin:default`, `plugin:allow-…`, or
- * `plugin:deny-…`. Deliberately narrower than "anything with a colon" so the
- * event channel and command names in the same section never read as grants.
+ * A capability-grant identifier: one or more namespace segments ending in
+ * `:default`, `:allow-…`, or `:deny-…` (e.g. `core:default`,
+ * `core:event:allow-listen`). Deliberately narrower than "anything with a
+ * colon" so the event channel and command names in the same section never
+ * read as grants.
  */
-const GRANT_RE = /^[a-z0-9][a-z0-9-]*:(?:default|allow-[a-z0-9-]+|deny-[a-z0-9-]+)$/;
+const GRANT_RE =
+  /^[a-z0-9][a-z0-9-]*(?::[a-z0-9][a-z0-9-]*)*:(?:default|allow-[a-z0-9-]+|deny-[a-z0-9-]+)$/;
 
 /**
  * Blank out Rust comments (line `//…` and nested block `/* … *\/`) while
@@ -141,7 +147,7 @@ export function stripRustComments(source) {
  */
 export function extractCommandFns(strippedSource) {
   const re =
-    /#\[tauri::command\]\s*(?:#\[[^\]]*\]\s*)*(?:pub(?:\([^)]*\))?\s+)?(?:async\s+)?fn\s+([A-Za-z0-9_]+)/g;
+    /#\[tauri::command(?:\([^)]*\))?\]\s*(?:#\[[^\]]*\]\s*)*(?:pub(?:\([^)]*\))?\s+)?(?:async\s+)?fn\s+([A-Za-z0-9_]+)/g;
   return [...strippedSource.matchAll(re)].map((m) => m[1]);
 }
 
@@ -163,16 +169,17 @@ export function extractHandlerCommands(strippedLib) {
 
 /**
  * Slice the doc text to the DSH-1 clause's scope: from its marker to the next
- * heading (per the doc's own scope rule).
+ * clause marker or heading (the doc's own scope rule).
  * @param {string} docText the application-shell doc
  * @returns {string} the clause's text, or '' when the marker is absent
  */
 export function extractDsh1Section(docText) {
-  const start = docText.indexOf('**DSH-1.**');
+  const marker = '**DSH-1.**';
+  const start = docText.indexOf(marker);
   if (start === -1) return '';
-  const rest = docText.slice(start);
-  const heading = rest.search(/\n#{2,}\s/);
-  return heading === -1 ? rest : rest.slice(0, heading);
+  const rest = docText.slice(start + marker.length);
+  const end = rest.search(/\n#{2,}\s|\*\*[A-Z][A-Z0-9]*-[1-9][0-9]*\.\*\*/);
+  return end === -1 ? docText.slice(start) : docText.slice(start, start + marker.length + end);
 }
 
 /**
@@ -206,18 +213,24 @@ export function extractDocGrants(section) {
 }
 
 /**
- * Find event-emit call sites (`.emit("channel", …)`) in comment-stripped
- * crate sources. A channel that is not a string literal is invisible here —
- * the check's stated residue.
+ * Find emit-family call sites (`.emit(…)`, `.emit_to(…)`, `.emit_filter(…)`)
+ * in comment-stripped crate sources. The channel is the first string-literal
+ * argument (`emit`/`emit_filter`) or the second (`emit_to`, whose first
+ * argument is the target); a call whose channel cannot be read as a string
+ * literal is recorded with `channel: null` and fails the evaluation loudly.
  * @param {Map<string, string>} strippedByPath path → comment-stripped source
- * @returns {{ path: string, channel: string, line: number }[]} emit sites
+ * @returns {{ path: string, method: string, channel: string | null, line: number }[]}
  */
 export function extractEmitSites(strippedByPath) {
   const sites = [];
+  const STR = /^\s*"((?:[^"\\]|\\.)*)"/;
+  const SECOND_STR = /^\s*"(?:[^"\\]|\\.)*"\s*,\s*"((?:[^"\\]|\\.)*)"/;
   for (const [path, source] of strippedByPath) {
-    for (const m of source.matchAll(/\.emit\s*\(\s*"((?:[^"\\]|\\.)*)"/g)) {
+    for (const m of source.matchAll(/\.(emit|emit_to|emit_filter)\s*\(/g)) {
       const line = source.slice(0, m.index).split('\n').length;
-      sites.push({ path, channel: m[1], line });
+      const rest = source.slice(m.index + m[0].length);
+      const arg = rest.match(m[1] === 'emit_to' ? SECOND_STR : STR);
+      sites.push({ path, method: m[1], channel: arg ? arg[1] : null, line });
     }
   }
   return sites;
@@ -267,8 +280,8 @@ function duplicatesIn(names, what) {
  * @param {number} s.handlerOccurrences how many generate_handler! lists exist
  * @param {string[]} s.docCommands the doc table's command rows
  * @param {string[]} s.docEvents the doc table's event rows
- * @param {{ path: string, channel: string, line: number }[]} s.emitSites
- * @param {string[]} s.fileGrants permissions in capabilities/default.json
+ * @param {{ path: string, method: string, channel: string | null, line: number }[]} s.emitSites
+ * @param {string[]} s.fileGrants permissions across the tracked capability files
  * @param {string[]} s.docGrants grant identifiers the doc section names
  * @param {string[]} s.mockCommands the mock fixture's serviced commands
  * @returns {string[]} problems; empty when the contract holds
@@ -281,7 +294,7 @@ export function evaluateCommandSurface(s) {
     [s.handlerCommands, `no generate_handler! registrations found in ${LIB_PATH}`],
     [s.docCommands, `no command rows found in the DSH-1 table of ${DOC_PATH}`],
     [s.docEvents, `no event row found in the DSH-1 table of ${DOC_PATH}`],
-    [s.fileGrants, `no permissions found in ${CAPABILITIES_PATH}`],
+    [s.fileGrants, `no permissions found under ${CAPABILITIES_DIR}`],
     [s.docGrants, `no grant identifiers found in the DSH-1 section of ${DOC_PATH}`],
     [s.mockCommands, `no CANONICAL_COMMANDS entries found in ${MOCK_PATH}`],
   ];
@@ -321,8 +334,12 @@ export function evaluateCommandSurface(s) {
   if (s.docEvents.length > 1) {
     problems.push(`the DSH-1 table carries ${s.docEvents.length} event rows — the contract states exactly one event channel`); // prettier-ignore
   }
-  const channelSites = s.emitSites.filter((e) => e.channel === EVENT_CHANNEL);
-  const otherSites = s.emitSites.filter((e) => e.channel !== EVENT_CHANNEL);
+  for (const e of s.emitSites.filter((x) => x.channel === null)) {
+    problems.push(`${e.path}:${e.line} calls .${e.method}( with a channel the scan cannot read as a string literal — event channels must be literal so the single-channel contract stays checkable`); // prettier-ignore
+  }
+  const readable = s.emitSites.filter((e) => e.channel !== null);
+  const channelSites = readable.filter((e) => e.channel === EVENT_CHANNEL);
+  const otherSites = readable.filter((e) => e.channel !== EVENT_CHANNEL);
   if (channelSites.length !== 1) {
     problems.push(
       `expected exactly one \`${EVENT_CHANNEL}\` emit site, found ${channelSites.length}` +
@@ -336,8 +353,8 @@ export function evaluateCommandSurface(s) {
   }
 
   problems.push(
-    ...missingFrom(s.fileGrants, s.docGrants, `is granted in ${CAPABILITIES_PATH} but the DSH-1 section does not name it`), // prettier-ignore
-    ...missingFrom(s.docGrants, s.fileGrants, `is named as a grant in the DSH-1 section but ${CAPABILITIES_PATH} does not grant it`), // prettier-ignore
+    ...missingFrom(s.fileGrants, s.docGrants, `is granted under ${CAPABILITIES_DIR} but the DSH-1 section does not name it`), // prettier-ignore
+    ...missingFrom(s.docGrants, s.fileGrants, `is named as a grant in the DSH-1 section but no tracked capability file grants it`), // prettier-ignore
   );
 
   return problems;
@@ -347,9 +364,10 @@ export function evaluateCommandSurface(s) {
  * Read every surface from the working tree and evaluate the contract.
  * @param {(f: string) => string} readFile repo-relative content reader
  * @param {string[]} rustFiles repo-relative crate source paths to scan
+ * @param {string[]} capabilityFiles repo-relative capability .json paths
  * @returns {{ problems: string[], commandCount: number, grantCount: number }}
  */
-export function auditTree(readFile, rustFiles) {
+export function auditTree(readFile, rustFiles, capabilityFiles) {
   const strippedByPath = new Map(
     rustFiles.map((p) => [p, stripRustComments(readFile(p).replace(/\r\n/g, '\n'))]),
   );
@@ -359,6 +377,32 @@ export function auditTree(readFile, rustFiles) {
   const { commands: handlerCommands, occurrences: handlerOccurrences } = extractHandlerCommands(
     strippedByPath.get(LIB_PATH) ?? '',
   );
+
+  // Union the grants across every tracked capability file — Tauri loads the
+  // whole directory, so a second file widens the webview surface exactly like
+  // an entry added to the first. Parse and shape failures are contract
+  // problems in their own right, never a thrown stack.
+  const collectionProblems = [];
+  const fileGrants = [];
+  for (const file of capabilityFiles) {
+    let parsed;
+    try {
+      parsed = JSON.parse(readFile(file));
+    } catch {
+      collectionProblems.push(`${file} does not parse as JSON — the grant leg cannot be evaluated`); // prettier-ignore
+      continue;
+    }
+    for (const entry of parsed.permissions ?? []) {
+      if (typeof entry === 'string') {
+        fileGrants.push(entry);
+      } else if (entry && typeof entry.identifier === 'string') {
+        fileGrants.push(entry.identifier);
+      } else {
+        collectionProblems.push(`${file} carries a permissions entry the scan cannot read (${JSON.stringify(entry)})`); // prettier-ignore
+      }
+    }
+  }
+
   const s = {
     commandFns: [...strippedByPath.values()].flatMap((src) => extractCommandFns(src)),
     handlerCommands,
@@ -366,12 +410,12 @@ export function auditTree(readFile, rustFiles) {
     docCommands,
     docEvents,
     emitSites: extractEmitSites(strippedByPath),
-    fileGrants: JSON.parse(readFile(CAPABILITIES_PATH)).permissions ?? [],
+    fileGrants,
     docGrants: extractDocGrants(section),
     mockCommands: extractMockCommands(readFile(MOCK_PATH).replace(/\r\n/g, '\n')),
   };
   return {
-    problems: evaluateCommandSurface(s),
+    problems: [...collectionProblems, ...evaluateCommandSurface(s)],
     commandCount: new Set(s.commandFns).size,
     grantCount: new Set(s.fileGrants).size,
   };
@@ -381,22 +425,31 @@ export function auditTree(readFile, rustFiles) {
    formats the pass/fail output; the pure extraction and evaluation core above
    is unit-tested. */
 function run() {
-  const rustFiles = execFileSync('git', ['ls-files', SRC_DIR], { encoding: 'utf8' })
-    .split('\n')
-    .map((s) => s.trim())
-    .filter((f) => f.endsWith('.rs'));
-  const { problems, commandCount, grantCount } = auditTree(
-    (f) => readFileSync(f, 'utf8'),
-    rustFiles,
-  );
+  const lsFiles = (dir) =>
+    execFileSync('git', ['ls-files', dir], { encoding: 'utf8' })
+      .split('\n')
+      .map((s) => s.trim())
+      .filter(Boolean);
+  const rustFiles = lsFiles(SRC_DIR).filter((f) => f.endsWith('.rs'));
+  const capabilityFiles = lsFiles(CAPABILITIES_DIR).filter((f) => f.endsWith('.json'));
+  const readFile = (f) => {
+    try {
+      return readFileSync(f, 'utf8');
+    } catch {
+      return ''; // an unreadable surface fails the non-empty guards loudly
+    }
+  };
+  const { problems, commandCount, grantCount } = auditTree(readFile, rustFiles, capabilityFiles);
 
   if (problems.length) {
     console.error(
-      `✗ the desktop command surface drifted from its documented contract (${DOC_PATH} §DSH-1):\n` +
+      `✗ the desktop command surface drifted from its committed contract:\n` +
         problems.map((p) => `    ${p}`).join('\n') +
-        `\n\n  The table, the #[tauri::command] set, the generate_handler! registration, the\n` +
-        `  capability grants, and the integration mock's serviced-command list must state\n` +
-        `  the same surface, updated together in the same change.\n`,
+        `\n\n  The DSH-1 table (${DOC_PATH}), the #[tauri::command] set, the generate_handler!\n` +
+        `  registration, and the capability grants must state the same surface, updated\n` +
+        `  together in the same change (${DOC_PATH} §DSH-1); the integration mock's\n` +
+        `  serviced-command list is held equal to that surface by the desktop integration\n` +
+        `  suite's contract (docs/test/integration/desktop.md).\n`,
     );
     process.exit(1);
   }

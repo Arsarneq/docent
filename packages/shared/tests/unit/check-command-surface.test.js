@@ -19,7 +19,7 @@ import {
   DOC_PATH,
   LIB_PATH,
   SRC_DIR,
-  CAPABILITIES_PATH,
+  CAPABILITIES_DIR,
   MOCK_PATH,
   EVENT_CHANNEL,
   stripRustComments,
@@ -44,7 +44,7 @@ function makeSurface(overrides = {}) {
     handlerOccurrences: 1,
     docCommands: ['start_capture', 'stop_capture'],
     docEvents: [EVENT_CHANNEL],
-    emitSites: [{ path: 'src/lib.rs', channel: EVENT_CHANNEL, line: 90 }],
+    emitSites: [{ path: 'src/lib.rs', method: 'emit', channel: EVENT_CHANNEL, line: 90 }],
     fileGrants: ['core:default', 'dialog:allow-open'],
     docGrants: ['core:default', 'dialog:allow-open'],
     mockCommands: ['start_capture', 'stop_capture'],
@@ -128,8 +128,8 @@ describe('evaluateCommandSurface — the one event channel', () => {
     const problems = evaluateCommandSurface(
       makeSurface({
         emitSites: [
-          { path: 'src/lib.rs', channel: EVENT_CHANNEL, line: 90 },
-          { path: 'src/commands.rs', channel: EVENT_CHANNEL, line: 12 },
+          { path: 'src/lib.rs', method: 'emit', channel: EVENT_CHANNEL, line: 90 },
+          { path: 'src/commands.rs', method: 'emit_to', channel: EVENT_CHANNEL, line: 12 },
         ],
       }),
     );
@@ -145,12 +145,31 @@ describe('evaluateCommandSurface — the one event channel', () => {
     const problems = evaluateCommandSurface(
       makeSurface({
         emitSites: [
-          { path: 'src/lib.rs', channel: EVENT_CHANNEL, line: 90 },
-          { path: 'src/lib.rs', channel: 'other:channel', line: 120 },
+          { path: 'src/lib.rs', method: 'emit', channel: EVENT_CHANNEL, line: 90 },
+          { path: 'src/lib.rs', method: 'emit_filter', channel: 'other:channel', line: 120 },
         ],
       }),
     );
     assert.ok(problems.some((p) => p.includes('other:channel') && p.includes('src/lib.rs:120')));
+  });
+
+  it('fires when an emit-family call carries a channel the scan cannot read', () => {
+    const problems = evaluateCommandSurface(
+      makeSurface({
+        emitSites: [
+          { path: 'src/lib.rs', method: 'emit', channel: EVENT_CHANNEL, line: 90 },
+          { path: 'src/lib.rs', method: 'emit_to', channel: null, line: 130 },
+        ],
+      }),
+    );
+    assert.ok(
+      problems.some((p) => p.includes('src/lib.rs:130') && p.includes('cannot read as a string literal')), // prettier-ignore
+    );
+  });
+
+  it('fires when the crate carries two generate_handler! lists', () => {
+    const problems = evaluateCommandSurface(makeSurface({ handlerOccurrences: 2 }));
+    assert.ok(problems.some((p) => p.includes('2 generate_handler! lists')));
   });
 });
 
@@ -162,12 +181,12 @@ describe('evaluateCommandSurface — capability grants', () => {
     assert.ok(problems.some((p) => p.includes('fs:allow-write') && p.includes('does not name it')));
   });
 
-  it('fires when the doc names a grant the capability file does not carry', () => {
+  it('fires when the doc names a grant no capability file carries', () => {
     const problems = evaluateCommandSurface(
       makeSurface({ docGrants: ['core:default', 'dialog:allow-open', 'dialog:allow-save'] }),
     );
     assert.ok(
-      problems.some((p) => p.includes('dialog:allow-save') && p.includes('does not grant it')),
+      problems.some((p) => p.includes('dialog:allow-save') && p.includes('no tracked capability file grants it')), // prettier-ignore
     );
   });
 });
@@ -227,12 +246,49 @@ describe('stripRustComments — the emit scan cannot count comment mentions', ()
     ].join('\n');
     const sites = extractEmitSites(new Map([['src/lib.rs', stripRustComments(src)]]));
     assert.equal(sites.length, 1);
-    assert.deepEqual(sites[0], { path: 'src/lib.rs', channel: 'capture:action', line: 4 });
+    assert.deepEqual(sites[0], {
+      path: 'src/lib.rs',
+      method: 'emit',
+      channel: 'capture:action',
+      line: 4,
+    });
+  });
+
+  it('a raw identifier (r#type) does not desynchronize the scan', () => {
+    const src = 'let r#type = 1; // gone\nlet _ = h.emit("capture:action", &e);';
+    const stripped = stripRustComments(src);
+    assert.ok(!stripped.includes('gone'));
+    assert.equal(extractEmitSites(new Map([['a.rs', stripped]])).length, 1);
+  });
+});
+
+describe('extractEmitSites — the emit family', () => {
+  it('reads emit_to channels from the second literal and emit_filter from the first', () => {
+    const src = [
+      'h.emit_to("main", "capture:action", &e);',
+      'h.emit_filter("capture:action", &e, |t| true);',
+    ].join('\n');
+    const sites = extractEmitSites(new Map([['a.rs', src]]));
+    assert.deepEqual(
+      sites.map((s) => [s.method, s.channel]),
+      [
+        ['emit_to', 'capture:action'],
+        ['emit_filter', 'capture:action'],
+      ],
+    );
+  });
+
+  it('records a null channel when the argument is not a string literal', () => {
+    const sites = extractEmitSites(new Map([['a.rs', 'h.emit(channel_name, &e);']]));
+    assert.deepEqual(
+      sites.map((s) => [s.method, s.channel]),
+      [['emit', null]],
+    );
   });
 });
 
 describe('extractCommandFns / extractHandlerCommands', () => {
-  it('reads pub, pub(crate), and async command forms', () => {
+  it('reads pub, pub(crate), async, and attribute-argument command forms', () => {
     const src = [
       '#[tauri::command]',
       'pub fn plain_cmd() {}',
@@ -240,6 +296,8 @@ describe('extractCommandFns / extractHandlerCommands', () => {
       'pub(crate) fn crate_cmd() {}',
       '#[tauri::command]',
       'pub async fn async_cmd() {}',
+      '#[tauri::command(rename_all = "snake_case")]',
+      'pub fn renamed_cmd() {}',
       '#[tauri::command]',
       'fn private_cmd() {}',
       'fn not_a_command() {}',
@@ -248,6 +306,7 @@ describe('extractCommandFns / extractHandlerCommands', () => {
       'plain_cmd',
       'crate_cmd',
       'async_cmd',
+      'renamed_cmd',
       'private_cmd',
     ]);
   });
@@ -304,8 +363,90 @@ describe('extractDsh1Section / extractDocRows / extractDocGrants', () => {
     ]);
   });
 
+  it('accepts namespaced grant identifiers', () => {
+    const section = 'section with `core:event:allow-listen` and `capture:action` in it';
+    assert.deepEqual(extractDocGrants(section), ['core:event:allow-listen']);
+  });
+
+  it('the clause scope ends at the next clause marker, not only at a heading', () => {
+    const twoClauses = [
+      '**DSH-1.** The contract.',
+      '',
+      '| Name | D | W | C |',
+      '| ---- | - | - | - |',
+      '| `start_capture` | a | b | c |',
+      '',
+      'Grants: `core:default`.',
+      '',
+      '**DSH-9.** Another clause naming `fs:allow-write` and a table:',
+      '',
+      '| `ghost_cmd` | a | b | c |',
+    ].join('\n');
+    const section = extractDsh1Section(twoClauses);
+    assert.deepEqual(extractDocRows(section).commands, ['start_capture']);
+    assert.deepEqual(extractDocGrants(section), ['core:default']);
+  });
+
   it('returns an empty section when the marker is absent', () => {
     assert.equal(extractDsh1Section('# No clause here'), '');
+  });
+});
+
+describe('auditTree — synthetic tree', () => {
+  const DOC = [
+    '## The Command Surface',
+    '',
+    '**DSH-1.** The contract.',
+    '',
+    '| Name | D | W | C |',
+    '| ---- | - | - | - |',
+    '| `start_capture` | a | b | c |',
+    '| `capture:action` (event) | a | b | c |',
+    '',
+    'Grants: `core:default` and `fs:allow-read`.',
+    '',
+    '## Next',
+  ].join('\n');
+  const LIB = [
+    '#[tauri::command]',
+    'pub fn start_capture() {}',
+    'fn run() { h.emit("capture:action", &e); }',
+    'generate_handler![start_capture]',
+  ].join('\n');
+  const MOCK = "const CANONICAL_COMMANDS = ['start_capture'];";
+
+  /** A readFile over a synthetic file map, with the crate source at LIB_PATH. */
+  function treeReader(capabilities) {
+    return (f) => {
+      if (f === DOC_PATH) return DOC;
+      if (f === LIB_PATH) return LIB;
+      if (f === MOCK_PATH) return MOCK;
+      return capabilities[f] ?? '';
+    };
+  }
+
+  it('unions grants across capability files and accepts the object entry form', () => {
+    const caps = {
+      'caps/default.json': JSON.stringify({ permissions: ['core:default'] }),
+      'caps/extra.json': JSON.stringify({ permissions: [{ identifier: 'fs:allow-read' }] }),
+    };
+    const { problems, grantCount } = auditTree(treeReader(caps), [LIB_PATH], Object.keys(caps));
+    assert.deepEqual(problems, [], problems.join('\n'));
+    assert.equal(grantCount, 2);
+  });
+
+  it('reports an unparseable capability file as a problem, not a thrown stack', () => {
+    const caps = { 'caps/default.json': 'not json' };
+    const { problems } = auditTree(treeReader(caps), [LIB_PATH], Object.keys(caps));
+    assert.ok(
+      problems.some((p) => p.includes('caps/default.json') && p.includes('does not parse as JSON')), // prettier-ignore
+    );
+  });
+
+  it('reports a permissions entry of an unknown shape', () => {
+    const caps = { 'caps/default.json': JSON.stringify({ permissions: ['core:default', 42] }) };
+    const { problems } = auditTree(treeReader(caps), [LIB_PATH], Object.keys(caps));
+    assert.ok(problems.some((p) => p.includes('cannot read') && p.includes('42')));
   });
 });
 
@@ -322,19 +463,24 @@ describe('extractMockCommands', () => {
 
 describe('real-tree lock', () => {
   it('the shipped tree satisfies the whole contract', () => {
-    const rustFiles = execFileSync('git', ['ls-files', SRC_DIR], { encoding: 'utf8', cwd: ROOT })
-      .split('\n')
-      .map((s) => s.trim())
-      .filter((f) => f.endsWith('.rs'));
+    const lsFiles = (dir) =>
+      execFileSync('git', ['ls-files', dir], { encoding: 'utf8', cwd: ROOT })
+        .split('\n')
+        .map((s) => s.trim())
+        .filter(Boolean);
+    const rustFiles = lsFiles(SRC_DIR).filter((f) => f.endsWith('.rs'));
+    const capabilityFiles = lsFiles(CAPABILITIES_DIR).filter((f) => f.endsWith('.json'));
     assert.ok(rustFiles.includes(LIB_PATH), 'the crate entry point must be among the sources');
+    assert.ok(capabilityFiles.length >= 1, 'at least one capability file must be tracked');
     const { problems, commandCount } = auditTree(
       (f) => readFileSync(resolve(ROOT, f), 'utf8'),
       rustFiles,
+      capabilityFiles,
     );
     assert.deepEqual(problems, [], problems.join('\n'));
     assert.ok(commandCount > 0);
     // The lock also proves the check reads the real surfaces it names.
-    for (const p of [DOC_PATH, CAPABILITIES_PATH, MOCK_PATH]) {
+    for (const p of [DOC_PATH, MOCK_PATH]) {
       assert.doesNotThrow(() => readFileSync(resolve(ROOT, p)));
     }
   });

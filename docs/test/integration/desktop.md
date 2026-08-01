@@ -53,8 +53,10 @@ and the guard speaks about the commands the frontend actually invokes on a path
 some spec exercises. Holding the crate's registered command surface against its
 own table is
 [DSH-1](../../architecture/application/desktop/windows/application-shell.md#the-command-surface)'s
-job, done by the command-surface admission test its registry row names — the
-same check holds this mock's serviced-command list equal to the crate surface.
+job, done by the command-surface admission test its registry row names. The
+same check holds this mock's serviced-command list equal to the crate's
+registered surface — the list's definition — so the mock services every crate
+command, and a backend command cannot land without this suite seeing it.
 
 **Per-spec behaviour rides an override seam.** `installTauriMockServer({ overrides })`
 replaces a single command's behaviour with spec-supplied source — how

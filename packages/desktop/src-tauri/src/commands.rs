@@ -454,7 +454,6 @@ mod tests {
     struct MockCapture {
         rec: Arc<Mutex<Recorded>>,
         windows: Vec<WindowInfo>,
-        permissions_granted: bool,
         fail_start: bool,
         fail_stop: bool,
         fail_list: bool,
@@ -467,7 +466,6 @@ mod tests {
             let mock = MockCapture {
                 rec: Arc::clone(&rec),
                 windows: Vec::new(),
-                permissions_granted: false,
                 fail_start: false,
                 fail_stop: false,
                 fail_list: false,
@@ -510,7 +508,7 @@ mod tests {
 
         fn check_permissions(&self) -> PermissionStatus {
             PermissionStatus {
-                granted: self.permissions_granted,
+                granted: false,
                 message: None,
             }
         }
