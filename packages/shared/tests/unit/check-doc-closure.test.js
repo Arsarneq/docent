@@ -342,13 +342,17 @@ describe('extractJobIds / extractJobNpmRunTokens', () => {
     assert.deepEqual(read.problems, []);
   });
 
-  it('anchors loudly when jobs: is absent — both scans', () => {
+  it('anchors loudly when jobs: is absent — each scan naming itself', () => {
     const read = extractJobIds('name: test\non: push\n');
     assert.deepEqual(read.ids, []);
     assert.ok(read.problems[0].includes('no top-level `jobs:` key'));
+    assert.ok(read.problems[0].includes('the job scan'));
     const steps = extractJobNpmRunTokens('name: test\non: push\n', 'lint');
     assert.deepEqual(steps.tokens, []);
     assert.ok(steps.problems[0].includes('no top-level `jobs:` key'));
+    assert.ok(steps.problems[0].includes('the step scan'));
+    // One fault, two facts: the shared anchor's two diagnoses stay distinct.
+    assert.notEqual(read.problems[0], steps.problems[0]);
   });
 
   it('collects one job’s npm-run tokens, deduplicated and bounded to the job', () => {
@@ -454,14 +458,6 @@ describe('real-tree lock', () => {
     assert.ok(problems.some((p) => p.includes('no workflow-inventory rows found')));
   });
 
-  it('the workflow-file boundary keeps top-level YAML and drops nested or non-YAML paths', () => {
-    assert.ok(WORKFLOW_FILE_RE.test('.github/workflows/test.yml'));
-    assert.ok(WORKFLOW_FILE_RE.test('.github/workflows/nightly.yaml'));
-    assert.ok(!WORKFLOW_FILE_RE.test('.github/workflows/nested/inner.yml'));
-    assert.ok(!WORKFLOW_FILE_RE.test('.github/workflows/readme.md'));
-    assert.ok(!WORKFLOW_FILE_RE.test('.github/other/test.yml'));
-  });
-
   it('the constants still point where the check reads', () => {
     for (const p of [CI_DOC_PATH, LOCAL_CI_DOC_PATH, TEST_WORKFLOW_PATH, ROOT_MANIFEST_PATH]) {
       assert.ok(readFileSync(resolve(ROOT, p), 'utf8').length > 0, p);
@@ -476,5 +472,15 @@ describe('real-tree lock', () => {
         LINT_JOB_ID,
       ),
     );
+  });
+});
+
+describe('WORKFLOW_FILE_RE — the workflow-inventory leg’s boundary', () => {
+  it('keeps top-level YAML and drops nested or non-YAML paths', () => {
+    assert.ok(WORKFLOW_FILE_RE.test('.github/workflows/test.yml'));
+    assert.ok(WORKFLOW_FILE_RE.test('.github/workflows/nightly.yaml'));
+    assert.ok(!WORKFLOW_FILE_RE.test('.github/workflows/nested/inner.yml'));
+    assert.ok(!WORKFLOW_FILE_RE.test('.github/workflows/readme.md'));
+    assert.ok(!WORKFLOW_FILE_RE.test('.github/other/test.yml'));
   });
 });

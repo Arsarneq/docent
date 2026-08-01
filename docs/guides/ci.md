@@ -187,7 +187,7 @@ whole jobs). The Doc closure row's own check holds this table to three
 properties: `package.json`'s `lint` chain runs exactly the `lint:*` family,
 every `lint:*` script and every `npm run` step of the `lint` job has a row
 here, and every `npm run` command a row cites names a real script (the last
-held by the same citation leg that reads all tracked markdown). Whether a
+held by the check's citation leg, which reads all tracked markdown). Whether a
 given row still corresponds to a gate that runs is held by review, for
 every row, whatever form its local command takes.
 

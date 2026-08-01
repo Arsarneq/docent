@@ -18,8 +18,8 @@
  *     stem).
  *
  * Every parsed surface must be non-empty, an unreadable table cell is
- * refused rather than skipped, and the job scan requires its `jobs:` anchor
- * — a broken read fails loudly instead of passing vacuously.
+ * refused rather than skipped, and both workflow scans require their shared
+ * `jobs:` anchor — a broken read fails loudly instead of passing vacuously.
  *
  * Honest limits: the guides' prose paragraphs stay review-held — this check
  * reads the inventory tables, the gates table's Local-command column, the
@@ -27,16 +27,17 @@
  * job-naming surfaces — among them the path-filtered jobs table, the
  * always-run prose, and the gates table's Where column — are outside its
  * legs, as is a tracked YAML nested below the workflows directory (not a
- * workflow the platform runs). The gates-table legs hold three properties:
- * the `lint` chain runs exactly the `lint:*` family, the family and the
- * lint job's `npm run` steps each have a row, and every `npm run` command a
- * row cites names a real script — the last held by the citation leg over
- * all tracked markdown. Whether any given row still corresponds to a gate
- * that runs is held by review, for every row, whatever form its local
- * command takes. A script name cited outside the `npm run` form (a bare
- * backticked key) is outside the citation leg. The job scan is shaped to
- * test.yml's committed layout (top-level `jobs:`, two-space job keys) and
- * refuses the file loudly if that anchor vanishes. Npm-run citations are
+ * workflow the platform runs). The check holds the gates table to three
+ * properties: the `lint` chain runs exactly the `lint:*` family, the family
+ * and the lint job's `npm run` steps each have a row, and every `npm run`
+ * command a row cites names a real script (the last held by the citation
+ * leg over all tracked markdown). Whether any given row still corresponds
+ * to a gate that runs is held by review, for every row, whatever form its
+ * local command takes. A script name cited outside the `npm run` form (a
+ * bare backticked key) is outside the citation leg. The workflow scans are
+ * shaped to test.yml's committed layout — the shared top-level `jobs:`
+ * anchor, and the job scan's two-space job keys — and each refuses the
+ * file loudly, naming itself, if the anchor vanishes. Npm-run citations are
  * resolved against the union of every tracked manifest's script keys, so
  * which package a doc means is review-held — the leg catches a token no
  * manifest defines, not a token cited against the wrong package.
@@ -381,7 +382,7 @@ export function evaluateDocClosure(s) {
   const gateTokens = new Set(s.gateRows.flatMap((r) => r.tokens));
   problems.push(
     ...missingFrom(s.workflowFiles, s.workflowRows, `is a workflow file but the ${CI_DOC_PATH} inventory table does not list it`), // prettier-ignore
-    ...missingFrom(s.workflowRows, s.workflowFiles, `is listed in the ${CI_DOC_PATH} inventory table but no tracked workflow file matches it (an untracked file needs \`git add\` before the gate can see it)`), // prettier-ignore
+    ...missingFrom(s.workflowRows, s.workflowFiles, `is listed in the ${CI_DOC_PATH} inventory table but no tracked workflow file matches it — the gate sees only tracked files directly under ${WORKFLOWS_DIR}`), // prettier-ignore
     ...missingFrom(s.jobIds, s.actRows, `is a ${TEST_WORKFLOW_PATH} job but the ${LOCAL_CI_DOC_PATH} act table does not key it`), // prettier-ignore
     ...missingFrom(s.actRows, s.jobIds, `is keyed by the ${LOCAL_CI_DOC_PATH} act table but is not a ${TEST_WORKFLOW_PATH} job`), // prettier-ignore
     ...missingFrom(s.chainTokens, s.lintKeys, `is run by the \`lint\` chain but is not a \`${LINT_FAMILY_PREFIX}*\` script`), // prettier-ignore
