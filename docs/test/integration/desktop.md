@@ -80,6 +80,10 @@ answers a request ahead of the served frontend files.
 
 ## What the suite covers
 
+The suite is exactly the test files below — the fixtures and configs beside them
+are helpers, not specs; a new spec joins this table in the same change that adds
+it, and a CI lint holds the two in agreement.
+
 | Spec                                        | Covers                                                                                                                                                                             |
 | ------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `panel-desktop.spec.js`                     | Core panel UI: project/recording creation, view transitions, step commit via simulated `capture:action` events.                                                                    |

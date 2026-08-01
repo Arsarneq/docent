@@ -16,7 +16,9 @@ Tests live in two places:
   plus `commands`, `secret_store`, and `sync_http`). These run under
   `cargo test --lib`.
 - **Test binaries** — a flat `packages/desktop/src-tauri/tests/` directory
-  (Cargo convention), one file per concern:
+  (Cargo convention), one file per concern. The binaries are exactly the files
+  below; a new one joins this table in the same change that adds it, and a CI
+  lint holds the two in agreement:
 
 | Test file                   | Covers                                                                                                                                                                                                                                                   |
 | --------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
