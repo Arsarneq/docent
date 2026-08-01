@@ -135,7 +135,15 @@ describe('evaluateExtensionSurface — message legs (both ways)', () => {
     assert.ok(problems.some((p) => p.includes('STEP_COMMIT') && p.includes('disjoint')));
   });
 
-  it('fires on a duplicated name in the doc and case-label surfaces — the legs the set diffs cannot see', () => {
+  it('fires on a duplicated name in the manifest, doc, and case-label surfaces — the legs the set diffs cannot see', () => {
+    const manifestDup = evaluateExtensionSurface(
+      makeSurface({ manifestPermissions: ['storage', 'tabs', 'storage'] }),
+    );
+    assert.ok(manifestDup.some((p) => p.includes('storage') && p.includes('more than once')));
+    const hostDup = evaluateExtensionSurface(
+      makeSurface({ manifestHostPermissions: ['<all_urls>', '<all_urls>'] }),
+    );
+    assert.ok(hostDup.some((p) => p.includes('<all_urls>') && p.includes('more than once')));
     const docDup = evaluateExtensionSurface(
       makeSurface({ docPermissions: ['storage', 'tabs', 'storage'] }),
     );
@@ -194,6 +202,20 @@ describe('extractManifestSurface', () => {
   it('refuses an unparseable manifest', () => {
     const read = extractManifestSurface('not json');
     assert.ok(read.problems.some((p) => p.includes('does not parse as JSON')));
+  });
+
+  it('refuses a permission field that is not an array without throwing', () => {
+    for (const shape of ['42', '{"a":1}', 'true', '"storage"']) {
+      const read = extractManifestSurface(
+        `{"permissions": ${shape}, "host_permissions": ["<all_urls>"]}`,
+      );
+      assert.deepEqual(read.permissions, []);
+      assert.deepEqual(read.hostPermissions, ['<all_urls>']);
+      assert.ok(
+        read.problems.some((p) => p.includes('permissions that is not an array')),
+        `expected the non-array diagnosis for ${shape}, got: ${read.problems.join('\n')}`,
+      );
+    }
   });
 
   it('refuses a manifest that parses to a non-object without throwing', () => {

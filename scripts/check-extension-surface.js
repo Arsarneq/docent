@@ -18,8 +18,11 @@
  * Every parsed set must be non-empty, every table cell must be readable
  * (fence-aware, refusing unreadable rows rather than skipping them), the
  * dispatcher must carry exactly one `switch (msg.type)` with a `default:`
- * arm, and a manifest entry that is not a string is refused — a broken read
- * fails loudly instead of passing vacuously.
+ * arm, and the manifest read refuses every shape outside its model — a
+ * document that is not a JSON object, a permission field that is not an
+ * array, an entry that is not a string, and an optional-permission key in
+ * any shape other than the empty array — so a broken read fails loudly
+ * instead of passing vacuously.
  *
  * Honest limits: a dispatch route outside the tokenized shapes (a computed
  * message type, a negated or reversed-operand type test, an equality test on
@@ -88,7 +91,12 @@ export function extractManifestSurface(manifestJson) {
   }
   const readArray = (field) => {
     const out = [];
-    for (const entry of parsed[field] ?? []) {
+    const raw = parsed[field] ?? [];
+    if (!Array.isArray(raw)) {
+      problems.push(`${MANIFEST_PATH} carries a ${field} that is not an array (${JSON.stringify(raw)}) — the read cannot run`); // prettier-ignore
+      return out;
+    }
+    for (const entry of raw) {
       if (typeof entry === 'string') {
         out.push(entry);
       } else {
@@ -99,7 +107,7 @@ export function extractManifestSurface(manifestJson) {
   };
   for (const field of ['optional_permissions', 'optional_host_permissions']) {
     if (field in parsed && !(Array.isArray(parsed[field]) && parsed[field].length === 0)) {
-      problems.push(`${MANIFEST_PATH} declares ${field}, which the permission tables do not model — extend the doc and this check together, or drop the key`); // prettier-ignore
+      problems.push(`${MANIFEST_PATH} declares ${field}, which the permission tables do not model — extend the doc and this check together, drop the key, or leave it the empty array`); // prettier-ignore
     }
   }
   return {

@@ -490,12 +490,14 @@
     },
     {
       "path": "scripts/check-test-inventory.js",
-      "reason": "The test-inventory lint and the shared doc-scan primitives (fence model, clause-section slice, table parse, list/token readers) the surface checks verify their clauses through — an edit here changes what the inventory gate guarantees and what those clauses are checked against, so the coverage doc, the mock-fixture doc, and the clause docs govern it beside the CI guides.",
+      "reason": "The test-inventory lint and the shared doc-scan primitives (fence model, clause-section slice, table parse, list/token readers) the surface checks verify their clauses through — an edit here changes what the gate holds the registered suite inventories and coverage lists to (the suite docs and the coverage doc), and what the surface checks' clauses are checked against (the clause docs; the desktop suite doc is doubly coupled — its mock serviced-command leg runs on this file's list reader, a coupling DSH-1's registry row records as held by the check itself).",
       "governed-by": [
         "docs/guides/ci.md",
         "docs/guides/local-ci.md",
         ".github/PUBLISHING.md",
         "docs/test/strategy/coverage.md",
+        "docs/test/e2e.md",
+        "docs/test/desktop-rust.md",
         "docs/test/integration/desktop.md",
         "docs/architecture/application/desktop/windows/application-shell.md",
         "docs/architecture/application/extension/permissions.md",
