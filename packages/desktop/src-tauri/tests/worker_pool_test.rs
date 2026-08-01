@@ -1,10 +1,12 @@
 // Property tests for the capture worker pool infrastructure.
 //
-// Tests cover: sequence numbering, shortest-queue dispatch, sticky routing,
-// drag-pair routing, and the dead-worker drain rescues (dispatch-time respawn
-// and shutdown join) — the pipeline-level truth-lock. The click-vs-drag
-// threshold itself belongs to the Windows provider and is pinned beside it, in
-// the `capture::windows` module's own unit tests.
+// The principal subjects: sequence numbering, shortest-queue dispatch, sticky
+// routing, drag-pair routing, and the dead-worker drain rescues (dispatch-time
+// respawn and shutdown join) — the pipeline-level truth-lock — alongside
+// end-to-end action truth-locks over the same pipeline (key, right-click,
+// selection, scroll flush, locator pass-through, excluded-PID discard). The
+// click-vs-drag threshold itself belongs to the Windows provider and is pinned
+// beside it, in the `capture::windows` module's own unit tests.
 
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc;
