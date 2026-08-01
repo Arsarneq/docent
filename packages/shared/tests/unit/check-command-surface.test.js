@@ -20,6 +20,7 @@ import {
   LIB_PATH,
   SRC_DIR,
   CAPABILITIES_DIR,
+  TAURI_CONF_PATH,
   MOCK_PATH,
   EVENT_CHANNEL,
   stripRustComments,
@@ -51,6 +52,7 @@ function makeSurface(overrides = {}) {
     docGrants: ['core:default', 'dialog:allow-open'],
     mockCommands: ['start_capture', 'stop_capture'],
     mockCases: ['start_capture', 'stop_capture'],
+    docUnreadableRows: [],
     ...overrides,
   };
 }
@@ -520,6 +522,7 @@ describe('auditTree — synthetic tree', () => {
       if (f === DOC_PATH) return DOC;
       if (f === LIB_PATH) return LIB;
       if (f === MOCK_PATH) return MOCK;
+      if (f === TAURI_CONF_PATH) return '{}';
       return capabilities[f] ?? '';
     };
   }
@@ -546,6 +549,41 @@ describe('auditTree — synthetic tree', () => {
     const caps = { 'caps/default.json': JSON.stringify({ permissions: ['core:default', 42] }) };
     const { problems } = auditTree(treeReader(caps), [LIB_PATH], Object.keys(caps));
     assert.ok(problems.some((p) => p.includes('cannot read') && p.includes('42')));
+  });
+
+  it('refuses a capability file in a format the scan does not read', () => {
+    const caps = {
+      'caps/default.json': JSON.stringify({ permissions: ['core:default', 'fs:allow-read'] }),
+      'caps/extra.toml': 'permissions = ["fs:allow-write"]',
+    };
+    const { problems } = auditTree(treeReader(caps), [LIB_PATH], Object.keys(caps));
+    assert.ok(
+      problems.some((p) => p.includes('caps/extra.toml') && p.includes('format the scan does not read')), // prettier-ignore
+    );
+  });
+
+  it('refuses capabilities inlined in tauri.conf.json', () => {
+    const caps = {
+      'caps/default.json': JSON.stringify({ permissions: ['core:default', 'fs:allow-read'] }),
+    };
+    const readFile = (f) => {
+      if (f === TAURI_CONF_PATH) {
+        return JSON.stringify({ app: { security: { capabilities: [{ permissions: ['x:default'] }] } } }); // prettier-ignore
+      }
+      return treeReader(caps)(f);
+    };
+    const { problems } = auditTree(readFile, [LIB_PATH], Object.keys(caps));
+    assert.ok(problems.some((p) => p.includes('inlines capabilities')));
+  });
+
+  it('refuses a fixture carrying a second switch (cmd) block', () => {
+    const caps = {
+      'caps/default.json': JSON.stringify({ permissions: ['core:default', 'fs:allow-read'] }),
+    };
+    const twoSwitches = `${MOCK}\nswitch (cmd) { default: break; }`;
+    const readFile = (f) => (f === MOCK_PATH ? twoSwitches : treeReader(caps)(f));
+    const { problems } = auditTree(readFile, [LIB_PATH], Object.keys(caps));
+    assert.ok(problems.some((p) => p.includes('2 `switch (cmd)` blocks')));
   });
 });
 

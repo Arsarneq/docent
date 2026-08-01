@@ -38,8 +38,10 @@
  * than passing vacuously.
  *
  * Honest limits: an emit issued through a wrapping helper or through
- * non-method call syntax (`Emitter::emit(app, …)`) is invisible to the scan;
- * a `#[tauri::command]` declared inside a test-only module would count as
+ * non-method call syntax (`Emitter::emit(app, …)`) is invisible to the scan,
+ * while the emit-method names are matched on any receiver, so an unrelated
+ * type exposing `emit()` would red the gate (loud, reviewed away); a
+ * `#[tauri::command]` declared inside a test-only module would count as
  * shipped surface; the clause's section cannot name a grant-shaped
  * identifier the capability files do not hold (an illustrative mention
  * outside a fence reds the gate); and the table's Direction / What-it-does /
@@ -62,6 +64,8 @@ export const LIB_PATH = 'packages/desktop/src-tauri/src/lib.rs';
 export const SRC_DIR = 'packages/desktop/src-tauri/src';
 /** Repo-relative directory of the capability files naming the plugin grants. */
 export const CAPABILITIES_DIR = 'packages/desktop/src-tauri/capabilities';
+/** Repo-relative path of the Tauri config, which may inline capabilities. */
+export const TAURI_CONF_PATH = 'packages/desktop/src-tauri/tauri.conf.json';
 /** Repo-relative path of the integration suite's Tauri mock fixture. */
 export const MOCK_PATH = 'packages/desktop/tests/integration/tauri-mock-fixture.js';
 
@@ -356,7 +360,7 @@ function duplicatesIn(names, what) {
  * @param {number} s.handlerOccurrences how many generate_handler! lists exist
  * @param {string[]} s.docCommands the doc table's command rows
  * @param {string[]} s.docEvents the doc table's event rows
- * @param {string[]} [s.docUnreadableRows] backticked first cells in no readable shape
+ * @param {string[]} s.docUnreadableRows backticked first cells in no readable shape
  * @param {{ path: string, method: string, channel: string | null, line: number }[]} s.emitSites
  * @param {string[]} s.fileGrants permissions across the tracked capability files
  * @param {string[]} s.docGrants grant identifiers the doc section names
@@ -409,7 +413,7 @@ export function evaluateCommandSurface(s) {
     ...missingFrom(s.mockCases, s.commandFns, `is serviced by the mock's invoke switch but no #[tauri::command] function defines it`), // prettier-ignore
   );
 
-  for (const cell of s.docUnreadableRows ?? []) {
+  for (const cell of s.docUnreadableRows) {
     problems.push(`the ${CLAUSE_ID} table carries a first cell the scan cannot read (${cell}) — rows are \`name\` or \`name\` (event), nothing else`); // prettier-ignore
   }
   const badEventRows = s.docEvents.filter((e) => e !== EVENT_CHANNEL);
@@ -469,11 +473,18 @@ export function auditTree(readFile, rustFiles, capabilityFiles) {
 
   // Union the grants across every tracked capability file — Tauri loads the
   // whole directory, so a second file widens the webview surface exactly like
-  // an entry added to the first. Parse and shape failures are contract
-  // problems in their own right, never a thrown stack.
+  // an entry added to the first. A capability source the scan cannot read —
+  // a non-JSON capability file (Tauri also accepts .json5 and .toml), a
+  // capability inlined in tauri.conf.json, a parse failure, an entry of an
+  // unknown shape — is a contract problem in its own right, never a thrown
+  // stack and never silently invisible.
   const collectionProblems = [];
   const fileGrants = [];
   for (const file of capabilityFiles) {
+    if (!file.endsWith('.json')) {
+      collectionProblems.push(`${file} is a capability file in a format the scan does not read (Tauri also loads .json5/.toml) — convert it to .json or extend the check`); // prettier-ignore
+      continue;
+    }
     let parsed;
     try {
       parsed = JSON.parse(readFile(file));
@@ -491,10 +502,23 @@ export function auditTree(readFile, rustFiles, capabilityFiles) {
       }
     }
   }
+  try {
+    const conf = JSON.parse(readFile(TAURI_CONF_PATH));
+    const inlined = conf?.app?.security?.capabilities;
+    if (Array.isArray(inlined) && inlined.length > 0) {
+      collectionProblems.push(`${TAURI_CONF_PATH} inlines capabilities under app.security.capabilities, which the scan does not read — move them to ${CAPABILITIES_DIR} or extend the check`); // prettier-ignore
+    }
+  } catch {
+    collectionProblems.push(`${TAURI_CONF_PATH} does not parse as JSON — the inlined-capability guard cannot run`); // prettier-ignore
+  }
 
   const mockSource = readFile(MOCK_PATH).replace(/\r\n/g, '\n');
   const mockRead = extractMockCommands(mockSource);
   if (mockRead.error) collectionProblems.push(`${MOCK_PATH}: ${mockRead.error}`);
+  const switchCount = (mockSource.match(/switch \(cmd\)/g) ?? []).length;
+  if (switchCount !== 1) {
+    collectionProblems.push(`${MOCK_PATH} carries ${switchCount} \`switch (cmd)\` blocks — the serviced-case scan models exactly one`); // prettier-ignore
+  }
 
   const s = {
     commandFns: [...strippedByPath.values()].flatMap((src) => extractCommandFns(src)),
@@ -526,7 +550,7 @@ function run() {
       .map((s) => s.trim())
       .filter(Boolean);
   const rustFiles = lsFiles(SRC_DIR).filter((f) => f.endsWith('.rs'));
-  const capabilityFiles = lsFiles(CAPABILITIES_DIR).filter((f) => f.endsWith('.json'));
+  const capabilityFiles = lsFiles(CAPABILITIES_DIR);
   const readFile = (f) => {
     try {
       return readFileSync(f, 'utf8');

@@ -52,7 +52,9 @@ The application is one Tauri v2 crate hosting one webview window
 every `#[tauri::command]` the crate defines is registered in `lib.rs`'s
 `generate_handler!` list and appears in the table, and `capture:action` is the
 only event channel the backend emits. A change that adds, removes, or renames
-a command or an event channel MUST update this table in the same change.
+a command or an event channel MUST update this table in the same change, and
+a change to the granted plugin surface MUST update this section's grant
+enumeration likewise.
 
 | Name                         | Direction | What it does                                                                                                                                                                                                                                                                                                                                                                                                                                                                    | Who calls it                                                                                                                                                        |
 | ---------------------------- | --------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -72,20 +74,18 @@ a command or an event channel MUST update this table in the same change.
 
 The crate's commands are not the whole invokable surface: the webview can
 also invoke the Tauri plugin commands granted by the capability files (today
-[`capabilities/default.json`](../../../../../packages/desktop/src-tauri/capabilities/default.json))
-— the `core:default` set and the dialog plugin's grants (`dialog:default`,
+[`capabilities/default.json`](../../../../../packages/desktop/src-tauri/capabilities/default.json)) —
+the `core:default` set and the dialog plugin's grants (`dialog:default`,
 which resolves to the plugin's message, open, and save commands, plus the
 explicit `dialog:allow-open` and `dialog:allow-save` allowances). The
-`core:default` grant is load-bearing:
-the adapter's `capture:action` listener is itself an event-plugin
-invocation that grant authorizes, exercised on every captured action. The
-dialog grants are unused headroom today — no shipped frontend code invokes
-the dialog plugin; the file dialogs are opened from Rust inside
-`export_file`/`import_file`, which capabilities do not gate. The capability
-files are the closed admission gate
-for the plugin surface: a command outside the crate's table and the granted
-set is not invokable, and widening a grant widens what the webview can
-reach.
+`core:default` grant is load-bearing: the adapter's `capture:action`
+listener is itself an event-plugin invocation that grant authorizes,
+exercised on every captured action. The dialog grants are unused headroom
+today — no shipped frontend code invokes the dialog plugin; the file dialogs
+are opened from Rust inside `export_file`/`import_file`, which capabilities
+do not gate. The capability files are the closed admission gate for the
+plugin surface: a command outside the crate's table and the granted set is
+not invokable, and widening a grant widens what the webview can reach.
 
 The `capture:action` channel is the shell's one backend→frontend event
 surface; what rides it is the capture documents' territory. The adapter
