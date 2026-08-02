@@ -28,6 +28,14 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      # The shared kill-set includes suites that read gitignored build output a
+      # checkout does not carry: sync-client.test.js loads the generated platform
+      # validators from packages/shared/generated/, and schema-split.test.js
+      # reads the synced per-platform schema copies under packages/*/shared/.
+      # `npm run sync-shared` produces both.
+      - name: Sync shared code
+        run: npm run sync-shared
+
       - name: Run Stryker — shared package
         run: npm run test:mutation ${{ runner.debug == '1' && '-- --logLevel trace' || '' }}
 

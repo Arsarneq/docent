@@ -57,6 +57,22 @@
  *     mirrored block in content/recorder.js and content/recorder-logic.js),
  *     ~11KB each including the contract-bearing doc comments — 625.5KB actual.
  *     Deliberate capture-feature artifact, no new dependency.
+ *   - Raised to 660KB for the pull path's forward-compatibility projection
+ *     (docent#429): `packages/shared/sync-client.js` gained the known-field
+ *     envelope projection the Sync Protocol's SP-5 is delivered through, with the
+ *     contract-bearing comments that keep it from being simplified back into a
+ *     raw-payload validation, and `packages/shared/lib/validate-import.js` gained
+ *     the clauses scoping its pull half — 3,093 B of shared code that
+ *     sync-shared copies into the extension. Deliberate protocol-conformance
+ *     artifact, no new dependency. The record, so the raise is auditable: the
+ *     pre-change tree measured 657,829 B (642.4KB), sitting 2,651 B under the
+ *     old 645KB limit; this change takes it to 660,922 B (645.4KB), which that
+ *     limit would have tripped. The raise is deliberately larger than the
+ *     growth — 660KB leaves 14,918 B (~14.6KB) of margin — but deliberately
+ *     smaller than the margins the two preceding raises left (~18KB at the
+ *     620KB raise, ~19.5KB at the 645KB raise), so the tripwire regains room to
+ *     catch unexpected growth without widening the budget past what those
+ *     raises set.
  *
  * Requires `npm run sync-shared` to have been run first.
  */
@@ -101,12 +117,12 @@ function formatSize(bytes) {
 const extensionExcludes = ['node_modules', 'tests', '.git', 'coverage'];
 
 describe('Build size: Extension', () => {
-  it('total JS size is under 645KB (uncompressed)', () => {
+  it('total JS size is under 660KB (uncompressed)', () => {
     const size = getDirSize(extensionDir, ['.js'], extensionExcludes);
     assert.ok(size > 0, 'No JS files found — has sync-shared been run?');
     assert.ok(
-      size < 645 * 1024,
-      `Extension JS is ${formatSize(size)} (soft limit: 645KB). This is a regression tripwire, not a platform limit — if the growth is an intentional artifact, raise the limit AND its rationale in this file's header; otherwise check for an accidental large dependency.`,
+      size < 660 * 1024,
+      `Extension JS is ${formatSize(size)} (soft limit: 660KB). This is a regression tripwire, not a platform limit — if the growth is an intentional artifact, raise the limit AND its rationale in this file's header; otherwise check for an accidental large dependency.`,
     );
   });
 

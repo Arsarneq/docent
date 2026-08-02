@@ -11,6 +11,9 @@
  *   - Manifest  (GET /projects)
  *   - Read      (GET /projects/:id)
  *   - Write     (PUT /projects/:id)
+ *   - The no-CORS response posture this server implements (SP-25), across the
+ *           handler-written and router-written responses alike, preflight
+ *           included.
  *
  * This file is part of Docent.
  * Licensed under the GNU General Public License v3.0
@@ -263,5 +266,78 @@ describe('protocol — write (PUT /projects/:id)', () => {
       'no last_modified injected into project',
     );
     assert.deepEqual(read.body, payload, 'payload returned verbatim');
+  });
+});
+
+/**
+ * Collect the `Access-Control-*` headers a harness response carries. `fetch`
+ * lower-cases header names, so the prefix test is exact rather than a
+ * case-insensitive guess.
+ *
+ * @param {import('./harness.js').HarnessResponse} res  A harness response.
+ * @returns {string[]} The CORS header names present, sorted.
+ */
+function corsHeadersOf(res) {
+  return Object.keys(res.headers)
+    .filter((name) => name.startsWith('access-control-'))
+    .sort();
+}
+
+describe('protocol — CORS headers (SP-25)', () => {
+  let server;
+  before(async () => {
+    server = await startTestServer();
+  });
+  after(async () => {
+    await server.close();
+  });
+
+  it('emits no Access-Control-* header on any response — handler-written, router-written, or preflight', async () => {
+    // SP-25: this server needs no CORS headers, and sends none. Permissive CORS
+    // would arrive as a header, so the absence is what pins it — driven across
+    // BOTH response-writing paths (the handlers write their own bodies; the
+    // router writes its own status-only 404/405) and across the preflight, the
+    // one request whose whole purpose would be to carry these headers.
+    const write = await request(server.baseUrl, 'PUT', `/projects/${PROJECT_A}`, {
+      body: makePayload(PROJECT_A, 'CORS posture'),
+    });
+    assert.equal(write.status, 201);
+
+    const manifest = await request(server.baseUrl, 'GET', '/projects');
+    assert.equal(manifest.status, 200);
+
+    const read = await request(server.baseUrl, 'GET', `/projects/${PROJECT_A}`);
+    assert.equal(read.status, 200);
+
+    const missing = await request(
+      server.baseUrl,
+      'GET',
+      '/projects/00000000-0000-7000-8000-000000000000',
+    );
+    assert.equal(missing.status, 404);
+
+    // Preflight: this server routes OPTIONS as an unsupported method on a known
+    // path, so it answers 405 from the router — never a CORS short-circuit.
+    const preflightCollection = await request(server.baseUrl, 'OPTIONS', '/projects');
+    assert.equal(preflightCollection.status, 405);
+
+    const preflightItem = await request(server.baseUrl, 'OPTIONS', `/projects/${PROJECT_A}`);
+    assert.equal(preflightItem.status, 405);
+
+    // The router's own status-only write path, reached by an unknown path.
+    const unknownPath = await request(server.baseUrl, 'GET', '/nope');
+    assert.equal(unknownPath.status, 404);
+
+    for (const [label, res] of [
+      ['PUT /projects/:id', write],
+      ['GET /projects', manifest],
+      ['GET /projects/:id', read],
+      ['GET /projects/:id (handler 404)', missing],
+      ['OPTIONS /projects (router 405)', preflightCollection],
+      ['OPTIONS /projects/:id (router 405)', preflightItem],
+      ['GET /nope (router 404)', unknownPath],
+    ]) {
+      assert.deepEqual(corsHeadersOf(res), [], `${label} emits no Access-Control-* header`);
+    }
   });
 });

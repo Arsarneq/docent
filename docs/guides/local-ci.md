@@ -88,7 +88,7 @@ same setup its CI job performs first:
 
 | CI job              | Setup first                                                        | Local command                     |
 | ------------------- | ------------------------------------------------------------------ | --------------------------------- |
-| `stryker-shared`    | `npm ci`                                                           | `npm run test:mutation`           |
+| `stryker-shared`    | `npm ci`; `npm run sync-shared`                                    | `npm run test:mutation`           |
 | `stryker-extension` | `npm ci`; `cd packages/extension && npm ci`; `npm run sync-shared` | `npm run test:mutation:extension` |
 | `stryker-desktop`   | `npm ci`; `npm run sync-shared`; `npm run build:desktop-dist`      | `npm run test:mutation:desktop`   |
 

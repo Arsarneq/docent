@@ -6,9 +6,9 @@
  * These import the build-only artifacts in packages/shared/generated/, so they
  * require `npm run sync-shared` (or `node scripts/build-validators.js`) to have
  * run first — the same precondition the build-size tests already rely on. The
- * test self-skips with a clear message if the artifacts are absent, so a fresh
- * checkout that hasn't built yet fails loudly on the missing build step rather
- * than mysteriously.
+ * test asserts on the artifacts' presence, with a message naming the build step
+ * to run, so a fresh checkout that hasn't built yet fails loudly on the missing
+ * build step rather than mysteriously.
  */
 
 import { describe, it, before } from 'node:test';
