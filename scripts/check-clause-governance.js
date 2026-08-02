@@ -54,6 +54,22 @@ export const REGISTRY_PATH = 'docs/clause-registry.json';
  * paths a row cites, and [`check-schema-echo.js`](./check-schema-echo.js)
  * reads it to find the surfaces the authority row enumerates. Both scan the
  * same rows, so the shape they admit is one decision, not two.
+ *
+ * [`check-clause-registry.js`](./check-clause-registry.js) scans those rows
+ * too and deliberately does NOT read this shape: it GATES citations — every
+ * token it admits must resolve against the tree or the build reds — while this
+ * FINDER casts wide precisely because an over-collected token resolves to no
+ * governance and costs nothing. Neither admission set contains the other: this
+ * shape takes the separator-less dotted names that gate leaves unvalidated, and
+ * that gate takes trailing-slash directory citations, `npm run` targets, and
+ * lock ordinals this shape has no form for. A citation naming files by PATTERN
+ * is outside both: that gate drops such a token whole, and this one's directory
+ * segments admit no `*`, so a mid-path glob is read from the last glob-free
+ * boundary — a shorter path than the text names, which then resolves to no
+ * governance. A shared limitation, stated on both sides; a pattern-aware shape
+ * would be a deliberate future widening, not a leg either check has today.
+ * Two purposes, two shapes; this stays the single home of the finder shape, and
+ * that check's header records the same split from its side.
  */
 export const CITED_PATH_RE = /(?:[A-Za-z0-9_\-.]+\/)*[A-Za-z0-9_\-.*{},[\]]+\.[A-Za-z0-9]+/g;
 

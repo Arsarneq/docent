@@ -165,8 +165,12 @@ jobs:
 
       # Docs state rules as stable clause identifiers (e.g. **CP-3.**) and
       # docs/clause-registry.json records how each is verified. This keeps the
-      # two in one-to-one agreement and every named check resolvable; it checks
-      # form only, never the quality of a judgment.
+      # two in one-to-one agreement, and holds every citation either registry
+      # text field carries — a row's check-ref and its justification alike — to
+      # resolving against the tree, or being refused as a citation that cannot
+      # identify what it names. The check's own list of citable root files is
+      # held to the tracked set on every run, so a stale entry reds there
+      # rather than in a row.
       - name: Validate clause-registry parity
         run: npm run lint:clause-registry
 
