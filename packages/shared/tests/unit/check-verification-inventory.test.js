@@ -9,10 +9,23 @@
  * class claim, the unreadable-item, unreadable-cell, and unreadable-token
  * refusals, the exactly-one-table selection, the per-document
  * citation vacuity guard, duplicates, empty parses, and the loud refusal of an
- * input file the command-line readers cannot read or cannot recognise as a
- * session catalogue — plus the extraction
+ * input file the command-line readers cannot read or cannot recognise as the
+ * surface they read it as — plus the extraction
  * grammars on synthetic documents, and, as a real-tree lock, that the shipped
  * documents satisfy every pin.
+ *
+ * The strict-flip watch gets its own families: every quadrant of both flag legs
+ * on every watched platform, the axis independence between them (one flag owed
+ * never implies the other), the active-filtered fail-entry population, the
+ * token-exact flag detection that keeps the `--lint` both gates already pass
+ * from reading as `--lint-strict`, and a shape verdict for each way each file
+ * it reads can be truncated, emptied, or malformed — because each of
+ * those, believed, would read as a trigger that came true. Two further families
+ * hold the watch to the tree it claims to watch: the catalogue's platform
+ * population diffed against the watched set both ways, and each gate command's
+ * own `--platform` and `--baseline` argument values against what this check
+ * reads for it — a gate pointed elsewhere is watched against a state it does
+ * not gate on.
  *
  * The exit-code contract is pinned where it lives, at the process boundary: a
  * spawned-CLI family runs the real command over a temporary tree holding copies
@@ -31,32 +44,89 @@ import {
   CORPUS_DOC_PATH,
   LINT_DOC_PATH,
   MANIFEST_PATH,
+  PACKAGE_JSON_PATH,
+  SUFFICIENCY_BASELINE_PATH,
   NORMALIZATION_TABLE_HEADER,
   PER_ACTION_TABLE_HEADER,
   RECORDING_TABLE_HEADER,
   EMPTY_SURFACES,
   DUPLICATE_SURFACES,
+  activeSessionsKey,
   CODE_RELAXATION_FIELDS,
   CODE_NORMALIZATION_TOKENS,
   RELAXATION_LITERALS,
   NORMALIZATION_LITERALS,
+  STRICT_WATCH_PLATFORMS,
+  STRICT_FLAG,
+  LINT_STRICT_FLAG,
+  PLATFORM_ARG,
+  BASELINE_ARG,
+  SUFFICIENCY_SCRIPT,
   readFieldTokens,
   topLevelListItems,
   extractRelaxationCoverage,
+  extractStatedKinds,
   selectTableByHeader,
   extractNormalizationTokens,
   extractSessionIds,
   extractPredicateTables,
   extractJobCites,
+  commandTokens,
+  passesFlag,
+  argumentValue,
+  strictWatchProblems,
+  gateArgumentProblems,
+  readKnownDiffsBaseline,
+  readSufficiencyBaseline,
+  corpusFailEntries,
+  readGateCommands,
+  readManifestPlatforms,
   evaluateVerificationInventory,
   auditTree,
   InputError,
   readTreeFile,
-  listActiveDesktopSessions,
+  listActiveSessions,
 } from '../../../../scripts/check-verification-inventory.js';
+import { RELAX_KINDS } from '../../../../scripts/corpus-compare.js';
 import { TEST_WORKFLOW_PATH } from '../../../../scripts/check-doc-closure.js';
 
 const ROOT = resolve(import.meta.dirname, '..', '..', '..', '..');
+
+/**
+ * One platform's gate state for the strict-flip watch, defaulting to the
+ * shipped situation: a baseline that still carries a diff, corpus truths that
+ * still carry a fail-class finding, and neither flag passed.
+ */
+function watchEntry(overrides = {}) {
+  const platform = overrides.platform ?? 'extension';
+  const baselinePath = overrides.baselinePath ?? 'corpus/known-diffs.extension.json';
+  return {
+    platform,
+    script: 'corpus:check',
+    baselinePath,
+    knownDiffsEmpty: false,
+    failFree: false,
+    strict: false,
+    lintStrict: false,
+    // The gate command's own argument values, defaulting to agreement with the
+    // entry — the shipped state, so a case that does not repoint them is green.
+    platformArg: platform,
+    baselineArg: baselinePath,
+    ...overrides,
+  };
+}
+
+/**
+ * The active-session list each watched platform's surface carries in the
+ * fixture. A platform the watch grows and this table has not is given a
+ * non-empty stand-in rather than left undefined, so the derived family below
+ * extends itself and the compliant baseline stays green until someone gives it
+ * meaningful ids.
+ */
+const FIXTURE_SESSIONS = {
+  'desktop-windows': ['d-click', 'd-redaction'],
+  extension: ['ext-click-basic', 'ext-key'],
+};
 
 /** A consistent synthetic surface every leg accepts. */
 function makeSurface(overrides = {}) {
@@ -67,6 +137,7 @@ function makeSurface(overrides = {}) {
       ['path', ['file_path', 'source']],
     ],
     relaxUnreadable: [],
+    docStatedKinds: ['match-stats', 'path'],
     codeKinds: ['match-stats', 'path'],
     codeKindFields: [
       ['match-stats', ['match_count', 'match_index']],
@@ -76,7 +147,14 @@ function makeSurface(overrides = {}) {
     normalizationTableMatches: 1,
     codeNormalizationTokens: ['project_id', 'timestamp'],
     docSessionIds: ['d-click', 'd-redaction'],
-    manifestSessionIds: ['d-click', 'd-redaction'],
+    // One per watched platform, keyed exactly as the check keys its own — so a
+    // platform added to the watch needs no edit here to stay covered.
+    ...Object.fromEntries(
+      STRICT_WATCH_PLATFORMS.map((w) => [
+        activeSessionsKey(w.platform),
+        FIXTURE_SESSIONS[w.platform] ?? [`${w.platform}-session`],
+      ]),
+    ),
     docPerAction: ['element-locators', 'key-nonempty'],
     perActionTableMatches: 1,
     codePerAction: ['element-locators', 'key-nonempty'],
@@ -90,6 +168,17 @@ function makeSurface(overrides = {}) {
       { path: CORPUS_DOC_PATH, cites: ['unit-tests'] },
       { path: LINT_DOC_PATH, cites: ['unit-tests'] },
     ],
+    strictWatch: [
+      watchEntry(),
+      watchEntry({
+        platform: 'desktop-windows',
+        script: 'corpus:check:desktop',
+        baselinePath: 'corpus/known-diffs.desktop-windows.json',
+      }),
+    ],
+    manifestPlatforms: ['extension', 'desktop-windows'],
+    watchedPlatforms: ['extension', 'desktop-windows'],
+    sufficiencyBaselineArg: SUFFICIENCY_BASELINE_PATH,
     workflowJobIds: ['lint', 'unit-tests'],
     ...overrides,
   };
@@ -203,6 +292,38 @@ describe('evaluateVerificationInventory — relaxation kinds and their fields', 
   });
 });
 
+describe('evaluateVerificationInventory — §STC-5’s stated kind set (both ways)', () => {
+  it('fires when the kind sentence states a kind the comparator does not carry', () => {
+    const problems = evaluateVerificationInventory(
+      makeSurface({ docStatedKinds: ['match-stats', 'path', 'timings'] }),
+    );
+    assert.ok(
+      problems.some((p) => p.includes('timings') && p.includes('kind sentence states')),
+      problems.join('\n'),
+    );
+  });
+
+  it('fires when the comparator carries a kind the sentence does not state', () => {
+    const problems = evaluateVerificationInventory(
+      makeSurface({ docStatedKinds: ['match-stats'] }),
+    );
+    assert.ok(
+      problems.some((p) => p.includes('path') && p.includes('kind sentence does not state')),
+      problems.join('\n'),
+    );
+  });
+
+  it('names the sentence, not §STC-21’s per-kind list, so the two copies stay tellable apart', () => {
+    const problems = evaluateVerificationInventory(
+      makeSurface({ docStatedKinds: ['match-stats', 'path', 'timings'] }),
+    );
+    const stated = problems.filter((p) => p.includes('timings'));
+    assert.equal(stated.length, 1, problems.join('\n'));
+    assert.ok(stated[0].includes('STC-5'), stated[0]);
+    assert.ok(!stated[0].includes('STC-21'), stated[0]);
+  });
+});
+
 describe('evaluateVerificationInventory — normalization classes (both ways)', () => {
   it('fires when the table names a token the class map does not carry', () => {
     const problems = evaluateVerificationInventory(
@@ -229,7 +350,9 @@ describe('evaluateVerificationInventory — session catalogue (both ways)', () =
 
   it('fires when an active session is missing from the clause', () => {
     const problems = evaluateVerificationInventory(
-      makeSurface({ manifestSessionIds: ['d-click', 'd-redaction', 'd-new-behaviour'] }),
+      makeSurface({
+        [activeSessionsKey('desktop-windows')]: ['d-click', 'd-redaction', 'd-new-behaviour'],
+      }),
     );
     assert.ok(
       problems.some((p) => p.includes('d-new-behaviour') && p.includes('does not enumerate it')),
@@ -303,6 +426,291 @@ describe('evaluateVerificationInventory — job citations', () => {
   });
 });
 
+// The strict-flip watch, driven through every quadrant of both legs on each
+// watched platform. The two flags are on separate axes by §STC-3, so the
+// green/red table is per flag, and the cases below hold that separation: a
+// platform can owe `--strict` while `--lint-strict` is correctly still absent.
+for (const { platform, script, baselinePath } of STRICT_WATCH_PLATFORMS) {
+  const gate = (overrides) => [watchEntry({ platform, script, baselinePath, ...overrides })];
+
+  describe(`strict-flip watch — ${platform}`, () => {
+    it('demands the strict flag once the known-diffs baseline empties', () => {
+      const problems = strictWatchProblems(gate({ knownDiffsEmpty: true }));
+      assert.equal(problems.length, 1, problems.join('\n'));
+      assert.ok(problems[0].includes(baselinePath), problems[0]);
+      assert.ok(problems[0].includes(`npm run ${script}`), problems[0]);
+      assert.ok(problems[0].includes(STRICT_FLAG), problems[0]);
+      assert.ok(problems[0].includes('STC-3'), problems[0]);
+    });
+
+    it('reds on a strict flag passed before its trigger', () => {
+      const problems = strictWatchProblems(gate({ strict: true }));
+      assert.equal(problems.length, 1, problems.join('\n'));
+      assert.ok(problems[0].includes('still carries a known diff'), problems[0]);
+      assert.ok(problems[0].includes(`passes \`${STRICT_FLAG}\``), problems[0]);
+    });
+
+    it('is green with the flag absent before the trigger, and present after it', () => {
+      assert.deepEqual(strictWatchProblems(gate({})), []);
+      assert.deepEqual(strictWatchProblems(gate({ knownDiffsEmpty: true, strict: true })), []);
+    });
+
+    it('demands the lint-strict flag only once BOTH of its conditions hold', () => {
+      // Known-diffs empty alone is not enough — that is the `--strict` axis.
+      const halfway = strictWatchProblems(gate({ knownDiffsEmpty: true, strict: true }));
+      assert.deepEqual(halfway, []);
+      const problems = strictWatchProblems(
+        gate({ knownDiffsEmpty: true, failFree: true, strict: true }),
+      );
+      assert.equal(problems.length, 1, problems.join('\n'));
+      assert.ok(problems[0].includes(LINT_STRICT_FLAG), problems[0]);
+      assert.ok(problems[0].includes(SUFFICIENCY_BASELINE_PATH), problems[0]);
+      assert.ok(problems[0].includes(platform), problems[0]);
+    });
+
+    it('names every unmet condition when the lint-strict flag is passed early', () => {
+      const onlyDiffs = strictWatchProblems(gate({ failFree: true, lintStrict: true }));
+      assert.equal(onlyDiffs.length, 1, onlyDiffs.join('\n'));
+      assert.ok(onlyDiffs[0].includes('still carries a known diff'), onlyDiffs[0]);
+      assert.ok(!onlyDiffs[0].includes('fail`-class entry'), onlyDiffs[0]);
+
+      const onlyFails = strictWatchProblems(
+        gate({ knownDiffsEmpty: true, strict: true, lintStrict: true }),
+      );
+      assert.equal(onlyFails.length, 1, onlyFails.join('\n'));
+      assert.ok(onlyFails[0].includes('`fail`-class entry'), onlyFails[0]);
+      assert.ok(!onlyFails[0].includes('still carries a known diff'), onlyFails[0]);
+
+      const both = strictWatchProblems(gate({ lintStrict: true }));
+      const premature = both.filter((p) => p.includes(LINT_STRICT_FLAG));
+      assert.equal(premature.length, 1, both.join('\n'));
+      assert.ok(premature[0].includes('still carries a known diff'), premature[0]);
+      assert.ok(premature[0].includes('`fail`-class entry'), premature[0]);
+    });
+
+    it('is green with the lint-strict flag absent before, and present after, both conditions', () => {
+      assert.deepEqual(strictWatchProblems(gate({ failFree: true })), []);
+      assert.deepEqual(
+        strictWatchProblems(
+          gate({ knownDiffsEmpty: true, failFree: true, strict: true, lintStrict: true }),
+        ),
+        [],
+      );
+    });
+
+    it('keeps the two axes independent — one flag owed never implies the other', () => {
+      const problems = strictWatchProblems(gate({ knownDiffsEmpty: true }));
+      assert.ok(!problems.some((p) => p.includes(LINT_STRICT_FLAG)), problems.join('\n'));
+    });
+  });
+}
+
+describe('the strict-flip watch reaches the evaluator', () => {
+  it('a demanded flag surfaces through evaluateVerificationInventory', () => {
+    const problems = evaluateVerificationInventory(
+      makeSurface({ strictWatch: [watchEntry({ knownDiffsEmpty: true })] }),
+    );
+    assert.ok(
+      problems.some((p) => p.includes(STRICT_FLAG) && p.includes('does not pass it')),
+      problems.join('\n'),
+    );
+  });
+
+  it('the watch never runs on a vacuous surface — an empty parse returns first', () => {
+    // A platform with zero active sessions routes to the drift channel through
+    // its own EMPTY_SURFACES entry, and the early return keeps the watch from
+    // reading "no active session carries a fail finding" as a flip trigger.
+    const problems = evaluateVerificationInventory(
+      makeSurface({
+        [activeSessionsKey('extension')]: [],
+        strictWatch: [watchEntry({ knownDiffsEmpty: true, failFree: true })],
+      }),
+    );
+    assert.ok(
+      problems.some((p) => p.includes('no active extension sessions')),
+      problems.join('\n'),
+    );
+    assert.ok(!problems.some((p) => p.includes(LINT_STRICT_FLAG)), problems.join('\n'));
+  });
+});
+
+describe('flag detection is token-exact', () => {
+  it('splits a command into whitespace-separated tokens', () => {
+    assert.deepEqual(commandTokens('node x.js  --platform extension --lint'), [
+      'node',
+      'x.js',
+      '--platform',
+      'extension',
+      '--lint',
+    ]);
+    assert.deepEqual(commandTokens(undefined), []);
+  });
+
+  it('`--lint` neither satisfies nor trips the lint-strict legs', () => {
+    // Both shipped gate commands pass `--lint`; a substring test would read it
+    // as `--lint-strict` and green the demand leg forever.
+    const withLint = 'node scripts/corpus-compare.js --platform extension --lint';
+    assert.equal(passesFlag(withLint, LINT_STRICT_FLAG), false);
+    assert.equal(passesFlag(withLint, STRICT_FLAG), false);
+    const withLintStrict = `${withLint}-strict`;
+    assert.equal(passesFlag(withLintStrict, LINT_STRICT_FLAG), true);
+    assert.equal(passesFlag(withLintStrict, '--lint'), false);
+    assert.equal(passesFlag(`${withLint} ${STRICT_FLAG}`, STRICT_FLAG), true);
+  });
+
+  it('the shipped gate commands carry `--lint` and neither strict flag', () => {
+    const commands = readGateCommands(
+      (path) => readFileSync(join(ROOT, path), 'utf8'),
+      PACKAGE_JSON_PATH,
+      STRICT_WATCH_PLATFORMS.map((w) => w.script),
+    );
+    for (const [, command] of commands) {
+      assert.ok(passesFlag(command, '--lint'), command);
+      assert.equal(passesFlag(command, STRICT_FLAG), false, command);
+      assert.equal(passesFlag(command, LINT_STRICT_FLAG), false, command);
+    }
+  });
+});
+
+// The watch covers a hand-maintained platform list, exactly like the relaxation
+// kinds' field association: a corpus that grows a platform the list has not
+// learned would leave that platform's gate unwatched and green.
+describe('evaluateVerificationInventory — watched platforms vs the catalogue (both ways)', () => {
+  it('fires when the catalogue carries a platform the watch has not learned', () => {
+    const problems = evaluateVerificationInventory(
+      makeSurface({ manifestPlatforms: ['extension', 'desktop-windows', 'desktop-linux'] }),
+    );
+    assert.ok(
+      problems.some((p) => p.includes('desktop-linux') && p.includes('has not learned')),
+      problems.join('\n'),
+    );
+    assert.ok(
+      problems.some((p) => p.includes('STRICT_WATCH_PLATFORMS')),
+      problems.join('\n'),
+    );
+  });
+
+  it('fires when a watched platform has no session in the catalogue', () => {
+    const problems = evaluateVerificationInventory(
+      makeSurface({ manifestPlatforms: ['extension'] }),
+    );
+    assert.ok(
+      problems.some((p) => p.includes('desktop-windows') && p.includes('carries no session for')),
+      problems.join('\n'),
+    );
+  });
+
+  it('the shipped catalogue and the shipped watch cover the same platforms', () => {
+    const platforms = readManifestPlatforms(
+      (path) => readFileSync(join(ROOT, path), 'utf8'),
+      MANIFEST_PATH,
+    );
+    assert.deepEqual([...platforms].sort(), STRICT_WATCH_PLATFORMS.map((w) => w.platform).sort());
+  });
+
+  it('reads the catalogue’s platforms distinctly, and refuses one it cannot read', () => {
+    const at = (text) => () => text;
+    assert.deepEqual(
+      readManifestPlatforms(at('{"sessions":[{"platform":"a"},{"platform":"b"},{"platform":"a"}]}'), MANIFEST_PATH), // prettier-ignore
+      ['a', 'b'],
+    );
+    assert.throws(
+      () => readManifestPlatforms(at('{"sessions":[{"id":"x"}]}'), MANIFEST_PATH),
+      (error) => {
+        assert.ok(error instanceof InputError, `not an InputError: ${error}`);
+        assert.match(error.message, /carries no string `platform`/);
+        assert.match(error.message, /shape is what failed here/);
+        return true;
+      },
+    );
+  });
+});
+
+// A gate command that names a different platform or baseline than this check
+// reads for it makes every verdict above a statement about a file the gate does
+// not gate on — so both sides are named, whichever one moved.
+describe('gate arguments — the commands name what this check reads', () => {
+  it('reads the token after an argument, and nothing when there is none', () => {
+    const command = 'node scripts/corpus-compare.js --platform extension --baseline b.json --lint';
+    assert.equal(argumentValue(command, PLATFORM_ARG), 'extension');
+    assert.equal(argumentValue(command, BASELINE_ARG), 'b.json');
+    assert.equal(argumentValue(command, '--absent'), null);
+    assert.equal(argumentValue('node x.js --baseline', BASELINE_ARG), null);
+  });
+
+  it('is green when every gate names exactly what the watch reads', () => {
+    assert.deepEqual(
+      gateArgumentProblems(makeSurface().strictWatch, SUFFICIENCY_BASELINE_PATH),
+      [],
+    );
+  });
+
+  it('reds on a repointed `--baseline`, naming the gate and what the watch reads', () => {
+    const problems = gateArgumentProblems(
+      [watchEntry({ baselineArg: 'corpus/known-diffs.desktop-windows.json' })],
+      SUFFICIENCY_BASELINE_PATH,
+    );
+    assert.equal(problems.length, 1, problems.join('\n'));
+    assert.ok(problems[0].includes('corpus/known-diffs.desktop-windows.json'), problems[0]);
+    assert.ok(problems[0].includes('corpus/known-diffs.extension.json'), problems[0]);
+    assert.ok(problems[0].includes('npm run corpus:check'), problems[0]);
+    assert.ok(problems[0].includes(BASELINE_ARG), problems[0]);
+  });
+
+  it('reds on a repointed `--platform`, and on the argument dropped entirely', () => {
+    const repointed = gateArgumentProblems(
+      [watchEntry({ platformArg: 'desktop-windows' })],
+      SUFFICIENCY_BASELINE_PATH,
+    );
+    assert.equal(repointed.length, 1, repointed.join('\n'));
+    assert.ok(repointed[0].includes(PLATFORM_ARG), repointed[0]);
+    assert.ok(repointed[0].includes('desktop-windows') && repointed[0].includes('extension'), repointed[0]); // prettier-ignore
+
+    const dropped = gateArgumentProblems(
+      [watchEntry({ platformArg: null })],
+      SUFFICIENCY_BASELINE_PATH,
+    );
+    assert.equal(dropped.length, 1, dropped.join('\n'));
+    assert.ok(dropped[0].includes('passes nothing for'), dropped[0]);
+  });
+
+  it('reds when the sufficiency gate names a baseline this check does not read', () => {
+    const problems = gateArgumentProblems(makeSurface().strictWatch, 'packages/shared/other.json');
+    assert.equal(problems.length, 1, problems.join('\n'));
+    assert.ok(problems[0].includes(`npm run ${SUFFICIENCY_SCRIPT}`), problems[0]);
+    assert.ok(problems[0].includes('packages/shared/other.json'), problems[0]);
+    assert.ok(problems[0].includes(SUFFICIENCY_BASELINE_PATH), problems[0]);
+  });
+
+  it('a repointed gate reaches the evaluator, not only the leg', () => {
+    const problems = evaluateVerificationInventory(
+      makeSurface({ strictWatch: [watchEntry({ baselineArg: 'corpus/elsewhere.json' })] }),
+    );
+    assert.ok(
+      problems.some((p) => p.includes('corpus/elsewhere.json')),
+      problems.join('\n'),
+    );
+  });
+
+  it('the shipped gate commands name exactly the platform and baseline they are watched by', () => {
+    const commands = readGateCommands(
+      (path) => readFileSync(join(ROOT, path), 'utf8'),
+      PACKAGE_JSON_PATH,
+      [...STRICT_WATCH_PLATFORMS.map((w) => w.script), SUFFICIENCY_SCRIPT],
+    );
+    for (const { platform, script, baselinePath } of STRICT_WATCH_PLATFORMS) {
+      const command = commands.get(script);
+      assert.equal(argumentValue(command, PLATFORM_ARG), platform, command);
+      assert.equal(argumentValue(command, BASELINE_ARG), baselinePath, command);
+    }
+    assert.equal(
+      argumentValue(commands.get(SUFFICIENCY_SCRIPT), BASELINE_ARG),
+      SUFFICIENCY_BASELINE_PATH,
+      commands.get(SUFFICIENCY_SCRIPT),
+    );
+  });
+});
+
 describe('evaluateVerificationInventory — table selection is exactly one', () => {
   for (const [key, header, label] of [
     ['normalizationTableMatches', NORMALIZATION_TABLE_HEADER, 'normalization'],
@@ -340,6 +748,7 @@ describe('evaluateVerificationInventory — unreadable surfaces are refused ahea
 // addition direction the per-leg tests alone cannot see.
 const DUPLICATE_FIXTURES = {
   docKinds: ['match-stats', 'path', 'path'],
+  docStatedKinds: ['match-stats', 'path', 'match-stats'],
   docNormalizationTokens: ['project_id', 'timestamp', 'project_id'],
   docSessionIds: ['d-click', 'd-redaction', 'd-click'],
   docPerAction: ['element-locators', 'key-nonempty', 'element-locators'],
@@ -454,6 +863,91 @@ describe('extractRelaxationCoverage — kind and fields per item', () => {
 
   it('reads nothing when the clause marker is absent', () => {
     assert.deepEqual(extractRelaxationCoverage('# no clauses here').kinds, []);
+  });
+});
+
+describe('extractStatedKinds — §STC-5’s kind sentence', () => {
+  /** A minimal §STC-5 shaped like the shipped clause: kinds sentenced alone. */
+  const doc = (kinds = '`match-stats`, `scroll-amounts`, and `path`') =>
+    [
+      '**STC-5.** A session may carry an `overrides.json` sidecar of **relaxations**,',
+      `and the comparator holds them to a closed contract. The relaxation kinds are`,
+      `exactly ${kinds}. Sidecar pointers index the **truth** document, and the`,
+      '`scroll-amounts` class map keeps `0` exact.',
+      '',
+      '**STC-21.** **Sidecar shape.** A later clause naming `match-stats` again.',
+    ].join('\n');
+
+  it('reads exactly the kinds of the anchored sentence', () => {
+    const read = extractStatedKinds(doc());
+    assert.deepEqual(read.kinds, ['match-stats', 'scroll-amounts', 'path']);
+    assert.deepEqual(read.unreadableTokens, []);
+  });
+
+  it('takes nothing from outside that sentence — no allow-set is needed', () => {
+    // `overrides.json` sits before it and the literal `0` after it; the
+    // sentence bound is what keeps both out, so the duplicate guard over this
+    // surface stays a plain one.
+    const read = extractStatedKinds(doc());
+    assert.ok(!read.kinds.includes('overrides.json'), read.kinds.join(','));
+    assert.ok(!read.kinds.includes('0'), read.kinds.join(','));
+    assert.equal(read.kinds.filter((k) => k === 'match-stats').length, 1);
+  });
+
+  it('finds the anchor whatever line the prose wraps on', () => {
+    const wrapped = doc().replace('The relaxation kinds are\nexactly', 'The relaxation\nkinds are exactly'); // prettier-ignore
+    assert.deepEqual(extractStatedKinds(wrapped).kinds, ['match-stats', 'scroll-amounts', 'path']);
+  });
+
+  it('refuses a token in the sentence the kind grammar cannot read', () => {
+    const read = extractStatedKinds(doc('`match-stats`, `Scroll_Amounts`, and `path`'));
+    assert.deepEqual(read.kinds, ['match-stats', 'path']);
+    assert.deepEqual(
+      read.unreadableTokens.map((u) => u.token),
+      ['Scroll_Amounts'],
+    );
+    const problems = evaluateVerificationInventory(
+      makeSurface({ unreadableTokens: read.unreadableTokens }),
+    );
+    assert.ok(
+      problems.some((p) => p.includes('Scroll_Amounts') && p.includes('lower-case with hyphens')),
+      problems.join('\n'),
+    );
+  });
+
+  it('reads nothing when the anchor phrase is gone — the vacuity guard takes it', () => {
+    const moved = doc().replace('The relaxation kinds are\nexactly', 'The kinds are just');
+    assert.deepEqual(extractStatedKinds(moved).kinds, []);
+    const problems = evaluateVerificationInventory(makeSurface({ docStatedKinds: [] }));
+    assert.ok(
+      problems.some((p) => p.includes('no relaxation kinds found') && p.includes('STC-5')),
+      problems.join('\n'),
+    );
+  });
+
+  it('reads nothing when the clause marker is absent', () => {
+    assert.deepEqual(extractStatedKinds('# no clauses here').kinds, []);
+  });
+
+  it('the shipped clause states exactly the comparator’s closed kind set', () => {
+    const read = extractStatedKinds(readFileSync(join(ROOT, CORPUS_DOC_PATH), 'utf8'));
+    assert.deepEqual(read.unreadableTokens, []);
+    assert.deepEqual([...read.kinds].sort(), [...RELAX_KINDS].sort());
+  });
+
+  it('a mutated kind list in the shipped clause reds — the leg is not vacuous', () => {
+    const text = readFileSync(join(ROOT, CORPUS_DOC_PATH), 'utf8');
+    const stated = 'exactly `match-stats`, `scroll-amounts`, and `path`.';
+    assert.ok(text.includes(stated), 'the mutation anchor moved');
+    const read = extractStatedKinds(text.replace(stated, 'exactly `match-stats` and `path`.'));
+    assert.deepEqual(read.kinds, ['match-stats', 'path']);
+    const problems = evaluateVerificationInventory(
+      makeSurface({ docStatedKinds: read.kinds, codeKinds: [...RELAX_KINDS] }),
+    );
+    assert.ok(
+      problems.some((p) => p.includes('scroll-amounts') && p.includes('kind sentence does not state')), // prettier-ignore
+      problems.join('\n'),
+    );
   });
 });
 
@@ -663,6 +1157,149 @@ describe('the check’s own code-side association', () => {
   });
 });
 
+// The strict-flip watch's three new reads. Each is a file whose truncation or
+// emptying would read as "the trigger came true", so each way it can fail gets
+// its own words and the machinery verdict, never a flip demand.
+describe('strict-watch readers — a broken input is never a flipped trigger', () => {
+  /** An in-memory tree reader; a path with no entry reads as unreadable. */
+  const reader = (files) => (path) => {
+    if (!(path in files)) throw new InputError(`${path} could not be read — no such entry`);
+    return files[path];
+  };
+  const KD = 'corpus/known-diffs.extension.json';
+  const at = (text) => reader({ [KD]: text });
+
+  it('reads emptiness only from a baseline that covers every active session', () => {
+    assert.deepEqual(readKnownDiffsBaseline(at('{"a": [], "b": []}'), KD, ['a', 'b']), {
+      empty: true,
+    });
+    assert.deepEqual(readKnownDiffsBaseline(at('{"a": [], "b": ["x"]}'), KD, ['a', 'b']), {
+      empty: false,
+    });
+  });
+
+  for (const [label, text, expected] of [
+    ['unparseable', '{ "a": [', /is not parseable JSON/],
+    ['not an object', '[]', /is not a JSON object of per-session entry lists/],
+    ['keyless', '{}', /carries no session keys at all/],
+    ['a non-array entry', '{"a": "x"}', /its `a` entry is not an array/],
+  ]) {
+    it(`refuses ${label} known-diffs input as machinery, naming the baseline`, () => {
+      assert.throws(
+        () => readKnownDiffsBaseline(at(text), KD, ['a']),
+        (error) => {
+          assert.ok(error instanceof InputError, `not an InputError: ${error}`);
+          assert.match(error.message, expected);
+          assert.ok(error.message.includes(KD), error.message);
+          // The verdict a truncated baseline must never take.
+          assert.doesNotMatch(error.message, /wires `--strict`/);
+          return true;
+        },
+      );
+    });
+  }
+
+  it('refuses a short-keyed known-diffs baseline naming the uncovered sessions', () => {
+    assert.throws(
+      () => readKnownDiffsBaseline(at('{"a": []}'), KD, ['a', 'b', 'c']),
+      (error) => {
+        assert.match(error.message, /carries no key for active session\(s\) b, c/);
+        assert.match(error.message, /shape is what failed here/);
+        return true;
+      },
+    );
+  });
+
+  const SB = SUFFICIENCY_BASELINE_PATH;
+  const sb = (text) => reader({ [SB]: text });
+  const truthKey = (id) => `corpus/sessions/${id}/truth.docent.json`;
+
+  it('returns the parsed sufficiency baseline once it covers every active session', () => {
+    const text = JSON.stringify({
+      [truthKey('a')]: [],
+      'packages/shared/tests/f.json': ['fail:x'],
+    });
+    assert.deepEqual(readSufficiencyBaseline(sb(text), SB, ['a']), JSON.parse(text));
+  });
+
+  for (const [label, text, expected] of [
+    ['unparseable', '{ "a": [', /is not parseable JSON/],
+    ['not an object', '[]', /is not a JSON object of per-file finding lists/],
+    ['keyless', '{}', /carries no file keys at all/],
+    ['a non-array entry', '{"k": 3}', /its `k` entry is not an array of findings/],
+    ['a non-string finding', '{"k": [3]}', /its `k` entry carries a non-string finding/],
+  ]) {
+    it(`refuses ${label} sufficiency-baseline input as machinery`, () => {
+      assert.throws(
+        () => readSufficiencyBaseline(sb(text), SB, []),
+        (error) => {
+          assert.ok(error instanceof InputError, `not an InputError: ${error}`);
+          assert.match(error.message, expected);
+          assert.ok(error.message.includes(SB), error.message);
+          return true;
+        },
+      );
+    });
+  }
+
+  it('refuses a short-keyed sufficiency baseline naming the uncovered sessions', () => {
+    assert.throws(
+      () => readSufficiencyBaseline(sb(JSON.stringify({ [truthKey('a')]: [] })), SB, ['a', 'b']),
+      (error) => {
+        assert.match(error.message, /carries no `corpus\/sessions\/` entry for active session\(s\) b/); // prettier-ignore
+        assert.match(error.message, /shape is what failed here/);
+        return true;
+      },
+    );
+  });
+
+  it('counts fail entries of ACTIVE sessions only, and never a frozen fixture’s', () => {
+    const baseline = {
+      [truthKey('active-one')]: ['fail:element-locators rec[0]', 'gap:start-point rec[0]'],
+      [truthKey('retired-one')]: ['fail:element-locators rec[0]'],
+      'packages/shared/tests/fixtures/extension/v3.0.0.docent.json': ['fail:element-locators rec[0]'], // prettier-ignore
+    };
+    const found = corpusFailEntries(baseline, ['active-one']);
+    assert.equal(found.length, 1);
+    assert.ok(found[0].includes('active-one'), found[0]);
+    // A retired session's truth stays on disk and in the ledger by §STC-14;
+    // unfiltered, its entry would hold the trigger shut forever.
+    assert.deepEqual(corpusFailEntries(baseline, ['other']), []);
+    assert.deepEqual(corpusFailEntries(baseline, ['active-one', 'retired-one']).length, 2);
+  });
+
+  const PKG = PACKAGE_JSON_PATH;
+  const pkg = (text) => reader({ [PKG]: text });
+
+  it('reads the named gate commands out of the scripts map', () => {
+    const text = JSON.stringify({ scripts: { 'corpus:check': 'node x --lint', other: 'y' } });
+    assert.deepEqual(
+      [...readGateCommands(pkg(text), PKG, ['corpus:check'])],
+      [['corpus:check', 'node x --lint']],
+    );
+  });
+
+  for (const [label, text, expected] of [
+    ['unparseable', '{ "scripts": ', /is not parseable JSON/],
+    ['no scripts object', '{"scripts": []}', /carries no `scripts` object/],
+    ['a missing script', '{"scripts": {}}', /defines no `corpus:check` command/],
+    ['a non-string command', '{"scripts": {"corpus:check": 3}}', /defines no `corpus:check` command/], // prettier-ignore
+    ['a blank command', '{"scripts": {"corpus:check": "  "}}', /defines no `corpus:check` command/],
+  ]) {
+    it(`refuses ${label} in the package manifest as machinery`, () => {
+      assert.throws(
+        () => readGateCommands(pkg(text), PKG, ['corpus:check']),
+        (error) => {
+          assert.ok(error instanceof InputError, `not an InputError: ${error}`);
+          assert.match(error.message, expected);
+          assert.ok(error.message.includes(PKG), error.message);
+          return true;
+        },
+      );
+    });
+  }
+});
+
 describe('command-line readers — an unreadable input is never an empty inventory', () => {
   it('a malformed manifest fails loudly naming the file, not as an empty session catalogue', () => {
     const dir = mkdtempSync(join(tmpdir(), 'docent-inventory-'));
@@ -670,7 +1307,7 @@ describe('command-line readers — an unreadable input is never an empty invento
     writeFileSync(manifest, '{ "sessions": [ ');
     try {
       assert.throws(
-        () => listActiveDesktopSessions(manifest),
+        () => listActiveSessions('desktop-windows', manifest),
         (error) => {
           assert.ok(error instanceof InputError, `not an InputError: ${error}`);
           assert.ok(error.message.includes(manifest), error.message);
@@ -690,7 +1327,7 @@ describe('command-line readers — an unreadable input is never an empty invento
     writeFileSync(manifest, '{ "sessions": {} }');
     try {
       assert.throws(
-        () => listActiveDesktopSessions(manifest),
+        () => listActiveSessions('desktop-windows', manifest),
         (error) => {
           assert.ok(error instanceof InputError, `not an InputError: ${error}`);
           assert.match(error.message, /carries no `sessions` array/);
@@ -721,7 +1358,7 @@ describe('command-line readers — an unreadable input is never an empty invento
       writeFileSync(manifest, JSON.stringify({ sessions: [entry] }));
       try {
         assert.throws(
-          () => listActiveDesktopSessions(manifest),
+          () => listActiveSessions('desktop-windows', manifest),
           (error) => {
             assert.ok(error instanceof InputError, `not an InputError for ${missing}: ${error}`);
             assert.match(error.message, /shape is what failed here/);
@@ -749,7 +1386,7 @@ describe('command-line readers — an unreadable input is never an empty invento
       writeFileSync(manifest, JSON.stringify({ sessions: [entry] }));
       try {
         assert.throws(
-          () => listActiveDesktopSessions(manifest),
+          () => listActiveSessions('desktop-windows', manifest),
           (error) => {
             assert.ok(error instanceof InputError, `not an InputError for ${key}: ${error}`);
             assert.match(error.message, /shape is what failed here/);
@@ -782,13 +1419,24 @@ describe('command-line readers — an unreadable input is never an empty invento
 // The exit-code contract is a process-boundary fact — 0 green, 1 an inventory
 // that drifted, 2 machinery breakage that must never read as a drift verdict —
 // and only a spawn observes it. Every file the CLI reads is cwd-relative (both
-// verification documents, the workflow, the manifest), so a temporary tree
-// holding copies of exactly those is a complete input surface: nothing else it
-// touches comes off disk. Env: the script's whole import closure reads no
-// process.env, so the inherited environment is already the pinned one.
+// verification documents, the workflow, the manifest, both known-diffs
+// baselines, the sufficiency baseline, and the root package manifest), so a
+// temporary tree holding copies of exactly those is a complete input surface:
+// nothing else it touches comes off disk. Env: the script's whole import
+// closure reads no process.env, so the inherited environment is already the
+// pinned one.
 describe('check-verification-inventory: CLI exit codes at the process boundary', () => {
   const SCRIPT = join(ROOT, 'scripts', 'check-verification-inventory.js');
-  const READS = [CORPUS_DOC_PATH, LINT_DOC_PATH, TEST_WORKFLOW_PATH, MANIFEST_PATH];
+  const EXT_BASELINE = STRICT_WATCH_PLATFORMS[0].baselinePath;
+  const READS = [
+    CORPUS_DOC_PATH,
+    LINT_DOC_PATH,
+    TEST_WORKFLOW_PATH,
+    MANIFEST_PATH,
+    SUFFICIENCY_BASELINE_PATH,
+    PACKAGE_JSON_PATH,
+    ...STRICT_WATCH_PLATFORMS.map((w) => w.baselinePath),
+  ];
   let root = null;
 
   after(() => {
@@ -859,6 +1507,46 @@ describe('check-verification-inventory: CLI exit codes at the process boundary',
     assert.doesNotMatch(stderr, /TypeError/);
   });
 
+  it('exit 1 demanding the strict flip when a known-diffs baseline is emptied', () => {
+    const { status, stderr } = run(
+      tree((files) => {
+        const baseline = JSON.parse(files.get(EXT_BASELINE));
+        for (const id of Object.keys(baseline)) baseline[id] = [];
+        files.set(EXT_BASELINE, JSON.stringify(baseline, null, 2));
+      }),
+    );
+    assert.equal(status, 1, stderr);
+    assert.match(stderr, /inventory drifted/);
+    assert.match(stderr, /carries no known diff/);
+    assert.match(stderr, /--strict/);
+    assert.match(stderr, /npm run corpus:check/);
+  });
+
+  it('exit 1 on a strict flag passed before its trigger', () => {
+    const { status, stderr } = run(
+      tree((files) => {
+        const manifest = JSON.parse(files.get(PACKAGE_JSON_PATH));
+        manifest.scripts['corpus:check'] += ' --strict';
+        files.set(PACKAGE_JSON_PATH, JSON.stringify(manifest, null, 2));
+      }),
+    );
+    assert.equal(status, 1, stderr);
+    assert.match(stderr, /passes `--strict` while/);
+    assert.match(stderr, /still carries a known diff/);
+  });
+
+  it('exit 2 when a known-diffs baseline is emptied of its keys, not exit 1 demanding the flip', () => {
+    // The false green this guard exists for: `{}` satisfies "every present
+    // array is empty" vacuously, so without the guard a truncated file would
+    // read as a real flip trigger.
+    const { status, stderr } = run(tree((files) => files.set(EXT_BASELINE, '{}')));
+    assert.equal(status, 2, stderr);
+    assert.match(stderr, /could not be used/);
+    assert.match(stderr, /carries no session keys at all/);
+    assert.doesNotMatch(stderr, /inventory drifted/);
+    assert.doesNotMatch(stderr, /carries no known diff/);
+  });
+
   it('the drift verdict and the machinery verdict never share an exit code', () => {
     const drift = run(
       tree((files) =>
@@ -879,9 +1567,49 @@ describe('real-tree lock', () => {
     // empty. Only the root anchoring is this lock's own (the suite runs from
     // anywhere; the CLI runs from the repository root).
     const readFile = (path) => readTreeFile(join(ROOT, path));
-    const listSessions = () => listActiveDesktopSessions(join(ROOT, MANIFEST_PATH));
+    const listSessions = (platform) => listActiveSessions(platform, join(ROOT, MANIFEST_PATH));
     const { problems, pinCount } = auditTree(readFile, listSessions);
     assert.deepEqual(problems, [], problems.join('\n'));
     assert.ok(pinCount > 0, 'the audit read no documented entries at all');
+  });
+
+  it('the manifest shape guard serves every platform the check discovers', () => {
+    // The desktop view is exercised throughout; this drives the SAME fused
+    // guard through the extension view, so a platform-specific escape cannot
+    // hide behind the one view the rest of the suite uses.
+    const dir = mkdtempSync(join(tmpdir(), 'docent-inventory-'));
+    const manifest = join(dir, 'manifest.json');
+    writeFileSync(manifest, JSON.stringify({ sessions: [{ id: 'ext-a', truth: 5 }] }));
+    try {
+      assert.throws(
+        () => listActiveSessions('extension', manifest),
+        (error) => {
+          assert.ok(error instanceof InputError, `not an InputError: ${error}`);
+          assert.match(error.message, /carries no string `platform`/);
+          return true;
+        },
+      );
+      writeFileSync(
+        manifest,
+        JSON.stringify({
+          sessions: [
+            { id: 'ext-a', platform: 'extension' },
+            { id: 'ext-b', platform: 'extension', status: 'retired' },
+            { id: 'd-a', platform: 'desktop-windows' },
+          ],
+        }),
+      );
+      assert.deepEqual(listActiveSessions('extension', manifest), ['ext-a']);
+      assert.deepEqual(listActiveSessions('desktop-windows', manifest), ['d-a']);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('the shipped tree carries an active session list for every watched platform', () => {
+    for (const { platform } of STRICT_WATCH_PLATFORMS) {
+      const ids = listActiveSessions(platform, join(ROOT, MANIFEST_PATH));
+      assert.ok(ids.length > 0, `no active ${platform} sessions discovered`);
+    }
   });
 });

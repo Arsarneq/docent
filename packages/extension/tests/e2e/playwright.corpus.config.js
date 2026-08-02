@@ -4,8 +4,8 @@
  * determinism regime: fixed viewport, the fixed-port page server (webServer —
  * started once per run, killed with it; reuseExistingServer off so a port
  * collision fails at startup, never mid-retry), and produce-stage retries
- * whose oracle is the corpus comparator itself (a persistent truth mismatch
- * stays red; a timing flake gets retried).
+ * around the truth-diff gate, which is the corpus comparator itself (a
+ * persistent truth mismatch stays red; a timing flake gets retried).
  */
 
 import { defineConfig } from '@playwright/test';
