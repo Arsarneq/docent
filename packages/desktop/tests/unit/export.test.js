@@ -12,6 +12,11 @@
  * This tests the pure export-building logic, not the Tauri invoke calls: it
  * exercises the same shared `buildExport` the panel calls, and validates its
  * output against the schema contract.
+ *
+ * Every comparison against the source is made with a snapshot taken BEFORE
+ * the build: the builder forwards project and step objects by reference, so
+ * comparing the export against the live project would compare each field with
+ * itself and see nothing a builder did to it in place.
  */
 
 import { describe, it } from 'node:test';
@@ -301,10 +306,11 @@ describe('Export schema validation', () => {
   it('export includes all recordings from the project', () => {
     fc.assert(
       fc.property(arbProject, (project) => {
+        const source = structuredClone(project);
         const exportData = buildExportData(project);
         assert.strictEqual(
           exportData.recordings.length,
-          project.recordings.length,
+          source.recordings.length,
           'export must include all recordings',
         );
       }),
@@ -315,10 +321,11 @@ describe('Export schema validation', () => {
   it('export includes project metadata (project_id, name, created_at)', () => {
     fc.assert(
       fc.property(arbProject, (project) => {
+        const source = structuredClone(project);
         const exportData = buildExportData(project);
-        assert.strictEqual(exportData.project.project_id, project.project_id);
-        assert.strictEqual(exportData.project.name, project.name);
-        assert.strictEqual(exportData.project.created_at, project.created_at);
+        assert.strictEqual(exportData.project.project_id, source.project_id);
+        assert.strictEqual(exportData.project.name, source.name);
+        assert.strictEqual(exportData.project.created_at, source.created_at);
       }),
       { numRuns: 100 },
     );

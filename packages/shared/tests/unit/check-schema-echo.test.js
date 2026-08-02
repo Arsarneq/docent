@@ -513,14 +513,19 @@ describe('evaluateSchemaEcho — the cross-platform def agreement', () => {
   // "the first platform" and parks the ids in a parenthetical reads the same
   // to a substring test and tells a reader nothing once a third chain exists,
   // so the predicate refuses the positional wording outright.
+  // The expected slots are supplied per call site: the fixtures put the
+  // divergence on a named platform, so which id lands in which slot is a fact
+  // the test knows and must assert — a predicate happy with either order
+  // would pass a diff that reversed them.
   const DIRECTIONAL = /on ([A-Za-z0-9-]+) but (?:not|missing) on ([A-Za-z0-9-]+)/;
-  const namesPlatformsDirectionally = (p) => {
+  const namesPlatforms = (expectedFrom, expectedTo) => (p) => {
     if (/the (?:first|second) platform/.test(p)) return false;
     const match = DIRECTIONAL.exec(p);
     if (match === null) return false;
     const [, from, to] = match;
     return (
-      from !== to &&
+      from === expectedFrom &&
+      to === expectedTo &&
       PLATFORM_IDS.includes(from) &&
       PLATFORM_IDS.includes(to) &&
       p.includes('every composed platform must share this def')
@@ -528,21 +533,27 @@ describe('evaluateSchemaEcho — the cross-platform def agreement', () => {
   };
 
   it('fires when one platform’s copy of a shared def carries an extra property', () => {
+    // The fixture grows the property on desktop-windows, so the diagnosis
+    // reads FROM desktop-windows (where it is) TO extension (where it is not).
     const problems = evaluateSchemaEcho(
       withDef('desktop-windows', {
         properties: ['uuid', 'narration', 'step_type', 'expect', 'divergent'],
       }),
     );
     assert.ok(
-      problems.some((p) => p.includes('`divergent`') && namesPlatformsDirectionally(p)),
+      problems.some(
+        (p) => p.includes('`divergent`') && namesPlatforms('desktop-windows', 'extension')(p),
+      ),
       problems.join('\n'),
     );
   });
 
   it('fires when the platforms disagree on the def’s required set', () => {
+    // The fixture drops `required` on desktop-windows, so `uuid` is required
+    // on extension and not on desktop-windows — the opposite direction.
     const problems = evaluateSchemaEcho(withDef('desktop-windows', { required: [] }));
     assert.ok(
-      problems.some((p) => p.includes('`uuid`') && namesPlatformsDirectionally(p)),
+      problems.some((p) => p.includes('`uuid`') && namesPlatforms('extension', 'desktop-windows')(p)), // prettier-ignore
       problems.join('\n'),
     );
   });
@@ -557,19 +568,30 @@ describe('evaluateSchemaEcho — the cross-platform def agreement', () => {
     assert.ok(
       problems.some(
         (p) =>
-          p.includes('`diverged`') && p.includes('anyOf branch') && namesPlatformsDirectionally(p),
+          p.includes('`diverged`') &&
+          p.includes('anyOf branch') &&
+          namesPlatforms('desktop-windows', 'extension')(p),
       ),
       problems.join('\n'),
     );
   });
 
-  it('refuses the positional wording the ids-in-a-parenthetical form would restore', () => {
-    // The predicate above is only worth having if it rejects what it replaced.
-    const positional =
-      '`divergent` is a property of `step` (extension vs desktop-windows) on the second platform only — every composed platform must share this def';
-    assert.ok(!namesPlatformsDirectionally(positional));
+  it('refuses both the positional wording and a swapped pair of slots', () => {
+    // The predicate is only worth having if it rejects what it replaced —
+    // and if it rejects the right ids in the wrong order.
+    const expected = namesPlatforms('desktop-windows', 'extension');
     assert.ok(
-      namesPlatformsDirectionally(
+      !expected(
+        '`divergent` is a property of `step` (extension vs desktop-windows) on the second platform only — every composed platform must share this def',
+      ),
+    );
+    assert.ok(
+      !expected(
+        '`divergent` is a property of `step` on extension but missing on desktop-windows — every composed platform must share this def',
+      ),
+    );
+    assert.ok(
+      expected(
         '`divergent` is a property of `step` on desktop-windows but missing on extension — every composed platform must share this def',
       ),
     );

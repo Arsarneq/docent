@@ -45,11 +45,17 @@ export const MAP_PATH = 'scripts/area-map.json';
 export const REGISTRY_PATH = 'docs/clause-registry.json';
 
 /**
- * A repository-path token: an optional directory prefix then a filename with an
- * extension. Directory-less (`README.md`) and `dist/*`-shaped tokens included —
- * the same extraction the review-time citation sweep used.
+ * A repository-path token as a clause row cites one: an optional directory
+ * prefix then a filename with an extension. Directory-less (`README.md`) and
+ * `dist/*`-shaped tokens included — the same extraction the review-time
+ * citation sweep used.
+ *
+ * Exported as the single home for the shape: this check reads it to find the
+ * paths a row cites, and [`check-schema-echo.js`](./check-schema-echo.js)
+ * reads it to find the surfaces the authority row enumerates. Both scan the
+ * same rows, so the shape they admit is one decision, not two.
  */
-const PATH_RE = /(?:[A-Za-z0-9_\-.]+\/)*[A-Za-z0-9_\-.*{},[\]]+\.[A-Za-z0-9]+/g;
+export const CITED_PATH_RE = /(?:[A-Za-z0-9_\-.]+\/)*[A-Za-z0-9_\-.*{},[\]]+\.[A-Za-z0-9]+/g;
 
 /**
  * Couplings deliberately left open, each keyed `"<clause>\t<path>"`. Every entry
@@ -67,11 +73,14 @@ const PATH_RE = /(?:[A-Za-z0-9_\-.]+\/)*[A-Za-z0-9_\-.*{},[\]]+\.[A-Za-z0-9]+/g;
  *      a registered guard suite that carries the doc, or — when the clause's
  *      doc is repo-wide — the repo-wide "line only when itself edited" rule
  *      plus the end-to-end checks.
- *   3. The format-authority echo surfaces — the root README and the docs index
- *      carry the session-format ordering clause's echo. The echo itself is
- *      held by a named check, so the coupling this allowlist leaves open is
- *      only the governance edge: both files are repo-wide docs, which this
- *      check does not credit as governance.
+ *   3. The format-authority echo surfaces — the documents the session-format
+ *      ordering clause registers as restating the schemas' authority. The
+ *      echo itself is held by the schema-echo check, which reads each of
+ *      them, so what stays open here is only the governance edge: none of
+ *      these files resolves to the format doc, for the reason each entry
+ *      states (a repo-wide doc, which this check does not credit as
+ *      governance; a doc owned by the areas of the protocol it specifies; or
+ *      a recorded area-map exception).
  */
 export const ALLOWLIST = new Map([
   // Class 1 — verification scripts (declined coupling; maintainer's open call).
@@ -151,7 +160,7 @@ export function citedPaths(row, tracked) {
   const text = [row['check-ref'], row.justification].filter(Boolean).join(' ');
   const out = [];
   const seen = new Set();
-  for (const tok of text.match(PATH_RE) ?? []) {
+  for (const tok of text.match(CITED_PATH_RE) ?? []) {
     if (seen.has(tok) || !tracked.has(tok)) continue;
     seen.add(tok);
     out.push(tok);
