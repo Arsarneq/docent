@@ -459,7 +459,7 @@
     },
     {
       "path": ".github/workflows/test.yml",
-      "reason": "The CI hub workflow — beyond the CI guides it implements the shared-core freshness gate, the Rust test self-classification, the coverage staging topology, the release process's platform-scoped call and secret contracts, and the corpus doctrine's producer/differ job topology and pinned-image rule.",
+      "reason": "The CI hub workflow — beyond the CI guides it implements the shared-core freshness gate, the Rust test self-classification, the coverage staging topology, the release process's platform-scoped call and secret contracts, the corpus doctrine's producer/differ job topology and pinned-image rule, the job and posture claims the sufficiency-lint doc's entry-points table states, and the job ids that BOTH verification documents' job cites are pinned against by the verification-inventory admission test.",
       "governed-by": [
         "docs/guides/ci.md",
         "docs/guides/local-ci.md",
@@ -468,6 +468,7 @@
         "docs/test/strategy/coverage.md",
         ".github/PUBLISHING.md",
         "docs/verification/scripted-truth-corpus.md",
+        "docs/verification/sufficiency-lint.md",
         ".github/CONTRIBUTING.md"
       ]
     },
@@ -508,6 +509,18 @@
         "docs/architecture/application/extension/permissions.md",
         "docs/architecture/application/extension/runtime.md",
         "docs/technical/session-format.md",
+        ".github/CONTRIBUTING.md"
+      ]
+    },
+    {
+      "path": "scripts/check-verification-inventory.js",
+      "reason": "The verification-inventory admission test — it holds the corpus doctrine's relaxation, normalization, and session-catalogue clauses and the sufficiency-lint doc's predicate tables to the constants and manifest they describe, per those clauses' registry rows, and holds both verification docs' job cites against .github/workflows/test.yml's job ids, so both verification docs govern it beside the CI guides.",
+      "governed-by": [
+        "docs/guides/ci.md",
+        "docs/guides/local-ci.md",
+        ".github/PUBLISHING.md",
+        "docs/verification/scripted-truth-corpus.md",
+        "docs/verification/sufficiency-lint.md",
         ".github/CONTRIBUTING.md"
       ]
     },

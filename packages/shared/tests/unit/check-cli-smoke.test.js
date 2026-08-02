@@ -100,6 +100,16 @@ describe('check-script CLI smoke (deterministic green paths)', () => {
     assert.match(out, /schema echoes consistent/);
   });
 
+  it('check-verification-inventory: the committed verification documents satisfy every pin', () => {
+    // No env pinned: the script's whole import closure (this check plus
+    // check-test-inventory, check-doc-closure, corpus-compare, sufficiency-lint,
+    // build-schemas, sync-digest, field-sensitivity) reads no process.env, and
+    // its only externals are the schema validator packages — so there is no
+    // var whose value could switch the path this smoke runs.
+    const out = runScript('check-verification-inventory.js');
+    assert.match(out, /verification inventories current/);
+  });
+
   it('check-tracked-ignored: no tracked file matches a .gitignore rule', () => {
     // Also the one place the git flag combination itself is exercised — the
     // whole check is that invocation, and a flag git rejects would otherwise

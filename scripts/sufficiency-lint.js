@@ -10,10 +10,11 @@
  * runs: the platform comes from the `docent_format.platform` stamp and must be
  * a leaf in build-schemas' PLATFORMS map (the contract is composed per leaf:
  * base → family → leaf delta), and the file is validated against the composed
- * schema (version stamp relaxed via build-schemas' relaxVersionStamp, shared
- * with the backward-compat harness). Schema-invalid files and unknown stamps
- * are refused loudly — the lint never reasons about a file the contract does
- * not recognize.
+ * schema, with the version stamp relaxed by shape at the one relaxation
+ * chokepoint — build-schemas' relaxVersionStamp, whose docstring states the
+ * rule and names where the harnesses sharing it are enumerated.
+ * Schema-invalid files and unknown stamps are refused loudly — the lint never
+ * reasons about a file the contract does not recognize.
  *
  * Findings come in two classes, never conflated:
  *   fail — the current format can carry the fact and this recording doesn't
@@ -407,14 +408,33 @@ function probeProperties(schema, pattern, path = '$') {
 }
 
 /**
- * Refuse to lint a platform whose composed schema can now express a fact a
- * gap predicate still declares inexpressible — the promised gap→fail flip
- * must happen in code, not in memory.
+ * Hold SL-3 in both of its halves, refusing to lint the platform on either:
+ *
+ *   - a gap predicate carrying no schema probe at all — the probe is what the
+ *     rule requires, and a probe-less gap predicate would make the promised
+ *     gap→fail flip a memory exercise by omission;
+ *   - a gap predicate whose probe matches, so the composed schema can now
+ *     express a fact the predicate still declares inexpressible — the flip is
+ *     due, and it must happen in code, not in memory.
+ *
+ * The predicate list is a parameter (defaulting to the whole catalogue) so both
+ * refusals can be driven over a synthetic predicate rather than only over
+ * today's catalogue.
+ * @param {string} platform a leaf of the composition map
+ * @param {{ id: string, class: string, obsoleteProbe?: (schema: object) => (string | null) }[]} [predicates]
  */
-function assertGapPredicatesCurrent(platform) {
+export function assertGapPredicatesCurrent(
+  platform,
+  predicates = [...PREDICATES, ...RECORDING_PREDICATES],
+) {
   const schema = composedFor(platform);
-  for (const p of RECORDING_PREDICATES) {
-    if (p.class !== 'gap' || !p.obsoleteProbe) continue;
+  for (const p of predicates) {
+    if (p.class !== 'gap') continue;
+    if (typeof p.obsoleteProbe !== 'function') {
+      throw new Error(
+        `gap predicate "${p.id}" carries no schema probe — a gap predicate declares a fact the format cannot state, and the probe is what detects the format growing it; give it an obsoleteProbe or make it a fail check`,
+      );
+    }
     const hit = p.obsoleteProbe(schema);
     if (hit) {
       throw new Error(

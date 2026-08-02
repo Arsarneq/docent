@@ -90,11 +90,11 @@ Recording-scoped findings (pointer `rec[r]`): `context-introduced` emits
 one per un-introduced context, named in the finding's message; the other
 two emit at most one per recording.
 
-| Predicate            | Class  | States                                                                                                                                                                                                                                                                |
-| -------------------- | ------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `context-introduced` | `fail` | Every non-null `context_id` is the recording's initial context or first appears on a `context_open`/`context_switch` action — the fail-class check [session-format §SF-10](../technical/session-format.md#actions) cites.                                             |
-| `start-point`        | `gap`  | The recording's INITIAL context's first action states where reproduction begins (a `navigate`, or an introducing lifecycle action carrying `source`); a later source states where the recording went, not where it began. Non-initial contexts are not checked today. |
-| `viewport-context`   | `gap`  | Browser-family point coordinates carry a viewport context — the format records no viewport size today.                                                                                                                                                                |
+| Predicate            | Class  | States                                                                                                                                                                                                                                                                                                   |
+| -------------------- | ------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `context-introduced` | `fail` | Reading the full step history — superseded and soft-deleted versions included — every non-null `context_id` is the recording's initial context or first appears on a `context_open`/`context_switch` action; the fail-class check [session-format §SF-10](../technical/session-format.md#actions) cites. |
+| `start-point`        | `gap`  | The recording's INITIAL context's first action states where reproduction begins (a `navigate`, or an introducing lifecycle action carrying `source`); a later source states where the recording went, not where it began. Non-initial contexts are not checked today.                                    |
+| `viewport-context`   | `gap`  | Browser-family point coordinates carry a viewport context — the format records no viewport size today.                                                                                                                                                                                                   |
 
 ## Masking enforcement — the annotation contract
 
@@ -138,15 +138,24 @@ node scripts/sufficiency-lint.js packages/shared/tests/fixtures corpus/sessions 
   --write-baseline packages/shared/tests/fixtures/sufficiency-baseline.json
 ```
 
+The writer emits plain indented JSON, which Prettier then reflows (a
+single-entry array fits on one line), so run `npm run format` over the
+regenerated baseline before committing it — otherwise the formatting gate
+reds on the file the regeneration just produced.
+
 Baseline entries are `"<class>:<id> <pointer>"` per file, keyed by
 repo-relative forward-slash path. The lock
 ([`packages/shared/tests/unit/sufficiency-lint.test.js`](../../packages/shared/tests/unit/sufficiency-lint.test.js))
 imports its file discovery and baseline serialization from the lint itself,
 so the walk, filters, sorting, and entry format cannot diverge from what the
 CLI's `--write-baseline` produces (the two-root list is stated separately in
-the lock and the npm script; a divergence there fails the lock loudly rather
-than being prevented) — and the same pass asserts every corpus member is
-contract-valid.
+the lock and in the `sufficiency:check` npm script; both of those execute, so
+a divergence between them reddens at whichever entry point runs rather than
+being prevented up front) — and the same pass asserts every corpus member is
+contract-valid. The regenerate block above names the same two roots but runs
+only when someone pastes it, so it holds no list true on its own; a document
+citing where the standing corpus's roots live therefore names
+`npm run sufficiency:check`, the executing home.
 
 The baseline is the honesty ledger, not a pass: it currently holds open
 `fail` findings alongside the standing `gap` findings — the committed file
@@ -177,7 +186,8 @@ directory. With no paths it runs over the frozen fixtures.
 | `--list`                  | Print the predicate catalogue (class, id, title).                            |
 
 Exit 2 is a machinery refusal — unreadable or schema-invalid input, an
-unknown platform stamp, an obsolete gap predicate (SL-3), or a malformed
+unknown platform stamp, a `gap` predicate carrying no schema probe or one
+whose probe now matches (both halves of SL-3), or a malformed
 annotation contract (SL-4) — never a baselineable finding.
 
 Where it runs:
@@ -185,7 +195,7 @@ Where it runs:
 | Entry point                                                                                         | What it runs                                                                                       | Posture                                                                                                                                                                                                                           |
 | --------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `npm run sufficiency:check`                                                                         | fixtures + `corpus/sessions` against the committed baseline                                        | the both-direction gate (SL-5) at the command line                                                                                                                                                                                |
-| `npm run test:shared` (the [unit suite](../../packages/shared/tests/unit/sufficiency-lint.test.js)) | the same file set against the same baseline, plus per-predicate pins on minimal hand-built actions | how the gate reaches CI — the unit-tests job runs it on every push; the pins catch a predicate that silently stops firing (or fires on legal absence)                                                                             |
+| `npm run test:shared` (the [unit suite](../../packages/shared/tests/unit/sufficiency-lint.test.js)) | the same file set against the same baseline, plus per-predicate pins on minimal hand-built actions | how the gate reaches CI — the `unit-tests` job runs it on every push; the pins catch a predicate that silently stops firing (or fires on legal absence)                                                                           |
 | `npm run corpus:check` / `corpus:check:desktop` (the comparator's `--lint`)                         | each produced corpus envelope, immediately after the truth diff                                    | advisory; the comparator's `--lint-strict` exits 1 on `fail` findings over produced files and is CI-wired only once the known-diffs baselines are empty ([scripted-truth-corpus §STC-3](scripted-truth-corpus.md#truth-doctrine)) |
 
 The lint's own `--strict` is the corresponding gate slice at this surface:

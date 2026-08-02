@@ -190,6 +190,18 @@ jobs:
       - name: Validate test-suite inventories
         run: npm run lint:test-inventory
 
+      # The verification documents state inventories of things that live
+      # elsewhere: the relaxation kinds and their covered fields, the
+      # normalized field classes, the desktop session catalogue, the predicate
+      # catalogue, and the CI jobs they cite. Each inventory is held to the
+      # code constant or the manifest it describes, both ways; the job cites
+      # are held one-way — every cite must name a job of this workflow, and a
+      # job owes no cite. It runs here for the same reason the test-inventory
+      # gate does — the diff that stales a doc inventory is often docs-only,
+      # and a docs-only PR skips every path-filtered test job.
+      - name: Validate verification-document inventories
+        run: npm run lint:verification-inventory
+
       # The path-filter split (which test jobs run for a given diff) is a
       # committed contract: buildScripts must equal the scripts the heavy jobs
       # run, no heavy job may gate on the broad scripts/** bucket, schema must
