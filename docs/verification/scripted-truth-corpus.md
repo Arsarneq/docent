@@ -356,7 +356,14 @@ committing it (the truth doctrine above, applied to vectors).
 **STC-11.** Each lock is a per-candidate match **count** measured over the
 committed snapshot, or a committed-field **equality** — never a run of the
 resolution procedure. The `"resolved"` guarantee **emerges** from the counts and equalities;
-it is nowhere computed. For every committed vector:
+it is nowhere computed. The numbering below is **append-only**, and it is
+retirement that makes it so: a retired lock is never deleted silently — its
+numbered entry stays in the list, opening `Retired:` with the reason (and issue
+link), so the numbers below it cannot shift; a new lock appends. That is what
+makes an ordinal (`lock 5`) a stable reference to one lock, and what lets this
+document's own prose and the rows of the
+[clause registry](../clause-registry.json) cite locks by number — a citation
+names an active lock. For every committed vector:
 
 1. it names an active manifest session of its platform, or an enumerated
    dedicated vector fixture (the truth-less desktop source — see below);
@@ -407,9 +414,9 @@ extension leg needs none.)
 
 ### Desktop leg
 
-The desktop leg reuses this machinery — the same meta-schema, the same six locks,
-the produced==committed oracle — with a desktop-shaped snapshot and evaluator.
-The differences are all data:
+The desktop leg reuses this machinery — the same meta-schema, the locks STC-11
+states, the produced==committed oracle — with a desktop-shaped snapshot and
+evaluator. The differences are all data:
 
 - **Snapshot node (`desktop_node`).** A serialized node of the UI Automation
   Control view: `control_type` (non-localized), `name`, `automation_id`,

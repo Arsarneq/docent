@@ -356,7 +356,10 @@ is the one home of that list. What each kind of change keeps green:
   renumbered, and a retired id stays reserved. Every clause takes a row in
   [`docs/clause-registry.json`](../docs/clause-registry.json) recording how it
   is verified — by a named existing check, an intended check, or a justified
-  judgment — and any check a row references must actually resolve.
+  judgment — and every citation a row's `check-ref` or `justification` carries
+  must resolve, or be refused as a citation that cannot identify what it names;
+  the check's own list of citable root files is held to the tracked set on every
+  run, so a stale entry reds there rather than in a row.
   `lint:clause-registry` holds the doc markers and the registry rows in
   one-to-one agreement. Every repository path a row cites — the code that
   implements or guards the clause — must in turn be governed by the clause's
