@@ -12,7 +12,11 @@ identifier stays reserved and is never reused. How each rule is verified — by
 an existing named check, by a check that could be built, or by judgment — is
 recorded per rule in the [clause registry](../../clause-registry.json). The
 key words MUST, MUST NOT, SHOULD, and MAY are to be interpreted as described
-in [RFC 2119](https://www.rfc-editor.org/rfc/rfc2119).
+in [RFC 2119](https://www.rfc-editor.org/rfc/rfc2119). Keywords appear on a
+clause's operative requirement where it has one; definitional clauses bind as
+stated without a keyword, and subsidiary absolutes inside a clause inherit its
+force. A clause's scope runs from its marker to the next marker or heading;
+identifiers reflect minting order and can appear out of numeric sequence.
 
 Platform-specific details:
 

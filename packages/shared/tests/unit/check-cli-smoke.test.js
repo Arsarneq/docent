@@ -90,6 +90,11 @@ describe('check-script CLI smoke (deterministic green paths)', () => {
     assert.match(out, /extension surface consistent/);
   });
 
+  it('check-clause-preamble: the committed clause-bearing docs satisfy both legs', () => {
+    const out = runScript('check-clause-preamble.js');
+    assert.match(out, /clause preambles canonical/);
+  });
+
   it('check-doc-closure: the committed guides satisfy every closure claim', () => {
     const out = runScript('check-doc-closure.js');
     assert.match(out, /doc closure holds/);

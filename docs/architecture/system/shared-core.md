@@ -21,7 +21,7 @@ in [RFC 2119](https://www.rfc-editor.org/rfc/rfc2119). Keywords appear on a
 clause's operative requirement where it has one; definitional clauses bind as
 stated without a keyword, and subsidiary absolutes inside a clause inherit its
 force. A clause's scope runs from its marker to the next marker or heading;
-identifiers reflect minting order and may appear out of numeric sequence.
+identifiers reflect minting order and can appear out of numeric sequence.
 
 ---
 

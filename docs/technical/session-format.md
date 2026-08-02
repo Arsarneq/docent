@@ -17,7 +17,7 @@ SHOULD, and MAY are to be interpreted as described in
 clause's operative requirement where it has one; definitional clauses bind as
 stated without a keyword, and subsidiary absolutes inside a clause inherit its
 force. A clause's scope runs from its marker to the next marker or heading;
-identifiers reflect minting order and may appear out of numeric sequence.
+identifiers reflect minting order and can appear out of numeric sequence.
 
 **SF-1.** Where this prose and a schema disagree, the schema governs.
 

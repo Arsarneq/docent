@@ -13,16 +13,17 @@ truth files — Docent ships no consumer, and this directory is a repository and
 CI artifact only (excluded from every release, like `reference-implementations/`).
 
 Each rule this document makes in its own right carries a stable identifier
-(**STC-n**) so other documents, reviews, and checks can cite it precisely. Identifiers are never renumbered; a retired
-identifier stays reserved and is never reused. How each rule is verified — by
-an existing named check, by a check that could be built, or by judgment — is
-recorded per rule in the [clause registry](../clause-registry.json). The key
-words MUST, MUST NOT, SHOULD, and MAY are to be interpreted as described in
+(**STC-n**) so other documents, reviews, and checks can cite it precisely.
+Identifiers are never renumbered; a retired identifier stays reserved and is
+never reused. How each rule is verified — by an existing named check, by a
+check that could be built, or by judgment — is recorded per rule in the
+[clause registry](../clause-registry.json). The key words MUST, MUST NOT,
+SHOULD, and MAY are to be interpreted as described in
 [RFC 2119](https://www.rfc-editor.org/rfc/rfc2119). Keywords appear on a
 clause's operative requirement where it has one; definitional clauses bind as
 stated without a keyword, and subsidiary absolutes inside a clause inherit its
 force. A clause's scope runs from its marker to the next marker or heading;
-identifiers reflect minting order and may appear out of numeric sequence.
+identifiers reflect minting order and can appear out of numeric sequence.
 
 ## Truth doctrine
 
@@ -162,7 +163,7 @@ around. Pointers in sidecars (STC-5) and in `missing-*` and `wrong-field`
 findings index the truth document; `extra-*` findings carry a `produced:`
 prefix.
 
-**STC-5.** A session may carry an `overrides.json` sidecar of **relaxations**,
+**STC-5.** A session MAY carry an `overrides.json` sidecar of **relaxations**,
 and the comparator holds them to a closed contract. The relaxation kinds are
 exactly `match-stats`, `scroll-amounts`, and `path`. Sidecar pointers index
 the **truth** document, and relaxations are alignment-scoped on the produced
@@ -171,7 +172,7 @@ locator-entry scoped (its pointer names the entry) and cross-checked against
 the entry's strategy; the `scroll-amounts` class map keeps `0` exact and
 relaxes only the covered scroll fields; redaction differences are never
 relaxable — the comparator refuses the sidecar rather than compare around a
-mask. Every sidecar entry must apply to some truth action — an unknown kind
+mask. Every sidecar entry MUST apply to some truth action — an unknown kind
 or a pointer that matches nothing is refused. Machinery failures exit with a
 distinct code (2), so tooling breakage can never read as a passing diff.
 
@@ -395,7 +396,7 @@ platform, to the committed vector where it is the measured-unique candidate,
 at element granularity (extension rows: `session`, `vector`, `element`,
 `action_index`; desktop rows: `fixture`, `vector`, `element`). A lock ties
 every emitted strategy to a real committed vector — on the desktop, a
-strategy may instead carry a recorded reason on the ledger's gap side, and
+strategy MAY instead carry a recorded reason on the ledger's gap side, and
 the union equals the emitted set. On the extension, `role_name` and `label`
 are schema-reserved and not emitted, so they are outside the extension's
 vector scope.
