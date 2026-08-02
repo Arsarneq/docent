@@ -328,13 +328,17 @@ describe('Export schema validation', () => {
     // The generated projects carry single-version, undeleted steps, so this
     // property pins length-and-field passthrough; the targeted witness below
     // is what proves a superseded version and a tombstone survive export.
+    // The source is captured BEFORE the build: the builder forwards step
+    // objects by reference, so comparing the export against the very objects
+    // it forwarded would compare each field with itself.
     fc.assert(
       fc.property(arbProject, (project) => {
+        const source = structuredClone(project);
         const exportData = buildExportData(project);
 
         for (let i = 0; i < exportData.recordings.length; i++) {
           const exportRec = exportData.recordings[i];
-          const sourceRec = project.recordings[i];
+          const sourceRec = source.recordings[i];
 
           // All steps are preserved (including deleted and old versions)
           assert.strictEqual(

@@ -352,22 +352,40 @@ export function registeredFieldTableKeys() {
 }
 
 /**
- * A repository path token, mirroring the extraction
- * [`check-clause-governance.js`](./check-clause-governance.js) applies to the
- * same registry rows — the one shape a cited path takes in this data.
+ * A citation candidate, in the WIDE shape
+ * [`check-clause-governance.js`](./check-clause-governance.js) reads over the
+ * same registry rows: its last segment admits the glob and brace
+ * metacharacters a citation may legitimately carry elsewhere in the registry.
  */
-const PATH_TOKEN_RE = /(?:[A-Za-z0-9_\-.]+\/)*[A-Za-z0-9_\-.]+\.[A-Za-z0-9]+/g;
+const CITED_CANDIDATE_RE = /(?:[A-Za-z0-9_\-.]+\/)*[A-Za-z0-9_\-.*{},[\]]+\.[A-Za-z0-9]+/g;
+
+/** The subset of that shape this leg models: a plain, literal path. */
+const PLAIN_PATH_RE = /^(?:[A-Za-z0-9_\-.]+\/)*[A-Za-z0-9_\-.]+\.[A-Za-z0-9]+$/;
 
 /**
- * The Markdown paths a clause row cites, deduplicated. Compared as a SET
- * against the register, so neither side can hide in the other's prose: a
- * substring test would let `README.md` ride on `docs/README.md`, and would
- * never see a path the row cites that no surface backs.
+ * The Markdown paths a clause row cites, deduplicated, plus the citations
+ * whose shape this leg does not model. Candidates are read in the wide shape
+ * and then held to the plain one: a glob or brace form names a set of files
+ * this leg cannot resolve to registered surfaces, so it is refused by name
+ * rather than silently extracting nothing.
+ *
+ * The row's WHOLE text is the enumeration — a Markdown path mentioned
+ * anywhere in it, residue prose included, is a cited surface. Paths are
+ * compared as a SET against the register, so neither side can hide in the
+ * other's prose: a substring test would let `README.md` ride on
+ * `docs/README.md`, and would never see a path the row cites that no
+ * surface backs.
  * @param {string} text a clause row's check-ref
- * @returns {string[]}
+ * @returns {{ paths: string[], unmodelled: string[] }}
  */
 export function citedMarkdownPaths(text) {
-  return [...new Set((text ?? '').match(PATH_TOKEN_RE) ?? [])].filter((p) => p.endsWith('.md'));
+  const paths = [];
+  const unmodelled = [];
+  for (const candidate of new Set((text ?? '').match(CITED_CANDIDATE_RE) ?? [])) {
+    if (!PLAIN_PATH_RE.test(candidate)) unmodelled.push(candidate);
+    else if (candidate.endsWith('.md')) paths.push(candidate);
+  }
+  return { paths, unmodelled };
 }
 
 /**
@@ -692,13 +710,17 @@ export function evaluateSchemaEcho(s) {
   // register and the row are held to the same SET, both ways: a surface
   // registered here and absent from the row would be guarded without being
   // disclosed, and a path the row cites that no surface backs would be
-  // disclosed without being guarded.
+  // disclosed without being guarded. The row's whole text is the enumeration
+  // — a Markdown path anywhere in it, residue prose included, is a citation.
   if (s.authorityRow !== null) {
     const cited = citedMarkdownPaths(s.authorityRow);
     const registered = s.authority.map((surface) => surface.path);
+    for (const candidate of cited.unmodelled) {
+      problems.push(`the §${AUTHORITY_CLAUSE_ID} row in ${CLAUSE_REGISTRY_PATH} cites \`${candidate}\`, a path shape this leg does not model — it enumerates surfaces one literal path at a time, so a glob or brace form cannot be matched against the register`); // prettier-ignore
+    }
     problems.push(
-      ...missingFrom(registered, cited, `is a registered authority surface but the §${AUTHORITY_CLAUSE_ID} row in ${CLAUSE_REGISTRY_PATH} does not cite it — the row states which surfaces are held`), // prettier-ignore
-      ...missingFrom(cited, registered, `is cited as an authority surface by the §${AUTHORITY_CLAUSE_ID} row in ${CLAUSE_REGISTRY_PATH} but no registered surface holds it`), // prettier-ignore
+      ...missingFrom(registered, cited.paths, `is a registered authority surface but the §${AUTHORITY_CLAUSE_ID} row in ${CLAUSE_REGISTRY_PATH} does not cite it — the row states which surfaces are held`), // prettier-ignore
+      ...missingFrom(cited.paths, registered, `is cited as an authority surface by the §${AUTHORITY_CLAUSE_ID} row in ${CLAUSE_REGISTRY_PATH} but no registered surface holds it`), // prettier-ignore
     );
   }
 
@@ -762,15 +784,15 @@ export function evaluateSchemaEcho(s) {
     // than two reports which pair disagreed.
     const [first, ...rest] = defsFor(table.defName).filter((d) => d.present);
     for (const other of rest) {
-      const def = `\`${table.defName}\``;
+      const which = `\`${table.defName}\``;
       const shared = 'every composed platform must share this def';
       problems.push(
-        ...missingFrom(first.properties, other.properties, `is a property of ${def} on ${first.platform} but missing on ${other.platform} — ${shared}`), // prettier-ignore
-        ...missingFrom(other.properties, first.properties, `is a property of ${def} on ${other.platform} but missing on ${first.platform} — ${shared}`), // prettier-ignore
-        ...missingFrom(first.required, other.required, `is required by ${def} on ${first.platform} but not on ${other.platform} — ${shared}`), // prettier-ignore
-        ...missingFrom(other.required, first.required, `is required by ${def} on ${other.platform} but not on ${first.platform} — ${shared}`), // prettier-ignore
-        ...missingFrom(first.anyOfRequired, other.anyOfRequired, `is required by an anyOf branch of ${def} on ${first.platform} but not on ${other.platform} — ${shared}`), // prettier-ignore
-        ...missingFrom(other.anyOfRequired, first.anyOfRequired, `is required by an anyOf branch of ${def} on ${other.platform} but not on ${first.platform} — ${shared}`), // prettier-ignore
+        ...missingFrom(first.properties, other.properties, `is a property of ${which} on ${first.platform} but missing on ${other.platform} — ${shared}`), // prettier-ignore
+        ...missingFrom(other.properties, first.properties, `is a property of ${which} on ${other.platform} but missing on ${first.platform} — ${shared}`), // prettier-ignore
+        ...missingFrom(first.required, other.required, `is required by ${which} on ${first.platform} but not on ${other.platform} — ${shared}`), // prettier-ignore
+        ...missingFrom(other.required, first.required, `is required by ${which} on ${other.platform} but not on ${first.platform} — ${shared}`), // prettier-ignore
+        ...missingFrom(first.anyOfRequired, other.anyOfRequired, `is required by an anyOf branch of ${which} on ${first.platform} but not on ${other.platform} — ${shared}`), // prettier-ignore
+        ...missingFrom(other.anyOfRequired, first.anyOfRequired, `is required by an anyOf branch of ${which} on ${other.platform} but not on ${first.platform} — ${shared}`), // prettier-ignore
       );
     }
   }

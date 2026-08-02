@@ -3,7 +3,8 @@
  * (scripts/check-schema-echo.js). The session-format document restates what
  * the schemas define, so every red path must fail loud: these tests prove the
  * authority-statement leg, one posture red per class, the field-table diffs in
- * both directions on both platforms, the cross-platform def agreement, the
+ * both directions over every composed platform, the cross-platform def
+ * agreement (whose diagnoses must name the platforms they compared), the
  * unreadable-cell and moved-column refusals, duplicates, empty parses — and,
  * as a real-tree lock, that the shipped tree satisfies every leg through the
  * reader the CLI itself uses.
@@ -322,7 +323,7 @@ describe('evaluateSchemaEcho — the field-table coverage leg (both ways)', () =
   });
 });
 
-describe('evaluateSchemaEcho — the field-set leg (both ways, both platforms)', () => {
+describe('evaluateSchemaEcho — the field-set leg (both ways, every composed platform)', () => {
   it('fires when the table names a field the def has no property for', () => {
     const table = { ...makeSurface().tables[0] };
     const problems = evaluateSchemaEcho(
@@ -447,25 +448,6 @@ describe('evaluateSchemaEcho — the "one of" leg', () => {
       problems.join('\n'),
     );
   });
-
-  it('fires when the platforms disagree on which fields an anyOf branch requires', () => {
-    const problems = evaluateSchemaEcho(
-      withDef('desktop-windows', {
-        anyOfBranches: [['narration'], ['step_type'], ['diverged']],
-        anyOfRequired: ['narration', 'step_type', 'diverged'],
-      }),
-    );
-    assert.ok(
-      problems.some(
-        (p) =>
-          p.includes('`diverged`') &&
-          p.includes('anyOf branch') &&
-          p.includes('extension') &&
-          p.includes('desktop-windows'),
-      ),
-      problems.join('\n'),
-    );
-  });
 });
 
 describe('evaluateSchemaEcho — the authority register and the clause row that discloses it', () => {
@@ -487,6 +469,16 @@ describe('evaluateSchemaEcho — the authority register and the clause row that 
       problems.some(
         (p) => p.includes('docs/invented.md') && p.includes('no registered surface holds it'),
       ),
+      problems.join('\n'),
+    );
+  });
+
+  it('refuses a citation shape it cannot match against the register', () => {
+    const problems = evaluateSchemaEcho(
+      makeSurface({ authorityRow: 'docs/x.md and everything under docs/*.md are held' }),
+    );
+    assert.ok(
+      problems.some((p) => p.includes('docs/*.md') && p.includes('does not model')),
       problems.join('\n'),
     );
   });
@@ -516,10 +508,24 @@ describe('evaluateSchemaEcho — the authority register and the clause row that 
 });
 
 describe('evaluateSchemaEcho — the cross-platform def agreement', () => {
-  // Each diagnosis must name the platforms it compared, not their positions:
-  // "the first platform" tells a reader nothing once a third chain exists.
-  const namesBothPlatforms = (p) =>
-    p.includes('extension') && p.includes('desktop-windows') && p.includes('every composed platform must share this def'); // prettier-ignore
+  // Each diagnosis must name the platforms it compared IN ITS DIRECTIONAL
+  // SLOTS — "on <a> but not on <b>" — never by position. A message that says
+  // "the first platform" and parks the ids in a parenthetical reads the same
+  // to a substring test and tells a reader nothing once a third chain exists,
+  // so the predicate refuses the positional wording outright.
+  const DIRECTIONAL = /on ([A-Za-z0-9-]+) but (?:not|missing) on ([A-Za-z0-9-]+)/;
+  const namesPlatformsDirectionally = (p) => {
+    if (/the (?:first|second) platform/.test(p)) return false;
+    const match = DIRECTIONAL.exec(p);
+    if (match === null) return false;
+    const [, from, to] = match;
+    return (
+      from !== to &&
+      PLATFORM_IDS.includes(from) &&
+      PLATFORM_IDS.includes(to) &&
+      p.includes('every composed platform must share this def')
+    );
+  };
 
   it('fires when one platform’s copy of a shared def carries an extra property', () => {
     const problems = evaluateSchemaEcho(
@@ -528,7 +534,7 @@ describe('evaluateSchemaEcho — the cross-platform def agreement', () => {
       }),
     );
     assert.ok(
-      problems.some((p) => p.includes('`divergent`') && namesBothPlatforms(p)),
+      problems.some((p) => p.includes('`divergent`') && namesPlatformsDirectionally(p)),
       problems.join('\n'),
     );
   });
@@ -536,8 +542,36 @@ describe('evaluateSchemaEcho — the cross-platform def agreement', () => {
   it('fires when the platforms disagree on the def’s required set', () => {
     const problems = evaluateSchemaEcho(withDef('desktop-windows', { required: [] }));
     assert.ok(
-      problems.some((p) => p.includes('`uuid`') && namesBothPlatforms(p)),
+      problems.some((p) => p.includes('`uuid`') && namesPlatformsDirectionally(p)),
       problems.join('\n'),
+    );
+  });
+
+  it('fires when the platforms disagree on which fields an anyOf branch requires', () => {
+    const problems = evaluateSchemaEcho(
+      withDef('desktop-windows', {
+        anyOfBranches: [['narration'], ['step_type'], ['diverged']],
+        anyOfRequired: ['narration', 'step_type', 'diverged'],
+      }),
+    );
+    assert.ok(
+      problems.some(
+        (p) =>
+          p.includes('`diverged`') && p.includes('anyOf branch') && namesPlatformsDirectionally(p),
+      ),
+      problems.join('\n'),
+    );
+  });
+
+  it('refuses the positional wording the ids-in-a-parenthetical form would restore', () => {
+    // The predicate above is only worth having if it rejects what it replaced.
+    const positional =
+      '`divergent` is a property of `step` (extension vs desktop-windows) on the second platform only — every composed platform must share this def';
+    assert.ok(!namesPlatformsDirectionally(positional));
+    assert.ok(
+      namesPlatformsDirectionally(
+        '`divergent` is a property of `step` on desktop-windows but missing on extension — every composed platform must share this def',
+      ),
     );
   });
 });
@@ -674,16 +708,38 @@ describe('citedMarkdownPaths', () => {
     const cited = citedMarkdownPaths(
       'scripts/check-schema-echo.js holds docs/README.md, README.md, docs/README.md, and reference-implementations/sync-server/README.md (npm run lint:schema-echo)', // prettier-ignore
     );
-    assert.deepEqual(cited, [
+    assert.deepEqual(cited.paths, [
       'docs/README.md',
       'README.md',
       'reference-implementations/sync-server/README.md',
     ]);
+    assert.deepEqual(cited.unmodelled, []);
   });
 
   it('reads nothing from a row that cites no path', () => {
-    assert.deepEqual(citedMarkdownPaths('held by review only'), []);
-    assert.deepEqual(citedMarkdownPaths(undefined), []);
+    assert.deepEqual(citedMarkdownPaths('held by review only').paths, []);
+    assert.deepEqual(citedMarkdownPaths(undefined).paths, []);
+  });
+
+  it('refuses a glob or brace citation instead of extracting nothing from it', () => {
+    // The wider governance-class shape admits these, so they are seen and
+    // named rather than falling out of the scan silently.
+    const glob = citedMarkdownPaths('the register holds docs/*.md');
+    assert.deepEqual(glob.paths, []);
+    assert.deepEqual(glob.unmodelled, ['docs/*.md']);
+    const brace = citedMarkdownPaths('the register holds docs/{a,b}.md');
+    assert.deepEqual(brace.unmodelled, ['docs/{a,b}.md']);
+  });
+});
+
+describe('AUTHORITY_SURFACES ⇄ the row’s citation shape', () => {
+  it('every registered surface is a Markdown path, which is what the row’s scan reads', () => {
+    // The cited side keeps only `.md` tokens; if a register entry were some
+    // other file type the two sides could never agree, and the closure leg
+    // would red on a correct row.
+    for (const [path] of AUTHORITY_SURFACES) {
+      assert.ok(path.endsWith('.md'), path);
+    }
   });
 });
 
