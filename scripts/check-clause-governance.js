@@ -145,7 +145,7 @@ export const ALLOWLIST = new Map([
   ],
   [
     'SF-1\treference-implementations/sync-server/README.md',
-    'the reference server index defers the payload shape to the schemas, echoing the ordering clause; the schema-echo check holds that echo, and the file is a recorded area-map exception — a runnable example artifact, never shipped — rather than governed documentation',
+    'the reference server index defers the payload shape to the schemas, echoing the ordering clause; the schema-echo check holds that echo, and the file is governed by the sync area’s docs rather than by the format doc it defers to (it is also a runnable example artifact, never shipped)',
   ],
 ]);
 
