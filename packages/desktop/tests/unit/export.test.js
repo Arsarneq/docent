@@ -3,16 +3,21 @@
  *
  * For any valid project containing recordings with steps and actions,
  * exporting the project SHALL produce a JSON structure that validates
- * against the v2.0.0 Schema_Contract. The export SHALL include all
- * recordings, all resolved active steps (latest version per logical_id,
- * excluding deleted), and the project metadata (project_id, name,
- * created_at).
+ * against the desktop schema contract composed from its source layers — the
+ * version that contract carries is stamped into the export's `docent_format`,
+ * never restated here. The export SHALL include all recordings, each
+ * recording's full step history (superseded and soft-deleted versions
+ * included), and the project metadata (project_id, name, created_at).
  *
- * This tests the pure export-building logic, not the Tauri invoke calls.
- * We replicate the export logic from panel.js and validate the output
- * against the schema contract.
+ * This tests the pure export-building logic, not the Tauri invoke calls: it
+ * exercises the same shared `buildExport` the panel calls, and validates its
+ * output against the schema contract.
  *
- * Export schema validation
+ * Every comparison against the source is made with a snapshot taken BEFORE
+ * the build: the builder forwards step objects by reference and reads the
+ * project's fields from the live source at build time, so comparing the
+ * export against the live project after the build would see nothing a
+ * builder mutated in place — the snapshot is the only pre-build record.
  */
 
 import { describe, it } from 'node:test';
@@ -289,7 +294,7 @@ const arbProject = fc.record({
 // ─── Property tests ───────────────────────────────────────────────────────────
 
 describe('Export schema validation', () => {
-  it('exported JSON validates against the v2.0.0 schema contract', () => {
+  it('exported JSON validates against the composed desktop schema contract', () => {
     fc.assert(
       fc.property(arbProject, (project) => {
         const exportData = buildExportData(project);
@@ -302,10 +307,11 @@ describe('Export schema validation', () => {
   it('export includes all recordings from the project', () => {
     fc.assert(
       fc.property(arbProject, (project) => {
+        const source = structuredClone(project);
         const exportData = buildExportData(project);
         assert.strictEqual(
           exportData.recordings.length,
-          project.recordings.length,
+          source.recordings.length,
           'export must include all recordings',
         );
       }),
@@ -316,31 +322,28 @@ describe('Export schema validation', () => {
   it('export includes project metadata (project_id, name, created_at)', () => {
     fc.assert(
       fc.property(arbProject, (project) => {
+        const source = structuredClone(project);
         const exportData = buildExportData(project);
-        assert.strictEqual(exportData.project.project_id, project.project_id);
-        assert.strictEqual(exportData.project.name, project.name);
-        assert.strictEqual(exportData.project.created_at, project.created_at);
+        assert.strictEqual(exportData.project.project_id, source.project_id);
+        assert.strictEqual(exportData.project.name, source.name);
+        assert.strictEqual(exportData.project.created_at, source.created_at);
       }),
       { numRuns: 100 },
     );
   });
 
   it('export preserves full step history including deleted and re-recorded versions', () => {
-    // Generate a recording with multiple versions of the same logical step
-    const arbStepWithVersions = fc.tuple(arbUuid, arbUuid).chain(([logicalId, uuid2]) =>
-      fc.tuple(
-        arbStep.map((s) => ({ ...s, logical_id: logicalId, step_number: 1 })),
-        arbStep.map((s) => ({ ...s, logical_id: logicalId, step_number: 1, uuid: uuid2 })),
-      ),
-    );
-
+    // The generated projects carry single-version, undeleted steps, so this
+    // property pins length-and-field passthrough; the targeted witness below
+    // is what proves a superseded version and a tombstone survive export.
     fc.assert(
       fc.property(arbProject, (project) => {
+        const source = structuredClone(project);
         const exportData = buildExportData(project);
 
         for (let i = 0; i < exportData.recordings.length; i++) {
           const exportRec = exportData.recordings[i];
-          const sourceRec = project.recordings[i];
+          const sourceRec = source.recordings[i];
 
           // All steps are preserved (including deleted and old versions)
           assert.strictEqual(
@@ -358,6 +361,56 @@ describe('Export schema validation', () => {
         }
       }),
       { numRuns: 100 },
+    );
+  });
+
+  // The generated projects carry one version per logical step and never a
+  // tombstone, so the history claim above needs a case that actually holds
+  // one: a superseded version and a soft-deleted version of the same logical
+  // step must both reach the export with their content intact.
+  it('export carries a superseded version and a tombstone of the same logical step verbatim', () => {
+    const logicalId = '019e12a4-633d-74d2-acd5-584085fb57f9';
+    const superseded = {
+      uuid: logicalId,
+      logical_id: logicalId,
+      step_number: 1,
+      created_at: '2026-05-10T16:06:39.000Z',
+      narration: 'the version the user re-recorded over',
+      narration_source: 'typed',
+      actions: [],
+      deleted: false,
+    };
+    const tombstone = {
+      uuid: '019e12a4-733d-74d2-acd5-584085fb5800',
+      logical_id: logicalId,
+      step_number: 1,
+      created_at: '2026-05-10T16:07:41.000Z',
+      narration: 'the version the user re-recorded over',
+      narration_source: 'typed',
+      actions: [],
+      deleted: true,
+    };
+    const project = {
+      project_id: '019e11fd-78ba-7fdb-8362-6fe9f697f641',
+      name: 'History preservation',
+      created_at: '2026-05-10T13:04:44.730Z',
+      recordings: [
+        {
+          recording_id: '019e12a4-0278-7c8e-aae6-01c26f002efb',
+          name: 'A re-recorded then deleted step',
+          created_at: '2026-05-10T16:06:38.968Z',
+          steps: [superseded, tombstone],
+        },
+      ],
+    };
+
+    const expectedSteps = structuredClone([superseded, tombstone]);
+    const exportData = buildExportData(project);
+    validateExport(exportData);
+    assert.deepStrictEqual(
+      exportData.recordings[0].steps,
+      expectedSteps,
+      'the export must carry every version of the logical step, tombstone included',
     );
   });
 });

@@ -45,11 +45,17 @@ export const MAP_PATH = 'scripts/area-map.json';
 export const REGISTRY_PATH = 'docs/clause-registry.json';
 
 /**
- * A repository-path token: an optional directory prefix then a filename with an
- * extension. Directory-less (`README.md`) and `dist/*`-shaped tokens included —
- * the same extraction the review-time citation sweep used.
+ * A repository-path token as a clause row cites one: an optional directory
+ * prefix then a filename with an extension. Directory-less (`README.md`) and
+ * `dist/*`-shaped tokens included — the same extraction the review-time
+ * citation sweep used.
+ *
+ * Exported as the single home for the shape: this check reads it to find the
+ * paths a row cites, and [`check-schema-echo.js`](./check-schema-echo.js)
+ * reads it to find the surfaces the authority row enumerates. Both scan the
+ * same rows, so the shape they admit is one decision, not two.
  */
-const PATH_RE = /(?:[A-Za-z0-9_\-.]+\/)*[A-Za-z0-9_\-.*{},[\]]+\.[A-Za-z0-9]+/g;
+export const CITED_PATH_RE = /(?:[A-Za-z0-9_\-.]+\/)*[A-Za-z0-9_\-.*{},[\]]+\.[A-Za-z0-9]+/g;
 
 /**
  * Couplings deliberately left open, each keyed `"<clause>\t<path>"`. Every entry
@@ -67,9 +73,13 @@ const PATH_RE = /(?:[A-Za-z0-9_\-.]+\/)*[A-Za-z0-9_\-.*{},[\]]+\.[A-Za-z0-9]+/g;
  *      a registered guard suite that carries the doc, or — when the clause's
  *      doc is repo-wide — the repo-wide "line only when itself edited" rule
  *      plus the end-to-end checks.
- *   3. The format-authority echo surfaces — the root README and the docs index
- *      carry the session-format ordering clause's echo; the intended
- *      consistency check for those echoes is tracked separately.
+ *   3. The format-authority echo surfaces whose area-supplied governance
+ *      does not already include the format doc (the other registered
+ *      surfaces resolve to it and need no entry). The echo itself is held
+ *      by the schema-echo check, which reads each of them, so what stays
+ *      open here is only the governance edge, for the reason each entry
+ *      states: a repo-wide doc, which this check does not credit as
+ *      governance, or a doc whose areas supply other governing docs.
  */
 export const ALLOWLIST = new Map([
   // Class 1 — verification scripts (declined coupling; maintainer's open call).
@@ -118,14 +128,24 @@ export const ALLOWLIST = new Map([
     'DI-3\tpackages/shared/lib/format-stamp.js',
     "the stamp-source implementation DI-3 names; DI-3's wrapper contract is asserted per-diff by the contract, dispatch, and export test suites that carry the dispatch doc, and this file is exercised by the schema-composition suites — the citation names the site, not a per-file governance edge",
   ],
-  // Class 3 — format-authority echo surfaces (intended consistency check tracked separately).
+  // Class 3 — format-authority echo surfaces. Each echoes the session-format
+  // ordering clause and is held by the schema-echo check; what stays open is
+  // only the governance edge, for the reason each entry states.
   [
     'SF-1\tdocs/README.md',
-    'the docs index echoes the session-format ordering clause; the echo-surface consistency check is tracked separately',
+    'the docs index echoes the session-format ordering clause, and the schema-echo check holds that echo; the edge stays open because a repo-wide doc is not credited as governance, and the index takes a disposition line only when itself edited',
   ],
   [
     'SF-1\tREADME.md',
-    'the root README echoes the session-format ordering clause; the echo-surface consistency check is tracked separately',
+    'the root README echoes the session-format ordering clause, and the schema-echo check holds that echo; the edge stays open because a repo-wide doc is not credited as governance, and the README takes a disposition line only when itself edited',
+  ],
+  [
+    'SF-1\tdocs/api/sync-protocol.md',
+    'the sync protocol defers the step structure to the schemas, echoing the ordering clause; the schema-echo check holds that echo, and the protocol doc is governed by the areas that own the protocol rather than by the format doc it defers to',
+  ],
+  [
+    'SF-1\treference-implementations/sync-server/README.md',
+    'the reference server index defers the payload shape to the schemas, echoing the ordering clause; the schema-echo check holds that echo, and the file is governed by the sync area’s docs rather than by the format doc it defers to (it is also a runnable example artifact, never shipped)',
   ],
 ]);
 
@@ -139,7 +159,7 @@ export function citedPaths(row, tracked) {
   const text = [row['check-ref'], row.justification].filter(Boolean).join(' ');
   const out = [];
   const seen = new Set();
-  for (const tok of text.match(PATH_RE) ?? []) {
+  for (const tok of text.match(CITED_PATH_RE) ?? []) {
     if (seen.has(tok) || !tracked.has(tok)) continue;
     seen.add(tok);
     out.push(tok);

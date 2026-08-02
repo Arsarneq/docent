@@ -507,6 +507,7 @@
         "docs/architecture/application/desktop/windows/application-shell.md",
         "docs/architecture/application/extension/permissions.md",
         "docs/architecture/application/extension/runtime.md",
+        "docs/technical/session-format.md",
         ".github/CONTRIBUTING.md"
       ]
     },
@@ -519,6 +520,28 @@
         ".github/PUBLISHING.md",
         "docs/architecture/application/extension/permissions.md",
         "docs/architecture/application/extension/runtime.md",
+        ".github/CONTRIBUTING.md"
+      ]
+    },
+    {
+      "path": "scripts/check-schema-echo.js",
+      "reason": "The schema-echo admission test — the session-format doc's authority-ordering clause and its unknown-key posture clause (SF-1, SF-14) are verified by it, per their registry rows, so the format doc governs it beside the CI guides; the surfaces it reads are its subject, not its doctrine.",
+      "governed-by": [
+        "docs/guides/ci.md",
+        "docs/guides/local-ci.md",
+        ".github/PUBLISHING.md",
+        "docs/technical/session-format.md",
+        ".github/CONTRIBUTING.md"
+      ]
+    },
+    {
+      "path": "scripts/check-clause-governance.js",
+      "reason": "The clause-citation governance lint — and the home of the shared citation shape the schema-echo check reads the SF-1 register/row closure through, so an edit here changes what that clause is checked against and the format doc governs it beside the CI guides.",
+      "governed-by": [
+        "docs/guides/ci.md",
+        "docs/guides/local-ci.md",
+        ".github/PUBLISHING.md",
+        "docs/technical/session-format.md",
         ".github/CONTRIBUTING.md"
       ]
     },

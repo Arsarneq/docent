@@ -18,7 +18,9 @@ use proptest::prelude::*;
 // Valid schema action types
 // ---------------------------------------------------------------------------
 
-/// The set of action types defined in the v2.0.0 schema contract.
+/// The set of action types the desktop schema contract defines. The version
+/// that contract carries is stamped into each exported file's `docent_format`,
+/// never restated here.
 const VALID_ACTION_TYPES: &[&str] = &[
     "click",
     "right_click",
