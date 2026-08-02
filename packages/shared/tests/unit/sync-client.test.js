@@ -6,8 +6,11 @@
  *
  */
 
-import { describe, it, beforeEach, afterEach } from 'node:test';
+import { describe, it, before, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync, existsSync } from 'node:fs';
+import { resolve, join } from 'node:path';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import fc from 'fast-check';
 import {
   SyncError,
@@ -18,6 +21,9 @@ import {
   buildPayloadForProject,
 } from '../../sync-client.js';
 import { STUB_SCHEMA } from '../fixtures/stub-schema.js';
+import { composePlatform } from '../../../../scripts/build-schemas.js';
+import { stampFromSchema } from '../../lib/format-stamp.js';
+import { validatePayload, MAX_IMPORT_DEPTH } from '../../lib/validate-import.js';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -914,5 +920,304 @@ describe('sync — pull stamp mismatch handling', () => {
     assert.deepEqual(result.pulled, [GOOD]);
     assert.equal(result.mismatched.length, 1);
     assert.equal(result.mismatched[0].projectName, 'Bad');
+  });
+});
+
+// ─── pullProjects — regression: docent#429 (forward compatibility) ─────────────
+
+/**
+ * Regression cases for docent#429 — https://github.com/Arsarneq/docent/issues/429
+ *
+ * The Sync Protocol's forward-compatibility rule (SP-5) promises that a client
+ * ignores unrecognized top-level fields a server returns, so a future protocol
+ * version can add fields without breaking clients built against the current
+ * specification. The `.docent.json` envelope is deliberately closed
+ * (session-format §SF-14), so the pull path delivers SP-5 at the transport
+ * layer: it validates each pulled payload on its known-field projection
+ * (`docent_format`, `project`, `recordings`) and reconstructs the project from
+ * that projection. Before the fix the raw payload went to the validator, so one
+ * unknown top-level field made the whole project skip into `errors` — the
+ * opposite of what SP-5 promises.
+ *
+ * These cases run the REAL generated platform validators against the frozen
+ * fixtures (re-stamped to the current schema version exactly as
+ * generated-validators.test.js models), because a permissive stub validator
+ * would accept the unknown field on its own and mask the defect they exist to
+ * pin. The block therefore requires the generated artifacts and FAILS LOUDLY
+ * when they are absent — the `before` hook asserts, naming the build step to
+ * run; it does not skip.
+ *
+ * Bounds note (accepted at design time): with the projection in place, the
+ * size/depth bounds `validatePayload` runs before the schema walk measure the
+ * projection, so an oversized unknown top-level field is measured out of them.
+ * The parse cost of such a field is borne at `response.json()` either way, and
+ * every downstream walker (the digest, the classifier, and the store) consumes
+ * the allowlisted reconstruction, so each keeps the bounded input it had.
+ */
+
+const REGRESSION_429_DIRNAME = fileURLToPath(new URL('.', import.meta.url));
+const GENERATED_DIR = resolve(REGRESSION_429_DIRNAME, '../../generated');
+const FIXTURES_DIR = resolve(REGRESSION_429_DIRNAME, '../fixtures');
+
+/** The frozen fixture backing each platform's real generated validator. */
+const REGRESSION_429_PLATFORMS = [
+  { key: 'extension', fixture: 'extension/v3.0.0.docent.json' },
+  { key: 'desktop-windows', fixture: 'desktop-windows/v2.0.0.docent.json' },
+];
+
+/**
+ * Load one platform's real generated validator, its frozen fixture re-stamped
+ * to the current schema version, and the stamp a client of that platform
+ * expects. Asserts (rather than skips) when the generated artifact is absent.
+ *
+ * @param {string} key - the platform key (`extension` / `desktop-windows`)
+ * @returns {Promise<{validate: Function, payload: object, localStamp: {platform: string, schema_version: string}}>}
+ */
+async function loadPlatformValidatorAndFixture(key) {
+  const file = join(GENERATED_DIR, `validate-${key}.js`);
+  assert.ok(
+    existsSync(file),
+    `Missing ${file} — run \`npm run sync-shared\` (or node scripts/build-validators.js) before this test.`,
+  );
+  const validate = (await import(pathToFileURL(file).href)).default;
+  const fixture = REGRESSION_429_PLATFORMS.find((p) => p.key === key).fixture;
+  const payload = JSON.parse(readFileSync(join(FIXTURES_DIR, fixture), 'utf8'));
+  const localStamp = stampFromSchema(composePlatform(key));
+  // Re-stamp to the CURRENT schema version so a schema bump never needs a
+  // manual fixture edit — the generated validator enforces the version `const`.
+  payload.docent_format = localStamp;
+  return { validate, payload, localStamp };
+}
+
+/**
+ * Mock a one-project pull: the manifest lists `projectId`, and the per-project
+ * GET returns `payload`.
+ *
+ * @param {string} projectId - the manifest entry's project_id
+ * @param {object} payload - the body the per-project GET returns
+ * @returns {void}
+ */
+function mockPullOf(projectId, payload) {
+  const manifest = [
+    { project_id: projectId, name: 'Regression 429', last_modified: '2026-06-01T00:00:00.000Z' },
+  ];
+  mockFetch((url) => {
+    if (url.endsWith('/projects')) return makeResponse(200, manifest);
+    if (url.endsWith(`/projects/${projectId}`)) return makeResponse(200, payload);
+    return makeResponse(404);
+  });
+}
+
+for (const { key } of REGRESSION_429_PLATFORMS) {
+  describe(`pullProjects — docent#429 forward compatibility (${key})`, () => {
+    let validate;
+    let payload;
+    let localStamp;
+
+    before(async () => {
+      ({ validate, payload, localStamp } = await loadPlatformValidatorAndFixture(key));
+    });
+
+    it(`regression_429_unknown_top_level_field_accepted_on_pull_${key.replace(/-/g, '_')}`, async () => {
+      // Regression: #429 — an unknown top-level field made the whole project
+      // skip into `errors`, contradicting SP-5's forward-compatibility promise.
+      // https://github.com/Arsarneq/docent/issues/429
+      const projectId = payload.project.project_id;
+
+      mockPullOf(projectId, {
+        ...payload,
+        future_top_level_field: { added_by: 'a later protocol version' },
+      });
+      const tolerated = await pullProjects('https://srv.test', null, validate, localStamp);
+
+      mockPullOf(projectId, payload);
+      const baseline = await pullProjects('https://srv.test', null, validate, localStamp);
+
+      assert.deepEqual(
+        tolerated.errors.map((e) => e.message),
+        [],
+        'an unrecognized top-level field is not an error (SP-5)',
+      );
+      assert.deepEqual(
+        tolerated.mismatched.map((e) => e.message),
+        [],
+        'an unrecognized top-level field is not a stamp mismatch',
+      );
+      assert.equal(tolerated.projects.length, 1, 'the project is accepted');
+      assert.deepEqual(
+        tolerated.projects,
+        baseline.projects,
+        'the reconstructed project is exactly the one the same payload without the extra field yields',
+      );
+    });
+  });
+}
+
+describe('pullProjects — docent#429 the gates the projection keeps', () => {
+  // The cases below pin gates in platform-independent pull-path code, so one
+  // platform's real validator exercises them; the tolerance case above is the
+  // platform-shaped one and runs against both.
+  let validate;
+  let payload;
+  let localStamp;
+
+  before(async () => {
+    ({ validate, payload, localStamp } = await loadPlatformValidatorAndFixture('extension'));
+  });
+
+  it('regression_429_unknown_field_with_stamp_mismatch_still_skipped', async () => {
+    // Regression: #429 — tolerating unknown top-level fields must leave the
+    // stamp gate (SP-8) exactly as strict as it was.
+    // https://github.com/Arsarneq/docent/issues/429
+    const projectId = payload.project.project_id;
+    mockPullOf(projectId, {
+      ...payload,
+      docent_format: { ...localStamp, schema_version: '9.9.9' },
+      future_top_level_field: true,
+    });
+
+    const result = await pullProjects('https://srv.test', null, validate, localStamp);
+
+    assert.equal(result.projects.length, 0, 'a stamp-incompatible project is not merged');
+    assert.equal(result.mismatched.length, 1, 'it is reported as a compatibility skip');
+    assert.match(result.mismatched[0].message, /schema version 9\.9\.9/);
+    assert.deepEqual(
+      result.errors.map((e) => e.message),
+      [],
+      'a stamp mismatch is reported as a mismatch, not an error',
+    );
+  });
+
+  it('regression_429_unknown_field_with_invalid_known_field_still_skipped', async () => {
+    // Regression: #429 — the projection carries the known fields through to the
+    // validator, so a violation INSIDE one of them is still caught (SP-8).
+    // https://github.com/Arsarneq/docent/issues/429
+    const projectId = payload.project.project_id;
+    const { name: _dropped, ...projectWithoutName } = payload.project;
+    mockPullOf(projectId, {
+      ...payload,
+      project: projectWithoutName,
+      future_top_level_field: true,
+    });
+
+    const result = await pullProjects('https://srv.test', null, validate, localStamp);
+
+    assert.equal(result.projects.length, 0, 'an invalid payload is not merged');
+    assert.equal(result.errors.length, 1, 'it is reported as an error');
+    assert.match(result.errors[0].message, /failed schema validation/);
+    assert.deepEqual(
+      result.mismatched.map((e) => e.message),
+      [],
+      'a schema violation is reported as an error, not a compatibility skip',
+    );
+  });
+
+  it('regression_429_absent_known_field_stays_absent_through_the_projection', async () => {
+    // Regression: #429 — a known field the payload omits stays omitted, so the
+    // schema's required-field check still sees the omission.
+    // https://github.com/Arsarneq/docent/issues/429
+    const projectId = payload.project.project_id;
+    const { recordings: _dropped, ...payloadWithoutRecordings } = payload;
+    mockPullOf(projectId, {
+      ...payloadWithoutRecordings,
+      future_top_level_field: true,
+    });
+
+    const result = await pullProjects('https://srv.test', null, validate, localStamp);
+
+    assert.equal(result.projects.length, 0, 'a payload missing a required field is not merged');
+    assert.equal(result.errors.length, 1, 'it is reported as an error');
+    assert.match(result.errors[0].message, /failed schema validation/);
+  });
+
+  it('regression_429_null_per_project_body_skips_only_that_project', async () => {
+    // Regression: #429 — the projection runs on every pulled body, so a body
+    // that is no Full_Project_Payload at all stays a per-project skip: `null`
+    // leaves the projection unchanged, the stamp stage reads no stamp off it,
+    // and the rest of the pull continues.
+    // https://github.com/Arsarneq/docent/issues/429
+    const goodId = payload.project.project_id;
+    const nullBodyId = '0192f0a0-0000-7000-8000-0000000000d1';
+    const manifest = [
+      { project_id: nullBodyId, name: 'Null body', last_modified: '2026-06-01T00:00:00.000Z' },
+      { project_id: goodId, name: 'Regression 429', last_modified: '2026-06-01T00:00:00.000Z' },
+    ];
+    mockFetch((url) => {
+      if (url.endsWith('/projects')) return makeResponse(200, manifest);
+      if (url.endsWith(`/projects/${nullBodyId}`)) return makeResponse(200, null);
+      if (url.endsWith(`/projects/${goodId}`)) return makeResponse(200, payload);
+      return makeResponse(404);
+    });
+
+    const result = await pullProjects('https://srv.test', null, validate, localStamp);
+
+    assert.equal(result.mismatched.length, 1, 'the null body is one compatibility skip');
+    assert.equal(result.mismatched[0].projectName, 'Null body');
+    assert.match(result.mismatched[0].message, /missing or malformed docent_format stamp/);
+    assert.deepEqual(
+      result.errors.map((e) => e.message),
+      [],
+      'a non-object body is a compatibility skip, not an error',
+    );
+    assert.equal(result.projects.length, 1, 'the other project is unaffected');
+    assert.equal(result.projects[0].project_id, goodId);
+  });
+});
+
+describe('pullProjects — docent#429 where the bounds are measured', () => {
+  let validate;
+  let payload;
+  let localStamp;
+
+  before(async () => {
+    ({ validate, payload, localStamp } = await loadPlatformValidatorAndFixture('extension'));
+  });
+
+  it('regression_429_bounds_measure_the_projection_on_pull', async () => {
+    // Regression: #429 — the projection is what the pull hands to
+    // `validatePayload`, so the size/depth bounds that run before the schema
+    // walk are measured on the projection, not on the raw payload. This is the
+    // divergence session-format §SF-13 states: pulled payloads run those same
+    // bounds and that same schema validation applied to each payload's
+    // known-field projection, so identical bytes can be accepted on pull and
+    // refused on import.
+    // https://github.com/Arsarneq/docent/issues/429
+    let deepUnknownValue = { leaf: true };
+    for (let i = 0; i < MAX_IMPORT_DEPTH + 6; i += 1) {
+      deepUnknownValue = { nested: deepUnknownValue };
+    }
+    const projectId = payload.project.project_id;
+    const withDeepUnknownField = { ...payload, future_top_level_field: deepUnknownValue };
+
+    // The import caller's shape: bounds measured on the raw value, which trips
+    // the depth bound before any schema walk happens.
+    const direct = validatePayload(validate, withDeepUnknownField);
+    assert.equal(direct.valid, false, 'the raw payload trips the depth bound');
+    assert.deepEqual(direct.errors, [`payload nesting exceeds depth ${MAX_IMPORT_DEPTH}`]);
+
+    // The pull caller's shape: the unknown field is dropped by the projection
+    // before the bounds run, so the same bytes land as a project.
+    mockPullOf(projectId, withDeepUnknownField);
+    const pulled = await pullProjects('https://srv.test', null, validate, localStamp);
+
+    mockPullOf(projectId, payload);
+    const baseline = await pullProjects('https://srv.test', null, validate, localStamp);
+
+    assert.deepEqual(
+      pulled.errors.map((e) => e.message),
+      [],
+      'the depth carried by an unknown top-level field is not an error on pull',
+    );
+    assert.deepEqual(
+      pulled.mismatched.map((e) => e.message),
+      [],
+      'it is not a stamp mismatch either',
+    );
+    assert.equal(pulled.projects.length, 1, 'the project lands');
+    assert.deepEqual(
+      pulled.projects,
+      baseline.projects,
+      'and it is the project the same payload without that field yields',
+    );
   });
 });

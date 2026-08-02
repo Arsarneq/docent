@@ -420,6 +420,42 @@ function retainSnapshots(state, pulledProjects, now = Date.now) {
 }
 
 /**
+ * The known-field projection of a pulled payload's top-level envelope: the
+ * `docent_format`, `project`, and `recordings` fields of Full_Project_Payload.
+ *
+ * This is where the pull path delivers the sync protocol's forward-compatibility
+ * rule (sync-protocol SP-5) while the `.docent.json` envelope stays closed
+ * (session-format SF-14): {@link pullProjects} validates and reconstructs from
+ * the projection, so a top-level field a later protocol version adds is dropped
+ * here rather than failing the project.
+ *
+ * Each key is read literally, never by iterating the payload's own keys, so the
+ * projection carries the allowlist posture of the reconstruction it feeds. A key
+ * the payload carries is carried over and a key it omits stays omitted, so the
+ * schema sees each known field exactly as sent.
+ *
+ * A payload that is not a Full_Project_Payload at all leaves here in one of two
+ * shapes: `null` and the primitives are handed back unchanged, while an array —
+ * an object to `typeof` — carries none of the three keys and so projects to
+ * `{}`. Both shapes reach {@link pullProjects}'s stamp stage first, which reads
+ * no usable `docent_format` off either and reports the project as a missing or
+ * malformed stamp (`mismatched`); the validation stage is not where that
+ * diagnosis lands on the normal path.
+ *
+ * @param {unknown} payload - the parsed pulled payload (untrusted)
+ * @returns {unknown} the envelope projection, or the payload itself when it is
+ *   `null` or a primitive
+ */
+function envelopeProjection(payload) {
+  if (payload === null || typeof payload !== 'object') return payload;
+  const projection = {};
+  if (Object.hasOwn(payload, 'docent_format')) projection.docent_format = payload.docent_format;
+  if (Object.hasOwn(payload, 'project')) projection.project = payload.project;
+  if (Object.hasOwn(payload, 'recordings')) projection.recordings = payload.recordings;
+  return projection;
+}
+
+/**
  * Push projects to the server.
  * Sends PUT /projects/:id for each project with a Full_Project_Payload body.
  * Non-auth errors on one project do not prevent other projects from being processed.
@@ -512,12 +548,14 @@ export async function pushProjects(
  * Fetches GET /projects for the manifest, then GET /projects/:id for each entry.
  * Non-auth errors on one project do not prevent other projects from being fetched.
  *
- * Each pulled payload is checked in two stages before being accepted:
+ * Each pulled payload is projected onto its known top-level envelope fields
+ * ({@link envelopeProjection}) and then checked in two stages before being
+ * accepted:
  *   1. **Stamp compatibility** — its `docent_format` must match this client's
  *      platform + schema version. A platform/version mismatch is rejected with
  *      an actionable reason (the producing client is a different platform, or a
  *      different schema version → update or pin).
- *   2. **Schema validation** — the full payload must validate against the
+ *   2. **Schema validation** — the projection must validate against the
  *      generated platform validator.
  *
  * Both are reject-but-log and per-project: a rejected project is skipped and
@@ -641,14 +679,22 @@ export async function pullProjects(serverUrl, apiKey, validator, localStamp) {
 
     const payload = await response.json();
 
+    // Project onto the known envelope fields BEFORE the checks below, so an
+    // unrecognized top-level field is dropped rather than failing the whole
+    // project (SP-5; see {@link envelopeProjection}). Every stage from here on
+    // reads the projection.
+    const envelope = envelopeProjection(payload);
+
     // Stage 1 — stamp compatibility. Reject a project whose docent_format does
     // not match this client's platform/schema version, with an actionable
     // reason, before the generic schema check (which would only say "invalid").
     // Recorded in `mismatched`, not `errors`, so the UI can phrase it as a
     // compatibility issue rather than a failure. Skipped only when localStamp is
-    // unavailable (defensive — callers always provide it).
+    // unavailable (defensive — callers always provide it). Read off the
+    // projection, which carries the payload's own `docent_format` through
+    // unchanged.
     if (localStamp) {
-      const stampCheck = checkStampCompatibility(payload, localStamp);
+      const stampCheck = checkStampCompatibility(envelope, localStamp);
       if (!stampCheck.compatible) {
         mismatched.push(
           new SyncError(`Skipped "${entry.name}": ${stampCheck.message}`, null, entry.name),
@@ -657,10 +703,12 @@ export async function pullProjects(serverUrl, apiKey, validator, localStamp) {
       }
     }
 
-    // Stage 2 — schema validation against the platform validator. A
-    // malformed payload is skipped and reported (reject-but-log); the rest of
-    // the pull continues.
-    const { valid, errors: validationErrors } = validatePayload(validator, payload);
+    // Stage 2 — schema validation of the projection against the platform
+    // validator. A malformed payload is skipped and reported (reject-but-log);
+    // the rest of the pull continues. The projection preserves every known
+    // field exactly as sent, absence included, so a violation inside one — or a
+    // required one left out — still fails here.
+    const { valid, errors: validationErrors } = validatePayload(validator, envelope);
     if (!valid) {
       errors.push(
         new SyncError(
@@ -672,14 +720,14 @@ export async function pullProjects(serverUrl, apiKey, validator, localStamp) {
       continue;
     }
 
-    // Reconstruct project from Full_Project_Payload shape using an explicit
+    // Reconstruct project from the validated projection using an explicit
     // field allowlist — never spread untrusted JSON into stored state.
     const project = {
-      project_id: payload.project.project_id,
-      name: payload.project.name,
-      created_at: payload.project.created_at,
-      ...(payload.project.metadata && { metadata: payload.project.metadata }),
-      recordings: (payload.recordings ?? []).map((r) => ({
+      project_id: envelope.project.project_id,
+      name: envelope.project.name,
+      created_at: envelope.project.created_at,
+      ...(envelope.project.metadata && { metadata: envelope.project.metadata }),
+      recordings: (envelope.recordings ?? []).map((r) => ({
         recording_id: r.recording_id,
         name: r.name,
         created_at: r.created_at,

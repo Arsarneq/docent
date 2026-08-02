@@ -16,6 +16,8 @@
  *   - a successful PUT carries an `ETag` reflecting the newly stored content.
  *   - a PUT whose `If-Match` matches the stored ETag proceeds (200/201).
  *   - a PUT whose `If-Match` is stale is rejected 412, store unchanged.
+ *   - a PUT carrying an `If-Match` for an id with nothing stored is rejected
+ *           412, and the store still holds nothing for that id.
  *   - a PUT with NO `If-Match` overwrites (last-write-wins).
  *   - the ETag is identical across two unchanged reads and differs after a
  *           content change.
@@ -34,6 +36,18 @@ import { startTestServer, request } from './harness.js';
 
 /** The id used across the suite; matches the payload's `project.project_id`. */
 const PROJECT_ID = '0192f0a0-0000-7000-8000-0000000000c1';
+
+/**
+ * A second id, deliberately never stored, for the no-project-stored row of the
+ * `If-Match` decision table.
+ */
+const UNSTORED_PROJECT_ID = '0192f0a0-0000-7000-8000-0000000000c2';
+
+/**
+ * A syntactically valid entity-tag no stored project can carry, for a
+ * precondition that is present and cannot match.
+ */
+const UNMATCHABLE_ETAG = '"an-etag-no-stored-project-carries"';
 
 /**
  * Build a representative Full_Project_Payload. `project.project_id` MUST equal
@@ -149,6 +163,39 @@ describe('conditional write (docent#152)', () => {
     assert.equal(reread.status, 200);
     assert.equal(reread.body.project.name, 'Last successful write');
     assert.equal(reread.headers.etag, goodUpdate.headers.etag);
+  });
+
+  it('PUT with an If-Match and no project stored → 412, and nothing is created', async () => {
+    // Seed one unrelated project with an ordinary unconditional PUT, so the
+    // manifest assertion below measures preservation rather than an empty store.
+    const seeded = await request(server.baseUrl, 'PUT', `/projects/${PROJECT_ID}`, {
+      body: samplePayload(PROJECT_ID, 'Stored before the refused write'),
+    });
+    assert.equal(seeded.status, 201);
+
+    // The no-project-stored row of SP-14's If-Match table, observed end-to-end
+    // over HTTP: an `If-Match` names a stored version to write against, and the
+    // store holds none for this id, so the precondition fails and the write is
+    // refused.
+    const refused = await request(server.baseUrl, 'PUT', `/projects/${UNSTORED_PROJECT_ID}`, {
+      headers: { 'if-match': UNMATCHABLE_ETAG },
+      body: samplePayload(UNSTORED_PROJECT_ID, 'Should NOT be created'),
+    });
+    assert.equal(refused.status, 412);
+
+    // The store is unchanged, observed through the same HTTP surface a client
+    // has: the refused id reads as absent, and the manifest holds exactly the
+    // ids that were stored before the refused write (here, the seeded one).
+    const read = await request(server.baseUrl, 'GET', `/projects/${UNSTORED_PROJECT_ID}`);
+    assert.equal(read.status, 404, 'the refused write stored no project');
+
+    const manifest = await request(server.baseUrl, 'GET', '/projects');
+    assert.equal(manifest.status, 200);
+    assert.deepEqual(
+      manifest.body.map((entry) => entry.project_id),
+      [PROJECT_ID],
+      'the refused write added no manifest entry and removed none',
+    );
   });
 
   it('PUT with NO If-Match overwrites (last-write-wins) → 200', async () => {

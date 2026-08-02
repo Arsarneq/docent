@@ -69,15 +69,18 @@ territory. This is client presentation, not part of the wire protocol.
 
 ## Server scope and CORS
 
-A sync server is a **sync target for Docent clients**, not a consumer-facing read
+**SP-24.** A sync server is a **sync target for Docent clients**, not a consumer-facing read
 API. Systems that consume recordings SHOULD read from the server's underlying
 **storage** through their own service, rather than calling these endpoints
 directly.
 
-A compliant server therefore does **not** need to emit CORS headers: Docent's own
+**SP-25.** A compliant server therefore does **not** need to emit CORS headers: Docent's own
 clients do not rely on the browser's cross-origin rules — the Chrome extension
 uses its host permissions, and the desktop app issues requests natively rather
-than through the webview. Adding permissive CORS (e.g.
+than through the webview. A server built against the [Endpoints](#endpoints) and
+[Payload Shapes](#payload-shapes) sections already conforms here — it emits no
+CORS headers until a deployment adds them — so what this clause binds is that
+deployment choice. Adding permissive CORS (e.g.
 `Access-Control-Allow-Origin: *`) to a server — especially one bound to localhost
 or running without authentication — would let any website the user visits read
 and overwrite their data from the browser. If you intentionally expose your
@@ -100,8 +103,9 @@ When no API key is configured, the `Authorization` header is omitted entirely.
 A server that does not require authentication MAY ignore this header. A server
 that requires authentication SHOULD return `401` or `403` when the token is
 missing or invalid — the client will halt the entire sync operation on either
-status code (before any reconcile or push, so no local or durable state is
-touched).
+status code, and what the interrupted cycle preserves depends on the phase the
+failure lands in (see
+[Cycle atomicity and halt outcomes](#cycle-atomicity-and-halt-outcomes), SP-20).
 
 ---
 
@@ -370,7 +374,14 @@ authoritatively).
 
 > **SP-5.** **Forward compatibility.** The client ignores any unrecognized top-level fields
 > the server returns, so a future protocol version can add fields without
-> breaking clients built against this specification. (The optional
+> breaking clients built against this specification. The tolerance belongs to
+> the client's transport layer: a pulled payload is validated and reconstructed
+> on its **known-field projection** — the `docent_format`, `project`, and
+> `recordings` fields tabled above — so a field this specification does not name
+> is dropped there. The `.docent.json` format keeps its own
+> [field-stability posture](../technical/session-format.md#field-stability),
+> which states per object where an unknown key is an extension and where it is a
+> validation error. (The optional
 > [conditional write](#optional-conditional-write) below adds no payload field —
 > it rides entirely on HTTP headers.)
 
@@ -461,9 +472,10 @@ exclude, they do not merely warn):
      and reported to the user** (not merged), with the reason (update the client
      or pin the producing version). A stamp-incompatible project is never turned
      into a conflict.
-   - **Schema validation** — the payload MUST validate against the client's
-     platform schema. An invalid payload is skipped and reported as an error
-     (never as a conflict).
+   - **Schema validation** — the payload's known-field projection
+     ([SP-5](#full_project_payload)) MUST validate against the client's platform
+     schema. A payload whose projection fails that check is skipped and reported
+     as an error (never as a conflict).
    - Both checks are per-project: one skipped project does not abort the pull.
 4. Each accepted payload is landed into a retained **snapshot** rather than
    overwriting local data directly, so both the local version and the incoming

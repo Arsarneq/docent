@@ -347,7 +347,7 @@
       "doc": "docs/technical/session-format.md",
       "clause": "SF-13",
       "tag": "checkable",
-      "check-ref": "Intended: a test pinning the unavailable-validator degradation (logged, unvalidated import) and the validate-before-persist ordering (not built). Existing coverage: the bounds, bounds-before-validation order, and validator delegation are pinned by packages/shared/tests/unit/validate-import.test.js; the stamp const gate by the composed-schema tests (packages/shared/tests/unit/schema-composition.test.js); both run via npm run test:shared."
+      "check-ref": "Intended: a test pinning the unavailable-validator degradation (logged, unvalidated import) and the validate-before-persist ordering (not built). Existing coverage: the bounds, bounds-before-validation order, and validator delegation are pinned by packages/shared/tests/unit/validate-import.test.js; the stamp const gate by the composed-schema tests (packages/shared/tests/unit/schema-composition.test.js); the sync-pull half's known-field-projection scope by the regression_429_ cases in packages/shared/tests/unit/sync-client.test.js; all run via npm run test:shared."
     },
     {
       "doc": "docs/technical/session-format.md",
@@ -551,7 +551,7 @@
       "doc": "docs/api/sync-protocol.md",
       "clause": "SP-2",
       "tag": "check-exists",
-      "check-ref": "The whole-cycle 401/403 halt (before reconcile or push) is pinned by packages/shared/tests/unit/auth-failure-halt.property.test.js (npm run test:shared); the server-side token handling by reference-implementations/sync-server/tests/integration/auth.test.js."
+      "check-ref": "The whole-cycle 401/403 halt is pinned by packages/shared/tests/unit/auth-failure-halt.property.test.js (npm run test:shared); the server-side token handling by reference-implementations/sync-server/tests/integration/auth.test.js. What each phase's halt preserves is SP-20's."
     },
     {
       "doc": "docs/api/sync-protocol.md",
@@ -568,8 +568,8 @@
     {
       "doc": "docs/api/sync-protocol.md",
       "clause": "SP-5",
-      "tag": "checkable",
-      "check-ref": "Intended: a unit pinning that unrecognized top-level payload fields are ignored on pull (not built as a dedicated case). Interim: the pull path reconstructs projects through an allowlist, so unknown fields are dropped by construction (packages/shared/sync-client.js)."
+      "tag": "check-exists",
+      "check-ref": "The tolerance is pinned against both platforms' real generated validators by the regression_429_unknown_top_level_field_accepted_on_pull_extension and regression_429_unknown_top_level_field_accepted_on_pull_desktop_windows cases in packages/shared/tests/unit/sync-client.test.js: a pulled payload carrying an unrecognized top-level field is accepted, and its reconstructed project is the one the same payload without that field yields. That the tolerance leaves the pull's own gates as strict as they were — the stamp check, a violation inside a known field, and a known field the payload omits — is pinned by the regression_429_unknown_field_with_stamp_mismatch_still_skipped, regression_429_unknown_field_with_invalid_known_field_still_skipped, and regression_429_absent_known_field_stays_absent_through_the_projection cases in the same file (npm run test:shared)."
     },
     {
       "doc": "docs/api/sync-protocol.md",
@@ -587,7 +587,7 @@
       "doc": "docs/api/sync-protocol.md",
       "clause": "SP-8",
       "tag": "check-exists",
-      "check-ref": "The stamp gate (skip-and-report, never a conflict, per-project) is pinned by packages/shared/tests/unit/stamp-compatibility.test.js; pulled-payload schema validation (invalid is an error, never a conflict, per-project) by packages/shared/tests/unit/safeguard-composition.property.test.js (npm run test:shared)."
+      "check-ref": "The stamp gate (skip-and-report, never a conflict, per-project) is pinned by packages/shared/tests/unit/stamp-compatibility.test.js; pulled-payload schema validation (invalid is an error, never a conflict, per-project) by packages/shared/tests/unit/safeguard-composition.property.test.js; that what the validator is handed is the payload's known-field projection, carrying each known field through as sent, by the regression_429_ cases in packages/shared/tests/unit/sync-client.test.js (npm run test:shared)."
     },
     {
       "doc": "docs/api/sync-protocol.md",
@@ -623,7 +623,7 @@
       "doc": "docs/api/sync-protocol.md",
       "clause": "SP-14",
       "tag": "check-exists",
-      "check-ref": "The stored-project If-Match rows (match proceeds with fresh ETag; stale 412 leaves the store unchanged) are pinned by reference-implementations/sync-server/tests/integration/conditional-write.test.js; the no-project-stored 412 branch is pinned at the decision-function level by reference-implementations/sync-server/tests/unit/conditional-write.test.js (an end-to-end case for that branch is a named gap)."
+      "check-ref": "Every row of the If-Match table is pinned end-to-end over HTTP by reference-implementations/sync-server/tests/integration/conditional-write.test.js: the absent-header row by its \"PUT with NO If-Match overwrites (last-write-wins) → 200\" case, the matching row by \"PUT with a matching If-Match → 200 and a fresh ETag\", and the non-matching row on both its branches — a stale tag by \"PUT with a stale If-Match → 412, and the stored content is unchanged\", and no project stored by \"PUT with an If-Match and no project stored → 412, and nothing is created\", which seeds one unrelated project first and then reads the store back over the same HTTP surface a client has: the refused id reads as absent, and the manifest holds exactly the ids stored before the refused write. The same no-project-stored branch is pinned at the decision-function level by reference-implementations/sync-server/tests/unit/conditional-write.test.js."
     },
     {
       "doc": "docs/api/sync-protocol.md",
@@ -678,6 +678,18 @@
       "clause": "SP-23",
       "tag": "check-exists",
       "check-ref": "The fingerprint-exact enable rule, settings-change invalidation, and the auth auto-disable transitions are pinned against the real shared helpers (connection-test fingerprint, sync-store settings, scheduler stop) by packages/shared/tests/unit/sync-settings-state-machine.test.js; the desktop background host's auth-disable policy by packages/desktop/tests/unit/auto-sync-host.test.js (npm run test:shared / npm run test:desktop). The panel DOM wiring is mirrored, not imported, in the state-machine test — that residue is review-held."
+    },
+    {
+      "doc": "docs/api/sync-protocol.md",
+      "clause": "SP-24",
+      "tag": "judgment-only",
+      "justification": "The read-path guidance binds systems this repository does not contain; how a deployment's consumers reach the recordings a sync server stores is observable only in that deployment, so no repository check can decide compliance."
+    },
+    {
+      "doc": "docs/api/sync-protocol.md",
+      "clause": "SP-25",
+      "tag": "check-exists",
+      "check-ref": "The no-CORS posture is pinned on the reference server — the repository's named working example of a compliant server — by the \"emits no Access-Control-* header on any response — handler-written, router-written, or preflight\" case in reference-implementations/sync-server/tests/integration/protocol.test.js, which drives live responses out of both of the server's response-writing paths and asserts each carries no Access-Control-* header: the handlers' own writes (the write 201, the manifest 200, a project read 200, and a project read 404) and the router's status-only writes (the 405 answering an OPTIONS preflight on the collection and item paths alike, and an unknown path's 404). Run by the reference server package's own npm test script. The conditional guidance for an operator who intentionally exposes a server to a browser origin is deployment configuration the clause states and no repository check observes."
     },
     {
       "doc": "docs/verification/scripted-truth-corpus.md",

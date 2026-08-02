@@ -4,7 +4,11 @@
  * The platform-agnostic half of untrusted-input schema validation. Imported `.docent.json`
  * files and pulled sync payloads are untrusted input; before any of it is
  * written into stored state it must validate against the published platform
- * schema. The actual validator is generated (Ajv standalone, eval-free — see
+ * schema. What each caller hands in differs by design: an import validates the
+ * file as it stands, while the sync pull path validates each payload's
+ * known-field projection — the transport layer where the sync protocol's
+ * forward-compatibility rule is delivered (see packages/shared/sync-client.js).
+ * The actual validator is generated (Ajv standalone, eval-free — see
  * scripts/build-validators.js) and injected here, so this module stays
  * platform-agnostic and testable with a stub validator.
  *
@@ -17,7 +21,9 @@
  *     top-level keys never reach storage even if a schema gap let them validate.
  *   - Bounds: a cheap size/− nesting guard runs before validation so a
  *     pathologically large or deep payload is rejected without doing the full
- *     (more expensive) schema walk.
+ *     (more expensive) schema walk — measured on the value the caller hands in,
+ *     which is the raw file on import and the known-field projection on the
+ *     sync pull.
  *
  * This file is part of Docent.
  * Licensed under the GNU General Public License v3.0

@@ -238,7 +238,7 @@ Docent never prunes that trail — which parts of a record stop being worth
 keeping is an opinionated call about someone else's work, and the format does
 not make it. The consequence is disclosed rather than designed away: a
 long-lived recording's history can grow past the size the validated ingestion
-paths accept — import, and the sync pull that runs the same validation (see
+paths accept — import, and the sync pull (both scoped in
 [Import acceptance](#import-acceptance)) — so a file can be exportable and
 still not accepted back. That bound is a safety valve on ingestion, not a
 bound on the format.
@@ -571,8 +571,11 @@ payloads whose compact serialization exceeds the 10 MiB bound (measured over
 the re-serialized form) and JSON nested deeper than 64 levels are rejected
 outright. One declared exception: when that packaged validator itself is
 unavailable, the import proceeds unvalidated and the degradation is logged.
-Pulled sync payloads pass the same validation (see the
-[Sync Protocol](../api/sync-protocol.md)'s pull phase).
+Pulled sync payloads run those same bounds and that same schema validation,
+applied to each payload's known-field projection — the transport layer where
+the [Sync Protocol](../api/sync-protocol.md)'s pull phase delivers its
+forward-compatibility rule, so identical bytes can be accepted on pull and
+refused on import.
 
 ---
 
