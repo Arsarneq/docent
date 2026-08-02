@@ -73,14 +73,13 @@ export const CITED_PATH_RE = /(?:[A-Za-z0-9_\-.]+\/)*[A-Za-z0-9_\-.*{},[\]]+\.[A
  *      a registered guard suite that carries the doc, or — when the clause's
  *      doc is repo-wide — the repo-wide "line only when itself edited" rule
  *      plus the end-to-end checks.
- *   3. The format-authority echo surfaces — the documents the session-format
- *      ordering clause registers as restating the schemas' authority. The
- *      echo itself is held by the schema-echo check, which reads each of
- *      them, so what stays open here is only the governance edge: none of
- *      these files resolves to the format doc, for the reason each entry
- *      states (a repo-wide doc, which this check does not credit as
- *      governance; a doc owned by the areas of the protocol it specifies; or
- *      a recorded area-map exception).
+ *   3. The format-authority echo surfaces whose area-supplied governance
+ *      does not already include the format doc (the other registered
+ *      surfaces resolve to it and need no entry). The echo itself is held
+ *      by the schema-echo check, which reads each of them, so what stays
+ *      open here is only the governance edge, for the reason each entry
+ *      states: a repo-wide doc, which this check does not credit as
+ *      governance, or a doc whose areas supply other governing docs.
  */
 export const ALLOWLIST = new Map([
   // Class 1 — verification scripts (declined coupling; maintainer's open call).

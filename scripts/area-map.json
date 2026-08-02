@@ -535,6 +535,17 @@
       ]
     },
     {
+      "path": "scripts/check-clause-governance.js",
+      "reason": "The clause-citation governance lint — and the home of the shared citation shape the schema-echo check reads the SF-1 register/row closure through, so an edit here changes what that clause is checked against and the format doc governs it beside the CI guides.",
+      "governed-by": [
+        "docs/guides/ci.md",
+        "docs/guides/local-ci.md",
+        ".github/PUBLISHING.md",
+        "docs/technical/session-format.md",
+        ".github/CONTRIBUTING.md"
+      ]
+    },
+    {
       "path": "scripts/check-no-release-outputs.js",
       "reason": "The release-output guard — the feature-branch dist gate that the format doc's version-bump clause is verified by, per its registry row and the release process doc.",
       "governed-by": [

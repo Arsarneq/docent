@@ -752,6 +752,15 @@ describe('citedMarkdownPaths', () => {
     const brace = citedMarkdownPaths('the register holds docs/{a,b}.md');
     assert.deepEqual(brace.unmodelled, ['docs/{a,b}.md']);
   });
+
+  it('ignores a non-plain citation that names no Markdown — outside the leg, not refused', () => {
+    // The refusal is scoped to Markdown-reaching shapes; a row sentence
+    // citing, say, a script glob is not an authority-surface citation and
+    // must neither extract nor red.
+    const script = citedMarkdownPaths('held by scripts/*.js and the checks');
+    assert.deepEqual(script.paths, []);
+    assert.deepEqual(script.unmodelled, []);
+  });
 });
 
 describe('AUTHORITY_SURFACES ⇄ the row’s citation shape', () => {

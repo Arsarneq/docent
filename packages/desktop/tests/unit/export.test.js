@@ -14,9 +14,10 @@
  * output against the schema contract.
  *
  * Every comparison against the source is made with a snapshot taken BEFORE
- * the build: the builder forwards project and step objects by reference, so
- * comparing the export against the live project would compare each field with
- * itself and see nothing a builder did to it in place.
+ * the build: the builder forwards step objects by reference and reads the
+ * project's fields from the live source at build time, so comparing the
+ * export against the live project after the build would see nothing a
+ * builder mutated in place — the snapshot is the only pre-build record.
  */
 
 import { describe, it } from 'node:test';
@@ -335,9 +336,6 @@ describe('Export schema validation', () => {
     // The generated projects carry single-version, undeleted steps, so this
     // property pins length-and-field passthrough; the targeted witness below
     // is what proves a superseded version and a tombstone survive export.
-    // The source is captured BEFORE the build: the builder forwards step
-    // objects by reference, so comparing the export against the very objects
-    // it forwarded would compare each field with itself.
     fc.assert(
       fc.property(arbProject, (project) => {
         const source = structuredClone(project);
@@ -369,10 +367,7 @@ describe('Export schema validation', () => {
   // The generated projects carry one version per logical step and never a
   // tombstone, so the history claim above needs a case that actually holds
   // one: a superseded version and a soft-deleted version of the same logical
-  // step must both reach the export with their content intact. The expected
-  // steps are cloned before the build, so the comparison is by content — the
-  // builder passes step objects through by reference, and comparing against
-  // the very objects it forwarded would pass on identity alone.
+  // step must both reach the export with their content intact.
   it('export carries a superseded version and a tombstone of the same logical step verbatim', () => {
     const logicalId = '019e12a4-633d-74d2-acd5-584085fb57f9';
     const superseded = {
