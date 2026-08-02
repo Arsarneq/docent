@@ -11,16 +11,15 @@
  *   - a NEW finding means a predicate or corpus file changed — decide
  *     intentionally, don't silence;
  *   - a VANISHED finding means the baseline is stale (a known gap closed or a
- *     rule was weakened) — regenerate the baseline deliberately via
- *     `node scripts/sufficiency-lint.js packages/shared/tests/fixtures corpus/sessions
- *      --write-baseline packages/shared/tests/fixtures/sufficiency-baseline.json`.
+ *     rule was weakened) — regenerate the baseline deliberately, with the
+ *     regenerate command SL-5 states in docs/verification/sufficiency-lint.md.
  *
  * Discovery and serialization come FROM the lint (collectFiles/toBaseline),
  * so the walk, filters, sorting, and entry format cannot diverge from what
  * the CLI's --write-baseline produces. The two-root input set itself is
- * stated separately here and at each CLI invocation (the sufficiency:check
- * npm script names the same two roots) — a divergence there is not prevented
- * up front; it fails this lock loudly against the committed baseline.
+ * stated separately here and in the `sufficiency:check` npm script — both
+ * execute, so a divergence between them is not prevented up front; it fails
+ * the baseline lock at whichever entry point runs.
  * Validity of every corpus member is asserted by the same pass: lintFile
  * throws on schema-invalid input or an unknown platform stamp.
  *
@@ -46,7 +45,11 @@ import {
   toBaseline,
   diffBaselines,
   valueDerivedStrategies,
+  assertGapPredicatesCurrent,
+  PREDICATES,
+  RECORDING_PREDICATES,
 } from '../../../../scripts/sufficiency-lint.js';
+import { PLATFORMS } from '../../../../scripts/build-schemas.js';
 
 const __dirname = fileURLToPath(new URL('.', import.meta.url));
 const FIXTURES_DIR = resolve(__dirname, '../fixtures');
@@ -70,6 +73,69 @@ describe('Sufficiency lint: corpus baseline lock', () => {
       [],
       `sufficiency baseline mismatch — decide intentionally, never silence:\n${diff.join('\n')}`,
     );
+  });
+});
+
+// ─── SL-3: every gap predicate carries a schema probe ────────────────────────
+
+describe('Sufficiency lint: gap predicates carry a schema probe (SL-3)', () => {
+  // The platforms the lint composes a contract for, taken from the schema
+  // composition map the lint itself reads (SL-1), so a future leaf is covered
+  // here without editing this suite.
+  const PLATFORMS_UNDER_TEST = Object.keys(PLATFORMS);
+
+  it('a gap predicate with no schema probe halts the lint', () => {
+    // The rule's other half: without this, a gap predicate authored without a
+    // probe was skipped in silence, and its promised gap→fail flip became a
+    // memory exercise — exactly what SL-3 forbids.
+    assert.throws(
+      () =>
+        assertGapPredicatesCurrent('extension', [
+          { id: 'synthetic-probeless', class: 'gap', title: 'no probe' },
+        ]),
+      /synthetic-probeless/,
+    );
+  });
+
+  it('a probed gap predicate whose probe does not match passes', () => {
+    assert.doesNotThrow(() =>
+      assertGapPredicatesCurrent('extension', [
+        { id: 'synthetic-probed', class: 'gap', title: 'probed', obsoleteProbe: () => null },
+      ]),
+    );
+  });
+
+  it('a probed gap predicate whose probe matches is the obsolete-flip refusal', () => {
+    assert.throws(
+      () =>
+        assertGapPredicatesCurrent('extension', [
+          {
+            id: 'synthetic-obsolete',
+            class: 'gap',
+            title: 'probed',
+            obsoleteProbe: () => '$.properties.viewport',
+          },
+        ]),
+      /synthetic-obsolete.*obsolete for extension/s,
+    );
+  });
+
+  it('fail-class predicates are outside the rule — they need no probe', () => {
+    assert.doesNotThrow(() =>
+      assertGapPredicatesCurrent('extension', [
+        { id: 'synthetic-fail', class: 'fail', title: 'no probe needed' },
+      ]),
+    );
+  });
+
+  it('the shipped catalogue satisfies the rule on every platform it lints', () => {
+    assert.ok(PLATFORMS_UNDER_TEST.length > 0, 'the composition map named no platform to lint');
+    for (const platform of PLATFORMS_UNDER_TEST) {
+      assert.doesNotThrow(
+        () => assertGapPredicatesCurrent(platform, [...PREDICATES, ...RECORDING_PREDICATES]),
+        `catalogue refused for ${platform}`,
+      );
+    }
   });
 });
 

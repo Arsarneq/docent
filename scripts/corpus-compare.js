@@ -39,11 +39,55 @@ import { canonicalize } from '../packages/shared/sync-digest.js';
 
 const REPO_ROOT = resolve(fileURLToPath(new URL('.', import.meta.url)), '..');
 
+// ─── Relaxation coverage constants ───────────────────────────────────────────
+//
+// The sidecar contract's closed sets, exported so the doc that states them and
+// the code that applies them are diffed against each other by
+// scripts/check-verification-inventory.js rather than kept in step by hand.
+// applyRelaxation below consumes exactly these lists, so a field added here
+// changes behaviour and the doc's enumeration together or reds.
+
 /** Relaxation kinds a sidecar may declare — closed set, refused loudly otherwise. */
-const RELAX_KINDS = new Set(['match-stats', 'scroll-amounts', 'path']);
+export const RELAX_KINDS = new Set(['match-stats', 'scroll-amounts', 'path']);
 
 /** Fields the scroll-amounts class map covers. */
-const SCROLL_AMOUNT_FIELDS = ['scroll_top', 'scroll_left', 'delta_y', 'delta_x'];
+export const SCROLL_AMOUNT_FIELDS = ['scroll_top', 'scroll_left', 'delta_y', 'delta_x'];
+
+/** Path-bearing string fields the path class replaces. */
+export const PATH_FIELDS = ['file_path', 'source'];
+
+/** The locator-entry match statistics the match-stats class replaces. */
+export const MATCH_STAT_FIELDS = ['match_count', 'match_index'];
+
+// ─── Normalization class map ─────────────────────────────────────────────────
+//
+// Unlike the relaxation lists above, the map below is DESCRIPTIVE: nothing in
+// this file reads it. `normalizeEnvelope` reaches its fields by structure-aware
+// property access, and the map exists so that behaviour has a stated
+// enumeration something can be diffed against. Editing it therefore changes no
+// behaviour on its own — a token added here must be matched by an edit to the
+// pass, or the pass keeps comparing that field exact while the doc table is
+// obliged to claim otherwise.
+
+/**
+ * The per-run-nondeterministic field classes the normalization pass maps to
+ * placeholders, as a class name → field-token map. The pins standing on it are
+ * the inventory admission test and the unit suite: the doc table stating the
+ * same classes is diffed against this map by
+ * scripts/check-verification-inventory.js, and the suite drives the
+ * normalization over every token here (and over the active sessions' truth
+ * files in the other direction) — those legs, not this file, are what hold the
+ * map and the pass together. The class names are this map's own labels — the
+ * doc states the rule per class, which is not restated here.
+ */
+export const NORMALIZED_FIELD_CLASSES = {
+  identifiers: ['project_id', 'recording_id', 'uuid', 'logical_id'],
+  stamps: ['created_at', 'timestamp', 'schema_version'],
+  contexts: ['context_id', 'opener_context_id'],
+  coordinates: ['x', 'y', 'window_rect'],
+  latency: ['described_after_ms'],
+  selector: ['selector'],
+};
 
 function isDesktopFamily(platform) {
   return PLATFORMS[platform].includes('desktop.shared.schema.json');
@@ -243,7 +287,7 @@ function applyRelaxation(relax, truthAction, producedAction, sessionId) {
   if (relax.relax === 'path') {
     for (const action of [truthAction, producedAction]) {
       if (!action) continue;
-      for (const f of ['file_path', 'source']) {
+      for (const f of PATH_FIELDS) {
         if (typeof action[f] === 'string') action[f] = '<path>';
       }
     }
@@ -267,8 +311,9 @@ function applyRelaxation(relax, truthAction, producedAction, sessionId) {
   );
   for (const entry of [truthEntry, producedEntry]) {
     if (!entry) continue;
-    if (typeof entry.match_count === 'number') entry.match_count = '<measured>';
-    if (typeof entry.match_index === 'number') entry.match_index = '<measured>';
+    for (const f of MATCH_STAT_FIELDS) {
+      if (typeof entry[f] === 'number') entry[f] = '<measured>';
+    }
   }
 }
 

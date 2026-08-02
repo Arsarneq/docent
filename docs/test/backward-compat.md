@@ -101,7 +101,11 @@ deliberately with
 npm run sufficiency:check -- --write-baseline packages/shared/tests/fixtures/sufficiency-baseline.json
 ```
 
-— the npm script supplies both roots, so this is the whole regeneration.
+— the npm script supplies both roots, so the roots need no arguments of your
+own. The writer emits plain indented JSON, so run
+`npm run format` over the regenerated baseline before committing it, or the
+formatting gate reds on the file the regeneration just produced (see
+[sufficiency lint § the standing corpus and its baseline](../verification/sufficiency-lint.md#the-standing-corpus-and-its-baseline)).
 (Invoking `scripts/sufficiency-lint.js` directly with only the fixtures
 directory writes a partial baseline the lock test rejects — its failure lists
 the missing `corpus/sessions/` entries as NEW, because the lock recomputes

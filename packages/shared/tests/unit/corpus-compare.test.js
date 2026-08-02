@@ -5,11 +5,19 @@
  * relaxations, baseline serialization, and hygiene locks over the committed
  * corpus tree (every truth file schema-valid per its stamp; every baseline
  * key names a manifest session; every active session fully authored).
+ *
+ * It also pins the comparator's exit-code contract at the process boundary
+ * (STC-5), which only a spawn can observe: the suite runs the real CLI over a
+ * temporary corpus and holds 0 / 1 / 2 to their meanings — green, findings the
+ * caller must decide on, and machinery breakage that must never read as a diff
+ * verdict.
  */
 
-import { describe, it } from 'node:test';
+import { after, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import { tmpdir } from 'node:os';
 import { resolve, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
@@ -19,11 +27,20 @@ import {
   serializeFinding,
   toBaseline,
   MachineryError,
+  MATCH_STAT_FIELDS,
+  NORMALIZED_FIELD_CLASSES,
+  PATH_FIELDS,
+  SCROLL_AMOUNT_FIELDS,
 } from '../../../../scripts/corpus-compare.js';
 import { diffBaselines } from '../../../../scripts/sufficiency-lint.js';
 
 const __dirname = fileURLToPath(new URL('.', import.meta.url));
+const REPO_ROOT = resolve(__dirname, '../../../..');
 const CORPUS_DIR = resolve(__dirname, '../../../../corpus');
+const COMPARATOR = join(REPO_ROOT, 'scripts', 'corpus-compare.js');
+
+/** The comparator's normalization classes, flattened to their field tokens. */
+const NORMALIZED_FIELDS = [...new Set(Object.values(NORMALIZED_FIELD_CLASSES).flat())];
 
 // Minimal buildExport-shaped envelope. Realistic values; normalization is
 // platform-aware via the docent_format stamp.
@@ -153,6 +170,97 @@ describe('corpus-compare: normalization classes', () => {
   });
 });
 
+describe('corpus-compare: the normalization class map covers what the pass does', () => {
+  /** A value the pass announces as normalized. */
+  const isPlaceholder = (v) => typeof v === 'string' && (/^<.+>$/.test(v) || v === 'coord:<point>');
+
+  it('every enumerated field token is reached by the pass', () => {
+    // One crafted envelope carrying every token the class map names, with the
+    // token→location table held equal to the map itself: a class that grows a
+    // token this table has not learned reds here rather than going unexercised.
+    const doc = envelope(
+      [
+        click({
+          window_rect: { x: 1, y: 2, width: 3, height: 4 },
+          opener_context_id: 999,
+          element: { tag: 'Edit', selector: 'coord:12,34', described_after_ms: 42 },
+        }),
+      ],
+      'desktop-windows',
+    );
+    const n = normalizeEnvelope(doc);
+    const action = (d) => d.recordings[0].steps[0].actions[0];
+    const step = (d) => d.recordings[0].steps[0];
+    const locations = {
+      schema_version: (d) => d.docent_format.schema_version,
+      project_id: (d) => d.project.project_id,
+      created_at: (d) => d.project.created_at,
+      recording_id: (d) => d.recordings[0].recording_id,
+      uuid: (d) => step(d).uuid,
+      logical_id: (d) => step(d).logical_id,
+      timestamp: (d) => action(d).timestamp,
+      context_id: (d) => action(d).context_id,
+      opener_context_id: (d) => action(d).opener_context_id,
+      x: (d) => action(d).x,
+      y: (d) => action(d).y,
+      window_rect: (d) => action(d).window_rect,
+      described_after_ms: (d) => action(d).element.described_after_ms,
+      selector: (d) => action(d).element.selector,
+    };
+    assert.deepEqual(
+      Object.keys(locations).sort(),
+      [...NORMALIZED_FIELDS].sort(),
+      'the crafted envelope and the exported class map name different field sets',
+    );
+    for (const [token, read] of Object.entries(locations)) {
+      assert.ok(isPlaceholder(read(n)), `${token} was not normalized to a placeholder`);
+    }
+  });
+
+  for (const platform of ['extension', 'desktop-windows']) {
+    it(`every field the pass changes across the active ${platform} truths is enumerated`, () => {
+      // The other direction, over real documents: whatever the pass actually
+      // touches must be a token the class map names. Honest residue: a class
+      // reaching a field no active truth carries is invisible here — the walk's
+      // domain is the active sessions' committed truths, not the format.
+      const changed = new Set();
+      const walk = (a, b, key) => {
+        if (a === b) return;
+        const bothObjects =
+          a !== null &&
+          b !== null &&
+          typeof a === 'object' &&
+          typeof b === 'object' &&
+          Array.isArray(a) === Array.isArray(b);
+        if (!bothObjects) {
+          if (key !== null) changed.add(key);
+          return;
+        }
+        if (Array.isArray(a)) {
+          for (let i = 0; i < Math.max(a.length, b.length); i++) walk(a[i], b[i], key);
+          return;
+        }
+        for (const k of new Set([...Object.keys(a), ...Object.keys(b)])) walk(a[k], b[k], k);
+      };
+      const sessions = discoverSessions(join(CORPUS_DIR, 'manifest.json'), platform).filter(
+        (s) => s.status === 'active',
+      );
+      assert.ok(sessions.length > 0, `no active ${platform} sessions to walk`);
+      for (const session of sessions) {
+        const truth = JSON.parse(readFileSync(session.truthPath, 'utf8'));
+        walk(truth, normalizeEnvelope(truth), null);
+      }
+      assert.ok(changed.size > 0, 'the pass changed nothing at all — the walk is broken');
+      for (const key of [...changed].sort()) {
+        assert.ok(
+          NORMALIZED_FIELDS.includes(key),
+          `the pass changed \`${key}\`, which the class map does not enumerate`,
+        );
+      }
+    });
+  }
+});
+
 describe('corpus-compare: diff + alignment', () => {
   it('identical envelopes diff to []', () => {
     assert.deepEqual(diffEnvelopes(envelope([click()]), envelope([click()])), []);
@@ -241,6 +349,83 @@ describe('corpus-compare: relaxations (alignment-scoped, refuse-loudly)', () => 
     );
   });
 
+  it('scroll-amounts relaxes every field its class map covers', () => {
+    const scroll = (over = {}) => ({
+      type: 'scroll',
+      timestamp: 3,
+      element: { tag: 'DIV', selector: '#s' },
+      scroll_top: 1,
+      scroll_left: 1,
+      delta_y: 1,
+      delta_x: 1,
+      context_id: 12345,
+      capture_mode: 'dom',
+      ...over,
+    });
+    const relax = [{ pointer: 'rec[0].step[0].action[0]', relax: 'scroll-amounts' }];
+    for (const field of SCROLL_AMOUNT_FIELDS) {
+      const findings = diffEnvelopes(
+        envelope([scroll()]),
+        envelope([scroll({ [field]: 99 })]),
+        relax,
+      );
+      assert.deepEqual(findings, [], `${field} is covered but survived the relaxation`);
+    }
+  });
+
+  it('path relaxes every field its class covers', () => {
+    const dialog = (over = {}) => ({
+      type: 'file_dialog',
+      timestamp: 4,
+      dialog_type: 'open',
+      file_path: 'C:/build-a/fixture.txt',
+      source: 'C:/build-a/driver.exe',
+      context_id: 12345,
+      capture_mode: 'accessibility',
+      ...over,
+    });
+    const relax = [{ pointer: 'rec[0].step[0].action[0]', relax: 'path' }];
+    for (const field of PATH_FIELDS) {
+      const findings = diffEnvelopes(
+        envelope([dialog()]),
+        envelope([dialog({ [field]: 'C:/build-b/other.txt' })]),
+        relax,
+      );
+      assert.deepEqual(findings, [], `${field} is covered but survived the relaxation`);
+    }
+  });
+
+  it('match-stats replaces both statistics, on the truth entry and its aligned partner', () => {
+    const withLoc = (locators) =>
+      envelope([click({ element: { tag: 'BUTTON', selector: '#b', locators } })]);
+    const entry = (over = {}) => ({
+      strategy: 'css',
+      value: '.b',
+      match_count: 1,
+      match_index: 0,
+      ...over,
+    });
+    const truth = withLoc([entry()]);
+    const relax = [
+      { pointer: 'rec[0].step[0].action[0].locators[0]', strategy: 'css', relax: 'match-stats' },
+    ];
+    for (const field of MATCH_STAT_FIELDS) {
+      const findings = diffEnvelopes(truth, withLoc([entry({ [field]: 7 })]), relax);
+      assert.deepEqual(findings, [], `${field} is covered but survived the relaxation`);
+    }
+    // Scoped to the statistics: a differing non-statistic field on the same
+    // entry still diffs, so the replacement is not a whole-entry wildcard.
+    const findings = diffEnvelopes(
+      truth,
+      withLoc([entry({ value: '.other', match_count: 3, match_index: 2 })]),
+      relax,
+    );
+    assert.deepEqual(
+      findings.map((f) => f.path),
+      ['element.locators.0.value'],
+    );
+  });
+
   it('unknown relax kinds and dangling pointers are machinery errors', () => {
     const doc = envelope([click()]);
     assert.throws(
@@ -251,6 +436,116 @@ describe('corpus-compare: relaxations (alignment-scoped, refuse-loudly)', () => 
       () => diffEnvelopes(doc, structuredClone(doc), [{ pointer: 'rec[0].step[0].action[9]', relax: 'scroll-amounts' }]), // prettier-ignore
       MachineryError,
     );
+  });
+});
+
+// The exit-code mapping is a process-boundary contract (STC-5): 0 = no
+// findings, 1 = findings the caller must decide on, 2 = machinery breakage
+// that can never read as a passing diff. Only a spawn observes it, so this
+// suite runs the real CLI over a temporary corpus built from a committed
+// truth file (schema-valid by construction). Env: the comparator and its
+// import closure read no environment variable, so the inherited environment
+// is the pinned one — nothing to override (the check-cli-smoke convention:
+// pin every var the target reads).
+describe('corpus-compare: CLI exit codes at the process boundary (STC-5)', () => {
+  const SESSION = 'smoke';
+  const SOURCE_TRUTH = join(CORPUS_DIR, 'sessions', 'ext-click-basic', 'truth.docent.json');
+  let root = null;
+
+  after(() => {
+    if (root) rmSync(root, { recursive: true, force: true });
+  });
+
+  /**
+   * Build a temporary one-session corpus. `mutate` (when given) edits the
+   * produced copy; `produce: false` leaves the produced file absent.
+   */
+  function corpus({ mutate = null, produce = true } = {}) {
+    root ??= mkdtempSync(join(tmpdir(), 'docent-corpus-'));
+    const dir = mkdtempSync(join(root, 'case-'));
+    const truth = JSON.parse(readFileSync(SOURCE_TRUTH, 'utf8'));
+    mkdirSync(join(dir, 'sessions', SESSION), { recursive: true });
+    writeFileSync(join(dir, 'sessions', SESSION, 'truth.docent.json'), JSON.stringify(truth));
+    writeFileSync(
+      join(dir, 'manifest.json'),
+      JSON.stringify({ sessions: [{ id: SESSION, platform: 'extension' }] }),
+    );
+    if (produce) {
+      const produced = JSON.parse(JSON.stringify(truth));
+      if (mutate) mutate(produced);
+      mkdirSync(join(dir, 'out', 'extension'), { recursive: true });
+      writeFileSync(
+        join(dir, 'out', 'extension', `${SESSION}.docent.json`),
+        JSON.stringify(produced),
+      );
+    }
+    return dir;
+  }
+
+  /** Run the comparator against a temporary corpus; returns its exit status. */
+  function run(dir, extraArgs = [], platform = 'extension') {
+    const result = spawnSync(
+      process.execPath,
+      [
+        COMPARATOR,
+        '--manifest',
+        join(dir, 'manifest.json'),
+        '--out',
+        join(dir, 'out'),
+        '--platform',
+        platform,
+        ...extraArgs,
+      ],
+      { cwd: REPO_ROOT, encoding: 'utf8' },
+    );
+    return { status: result.status, stdout: result.stdout ?? '', stderr: result.stderr ?? '' };
+  }
+
+  it('exit 0 under --strict when truth and produced agree', () => {
+    // --strict is what makes this leg falsifiable: without it the CLI exits 0
+    // whatever it found, so a green here would say nothing about the diff.
+    const { status, stdout } = run(corpus(), ['--strict']);
+    assert.equal(status, 0);
+    assert.match(stdout, /0 diff\(s\)/);
+  });
+
+  it('exit 1 under --strict on a one-field difference', () => {
+    const dir = corpus({ mutate: (doc) => (doc.project.name = 'renamed by the producer') });
+    const { status, stdout } = run(dir, ['--strict']);
+    assert.equal(status, 1);
+    assert.match(stdout, /wrong-field/);
+  });
+
+  it('exit 1 on a baseline mismatch', () => {
+    const dir = corpus();
+    const baseline = join(dir, 'baseline.json');
+    writeFileSync(baseline, JSON.stringify({ [SESSION]: ['wrong-field rec[0] name'] }));
+    const { status, stderr } = run(dir, ['--baseline', baseline]);
+    assert.equal(status, 1);
+    assert.match(stderr, /VANISHED/);
+  });
+
+  it('exit 2 when a produced counterpart is missing', () => {
+    const { status, stderr } = run(corpus({ produce: false }), ['--strict']);
+    assert.equal(status, 2);
+    assert.match(stderr, /produced file missing/);
+  });
+
+  it('exit 2 on an unknown platform', () => {
+    const { status, stderr } = run(corpus(), [], 'desktop-linux');
+    assert.equal(status, 2);
+    assert.match(stderr, /--platform must be one of/);
+  });
+
+  it('a finding and a machinery failure never share an exit code', () => {
+    const findings = run(
+      corpus({ mutate: (doc) => (doc.project.name = 'renamed by the producer') }),
+      ['--strict'],
+    ).status;
+    const machinery = run(corpus({ produce: false }), ['--strict']).status;
+    assert.equal(findings, 1);
+    assert.equal(machinery, 2);
+    assert.notEqual(findings, machinery, 'tooling breakage must never read as a diff verdict');
   });
 });
 

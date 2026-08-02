@@ -192,6 +192,51 @@ whose pointer names a truth action inside a step or recording with no
 produced counterpart is never reached by the walk, so it fails STC-5's
 must-apply gate as unmatched rather than being applied.
 
+### Authoring a sidecar entry from a printed finding
+
+An entry is authored from a finding the comparator printed, so the path from
+diff to sidecar is mechanical. A `wrong-field` finding on a locator entry's
+match statistics prints the truth pointer of the aligned action, then the field
+path inside it, in dot notation:
+
+```text
+wrong-field rec[0].step[1].action[2]:click element.locators.0.match_count expected=1 actual=2
+```
+
+The entry that relaxes it names the same locator entry in bracket form: keep
+the finding's pointer through the action, drop the action type the finding
+appends to it (the `:click` suffix — a sidecar pointer carries none), drop the
+`element.` segment, write the index the field path spells as `.0` as a
+bracket index, and stop there — the field name the path ends in (`.match_count`)
+is dropped too, because the pointer names the locator entry, not the field
+inside it. So `element.locators.0.match_count` becomes `.locators[0]`, the
+shape a `match-stats` pointer takes. The entry that results:
+
+```json
+{
+  "session": "ext-click-basic",
+  "platform": "extension",
+  "notes": "the derived css candidate also selects a structural twin on the produced page",
+  "relaxations": [
+    {
+      "pointer": "rec[0].step[1].action[2].locators[0]",
+      "relax": "match-stats",
+      "strategy": "css"
+    }
+  ]
+}
+```
+
+That entry is illustrative; the sidecars this catalogue actually ships are the
+ones named by an `overrides` key in `corpus/manifest.json`.
+
+The comparator reads the `relaxations` array. `session`, `platform`, and
+`notes` are the catalogue's authoring convention: they carry the reviewer's
+record of which session an entry belongs to and why it exists, and the
+comparator passes over them. `strategy` is the `match-stats` cross-check
+(STC-5); a `scroll-amounts` or `path` entry carries `pointer` and `relax`, and
+its pointer names the action itself rather than a locator entry.
+
 ## Page-authoring rules
 
 **STC-6.** Pages are authored for determinism:
@@ -249,7 +294,7 @@ non-foreground status across environments (see the retirement rule below for
 sessions that stay unstable anyway).
 
 **STC-22.** **Catalogue criterion — what earns a desktop session.** Each
-committed desktop session pins exactly one capture behaviour end-to-end from
+active desktop session pins exactly one capture behaviour end-to-end from
 real OS input: an action-emission class (`d-click`; `d-double-click`'s
 two-clicks truth), the activation/foreground proxy (`d-context-switch`), a
 correlation gate (`d-selection-gate`), input coalescing (`d-type-edit`), the
@@ -458,9 +503,12 @@ The differences are all data:
 
 **STC-14.** Add: create `corpus/sessions/<id>/` (pages, script, truth per the
 doctrine above), register it in `corpus/manifest.json`, produce, review the
-truth line-by-line, regenerate and review both baselines. Retire: never delete
-silently — set
-`"status": "retired"` in the manifest with a reason (and issue link); the
-entry stays listed. A session that cannot pass CI reliably across its retry
-budget is redesigned or retired — never relaxed into meaninglessness.
+truth line-by-line, regenerate and review both baselines, and — for a desktop
+session — name it in STC-22's enumeration, which is held to the manifest's
+active sessions both ways by the verification-inventory lint. Retire: never
+delete silently — set `"status": "retired"` in the manifest with a reason (and
+issue link); the entry stays listed, and a desktop id leaves STC-22's
+enumeration in the same change, since that lint counts only active sessions. A
+session that cannot pass CI reliably across its retry budget is redesigned or
+retired — never relaxed into meaninglessness.
 Removal decisions belong to the maintainer.
