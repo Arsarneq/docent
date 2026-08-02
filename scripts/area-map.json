@@ -298,6 +298,18 @@
       "governed-by": ["docs/test/strategy/coverage.md", "docs/guides/ci.md"]
     },
     {
+      "path": "package.json",
+      "reason": "The root manifest — beyond the CI guides and the release process, its scripts map is the subject of demands both verification documents make of it: the corpus doctrine states which flags each platform's corpus gate command carries and when (and the verification-inventory lint holds that command against the doctrine), and the sufficiency-lint doc names the sufficiency:check script as the executing home of the standing corpus's root list. So a scripts-map edit primes those two documents beside the CI set. Dependency-only diffs are recognised by the disposition check on their own and stay exempt, so the amplification lands on real script and engine edits.",
+      "governed-by": [
+        "docs/guides/ci.md",
+        "docs/guides/local-ci.md",
+        ".github/PUBLISHING.md",
+        ".github/CONTRIBUTING.md",
+        "docs/verification/scripted-truth-corpus.md",
+        "docs/verification/sufficiency-lint.md"
+      ]
+    },
+    {
       "path": "stryker.*.mjs",
       "reason": "Stryker configuration — JavaScript mutation-testing settings; the CI guide states their thresholds.break role, so an edit here primes that claim too.",
       "governed-by": ["docs/test/strategy/mutation.md", "docs/guides/ci.md"]

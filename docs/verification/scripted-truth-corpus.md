@@ -45,8 +45,13 @@ identifiers reflect minting order and may appear out of numeric sequence.
   regression; a VANISHED diff
   means a fix landed — both fail CI until the baseline is deliberately
   regenerated (the comparator's `--write-baseline` flag) and reviewed. The
-  `--strict`/`--lint-strict` flags exist but are CI-wired only once the
-  baselines are empty (the gate slice).
+  `--strict` and `--lint-strict` flags exist and are CI-wired per platform (the
+  gate slice): `--strict` once that platform's known-diffs baseline empties,
+  `--lint-strict` once additionally none of that platform's ACTIVE sessions'
+  committed truths carries a `fail`-class entry in the committed sufficiency
+  baseline — both demands machine-held by the verification-inventory lint,
+  which reds the moment a trigger comes true and the gate command still omits
+  its flag (and reds equally on a flag passed before its trigger).
 - **STC-4.** **Hermetic.** Pages are committed under each session and served from
   loopback at a FIXED port by `corpus/serve.js` — the URL rule is
   `http://127.0.0.1:41730/<session-id>/<filename>` — so URL-bearing fields
@@ -158,8 +163,8 @@ findings index the truth document; `extra-*` findings carry a `produced:`
 prefix.
 
 **STC-5.** A session may carry an `overrides.json` sidecar of **relaxations**,
-and the comparator holds them to a closed contract: the relaxation kinds are
-exactly `match-stats`, `scroll-amounts`, and `path`; sidecar pointers index
+and the comparator holds them to a closed contract. The relaxation kinds are
+exactly `match-stats`, `scroll-amounts`, and `path`. Sidecar pointers index
 the **truth** document, and relaxations are alignment-scoped on the produced
 side — never raw produced positions; a `match-stats` relaxation is
 locator-entry scoped (its pointer names the entry) and cross-checked against
@@ -319,12 +324,14 @@ shaped by the meta-schema `corpus/vector.schema.json`. A vector carries the reco
 `locators`, the `element_facts` (the captured element **minus** its nested
 locators — the non-locator fact source), a `tree_snapshot` of the bound scope,
 the `ground_truth` node inside it, and `matched_node_ids` (per candidate, the
-snapshot nodes its stated query selects). Only `expected_outcome: "resolved"`
-vectors ship. The inclusion criterion — which elements are in vector scope —
-is owned by
+snapshot nodes its stated query selects). The inclusion criterion — which
+elements are in vector scope — is owned by
 [locator-resolution §LR-23](../technical/locator-resolution.md#conformance-and-vector-scope);
 this document owns the inventory of shipped vectors and the machinery that
 emits and locks them. Nothing here executes the resolution procedure.
+
+**STC-23.** Only vectors whose `expected_outcome` is `resolved` ship: every
+committed vector MUST state that outcome.
 
 ### Emission (produced, then reviewed and committed)
 
@@ -388,10 +395,15 @@ vector scope.
 
 ### Determinism
 
-Extension snapshots are static by the page-authoring rules above (no animation,
-no time/locale-dependent text, fixed viewport), so `produced == committed` holds
-byte-deterministically across runs. (Localized and environment-string
-normalization of a snapshot is a desktop concern — the extension leg needs none.)
+**STC-24.** Extension snapshots are static by the page-authoring rules above
+(no animation, no time/locale-dependent text, fixed viewport), so the produced
+snapshot content is deterministic across runs, and the produce-stage oracle
+holds each produced vector deep-equal to its committed counterpart —
+structurally, formatting excepted: the oracle parses the committed file and
+compares documents, so the producer's plain JSON and the committed file's
+repository formatting agree as data without agreeing as bytes. (Localized and
+environment-string normalization of a snapshot is a desktop concern — the
+extension leg needs none.)
 
 ### Desktop leg
 

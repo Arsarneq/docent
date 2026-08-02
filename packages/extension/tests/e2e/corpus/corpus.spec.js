@@ -17,14 +17,14 @@
  *      UI wiring is bypassed, which stays covered by the existing e2e suite),
  *   6. writes corpus/out/extension/<id>.docent.json, and
  *   7. asserts the comparator's findings for the session equal its committed
- *      known-diffs baseline entries — the produce-stage oracle. A timing flake
+ *      known-diffs baseline entries — the truth-diff gate. A timing flake
  *      fails the attempt and is retried; a persistent mismatch stays red. The
  *      CI `corpus:check` step re-verifies the same thing without retries.
  *
- * While a session's truth file does not exist yet (authoring), the oracle step
- * is skipped with a loud warning; the corpus hygiene test in packages/shared
- * fails if an active manifest session lacks a truth file, so nothing can ship
- * half-authored.
+ * While a session's truth file does not exist yet (authoring), the truth-diff
+ * gate is skipped with a loud warning; the corpus hygiene test in
+ * packages/shared fails if an active manifest session lacks a truth file, so
+ * nothing can ship half-authored.
  */
 
 import { test as base, expect, chromium } from '@playwright/test';
@@ -179,7 +179,7 @@ for (const session of sessions) {
       JSON.stringify(envelope, null, 2),
     );
 
-    // Produce-stage oracle: the comparator itself, against the committed
+    // Truth-diff gate: the comparator itself, against the committed
     // known-diffs baseline. Retries absorb timing flakes; truth mismatches
     // beyond the baseline stay red.
     const truthPath = path.join(repoRoot, 'corpus', 'sessions', session.id, session.truth ?? 'truth.docent.json'); // prettier-ignore

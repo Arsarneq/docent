@@ -203,11 +203,12 @@ agreement.
 producer of the
 [scripted-truth corpus](../verification/scripted-truth-corpus.md), run by
 `npm run corpus:produce:extension` under `playwright.corpus.config.js` (fixed
-viewport, the fixed-port corpus page server, the produce-stage oracle) and, in
-conformance-vector mode, by `npm run vectors:produce:extension` under
-`playwright.vectors.config.js`. It follows the same harness contract — one
-worker, retries, the `FRAME_READY` discipline (the `Since` variant, because
-corpus URLs are stable across loads).
+viewport, the fixed-port corpus page server, the truth-diff gate against the
+committed known-diffs baseline) and, in conformance-vector mode, by
+`npm run vectors:produce:extension` under `playwright.vectors.config.js` (the
+same run plus the produce-stage oracle over the vectors it emits). It follows
+the same harness contract — one worker, retries, the `FRAME_READY` discipline
+(the `Since` variant, because corpus URLs are stable across loads).
 
 How the e2e layer sits within the wider suite is in
 [the test pyramid](strategy/test-pyramid.md); the retired manual scenarios and
