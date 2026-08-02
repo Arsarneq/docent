@@ -361,12 +361,21 @@ is the one home of that list. What each kind of change keeps green:
   the check's own list of citable root files is held to the tracked set on every
   run, so a stale entry reds there rather than in a row.
   `lint:clause-registry` holds the doc markers and the registry rows in
-  one-to-one agreement. Every repository path a row cites — the code that
-  implements or guards the clause — must in turn be governed by the clause's
-  own doc under the area map, so a change to that code cannot drift from the
-  doctrine it stands on without priming the doc; `lint:clause-governance`
-  holds that edge, with deliberately-open couplings recorded as a justified
-  allowlist in the check.
+  one-to-one agreement. Such a document also states the canonical preamble
+  verbatim — the identifier, verification, RFC 2119, keyword-placement, and
+  clause-scope rules, with the prefix token and registry link computed for it;
+  a document that restates rules other artifacts own opens with the registered
+  qualifier instead, which the check accepts only from a document registered
+  for it. A lowercase `must`, `should`, or `may` inside a clause's scope is
+  either uppercased as the clause's own requirement or takes an allowlist entry
+  recording why it states none; the canonical text and that allowlist live in
+  [`scripts/check-clause-preamble.js`](../scripts/check-clause-preamble.js),
+  which `lint:clause-preamble` holds those documents to. Every repository path
+  a row cites — the code that implements or guards the clause — must in turn be
+  governed by the clause's own doc under the area map, so a change to that code
+  cannot drift from the doctrine it stands on without priming the doc;
+  `lint:clause-governance` holds that edge, with deliberately-open couplings
+  recorded as a justified allowlist in the check.
 
 ## Regression Tests
 

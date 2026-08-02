@@ -182,6 +182,19 @@ jobs:
       - name: Validate clause-citation governance
         run: npm run lint:clause-governance
 
+      # Every clause-bearing doc states the same preamble — the identifier
+      # rules, the RFC 2119 reference, and the keyword-placement and
+      # clause-scope conventions. That text is one constant in the check, with
+      # each doc's prefix token and registry link computed from the registry,
+      # so a carrier can only state it or red. The same check holds the
+      # clause-bearing documents to the convention the preamble states: a
+      # lowercase must/should/may inside a clause scope is red unless the
+      # allowlist records why that sentence states no requirement. It runs here
+      # for the reason the other doc gates do — the diff that breaks it is
+      # often docs-only, and a docs-only PR skips every path-filtered test job.
+      - name: Validate clause preambles and keyword placement
+        run: npm run lint:clause-preamble
+
       # The suite documents the check registers enumerate their suites: in each
       # one's inventory section, the coverage tables' first column and the test
       # files that are members of the suite it documents (the check registers
