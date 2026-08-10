@@ -23,12 +23,23 @@
  *   (e) declared governance — a `declared-governance` entry names files that keep
  *       their code-area coverage but declare their own COMPLETE governing doc set
  *       explicitly (a `governed-by` array; `[]` states the set is empty), in place
- *       of the docs their covering area supplies. A declaration whose set already
+ *       of the docs their covering area supplies. Each element is a literal doc
+ *       path or an `area:<name>` reference, which stands for that area's whole doc
+ *       set and expands to it. A declaration whose set already
  *       equals what the area supplies states nothing new (redundant); a file
  *       declared twice, or one that also sources governance from a repo-wide doc
  *       or a `// see docs/…` pointer into a live doc set, is a red (conflict /
  *       cross-governed — declare in one place); a governed-by target that is
  *       untracked or homeless (in no doc set and not repo-wide) is a red.
+ *   (f) governance partitions — `governance-partitions` lists the trees whose
+ *       files each declare their own governance. Every tracked file matching a
+ *       partition pattern carries a `declared-governance` entry, so a new file
+ *       there states its subject rather than inheriting the union its tree ride
+ *       supplies; a partition pattern matching no tracked file is stale (a red,
+ *       as for `unassigned`). Inside a partitioned tree an equal-set declaration
+ *       is the honest statement — the alternative is a red, not an equivalent
+ *       green — so partition-covered files are left out of the redundancy
+ *       equality accounting while still counting toward their entry's total.
  *
  * What this check deliberately cannot see: a file or doc filed under the WRONG
  * area still passes — the map's content is reviewed, not derived. Pointer
@@ -63,6 +74,20 @@ const PATTERN_ALLOWED = /^[A-Za-z0-9_\-./*{},]+$/;
 
 /** A `// see docs/<path>.md` pointer inside a code file. */
 const POINTER_RE = /\/\/\s*see\s+(docs\/[A-Za-z0-9_\-./]+\.md)\b/g;
+
+/** Prefix marking a `governed-by` element as a reference to an area's doc set. */
+export const AREA_REF_PREFIX = 'area:';
+
+/**
+ * Read the area name a `governed-by` element references.
+ * @param {unknown} element one `governed-by` element
+ * @returns {string | null} the referenced area name, or null for a literal path
+ */
+export function areaRefName(element) {
+  return typeof element === 'string' && element.startsWith(AREA_REF_PREFIX)
+    ? element.slice(AREA_REF_PREFIX.length)
+    : null;
+}
 
 /**
  * Expand `{a,b}` alternation groups into plain patterns (recursive, so every
@@ -263,9 +288,23 @@ export function validateShape(map) {
         );
       } else {
         for (const d of entry['governed-by']) {
-          if (!isLiteralPath(d)) {
+          const ref = areaRefName(d);
+          if (ref === null) {
+            if (!isLiteralPath(d)) {
+              errors.push(
+                `declared-governance entry "${entry.path}": governed-by is not a literal path: ${JSON.stringify(d)}`,
+              );
+            }
+            continue;
+          }
+          const area = map.areas[ref];
+          if (!area) {
             errors.push(
-              `declared-governance entry "${entry.path}": governed-by is not a literal path: ${JSON.stringify(d)}`,
+              `declared-governance entry "${entry.path}": governed-by reference "${d}" names an area this map does not define`,
+            );
+          } else if (!Array.isArray(area.docs) || area.docs.length === 0) {
+            errors.push(
+              `declared-governance entry "${entry.path}": governed-by reference "${d}" names an area that carries no docs — state the governing set with [] or literal doc paths`,
             );
           }
         }
@@ -277,11 +316,33 @@ export function validateShape(map) {
       }
     }
   }
+  if (!Array.isArray(map['governance-partitions'])) {
+    errors.push('"governance-partitions" must be an array');
+  } else {
+    for (const pattern of map['governance-partitions']) {
+      if (typeof pattern !== 'string' || !pattern) {
+        errors.push(
+          `governance-partitions holds an empty or non-string pattern: ${JSON.stringify(pattern)}`,
+        );
+        continue;
+      }
+      try {
+        expandBraces(pattern).forEach(globToRegExp);
+      } catch (e) {
+        errors.push(`governance-partitions pattern "${pattern}": ${e.message}`);
+      }
+    }
+  }
   return errors;
 }
 
 /**
  * Compile a shape-valid map once so per-file resolution is cheap.
+ *
+ * This is the ONE place `area:<name>` references expand: each declared entry
+ * carries both its RAW `governed-by` elements (what the map literally says, for
+ * literal-target validation) and the EXPANDED doc set every consumer of the
+ * declared governing set reads.
  * @param {any} map parsed area-map.json (must be shape-valid)
  * @returns {{
  *   map: any,
@@ -289,7 +350,8 @@ export function validateShape(map) {
  *   docSets: Set<string>,
  *   repoWideDocs: Set<string>,
  *   unassigned: { path: string, regexes: RegExp[] }[],
- *   declaredGovernance: { path: string, regexes: RegExp[], governedBy: string[] }[]
+ *   declaredGovernance: { path: string, regexes: RegExp[], governedBy: string[], governedDocs: string[] }[],
+ *   partitions: { pattern: string, regexes: RegExp[] }[]
  * }}
  */
 export function compileMap(map) {
@@ -300,6 +362,16 @@ export function compileMap(map) {
       docs: new Set(area.docs ?? []),
     });
   }
+  /** Expand one entry's raw governed-by into the doc set it stands for. */
+  const expandGovernedBy = (raw) => {
+    const docs = new Set();
+    for (const element of raw) {
+      const ref = areaRefName(element);
+      if (ref === null) docs.add(element);
+      else for (const d of map.areas[ref]?.docs ?? []) docs.add(d);
+    }
+    return [...docs];
+  };
   return {
     map,
     areas,
@@ -313,6 +385,11 @@ export function compileMap(map) {
       path: e.path,
       regexes: expandBraces(e.path).map(globToRegExp),
       governedBy: e['governed-by'] ?? [],
+      governedDocs: expandGovernedBy(e['governed-by'] ?? []),
+    })),
+    partitions: (map['governance-partitions'] ?? []).map((pattern) => ({
+      pattern,
+      regexes: expandBraces(pattern).map(globToRegExp),
     })),
   };
 }
@@ -326,8 +403,9 @@ export function compileMap(map) {
  *
  * A file may instead **declare** its complete governing set via a
  * `declared-governance` entry: then its `docs` are exactly that `governed-by`
- * set (area docs and pointers contribute nothing more — the complete override),
- * while `areas` (hence coverage) are unchanged. `areaSuppliedDocs` always
+ * set as compiled (`area:<name>` references already expanded to their area's
+ * doc set — area docs and pointers contribute nothing more, the complete
+ * override), while `areas` (hence coverage) are unchanged. `areaSuppliedDocs` always
  * reports the bare code/doc-set-area docs — the file's pre-declaration governing
  * set — so the admission test can tell whether a declaration does real work.
  * @param {string} file repo-relative path
@@ -360,7 +438,7 @@ export function resolveFile(file, compiled, content = null) {
     e.regexes.some((re) => re.test(file)),
   );
   const declaredGovernance = declaredMatches.length > 0;
-  const governedBy = new Set(declaredMatches.flatMap((e) => e.governedBy));
+  const governedBy = new Set(declaredMatches.flatMap((e) => e.governedDocs));
   let docs;
   if (declaredGovernance) {
     docs = new Set(governedBy); // exactly the declared set — area docs and pointers do not apply
@@ -397,7 +475,8 @@ export function resolveFile(file, compiled, content = null) {
  *   unnecessaryUnassigned: string[], badPointers: string[],
  *   staleGovernance: string[], redundantGovernance: string[],
  *   conflictingGovernance: string[], crossGovernedDeclaration: string[],
- *   badGovernedBy: string[]
+ *   badGovernedBy: string[], undeclaredInPartition: string[],
+ *   stalePartitions: string[]
  * }}
  */
 export function auditMap({ files, map, readFile }) {
@@ -415,6 +494,8 @@ export function auditMap({ files, map, readFile }) {
     conflictingGovernance: [],
     crossGovernedDeclaration: [],
     badGovernedBy: [],
+    undeclaredInPartition: [],
+    stalePartitions: [],
   };
   const shapeErrors = validateShape(map);
   if (shapeErrors.length) return { ...empty, shapeErrors };
@@ -492,6 +573,11 @@ export function auditMap({ files, map, readFile }) {
     }
     if (failsCoverage && !bare.unassigned) result.zeroArea.push(file);
 
+    // (f) governance partitions: inside a partitioned tree every file declares
+    // its own governance, so an undeclared one is a red naming what to add.
+    const inPartition = compiled.partitions.some((p) => p.regexes.some((re) => re.test(file)));
+    if (inPartition && !bare.declaredGovernance) result.undeclaredInPartition.push(file);
+
     // declared-governance: conflict, single-source, and per-entry redundancy accounting.
     if (bare.declaredGovernance) {
       const conflicted = bare.declaredMatchCount >= 2;
@@ -506,14 +592,17 @@ export function auditMap({ files, map, readFile }) {
         }
       }
       if (crossGoverned) result.crossGovernedDeclaration.push(file);
-      const eligible = !conflicted && !crossGoverned;
+      // A partition-covered file is counted (so its entry is not stale) but left
+      // out of the EQUALITY accounting: there, declaring the covering area's own
+      // set is what the partition asks for, so it states something after all.
+      const eligible = !conflicted && !crossGoverned && !inPartition;
       const areaSupplied = new Set(bare.areaSuppliedDocs);
       for (const acc of govAcc) {
         if (!acc.e.regexes.some((re) => re.test(file))) continue;
         acc.total++;
         if (eligible) {
           acc.eligible++;
-          const gb = new Set(acc.e.governedBy);
+          const gb = new Set(acc.e.governedDocs);
           if (gb.size !== areaSupplied.size || [...gb].some((d) => !areaSupplied.has(d))) {
             acc.allEqual = false;
           }
@@ -521,16 +610,26 @@ export function auditMap({ files, map, readFile }) {
       }
     }
   }
+  // (f) staleness: every partition pattern describes a tree that exists.
+  for (const p of compiled.partitions) {
+    if (!files.some((f) => p.regexes.some((re) => re.test(f)))) {
+      result.stalePartitions.push(p.pattern);
+    }
+  }
   // A declaration earns its keep by changing the governing set of some eligible matched file.
   for (const acc of govAcc) {
     if (acc.total === 0) result.staleGovernance.push(acc.e.path);
-    else if (acc.eligible >= 1 && acc.e.governedBy.length > 0 && acc.allEqual) {
+    else if (acc.eligible >= 1 && acc.e.governedDocs.length > 0 && acc.allEqual) {
       result.redundantGovernance.push(acc.e.path);
     }
   }
-  // badGovernedBy — a per-entry check on the declared docs, independent of matched files.
+  // badGovernedBy — a per-entry check on the RAW declared elements, independent of
+  // matched files. Literal targets are validated here; an `area:<name>` reference
+  // is validated as an area name by validateShape, and the docs it expands to are
+  // validated by that area's own doc entries.
   for (const e of compiled.declaredGovernance) {
     for (const doc of e.governedBy) {
+      if (areaRefName(doc) !== null) continue;
       if (!tracked.has(doc)) {
         result.badGovernedBy.push(`${e.path}: ${doc} (untracked)`);
       } else if (!compiled.docSets.has(doc) && !compiled.repoWideDocs.has(doc)) {
@@ -670,7 +769,26 @@ function run() {
     problems.push(
       `✗ ${r.badGovernedBy.length} "declared-governance" governed-by target(s) do not resolve:\n` +
         r.badGovernedBy.map((s) => `    ${s}`).join('\n') +
-        `\n\n  Fix: each governed-by doc must be a tracked doc in some area's doc set, or a repo-wide doc.`,
+        `\n\n  Fix: each governed-by doc must be a tracked doc in some area's doc set, or a repo-wide doc\n` +
+        `  (or an "area:<name>" reference to an area of this map that carries docs).`,
+    );
+  }
+  if (r.undeclaredInPartition.length) {
+    problems.push(
+      `✗ ${r.undeclaredInPartition.length} file(s) sit in a "governance-partitions" tree and declare no governance:\n` +
+        r.undeclaredInPartition.map((s) => `    ${s}`).join('\n') +
+        `\n\n  Fix: every file in a partitioned tree states its own subject. Add a\n` +
+        `  "declared-governance" entry in ${MAP_PATH} covering the file — a "path" naming it\n` +
+        `  (a pattern may cover a family), a "reason" stating what the file is about, and a\n` +
+        `  "governed-by" set: write "area:<name>" where the file owes that area's whole doc set,\n` +
+        `  add each further doc its evidence names as a literal path, and write [] where no doc\n` +
+        `  governs it. Stating the set your covering areas already supply is a legal answer here.`,
+    );
+  }
+  if (r.stalePartitions.length) {
+    problems.push(
+      `✗ ${r.stalePartitions.length} "governance-partitions" pattern(s) match no tracked file — remove:\n` +
+        r.stalePartitions.map((s) => `    ${s}`).join('\n'),
     );
   }
 
@@ -682,7 +800,8 @@ function run() {
     `✓ area map covers the tree: ${files.length} tracked files resolve across ` +
       `${Object.keys(map.areas).length} areas (+${map['repo-wide'].docs.length} repo-wide docs, ` +
       `${map.unassigned.length} justified exceptions, ` +
-      `${(map['declared-governance'] ?? []).length} declared-governance entries).`,
+      `${(map['declared-governance'] ?? []).length} declared-governance entries, ` +
+      `${(map['governance-partitions'] ?? []).length} governance partitions).`,
   );
 }
 

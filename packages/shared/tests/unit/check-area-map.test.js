@@ -37,6 +37,7 @@ function makeMap(overrides = {}) {
     },
     unassigned: [{ path: 'LICENSE', reason: 'license text' }],
     'declared-governance': [],
+    'governance-partitions': [],
     ...overrides,
   };
 }
@@ -635,5 +636,165 @@ describe('auditMap — declared-governance', () => {
       ),
       true,
     );
+  });
+});
+
+describe('validateShape — area references in governed-by', () => {
+  /** makeMap with one declared entry over package.json carrying `governedBy`. */
+  const withGov = (governedBy) =>
+    makeMap({
+      'declared-governance': [
+        { path: 'package.json', reason: 'the root manifest', 'governed-by': governedBy },
+      ],
+    });
+
+  it('accepts an area reference beside literal doc paths', () => {
+    assert.deepEqual(validateShape(withGov(['area:alpha', 'docs/tooling.md'])), []);
+  });
+
+  it('rejects a reference to an area the map does not define', () => {
+    assert.equal(
+      validateShape(withGov(['area:ghost'])).some(
+        (e) => e.includes('area:ghost') && e.includes('does not define'),
+      ),
+      true,
+    );
+  });
+
+  it('rejects a reference to an area that carries no docs', () => {
+    // An area with no doc set expands to nothing, so the reference would state
+    // an emptiness the entry should state itself — with [] or literal paths.
+    const map = withGov(['area:codeonly']);
+    map.areas.codeonly = { code: ['vendor/**'] };
+    assert.equal(
+      validateShape(map).some((e) => e.includes('area:codeonly') && e.includes('carries no docs')),
+      true,
+    );
+  });
+});
+
+describe('resolveFile — area references expand to the area doc set', () => {
+  it('expands a reference to its area docs, unioned with the literal extras', () => {
+    const map = makeMap({
+      'declared-governance': [
+        {
+          path: 'package.json',
+          reason: 'the root manifest',
+          'governed-by': ['area:alpha', 'docs/tooling.md'],
+        },
+      ],
+    });
+    const r = resolveFile('package.json', compileMap(map));
+    assert.deepEqual(r.docs.sort(), ['docs/alpha.md', 'docs/tooling.md']);
+    assert.deepEqual(r.governedBy.sort(), ['docs/alpha.md', 'docs/tooling.md']);
+  });
+
+  it('deduplicates a literal the referenced area already supplies', () => {
+    const map = makeMap({
+      'declared-governance': [
+        {
+          path: 'package.json',
+          reason: 'the root manifest',
+          'governed-by': ['area:alpha', 'docs/alpha.md'],
+        },
+      ],
+    });
+    assert.deepEqual(resolveFile('package.json', compileMap(map)).docs, ['docs/alpha.md']);
+  });
+});
+
+describe('auditMap — area references in governed-by', () => {
+  it('accepts an area reference as a governed-by target', () => {
+    const map = makeMap({
+      'declared-governance': [
+        { path: 'package.json', reason: 'the root manifest', 'governed-by': ['area:alpha'] },
+      ],
+    });
+    assert.deepEqual(audit({ map }).badGovernedBy, []);
+  });
+
+  it('reads the EXPANSION when judging redundancy, not the reference token', () => {
+    // package.json's covering area is tooling, whose doc set is exactly what
+    // `area:tooling` expands to — so the declaration states nothing new. A
+    // redundancy verdict comparing raw tokens would go dark here.
+    const map = makeMap({
+      'declared-governance': [
+        { path: 'package.json', reason: 'the root manifest', 'governed-by': ['area:tooling'] },
+      ],
+    });
+    assert.deepEqual(audit({ map }).redundantGovernance, ['package.json']);
+  });
+});
+
+describe('validateShape — governance partitions', () => {
+  it('requires the governance-partitions array to be present', () => {
+    const map = makeMap();
+    delete map['governance-partitions'];
+    assert.equal(
+      validateShape(map).some((e) => e.includes('"governance-partitions" must be an array')),
+      true,
+    );
+  });
+
+  it('rejects an empty or uncompilable partition pattern', () => {
+    assert.equal(
+      validateShape(makeMap({ 'governance-partitions': ['packages/[ab]/**'] })).some((e) =>
+        e.includes('unsupported pattern syntax'),
+      ),
+      true,
+    );
+    assert.equal(
+      validateShape(makeMap({ 'governance-partitions': [''] })).some((e) =>
+        e.includes('governance-partitions'),
+      ),
+      true,
+    );
+  });
+});
+
+describe('auditMap — governance partitions', () => {
+  /** makeMap with packages/alpha/** partitioned, plus the declarations to test. */
+  const partMap = (declared = []) =>
+    makeMap({
+      'governance-partitions': ['packages/alpha/**'],
+      'declared-governance': declared,
+    });
+
+  /** A declaration over the whole partitioned tree, expansion-equal to its area. */
+  const equalSetDeclaration = [
+    { path: 'packages/alpha/**', reason: 'alpha suites', 'governed-by': ['area:alpha'] },
+  ];
+
+  it('flags a file inside a partitioned tree that declares no governance', () => {
+    assert.deepEqual(audit({ map: partMap() }).undeclaredInPartition, ['packages/alpha/index.js']);
+  });
+
+  it('is clean once every file in the partitioned tree declares its governance', () => {
+    const r = audit({
+      map: partMap([
+        { path: 'packages/alpha/**', reason: 'alpha suites', 'governed-by': ['docs/tooling.md'] },
+      ]),
+    });
+    assert.deepEqual(flatten(r), []);
+  });
+
+  it('flags a partition pattern that matches no tracked file as stale', () => {
+    const map = makeMap({ 'governance-partitions': ['packages/gone/**'] });
+    assert.deepEqual(audit({ map }).stalePartitions, ['packages/gone/**']);
+  });
+
+  it('keeps an equal-set declaration green inside a partition, redundant outside one', () => {
+    // Inside a partitioned tree the alternative to an equal-set declaration is a
+    // red, not an equivalent green — so stating the covering area's own set is
+    // the honest declaration there, and stays green.
+    const inside = audit({ map: partMap(equalSetDeclaration) });
+    assert.deepEqual(inside.redundantGovernance, []);
+    assert.deepEqual(inside.undeclaredInPartition, []);
+    const outside = audit({ map: makeMap({ 'declared-governance': equalSetDeclaration }) });
+    assert.deepEqual(outside.redundantGovernance, ['packages/alpha/**']);
+  });
+
+  it('counts partition-covered files toward the entry total, so such an entry is not stale', () => {
+    assert.deepEqual(audit({ map: partMap(equalSetDeclaration) }).staleGovernance, []);
   });
 });
