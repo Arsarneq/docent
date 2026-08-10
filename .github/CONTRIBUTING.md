@@ -349,8 +349,12 @@ is the one home of that list. What each kind of change keeps green:
   or `lint:area-map` fails on it; extend the map in the same PR that adds the
   file. A file whose governing docs differ from what its areas supply declares
   them with a `declared-governance` entry, which overrides governance without
-  granting coverage. The map's own `description` field states the complete
-  resolution rules.
+  granting coverage; a declaration may name an area's whole doc set with an
+  `area:<name>` reference instead of repeating its docs. In a tree the map
+  lists under `governance-partitions`, every file declares its governance with
+  a `declared-governance` entry — including one whose declared set is exactly
+  what its areas supply, which is the honest statement there and stays green.
+  The map's own `description` field states the complete resolution rules.
 - **Minting clauses:** a doc that states its rules as identified clauses marks
   each one with a stable bolded id (e.g. `**SC-2.**`); ids are never
   renumbered, and a retired id stays reserved. Every clause takes a row in

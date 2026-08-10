@@ -1,5 +1,5 @@
 {
-  "description": "Maps every area of the repository to the code it owns and the documentation that governs it, so 'which docs govern this change?' always has a machine-readable answer. This file is committed data guarded by an admission test: scripts/check-area-map.js fails CI when the map goes stale (a pattern matching no tracked file, an entry pointing at an untracked file), when a tracked file resolves to no area and is neither a repo-wide doc nor a justified exception, or when any tracked .md doc (anywhere in the repo, not only under docs/) is placed in no area's doc set, repo-wide list, or justified 'unassigned' exception — being matched only by a code pattern is not a doc home. An area owns code, a doc set, or both: a docs-only area (no code) is valid when it carries a non-empty doc set. Code patterns support '*', '**', and {a,b} alternation only, and every brace alternative must match at least one tracked file. Doc entries are literal tracked paths, never patterns. Code files and docs are many-to-many: a file or doc may belong to several areas. A code file may also name a governing doc directly with a '// see docs/<path>.md' comment, which adds every area whose doc set contains that doc. A file may instead DECLARE its complete governing doc set with a 'declared-governance' entry (a required 'governed-by' array — [] states the governing set is empty): that declared set governs the file's disposition in place of the docs its covering code area would supply, and area membership and '// see' pointers add nothing more. A declared file keeps the code-area coverage its patterns give it (a declaration grants no coverage of its own), and its governance is declared once and from one source (a declared file is not also a repo-wide doc, nor does it carry a '// see' pointer into a doc set).",
+  "description": "Maps every area of the repository to the code it owns and the documentation that governs it, so 'which docs govern this change?' always has a machine-readable answer. This file is committed data guarded by an admission test: scripts/check-area-map.js fails CI when the map goes stale (a pattern matching no tracked file, an entry pointing at an untracked file), when a tracked file resolves to no area and is neither a repo-wide doc nor a justified exception, or when any tracked .md doc (anywhere in the repo, not only under docs/) is placed in no area's doc set, repo-wide list, or justified 'unassigned' exception — being matched only by a code pattern is not a doc home. An area owns code, a doc set, or both: a docs-only area (no code) is valid when it carries a non-empty doc set. Code patterns support '*', '**', and {a,b} alternation only, and every brace alternative must match at least one tracked file. Doc entries are literal tracked paths, never patterns. Code files and docs are many-to-many: a file or doc may belong to several areas. A code file may also name a governing doc directly with a '// see docs/<path>.md' comment, which adds every area whose doc set contains that doc. A file may instead DECLARE its complete governing doc set with a 'declared-governance' entry (a required 'governed-by' array — [] states the governing set is empty): that declared set governs the file's disposition in place of the docs its covering code area would supply, and area membership and '// see' pointers add nothing more. A declared file keeps the code-area coverage its patterns give it (a declaration grants no coverage of its own), and its governance is declared once and from one source (a declared file is not also a repo-wide doc, nor does it carry a '// see' pointer into a doc set). Each element of a 'governed-by' array is either a literal tracked doc path or an 'area:<name>' reference standing for that area's whole doc set, which it expands to — the compositional way to say a file owes an area's doctrine as a unit, with any further doc named as a literal beside it. 'governance-partitions' lists the trees whose files each declare their own governance: every tracked file matching one of those patterns carries a declared-governance entry, so a file added there states its subject rather than inheriting the union its tree ride supplies, and a partition pattern matching no tracked file is stale. Inside a partitioned tree, a declaration stating exactly what the covering areas supply is the honest answer and is kept as such.",
   "repo-wide": {
     "description": "Docs that apply to every area of the repository — a change anywhere can be governed by them. They resolve in their own right and do not need to belong to an area's doc set (though some also do).",
     "docs": [
@@ -271,6 +271,7 @@
       "reason": "Reference sync-server README — implementation notes for a runnable example artifact (never shipped); the protocol it implements is governed by docs/api/sync-protocol.md."
     }
   ],
+  "governance-partitions": ["packages/shared/tests/**"],
   "declared-governance": [
     {
       "path": "docs/clause-registry.json",
@@ -299,12 +300,9 @@
     },
     {
       "path": "package.json",
-      "reason": "The root manifest — beyond the CI guides and the release process, its scripts map is the subject of demands both verification documents make of it: the corpus doctrine states which flags each platform's corpus gate command carries and when (and the verification-inventory lint holds that command against the doctrine), and the sufficiency-lint doc names the sufficiency:check script as the executing home of the standing corpus's root list. So a scripts-map edit primes those two documents beside the CI set. Dependency-only diffs are recognised by the disposition check on their own and stay exempt, so the amplification lands on real script and engine edits.",
+      "reason": "The root manifest — it owes the ci/release area's whole doc set as a unit; beyond that set, its scripts map is the subject of demands both verification documents make of it: the corpus doctrine states which flags each platform's corpus gate command carries and when (and the verification-inventory lint holds that command against the doctrine), and the sufficiency-lint doc names the sufficiency:check script as the executing home of the standing corpus's root list. So a scripts-map edit primes those two documents beside the CI set. Dependency-only diffs are recognised by the disposition check on their own and stay exempt, so the amplification lands on real script and engine edits.",
       "governed-by": [
-        "docs/guides/ci.md",
-        "docs/guides/local-ci.md",
-        ".github/PUBLISHING.md",
-        ".github/CONTRIBUTING.md",
+        "area:ci/release",
         "docs/verification/scripted-truth-corpus.md",
         "docs/verification/sufficiency-lint.md"
       ]
@@ -325,13 +323,9 @@
       "governed-by": ["docs/architecture/system/shared-core.md"]
     },
     {
-      "path": "packages/shared/tests/unit/{session,import-project,validate-import,schema-split,classify-schema-change,field-sensitivity,generated-validators,uuid-v7}.test.js",
-      "reason": "Format-subject unit suites — they exercise the shared format modules and schema tooling; their contract is the format doctrine, not the sync protocol their tree-mates ride.",
-      "governed-by": [
-        "docs/architecture/system/shared-core.md",
-        "docs/technical/session-format.md",
-        "docs/user/troubleshooting.md"
-      ]
+      "path": "packages/shared/tests/unit/{session,import-project,validate-import,schema-split,classify-schema-change,field-sensitivity,generated-validators,uuid-v7,regression}.test.js",
+      "reason": "Format-subject unit suites — they exercise the shared format modules and schema tooling, and the regression suite pins the session model's own history behaviour; their contract is the format area's doctrine as a unit, not the sync protocol their tree-mates ride.",
+      "governed-by": ["area:format"]
     },
     {
       "path": "packages/shared/tests/unit/backward-compat.test.js",
@@ -376,79 +370,35 @@
       "governed-by": []
     },
     {
-      "path": "packages/shared/tests/unit/{render,render-views,sync-conflict-ui}.test.js",
-      "reason": "UI-subject unit suites — they exercise the shared panel fragment's rendering and the conflict-view module; their contract is the panel-ui doctrine, not the sync/format union their tree ride supplies.",
-      "governed-by": [
-        "docs/design/ui_ux/shared-interaction-model.md",
-        "docs/design/ui_ux/sync-resolution-ui.md",
-        "docs/requirements/non-functional/accessibility.md",
-        "docs/architecture/system/shared-core.md",
-        "docs/user/extension.md",
-        "docs/user/troubleshooting.md",
-        "docs/user/desktop-windows.md",
-        "docs/technical/session-format.md"
-      ]
+      "path": "packages/shared/tests/unit/{render,render-views,sync-conflict-ui,simple-mode}.test.js",
+      "reason": "UI-subject unit suites — they exercise the shared panel fragment's rendering, the conflict-view module, and simple-mode step creation and rendering; their contract is the panel-ui area's doctrine as a unit, not the sync/format union their tree ride supplies. They also build and render the format's step records (logical_id, step_number, step_type/expect) and pin the canonical active-view resolution the render module reuses, so the session-format doc governs them beside the panel-ui set.",
+      "governed-by": ["area:panel-ui", "docs/technical/session-format.md"]
     },
     {
       "path": "packages/shared/{conflict-resolution,sync-digest,sync-client}.js",
       "reason": "Sync chokepoints implementing the format's step-history and field-shape rules — its committed format pointer would, after the schema-contract split, drag that area's locator and taxonomy docs onto a module that emits no locators; this declaration states its true governors: its areas' docs plus the format doc the pointer names.",
-      "governed-by": [
-        "docs/api/dispatch.md",
-        "docs/api/sync-protocol.md",
-        "docs/architecture/system/shared-core.md",
-        "docs/user/desktop-windows.md",
-        "docs/user/extension.md",
-        "docs/user/troubleshooting.md",
-        "docs/technical/session-format.md"
-      ]
+      "governed-by": ["area:sync", "docs/technical/session-format.md"]
     },
     {
       "path": "packages/shared/sync-conflict-ui.js",
       "reason": "The conflict-view module — both a sync-state consumer and the panel fragment's resolution view — its committed format pointer would, after the schema-contract split, drag that area's locator and taxonomy docs onto a module that emits no locators; this declaration states its true governors: its areas' docs plus the format doc the pointer names.",
-      "governed-by": [
-        "docs/api/dispatch.md",
-        "docs/api/sync-protocol.md",
-        "docs/architecture/system/shared-core.md",
-        "docs/user/desktop-windows.md",
-        "docs/user/extension.md",
-        "docs/user/troubleshooting.md",
-        "docs/design/ui_ux/shared-interaction-model.md",
-        "docs/design/ui_ux/sync-resolution-ui.md",
-        "docs/requirements/non-functional/accessibility.md",
-        "docs/technical/session-format.md"
-      ]
+      "governed-by": ["area:sync", "area:panel-ui", "docs/technical/session-format.md"]
     },
     {
       "path": "packages/shared/views/render.js",
       "reason": "The shared rendering module — resolves and renders the committed step history for the panel fragment — its committed format pointer would, after the schema-contract split, drag that area's locator and taxonomy docs onto a module that emits no locators; this declaration states its true governors: its areas' docs plus the format doc the pointer names.",
-      "governed-by": [
-        "docs/design/ui_ux/shared-interaction-model.md",
-        "docs/design/ui_ux/sync-resolution-ui.md",
-        "docs/requirements/non-functional/accessibility.md",
-        "docs/architecture/system/shared-core.md",
-        "docs/user/extension.md",
-        "docs/user/troubleshooting.md",
-        "docs/user/desktop-windows.md",
-        "docs/technical/session-format.md"
-      ]
+      "governed-by": ["area:panel-ui", "docs/technical/session-format.md"]
     },
     {
       "path": "packages/shared/tests/unit/stamp-compatibility.test.js",
-      "reason": "The stamp-gate suite — it pins the sync protocol's skip-and-report mismatch handling over the format's version stamp, so both doctrines govern it.",
-      "governed-by": [
-        "docs/architecture/system/shared-core.md",
-        "docs/technical/session-format.md",
-        "docs/user/troubleshooting.md",
-        "docs/api/sync-protocol.md"
-      ]
+      "reason": "The stamp-gate suite — its subject is the format area's doctrine, whose whole doc set it owes as a unit, and it pins the sync protocol's skip-and-report mismatch handling over the format's version stamp, so the sync-protocol doc its citing clause (SP-8) names governs it too.",
+      "governed-by": ["area:format", "docs/api/sync-protocol.md"]
     },
     {
       "path": "packages/shared/tests/unit/schema-composition.test.js",
-      "reason": "The composition suite — beyond the format doctrine it is the registry-cited guard for locator, extension-capture, and sufficiency clauses over the composed schemas.",
+      "reason": "The composition suite — its subject is the format area's doctrine, whose whole doc set it owes as a unit; beyond it, it is the registry-cited guard for the locator (LR-24), extension-capture (ECP-10), and sufficiency (SL-4) clauses over the composed schemas, so each of those docs is named here beside the format set.",
       "governed-by": [
-        "docs/architecture/system/shared-core.md",
-        "docs/technical/session-format.md",
-        "docs/user/troubleshooting.md",
+        "area:format",
         "docs/technical/locator-resolution.md",
         "docs/architecture/application/extension/capture-principles.md",
         "docs/verification/sufficiency-lint.md"
@@ -457,31 +407,18 @@
     {
       "path": "packages/extension/sidepanel/panel.js",
       "reason": "The extension panel — its committed format pointer would drag the schema-contract set onto a module that emits no locators; this declaration states its true governors: the sidepanel area's docs plus the format doc its commit logic implements.",
-      "governed-by": [
-        "docs/architecture/application/extension/capture-principles.md",
-        "docs/architecture/application/extension/runtime.md",
-        "docs/architecture/system/persistence.md",
-        "docs/architecture/system/shared-core.md",
-        "docs/api/dispatch.md",
-        "docs/api/sync-protocol.md",
-        "docs/user/extension.md",
-        "docs/user/troubleshooting.md",
-        "docs/technical/session-format.md"
-      ]
+      "governed-by": ["area:extension/sidepanel", "docs/technical/session-format.md"]
     },
     {
       "path": ".github/workflows/test.yml",
-      "reason": "The CI hub workflow — beyond the CI guides it implements the shared-core freshness gate, the Rust test self-classification, the coverage staging topology, the release process's platform-scoped call and secret contracts, the corpus doctrine's producer/differ job topology and pinned-image rule, the job and posture claims the sufficiency-lint doc's entry-points table states, and the job ids that BOTH verification documents' job cites are pinned against by the verification-inventory admission test.",
+      "reason": "The CI hub workflow — it owes the ci/release area's whole doc set as a unit; beyond that set it implements the shared-core freshness gate, the Rust test self-classification, the coverage staging topology, the release process's platform-scoped call and secret contracts, the corpus doctrine's producer/differ job topology and pinned-image rule, the job and posture claims the sufficiency-lint doc's entry-points table states, and the job ids that BOTH verification documents' job cites are pinned against by the verification-inventory admission test.",
       "governed-by": [
-        "docs/guides/ci.md",
-        "docs/guides/local-ci.md",
+        "area:ci/release",
         "docs/architecture/system/shared-core.md",
         "docs/test/strategy/test-pyramid.md",
         "docs/test/strategy/coverage.md",
-        ".github/PUBLISHING.md",
         "docs/verification/scripted-truth-corpus.md",
-        "docs/verification/sufficiency-lint.md",
-        ".github/CONTRIBUTING.md"
+        "docs/verification/sufficiency-lint.md"
       ]
     },
     {
@@ -496,23 +433,18 @@
     },
     {
       "path": "scripts/check-command-surface.js",
-      "reason": "The desktop command-surface admission test — the application-shell doc's command-table clause is verified by it, per its registry row, and its mock-surface leg implements the integration-suite doc's serviced-command contract.",
+      "reason": "The desktop command-surface admission test — it owes the ci/release area's whole doc set as a unit; beyond that set, the application-shell doc's command-table clause is verified by it, per its registry row, and its mock-surface leg implements the integration-suite doc's serviced-command contract.",
       "governed-by": [
-        "docs/guides/ci.md",
-        "docs/guides/local-ci.md",
-        ".github/PUBLISHING.md",
+        "area:ci/release",
         "docs/architecture/application/desktop/windows/application-shell.md",
-        "docs/test/integration/desktop.md",
-        ".github/CONTRIBUTING.md"
+        "docs/test/integration/desktop.md"
       ]
     },
     {
       "path": "scripts/check-test-inventory.js",
-      "reason": "The test-inventory lint and the shared doc-scan primitives (fence model, clause-section slice, table parse, list/token readers) the surface checks verify their clauses through — an edit here changes what the gate holds the registered suite inventories and coverage lists to (the suite docs and the coverage doc), and what the surface checks' clauses are checked against (the clause docs; the desktop suite doc is doubly coupled — its mock serviced-command leg runs on this file's list reader, a coupling DSH-1's registry row records as held by the check itself).",
+      "reason": "The test-inventory lint and the shared doc-scan primitives (fence model, clause-section slice, table parse, list/token readers) the surface checks verify their clauses through — it owes the ci/release area's whole doc set as a unit; beyond that set, an edit here changes what the gate holds the registered suite inventories and coverage lists to (the suite docs and the coverage doc), and what the surface checks' clauses are checked against (the clause docs; the desktop suite doc is doubly coupled — its mock serviced-command leg runs on this file's list reader, a coupling DSH-1's registry row records as held by the check itself).",
       "governed-by": [
-        "docs/guides/ci.md",
-        "docs/guides/local-ci.md",
-        ".github/PUBLISHING.md",
+        "area:ci/release",
         "docs/test/strategy/coverage.md",
         "docs/test/e2e.md",
         "docs/test/desktop-rust.md",
@@ -520,66 +452,41 @@
         "docs/architecture/application/desktop/windows/application-shell.md",
         "docs/architecture/application/extension/permissions.md",
         "docs/architecture/application/extension/runtime.md",
-        "docs/technical/session-format.md",
-        ".github/CONTRIBUTING.md"
+        "docs/technical/session-format.md"
       ]
     },
     {
       "path": "scripts/check-verification-inventory.js",
-      "reason": "The verification-inventory admission test — it holds the corpus doctrine's relaxation, normalization, and session-catalogue clauses and the sufficiency-lint doc's predicate tables to the constants and manifest they describe, per those clauses' registry rows, and holds both verification docs' job cites against .github/workflows/test.yml's job ids, so both verification docs govern it beside the CI guides.",
+      "reason": "The verification-inventory admission test — it owes the ci/release area's whole doc set as a unit; beyond that set, it holds the corpus doctrine's relaxation, normalization, and session-catalogue clauses and the sufficiency-lint doc's predicate tables to the constants and manifest they describe, per those clauses' registry rows, and holds both verification docs' job cites against .github/workflows/test.yml's job ids, so both verification docs govern it beside that set.",
       "governed-by": [
-        "docs/guides/ci.md",
-        "docs/guides/local-ci.md",
-        ".github/PUBLISHING.md",
+        "area:ci/release",
         "docs/verification/scripted-truth-corpus.md",
-        "docs/verification/sufficiency-lint.md",
-        ".github/CONTRIBUTING.md"
+        "docs/verification/sufficiency-lint.md"
       ]
     },
     {
       "path": "scripts/check-extension-surface.js",
-      "reason": "The extension-surface admission test — the permissions doc's manifest clause and the runtime doc's dispatcher clause are verified by it, per their registry rows.",
+      "reason": "The extension-surface admission test — it owes the ci/release area's whole doc set as a unit; beyond that set, the permissions doc's manifest clause and the runtime doc's dispatcher clause are verified by it, per their registry rows.",
       "governed-by": [
-        "docs/guides/ci.md",
-        "docs/guides/local-ci.md",
-        ".github/PUBLISHING.md",
+        "area:ci/release",
         "docs/architecture/application/extension/permissions.md",
-        "docs/architecture/application/extension/runtime.md",
-        ".github/CONTRIBUTING.md"
+        "docs/architecture/application/extension/runtime.md"
       ]
     },
     {
       "path": "scripts/check-schema-echo.js",
-      "reason": "The schema-echo admission test — the session-format doc's authority-ordering clause and its unknown-key posture clause (SF-1, SF-14) are verified by it, per their registry rows, so the format doc governs it beside the CI guides; the surfaces it reads are its subject, not its doctrine.",
-      "governed-by": [
-        "docs/guides/ci.md",
-        "docs/guides/local-ci.md",
-        ".github/PUBLISHING.md",
-        "docs/technical/session-format.md",
-        ".github/CONTRIBUTING.md"
-      ]
+      "reason": "The schema-echo admission test — it owes the ci/release area's whole doc set as a unit; beyond that set, the session-format doc's authority-ordering clause and its unknown-key posture clause (SF-1, SF-14) are verified by it, per their registry rows, so the format doc governs it beside that set; the surfaces it reads are its subject, not its doctrine.",
+      "governed-by": ["area:ci/release", "docs/technical/session-format.md"]
     },
     {
       "path": "scripts/check-clause-governance.js",
-      "reason": "The clause-citation governance lint — and the home of the shared citation shape the schema-echo check reads the SF-1 register/row closure through, so an edit here changes what that clause is checked against and the format doc governs it beside the CI guides.",
-      "governed-by": [
-        "docs/guides/ci.md",
-        "docs/guides/local-ci.md",
-        ".github/PUBLISHING.md",
-        "docs/technical/session-format.md",
-        ".github/CONTRIBUTING.md"
-      ]
+      "reason": "The clause-citation governance lint — it owes the ci/release area's whole doc set as a unit, and it is the home of the shared citation shape the schema-echo check reads the SF-1 register/row closure through, so an edit here changes what that clause is checked against and the format doc governs it beside that set.",
+      "governed-by": ["area:ci/release", "docs/technical/session-format.md"]
     },
     {
       "path": "scripts/check-no-release-outputs.js",
-      "reason": "The release-output guard — the feature-branch dist gate that the format doc's version-bump clause is verified by, per its registry row and the release process doc.",
-      "governed-by": [
-        "docs/guides/ci.md",
-        "docs/guides/local-ci.md",
-        ".github/PUBLISHING.md",
-        "docs/technical/session-format.md",
-        ".github/CONTRIBUTING.md"
-      ]
+      "reason": "The release-output guard — it owes the ci/release area's whole doc set as a unit; beyond that set, the feature-branch dist gate that the format doc's version-bump clause is verified by, per its registry row and the release process doc.",
+      "governed-by": ["area:ci/release", "docs/technical/session-format.md"]
     },
     {
       "path": "schemas/dist/*.schema.json",
@@ -598,216 +505,136 @@
     },
     {
       "path": "packages/extension/background/service-worker.js",
-      "reason": "the extension service worker records navigation and context-lifecycle actions into the .docent.json action stream, so it owes the session-format doc on top of its capture-area governance; declared single-source (its full governing set named directly) so the pointer to the format doc does not resolve at area granularity and drag the format-contract area’s other docs onto it — the amplification the sync re-cut terminated on the shared chokepoints. The per-platform schemas remain authoritative for field semantics.",
-      "governed-by": [
-        "docs/api/sync-protocol.md",
-        "docs/architecture/application/extension/capture-principles.md",
-        "docs/architecture/application/extension/permissions.md",
-        "docs/architecture/application/extension/runtime.md",
-        "docs/architecture/system/capture-principles.md",
-        "docs/architecture/system/persistence.md",
-        "docs/architecture/system/shared-core.md",
-        "docs/technical/locator-resolution.md",
-        "docs/technical/session-format.md",
-        "docs/user/extension.md",
-        "docs/user/troubleshooting.md"
-      ]
+      "reason": "the extension service worker records navigation and context-lifecycle actions into the .docent.json action stream, so it owes the session-format doc on top of its capture-area governance; declared single-source (its governing set stated here as its covering areas' whole doc sets plus that one doc) so the pointer to the format doc does not resolve at area granularity and drag the format-contract area's other docs onto it — the amplification the sync re-cut terminated on the shared chokepoints. The per-platform schemas remain authoritative for field semantics.",
+      "governed-by": ["area:extension/capture", "docs/technical/session-format.md"]
     },
     {
       "path": "packages/extension/content/recorder-logic.js",
-      "reason": "the extension recorder logic derives the element descriptions and locator candidates that become .docent.json fields, so it owes the session-format doc on top of its capture-area governance; declared single-source (its full governing set named directly) so the pointer to the format doc does not resolve at area granularity and drag the format-contract area’s other docs onto it — the amplification the sync re-cut terminated on the shared chokepoints. The per-platform schemas remain authoritative for field semantics.",
-      "governed-by": [
-        "docs/api/sync-protocol.md",
-        "docs/architecture/application/extension/capture-principles.md",
-        "docs/architecture/application/extension/permissions.md",
-        "docs/architecture/application/extension/runtime.md",
-        "docs/architecture/system/capture-principles.md",
-        "docs/architecture/system/persistence.md",
-        "docs/architecture/system/shared-core.md",
-        "docs/technical/locator-resolution.md",
-        "docs/technical/session-format.md",
-        "docs/user/extension.md",
-        "docs/user/troubleshooting.md"
-      ]
+      "reason": "the extension recorder logic derives the element descriptions and locator candidates that become .docent.json fields, so it owes the session-format doc on top of its capture-area governance; declared single-source (its governing set stated here as its covering areas' whole doc sets plus that one doc) so the pointer to the format doc does not resolve at area granularity and drag the format-contract area's other docs onto it — the amplification the sync re-cut terminated on the shared chokepoints. The per-platform schemas remain authoritative for field semantics.",
+      "governed-by": ["area:extension/capture", "docs/technical/session-format.md"]
     },
     {
       "path": "packages/extension/content/recorder.js",
-      "reason": "the extension content recorder captures user actions into the .docent.json action stream, so it owes the session-format doc on top of its capture-area governance; declared single-source (its full governing set named directly) so the pointer to the format doc does not resolve at area granularity and drag the format-contract area’s other docs onto it — the amplification the sync re-cut terminated on the shared chokepoints. The per-platform schemas remain authoritative for field semantics.",
-      "governed-by": [
-        "docs/api/sync-protocol.md",
-        "docs/architecture/application/extension/capture-principles.md",
-        "docs/architecture/application/extension/permissions.md",
-        "docs/architecture/application/extension/runtime.md",
-        "docs/architecture/system/capture-principles.md",
-        "docs/architecture/system/persistence.md",
-        "docs/architecture/system/shared-core.md",
-        "docs/technical/locator-resolution.md",
-        "docs/technical/session-format.md",
-        "docs/user/extension.md",
-        "docs/user/troubleshooting.md"
-      ]
+      "reason": "the extension content recorder captures user actions into the .docent.json action stream, so it owes the session-format doc on top of its capture-area governance; declared single-source (its governing set stated here as its covering areas' whole doc sets plus that one doc) so the pointer to the format doc does not resolve at area granularity and drag the format-contract area's other docs onto it — the amplification the sync re-cut terminated on the shared chokepoints. The per-platform schemas remain authoritative for field semantics.",
+      "governed-by": ["area:extension/capture", "docs/technical/session-format.md"]
     },
     {
       "path": "packages/extension/lib/capture-timing.js",
-      "reason": "the extension capture-timing gates decide whether context-lifecycle actions are emitted, bearing on the format’s context-introduction rule, so it owes the session-format doc on top of its capture-area governance; declared single-source (its full governing set named directly) so the pointer to the format doc does not resolve at area granularity and drag the format-contract area’s other docs onto it — the amplification the sync re-cut terminated on the shared chokepoints. The per-platform schemas remain authoritative for field semantics.",
-      "governed-by": [
-        "docs/api/sync-protocol.md",
-        "docs/architecture/application/extension/capture-principles.md",
-        "docs/architecture/application/extension/permissions.md",
-        "docs/architecture/application/extension/runtime.md",
-        "docs/architecture/system/capture-principles.md",
-        "docs/architecture/system/persistence.md",
-        "docs/architecture/system/shared-core.md",
-        "docs/technical/locator-resolution.md",
-        "docs/technical/session-format.md",
-        "docs/user/extension.md",
-        "docs/user/troubleshooting.md"
-      ]
+      "reason": "the extension capture-timing gates decide whether context-lifecycle actions are emitted, bearing on the format's context-introduction rule, so it owes the session-format doc on top of its capture-area governance; declared single-source (its governing set stated here as its covering areas' whole doc sets plus that one doc) so the pointer to the format doc does not resolve at area granularity and drag the format-contract area's other docs onto it — the amplification the sync re-cut terminated on the shared chokepoints. The per-platform schemas remain authoritative for field semantics.",
+      "governed-by": ["area:extension/capture", "docs/technical/session-format.md"]
     },
     {
       "path": "packages/extension/lib/navigation-logic.js",
-      "reason": "the extension navigation logic decides when a navigate or context_open action enters the stream, bearing on the format’s context-introduction rule, so it owes the session-format doc on top of its capture-area governance; declared single-source (its full governing set named directly) so the pointer to the format doc does not resolve at area granularity and drag the format-contract area’s other docs onto it — the amplification the sync re-cut terminated on the shared chokepoints. The per-platform schemas remain authoritative for field semantics.",
-      "governed-by": [
-        "docs/api/sync-protocol.md",
-        "docs/architecture/application/extension/capture-principles.md",
-        "docs/architecture/application/extension/permissions.md",
-        "docs/architecture/application/extension/runtime.md",
-        "docs/architecture/system/capture-principles.md",
-        "docs/architecture/system/persistence.md",
-        "docs/architecture/system/shared-core.md",
-        "docs/technical/locator-resolution.md",
-        "docs/technical/session-format.md",
-        "docs/user/extension.md",
-        "docs/user/troubleshooting.md"
-      ]
+      "reason": "the extension navigation logic decides when a navigate or context_open action enters the stream, bearing on the format's context-introduction rule, so it owes the session-format doc on top of its capture-area governance; declared single-source (its governing set stated here as its covering areas' whole doc sets plus that one doc) so the pointer to the format doc does not resolve at area granularity and drag the format-contract area's other docs onto it — the amplification the sync re-cut terminated on the shared chokepoints. The per-platform schemas remain authoritative for field semantics.",
+      "governed-by": ["area:extension/capture", "docs/technical/session-format.md"]
     },
     {
       "path": "packages/desktop/src/adapter-tauri.js",
-      "reason": "the desktop adapter collects and redacts captured actions into .docent.json data, so it owes the session-format doc on top of its capture-area governance; declared single-source (its full governing set named directly) so the pointer to the format doc does not resolve at area granularity and drag the format-contract area’s other docs onto it — the amplification the sync re-cut terminated on the shared chokepoints. The per-platform schemas remain authoritative for field semantics.",
+      "reason": "the desktop adapter collects and redacts captured actions into .docent.json data, so it owes the session-format doc on top of its capture-area governance; declared single-source (its governing set stated here as its covering areas' whole doc sets plus that one doc) so the pointer to the format doc does not resolve at area granularity and drag the format-contract area's other docs onto it — the amplification the sync re-cut terminated on the shared chokepoints. The per-platform schemas remain authoritative for field semantics.",
       "governed-by": [
-        "docs/api/dispatch.md",
-        "docs/api/sync-protocol.md",
-        "docs/architecture/application/desktop/capture-seam.md",
-        "docs/architecture/application/desktop/windows/application-shell.md",
-        "docs/architecture/application/desktop/windows/capture-pipeline.md",
-        "docs/architecture/application/desktop/windows/capture-principles.md",
-        "docs/architecture/system/capture-principles.md",
-        "docs/architecture/system/persistence.md",
-        "docs/architecture/system/shared-core.md",
-        "docs/technical/locator-resolution.md",
-        "docs/technical/session-format.md",
-        "docs/test/desktop-rust.md",
-        "docs/test/integration/desktop.md",
-        "docs/user/desktop-windows.md",
-        "docs/user/troubleshooting.md"
+        "area:desktop-windows/capture",
+        "area:desktop-windows/shell",
+        "docs/technical/session-format.md"
       ]
     },
     {
       "path": "packages/desktop/src/panel.js",
-      "reason": "the desktop panel assembles, exports, and dispatches .docent.json sessions, so it owes the session-format doc on top of its capture-area governance; declared single-source (its full governing set named directly) so the pointer to the format doc does not resolve at area granularity and drag the format-contract area’s other docs onto it — the amplification the sync re-cut terminated on the shared chokepoints. The per-platform schemas remain authoritative for field semantics.",
+      "reason": "the desktop panel assembles, exports, and dispatches .docent.json sessions, so it owes the session-format doc on top of its capture-area governance; declared single-source (its governing set stated here as its covering areas' whole doc sets plus that one doc) so the pointer to the format doc does not resolve at area granularity and drag the format-contract area's other docs onto it — the amplification the sync re-cut terminated on the shared chokepoints. The per-platform schemas remain authoritative for field semantics.",
       "governed-by": [
-        "docs/api/dispatch.md",
-        "docs/api/sync-protocol.md",
-        "docs/architecture/application/desktop/capture-seam.md",
-        "docs/architecture/application/desktop/windows/application-shell.md",
-        "docs/architecture/application/desktop/windows/capture-pipeline.md",
-        "docs/architecture/application/desktop/windows/capture-principles.md",
-        "docs/architecture/system/capture-principles.md",
-        "docs/architecture/system/persistence.md",
-        "docs/architecture/system/shared-core.md",
-        "docs/technical/locator-resolution.md",
-        "docs/technical/session-format.md",
-        "docs/test/desktop-rust.md",
-        "docs/test/integration/desktop.md",
-        "docs/user/desktop-windows.md",
-        "docs/user/troubleshooting.md"
+        "area:desktop-windows/capture",
+        "area:desktop-windows/shell",
+        "docs/technical/session-format.md"
       ]
     },
     {
       "path": "packages/desktop/src-tauri/src/capture/action_mapping.rs",
-      "reason": "the desktop capture layer maps native events to .docent.json action fields, so it owes the session-format doc on top of its capture-area governance; declared single-source (its full governing set named directly) so the pointer to the format doc does not resolve at area granularity and drag the format-contract area’s other docs onto it — the amplification the sync re-cut terminated on the shared chokepoints. The per-platform schemas remain authoritative for field semantics.",
-      "governed-by": [
-        "docs/architecture/application/desktop/capture-seam.md",
-        "docs/architecture/application/desktop/windows/capture-pipeline.md",
-        "docs/architecture/application/desktop/windows/capture-principles.md",
-        "docs/architecture/system/capture-principles.md",
-        "docs/technical/locator-resolution.md",
-        "docs/technical/session-format.md",
-        "docs/test/desktop-rust.md",
-        "docs/user/desktop-windows.md",
-        "docs/user/troubleshooting.md"
-      ]
+      "reason": "the desktop capture layer maps native events to .docent.json action fields, so it owes the session-format doc on top of its capture-area governance; declared single-source (its governing set stated here as its covering areas' whole doc sets plus that one doc) so the pointer to the format doc does not resolve at area granularity and drag the format-contract area's other docs onto it — the amplification the sync re-cut terminated on the shared chokepoints. The per-platform schemas remain authoritative for field semantics.",
+      "governed-by": ["area:desktop-windows/capture", "docs/technical/session-format.md"]
     },
     {
       "path": "packages/desktop/src-tauri/src/capture/element_mapping.rs",
-      "reason": "the desktop capture layer maps element descriptions and locator candidates to .docent.json fields, so it owes the session-format doc on top of its capture-area governance; declared single-source (its full governing set named directly) so the pointer to the format doc does not resolve at area granularity and drag the format-contract area’s other docs onto it — the amplification the sync re-cut terminated on the shared chokepoints. The per-platform schemas remain authoritative for field semantics.",
-      "governed-by": [
-        "docs/architecture/application/desktop/capture-seam.md",
-        "docs/architecture/application/desktop/windows/capture-pipeline.md",
-        "docs/architecture/application/desktop/windows/capture-principles.md",
-        "docs/architecture/system/capture-principles.md",
-        "docs/technical/locator-resolution.md",
-        "docs/technical/session-format.md",
-        "docs/test/desktop-rust.md",
-        "docs/user/desktop-windows.md",
-        "docs/user/troubleshooting.md"
-      ]
+      "reason": "the desktop capture layer maps element descriptions and locator candidates to .docent.json fields, so it owes the session-format doc on top of its capture-area governance; declared single-source (its governing set stated here as its covering areas' whole doc sets plus that one doc) so the pointer to the format doc does not resolve at area granularity and drag the format-contract area's other docs onto it — the amplification the sync re-cut terminated on the shared chokepoints. The per-platform schemas remain authoritative for field semantics.",
+      "governed-by": ["area:desktop-windows/capture", "docs/technical/session-format.md"]
     },
     {
       "path": "packages/desktop/src-tauri/src/capture/windows.rs",
-      "reason": "the desktop Windows provider decides when context lifecycle actions are emitted, so it owes the session-format doc on top of its capture-area governance; declared single-source (its full governing set named directly) so the pointer to the format doc does not resolve at area granularity and drag the format-contract area’s other docs onto it — the amplification the sync re-cut terminated on the shared chokepoints. The per-platform schemas remain authoritative for field semantics.",
-      "governed-by": [
-        "docs/architecture/application/desktop/capture-seam.md",
-        "docs/architecture/application/desktop/windows/capture-pipeline.md",
-        "docs/architecture/application/desktop/windows/capture-principles.md",
-        "docs/architecture/system/capture-principles.md",
-        "docs/technical/locator-resolution.md",
-        "docs/technical/session-format.md",
-        "docs/test/desktop-rust.md",
-        "docs/user/desktop-windows.md",
-        "docs/user/troubleshooting.md"
-      ]
+      "reason": "the desktop Windows provider decides when context lifecycle actions are emitted, so it owes the session-format doc on top of its capture-area governance; declared single-source (its governing set stated here as its covering areas' whole doc sets plus that one doc) so the pointer to the format doc does not resolve at area granularity and drag the format-contract area's other docs onto it — the amplification the sync re-cut terminated on the shared chokepoints. The per-platform schemas remain authoritative for field semantics.",
+      "governed-by": ["area:desktop-windows/capture", "docs/technical/session-format.md"]
     },
     {
       "path": "packages/desktop/src-tauri/src/capture/worker_pool.rs",
-      "reason": "the desktop worker pool assigns each captured action’s ordering and fields as it enters the stream, so it owes the session-format doc on top of its capture-area governance; declared single-source (its full governing set named directly) so the pointer to the format doc does not resolve at area granularity and drag the format-contract area’s other docs onto it — the amplification the sync re-cut terminated on the shared chokepoints. The per-platform schemas remain authoritative for field semantics.",
-      "governed-by": [
-        "docs/architecture/application/desktop/capture-seam.md",
-        "docs/architecture/application/desktop/windows/capture-pipeline.md",
-        "docs/architecture/application/desktop/windows/capture-principles.md",
-        "docs/architecture/system/capture-principles.md",
-        "docs/technical/locator-resolution.md",
-        "docs/technical/session-format.md",
-        "docs/test/desktop-rust.md",
-        "docs/user/desktop-windows.md",
-        "docs/user/troubleshooting.md"
-      ]
+      "reason": "the desktop worker pool assigns each captured action's ordering and fields as it enters the stream, so it owes the session-format doc on top of its capture-area governance; declared single-source (its governing set stated here as its covering areas' whole doc sets plus that one doc) so the pointer to the format doc does not resolve at area granularity and drag the format-contract area's other docs onto it — the amplification the sync re-cut terminated on the shared chokepoints. The per-platform schemas remain authoritative for field semantics.",
+      "governed-by": ["area:desktop-windows/capture", "docs/technical/session-format.md"]
     },
     {
       "path": "packages/desktop/src-tauri/src/commands.rs",
-      "reason": "the desktop Tauri commands relay captured events into .docent.json action data, so it owes the session-format doc on top of its capture-area governance; declared single-source (its full governing set named directly) so the pointer to the format doc does not resolve at area granularity and drag the format-contract area’s other docs onto it — the amplification the sync re-cut terminated on the shared chokepoints. The per-platform schemas remain authoritative for field semantics.",
+      "reason": "the desktop Tauri commands relay captured events into .docent.json action data, so it owes the session-format doc on top of its capture-area governance; declared single-source (its governing set stated here as its covering areas' whole doc sets plus that one doc) so the pointer to the format doc does not resolve at area granularity and drag the format-contract area's other docs onto it — the amplification the sync re-cut terminated on the shared chokepoints. The per-platform schemas remain authoritative for field semantics.",
       "governed-by": [
-        "docs/api/dispatch.md",
-        "docs/api/sync-protocol.md",
-        "docs/architecture/application/desktop/capture-seam.md",
-        "docs/architecture/application/desktop/windows/application-shell.md",
-        "docs/architecture/application/desktop/windows/capture-pipeline.md",
-        "docs/architecture/application/desktop/windows/capture-principles.md",
-        "docs/architecture/system/capture-principles.md",
-        "docs/architecture/system/persistence.md",
-        "docs/architecture/system/shared-core.md",
-        "docs/technical/locator-resolution.md",
-        "docs/technical/session-format.md",
-        "docs/test/desktop-rust.md",
-        "docs/test/integration/desktop.md",
-        "docs/user/desktop-windows.md",
-        "docs/user/troubleshooting.md"
+        "area:desktop-windows/capture",
+        "area:desktop-windows/shell",
+        "docs/technical/session-format.md"
       ]
     },
     {
       "path": "packages/*/*/index.html",
       "reason": "Committed panel build outputs — each is assembled from a platform shell plus the single shared views fragment by the shared-code sync and is never hand-edited (edit the shell or the shared views source and re-run the sync). Their only invariant is that they match the regenerated assembly, which the shared-core doc owns (the one-fragment-two-shells assembly and the outputs-freshness rule); the platform behaviour docs their code areas would otherwise supply govern the platforms' code, not this generated HTML. Coverage is unchanged — each still resolves to its package area for the code-ownership totality check.",
       "governed-by": ["docs/architecture/system/shared-core.md"]
+    },
+    {
+      "path": "packages/shared/tests/unit/{connection-test,dispatch-cooldown,dispatch-core,dispatch-payload,http-transport,placement-contract,resolve-conflict-fixtures,revision-r1-scenarios,sync-baseline,sync-capture-toggle,sync-interruption,sync-large-payload,sync-scheduler,sync-settings-state-machine,sync-store}.test.js",
+      "reason": "Sync-subject example and contract suites — they drive the sync client and its transport, scheduler, store, baseline, and resolution fixtures against a stubbed server; their contract is the sync area's doctrine as a unit — the protocol and dispatch specifications and the user-facing sync guides.",
+      "governed-by": ["area:sync"]
+    },
+    {
+      "path": "packages/shared/tests/unit/{abort-on-unretainable.property,accept-review.property,auth-failure-halt.property,baseline-advancement.property,brand-new-auto-add.property,capture-active-halt.property,changed-incoming-review.property,changed-local-outgoing-push.property,classify-decision-table.property,classify-deterministic.property,decline-review.property,delete-vs-change-conflict.property,deletion-propagation.property,digest-unrecognized-fields.property,divergence-conflict.property,failed-add-isolation.property,fast-forward-superset.property,gating-parity.property,idempotent-detection.property,interaction-free-automatic.property,internal-failure-blocking.property,item-type-routing-guard.property,lock-unlock-round-trip.property,locked-recording-exclusion.property,locked-recording-push-preservation.property,no-baseline-no-one-sided-change.property,no-discard-no-overwrite.property,no-permanent-loss.property,pending-action-protection.property,per-unit-push-assembly.property,policy-settings-scope.property,pull-precedes-push.property,reported-counts.property,resolution-append-only-tombstone.property,resolution-clear-vs-retain.property,resolution-propagates-next-cycle.property,resolution-recoverability.property,resolve-explicit-logical-id.property,safeguard-composition.property,sync-scheduler.property,sync-store-roundtrip.property}.test.js",
+      "reason": "Sync-subject property suites — they drive detection, classification, resolution, scheduling, and the push/pull cycle over randomized histories and pin the protocol invariants the registry cites them for; their contract is the sync area's doctrine as a unit.",
+      "governed-by": ["area:sync"]
+    },
+    {
+      "path": "packages/shared/tests/unit/sync-client.test.js",
+      "reason": "The sync-client suite — its subject is the sync area's doctrine as a unit, and the format doc is named beside it because the registry's known-field pull-projection row (SF-13) cites this suite's regression cases as its guard, so a change here bears on that clause.",
+      "governed-by": ["area:sync", "docs/technical/session-format.md"]
+    },
+    {
+      "path": "packages/shared/tests/unit/attention-indicator-derivation.property.test.js",
+      "reason": "The attention-indicator derivation suite — it pins which Units the panels badge for attention, how each is labelled Review or Conflict, and which row it belongs on; that badge contract is the panel-ui area's doctrine, which it owes as a unit.",
+      "governed-by": ["area:panel-ui"]
+    },
+    {
+      "path": "packages/shared/tests/unit/contract.test.js",
+      "reason": "The payload contract suite — it validates dispatch payloads and export data against the composed platform schemas, so its subject is the format area's doctrine as a unit, and the dispatch doc its citing clause (DI-3) names governs the payload wrapper it builds.",
+      "governed-by": ["area:format", "docs/api/dispatch.md"]
+    },
+    {
+      "path": "packages/shared/tests/unit/security.test.js",
+      "reason": "The shared security suite — each doc here is one of its subjects: escaping and the assembled panel pages' policy meta tags (the shared-core doc owns the fragment and the assembly), payload and export secrecy (the dispatch doc, whose DI-6 and DI-10 rows cite this suite), the export structure the format doc defines, the storage-key naming the persistence doc states, and the extension manifest's permissions and web-accessible resources the permissions doc enumerates.",
+      "governed-by": [
+        "docs/architecture/system/shared-core.md",
+        "docs/api/dispatch.md",
+        "docs/technical/session-format.md",
+        "docs/architecture/system/persistence.md",
+        "docs/architecture/application/extension/permissions.md"
+      ]
+    },
+    {
+      "path": "packages/shared/tests/unit/performance.test.js",
+      "reason": "The shared data layer's time budgets — the suite pins how long active-view resolution, payload assembly, rendering, and reordering may take on large sessions. The thresholds are the suite's own and are stated in no document, so the governing set is empty, on the same footing as the schema-artifact size budget.",
+      "governed-by": []
+    },
+    {
+      "path": "packages/shared/tests/fixtures/**/*.docent.json",
+      "reason": "The frozen per-platform recordings — the backward-compatibility harness validates them by shape and the sufficiency baseline is locked over them, so they owe the fixture area's whole doc set as a unit.",
+      "governed-by": ["area:test-infra/fixtures"]
+    },
+    {
+      "path": "packages/shared/tests/fixtures/sufficiency-baseline.json",
+      "reason": "The sufficiency baseline — the recorded result of the static predicates over the frozen fixtures and the corpus truth files. It owes the fixture area's whole doc set as a unit: the sufficiency-lint doc owns its both-direction locking and its regeneration rule, and the backward-compat doc names it among this directory's residents, states how its plain .json suffix keeps it out of both discovery sweeps, and carries the command that regenerates it.",
+      "governed-by": ["area:test-infra/fixtures"]
+    },
+    {
+      "path": "packages/shared/tests/fixtures/stub-schema.js",
+      "reason": "The minimal schema stub — it carries the pinned docent_format consts the payload and export builders read, so the format doc that defines that stamp governs it; and the backward-compat doc enumerates it among this directory's residents as unrelated to the corpus, stating what it is for and how its .js suffix keeps it out of both discovery sweeps. Those consts feed stamp derivation in the shared unit suites only — the sufficiency lint composes real platform schemas per its own input contract and never reads this file — so the lint's doc is not among its governors.",
+      "governed-by": ["docs/technical/session-format.md", "docs/test/backward-compat.md"]
     }
   ]
 }

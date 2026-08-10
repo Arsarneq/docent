@@ -31,6 +31,7 @@ function makeMap(overrides = {}) {
     },
     unassigned: [],
     'declared-governance': [],
+    'governance-partitions': [],
     ...overrides,
   };
 }
@@ -138,6 +139,40 @@ describe('auditClauseGovernance', () => {
     assert.equal(r.citations, 0);
     assert.deepEqual(r.newMisses, []);
     assert.deepEqual(r.staleAllowlist, []);
+  });
+});
+
+describe('auditClauseGovernance — governance declared by the map', () => {
+  // A cited file whose governing set comes from a `declared-governance` entry
+  // rather than its covering area: the credit must follow the DECLARED set, in
+  // both the literal and the area-reference form the map can write it in.
+  const CITATION = [
+    { doc: 'docs/tooling.md', clause: 'TL-1', 'check-ref': 'see packages/alpha/x.js' },
+  ];
+  const MISS = ['TL-1 (docs/tooling.md) -> packages/alpha/x.js'];
+  const declMap = (governedBy) =>
+    makeMap({
+      'declared-governance': [
+        { path: 'packages/alpha/x.js', reason: 'a declared suite', 'governed-by': governedBy },
+      ],
+    });
+
+  it('credits a declaration that names the citing doc as a literal path', () => {
+    // The file's covering area (alpha) supplies docs/alpha.md only; the
+    // declaration is what puts the citing doc in its governing set.
+    assert.deepEqual(audit({ clauses: CITATION, map: declMap(['docs/tooling.md']) }).newMisses, []);
+  });
+
+  it('flags a declaration whose literal paths omit the citing doc', () => {
+    assert.deepEqual(audit({ clauses: CITATION, map: declMap(['docs/alpha.md']) }).newMisses, MISS);
+  });
+
+  it('credits a declaration that reaches the citing doc through an area reference', () => {
+    assert.deepEqual(audit({ clauses: CITATION, map: declMap(['area:tooling']) }).newMisses, []);
+  });
+
+  it('flags an area reference whose expansion omits the citing doc', () => {
+    assert.deepEqual(audit({ clauses: CITATION, map: declMap(['area:alpha']) }).newMisses, MISS);
   });
 });
 
