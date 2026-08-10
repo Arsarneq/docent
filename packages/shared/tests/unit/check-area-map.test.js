@@ -736,17 +736,43 @@ describe('validateShape — governance partitions', () => {
     );
   });
 
+  it('accepts a { pattern, reason } partition entry', () => {
+    const map = makeMap({
+      'governance-partitions': [{ pattern: 'packages/alpha/**', reason: 'alpha suites' }],
+    });
+    assert.deepEqual(validateShape(map), []);
+  });
+
   it('rejects an empty or uncompilable partition pattern', () => {
     assert.equal(
-      validateShape(makeMap({ 'governance-partitions': ['packages/[ab]/**'] })).some((e) =>
-        e.includes('unsupported pattern syntax'),
+      validateShape(
+        makeMap({
+          'governance-partitions': [{ pattern: 'packages/[ab]/**', reason: 'x' }],
+        }),
+      ).some((e) => e.includes('unsupported pattern syntax')),
+      true,
+    );
+    assert.equal(
+      validateShape(makeMap({ 'governance-partitions': [{ pattern: '', reason: 'x' }] })).some(
+        (e) => e.includes('governance-partitions') && e.includes('missing "pattern"'),
+      ),
+      true,
+    );
+  });
+
+  it('rejects a bare-string partition and one with no reason', () => {
+    // The element shape is an object naming the tree and recording why its
+    // files declare one by one — a bare pattern states no reason at all.
+    assert.equal(
+      validateShape(makeMap({ 'governance-partitions': ['packages/alpha/**'] })).some((e) =>
+        e.includes('missing "pattern"'),
       ),
       true,
     );
     assert.equal(
-      validateShape(makeMap({ 'governance-partitions': [''] })).some((e) =>
-        e.includes('governance-partitions'),
-      ),
+      validateShape(
+        makeMap({ 'governance-partitions': [{ pattern: 'packages/alpha/**', reason: '   ' }] }),
+      ).some((e) => e.includes('has no reason')),
       true,
     );
   });
@@ -756,7 +782,7 @@ describe('auditMap — governance partitions', () => {
   /** makeMap with packages/alpha/** partitioned, plus the declarations to test. */
   const partMap = (declared = []) =>
     makeMap({
-      'governance-partitions': ['packages/alpha/**'],
+      'governance-partitions': [{ pattern: 'packages/alpha/**', reason: 'alpha suites' }],
       'declared-governance': declared,
     });
 
@@ -779,7 +805,9 @@ describe('auditMap — governance partitions', () => {
   });
 
   it('flags a partition pattern that matches no tracked file as stale', () => {
-    const map = makeMap({ 'governance-partitions': ['packages/gone/**'] });
+    const map = makeMap({
+      'governance-partitions': [{ pattern: 'packages/gone/**', reason: 'a tree that left' }],
+    });
     assert.deepEqual(audit({ map }).stalePartitions, ['packages/gone/**']);
   });
 
@@ -796,5 +824,131 @@ describe('auditMap — governance partitions', () => {
 
   it('counts partition-covered files toward the entry total, so such an entry is not stale', () => {
     assert.deepEqual(audit({ map: partMap(equalSetDeclaration) }).staleGovernance, []);
+  });
+});
+
+describe('auditMap — one partition entry per tree', () => {
+  /** makeMap with two partition entries, plus a declaration satisfying the tree. */
+  const twoPartitions = (patterns) =>
+    makeMap({
+      'governance-partitions': patterns,
+      'declared-governance': [
+        { path: 'packages/alpha/**', reason: 'alpha suites', 'governed-by': ['docs/tooling.md'] },
+      ],
+    });
+
+  it('flags a tracked file two partition entries both claim, naming the patterns', () => {
+    // One entry per tree: a file claimed twice is read under two partition
+    // statements at once, so the overlap is named rather than silently resolved.
+    const r = audit({
+      map: twoPartitions([
+        { pattern: 'packages/alpha/**', reason: 'alpha suites' },
+        { pattern: 'packages/alpha/*.js', reason: 'the alpha sources' },
+      ]),
+    });
+    assert.deepEqual(flatten(r), [
+      'packages/alpha/index.js: "packages/alpha/**", "packages/alpha/*.js"',
+    ]);
+  });
+
+  it('flags a duplicated pattern as the degenerate case of the same overlap', () => {
+    const r = audit({
+      map: twoPartitions([
+        { pattern: 'packages/alpha/**', reason: 'alpha suites' },
+        { pattern: 'packages/alpha/**', reason: 'the alpha suites again' },
+      ]),
+    });
+    assert.deepEqual(flatten(r), [
+      'packages/alpha/index.js: "packages/alpha/**", "packages/alpha/**"',
+    ]);
+  });
+});
+
+describe('auditMap — a declaration belongs to one side of a partition boundary', () => {
+  /**
+   * makeMap with `packages/alpha/**` partitioned beside an unpartitioned
+   * sibling area, so one entry can be made to reach across the boundary.
+   */
+  const boundaryMap = (declared) => {
+    const map = makeMap({
+      'governance-partitions': [{ pattern: 'packages/alpha/**', reason: 'alpha suites' }],
+      'declared-governance': declared,
+    });
+    map.areas.beta = { code: ['packages/beta/**'], docs: ['docs/beta.md'] };
+    return map;
+  };
+  const FILES = [
+    ...BASE_FILES,
+    'docs/beta.md',
+    'packages/alpha/shared-thing.js',
+    'packages/beta/shared-thing.js',
+  ];
+  /** The partitioned tree's other file, declared so the partition stays satisfied. */
+  const alphaRest = {
+    path: 'packages/alpha/index.js',
+    reason: 'the alpha entry point',
+    'governed-by': ['docs/tooling.md'],
+  };
+
+  it('refuses one entry matching files inside and outside a partitioned tree', () => {
+    // Inside a partition an equal-set declaration is the honest statement and
+    // outside one it states nothing — so a single entry cannot answer for both
+    // sides, and is refused rather than read under whichever rule happens to win.
+    const r = audit({
+      map: boundaryMap([
+        { path: 'packages/*/shared-thing.js', reason: 'x', 'governed-by': ['docs/tooling.md'] },
+        alphaRest,
+      ]),
+      files: FILES,
+    });
+    // The whole result, not just the straddle key: no other red applies to this
+    // fixture, so the refusal arrives alone.
+    assert.deepEqual(flatten(r), ['packages/*/shared-thing.js']);
+  });
+
+  it('refuses a straddler that is equal-set outside the partition, and draws nothing else', () => {
+    // `docs/beta.md` is exactly what the beta area supplies to the outside file,
+    // so the pre-refusal accounting also called this entry redundant — two reds
+    // whose fixes contradict (remove it / split it). The refusal displaces the
+    // redundancy red specifically; every other red still applies to the entry.
+    const r = audit({
+      map: boundaryMap([
+        { path: 'packages/*/shared-thing.js', reason: 'x', 'governed-by': ['docs/beta.md'] },
+        alphaRest,
+      ]),
+      files: FILES,
+    });
+    assert.deepEqual(flatten(r), ['packages/*/shared-thing.js']);
+  });
+
+  it('reads an entry spanning two partitioned trees as no crossing — both sides are covered', () => {
+    // The boundary the refusal guards is partitioned-vs-unpartitioned. An entry
+    // whose every matched file sits inside some partition is read under one rule.
+    const map = boundaryMap([
+      { path: 'packages/*/shared-thing.js', reason: 'x', 'governed-by': ['docs/tooling.md'] },
+      alphaRest,
+    ]);
+    map['governance-partitions'] = [
+      { pattern: 'packages/alpha/**', reason: 'alpha suites' },
+      { pattern: 'packages/beta/**', reason: 'beta suites' },
+    ];
+    assert.deepEqual(flatten(audit({ map, files: FILES })), []);
+  });
+
+  it('leaves a same-tree entry alone — the split at the boundary is green', () => {
+    const r = audit({
+      map: boundaryMap([
+        // Inside the partition, stating exactly what the covering area supplies.
+        { path: 'packages/alpha/**', reason: 'alpha suites', 'governed-by': ['area:alpha'] },
+        // Outside it, a declaration that changes the file's governing set.
+        {
+          path: 'packages/beta/shared-thing.js',
+          reason: 'the beta thing',
+          'governed-by': ['docs/tooling.md'],
+        },
+      ]),
+      files: FILES,
+    });
+    assert.deepEqual(flatten(r), []);
   });
 });
