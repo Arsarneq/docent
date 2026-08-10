@@ -25,21 +25,31 @@
  *       explicitly (a `governed-by` array; `[]` states the set is empty), in place
  *       of the docs their covering area supplies. Each element is a literal doc
  *       path or an `area:<name>` reference, which stands for that area's whole doc
- *       set and expands to it. A declaration whose set already
- *       equals what the area supplies states nothing new (redundant); a file
+ *       set and expands to it. Outside a partitioned tree, a declaration whose set
+ *       already equals what the area supplies states nothing new (redundant); a file
  *       declared twice, or one that also sources governance from a repo-wide doc
  *       or a `// see docs/…` pointer into a live doc set, is a red (conflict /
  *       cross-governed — declare in one place); a governed-by target that is
  *       untracked or homeless (in no doc set and not repo-wide) is a red.
  *   (f) governance partitions — `governance-partitions` lists the trees whose
- *       files each declare their own governance. Every tracked file matching a
- *       partition pattern carries a `declared-governance` entry, so a new file
- *       there states its subject rather than inheriting the union its tree ride
- *       supplies; a partition pattern matching no tracked file is stale (a red,
- *       as for `unassigned`). Inside a partitioned tree an equal-set declaration
- *       is the honest statement — the alternative is a red, not an equivalent
- *       green — so partition-covered files are left out of the redundancy
- *       equality accounting while still counting toward their entry's total.
+ *       files each declare their own governance, one `{ pattern, reason }` entry
+ *       per tree. Every tracked file matching a partition pattern carries a
+ *       `declared-governance` entry, so a new file there states its subject rather
+ *       than inheriting the union its tree ride supplies; a partition pattern
+ *       matching no tracked file is stale (a red, as for `unassigned`), and a
+ *       tracked file two partition entries both claim is a red naming them, since
+ *       one entry per tree is what makes a partition's reason the file's own.
+ *       Inside a partitioned tree an equal-set declaration is the honest statement
+ *       — the alternative is a red, not an equivalent green — so partition-covered
+ *       files are left out of the redundancy equality accounting while still
+ *       counting toward their entry's total. Each side therefore reads the same
+ *       declaration differently, and an entry belongs to one side of a boundary:
+ *       an entry matching both partition-covered files and files outside every
+ *       partition is refused, and splits at the boundary. That refusal displaces
+ *       the redundancy red specifically — such an entry is left out of the
+ *       redundancy accounting, whose own remedy (remove the entry) would
+ *       contradict the split this one asks for; every other red still applies
+ *       to it.
  *
  * What this check deliberately cannot see: a file or doc filed under the WRONG
  * area still passes — the map's content is reviewed, not derived. Pointer
@@ -319,17 +329,27 @@ export function validateShape(map) {
   if (!Array.isArray(map['governance-partitions'])) {
     errors.push('"governance-partitions" must be an array');
   } else {
-    for (const pattern of map['governance-partitions']) {
-      if (typeof pattern !== 'string' || !pattern) {
+    for (const entry of map['governance-partitions']) {
+      if (
+        !entry ||
+        typeof entry !== 'object' ||
+        typeof entry.pattern !== 'string' ||
+        !entry.pattern
+      ) {
         errors.push(
-          `governance-partitions holds an empty or non-string pattern: ${JSON.stringify(pattern)}`,
+          `governance-partitions entry missing "pattern": ${JSON.stringify(entry)} — each partition is an object naming the tree it covers, { "pattern": …, "reason": … }`,
         );
         continue;
       }
+      if (typeof entry.reason !== 'string' || !entry.reason.trim()) {
+        errors.push(
+          `governance-partitions entry "${entry.pattern}" has no reason — every partition records why its tree declares file by file`,
+        );
+      }
       try {
-        expandBraces(pattern).forEach(globToRegExp);
+        expandBraces(entry.pattern).forEach(globToRegExp);
       } catch (e) {
-        errors.push(`governance-partitions pattern "${pattern}": ${e.message}`);
+        errors.push(`governance-partitions entry "${entry.pattern}": ${e.message}`);
       }
     }
   }
@@ -387,9 +407,9 @@ export function compileMap(map) {
       governedBy: e['governed-by'] ?? [],
       governedDocs: expandGovernedBy(e['governed-by'] ?? []),
     })),
-    partitions: (map['governance-partitions'] ?? []).map((pattern) => ({
-      pattern,
-      regexes: expandBraces(pattern).map(globToRegExp),
+    partitions: (map['governance-partitions'] ?? []).map((e) => ({
+      pattern: e.pattern,
+      regexes: expandBraces(e.pattern).map(globToRegExp),
     })),
   };
 }
@@ -476,7 +496,8 @@ export function resolveFile(file, compiled, content = null) {
  *   staleGovernance: string[], redundantGovernance: string[],
  *   conflictingGovernance: string[], crossGovernedDeclaration: string[],
  *   badGovernedBy: string[], undeclaredInPartition: string[],
- *   stalePartitions: string[]
+ *   stalePartitions: string[], overlappingPartitions: string[],
+ *   straddlingGovernance: string[]
  * }}
  */
 export function auditMap({ files, map, readFile }) {
@@ -496,6 +517,8 @@ export function auditMap({ files, map, readFile }) {
     badGovernedBy: [],
     undeclaredInPartition: [],
     stalePartitions: [],
+    overlappingPartitions: [],
+    straddlingGovernance: [],
   };
   const shapeErrors = validateShape(map);
   if (shapeErrors.length) return { ...empty, shapeErrors };
@@ -533,6 +556,8 @@ export function auditMap({ files, map, readFile }) {
     total: 0,
     eligible: 0,
     allEqual: true,
+    inPartition: 0,
+    outsidePartition: 0,
   }));
   for (const file of files) {
     const bare = resolveFile(file, compiled);
@@ -575,8 +600,19 @@ export function auditMap({ files, map, readFile }) {
 
     // (f) governance partitions: inside a partitioned tree every file declares
     // its own governance, so an undeclared one is a red naming what to add.
-    const inPartition = compiled.partitions.some((p) => p.regexes.some((re) => re.test(file)));
+    const matchedPartitions = compiled.partitions.filter((p) =>
+      p.regexes.some((re) => re.test(file)),
+    );
+    const inPartition = matchedPartitions.length > 0;
     if (inPartition && !bare.declaredGovernance) result.undeclaredInPartition.push(file);
+    // One entry per tree: a file two partition entries both claim sits under two
+    // partition statements at once, so the overlap is named rather than silently
+    // resolved (two entries with the same pattern are its degenerate case).
+    if (matchedPartitions.length >= 2) {
+      result.overlappingPartitions.push(
+        `${file}: ${matchedPartitions.map((p) => `"${p.pattern}"`).join(', ')}`,
+      );
+    }
 
     // declared-governance: conflict, single-source, and per-entry redundancy accounting.
     if (bare.declaredGovernance) {
@@ -600,6 +636,8 @@ export function auditMap({ files, map, readFile }) {
       for (const acc of govAcc) {
         if (!acc.e.regexes.some((re) => re.test(file))) continue;
         acc.total++;
+        if (inPartition) acc.inPartition++;
+        else acc.outsidePartition++;
         if (eligible) {
           acc.eligible++;
           const gb = new Set(acc.e.governedDocs);
@@ -618,8 +656,15 @@ export function auditMap({ files, map, readFile }) {
   }
   // A declaration earns its keep by changing the governing set of some eligible matched file.
   for (const acc of govAcc) {
+    // An entry reaching across a partition boundary is read under both sides'
+    // rules at once, so it is refused and split at the boundary. The refusal
+    // displaces the redundancy red specifically: the entry is left out of the
+    // redundancy accounting, whose own remedy — remove the entry — would
+    // contradict the split. Every other red still applies to it.
+    const straddling = acc.inPartition > 0 && acc.outsidePartition > 0;
+    if (straddling) result.straddlingGovernance.push(acc.e.path);
     if (acc.total === 0) result.staleGovernance.push(acc.e.path);
-    else if (acc.eligible >= 1 && acc.e.governedDocs.length > 0 && acc.allEqual) {
+    else if (!straddling && acc.eligible >= 1 && acc.e.governedDocs.length > 0 && acc.allEqual) {
       result.redundantGovernance.push(acc.e.path);
     }
   }
@@ -755,7 +800,10 @@ function run() {
   if (r.conflictingGovernance.length) {
     problems.push(
       `✗ ${r.conflictingGovernance.length} file(s) are declared by multiple "declared-governance" entries — each file's governance is declared once:\n` +
-        r.conflictingGovernance.map((s) => `    ${s}`).join('\n'),
+        r.conflictingGovernance.map((s) => `    ${s}`).join('\n') +
+        `\n\n  Fix: leave one entry answering for each file — narrow the overlapping "path" patterns\n` +
+        `  so they no longer reach the same file, or merge them into a single entry whose\n` +
+        `  "governed-by" states that file's complete governing set.`,
     );
   }
   if (r.crossGovernedDeclaration.length) {
@@ -789,6 +837,27 @@ function run() {
     problems.push(
       `✗ ${r.stalePartitions.length} "governance-partitions" pattern(s) match no tracked file — remove:\n` +
         r.stalePartitions.map((s) => `    ${s}`).join('\n'),
+    );
+  }
+  if (r.overlappingPartitions.length) {
+    problems.push(
+      `✗ ${r.overlappingPartitions.length} tracked file(s) are claimed by more than one "governance-partitions" entry\n` +
+        `  (each line names the file and the patterns that claim it):\n` +
+        r.overlappingPartitions.map((s) => `    ${s}`).join('\n') +
+        `\n\n  Fix: one entry per tree — narrow the patterns so each file's partition is stated once,\n` +
+        `  or merge the entries into the single one whose "reason" describes that tree (two entries\n` +
+        `  naming the same tree are the degenerate case of the same overlap).`,
+    );
+  }
+  if (r.straddlingGovernance.length) {
+    problems.push(
+      `✗ ${r.straddlingGovernance.length} "declared-governance" entr(ies) reach across a "governance-partitions" boundary\n` +
+        `  (each matches files inside a partitioned tree and files outside every partition):\n` +
+        r.straddlingGovernance.map((s) => `    ${s}`).join('\n') +
+        `\n\n  Fix: split each entry at the boundary — one entry for the files inside the partitioned\n` +
+        `  tree, one for the files outside it — so each side is read under the rule that applies to\n` +
+        `  it: inside a partitioned tree a declaration equal to the covering areas' own set is the\n` +
+        `  honest statement and stays green, while outside one the same set states nothing new.`,
     );
   }
 

@@ -1,5 +1,5 @@
 {
-  "description": "Maps every area of the repository to the code it owns and the documentation that governs it, so 'which docs govern this change?' always has a machine-readable answer. This file is committed data guarded by an admission test: scripts/check-area-map.js fails CI when the map goes stale (a pattern matching no tracked file, an entry pointing at an untracked file), when a tracked file resolves to no area and is neither a repo-wide doc nor a justified exception, or when any tracked .md doc (anywhere in the repo, not only under docs/) is placed in no area's doc set, repo-wide list, or justified 'unassigned' exception — being matched only by a code pattern is not a doc home. An area owns code, a doc set, or both: a docs-only area (no code) is valid when it carries a non-empty doc set. Code patterns support '*', '**', and {a,b} alternation only, and every brace alternative must match at least one tracked file. Doc entries are literal tracked paths, never patterns. Code files and docs are many-to-many: a file or doc may belong to several areas. A code file may also name a governing doc directly with a '// see docs/<path>.md' comment, which adds every area whose doc set contains that doc. A file may instead DECLARE its complete governing doc set with a 'declared-governance' entry (a required 'governed-by' array — [] states the governing set is empty): that declared set governs the file's disposition in place of the docs its covering code area would supply, and area membership and '// see' pointers add nothing more. A declared file keeps the code-area coverage its patterns give it (a declaration grants no coverage of its own), and its governance is declared once and from one source (a declared file is not also a repo-wide doc, nor does it carry a '// see' pointer into a doc set). Each element of a 'governed-by' array is either a literal tracked doc path or an 'area:<name>' reference standing for that area's whole doc set, which it expands to — the compositional way to say a file owes an area's doctrine as a unit, with any further doc named as a literal beside it. 'governance-partitions' lists the trees whose files each declare their own governance: every tracked file matching one of those patterns carries a declared-governance entry, so a file added there states its subject rather than inheriting the union its tree ride supplies, and a partition pattern matching no tracked file is stale. Inside a partitioned tree, a declaration stating exactly what the covering areas supply is the honest answer and is kept as such.",
+  "description": "Maps every area of the repository to the code it owns and the documentation that governs it, so 'which docs govern this change?' always has a machine-readable answer. This file is committed data guarded by an admission test: scripts/check-area-map.js fails CI when the map goes stale (a pattern matching no tracked file, an entry pointing at an untracked file), when a tracked file resolves to no area and is neither a repo-wide doc nor a justified exception, or when any tracked .md doc (anywhere in the repo, not only under docs/) is placed in no area's doc set, repo-wide list, or justified 'unassigned' exception — being matched only by a code pattern is not a doc home. An area owns code, a doc set, or both: a docs-only area (no code) is valid when it carries a non-empty doc set. Code patterns support '*', '**', and {a,b} alternation only, and every brace alternative must match at least one tracked file. Doc entries are literal tracked paths, never patterns. Code files and docs are many-to-many: a file or doc may belong to several areas. A code file may also name a governing doc directly with a '// see docs/<path>.md' comment, which adds every area whose doc set contains that doc. A file may instead DECLARE its complete governing doc set with a 'declared-governance' entry (a required 'governed-by' array — [] states the governing set is empty): that declared set governs the file's disposition in place of the docs its covering code area would supply, and area membership and '// see' pointers add nothing more. A declared file keeps the code-area coverage its patterns give it (a declaration grants no coverage of its own), and its governance is declared once and from one source (a declared file is not also a repo-wide doc, nor does it carry a '// see' pointer into a doc set). Each element of a 'governed-by' array is either a literal tracked doc path or an 'area:<name>' reference standing for that area's whole doc set, which it expands to — the compositional way to say a file owes an area's doctrine as a unit, with any further doc named as a literal beside it. 'governance-partitions' lists the trees whose files each declare their own governance, one entry per tree stating the 'pattern' that names the tree and the 'reason' its files declare one by one: every tracked file matching one of those patterns carries a declared-governance entry, so a file added there states its subject rather than inheriting the union its tree ride supplies, and a partition pattern matching no tracked file is stale. Inside a partitioned tree, a declaration stating exactly what the covering areas supply is the honest answer and is kept as such; outside one, that same statement adds nothing and is redundant. Each side therefore reads the same declaration differently, so a declared-governance entry belongs to one side of a boundary: an entry matching both partition-covered files and files outside every partition is refused, and splits at the boundary.",
   "repo-wide": {
     "description": "Docs that apply to every area of the repository — a change anywhere can be governed by them. They resolve in their own right and do not need to belong to an area's doc set (though some also do).",
     "docs": [
@@ -271,7 +271,16 @@
       "reason": "Reference sync-server README — implementation notes for a runnable example artifact (never shipped); the protocol it implements is governed by docs/api/sync-protocol.md."
     }
   ],
-  "governance-partitions": ["packages/shared/tests/**"],
+  "governance-partitions": [
+    {
+      "pattern": "packages/shared/tests/**",
+      "reason": "The shared test tree sits under tree-wide code patterns from both the format area and the sync area, so a file added there is born owing both doc sets at once — the shared-core architecture, the session format, both wire protocols, and the user guides — and a file under the fixture subtree owes the fixture area's docs on top of them. Each file states the subject it actually exercises instead."
+    },
+    {
+      "pattern": "packages/desktop/src-tauri/tests/**",
+      "reason": "The Tauri crate's test directory sits under tree-wide code patterns from both the desktop capture area and the desktop test area, so a file added there is born owing both doc sets at once. Each file states the contract it pins instead, named per entry."
+    }
+  ],
   "declared-governance": [
     {
       "path": "docs/clause-registry.json",
@@ -635,6 +644,239 @@
       "path": "packages/shared/tests/fixtures/stub-schema.js",
       "reason": "The minimal schema stub — it carries the pinned docent_format consts the payload and export builders read, so the format doc that defines that stamp governs it; and the backward-compat doc enumerates it among this directory's residents as unrelated to the corpus, stating what it is for and how its .js suffix keeps it out of both discovery sweeps. Those consts feed stamp derivation in the shared unit suites only — the sufficiency lint composes real platform schemas per its own input contract and never reads this file — so the lint's doc is not among its governors.",
       "governed-by": ["docs/technical/session-format.md", "docs/test/backward-compat.md"]
+    },
+    {
+      "path": "packages/desktop/src-tauri/tests/{action_mapping_test,capture_mode_test,coordinate_dpi_test,coordinate_test,element_mapping_test,pid_filter_test,windows_capture_test}.rs",
+      "reason": "Deterministic binaries over the Windows capture layer's pure decisions — native event to action mapping, accessibility-versus-coordinate mode selection, the coordinate helpers with their multi-monitor and DPI math, native element mapping, the platform-agnostic PID base filter, and the scroll accumulator and recording-state transitions. Their contract is the Windows capture doctrine, which states those rules and whose scope-filter row names the PID and Windows-unit binaries as its guards (DCP-5), and the suite orientation whose table lists each binary by name.",
+      "governed-by": [
+        "docs/architecture/application/desktop/windows/capture-principles.md",
+        "docs/test/desktop-rust.md"
+      ]
+    },
+    {
+      "path": "packages/desktop/src-tauri/tests/{capture_integration,file_dialog_test}.rs",
+      "reason": "The real-input binaries: the integration suite that drives OS input and asserts user actions captured, programmatic effects filtered, the deduplication suppressions, and the OS-chrome and taskbar proxies; and the local-only file-dialog navigation exercise of those same suppressions. Their subject is the core rule separating a user action from an effect and the proxy rules for actions outside the capture layer's view, the Windows specifics beneath them, the retired desktop manual history that names their tests as its replacements, and the suite orientation that lists them.",
+      "governed-by": [
+        "docs/architecture/system/capture-principles.md",
+        "docs/architecture/application/desktop/windows/capture-principles.md",
+        "docs/test/manual/windows.md",
+        "docs/test/desktop-rust.md"
+      ]
+    },
+    {
+      "path": "packages/desktop/src-tauri/tests/capture_lifecycle_test.rs",
+      "reason": "The capture-layer lifecycle contract binary — idempotent start, no-op stop, the active-state transitions, bounded restart, and the commit flush barrier's sentinel on the action stream — driven entirely through the seam's trait obligations. The capture-seam document states those obligations, the pipeline document owns the barrier and the shutdown doctrine it asserts, and the suite orientation lists it.",
+      "governed-by": [
+        "docs/architecture/application/desktop/capture-seam.md",
+        "docs/architecture/application/desktop/windows/capture-pipeline.md",
+        "docs/test/desktop-rust.md"
+      ]
+    },
+    {
+      "path": "packages/desktop/src-tauri/tests/commands_test.rs",
+      "reason": "The persistence-command binary — the load and save state commands exercised over a redirected application-data directory. The application-shell document owns those commands and their credential-store chokepoint, the persistence document owns the session file they write, and the suite orientation lists it.",
+      "governed-by": [
+        "docs/architecture/application/desktop/windows/application-shell.md",
+        "docs/architecture/system/persistence.md",
+        "docs/test/desktop-rust.md"
+      ]
+    },
+    {
+      "path": "packages/desktop/src-tauri/tests/corpus_capture.rs",
+      "reason": "The scripted-truth corpus producer for the desktop leg and the desktop conformance-vector fixture: each test drives real OS input through a controlled window and serializes what the capture layer produced. The corpus doctrine owns the session catalogue, the retirement rule, and the vector production; the locator procedure defines the per-strategy element facts the vector fixture emits; and the suite orientation lists it.",
+      "governed-by": [
+        "docs/verification/scripted-truth-corpus.md",
+        "docs/technical/locator-resolution.md",
+        "docs/test/desktop-rust.md"
+      ]
+    },
+    {
+      "path": "packages/desktop/src-tauri/tests/{password_test,scroll_test}.rs",
+      "reason": "The masking and scroll-settling property binaries: a password field's recorded value is always the mask glyph, and a scroll sequence becomes one action only once it settles and clears the displacement floor. Both state cross-platform capture rules — the mask-the-value rule, and the scroll coalescing rule whose row names the scroll binary as a guard (CP-16) — with the Windows specifics beside them, and the suite orientation lists both.",
+      "governed-by": [
+        "docs/architecture/system/capture-principles.md",
+        "docs/architecture/application/desktop/windows/capture-principles.md",
+        "docs/test/desktop-rust.md"
+      ]
+    },
+    {
+      "path": "packages/desktop/src-tauri/tests/worker_pool_test.rs",
+      "reason": "The worker-pool property and truth-lock binary — sequence numbering, shortest-queue dispatch, sticky and drag-pair routing, and the dead-worker drain rescues, alongside end-to-end action truth-locks over the same pipeline. The Windows capture doctrine's ordering row names its flush-barrier tests among that row's existing guards (DCP-2) and the worker-delivery row names its respawn and shutdown drains among that row's (DCP-12), while the drag-classification row's own unit stays intended and names this binary for the right-button path's downstream half alone (DCP-10); the pipeline document owns the delivery model it locks, the retired desktop manual history names it among its replacements, and the suite orientation lists it.",
+      "governed-by": [
+        "docs/architecture/application/desktop/windows/capture-principles.md",
+        "docs/architecture/application/desktop/windows/capture-pipeline.md",
+        "docs/test/manual/windows.md",
+        "docs/test/desktop-rust.md"
+      ]
+    },
+    {
+      "path": "packages/desktop/src-tauri/tests/worker_pool_test.proptest-regressions",
+      "reason": "The committed property regression seeds — inputs that once falsified a worker-pool property, replayed on every run. The suite orientation is the one document that names it, stating what the file is and that it stays in the repository.",
+      "governed-by": ["docs/test/desktop-rust.md"]
+    },
+    {
+      "path": "packages/extension/tests/e2e/corpus/corpus.spec.js",
+      "reason": "The extension leg of the scripted-truth corpus: one test per active catalogue session, driving committed input through a fresh persistent context and asserting the comparator's findings against the session's committed baseline. The corpus doctrine owns the sessions, the truth-diff gate, and the produce-stage vector oracle, and its rows name this runner (STC-10, STC-23, STC-24); the end-to-end suite document states the harness contract and the runs that share this tree.",
+      "governed-by": ["docs/verification/scripted-truth-corpus.md", "docs/test/e2e.md"]
+    },
+    {
+      "path": "packages/extension/tests/e2e/helpers/vector-snapshot.js",
+      "reason": "Live conformance-vector production for the corpus run: it snapshots the acted-on frame, marks ground truth by the resolved element's identity, and pairs each mark with the captured action's element facts and locators. The corpus doctrine owns vector production; the locator procedure defines the per-strategy match semantics each snapshot is measured under.",
+      "governed-by": [
+        "docs/verification/scripted-truth-corpus.md",
+        "docs/technical/locator-resolution.md"
+      ]
+    },
+    {
+      "path": "packages/extension/tests/e2e/playwright.config.js",
+      "reason": "The end-to-end run's configuration — the single worker, the retry budget, the shared teardown, and the trace policy. The end-to-end suite document states that harness contract; the specs the run collects carry their own governing set — declared per spec where its inherited governance reaches past what the extension test area supplies, and that area's own doc set otherwise.",
+      "governed-by": ["docs/test/e2e.md"]
+    },
+    {
+      "path": "packages/extension/tests/e2e/playwright.{corpus,vectors}.config.js",
+      "reason": "The corpus determinism regime and its vector-producing variant: the fixed viewport, the fixed-port page server, the produce-stage retries around the truth-diff gate, and the flag that turns on vector production with its produced-equals-committed oracle. The corpus doctrine names both configs as the production sites, and the end-to-end suite document states the harness contract they share with the rest of this tree.",
+      "governed-by": ["docs/verification/scripted-truth-corpus.md", "docs/test/e2e.md"]
+    },
+    {
+      "path": "packages/extension/tests/e2e/specs/injection-latency.spec.js",
+      "reason": "The readiness-bound spec: navigation-complete to recorder-ready measured on one machine's clock across the main frame, a srcdoc iframe, and a dynamic subframe, held under half the deliberate-action floor. The extension capture doctrine states that bound and its row names this spec as the guard (ECP-5); the end-to-end suite document lists it and states the harness contract.",
+      "governed-by": [
+        "docs/architecture/application/extension/capture-principles.md",
+        "docs/test/e2e.md"
+      ]
+    },
+    {
+      "path": "packages/extension/tests/e2e/specs/locators.spec.js",
+      "reason": "Locator emission on live pages: per-strategy match counts and indexes measured over duplicated elements, a duplicated id counted while the derived selector still resolves uniquely, the unique-id fast path, and in-place masking of the value-derived text entry. The locator procedure defines the strategies and the measurement facts it asserts; the end-to-end suite document lists it and states the harness contract.",
+      "governed-by": ["docs/technical/locator-resolution.md", "docs/test/e2e.md"]
+    },
+    {
+      "path": "packages/extension/tests/e2e/specs/service-worker-{coverage,lifecycle}.spec.js",
+      "reason": "The service-worker end-to-end specs: the message protocol driven from an extension page across the handler surface, and suspension survival — state persisted to extension storage and re-read from it. The extension runtime document owns the dispatcher envelope, the lifecycle and persisted-state model, and the storage write-ownership contract: its persisted-state judgment names the lifecycle spec as the probe of the shipped state's survival (ERT-1), its dispatcher-envelope row names the coverage spec among the interim probes standing in for the unit it still intends (ERT-2), and its write-ownership row names both specs among that row's exercised paths (ERT-3). The end-to-end suite document lists them and states the harness contract.",
+      "governed-by": ["docs/architecture/application/extension/runtime.md", "docs/test/e2e.md"]
+    },
+    {
+      "path": "packages/extension/tests/e2e/specs/storage-quota.spec.js",
+      "reason": "The storage-pressure spec: a failing write corrupts no stored project, export keeps working, clearing frees space, and the warn-and-pause machine runs through its bands, the user's override, and resume on freed space. The extension capture doctrine states that machine and its row names this spec (ECP-11); the persistence document owns the extension's storage model and its pressure handling; the end-to-end suite document lists it and states the harness contract.",
+      "governed-by": [
+        "docs/architecture/application/extension/capture-principles.md",
+        "docs/architecture/system/persistence.md",
+        "docs/test/e2e.md"
+      ]
+    },
+    {
+      "path": "packages/extension/tests/e2e/specs/sync-samples.spec.js",
+      "reason": "The client-pull guard against a stale bundled seed sample: the real extension pulls a seeded project from a running reference server, reconciles its own platform's sample, and rejects the other platform's as a stamp mismatch. The sync protocol defines the pull, the stamp check, and the skip-and-report handling it asserts; the end-to-end suite document lists it and states the harness contract.",
+      "governed-by": ["docs/api/sync-protocol.md", "docs/test/e2e.md"]
+    },
+    {
+      "path": "packages/extension/tests/unit/adapter-chrome.test.js",
+      "reason": "The Chrome adapter's unit suite — settings, sync settings, theme, recording mode, reading guidance, schema loading, the pending-count and action-event subscriptions, and send. The shared-core document owns the platform-adapter seam it implements; the extension runtime document owns the storage write-ownership contract its reads and writes run under, and names this suite among that row's exercised paths (ERT-3).",
+      "governed-by": [
+        "docs/architecture/application/extension/runtime.md",
+        "docs/architecture/system/shared-core.md"
+      ]
+    },
+    {
+      "path": "packages/extension/tests/unit/auto-sync-host.test.js",
+      "reason": "The extension background Auto-Sync host: the backstop alarm and data-event triggers wired in the service worker, one shared cycle through the shared store, and the resulting state persisted for the panel to read. The sync protocol owns the trigger set, the backstop interval, and the cycle policy, with a row naming the background host as its interim probe (SP-21); the extension runtime owns the service-worker lifecycle the host runs in; the shared-core document owns the one-implementation seam the cycle goes through.",
+      "governed-by": [
+        "docs/api/sync-protocol.md",
+        "docs/architecture/application/extension/runtime.md",
+        "docs/architecture/system/shared-core.md"
+      ]
+    },
+    {
+      "path": "packages/extension/tests/unit/{dispatch,panel}.test.js",
+      "reason": "The dispatch payload and dispatch-UI suites: the wrapper's fields and their fidelity, the authorization header's presence and omission, endpoint-URL validation, and the panel's send gate — button state, recording selection, the confirmation summary, and the cancel path. The dispatch protocol defines all of it, and its rows name the payload suite as a guard (DI-2, DI-3, DI-4, DI-10).",
+      "governed-by": ["docs/api/dispatch.md"]
+    },
+    {
+      "path": "packages/extension/tests/unit/{frame-trust,service-worker-static-import}.test.js",
+      "reason": "Extension capture guards: the per-frame trust predicate deciding whether an appended action may enter a recording, and the static-source guard keeping the background entry module free of dynamic import. The extension capture doctrine states both rules and its rows name both suites (ECP-1, ECP-3).",
+      "governed-by": ["docs/architecture/application/extension/capture-principles.md"]
+    },
+    {
+      "path": "packages/extension/tests/unit/recorder-logic.test.js",
+      "reason": "The extracted content-script logic: selector derivation, locator measurement over a fake document, element description, and the scroll-capture decision. The cross-platform capture doctrine states the scroll settle-and-floor rule whose row names this suite (CP-16), the extension capture doctrine owns the recorder's own rules, and the locator procedure defines the strategies and measurement facts it derives.",
+      "governed-by": [
+        "docs/architecture/system/capture-principles.md",
+        "docs/architecture/application/extension/capture-principles.md",
+        "docs/technical/locator-resolution.md"
+      ]
+    },
+    {
+      "path": "packages/extension/tests/unit/secret-crypto.test.js",
+      "reason": "The at-rest settings-encryption suite: the envelope shape, the absence of plaintext, the round trip, the path taken once the ephemeral key is gone after a restart, and rejection of tampered ciphertext. The persistence document owns the extension's ephemeral session-storage key and the encrypted settings it protects.",
+      "governed-by": ["docs/architecture/system/persistence.md"]
+    },
+    {
+      "path": "packages/extension/tests/unit/service-worker.test.js",
+      "reason": "The service-worker handler suite: the panel message protocol over project, recording, and step operations, import and export, the trusted-sender gate on an appended action, redaction of value-derived locator entries, and storage-failure recovery. The extension runtime owns the dispatcher envelope and the handler surface, with a row naming this suite (ERT-2); the extension capture doctrine owns the trust gate and the masking it asserts; the sufficiency-lint document owns the value-derived strategy set the redaction cases read (SL-4).",
+      "governed-by": [
+        "docs/architecture/application/extension/capture-principles.md",
+        "docs/architecture/application/extension/runtime.md",
+        "docs/verification/sufficiency-lint.md"
+      ]
+    },
+    {
+      "path": "packages/desktop/tests/integration/panel-dispatch-sync.spec.js",
+      "reason": "The desktop panel's dispatch and sync integration spec: the endpoint gate on the dispatch button, the confirmation surface and its step summary, settings persistence, the sync button, and the re-record and delete flows. The dispatch protocol defines the endpoint rules, the transport seam, and the confirmation surface, with rows naming this spec (DI-10, DI-12, DI-13); the sync protocol defines the cycle the sync button starts; the integration-suite document owns the mocked-backend harness and lists it.",
+      "governed-by": [
+        "docs/api/dispatch.md",
+        "docs/api/sync-protocol.md",
+        "docs/test/integration/desktop.md"
+      ]
+    },
+    {
+      "path": "packages/desktop/tests/integration/playwright.config.js",
+      "reason": "The desktop integration run's configuration — the single worker, the retry budget, headless mode, and the shared teardown that merges the run's coverage. The integration-suite document states that harness contract; the specs the run collects carry their own governing set — declared per spec where its inherited governance reaches past what the desktop test area supplies, and that area's own doc set otherwise.",
+      "governed-by": ["docs/test/integration/desktop.md"]
+    },
+    {
+      "path": "packages/desktop/tests/unit/adapter-tauri.test.js",
+      "reason": "The Tauri adapter's unit suite — settings, sync settings, theme, recording mode, reading guidance, schema loading, send, the completeness-barrier wrappers around commit and stop, and the redaction pass that leaves locators and provider facts untouched. The application-shell document owns the command surface and the barrier report those wrappers read, the shared-core document owns the platform-adapter seam it implements, and the sufficiency-lint document owns the value-derived strategy set the redaction case reads (SL-4).",
+      "governed-by": [
+        "docs/architecture/application/desktop/windows/application-shell.md",
+        "docs/architecture/system/shared-core.md",
+        "docs/verification/sufficiency-lint.md"
+      ]
+    },
+    {
+      "path": "packages/desktop/tests/unit/auto-sync-host.test.js",
+      "reason": "The desktop background Auto-Sync host: one shared cycle with the same adapters the manual path uses, the backstop and data-event triggers coalesced through the shared scheduler, triggers dropped while capture is active, and the auth-disable and transient-retry policy. The sync protocol owns the trigger set, the enable rule, and the failure policy, with rows naming the desktop background host (SP-21, SP-23); the shared-core document owns the one-implementation seam the cycle runs through.",
+      "governed-by": ["docs/api/sync-protocol.md", "docs/architecture/system/shared-core.md"]
+    },
+    {
+      "path": "packages/desktop/tests/unit/dispatch.test.js",
+      "reason": "The desktop dispatch service's unit suite — dispatch settings loaded and saved through the backend, the reading guidance carried with a payload, and schema loading. The dispatch protocol defines the endpoint policy and the payload wrapper they serve.",
+      "governed-by": ["docs/api/dispatch.md"]
+    },
+    {
+      "path": "packages/desktop/tests/unit/export.test.js",
+      "reason": "The desktop export suite: a built export validates against the composed platform schema contract and carries every recording, each recording's full step history, and the project metadata. The session-format document defines the export structure and the stamp it carries, and the dispatch protocol's wrapper row names this suite for the export contrast it draws (DI-3).",
+      "governed-by": ["docs/technical/session-format.md", "docs/api/dispatch.md"]
+    },
+    {
+      "path": "packages/desktop/tests/unit/persistence-unit.test.js",
+      "reason": "The desktop persistence module's unit suite — the empty state, serialization and deserialization, and the load and save paths through the backend commands. The persistence document owns the session file and the credential-store split, and the application-shell document owns the persistence commands it drives.",
+      "governed-by": [
+        "docs/architecture/system/persistence.md",
+        "docs/architecture/application/desktop/windows/application-shell.md"
+      ]
+    },
+    {
+      "path": "packages/desktop/tests/unit/persistence.test.js",
+      "reason": "The session-state round-trip property: serializing a state and reading it back yields an equivalent state. The persistence document owns the session file whose round trip it pins.",
+      "governed-by": ["docs/architecture/system/persistence.md"]
+    },
+    {
+      "path": "packages/desktop/tests/unit/reorder-buffer.test.js",
+      "reason": "The ordered-insertion suite over the desktop adapter: out-of-order events placed by sequence id, immediate delivery with no buffering, completeness, and the internal id stripped before store or export. The Windows capture doctrine states that ordering rule and its row names this suite (DCP-2); the pipeline document owns the delivery model it sits at the end of.",
+      "governed-by": [
+        "docs/architecture/application/desktop/windows/capture-principles.md",
+        "docs/architecture/application/desktop/windows/capture-pipeline.md"
+      ]
     }
   ]
 }
