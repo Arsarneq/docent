@@ -8,6 +8,16 @@
  * file names cited without their path, hygiene-lock ordinals no surface states
  * or the list retires, requirement keywords in rationale text, an enumerated
  * citable root file the tree no longer carries, and reuse of retired ids. The
+ * structured test-case cites get the same treatment: a row's named case is
+ * resolved in the files that row's check-ref cites — a suite file or a source
+ * file whose in-crate module states it — and the cases where the field is
+ * stated with nowhere to resolve it, on a row that states no check-ref, or in a
+ * shape that is not a list of identifiers each red as the row problems they
+ * are, while a row that states no such field stays exactly as it was and a
+ * `checkable` row states it as freely as a `check-exists` one. The row grammar
+ * that field joined is closed, and its closure is proved from both sides: every
+ * key the grammar carries is admitted together on one row, and a key outside it
+ * — a near-miss spelling of a real field most of all — is named. The
  * resolution cases run over both text fields, because one grammar covers them
  * both; the AST cases prove a marker quoted in a fenced code block is never
  * counted, the pattern and prose cases prove a glob, a brace alternation, and a
@@ -38,6 +48,8 @@ import {
   CITABLE_ROOT_FILES,
   LOCK_ORDINAL_CLAUSE,
   LOCK_SUITE_PATH,
+  ROW_KEYS,
+  TEST_CASES_FIELD,
 } from '../../../../scripts/check-clause-registry.js';
 
 /** The prefix the ordinal clause belongs to, and the doc a fixture registers it in. */
@@ -745,6 +757,149 @@ describe('auditClauseRegistry: cited paths across the tree', () => {
         'cites packages/shared/tests/unit/gone.test.js; a cited path is a tracked file',
       ),
     );
+  });
+});
+
+describe('auditClauseRegistry — structured test-case cites, and the closed row grammar', () => {
+  const SUITE = 'packages/shared/tests/unit/cases.test.js';
+  const SOURCE = 'packages/desktop/src-tauri/src/capture/thing.rs';
+  const SUITE_TEXT = "it('the_case_that_pins_it', () => {});\n";
+  const SOURCE_TEXT = '#[test]\nfn the_in_crate_case() {}\n';
+
+  /**
+   * Audit a one-clause registry beside the lock surfaces, with the cited
+   * suite and source readable, so only the field under test can red.
+   */
+  function auditRow(clause) {
+    const contents = {
+      'docs/t.md': '**T-1.** rule',
+      [LOCK_DOC]: LOCK_DOC_TEXT,
+      [LOCK_SUITE_PATH]: LOCK_SUITE_TEXT,
+      [SUITE]: SUITE_TEXT,
+      [SOURCE]: SOURCE_TEXT,
+    };
+    return auditClauseRegistry({
+      registry: {
+        description: 'd',
+        prefixes: { T: 'docs/t.md', [LOCK_PREFIX]: LOCK_DOC },
+        retired: { T: [] },
+        clauses: [clause, lockRow()],
+      },
+      files: [...CITABLE_ROOT_FILES, 'docs/t.md', LOCK_DOC, LOCK_SUITE_PATH, SUITE, SOURCE],
+      readFile: (f) => contents[f] ?? null,
+      packageScripts: ['test:shared'],
+    });
+  }
+
+  const row = (overrides) => ({
+    doc: 'docs/t.md',
+    clause: 'T-1',
+    tag: 'check-exists',
+    'check-ref': `Pinned by ${SUITE} (npm run test:shared).`,
+    ...overrides,
+  });
+
+  it('resolves a named case against a file the row cites', () => {
+    const r = auditRow(row({ [TEST_CASES_FIELD]: ['the_case_that_pins_it'] }));
+    assert.deepEqual(flatten(r), []);
+  });
+
+  it('resolves a case stated by a cited source file’s in-crate test module', () => {
+    const r = auditRow(
+      row({
+        'check-ref': `Pinned in ${SOURCE} (npm run test:shared).`,
+        [TEST_CASES_FIELD]: ['the_in_crate_case'],
+      }),
+    );
+    assert.deepEqual(flatten(r), []);
+  });
+
+  it('flags an identifier no cited file carries, naming it and the files searched', () => {
+    const r = auditRow(row({ [TEST_CASES_FIELD]: ['the_case_that_pins_it', 'a_case_long_gone'] }));
+    assert.deepEqual(r.refErrors, [
+      `clause "T-1" ${TEST_CASES_FIELD} names a_case_long_gone, which appears in none of the files its check-ref cites: ${SUITE}`,
+    ]);
+  });
+
+  it('flags the field where the row cites no file to resolve it in', () => {
+    const r = auditRow(
+      row({
+        'check-ref': 'Pinned by the shared suite (npm run test:shared).',
+        [TEST_CASES_FIELD]: ['the_case_that_pins_it'],
+      }),
+    );
+    assert.deepEqual(r.rowErrors, [
+      `clause "T-1" states ${TEST_CASES_FIELD} but its check-ref cites no file path; a named case is resolved in the files the row cites`,
+    ]);
+    assert.deepEqual(r.refErrors, []);
+  });
+
+  it('flags the field on a judgment-only row, which states no check-ref', () => {
+    const r = auditRow({
+      doc: 'docs/t.md',
+      clause: 'T-1',
+      tag: 'judgment-only',
+      justification: 'a person decides',
+      [TEST_CASES_FIELD]: ['the_case_that_pins_it'],
+    });
+    assert.deepEqual(r.rowErrors, [
+      `clause "T-1" is judgment-only and states ${TEST_CASES_FIELD}; the field names cases a check-ref's files carry, so it belongs on a row that states a check-ref`,
+    ]);
+  });
+
+  it('flags a field that is not a non-empty list of identifiers', () => {
+    for (const value of [[], 'the_case_that_pins_it', [''], ['ok', 7]]) {
+      const r = auditRow(row({ [TEST_CASES_FIELD]: value }));
+      assert.deepEqual(
+        r.rowErrors,
+        [
+          `clause "T-1" states ${TEST_CASES_FIELD} as ${JSON.stringify(value)}; the field is a non-empty array of test-case identifiers`,
+        ],
+        JSON.stringify(value),
+      );
+    }
+  });
+
+  it('admits the field on a checkable row, which states a check-ref too', () => {
+    const r = auditRow(row({ tag: 'checkable', [TEST_CASES_FIELD]: ['the_case_that_pins_it'] }));
+    assert.deepEqual(flatten(r), []);
+  });
+
+  it('leaves a row that states no such field exactly as it was', () => {
+    const r = auditRow(row({}));
+    assert.deepEqual(flatten(r), []);
+  });
+
+  it('names a near-miss spelling of the field rather than reading nothing', () => {
+    for (const key of ['test-case', 'testCases', 'test_cases']) {
+      const r = auditRow(row({ [key]: ['the_case_that_pins_it'] }));
+      assert.deepEqual(
+        r.rowErrors,
+        [`clause "T-1" states unknown key "${key}"; a row states ${ROW_KEYS.join(', ')}`],
+        key,
+      );
+      assert.deepEqual(r.refErrors, [], key);
+    }
+  });
+
+  it('names every unknown key a row states', () => {
+    const r = auditRow(row({ notes: 'x', owner: 'y' }));
+    assert.deepEqual(r.rowErrors, [
+      `clause "T-1" states unknown key "notes"; a row states ${ROW_KEYS.join(', ')}`,
+      `clause "T-1" states unknown key "owner"; a row states ${ROW_KEYS.join(', ')}`,
+    ]);
+  });
+
+  it('admits every key the grammar carries', () => {
+    const r = auditRow({
+      doc: 'docs/t.md',
+      clause: 'T-1',
+      tag: 'check-exists',
+      justification: 'stated alongside the check-ref',
+      'check-ref': `Pinned by ${SUITE} (npm run test:shared).`,
+      [TEST_CASES_FIELD]: ['the_case_that_pins_it'],
+    });
+    assert.deepEqual(flatten(r), []);
   });
 });
 

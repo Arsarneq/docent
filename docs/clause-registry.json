@@ -1,5 +1,5 @@
 {
-  "description": "Registry of clause tags for docs that carry stable clause identifiers and normative language. Tags: 'check-exists' — a named, runnable check already guards the clause (check-ref points at it); 'checkable' — a mechanical check can guard the clause but is not built yet (check-ref names the intended check and any interim probe); 'judgment-only' — compliance is a per-change judgment no check can decide (justification says why). Clause identifiers are stable: never renumbered, and a retired identifier stays reserved (listed under 'retired').",
+  "description": "Registry of clause tags for docs that carry stable clause identifiers and normative language. Tags: 'check-exists' — a named, runnable check already guards the clause (check-ref points at it); 'checkable' — a mechanical check can guard the clause but is not built yet (check-ref names the intended check and any interim probe); 'judgment-only' — compliance is a per-change judgment no check can decide (justification says why). Clause identifiers are stable: never renumbered, and a retired identifier stays reserved (listed under 'retired'). A row that states a check-ref may also carry 'test-cases': the identifiers of the test cases pinning the clause, each of which the registry check resolves as a literal in one of the files that row's check-ref cites by path — a suite file, or a source file whose in-crate test module states the case. The field is opt-in, and stating it is what puts those identifiers under the check.",
   "prefixes": {
     "CP": "docs/architecture/system/capture-principles.md",
     "LR": "docs/technical/locator-resolution.md",
@@ -125,7 +125,14 @@
       "doc": "docs/architecture/system/capture-principles.md",
       "clause": "CP-16",
       "tag": "check-exists",
-      "check-ref": "The 200 px both-axes discard is pinned on both platforms: the desktop accumulator and its exactly-200px unit case in packages/desktop/src-tauri/tests/scroll_test.rs and the desktop scroll capture (npm run test:desktop:rust), and the extension shouldCaptureScroll boundary in packages/extension/tests/unit/recorder-logic.test.js (npm run test:extension). The 300 ms coalesce is pinned by the desktop scroll/debounce Rust tests (npm run test:desktop:rust) and, on the extension, by the ext-scroll settle corpus sessions (npm run corpus:check), since the extension coalesce is a live settle-timer no unit test drives."
+      "check-ref": "The 200 px both-axes discard is pinned on both platforms: the desktop accumulator's own boundary cases in the accumulator module packages/desktop/src-tauri/src/capture/scroll.rs, holding exactly 200 px discarded and just over it emitted, and the extension shouldCaptureScroll boundary in packages/extension/tests/unit/recorder-logic.test.js, which holds exactly 200 px discarded and 201 px captured (npm run test:desktop:rust and npm run test:extension). The 300 ms coalesce is pinned by the desktop scroll properties in packages/desktop/src-tauri/tests/scroll_test.rs — a tight sequence produces at most one result — and, on the extension, by the ext-scroll settle corpus sessions (npm run corpus:check), since the extension coalesce is a live settle-timer no unit test drives.",
+      "test-cases": [
+        "exactly_200px_is_discarded",
+        "just_over_200px_is_emitted",
+        "does NOT capture exactly 200px (threshold is >200, not >=200)",
+        "captures 201px scroll",
+        "tight_sequence_produces_at_most_one_result"
+      ]
     },
     {
       "doc": "docs/technical/locator-resolution.md",
@@ -364,20 +371,29 @@
     {
       "doc": "docs/architecture/application/extension/capture-principles.md",
       "clause": "ECP-2",
-      "tag": "checkable",
-      "check-ref": "Intended: an end-to-end negative asserting the idle surface captures nothing — no recorder injected while no recording runs, and a recorder left in a still-open document stays inactive (not built). Interim probe: the injection e2e specs pin the positive half — injection on record-start and per-frame injection on load (packages/extension/tests/e2e/; npm run test:e2e)."
+      "tag": "check-exists",
+      "check-ref": "The idle surface is pinned by two end-to-end negatives in packages/extension/tests/e2e/specs/recorder-coverage.spec.js, each paired in its own test with the positive control that makes it non-vacuous (npm run test:e2e). Nothing is injected while no recording runs: a document loaded into the recorded tab and a tab opened while idle each leave the service worker's readiness probe silent for a window four times the inject-to-ready bound ECP-5 states, and the same navigation with recording live reports ready inside that window, measured in the same run; the bounded-absence probe lives beside the positive ones in packages/extension/tests/e2e/helpers/frame-ready.js. A recorder a prior recording left in a still-open document is inactive: a second service-worker listener counts the APPEND_ACTION messages that reach the worker at all, so a click after the stop is observed to produce no append attempt from the recorder itself — which the frame-trust drop cannot account for, since a dropped message is still an observed attempt — while the same click before the stop produces one. The clause's positive half — the record-start sweep and the per-frame injection on load — stays pinned by the injection e2e specs (packages/extension/tests/e2e/; npm run test:e2e).",
+      "test-cases": [
+        "no recorder is injected into a document that loads while no recording runs",
+        "a recorder left in a still-open document attempts no append after recording stops"
+      ]
     },
     {
       "doc": "docs/architecture/application/extension/capture-principles.md",
       "clause": "ECP-3",
       "tag": "check-exists",
-      "check-ref": "The trust predicate is a pure module pinned by unit tests (packages/extension/lib/frame-trust.js, packages/extension/tests/unit/frame-trust.test.js; run via npm run test:extension), and the frame-trust e2e spec exercises the drop path."
+      "check-ref": "The trust predicate is a pure module pinned by unit tests (packages/extension/lib/frame-trust.js, packages/extension/tests/unit/frame-trust.test.js; run via npm run test:extension), and the frame-trust e2e spec exercises the drop path. Recorded scope: the departure paths the clause states are read from the service worker's own listeners and carry no dedicated case; what they feed — the reject side — is what the frame-trust e2e drop path covers."
     },
     {
       "doc": "docs/architecture/application/extension/capture-principles.md",
       "clause": "ECP-4",
-      "tag": "checkable",
-      "check-ref": "Intended: an append-path unit assertion that a message-body context_id is ignored in favour of the sender-derived one (not built as a dedicated case). Interim probe: the service-worker unit suite exercises append stamping (npm run test:extension); the predicate module never reads a body context_id."
+      "tag": "check-exists",
+      "check-ref": "The stamp is pinned by the extension unit suite's APPEND_ACTION cases, which run the worker's own text: packages/extension/tests/unit/service-worker.test.js carries a second copy of validateAndAppend with the seams it needs bound in the suite, and its case stamps context_id from the trusted sender over a body-supplied one, asserting the value both on the action and in the appended buffer. What ties that case to production is the parity guard packages/extension/tests/unit/service-worker-mirror-parity.test.js, which holds the copy textually equal to the shipped function in packages/extension/background/service-worker.js under a mechanical transformation of indentation alone, so a change to the shipped stamping or to its trust gate reddens the suite even though the copy is untouched (npm run test:extension). The end-to-end drop path is exercised separately by the frame-trust spec.",
+      "test-cases": [
+        "stamps context_id from the trusted sender, overwriting a spoofed value",
+        "the suite copy is the shipped validateAndAppend under the mechanical transformation",
+        "the suite copy sits between the markers that announce it"
+      ]
     },
     {
       "doc": "docs/architecture/application/extension/capture-principles.md",
@@ -514,8 +530,19 @@
     {
       "doc": "docs/architecture/application/desktop/windows/capture-principles.md",
       "clause": "DCP-10",
-      "tag": "checkable",
-      "check-ref": "Intended: a dedicated classification unit over the press-move-release state machine (not built) — the drag_start/drop pair emitted at release, the source described from the button-down point, and the middle- and right-button paths are its subject. Existing coverage: the threshold is pinned in the windows module's in-crate unit tests (packages/desktop/src-tauri/src/capture/windows.rs; npm run test:desktop:rust) — drag_threshold_is_the_documented_five_pixels holds the constant at the documented figure, and movement_within_the_threshold_is_a_click and movement_past_the_threshold_on_either_axis_is_a_drag pin the classification the release handler applies it at, over the is_drag predicate that handler calls: strict inequality, either axis, absolute distance. The right-button path's downstream half — a raw right-click event becoming a right_click action — is pinned by right_click_event_produces_right_click_action (packages/desktop/src-tauri/tests/worker_pool_test.rs; same command); its hook-side half, and the middle-button path, stay with the intended unit. Interim probe: the corpus click and double-click sessions pin the click paths (npm run corpus:check:desktop); the drag pair semantics are comment-pinned at the release handler."
+      "tag": "check-exists",
+      "check-ref": "The classification is pinned over the two pure seams the mouse hook consumes, both in packages/desktop/src-tauri/src/capture/windows.rs and both exercised by that module's in-crate unit tests (npm run test:desktop:rust). The left button carries the press-move-release decision at its release: classify_left_release reads the recorded press point and the release point and answers with the drag pair, whose source describes the press point, or with a click — the answer a release with no recorded press gets too. The threshold predicate underneath it is held at the documented figure and at its boundary: strict inequality, either axis, absolute distance. The middle and right buttons reach no such decision — each records on the press itself, through the down-dispatch mapping down_dispatch_event_type, held at a click for the middle button and a right-click for the right, and held to answering for those two messages alone. The right-button path's downstream half — a raw right-click event becoming a right_click action — is pinned in packages/desktop/src-tauri/tests/worker_pool_test.rs (same command), and the corpus click and double-click sessions exercise the click paths end to end (npm run corpus:check:desktop). The decision logic is unit-pinned in full; what stays outside those seams is the release handler's own wiring — the pair's two-event dispatch, which the handler's comment pins, and the drop event's own emission at the release point, which carries no pin — with no dedicated case for either.",
+      "test-cases": [
+        "a_release_past_the_threshold_is_the_drag_pair_sourced_at_the_press",
+        "a_release_within_the_threshold_is_a_click",
+        "a_release_with_no_recorded_press_is_a_click",
+        "the_middle_and_right_buttons_dispatch_their_action_from_the_press",
+        "the_down_dispatch_mapping_answers_for_its_own_two_messages",
+        "drag_threshold_is_the_documented_five_pixels",
+        "movement_within_the_threshold_is_a_click",
+        "movement_past_the_threshold_on_either_axis_is_a_drag",
+        "right_click_event_produces_right_click_action"
+      ]
     },
     {
       "doc": "docs/architecture/application/desktop/windows/capture-principles.md",

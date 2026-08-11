@@ -51,14 +51,21 @@ the service worker inject into any page the moment recording starts.)
 service worker validates every inbound `APPEND_ACTION` against an in-memory
 **active-frame registry** (tab → frames): a message MUST be accepted only when
 it comes from this extension, during a live recording, from a (tab, frame)
-pair present in the registry. The registry is seeded from the browser's own frame table
+pair present in the registry. Anything else — an embedded ad, analytics, or
+third-party widget that can reach the message port — is dropped.
+The registry is seeded from the browser's own frame table
 (`webNavigation.getAllFrames`) at record-start, updated as frames report ready,
 and — because it is in-memory and the service worker can be suspended — lazily
 reseeded from the same frame table when an append arrives from a tab with no
 registry entry at all (the suspension signature), rather than false-rejecting a
-legitimate frame whose registration was lost with the suspended worker.
-Anything else — an embedded ad, analytics, or third-party widget that can reach
-the message port — is dropped.
+legitimate frame whose registration was lost with the suspended worker. An entry
+departs along the registry's own routes: a subframe is dropped as it navigates
+away (a main frame is left in place — its reseed follows on the load), a closed
+tab's frames go with the tab, and the whole registry is cleared at record-start,
+ahead of the injection seed, and again on every record-stop path. That clear is
+the backstop: a frame that reaches neither the navigate-away drop nor the
+tab-close drop — a subframe destroyed with its parent's navigation, say, or
+removed from the DOM — keeps its entry until the next clear runs.
 
 Each injected recorder reports readiness back to the service worker with a
 `FRAME_READY` message rather than setting a page-visible flag — the recorder runs

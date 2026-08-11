@@ -9,11 +9,21 @@
  *     clause, no registry row for a clause the doc no longer states;
  *   - each row's tag carries its required field: `judgment-only` states a
  *     justification, `checkable`/`check-exists` state a check-ref;
+ *   - a row states only the keys the grammar carries ({@link ROW_KEYS}): the
+ *     shape is closed, so a key outside it — a near-miss spelling of a real
+ *     field, say — is named rather than silently read by nothing;
  *   - every citation the resolution grammar below admits — in a row's
  *     `check-ref` and in its `justification` alike — resolves: a reference to
  *     something that does not exist is a red, not a promise;
  *   - a check-exists row names something runnable: an `npm run` target or a
  *     cited `.js`/`.mjs`/`.rs`/`.json` file;
+ *   - a row that states {@link TEST_CASES_FIELD} names test cases its own
+ *     check-ref's files carry: the field is a list of test-case identifiers on
+ *     a check-ref-bearing row, and each identifier appears literally in one of
+ *     the tracked files that check-ref cites by path — a suite file, or a
+ *     source file whose in-crate test module states the case. The field is
+ *     opt-in, and that is its admission test: what a row states here is held,
+ *     and identifiers a row's prose merely mentions stay prose;
  *   - the hygiene-lock surfaces state one numbering, checked on every run
  *     whether or not a row cites an ordinal: the active entries of the
  *     {@link LOCK_ORDINAL_CLAUSE} list and the {@link LOCK_SUITE_PATH} suite's
@@ -105,6 +115,24 @@ const VALID_TAGS = ['checkable', 'check-exists', 'judgment-only'];
 
 /** The row text fields this check reads, in the order it reports them. */
 const TEXT_FIELDS = ['check-ref', 'justification'];
+
+/**
+ * The optional row field carrying test-case identifiers: the cases that pin the
+ * clause, each resolvable in a file the same row's check-ref cites by path.
+ * A row opts in by stating it, which is what keeps the leg exact — every
+ * identifier it lists is held against those files, and nothing else in the tree
+ * is scanned for case-shaped text.
+ */
+export const TEST_CASES_FIELD = 'test-cases';
+
+/**
+ * The closed row grammar: the complete set of keys a registry row states. Every
+ * leg here reads a key from this list, so a key outside it is read by nothing —
+ * which is what makes a near-miss spelling of a real field (a singular or
+ * camelCase variant of {@link TEST_CASES_FIELD}) worth naming out loud: the row
+ * looks held and is not. Adding a field to the registry means adding it here.
+ */
+export const ROW_KEYS = ['clause', 'doc', 'tag', 'justification', 'check-ref', TEST_CASES_FIELD];
 
 /**
  * The clause whose numbered list defines the hygiene-lock ordinals a row may
@@ -506,6 +534,16 @@ export function auditClauseRegistry({ registry, files, readFile, packageScripts 
       r.rowErrors.push(`clause "${id}" uses unregistered prefix "${m[1]}"`);
       continue;
     }
+    // The row grammar is closed, so a key no leg reads is named rather than
+    // ignored: an unrecognized field sits in the registry looking held while
+    // nothing holds it, which a near-miss spelling of a real field is exactly.
+    for (const key of Object.keys(row)) {
+      if (!ROW_KEYS.includes(key)) {
+        r.rowErrors.push(
+          `clause "${id}" states unknown key ${JSON.stringify(key)}; a row states ${ROW_KEYS.join(', ')}`,
+        );
+      }
+    }
     if (seenIds.has(id)) r.rowErrors.push(`duplicate registry row for clause "${id}"`);
     seenIds.add(id);
     if (retiredIds.has(id))
@@ -579,6 +617,45 @@ export function auditClauseRegistry({ registry, files, readFile, packageScripts 
       for (const ordinal of extractLockOrdinalCites(text))
         ordinalCites.push({ id, field, ordinal });
     }
+
+    // Structured test-case cites. The field states identifiers; the row's own
+    // check-ref states where they live, so the two are read together — the
+    // files that check-ref cites by path are the whole search space, and an
+    // identifier none of them carries is a citation that resolves to nothing.
+    if (TEST_CASES_FIELD in row) {
+      const cases = row[TEST_CASES_FIELD];
+      const wellFormed =
+        Array.isArray(cases) &&
+        cases.length > 0 &&
+        cases.every((name) => typeof name === 'string' && name.trim());
+      if (row.tag === 'judgment-only') {
+        r.rowErrors.push(
+          `clause "${id}" is judgment-only and states ${TEST_CASES_FIELD}; the field names cases a check-ref's files carry, so it belongs on a row that states a check-ref`,
+        );
+      } else if (!wellFormed) {
+        r.rowErrors.push(
+          `clause "${id}" states ${TEST_CASES_FIELD} as ${JSON.stringify(cases)}; the field is a non-empty array of test-case identifiers`,
+        );
+      } else {
+        const ref = typeof row['check-ref'] === 'string' ? row['check-ref'] : '';
+        const anchors = extractCitedTargets(ref).paths;
+        if (!anchors.length) {
+          r.rowErrors.push(
+            `clause "${id}" states ${TEST_CASES_FIELD} but its check-ref cites no file path; a named case is resolved in the files the row cites`,
+          );
+        } else {
+          const sources = anchors.map((p) => readFile(p)).filter((text) => text != null);
+          for (const name of cases) {
+            if (!sources.some((text) => text.includes(name))) {
+              r.refErrors.push(
+                `clause "${id}" ${TEST_CASES_FIELD} names ${name}, which appears in none of the files its check-ref cites: ${anchors.join(', ')}`,
+              );
+            }
+          }
+        }
+      }
+    }
+
     if (!rowsByDoc.has(row.doc)) rowsByDoc.set(row.doc, new Set());
     rowsByDoc.get(row.doc).add(id);
   }
@@ -762,6 +839,10 @@ function run() {
         `  defines, one of ${CITABLE_ROOT_FILES.join(', ')}, or an ACTIVE lock ordinal both\n` +
         `  ${LOCK_ORDINAL_CLAUSE} and ${LOCK_SUITE_PATH} state; an intended-but-unbuilt check is\n` +
         `  described in prose, and a check-exists row names the runnable check that exists.\n` +
+        `  A row states "${TEST_CASES_FIELD}" to have its named test cases held: each identifier\n` +
+        `  listed there is looked for in the files that row's check-ref cites by path. The row\n` +
+        `  grammar is closed at ${ROW_KEYS.join(', ')} — a key outside it is read by no leg,\n` +
+        `  so it is named here rather than left looking held.\n` +
         `  A retired lock keeps its numbered entry in ${LOCK_ORDINAL_CLAUSE}'s list, marked\n` +
         `  Retired: with the reason, and loses its suite title — that is what keeps the numbering\n` +
         `  append-only, so the two surfaces are held to each other on every run, cited or not.\n` +
