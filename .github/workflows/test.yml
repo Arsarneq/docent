@@ -299,7 +299,10 @@ jobs:
       - name: No release-only outputs on PR
         if: github.event_name == 'pull_request'
         env:
-          PR_HEAD_REF: ${{ github.head_ref }}
+          # Input contract for the mode switch: the head branch, but only when
+          # the head repository is this one. A fork PR gets the empty string, so
+          # a fork branch cannot select the guard's POSITIVE mode by name alone.
+          PR_HEAD_REF: ${{ github.event.pull_request.head.repo.full_name == github.repository && github.head_ref || '' }}
         run: |
           git fetch --no-tags origin "$GITHUB_BASE_REF"
           node scripts/check-no-release-outputs.js "origin/$GITHUB_BASE_REF"

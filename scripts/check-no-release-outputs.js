@@ -20,6 +20,10 @@
  *        layers (recompose + assert no drift).
  *   So the release PR's CI is green when legitimate and red when tampered.
  *
+ * CI supplies PR_HEAD_REF for same-repo pull requests only — a fork branch
+ * therefore cannot select POSITIVE mode by naming itself after the automation
+ * branch (the input contract is stated where the workflows compute the value).
+ *
  * Compares the current ref against a base ref (default: origin/main). Pass a
  * different base as argv[2]. Skips entirely in a release context
  * (DOCENT_RELEASE=1 / release event / tag), where these changes are expected and
@@ -53,6 +57,9 @@ export const AUTOMATED_BRANCH = 'automated/version-table-update';
 //     composed dist/ and any delta `version` bump.
 //   • POSITIVE mode requires EVERY changed file to be inside the full set below,
 //     so nothing unrelated can ride along on the automation branch.
+// It has a second reader outside this file: check-docs-disposition.js imports
+// isAllowedReleaseOutput to admit the pipeline's own version PR without the
+// PR-body sections, so the enumeration decides that gate's verdict too.
 //
 // Entries ending in `/` are directory prefixes; the rest are exact paths. The
 // leaf delta files are matched separately via DELTA_RE (their `version` is the
@@ -60,7 +67,10 @@ export const AUTOMATED_BRANCH = 'automated/version-table-update';
 //
 // LOCKSTEP: this set must mirror what the pipeline actually writes onto the
 // branch — extend it in the same change as any new pipeline output that falls
-// outside the existing paths/prefixes. The documented invariant lives in
+// outside the existing paths/prefixes. A break reds the version PR twice over:
+// POSITIVE mode rejects the unenumerated file here, and the docs-disposition
+// check stops admitting that PR, demanding sections the pipeline's generated
+// body does not carry. The documented invariant lives in
 // .github/PUBLISHING.md ("Test gating and the version PR").
 const FORBIDDEN_PATHS = ['schemas/dist/'];
 export const DELTA_RE = /^schemas\/.*\.delta\.json$/;
