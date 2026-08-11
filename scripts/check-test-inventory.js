@@ -1,7 +1,8 @@
 /**
  * check-test-inventory.js — the test-suite documents' inventories describe the
- * suites as they are, and the coverage plumbing's hand-maintained file lists
- * identify real sources. Two closures, both committed data that can rot:
+ * suites as they are, the coverage plumbing's hand-maintained file lists
+ * identify real sources, and the registered suites are the ones this repository
+ * really selects. Three closures, all committed data that can rot:
  *
  *   (a) suite tables — each suite document devotes a named section to the
  *       tables whose first column enumerates the suite's test files. That
@@ -18,6 +19,21 @@
  *       entry converts against, together with the URL suffix the suite matches
  *       on where the entry carries one, since an entry whose two halves name
  *       different files collects nothing while looking well-formed.
+ *   (c) suite registration, for the one class an admission test can state: a
+ *       suite selected with `node --test` from a script of an ADMITTED
+ *       manifest — the root `package.json` plus every `package.json` tracked
+ *       under `packages/`. Every such invocation resolves against the
+ *       directory of the manifest that carries it and must land inside a
+ *       registered suite: a glob's directory is the `dir` of exactly one
+ *       registered entry whose descriptor states the same basename pattern,
+ *       and a literal argument is a member invocation of a registered
+ *       directory, selected by that entry's own rule. In the other direction a
+ *       registered node-test entry stays live only while some admitted script
+ *       still names its glob; a literal member invocation confers no liveness.
+ *       The admission rule is what a reader derives the boundary from; the
+ *       recorded rationale for drawing it there is the test area's charter —
+ *       these documents cover Docent's own suites, not the runnable example
+ *       artifacts beside them (docs/test/README.md).
  *
  * Why the always-on `lint` job: the diff that stales a suite inventory is
  * frequently docs-only, and a docs-only PR skips every path-filtered test job.
@@ -30,21 +46,32 @@
  * which lives outside the documented directory — is never mistaken for an
  * inventory entry, and a name inside a fenced code block is never read as a
  * row. The `TRACKED_FILES` entries are read from a tokenized scan of the array
- * literal, so reformatting a list cannot change what this check sees. Every way
- * the extraction can fail to reach its whole subject — a renamed section or
- * column, a relocated or renamed list, an element form or a surrounding
- * expression this reader does not model — is itself red: a check that silently
- * reads part of a list, or none of it, would pass forever.
+ * literal, so reformatting a list cannot change what this check sees. The
+ * registration closure reads manifest scripts, the workflow step that discovers
+ * the Rust binaries, and the browser-driven suites' default configurations the
+ * same way. Every way any of it can fail to reach its whole subject — a renamed
+ * section or column, a relocated or renamed list, an element form or a
+ * surrounding expression this reader does not model, a manifest that will not
+ * parse, a renamed workflow step, a configuration whose directory this reader
+ * cannot resolve — is itself red: a check that silently reads part of a
+ * surface, or none of it, would pass forever.
  *
  * What this check deliberately cannot see: whether a row's DESCRIPTION is still
  * true (it compares names, never prose); the two directions of the coverage
  * lists that are not entry-shaped — a source file the suites load that no list
  * names (the deliberate subset stated in docs/test/strategy/coverage.md), and
  * an entry naming a tracked source the suites never load, which is well-formed
- * here and simply collects nothing; and its own registration — a suite document
- * or a coverage list that exists but is named in neither DOC_INVENTORIES nor
- * TRACKED_LISTS below is outside this gate until it is registered there, which
- * a new suite's change has to do for itself.
+ * here and simply collects nothing; and a coverage list that exists but is
+ * named in TRACKED_LISTS below by no entry is outside this gate until it is
+ * registered there, which a new list's change has to do for itself. Closure (c)
+ * leaves a named remainder open too, because no admission test here states it:
+ * which cargo-run and browser-driven suites must be registered (their
+ * membership rules are held above, their registration is hand-held — the corpus
+ * spec tree is the live example of a Playwright suite in no entry); the
+ * `node --test` invocations that reach the runner from somewhere other than an
+ * admitted manifest script, namely the workflow's own inline steps and the
+ * mutation configurations' per-file lists; and the manifests the admission rule
+ * does not admit.
  *
  * Usage:
  *   node scripts/check-test-inventory.js      # or: npm run lint:test-inventory
@@ -60,48 +87,151 @@ import { pathToFileURL } from 'node:url';
  */
 const PLAYWRIGHT_TEST_FILE = /(^|\/)[^/]+\.(?:spec|test)\.[cm]?[jt]sx?$/;
 
+/** The runner each discovery descriptor names, one constant per selecting form. */
+export const RUNNERS = {
+  node: 'node --test',
+  cargo: 'cargo',
+  playwright: 'playwright',
+};
+
+/** The last segment of a repo-relative path (the whole path when it has one segment). */
+function basename(path) {
+  const cut = path.lastIndexOf('/');
+  return cut === -1 ? path : path.slice(cut + 1);
+}
+
+/** Everything before a path's last segment, `''` when it has only one. */
+function dirname(path) {
+  const cut = path.lastIndexOf('/');
+  return cut === -1 ? '' : path.slice(0, cut);
+}
+
 /**
- * The desktop crate's test binaries as CI's layer-discovery step reads them: one
- * per `.rs` file at the top of `tests/`. Cargo would also build one per
- * `tests/<name>/main.rs`, but that step (in `.github/workflows/test.yml`) globs
- * `tests/*.rs`, so that form is outside the suite the desktop document
- * enumerates — the rule here tracks the pipeline, not Cargo's full capability.
+ * Collapse a joined path's `.` and `..` segments into the repo-relative form
+ * the tracked-file list spells, so a directory written `./specs` from its
+ * configuration and one written `specs` compare equal.
+ * @param {string} path
+ * @returns {string}
  */
-const CARGO_TEST_BINARY = /^[^/]+\.rs$/;
+export function normalizePath(path) {
+  const out = [];
+  for (const segment of path.split('/')) {
+    if (segment === '' || segment === '.') continue;
+    if (segment === '..') out.pop();
+    else out.push(segment);
+  }
+  return out.join('/');
+}
+
+/**
+ * The anchored pattern a basename glob selects: `*` stands for any run of
+ * characters within one path segment, so a glob written for the top of a
+ * directory never reaches a file one level deeper. Only `*` is modelled —
+ * every other character is matched literally.
+ * @param {string} pattern a glob with no directory separator, e.g. `*.test.js`
+ * @returns {RegExp}
+ */
+export function basenameGlobToRegExp(pattern) {
+  const body = pattern.replace(/[.*+?^${}()|[\]\\]/g, (c) => (c === '*' ? '[^/]*' : `\\${c}`));
+  return new RegExp(`^${body}$`);
+}
+
+/**
+ * The membership rule a discovery descriptor states — the one place a
+ * registered entry's `selects` comes from, so the rule the check demands a row
+ * for and the invocation it is read against can never be stated twice:
+ *
+ *   - `node --test` selects the files a basename glob matches at the top of the
+ *     suite directory (the runner expands the glob; a file one level deeper is
+ *     not a member).
+ *   - `cargo` selects one test binary per file the CI layer-discovery step's
+ *     glob matches at the top of `tests/`. Cargo would also build one per
+ *     `tests/<name>/main.rs`, but that step never sees it, so the rule tracks
+ *     the pipeline rather than Cargo's full capability.
+ *   - `playwright` selects Playwright's own default `testMatch` under the
+ *     configured `testDir`, at any depth.
+ *
+ * @param {{ runner: string, pattern?: string, glob?: string }} discovery
+ * @returns {(name: string) => boolean}
+ */
+export function selectsFor(discovery) {
+  if (discovery.runner === RUNNERS.playwright) return (name) => PLAYWRIGHT_TEST_FILE.test(name);
+  const pattern = discovery.runner === RUNNERS.cargo ? basename(discovery.glob) : discovery.pattern;
+  const re = basenameGlobToRegExp(pattern);
+  return (name) => !name.includes('/') && re.test(name);
+}
+
+/**
+ * An entry as the audits read it: the registration plus, where it states a
+ * discovery descriptor, the membership rule that descriptor states. An entry
+ * stating none keeps no `selects`, so it reaches the registration closure's
+ * refusal by name rather than failing where it is built.
+ * @param {object} entry a registration as it is written below
+ * @returns {object} the entry the audits read
+ */
+export const registered = (entry) =>
+  entry.discovery ? { ...entry, selects: selectsFor(entry.discovery) } : { ...entry };
 
 /**
  * The suite documents and the suites they enumerate. `section` is the `##`
  * heading whose tables make the enumeration claim and `column` their first
  * header cell — together they identify the inventory tables, so a table added
- * elsewhere in the document is free to name whatever it documents. `dir` is the
- * directory the suite lives in, and `selects` decides which paths under it are
- * its members: it mirrors the discovery that actually selects this suite's tests
- * here — the test runner's own rule where nothing narrows it, and the CI step's
- * where one does (see `CARGO_TEST_BINARY`) — so what the check demands a row for
- * is what gets selected. A member is named in the table by its path from `dir`.
+ * elsewhere in the document is free to name whatever it documents, and several
+ * suites may share one document, each taking its own section. `dir` is the
+ * directory the suite lives in, and `discovery` states how this repository
+ * selects that suite's tests: `selects` is derived from it (see
+ * {@link selectsFor}), so what the check demands a row for is what gets
+ * selected, and the registration closure reads the same descriptor against the
+ * invocation itself. A member is named in the table by its path from `dir`.
  */
 export const DOC_INVENTORIES = [
-  {
+  registered({
     doc: 'docs/test/e2e.md',
     section: 'What the suite covers',
     column: 'Spec',
     dir: 'packages/extension/tests/e2e/specs',
-    selects: (name) => PLAYWRIGHT_TEST_FILE.test(name),
-  },
-  {
+    discovery: { runner: RUNNERS.playwright, workdir: 'packages/extension/tests/e2e' },
+  }),
+  registered({
     doc: 'docs/test/desktop-rust.md',
     section: 'Suite layout',
     column: 'Test file',
     dir: 'packages/desktop/src-tauri/tests',
-    selects: (name) => CARGO_TEST_BINARY.test(name),
-  },
-  {
+    discovery: {
+      runner: RUNNERS.cargo,
+      workflow: '.github/workflows/test.yml',
+      step: 'Discover Rust test layers',
+      glob: 'tests/*.rs',
+    },
+  }),
+  registered({
     doc: 'docs/test/integration/desktop.md',
     section: 'What the suite covers',
     column: 'Spec',
     dir: 'packages/desktop/tests/integration',
-    selects: (name) => PLAYWRIGHT_TEST_FILE.test(name),
-  },
+    discovery: { runner: RUNNERS.playwright, workdir: 'packages/desktop/tests/integration' },
+  }),
+  registered({
+    doc: 'docs/test/unit.md',
+    section: 'Shared modules',
+    column: 'Test file',
+    dir: 'packages/shared/tests/unit',
+    discovery: { runner: RUNNERS.node, pattern: '*.test.js' },
+  }),
+  registered({
+    doc: 'docs/test/unit.md',
+    section: 'Desktop application',
+    column: 'Test file',
+    dir: 'packages/desktop/tests/unit',
+    discovery: { runner: RUNNERS.node, pattern: '*.test.js' },
+  }),
+  registered({
+    doc: 'docs/test/unit.md',
+    section: 'Chrome extension',
+    column: 'Test file',
+    dir: 'packages/extension/tests/unit',
+    discovery: { runner: RUNNERS.node, pattern: '*.test.js' },
+  }),
 ];
 
 /**
@@ -334,7 +464,11 @@ export function tokenizeJs(source) {
  * literal that never closes, a literal embedded in a larger expression, a
  * record missing a requested property, and an empty result each return an
  * `error`, so a list that moved, was renamed, or was restructured fails loudly
- * instead of passing on the part that still parses.
+ * instead of passing on the part that still parses. Inside a record that
+ * totality is scoped to the REQUESTED properties: each one's value must be a
+ * string the separator or the closing brace follows, so a value assembled from
+ * an expression is refused rather than recorded as its leading string, while a
+ * property nobody asked for keeps whatever shape it likes.
  * @param {string} source JavaScript source text
  * @param {string} name the declared identifier
  * @param {string[] | null} [fields] properties to read from object elements
@@ -406,6 +540,16 @@ export function readListEntries(source, name, fields = null) {
         fields.includes(key.value)
       ) {
         record[key.value] = token.value;
+        // The value is the whole value: a requested property's string must be
+        // followed by the separator or the record's closing brace. Anything
+        // else — a concatenation, a call, a conditional — is an expression this
+        // reader would otherwise record as its leading string, silently.
+        const follower = tokens[i + 1];
+        if (!(follower?.type === 'punct' && (follower.value === ',' || follower.value === '}'))) {
+          return {
+            error: `the \`${name}\` array literal's \`${key.value}\` property is followed by \`${follower?.value ?? 'end of source'}\`, so its value is not the string this reader read`,
+          };
+        }
       }
     }
   }
@@ -472,6 +616,11 @@ export function auditInventories({
 
   for (const inventory of inventories) {
     const { doc, section, column, dir, selects } = inventory;
+    // An entry stating no discovery descriptor derives no membership rule. The
+    // registration closure is the one place that names that refusal, so this
+    // audit passes the entry by rather than raising a second verdict on it —
+    // or, reading it anyway, dying on the rule that is not there.
+    if (typeof selects !== 'function') continue;
     const content = readFile(doc);
     if (content == null) {
       result.unreadable.push(`${doc}: inventory document could not be read`);
@@ -557,6 +706,404 @@ export function auditInventories({
   return result;
 }
 
+/* ── The registration closure ────────────────────────────────────────────── */
+
+/**
+ * The manifests the registration closure reads: the root `package.json` plus
+ * every `package.json` tracked under `packages/`. That admission rule is the
+ * closure's boundary, so it is stated once — here — and computed from the
+ * tracked-file list rather than kept as a hand list that could go stale.
+ * @param {string[]} files all git-tracked repo-relative paths
+ * @returns {string[]} the admitted manifest paths, in tracked order
+ */
+export function admittedManifests(files) {
+  return files.filter(
+    (f) => f === 'package.json' || (f.startsWith('packages/') && f.endsWith('/package.json')),
+  );
+}
+
+/** The command separators a script's segments are split on. */
+const SEPARATORS = new Set(['&&', '||', ';', '|']);
+
+/** The characters that make a `node --test` argument a glob rather than one file. */
+const GLOB_CHAR_RE = /[*?[\]]/;
+
+/** The shell loop a workflow step discovers through, with the words it iterates. */
+const FOR_LOOP_RE = /\bfor\s+[A-Za-z_][A-Za-z0-9_]*\s+in\s+([^;\n]+);\s*do\b/g;
+
+/**
+ * The arguments every `node --test` invocation in one script command states.
+ * The command is read as whitespace-separated tokens: between `node` and
+ * `--test` sit the runtime's own flags, which are skipped so a flagged
+ * invocation is read rather than passed over, and everything from `--test` to
+ * the next command separator is the runner's own. Four shapes are refused
+ * rather than read: an invocation reached after a `cd`, whose arguments resolve
+ * against a working directory this reader does not follow (a `cd` moves the
+ * rest of the command, not just its own segment); one whose flag scan stops on
+ * a non-flag token while a `--test` still stands later in the same segment —
+ * a runtime flag's separate-token value, which this reader does not model and
+ * would otherwise leave the whole invocation unread; one carrying a flag after
+ * `--test`, whose separate-token value this reader would otherwise collect as a
+ * path; and one stating no argument at all — what it selects is then the
+ * runner's own default rather than a stated suite.
+ * @param {string} command one manifest script's command line
+ * @returns {{ args: string[] } | { error: string }}
+ */
+export function nodeTestArguments(command) {
+  const tokens = command.split(/\s+/).filter(Boolean);
+  const args = [];
+  let relocated = false;
+  for (let i = 0; i < tokens.length; i++) {
+    if (tokens[i] === 'cd') {
+      relocated = true;
+      continue;
+    }
+    if (tokens[i] !== 'node') continue;
+    let at = i + 1;
+    while (at < tokens.length && tokens[at] !== '--test' && tokens[at].startsWith('-')) at++;
+    if (tokens[at] !== '--test') {
+      // The scan stopped on a token that is not a flag. If `--test` still stands
+      // later in this segment, that token is a runtime flag's separate-token
+      // value: reading on would be guessing, and skipping the invocation would
+      // drop a run suite in silence, so it is refused by name.
+      let rest = at;
+      while (rest < tokens.length && !SEPARATORS.has(tokens[rest]) && tokens[rest] !== '--test')
+        rest++;
+      if (tokens[rest] === '--test') {
+        return {
+          error: `runs \`node\` with \`${tokens[at]}\` before \`--test\`, which this reader does not model — a runtime flag's separate-token value, and reading past it would take that value for the suite's`,
+        };
+      }
+      continue;
+    }
+    if (relocated) {
+      return {
+        error: 'runs `node --test` in a directory a `cd` moved, which this reader does not model',
+      };
+    }
+    const collected = [];
+    for (i = at + 1; i < tokens.length && !SEPARATORS.has(tokens[i]); i++) {
+      if (tokens[i].startsWith('-')) {
+        return {
+          error: `runs \`node --test\` with the flag \`${tokens[i]}\`, which this reader does not model — a flag taking a separate token would leave that token read as a suite argument`,
+        };
+      }
+      collected.push(tokens[i]);
+    }
+    i--;
+    if (collected.length === 0) {
+      return { error: 'runs `node --test` with no argument, so it states no suite' };
+    }
+    args.push(...collected);
+  }
+  return { args };
+}
+
+/**
+ * What one resolved `node --test` argument names: a GLOB over a directory, or a
+ * LITERAL member of one. A glob sitting in a directory segment selects across
+ * directories, which no registered membership rule models, so it is refused.
+ * @param {string} path a repo-relative path
+ * @returns {{ kind: string, dir: string, pattern?: string, name?: string } | { error: string }}
+ */
+export function classifyArgument(path) {
+  const dir = dirname(path);
+  const name = basename(path);
+  if (GLOB_CHAR_RE.test(dir)) {
+    return { error: `globs across directories in \`${path}\`, which this reader does not model` };
+  }
+  return GLOB_CHAR_RE.test(name)
+    ? { kind: 'glob', dir, pattern: name }
+    : { kind: 'literal', dir, name };
+}
+
+/**
+ * The body of one workflow step: from its `- name:` line to the next step at
+ * the same indentation. Null when no step carries that name, so a renamed step
+ * is a refusal rather than an empty read.
+ * @param {string} workflow the workflow file's text
+ * @param {string} stepName the step's `name:` value
+ * @returns {string | null}
+ */
+export function extractStepBody(workflow, stepName) {
+  const marker = `- name: ${stepName}`;
+  const at = workflow.indexOf(marker);
+  if (at === -1) return null;
+  const lineStart = workflow.lastIndexOf('\n', at) + 1;
+  const indent = workflow.slice(lineStart, at);
+  if (/\S/.test(indent)) return null;
+  const rest = workflow.slice(at + marker.length);
+  const next = rest.search(new RegExp(`\\n${indent}- `));
+  return next === -1 ? rest : rest.slice(0, next);
+}
+
+/**
+ * The words the shell `for` loops of a workflow step iterate over — the globs
+ * that step discovers through.
+ * @param {string} stepBody
+ * @returns {string[]}
+ */
+export function extractLoopGlobs(stepBody) {
+  const globs = [];
+  for (const match of stepBody.matchAll(FOR_LOOP_RE)) globs.push(...match[1].trim().split(/\s+/));
+  return globs;
+}
+
+/**
+ * The token following each `<key>:` in a configuration source, read through the
+ * same tokenizer the list reader uses, so a mention in a comment or a string is
+ * never taken for a setting.
+ * @param {string} source JavaScript source text
+ * @param {string} key the property name
+ * @returns {{ type: string, value: string }[]}
+ */
+export function configValues(source, key) {
+  const tokens = tokenizeJs(source);
+  const values = [];
+  for (let i = 0; i + 2 < tokens.length; i++) {
+    if (
+      tokens[i].type === 'word' &&
+      tokens[i].value === key &&
+      tokens[i + 1].type === 'punct' &&
+      tokens[i + 1].value === ':'
+    ) {
+      values.push(tokens[i + 2]);
+    }
+  }
+  return values;
+}
+
+/**
+ * Pure core: audit the registered suites' own registration against the surfaces
+ * that select them. Its inputs are its own — the registered list, the tracked
+ * files the admitted manifest set is computed from, and one reader for every
+ * surface — so the inventory-agreement audit's entry contract is untouched by
+ * anything decided here.
+ *
+ * The node-test class is closed in both directions (see the module header):
+ * every glob and every literal argument of an admitted manifest script lands
+ * inside a registered suite, and every registered node-test entry is still
+ * named by one of those globs — a literal member invocation confers no
+ * liveness, because a suite nothing globs is a suite nothing runs. The cargo
+ * and Playwright entries are held to their mirror claims only: the workflow
+ * step still discovers through the registered glob, and each registered
+ * browser-driven suite's working directory still reaches its default
+ * configuration, whose `testDir` is the registered directory and whose
+ * `testMatch` is unset. Which such suites must be registered stays outside this
+ * closure.
+ * @param {object} opts
+ * @param {string[]} opts.files all git-tracked repo-relative paths
+ * @param {(f: string) => (string | null)} opts.readFile content reader (null if unreadable)
+ * @param {typeof DOC_INVENTORIES} [opts.inventories]
+ * @returns {{ undescribed: string[], unregisteredSuite: string[], unregisteredMember: string[],
+ *             patternMismatch: string[], deadRegistration: string[], mirrorDrift: string[],
+ *             unreadableClosure: string[] }}
+ */
+export function auditRegistrationClosure({ files, readFile, inventories = DOC_INVENTORIES }) {
+  const result = {
+    undescribed: [],
+    unregisteredSuite: [],
+    unregisteredMember: [],
+    patternMismatch: [],
+    deadRegistration: [],
+    mirrorDrift: [],
+    unreadableClosure: [],
+  };
+  const named = (entry) => `${entry.doc} ("## ${entry.section}")`;
+
+  // A descriptor is required on every registered entry: it is what the closure
+  // reads an entry through, so an entry without one is refused by name rather
+  // than skipped into silence.
+  const described = [];
+  for (const entry of inventories) {
+    if (entry.discovery) described.push(entry);
+    else result.undescribed.push(`${named(entry)} registers ${entry.dir}/ with no discovery descriptor`); // prettier-ignore
+  }
+  const nodeEntries = described.filter((e) => e.discovery.runner === RUNNERS.node);
+  const live = new Set();
+
+  const manifests = admittedManifests(files);
+  if (manifests.length === 0) {
+    result.unreadableClosure.push(
+      'no admitted manifest is tracked, so the registration closure has nothing to read',
+    );
+  }
+  for (const manifest of manifests) {
+    const source = readFile(manifest);
+    if (source == null) {
+      result.unreadableClosure.push(`${manifest}: admitted manifest could not be read`);
+      continue;
+    }
+    let scripts;
+    try {
+      scripts = JSON.parse(source).scripts;
+    } catch {
+      result.unreadableClosure.push(`${manifest}: admitted manifest is not readable JSON`);
+      continue;
+    }
+    if (scripts === null || typeof scripts !== 'object') {
+      result.unreadableClosure.push(`${manifest}: admitted manifest states no \`scripts\` map`);
+      continue;
+    }
+    const root = dirname(manifest);
+    for (const [script, command] of Object.entries(scripts)) {
+      if (typeof command !== 'string') {
+        result.unreadableClosure.push(`${manifest}: script \`${script}\` is not a command string`);
+        continue;
+      }
+      const read = nodeTestArguments(command);
+      if (read.error) {
+        result.unreadableClosure.push(`${manifest}: script \`${script}\` ${read.error}`);
+        continue;
+      }
+      for (const arg of read.args) {
+        // Arguments are the manifest's own: they resolve against the directory
+        // of the manifest whose script states them, never against the root.
+        const path = normalizePath(`${root}/${arg}`);
+        const argument = classifyArgument(path);
+        if (argument.error) {
+          result.unreadableClosure.push(`${manifest}: script \`${script}\` ${argument.error}`);
+          continue;
+        }
+        // A directory belongs to exactly one registered suite: no entry leaves
+        // the invocation unregistered, and two leave it ambiguous — which entry
+        // states the rule the argument is read against would then be an
+        // accident of order.
+        const matches = nodeEntries.filter((e) => e.dir === argument.dir);
+        if (matches.length !== 1) {
+          const registrars = matches.length === 0 ? 'no entry registers it' : `${matches.map(named).join(' and ')} both register it`; // prettier-ignore
+          const target = argument.kind === 'glob' ? `over ${argument.dir}/` : `on ${path}, whose directory is ${argument.dir}/`; // prettier-ignore
+          const bucket = argument.kind === 'glob' ? result.unregisteredSuite : result.unregisteredMember; // prettier-ignore
+          bucket.push(`${manifest}: script \`${script}\` runs \`node --test\` ${target} — ${registrars}`); // prettier-ignore
+          continue;
+        }
+        const entry = matches[0];
+        if (argument.kind === 'glob') {
+          live.add(entry.dir);
+          if (entry.discovery.pattern !== argument.pattern) {
+            result.patternMismatch.push(
+              `${manifest}: script \`${script}\` selects \`${argument.pattern}\` in ${argument.dir}/, but ${named(entry)} registers \`${entry.discovery.pattern}\``,
+            );
+          }
+          continue;
+        }
+        if (!entry.selects(argument.name)) {
+          result.unregisteredMember.push(
+            `${manifest}: script \`${script}\` runs \`node --test\` on ${path}, which the suite ${named(entry)} enumerates does not select`,
+          );
+        }
+      }
+    }
+  }
+
+  for (const entry of nodeEntries) {
+    if (!live.has(entry.dir)) {
+      result.deadRegistration.push(
+        `${named(entry)} registers ${entry.dir}/, whose \`${entry.discovery.pattern}\` no admitted manifest script runs`,
+      );
+    }
+  }
+
+  for (const entry of described) {
+    if (entry.discovery.runner === RUNNERS.cargo) {
+      readCargoMirror(entry, readFile, named, result);
+    } else if (entry.discovery.runner === RUNNERS.playwright) {
+      readPlaywrightMirror(entry, readFile, named, result);
+    }
+  }
+
+  return result;
+}
+
+/** The cargo entry's mirror claim: CI still discovers its binaries through the registered glob. */
+function readCargoMirror(entry, readFile, named, result) {
+  const { workflow, step, glob } = entry.discovery;
+  const source = readFile(workflow);
+  if (source == null) {
+    result.unreadableClosure.push(`${workflow}: the workflow ${named(entry)} mirrors could not be read`); // prettier-ignore
+    return;
+  }
+  const body = extractStepBody(source, step);
+  if (body === null) {
+    result.unreadableClosure.push(
+      `${workflow}: no step is named "${step}", so the discovery ${named(entry)} mirrors is not where this reader looks for it`,
+    );
+    return;
+  }
+  const globs = extractLoopGlobs(body);
+  if (globs.length === 0) {
+    result.unreadableClosure.push(
+      `${workflow}: the "${step}" step iterates over nothing this reader can read as a discovery glob`,
+    );
+    return;
+  }
+  if (globs.length !== 1 || globs[0] !== glob) {
+    result.mirrorDrift.push(
+      `${workflow}: the "${step}" step discovers \`${globs.join(' ')}\`, but ${named(entry)} registers \`${glob}\``,
+    );
+  }
+}
+
+/**
+ * A Playwright entry's mirror claim: the registered working directory's `npm
+ * test` still runs Playwright with no `--config`, so the configuration that
+ * collects the suite is that directory's default one — and that configuration
+ * still leaves `testMatch` at Playwright's default and points `testDir` at the
+ * registered directory.
+ */
+function readPlaywrightMirror(entry, readFile, named, result) {
+  const { workdir } = entry.discovery;
+  const manifestPath = `${workdir}/package.json`;
+  const manifestSource = readFile(manifestPath);
+  if (manifestSource == null) {
+    result.unreadableClosure.push(`${manifestPath}: working-directory manifest could not be read`);
+    return;
+  }
+  let test;
+  try {
+    test = JSON.parse(manifestSource).scripts?.test;
+  } catch {
+    result.unreadableClosure.push(`${manifestPath}: working-directory manifest is not readable JSON`); // prettier-ignore
+    return;
+  }
+  if (typeof test !== 'string' || !/\bplaywright\s+test\b/.test(test)) {
+    result.unreadableClosure.push(
+      `${manifestPath}: its \`test\` script does not run Playwright, so ${named(entry)}'s configuration cannot be identified from the invocation`,
+    );
+    return;
+  }
+  if (/(^|\s)--config(=|\s|$)/.test(test)) {
+    result.mirrorDrift.push(
+      `${manifestPath}: its \`test\` script now names a configuration explicitly, so the default configuration is no longer the one collecting the suite ${named(entry)} enumerates`,
+    );
+    return;
+  }
+  const configPath = `${workdir}/playwright.config.js`;
+  const config = readFile(configPath);
+  if (config == null) {
+    result.unreadableClosure.push(`${configPath}: default configuration could not be read`);
+    return;
+  }
+  if (configValues(config, 'testMatch').length > 0) {
+    result.mirrorDrift.push(
+      `${configPath}: states \`testMatch\`, but ${named(entry)} registers Playwright's default selection`,
+    );
+  }
+  const dirs = configValues(config, 'testDir');
+  if (dirs.length !== 1 || dirs[0].type !== 'string') {
+    result.unreadableClosure.push(
+      `${configPath}: states ${dirs.length} readable \`testDir\` value(s), so the directory it collects cannot be read`,
+    );
+    return;
+  }
+  const resolved = normalizePath(`${workdir}/${dirs[0].value}`);
+  if (resolved !== entry.dir) {
+    result.mirrorDrift.push(
+      `${configPath}: collects ${resolved}/, but ${named(entry)} registers ${entry.dir}/`,
+    );
+  }
+}
+
 /**
  * The red wording for each problem class an audit can report: what the class
  * says about the count it carries, and the fix. Keyed by the result field, so
@@ -603,13 +1150,63 @@ const PROBLEM_BLOCKS = {
       `give both halves of the entry the same file — the URL the suite matches and the\n` +
       `  source it converts against are one file, and a split entry silently collects nothing.`,
   },
+  undescribed: {
+    heading: (n) => `${n} registered suite entr(ies) state no discovery descriptor`,
+    fix:
+      `give the entry a \`discovery\` descriptor in DOC_INVENTORIES in\n` +
+      `  scripts/check-test-inventory.js — it is what states how this repository selects the\n` +
+      `  suite, and the entry's membership rule is derived from it.`,
+  },
+  unregisteredSuite: {
+    heading: (n) => `${n} node-test suite(s) are run but registered by no single entry`,
+    fix:
+      `register the suite in DOC_INVENTORIES in scripts/check-test-inventory.js — a document\n` +
+      `  section, the directory, and the descriptor stating the glob that selects it — and give\n` +
+      `  that section an inventory table, or stop running the suite from an admitted manifest.\n` +
+      `  One directory takes one entry: two entries over it leave the rule ambiguous.`,
+  },
+  unregisteredMember: {
+    heading: (n) => `${n} node-test argument(s) name a file no registered suite selects`,
+    fix:
+      `point the argument at a file of a registered suite, or register the directory it\n` +
+      `  names — a named file is a member invocation of a suite, never a suite of its own.`,
+  },
+  patternMismatch: {
+    heading: (n) => `${n} discovery descriptor(s) no longer state what selects the suite`,
+    fix:
+      `bring the descriptor's pattern and the manifest script's glob back together — the\n` +
+      `  descriptor is what decides which files this check demands a row for.`,
+  },
+  deadRegistration: {
+    heading: (n) => `${n} registered node-test suite(s) are run by no admitted manifest script`,
+    fix:
+      `restore the script that runs the suite, or drop the entry — an entry naming a suite\n` +
+      `  nothing runs documents a suite that is not there. A script naming one file of the\n` +
+      `  suite is a member invocation and does not run the suite.`,
+  },
+  mirrorDrift: {
+    heading: (n) => `${n} registered discovery claim(s) no longer match the surface they mirror`,
+    fix:
+      `repoint the entry's descriptor at what now selects the suite, or restore the surface —\n` +
+      `  a membership rule that has drifted from its discovery lets a collected test sit with\n` +
+      `  no row while this check stays green.`,
+  },
+  unreadableClosure: {
+    heading: (n) => `${n} registration-closure source(s) could not be read as what they state`,
+    fix:
+      `restore the shape the closure reads — an admitted manifest whose \`scripts\` map holds\n` +
+      `  command strings, a workflow step discovering through a shell loop under its registered\n` +
+      `  name, and a browser-driven suite reached through its working directory's default\n` +
+      `  configuration — or update scripts/check-test-inventory.js to the new shape.`,
+  },
 };
 
 /**
  * Render an audit result as red output: one block per populated problem class,
  * each enumerating its exact mismatches and naming the fix.
- * @param {ReturnType<typeof auditInventories>} result
- * @returns {string[]} problem blocks (empty when the inventories hold)
+ * @param {ReturnType<typeof auditInventories> | ReturnType<typeof auditRegistrationClosure>} result
+ * @returns {string[]} problem blocks (empty when the inventories and the
+ *   registration hold)
  */
 export function formatProblems(result) {
   const list = (entries) => entries.map((e) => `    ${e}`).join('\n');
@@ -630,8 +1227,8 @@ export function formatProblems(result) {
 
 /* c8 ignore start — the CLI wrapper reads the tracked-file list from git and the
  * inventory sources from disk, then prints; the parsing and audit logic it
- * delegates to (parseTables, readListEntries, auditInventories, formatProblems)
- * is unit-tested. */
+ * delegates to (parseTables, readListEntries, auditInventories,
+ * auditRegistrationClosure, formatProblems) is unit-tested. */
 function run() {
   const files = execFileSync('git', ['ls-files'], { encoding: 'utf8' })
     .split('\n')
@@ -645,14 +1242,23 @@ function run() {
     }
   };
 
-  const problems = formatProblems(auditInventories({ files, readFile }));
+  const problems = [
+    ...formatProblems(auditInventories({ files, readFile })),
+    ...formatProblems(auditRegistrationClosure({ files, readFile })),
+  ];
   if (problems.length) {
     console.error(problems.join('\n\n'));
     process.exit(1);
   }
+  // The numbers come from the registered data, so they stay true as suites join
+  // it — entries and the documents they are spread across are two counts now.
+  const documents = new Set(DOC_INVENTORIES.map((inventory) => inventory.doc)).size;
+  const globbed = DOC_INVENTORIES.filter((i) => i.discovery.runner === RUNNERS.node).length;
   console.log(
-    `✓ test inventories current: ${DOC_INVENTORIES.length} suite document(s) enumerate their ` +
-      `suites exactly, and ${TRACKED_LISTS.length} coverage list(s) identify tracked sources.`,
+    `✓ test inventories current: ${DOC_INVENTORIES.length} registered suite(s) across ` +
+      `${documents} document(s) enumerate their suites exactly, ${TRACKED_LISTS.length} coverage ` +
+      `list(s) identify tracked sources, and ${globbed} node-test suite(s) are each run by an ` +
+      `admitted manifest script.`,
   );
 }
 
