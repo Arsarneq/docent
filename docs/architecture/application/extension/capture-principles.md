@@ -91,10 +91,32 @@ an end-to-end spec enforces the readiness bound.
 
 **ECP-6.** This platform's capture surface applies
 [core CP-14](../../../architecture/system/capture-principles.md#capture-surface)'s
-closed positive-enumeration principle: the recorder listens for a fixed set of
-trusted DOM events (the exact set lives in `content/recorder.js`), and the
-service worker captures the browser-chrome proxies in the table below.
-Interactions that would appear covered but are not are kept as
+closed positive-enumeration principle. The recorder listens on `document`, in
+the capture phase, for exactly these DOM events:
+
+- `mousedown` — the press ahead of a click, held so a blur-caused `change` can
+  be attributed to the element the user moved to
+- `click` — activation of the clicked element or its nearest interactive
+  ancestor
+- `contextmenu` — the right-click
+- `keydown` — the keys in the captured keyboard set
+- `change` — a committed value: a `select` choice, an `input`/`textarea` entry,
+  and a file chosen through the OS dialog
+- `focusin` — a focus move, recorded only when it follows a Tab key press
+- `dragstart` — the start of a drag, which names the drag source
+- `dragover` — the target tracking the browser requires before a drop can fire
+- `drop` — the end of a drag, paired with the source the drag started from
+- `dragend` — the drag's terminal signal, which releases the source
+- `scroll` — a scroll gesture, debounced and coalesced into one action
+- `input` — in-progress editing of a `contenteditable` host, debounced
+- `blur` — the flush that commits pending `contenteditable` editing
+
+The service worker captures the browser-chrome proxies in the table below, each
+row naming the worker event it is captured from.
+[`check-capture-surface.js`](../../../../scripts/check-capture-surface.js)
+holds this platform's registrations and the enumerations above and below to
+each other, in both directions. Interactions that would appear covered but are
+not are kept as
 [exceptions within the surface](#exceptions-within-the-surface) (core
 [CP-15](../../../architecture/system/capture-principles.md#capture-surface)).
 
@@ -103,20 +125,23 @@ Interactions that would appear covered but are not are kept as
 ## Browser Chrome Proxies
 
 **ECP-7.** These user actions happen in browser chrome (not visible to the
-content script) and are captured by proxy as follows:
+content script) and are captured by proxy as follows. The Event source column
+names the registration each proxy is captured from — a service-worker event,
+or, where the immediate effect lands in the page instead, one of the recorder's
+[enumerated DOM events](#capture-surface):
 
-| User action                   | Captured as                       |
-| ----------------------------- | --------------------------------- |
-| Type URL + Enter              | `navigate` (typed/generated)      |
-| Click back/forward            | `navigate` (back_forward)         |
-| Click bookmark                | `navigate` (auto_bookmark)        |
-| F5 / Ctrl+R                   | `navigate` (reload)               |
-| Click a tab                   | `context_switch`                  |
-| Ctrl+T / Ctrl+N               | `context_open`                    |
-| Ctrl+W / click X              | `context_close`                   |
-| Ctrl+Shift+T                  | `context_open`                    |
-| Select file in OS dialog      | `file_upload`                     |
-| Right-click → Open in new tab | `context_open` + `navigate(link)` |
+| User action                   | Captured as                       | Event source                                                   |
+| ----------------------------- | --------------------------------- | -------------------------------------------------------------- |
+| Type URL + Enter              | `navigate` (typed/generated)      | `chrome.webNavigation.onCommitted`                             |
+| Click back/forward            | `navigate` (back_forward)         | `chrome.webNavigation.onCommitted`                             |
+| Click bookmark                | `navigate` (auto_bookmark)        | `chrome.webNavigation.onCommitted`                             |
+| F5 / Ctrl+R                   | `navigate` (reload)               | `chrome.webNavigation.onCommitted`                             |
+| Click a tab                   | `context_switch`                  | `chrome.tabs.onActivated`                                      |
+| Ctrl+T / Ctrl+N               | `context_open`                    | `chrome.tabs.onCreated`                                        |
+| Ctrl+W / click X              | `context_close`                   | `chrome.tabs.onRemoved`                                        |
+| Ctrl+Shift+T                  | `context_open`                    | `chrome.tabs.onCreated`                                        |
+| Select file in OS dialog      | `file_upload`                     | `change` (the recorder's own surface, correlated with a click) |
+| Right-click → Open in new tab | `context_open` + `navigate(link)` | `chrome.tabs.onCreated` + `chrome.webNavigation.onCommitted`   |
 
 ---
 

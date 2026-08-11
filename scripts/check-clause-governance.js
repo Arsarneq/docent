@@ -141,6 +141,22 @@ export const ALLOWLIST = new Map([
     "the shared masking-detection util CP-11 names; CP-11's system-capture doc is repo-wide, so it takes a disposition line only when itself edited (as for every capture file), and the masking is verified per-diff by the corpus redaction sessions and the util's own unit test",
   ],
   [
+    'CP-2\tpackages/extension/tests/e2e/specs/side-effect-capture.spec.js',
+    "an extension end-to-end negative CP-2 names as its stream-level coverage; CP-2's system-capture doc is repo-wide, so it takes a disposition line only when itself edited (as for every capture file), and this spec is governed — and so primed on any edit — by the extension capture doc and the e2e suite doc that inventory it",
+  ],
+  [
+    'CP-2\tpackages/extension/tests/e2e/specs/interactions.spec.js',
+    "an extension end-to-end negative CP-2 names as its stream-level coverage; CP-2's system-capture doc is repo-wide, so it takes a disposition line only when itself edited (as for every capture file), and this spec is governed — and so primed on any edit — by the extension capture doc and the e2e suite doc that inventory it",
+  ],
+  [
+    'CP-2\tpackages/extension/tests/e2e/specs/keyboard.spec.js',
+    "an extension end-to-end negative CP-2 names as its stream-level coverage; CP-2's system-capture doc is repo-wide, so it takes a disposition line only when itself edited (as for every capture file), and this spec is governed — and so primed on any edit — by the extension capture doc and the e2e suite doc that inventory it",
+  ],
+  [
+    'CP-2\tpackages/extension/tests/e2e/specs/navigation.spec.js',
+    "an extension end-to-end negative CP-2 names as its stream-level coverage; CP-2's system-capture doc is repo-wide, so it takes a disposition line only when itself edited (as for every capture file), and this spec is governed — and so primed on any edit — by the extension capture doc and the e2e suite doc that inventory it",
+  ],
+  [
     'DI-3\tpackages/shared/lib/format-stamp.js',
     "the stamp-source implementation DI-3 names; DI-3's wrapper contract is asserted per-diff by the contract, dispatch, and export test suites that carry the dispatch doc, and this file is exercised by the schema-composition suites — the citation names the site, not a per-file governance edge",
   ],

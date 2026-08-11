@@ -483,6 +483,16 @@
       ]
     },
     {
+      "path": "scripts/check-capture-surface.js",
+      "reason": "The capture-surface admission test — it owes the ci/release area's whole doc set as a unit; beyond that set, both platform capture docs' surface-enumeration clauses name it as the check that holds them, and the core capture doc's inclusion-filter clause names it as added coverage, per their registry rows, so all three capture documents govern it beside that set.",
+      "governed-by": [
+        "area:ci/release",
+        "docs/architecture/system/capture-principles.md",
+        "docs/architecture/application/extension/capture-principles.md",
+        "docs/architecture/application/desktop/windows/capture-principles.md"
+      ]
+    },
+    {
       "path": "scripts/check-schema-echo.js",
       "reason": "The schema-echo admission test — it owes the ci/release area's whole doc set as a unit; beyond that set, the session-format doc's authority-ordering clause and its unknown-key posture clause (SF-1, SF-14) are verified by it, per their registry rows, so the format doc governs it beside that set; the surfaces it reads are its subject, not its doctrine.",
       "governed-by": ["area:ci/release", "docs/technical/session-format.md"]

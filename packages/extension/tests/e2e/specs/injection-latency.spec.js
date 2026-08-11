@@ -9,9 +9,9 @@
  * human deliberate-action floor — i.e. a frame is ready before a user could
  * plausibly act in it, so removing the static early-injection costs no fidelity.
  *
- * The bar is single-sourced: DELIBERATE_ACTION_FLOOR (~200ms, the documented
- * two-action floor) from lib/capture-timing.js; the injection window must be
- * < half that (= 100ms). The measured value is LOGGED so the actual latency is
+ * The bar is single-sourced: INJECT_TO_READY_BOUND from lib/capture-timing.js,
+ * where it is derived once from the documented ~200ms two-action floor, so no
+ * consumer recomputes it. The measured value is LOGGED so the actual latency is
  * visible in CI output, not just pass/fail.
  *
  * T0 and T1 are both wall-clock (Date.now()): T0 is captured in the SW by a probe
@@ -29,13 +29,13 @@ import { test as base, expect, chromium } from '@playwright/test';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import http from 'http';
-import { DELIBERATE_ACTION_FLOOR } from '../../../lib/capture-timing.js';
+import { INJECT_TO_READY_BOUND } from '../../../lib/capture-timing.js';
 import { installReadyProbe, waitForFrameReady } from '../helpers/frame-ready.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const extensionPath = path.resolve(__dirname, '../../..');
 
-const MAX_INJECTION_WINDOW_MS = DELIBERATE_ACTION_FLOOR / 2; // = 100ms
+const MAX_INJECTION_WINDOW_MS = INJECT_TO_READY_BOUND;
 
 const routes = new Map();
 let server;

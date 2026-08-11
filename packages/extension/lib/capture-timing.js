@@ -25,10 +25,21 @@
  * The minimum interval between two deliberate human actions (~200ms — see the
  * "rule of thumb" in the file header). Single source of truth for that floor so
  * derived bars don't hard-code a magic number: e.g. content-script injection
- * must complete in well under half this (a frame must be ready to capture before
- * the user could plausibly act in it).
+ * MUST complete within half this (a frame must be ready to capture before the
+ * user could plausibly act in it), and in practice completes well under it.
  */
 export const DELIBERATE_ACTION_FLOOR = 200;
+
+/**
+ * The inject→ready bound derived from that floor: a frame MUST go from
+ * finishing load to its recorder reporting ready within half the floor, so it
+ * is capture-ready before anyone could plausibly act in it (extension
+ * capture-principles ECP-5); the observed gap sits well under the bound, which
+ * is practice, not the bound. Derived here, in the doctrine's own home, rather
+ * than recomputed by each consumer — one definition, so the bar and the floor
+ * it comes from can never part.
+ */
+export const INJECT_TO_READY_BOUND = DELIBERATE_ACTION_FLOOR / 2;
 
 // ─── Content Script Timing ──────────────────────────────────────────────────
 

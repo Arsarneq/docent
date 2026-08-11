@@ -10,6 +10,8 @@
  * - Recording state transitions (start/stop via storage), including the
  *   idle-surface negatives: nothing injected while no recording runs, and a
  *   recorder left in a still-open document attempting no append after the stop
+ * - The trust registry's subframe departure route: a subframe held mid-departure
+ *   still attempts its append, and that append no longer reaches the stream
  * - Form submit change suppression
  * - Edge cases (body/html clicks, hidden visibility)
  *
@@ -28,17 +30,17 @@ import {
   setTestContent,
 } from '../helpers/extension-fixture.js';
 import { expectNoFrameReady, waitForFrameReady } from '../helpers/frame-ready.js';
-import { DELIBERATE_ACTION_FLOOR } from '../../../lib/capture-timing.js';
+import { INJECT_TO_READY_BOUND } from '../../../lib/capture-timing.js';
 
 // The window an absence must hold through for it to mean something: four times
-// the inject→ready bound the extension capture principles pin (ECP-5 — under
-// half the deliberate-action floor), which injection-latency.spec.js measures
-// the live figure against. Both negatives below wait it out, and each pairs it
-// with its own control, measured in the same run: the injection negative
-// measures a live injection against this same window, and the leftover-recorder
-// negative's control is an append-path action — a click that reaches the worker
-// as an APPEND_ACTION while recording is live.
-const IDLE_ABSENCE_WINDOW_MS = 4 * (DELIBERATE_ACTION_FLOOR / 2);
+// the inject→ready bound the extension capture principles pin (ECP-5 — derived
+// once in lib/capture-timing.js from the deliberate-action floor), which
+// injection-latency.spec.js measures the live figure against. Every negative
+// that rides this window waits it out AND pairs it with its own positive
+// control, measured in the same run against the same window — the observable
+// the negative denies, demonstrated live — so an absence here is an observed
+// absence and never an unwaited one.
+const IDLE_ABSENCE_WINDOW_MS = 4 * INJECT_TO_READY_BOUND;
 
 // ─── Scroll Capture ───────────────────────────────────────────────────────────
 // NOTE: Scroll tests are skipped in E2E because mouse.wheel() does not reliably
@@ -476,6 +478,146 @@ test.describe('Recording State Transitions', () => {
 
     await setRecording(serviceWorker, true);
     await testPage.waitForTimeout(200);
+  });
+
+  // ── The trust registry's subframe departure route (ECP-3) ──────────────────
+  // The registry drops a subframe as it navigates away, so a stale frame id
+  // cannot be reused. The observable is the pair the append-attempt probe
+  // makes visible: the departing document's recorder is still live and still
+  // ATTEMPTS the append (so the absence is not a dead recorder), and the
+  // action does not reach the stream (so the registry rejected it). The main
+  // frame keeps the tab's registry entry alive throughout, which is what stops
+  // the worker's lazy reseed from rescuing the departing frame.
+  //
+  // The departure is held open with a navigation the test server never
+  // answers: onBeforeNavigate has fired, the old document is still loaded and
+  // interactive, and onCompleted has not re-registered anything.
+
+  /**
+   * Clear the recorded departures. The probe filters nothing — every
+   * onBeforeNavigate in every tab lands in the list — so the window a wait
+   * observes is bounded by this reset, not by the probe.
+   */
+  const resetDepartures = (serviceWorker) =>
+    serviceWorker.evaluate(() => {
+      globalThis.__departures = [];
+    });
+
+  /** Record the (tab, frame) pairs the worker sees depart, worker-side. */
+  async function installDepartureProbe(serviceWorker) {
+    await resetDepartures(serviceWorker);
+    await serviceWorker.evaluate(() => {
+      if (globalThis.__departureProbeInstalled) return;
+      globalThis.__departureProbeInstalled = true;
+      chrome.webNavigation.onBeforeNavigate.addListener((details) => {
+        globalThis.__departures.push({ tabId: details.tabId, frameId: details.frameId });
+      });
+    });
+  }
+
+  const getDepartures = (serviceWorker) =>
+    serviceWorker.evaluate(() => globalThis.__departures ?? []);
+
+  test('a subframe that navigates away loses the registry entry its appends need', async ({
+    testPage,
+    serviceWorker,
+  }) => {
+    const origin = new URL(testPage.url()).origin;
+    const stamp = Date.now();
+    const childUrl = `${origin}/dep-child-${stamp}`;
+    const parentUrl = `${origin}/dep-parent-${stamp}`;
+    const stallUrl = `${origin}/dep-stall-${stamp}`;
+    const CHILD = /* html */ `<!DOCTYPE html><html><body style="margin:0">
+      <button id="b" style="position:absolute;inset:0;width:100%;height:100%">child</button>
+    </body></html>`;
+    const PARENT = /* html */ `<!DOCTYPE html><html><body style="margin:0">
+      <iframe id="f" src="${childUrl}" style="width:300px;height:120px;border:0"></iframe>
+    </body></html>`;
+
+    // Registered last, so this route wins over any the fixture installed.
+    let stalled = null;
+    await testPage.route(`${origin}/**`, async (route) => {
+      const url = route.request().url();
+      if (url === stallUrl) {
+        stalled = route; // never fulfilled: the departure stays open
+        return;
+      }
+      await route.fulfill({
+        status: 200,
+        contentType: 'text/html; charset=utf-8',
+        body: url === childUrl ? CHILD : PARENT,
+      });
+    });
+
+    await installAppendAttemptProbe(serviceWorker);
+    await installDepartureProbe(serviceWorker);
+    await testPage.goto(parentUrl);
+    await waitForFrameReady(serviceWorker, childUrl);
+
+    // This test page's own tab, read off the probe's record of the main-frame
+    // navigation this test just made. The departure wait below is keyed to it,
+    // so a navigation in any other tab cannot satisfy it.
+    const mainFrameDeparture = (await getDepartures(serviceWorker)).find((d) => d.frameId === 0);
+    expect(mainFrameDeparture, 'the worker observed this test page navigating').toBeTruthy();
+    const testTabId = mainFrameDeparture.tabId;
+
+    // Where to click: the subframe's button fills the iframe box.
+    const box = await testPage.locator('#f').boundingBox();
+    const clickChild = () => testPage.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+
+    // Positive control — while the subframe is registered, its click both
+    // reaches the worker as an attempt AND lands in the stream.
+    await serviceWorker.evaluate(() => {
+      globalThis.__appendAttempts = [];
+    });
+    await clearPendingActions(serviceWorker);
+    await clickChild();
+    await waitForActionsToSettle(serviceWorker, testPage);
+    expect(
+      (await getAppendAttempts(serviceWorker)).filter((a) => a.type === 'click').length,
+      'the registered subframe attempts the append',
+    ).toBeGreaterThan(0);
+    expect(
+      (await getPendingActions(serviceWorker)).filter((a) => a.type === 'click').length,
+      'and the registered subframe’s click is captured',
+    ).toBeGreaterThan(0);
+
+    // The departure: the subframe navigates to a URL the server never answers.
+    // Reset the recorded departures first — the iframe's own INITIAL load is a
+    // subframe departure this probe already recorded, so the wait below would
+    // otherwise be satisfied before the stall navigation is even triggered.
+    await resetDepartures(serviceWorker);
+    const child = testPage.frames().find((f) => f.url() === childUrl);
+    await child.evaluate((u) => setTimeout(() => (window.location.href = u), 0), stallUrl);
+    await expect
+      .poll(
+        async () =>
+          (await getDepartures(serviceWorker)).some(
+            (d) => d.tabId === testTabId && d.frameId !== 0,
+          ),
+        { message: 'the worker observed this tab’s subframe departing' },
+      )
+      .toBe(true);
+
+    // The old document is still loaded and its recorder still live.
+    await serviceWorker.evaluate(() => {
+      globalThis.__appendAttempts = [];
+    });
+    await clearPendingActions(serviceWorker);
+    await clickChild();
+    await testPage.waitForTimeout(IDLE_ABSENCE_WINDOW_MS);
+
+    expect(
+      (await getAppendAttempts(serviceWorker)).filter((a) => a.type === 'click').length,
+      'the departing subframe’s recorder still attempts the append — the absence below is the registry, not a dead recorder',
+    ).toBeGreaterThan(0);
+    expect(
+      await getPendingActions(serviceWorker),
+      'and the append is dropped: the departing subframe left the registry',
+    ).toEqual([]);
+
+    if (stalled) await stalled.abort();
+    await testPage.unroute(`${origin}/**`);
   });
 
   test('actions resume after recording is restarted', async ({ testPage, serviceWorker }) => {

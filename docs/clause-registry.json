@@ -41,7 +41,7 @@
       "doc": "docs/architecture/system/capture-principles.md",
       "clause": "CP-2",
       "tag": "checkable",
-      "check-ref": "Intended: a static check that recorder/service-worker event registrations stay within the enumerated capture surface (not yet built). Interim probe: the scripted-truth corpus diff (scripts/corpus-compare.js via npm run corpus:check and corpus:check:desktop) reddens when an effect enters a scripted session's stream."
+      "check-ref": "Existing coverage: scripts/check-capture-surface.js (npm run lint:capture-surface, a step in CI's lint job) holds each platform's registered capture surface to the closed enumeration its clause states, so a source outside the enumerated surface cannot be added without stating it — registration-level, which bounds what can enter the stream without deciding what the filter admits from inside the surface. Interim probe: the scripted-truth corpus diff (scripts/corpus-compare.js via npm run corpus:check and corpus:check:desktop) reddens when an effect enters a scripted session's stream. Stream-level on the extension: the end-to-end suite (npm run test:e2e) produces each of the filtered classes at a registered surface and asserts it absent from the action stream — packages/extension/tests/e2e/specs/side-effect-capture.spec.js for scripted focus, value, and selection changes (with pushState, hash changes, programmatic scroll, the window.open lifecycle, and timer-driven updates), packages/extension/tests/e2e/specs/interactions.spec.js and packages/extension/tests/e2e/specs/keyboard.spec.js for code-driven events (programmatic contextmenu, .click(), and keydown), and packages/extension/tests/e2e/specs/navigation.spec.js for programmatic navigations (form.submit(), location.href, an in-iframe meta refresh, and redirect chains). Intended: the same stream-level pin on the desktop side, where the corpus diff is the only stream-level guard today and is only as strong as the sessions scripted for it (not yet built). The registration check does not decide either: it reads registration sites, never the stream."
     },
     {
       "doc": "docs/architecture/system/capture-principles.md",
@@ -113,7 +113,7 @@
       "doc": "docs/architecture/system/capture-principles.md",
       "clause": "CP-14",
       "tag": "judgment-only",
-      "justification": "Whether a platform's capture surface is enumerated positively and treated as closed — nothing the platform grows captured implicitly — is a definitional design judgment; the per-platform enumerations are the checkable clauses (ECP-6/DCP-4, probed by the scripted-truth corpus diff)."
+      "justification": "Whether a platform's capture surface is enumerated positively and treated as closed — nothing the platform grows captured implicitly — is a definitional design judgment; the per-platform enumerations are the mechanically held clauses, each row (ECP-6, DCP-4) naming the registration admission test scripts/check-capture-surface.js as its check, with the scripted-truth corpus diff retained on DCP-4's row as an interim probe beside it."
     },
     {
       "doc": "docs/architecture/system/capture-principles.md",
@@ -382,7 +382,12 @@
       "doc": "docs/architecture/application/extension/capture-principles.md",
       "clause": "ECP-3",
       "tag": "check-exists",
-      "check-ref": "The trust predicate is a pure module pinned by unit tests (packages/extension/lib/frame-trust.js, packages/extension/tests/unit/frame-trust.test.js; run via npm run test:extension), and the frame-trust e2e spec exercises the drop path. Recorded scope: the departure paths the clause states are read from the service worker's own listeners and carry no dedicated case; what they feed — the reject side — is what the frame-trust e2e drop path covers."
+      "check-ref": "The trust predicate is a pure module pinned by unit tests (packages/extension/lib/frame-trust.js, packages/extension/tests/unit/frame-trust.test.js; run via npm run test:extension). End-to-end (npm run test:e2e): packages/extension/tests/e2e/specs/frame-trust.spec.js pins that every append routes through the gate — a forged APPEND_ACTION from an ineligible sender leaves the stream empty, which is the assertion the restamping in this clause's companion (the sender-stamped context_id) makes necessary, since an accepted forgery would carry no claimed id either — and that a genuine recorded frame's action is still appended. packages/extension/tests/e2e/specs/recorder-coverage.spec.js pins the subframe departure route on the real registry: while a navigation the server never answers holds the departure open, the departing document's recorder still attempts its append (observed on a worker-side APPEND_ACTION probe, so the absence cannot be a dead recorder) and the action does not reach the stream, with the main frame keeping the tab's entry alive so the worker's lazy reseed cannot rescue the departing frame. Recorded scope: of the registry's departure routes, the subframe navigate-away drop is the pinned one. The tab-close drop and the record-start and record-stop clears are not pinned and are not pinnable this way — a closed tab's frames can no longer send, a start clear is followed immediately by the injection seed that re-registers every frame that still exists (and the stale ids it removes name frames that cannot send), and while stopped every append is refused by the live-recording gate regardless of the registry; each is held by review at its call site.",
+      "test-cases": [
+        "an APPEND_ACTION from a sender that is not a recorded frame is dropped",
+        "a real recorded-frame action is still appended (accept side)",
+        "a subframe that navigates away loses the registry entry its appends need"
+      ]
     },
     {
       "doc": "docs/architecture/application/extension/capture-principles.md",
@@ -404,14 +409,14 @@
     {
       "doc": "docs/architecture/application/extension/capture-principles.md",
       "clause": "ECP-6",
-      "tag": "checkable",
-      "check-ref": "Intended: a static check that recorder/service-worker event registrations stay within the enumerated surface (the CP-2 check family; not built). Interim probe: the scripted-truth corpus diff reddens when the surface drifts on scripted sessions (npm run corpus:check)."
+      "tag": "check-exists",
+      "check-ref": "scripts/check-capture-surface.js (npm run lint:capture-surface, a step in CI's lint job) diffs the recorder's document listener registrations both ways against the DOM events this clause enumerates, holding the receiver this clause states as part of that surface: an enumerated event registered on window instead is reported on both sides, as a listener on the wrong receiver and as an enumerated event the recorder no longer registers. It holds every other chrome listener either extension file registers to the check's own admission list, keyed by file and API path with an exact occurrence count and a stated role per entry, or to the proxy table's event-source column; and diffs that column's worker events both ways against the service worker's registrations, each held to a single registration, with a DOM event named there held to this clause's enumeration. Read through the shared comment-safe tokenizer, so a commented-out registration is never counted, and refusing rather than skipping a computed event name, a listener receiver outside the modelled set, an unreadable enumeration item or table cell, and an empty parse. The recorder's registrations sit outside the mirrored capture block, so the one production copy is what is read; the block itself stays held by the parity test. Named residue: a registration shape outside the scan's model is refused rather than skipped — an event name that is not a lone string literal (a concatenated name is refused, never read as its leading fragment), a receiver outside document and window, which is what a helper taking its target as a parameter looks like wherever that helper is defined, and an addListener chain not rooted at chrome. What is genuinely invisible is a registration site that lands in neither scanned file: a helper defined elsewhere and merely called here registers nothing these two files show. Beyond that, the capture phase this clause also states is not read — the scan parses no listener options, so the phase claim stays review-held — and whether a handler still captures what its enumeration entry describes is review-held."
     },
     {
       "doc": "docs/architecture/application/extension/capture-principles.md",
       "clause": "ECP-7",
       "tag": "judgment-only",
-      "justification": "Whether a proxy row still records the immediate effect of the chrome interaction it names is a per-proxy judgment (CP-7..CP-10 apply); the corpus ext-tab-open session probes the click-plus-chrome-navigate boundary."
+      "justification": "Whether a proxy row still records the immediate effect of the chrome interaction it names is a per-proxy judgment (CP-7..CP-10 apply); the corpus ext-tab-open session probes the click-plus-chrome-navigate boundary. That judgment is this row's substance and what its tag records; the table's Event source column is held separately and mechanically, in both directions against the registrations it names, as ECP-6's check-ref records."
     },
     {
       "doc": "docs/architecture/application/extension/capture-principles.md",
@@ -494,8 +499,8 @@
     {
       "doc": "docs/architecture/application/desktop/windows/capture-principles.md",
       "clause": "DCP-4",
-      "tag": "checkable",
-      "check-ref": "Intended: a static check that hook/WinEvent registrations stay within the enumerated surface (the CP-2 check family; not built). Interim probe: the desktop corpus diff reddens when the surface drifts on scripted sessions (npm run corpus:check:desktop)."
+      "tag": "check-exists",
+      "check-ref": "scripts/check-capture-surface.js (npm run lint:capture-surface, a step in CI's lint job) diffs the low-level hooks the Windows capture backend installs both ways against the hooks this clause names, and holds every registered WinEvent range by containment rather than by its endpoints: each (event_min, event_max) pair is expanded id by id from the Win32 constant values the check carries, and every id a range contains must be a class the Input Correlation table names — so a silently widened pair reds on its contents — while a class that table names and no registered range contains reds in the other direction. A repeated range pair reds on its own, because it installs the hook twice where the set-based containment diff stays green. Comment-stripped, and refusing rather than skipping a range endpoint the value table cannot resolve, a registration loop or installation site the extractor cannot anchor, an unreadable pair or table cell, and an empty parse. Interim probe retained: the desktop corpus diff reddens when the surface drifts on scripted sessions (npm run corpus:check:desktop). Named residue: whether a dispatched event is later filtered belongs to the correlation, scope, and foreground gates' own verification, and the OS/shell proxy table stays judgment-held."
     },
     {
       "doc": "docs/architecture/application/desktop/windows/capture-principles.md",

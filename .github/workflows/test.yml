@@ -244,6 +244,22 @@ jobs:
       - name: Validate extension surface contracts
         run: npm run lint:extension-surface
 
+      # Each platform's capture surface is a closed positive enumeration
+      # (CP-14): the recorder's document listeners must equal ECP-6's
+      # enumeration, the worker's capture proxies must equal the worker events
+      # the ECP-7 table's event-source column names, each registered once (a
+      # DOM event that column names is held to ECP-6 instead), every other
+      # registration in either capture-path file — the recorder and the service
+      # worker — must be admitted by role. On the desktop side the installed
+      # low-level hooks must equal DCP-4's enumeration and the DCP-7
+      # correlation classes must each be covered by a registered WinEvent
+      # range, both diffed in both directions; only the range leg is
+      # containment — every id a registered range spans must be a named class,
+      # so a widened pair reds. This admission test recomputes every leg and
+      # reds on any drift.
+      - name: Validate capture surface enumerations
+        run: npm run lint:capture-surface
+
       # The CI guides state closures the tree can silently outgrow: ci.md's
       # workflow-inventory and lint-gates tables, local-ci.md's act table,
       # and every `npm run` command the docs cite. This admission test
