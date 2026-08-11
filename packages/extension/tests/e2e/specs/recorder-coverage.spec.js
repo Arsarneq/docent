@@ -7,7 +7,9 @@
  * - Arrow key navigation
  * - Select element changes
  * - Tab + focus correlation
- * - Recording state transitions (start/stop via storage)
+ * - Recording state transitions (start/stop via storage), including the
+ *   idle-surface negatives: nothing injected while no recording runs, and a
+ *   recorder left in a still-open document attempting no append after the stop
  * - Form submit change suppression
  * - Edge cases (body/html clicks, hidden visibility)
  *
@@ -25,6 +27,18 @@ import {
   waitForActionsToSettle,
   setTestContent,
 } from '../helpers/extension-fixture.js';
+import { expectNoFrameReady, waitForFrameReady } from '../helpers/frame-ready.js';
+import { DELIBERATE_ACTION_FLOOR } from '../../../lib/capture-timing.js';
+
+// The window an absence must hold through for it to mean something: four times
+// the inject→ready bound the extension capture principles pin (ECP-5 — under
+// half the deliberate-action floor), which injection-latency.spec.js measures
+// the live figure against. Both negatives below wait it out, and each pairs it
+// with its own control, measured in the same run: the injection negative
+// measures a live injection against this same window, and the leftover-recorder
+// negative's control is an append-path action — a click that reaches the worker
+// as an APPEND_ACTION while recording is live.
+const IDLE_ABSENCE_WINDOW_MS = 4 * (DELIBERATE_ACTION_FLOOR / 2);
 
 // ─── Scroll Capture ───────────────────────────────────────────────────────────
 // NOTE: Scroll tests are skipped in E2E because mouse.wheel() does not reliably
@@ -331,6 +345,136 @@ test.describe('Recording State Transitions', () => {
     await serviceWorker.evaluate(async () => {
       await chrome.storage.local.set({ recording: true });
     });
+    await testPage.waitForTimeout(200);
+  });
+
+  // ── The idle surface (ECP-2) ────────────────────────────────────────────────
+  // Two negatives, each paired in-spec with the positive control that makes it
+  // non-vacuous: while no recording runs the service worker injects no recorder,
+  // and a recorder a prior recording left in a still-open document is inactive.
+  //
+  // Both observables run through the service worker — the readiness probe for
+  // injection, an APPEND_ACTION probe for the leftover recorder's own attempts —
+  // never through a page-visible flag, which would be invisible to the isolated
+  // world and would leak recording state to the page.
+
+  /**
+   * Count the APPEND_ACTION messages the service worker RECEIVES, whatever it
+   * then does with them. A second onMessage listener sees every message
+   * alongside the production handler (it never responds), so this observes the
+   * recorder's own attempt to append — the frame-trust gate's drop is invisible
+   * here, which is exactly what makes the leftover-recorder negative attributable
+   * to the recorder's deactivation rather than to the gate.
+   */
+  async function installAppendAttemptProbe(serviceWorker) {
+    await serviceWorker.evaluate(() => {
+      globalThis.__appendAttempts = [];
+      if (globalThis.__appendAttemptProbeInstalled) return;
+      globalThis.__appendAttemptProbeInstalled = true;
+      chrome.runtime.onMessage.addListener((msg, sender) => {
+        if (msg && msg.type === 'APPEND_ACTION') {
+          globalThis.__appendAttempts.push({
+            type: msg.action?.type ?? null,
+            tabId: sender?.tab?.id ?? null,
+            frameId: sender?.frameId ?? null,
+          });
+        }
+        // Never return true / call sendResponse — an observer only.
+      });
+    });
+  }
+
+  const getAppendAttempts = (serviceWorker) =>
+    serviceWorker.evaluate(() => globalThis.__appendAttempts ?? []);
+
+  const setRecording = (serviceWorker, value) =>
+    serviceWorker.evaluate(async (v) => {
+      await chrome.storage.local.set({ recording: v });
+    }, value);
+
+  test('no recorder is injected into a document that loads while no recording runs', async ({
+    testPage,
+    serviceWorker,
+    context,
+  }) => {
+    const origin = new URL(testPage.url()).origin;
+    const serve = (target) =>
+      target.route(`${origin}/**`, (route) =>
+        route.fulfill({ status: 200, contentType: 'text/html; charset=utf-8', body: PAGE_HTML }),
+      );
+    await serve(testPage);
+
+    await setRecording(serviceWorker, false);
+    await testPage.waitForTimeout(200);
+
+    // A fresh document loaded while idle: the service worker's onCompleted
+    // injection is the only path a recorder could arrive by, and it is gated on
+    // a live recording. The readiness probe stays silent for a window several
+    // times the pinned inject→ready bound.
+    const idleUrl = `${origin}/idle-${Date.now()}`;
+    await testPage.goto(idleUrl);
+    await expectNoFrameReady(serviceWorker, idleUrl, { within: IDLE_ABSENCE_WINDOW_MS });
+
+    // A tab opened while idle is the same rule — the injection path runs per
+    // frame-load, so a new tab is where a passive content script would show up.
+    const idleTab = await context.newPage();
+    await serve(idleTab);
+    const idleTabUrl = `${origin}/idle-tab-${Date.now()}`;
+    await idleTab.goto(idleTabUrl);
+    await expectNoFrameReady(serviceWorker, idleTabUrl, { within: IDLE_ABSENCE_WINDOW_MS });
+    await idleTab.close();
+
+    // The positive control, measured in this run and against the same window:
+    // with recording live the same navigation does report ready inside it, so
+    // the silence above is an observed absence rather than an unwaited one. The
+    // clock starts where each absence window started — once goto has resolved —
+    // so the two measure the same interval and a slow runner cannot spend the
+    // control's budget on navigation.
+    await setRecording(serviceWorker, true);
+    const liveUrl = `${origin}/live-${Date.now()}`;
+    await testPage.goto(liveUrl);
+    const startedAt = Date.now();
+    const readyAt = await waitForFrameReady(serviceWorker, liveUrl);
+    expect(readyAt - startedAt).toBeLessThan(IDLE_ABSENCE_WINDOW_MS);
+  });
+
+  test('a recorder left in a still-open document attempts no append after recording stops', async ({
+    testPage,
+    serviceWorker,
+  }) => {
+    await setTestContent(testPage, PAGE_HTML);
+    await installAppendAttemptProbe(serviceWorker);
+
+    // The positive control first: while recording, this recorder's click reaches
+    // the worker as an APPEND_ACTION — so the probe demonstrably sees attempts
+    // from this very document.
+    await testPage.click('#btn');
+    await waitForActionsToSettle(serviceWorker, testPage);
+    const whileRecording = await getAppendAttempts(serviceWorker);
+    expect(whileRecording.filter((a) => a.type === 'click').length).toBeGreaterThan(0);
+
+    // Stop recording WITHOUT navigating: the document stays open, so its
+    // recorder instance is still loaded and deactivates in place through its
+    // `recording` watch.
+    await setRecording(serviceWorker, false);
+    await testPage.waitForTimeout(200);
+    await serviceWorker.evaluate(() => {
+      globalThis.__appendAttempts = [];
+    });
+    await clearPendingActions(serviceWorker);
+
+    await testPage.click('#btn');
+    await testPage.fill('#input', 'after the stop');
+    await testPage.click('#btn'); // Blur to trigger change — the type path's own trigger
+    await testPage.waitForTimeout(IDLE_ABSENCE_WINDOW_MS);
+
+    // The recorder itself sent nothing — the attributable observable. (The
+    // shipped stream is empty too, but that alone cannot tell a deactivated
+    // recorder from a live one whose appends the trust gate drops.)
+    expect(await getAppendAttempts(serviceWorker)).toEqual([]);
+    expect(await getPendingActions(serviceWorker)).toEqual([]);
+
+    await setRecording(serviceWorker, true);
     await testPage.waitForTimeout(200);
   });
 

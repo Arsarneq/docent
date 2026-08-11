@@ -15,6 +15,10 @@
  * `readyAt` is stamped in the recorder on the same machine's wall clock the SW
  * uses for webNavigation.onCompleted, so a test can subtract the two to measure
  * the inject→ready window with no cross-process clock skew.
+ *
+ * The same probe answers the negative direction: `expectNoFrameReady` holds a
+ * frame to reporting nothing for a bounded window, which is how a test states
+ * that no recorder is live in a document.
  */
 
 /** Install the FRAME_READY probe in the service worker (idempotent). */
@@ -51,6 +55,31 @@ export async function waitForFrameReady(
     if (Date.now() > deadline) {
       throw new Error(`Timed out waiting for FRAME_READY from ${url}`);
     }
+    await new Promise((r) => setTimeout(r, interval));
+  }
+}
+
+/**
+ * Hold the frame at `url` to reporting NO readiness for `within` milliseconds:
+ * the probe stays silent for the whole window, and a FRAME_READY arriving
+ * inside it throws.
+ *
+ * A negative is only worth what its window is worth, so callers derive `within`
+ * from the inject→ready bound the extension capture doctrine pins and pair the
+ * absence with a positive control that measures a live injection against the
+ * same window. Like the positive waits, this keys on the frame URL and the map
+ * is last-write-wins, so the caller navigates to a URL no earlier document in
+ * the run used — an older document's timestamp under a reused URL would read as
+ * this document's recorder.
+ */
+export async function expectNoFrameReady(serviceWorker, url, { within, interval = 20 } = {}) {
+  const deadline = Date.now() + within;
+  for (;;) {
+    const at = await getFrameReadyAt(serviceWorker, url);
+    if (at != null) {
+      throw new Error(`FRAME_READY reported from ${url} (readyAt ${at}) within ${within}ms`);
+    }
+    if (Date.now() >= deadline) return;
     await new Promise((r) => setTimeout(r, interval));
   }
 }

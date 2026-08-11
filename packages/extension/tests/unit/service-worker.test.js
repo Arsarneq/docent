@@ -1016,10 +1016,13 @@ describe('SERVICE WORKER: APPEND_ACTION (content script → storage handoff)', (
 
 // ─── APPEND_ACTION sender validation (frame trust) ────────────────────────────
 // The SW validates each APPEND_ACTION sender against the active-frame registry
-// via the shared frame-trust helper before appending. This replicates the
-// validateAndAppend chokepoint, routing the trust decision through the REAL
-// isTrustedActionSender so the unit test single-sources the predicate rather
-// than re-implementing it.
+// via the shared frame-trust helper before appending. The chokepoint below is
+// the worker's own validateAndAppend, kept here as a second textual copy of it
+// (the mirrored-block convention: recorder-mirror-parity.test.js is the
+// precedent) — service-worker-mirror-parity.test.js holds the two copies equal
+// and fails this suite when they drift, so a case here pins the shipped
+// chokepoint rather than a mirror of it. The trust decision routes through the
+// REAL isTrustedActionSender for the same reason.
 
 describe('SERVICE WORKER: APPEND_ACTION sender validation', () => {
   const RUNTIME_ID = 'docent-extension-id';
@@ -1044,24 +1047,58 @@ describe('SERVICE WORKER: APPEND_ACTION sender validation', () => {
     frames.add(frameId);
   }
 
-  // Mirror of validateAndAppend without chrome.* (no lazy reseed — that needs
-  // webNavigation). Drops untrusted senders silently; stamps context_id from the
-  // trusted sender's tab.
+  // The seams the worker's module scope supplies, bound here so the copy below
+  // can be the worker's text and nothing else: the runtime id the trust
+  // predicate reads, the warning sink, the reseed the worker runs before
+  // validating (inert here — a real reseed needs webNavigation, and every case
+  // registers the frames it means to be trusted), and the append chokepoint,
+  // whose storage and redaction behaviour is pinned by their own suites.
+  const chrome = { runtime: { id: RUNTIME_ID } };
+  const console = {
+    warn: () => {
+      warnings++;
+    },
+  };
+  async function seedFramesForTab() {}
+  async function appendSwAction(action) {
+    storageData.pendingActions = [...storageData.pendingActions, action];
+    storageData.pendingCount = storageData.pendingActions.length;
+  }
+
+  // -- BEGIN MIRRORED APPEND CHOKEPOINT (two-copy: background/service-worker.js <-> this suite; parity-tested) --
   async function validateAndAppend(action, sender) {
+    // Lazy reseed: if a recording is live but the in-memory registry is empty, the
+    // SW was suspended and lost it. Rebuild this tab's frames from webNavigation
+    // BEFORE validating, rather than false-rejecting a legitimate frame.
+    const tabId = sender?.tab?.id;
+    if (liveRecording && tabId != null && !activeFrames.has(tabId)) {
+      await seedFramesForTab(tabId);
+    }
+
     const trusted = isTrustedActionSender({
       sender,
-      runtimeId: RUNTIME_ID,
+      runtimeId: chrome.runtime.id,
       liveRecording,
       activeFrames,
     });
     if (!trusted) {
-      warnings++;
+      console.warn('[Docent] Dropped APPEND_ACTION from untrusted sender', {
+        tabId,
+        frameId: sender?.frameId,
+      });
       return;
     }
-    action.context_id = sender.tab.id;
-    storageData.pendingActions = [...storageData.pendingActions, action];
-    storageData.pendingCount = storageData.pendingActions.length;
+
+    // Stamp identity from the TRUSTED sender, not the message: a compromised frame
+    // cannot spoof another tab's context_id. frame_src is left as reported — it is
+    // descriptive context (cross-origin tests assert on it) and dropping legitimate
+    // frame data would violate the conservative-fidelity rule.
+    if (action && typeof action === 'object') {
+      action.context_id = sender.tab.id;
+    }
+    await appendSwAction(action);
   }
+  // -- END MIRRORED APPEND CHOKEPOINT --
 
   beforeEach(reset);
 

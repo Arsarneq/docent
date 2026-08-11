@@ -300,6 +300,51 @@ fn is_drag(down: POINT, up: POINT) -> bool {
     dx > DRAG_THRESHOLD_PX || dy > DRAG_THRESHOLD_PX
 }
 
+/// What a left-button release records (desktop capture principles, DCP-10).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum LeftRelease {
+    /// One click, at the release point.
+    Click,
+    /// The drag pair — a drag_start followed by a drop — whose source is
+    /// described from the recorded press point.
+    DragPair { source_coords: (i32, i32) },
+}
+
+/// What the left button's release records, decided from the press point the
+/// button-down recorded (absent when no press was recorded for this release)
+/// and the release point: the drag pair once the movement passes the
+/// [`DRAG_THRESHOLD_PX`] threshold, and a click otherwise. The pair's source
+/// is the press point, which is where the gesture started.
+///
+/// Pure logic the release handler consumes, so the whole decision — not only
+/// its threshold — is unit-testable without synthesizing real mouse input.
+/// The other buttons reach no decision here: their arms record on button-down
+/// through [`down_dispatch_event_type`].
+fn classify_left_release(down: Option<POINT>, up: POINT) -> LeftRelease {
+    match down {
+        Some(down_pt) if is_drag(down_pt, up) => LeftRelease::DragPair {
+            source_coords: (down_pt.x, down_pt.y),
+        },
+        _ => LeftRelease::Click,
+    }
+}
+
+/// The raw event a button-down message records, for the buttons whose action is
+/// dispatched from the press itself: the middle button records a click and the
+/// right button a right-click, each on button-down. A message outside that pair
+/// records nothing here — the left button's own arms carry the press-move-release
+/// decision ([`classify_left_release`]), and the wheel messages their own.
+///
+/// Pure logic both button-down arms consume, so the mapping is unit-testable
+/// without synthesizing real mouse input.
+fn down_dispatch_event_type(msg: u32) -> Option<RawEventType> {
+    match msg {
+        WM_MBUTTONDOWN => Some(RawEventType::Click),
+        WM_RBUTTONDOWN => Some(RawEventType::RightClick),
+        _ => None,
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Thread-local state for Input_Thread hook callbacks
 // ---------------------------------------------------------------------------
@@ -1862,21 +1907,17 @@ unsafe extern "system" fn input_mouse_ll_proc(
                     // A release is input too: selections completed at the end
                     // of a long drag correlate with the release, not the press.
                     note_input(timestamp, window_handle);
-                    let was_drag = INPUT_MOUSE_DOWN_POS
-                        .with(|p| p.get())
-                        .is_some_and(|down_pt| is_drag(down_pt, pt));
+                    let classified =
+                        classify_left_release(INPUT_MOUSE_DOWN_POS.with(|p| p.get()), pt);
 
-                    if was_drag {
+                    if let LeftRelease::DragPair { source_coords } = classified {
                         // Drag detected: dispatch DragStart + Drop pair.
-                        let down_pt = INPUT_MOUSE_DOWN_POS.with(|p| p.get()).unwrap_or(pt);
-                        let source_coords = (down_pt.x, down_pt.y);
-
                         input_dispatch_raw_event(RawEvent {
                             event_type: RawEventType::DragStart { source_coords },
                             sequence_id: 0,
                             timestamp,
-                            screen_x: down_pt.x,
-                            screen_y: down_pt.y,
+                            screen_x: source_coords.0,
+                            screen_y: source_coords.1,
                             window_handle,
                             process_id: pid,
                             key_code: 0,
@@ -1923,25 +1964,6 @@ unsafe extern "system" fn input_mouse_ll_proc(
 
                     INPUT_MOUSE_DOWN_POS.with(|p| p.set(None));
                 }
-                WM_RBUTTONDOWN => {
-                    // Record the input for correlation.
-                    note_input(timestamp, window_handle);
-                    let pre_element = input_pre_capture_element(pt.x, pt.y);
-                    input_dispatch_raw_event(RawEvent {
-                        event_type: RawEventType::RightClick,
-                        sequence_id: 0,
-                        timestamp,
-                        screen_x: pt.x,
-                        screen_y: pt.y,
-                        window_handle,
-                        process_id: pid,
-                        key_code: 0,
-                        modifiers: (false, false, false, false),
-                        scroll_delta: 0.0,
-                        callback_params: [0, 0, 0, 0],
-                        pre_captured_element: pre_element,
-                    });
-                }
                 WM_MOUSEWHEEL => {
                     // Wheel is input: wheel-rotated selections (ComboBox,
                     // lists) must correlate like any other user action.
@@ -1980,24 +2002,28 @@ unsafe extern "system" fn input_mouse_ll_proc(
                         pre_captured_element: None,
                     });
                 }
-                WM_MBUTTONDOWN => {
-                    // Record the input for correlation.
-                    note_input(timestamp, window_handle);
-                    let pre_element = input_pre_capture_element(pt.x, pt.y);
-                    input_dispatch_raw_event(RawEvent {
-                        event_type: RawEventType::Click,
-                        sequence_id: 0,
-                        timestamp,
-                        screen_x: pt.x,
-                        screen_y: pt.y,
-                        window_handle,
-                        process_id: pid,
-                        key_code: 0,
-                        modifiers: (false, false, false, false),
-                        scroll_delta: 0.0,
-                        callback_params: [0, 0, 0, 0],
-                        pre_captured_element: pre_element,
-                    });
+                // The middle and right buttons record on the press itself, each
+                // dispatching the raw event its message maps to.
+                WM_MBUTTONDOWN | WM_RBUTTONDOWN => {
+                    if let Some(event_type) = down_dispatch_event_type(msg) {
+                        // Record the input for correlation.
+                        note_input(timestamp, window_handle);
+                        let pre_element = input_pre_capture_element(pt.x, pt.y);
+                        input_dispatch_raw_event(RawEvent {
+                            event_type,
+                            sequence_id: 0,
+                            timestamp,
+                            screen_x: pt.x,
+                            screen_y: pt.y,
+                            window_handle,
+                            process_id: pid,
+                            key_code: 0,
+                            modifiers: (false, false, false, false),
+                            scroll_delta: 0.0,
+                            callback_params: [0, 0, 0, 0],
+                            pre_captured_element: pre_element,
+                        });
+                    }
                 }
                 _ => {}
             }
@@ -3051,8 +3077,10 @@ mod tests {
     // different answer.
 
     use super::{
-        input_should_keep_event_cached, is_drag, scope_filter_decision, AtomicU32,
-        DRAG_THRESHOLD_PX, HWND, INPUT_INCLUDED_PID, INPUT_PID_CACHE, POINT,
+        classify_left_release, down_dispatch_event_type, input_should_keep_event_cached, is_drag,
+        scope_filter_decision, AtomicU32, LeftRelease, RawEventType, DRAG_THRESHOLD_PX, HWND,
+        INPUT_INCLUDED_PID, INPUT_PID_CACHE, POINT, WM_LBUTTONDOWN, WM_MBUTTONDOWN, WM_MOUSEWHEEL,
+        WM_RBUTTONDOWN,
     };
     use std::cell::{Cell, RefCell};
     use std::collections::HashMap;
@@ -3510,6 +3538,65 @@ mod tests {
             is_drag(at(100, 100), at(102, 140)),
             "one axis past the threshold decides even when the other is within it"
         );
+    }
+
+    // The whole left-button decision, over the seam the release handler
+    // consumes: what the release records, and where the drag pair says the
+    // gesture began. The threshold cases above hold the predicate this rides on.
+
+    #[test]
+    fn a_release_past_the_threshold_is_the_drag_pair_sourced_at_the_press() {
+        // The pair is emitted at the release, and its source describes the
+        // press point — not the release point the gesture ended at.
+        assert_eq!(
+            classify_left_release(Some(at(100, 100)), at(400, 250)),
+            LeftRelease::DragPair {
+                source_coords: (100, 100)
+            }
+        );
+    }
+
+    #[test]
+    fn a_release_within_the_threshold_is_a_click() {
+        // The same press-move-release, moved a distance the threshold covers.
+        assert_eq!(
+            classify_left_release(Some(at(100, 100)), at(103, 104)),
+            LeftRelease::Click
+        );
+    }
+
+    #[test]
+    fn a_release_with_no_recorded_press_is_a_click() {
+        // A release whose press was never recorded — the press landed while
+        // capture was off, or an excluded window's release cleared it — has no
+        // gesture to source a drag from, so it records the click at the release.
+        assert_eq!(
+            classify_left_release(None, at(400, 250)),
+            LeftRelease::Click
+        );
+    }
+
+    #[test]
+    fn the_middle_and_right_buttons_dispatch_their_action_from_the_press() {
+        // Each of these arms records on button-down, so the mapping is the
+        // whole decision: middle records a click, right a right-click.
+        assert!(matches!(
+            down_dispatch_event_type(WM_MBUTTONDOWN),
+            Some(RawEventType::Click)
+        ));
+        assert!(matches!(
+            down_dispatch_event_type(WM_RBUTTONDOWN),
+            Some(RawEventType::RightClick)
+        ));
+    }
+
+    #[test]
+    fn the_down_dispatch_mapping_answers_for_its_own_two_messages() {
+        // The left button's press records no action of its own (its release
+        // does, above), and the wheel messages are their own arm — so neither
+        // reaches this mapping.
+        assert!(down_dispatch_event_type(WM_LBUTTONDOWN).is_none());
+        assert!(down_dispatch_event_type(WM_MOUSEWHEEL).is_none());
     }
 
     // -- flush-barrier fallback drain (truthful completion) ----------------

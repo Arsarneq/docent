@@ -107,10 +107,14 @@ here, not from a failed replay:
 - **Interactions outside the capture surface** — each platform enumerates the
   surface its capture layer observes and treats it as closed: an interaction
   that reaches none of it is not captured, with no per-case listing to go
-  stale. The short exception lists cover only the non-obvious corners —
-  interactions that appear to be within the surface but are intercepted
-  before it or bypass it (OS-level hotkeys, assistive technologies that drive
-  accessibility APIs directly): [extension](../architecture/application/extension/capture-principles.md),
+  stale. The short exception lists carry the corners where the surface
+  description alone would mislead, which is the test for belonging on one:
+  an interaction intercepted before the surface or bypassing it (OS-level
+  hotkeys, assistive technologies that drive accessibility APIs directly),
+  one captured with a caveat (a gesture debounced and coalesced, with a
+  sub-threshold discard), and one the surface declines within itself (a
+  keystroke outside the captured keyboard set, or a proxy that triggers on one
+  confirmation route): [extension](../architecture/application/extension/capture-principles.md),
   [desktop](../architecture/application/desktop/windows/capture-principles.md).
 
 ---

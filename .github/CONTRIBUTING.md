@@ -363,7 +363,10 @@ is the one home of that list. What each kind of change keeps green:
   judgment — and every citation a row's `check-ref` or `justification` carries
   must resolve, or be refused as a citation that cannot identify what it names;
   the check's own list of citable root files is held to the tracked set on every
-  run, so a stale entry reds there rather than in a row.
+  run, so a stale entry reds there rather than in a row. A row may also name the
+  test cases that pin its clause, in an opt-in field whose every entry must
+  resolve in one of the files that row's `check-ref` cites, held by the same
+  lint.
   `lint:clause-registry` holds the doc markers and the registry rows in
   one-to-one agreement. Such a document also states the canonical preamble
   verbatim — the identifier, verification, RFC 2119, keyword-placement, and
