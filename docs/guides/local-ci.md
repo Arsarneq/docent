@@ -21,24 +21,57 @@ by scope:
 For the gates inside the `lint` job (and the freshness and clippy gates),
 the per-gate one-liners (`npm run lint:…`, `cargo …`) are tabled in
 [CI gates § The lint and freshness gates](ci.md#the-lint-and-freshness-gates)
-and not duplicated here; the per-layer test commands are in
+and not repeated here: the table holds each gate's plain command, and where a
+gate has a mode that command does not reach, the mode is documented below.
+The per-layer test commands are in
 [CONTRIBUTING § Running Tests](../../.github/CONTRIBUTING.md#running-tests).
-The gate workflows outside the test suite have direct runs too:
+The gates whose local run needs more than the tabled one-liner have direct
+runs too:
 
 ### Docs disposition format
 
 [`docs-disposition.yml`](../../.github/workflows/docs-disposition.yml) runs
 [`check-docs-disposition.js`](../../scripts/check-docs-disposition.js) with
-the PR body in the `PR_BODY` environment variable and the base ref as its
-argument. The same run locally, with your draft body in a file:
+the PR body in the `PR_BODY` environment variable, the PR head branch in
+`PR_HEAD_REF`, and the base ref as its argument. `PR_HEAD_REF` is optional:
+the workflow supplies it for same-repo pull requests, and the
+release-automation class keys on it, so a local run without it simply never
+admits that class. The same run locally, with your draft body in a file:
 
 ```bash
 git fetch --no-tags origin main
 PR_BODY="$(cat pr-body.md)" node scripts/check-docs-disposition.js origin/main
+
+# with the head branch, to exercise the release-automation class as CI does
+PR_BODY="$(cat pr-body.md)" PR_HEAD_REF=automated/version-table-update \
+  node scripts/check-docs-disposition.js origin/main
 ```
 
 Its red output enumerates the exact lines the sections must carry, so a
 failing run teaches its own fix.
+
+### The release-output guard's positive mode
+
+[`check-no-release-outputs.js`](../../scripts/check-no-release-outputs.js)
+reads `PR_HEAD_REF` the same way, and it selects the guard's mode: the plain
+run tabled with the `lint` gates
+([CI gates § The lint and freshness gates](ci.md#the-lint-and-freshness-gates))
+is the negative mode every feature branch gets, while the release pipeline's
+automation branch as the head ref runs the positive validation CI performs on
+the version PR
+([PUBLISHING § Test gating and the version PR](../../.github/PUBLISHING.md#test-gating-and-the-version-pr)):
+
+```bash
+git fetch --no-tags origin main
+PR_HEAD_REF=automated/version-table-update npm run check:no-release-outputs
+```
+
+That mode recomposes `schemas/dist/` and reads the working tree, so run it on
+a clean tree — an uncommitted composed schema reports as drift. It validates
+the diff, not the branch name: run it from anywhere else and it reports your
+own branch's files as ride-alongs, which is the mode working, not a false
+verdict. The fetch matters too — with no base ref to diff against, the guard
+skips with a warning instead of validating anything.
 
 ### PR title
 

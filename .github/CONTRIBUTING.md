@@ -292,16 +292,38 @@ repository — write `none` explicitly if nothing), what you verified and how, a
 a `mutation:` line (mutation testing runs as a standing weekly job, never per
 change — `mutation: no per-change claim; mutation testing runs as a standing weekly job.`).
 
-Dependency-only PRs skip both sections — the check recognises those diffs by
-itself, and only those: lockfiles; `package.json` changes whose parsed sides
-differ at most in the dependency-resolution fields (`dependencies`,
-`devDependencies`, `peerDependencies`, `optionalDependencies`, `overrides` —
-compared structurally, so nested `overrides` entries qualify and
-formatting-only differences count as no change, while `scripts`, `engines`,
-or any other field keeps the sections); `Cargo.toml` changes whose changed
-lines all sit inside dependency sections; and same-action pin bumps. A line
-that parses but says nothing is a review problem, not a CI pass: write the
+Dependency-only PRs skip both sections, and so does the release pipeline's own
+regeneration PR. Each admitted class states its admission test and the inputs
+that decide it. Decided from the diff alone: lockfiles; `package.json` changes
+whose parsed sides differ at most in the dependency-resolution fields
+(`dependencies`, `devDependencies`, `peerDependencies`, `optionalDependencies`,
+`overrides` — compared structurally, so nested `overrides` entries qualify and
+formatting-only differences count as no change, while `scripts`, `engines`, or
+any other field keeps the sections); `Cargo.toml` changes whose changed lines
+all sit inside the dependency sections Cargo defines for them, the per-crate
+table form included; and same-action pin bumps. Decided from the diff together
+with the head branch CI supplies for same-repo pull requests: a PR on the
+release pipeline's automation branch whose every changed file belongs to the
+release-output surface enumerated in
+[`scripts/check-no-release-outputs.js`](../scripts/check-no-release-outputs.js),
+which is that surface's one home. Every other change carries the sections. A
+line that parses but says nothing is a review problem, not a CI pass: write the
 reason you actually relied on.
+
+A PR whose changed files are the governance data itself — the
+[area map](../scripts/area-map.json), alone or together with the
+[clause registry](../docs/clause-registry.json) — records that judgment as one
+line, in place of the per-doc lines:
+
+```text
+governance-data-only: <why the documented governance goals survive this edit>
+```
+
+The goals are the ones stated below in
+[Extending the Docs Governance](#extending-the-docs-governance); the reason is
+free text and the check verifies only that exactly one such line is there and
+that it says something. `## Change record` is required as usual, and the same
+line on any other PR is red — it is earned by that class of diff alone.
 
 The judgments are also audited in aggregate: a weekly job measures how often
 a doc judged unaffected was edited shortly after by overlapping work — a

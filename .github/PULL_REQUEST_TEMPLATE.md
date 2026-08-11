@@ -34,7 +34,15 @@
      Docs whose rules carry clause ids also take one line per clause tagged judgment-only
      in docs/clause-registry.json, e.g.:
        unaffected: docs/architecture/system/capture-principles.md §CP-3 — <why>
-     Dependency-only PRs (lockfiles, dependency-only manifest changes, action-pin bumps) skip this section. -->
+     The admitted classes skip this section entirely: dependency-only PRs (lockfiles,
+     dependency-only manifest changes, action-pin bumps), and the release pipeline's own
+     regeneration PR on its automation branch.
+     A PR that changes only the governance data (scripts/area-map.json, alone or with
+     docs/clause-registry.json) keeps the section and writes one line here in place of
+     the per-doc lines:
+       governance-data-only: <why the documented governance goals survive this edit>
+     See .github/CONTRIBUTING.md ("Docs Disposition and Change Record") for each class's
+     admission test. -->
 
 ## Change record
 
@@ -43,4 +51,5 @@
        Outside knowledge: <sources consulted beyond this repo, or "none">
        <what you verified and how — tests run, checks observed>
        mutation: no per-change claim; mutation testing runs as a standing weekly job.
-     Dependency-only PRs skip this section too. -->
+     The classes that skip the section above skip this one too — dependency-only PRs and
+     the release pipeline's own regeneration PR; a governance-data-only PR keeps it. -->

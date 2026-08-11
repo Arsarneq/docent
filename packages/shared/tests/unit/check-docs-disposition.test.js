@@ -5,14 +5,16 @@
  * judgment-only clause) and a "## Change record"; these tests prove the red
  * paths fire (missing/unexpected/duplicate/malformed lines, missing sections
  * and markers), that the shipped PR template's HTML comments are inert in both
- * directions, and that the declared dependency-only exemption is exactly as
- * narrow as documented (the manifests' dependency-resolution fields and
- * same-action pin bumps only).
+ * directions, and that each declared class is exactly as narrow as documented:
+ * the dependency-only class (the manifests' dependency-resolution fields and
+ * same-action pin bumps), the release-automation class (the pipeline's own
+ * branch plus the release-output surface), and the governance-data-only class
+ * (one recorded line replacing the per-doc wall, unearned anywhere else).
  */
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync, mkdtempSync, writeFileSync, rmSync } from 'node:fs';
+import { readFileSync, mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { execFileSync, spawnSync } from 'node:child_process';
 import os from 'node:os';
 import path from 'node:path';
@@ -22,14 +24,25 @@ import {
   isDependencyOnlyPackageJsonDiff,
   isDependencyOnlyCargoTomlDiff,
   PACKAGE_JSON_DEPENDENCY_FIELDS,
+  isDependencyOnlyDiff,
+  isReleaseAutomationDiff,
+  isGovernanceDataDiff,
+  exemptionClass,
+  DEPENDENCY_ONLY_CLASS,
+  RELEASE_AUTOMATION_CLASS,
+  GOVERNANCE_MARKER,
+  REGISTRY_PATH,
   isExemptDiff,
   docsInScope,
   expectedDispositionLines,
   parseDispositionSection,
+  parseGovernanceSection,
   stripHtmlComments,
   extractSection,
   auditBody,
 } from '../../../../scripts/check-docs-disposition.js';
+import { MAP_PATH } from '../../../../scripts/check-area-map.js';
+import { AUTOMATED_BRANCH } from '../../../../scripts/check-no-release-outputs.js';
 
 const MAP = {
   description: 'test map',
@@ -93,6 +106,44 @@ const BASE_PKG = {
 
 /** BASE_PKG with top-level fields replaced (shallow). */
 const pkgWith = (patch) => ({ ...structuredClone(BASE_PKG), ...patch });
+
+/** The check CLI, driven end to end by the throwaway-repo harness below. */
+const SCRIPT = path.resolve(import.meta.dirname, '../../../../scripts/check-docs-disposition.js');
+
+/**
+ * Commit `files` in a throwaway git repo, commit the changed versions over
+ * them, and run the check CLI against that diff with the given env.
+ * @returns {{ status: number | null, stdout: string, stderr: string }}
+ */
+const runCheckOnChange = (before, after, env) => {
+  const tmp = mkdtempSync(path.join(os.tmpdir(), 'ddisp-rel-'));
+  try {
+    const g = (args) => execFileSync('git', args, { cwd: tmp, encoding: 'utf8' });
+    const write = (files) => {
+      for (const [rel, text] of Object.entries(files)) {
+        const p = path.join(tmp, rel);
+        mkdirSync(path.dirname(p), { recursive: true });
+        writeFileSync(p, text);
+      }
+      g(['add', '.']);
+    };
+    g(['init', '-q', '-b', 'main']);
+    g(['config', 'user.email', 't@example.com']);
+    g(['config', 'user.name', 'Test']);
+    write(before);
+    g(['commit', '-qm', 'base']);
+    const base = g(['rev-parse', 'HEAD']).trim();
+    write(after);
+    g(['commit', '-qm', 'change']);
+    return spawnSync('node', [SCRIPT, base], {
+      cwd: tmp,
+      env: { ...process.env, ...env },
+      encoding: 'utf8',
+    });
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
+  }
+};
 
 describe('changedLines', () => {
   it('keeps content that begins with + or - at column 0, drops only file headers', () => {
@@ -340,15 +391,14 @@ describe('isDependencyOnlyPackageJsonDiff — structural and field-aware', () =>
   });
 });
 
-describe('PACKAGE_JSON_DEPENDENCY_FIELDS — welded to its declared doctrine home', () => {
-  it('every exempt field is named in CONTRIBUTING.md’s exemption paragraph', () => {
-    // The boundary is declared in two homes — this exported list (the code the
-    // gate runs) and the exemption paragraph in CONTRIBUTING's "Docs
-    // Disposition and Change Record" section (the doctrine contributors read).
-    // Weld them so they cannot drift apart silently — scoped to that
-    // paragraph's extent, so a field dropped from the declaration cannot stay
-    // green off the same token elsewhere in the file (e.g. `dependencies` in
-    // setup prose).
+describe('the exemption declaration — welded to its doctrine home', () => {
+  /**
+   * CONTRIBUTING's exemption paragraph, scoped to its own extent (the anchor
+   * sentence through the next blank line) — the same scope both welds use, so
+   * a declaration that loses a term cannot stay green off the same token
+   * elsewhere in the file.
+   */
+  const exemptionParagraph = () => {
     const contributing = readFileSync(
       path.resolve(import.meta.dirname, '../../../../.github/CONTRIBUTING.md'),
       'utf8',
@@ -358,7 +408,29 @@ describe('PACKAGE_JSON_DEPENDENCY_FIELDS — welded to its declared doctrine hom
     assert.notEqual(start, -1, `CONTRIBUTING.md must carry the "${anchor}" exemption paragraph`);
     const rest = contributing.slice(start);
     const end = rest.indexOf('\n\n');
-    const paragraph = end === -1 ? rest : rest.slice(0, end);
+    return end === -1 ? rest : rest.slice(0, end);
+  };
+
+  it('cites the release-output surface’s one home rather than restating its members', () => {
+    // The release-automation class admits a PR by that enumeration, which is
+    // documented as expected to grow — so the doctrine points at its home and
+    // the pointer itself is welded, inside the same paragraph extent.
+    assert.match(
+      exemptionParagraph(),
+      /scripts\/check-no-release-outputs\.js/,
+      "CONTRIBUTING.md's exemption paragraph must cite scripts/check-no-release-outputs.js",
+    );
+  });
+
+  it('every exempt field is named in CONTRIBUTING.md’s exemption paragraph', () => {
+    // The boundary is declared in two homes — this exported list (the code the
+    // gate runs) and the exemption paragraph in CONTRIBUTING's "Docs
+    // Disposition and Change Record" section (the doctrine contributors read).
+    // Weld them so they cannot drift apart silently — scoped to that
+    // paragraph's extent, so a field dropped from the declaration cannot stay
+    // green off the same token elsewhere in the file (e.g. `dependencies` in
+    // setup prose).
+    const paragraph = exemptionParagraph();
     for (const field of PACKAGE_JSON_DEPENDENCY_FIELDS) {
       assert.match(
         paragraph,
@@ -366,6 +438,36 @@ describe('PACKAGE_JSON_DEPENDENCY_FIELDS — welded to its declared doctrine hom
         `CONTRIBUTING.md's exemption paragraph must name \`${field}\``,
       );
     }
+  });
+});
+
+describe('the governance-data-only marker — welded to the surfaces it is copied from', () => {
+  const repoFile = (rel) =>
+    readFileSync(path.resolve(import.meta.dirname, '../../../..', rel), 'utf8');
+
+  it('CONTRIBUTING.md shows the marker verbatim in its fenced example', () => {
+    // Contributors type the marker exactly as the example spells it, and the
+    // parser accepts exactly one spelling — so an example that drifts teaches
+    // a line the check reports as malformed.
+    const fenced = [...repoFile('.github/CONTRIBUTING.md').matchAll(/```text\n([\s\S]*?)```/g)].map(
+      (m) => m[1],
+    );
+    assert.ok(
+      fenced.some((block) => block.trimStart().startsWith(GOVERNANCE_MARKER)),
+      `CONTRIBUTING.md must show a fenced example opening with "${GOVERNANCE_MARKER}"`,
+    );
+  });
+
+  it('the PR template scaffolds the marker verbatim in its Docs disposition comment', () => {
+    const section = extractSection(
+      repoFile('.github/PULL_REQUEST_TEMPLATE.md'),
+      'Docs disposition',
+    );
+    assert.notEqual(section, null, 'the template must carry a "## Docs disposition" section');
+    assert.ok(
+      section.includes(GOVERNANCE_MARKER),
+      `the PR template's Docs-disposition comment must spell "${GOVERNANCE_MARKER}" verbatim`,
+    );
   });
 });
 
@@ -388,9 +490,50 @@ describe('isDependencyOnlyCargoTomlDiff', () => {
     const headerDropped = diff([' serde = "1.0.0"', '-tokio = "1.0.0"', '+tokio = "1.1.0"']);
     assert.equal(isDependencyOnlyCargoTomlDiff(headerDropped), false);
   });
+
+  it('accepts every dependency-section form Cargo defines — table, target, workspace', () => {
+    // The per-crate table form is how a dependency with options is written, so a
+    // bump inside one is the same dependency data as the inline form.
+    const bumpIn = (header) => diff([` ${header}`, '-version = "1.0.0"', '+version = "1.0.1"']);
+    for (const header of [
+      '[dependencies.serde]',
+      "[target.'cfg(windows)'.dependencies]",
+      '[target.x86_64-pc-windows-msvc.dev-dependencies]',
+      '[workspace.dependencies.serde]',
+      '[workspace.dependencies]',
+      '[build-dependencies.cc]',
+    ]) {
+      assert.equal(
+        isDependencyOnlyCargoTomlDiff(bumpIn(header)),
+        true,
+        `expected a bump inside ${header} to be dependency-only`,
+      );
+    }
+  });
+
+  it('rejects the open third-party namespaces that merely end in a dependency-shaped name', () => {
+    // [package.metadata.*] and [lints.*] hold arbitrary tool data — a change
+    // there is a real change, whatever the table happens to be called.
+    const changeIn = (header) => diff([` ${header}`, '-x = "1"', '+x = "2"']);
+    for (const header of [
+      '[package]',
+      '[profile.release]',
+      '[package.metadata.dependencies]',
+      '[package.metadata.docs.rs.dependencies]',
+      '[lints.dependencies]',
+      '[profile.release.package.dependencies]',
+      '[dependencies-extra]',
+    ]) {
+      assert.equal(
+        isDependencyOnlyCargoTomlDiff(changeIn(header)),
+        false,
+        `expected a change inside ${header} to carry the sections`,
+      );
+    }
+  });
 });
 
-describe('isExemptDiff — the declared dependency-only exemption', () => {
+describe('isExemptDiff — the declared classes that skip the sections', () => {
   const depBump = jdiff(BASE_PKG, pkgWith({ devDependencies: { 'left-pad': '^1.3.0' } }));
   const pinBump = diff([
     `-      - uses: actions/checkout@${SHA_A}`,
@@ -429,6 +572,79 @@ describe('isExemptDiff — the declared dependency-only exemption', () => {
     );
     assert.equal(isExemptDiff({ files: [], fileDiff: () => '' }), false);
   });
+
+  it('names the admitting class, keeping the dependency classes under one name', () => {
+    assert.equal(
+      exemptionClass({ files: ['package-lock.json'], fileDiff: () => 'anything' }),
+      DEPENDENCY_ONLY_CLASS,
+    );
+    assert.equal(
+      exemptionClass({
+        files: ['README.md'],
+        fileDiff: () => '',
+        headRef: AUTOMATED_BRANCH,
+      }),
+      RELEASE_AUTOMATION_CLASS,
+    );
+    assert.equal(exemptionClass({ files: ['packages/alpha/index.js'], fileDiff: () => '' }), null);
+  });
+});
+
+describe('isReleaseAutomationDiff — the release pipeline’s own regeneration PR', () => {
+  // Release outputs, including a leaf delta file (the version the pipeline bumps).
+  const RELEASE_FILES = [
+    'schemas/dist/extension.schema.json',
+    'schemas/extension.delta.json',
+    'README.md',
+    'docs/technical/session-format.md',
+    'packages/extension/manifest.json',
+  ];
+
+  it('admits the automation branch when every changed file is a release output', () => {
+    assert.equal(
+      isReleaseAutomationDiff({ files: RELEASE_FILES, headRef: AUTOMATED_BRANCH }),
+      true,
+    );
+    assert.equal(
+      isExemptDiff({ files: RELEASE_FILES, fileDiff: () => '', headRef: AUTOMATED_BRANCH }),
+      true,
+    );
+  });
+
+  it('admits nothing when the head ref is another branch, or is not supplied at all', () => {
+    // The workflow supplies the head ref for same-repo PRs only, so a fork PR
+    // arrives here with the empty string — and existing callers pass none.
+    assert.equal(isReleaseAutomationDiff({ files: RELEASE_FILES, headRef: 'feature/x' }), false);
+    assert.equal(isReleaseAutomationDiff({ files: RELEASE_FILES, headRef: '' }), false);
+    assert.equal(isExemptDiff({ files: RELEASE_FILES, fileDiff: () => '' }), false);
+  });
+
+  it('rejects a file outside the release-output surface riding along on that branch', () => {
+    assert.equal(
+      isReleaseAutomationDiff({
+        files: [...RELEASE_FILES, 'packages/extension/background/worker.js'],
+        headRef: AUTOMATED_BRANCH,
+      }),
+      false,
+    );
+  });
+
+  it('rejects an empty file list', () => {
+    assert.equal(isReleaseAutomationDiff({ files: [], headRef: AUTOMATED_BRANCH }), false);
+  });
+
+  it('leaves the dependency class deciding from the diff alone, head ref or not', () => {
+    const depBump = jdiff(BASE_PKG, pkgWith({ devDependencies: { 'left-pad': '^1.3.0' } }));
+    assert.equal(isDependencyOnlyDiff({ files: ['package.json'], fileDiff: () => depBump }), true);
+    assert.equal(
+      exemptionClass({
+        files: ['package.json'],
+        fileDiff: () => depBump,
+        headRef: AUTOMATED_BRANCH,
+      }),
+      DEPENDENCY_ONLY_CLASS,
+    );
+  });
 });
 
 describe('run() manifest exemption — full-file context so the block opener is never dropped', () => {
@@ -438,7 +654,6 @@ describe('run() manifest exemption — full-file context so the block opener is 
   // below it, so isDependencyOnlyPackageJsonDiff misjudged it as a change outside a
   // dependency block. Dependabot cannot add the demanded sections.
   // Surfaced by https://github.com/Arsarneq/docent/pull/268
-  const SCRIPT = path.resolve(import.meta.dirname, '../../../../scripts/check-docs-disposition.js');
 
   /**
    * A package.json whose bumped devDependency sits many lines below the block
@@ -534,6 +749,85 @@ describe('run() manifest exemption — full-file context so the block opener is 
         `stdout: ${r.stdout}\nstderr: ${r.stderr}`,
     );
     assert.match(r.stdout, /dependency-only/);
+  });
+});
+
+describe('run() release-automation class — the generated PR body carries no sections', () => {
+  const REPO = path.resolve(import.meta.dirname, '../../../..');
+
+  /**
+   * The body a publish workflow generates for its automation PR.
+   * @param {string} [workflowFile] repo-relative workflow path
+   */
+  const generatedBody = (workflowFile = '.github/workflows/publish.yml') => {
+    const workflow = readFileSync(path.join(REPO, workflowFile), 'utf8');
+    const m = workflow.match(/^\s*body: '(.*)'$/m);
+    assert.notEqual(
+      m,
+      null,
+      `${workflowFile} must state the automation PR body as a single-quoted scalar`,
+    );
+    return m[1];
+  };
+
+  const before = {
+    'README.md': '| Chrome Extension | 3.0.0 |\n',
+    'schemas/extension.delta.json': '{\n  "version": "3.0.0"\n}\n',
+    'schemas/dist/extension.schema.json': '{\n  "x": 1\n}\n',
+    // Governance data the non-exempt path reads; unchanged between the two
+    // commits, so it never enters the diff under test.
+    [MAP_PATH]: JSON.stringify({
+      description: 'fixture map',
+      'repo-wide': { description: 'x', docs: ['README.md'] },
+      areas: {},
+      unassigned: [],
+      'declared-governance': [],
+    }),
+    [REGISTRY_PATH]: JSON.stringify({
+      description: 'fixture registry',
+      prefixes: {},
+      retired: {},
+      clauses: [],
+    }),
+  };
+  const after = {
+    'README.md': '| Chrome Extension | 3.1.0 |\n',
+    'schemas/extension.delta.json': '{\n  "version": "3.1.0"\n}\n',
+    'schemas/dist/extension.schema.json': '{\n  "x": 2\n}\n',
+  };
+
+  it('exits 0 on a release-output-only diff carried by the automation head ref', () => {
+    const r = runCheckOnChange(before, after, {
+      PR_BODY: generatedBody(),
+      PR_HEAD_REF: AUTOMATED_BRANCH,
+    });
+    assert.equal(
+      r.status,
+      0,
+      `expected the release-automation diff to be admitted (exit 0), got exit ${r.status}.\n` +
+        `stdout: ${r.stdout}\nstderr: ${r.stderr}`,
+    );
+    assert.match(r.stdout, /release-automation/);
+  });
+
+  it('exits 1 on the same diff without the head ref — the class is never decided from the diff alone', () => {
+    const r = runCheckOnChange(before, after, { PR_BODY: generatedBody(), PR_HEAD_REF: '' });
+    assert.equal(
+      r.status,
+      1,
+      `expected the same diff to owe the sections without the head ref, got exit ${r.status}.\n` +
+        `stdout: ${r.stdout}\nstderr: ${r.stderr}`,
+    );
+    // The red is the disposition verdict itself, not a crash on the way to it.
+    assert.match(r.stderr, /missing PR-body section\(s\)/);
+  });
+
+  it('both publish workflows generate the same automation PR body', () => {
+    // One branch, one PR body: whichever pipeline opens the version PR, the
+    // body a reader finds there says the same thing about why it carries no
+    // sections. Byte equality, so a sentence added to one and not the other
+    // reds here rather than shipping as a per-platform difference.
+    assert.equal(generatedBody('.github/workflows/publish-desktop.yml'), generatedBody());
   });
 });
 
@@ -639,6 +933,243 @@ describe('parseDispositionSection', () => {
     const { lines, malformed } = parseDispositionSection('updated docs/alpha.md missing colon\n');
     assert.deepEqual(lines, []);
     assert.deepEqual(malformed, ['updated docs/alpha.md missing colon']);
+  });
+});
+
+describe('isGovernanceDataDiff — the class the single recorded line belongs to', () => {
+  it('admits the area map alone and the map with the clause registry', () => {
+    assert.equal(isGovernanceDataDiff([MAP_PATH]), true);
+    assert.equal(isGovernanceDataDiff([MAP_PATH, REGISTRY_PATH]), true);
+  });
+
+  it('leaves a registry-only diff outside — its per-doc wall is empty, so there is nothing to replace', () => {
+    assert.equal(isGovernanceDataDiff([REGISTRY_PATH]), false);
+  });
+
+  it('rejects a diff that carries anything else, and an empty file list', () => {
+    assert.equal(isGovernanceDataDiff([MAP_PATH, 'scripts/check-area-map.js']), false);
+    assert.equal(isGovernanceDataDiff([]), false);
+  });
+});
+
+describe('parseGovernanceSection', () => {
+  it('reads the marker line, markdown prefixes and a bold verb tolerated', () => {
+    const { reasons, malformed } = parseGovernanceSection(
+      [
+        `- ${GOVERNANCE_MARKER} the map still resolves every tracked file`,
+        '**governance-data-only:** a second one, bold',
+        'Some prose the author left in.',
+      ].join('\n'),
+    );
+    assert.deepEqual(reasons, ['the map still resolves every tracked file', 'a second one, bold']);
+    assert.deepEqual(malformed, []);
+  });
+
+  it('reports a near-miss spelling or an empty reason as an attempt, not as prose', () => {
+    const { reasons, malformed } = parseGovernanceSection(
+      ['governance-data: reason', 'Governance-data-only: capitalised', GOVERNANCE_MARKER].join(
+        '\n',
+      ),
+    );
+    assert.deepEqual(reasons, []);
+    assert.equal(malformed.length, 3);
+  });
+
+  it('tolerates prose that opens with the word "Governance" — it is not an attempt', () => {
+    // The attempt matcher is anchored on the hyphenated stem precisely so a
+    // disposition section may say this in prose without reddening the PR.
+    const { reasons, malformed } = parseGovernanceSection(
+      [
+        'Governance data is untouched by this change.',
+        'Governance of the area map is unchanged.',
+      ].join('\n'),
+    );
+    assert.deepEqual(reasons, []);
+    assert.deepEqual(malformed, []);
+  });
+});
+
+describe('auditBody — the governance-data-only record', () => {
+  const record = [
+    '',
+    '## Change record',
+    '',
+    'Intent: test.',
+    'Outside knowledge: none.',
+    'mutation: no per-change claim; mutation testing runs as a standing weekly job.',
+  ].join('\n');
+  const withDisposition = (lines) => ['## Docs disposition', '', ...lines, record].join('\n');
+  const goodLine = `${GOVERNANCE_MARKER} the map still names a governing doc set for every file it moved`;
+
+  it('passes a qualifying diff carrying exactly the one line', () => {
+    const r = auditBody({
+      body: withDisposition([goodLine]),
+      expected: [],
+      governanceData: true,
+    });
+    assert.deepEqual(Object.values(r).flat(), []);
+  });
+
+  it('reds a qualifying diff whose section omits the line — and teaches it', () => {
+    const r = auditBody({ body: withDisposition(['']), expected: [], governanceData: true });
+    assert.deepEqual(r.governanceProblems, [`no "${GOVERNANCE_MARKER}" line`]);
+  });
+
+  it('reds a qualifying diff that writes the per-doc wall instead', () => {
+    const r = auditBody({
+      body: withDisposition(['unaffected: docs/guides/ci.md — no gate changed']),
+      expected: [],
+      governanceData: true,
+    });
+    assert.deepEqual(r.unexpected, ['docs/guides/ci.md']);
+    assert.deepEqual(r.governanceProblems, [`no "${GOVERNANCE_MARKER}" line`]);
+  });
+
+  it('reds more than one line — the section carries exactly one', () => {
+    const r = auditBody({
+      body: withDisposition([goodLine, `${GOVERNANCE_MARKER} and another reason`]),
+      expected: [],
+      governanceData: true,
+    });
+    assert.equal(r.governanceProblems.length, 1);
+    assert.match(r.governanceProblems[0], /exactly one/);
+  });
+
+  it('reds the line as unearned on a diff outside the class — a registry-only diff included', () => {
+    // A registry-only diff keeps the sections exactly as before this class
+    // existed: an empty per-doc wall, and the marker line unearned.
+    const r = auditBody({ body: withDisposition([goodLine]), expected: [] });
+    assert.equal(r.governanceProblems.length, 1);
+    assert.match(r.governanceProblems[0], /outside the governance-data-only class/);
+    // And with a wall of its own, the per-doc lines are still what is owed.
+    const withWall = auditBody({
+      body: withDisposition([goodLine]),
+      expected: [{ doc: 'docs/guides/ci.md', clause: null }],
+    });
+    assert.deepEqual(withWall.missing, ['docs/guides/ci.md']);
+    assert.equal(withWall.governanceProblems.length, 1);
+  });
+
+  it('passes a registry-only diff carrying neither per-doc lines nor the marker', () => {
+    // The green half of the case above: the area map declares the registry
+    // governed by no doc, so a registry-only diff owes no per-doc lines — and
+    // being outside the class, it owes no marker either. Its section is empty
+    // and both required sections are present, which is a pass.
+    const realMap = JSON.parse(
+      readFileSync(path.resolve(import.meta.dirname, '../../../..', MAP_PATH), 'utf8'),
+    );
+    assert.equal(isGovernanceDataDiff([REGISTRY_PATH]), false);
+    assert.deepEqual(
+      docsInScope({ files: [REGISTRY_PATH], map: realMap, readFile: noContent }),
+      [],
+    );
+    const r = auditBody({ body: withDisposition(['']), expected: [] });
+    assert.deepEqual(Object.values(r).flat(), []);
+  });
+
+  it('reds an empty reason and a near-miss spelling as malformed', () => {
+    const empty = auditBody({
+      body: withDisposition([GOVERNANCE_MARKER]),
+      expected: [],
+      governanceData: true,
+    });
+    assert.deepEqual(empty.malformed, [GOVERNANCE_MARKER]);
+    assert.deepEqual(empty.governanceProblems, [`no "${GOVERNANCE_MARKER}" line`]);
+    const nearMiss = auditBody({
+      body: withDisposition(['governance-data-only the map still resolves everything']),
+      expected: [],
+      governanceData: true,
+    });
+    assert.equal(nearMiss.malformed.length, 1);
+  });
+
+  it('still requires the change record, and the section itself', () => {
+    const noRecord = auditBody({
+      body: ['## Docs disposition', '', goodLine].join('\n'),
+      expected: [],
+      governanceData: true,
+    });
+    assert.deepEqual(noRecord.missingSections, ['## Change record']);
+    const noSections = auditBody({
+      body: 'just a description',
+      expected: [],
+      governanceData: true,
+    });
+    assert.deepEqual(noSections.missingSections, ['## Docs disposition', '## Change record']);
+    assert.deepEqual(noSections.governanceProblems, [`no "${GOVERNANCE_MARKER}" line`]);
+  });
+});
+
+describe('run() governance-data-only class — the recorded line end to end', () => {
+  const fixtureMap = (description) =>
+    JSON.stringify({
+      description,
+      'repo-wide': { description: 'x', docs: ['README.md'] },
+      areas: {},
+      unassigned: [],
+      'declared-governance': [],
+    });
+
+  const REGISTRY_FIXTURE = JSON.stringify({
+    description: 'fixture registry',
+    prefixes: {},
+    retired: {},
+    clauses: [],
+  });
+
+  const before = {
+    'README.md': 'a repo-wide doc\n',
+    [MAP_PATH]: fixtureMap('fixture map'),
+    [REGISTRY_PATH]: REGISTRY_FIXTURE,
+  };
+
+  const body = (dispositionLines) =>
+    [
+      '## Docs disposition',
+      '',
+      ...dispositionLines,
+      '',
+      '## Change record',
+      '',
+      'Intent: test.',
+      'Outside knowledge: none.',
+      'mutation: no per-change claim; mutation testing runs as a standing weekly job.',
+    ].join('\n');
+
+  const markerLine = `${GOVERNANCE_MARKER} every tracked file still resolves to a governing doc set`;
+
+  it('exits 0 on a map-only diff carrying the single marker line, naming the class', () => {
+    const r = runCheckOnChange(
+      before,
+      { [MAP_PATH]: fixtureMap('fixture map, edited') },
+      {
+        PR_BODY: body([markerLine]),
+      },
+    );
+    assert.equal(
+      r.status,
+      0,
+      `expected the map-only diff to pass on the marker line (exit 0), got exit ${r.status}.\n` +
+        `stdout: ${r.stdout}\nstderr: ${r.stderr}`,
+    );
+    assert.match(r.stdout, /governance-data-only/);
+  });
+
+  it('exits 1 when the marker line rides a diff outside the class', () => {
+    const r = runCheckOnChange(
+      before,
+      { 'README.md': 'an edited repo-wide doc\n' },
+      {
+        PR_BODY: body([markerLine]),
+      },
+    );
+    assert.equal(
+      r.status,
+      1,
+      `expected the unearned marker line to red (exit 1), got exit ${r.status}.\n` +
+        `stdout: ${r.stdout}\nstderr: ${r.stderr}`,
+    );
+    assert.match(r.stderr, /outside the governance-data-only class/);
   });
 });
 

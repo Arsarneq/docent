@@ -3,8 +3,15 @@
 # one per judgment-verified clause per docs/clause-registry.json) and
 # "## Change record". Form only: it verifies the expected lines exist and parse;
 # the judgments written in them are read by reviewers, never by this check.
-# Re-runs when the PR body is edited. Dependency-only PRs (manifests, lockfiles,
-# action-pin bumps) are exempt — the check itself decides that from the diff.
+# Re-runs when the PR body is edited. The classes that skip the sections, each
+# with the inputs deciding it: dependency-only PRs (manifests, lockfiles,
+# action-pin bumps), decided from the diff alone; and the release pipeline's own
+# regeneration PR, decided from the diff plus the head branch supplied below —
+# computed as the empty string for a fork PR, so the class reaches only branches
+# on this repository. A diff whose changed files are the area map, alone or
+# together with the clause registry, records one governance-data-only line in
+# place of the per-doc lines. The classes and the grammar:
+# .github/CONTRIBUTING.md ("Docs Disposition and Change Record").
 name: Docs disposition format
 
 on:
@@ -37,6 +44,10 @@ jobs:
           # Passed via env (never interpolated into the shell) so a crafted
           # body cannot inject commands.
           PR_BODY: ${{ github.event.pull_request.body }}
+          # Input contract for the release-automation class: the head branch,
+          # but only when the head repository is this one. A fork PR gets the
+          # empty string, so no fork branch can name its way into the class.
+          PR_HEAD_REF: ${{ github.event.pull_request.head.repo.full_name == github.repository && github.head_ref || '' }}
         run: |
           git fetch --no-tags origin "$GITHUB_BASE_REF"
           node scripts/check-docs-disposition.js "origin/$GITHUB_BASE_REF"
