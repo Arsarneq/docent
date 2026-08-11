@@ -127,9 +127,12 @@ test.describe('frame-trust — untrusted APPEND_ACTION is dropped', () => {
     });
     await settle(serviceWorker, page);
 
+    // The assertion is emptiness, not the absence of the claimed context_id:
+    // a trusted append is RESTAMPED from the sender (ECP-4), so an accepted
+    // forgery would also carry no context_id 999. Only "nothing was appended"
+    // distinguishes the drop from a restamp.
     const actions = await getPendingActions(serviceWorker);
-    const injected = actions.filter((a) => a.context_id === 999);
-    expect(injected.length, 'ineligible sender must not be appended').toBe(0);
+    expect(actions, 'an ineligible sender must produce no append at all').toEqual([]);
   });
 
   test('a real recorded-frame action is still appended (accept side)', async ({
