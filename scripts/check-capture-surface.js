@@ -556,7 +556,7 @@ export const EMPTY_SURFACES = [
  * deduplicating set diffs cannot see, and on the registration side a repeated
  * entry installs the same surface twice. `installedRangeLabels` is derived
  * inside the evaluator from the registered `(min, max)` pairs, because a
- * repeated pair installs the WinEvent hook twice while the containment diff,
+ * repeated pair installs the WinEvent hook twice while the range-inclusion diff,
  * being set-based, stays green. The proxy table's source column is exempt:
  * several user actions legitimately share one worker event.
  */
@@ -779,7 +779,7 @@ function run() {
         `  ${'scripts/check-capture-surface.js'} with the role it plays; the installed low-level hooks\n` +
         `  must equal §${DESKTOP_CLAUSE_ID}'s enumeration and the ${CORRELATION_SECTION} classes must each be covered\n` +
         `  by a registered WinEvent range, both in both directions; and every id a registered\n` +
-        `  range contains must be one of those classes — containment, so a widened pair reds.\n` +
+        `  range spans must be one of those classes — held per id, so a widened pair reds.\n` +
         `  Update the drifted surfaces together in the same change.\n`,
     );
     process.exit(1);
