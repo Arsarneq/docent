@@ -220,10 +220,9 @@ jobs:
         run: npm run lint:verification-inventory
 
       # The path-filter split (which test jobs run for a given diff) is a
-      # committed contract: buildScripts must equal the scripts the heavy jobs
-      # run, no heavy job may gate on the broad scripts/** bucket, schema must
-      # gate the desktop-corpus jobs, and each produce/diff pair must co-fire.
-      # This admission test recomputes that and reds on any drift.
+      # committed contract. This admission test recomputes it against the
+      # workflow and reds on any drift; scripts/check-ci-filter.js is the home
+      # of the complete set of invariants it holds.
       - name: Validate CI path-filter contract
         run: npm run lint:ci-filter
 
@@ -260,10 +259,10 @@ jobs:
       - name: Validate capture surface enumerations
         run: npm run lint:capture-surface
 
-      # The CI guides state closures the tree can silently outgrow: ci.md's
-      # workflow-inventory and lint-gates tables, local-ci.md's act table,
-      # and every `npm run` command the docs cite. This admission test
-      # recomputes each against the tree and reds on any drift.
+      # The CI guides state closures the tree can silently outgrow. This
+      # admission test recomputes them against the tree and reds on any
+      # drift; scripts/check-doc-closure.js is the home of the complete
+      # recomputed set.
       - name: Validate doc-closure claims
         run: npm run lint:doc-closure
 

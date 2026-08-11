@@ -4,9 +4,10 @@
  * committed contract, so every way it can rot must fail loud: these tests prove
  * each red path fires on synthetic input (missing/extraneous buildScripts, a
  * heavy job on the broad `ci` bucket, wrong ciCore globs, a missing schema gate,
- * a broken produce/diff co-fire) and that the closure resolver follows the
- * npm-run and compound-command forms. A real-tree lock proves the shipped
- * test.yml satisfies the contract.
+ * a broken produce/diff co-fire, a gate on a filter the `changes` block never
+ * defines) and that the closure resolver follows the npm-run and
+ * compound-command forms. A real-tree lock proves the shipped test.yml
+ * satisfies the contract.
  */
 
 import { describe, it } from 'node:test';
@@ -49,7 +50,16 @@ function makeWorkflow(overrides = {}) {
   const jobs = { changes: { steps: [] }, lint: { needs: ['changes'] } };
   for (const [id, flags] of Object.entries(jobFlagsMap)) jobs[id] = { if: ifFrom(flags) };
   const wf = { jobs, ...(overrides.wf || {}) };
+  // Every flag the baseline jobs gate on is defined here: a gate on a filter
+  // the `changes` block never defines is itself a violation (invariant 6).
   const filters = {
+    extension: ['packages/extension/**'],
+    desktop: ['packages/desktop/**'],
+    shared: ['packages/shared/**'],
+    schema: ['schemas/**'],
+    referenceServer: ['reference-implementations/**'],
+    corpus: ['corpus/**'],
+    releasePipeline: ['.github/workflows/publish.yml'],
     ciCore: [...CI_CORE_GLOBS],
     buildScripts: ['scripts/a.js', 'scripts/b.js'],
     ci: ['scripts/**', '.c8rc.json'],
@@ -225,6 +235,38 @@ describe('evaluateContract — invariant 5 (produce/diff co-fire, both direction
     delete base.wf.jobs['desktop-vectors-produce'];
     const problems = evaluateContract(base);
     assert.ok(problems.some((p) => p.includes('references a missing job')));
+  });
+});
+
+describe('evaluateContract — invariant 6 (every gated flag is a defined filter)', () => {
+  it('fires when a job gates on a flag the `changes` block does not define', () => {
+    // A gate on an undefined filter reads as a well-formed condition and is
+    // always false: the job silently never fires for the input it watches.
+    const base = withJobFlags(makeWorkflow(), 'desktop-cross-compile', [
+      'desktop',
+      'shared',
+      'ciKore',
+    ]);
+    const problems = evaluateContract(base);
+    assert.ok(
+      problems.some(
+        (p) =>
+          p.includes('desktop-cross-compile') &&
+          p.includes('`ciKore`') &&
+          p.includes('does not define'),
+      ),
+      problems.join('\n'),
+    );
+  });
+
+  it('holds every job, not only the heavy ones', () => {
+    const base = makeWorkflow();
+    base.wf.jobs['unit-tests'] = { if: ifFrom(['ci', 'ciKore']) };
+    const problems = evaluateContract(base);
+    assert.ok(
+      problems.some((p) => p.includes('unit-tests') && p.includes('`ciKore`')),
+      problems.join('\n'),
+    );
   });
 });
 

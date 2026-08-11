@@ -35,6 +35,13 @@
  *   5. Each needs-chained produce/diff pair co-fires — identical trigger flags —
  *      so a diff job never fires without the producer whose artifact it
  *      downloads, nor the producer without the diff that consumes it.
+ *   6. Every flag any job's `if:` gates on is one the `changes` block defines.
+ *      A gate on an undefined filter reads as a well-formed condition and is
+ *      always false, so the job silently never fires for that input — the
+ *      workflow-internal half of flag definedness, held here because this is
+ *      where the parsed workflow and the filter map meet. (The other half —
+ *      the flags docs/guides/ci.md states per job — is held by
+ *      scripts/check-doc-closure.js, against the same filter map.)
  *
  * Usage: node scripts/check-ci-filter.js   # or: npm run lint:ci-filter
  */
@@ -61,7 +68,7 @@ const CI_CORE_GLOBS = [
 // under-trigger fixes so a future edit can't silently drop them.
 //   desktop-rust-tests / desktop-corpus-diff — validate the desktop corpus
 //     against the schema composed from schemas/**.
-//   reference-server-tests — its release-exclusion suite readFileSyncs the two
+//   reference-server-tests — its release-exclusion suite readFileSyncs the
 //     publish workflows + the release-output guard (the `releasePipeline` flag).
 const REQUIRED_JOB_FLAGS = {
   'desktop-rust-tests': ['schema'],
@@ -277,6 +284,16 @@ function evaluateContract({ wf, filters, closure }) {
         `produce/diff pair \`${producer}\`/\`${consumer}\` must co-fire (identical trigger flags); ` +
           `these differ: [${[...new Set(diff)].join(', ')}]`,
       );
+  }
+
+  // Invariant 6: every flag a job gates on is a filter the `changes` block
+  // defines. A gate on an undefined filter is always false, so the job never
+  // fires for the input it was meant to watch — and reads as correct.
+  for (const [id, job] of Object.entries(jobs)) {
+    for (const flag of jobFlags(job)) {
+      if (!has(flag))
+        problems.push(`job \`${id}\` gates on \`${flag}\`, which the \`changes\` block does not define`); // prettier-ignore
+    }
   }
 
   return problems;
