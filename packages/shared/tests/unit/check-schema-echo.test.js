@@ -8,6 +8,20 @@
  * unreadable-cell and moved-column refusals, duplicates, empty parses — and,
  * as a real-tree lock, that the shipped tree satisfies every leg through the
  * reader the CLI itself uses.
+ *
+ * The register/row closure's refusal of a citation naming files by PATTERN is
+ * pinned as a retained decision, not an accident of the shape it reads: the
+ * citation gate (check-clause-registry.js) and the governance finder
+ * (check-clause-governance.js) read the same shape and resolve such a citation
+ * against the tracked set, while matching a set against a register of single
+ * surfaces has no answer, so this leg names the citation and stops. The mid-path glob is
+ * pinned with it — the shape now reads one whole, so no shorter path inside it
+ * is ever taken for a surface — and so is what a refusal SAYS: the token as
+ * the row writes it, never the form the emphasis strip leaves behind. The
+ * reader's other two boundaries are pinned beside them: two citations written
+ * without a space between them are read as the two they are, and a Markdown
+ * link's label is a citation of its own rather than a token welded to the
+ * bracket in front of it.
  */
 
 import { describe, it } from 'node:test';
@@ -474,11 +488,14 @@ describe('evaluateSchemaEcho — the authority register and the clause row that 
   });
 
   it('refuses a citation shape it cannot match against the register', () => {
+    // The refusal is retained by design: the sibling readers of this shape
+    // resolve a pattern against the tracked set, and a register of single
+    // surfaces has no set to resolve one against.
     const problems = evaluateSchemaEcho(
       makeSurface({ authorityRow: 'docs/x.md and everything under docs/*.md are held' }),
     );
     assert.ok(
-      problems.some((p) => p.includes('docs/*.md') && p.includes('does not model')),
+      problems.some((p) => p.includes('docs/*.md') && p.includes('refuses by design')),
       problems.join('\n'),
     );
   });
@@ -745,12 +762,56 @@ describe('citedMarkdownPaths', () => {
 
   it('refuses a glob or brace citation instead of extracting nothing from it', () => {
     // The wider governance-class shape admits these, so they are seen and
-    // named rather than falling out of the scan silently.
+    // named rather than falling out of the scan silently — the refusal this
+    // leg keeps while the citation gate (check-clause-registry.js) and the
+    // governance finder (check-clause-governance.js) resolve such a pattern.
     const glob = citedMarkdownPaths('the register holds docs/*.md');
     assert.deepEqual(glob.paths, []);
     assert.deepEqual(glob.unmodelled, ['docs/*.md']);
     const brace = citedMarkdownPaths('the register holds docs/{a,b}.md');
     assert.deepEqual(brace.unmodelled, ['docs/{a,b}.md']);
+  });
+
+  it('reads through Markdown emphasis to the surface citation inside it', () => {
+    const cited = citedMarkdownPaths('the register holds **docs/README.md**');
+    assert.deepEqual(cited.paths, ['docs/README.md']);
+    assert.deepEqual(cited.unmodelled, []);
+  });
+
+  it('names a refused token as WRITTEN, never as the strip leaves it', () => {
+    // The leading run comes off for the MATCH; reporting the stripped form
+    // would name `.md`, a citation the row does not make.
+    const cited = citedMarkdownPaths('the register holds every *.md in the tree');
+    assert.deepEqual(cited.paths, []);
+    assert.deepEqual(cited.unmodelled, ['*.md']);
+  });
+
+  it('reads a comma as a separator, so an unspaced pair is two citations', () => {
+    const both = citedMarkdownPaths('the register holds docs/README.md,README.md');
+    assert.deepEqual(both.paths, ['docs/README.md', 'README.md']);
+    assert.deepEqual(both.unmodelled, []);
+    // Both halves are answered on their own terms — one resolved, one refused
+    // — rather than merged into a single token that is neither.
+    const mixed = citedMarkdownPaths('the register holds docs/README.md,docs/*.md');
+    assert.deepEqual(mixed.paths, ['docs/README.md']);
+    assert.deepEqual(mixed.unmodelled, ['docs/*.md']);
+  });
+
+  it('reads a Markdown link’s label as the surface it names', () => {
+    // The shared shape admits no bracket in a directory segment, so the label
+    // is a citation of its own rather than a token welded to the bracket
+    // before it — which would then misreport as a refused pattern.
+    const cited = citedMarkdownPaths('the register holds [docs/README.md](docs/README.md)');
+    assert.deepEqual(cited.paths, ['docs/README.md']);
+    assert.deepEqual(cited.unmodelled, []);
+  });
+
+  it('sees a mid-path glob whole, so the shorter path inside it is never taken as a surface', () => {
+    // The shared shape reads directory segments with pattern characters now,
+    // so this names one set and is refused as one — never read as `x.md`.
+    const cited = citedMarkdownPaths('the register holds docs/*/x.md');
+    assert.deepEqual(cited.paths, []);
+    assert.deepEqual(cited.unmodelled, ['docs/*/x.md']);
   });
 
   it('ignores a non-plain citation that names no Markdown — outside the leg, not refused', () => {
