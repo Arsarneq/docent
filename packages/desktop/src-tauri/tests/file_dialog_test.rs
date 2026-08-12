@@ -26,7 +26,11 @@
 //! "no spurious context_close" assertion is meaningful rather than vacuous.
 //!
 //! Run with: cargo test --test file_dialog_test
-//! Requires: Windows (uses COM APIs)
+//! Requires: Windows (uses COM APIs) — the whole binary is gated to it below,
+//! so on any other platform it compiles to nothing rather than to imports and
+//! helpers no test there uses.
+
+#![cfg(target_os = "windows")]
 
 use std::sync::mpsc;
 use std::thread;
@@ -37,7 +41,6 @@ use serial_test::serial;
 
 use docent_desktop_lib::capture::{ActionEvent, ActionPayload, CaptureLayer};
 
-#[cfg(target_os = "windows")]
 use docent_desktop_lib::capture::windows::WindowsCapture;
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
@@ -72,7 +75,6 @@ fn focuses(events: &[ActionEvent]) -> Vec<&ActionEvent> {
 
 // ─── File Dialog Test ───────────────────────────────────────────────────────
 
-#[cfg(target_os = "windows")]
 mod file_dialog_navigation {
     use super::*;
     use windows::core::w;

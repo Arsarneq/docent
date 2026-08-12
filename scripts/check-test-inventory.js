@@ -1,8 +1,9 @@
 /**
  * check-test-inventory.js — the test-suite documents' inventories describe the
  * suites as they are, the coverage plumbing's hand-maintained file lists
- * identify real sources, and the registered suites are the ones this repository
- * really selects. Three closures, all committed data that can rot:
+ * identify real sources, the registered suites are the ones this repository
+ * really selects, and no test binary sits where the pipeline that runs the
+ * suite cannot see it. The closures, all committed data that can rot:
  *
  *   (a) suite tables — each suite document devotes a named section to the
  *       tables whose first column enumerates the suite's test files. That
@@ -34,6 +35,23 @@
  *       recorded rationale for drawing it there is the test area's charter —
  *       these documents cover Docent's own suites, not the runnable example
  *       artifacts beside them (docs/test/README.md).
+ *   (d) discovery admission, over the tree and the crate manifest the cargo
+ *       entry's suite lives in: an undiscovered test binary — one Cargo runs
+ *       under local `cargo test` while CI's discovery never sees it — by
+ *       either route: the directory form `tests/<name>/main.rs`, or a crate
+ *       manifest stating the test targets itself, in any spelling Cargo reads
+ *       as that statement (a `[[test]]` stanza, the same array written as a
+ *       root-table `test = [ … ]` value, or a `[package]` `autotests` key)
+ *       — is refused by name, each route carrying its own fix.
+ *       Top-level-only selection is deliberate doctrine; the surfaces that
+ *       state or hold it are named by the desktop Rust suite document's
+ *       binaries paragraph (docs/test/desktop-rust.md), and this leg is what
+ *       holds the tree and the manifest to it, so a binary introduced either
+ *       way cannot run on a developer's machine and be absent from CI with
+ *       nothing red anywhere. A nested non-`main.rs` file stays green: it is
+ *       shared module code — the `tests/common/mod.rs` convention — which runs
+ *       nowhere on its own. Benches and examples are outside the class: a
+ *       widened lint builds them, and no test run selects them.
  *
  * Why the always-on `lint` job: the diff that stales a suite inventory is
  * frequently docs-only, and a docs-only PR skips every path-filtered test job.
@@ -49,12 +67,17 @@
  * literal, so reformatting a list cannot change what this check sees. The
  * registration closure reads manifest scripts, the workflow step that discovers
  * the Rust binaries, and the browser-driven suites' default configurations the
- * same way. Every way any of it can fail to reach its whole subject — a renamed
- * section or column, a relocated or renamed list, an element form or a
- * surrounding expression this reader does not model, a manifest that will not
- * parse, a renamed workflow step, a configuration whose directory this reader
- * cannot resolve — is itself red: a check that silently reads part of a
- * surface, or none of it, would pass forever.
+ * same way. The discovery admission reads the tracked-file list for its path
+ * route, and the crate manifest for its declaration route through a scan that
+ * drops commented text first and tracks the table each line sits in, so a
+ * declaration a comment holds is never read as a live one and a `test` key in
+ * `[features]` is the feature it is. Every way any of it can fail to reach its
+ * whole subject — a renamed section or column, a relocated or renamed list, an
+ * element form or a surrounding expression this reader does not model, a
+ * manifest that will not parse or will not read at all, a renamed workflow
+ * step, a configuration whose directory this reader cannot resolve — is itself
+ * red: a check that silently reads part of a surface, or none of it, would
+ * pass forever.
  *
  * What this check deliberately cannot see: whether a row's DESCRIPTION is still
  * true (it compares names, never prose); the two directions of the coverage
@@ -106,6 +129,9 @@ function dirname(path) {
   return cut === -1 ? '' : path.slice(0, cut);
 }
 
+/** A literal string as a regular-expression source, every metacharacter escaped. */
+const escapeForRegExp = (text) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
 /**
  * Collapse a joined path's `.` and `..` segments into the repo-relative form
  * the tracked-file list spells, so a directory written `./specs` from its
@@ -132,7 +158,7 @@ export function normalizePath(path) {
  * @returns {RegExp}
  */
 export function basenameGlobToRegExp(pattern) {
-  const body = pattern.replace(/[.*+?^${}()|[\]\\]/g, (c) => (c === '*' ? '[^/]*' : `\\${c}`));
+  const body = pattern.split('*').map(escapeForRegExp).join('[^/]*');
   return new RegExp(`^${body}$`);
 }
 
@@ -145,9 +171,15 @@ export function basenameGlobToRegExp(pattern) {
  *     suite directory (the runner expands the glob; a file one level deeper is
  *     not a member).
  *   - `cargo` selects one test binary per file the CI layer-discovery step's
- *     glob matches at the top of `tests/`. Cargo would also build one per
- *     `tests/<name>/main.rs`, but that step never sees it, so the rule tracks
- *     the pipeline rather than Cargo's full capability.
+ *     glob matches at the top of `tests/`. Top-level-only is deliberate, and
+ *     the routes past it — the directory form `tests/<name>/main.rs`, and the
+ *     crate manifest the descriptor's `manifest` names stating the test targets
+ *     itself — are refused by the discovery-admission leg below, so the rule
+ *     tracks the pipeline and the tree is held to the same line. Widening the
+ *     discovery to Cargo's own capability is a deliberate change; which
+ *     surfaces it must move is not this comment's to state — the desktop Rust
+ *     suite document's binaries paragraph (docs/test/desktop-rust.md) is where
+ *     that rule and its surfaces live, and this descriptor is one of them.
  *   - `playwright` selects Playwright's own default `testMatch` under the
  *     configured `testDir`, at any depth.
  *
@@ -202,6 +234,7 @@ export const DOC_INVENTORIES = [
       workflow: '.github/workflows/test.yml',
       step: 'Discover Rust test layers',
       glob: 'tests/*.rs',
+      manifest: 'packages/desktop/src-tauri/Cargo.toml',
     },
   }),
   registered({
@@ -885,19 +918,22 @@ export function configValues(source, key) {
  * inside a registered suite, and every registered node-test entry is still
  * named by one of those globs — a literal member invocation confers no
  * liveness, because a suite nothing globs is a suite nothing runs. The cargo
- * and Playwright entries are held to their mirror claims only: the workflow
- * step still discovers through the registered glob, and each registered
+ * and Playwright entries are held to their mirror claims: the workflow step
+ * still discovers through the registered glob, and each registered
  * browser-driven suite's working directory still reaches its default
  * configuration, whose `testDir` is the registered directory and whose
- * `testMatch` is unset. Which such suites must be registered stays outside this
- * closure.
+ * `testMatch` is unset. The cargo entry is held to one claim more — the
+ * discovery admission over the tree and the crate manifest (see
+ * {@link readCargoDiscoveryAdmission}), which is an admission test on what the
+ * suite may contain rather than a mirror of what selects it. Which cargo-run
+ * and browser-driven suites must be registered stays outside this closure.
  * @param {object} opts
  * @param {string[]} opts.files all git-tracked repo-relative paths
  * @param {(f: string) => (string | null)} opts.readFile content reader (null if unreadable)
  * @param {typeof DOC_INVENTORIES} [opts.inventories]
  * @returns {{ undescribed: string[], unregisteredSuite: string[], unregisteredMember: string[],
  *             patternMismatch: string[], deadRegistration: string[], mirrorDrift: string[],
- *             unreadableClosure: string[] }}
+ *             undiscoveredBinary: string[], unreadableClosure: string[] }}
  */
 export function auditRegistrationClosure({ files, readFile, inventories = DOC_INVENTORIES }) {
   const result = {
@@ -907,6 +943,7 @@ export function auditRegistrationClosure({ files, readFile, inventories = DOC_IN
     patternMismatch: [],
     deadRegistration: [],
     mirrorDrift: [],
+    undiscoveredBinary: [],
     unreadableClosure: [],
   };
   const named = (entry) => `${entry.doc} ("## ${entry.section}")`;
@@ -1007,6 +1044,7 @@ export function auditRegistrationClosure({ files, readFile, inventories = DOC_IN
   for (const entry of described) {
     if (entry.discovery.runner === RUNNERS.cargo) {
       readCargoMirror(entry, readFile, named, result);
+      readCargoDiscoveryAdmission(entry, files, readFile, named, result);
     } else if (entry.discovery.runner === RUNNERS.playwright) {
       readPlaywrightMirror(entry, readFile, named, result);
     }
@@ -1040,6 +1078,186 @@ function readCargoMirror(entry, readFile, named, result) {
   if (globs.length !== 1 || globs[0] !== glob) {
     result.mirrorDrift.push(
       `${workflow}: the "${step}" step discovers \`${globs.join(' ')}\`, but ${named(entry)} registers \`${glob}\``,
+    );
+  }
+}
+
+/**
+ * The ONE table each target-selecting key is Cargo's own in. The two are
+ * disjoint, and each was read off Cargo rather than inferred from the other:
+ * the `test` array of tables is a ROOT-table value (a `[package]` `test` draws
+ * "unused manifest key: package.test" and builds no target), while
+ * `autotests` is a `[package]` key (a root-table `autotests` draws "unused
+ * manifest key: autotests" and changes no binary). The same key in the other
+ * table is not Cargo's target selection, so it stays green.
+ */
+const TARGET_KEY_TABLES = { test: '', autotests: 'package' };
+
+/**
+ * The crate-manifest statements that make the manifest, rather than the
+ * discovery step, the place deciding which test binaries exist: a `[[test]]`
+ * stanza, the same array of tables written as a `test = [ … ]` value, and an
+ * `autotests` key. Each is read in the table it sits in (see
+ * {@link TARGET_KEY_TABLES}), so a `test` key inside `[features]` — or a key
+ * an unrelated table happens to name `autotests` — is that table's own and
+ * stays green. What a declared entry names is a target, not necessarily a
+ * file elsewhere: an entry stating `path` puts its binary wherever that names,
+ * while a path-less one resolves onto the conventional file for its name. What
+ * every route shares is the deciding: the manifest states the target set that
+ * a local `cargo test` then runs, so the path route alone would leave the
+ * hazard open by the side door.
+ */
+const MANIFEST_ROUTES = [
+  {
+    matches: (read) => read.array === true && read.header === 'test',
+    states: 'a `[[test]]` stanza, which names a test target explicitly',
+  },
+  {
+    matches: (read, table) => read.key === 'test' && table === TARGET_KEY_TABLES.test,
+    states:
+      'a `test =` target array, the same declaration written as a value, naming its test targets explicitly',
+  },
+  {
+    matches: (read, table) => read.key === 'autotests' && table === TARGET_KEY_TABLES.autotests,
+    states: "an `autotests` key, which puts Cargo's own target selection in the manifest",
+  },
+];
+
+/**
+ * One manifest line's live text: a `#` outside a basic or literal string opens
+ * a TOML comment, so a commented-out declaration is never read as a live one
+ * and a `#` inside a value never truncates the line early. A multi-line
+ * string's inner lines are read as lines of their own, which can only
+ * over-report — the declarations this scan looks for are refusals, so its one
+ * inaccuracy is a red a reader dismisses rather than a silent pass.
+ * @param {string} line one line of a TOML manifest
+ * @returns {string} the line's live text, trimmed
+ */
+export function stripTomlComment(line) {
+  let quote = null;
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i];
+    if (quote !== null) {
+      if (ch === '\\' && quote === '"') i++;
+      else if (ch === quote) quote = null;
+      continue;
+    }
+    if (ch === '"' || ch === "'") {
+      quote = ch;
+      continue;
+    }
+    if (ch === '#') return line.slice(0, i).trim();
+  }
+  return line.trim();
+}
+
+/** A TOML key as written: the same key whether it is spelled bare or quoted. */
+const unquoteTomlKey = (key) => {
+  const text = key.trim();
+  const quoted = /^"(.*)"$/.exec(text) ?? /^'(.*)'$/.exec(text);
+  return quoted ? quoted[1] : text;
+};
+
+/**
+ * The segments of a TOML dotted key, each unquoted. A `.` inside a quoted
+ * segment belongs to that key rather than separating two, so `"a.b"` is one
+ * segment and `package.autotests` is two.
+ * @param {string} text a key or table name as written
+ * @returns {string[]}
+ */
+function dottedKeySegments(text) {
+  const segments = [];
+  let current = '';
+  let quote = null;
+  for (const ch of text.trim()) {
+    if (quote !== null) {
+      current += ch;
+      if (ch === quote) quote = null;
+    } else if (ch === '"' || ch === "'") {
+      quote = ch;
+      current += ch;
+    } else if (ch === '.') {
+      segments.push(current);
+      current = '';
+    } else {
+      current += ch;
+    }
+  }
+  segments.push(current);
+  return segments.map(unquoteTomlKey);
+}
+
+/**
+ * One comment-stripped manifest line, read structurally: the table `header` it
+ * opens (with `array` true for the `[[…]]` array-of-tables form), the `key` it
+ * assigns together with the table `within` the current one that key's leading
+ * dotted segments name, or null for a line that is neither. A quoted spelling
+ * is the key TOML reads it as, so `[["test"]]` opens the same table as
+ * `[[test]]`; a dotted key names its own table, so `package.autotests` written
+ * at the root assigns `autotests` inside `[package]` exactly as the sectioned
+ * spelling does.
+ * @param {string} line one line's live text, as {@link stripTomlComment} returns it
+ * @returns {{ header: string, array: boolean } | { key: string, within: string } | null}
+ */
+export function readTomlLine(line) {
+  const arrayHeader = /^\[\[([^[\]]*)\]\]$/.exec(line);
+  if (arrayHeader) return { header: dottedKeySegments(arrayHeader[1]).join('.'), array: true };
+  const tableHeader = /^\[([^[\]]*)\]$/.exec(line);
+  if (tableHeader) return { header: dottedKeySegments(tableHeader[1]).join('.'), array: false };
+  const assignment = /^([^=]+?)\s*=/.exec(line);
+  if (!assignment) return null;
+  const segments = dottedKeySegments(assignment[1]);
+  return { key: segments[segments.length - 1], within: segments.slice(0, -1).join('.') };
+}
+
+/**
+ * The cargo entry's discovery admission: the tree and the crate manifest hold
+ * no undiscovered test binary — one Cargo runs under local `cargo test` while
+ * CI's discovery never sees it — by either route: the directory form
+ * `tests/<name>/main.rs`, or the crate manifest stating the test targets
+ * itself (see {@link MANIFEST_ROUTES}). The manifest is the descriptor's own —
+ * the entry names the file it is held against, so the one place stating what
+ * the registration covers stays the one place naming it. The path route reads
+ * the tracked files exactly one level below the registered directory, which is
+ * as deep as Cargo's own auto-discovery builds a binary: a nested non-`main.rs`
+ * file is shared module code and a deeper `main.rs` is nothing, so both stay
+ * green. Each red carries its own fix, because the routes are undone
+ * differently; the alternative they share — widening the discovery on purpose
+ * — is the report block's, and the surfaces such a widening moves are named by
+ * the desktop Rust suite document's binaries paragraph
+ * (docs/test/desktop-rust.md). An unreadable manifest is a refusal, never a
+ * skip: this leg's whole subject is what that file states.
+ */
+function readCargoDiscoveryAdmission(entry, files, readFile, named, result) {
+  const nested = new RegExp(`^${escapeForRegExp(entry.dir)}/[^/]+/main\\.rs$`);
+  for (const file of files.filter((f) => nested.test(f))) {
+    result.undiscoveredBinary.push(
+      `${file}: Cargo builds this as a test binary, and the discovery ${named(entry)} registers never sees it — move it to a top-level \`.rs\` in ${entry.dir}/`,
+    );
+  }
+  const manifest = entry.discovery.manifest;
+  const source = readFile(manifest);
+  if (source == null) {
+    result.unreadableClosure.push(`${manifest}: the crate manifest the discovery admission for ${named(entry)} reads could not be read`); // prettier-ignore
+    return;
+  }
+  // The scan is table-aware: a route's key is Cargo's own only in the table it
+  // names, so the current `[table]` header travels with each line — extended,
+  // for a dotted key, by the table its own leading segments name. A route
+  // states itself once however many lines spell it — the fix is the same one.
+  let table = '';
+  const stated = new Set();
+  for (const line of source.split(/\r?\n/).map(stripTomlComment)) {
+    const read = readTomlLine(line);
+    if (read === null) continue;
+    if (read.header !== undefined) table = read.header;
+    const at = read.within ? `${table ? `${table}.` : ''}${read.within}` : table;
+    for (const route of MANIFEST_ROUTES) if (route.matches(read, at)) stated.add(route);
+  }
+  for (const route of MANIFEST_ROUTES) {
+    if (!stated.has(route)) continue;
+    result.undiscoveredBinary.push(
+      `${manifest}: states ${route.states} — which test binaries exist is then this manifest's to decide rather than the discovery ${named(entry)} registers; drop it and let auto-discovery select a top-level \`.rs\` in ${entry.dir}/`,
     );
   }
 }
@@ -1184,6 +1402,15 @@ const PROBLEM_BLOCKS = {
       `  nothing runs documents a suite that is not there. A script naming one file of the\n` +
       `  suite is a member invocation and does not run the suite.`,
   },
+  undiscoveredBinary: {
+    heading: (n) => `${n} place(s) where the discovery step does not decide which test binaries exist`, // prettier-ignore
+    fix:
+      `each red above states its own fix, because the routes to an undiscovered binary\n` +
+      `  are undone differently. The alternative they share is to widen the discovery on\n` +
+      `  purpose, which moves every surface that states or holds the top-level-only rule —\n` +
+      `  the desktop Rust suite document's binaries paragraph (docs/test/desktop-rust.md)\n` +
+      `  is where that rule and those surfaces are named.`,
+  },
   mirrorDrift: {
     heading: (n) => `${n} registered discovery claim(s) no longer match the surface they mirror`,
     fix:
@@ -1254,11 +1481,13 @@ function run() {
   // it — entries and the documents they are spread across are two counts now.
   const documents = new Set(DOC_INVENTORIES.map((inventory) => inventory.doc)).size;
   const globbed = DOC_INVENTORIES.filter((i) => i.discovery.runner === RUNNERS.node).length;
+  const admitted = DOC_INVENTORIES.filter((i) => i.discovery.runner === RUNNERS.cargo).length;
   console.log(
     `✓ test inventories current: ${DOC_INVENTORIES.length} registered suite(s) across ` +
       `${documents} document(s) enumerate their suites exactly, ${TRACKED_LISTS.length} coverage ` +
-      `list(s) identify tracked sources, and ${globbed} node-test suite(s) are each run by an ` +
-      `admitted manifest script.`,
+      `list(s) identify tracked sources, ${globbed} node-test suite(s) are each run by an ` +
+      `admitted manifest script, and ${admitted} cargo suite(s) hide no test binary from CI in ` +
+      `their tree or their crate manifest.`,
   );
 }
 
