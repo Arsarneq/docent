@@ -56,6 +56,18 @@ a command or an event channel MUST update this table in the same change, and
 a change to the granted plugin surface MUST update this section's grant
 enumeration likewise.
 
+The contract is closed on the caller side too. Every command the table states
+is invoked from the desktop frontend's own modules — the caller closure — and
+every direct `invoke` those modules issue names a command the table states —
+the direct-invoke closure. The only granted plugin command the frontend
+reaches is the event-plugin invocation behind the bridge's `listen`, which
+`core:default` authorizes; no frontend module invokes a granted plugin command
+directly, and a change that does MUST extend this clause and the check that
+holds it in the same change. The `capture:action` channel has exactly one
+frontend consumer — the adapter's single `listen` registration — and a change
+that adds another MUST extend this clause and the check that holds it
+likewise.
+
 | Name                         | Direction | What it does                                                                                                                                                                                                                                                                                                                                                                                                                                                                    | Who calls it                                                                                                                                                        |
 | ---------------------------- | --------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `start_capture`              | JS → Rust | Starts the capture layer streaming into `capture:action`. An optional `pid` arms self-capture exclusion for that process before starting — the shipped panel always passes `null` and arms exclusion through `set_self_capture_exclusion`. A capture layer that cannot initialize its input observation (COM init, hook registration) fails the command with the platform error instead of starting a session that cannot capture.                                              | `panel.js` recording start and re-record paths.                                                                                                                     |

@@ -10,10 +10,19 @@
  *   - the message surface
  *     (docs/architecture/application/extension/runtime.md §ERT-4): the worker
  *     dispatcher's `switch (msg.type)` case labels must equal the panel
- *     protocol's closed type set, and the module's `message.type` equality
- *     literals must equal the capture-path table's types — both read through
- *     a comment-safe tokenizer, both diffed in both directions, with the two
- *     doc enumerations disjoint.
+ *     protocol's closed type set, the panel's own literal sends must equal
+ *     that same set, and the module's `message.type` equality literals must
+ *     equal the capture-path table's types — all read through a comment-safe
+ *     tokenizer, each diffed in both directions, with the two doc
+ *     enumerations disjoint.
+ *
+ * The sender side reads one shape: a `send(` call whose first argument OPENS
+ * an object literal. That literal's TOP-LEVEL properties are then read for a
+ * `type` key — bare or quoted, in any position, since property order is not
+ * meaning — carrying a lone string literal; a send with no such property is
+ * refused by name, naming what the scan found in its place. The scanned
+ * surface is the tracked JavaScript under `packages/extension/sidepanel`
+ * (`git ls-files` over that directory, recursive, filtered to `.js`).
  *
  * Every parsed set must be non-empty, every table cell must be readable
  * (fence-aware, refusing unreadable rows rather than skipping them), the
@@ -30,19 +39,31 @@
  * dispatcher, by contrast, is refused loudly; the equality scan is
  * module-wide, not listener-scoped, and where the guards sit is review-held
  * (ERT-4's ahead-of-the-switch mechanism is stated doctrine the scan does
- * not verify — token order is not control flow); a regular-expression
- * literal carrying a brace inside the dispatcher body corrupts the depth
- * bound and reds with a misleading diagnosis (loud, never green); the
- * default arm is presence-checked only (the envelope it answers is ERT-2's
- * own verification); the panel table's sender-side claim (the set the panel
- * sends) is review-held, as is the tables' rationale, payload, and response
- * prose; and the manifest's resource-exposure facts (CSP absence, empty
+ * not verify — token order is not control flow); a regular-expression literal
+ * carrying a brace inside the dispatcher body corrupts the depth bound and
+ * reds with a misleading diagnosis (loud, never green), while the same
+ * unmodelled class costs the whole-file send scan silently: a quote inside a
+ * regular-expression literal desynchronizes the token stream for the rest of
+ * that file, and the send sites past it are simply not seen; the default arm
+ * is presence-checked only (the envelope it answers is ERT-2's own
+ * verification). The panel table's sender-side claim is held over the
+ * literal-send subset the scan reads, and carries residues of its own, each
+ * named here: a send-shaped site whose first argument is anything but an
+ * opening object literal is outside that subset and invisible here — the
+ * function declaration, the method-shorthand declaration, the
+ * receiver-qualified forward, and the call passing a payload assembled
+ * beforehand are all that shape — and, in the reverse direction, an
+ * enumerated type sent only through such a site reds as "never sent", a
+ * misleading red the check cannot tell from a genuinely unsent type. The
+ * tables' rationale, payload, and response prose stays review-held; and the
+ * manifest's resource-exposure facts (CSP absence, empty
  * `web_accessible_resources`) stay judgment-held with their doc bullets.
  *
  * Usage:
  *   node scripts/check-extension-surface.js  # or: npm run lint:extension-surface
  */
 
+import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 import {
@@ -61,6 +82,8 @@ export const PERMISSIONS_DOC_PATH = 'docs/architecture/application/extension/per
 export const RUNTIME_DOC_PATH = 'docs/architecture/application/extension/runtime.md';
 /** Repo-relative path of the service worker carrying the dispatcher. */
 export const WORKER_PATH = 'packages/extension/background/service-worker.js';
+/** Repo-relative directory of the panel JavaScript the send scan reads. */
+export const PANEL_DIR = 'packages/extension/sidepanel';
 /** The permission-surface clause the manifest legs verify. */
 export const EPM_CLAUSE_ID = 'EPM-1';
 /** The message-surface clause the dispatcher legs verify. */
@@ -262,6 +285,115 @@ export function extractDispatcherSurface(workerSource) {
 }
 
 /**
+ * Read one object literal's top-level `type` property, starting at the `{`
+ * token that opens it. The walk is bounded by brace depth — the technique the
+ * dispatcher scan uses — so a nested payload's own `type` is never read as the
+ * message's, and a property is recognized where a property can start: right
+ * after the opening brace and after each top-level comma. The key may be bare
+ * (`type:`) or quoted (`'type':`), and its value must be a LONE string literal
+ * — the token after it is the property separator or the literal's closing
+ * brace, so a concatenation is refused rather than credited with its leading
+ * piece.
+ * @param {{ type: string, value: string }[]} tokens the file's tokens
+ * @param {number} open index of the literal's opening `{`
+ * @returns {{ type: string | null, found: string | null }} the type, or what
+ *   the scan found in its place (`found` is null exactly when a type was read)
+ */
+function readSendType(tokens, open) {
+  const keys = [];
+  let depth = 1;
+  let atPropertyStart = true;
+  let typeAt = -1;
+  let closed = false;
+  for (let i = open + 1; i < tokens.length; i++) {
+    const t = tokens[i];
+    if (t.type === 'punct' && '([{'.includes(t.value)) {
+      depth++;
+      atPropertyStart = false;
+    } else if (t.type === 'punct' && ')]}'.includes(t.value)) {
+      depth--;
+      if (depth === 0) {
+        closed = true;
+        break;
+      }
+    } else if (depth === 1 && t.type === 'punct' && t.value === ',') {
+      atPropertyStart = true;
+    } else if (
+      depth === 1 &&
+      atPropertyStart &&
+      (t.type === 'word' || t.type === 'string') &&
+      tokens[i + 1]?.type === 'punct' &&
+      tokens[i + 1].value === ':'
+    ) {
+      keys.push(t.value);
+      if (t.value === 'type') typeAt = i;
+      atPropertyStart = false;
+    } else {
+      atPropertyStart = false;
+    }
+  }
+  if (typeAt === -1) {
+    if (!closed) return { type: null, found: '(end of source)' };
+    return {
+      type: null,
+      found: keys.length
+        ? `no \`type\` key among the top-level properties ${keys.map((k) => `\`${k}\``).join(', ')}`
+        : 'no top-level properties at all',
+    };
+  }
+  const value = tokens[typeAt + 2];
+  const follower = tokens[typeAt + 3];
+  if (!value || !follower) return { type: null, found: '(end of source)' };
+  if (value.type !== 'string') return { type: null, found: `a \`type\` key set from \`${value.value}\`` }; // prettier-ignore
+  if (follower.type !== 'punct' || (follower.value !== ',' && follower.value !== '}')) {
+    return { type: null, found: `a \`type\` key set from \`${value.value}\` followed by \`${follower.value}\`` }; // prettier-ignore
+  }
+  return { type: value.value, found: null };
+}
+
+/**
+ * Read the panel's literal send sites through the shared comment-safe
+ * tokenizer. The scan reads ONE shape — a `send(` call whose first argument
+ * opens an object literal — and reads that literal's top-level properties for
+ * the `type` the message states, refusing by name the send that states none,
+ * so a restructured payload cannot pass as a partially-read send. Property
+ * order carries no meaning and the scan reads none into it. A send-shaped site
+ * whose first argument is not an opening brace is outside the shape the scan
+ * reads and contributes nothing: the declaration forms, the receiver-qualified
+ * forward, and the call passing a variable assembled beforehand all sit there,
+ * and the reverse-direction diff's limit is exactly that residue.
+ * @param {Map<string, string>} sourceByPath path → panel JavaScript source
+ * @returns {{ path: string, ordinal: number, type: string | null, found: string | null }[]}
+ *   one entry per object-literal send, numbered per file in source order
+ */
+export function extractSendSites(sourceByPath) {
+  const sites = [];
+  for (const [path, source] of sourceByPath) {
+    const tokens = tokenizeJs(source);
+    let ordinal = 0;
+    for (let i = 0; i + 2 < tokens.length; i++) {
+      if (tokens[i].type !== 'word' || tokens[i].value !== 'send') continue;
+      if (tokens[i + 1].type !== 'punct' || tokens[i + 1].value !== '(') continue;
+      if (tokens[i + 2].type !== 'punct' || tokens[i + 2].value !== '{') continue;
+      ordinal += 1;
+      sites.push({ path, ordinal, ...readSendType(tokens, i + 2) });
+    }
+  }
+  return sites;
+}
+
+/**
+ * How a send site is named in the check's output: its file and its position
+ * among that file's object-literal sends — the only sends the ordinal counts —
+ * comments excluded.
+ * @param {{ path: string, ordinal: number }} site
+ * @returns {string}
+ */
+function sendLabel(site) {
+  return `${site.path} (object-literal send( call site ${site.ordinal})`;
+}
+
+/**
  * The non-empty guard's legs: every parsed surface, with its empty-parse
  * diagnosis. Exported so the unit suite's family is generated from this
  * list — a leg added here is exercised automatically, and the suite holds
@@ -276,14 +408,18 @@ export const EMPTY_SURFACES = [
   ['docPanelTypes', `no panel-protocol types found in ${RUNTIME_DOC_PATH}`],
   ['caseLabels', `no case labels found in the dispatcher switch (${WORKER_PATH})`],
   ['equalityTypes', `no message-type equality literals found in ${WORKER_PATH}`],
+  ['sendTypes', `no object-literal send( call site naming a type found in the tracked ${PANEL_DIR} JavaScript`], // prettier-ignore
 ];
 
 /**
  * The duplicates guard's legs — drift signal on the doc surfaces and on case
- * labels (a repeated label is unreachable code); equality guards are exempt:
- * testing one type twice is legal code shape, and the extractor
- * deduplicates. Exported for the suite's generated family plus the
- * fixture-key equality lock its hand-written fixtures need.
+ * labels (a repeated label is unreachable code); equality guards and send
+ * types are exempt: testing or sending one type twice is legal code shape.
+ * The equality types arrive deduplicated from their extractor; the send types
+ * are deduplicated in `auditTree`, whose set the diffs run over, while the
+ * extractor keeps every site so a refusal can name one. Exported for the
+ * suite's generated family plus the fixture-key equality lock its
+ * hand-written fixtures need.
  */
 export const DUPLICATE_SURFACES = [
   ['manifestPermissions', `the manifest's permissions`],
@@ -308,6 +444,8 @@ export const DUPLICATE_SURFACES = [
  * @param {string[]} s.protocolUnreadable unreadable protocol cells/pieces
  * @param {string[]} s.caseLabels the dispatcher switch's case labels
  * @param {string[]} s.equalityTypes the worker module's equality-literal types
+ * @param {string[]} s.sendTypes the panel's literal send types, deduplicated
+ * @param {{ path: string, ordinal: number, type: string | null, found: string | null }[]} s.sendSites every object-literal send site, readable or not
  * @returns {string[]} problems; empty when both contracts hold (the
  *   dispatcher anchor guards — switch count, the default arm, nesting — are
  *   the extractor's own problems and are reported beside these)
@@ -323,6 +461,9 @@ export function evaluateExtensionSurface(s) {
   }
   for (const cell of s.protocolUnreadable) {
     problems.push(`${RUNTIME_DOC_PATH} carries a protocol cell the scan cannot read — ${cell} — types are lone backticked names`); // prettier-ignore
+  }
+  for (const site of s.sendSites.filter((x) => x.type === null)) {
+    problems.push(`${sendLabel(site)} states no readable message type — the scan found ${site.found} — an object-literal send carries its type as a string literal in a top-level \`type\` property, in any position, so the sender side stays readable`); // prettier-ignore
   }
 
   let vacuous = false;
@@ -347,6 +488,8 @@ export function evaluateExtensionSurface(s) {
     ...missingFrom(s.caseLabels, s.docPanelTypes, `is serviced by the dispatcher switch but the panel-protocol enumeration does not state it`), // prettier-ignore
     ...missingFrom(s.docCaptureTypes, s.equalityTypes, `is in the capture-path table but no equality guard in the worker module services it (${ERT_CLAUSE_ID})`), // prettier-ignore
     ...missingFrom(s.equalityTypes, s.docCaptureTypes, `is serviced by an equality guard in the worker module but the capture-path table does not state it`), // prettier-ignore
+    ...missingFrom(s.sendTypes, s.docPanelTypes, `is sent by the panel but the panel-protocol enumeration does not state it (${ERT_CLAUSE_ID})`), // prettier-ignore
+    ...missingFrom(s.docPanelTypes, s.sendTypes, `is in the panel-protocol enumeration but no object-literal send( in the tracked ${PANEL_DIR} JavaScript sends it (${ERT_CLAUSE_ID}) — a type sent only through a payload assembled beforehand is invisible to this leg and reds here too, which this direction cannot tell from a type nothing sends: moving a send outside the object-literal shape is a change that updates the runtime doc's sender statement and this check together`), // prettier-ignore
   );
 
   const overlap = s.docCaptureTypes.filter((t) => s.docPanelTypes.includes(t));
@@ -360,15 +503,21 @@ export function evaluateExtensionSurface(s) {
 /**
  * Read every surface from the working tree and evaluate both contracts.
  * @param {(f: string) => string} readFile repo-relative content reader
- * @returns {{ problems: string[], permissionCount: number, typeCount: number }}
+ * @param {string[]} panelFiles the tracked panel JavaScript paths the send
+ *   scan reads
+ * @returns {{ problems: string[], permissionCount: number, typeCount: number, panelTypeCount: number }}
+ *   `typeCount` is the doc's whole message-type union — the surface the
+ *   dispatcher legs cover — and `panelTypeCount` the panel-protocol subset the
+ *   sender leg covers
  */
-export function auditTree(readFile) {
+export function auditTree(readFile, panelFiles) {
   const manifest = extractManifestSurface(readFile(MANIFEST_PATH));
   const permDoc = readFile(PERMISSIONS_DOC_PATH);
   const permissions = extractSectionTableNames(permDoc, 'Permissions', 'Permission');
   const hostPermissions = extractSectionTableNames(permDoc, 'Host permissions', 'Host permission');
   const protocol = extractProtocolTables(readFile(RUNTIME_DOC_PATH));
   const dispatcher = extractDispatcherSurface(readFile(WORKER_PATH));
+  const sendSites = extractSendSites(new Map(panelFiles.map((p) => [p, readFile(p)])));
 
   const s = {
     manifestPermissions: manifest.permissions,
@@ -381,11 +530,14 @@ export function auditTree(readFile) {
     protocolUnreadable: protocol.unreadable,
     caseLabels: dispatcher.caseLabels,
     equalityTypes: dispatcher.equalityTypes,
+    sendTypes: [...new Set(sendSites.filter((x) => x.type !== null).map((x) => x.type))],
+    sendSites,
   };
   return {
     problems: [...manifest.problems, ...dispatcher.problems, ...evaluateExtensionSurface(s)],
     permissionCount: new Set([...s.manifestPermissions, ...s.manifestHostPermissions]).size,
     typeCount: new Set([...s.docCaptureTypes, ...s.docPanelTypes]).size,
+    panelTypeCount: new Set(s.docPanelTypes).size,
   };
 }
 
@@ -399,7 +551,11 @@ function run() {
       return ''; // an unreadable surface fails the non-empty guards loudly
     }
   };
-  const { problems, permissionCount, typeCount } = auditTree(readFile);
+  const panelFiles = execFileSync('git', ['ls-files', PANEL_DIR], { encoding: 'utf8' })
+    .split('\n')
+    .map((s) => s.trim())
+    .filter((f) => f.endsWith('.js'));
+  const { problems, permissionCount, typeCount, panelTypeCount } = auditTree(readFile, panelFiles);
 
   if (problems.length) {
     console.error(
@@ -407,15 +563,17 @@ function run() {
         problems.map((p) => `    ${p}`).join('\n') +
         `\n\n  The manifest's permission surface and the Permissions / Host permissions tables\n` +
         `  must state the same sets (${PERMISSIONS_DOC_PATH} §${EPM_CLAUSE_ID}); the dispatcher's\n` +
-        `  serviced message types and the runtime doc's capture-path and panel-protocol\n` +
-        `  enumerations must state the same sets (${RUNTIME_DOC_PATH} §${ERT_CLAUSE_ID}).\n` +
+        `  serviced message types, the panel's literal sends, and the runtime doc's\n` +
+        `  capture-path and panel-protocol enumerations must state the same sets\n` +
+        `  (${RUNTIME_DOC_PATH} §${ERT_CLAUSE_ID}).\n` +
         `  Update the drifted surfaces together in the same change.\n`,
     );
     process.exit(1);
   }
   console.log(
     `✓ extension surface consistent: ${permissionCount} permissions match the doc tables; ` +
-      `${typeCount} message types agree between the runtime doc and the worker dispatcher.`,
+      `${typeCount} message types agree between the runtime doc and the worker dispatcher, ` +
+      `and its ${panelTypeCount} panel-protocol types agree with the panel's literal sends.`,
   );
 }
 
