@@ -9,8 +9,10 @@
  * nothing, an entry whose two halves name different files, a globbed suite no
  * entry registers, an entry whose descriptor no longer states what selects it,
  * an entry nothing runs, a mirrored discovery claim that no longer matches the
- * surface it mirrors, and each way any of the extractions can fail to reach its
- * whole subject. Table parsing is proven to read only the documented section
+ * surface it mirrors, a test binary hidden from CI by any route past the
+ * top-level discovery — the directory form, and each spelling in which the
+ * crate manifest states the test targets itself — and each way any of the
+ * extractions can fail to reach its whole subject. Table parsing is proven to read only the documented section
  * and to ignore prose and fenced blocks (the reason the check reads rows, not
  * text), and the array scan survives reformatting while refusing a restructured
  * literal — including a requested property whose value is an expression, which
@@ -46,10 +48,12 @@ import {
   normalizePath,
   parseTables,
   readListEntries,
+  readTomlLine,
   registered,
   selectsFor,
   splitRow,
   stripFences,
+  stripTomlComment,
   tokenizeJs,
 } from '../../../../scripts/check-test-inventory.js';
 
@@ -725,6 +729,7 @@ const CARGO_ENTRY = registered({
     workflow: '.github/workflows/test.yml',
     step: 'Discover Rust test layers',
     glob: 'tests/*.rs',
+    manifest: 'crate/Cargo.toml',
   },
 });
 
@@ -748,11 +753,35 @@ const WORKFLOW_TEXT = [
   '        run: echo done',
 ].join('\n');
 
+/**
+ * A crate manifest declaring no test binary of its own — the shape the
+ * admission accepts — optionally carrying extra lines inside its `[package]`
+ * table. Where a declaration sits decides whether it is Cargo's own, so the
+ * fixtures place their lines rather than appending them to whatever table the
+ * manifest happens to end in.
+ */
+const cargoManifest = (...packageLines) =>
+  ['[package]', 'name = "crate"', ...packageLines, '', '[dev-dependencies]', 'proptest = "1"'].join('\n'); // prettier-ignore
+
+/** The manifest as it stands with no extra line — the accepted shape. */
+const CARGO_MANIFEST = cargoManifest();
+
 /** A synthetic tree whose root manifest states `scripts`, plus anything else it needs. */
 const manifestTree = (scripts, extra = {}) => ({
   'package.json': JSON.stringify({ scripts }),
   ...extra,
 });
+
+/**
+ * A synthetic tree carrying both surfaces the cargo entry is read against: the
+ * workflow step its membership rule mirrors, and the crate manifest its
+ * discovery admission reads.
+ */
+const cargoTree = (extra = {}) =>
+  manifestTree(
+    { lint: 'echo ok' },
+    { '.github/workflows/test.yml': WORKFLOW_TEXT, 'crate/Cargo.toml': CARGO_MANIFEST, ...extra },
+  );
 
 /** Run the registration closure over an in-memory { path: content } tree. */
 function closure(tree, { inventories = [NODE_ENTRY], files } = {}) {
@@ -1010,13 +1039,12 @@ describe('auditRegistrationClosure — the node-test class, both directions', ()
 
 describe('auditRegistrationClosure — the mirrored discovery claims', () => {
   it('holds the cargo entry to the workflow step that discovers its binaries', () => {
-    const tree = manifestTree({ lint: 'echo ok' }, { '.github/workflows/test.yml': WORKFLOW_TEXT });
-    assert.deepEqual(formatProblems(closure(tree, { inventories: [CARGO_ENTRY] })), []);
+    assert.deepEqual(formatProblems(closure(cargoTree(), { inventories: [CARGO_ENTRY] })), []);
   });
 
   it('flags a widened discovery glob, naming both sides', () => {
     const widened = WORKFLOW_TEXT.replace('tests/*.rs', 'tests/*.rs tests/*/main.rs');
-    const tree = manifestTree({ lint: 'echo ok' }, { '.github/workflows/test.yml': widened });
+    const tree = cargoTree({ '.github/workflows/test.yml': widened });
     const result = closure(tree, { inventories: [CARGO_ENTRY] });
     assert.equal(result.mirrorDrift.length, 1);
     assert.match(result.mirrorDrift[0], /discovers `tests\/\*\.rs tests\/\*\/main\.rs`/);
@@ -1025,7 +1053,7 @@ describe('auditRegistrationClosure — the mirrored discovery claims', () => {
 
   it('refuses a discovery step that vanished under its registered name', () => {
     const renamed = WORKFLOW_TEXT.replace('Discover Rust test layers', 'Find the test layers');
-    const tree = manifestTree({ lint: 'echo ok' }, { '.github/workflows/test.yml': renamed });
+    const tree = cargoTree({ '.github/workflows/test.yml': renamed });
     const result = closure(tree, { inventories: [CARGO_ENTRY] });
     assert.equal(result.unreadableClosure.length, 1);
     assert.match(result.unreadableClosure[0], /no step is named "Discover Rust test layers"/);
@@ -1036,7 +1064,7 @@ describe('auditRegistrationClosure — the mirrored discovery claims', () => {
     const empty = ['      - name: Discover Rust test layers', '        run: echo nothing'].join(
       '\n',
     );
-    const tree = manifestTree({ lint: 'echo ok' }, { '.github/workflows/test.yml': empty });
+    const tree = cargoTree({ '.github/workflows/test.yml': empty });
     assert.match(
       closure(tree, { inventories: [CARGO_ENTRY] }).unreadableClosure[0],
       /iterates over nothing/,
@@ -1112,6 +1140,216 @@ describe('auditRegistrationClosure — the mirrored discovery claims', () => {
   });
 });
 
+describe('auditRegistrationClosure — the discovery admission, both routes', () => {
+  /** The cargo tree plus the tracked files the path route reads. */
+  const treeWithFiles = (files, extra = {}) => ({ tree: cargoTree(extra), files });
+
+  /** Run the closure over a cargo tree whose tracked set carries suite files too. */
+  const admit = ({ tree, files }) =>
+    closure(tree, { inventories: [CARGO_ENTRY], files: [...Object.keys(tree), ...files] });
+
+  it('admits the suite as it is meant to look: top-level binaries and shared module code', () => {
+    // A nested non-`main.rs` file is the `tests/common/mod.rs` convention —
+    // shared module code that runs nowhere on its own — and a `main.rs` deeper
+    // than one level is not a binary Cargo builds either.
+    const result = admit(
+      treeWithFiles([
+        'crate/tests/worker_pool_test.rs',
+        'crate/tests/common/mod.rs',
+        'crate/tests/common/deeper/main.rs',
+      ]),
+    );
+    assert.deepEqual(formatProblems(result), []);
+  });
+
+  it('reds the directory form, naming the file and its own fix', () => {
+    const result = admit(
+      treeWithFiles(['crate/tests/worker_pool_test.rs', 'crate/tests/nested/main.rs']),
+    );
+    assert.equal(result.undiscoveredBinary.length, 1);
+    assert.match(result.undiscoveredBinary[0], /^crate\/tests\/nested\/main\.rs:/);
+    assert.match(result.undiscoveredBinary[0], /Cargo builds this as a test binary/);
+    assert.match(result.undiscoveredBinary[0], /move it to a top-level `\.rs` in crate\/tests\//);
+    // Its own leg, its own bucket: the mirror claim still holds, and is not
+    // where this red is reported.
+    assert.deepEqual(result.mirrorDrift, []);
+    assert.deepEqual(result.unreadableClosure, []);
+  });
+
+  it('reds a manifest `[[test]]` stanza, naming it and its own fix', () => {
+    const declaring = [CARGO_MANIFEST, '', '[[test]]', 'name = "hidden"', 'path = "elsewhere/hidden.rs"'].join('\n'); // prettier-ignore
+    const result = admit(
+      treeWithFiles(['crate/tests/worker_pool_test.rs'], { 'crate/Cargo.toml': declaring }),
+    );
+    assert.equal(result.undiscoveredBinary.length, 1);
+    assert.match(result.undiscoveredBinary[0], /^crate\/Cargo\.toml: states a `\[\[test\]\]` stanza/); // prettier-ignore
+    assert.match(result.undiscoveredBinary[0], /names a test target explicitly/);
+    assert.match(result.undiscoveredBinary[0], /drop it and let auto-discovery select/);
+    assert.deepEqual(result.mirrorDrift, []);
+  });
+
+  it('reds a `test =` target array, the same declaration written as a value', () => {
+    // Cargo reads a ROOT-table `test` value as the array of tables the
+    // `[[test]]` form spells, so a manifest writing it this way registers the
+    // same targets — and passed this admission before the scan read the table
+    // each key sits in.
+    const manifest = ['test = [{ name = "hidden", path = "elsewhere/hidden.rs" }]', '', CARGO_MANIFEST].join('\n'); // prettier-ignore
+    const result = admit(treeWithFiles([], { 'crate/Cargo.toml': manifest }));
+    assert.equal(result.undiscoveredBinary.length, 1);
+    assert.match(result.undiscoveredBinary[0], /states a `test =` target array/);
+    assert.match(result.undiscoveredBinary[0], /naming its test targets explicitly/);
+  });
+
+  it('leaves each target key outside the one table Cargo reads it in', () => {
+    // The two tables are disjoint, so the mirrored spellings are both green:
+    // a `[package]` `test` is an unused manifest key that builds no target,
+    // and a root-table `autotests` is an unused manifest key that changes no
+    // binary. A scan admitting either table for either key would red a
+    // manifest Cargo itself ignores.
+    for (const manifest of [
+      cargoManifest('test = [{ name = "hidden", path = "elsewhere/hidden.rs" }]'),
+      ['autotests = false', '', CARGO_MANIFEST].join('\n'),
+    ]) {
+      const result = admit(
+        treeWithFiles(['crate/tests/worker_pool_test.rs'], { 'crate/Cargo.toml': manifest }),
+      );
+      assert.deepEqual(formatProblems(result), [], manifest);
+    }
+  });
+
+  it('reds a quoted spelling of the `[[test]]` header, which names the same table', () => {
+    for (const header of ['[["test"]]', "[['test']]"]) {
+      const result = admit(
+        treeWithFiles([], {
+          'crate/Cargo.toml': `${CARGO_MANIFEST}\n\n${header}\nname = "hidden"`,
+        }),
+      );
+      assert.equal(result.undiscoveredBinary.length, 1, header);
+      assert.match(result.undiscoveredBinary[0], /states a `\[\[test\]\]` stanza/, header);
+    }
+  });
+
+  it('reds an `autotests` key, whichever value it carries', () => {
+    for (const declaration of ['autotests = false', 'autotests=true']) {
+      const result = admit(treeWithFiles([], { 'crate/Cargo.toml': cargoManifest(declaration) }));
+      assert.equal(result.undiscoveredBinary.length, 1, declaration);
+      assert.match(result.undiscoveredBinary[0], /states an `autotests` key/, declaration);
+      // The consequence every manifest red states, whichever route raised it:
+      // the deciding moved to the manifest. `autotests = true` is the edition
+      // default and changes no binary, so a red claiming a changed set here
+      // would be false of the very value this loop drives.
+      assert.match(
+        result.undiscoveredBinary[0],
+        /which test binaries exist is then this manifest's to decide/,
+        declaration,
+      );
+    }
+  });
+
+  it('leaves a `test` key another table declares to that table', () => {
+    // `[features]` may name a feature `test`, and any table may carry a key
+    // spelled like a target one — neither is Cargo's target selection, and a
+    // scan blind to the table it is reading would red both.
+    const manifest = [CARGO_MANIFEST, '', '[features]', 'test = []', '', '[dependencies]', 'autotests = "1"'].join('\n'); // prettier-ignore
+    const result = admit(
+      treeWithFiles(['crate/tests/worker_pool_test.rs'], { 'crate/Cargo.toml': manifest }),
+    );
+    assert.deepEqual(formatProblems(result), []);
+  });
+
+  it('resolves a dotted key onto the table its own segments name', () => {
+    // A manifest may spell every table inline. `package.autotests` at the root
+    // is the `[package]` key, turning discovery off exactly as the sectioned
+    // spelling does — and passed this admission silently while the scan read
+    // only the `[table]` header it sat under.
+    const dotted = ['package.name = "crate"', 'package.autotests = false'].join('\n');
+    const red = admit(treeWithFiles([], { 'crate/Cargo.toml': dotted }));
+    assert.equal(red.undiscoveredBinary.length, 1);
+    assert.match(red.undiscoveredBinary[0], /states an `autotests` key/);
+    // The other direction: a dotted key resolving anywhere else names that
+    // table's own key, not a target selection.
+    const elsewhere = ['dependencies.autotests = "1"', '', CARGO_MANIFEST].join('\n');
+    const green = admit(
+      treeWithFiles(['crate/tests/worker_pool_test.rs'], { 'crate/Cargo.toml': elsewhere }),
+    );
+    assert.deepEqual(formatProblems(green), []);
+  });
+
+  it('reports each route once, and every route when a manifest states them all', () => {
+    const all = [
+      'test = [{ name = "declared" }]',
+      '',
+      cargoManifest('autotests = false'),
+      '',
+      '[[ test ]]',
+      'name = "hidden"',
+      '',
+      '[[test]]',
+      'name = "hidden-too"',
+    ].join('\n');
+    const result = admit(
+      treeWithFiles(['crate/tests/nested/main.rs'], { 'crate/Cargo.toml': all }),
+    );
+    assert.equal(result.undiscoveredBinary.length, 4, 'three routes plus the tree route');
+    assert.equal(formatProblems(result).length, 1, 'one block carries the whole class');
+    assert.match(
+      formatProblems(result)[0],
+      /place\(s\) where the discovery step does not decide which test binaries exist/,
+    );
+    assert.match(formatProblems(result)[0], /widen the discovery on\n {2}purpose/);
+  });
+
+  it('reads a commented-out declaration as the comment it is', () => {
+    const commented = [CARGO_MANIFEST, '# autotests = false', '# [[test]]'].join('\n');
+    const result = admit(treeWithFiles([], { 'crate/Cargo.toml': commented }));
+    assert.deepEqual(formatProblems(result), []);
+  });
+
+  it('refuses a crate manifest it cannot read, and still reports the path route', () => {
+    const tree = cargoTree();
+    delete tree['crate/Cargo.toml'];
+    const result = closure(tree, {
+      inventories: [CARGO_ENTRY],
+      files: [...Object.keys(tree), 'crate/tests/nested/main.rs'],
+    });
+    assert.equal(result.unreadableClosure.length, 1);
+    assert.match(result.unreadableClosure[0], /^crate\/Cargo\.toml: the crate manifest/);
+    assert.match(result.unreadableClosure[0], /could not be read/);
+    assert.equal(result.undiscoveredBinary.length, 1, 'the tree route is read on its own');
+  });
+
+  it('strips a TOML comment without letting a `#` inside a value truncate the line', () => {
+    assert.equal(stripTomlComment('# [[test]]'), '');
+    assert.equal(stripTomlComment('  autotests = false  # off'), 'autotests = false');
+    assert.equal(stripTomlComment('description = "a # sign"'), 'description = "a # sign"');
+    assert.equal(stripTomlComment("name = 'a # sign'"), "name = 'a # sign'");
+    assert.equal(stripTomlComment('a = "he said \\"#\\"" # gone'), 'a = "he said \\"#\\""');
+  });
+
+  it('reads a manifest line as the header it opens, the key it assigns, or neither', () => {
+    assert.deepEqual(readTomlLine('[[test]]'), { header: 'test', array: true });
+    assert.deepEqual(readTomlLine('[[ "test" ]]'), { header: 'test', array: true });
+    assert.deepEqual(readTomlLine('[package]'), { header: 'package', array: false });
+    assert.deepEqual(readTomlLine("[target.'cfg(windows)'.dependencies]"), {
+      header: 'target.cfg(windows).dependencies',
+      array: false,
+    });
+    assert.deepEqual(readTomlLine('autotests=true'), { key: 'autotests', within: '' });
+    assert.deepEqual(readTomlLine('"autotests" = true'), { key: 'autotests', within: '' });
+    assert.deepEqual(readTomlLine('package.autotests = false'), {
+      key: 'autotests',
+      within: 'package',
+    });
+    // A `.` inside a quoted segment is that key's own, not a separator.
+    assert.deepEqual(readTomlLine('"package.autotests" = false'), {
+      key: 'package.autotests',
+      within: '',
+    });
+    assert.equal(readTomlLine(''), null);
+    assert.equal(readTomlLine('"Win32_Foundation",'), null);
+  });
+});
+
 describe('auditRegistrationClosure — every unreadable surface is refused', () => {
   it('refuses a tree that admits no manifest at all', () => {
     const result = auditRegistrationClosure({
@@ -1173,6 +1411,14 @@ describe('real-tree lock', () => {
     );
   });
 
+  it('the committed tree and crate manifest hold no undiscovered test binary', () => {
+    // The guard's own day-one green, pinned by name rather than left inside the
+    // closure's aggregate: neither route exists today, so a future one is the
+    // change that turns this red.
+    const result = auditRegistrationClosure({ files: trackedFiles(), readFile: readRepoFile });
+    assert.deepEqual(result.undiscoveredBinary, []);
+  });
+
   it('every configured document, suite, and coverage list is in the tree', () => {
     const files = trackedFiles();
     const tracked = new Set(files);
@@ -1222,8 +1468,9 @@ describe('real-tree lock', () => {
     }
 
     // The desktop crate: one binary per tests/*.rs, which is what CI's
-    // layer-discovery step globs. Cargo would also build tests/<name>/main.rs,
-    // but that step never sees it, so it is not part of the documented suite.
+    // layer-discovery step globs. Cargo would also build tests/<name>/main.rs;
+    // the discovery admission refuses that form — and the manifest routes to
+    // the same place — so the rule and the tree state one top-level suite.
     const cargo = ruleFor('packages/desktop/src-tauri/tests');
     assert.equal(cargo('worker_pool_test.rs'), true);
     assert.equal(cargo('nested/main.rs'), false);

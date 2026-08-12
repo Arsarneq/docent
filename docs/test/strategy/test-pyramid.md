@@ -15,10 +15,13 @@ layer. Each package keeps its tests under `tests/unit`, `tests/integration`, or
 
 Rust tests live in the `packages/desktop/src-tauri/tests/` directory (Cargo
 convention), one binary per `.rs` file directly in it — the set CI's discovery
-step reads. Their pyramid layer is auto-discovered by CI from the test source —
-there are no test-name lists in the workflow. A test that imports the `enigo`
-crate (synthesises real OS input) counts as **integration**; everything else
-counts as **unit**. To opt a test out of CI entirely (e.g. it depends on
+step reads. A CI lint refuses an undiscovered test binary — one Cargo runs under
+local `cargo test` while CI's discovery never sees it — by either route: the
+directory form `tests/<name>/main.rs`, or a crate manifest that states the test
+targets itself. A binary's pyramid layer is auto-discovered by CI from the test
+source — there are no test-name lists in the workflow. A test that imports the
+`enigo` crate (synthesises real OS input) counts as **integration**; everything
+else counts as **unit**. To opt a test out of CI entirely (e.g. it depends on
 something unavailable on runners), add a `ci-skip` marker comment to its source.
 `file_dialog_test` uses this because it launches Notepad. Each test therefore
 fully describes its own classification and CI-eligibility — adding a test never
