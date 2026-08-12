@@ -1,0 +1,204 @@
+# JavaScript unit tests
+
+The unit layer of Docent's JavaScript suites: the shared modules in
+`packages/shared`, the desktop frontend in `packages/desktop`, and the Chrome
+extension in `packages/extension`, each with its own `tests/unit` directory.
+They run on Node's built-in test runner against pure modules, injected fakes,
+and composed schemas — and, for the machinery and size-budget suites, against
+the committed tree and the built artifacts themselves — with no browser, no
+Tauri backend, and no network involved.
+
+Where a platform file cannot be imported under the runner (a content script, a
+service worker, a panel that awaits at the top level), the suite drives an
+extracted module or a copy of the shipped text. Two copies carry a parity guard
+holding them identical to the text that ships — the recorder's capture block and
+the service worker's append chokepoint — so those cases pin what ships. The
+worker's other replicated handlers and the panel's send gate carry no such
+guard: those cases pin the mirror, and hold only for as long as the mirror
+matches the file it was copied from.
+
+Every tree is discovered the same way: a `node --test` glob over the test files
+at the top of its `tests/unit` directory. A file joins its suite by matching
+`*.test.js` there: a helper beside the tests is outside the suite because its
+name does not match, and a file one directory deeper is outside it because the
+glob reads only the top level. The commands that run each suite live in the
+[contributing guide](../../.github/CONTRIBUTING.md#running-tests); how this
+layer sits beneath the others is in
+[the test pyramid](strategy/test-pyramid.md), and how its coverage reaches
+Codecov is in [coverage reporting](strategy/coverage.md).
+
+The tables below enumerate each tree, and
+[`check-test-inventory.js`](../../scripts/check-test-inventory.js) holds them to
+the directories they describe on every pull request: a test file with no row, or
+a row naming something the tree's discovery does not select, fails the build.
+
+## Shared modules
+
+`packages/shared/tests/unit` — the session model and the format tooling around
+it, the sync client with its detection, resolution, and scheduling layers, the
+dispatch path, the shared rendering module, and the unit suites of the CI
+machinery under `scripts/`.
+
+| Test file                                             | Covers                                                                                                                                                                                                                              |
+| ----------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `abort-on-unretainable.property.test.js`              | An inability to retain a version in recoverable form aborts the operation while preserving state, at both points a version is retained.                                                                                             |
+| `accept-review.property.test.js`                      | Accepting a Review-and-Accept item applies the incoming change, advances the baseline per unit, and marks the item applied.                                                                                                         |
+| `attention-indicator-derivation.property.test.js`     | Derivation of the attention indicators from a sync state: which Units need attention, Review versus Conflict, and the row each sits on.                                                                                             |
+| `auth-failure-halt.property.test.js`                  | An authentication rejection halts the cycle and leaves every deferred Conflict and Review recoverable.                                                                                                                              |
+| `backward-compat.test.js`                             | Every frozen fixture export still validates against the current platform schema composed from its source layers.                                                                                                                    |
+| `baseline-advancement.property.test.js`               | The baseline advances only on confirmed agreement or adoption, never on a push.                                                                                                                                                     |
+| `brand-new-auto-add.property.test.js`                 | Brand-new Units are auto-added and recorded in the baseline, while a Unit absent locally but present in the baseline is never resurrected.                                                                                          |
+| `build-size.test.js`                                  | Size tripwires over the schema files, which stay lean because both platforms ship them.                                                                                                                                             |
+| `capture-active-halt.property.test.js`                | While capture is active a cycle starts no work at all, and the same state is allowed to sync once capture ends.                                                                                                                     |
+| `changed-incoming-review.property.test.js`            | An incoming change to a locally unchanged recording is deferred to Review whenever the toggle is off or the change is not a fast-forward.                                                                                           |
+| `changed-local-outgoing-push.property.test.js`        | A routine one-sided local change is pushed automatically, and only eligible Units reach the wire as local.                                                                                                                          |
+| `check-action-pins.test.js`                           | The Actions pin guard: every `uses:` pins to a commit SHA, with local refs exempt.                                                                                                                                                  |
+| `check-area-map.test.js`                              | The area-map admission test: each way the map can rot, and the pattern semantics that make its coverage total.                                                                                                                      |
+| `check-capture-surface.test.js`                       | The capture-surface admission test: both platforms' closed enumerations, the admission list, and the extractors' refusals.                                                                                                          |
+| `check-ci-filter.test.js`                             | The CI path-filter admission test: each way the workflow's filter split can drift, plus a real-tree lock.                                                                                                                           |
+| `check-clause-governance.test.js`                     | The clause-governance check: a cited path owes the clause's own doc, with the recorded exceptions honoured.                                                                                                                         |
+| `check-clause-preamble.test.js`                       | The clause-preamble admission test: the canonical paragraph, its computed per-document variables, and the lowercase-keyword allowlist.                                                                                              |
+| `check-clause-registry.test.js`                       | The clause-registry parity check: marker and row agreement, citation resolvability, the closed row grammar, and the lock surfaces.                                                                                                  |
+| `check-cli-smoke.test.js`                             | End-to-end smoke tests that the check scripts' command-line wrappers run green over the committed tree.                                                                                                                             |
+| `check-command-surface.test.js`                       | The desktop command-surface admission test: every red-path family, the comment and fence strippers, and a real-tree lock.                                                                                                           |
+| `check-doc-closure.test.js`                           | The doc-closure admission test: each closure leg of the guides, the job partition, and a real-tree lock.                                                                                                                            |
+| `check-doc-reachability.test.js`                      | The reachability lint: an unlinked document fails, and links inside code fences are never followed.                                                                                                                                 |
+| `check-docs-disposition.test.js`                      | The pull-request body format check: its red paths, and each declared class that skips the sections.                                                                                                                                 |
+| `check-extension-surface.test.js`                     | The extension-surface admission test: the manifest's permissions and the worker dispatcher against their documented enumerations.                                                                                                   |
+| `check-licenses-npm.test.js`                          | The default-deny npm license gate: its denial paths and the SPDX expression evaluation behind them.                                                                                                                                 |
+| `check-no-release-outputs.test.js`                    | The release-output guard's two modes: a feature branch touches no release output, and the automation branch carries nothing else.                                                                                                   |
+| `check-pr-title.test.js`                              | The Conventional Commits title validator, whose verdict becomes the squashed commit subject.                                                                                                                                        |
+| `check-release-tag.test.js`                           | A release tag's pre-release suffix and the release's pre-release flag agree in both directions.                                                                                                                                     |
+| `check-schema-echo.test.js`                           | The schema-echo admission test: each echo of the composed schemas in both directions, with a real-tree lock.                                                                                                                        |
+| `check-test-inventory.test.js`                        | The test-inventory lint: the inventory and coverage-list red paths, the registration closure, the undiscovered-binary admission test over the tree and the crate manifest, and the real-tree locks.                                 |
+| `check-tracked-ignored.test.js`                       | The tracked-but-ignored lint: the exact question put to git, and the reading of its answer.                                                                                                                                         |
+| `check-verification-inventory.test.js`                | The verification-inventory admission test: each inventory against what it describes, the strict-flip watch, and the exit-code contract.                                                                                             |
+| `check-version-sync.test.js`                          | The version-table check: the committed tables equal the schema versions the leaf delta files carry.                                                                                                                                 |
+| `classify-decision-table.property.test.js`            | The graded classification decision table is total and correct against an independently re-derived oracle.                                                                                                                           |
+| `classify-deterministic.property.test.js`             | Classification is deterministic, settings-independent, and free of user-input or I/O interaction.                                                                                                                                   |
+| `classify-schema-change.test.js`                      | The mechanical schema-change classifier behind auto-versioning, one case per rule and its escalate-when-ambiguous bias.                                                                                                             |
+| `conformance-vectors.test.js`                         | Hygiene locks over the committed conformance vectors: per-candidate match counts and committed-field equalities, per platform.                                                                                                      |
+| `connection-test.test.js`                             | The connection probe's outcome classification and the settings fingerprint that invalidates a prior pass.                                                                                                                           |
+| `contract.test.js`                                    | Built payloads and export data validate against the platform schemas, which are the source of truth for the shapes.                                                                                                                 |
+| `corpus-compare.test.js`                              | The corpus comparator: normalization classes, action alignment, relaxations, baseline mechanics, and its exit-code contract.                                                                                                        |
+| `decline-review.property.test.js`                     | Declining a Review keeps local, dismisses exactly that incoming version, pushes nothing, and advances no baseline.                                                                                                                  |
+| `delete-vs-change-conflict.property.test.js`          | A Unit deleted on one side and changed on the other is deferred as a Conflict retaining the changed side, at both granularities.                                                                                                    |
+| `deletion-propagation.property.test.js`               | A cycle never silently resurrects a deletion and never silently applies one.                                                                                                                                                        |
+| `digest-unrecognized-fields.property.test.js`         | Unrecognized top-level server fields are dropped before hashing, so they can never shift content identity.                                                                                                                          |
+| `dispatch-cooldown.test.js`                           | The post-send cooldown that guards a rapid resend, driven by an injectable clock.                                                                                                                                                   |
+| `dispatch-core.test.js`                               | Endpoint-URL validation, the send path's error and retry handling, and the payload builder's edge cases.                                                                                                                            |
+| `dispatch-payload.test.js`                            | Payload assembly with metadata, and the simple-mode step fields it carries.                                                                                                                                                         |
+| `divergence-conflict.property.test.js`                | A diverged Unit records a Conflict retaining both versions and applies no version during the cycle.                                                                                                                                 |
+| `docs-disposition-audit.test.js`                      | The weekly disposition audit's probable-miss labeller, and the shapes it deliberately stays quiet on.                                                                                                                               |
+| `failed-add-isolation.property.test.js`               | A failed brand-new add is isolated: that Unit is left unsynced and the rest of the cycle still completes.                                                                                                                           |
+| `fast-forward-superset.property.test.js`              | An auto-applied fast-forward requires an append-only superset; anything else is held for Review even with the toggle on.                                                                                                            |
+| `field-sensitivity.test.js`                           | The shared sensitive-field and URL redaction: masking on strong signals, and no over-masking of legitimate fields.                                                                                                                  |
+| `gating-parity.property.test.js`                      | The live-work gating is identical however the cycle was triggered.                                                                                                                                                                  |
+| `generated-validators.test.js`                        | The generated standalone validators accept valid payloads and reject the cases that matter, the format stamp included.                                                                                                              |
+| `http-transport.test.js`                              | The platform HTTP seam: the default global transport, a bound one, the lazy read, and the reset.                                                                                                                                    |
+| `idempotent-detection.property.test.js`               | Repeated cycles over unchanging inputs neither duplicate a deferred record nor flip a Unit between Review and Conflict.                                                                                                             |
+| `import-project.test.js`                              | The shared import builder: a reconstructed project re-exports to a file that still validates.                                                                                                                                       |
+| `interaction-free-automatic.property.test.js`         | The automatic half of a cycle completes with no user interaction and adopts no deferred incoming change.                                                                                                                            |
+| `internal-failure-blocking.property.test.js`          | An internal detection or resolution failure blocks the cycle and leaves the durable store exactly as it was.                                                                                                                        |
+| `item-type-routing-guard.property.test.js`            | The routing guard rejects the other type's interface for a deferred item, without mutating any state.                                                                                                                               |
+| `lint-glob-quoting.test.js`                           | The root Markdown and CSS lint scripts hand their globs to the underlying tool in a form both shells deliver intact.                                                                                                                |
+| `lock-unlock-round-trip.property.test.js`             | Closing a lock makes the recording eligible again on the very next cycle.                                                                                                                                                           |
+| `locked-recording-exclusion.property.test.js`         | A locked recording is excluded from the inbound merge while every other Unit in the same cycle still reconciles.                                                                                                                    |
+| `locked-recording-push-preservation.property.test.js` | A locked recording stays in the outbound payload at its agreed-or-pulled version, never at its un-reconciled local edits.                                                                                                           |
+| `next-release-version.test.js`                        | The commit-to-semver bump classifier and the increment arithmetic it relies on.                                                                                                                                                     |
+| `no-baseline-no-one-sided-change.property.test.js`    | With no recorded baseline, classification never attributes a change to one side.                                                                                                                                                    |
+| `no-discard-no-overwrite.property.test.js`            | A cycle discards nothing and overwrites nothing without a resolution.                                                                                                                                                               |
+| `no-permanent-loss.property.test.js`                  | Across cycles interleaved with resolutions, no committed local step record is ever permanently lost.                                                                                                                                |
+| `no-resolution-execution.test.js`                     | A repository-level guard that the resolution procedure is implemented in no shipped runtime path.                                                                                                                                   |
+| `pending-action-protection.property.test.js`          | The pre-flight gate halts before any transport when a recording holding pending actions is unprotected.                                                                                                                             |
+| `per-unit-push-assembly.property.test.js`             | The outbound payload is assembled per unit: nothing present on any side is omitted, and no un-reconciled version clobbers the server.                                                                                               |
+| `performance.test.js`                                 | Time budgets for the data layer's core operations on large sessions — a guard against accidental quadratic work.                                                                                                                    |
+| `placement-contract.test.js`                          | Placement and protocol contracts: where the shared logic lives, that both panels import it, the endpoints a cycle uses, the connection probe's use of the read endpoint alone, and the trigger's addition of no request of its own. |
+| `policy-settings-scope.property.test.js`              | The reconciliation-policy settings move only the local-unchanged cases and never auto-resolve a divergence.                                                                                                                         |
+| `pull-precedes-push.property.test.js`                 | Every pull precedes every push, and a push runs only after a reconcile that did not halt.                                                                                                                                           |
+| `regression.test.js`                                  | Regression cases for previously fixed session-model bugs, each naming the fix it pins.                                                                                                                                              |
+| `render-views.test.js`                                | The shared list and detail rendering functions, and the structure of the fragment they render into.                                                                                                                                 |
+| `render.test.js`                                      | The shared rendering helpers: escaping, action description, and the canonical active-view resolver they run through.                                                                                                                |
+| `reported-counts.property.test.js`                    | A completed cycle's reported sets equal the sets the cycle actually produced.                                                                                                                                                       |
+| `resolution-append-only-tombstone.property.test.js`   | Resolution preserves the append-only history and never resurrects a tombstoned step.                                                                                                                                                |
+| `resolution-clear-vs-retain.property.test.js`         | A completed resolution clears its record; one that fails or is abandoned retains it and changes nothing.                                                                                                                            |
+| `resolution-propagates-next-cycle.property.test.js`   | A resolution issues no push, and the resolved state propagates on the next cycle per the resolved-against baseline.                                                                                                                 |
+| `resolution-recoverability.property.test.js`          | Both versions stay recoverable through a successful resolution, and the retained snapshot is never cleared.                                                                                                                         |
+| `resolve-conflict-fixtures.test.js`                   | Hand-built fixtures for step histories that are easy to get wrong: interleaved re-records, tombstones, and delete-versus-change.                                                                                                    |
+| `resolve-explicit-logical-id.property.test.js`        | A per-step divergence requires explicit input, and histories are never combined unless the user supplies the combination.                                                                                                           |
+| `revision-r1-scenarios.test.js`                       | Hand-built multi-cycle storylines pinning the round-trips the pull-first order enables.                                                                                                                                             |
+| `safeguard-composition.property.test.js`              | Stamp compatibility, schema validation, and per-project error isolation compose without any of them becoming a Conflict.                                                                                                            |
+| `schema-composition.test.js`                          | The layered schema build contract: every platform composes consistently, and each layer keeps to its own scope.                                                                                                                     |
+| `schema-split.test.js`                                | The per-platform published schemas carry their own platform's content and share the cross-platform definitions.                                                                                                                     |
+| `security.test.js`                                    | Escaping, secret isolation in exports and payloads, import validation, injection scope, and storage-key naming.                                                                                                                     |
+| `session.test.js`                                     | The session model: project, recording, and step creation, step versioning, active-view resolution, deletion, and reordering.                                                                                                        |
+| `simple-mode.test.js`                                 | Simple-mode step creation and rendering, from creation through deletion and reordering.                                                                                                                                             |
+| `stamp-compatibility.test.js`                         | The stamp check that classifies an incoming payload's format mismatch with an actionable reason.                                                                                                                                    |
+| `sufficiency-lint.test.js`                            | The replay-sufficiency baseline lock over the lint's standing corpus, in both directions, plus a pin per predicate.                                                                                                                 |
+| `sync-baseline.test.js`                               | The baseline read and advance helpers, including the recoverable deep copy each advance records.                                                                                                                                    |
+| `sync-capture-toggle.test.js`                         | Capture beginning while a cycle is in progress: the work in flight completes and no new work starts.                                                                                                                                |
+| `sync-client.test.js`                                 | The shared sync client's push, pull, and cycle functions against a mocked server.                                                                                                                                                   |
+| `sync-conflict-ui.test.js`                            | The shared resolution-workflow renderer: each item's controls, the wrong-interface redirect, and the indicators that open it.                                                                                                       |
+| `sync-interruption.test.js`                           | Interruption and concurrency edges: partial failures reported accurately, and no duplicated projects.                                                                                                                               |
+| `sync-large-payload.test.js`                          | Large projects round-trip through push and pull without truncation, corruption, or shape loss.                                                                                                                                      |
+| `sync-scheduler.property.test.js`                     | The cooldown-debounced scheduler's invariants over arbitrary interleavings of triggers, settles, and restarts.                                                                                                                      |
+| `sync-scheduler.test.js`                              | Focused example checks of the scheduler's coalescing state machine and the trigger that drives it.                                                                                                                                  |
+| `sync-settings-state-machine.test.js`                 | The policy toggles and the background-sync enable state machine, driven against the real shared settings layer.                                                                                                                     |
+| `sync-store-roundtrip.property.test.js`               | A sync state survives a save and load round trip through the store adapter.                                                                                                                                                         |
+| `sync-store.test.js`                                  | The deferred-item record helpers: idempotence, mutual exclusion, the none state, and the client-local settings.                                                                                                                     |
+| `uuid-v7.test.js`                                     | UUID v7 generation: format, monotonic ordering, uniqueness, and the comparison helpers around it.                                                                                                                                   |
+| `validate-import.test.js`                             | The shared ingestion validator wrapper: its bounds checks and its delegation to an injected schema validator.                                                                                                                       |
+
+## Desktop application
+
+`packages/desktop/tests/unit` — the desktop frontend's adapter to the Tauri
+backend, its persistence, export, import, dispatch, and settings paths, and the
+ordering buffer the capture stream arrives through. The Rust side of the
+application has its own suite, documented in
+[Desktop Rust tests](desktop-rust.md).
+
+| Test file                   | Covers                                                                                                                               |
+| --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
+| `adapter-tauri.test.js`     | The Tauri adapter: settings, theme, recording mode, schema loading, send, the completeness-barrier wrappers, and redaction.          |
+| `auto-sync-host.test.js`    | The desktop background sync host: one shared cycle, coalesced triggers, triggers dropped while capture runs, and the failure policy. |
+| `build-size.test.js`        | Size tripwires over the built desktop bundle, per type and in total.                                                                 |
+| `dispatch.test.js`          | The desktop dispatch service: settings loaded and saved through the backend, the reading guidance, and schema loading.               |
+| `export.test.js`            | A built export validates against the desktop schema contract and carries every recording, full step history, and project metadata.   |
+| `import.test.js`            | A duplicate import produces a distinct copy, and a non-conforming file is rejected with the local list unchanged.                    |
+| `persistence-unit.test.js`  | The persistence module's public surface, from the empty state through the load and save paths.                                       |
+| `persistence.test.js`       | Serializing a session state and reading it back yields an equivalent state.                                                          |
+| `reorder-buffer.test.js`    | Ordered insertion over the adapter: sequence ordering, immediate delivery, completeness, id stripping, and in-place redaction.       |
+| `schema-validation.test.js` | Desktop export data validates against the desktop schema composed from its source layers, negative cases included.                   |
+| `settings.test.js`          | Dispatch settings survive a save and load round trip.                                                                                |
+
+## Chrome extension
+
+`packages/extension/tests/unit` — the extension's adapter, panel, and background
+paths: the capture logic extracted from the content script, the service worker's
+message handlers, the parity guards over the recorder's capture block and the
+worker's append chokepoint, and the static-source guards over what those two
+capture sources may contain. The browser-driven
+half of the extension is documented in
+[End-to-end tests](e2e.md).
+
+| Test file                              | Covers                                                                                                                                  |
+| -------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
+| `adapter-chrome.test.js`               | The Chrome adapter: settings, theme, recording mode, schema loading, the pending-count and action-event subscriptions, and send.        |
+| `auto-sync-host.test.js`               | The background sync host wired in the service worker: one shared cycle, run headless, with its state persisted for the panel.           |
+| `build-size.test.js`                   | Size tripwires over the extension bundle, per type and in total.                                                                        |
+| `capture-timing.test.js`               | The capture-timing constants' validity and relative ordering, and the recent-user-action decision they drive.                           |
+| `dispatch.test.js`                     | Settings round-trip, endpoint validation, payload fidelity, the authorization header, and the action-event subscription.                |
+| `frame-trust.test.js`                  | The per-frame trust predicate deciding whether an appended action may enter a recording.                                                |
+| `naming.property.test.js`              | Extension actions carry the platform-neutral naming and capture mode the extension schema contract states.                              |
+| `navigation-logic.test.js`             | The navigation and tab-creation capture decisions across transition types and timing states.                                            |
+| `panel.test.js`                        | The send gate in the panel: button state, recording selection, the confirmation summary, and the cancel path.                           |
+| `recorder-logic.test.js`               | The extracted content-script logic: selector derivation, locator measurement, element description, and the scroll decision.             |
+| `recorder-mirror-parity.test.js`       | The recorder's two copies of the capture logic stay textually identical under the mechanical transformation.                            |
+| `recording-mode.test.js`               | Recording-mode persistence through the Chrome adapter.                                                                                  |
+| `regression-294-window-rect.test.js`   | A static-source guard that the extension emits no desktop-only window rectangle field.                                                  |
+| `schema-validation.test.js`            | Extension export data validates against the extension schema composed from its source layers, negative cases included.                  |
+| `secret-crypto.test.js`                | At-rest key encryption: the envelope shape, the round trip, the path taken after a restart, and tampered ciphertext.                    |
+| `service-worker-mirror-parity.test.js` | The append chokepoint's second copy stays textually identical to the shipped function.                                                  |
+| `service-worker-static-import.test.js` | A static-source guard that the background path uses the statically imported validator, never a dynamic import.                          |
+| `service-worker.test.js`               | The worker's message handlers: the panel protocol, import and export, the trusted-sender gate, redaction, and storage-failure recovery. |
+| `storage-quota.test.js`                | The storage-pressure classifier: the warn band's threshold and the resume hysteresis.                                                   |

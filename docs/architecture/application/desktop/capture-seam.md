@@ -85,10 +85,10 @@ compiling and honest on every OS while referencing no platform SDK:
   completion `not_run` — nothing is ever buffered where nothing is ever
   captured.
 
-CI holds the posture: the desktop test workflow's compile-only job builds the
-crate on Windows **and** Linux (see
+CI holds the posture: the desktop test workflow's cross-platform job compiles
+and lints the crate on Windows **and** Linux (see
 [Desktop Rust tests](../../../test/desktop-rust.md#classification-and-ci)), so
-a change that breaks the seam on a stub target is red before any Linux
+a change that breaks the seam on a stub platform is red before any Linux
 backend exists. Linux X11 and Wayland backends are tracked in
 [docent#84](https://github.com/Arsarneq/docent/issues/84) and
 [docent#85](https://github.com/Arsarneq/docent/issues/85); the seam

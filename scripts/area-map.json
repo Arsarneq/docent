@@ -55,7 +55,8 @@
       "docs": [
         "docs/architecture/application/extension/capture-principles.md",
         "docs/test/e2e.md",
-        "docs/test/manual/extension.md"
+        "docs/test/manual/extension.md",
+        "docs/test/unit.md"
       ]
     },
     "desktop-windows/capture": {
@@ -105,7 +106,8 @@
         "docs/test/desktop-rust.md",
         "docs/test/integration/desktop.md",
         "docs/test/manual/windows.md",
-        "docs/test/strategy/coverage.md"
+        "docs/test/strategy/coverage.md",
+        "docs/test/unit.md"
       ]
     },
     "sync": {
@@ -289,8 +291,8 @@
     },
     {
       "path": "packages/shared/tests/unit/check-*.test.js",
-      "reason": "Unit tests for the CI-machinery check scripts — they exercise the check tooling itself; their contract is the behaviour of the scripts under test.",
-      "governed-by": []
+      "reason": "Unit tests for the CI-machinery check scripts — they exercise the check tooling itself; their contract is the behaviour of the scripts under test, and the unit-suite orientation lists them.",
+      "governed-by": ["docs/test/unit.md"]
     },
     {
       "path": "packages/desktop/src-tauri/.cargo/mutants.toml",
@@ -333,34 +335,40 @@
     },
     {
       "path": "packages/shared/tests/unit/{session,import-project,validate-import,schema-split,classify-schema-change,field-sensitivity,generated-validators,uuid-v7,regression}.test.js",
-      "reason": "Format-subject unit suites — they exercise the shared format modules and schema tooling, and the regression suite pins the session model's own history behaviour; their contract is the format area's doctrine as a unit, not the sync protocol their tree-mates ride.",
-      "governed-by": ["area:format"]
+      "reason": "Format-subject unit suites — they exercise the shared format modules and schema tooling, and the regression suite pins the session model's own history behaviour; their contract is the format area's doctrine as a unit, not the sync protocol their tree-mates ride, and the unit-suite orientation lists them.",
+      "governed-by": ["area:format", "docs/test/unit.md"]
     },
     {
       "path": "packages/shared/tests/unit/backward-compat.test.js",
-      "reason": "The backward-compatibility harness — the compat doc owns its discovery and baseline rules, and the format doc's stamp-relaxation clause cites it.",
-      "governed-by": ["docs/test/backward-compat.md", "docs/technical/session-format.md"]
+      "reason": "The backward-compatibility harness — the compat doc owns its discovery and baseline rules, the format doc's stamp-relaxation clause cites it, and the unit-suite orientation lists it.",
+      "governed-by": [
+        "docs/test/backward-compat.md",
+        "docs/technical/session-format.md",
+        "docs/test/unit.md"
+      ]
     },
     {
       "path": "packages/shared/tests/unit/sufficiency-lint.test.js",
-      "reason": "The sufficiency baseline lock — the lint doc owns the both-direction locking and regeneration rules it enforces.",
-      "governed-by": ["docs/verification/sufficiency-lint.md"]
+      "reason": "The sufficiency baseline lock — the lint doc owns the both-direction locking and regeneration rules it enforces, and the unit-suite orientation lists it.",
+      "governed-by": ["docs/verification/sufficiency-lint.md", "docs/test/unit.md"]
     },
     {
       "path": "packages/shared/tests/unit/conformance-vectors.test.js",
-      "reason": "The conformance-vector locks — they guard clauses of the locator procedure, the corpus doctrine, and the format doc's measurement clause.",
+      "reason": "The conformance-vector locks — they guard clauses of the locator procedure, the corpus doctrine, and the format doc's measurement clause, and the unit-suite orientation lists them.",
       "governed-by": [
         "docs/technical/locator-resolution.md",
         "docs/verification/scripted-truth-corpus.md",
-        "docs/technical/session-format.md"
+        "docs/technical/session-format.md",
+        "docs/test/unit.md"
       ]
     },
     {
       "path": "packages/shared/tests/unit/no-resolution-execution.test.js",
-      "reason": "The no-shipped-resolver guard — it enforces the locator doc's never-an-implementation rule and the corpus doctrine's inert-vector posture.",
+      "reason": "The no-shipped-resolver guard — it enforces the locator doc's never-an-implementation rule and the corpus doctrine's inert-vector posture, and the unit-suite orientation lists it.",
       "governed-by": [
         "docs/technical/locator-resolution.md",
-        "docs/verification/scripted-truth-corpus.md"
+        "docs/verification/scripted-truth-corpus.md",
+        "docs/test/unit.md"
       ]
     },
     {
@@ -370,18 +378,18 @@
     },
     {
       "path": "packages/shared/tests/unit/corpus-compare.test.js",
-      "reason": "The comparator's unit suite — the corpus doctrine owns the comparison classes and refusal rules it pins.",
-      "governed-by": ["docs/verification/scripted-truth-corpus.md"]
+      "reason": "The comparator's unit suite — the corpus doctrine owns the comparison classes and refusal rules it pins, and the unit-suite orientation lists it.",
+      "governed-by": ["docs/verification/scripted-truth-corpus.md", "docs/test/unit.md"]
     },
     {
       "path": "packages/shared/tests/unit/{docs-disposition-audit,next-release-version,build-size,lint-glob-quoting}.test.js",
-      "reason": "Unit tests for CI machinery (the docs-disposition audit, the next-release-version tool, the lint-script glob-quoting guard) plus the schema-artifact size budget — no doc states the budget or the tooling contracts, so the governing set is empty.",
-      "governed-by": []
+      "reason": "Unit tests for CI machinery (the docs-disposition audit, the next-release-version tool, the lint-script glob-quoting guard) plus the schema-artifact size budget — the unit-suite orientation lists each of them and states what it covers, while the budget's thresholds and the tooling contracts stay the suites' own, so that orientation is the whole governing set.",
+      "governed-by": ["docs/test/unit.md"]
     },
     {
       "path": "packages/shared/tests/unit/{render,render-views,sync-conflict-ui,simple-mode}.test.js",
-      "reason": "UI-subject unit suites — they exercise the shared panel fragment's rendering, the conflict-view module, and simple-mode step creation and rendering; their contract is the panel-ui area's doctrine as a unit, not the sync/format union their tree ride supplies. They also build and render the format's step records (logical_id, step_number, step_type/expect) and pin the canonical active-view resolution the render module reuses, so the session-format doc governs them beside the panel-ui set.",
-      "governed-by": ["area:panel-ui", "docs/technical/session-format.md"]
+      "reason": "UI-subject unit suites — they exercise the shared panel fragment's rendering, the conflict-view module, and simple-mode step creation and rendering; their contract is the panel-ui area's doctrine as a unit, not the sync/format union their tree ride supplies. They also build and render the format's step records (logical_id, step_number, step_type/expect) and pin the canonical active-view resolution the render module reuses, so the session-format doc governs them beside the panel-ui set, and the unit-suite orientation lists them.",
+      "governed-by": ["area:panel-ui", "docs/technical/session-format.md", "docs/test/unit.md"]
     },
     {
       "path": "packages/shared/{conflict-resolution,sync-digest,sync-client}.js",
@@ -400,17 +408,18 @@
     },
     {
       "path": "packages/shared/tests/unit/stamp-compatibility.test.js",
-      "reason": "The stamp-gate suite — its subject is the format area's doctrine, whose whole doc set it owes as a unit, and it pins the sync protocol's skip-and-report mismatch handling over the format's version stamp, so the sync-protocol doc its citing clause (SP-8) names governs it too.",
-      "governed-by": ["area:format", "docs/api/sync-protocol.md"]
+      "reason": "The stamp-gate suite — its subject is the format area's doctrine, whose whole doc set it owes as a unit, and it pins the sync protocol's skip-and-report mismatch handling over the format's version stamp, so the sync-protocol doc its citing clause (SP-8) names governs it too, and the unit-suite orientation lists it.",
+      "governed-by": ["area:format", "docs/api/sync-protocol.md", "docs/test/unit.md"]
     },
     {
       "path": "packages/shared/tests/unit/schema-composition.test.js",
-      "reason": "The composition suite — its subject is the format area's doctrine, whose whole doc set it owes as a unit; beyond it, it is the registry-cited guard for the locator (LR-24), extension-capture (ECP-10), and sufficiency (SL-4) clauses over the composed schemas, so each of those docs is named here beside the format set.",
+      "reason": "The composition suite — its subject is the format area's doctrine, whose whole doc set it owes as a unit; beyond it, it is the registry-cited guard for the locator (LR-24), extension-capture (ECP-10), and sufficiency (SL-4) clauses over the composed schemas, so each of those docs is named here beside the format set, and the unit-suite orientation lists it.",
       "governed-by": [
         "area:format",
         "docs/technical/locator-resolution.md",
         "docs/architecture/application/extension/capture-principles.md",
-        "docs/verification/sufficiency-lint.md"
+        "docs/verification/sufficiency-lint.md",
+        "docs/test/unit.md"
       ]
     },
     {
@@ -458,6 +467,7 @@
         "docs/test/e2e.md",
         "docs/test/desktop-rust.md",
         "docs/test/integration/desktop.md",
+        "docs/test/unit.md",
         "docs/architecture/application/desktop/windows/application-shell.md",
         "docs/architecture/application/extension/permissions.md",
         "docs/architecture/application/extension/runtime.md",
@@ -601,44 +611,45 @@
     },
     {
       "path": "packages/shared/tests/unit/{connection-test,dispatch-cooldown,dispatch-core,dispatch-payload,http-transport,placement-contract,resolve-conflict-fixtures,revision-r1-scenarios,sync-baseline,sync-capture-toggle,sync-interruption,sync-large-payload,sync-scheduler,sync-settings-state-machine,sync-store}.test.js",
-      "reason": "Sync-subject example and contract suites — they drive the sync client and its transport, scheduler, store, baseline, and resolution fixtures against a stubbed server; their contract is the sync area's doctrine as a unit — the protocol and dispatch specifications and the user-facing sync guides.",
-      "governed-by": ["area:sync"]
+      "reason": "Sync-subject example and contract suites — they drive the sync client and its transport, scheduler, store, baseline, and resolution fixtures against a stubbed server; their contract is the sync area's doctrine as a unit — the protocol and dispatch specifications and the user-facing sync guides — and the unit-suite orientation lists them.",
+      "governed-by": ["area:sync", "docs/test/unit.md"]
     },
     {
       "path": "packages/shared/tests/unit/{abort-on-unretainable.property,accept-review.property,auth-failure-halt.property,baseline-advancement.property,brand-new-auto-add.property,capture-active-halt.property,changed-incoming-review.property,changed-local-outgoing-push.property,classify-decision-table.property,classify-deterministic.property,decline-review.property,delete-vs-change-conflict.property,deletion-propagation.property,digest-unrecognized-fields.property,divergence-conflict.property,failed-add-isolation.property,fast-forward-superset.property,gating-parity.property,idempotent-detection.property,interaction-free-automatic.property,internal-failure-blocking.property,item-type-routing-guard.property,lock-unlock-round-trip.property,locked-recording-exclusion.property,locked-recording-push-preservation.property,no-baseline-no-one-sided-change.property,no-discard-no-overwrite.property,no-permanent-loss.property,pending-action-protection.property,per-unit-push-assembly.property,policy-settings-scope.property,pull-precedes-push.property,reported-counts.property,resolution-append-only-tombstone.property,resolution-clear-vs-retain.property,resolution-propagates-next-cycle.property,resolution-recoverability.property,resolve-explicit-logical-id.property,safeguard-composition.property,sync-scheduler.property,sync-store-roundtrip.property}.test.js",
-      "reason": "Sync-subject property suites — they drive detection, classification, resolution, scheduling, and the push/pull cycle over randomized histories and pin the protocol invariants the registry cites them for; their contract is the sync area's doctrine as a unit.",
-      "governed-by": ["area:sync"]
+      "reason": "Sync-subject property suites — they drive detection, classification, resolution, scheduling, and the push/pull cycle over randomized histories and pin the protocol invariants the registry cites them for; their contract is the sync area's doctrine as a unit, and the unit-suite orientation lists them.",
+      "governed-by": ["area:sync", "docs/test/unit.md"]
     },
     {
       "path": "packages/shared/tests/unit/sync-client.test.js",
-      "reason": "The sync-client suite — its subject is the sync area's doctrine as a unit, and the format doc is named beside it because the registry's known-field pull-projection row (SF-13) cites this suite's regression cases as its guard, so a change here bears on that clause.",
-      "governed-by": ["area:sync", "docs/technical/session-format.md"]
+      "reason": "The sync-client suite — its subject is the sync area's doctrine as a unit, and the format doc is named beside it because the registry's known-field pull-projection row (SF-13) cites this suite's regression cases as its guard, so a change here bears on that clause; the unit-suite orientation lists it.",
+      "governed-by": ["area:sync", "docs/technical/session-format.md", "docs/test/unit.md"]
     },
     {
       "path": "packages/shared/tests/unit/attention-indicator-derivation.property.test.js",
-      "reason": "The attention-indicator derivation suite — it pins which Units the panels badge for attention, how each is labelled Review or Conflict, and which row it belongs on; that badge contract is the panel-ui area's doctrine, which it owes as a unit.",
-      "governed-by": ["area:panel-ui"]
+      "reason": "The attention-indicator derivation suite — it pins which Units the panels badge for attention, how each is labelled Review or Conflict, and which row it belongs on; that badge contract is the panel-ui area's doctrine, which it owes as a unit, and the unit-suite orientation lists it.",
+      "governed-by": ["area:panel-ui", "docs/test/unit.md"]
     },
     {
       "path": "packages/shared/tests/unit/contract.test.js",
-      "reason": "The payload contract suite — it validates dispatch payloads and export data against the composed platform schemas, so its subject is the format area's doctrine as a unit, and the dispatch doc its citing clause (DI-3) names governs the payload wrapper it builds.",
-      "governed-by": ["area:format", "docs/api/dispatch.md"]
+      "reason": "The payload contract suite — it validates dispatch payloads and export data against the composed platform schemas, so its subject is the format area's doctrine as a unit, and the dispatch doc its citing clause (DI-3) names governs the payload wrapper it builds; the unit-suite orientation lists it.",
+      "governed-by": ["area:format", "docs/api/dispatch.md", "docs/test/unit.md"]
     },
     {
       "path": "packages/shared/tests/unit/security.test.js",
-      "reason": "The shared security suite — each doc here is one of its subjects: escaping and the assembled panel pages' policy meta tags (the shared-core doc owns the fragment and the assembly), payload and export secrecy (the dispatch doc, whose DI-6 and DI-10 rows cite this suite), the export structure the format doc defines, the storage-key naming the persistence doc states, and the extension manifest's permissions and web-accessible resources the permissions doc enumerates.",
+      "reason": "The shared security suite — each doc here is one of its subjects: escaping and the assembled panel pages' policy meta tags (the shared-core doc owns the fragment and the assembly), payload and export secrecy (the dispatch doc, whose DI-6 and DI-10 rows cite this suite), the export structure the format doc defines, the storage-key naming the persistence doc states, and the extension manifest's permissions and web-accessible resources the permissions doc enumerates. The unit-suite orientation lists it.",
       "governed-by": [
         "docs/architecture/system/shared-core.md",
         "docs/api/dispatch.md",
         "docs/technical/session-format.md",
         "docs/architecture/system/persistence.md",
-        "docs/architecture/application/extension/permissions.md"
+        "docs/architecture/application/extension/permissions.md",
+        "docs/test/unit.md"
       ]
     },
     {
       "path": "packages/shared/tests/unit/performance.test.js",
-      "reason": "The shared data layer's time budgets — the suite pins how long active-view resolution, payload assembly, rendering, and reordering may take on large sessions. The thresholds are the suite's own and are stated in no document, so the governing set is empty, on the same footing as the schema-artifact size budget.",
-      "governed-by": []
+      "reason": "The shared data layer's time budgets — the suite pins how long active-view resolution, payload assembly, rendering, and reordering may take on large sessions. The unit-suite orientation lists it and states what it guards, while the thresholds themselves stay the suite's own, so that orientation is the whole governing set, on the same footing as the schema-artifact size budget.",
+      "governed-by": ["docs/test/unit.md"]
     },
     {
       "path": "packages/shared/tests/fixtures/**/*.docent.json",
@@ -781,52 +792,59 @@
     },
     {
       "path": "packages/extension/tests/unit/adapter-chrome.test.js",
-      "reason": "The Chrome adapter's unit suite — settings, sync settings, theme, recording mode, reading guidance, schema loading, the pending-count and action-event subscriptions, and send. The shared-core document owns the platform-adapter seam it implements; the extension runtime document owns the storage write-ownership contract its reads and writes run under, and names this suite among that row's exercised paths (ERT-3).",
+      "reason": "The Chrome adapter's unit suite — settings, sync settings, theme, recording mode, reading guidance, schema loading, the pending-count and action-event subscriptions, and send. The shared-core document owns the platform-adapter seam it implements; the extension runtime document owns the storage write-ownership contract its reads and writes run under, and names this suite among that row's exercised paths (ERT-3); and the unit-suite orientation lists it.",
       "governed-by": [
         "docs/architecture/application/extension/runtime.md",
-        "docs/architecture/system/shared-core.md"
+        "docs/architecture/system/shared-core.md",
+        "docs/test/unit.md"
       ]
     },
     {
       "path": "packages/extension/tests/unit/auto-sync-host.test.js",
-      "reason": "The extension background Auto-Sync host: the backstop alarm and data-event triggers wired in the service worker, one shared cycle through the shared store, and the resulting state persisted for the panel to read. The sync protocol owns the trigger set, the backstop interval, and the cycle policy, with a row naming the background host as its interim probe (SP-21); the extension runtime owns the service-worker lifecycle the host runs in; the shared-core document owns the one-implementation seam the cycle goes through.",
+      "reason": "The extension background Auto-Sync host: the backstop alarm and data-event triggers wired in the service worker, one shared cycle through the shared store, and the resulting state persisted for the panel to read. The sync protocol owns the trigger set, the backstop interval, and the cycle policy, with a row naming the background host as its interim probe (SP-21); the extension runtime owns the service-worker lifecycle the host runs in; the shared-core document owns the one-implementation seam the cycle goes through; and the unit-suite orientation lists it.",
       "governed-by": [
         "docs/api/sync-protocol.md",
         "docs/architecture/application/extension/runtime.md",
-        "docs/architecture/system/shared-core.md"
+        "docs/architecture/system/shared-core.md",
+        "docs/test/unit.md"
       ]
     },
     {
       "path": "packages/extension/tests/unit/{dispatch,panel}.test.js",
-      "reason": "The dispatch payload and dispatch-UI suites: the wrapper's fields and their fidelity, the authorization header's presence and omission, endpoint-URL validation, and the panel's send gate — button state, recording selection, the confirmation summary, and the cancel path. The dispatch protocol defines all of it, and its rows name the payload suite as a guard (DI-2, DI-3, DI-4, DI-10).",
-      "governed-by": ["docs/api/dispatch.md"]
+      "reason": "The dispatch payload and dispatch-UI suites: the wrapper's fields and their fidelity, the authorization header's presence and omission, endpoint-URL validation, and the panel's send gate — button state, recording selection, the confirmation summary, and the cancel path. The dispatch protocol defines all of it, and its rows name the payload suite as a guard (DI-2, DI-3, DI-4, DI-10); the unit-suite orientation lists them.",
+      "governed-by": ["docs/api/dispatch.md", "docs/test/unit.md"]
     },
     {
       "path": "packages/extension/tests/unit/{frame-trust,service-worker-static-import}.test.js",
-      "reason": "Extension capture guards: the per-frame trust predicate deciding whether an appended action may enter a recording, and the static-source guard keeping the background entry module free of dynamic import. The extension capture doctrine states both rules and its rows name both suites (ECP-1, ECP-3).",
-      "governed-by": ["docs/architecture/application/extension/capture-principles.md"]
+      "reason": "Extension capture guards: the per-frame trust predicate deciding whether an appended action may enter a recording, and the static-source guard keeping the background entry module free of dynamic import. The extension capture doctrine states both rules and its rows name both suites (ECP-1, ECP-3); the unit-suite orientation lists them.",
+      "governed-by": [
+        "docs/architecture/application/extension/capture-principles.md",
+        "docs/test/unit.md"
+      ]
     },
     {
       "path": "packages/extension/tests/unit/recorder-logic.test.js",
-      "reason": "The extracted content-script logic: selector derivation, locator measurement over a fake document, element description, and the scroll-capture decision. The cross-platform capture doctrine states the scroll settle-and-floor rule whose row names this suite (CP-16), the extension capture doctrine owns the recorder's own rules, and the locator procedure defines the strategies and measurement facts it derives.",
+      "reason": "The extracted content-script logic: selector derivation, locator measurement over a fake document, element description, and the scroll-capture decision. The cross-platform capture doctrine states the scroll settle-and-floor rule whose row names this suite (CP-16), the extension capture doctrine owns the recorder's own rules, the locator procedure defines the strategies and measurement facts it derives, and the unit-suite orientation lists it.",
       "governed-by": [
         "docs/architecture/system/capture-principles.md",
         "docs/architecture/application/extension/capture-principles.md",
-        "docs/technical/locator-resolution.md"
+        "docs/technical/locator-resolution.md",
+        "docs/test/unit.md"
       ]
     },
     {
       "path": "packages/extension/tests/unit/secret-crypto.test.js",
-      "reason": "The at-rest settings-encryption suite: the envelope shape, the absence of plaintext, the round trip, the path taken once the ephemeral key is gone after a restart, and rejection of tampered ciphertext. The persistence document owns the extension's ephemeral session-storage key and the encrypted settings it protects.",
-      "governed-by": ["docs/architecture/system/persistence.md"]
+      "reason": "The at-rest settings-encryption suite: the envelope shape, the absence of plaintext, the round trip, the path taken once the ephemeral key is gone after a restart, and rejection of tampered ciphertext. The persistence document owns the extension's ephemeral session-storage key and the encrypted settings it protects, and the unit-suite orientation lists it.",
+      "governed-by": ["docs/architecture/system/persistence.md", "docs/test/unit.md"]
     },
     {
       "path": "packages/extension/tests/unit/service-worker.test.js",
-      "reason": "The service-worker handler suite: the panel message protocol over project, recording, and step operations, import and export, the trusted-sender gate on an appended action, redaction of value-derived locator entries, and storage-failure recovery. The extension runtime owns the dispatcher envelope and the handler surface, with a row naming this suite (ERT-2); the extension capture doctrine owns the trust gate and the masking it asserts; the sufficiency-lint document owns the value-derived strategy set the redaction cases read (SL-4).",
+      "reason": "The service-worker handler suite: the panel message protocol over project, recording, and step operations, import and export, the trusted-sender gate on an appended action, redaction of value-derived locator entries, and storage-failure recovery. The extension runtime owns the dispatcher envelope and the handler surface, with a row naming this suite (ERT-2); the extension capture doctrine owns the trust gate and the masking it asserts; the sufficiency-lint document owns the value-derived strategy set the redaction cases read (SL-4); and the unit-suite orientation lists it.",
       "governed-by": [
         "docs/architecture/application/extension/capture-principles.md",
         "docs/architecture/application/extension/runtime.md",
-        "docs/verification/sufficiency-lint.md"
+        "docs/verification/sufficiency-lint.md",
+        "docs/test/unit.md"
       ]
     },
     {
@@ -845,47 +863,58 @@
     },
     {
       "path": "packages/desktop/tests/unit/adapter-tauri.test.js",
-      "reason": "The Tauri adapter's unit suite — settings, sync settings, theme, recording mode, reading guidance, schema loading, send, the completeness-barrier wrappers around commit and stop, and the redaction pass that leaves locators and provider facts untouched. The application-shell document owns the command surface and the barrier report those wrappers read, the shared-core document owns the platform-adapter seam it implements, and the sufficiency-lint document owns the value-derived strategy set the redaction case reads (SL-4).",
+      "reason": "The Tauri adapter's unit suite — settings, sync settings, theme, recording mode, reading guidance, schema loading, send, the completeness-barrier wrappers around commit and stop, and the redaction pass that leaves locators and provider facts untouched. The application-shell document owns the command surface and the barrier report those wrappers read, the shared-core document owns the platform-adapter seam it implements, the sufficiency-lint document owns the value-derived strategy set the redaction case reads (SL-4), and the unit-suite orientation lists it.",
       "governed-by": [
         "docs/architecture/application/desktop/windows/application-shell.md",
         "docs/architecture/system/shared-core.md",
-        "docs/verification/sufficiency-lint.md"
+        "docs/verification/sufficiency-lint.md",
+        "docs/test/unit.md"
       ]
     },
     {
       "path": "packages/desktop/tests/unit/auto-sync-host.test.js",
-      "reason": "The desktop background Auto-Sync host: one shared cycle with the same adapters the manual path uses, the backstop and data-event triggers coalesced through the shared scheduler, triggers dropped while capture is active, and the auth-disable and transient-retry policy. The sync protocol owns the trigger set, the enable rule, and the failure policy, with rows naming the desktop background host (SP-21, SP-23); the shared-core document owns the one-implementation seam the cycle runs through.",
-      "governed-by": ["docs/api/sync-protocol.md", "docs/architecture/system/shared-core.md"]
+      "reason": "The desktop background Auto-Sync host: one shared cycle with the same adapters the manual path uses, the backstop and data-event triggers coalesced through the shared scheduler, triggers dropped while capture is active, and the auth-disable and transient-retry policy. The sync protocol owns the trigger set, the enable rule, and the failure policy, with rows naming the desktop background host (SP-21, SP-23); the shared-core document owns the one-implementation seam the cycle runs through; and the unit-suite orientation lists it.",
+      "governed-by": [
+        "docs/api/sync-protocol.md",
+        "docs/architecture/system/shared-core.md",
+        "docs/test/unit.md"
+      ]
     },
     {
       "path": "packages/desktop/tests/unit/dispatch.test.js",
-      "reason": "The desktop dispatch service's unit suite — dispatch settings loaded and saved through the backend, the reading guidance carried with a payload, and schema loading. The dispatch protocol defines the endpoint policy and the payload wrapper they serve.",
-      "governed-by": ["docs/api/dispatch.md"]
+      "reason": "The desktop dispatch service's unit suite — dispatch settings loaded and saved through the backend, the reading guidance carried with a payload, and schema loading. The dispatch protocol defines the endpoint policy and the payload wrapper they serve, and the unit-suite orientation lists it.",
+      "governed-by": ["docs/api/dispatch.md", "docs/test/unit.md"]
     },
     {
       "path": "packages/desktop/tests/unit/export.test.js",
-      "reason": "The desktop export suite: a built export validates against the composed platform schema contract and carries every recording, each recording's full step history, and the project metadata. The session-format document defines the export structure and the stamp it carries, and the dispatch protocol's wrapper row names this suite for the export contrast it draws (DI-3).",
-      "governed-by": ["docs/technical/session-format.md", "docs/api/dispatch.md"]
+      "reason": "The desktop export suite: a built export validates against the composed platform schema contract and carries every recording, each recording's full step history, and the project metadata. The session-format document defines the export structure and the stamp it carries, the dispatch protocol's wrapper row names this suite for the export contrast it draws (DI-3), and the unit-suite orientation lists it.",
+      "governed-by": [
+        "docs/technical/session-format.md",
+        "docs/api/dispatch.md",
+        "docs/test/unit.md"
+      ]
     },
     {
       "path": "packages/desktop/tests/unit/persistence-unit.test.js",
-      "reason": "The desktop persistence module's unit suite — the empty state, serialization and deserialization, and the load and save paths through the backend commands. The persistence document owns the session file and the credential-store split, and the application-shell document owns the persistence commands it drives.",
+      "reason": "The desktop persistence module's unit suite — the empty state, serialization and deserialization, and the load and save paths through the backend commands. The persistence document owns the session file and the credential-store split, the application-shell document owns the persistence commands it drives, and the unit-suite orientation lists it.",
       "governed-by": [
         "docs/architecture/system/persistence.md",
-        "docs/architecture/application/desktop/windows/application-shell.md"
+        "docs/architecture/application/desktop/windows/application-shell.md",
+        "docs/test/unit.md"
       ]
     },
     {
       "path": "packages/desktop/tests/unit/persistence.test.js",
-      "reason": "The session-state round-trip property: serializing a state and reading it back yields an equivalent state. The persistence document owns the session file whose round trip it pins.",
-      "governed-by": ["docs/architecture/system/persistence.md"]
+      "reason": "The session-state round-trip property: serializing a state and reading it back yields an equivalent state. The persistence document owns the session file whose round trip it pins, and the unit-suite orientation lists it.",
+      "governed-by": ["docs/architecture/system/persistence.md", "docs/test/unit.md"]
     },
     {
       "path": "packages/desktop/tests/unit/reorder-buffer.test.js",
-      "reason": "The ordered-insertion suite over the desktop adapter: out-of-order events placed by sequence id, immediate delivery with no buffering, completeness, and the internal id stripped before store or export. The Windows capture doctrine states that ordering rule and its row names this suite (DCP-2); the pipeline document owns the delivery model it sits at the end of.",
+      "reason": "The ordered-insertion suite over the desktop adapter: out-of-order events placed by sequence id, immediate delivery with no buffering, completeness, and the internal id stripped before store or export. The Windows capture doctrine states that ordering rule and its row names this suite (DCP-2); the pipeline document owns the delivery model it sits at the end of; and the unit-suite orientation lists it.",
       "governed-by": [
         "docs/architecture/application/desktop/windows/capture-principles.md",
-        "docs/architecture/application/desktop/windows/capture-pipeline.md"
+        "docs/architecture/application/desktop/windows/capture-pipeline.md",
+        "docs/test/unit.md"
       ]
     }
   ]

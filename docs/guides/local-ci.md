@@ -200,7 +200,7 @@ halves, **natively on a Windows machine**:
   Windows version can be an OS difference, not a regression.
 - `desktop-cross-compile` (Windows leg) — from
   `packages/desktop/src-tauri`: `cargo check --all-targets`, then
-  `cargo clippy -- -D warnings`.
+  `cargo clippy --all-targets -- -D warnings`.
 
 The Rust runs need the frontend dist directory present:
 `npm run build:desktop-dist`, or an empty `packages/desktop/dist` (CI
