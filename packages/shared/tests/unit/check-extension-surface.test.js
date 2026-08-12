@@ -3,33 +3,42 @@
  * admission test (scripts/check-extension-surface.js). Both surface contracts
  * are committed (permissions.md §EPM-1, runtime.md §ERT-4), so every red-path
  * family must fail loud: these tests prove the pairwise set inequalities in
- * each direction on every leg, the unreadable-cell and unknown-shape
- * refusals, the dispatcher anchor guards (one switch, a default arm, no
- * nesting), the disjointness rule, duplicates, and empty parses — that the
- * comment-safe tokenizer keeps commented labels out of the scans — and, as a
- * real-tree lock, that the shipped tree satisfies both contracts.
+ * each direction on every leg, the sender side's readable shape and its
+ * refusal, the unreadable-cell and unknown-shape refusals, the dispatcher
+ * anchor guards (one switch, a default arm, no nesting), the disjointness
+ * rule, duplicates, and empty parses — that the comment-safe tokenizer keeps
+ * commented labels out of the scans — and, as a real-tree lock, that the
+ * shipped tree satisfies both contracts. One case is a demonstration rather
+ * than a guard: the reverse send direction's documented limit, exercised so
+ * the misleading red it produces is observed behaviour, never an assertion in
+ * prose alone.
  */
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
+import { execFileSync } from 'node:child_process';
 import {
   MANIFEST_PATH,
   PERMISSIONS_DOC_PATH,
   RUNTIME_DOC_PATH,
   WORKER_PATH,
+  PANEL_DIR,
   EMPTY_SURFACES,
   DUPLICATE_SURFACES,
   extractManifestSurface,
   extractSectionTableNames,
   extractProtocolTables,
   extractDispatcherSurface,
+  extractSendSites,
   evaluateExtensionSurface,
   auditTree,
 } from '../../../../scripts/check-extension-surface.js';
 
 const ROOT = resolve(import.meta.dirname, '..', '..', '..', '..');
+/** A panel path inside the scanned surface. */
+const PANEL_PATH = `${PANEL_DIR}/panel.js`;
 
 /** A consistent synthetic surface both contracts accept. */
 function makeSurface(overrides = {}) {
@@ -44,6 +53,11 @@ function makeSurface(overrides = {}) {
     protocolUnreadable: [],
     caseLabels: ['PROJECTS_LIST', 'STEP_COMMIT'],
     equalityTypes: ['FRAME_READY'],
+    sendTypes: ['PROJECTS_LIST', 'STEP_COMMIT'],
+    sendSites: [
+      { path: PANEL_PATH, ordinal: 1, type: 'PROJECTS_LIST', found: null },
+      { path: PANEL_PATH, ordinal: 2, type: 'STEP_COMMIT', found: null },
+    ],
     ...overrides,
   };
 }
@@ -143,6 +157,74 @@ describe('evaluateExtensionSurface — message legs (both ways)', () => {
     );
     assert.ok(
       problems.some((p) => p.includes('PROJECTS_LIST and friends') && p.includes('cannot read')),
+    );
+  });
+});
+
+describe('evaluateExtensionSurface — the sender side (both ways)', () => {
+  it('fires when the panel sends a type outside the enumeration', () => {
+    const problems = evaluateExtensionSurface(
+      makeSurface({
+        sendTypes: ['PROJECTS_LIST', 'STEP_COMMIT', 'STEP_UNDO'],
+        sendSites: [
+          ...makeSurface().sendSites,
+          { path: PANEL_PATH, ordinal: 3, type: 'STEP_UNDO', found: null },
+        ],
+      }),
+    );
+    assert.ok(
+      problems.some((p) => p.includes('STEP_UNDO') && p.includes('is sent by the panel')),
+      problems.join('\n') || 'no forward sender diagnostic',
+    );
+  });
+
+  it('refuses an object-literal send that states no readable type, naming what it found', () => {
+    const found = 'a `type` key set from `messageType`';
+    const problems = evaluateExtensionSurface(
+      makeSurface({
+        sendSites: [...makeSurface().sendSites, { path: PANEL_PATH, ordinal: 3, type: null, found }], // prettier-ignore
+      }),
+    );
+    const refusal = problems.find((p) => p.includes(`${PANEL_PATH} (object-literal send( call site 3)`)); // prettier-ignore
+    assert.ok(refusal, problems.join('\n') || 'no send refusal');
+    // The line names the actual offender rather than rendering the key it
+    // wants as the thing that went wrong.
+    assert.ok(refusal.includes(`the scan found ${found}`), refusal);
+    assert.ok(refusal.includes('object-literal send( call site 3'), refusal);
+  });
+
+  it('fires when an enumerated type has no literal send site — and demonstrates the documented limit', () => {
+    // The reverse direction holds over the literal-send subset only. The
+    // fixture below DOES send STEP_COMMIT, through a payload assembled
+    // beforehand — the shape the scan does not read — so the red that follows
+    // is the misleading one the residue names, observed rather than asserted.
+    const source = [
+      "await send({ type: 'PROJECTS_LIST' });",
+      "const payload = { type: 'STEP_COMMIT', step_type: stepType };",
+      'const response = await send(payload);',
+    ].join('\n');
+    const sites = extractSendSites(new Map([[PANEL_PATH, source]]));
+    assert.deepEqual(
+      sites.map((s) => s.type),
+      ['PROJECTS_LIST'],
+      'the assembled-payload send is outside the shape the scan reads',
+    );
+    const problems = evaluateExtensionSurface(
+      makeSurface({ sendTypes: sites.map((s) => s.type), sendSites: sites }),
+    );
+    assert.ok(
+      problems.some((p) => p.includes('STEP_COMMIT') && p.includes('no object-literal send(')),
+      problems.join('\n') || 'no reverse sender diagnostic',
+    );
+    assert.ok(
+      problems.some((p) => p.includes('assembled beforehand is invisible to this leg and reds here too')), // prettier-ignore
+      'the red states the limit that makes it misleading',
+    );
+    // …and names the remedy, the way the command side's contract-change line
+    // does: the doctrine and the check move together.
+    assert.ok(
+      problems.some((p) => p.includes("updates the runtime doc's sender statement and this check together")), // prettier-ignore
+      'the red names the change that closes it',
     );
   });
 });
@@ -451,14 +533,129 @@ describe('extractDispatcherSurface — comment-safe tokenizer reads', () => {
   });
 });
 
+describe('extractSendSites — the one shape the sender scan reads', () => {
+  const panel = [
+    "// send({ type: 'COMMENTED_OUT' }) is never counted",
+    'function send(message) {',
+    '  return adapter.send(message);',
+    '}',
+    "await send({ type: 'RECORDING_STOP' });",
+    'await send({',
+    "  type: 'RECORDING_RENAME',",
+    '  recording_id: activeRecording.recording_id,',
+    '});',
+  ].join('\n');
+
+  it('reads object-literal sends, skipping comments, declarations, and forwards', () => {
+    const sites = extractSendSites(new Map([[PANEL_PATH, panel]]));
+    assert.deepEqual(
+      sites.map((s) => [s.ordinal, s.type]),
+      [
+        [1, 'RECORDING_STOP'],
+        [2, 'RECORDING_RENAME'],
+      ],
+    );
+  });
+
+  it('the residue shapes contribute no sites at all', () => {
+    const residue = [
+      'function send(message) { return adapter.send(message); }',
+      'const adapter = { send(message) { return port.post(message); } };',
+      'const payload = { type: assembled };',
+      'await send(payload);',
+    ].join('\n');
+    assert.deepEqual(extractSendSites(new Map([['a.js', residue]])), []);
+  });
+
+  it('reads the type wherever the property sits — order is not meaning', () => {
+    const sites = extractSendSites(
+      new Map([['a.js', "await send({ recording_id: id, type: 'RECORDING_OPEN' });"]]),
+    );
+    assert.deepEqual(sites, [{ path: 'a.js', ordinal: 1, type: 'RECORDING_OPEN', found: null }]);
+  });
+
+  it('reads a quoted type key the same as a bare one', () => {
+    const sites = extractSendSites(new Map([['a.js', "await send({ 'type': 'RECORDING_OPEN' });"]])); // prettier-ignore
+    assert.deepEqual(sites, [{ path: 'a.js', ordinal: 1, type: 'RECORDING_OPEN', found: null }]);
+  });
+
+  it('refuses a send whose top-level properties carry no type key, naming the keys it read', () => {
+    // Discriminates the key comparison: the property below holds a string
+    // literal in the value position, so only the key name separates it from a
+    // readable send.
+    const sites = extractSendSites(new Map([['a.js', "await send({ label: 'x' });"]]));
+    assert.deepEqual(sites, [
+      { path: 'a.js', ordinal: 1, type: null, found: 'no `type` key among the top-level properties `label`' }, // prettier-ignore
+    ]);
+    const problems = evaluateExtensionSurface(makeSurface({ sendSites: sites }));
+    assert.ok(
+      problems.some((p) => p.includes('object-literal send( call site 1') && p.includes('`label`')),
+      problems.join('\n') || 'no missing-type refusal',
+    );
+  });
+
+  it('refuses a type property whose value is not a string literal', () => {
+    const sites = extractSendSites(new Map([['a.js', 'await send({ type: messageType });']]));
+    assert.deepEqual(
+      sites.map((s) => [s.type, s.found]),
+      [[null, 'a `type` key set from `messageType`']],
+    );
+  });
+
+  it('refuses a concatenated type value — the literal is not credited with the type', () => {
+    const sites = extractSendSites(
+      new Map([['a.js', "await send({ type: 'RECORDING_' + which });"]]),
+    );
+    assert.deepEqual(
+      sites.map((s) => [s.type, s.found]),
+      [[null, 'a `type` key set from `RECORDING_` followed by `+`']],
+    );
+  });
+
+  it('reads the message literal, never a nested payload’s own type key', () => {
+    const sites = extractSendSites(
+      new Map([['a.js', "await send({ payload: { type: 'INNER' }, label: 'x' });"]]),
+    );
+    assert.deepEqual(
+      sites.map((s) => [s.type, s.found]),
+      [[null, 'no `type` key among the top-level properties `payload`, `label`']],
+    );
+  });
+
+  it('a source that ends mid-send records the end-of-source stand-in', () => {
+    // Both truncations: the literal never closes, and the follower that would
+    // prove the type value lone never arrives.
+    assert.deepEqual(
+      extractSendSites(new Map([['a.js', 'await send({ recording_id: id,']])).map((s) => s.found),
+      ['(end of source)'],
+    );
+    assert.deepEqual(
+      extractSendSites(new Map([['a.js', "await send({ type: 'RECORDING_OPEN'"]])).map((s) => s.found), // prettier-ignore
+      ['(end of source)'],
+    );
+  });
+});
+
 describe('real-tree lock', () => {
   it('the shipped tree satisfies both contracts', () => {
-    const { problems, permissionCount, typeCount } = auditTree((f) =>
-      readFileSync(resolve(ROOT, f), 'utf8'),
+    // The recursive enumeration the CLI wrapper passes, filtered the same way.
+    const panelFiles = execFileSync('git', ['ls-files', PANEL_DIR], { encoding: 'utf8', cwd: ROOT })
+      .split('\n')
+      .map((s) => s.trim())
+      .filter((f) => f.endsWith('.js'));
+    assert.ok(panelFiles.length >= 1, 'the panel tree must carry tracked JavaScript');
+    const { problems, permissionCount, typeCount, panelTypeCount } = auditTree(
+      (f) => readFileSync(resolve(ROOT, f), 'utf8'),
+      panelFiles,
     );
     assert.deepEqual(problems, [], problems.join('\n'));
     assert.ok(permissionCount > 0);
     assert.ok(typeCount > 0);
+    // The two counts the success line reports are different surfaces: the
+    // whole message-type union, and the panel-protocol subset the sender leg
+    // covers.
+    assert.ok(panelTypeCount > 0);
+    assert.ok(panelTypeCount < typeCount, 'the capture-path types sit outside the panel protocol');
     // The lock also proves the check reads the real surfaces it names.
     for (const p of [MANIFEST_PATH, PERMISSIONS_DOC_PATH, RUNTIME_DOC_PATH, WORKER_PATH]) {
       assert.doesNotThrow(() => readFileSync(resolve(ROOT, p)));

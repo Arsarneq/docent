@@ -162,6 +162,12 @@ are disjoint, and a type outside them is answered with
 renames a serviced message type MUST update the matching enumeration in the
 same change.
 
+The panel states its half of that surface literally: each type of the
+[panel protocol](#panel-protocol)'s closed set has at least one send written as
+an object literal whose top-level `type` property carries the type name as a
+string literal. A change that leaves an enumerated type without one MUST update
+this statement and the check that holds it in the same change.
+
 ### Capture path
 
 Sent by the recorder to the worker:

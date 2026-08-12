@@ -4,11 +4,13 @@
  * committed contract (application-shell.md §DSH-1), so every way it can rot
  * must fail loud: these tests prove each red-path family fires on synthetic
  * input — the pairwise set inequalities across every surface the check
- * compares, the emit-family and channel arms, the capability-source and
- * fixture-shape refusals, unreadable rows and cells, duplicate structures,
- * and empty parses — that the Rust comment stripper and the fence stripper
- * keep comments, literals, and fenced examples out of the scans, and — as a
- * real-tree lock — that the shipped tree satisfies the whole contract.
+ * compares, the emit-family and channel arms, the caller-side invoke arms,
+ * the derived event channel's emit / listen / clause-prose sides, the
+ * capability-source and fixture-shape refusals, unreadable rows and cells,
+ * duplicate structures, and empty parses — that the Rust comment stripper, the
+ * shared JavaScript tokenizer the caller scans read through, and the fence
+ * stripper keep comments, literals, and fenced examples out of the scans, and
+ * — as a real-tree lock — that the shipped tree satisfies the whole contract.
  */
 
 import { describe, it } from 'node:test';
@@ -23,7 +25,7 @@ import {
   CAPABILITIES_DIR,
   TAURI_CONF_PATH,
   MOCK_PATH,
-  EVENT_CHANNEL,
+  FRONTEND_DIR,
   EMPTY_SURFACES,
   DUPLICATE_SURFACES,
   stripRustComments,
@@ -32,7 +34,9 @@ import {
   extractDsh1Section,
   extractDocRows,
   extractDocGrants,
+  extractSectionProse,
   extractEmitSites,
+  extractCallSites,
   extractMockCommands,
   extractMockServicedCases,
   evaluateCommandSurface,
@@ -41,6 +45,21 @@ import {
 
 const ROOT = resolve(import.meta.dirname, '..', '..', '..', '..');
 
+/**
+ * The channel the synthetic surfaces agree on. Spelled out here rather than
+ * imported: the check derives the channel from the doc's event row, so the
+ * fixtures state it the same way a document does.
+ */
+const CHANNEL = 'capture:action';
+/** A frontend path inside the scanned surface. */
+const CALLER_PATH = `${FRONTEND_DIR}/panel.js`;
+/**
+ * The bridge module — inside the scanned surface like any other file. It is
+ * named here only because its `function invoke(…)` declarations are the live
+ * instance of the shape the scan skips; the check itself knows no paths.
+ */
+const BRIDGE_PATH = `${FRONTEND_DIR}/tauri-bridge.js`;
+
 /** A consistent synthetic surface every invariant accepts. */
 function makeSurface(overrides = {}) {
   return {
@@ -48,13 +67,20 @@ function makeSurface(overrides = {}) {
     handlerCommands: ['start_capture', 'stop_capture'],
     handlerOccurrences: 1,
     docCommands: ['start_capture', 'stop_capture'],
-    docEvents: [EVENT_CHANNEL],
-    emitSites: [{ path: 'src/lib.rs', method: 'emit', channel: EVENT_CHANNEL, line: 90 }],
+    docEvents: [CHANNEL],
+    emitSites: [{ path: 'src/lib.rs', method: 'emit', channel: CHANNEL, line: 90 }],
     fileGrants: ['core:default', 'dialog:allow-open'],
     docGrants: ['core:default', 'dialog:allow-open'],
     mockCommands: ['start_capture', 'stop_capture'],
     mockCases: ['start_capture', 'stop_capture'],
     docUnreadableRows: [],
+    sectionProse: `The \`${CHANNEL}\` channel is consumed by one listener.`,
+    invokeLiterals: ['start_capture', 'stop_capture'],
+    invokeSites: [
+      { path: CALLER_PATH, ordinal: 1, name: 'start_capture', argToken: 'start_capture' },
+      { path: CALLER_PATH, ordinal: 2, name: 'stop_capture', argToken: 'stop_capture' },
+    ],
+    listenSites: [{ path: CALLER_PATH, ordinal: 1, name: CHANNEL, argToken: CHANNEL }],
     ...overrides,
   };
 }
@@ -131,6 +157,76 @@ describe('evaluateCommandSurface — command-set equality (both ways, each pair)
   });
 });
 
+describe('evaluateCommandSurface — the caller side (both ways)', () => {
+  it('fires when a crate command no invoke literal names — the caller closure', () => {
+    const problems = evaluateCommandSurface(
+      makeSurface({
+        invokeLiterals: ['start_capture'],
+        invokeSites: [
+          { path: CALLER_PATH, ordinal: 1, name: 'start_capture', argToken: 'start_capture' },
+        ],
+      }),
+    );
+    assert.ok(
+      problems.some((p) => p.includes('stop_capture') && p.includes('no invoke( call site')),
+      problems.join('\n') || 'no caller-closure diagnostic',
+    );
+  });
+
+  it('fires when an invoke literal names no crate command — the direct-invoke closure', () => {
+    const problems = evaluateCommandSurface(
+      makeSurface({
+        invokeLiterals: ['start_capture', 'stop_capture', 'plugin:dialog|open'],
+        invokeSites: [
+          ...makeSurface().invokeSites,
+          { path: CALLER_PATH, ordinal: 3, name: 'plugin:dialog|open', argToken: 'plugin:dialog|open' }, // prettier-ignore
+        ],
+      }),
+    );
+    assert.ok(
+      problems.some((p) => p.includes('plugin:dialog|open') && p.includes('is invoked from the frontend')), // prettier-ignore
+    );
+    // The red says what to do about it rather than only that it fired: a
+    // granted plugin command invoked directly is a contract change.
+    assert.ok(problems.some((p) => p.includes('contract change that extends the DSH-1 clause')));
+  });
+
+  it('refuses an invoke call site whose command name is not a string literal, naming the site', () => {
+    const problems = evaluateCommandSurface(
+      makeSurface({
+        invokeSites: [
+          ...makeSurface().invokeSites,
+          { path: CALLER_PATH, ordinal: 3, name: null, argToken: 'commandName' },
+        ],
+      }),
+    );
+    assert.ok(
+      problems.some((p) => p.includes(`${CALLER_PATH} (invoke( call site 3)`) && p.includes('commandName')), // prettier-ignore
+      problems.join('\n') || 'no invoke refusal',
+    );
+  });
+
+  it('refuses a concatenated invoke argument — the literal is not credited with the command', () => {
+    // The hole the follower guard closes: `invoke('load_state' + suffix)` was
+    // read as a call of `load_state`, so a computed command name greened the
+    // caller closure on a command it never invokes.
+    const sites = extractCallSites(
+      new Map([[CALLER_PATH, "await invoke('load_state' + suffix);"]]),
+      'invoke',
+    );
+    assert.deepEqual(sites, [
+      { path: CALLER_PATH, ordinal: 1, name: null, argToken: 'load_state +' },
+    ]);
+    const problems = evaluateCommandSurface(
+      makeSurface({ invokeSites: [...makeSurface().invokeSites, { ...sites[0], ordinal: 3 }] }),
+    );
+    assert.ok(
+      problems.some((p) => p.includes(`${CALLER_PATH} (invoke( call site 3)`) && p.includes('load_state +')), // prettier-ignore
+      problems.join('\n') || 'no concatenated-invoke refusal',
+    );
+  });
+});
+
 // Fixture rows for the duplicates family, keyed to the check's own exported
 // DUPLICATE_SURFACES list. The lock below holds the two key sets equal, so a
 // surface added to the check's loop without a fixture row reds here — the
@@ -171,7 +267,7 @@ describe('evaluateCommandSurface — duplicates, every leg of the duplicates loo
 describe('evaluateCommandSurface — the one event channel', () => {
   it('fires when the doc states a second event row', () => {
     const problems = evaluateCommandSurface(
-      makeSurface({ docEvents: [EVENT_CHANNEL, 'capture:status'] }),
+      makeSurface({ docEvents: [CHANNEL, 'capture:status'] }),
     );
     assert.ok(problems.some((p) => p.includes('capture:status')));
     assert.ok(problems.some((p) => p.includes('exactly one event channel')));
@@ -181,8 +277,8 @@ describe('evaluateCommandSurface — the one event channel', () => {
     const problems = evaluateCommandSurface(
       makeSurface({
         emitSites: [
-          { path: 'src/lib.rs', method: 'emit', channel: EVENT_CHANNEL, line: 90 },
-          { path: 'src/commands.rs', method: 'emit_to', channel: EVENT_CHANNEL, line: 12 },
+          { path: 'src/lib.rs', method: 'emit', channel: CHANNEL, line: 90 },
+          { path: 'src/commands.rs', method: 'emit_to', channel: CHANNEL, line: 12 },
         ],
       }),
     );
@@ -198,7 +294,7 @@ describe('evaluateCommandSurface — the one event channel', () => {
     const problems = evaluateCommandSurface(
       makeSurface({
         emitSites: [
-          { path: 'src/lib.rs', method: 'emit', channel: EVENT_CHANNEL, line: 90 },
+          { path: 'src/lib.rs', method: 'emit', channel: CHANNEL, line: 90 },
           { path: 'src/lib.rs', method: 'emit_filter', channel: 'other:channel', line: 120 },
         ],
       }),
@@ -210,7 +306,7 @@ describe('evaluateCommandSurface — the one event channel', () => {
     const problems = evaluateCommandSurface(
       makeSurface({
         emitSites: [
-          { path: 'src/lib.rs', method: 'emit', channel: EVENT_CHANNEL, line: 90 },
+          { path: 'src/lib.rs', method: 'emit', channel: CHANNEL, line: 90 },
           { path: 'src/lib.rs', method: 'emit_to', channel: null, line: 130 },
         ],
       }),
@@ -223,6 +319,121 @@ describe('evaluateCommandSurface — the one event channel', () => {
   it('fires when the crate carries two generate_handler! lists', () => {
     const problems = evaluateCommandSurface(makeSurface({ handlerOccurrences: 2 }));
     assert.ok(problems.some((p) => p.includes('2 generate_handler! lists')));
+  });
+});
+
+describe('evaluateCommandSurface — the channel the doc row derives', () => {
+  const RENAMED = 'capture:event';
+
+  it('fires when the doc row is renamed alone', () => {
+    const problems = evaluateCommandSurface(makeSurface({ docEvents: [RENAMED] }));
+    assert.ok(problems.some((p) => p.includes(`expected exactly one \`${RENAMED}\` emit site`)));
+    assert.ok(
+      problems.some((p) => p.includes(`listen( call site on \`${RENAMED}\``) && p.includes(`on \`${CHANNEL}\``)), // prettier-ignore
+    );
+    assert.ok(problems.some((p) => p.includes(`never names \`${RENAMED}\` in backticks`)));
+  });
+
+  it('fires when the doc row and the emit site are renamed but the listener is left behind', () => {
+    // The rename hole this leg exists to close: the document and the backend
+    // agree on the new name while the adapter still listens on the old one.
+    // The leg is scoped to the derived channel, so the stale site is not
+    // redded on its own — the zero case names it, which is what makes the
+    // single line actionable.
+    const problems = evaluateCommandSurface(
+      makeSurface({
+        docEvents: [RENAMED],
+        emitSites: [{ path: 'src/lib.rs', method: 'emit', channel: RENAMED, line: 90 }],
+        sectionProse: `The \`${RENAMED}\` channel is consumed by one listener.`,
+      }),
+    );
+    assert.deepEqual(problems, [
+      `expected exactly one listen( call site on \`${RENAMED}\` in the tracked ${FRONTEND_DIR} JavaScript, found 0 — the listen sites found listen elsewhere: ${CALLER_PATH} (listen( call site 1) on \`${CHANNEL}\``,
+    ]);
+  });
+
+  it('a listen site on another channel is outside the leg — the channel-carrying one greens', () => {
+    assert.deepEqual(
+      evaluateCommandSurface(
+        makeSurface({
+          listenSites: [
+            { path: CALLER_PATH, ordinal: 1, name: CHANNEL, argToken: CHANNEL },
+            { path: `${FRONTEND_DIR}/auto-sync-host.js`, ordinal: 1, name: 'sync:progress', argToken: 'sync:progress' }, // prettier-ignore
+          ],
+        }),
+      ),
+      [],
+    );
+  });
+
+  it('fires when a second listen site on the channel appears', () => {
+    const problems = evaluateCommandSurface(
+      makeSurface({
+        listenSites: [
+          { path: CALLER_PATH, ordinal: 1, name: CHANNEL, argToken: CHANNEL },
+          { path: `${FRONTEND_DIR}/auto-sync-host.js`, ordinal: 1, name: CHANNEL, argToken: CHANNEL }, // prettier-ignore
+        ],
+      }),
+    );
+    assert.ok(
+      problems.some((p) => p.includes(`expected exactly one listen( call site on \`${CHANNEL}\``) && p.includes('found 2')), // prettier-ignore
+      problems.join('\n') || 'no single-listener diagnostic',
+    );
+  });
+
+  it('fires when the tree carries no listen site at all', () => {
+    const problems = evaluateCommandSurface(makeSurface({ listenSites: [] }));
+    assert.ok(problems.some((p) => p.includes('found 0')));
+  });
+
+  it('refuses a listen call site whose channel is not a string literal, naming the site', () => {
+    const problems = evaluateCommandSurface(
+      makeSurface({
+        listenSites: [{ path: CALLER_PATH, ordinal: 1, name: null, argToken: 'CHANNEL_NAME' }],
+      }),
+    );
+    assert.ok(
+      problems.some((p) => p.includes(`${CALLER_PATH} (listen( call site 1)`) && p.includes('CHANNEL_NAME')), // prettier-ignore
+      problems.join('\n') || 'no listen refusal',
+    );
+  });
+
+  it('refuses a concatenated listen channel — the literal is not credited with the channel', () => {
+    const sites = extractCallSites(
+      new Map([[CALLER_PATH, "listen('capture:' + kind, (event) => handle(event));"]]),
+      'listen',
+    );
+    assert.deepEqual(sites, [
+      { path: CALLER_PATH, ordinal: 1, name: null, argToken: 'capture: +' },
+    ]);
+    const problems = evaluateCommandSurface(makeSurface({ listenSites: sites }));
+    assert.ok(
+      problems.some((p) => p.includes(`${CALLER_PATH} (listen( call site 1)`) && p.includes('capture: +')), // prettier-ignore
+      problems.join('\n') || 'no concatenated-listen refusal',
+    );
+  });
+
+  it('fires when the clause prose stops naming the channel while the table still does', () => {
+    const problems = evaluateCommandSurface(
+      makeSurface({ sectionProse: 'The event channel is consumed by one listener.' }),
+    );
+    assert.deepEqual(problems, [
+      `the DSH-1 section's prose outside its table never names \`${CHANNEL}\` in backticks — the channel the table states is stated in the clause's own prose too`,
+    ]);
+  });
+
+  it('greens when the row, the emit site, the listener, and the prose are renamed together', () => {
+    assert.deepEqual(
+      evaluateCommandSurface(
+        makeSurface({
+          docEvents: [RENAMED],
+          emitSites: [{ path: 'src/lib.rs', method: 'emit', channel: RENAMED, line: 90 }],
+          listenSites: [{ path: CALLER_PATH, ordinal: 1, name: RENAMED, argToken: RENAMED }],
+          sectionProse: `The \`${RENAMED}\` channel is consumed by one listener.`,
+        }),
+      ),
+      [],
+    );
   });
 });
 
@@ -345,6 +556,39 @@ describe('extractEmitSites — the emit family', () => {
     );
   });
 
+  it('reads a lone channel literal only — one the separator or the closing paren follows', () => {
+    const src = [
+      'h.emit("capture:action", &e);',
+      'h.emit("capture:action");',
+      'h.emit("capture:action".to_string(), &e);',
+      'h.emit_to("main", "capture:action".to_owned(), &e);',
+    ].join('\n');
+    const sites = extractEmitSites(new Map([['a.rs', src]]));
+    assert.deepEqual(
+      sites.map((s) => [s.method, s.channel]),
+      [
+        ['emit', 'capture:action'],
+        ['emit', 'capture:action'],
+        ['emit', null],
+        ['emit_to', null],
+      ],
+    );
+    // The refusal the null channel drives names the site, so a channel built
+    // around a literal fails loudly instead of being credited with it.
+    const problems = evaluateCommandSurface(
+      makeSurface({
+        emitSites: [
+          { path: 'src/lib.rs', method: 'emit', channel: CHANNEL, line: 90 },
+          { path: 'src/lib.rs', method: 'emit', channel: null, line: 140 },
+        ],
+      }),
+    );
+    assert.ok(
+      problems.some((p) => p.includes('src/lib.rs:140') && p.includes('channel the scan cannot read')), // prettier-ignore
+      problems.join('\n') || 'no emit refusal',
+    );
+  });
+
   it('a char literal cannot open a phantom string that hides or invents a site', () => {
     const src = [
       "fn q() -> char { '\"' }",
@@ -361,6 +605,128 @@ describe('extractEmitSites — the emit family', () => {
     const stripped = stripRustComments(src);
     assert.ok(stripped.includes("&'a str"));
     assert.ok(!stripped.includes('gone'));
+  });
+});
+
+describe('extractCallSites — the frontend caller scans', () => {
+  const caller = [
+    "// invoke('commented_out') is never counted",
+    "/* listen('also:commented') */",
+    "import { invoke, listen } from './tauri-bridge.js';",
+    "await invoke('start_capture', { pid: null });",
+    "const json = await invoke('load_state');",
+    "listen('capture:action', (event) => handle(event));",
+  ].join('\n');
+
+  it('reads the literal first argument and skips comments and imports', () => {
+    assert.deepEqual(
+      extractCallSites(new Map([[CALLER_PATH, caller]]), 'invoke').map((s) => s.name),
+      ['start_capture', 'load_state'],
+    );
+    assert.deepEqual(
+      extractCallSites(new Map([[CALLER_PATH, caller]]), 'listen').map((s) => s.name),
+      ['capture:action'],
+    );
+  });
+
+  it('numbers the sites per file, in source order', () => {
+    const sites = extractCallSites(new Map([[CALLER_PATH, caller]]), 'invoke');
+    assert.deepEqual(
+      sites.map((s) => [s.path, s.ordinal]),
+      [
+        [CALLER_PATH, 1],
+        [CALLER_PATH, 2],
+      ],
+    );
+  });
+
+  it('records a null name and the token standing in its place when the argument is not literal', () => {
+    const sites = extractCallSites(new Map([['a.js', 'await invoke(commandName, args);']]), 'invoke'); // prettier-ignore
+    assert.deepEqual(sites, [{ path: 'a.js', ordinal: 1, name: null, argToken: 'commandName' }]);
+  });
+
+  it('reads a lone literal only — the comma and the closing parenthesis are the followers it accepts', () => {
+    const sources = new Map([
+      ['a.js', "invoke('load_state');\ninvoke('save_state', { data });\ninvoke('load_state' + suffix);\ninvoke('load_state'.concat(suffix));"], // prettier-ignore
+    ]);
+    assert.deepEqual(
+      extractCallSites(sources, 'invoke').map((s) => [s.name, s.argToken]),
+      [
+        ['load_state', 'load_state'],
+        ['save_state', 'save_state'],
+        [null, 'load_state +'],
+        [null, 'load_state .'],
+      ],
+    );
+  });
+
+  it('a source that ends mid-call records the end-of-source stand-in', () => {
+    // Both truncations: the argument never arrives, and the follower that
+    // would prove the literal lone never arrives.
+    assert.deepEqual(
+      extractCallSites(new Map([['a.js', 'await invoke(']]), 'invoke').map((s) => s.argToken),
+      ['(end of source)'],
+    );
+    assert.deepEqual(extractCallSites(new Map([['a.js', "await invoke('load_state'"]]), 'invoke'), [
+      { path: 'a.js', ordinal: 1, name: null, argToken: '(end of source)' },
+    ]);
+  });
+
+  it('skips a declaration by shape — the shipped bridge contributes no call site', () => {
+    // The bridge is scanned like every other module; what keeps it out of the
+    // closures is the declaration shape, not its path. Its forwarding call
+    // reaches the API through a parenthesized expression, which the
+    // word-then-paren pair never matches.
+    const bridge = [
+      'export function invoke(...args) {',
+      '  const globalInvoke = globalThis.window?.__TAURI__?.core?.invoke;',
+      '  return (globalInvoke ?? esmInvoke)(...args);',
+      '}',
+      'export function listen(...args) {',
+      '  return (globalListen ?? esmListen)(...args);',
+      '}',
+    ].join('\n');
+    assert.deepEqual(extractCallSites(new Map([[BRIDGE_PATH, bridge]]), 'invoke'), []);
+    assert.deepEqual(extractCallSites(new Map([[BRIDGE_PATH, bridge]]), 'listen'), []);
+  });
+
+  it('skips the declaration only — a real call in the same file is still site 1', () => {
+    const source = [
+      'export function invoke(...args) { return real(...args); }',
+      "await invoke('load_state');",
+    ].join('\n');
+    assert.deepEqual(
+      extractCallSites(new Map([[CALLER_PATH, source]]), 'invoke').map((s) => [s.ordinal, s.name]),
+      [[1, 'load_state']],
+    );
+  });
+});
+
+describe('extractSectionProse — the weld reads the section without its table', () => {
+  it('drops table lines and keeps the prose around them', () => {
+    const section = [
+      '**DSH-1.** The contract.',
+      '',
+      '| Name | D |',
+      '| ---- | - |',
+      '| `capture:action` (event) | a |',
+      '',
+      'The `capture:action` channel has one consumer.',
+    ].join('\n');
+    const prose = extractSectionProse(section);
+    assert.ok(!prose.includes('(event)'), 'table rows must not reach the weld');
+    assert.ok(prose.includes('The `capture:action` channel has one consumer.'));
+  });
+
+  it('a section whose only mention is the table cell leaves the prose without one', () => {
+    const section = [
+      '**DSH-1.** The contract.',
+      '',
+      '| Name | D |',
+      '| ---- | - |',
+      '| `capture:action` (event) | a |',
+    ].join('\n');
+    assert.ok(!extractSectionProse(section).includes('`capture:action`'));
   });
 });
 
@@ -543,7 +909,8 @@ describe('auditTree — synthetic tree', () => {
     '| `start_capture` | a | b | c |',
     '| `capture:action` (event) | a | b | c |',
     '',
-    'Grants: `core:default` and `fs:allow-read`.',
+    'Grants: `core:default` and `fs:allow-read`. The `capture:action` channel',
+    'has one frontend consumer.',
     '',
     '## Next',
   ].join('\n');
@@ -561,6 +928,15 @@ describe('auditTree — synthetic tree', () => {
     '    throw new Error("nope");',
     '}',
   ].join('\n');
+  const CALLER = [
+    "await invoke('start_capture', { pid: null });",
+    "listen('capture:action', (event) => handle(event));",
+  ].join('\n');
+  // The bridge declares the two functions and calls neither by name, so the
+  // declaration-shape rule leaves it contributing nothing — while the file
+  // itself stays inside the scanned surface.
+  const BRIDGE = 'export function invoke(...args) {}\nexport function listen(...args) {}';
+  const JS_FILES = [CALLER_PATH, BRIDGE_PATH];
 
   /** A readFile over a synthetic file map, with the crate source at LIB_PATH. */
   function treeReader(capabilities) {
@@ -569,6 +945,8 @@ describe('auditTree — synthetic tree', () => {
       if (f === LIB_PATH) return LIB;
       if (f === MOCK_PATH) return MOCK;
       if (f === TAURI_CONF_PATH) return '{}';
+      if (f === CALLER_PATH) return CALLER;
+      if (f === BRIDGE_PATH) return BRIDGE;
       return capabilities[f] ?? '';
     };
   }
@@ -578,14 +956,19 @@ describe('auditTree — synthetic tree', () => {
       'caps/default.json': JSON.stringify({ permissions: ['core:default'] }),
       'caps/extra.json': JSON.stringify({ permissions: [{ identifier: 'fs:allow-read' }] }),
     };
-    const { problems, grantCount } = auditTree(treeReader(caps), [LIB_PATH], Object.keys(caps));
+    const { problems, grantCount } = auditTree(
+      treeReader(caps),
+      [LIB_PATH],
+      Object.keys(caps),
+      JS_FILES,
+    );
     assert.deepEqual(problems, [], problems.join('\n'));
     assert.equal(grantCount, 2);
   });
 
   it('reports an unparseable capability file as a problem, not a thrown stack', () => {
     const caps = { 'caps/default.json': 'not json' };
-    const { problems } = auditTree(treeReader(caps), [LIB_PATH], Object.keys(caps));
+    const { problems } = auditTree(treeReader(caps), [LIB_PATH], Object.keys(caps), JS_FILES);
     assert.ok(
       problems.some((p) => p.includes('caps/default.json') && p.includes('does not parse as JSON')), // prettier-ignore
     );
@@ -593,7 +976,7 @@ describe('auditTree — synthetic tree', () => {
 
   it('reports a permissions entry of an unknown shape', () => {
     const caps = { 'caps/default.json': JSON.stringify({ permissions: ['core:default', 42] }) };
-    const { problems } = auditTree(treeReader(caps), [LIB_PATH], Object.keys(caps));
+    const { problems } = auditTree(treeReader(caps), [LIB_PATH], Object.keys(caps), JS_FILES);
     assert.ok(problems.some((p) => p.includes('cannot read') && p.includes('42')));
   });
 
@@ -602,7 +985,7 @@ describe('auditTree — synthetic tree', () => {
       'caps/default.json': JSON.stringify({ permissions: ['core:default', 'fs:allow-read'] }),
       'caps/extra.toml': 'permissions = ["fs:allow-write"]',
     };
-    const { problems } = auditTree(treeReader(caps), [LIB_PATH], Object.keys(caps));
+    const { problems } = auditTree(treeReader(caps), [LIB_PATH], Object.keys(caps), JS_FILES);
     assert.ok(
       problems.some((p) => p.includes('caps/extra.toml') && p.includes('format the scan does not read')), // prettier-ignore
     );
@@ -618,7 +1001,7 @@ describe('auditTree — synthetic tree', () => {
       }
       return treeReader(caps)(f);
     };
-    const { problems } = auditTree(readFile, [LIB_PATH], Object.keys(caps));
+    const { problems } = auditTree(readFile, [LIB_PATH], Object.keys(caps), JS_FILES);
     assert.ok(problems.some((p) => p.includes('inlines capabilities')));
   });
 
@@ -628,8 +1011,59 @@ describe('auditTree — synthetic tree', () => {
     };
     const twoSwitches = `${MOCK}\nswitch (cmd) { default: break; }`;
     const readFile = (f) => (f === MOCK_PATH ? twoSwitches : treeReader(caps)(f));
-    const { problems } = auditTree(readFile, [LIB_PATH], Object.keys(caps));
+    const { problems } = auditTree(readFile, [LIB_PATH], Object.keys(caps), JS_FILES);
     assert.ok(problems.some((p) => p.includes('2 `switch (cmd)` blocks')));
+  });
+
+  it('deduplicates the invoke literals — one command invoked from several sites is one entry', () => {
+    // Several call sites naming one command is ordinary code shape (the
+    // shipped panel invokes `stop_capture` from many paths), so the caller
+    // set the closure diffs run over carries each name once.
+    const caps = {
+      'caps/default.json': JSON.stringify({ permissions: ['core:default', 'fs:allow-read'] }),
+    };
+    const repeated = [
+      "await invoke('start_capture', { pid: null });",
+      "await invoke('start_capture', { pid: 7 });",
+      "listen('capture:action', (event) => handle(event));",
+    ].join('\n');
+    const readFile = (f) => (f === CALLER_PATH ? repeated : treeReader(caps)(f));
+    const { problems, invokeLiterals } = auditTree(
+      readFile,
+      [LIB_PATH],
+      Object.keys(caps),
+      JS_FILES,
+    );
+    assert.deepEqual(invokeLiterals, ['start_capture']);
+    assert.deepEqual(problems, [], problems.join('\n'));
+  });
+
+  it('scans the bridge like any other module — the declarations alone keep it green', () => {
+    const caps = {
+      'caps/default.json': JSON.stringify({ permissions: ['core:default', 'fs:allow-read'] }),
+    };
+    assert.deepEqual(
+      auditTree(treeReader(caps), [LIB_PATH], Object.keys(caps), JS_FILES).problems,
+      [],
+    );
+    // …and a call written inside the bridge is a call site like any other: a
+    // plugin invoke and a second listener there reach all three closures,
+    // which is exactly what a whole-file exclusion used to hide.
+    const rogue = [
+      BRIDGE,
+      "await invoke('plugin:dialog|open', {});",
+      "listen('capture:action', (event) => handle(event));",
+    ].join('\n');
+    const reader = (f) => (f === BRIDGE_PATH ? rogue : treeReader(caps)(f));
+    const { problems } = auditTree(reader, [LIB_PATH], Object.keys(caps), JS_FILES);
+    assert.ok(
+      problems.some((p) => p.includes('plugin:dialog|open') && p.includes('is invoked from the frontend')), // prettier-ignore
+      problems.join('\n') || 'no direct-invoke diagnostic for the in-bridge call',
+    );
+    assert.ok(
+      problems.some((p) => p.includes(`expected exactly one listen( call site on \`${CHANNEL}\``) && p.includes('found 2')), // prettier-ignore
+      problems.join('\n') || 'no single-listener diagnostic for the in-bridge listener',
+    );
   });
 });
 
@@ -679,20 +1113,28 @@ describe('real-tree lock', () => {
     // The same unfiltered input set the CLI wrapper passes, so the
     // format-refusal branch stays locked against the real tree.
     const capabilityFiles = lsFiles(CAPABILITIES_DIR);
+    // The recursive enumeration the CLI wrapper passes, filtered the same way.
+    const jsFiles = lsFiles(FRONTEND_DIR).filter((f) => f.endsWith('.js'));
     assert.ok(rustFiles.includes(LIB_PATH), 'the crate entry point must be among the sources');
     assert.ok(
       capabilityFiles.length >= 1,
       'at least one file must be tracked under the capability directory',
     );
-    const { problems, commandCount } = auditTree(
+    assert.ok(
+      jsFiles.includes(BRIDGE_PATH),
+      'the bridge module must be among the scanned files — its declarations are what the shape rule skips',
+    );
+    const { problems, commandCount, channel } = auditTree(
       (f) => readFileSync(resolve(ROOT, f), 'utf8'),
       rustFiles,
       capabilityFiles,
+      jsFiles,
     );
     assert.deepEqual(problems, [], problems.join('\n'));
     assert.ok(commandCount > 0);
+    assert.equal(channel, CHANNEL, 'the shipped event row states the channel the fixtures use');
     // The lock also proves the check reads the real surfaces it names.
-    for (const p of [DOC_PATH, MOCK_PATH]) {
+    for (const p of [DOC_PATH, MOCK_PATH, BRIDGE_PATH]) {
       assert.doesNotThrow(() => readFileSync(resolve(ROOT, p)));
     }
   });

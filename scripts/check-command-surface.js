@@ -5,8 +5,8 @@
  *
  * The clause states one closed contract: every `#[tauri::command]` the crate
  * defines is registered in `lib.rs`'s `generate_handler!` list and appears in
- * the doc's table, and `capture:action` is the only event channel the backend
- * emits; the same section names the capability grants
+ * the doc's table, and the doc's one event row states the only event channel
+ * the backend emits; the same section names the capability grants
  * (`capabilities/default.json`) that admit the plugin surface. This check
  * recomputes every leg from the tree and fails on any drift:
  *
@@ -15,13 +15,22 @@
  *      pairwise difference is reported in both directions, and a body row
  *      whose first cell is not a lone backticked name (optionally suffixed
  *      `(event)`) fails the check rather than being skipped;
- *   2. the doc's one event row names `capture:action`, and the crate sources
- *      contain exactly one emit-family call site — every emit method the
- *      Emitter trait exposes (`emit`, `emit_str`, `emit_to`, `emit_str_to`,
- *      `emit_filter`, `emit_str_filter`) — whose channel is that literal
- *      (sources are comment-stripped first, so doc comments naming the
- *      channel never count); an emit-family call whose channel the scan
- *      cannot read as a string literal fails the check rather than passing;
+ *   2. the doc's one event row DERIVES the channel every other side of this
+ *      leg is held against, each of them named here. The crate sources contain
+ *      exactly one emit-family call site — every emit method the Emitter trait
+ *      exposes (`emit`, `emit_str`, `emit_to`, `emit_str_to`, `emit_filter`,
+ *      `emit_str_filter`) — whose channel is that literal (sources are
+ *      comment-stripped first, so doc comments naming the channel never
+ *      count); the tracked desktop frontend JavaScript carries exactly one
+ *      `listen(` call site CARRYING that channel — a readable listen site on
+ *      another channel is outside this leg, neither counted nor redded on its
+ *      own, and the zero case names any such site it found; and the clause
+ *      section's prose OUTSIDE its table names that channel in backticks, so a
+ *      rename that updates the table and the backend while leaving the adapter
+ *      or the prose behind reds. An emit-family or `listen(` call whose channel
+ *      the scan cannot read as a LONE string literal — one the argument
+ *      separator or the call's closing parenthesis follows — fails the check
+ *      rather than passing;
  *   3. the grants declared by the tracked capability files under
  *      `capabilities/` equal the grant identifiers the clause's section names
  *      in backticks — the admission shape is a namespaced identifier ending
@@ -33,7 +42,24 @@
  *      script's `case` labels (`tauri-mock-fixture.js`) — equals the crate's
  *      command set, so the suite's one drift-visible consumer of the surface
  *      can neither lag a command the crate gains nor keep servicing one it
- *      loses (that leg's doctrine home is docs/test/integration/desktop.md).
+ *      loses (that leg's doctrine home is docs/test/integration/desktop.md);
+ *   5. the crate's command set and the command names the frontend's own
+ *      `invoke(` call sites state are equal, diffed in both directions — the
+ *      caller closure (a crate command no literal invoke names reds) and the
+ *      direct-invoke closure (an invoke literal naming no crate command
+ *      reds). The scanned surface is the tracked JavaScript under
+ *      `packages/desktop/src` — `git ls-files` over that directory, recursive,
+ *      filtered to `.js`, the bridge module included — read through the shared
+ *      comment-safe tokenizer, so a commented-out or documented call never
+ *      counts. What the scan skips is a SHAPE, not a file: a match whose
+ *      preceding token is `function` is a declaration, which states the
+ *      transport rather than using it. The bridge module is where that shape
+ *      lives, and the forwarding call inside it reaches the API through an
+ *      expression no word-then-paren pair matches, so an `invoke(` or
+ *      `listen(` written there is a call site like any other. An `invoke(`
+ *      call site whose first argument the scan cannot read as a lone string
+ *      literal — a concatenation, say — is refused by name rather than
+ *      skipped.
  *
  * Every extracted set must be non-empty — a parse that finds nothing is a
  * broken read of the surface (or a moved surface) and fails loudly rather
@@ -42,12 +68,32 @@
  * Honest limits: an emit issued through a wrapping helper or through
  * non-method call syntax (`Emitter::emit(app, …)`) is invisible to the scan,
  * while the emit-method names are matched on any receiver, so an unrelated
- * type exposing `emit()` would red the gate (loud, reviewed away); a
- * `#[tauri::command]` declared inside a test-only module would count as
- * shipped surface; the clause's section cannot name a grant-shaped
- * identifier the capability files do not hold (an illustrative mention
- * outside a fence reds the gate); and the table's Direction / What-it-does /
- * Who-calls-it prose and the grants paragraph's plugin-resolution prose are
+ * type exposing `emit()` would red the gate (loud, reviewed away); a call
+ * that reaches the backend through a wrapper, or through a call shape the
+ * `invoke(`/`listen(` scan does not model, is invisible to it the same way;
+ * the caller scans read the call token, not the binding behind it, so a
+ * locally bound or injected `invoke` counts as a caller-closure witness
+ * (`packages/desktop/src/persistence.js` takes its `invoke` as a parameter);
+ * which module carries the single listener is review-held — this check counts
+ * the listen sites across the scanned surface, never which file holds one; the
+ * shared tokenizer does not model regular-expression literals, so a quote
+ * inside one desynchronizes the token stream for the rest of that file — in
+ * these whole-file scans that corruption is SILENT, the call sites past it
+ * simply not seen rather than refused; a `#[tauri::command]` declared inside a
+ * test-only module would count as shipped surface; the clause's section cannot
+ * name a grant-shaped identifier the capability files do not hold (an
+ * illustrative mention outside a fence reds the gate); one backticked mention
+ * of the channel in the clause section's non-table prose satisfies the weld,
+ * so a second, stale mention standing beside an updated first stays
+ * review-held, and mentions of the channel outside the clause section —
+ * sibling documents, the integration-suite document, workflow comments — are
+ * not held here. The table's Direction / What-it-does / Who-calls-it columns
+ * are still never parsed: the caller closure and the single-listener
+ * consumption those columns describe are clause-stated and held by legs 2 and
+ * 5 above, and the columns' remaining prose stays review-held. The grants
+ * paragraph narrows the same way: the direct-invoke closure is clause-stated
+ * and held by leg 5 — a granted plugin command invoked directly from the
+ * frontend reds — while the paragraph's remaining grant-resolution prose stays
  * review-held, never parsed.
  *
  * Usage:
@@ -63,6 +109,7 @@ import {
   missingFrom,
   parseTables,
   readListEntries,
+  tokenizeJs,
 } from './check-test-inventory.js';
 
 /** Repo-relative path of the doc whose DSH-1 table states the contract. */
@@ -77,9 +124,9 @@ export const CAPABILITIES_DIR = 'packages/desktop/src-tauri/capabilities';
 export const TAURI_CONF_PATH = 'packages/desktop/src-tauri/tauri.conf.json';
 /** Repo-relative path of the integration suite's Tauri mock fixture. */
 export const MOCK_PATH = 'packages/desktop/tests/integration/tauri-mock-fixture.js';
+/** Repo-relative directory of the desktop frontend the caller scans read. */
+export const FRONTEND_DIR = 'packages/desktop/src';
 
-/** The one event channel the backend emits, per the doc's event row. */
-export const EVENT_CHANNEL = 'capture:action';
 /** The clause id the whole contract is anchored to. */
 export const CLAUSE_ID = 'DSH-1';
 /** The one invoke-switch anchor the mock's serviced-case scan is keyed on. */
@@ -251,20 +298,45 @@ export function extractDocGrants(section) {
 }
 
 /**
+ * A Markdown table line, in the shape the shared table parser reads one: a
+ * line whose first non-blank character is the structural pipe. Stated here
+ * because this check strips those lines rather than parsing them.
+ */
+const TABLE_LINE_RE = /^\s*\|/;
+
+/**
+ * The clause section's prose: its text with every table line removed. The
+ * event-channel weld reads this rather than the whole section, so the
+ * requirement that the clause's own prose names the channel cannot be
+ * satisfied by the very table cell the channel is derived from.
+ * @param {string} section the clause's text (already fence-stripped)
+ * @returns {string} the section's non-table lines, newline-joined
+ */
+export function extractSectionProse(section) {
+  return section
+    .split('\n')
+    .filter((line) => !TABLE_LINE_RE.test(line))
+    .join('\n');
+}
+
+/**
  * Find emit-family call sites — every Emitter emit method (`emit`,
  * `emit_str`, `emit_to`, `emit_str_to`, `emit_filter`, `emit_str_filter`) —
  * in comment-stripped crate sources. The channel is the first string-literal
  * argument, except for `emit_to`/`emit_str_to` where it is the second (their
  * first argument is the target, which must also be a literal for the channel
- * to be readable); a call whose channel cannot be read is recorded with
+ * to be readable). The channel literal must be LONE — the argument separator
+ * or the call's closing parenthesis follows it — so a channel built around a
+ * literal (`"capture:action".to_string()`) is refused rather than credited
+ * with its leading piece; a call whose channel cannot be read is recorded with
  * `channel: null` and fails the evaluation loudly.
  * @param {Map<string, string>} strippedByPath path → comment-stripped source
  * @returns {{ path: string, method: string, channel: string | null, line: number }[]}
  */
 export function extractEmitSites(strippedByPath) {
   const sites = [];
-  const STR = /^\s*"((?:[^"\\]|\\.)*)"/;
-  const SECOND_STR = /^\s*"(?:[^"\\]|\\.)*"\s*,\s*"((?:[^"\\]|\\.)*)"/;
+  const STR = /^\s*"((?:[^"\\]|\\.)*)"(?=\s*[,)])/;
+  const SECOND_STR = /^\s*"(?:[^"\\]|\\.)*"\s*,\s*"((?:[^"\\]|\\.)*)"(?=\s*[,)])/;
   const FAMILY = /\.(emit|emit_str|emit_to|emit_str_to|emit_filter|emit_str_filter)\s*\(/g;
   for (const [path, source] of strippedByPath) {
     for (const m of source.matchAll(FAMILY)) {
@@ -276,6 +348,60 @@ export function extractEmitSites(strippedByPath) {
     }
   }
   return sites;
+}
+
+/**
+ * Find the call sites of one named function in JavaScript sources, read
+ * through the shared comment-safe tokenizer so a commented-out or documented
+ * call never counts. A site is the token pair `<name> (`; its first argument
+ * is read when it is a LONE string literal — the token right after it must be
+ * the argument separator or the call's closing parenthesis, so a literal
+ * feeding an expression (`'load_state' + suffix`) is refused rather than
+ * credited with its leading piece. Anything else is recorded as `name: null`
+ * with the token that stands where the lone literal would — for a literal
+ * inside an expression, the literal and the follower that gives it away — so
+ * an unreadable call is refused by name rather than skipped. A declaration is
+ * not a call: a match whose preceding token is `function` states the transport
+ * rather than using it, and is skipped by that shape — which is why no module
+ * needs excluding by path, the bridge included. Sites are numbered per file,
+ * in source order, which is how the output names one.
+ * @param {Map<string, string>} sourceByPath path → JavaScript source
+ * @param {string} fn the called function's name
+ * @returns {{ path: string, ordinal: number, name: string | null, argToken: string }[]}
+ */
+export function extractCallSites(sourceByPath, fn) {
+  const sites = [];
+  for (const [path, source] of sourceByPath) {
+    const tokens = tokenizeJs(source);
+    let ordinal = 0;
+    for (let i = 0; i + 1 < tokens.length; i++) {
+      if (tokens[i].type !== 'word' || tokens[i].value !== fn) continue;
+      if (tokens[i + 1].type !== 'punct' || tokens[i + 1].value !== '(') continue;
+      if (i > 0 && tokens[i - 1].type === 'word' && tokens[i - 1].value === 'function') continue;
+      ordinal += 1;
+      const arg = tokens[i + 2];
+      const follower = tokens[i + 3];
+      const literal = arg?.type === 'string';
+      const lone = follower?.type === 'punct' && (follower.value === ',' || follower.value === ')');
+      let argToken;
+      if (!arg || (literal && !follower)) argToken = '(end of source)';
+      else if (literal && !lone) argToken = `${arg.value} ${follower.value}`;
+      else argToken = arg.value;
+      sites.push({ path, ordinal, name: literal && lone ? arg.value : null, argToken });
+    }
+  }
+  return sites;
+}
+
+/**
+ * How a call site is named in the check's output: its file and its position
+ * among that file's call sites of the same function, comments excluded.
+ * @param {{ path: string, ordinal: number }} site
+ * @param {string} fn the called function's name
+ * @returns {string}
+ */
+function siteLabel(site, fn) {
+  return `${site.path} (${fn}( call site ${site.ordinal})`;
 }
 
 /**
@@ -325,12 +451,17 @@ export const EMPTY_SURFACES = [
   ['docGrants', `no grant identifiers found in the ${CLAUSE_ID} section of ${DOC_PATH}`],
   ['mockCommands', `no CANONICAL_COMMANDS entries found in ${MOCK_PATH}`],
   ['mockCases', `no serviced case labels found in the mock's invoke switch (${MOCK_PATH})`],
+  ['invokeLiterals', `no invoke( call site naming a command in a string literal found in the tracked ${FRONTEND_DIR} JavaScript`], // prettier-ignore
 ];
 
 /**
  * The duplicates guard's legs — the drift the deduplicating set diffs
  * cannot see. Exported for the suite's generated family plus the
- * fixture-key equality lock its hand-written fixtures need.
+ * fixture-key equality lock its hand-written fixtures need. The invoke
+ * literals are deliberately absent: one command invoked from several call
+ * sites is ordinary code shape, and `auditTree` deduplicates them into the set
+ * the closure diffs run over (the extractor keeps every site, which is how a
+ * site is named in a refusal).
  */
 export const DUPLICATE_SURFACES = [
   ['commandFns', `the #[tauri::command] set`],
@@ -349,21 +480,31 @@ export const DUPLICATE_SURFACES = [
  * @param {string[]} s.docCommands the doc table's command rows
  * @param {string[]} s.docEvents the doc table's event rows
  * @param {string[]} s.docUnreadableRows table body-row first cells the row reader could not read — an empty cell arrives as the reader's `(empty first cell)` stand-in, never as a blank
+ * @param {string} s.sectionProse the clause section's text with its table lines removed
  * @param {{ path: string, method: string, channel: string | null, line: number }[]} s.emitSites
  * @param {string[]} s.fileGrants permissions across the tracked capability files
  * @param {string[]} s.docGrants grant identifiers the doc section names
  * @param {string[]} s.mockCommands the mock's CANONICAL_COMMANDS entries
  * @param {string[]} s.mockCases the injected mock script's serviced case labels
+ * @param {string[]} s.invokeLiterals command names the frontend's invoke( call sites state, deduplicated
+ * @param {{ path: string, ordinal: number, name: string | null, argToken: string }[]} s.invokeSites every frontend invoke( call site, readable or not
+ * @param {{ path: string, ordinal: number, name: string | null, argToken: string }[]} s.listenSites every frontend listen( call site, readable or not
  * @returns {string[]} problems; empty when the contract holds
  */
 export function evaluateCommandSurface(s) {
   const problems = [];
 
-  // Unreadable rows are reported ahead of the vacuous guards: the likeliest
-  // cause of an empty table parse is rows that stopped being readable, so
-  // the most useful line must survive the early return.
+  // Unreadable rows and call sites are reported ahead of the vacuous guards:
+  // the likeliest cause of an empty parse is a surface that stopped being
+  // readable, so the most useful line must survive the early return.
   for (const cell of s.docUnreadableRows) {
     problems.push(`the ${CLAUSE_ID} table carries a first cell the scan cannot read — ${cell} — rows are \`name\` or \`name\` (event), nothing else`); // prettier-ignore
+  }
+  for (const site of s.invokeSites.filter((x) => x.name === null)) {
+    problems.push(`${siteLabel(site, 'invoke')} passes \`${site.argToken}\` where the command name goes — the scan reads a lone string literal, so the caller closure stays checkable`); // prettier-ignore
+  }
+  for (const site of s.listenSites.filter((x) => x.name === null)) {
+    problems.push(`${siteLabel(site, 'listen')} passes \`${site.argToken}\` where the event channel goes — the scan reads a lone string literal, so the single-listener pin stays checkable`); // prettier-ignore
   }
 
   let vacuous = false;
@@ -394,14 +535,15 @@ export function evaluateCommandSurface(s) {
     ...missingFrom(s.mockCommands, s.commandFns, `is in the mock's CANONICAL_COMMANDS list but no #[tauri::command] function defines it`), // prettier-ignore
     ...missingFrom(s.commandFns, s.mockCases, `has #[tauri::command] but the mock's invoke switch has no case servicing it (${MOCK_PATH})`), // prettier-ignore
     ...missingFrom(s.mockCases, s.commandFns, `is serviced by the mock's invoke switch but no #[tauri::command] function defines it`), // prettier-ignore
+    ...missingFrom(s.commandFns, s.invokeLiterals, `has #[tauri::command] but no invoke( call site in the tracked ${FRONTEND_DIR} JavaScript names it`), // prettier-ignore
+    ...missingFrom(s.invokeLiterals, s.commandFns, `is invoked from the frontend but no #[tauri::command] function defines it — a granted plugin command invoked directly is a contract change that extends the ${CLAUSE_ID} clause and this check together`), // prettier-ignore
   );
 
-  const badEventRows = s.docEvents.filter((e) => e !== EVENT_CHANNEL);
-  for (const e of badEventRows) {
-    problems.push(`the ${CLAUSE_ID} table carries an event row \`${e}\` — the one backend event channel is \`${EVENT_CHANNEL}\``); // prettier-ignore
-  }
+  // The doc's event row is the channel every other side is held against, so a
+  // rename lands in the table first and propagates from there.
+  const channel = s.docEvents[0];
   if (s.docEvents.length > 1) {
-    problems.push(`the ${CLAUSE_ID} table carries ${s.docEvents.length} event rows — the contract states exactly one event channel`); // prettier-ignore
+    problems.push(`the ${CLAUSE_ID} table carries ${s.docEvents.length} event rows (${s.docEvents.map((e) => `\`${e}\``).join(', ')}) — the contract states exactly one event channel, and the first row is the channel every other side is held against`); // prettier-ignore
   }
   for (const e of s.emitSites.filter((x) => x.channel === null)) {
     const what =
@@ -411,18 +553,39 @@ export function evaluateCommandSurface(s) {
     problems.push(`${e.path}:${e.line} calls .${e.method}( with ${what} so the single-channel contract stays checkable`); // prettier-ignore
   }
   const readable = s.emitSites.filter((e) => e.channel !== null);
-  const channelSites = readable.filter((e) => e.channel === EVENT_CHANNEL);
-  const otherSites = readable.filter((e) => e.channel !== EVENT_CHANNEL);
+  const channelSites = readable.filter((e) => e.channel === channel);
+  const otherSites = readable.filter((e) => e.channel !== channel);
   if (channelSites.length !== 1) {
     problems.push(
-      `expected exactly one \`${EVENT_CHANNEL}\` emit site, found ${channelSites.length}` +
+      `expected exactly one \`${channel}\` emit site, found ${channelSites.length}` +
         (channelSites.length
           ? `: ${channelSites.map((e) => `${e.path}:${e.line}`).join(', ')}`
           : ''),
     );
   }
   for (const e of otherSites) {
-    problems.push(`${e.path}:${e.line} emits on \`${e.channel}\` — \`${EVENT_CHANNEL}\` is the only event channel the backend emits`); // prettier-ignore
+    problems.push(`${e.path}:${e.line} emits on \`${e.channel}\` — \`${channel}\` is the only event channel the backend emits`); // prettier-ignore
+  }
+
+  // The listen leg is scoped to the derived channel: a readable listen site on
+  // another channel is another surface's business, so it is neither counted
+  // here nor redded on its own — but the zero case names it, because a rename
+  // that left the listener behind is exactly what that case looks like.
+  const channelListeners = s.listenSites.filter((x) => x.name === channel);
+  const offChannel = s.listenSites.filter((x) => x.name !== null && x.name !== channel);
+  if (channelListeners.length !== 1) {
+    let detail = '';
+    if (channelListeners.length) {
+      detail = `: ${channelListeners.map((x) => siteLabel(x, 'listen')).join(', ')}`;
+    } else if (offChannel.length) {
+      detail = ` — the listen sites found listen elsewhere: ${offChannel.map((x) => `${siteLabel(x, 'listen')} on \`${x.name}\``).join(', ')}`; // prettier-ignore
+    }
+    problems.push(
+      `expected exactly one listen( call site on \`${channel}\` in the tracked ${FRONTEND_DIR} JavaScript, found ${channelListeners.length}${detail}`,
+    );
+  }
+  if (!s.sectionProse.includes(`\`${channel}\``)) {
+    problems.push(`the ${CLAUSE_ID} section's prose outside its table never names \`${channel}\` in backticks — the channel the table states is stated in the clause's own prose too`); // prettier-ignore
   }
 
   problems.push(
@@ -439,12 +602,21 @@ export function evaluateCommandSurface(s) {
  * @param {string[]} rustFiles repo-relative crate source paths to scan
  * @param {string[]} capabilityFiles every tracked path under the capability
  *   directory, whatever its extension — non-JSON entries are refused loudly
- * @returns {{ problems: string[], commandCount: number, grantCount: number }}
+ * @param {string[]} jsFiles the tracked desktop frontend JavaScript paths the
+ *   caller scans read — every one of them, the bridge module included; what
+ *   the scan passes over is the declaration shape, never a path
+ * @returns {{ problems: string[], commandCount: number, grantCount: number, channel: string, invokeLiterals: string[] }}
+ *   `invokeLiterals` is the deduplicated caller-side set the closure diffs run
+ *   over — returned so the suite can observe the deduplication a repeated
+ *   invoke of one command relies on
  */
-export function auditTree(readFile, rustFiles, capabilityFiles) {
+export function auditTree(readFile, rustFiles, capabilityFiles, jsFiles) {
   const strippedByPath = new Map(
     rustFiles.map((p) => [p, stripRustComments(readFile(p).replace(/\r\n/g, '\n'))]),
   );
+  const callerSources = new Map(jsFiles.map((p) => [p, readFile(p).replace(/\r\n/g, '\n')]));
+  const invokeSites = extractCallSites(callerSources, 'invoke');
+  const listenSites = extractCallSites(callerSources, 'listen');
   const docText = readFile(DOC_PATH).replace(/\r\n/g, '\n');
   const section = extractDsh1Section(docText);
   const { commands: docCommands, events: docEvents, unreadable: docUnreadableRows } = extractDocRows(section); // prettier-ignore
@@ -508,16 +680,22 @@ export function auditTree(readFile, rustFiles, capabilityFiles) {
     docCommands,
     docEvents,
     docUnreadableRows,
+    sectionProse: extractSectionProse(section),
     emitSites: extractEmitSites(strippedByPath),
     fileGrants,
     docGrants: extractDocGrants(section),
     mockCommands: mockRead.commands,
     mockCases: extractMockServicedCases(mockSource),
+    invokeLiterals: [...new Set(invokeSites.filter((x) => x.name !== null).map((x) => x.name))],
+    invokeSites,
+    listenSites,
   };
   return {
     problems: [...collectionProblems, ...evaluateCommandSurface(s)],
     commandCount: new Set(s.commandFns).size,
     grantCount: new Set(s.fileGrants).size,
+    channel: s.docEvents[0] ?? '(none)',
+    invokeLiterals: s.invokeLiterals,
   };
 }
 
@@ -532,6 +710,7 @@ function run() {
       .filter(Boolean);
   const rustFiles = lsFiles(SRC_DIR).filter((f) => f.endsWith('.rs'));
   const capabilityFiles = lsFiles(CAPABILITIES_DIR);
+  const jsFiles = lsFiles(FRONTEND_DIR).filter((f) => f.endsWith('.js'));
   const readFile = (f) => {
     try {
       return readFileSync(f, 'utf8');
@@ -539,24 +718,31 @@ function run() {
       return ''; // an unreadable surface fails the non-empty guards loudly
     }
   };
-  const { problems, commandCount, grantCount } = auditTree(readFile, rustFiles, capabilityFiles);
+  const { problems, commandCount, grantCount, channel } = auditTree(
+    readFile,
+    rustFiles,
+    capabilityFiles,
+    jsFiles,
+  );
 
   if (problems.length) {
     console.error(
       `✗ the desktop command surface drifted from its committed contract:\n` +
         problems.map((p) => `    ${p}`).join('\n') +
         `\n\n  The DSH-1 table (${DOC_PATH}), the #[tauri::command] set, the generate_handler!\n` +
-        `  registration, and the capability grants must state the same surface, updated\n` +
-        `  together in the same change (${DOC_PATH} §DSH-1); the integration mock's\n` +
-        `  serviced-command list is held equal to that surface by the desktop integration\n` +
-        `  suite's contract (docs/test/integration/desktop.md).\n`,
+        `  registration, the frontend's invoke( call sites, and the capability grants must\n` +
+        `  state the same surface, updated together in the same change (${DOC_PATH}\n` +
+        `  §DSH-1); the integration mock's serviced-command list is held equal to that\n` +
+        `  surface by the desktop integration suite's contract\n` +
+        `  (docs/test/integration/desktop.md).\n`,
     );
     process.exit(1);
   }
   console.log(
     `✓ desktop command surface consistent: ${commandCount} commands agree across the crate, ` +
-      `the registration, the doc table, and the integration mock; one ${EVENT_CHANNEL} emit ` +
-      `site; ${grantCount} grants match the doc.`,
+      `the registration, the doc table, the frontend's invoke( call sites, and the integration ` +
+      `mock; one ${channel} emit site, one frontend listener, and the clause's prose names the ` +
+      `channel; ${grantCount} grants match the doc.`,
   );
 }
 
