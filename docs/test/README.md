@@ -23,6 +23,9 @@ CI jobs on your own machine is covered in
 - [Test strategy — mutation testing](strategy/mutation.md) — the weekly mutation-score
   signal (Stryker for JavaScript, cargo-mutants for Rust): what is mutated and why, and
   the ratchet-not-fixed-bar thresholds.
+- [Unit tests — JavaScript](unit.md) — the shared, desktop, and extension unit
+  trees: what each suite covers, file by file, and the discovery shape they
+  share.
 - [End-to-end tests — extension](e2e.md) — the extension's Playwright suite
   (real Chrome, real input): the capture specs plus the panel, service-worker,
   and sync flows, and the harness contract they run under (frame readiness,

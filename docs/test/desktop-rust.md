@@ -19,7 +19,29 @@ Tests live in two places:
   convention), one file per concern. The binaries are exactly the `.rs` files
   directly in it — the set CI's discovery step reads — listed below; a new one
   joins this table in the same change that adds it, and a CI lint holds the two
-  in agreement:
+  in agreement. That same lint refuses an undiscovered test binary — one Cargo
+  runs under local `cargo test` while CI's discovery never sees it — by either
+  route: the directory form `tests/<name>/main.rs`, or the crate manifest
+  stating the test targets itself (a `[[test]]` stanza, the same array written
+  as a root-table `test = [ … ]` value, or a `[package]` `autotests` key); a
+  nested module file (the `tests/common/mod.rs` convention) is shared code
+  rather than a binary, and stays green.
+
+  **Top-level-only is the rule, and this paragraph is where it lives.**
+  Widening the discovery to what Cargo itself can build is a deliberate
+  change, and it moves every surface that states or holds the rule — among
+  them: the test workflow's `Discover Rust test layers` step;
+  [the test pyramid](strategy/test-pyramid.md)'s Rust-layout sentence; this
+  paragraph; the test-inventory row of [CI gates](../guides/ci.md); the lint
+  itself (`scripts/check-test-inventory.js` — its cargo discovery descriptor,
+  the closure its module header states, its route table, its
+  discovery-admission function, and that class's fix text in the report
+  block); and the lint's gate suite
+  (`packages/shared/tests/unit/check-test-inventory.test.js` — its
+  selection-rule assertions, its discovery-admission block, and its real-tree
+  lock) together with the row describing it in [unit tests](unit.md). The list
+  is open by design: a surface that states the rule is one the widening moves,
+  whether or not it is named here.
 
 | Test file                   | Covers                                                                                                                                                                                                                                                   |
 | --------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -84,8 +106,10 @@ exercises are pinned on CI by `capture_integration.rs`'s deduplication tests.
 
 In CI the suite runs on Windows (the platform with a real capture backend),
 split into a unit and an integration `cargo llvm-cov` run so each lands under
-its own coverage flag — see [coverage reporting](strategy/coverage.md). A
-separate compile-only job checks the crate builds on Windows and Linux.
+its own coverage flag — see [coverage reporting](strategy/coverage.md). Clippy
+runs over every Cargo target in the crate (`--all-targets`), so these test
+sources and the `#[cfg(test)]` modules are linted too. A separate job compiles
+and lints the crate on Windows and Linux without running its tests.
 
 ## Where a new test goes
 

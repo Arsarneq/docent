@@ -4,13 +4,23 @@
 //! and verifies that the capture layer produces the correct ActionEvents.
 //!
 //! These tests are the desktop equivalent of the extension's Playwright tests.
-//! They run cross-platform (Windows, Linux) with a single test suite.
+//! Every one of them drives the Windows capture backend, so the whole binary is
+//! gated to Windows below and compiles to nothing on any other platform — the
+//! shared imports and helpers included, which is what keeps the cross-platform
+//! lint honest instead of noisy. The trade-off is deliberate and is recorded
+//! here: the gate is what keeps the widened cross-platform lint green off
+//! Windows, and its price is that Linux no longer type-checks these helpers at
+//! all — the Windows leg is the only one that compiles and lints this file.
 //!
 //! Run with: cargo test --test capture_integration
-//! CI: runs on windows-latest (and future ubuntu-latest with xvfb)
+//! CI: runs on windows-latest. A non-Windows leg would need the gate below
+//! narrowed first — as it stands this binary is empty there and would run
+//! nothing at all.
 //!
 //! Serial execution is enforced via #[serial] attribute (serial_test crate).
 //! Tests share the OS input layer and would interfere in parallel.
+
+#![cfg(target_os = "windows")]
 
 use std::sync::mpsc;
 use std::thread;
@@ -21,7 +31,6 @@ use enigo::{Coordinate, Direction, Enigo, Keyboard, Mouse, Settings};
 use docent_desktop_lib::capture::{ActionEvent, ActionPayload, CaptureLayer};
 use serial_test::serial;
 
-#[cfg(target_os = "windows")]
 use docent_desktop_lib::capture::windows::WindowsCapture;
 
 /// STATIC's default window procedure answers `WM_NCHITTEST` with
@@ -33,7 +42,6 @@ use docent_desktop_lib::capture::windows::WindowsCapture;
 /// stacking despite the foreground lock). The ownership guard in
 /// `os_chrome::coordinate_fallback_for_plain_window` enforces the property at
 /// runtime and names the covering window if it ever regresses.
-#[cfg(target_os = "windows")]
 const SS_NOTIFY_STYLE: windows::Win32::UI::WindowsAndMessaging::WINDOW_STYLE =
     windows::Win32::UI::WindowsAndMessaging::WINDOW_STYLE(0x0000_0100);
 
@@ -57,14 +65,12 @@ const SS_NOTIFY_STYLE: windows::Win32::UI::WindowsAndMessaging::WINDOW_STYLE =
 /// deterministically at the worker layer (see `worker_pool.rs`); real-input
 /// tests here assert only the environment-independent contract that capture
 /// never *hangs*.
-#[cfg(target_os = "windows")]
 struct ResponsiveWindow {
     /// Owning thread id — target of the `WM_QUIT` that stops the pump.
     thread_id: u32,
     handle: Option<std::thread::JoinHandle<()>>,
 }
 
-#[cfg(target_os = "windows")]
 impl ResponsiveWindow {
     fn new(title: &str) -> Self {
         use std::sync::mpsc as smpsc;
@@ -120,7 +126,6 @@ impl ResponsiveWindow {
     }
 }
 
-#[cfg(target_os = "windows")]
 impl Drop for ResponsiveWindow {
     fn drop(&mut self) {
         use windows::Win32::Foundation::{LPARAM, WPARAM};
@@ -148,7 +153,6 @@ impl Drop for ResponsiveWindow {
 /// of captured keys is environment-dependent and must not be asserted here.
 /// What must ALWAYS hold is that capture never hangs. Capture counts /
 /// coalescing are pinned deterministically at the worker layer (worker_pool.rs).
-#[cfg(target_os = "windows")]
 fn stop_capture_bounded(
     mut capture: WindowsCapture,
     rx: &mpsc::Receiver<ActionEvent>,
@@ -167,7 +171,6 @@ fn stop_capture_bounded(
 /// (captured keys are never garbled or empty). Deliberately asserts no *count*
 /// (see [`stop_capture_bounded`]); this is the integrity half of the
 /// environment-independent contract for real-input keyboard tests.
-#[cfg(target_os = "windows")]
 fn assert_captured_keys_well_formed(events: &[ActionEvent]) {
     for e in keys(events) {
         if let ActionPayload::Key { key, .. } = &e.payload {
@@ -185,7 +188,6 @@ fn assert_captured_keys_well_formed(events: &[ActionEvent]) {
 /// environment-independent contract for the real-input foreground/Alt+Tab test,
 /// whose capture count depends on the OS task switcher actually changing the
 /// foreground window.
-#[cfg(target_os = "windows")]
 fn assert_captured_context_switches_well_formed(events: &[ActionEvent]) {
     for sw in context_switches(events) {
         assert!(
@@ -205,7 +207,6 @@ fn assert_captured_context_switches_well_formed(events: &[ActionEvent]) {
 /// Coordinate-mode elements carry no locators and no describe latency;
 /// accessibility-described elements always carry `described_after_ms`
 /// (docent#220 — 0 for hook pre-captures, the real gap for worker describes).
-#[cfg(target_os = "windows")]
 fn assert_captured_element_locators_well_formed(events: &[ActionEvent]) {
     use docent_desktop_lib::capture::{CaptureMode, LocatorEntry};
 
@@ -379,7 +380,6 @@ fn context_switches(events: &[ActionEvent]) -> Vec<&ActionEvent> {
 // USER ACTION TESTS — verify real input IS captured
 // ═══════════════════════════════════════════════════════════════════════════════
 
-#[cfg(target_os = "windows")]
 mod user_actions {
     use super::*;
     use std::ptr;
@@ -692,7 +692,6 @@ mod user_actions {
 // filter side-effects. They document the ideal behaviour.
 // ═══════════════════════════════════════════════════════════════════════════════
 
-#[cfg(target_os = "windows")]
 mod side_effects {
     use super::*;
     use std::ptr;
@@ -899,7 +898,6 @@ mod side_effects {
 // ADDITIONAL SIDE-EFFECT TESTS
 // ═══════════════════════════════════════════════════════════════════════════════
 
-#[cfg(target_os = "windows")]
 mod side_effects_additional {
     use super::*;
     use std::ptr;
@@ -1116,7 +1114,6 @@ mod side_effects_additional {
 // ADDITIONAL USER ACTION TESTS — window switching, special keys
 // ═══════════════════════════════════════════════════════════════════════════════
 
-#[cfg(target_os = "windows")]
 mod user_actions_advanced {
     use super::*;
     use std::ptr;
@@ -1289,7 +1286,6 @@ mod user_actions_advanced {
 // ADDITIONAL SIDE-EFFECT TESTS — selection, notifications, title changes
 // ═══════════════════════════════════════════════════════════════════════════════
 
-#[cfg(target_os = "windows")]
 mod side_effects_more {
     use super::*;
     use std::ptr;
@@ -1474,7 +1470,6 @@ mod side_effects_more {
 // CAPTURE BEHAVIOUR TESTS — verify specific capture layer logic
 // ═══════════════════════════════════════════════════════════════════════════════
 
-#[cfg(target_os = "windows")]
 mod capture_behaviour {
     use super::*;
     use std::ptr;
@@ -1786,7 +1781,6 @@ mod capture_behaviour {
 // EXTENDED USER ACTION TESTS — more input types
 // ═══════════════════════════════════════════════════════════════════════════════
 
-#[cfg(target_os = "windows")]
 mod user_actions_extended {
     use super::*;
     use std::ptr;
@@ -2060,7 +2054,6 @@ mod user_actions_extended {
 // SCROLL BEHAVIOUR TESTS
 // ═══════════════════════════════════════════════════════════════════════════════
 
-#[cfg(target_os = "windows")]
 mod scroll_behaviour {
     use super::*;
     use std::ptr;
@@ -2175,7 +2168,6 @@ mod scroll_behaviour {
 // MISSING USER ACTION TESTS
 // ═══════════════════════════════════════════════════════════════════════════════
 
-#[cfg(target_os = "windows")]
 mod user_actions_missing {
     use super::*;
     use std::ptr;
@@ -2251,7 +2243,6 @@ mod user_actions_missing {
 // MISSING SIDE-EFFECT TESTS
 // ═══════════════════════════════════════════════════════════════════════════════
 
-#[cfg(target_os = "windows")]
 mod side_effects_missing {
     use super::*;
     use std::ptr;
@@ -2322,7 +2313,6 @@ mod side_effects_missing {
 // MISSING CAPTURE BEHAVIOUR TESTS
 // ═══════════════════════════════════════════════════════════════════════════════
 
-#[cfg(target_os = "windows")]
 mod capture_behaviour_missing {
     use super::*;
     use std::ptr;
@@ -2461,7 +2451,6 @@ mod capture_behaviour_missing {
 // COMPLETENESS TESTS — filling remaining gaps
 // ═══════════════════════════════════════════════════════════════════════════════
 
-#[cfg(target_os = "windows")]
 mod completeness {
     use super::*;
     use std::ptr;
@@ -3046,7 +3035,6 @@ mod completeness {
 // SELECTION TEST
 // ═══════════════════════════════════════════════════════════════════════════════
 
-#[cfg(target_os = "windows")]
 mod selection {
     use super::*;
     use std::ptr;
@@ -3164,7 +3152,6 @@ mod selection {
 // DEDUPLICATION AND CORRELATION TESTS
 // ═══════════════════════════════════════════════════════════════════════════════
 
-#[cfg(target_os = "windows")]
 mod deduplication {
     use super::*;
     use std::ptr;
@@ -3442,7 +3429,6 @@ mod deduplication {
 // Covers manual tests 2, 8, 10 from docs/test/manual/windows.md
 // ═══════════════════════════════════════════════════════════════════════════════
 
-#[cfg(target_os = "windows")]
 mod os_chrome {
     use super::*;
     use std::ptr;
@@ -3689,7 +3675,6 @@ mod os_chrome {
 // Covers manual tests 11, 12, 15 from docs/test/manual/windows.md
 // ═══════════════════════════════════════════════════════════════════════════════
 
-#[cfg(target_os = "windows")]
 mod taskbar_chrome {
     use super::*;
     use std::ptr;

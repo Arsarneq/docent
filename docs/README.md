@@ -129,9 +129,9 @@ authoritative specification — under [`schemas/`](../schemas/).
 
 - [Test suites](test/README.md) — the inside-out lens on the capture software: the
   test-strategy doctrine (pyramid layering, coverage reporting, and mutation testing),
-  the per-suite documents (extension end-to-end, desktop Rust, and desktop
-  integration), the retired manual-test histories (extension and Windows desktop),
-  and the backward-compatibility fixture corpus.
+  the per-suite documents (the JavaScript unit trees, extension end-to-end, desktop
+  Rust, and desktop integration), the retired manual-test histories (extension and
+  Windows desktop), and the backward-compatibility fixture corpus.
 
 `verification/` and `test/` are two lenses on quality: `verification/` looks
 outside-in and proves the recorded **data** satisfies the guarantees the format
