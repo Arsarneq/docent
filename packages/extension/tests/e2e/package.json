@@ -10,6 +10,6 @@
     "@axe-core/playwright": "^4.12.1",
     "@playwright/test": "^1.62.1",
     "v8-to-istanbul": "^9.3.0",
-    "ws": "^8.21.1"
+    "ws": "^8.21.3"
   }
 }
