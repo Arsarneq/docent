@@ -5,8 +5,17 @@
  * governance edge — the cited file must owe the clause's doc under the area map.
  * These tests prove every way the edge can rot fails loud (an uncovered
  * citation, a repo-wide doc that does not couple, a stale allowlist entry) and
- * that a deliberately-recorded exception is honoured. A final baseline lock runs
- * the check over the real tree so the committed allowlist stays exactly the
+ * that a deliberately-recorded exception is honoured. A citation naming files
+ * by PATTERN gets the same treatment through its expansion: a mid-path glob
+ * contributes an edge per tracked file it names, the files left uncovered
+ * under it report as one finding naming the pattern and them, and the summary
+ * counts that token once — while a pattern naming nothing, one that does not
+ * compile, and a separator-less one contribute no edge at all, the same
+ * silence an untracked path has always had. Two citations written without a
+ * space between them arrive as one token and are read as the two they are, and
+ * a token leaning on a recorded exception is counted apart from the ones that
+ * resolve on their own governance. A final baseline lock runs the
+ * check over the real tree so the committed allowlist stays exactly the
  * recorded couplings — no more, no fewer.
  */
 
@@ -57,20 +66,75 @@ function audit({ clauses, map = makeMap(), allowlist = new Map(), contents = {} 
 
 describe('citedPaths', () => {
   const tracked = new Set(FILES);
+  /** The tokens cited, each with the tracked files it names. */
+  const cited = (row) => citedPaths(row, tracked, FILES).map((c) => [c.token, c.paths, c.pattern]);
+
   it('extracts directory-qualified and directory-less tracked paths', () => {
     const row = { 'check-ref': 'guard packages/alpha/x.js and README.md' };
-    assert.deepEqual(citedPaths(row, tracked), ['packages/alpha/x.js', 'README.md']);
+    assert.deepEqual(cited(row), [
+      ['packages/alpha/x.js', ['packages/alpha/x.js'], false],
+      ['README.md', ['README.md'], false],
+    ]);
   });
   it('deduplicates repeated citations and drops untracked tokens', () => {
     const row = {
       'check-ref': 'packages/alpha/x.js twice packages/alpha/x.js',
       justification: 'and untracked/z.js',
     };
-    assert.deepEqual(citedPaths(row, tracked), ['packages/alpha/x.js']);
+    assert.deepEqual(cited(row), [['packages/alpha/x.js', ['packages/alpha/x.js'], false]]);
   });
   it('reads both check-ref and justification', () => {
     const row = { 'check-ref': 'packages/alpha/x.js', justification: 'scripts/y.js too' };
-    assert.deepEqual(citedPaths(row, tracked), ['packages/alpha/x.js', 'scripts/y.js']);
+    assert.deepEqual(cited(row), [
+      ['packages/alpha/x.js', ['packages/alpha/x.js'], false],
+      ['scripts/y.js', ['scripts/y.js'], false],
+    ]);
+  });
+
+  it('reads a mid-path glob whole and names every tracked file under it', () => {
+    const row = { 'check-ref': 'guarded by docs/*.md' };
+    assert.deepEqual(cited(row), [
+      ['docs/*.md', ['docs/alpha.md', 'docs/tooling.md', 'docs/repowide.md'], true],
+    ]);
+  });
+
+  it('reads a brace alternation as the pattern it is', () => {
+    const row = { 'check-ref': 'guarded by docs/{alpha,tooling}.md' };
+    assert.deepEqual(cited(row), [
+      ['docs/{alpha,tooling}.md', ['docs/alpha.md', 'docs/tooling.md'], true],
+    ]);
+  });
+
+  it('leaves a separator-less pattern unexpanded — the residue it shares with its siblings', () => {
+    assert.deepEqual(cited({ 'check-ref': 'every *.md in the tree' }), []);
+    // The brace form is the one that REACHES the separator-less guard: the
+    // leading-star form loses its star to the emphasis strip first and never
+    // gets there, so both spellings are pinned rather than one standing in for
+    // the other.
+    assert.deepEqual(cited({ 'check-ref': 'every {alpha,tooling}.md in the tree' }), []);
+  });
+
+  it('reads a comma as a separator, so an unspaced pair contributes both edges', () => {
+    // The directory segments admit a comma, so this arrives as ONE token; the
+    // split is what keeps the second citation from vanishing into the first.
+    const row = { 'check-ref': 'see packages/alpha/x.js,scripts/y.js' };
+    assert.deepEqual(cited(row), [
+      ['packages/alpha/x.js', ['packages/alpha/x.js'], false],
+      ['scripts/y.js', ['scripts/y.js'], false],
+    ]);
+  });
+
+  it('reads through Markdown emphasis to the citation inside it', () => {
+    // The leading run is emphasis, not a pattern segment: the edge it carries
+    // must survive, exactly as the citation gate reads the same token.
+    const row = { 'check-ref': 'guarded by **packages/alpha/x.js**' };
+    assert.deepEqual(cited(row), [['packages/alpha/x.js', ['packages/alpha/x.js'], false]]);
+  });
+
+  it('names nothing for a pattern that matches no tracked file, or does not compile', () => {
+    assert.deepEqual(cited({ 'check-ref': 'guarded by docs/gone/*.md' }), []);
+    assert.deepEqual(cited({ 'check-ref': 'guarded by docs/{alpha.md' }), []);
+    assert.deepEqual(cited({ 'check-ref': 'guarded by do**cs/alpha.md' }), []);
   });
 });
 
@@ -80,8 +144,26 @@ describe('auditClauseGovernance', () => {
       clauses: [{ doc: 'docs/alpha.md', clause: 'AL-1', 'check-ref': 'see packages/alpha/x.js' }],
     });
     assert.equal(r.citations, 1);
+    assert.equal(r.exempted, 0, 'nothing here leans on a recorded exception');
     assert.deepEqual(r.newMisses, []);
     assert.deepEqual(r.staleAllowlist, []);
+  });
+
+  it('reports both halves of an unspaced comma pair as their own citations', () => {
+    const r = audit({
+      clauses: [
+        {
+          doc: 'docs/repowide.md',
+          clause: 'RW-1',
+          'check-ref': 'see packages/alpha/x.js,scripts/y.js',
+        },
+      ],
+    });
+    assert.equal(r.citations, 2, 'one token, two citations');
+    assert.deepEqual(r.newMisses, [
+      'RW-1 (docs/repowide.md) -> packages/alpha/x.js',
+      'RW-1 (docs/repowide.md) -> scripts/y.js',
+    ]);
   });
 
   it('flags a citation whose cited file omits the clause doc', () => {
@@ -107,6 +189,11 @@ describe('auditClauseGovernance', () => {
     });
     assert.deepEqual(r.newMisses, []);
     assert.deepEqual(r.staleAllowlist, []);
+    assert.deepEqual(
+      [r.citations, r.exempted],
+      [1, 1],
+      'the token leans on the exception, so it is not counted as resolving',
+    );
   });
 
   it('flags a stale allowlist entry whose coupling now resolves', () => {
@@ -139,6 +226,68 @@ describe('auditClauseGovernance', () => {
     assert.equal(r.citations, 0);
     assert.deepEqual(r.newMisses, []);
     assert.deepEqual(r.staleAllowlist, []);
+  });
+});
+
+describe('auditClauseGovernance — citations naming files by pattern', () => {
+  it('holds every file a mid-path glob names, and counts the token once', () => {
+    // The glob names all three docs: the citing doc governs itself, and the
+    // other two do not owe it — so ONE finding names the pattern and both.
+    const r = audit({
+      clauses: [{ doc: 'docs/alpha.md', clause: 'AL-1', 'check-ref': 'see docs/*.md' }],
+    });
+    assert.equal(r.citations, 1, 'a pattern token is one citation, whatever it names');
+    assert.deepEqual(r.newMisses, ['AL-1 (docs/alpha.md) -> docs/*.md (uncovered: docs/tooling.md, docs/repowide.md)']); // prettier-ignore
+  });
+
+  it('passes a pattern whose every file is governed by the citing doc', () => {
+    const map = makeMap({
+      areas: {
+        alpha: { code: ['packages/alpha/**'], docs: ['docs/alpha.md'] },
+        tooling: { code: ['scripts/**'], docs: ['docs/alpha.md'] },
+      },
+    });
+    const r = audit({
+      clauses: [{ doc: 'docs/alpha.md', clause: 'AL-1', 'check-ref': 'see packages/alpha/*.js' }],
+      map,
+    });
+    assert.deepEqual(r.newMisses, []);
+    assert.equal(r.citations, 1);
+  });
+
+  it('honours a recorded exception inside a pattern without exempting the rest', () => {
+    const one = new Map([['AL-1\tdocs/repowide.md', 'recorded reason']]);
+    const clauses = [{ doc: 'docs/alpha.md', clause: 'AL-1', 'check-ref': 'see docs/*.md' }];
+    // The recorded file drops out of the finding; the rest of the set stays in.
+    assert.deepEqual(audit({ clauses, allowlist: one }).newMisses, [
+      'AL-1 (docs/alpha.md) -> docs/*.md (uncovered: docs/tooling.md)',
+    ]);
+
+    const both = new Map([...one, ['AL-1\tdocs/tooling.md', 'recorded too']]);
+    const r = audit({ clauses, allowlist: both });
+    assert.deepEqual(r.newMisses, []);
+    assert.deepEqual(r.staleAllowlist, [], 'both entries were hit through the expansion');
+    assert.deepEqual(
+      [r.citations, r.exempted],
+      [1, 1],
+      'the exempted count is in tokens too — one pattern leaning on two entries is one',
+    );
+  });
+
+  it('contributes no edge for a match-less, uncompilable, or separator-less pattern', () => {
+    // `{alpha,tooling}.md` is the separator-less case that actually reaches the
+    // guard; `*.md` loses its star to the emphasis strip before it gets there.
+    for (const ref of [
+      'see docs/gone/*.md',
+      'see docs/{alpha.md',
+      'see *.md',
+      'see {alpha,tooling}.md',
+    ]) {
+      const r = audit({
+        clauses: [{ doc: 'docs/tooling.md', clause: 'TL-1', 'check-ref': ref }],
+      });
+      assert.deepEqual([r.citations, r.newMisses], [0, []], ref);
+    }
   });
 });
 

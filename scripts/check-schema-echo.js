@@ -42,10 +42,19 @@
  *     that the surfaces word it equivalently, and a surface outside
  *     `AUTHORITY_SURFACES` is outside the leg;
  *   - the register/row closure enumerates surfaces one literal path at a
- *     time. A row citation that reaches for Markdown in a glob or brace shape
- *     is refused by name rather than resolved; a citation naming no Markdown
- *     is outside this leg entirely, since the row cites other files for other
- *     reasons;
+ *     time, so a row citation that reaches for Markdown in a glob or brace
+ *     shape is REFUSED by name rather than resolved. That refusal is this
+ *     reader's side of a split its two siblings state from theirs: the
+ *     citation gate ([`check-clause-registry.js`](./check-clause-registry.js))
+ *     and the governance finder
+ *     ([`check-clause-governance.js`](./check-clause-governance.js)) both
+ *     RESOLVE a separator-carrying pattern against the tracked set, each
+ *     because it has a set to resolve against; a register of single surfaces
+ *     has none, so refusing by name is what this leg can honestly do. The
+ *     separator-less pattern is the residue all three leave only when it names
+ *     no Markdown; where it reaches for Markdown, this leg refuses it by name
+ *     like any other pattern. A citation naming no Markdown is outside this
+ *     leg entirely, since the row cites other files for other reasons;
  *   - the posture MODEL is stated here (`POSTURE_CLASSES` and the def
  *     registries beside it) and held against the schemas, in that direction
  *     only. The check never reads the posture clause's sentence, so whether
@@ -80,6 +89,7 @@ import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { PLATFORMS, composePlatform } from './build-schemas.js';
 import { CITED_PATH_RE } from './check-clause-governance.js';
+import { splitCitationTokens } from './check-clause-registry.js';
 import {
   backtickedName,
   duplicatesIn,
@@ -364,12 +374,22 @@ const PLAIN_PATH_RE = /^(?:[A-Za-z0-9_\-.]+\/)*[A-Za-z0-9_\-.]+\.[A-Za-z0-9]+$/;
 
 /**
  * The Markdown paths a clause row cites, deduplicated, plus the citations
- * that reach for Markdown in a shape this leg does not model. Candidates come
- * from the shared cited-path shape and are then held to the plain one: a glob
- * or brace form naming Markdown is a set of files this leg cannot resolve to
- * registered surfaces, so it is refused by name rather than silently
- * extracting nothing. A candidate that names no Markdown at all is simply
- * outside this leg — the row cites other files for other reasons.
+ * that reach for Markdown in a shape this leg refuses. Candidates come from
+ * the shared cited-path shape, split on the commas that separate two citations
+ * written without a space ({@link splitCitationTokens}, the one home of that
+ * rule), and are then held to the plain one: a glob or
+ * brace form naming Markdown names a SET, and this leg matches surfaces one
+ * literal path at a time against the register, so it is refused by name rather
+ * than silently extracting nothing — the sibling readers of the same shape
+ * resolve such a pattern because each has a tracked set to resolve it against.
+ * A candidate that names no Markdown at all is simply outside this leg — the
+ * row cites other files for other reasons.
+ *
+ * A refusal names the token AS WRITTEN. The leading asterisk run comes off for
+ * the match, because it is Markdown emphasis rather than part of a pattern, but
+ * reporting the stripped form would name a citation the row does not make —
+ * `*.md` refused as `.md`, sending its author looking for text that is not
+ * there.
  *
  * The row's WHOLE text is the enumeration — a Markdown path mentioned
  * anywhere in it, residue prose included, is a cited surface. Paths are
@@ -383,11 +403,25 @@ const PLAIN_PATH_RE = /^(?:[A-Za-z0-9_\-.]+\/)*[A-Za-z0-9_\-.]+\.[A-Za-z0-9]+$/;
 export function citedMarkdownPaths(text) {
   const paths = [];
   const unmodelled = [];
-  for (const candidate of new Set((text ?? '').match(CITED_PATH_RE) ?? [])) {
-    if (PLAIN_PATH_RE.test(candidate)) {
-      if (candidate.endsWith(MARKDOWN_EXTENSION)) paths.push(candidate);
-    } else if (candidate.includes(MARKDOWN_EXTENSION)) {
-      unmodelled.push(candidate);
+  const seen = new Set();
+  for (const raw of (text ?? '').match(CITED_PATH_RE) ?? []) {
+    // A lone comma separates two citations written without a space, so one
+    // token can carry two; a comma inside a brace alternation stays with the
+    // pattern it belongs to.
+    for (const token of splitCitationTokens(raw)) {
+      // An asterisk run at the token's LEADING edge is Markdown emphasis rather
+      // than part of a pattern — the same reading its sibling readers give it,
+      // so an emphasized surface citation resolves here instead of being
+      // refused. The stripped form is what is MATCHED; the token as written is
+      // what a refusal names.
+      const candidate = token.replace(/^\*+/, '');
+      if (!candidate || seen.has(candidate)) continue;
+      seen.add(candidate);
+      if (PLAIN_PATH_RE.test(candidate)) {
+        if (candidate.endsWith(MARKDOWN_EXTENSION)) paths.push(candidate);
+      } else if (candidate.includes(MARKDOWN_EXTENSION)) {
+        unmodelled.push(token);
+      }
     }
   }
   return { paths, unmodelled };
@@ -720,8 +754,11 @@ export function evaluateSchemaEcho(s) {
   if (s.authorityRow !== null) {
     const cited = citedMarkdownPaths(s.authorityRow);
     const registered = s.authority.map((surface) => surface.path);
-    for (const candidate of cited.unmodelled) {
-      problems.push(`the §${AUTHORITY_CLAUSE_ID} row in ${CLAUSE_REGISTRY_PATH} cites \`${candidate}\`, a path shape this leg does not model — it enumerates surfaces one literal path at a time, so a glob or brace form cannot be matched against the register`); // prettier-ignore
+    // `unmodelled` carries the token as the row WRITES it, which is what the
+    // refusal must name — the stripped candidate form belongs to the matching
+    // inside citedMarkdownPaths, not to this diagnosis.
+    for (const token of cited.unmodelled) {
+      problems.push(`the §${AUTHORITY_CLAUSE_ID} row in ${CLAUSE_REGISTRY_PATH} cites \`${token}\`, a path shape this leg refuses by design — the citation gate and the governance finder resolve a pattern against the tracked set, while this leg enumerates surfaces one literal path at a time, and a set of files is not something the register answers`); // prettier-ignore
     }
     problems.push(
       ...missingFrom(registered, cited.paths, `is a registered authority surface but the §${AUTHORITY_CLAUSE_ID} row in ${CLAUSE_REGISTRY_PATH} does not cite it — the row states which surfaces are held`), // prettier-ignore

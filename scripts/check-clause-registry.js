@@ -4,7 +4,12 @@
  * how each clause is verified. Guards the well-formedness of that pairing:
  *
  *   - every clause marker in any tracked `.md` uses a registered prefix, sits
- *     in that prefix's registered doc, and appears at most once per doc;
+ *     in that prefix's registered doc, and appears at most once per doc. That
+ *     scope states its own open surface: outside the text this file reads — the
+ *     registry's rows, those Markdown markers, and the area map's reason
+ *     strings below — a clause-id-shaped token carrying a registered prefix in
+ *     a tracked non-Markdown source, in a code comment and in a string literal
+ *     alike, is read by no check;
  *   - markers and registry rows are a bijection per doc — no unregistered
  *     clause, no registry row for a clause the doc no longer states;
  *   - each row's tag carries its required field: `judgment-only` states a
@@ -34,37 +39,71 @@
  *     that document only, with the surfaces left to review named). A row's
  *     ordinal citation (`lock 5`) is held against the list AND the suite, and
  *     is the registry's own red rather than the surfaces';
+ *   - the area map's citations resolve too: a clause-id-shaped token carrying a
+ *     registered prefix, in the reason of an entry in one of the map's
+ *     {@link AREA_MAP_ENTRY_LISTS}, names an ACTIVE clause — membership in the
+ *     registry's active rows is what the leg tests, so an identifier no active
+ *     row states, and one the registry retires, are both the MAP's red and name
+ *     the entry they sit in; a token whose prefix no row registers is prose the
+ *     leg leaves alone, so what this holds is the registered-prefix citations —
+ *     a mistyped number reds, and a mistyped PREFIX lands outside the
+ *     admission. A list the constant names must be STATED, and its absence is
+ *     the MAP's refusal — the surface moved. What that list then holds is the
+ *     tree's own answer: an empty one stays green, because the area map's gate
+ *     demands removing an entry that is no longer needed, and refusing it here
+ *     would deadlock the two gates;
+ *   - the enumerated vector fixtures' `description` ({@link VECTOR_FIXTURES_PATH})
+ *     is held to the same lock numbering a row's citation is, and a miscite
+ *     there is the FIXTURE's red under its own subject: the registry and both
+ *     lock surfaces can each be perfectly correct while that description names
+ *     a lock nobody states;
  *   - a file citation carries its repository path: a path-less `commands.rs`
  *     or `foo.test.js` is refused (see {@link BARE_FILE_SUFFIXES});
  *   - registry text records how a clause is verified, so the requirement
  *     keywords themselves belong to the clause, not to the row — a row states
  *     no uppercase RFC 2119 spelling (the set `RFC_2119_RE` carries) outside a
  *     `code span`;
- *   - the gate's own registered list stays true: every enumerated citable root
- *     file names a tracked source, whether or not a row cites it;
+ *   - the gate's own register stays true, whether or not a row leans on it:
+ *     every enumerated citable root file and the vector-fixtures path name a
+ *     tracked source, and a top-level list the map states in the same
+ *     reason-bearing shape as the ones {@link AREA_MAP_ENTRY_LISTS} names is
+ *     one of them, or a whole class of entry explains itself in reasons no leg
+ *     reads. That is this register's own direction; whether a list the constant
+ *     names is still there is the MAP's, stated with the map leg above;
  *   - retired identifiers stay retired: absent from doc text and active rows.
  *
  * The resolution grammar, deliberately narrow and identical for both text
  * fields: a token carrying a directory separator and ending in a dotted file
- * name resolves against the tracked set; one ending in `/` resolves as a
- * tracked-path prefix (at least one tracked file under it); `npm run <name>`
- * resolves against package.json's scripts; and a separator-less file name
- * resolves when it is one of the enumerated {@link CITABLE_ROOT_FILES}. Every
+ * name resolves against the tracked set; the same token carrying a pattern
+ * character resolves as a PATTERN — expanded and compiled through the map's
+ * own glob helpers, it names at least one tracked file; one ending in `/`
+ * resolves as a tracked-path prefix (at least one tracked file under it);
+ * `npm run <name>` resolves against package.json's scripts; and a
+ * separator-less file name resolves when it is one of the enumerated
+ * {@link CITABLE_ROOT_FILES}. Every
  * other separator-less `name.ext` a row's prose contains (`chrome.storage`,
  * `recording.steps`, `index.html`) is unvalidated by design — except the
  * suite/source suffixes the refusal bullet above names, which are refused
  * rather than ignored ({@link BARE_FILE_SUFFIXES}).
  *
- * Two boundaries keep that grammar off ordinary prose. A token carrying a
- * PATTERN character ({@link PATTERN_CHAR_RE} — `*`, or brace alternation) names
- * a set of files rather than one, so it is taken whole and dropped: a glob is
- * pattern prose, never split into fragments that would resolve against nothing.
- * Asterisk runs at a token's EDGES are Markdown emphasis instead, so
- * `**docs/x.md**` gates the citation inside them, and a lone comma is a
- * separator rather than part of a path, so an unspaced `a/x.js,b/y.js` gates
- * both. And a token whose first segment is a bare number or carries an interior
- * dot is prose, not a path ({@link isProsePathToken}) — `401/403`, `1.2/1.3`,
- * `github.com/…` — while a leading dot stays a dotfile directory, so
+ * A token carrying a PATTERN character ({@link PATTERN_CHAR_RE} — `*`, or
+ * brace alternation) names a SET of files, and is always taken whole rather
+ * than split into fragments that would resolve against nothing. Where the set
+ * is named in FILE form (`packages/shared/*.js`) it is gated as a pattern;
+ * where it is named in DIRECTORY form — a glob whose token ends in a
+ * separator — it names a set of directories, which the trailing-slash shape
+ * resolves nothing for, so it stays outside the gate.
+ *
+ * Three boundaries keep the grammar off ordinary prose. Asterisk runs at a
+ * token's EDGES are Markdown emphasis, so `**docs/x.md**` gates the citation
+ * inside them — and they come off with the sentence punctuation, so the
+ * trailing stars of `packages/extension/**` leave the directory citation the
+ * token names. A lone comma is a separator rather than part of a path, so an
+ * unspaced `a/x.js,b/y.js` gates both, while a comma inside a brace
+ * alternation belongs to the pattern and stays with it. And a token whose
+ * first segment is a bare number or carries an interior dot is prose, not a
+ * path ({@link isProsePathToken}) — `401/403`, `1.2/1.3`, `github.com/…` —
+ * while a leading dot stays a dotfile directory, so
  * `.github/workflows/test.yml` gates.
  *
  * How this relates to [`check-clause-governance.js`](./check-clause-governance.js)'s
@@ -76,12 +115,21 @@
  * Neither admission set contains the other: the finder takes the separator-less
  * dotted names this gate leaves unvalidated, and this gate takes the
  * trailing-slash directory citations, the `npm run` targets, and the lock
- * ordinals the finder has no shape for. Pattern-bearing citations are outside
- * BOTH — this gate drops such a token whole, and the finder's directory shape
- * stops at a mid-path glob, so it reads a shorter path than the text names. A
- * citation that names files by pattern is held by neither — a shared
- * limitation, stated on both sides. A pattern-aware shape would be a deliberate
- * future widening of both, not something either does today.
+ * ordinals the finder has no shape for.
+ *
+ * A citation that names files by PATTERN is read by three surfaces, and each
+ * states the same split. This gate and that finder both RESOLVE a
+ * separator-carrying pattern against the tracked set: here it must name at
+ * least one tracked file, and there every file it names becomes a governance
+ * edge. [`check-schema-echo.js`](./check-schema-echo.js), which reads the
+ * finder's shape to enumerate the surfaces one registry row registers, REFUSES
+ * a pattern by design — it matches surfaces one literal path at a time against
+ * a register, and a set of files is not something that register answers. The
+ * SEPARATOR-LESS pattern (`*.test.js`) is the residue of all three: it never
+ * reaches this gate's path shape, the finder leaves it unexpanded, and the echo
+ * check refuses it only in the shape that reaches for Markdown — a citation
+ * naming no Markdown at all sits outside that leg entirely, since the row cites
+ * other files for other reasons.
  *
  * This checks form, resolvability, and — for the lock ordinals — that the two
  * surfaces defining them agree. Whether a check actually guards its clause, or
@@ -101,15 +149,35 @@ import { pathToFileURL } from 'node:url';
 import { unified } from 'unified';
 import remarkParse from 'remark-parse';
 import { visit } from 'unist-util-visit';
+import { MAP_PATH, expandBraces, globToRegExp } from './check-area-map.js';
 
 /** Repo-relative path of the registry this check guards. */
 export const REGISTRY_PATH = 'docs/clause-registry.json';
+
+/**
+ * The area-map entry lists whose `reason` text this check reads for clause
+ * citations. Each entry names what it decides — a `path`, or the `pattern` a
+ * partition covers — so a red can name the entry a reader has to open.
+ */
+export const AREA_MAP_ENTRY_LISTS = ['declared-governance', 'unassigned', 'governance-partitions'];
+
+/** Repo-relative path of the fixture file whose description cites lock ordinals. */
+export const VECTOR_FIXTURES_PATH = 'corpus/vector-fixtures.json';
 
 /** A clause identifier: registered PREFIX, dash, number. */
 const CLAUSE_ID_RE = /^([A-Z][A-Z0-9]*)-([1-9][0-9]*)$/;
 
 /** The in-doc marker form: the identifier bolded with a trailing period. */
 const MARKER_TEXT_RE = /^([A-Z][A-Z0-9]*-[1-9][0-9]*)\.$/;
+
+/**
+ * The same identifier shape as a token inside prose, bounded on both sides so
+ * a longer word or a hyphenated compound never yields one. Whether the PREFIX
+ * is registered is what decides admission afterwards: an unregistered prefix
+ * is ordinary prose (`UTF-8`, `RFC-2119`), and only a registered one makes the
+ * token a citation this check holds.
+ */
+const CLAUSE_TOKEN_RE = /(?<![\w-])([A-Z][A-Z0-9]*)-([1-9][0-9]*)(?![\w-])/g;
 
 const VALID_TAGS = ['checkable', 'check-exists', 'judgment-only'];
 
@@ -173,8 +241,10 @@ const RUNNABLE_EXT_RE = /\.(?:js|mjs|rs|json)$/;
 /**
  * A token carrying at least one directory separator. The pattern characters
  * (`*`, and the brace-alternation `{`, `}`, `,`) are inside the token shape so
- * a pattern is matched WHOLE — the gate then drops it as pattern prose, rather
- * than seeing the fragments a pattern-blind shape would leave behind.
+ * a pattern is matched WHOLE, never as the fragments a pattern-blind shape
+ * would leave behind: the gate can then judge a pattern named in FILE form
+ * against the tracked set, and leave one named in DIRECTORY form to the
+ * trailing-slash branch, which resolves nothing for it.
  */
 const PATH_TOKEN_RE = /[A-Za-z0-9_.*{},-]+(?:\/[A-Za-z0-9_.*{},-]*)+/g;
 
@@ -202,8 +272,18 @@ export function isProsePathToken(token) {
   return first.replace(/^\./, '').includes('.');
 }
 
-/** A separator-less file name: `README.md`, `commands.rs`, `chrome.storage`. */
-const BARE_NAME_RE = /(?<![\w/.-])[A-Za-z0-9_][A-Za-z0-9_.-]*\.[A-Za-z0-9]+(?![\w/.-])/g;
+/**
+ * A separator-less file name: `README.md`, `commands.rs`, `chrome.storage`.
+ * The trailing guard admits a SENTENCE-FINAL period — what continues a name is
+ * a dot with a name character after it, and a dot ending a sentence has none —
+ * so a citable root file closing a sentence still extracts, and a path-less
+ * suite name closing one is still refused instead of escaping the gate.
+ */
+const BARE_NAME_RE =
+  /(?<![\w/.-])[A-Za-z0-9_][A-Za-z0-9_.-]*\.[A-Za-z0-9]+(?![\w/-])(?!\.[A-Za-z0-9])/g;
+
+/** The tail that makes a separator-carrying token name a file. */
+const FILE_NAME_TAIL_RE = /\/[^/]*\.[A-Za-z0-9]+$/;
 
 /** An npm script citation. */
 const NPM_RUN_RE = /npm run ([A-Za-z0-9:_-]+)/g;
@@ -249,18 +329,52 @@ export function extractClauseMarkers(markdown) {
 }
 
 /**
+ * Split a candidate on the commas that separate two citations written without
+ * a space, keeping a comma inside a brace alternation with the pattern it
+ * belongs to. An unclosed brace holds its commas the same way — the pattern
+ * that results is then refused as uncompilable, which names the typo.
+ *
+ * Exported as the ONE home of the comma rule: the governance finder
+ * ([`check-clause-governance.js`](./check-clause-governance.js)) and the
+ * schema-echo register reader ([`check-schema-echo.js`](./check-schema-echo.js))
+ * read the same rows through a wider token shape that admits a comma inside a
+ * directory segment, so an unspaced `a/x.js,b/y.js` reaches each of them as one
+ * token. Splitting it here, once, is what keeps the three readers from
+ * disagreeing about how many citations that text makes.
+ * @param {string} candidate one edge-stripped path token
+ * @returns {string[]}
+ */
+export function splitCitationTokens(candidate) {
+  const tokens = [];
+  let current = '';
+  let depth = 0;
+  for (const ch of candidate) {
+    if (ch === '{') depth++;
+    else if (ch === '}') depth = Math.max(0, depth - 1);
+    if (ch === ',' && depth === 0) {
+      tokens.push(current);
+      current = '';
+    } else current += ch;
+  }
+  tokens.push(current);
+  return tokens;
+}
+
+/**
  * Extract every citation the resolution grammar admits from one row text field
  * (the same grammar for `check-ref` and `justification` — see the header).
  * @param {string} text
- * @returns {{ paths: string[], prefixes: string[], npmScripts: string[],
- *             rootFiles: string[], bareFiles: string[] }}
- *   `paths` tracked-path citations, `prefixes` trailing-slash directory
- *   citations, `npmScripts` `npm run` targets, `rootFiles` citable root files,
- *   `bareFiles` path-less suite/source names the gate refuses — each list
- *   deduplicated, so one citation is reported once however often a row repeats it
+ * @returns {{ paths: string[], patterns: string[], prefixes: string[],
+ *             npmScripts: string[], rootFiles: string[], bareFiles: string[] }}
+ *   `paths` tracked-path citations, `patterns` pattern citations in file form,
+ *   `prefixes` trailing-slash directory citations, `npmScripts` `npm run`
+ *   targets, `rootFiles` citable root files, `bareFiles` path-less
+ *   suite/source names the gate refuses — each list deduplicated, so one
+ *   citation is reported once however often a row repeats it
  */
 export function extractCitedTargets(text) {
   const paths = [];
+  const patterns = [];
   const prefixes = [];
   const rootFiles = [];
   const bareFiles = [];
@@ -269,12 +383,14 @@ export function extractCitedTargets(text) {
     // (`**docs/x.md**`); those come off with the sentence punctuation, and what
     // remains is judged as the citation.
     const candidate = m[0].replace(/^\*+/, '').replace(/[.,*]+$/, '');
-    if (PATTERN_CHAR_RE.test(candidate)) continue; // a pattern names files, not one file
-    // A comma left inside separates citations written without a space.
-    for (const token of candidate.split(',')) {
+    for (const token of splitCitationTokens(candidate)) {
       if (isProsePathToken(token)) continue;
-      if (token.endsWith('/')) prefixes.push(token);
-      else if (/\/[^/]*\.[A-Za-z0-9]+$/.test(token)) paths.push(token);
+      if (PATTERN_CHAR_RE.test(token)) {
+        // A pattern naming files is gated as a pattern; one naming
+        // directories is a set the trailing-slash shape resolves nothing for.
+        if (FILE_NAME_TAIL_RE.test(token)) patterns.push(token);
+      } else if (token.endsWith('/')) prefixes.push(token);
+      else if (FILE_NAME_TAIL_RE.test(token)) paths.push(token);
     }
   }
   for (const m of text.matchAll(BARE_NAME_RE)) {
@@ -285,11 +401,45 @@ export function extractCitedTargets(text) {
   const unique = (values) => [...new Set(values)];
   return {
     paths: unique(paths),
+    patterns: unique(patterns),
     prefixes: unique(prefixes),
     npmScripts: unique([...text.matchAll(NPM_RUN_RE)].map((m) => m[1])),
     rootFiles: unique(rootFiles),
     bareFiles: unique(bareFiles),
   };
+}
+
+/**
+ * Whether a pattern citation names a tracked file. Expansion and compilation
+ * are the map's own ([`check-area-map.js`](./check-area-map.js)), so a citation
+ * is read exactly as an ownership pattern is; a pattern the compiler refuses is
+ * an outcome of its own rather than a throw, so a mistyped pattern names itself
+ * instead of ending the run in a stack trace.
+ * @param {string} pattern a separator-carrying pattern token in file form
+ * @param {string[]} files all git-tracked repo-relative paths
+ * @returns {'matches' | 'no-match' | 'uncompilable'}
+ */
+export function resolvePatternCitation(pattern, files) {
+  let compiled;
+  try {
+    compiled = expandBraces(pattern).map((expanded) => globToRegExp(expanded));
+  } catch {
+    return 'uncompilable';
+  }
+  return files.some((f) => compiled.some((re) => re.test(f))) ? 'matches' : 'no-match';
+}
+
+/**
+ * The clause identifiers a prose text states, deduplicated in first-seen order.
+ * Whether an identifier's prefix is registered is the caller's question — this
+ * reads the shape, and the registry decides which of those tokens are
+ * citations at all.
+ * @param {unknown} text
+ * @returns {string[]}
+ */
+export function extractClauseCites(text) {
+  const matches = typeof text === 'string' ? [...text.matchAll(CLAUSE_TOKEN_RE)] : [];
+  return [...new Set(matches.map((m) => m[0]))];
 }
 
 /**
@@ -391,11 +541,14 @@ export function parseLockListOrdinals(markdown, clauseId) {
  * is held to its own numbering the same way a registry row is.
  *
  * Boundary, deliberate: the doc scanned is the one the registry names for the
- * clause's prefix, and only that one. Two surfaces in the tree cite lock
- * ordinals and are NOT held here — the `description` string of
- * `corpus/vector-fixtures.json`, and code comments. Reading either would mean a
- * fourth parse surface for one string, so both stay held by review; a sweep of
- * every tracked file found no third.
+ * clause's prefix, and only that one — every other surface that cites a lock
+ * ordinal answers under its own subject instead. A registry row's citation is
+ * the registry's, and the enumerated vector fixtures' `description` is the
+ * fixtures' ({@link VECTOR_FIXTURES_PATH}). What a sweep of every tracked file
+ * for the citation form finds beyond those is this check's own text and the
+ * fixtures its suite is built from — quotations of the form, naming no lock —
+ * and the suite titles, which are one of the two surfaces rather than a
+ * citation of them.
  * @param {string} markdown the doc stating the clause
  * @param {string} clauseId e.g. `STC-11`
  * @returns {{ ordinal: number, line: number }[]} in document order
@@ -444,7 +597,11 @@ export function extractRequirementKeywords(text) {
  * @param {string[]} opts.packageScripts names in package.json "scripts"
  * @returns {{ shapeErrors: string[], rowErrors: string[], markerErrors: string[],
  *             refErrors: string[], textErrors: string[], retiredErrors: string[],
- *             listErrors: string[], surfaceErrors: string[] }}
+ *             listErrors: string[], surfaceErrors: string[], mapErrors: string[],
+ *             fixtureErrors: string[] }}
+ *   each bucket named for the surface that answers for it — `mapErrors` the
+ *   area map's own clause citations, `fixtureErrors` the vector fixtures'
+ *   description, neither of them the registry's to answer for
  */
 export function auditClauseRegistry({ registry, files, readFile, packageScripts }) {
   const r = {
@@ -456,6 +613,8 @@ export function auditClauseRegistry({ registry, files, readFile, packageScripts 
     retiredErrors: [],
     listErrors: [],
     surfaceErrors: [],
+    mapErrors: [],
+    fixtureErrors: [],
   };
 
   const tracked = new Set(files);
@@ -470,6 +629,15 @@ export function auditClauseRegistry({ registry, files, readFile, packageScripts 
         `CITABLE_ROOT_FILES enumerates ${name}, which is not a tracked file; an enumerated root file names one tracked source`,
       );
     }
+  }
+  // The same register, one file wider: the fixture surface this check reads by
+  // path. Holding it here is what makes a RENAMED fixture this check's own red
+  // at its register, rather than the fixtures' restore-that-shape surface error
+  // for a file that is perfectly present under its new name.
+  if (!tracked.has(VECTOR_FIXTURES_PATH)) {
+    r.listErrors.push(
+      `VECTOR_FIXTURES_PATH names ${VECTOR_FIXTURES_PATH}, which is not a tracked file; the fixture surface this check reads names one tracked source`,
+    );
   }
 
   // Shape.
@@ -569,7 +737,14 @@ export function auditClauseRegistry({ registry, files, readFile, packageScripts 
     for (const field of TEXT_FIELDS) {
       const text = row[field];
       if (typeof text !== 'string' || !text.trim()) continue;
-      const { paths, prefixes: dirs, npmScripts, rootFiles, bareFiles } = extractCitedTargets(text);
+      const {
+        paths,
+        patterns,
+        prefixes: dirs,
+        npmScripts,
+        rootFiles,
+        bareFiles,
+      } = extractCitedTargets(text);
       if (field === 'check-ref' && row.tag === 'check-exists') {
         const runnable = [...paths, ...rootFiles].filter((p) => RUNNABLE_EXT_RE.test(p));
         if (runnable.length + npmScripts.length === 0) {
@@ -581,6 +756,21 @@ export function auditClauseRegistry({ registry, files, readFile, packageScripts 
       for (const p of paths) {
         if (!tracked.has(p)) {
           r.refErrors.push(`clause "${id}" ${field} cites ${p}; a cited path is a tracked file`);
+        }
+      }
+      // A pattern citation names a set, so what it must do is name a real one:
+      // whether it names too many files is a breadth judgment review makes,
+      // never a resolvability question this gate can answer.
+      for (const pattern of patterns) {
+        const outcome = resolvePatternCitation(pattern, files);
+        if (outcome === 'uncompilable') {
+          r.refErrors.push(
+            `clause "${id}" ${field} cites ${pattern}, which does not compile as a pattern; a cited pattern is written in the map's own syntax — \`*\` within a segment, \`**\` as a whole segment, \`{a,b}\` alternation`,
+          );
+        } else if (outcome === 'no-match') {
+          r.refErrors.push(
+            `clause "${id}" ${field} cites ${pattern}; a cited pattern names at least one tracked file`,
+          );
         }
       }
       for (const dir of dirs) {
@@ -660,6 +850,75 @@ export function auditClauseRegistry({ registry, files, readFile, packageScripts 
     rowsByDoc.get(row.doc).add(id);
   }
 
+  // The area map's own citations. A declaration, an exception, and a partition
+  // each explain themselves in a `reason`, and those reasons name clauses —
+  // which makes them citations, held here like any other. What is whose fault
+  // decides the subject: the registry may be perfectly correct while the map
+  // names a clause nobody states, so these are the MAP's reds, each naming the
+  // entry a reader has to open. The admission is the registered PREFIX: a
+  // token whose prefix no row registers is ordinary prose and stays unread, so
+  // what this leg holds is the registered-prefix citations.
+  {
+    const mapText = readFile(MAP_PATH);
+    let map;
+    try {
+      map = mapText === null ? null : JSON.parse(mapText);
+    } catch {
+      map = null;
+    }
+    if (!map || typeof map !== 'object') {
+      r.mapErrors.push(
+        `EMPTY SURFACE: ${MAP_PATH} does not read as JSON — the check reads the reason of every entry in ${AREA_MAP_ENTRY_LISTS.join(', ')}, so restore that shape before a reason's clause citation can be held`,
+      );
+    } else {
+      // The both-directions hold on this check's own register of entry lists.
+      // Outward first: a top-level list the map states in the same
+      // reason-bearing shape, which this check does not name, is a class of
+      // entry explaining itself in a reason no leg reads — the check's red,
+      // under its own subject, not the map's.
+      for (const [key, value] of Object.entries(map)) {
+        if (AREA_MAP_ENTRY_LISTS.includes(key) || !Array.isArray(value)) continue;
+        if (!value.some((entry) => typeof entry?.reason === 'string' && entry.reason.trim())) {
+          continue;
+        }
+        r.listErrors.push(
+          `${MAP_PATH} states a reason-bearing "${key}" list that AREA_MAP_ENTRY_LISTS does not name; every entry list whose reasons can cite a clause is read here`,
+        );
+      }
+      for (const list of AREA_MAP_ENTRY_LISTS) {
+        const entries = map[list];
+        // The refusal keys on the list KEY being gone — a shape that moved —
+        // and never on an empty array, which is a stated fact about the tree:
+        // the area map's own gate demands removing an entry that is no longer
+        // needed, so redding an empty list here would deadlock the two gates
+        // against each other.
+        if (!Array.isArray(entries)) {
+          r.mapErrors.push(
+            `EMPTY SURFACE: ${MAP_PATH} states no "${list}" array — the check reads every entry's reason there, so restore that shape before a reason's clause citation can be held`,
+          );
+          continue;
+        }
+        for (const entry of entries) {
+          const names = entry?.path ?? entry?.pattern ?? JSON.stringify(entry ?? null);
+          const where = `${MAP_PATH} "${list}" entry ${names}`;
+          for (const cited of extractClauseCites(entry?.reason)) {
+            const prefix = cited.match(CLAUSE_ID_RE)[1];
+            if (!(prefix in prefixes)) continue;
+            if (retiredIds.has(cited)) {
+              r.mapErrors.push(
+                `${where} cites clause "${cited}", which ${REGISTRY_PATH} retires; a citation names an active clause`,
+              );
+            } else if (!seenIds.has(cited)) {
+              r.mapErrors.push(
+                `${where} cites clause "${cited}", which no active row of ${REGISTRY_PATH} states; a citation names a registered clause, and prefix "${prefix}" registers ${prefixes[prefix]}`,
+              );
+            }
+          }
+        }
+      }
+    }
+  }
+
   // Hygiene-lock surfaces. Every leg but the per-row-citation one runs on EVERY
   // audit, cited or not: the surfaces define one numbering whether or not a row
   // happens to lean on it this week, and each answers for its own emptiness — a
@@ -686,6 +945,24 @@ export function auditClauseRegistry({ registry, files, readFile, packageScripts 
     const listWhere = lockDoc
       ? `${lockDoc} §${LOCK_ORDINAL_CLAUSE}`
       : `the doc registering prefix "${lockPrefix}"`;
+    // The enumerated vector fixtures cite lock ordinals in their description,
+    // which the clause authorizes; a miscite there is the FIXTURE's own red,
+    // never the registry's and never the lock surfaces' — those three can each
+    // be correct while that description names a lock nobody states.
+    let fixtureDescription = null;
+    try {
+      const parsed = JSON.parse(readFile(VECTOR_FIXTURES_PATH) ?? '');
+      if (typeof parsed?.description === 'string' && parsed.description.trim()) {
+        fixtureDescription = parsed.description;
+      }
+    } catch {
+      fixtureDescription = null;
+    }
+    if (fixtureDescription === null) {
+      r.fixtureErrors.push(
+        `EMPTY SURFACE: no "description" string read from ${VECTOR_FIXTURES_PATH} — the check reads that description's lock citations, so restore that shape before one can be held`,
+      );
+    }
     if (!activeOrdinals.length) {
       r.surfaceErrors.push(
         `EMPTY SURFACE: no active ordinals read from ${listWhere} — the check reads the ordered list that follows the clause marker, so restore that shape before an ordinal citation can be held`,
@@ -715,6 +992,17 @@ export function auditClauseRegistry({ registry, files, readFile, packageScripts 
         r.surfaceErrors.push(
           `the two lock surfaces state one numbering: ${stated}; they part on ${parting.join(', ')}`,
         );
+      }
+      for (const ordinal of fixtureDescription ? extractLockOrdinalCites(fixtureDescription) : []) {
+        if (inRetired.has(ordinal)) {
+          r.fixtureErrors.push(
+            `${VECTOR_FIXTURES_PATH} description cites lock ${ordinal}, which ${listWhere} retires; a citation names an active lock`,
+          );
+        } else if (!inActive.has(ordinal) || !inSuite.has(ordinal)) {
+          r.fixtureErrors.push(
+            `${VECTOR_FIXTURES_PATH} description cites lock ${ordinal}; a cited ordinal is one both surfaces state — ${stated}`,
+          );
+        }
       }
       // The clause authorizes documents to cite locks by number, so its own
       // prose is held to its own list.
@@ -792,6 +1080,39 @@ export function auditClauseRegistry({ registry, files, readFile, packageScripts 
   return r;
 }
 
+/**
+ * The report sections in output order, each pairing the SUBJECT that answers
+ * for a bucket with what went wrong there. Exported because which surface a
+ * red is filed under is part of the contract, not a formatting detail: the
+ * registry answers for its rows, this check for the list it registers, the
+ * lock surfaces for their numbering, the area map for the clauses its reasons
+ * cite, and the vector fixtures for the locks their description cites.
+ * @param {ReturnType<typeof auditClauseRegistry>} r
+ * @returns {{ subject: string, what: string, errors: string[] }[]}
+ */
+export function reportSections(r) {
+  return [
+    [REGISTRY_PATH, 'is malformed', r.shapeErrors],
+    [REGISTRY_PATH, 'has inconsistent rows', r.rowErrors],
+    [REGISTRY_PATH, 'disagrees with the docs', r.markerErrors],
+    [REGISTRY_PATH, 'cites what does not resolve', r.refErrors],
+    [REGISTRY_PATH, 'states requirements its clauses own', r.textErrors],
+    [REGISTRY_PATH, 'violates retirement (retired identifiers are never reused)', r.retiredErrors],
+    ['scripts/check-clause-registry.js', 'registers what does not resolve', r.listErrors],
+    [
+      `the hygiene-lock surfaces (${LOCK_ORDINAL_CLAUSE}'s list and prose, ${LOCK_SUITE_PATH})`,
+      'do not state one numbering',
+      r.surfaceErrors,
+    ],
+    [MAP_PATH, 'states clause citations that do not resolve', r.mapErrors],
+    [VECTOR_FIXTURES_PATH, 'cites lock ordinals that do not resolve', r.fixtureErrors],
+  ].map(([subject, what, errors]) => ({ subject, what, errors }));
+}
+
+/* c8 ignore start — the CLI wrapper reads the registry, the git file list, and
+   package.json and formats the pass/fail output; the pure audit core and the
+   report's section model above are unit-tested, and what remains here is thin
+   plumbing. */
 function run() {
   const files = execFileSync('git', ['ls-files'], { encoding: 'utf8' })
     .split('\n')
@@ -808,24 +1129,8 @@ function run() {
   };
 
   const r = auditClauseRegistry({ registry, files, readFile, packageScripts });
-  // Each section names its own subject: the registry answers for its rows, and
-  // this check answers for the list it registers.
-  const sections = [
-    [REGISTRY_PATH, 'is malformed', r.shapeErrors],
-    [REGISTRY_PATH, 'has inconsistent rows', r.rowErrors],
-    [REGISTRY_PATH, 'disagrees with the docs', r.markerErrors],
-    [REGISTRY_PATH, 'cites what does not resolve', r.refErrors],
-    [REGISTRY_PATH, 'states requirements its clauses own', r.textErrors],
-    [REGISTRY_PATH, 'violates retirement (retired identifiers are never reused)', r.retiredErrors],
-    ['scripts/check-clause-registry.js', 'registers what does not resolve', r.listErrors],
-    [
-      `the hygiene-lock surfaces (${LOCK_ORDINAL_CLAUSE}'s list and prose, ${LOCK_SUITE_PATH})`,
-      'do not state one numbering',
-      r.surfaceErrors,
-    ],
-  ];
   let failed = false;
-  for (const [subject, what, errors] of sections) {
+  for (const { subject, what, errors } of reportSections(r)) {
     if (!errors.length) continue;
     failed = true;
     console.error(`✗ ${subject} ${what}:\n` + errors.map((e) => `    ${e}`).join('\n') + '\n');
@@ -835,8 +1140,9 @@ function run() {
       `  Fix: keep doc clause markers (e.g. **CP-3.**) and registry rows in one-to-one agreement,\n` +
         `  give every judgment-only row a justification and every checkable/check-exists row a\n` +
         `  check-ref, and never reuse a retired identifier. A row's text cites a tracked path (with\n` +
-        `  its directories), a directory holding tracked files, an npm run target package.json\n` +
-        `  defines, one of ${CITABLE_ROOT_FILES.join(', ')}, or an ACTIVE lock ordinal both\n` +
+        `  its directories), a pattern naming at least one tracked file, a directory holding\n` +
+        `  tracked files, an npm run target package.json defines, one of\n` +
+        `  ${CITABLE_ROOT_FILES.join(', ')}, or an ACTIVE lock ordinal both\n` +
         `  ${LOCK_ORDINAL_CLAUSE} and ${LOCK_SUITE_PATH} state; an intended-but-unbuilt check is\n` +
         `  described in prose, and a check-exists row names the runnable check that exists.\n` +
         `  A row states "${TEST_CASES_FIELD}" to have its named test cases held: each identifier\n` +
@@ -846,9 +1152,14 @@ function run() {
         `  A retired lock keeps its numbered entry in ${LOCK_ORDINAL_CLAUSE}'s list, marked\n` +
         `  Retired: with the reason, and loses its suite title — that is what keeps the numbering\n` +
         `  append-only, so the two surfaces are held to each other on every run, cited or not.\n` +
-        `  The last block is this check's own register, not the registry's: the citable root files\n` +
-        `  it enumerates must name tracked sources, and a stale entry reds there against an\n` +
-        `  otherwise correct registry.`,
+        `  The blocks after the registry's own name other subjects: this check's register (the\n` +
+        `  citable root files and the fixture path it names must be tracked sources, and a\n` +
+        `  reason-bearing top-level list the map states outside the entry lists this check\n` +
+        `  reads — ${AREA_MAP_ENTRY_LISTS.join(', ')} — is a class of entry no leg reads),\n` +
+        `  the lock surfaces, the clause citations ${MAP_PATH} states in its entry reasons\n` +
+        `  together with its stating each of those lists at all, and the lock ordinals\n` +
+        `  ${VECTOR_FIXTURES_PATH} cites in its description — each reds against an otherwise\n` +
+        `  correct registry, and is fixed where it is stated.`,
     );
     process.exit(1);
   }
@@ -862,3 +1173,4 @@ function run() {
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   run();
 }
+/* c8 ignore stop */
