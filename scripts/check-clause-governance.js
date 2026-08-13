@@ -37,7 +37,14 @@
 import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
-import { MAP_PATH, compileMap, expandBraces, globToRegExp, resolveFile } from './check-area-map.js';
+import {
+  MAP_PATH,
+  compileMap,
+  expandBraces,
+  globToRegExp,
+  refuseOnShapeError,
+  resolveFile,
+} from './check-area-map.js';
 import { splitCitationTokens } from './check-clause-registry.js';
 
 /**
@@ -364,12 +371,16 @@ function run() {
     }
   };
 
-  const { citations, exempted, newMisses, staleAllowlist } = auditClauseGovernance({
-    registry,
-    map,
-    files,
-    readFile,
-  });
+  let audited;
+  try {
+    audited = auditClauseGovernance({ registry, map, files, readFile });
+  } catch (err) {
+    // A map that no longer fits the shape this check reads it through is a
+    // refusal on the check's own input: the red is that named verdict, printed
+    // as the refusal states it on the ordinary red path — never a stack trace.
+    refuseOnShapeError(err);
+  }
+  const { citations, exempted, newMisses, staleAllowlist } = audited;
 
   let failed = false;
   if (newMisses.length) {

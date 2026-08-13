@@ -48,7 +48,9 @@ PR_BODY="$(cat pr-body.md)" PR_HEAD_REF=automated/version-table-update \
 ```
 
 Its red output enumerates the exact lines the sections must carry, so a
-failing run teaches its own fix.
+failing run teaches its own fix — except where the area map no longer fits the
+shape the check reads it through, which prints that shape refusal instead,
+there being no scope to derive the lines from.
 
 ### The release-output guard's positive mode
 
@@ -72,6 +74,29 @@ the diff, not the branch name: run it from anywhere else and it reports your
 own branch's files as ride-alongs, which is the mode working, not a false
 verdict. The fetch matters too — with no base ref to diff against, the guard
 skips with a warning instead of validating anything.
+
+### The area map's per-file explanation
+
+[`check-area-map.js`](../../scripts/check-area-map.js) has a second mode that
+answers for one file instead of auditing the whole map: which areas own it,
+which docs govern it, the partitioned tree that claims it, whether a
+declaration answers for it and what that declaration expands to, whether it is
+a repo-wide doc or a justified exception, and the doc pointers its own content
+names. The plain run tabled with the `lint` gates
+([CI gates § The lint and freshness gates](ci.md#the-lint-and-freshness-gates))
+is the audit; the per-file mode takes the path:
+
+```bash
+node scripts/check-area-map.js --explain scripts/check-area-map.js
+```
+
+It resolves against the tracked tree, so a path git does not carry is reported
+as untracked rather than resolved. For a file that is not itself a repo-wide
+doc, the docs it names are the ones that file's `## Docs disposition` lines
+will be held to
+([CONTRIBUTING § Docs Disposition and Change Record](../../.github/CONTRIBUTING.md#docs-disposition-and-change-record));
+a repo-wide doc, as the mode's own output says, governs every area and enters
+its own edit's scope.
 
 ### PR title
 

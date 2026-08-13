@@ -25,6 +25,8 @@ const MAP = {
     beta: { code: ['packages/beta/**'], docs: ['docs/beta.md'] },
   },
   unassigned: [],
+  'declared-governance': [],
+  'governance-partitions': [],
 };
 
 const disposition = (lines) => `## Docs disposition\n\n${lines.join('\n')}\n`;

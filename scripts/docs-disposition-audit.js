@@ -35,7 +35,7 @@
 
 import { readFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
-import { compileMap, resolveFile, MAP_PATH } from './check-area-map.js';
+import { compileMap, resolveFile, MAP_PATH, refuseOnShapeError } from './check-area-map.js';
 import { extractSection, parseDispositionSection } from './check-docs-disposition.js';
 
 /** A PR's diff is "mostly docs" when more than half its files sit under docs/. */
@@ -208,7 +208,15 @@ async function run() {
 
   const map = JSON.parse(readFileSync(MAP_PATH, 'utf8'));
   const { prs, editedAfterMerge } = await harvest({ repo, token, weeks });
-  const r = labelProbableMisses({ prs, map });
+  let r;
+  try {
+    r = labelProbableMisses({ prs, map });
+  } catch (err) {
+    // A map that no longer fits the shape this run reads it through is a
+    // refusal on its own input: the red is that named verdict, printed as the
+    // refusal states it on the ordinary red path — never a stack trace.
+    refuseOnShapeError(err);
+  }
 
   const total = r.unaffectedDocJudgments;
   const rate = total === 0 ? 0 : (100 * r.probableMisses.length) / total;
