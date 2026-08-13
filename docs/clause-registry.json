@@ -13,7 +13,9 @@
     "DI": "docs/api/dispatch.md",
     "SC": "docs/architecture/system/shared-core.md",
     "DSH": "docs/architecture/application/desktop/windows/application-shell.md",
-    "SL": "docs/verification/sufficiency-lint.md"
+    "SL": "docs/verification/sufficiency-lint.md",
+    "COV": "docs/test/strategy/coverage.md",
+    "MUT": "docs/test/strategy/mutation.md"
   },
   "retired": {
     "CP": [],
@@ -28,7 +30,9 @@
     "DI": [],
     "SC": [],
     "DSH": [],
-    "SL": []
+    "SL": [],
+    "COV": [],
+    "MUT": []
   },
   "clauses": [
     {
@@ -1016,6 +1020,60 @@
       "clause": "SL-5",
       "tag": "check-exists",
       "check-ref": "The both-direction lock is packages/shared/tests/unit/sufficiency-lint.test.js (npm run test:shared), with file discovery and baseline serialization imported from scripts/sufficiency-lint.js so the walk, filters, and entry format cannot diverge from --write-baseline output; npm run sufficiency:check is the same gate at the CLI. The two-root list is stated separately in the lock and in that npm script, both of which execute, so a divergence between them reddens at whichever entry point runs; the lock's header cites this clause's regenerate block rather than restating the command, since that block is prose and holds nothing true until it is run. The lock reddens on any predicate or corpus change that shifts findings, forcing the regenerated baseline into the same change; whether a regenerated baseline was honestly reviewed stays review judgment."
+    },
+    {
+      "doc": "docs/test/strategy/coverage.md",
+      "clause": "COV-1",
+      "tag": "checkable",
+      "check-ref": "Intended: a leg over .github/workflows/test.yml holding this topology to the workflow that implements it — each coverage-producing job staging its lcov as an artifact instead of uploading it, one terminal job collecting them, and that job waiting on each staging job — so a job that starts uploading directly, or a terminal job that stops waiting for one of them, reddens here rather than surfacing as a Codecov comment that settled on a stale intermediate value. The carryforward half is codecov.yml's own flag_management setting, which the same leg would read beside the workflow. Neither half is built, and no probe stands in for them: the topology is held by review, and its failure mode is a report that reads wrong rather than a red check."
+    },
+    {
+      "doc": "docs/test/strategy/coverage.md",
+      "clause": "COV-2",
+      "tag": "checkable",
+      "check-ref": "Intended: a leg holding this slicing to the two surfaces that implement it — the component ids and their path filters in codecov.yml, and the flag pairs .github/workflows/test.yml tags each upload with — so a component renamed in the configuration, or a flag axis the workflow stops tagging, reddens against the document describing them. Not built; both surfaces are held by review today, and a description that has drifted costs a reader an accurate map of the report rather than a broken gate."
+    },
+    {
+      "doc": "docs/test/strategy/coverage.md",
+      "clause": "COV-3",
+      "tag": "check-exists",
+      "check-ref": "scripts/check-test-inventory.js (npm run lint:test-inventory, a step in CI's lint job) holds every entry of each registered coverage list to a tracked source file, and holds an entry carrying both a served-URL match and a source path to one and the same file, so an entry a rename left behind reddens instead of quietly collecting nothing. The rule's other direction is not held there and cannot be: that check reads what the lists state, never what the pages load, so the loaded-but-untracked set this clause records — and any source file that joins it — is a review-held gap, which is why the clause states the maintenance rule and the live gap in the same breath."
+    },
+    {
+      "doc": "docs/test/strategy/mutation.md",
+      "clause": "MUT-1",
+      "tag": "checkable",
+      "check-ref": "Intended: a leg holding the stated cadence to .github/workflows/mutation.yml — that its triggers are the weekly schedule and the manual dispatch this clause names, and that no pull-request trigger sits beside them — so a workflow that starts firing per PR, or one whose schedule drifts off the stated week, reddens against the document stating the cadence. Not built; the cadence is held by review, and the contributor-facing half (a pull request never carrying a per-change mutation claim) is a statement about what a PR body says rather than about the tree."
+    },
+    {
+      "doc": "docs/test/strategy/mutation.md",
+      "clause": "MUT-2",
+      "tag": "checkable",
+      "check-ref": "Existing coverage: scripts/check-test-inventory.js (npm run lint:test-inventory) reads each engine's kill set where this clause says it lives — the JavaScript configurations it discovers by their shared name pattern, and packages/desktop/src-tauri/.cargo/mutants.toml — and refuses when one of them no longer states a list it can read, so an engine whose configuration stopped stating a kill set reddens rather than passing vacuously. Intended: holding the document's own enumeration of the engines and their configurations against that discovered set, which nothing does today — a configuration added beside the present ones joins the staleness closure by existing, while the paragraph enumerating them stays review-held."
+    },
+    {
+      "doc": "docs/test/strategy/mutation.md",
+      "clause": "MUT-3",
+      "tag": "check-exists",
+      "check-ref": "scripts/check-test-inventory.js (npm run lint:test-inventory) holds this clause's module table and the examine globs of packages/desktop/src-tauri/.cargo/mutants.toml to each other in both directions, and refuses when either surface is no longer where it reads it — the table inside this clause's scope, or the configuration's list — so a module joining or leaving the scope reddens until both surfaces state it, and a module named twice on either surface reddens too. Beside that agreement the same check holds the set to the tree: each module the configuration states is a tracked source under the crate, and a pattern entry selects at least one, so a module deleted or renamed with both surfaces edited in step — the drift no diff between them can see — reddens as well. Which modules belong in the scope is still decided by no check: the set is curated, and widening it is a weekly-run decision taken per module in review."
+    },
+    {
+      "doc": "docs/test/strategy/mutation.md",
+      "clause": "MUT-4",
+      "tag": "check-exists",
+      "check-ref": "scripts/check-test-inventory.js (npm run lint:test-inventory) holds both engines' kill sets to the tree — each file argument of a discovered JavaScript configuration's command list to a tracked test file, or, where that argument is a glob, to selecting at least one, and each test target of packages/desktop/src-tauri/.cargo/mutants.toml to a test binary at either of the two places Cargo builds one from — refusing a list it can no longer read rather than holding nothing. That is the staleness half: an entry a rename or a deletion left behind, which on the JavaScript side would otherwise drop a file out of the weekly run in silence. The other half of participation — which suites belong in a kill set at all — is stated by no surface and held by no check: the lists are curated subsets of their packages' suites, so a suite that never joins one is invisible to every gate and stays a review decision."
+    },
+    {
+      "doc": "docs/test/strategy/mutation.md",
+      "clause": "MUT-5",
+      "tag": "judgment-only",
+      "justification": "Whether a break threshold sits just below the last measured score — close enough that a regression trips it, far enough that ordinary variance does not — is a judgment made per configuration when a weekly run reports a new number. No check knows the score the threshold is meant to follow, and a threshold that has drifted behind an improving score is the same value as one set deliberately low."
+    },
+    {
+      "doc": "docs/test/strategy/mutation.md",
+      "clause": "MUT-6",
+      "tag": "judgment-only",
+      "justification": "Whether the Rust engine's baseline has settled enough to drop the exit-code tolerance is a judgment about a run of weekly results rather than a property of the tree. The tolerance itself is a step in .github/workflows/mutation.yml that either posture states in the same shape, so no check can tell a deliberate report-only posture from one left in place after its reason expired."
     }
   ]
 }

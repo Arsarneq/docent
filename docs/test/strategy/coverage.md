@@ -3,30 +3,42 @@
 How Docent's test coverage reaches Codecov, and how it is sliced. The layers it
 reports on are described in [the test pyramid](test-pyramid.md).
 
+Each rule carries a stable identifier (**COV-n**) so other documents, reviews,
+and checks can cite it precisely. Identifiers are never renumbered; a retired
+identifier stays reserved and is never reused. How each rule is verified — by an
+existing named check, by a check that could be built, or by judgment — is
+recorded per rule in the [clause registry](../../clause-registry.json). The key
+words MUST, MUST NOT, SHOULD, and MAY are to be interpreted as described in
+[RFC 2119](https://www.rfc-editor.org/rfc/rfc2119). Keywords appear on a
+clause's operative requirement where it has one; definitional clauses bind as
+stated without a keyword, and subsidiary absolutes inside a clause inherit its
+force. A clause's scope runs from its marker to the next marker or heading;
+identifiers reflect minting order and can appear out of numeric sequence.
+
 ## How coverage reaches Codecov
 
-Each test job publishes its `lcov` as a build artifact instead of uploading to
-Codecov directly. A single terminal `coverage-upload` job then collects every
-artifact and uploads them back-to-back. This keeps the Codecov PR comment from
-sitting on a stale intermediate value while jobs finish minutes apart — the
-comment only converges once it has seen every upload, so bunching them makes it
-correct sooner. If a job is skipped by a path filter, its artifact is absent and
-that upload is silently skipped; Codecov `carryforward` keeps the flag's
-last-known coverage.
+**COV-1.** Each test job publishes its `lcov` as a build artifact instead of
+uploading to Codecov directly. A single terminal `coverage-upload` job then
+collects every artifact and uploads them back-to-back. This keeps the Codecov PR
+comment from sitting on a stale intermediate value while jobs finish minutes
+apart — the comment only converges once it has seen every upload, so bunching
+them makes it correct sooner. If a job is skipped by a path filter, its artifact
+is absent and that upload is silently skipped; Codecov `carryforward` keeps the
+flag's last-known coverage.
 
 ## Flags and components
 
-Coverage is sliced two ways. **Flags** encode _how_ lines were covered — the
-pyramid layer (`unit`, `integration`, `e2e`) crossed with language (`javascript`,
-`rust`). **Components** encode _which package_ the code lives in (`extension`,
-`desktop`, `shared`) — path-based filters defined in `codecov.yml`.
+**COV-2.** Coverage is sliced two ways. **Flags** encode _how_ lines were
+covered — the pyramid layer (`unit`, `integration`, `e2e`) crossed with language
+(`javascript`, `rust`). **Components** encode _which package_ the code lives in
+(`extension`, `desktop`, `shared`) — path-based filters defined in `codecov.yml`.
 
 ## Closed-world tracked-file lists (e2e and desktop integration)
 
-The two browser-driven Playwright suites cannot instrument source files the way
-the unit runners do — they collect raw V8 coverage from live pages and convert
-it to lcov afterwards. Each conversion filters the raw entries against a
-**hard-coded, closed list** of source files and drops everything else:
+**COV-3.** The two browser-driven Playwright suites cannot instrument source
+files the way the unit runners do — they collect raw V8 coverage from live pages
+and convert it to lcov afterwards. Each conversion filters the raw entries
+against a **hard-coded, closed list** of source files and drops everything else:
 
 - **Extension e2e** — `TRACKED_FILES` in
   `packages/extension/tests/e2e/global-teardown.js` (a hand-maintained subset

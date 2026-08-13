@@ -1,13 +1,19 @@
 # cargo-mutants configuration — scoped mutation testing for the desktop capture
-# backend's unit-tested logic modules (element/action mapping, coordinate math,
-# scroll handling).
+# backend.
 #
-# Everything outside the four globs below — the live-input capture path — is
-# deliberately unmutated: its only exercising tests synthesize real OS input
-# and are excluded from the per-mutant test runs, so its mutants would survive
-# en masse and tell us nothing. That path is guarded by the input-synthesis
-# integration suites and the scripted-truth corpus instead — an accepted,
-# documented gap of this tool, not an oversight.
+# The examine_globs below are the mutate scope, and they are a curated
+# enumeration: a module is mutated because this list names it. The
+# test-strategy doc (docs/test/strategy/mutation.md) states the same set as a
+# table, and the test-inventory lint (npm run lint:test-inventory) holds the two
+# to each other in both directions, so widening or narrowing the scope is one
+# edit to both surfaces.
+#
+# The live-input capture path in the rest of the backend is deliberately
+# unmutated: its only exercising tests synthesize real OS input and are excluded
+# from the per-mutant test runs, so its mutants would survive en masse and tell
+# us nothing. That path is guarded by the input-synthesis integration suites and
+# the scripted-truth corpus instead — an accepted, documented gap of this tool,
+# not an oversight.
 examine_globs = [
   "src/capture/action_mapping.rs",
   "src/capture/element_mapping.rs",
@@ -16,10 +22,13 @@ examine_globs = [
 ]
 
 # Pin which tests RUN per mutant: --lib keeps the in-module #[cfg(test)] unit
-# tests in the kill set, and the --test entries are every fast, deterministic
-# unit binary (no input synthesis; nothing that opens windows). Note this
+# tests in the kill set, and the --test entries below are the curated kill set
+# of test binaries — a binary takes part by being listed here, so a new
+# unit-test binary must be added to this list to participate. Which binaries
+# belong in the set is a curation decision this list records; each --test target
+# in it is held to a tracked test binary by the test-inventory lint. Note this
 # pins only the test RUN — the per-mutant build still compiles all workspace
-# test targets. New unit-test binaries must be added here to participate.
+# test targets.
 additional_cargo_test_args = [
   "--lib",
   "--test", "action_mapping_test",

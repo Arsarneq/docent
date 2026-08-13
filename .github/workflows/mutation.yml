@@ -113,12 +113,13 @@ jobs:
           path: reports/mutation-desktop/
           retention-days: 30
 
-  # Rust mutation testing, scoped to the capture backend's unit-tested logic
-  # modules (see packages/desktop/src-tauri/.cargo/mutants.toml, including why
-  # the live-input capture path is deliberately out of scope). Measurement
-  # posture for now: missed mutants are reported in the run summary, not
-  # failing — once a few weekly runs establish the baseline, drop the exit-code
-  # tolerance below so a regression reddens the run like the Stryker jobs do.
+  # Rust mutation testing, scoped to the module set
+  # packages/desktop/src-tauri/.cargo/mutants.toml's examine_globs enumerates
+  # (that file also records why the live-input capture path is deliberately out
+  # of scope). Measurement posture for now: missed mutants are reported in the
+  # run summary, not failing — once a few weekly runs establish the baseline,
+  # drop the exit-code tolerance below so a regression reddens the run like the
+  # Stryker jobs do.
   cargo-mutants-desktop:
     runs-on: windows-latest
     steps:

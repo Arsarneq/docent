@@ -1,8 +1,9 @@
 /**
  * check-test-inventory.test.js — Unit tests for the test-inventory lint
  * (scripts/check-test-inventory.js) that gates CI. The suite documents' tables,
- * the hand-maintained coverage lists, and the registered suites' own
- * registration are committed data, so every way they can rot must fail loud:
+ * the hand-maintained coverage lists, the registered suites' own registration,
+ * and the mutation kill sets and mutate scope beside them are committed data,
+ * so every way they can rot must fail loud:
  * these tests drive each red path over synthetic documents, synthetic sources,
  * and synthetic manifests — an undocumented test file, a row naming a file that
  * is not a member of the suite, a duplicate row, a coverage entry pointing at
@@ -11,16 +12,23 @@
  * an entry nothing runs, a mirrored discovery claim that no longer matches the
  * surface it mirrors, a test binary hidden from CI by any route past the
  * top-level discovery — the directory form, and each spelling in which the
- * crate manifest states the test targets itself — and each way any of the
+ * crate manifest states the test targets itself — a mutation kill set naming a
+ * test file that is not there or globbing none, on either engine, a mutate
+ * scope the cargo configuration and the strategy document state differently in
+ * either direction or one of them states twice, and a scope module both
+ * surfaces agree on that the tree does not carry — and each way any of the
  * extractions can fail to reach its whole subject. Table parsing is proven to read only the documented section
  * and to ignore prose and fenced blocks (the reason the check reads rows, not
  * text), and the array scan survives reformatting while refusing a restructured
  * literal — including a requested property whose value is an expression, which
  * it once recorded as that expression's leading string — rather than reading
- * part of it. The report is proven to carry every class either audit can raise,
+ * part of it; the kill-set readers refuse the same way, a joining call being the
+ * one trailing expression they model because it leaves the set alone. The report
+ * is proven to carry every class any of the audits can raise,
  * including one it has no wording for yet. Real-tree locks prove the shipped
- * inventories hold, that the shipped registration closes, and that each suite's
- * membership rule still matches the discovery it mirrors.
+ * inventories hold, that the shipped registration closes, that the shipped kill
+ * sets name files that are there over one stated mutate scope, and that each
+ * suite's membership rule still matches the discovery it mirrors.
  */
 
 import { describe, it } from 'node:test';
@@ -30,10 +38,14 @@ import { resolve } from 'node:path';
 import { execFileSync } from 'node:child_process';
 import {
   DOC_INVENTORIES,
+  JS_KILL_SETS,
+  MUTATE_SCOPE,
   RUNNERS,
+  RUST_KILL_SET,
   TRACKED_LISTS,
   admittedManifests,
   auditInventories,
+  auditMutationKillSets,
   auditRegistrationClosure,
   backtickedName,
   basenameGlobToRegExp,
@@ -44,11 +56,15 @@ import {
   extractStepBody,
   formatProblems,
   identifiesSameFile,
+  killSetTargets,
   nodeTestArguments,
   normalizePath,
   parseTables,
   readListEntries,
+  readPropertyStringArray,
+  readScopeTable,
   readTomlLine,
+  readTomlStringArray,
   registered,
   selectsFor,
   splitRow,
@@ -1394,6 +1410,558 @@ describe('auditRegistrationClosure — every unreadable surface is refused', () 
   });
 });
 
+describe('the mutation kill sets — reading the two list shapes', () => {
+  const jsConfig = (...paths) =>
+    `export default {\n  testRunner: 'command',\n  commandRunner: {\n    command: [\n      'node --test',\n${paths
+      .map((p) => `      '${p}',\n`)
+      .join('')}    ].join(' '),\n  },\n};\n`;
+
+  it('reads a command list stated as a property array with a joining call', () => {
+    assert.deepEqual(readPropertyStringArray(jsConfig('a.test.js', 'b.test.js'), 'command'), {
+      entries: ['node --test', 'a.test.js', 'b.test.js'],
+    });
+  });
+
+  it('is not fooled by the property name as a value or inside another word', () => {
+    // `testRunner: 'command'` states the name as a string, and `commandRunner`
+    // carries it as a prefix; neither declares the list.
+    const source = "export default { testRunner: 'command', commandRunner: { x: 1 } };";
+    assert.match(readPropertyStringArray(source, 'command').error, /no `command: \[\.\.\.\]`/);
+  });
+
+  it('refuses a property stated twice, which literal states the list being an accident of order', () => {
+    const source = "const a = { command: ['x'] }; const b = { command: ['y'] };";
+    assert.match(readPropertyStringArray(source, 'command').error, /states `command: \[\.\.\.\]` 2 times/); // prettier-ignore
+  });
+
+  it('refuses an element form it does not model, an unclosed literal, and an empty one', () => {
+    assert.match(
+      readPropertyStringArray('const a = { command: [...others] };', 'command').error,
+      /holds `\.`, which this reader does not model/,
+    );
+    assert.match(
+      readPropertyStringArray("const a = { command: ['x', ['y']] };", 'command').error,
+      /holds `\[`, which this reader does not model/,
+    );
+    assert.match(
+      readPropertyStringArray("const a = { command: ['x',", 'command').error,
+      /is never closed/,
+    );
+    assert.match(
+      readPropertyStringArray('const a = { command: [] };', 'command').error,
+      /holds no entries/,
+    );
+  });
+
+  it('refuses a trailing call other than the join, which could change the set', () => {
+    const filtered = "const a = { command: ['x'].filter(Boolean) };";
+    assert.match(
+      readPropertyStringArray(filtered, 'command').error,
+      /is followed by `\.`, so the entries this reader read are not the list/,
+    );
+  });
+
+  it('reads a bare literal a separator terminates, no joining call needed', () => {
+    // The accept path beside the joined one: a list that ends at its record's
+    // brace states its entries outright, so tightening the trailing-expression
+    // refusal can never quietly start refusing it.
+    assert.deepEqual(
+      readPropertyStringArray("const a = { command: ['node --test', 'a.test.js'] };", 'command'),
+      { entries: ['node --test', 'a.test.js'] },
+    );
+  });
+
+  it('reads a root-table TOML array, comments and other tables left to themselves', () => {
+    // Everything after a table header belongs to that table, so the root-table
+    // assignment is the one before it; the commented-out spelling and the
+    // `[features]` key of the same name are both left where they are.
+    const source = [
+      '# test_args = ["--test", "commented_out"]',
+      'test_args = [',
+      '  "--lib", # a trailing comment',
+      '  "--test", "a_test",',
+      ']',
+      '',
+      '[features]',
+      'test_args = ["not_the_root_one"]',
+    ].join('\n');
+    assert.deepEqual(readTomlStringArray(source, 'test_args'), {
+      values: ['--lib', '--test', 'a_test'],
+    });
+  });
+
+  it('reads only the root-table key when another table states the same name', () => {
+    const scoped = '[features]\ntest_args = ["not_the_root_one"]\n';
+    assert.match(readTomlStringArray(scoped, 'test_args').error, /no root-table `test_args/);
+  });
+
+  it('refuses a missing key, a non-array value, an unclosed array, and an empty one', () => {
+    assert.match(readTomlStringArray('other = 1\n', 'test_args').error, /no root-table `test_args/);
+    assert.match(
+      readTomlStringArray('test_args = "a"\n', 'test_args').error,
+      /is assigned `"a"`, which is not the array literal this reader models/,
+    );
+    assert.match(readTomlStringArray('test_args = [\n  "a",\n', 'test_args').error, /never closed/);
+    assert.match(readTomlStringArray('test_args = []\n', 'test_args').error, /holds no values/);
+  });
+
+  it('refuses a value form it does not model and an unterminated string', () => {
+    assert.match(
+      readTomlStringArray('test_args = [\n  42,\n]\n', 'test_args').error,
+      /holds `4`, which this reader does not model/,
+    );
+    assert.match(
+      readTomlStringArray('test_args = [\n  "a\n', 'test_args').error,
+      /holds an unterminated string/,
+    );
+    assert.match(
+      readTomlStringArray('test_args =\n', 'test_args').error,
+      /is assigned `nothing`, which is not the array literal this reader models/,
+    );
+  });
+
+  it('refuses a nested array rather than flattening its values into the list', () => {
+    assert.match(
+      readTomlStringArray('test_args = [\n  ["a"],\n]\n', 'test_args').error,
+      /holds a nested array, which this reader does not model/,
+    );
+  });
+
+  it('reads each TOML string form as TOML does: escapes in a basic string, none in a literal', () => {
+    assert.deepEqual(readTomlStringArray('test_args = ["a\\"b"]\n', 'test_args'), {
+      values: ['a"b'],
+    });
+    assert.deepEqual(readTomlStringArray("test_args = ['a\\b']\n", 'test_args'), {
+      values: ['a\\b'],
+    });
+  });
+
+  it('reads a dotted key as the table its own segments name, not as the root one', () => {
+    const dotted = 'package.test_args = ["not_the_root_one"]\n';
+    assert.match(readTomlStringArray(dotted, 'test_args').error, /no root-table `test_args/);
+  });
+
+  it('pairs each selecting flag with its target, valueless flags left alone', () => {
+    assert.deepEqual(killSetTargets(['--lib', '--test', 'a_test', '--test', 'b_test'], '--test'), {
+      targets: ['a_test', 'b_test'],
+    });
+  });
+
+  it('pairs the joined spelling too, which cargo reads as the same selection', () => {
+    assert.deepEqual(killSetTargets(['--lib', '--test=a_test', '--test', 'b_test'], '--test'), {
+      targets: ['a_test', 'b_test'],
+    });
+    // The joined spelling carries its own value, so an empty one states no
+    // target at all — the same refusal the split spelling raises.
+    assert.match(killSetTargets(['--test='], '--test').error, /states `--test=` with no target after it/); // prettier-ignore
+  });
+
+  it('refuses a flag with no target, a value no flag claimed, and a list selecting nothing', () => {
+    assert.match(killSetTargets(['--test'], '--test').error, /with no target after it/);
+    assert.match(killSetTargets(['--test', '--lib'], '--test').error, /with no target after it/);
+    assert.match(
+      killSetTargets(['--features', 'windows', '--test', 'a_test'], '--test').error,
+      /states `windows`, which this reader does not model/,
+    );
+    assert.match(killSetTargets(['--lib'], '--test').error, /states no `--test` entry/);
+  });
+
+  it('reads the mutate-scope table through the clause that carries it', () => {
+    const doc = [
+      '# Doc',
+      '',
+      '| Module | Note |',
+      '| --- | --- |',
+      '| `src/elsewhere.rs` | a table outside the clause |',
+      '',
+      '**XX-3.** The scope:',
+      '',
+      '| Module | What it carries |',
+      '| --- | --- |',
+      '| `src/a.rs` | a |',
+      '| `src/b.rs` | b |',
+      '',
+      '**XX-4.** The next clause.',
+      '',
+      '| Module | Note |',
+      '| --- | --- |',
+      '| `src/after.rs` | a table after the clause |',
+    ].join('\n');
+    assert.deepEqual(readScopeTable(doc, 'XX-3', 'Module'), {
+      modules: ['src/a.rs', 'src/b.rs'],
+    });
+  });
+
+  it('refuses a missing marker, a missing table, and a cell that is not a module path', () => {
+    const doc =
+      '**XX-3.** The scope:\n\n| Module | X |\n| --- | --- |\n| the `a.rs` module | a |\n';
+    assert.match(readScopeTable('# Doc\n', 'XX-3', 'Module').error, /states no `\*\*XX-3\.\*\*` marker/); // prettier-ignore
+    assert.match(
+      readScopeTable('**XX-3.** No table here.\n', 'XX-3', 'Module').error,
+      /states no table headed "Module" inside §XX-3/,
+    );
+    assert.match(
+      readScopeTable(doc, 'XX-3', 'Module').error,
+      /whose first cell is not a single backticked module path/,
+    );
+  });
+});
+
+describe('auditMutationKillSets — staleness, agreement, and the refusals', () => {
+  const SETS = {
+    js: { glob: 'mutate.*.mjs', property: 'command' },
+    rust: {
+      config: 'crate/.cargo/mutants.toml',
+      key: 'test_args',
+      flag: '--test',
+      dir: 'crate/tests',
+      suffix: '.rs',
+      main: 'main.rs',
+    },
+    scope: {
+      config: 'crate/.cargo/mutants.toml',
+      key: 'examine_globs',
+      root: 'crate',
+      doc: 'docs/mutation.md',
+      clause: 'XX-3',
+      column: 'Module',
+    },
+  };
+
+  const jsConfig = (...paths) =>
+    `export default { commandRunner: { command: ['node --test', ${paths
+      .map((p) => `'${p}'`)
+      .join(', ')}].join(' ') } };`;
+
+  const manifest = ({ globs = ['src/a.rs'], binaries = ['a_test'] } = {}) =>
+    [
+      'examine_globs = [',
+      ...globs.map((g) => `  "${g}",`),
+      ']',
+      '',
+      'test_args = [',
+      '  "--lib",',
+      ...binaries.map((b) => `  "--test", "${b}",`),
+      ']',
+    ].join('\n');
+
+  const scopeDoc = (modules = ['src/a.rs']) =>
+    [
+      '# Mutation',
+      '',
+      '**XX-3.** The scope is what the configuration lists:',
+      '',
+      '| Module | What it carries |',
+      '| --- | --- |',
+      ...modules.map((m) => `| \`${m}\` | prose |`),
+      '',
+      '**XX-4.** After the scope.',
+    ].join('\n');
+
+  const tree = (over = {}) => ({
+    'mutate.desktop.mjs': jsConfig('pkg/tests/a.test.js'),
+    'crate/.cargo/mutants.toml': manifest(),
+    'docs/mutation.md': scopeDoc(),
+    ...over,
+  });
+
+  const files = (source, extra = []) => [
+    ...Object.keys(source),
+    'pkg/tests/a.test.js',
+    'crate/tests/a_test.rs',
+    'crate/src/a.rs',
+    ...extra,
+  ];
+
+  const killSets = (source, over = {}) =>
+    auditMutationKillSets({
+      files: over.files ?? files(source),
+      readFile: (f) => (f in source ? source[f] : null),
+      jsKillSets: SETS.js,
+      rustKillSet: over.rustKillSet ?? SETS.rust,
+      mutateScope: over.mutateScope ?? SETS.scope,
+    });
+
+  it('reports nothing when every listed entry is there and both surfaces state one scope', () => {
+    const result = killSets(tree());
+    assert.deepEqual(formatProblems(result), []);
+  });
+
+  it('flags a JavaScript entry naming a file that is not there, and says why it is silent', () => {
+    const source = tree({
+      'mutate.desktop.mjs': jsConfig('pkg/tests/a.test.js', 'pkg/tests/gone.test.js'),
+    });
+    assert.deepEqual(killSets(source).staleKillSetEntry, [
+      'mutate.desktop.mjs: `command` names pkg/tests/gone.test.js, which is not a tracked file — the weekly mutation run drops it in silence, since `node --test` runs the paths it finds and reports nothing for the one it does not',
+    ]);
+  });
+
+  it('flags a Rust entry naming a binary that is not there, naming the paths it looked at', () => {
+    const source = tree({
+      'crate/.cargo/mutants.toml': manifest({ binaries: ['a_test', 'renamed_test'] }),
+    });
+    assert.deepEqual(killSets(source).staleKillSetEntry, [
+      'crate/.cargo/mutants.toml: `test_args` names `--test renamed_test`, which is no tracked binary at crate/tests/renamed_test.rs or at crate/tests/renamed_test/main.rs — cargo refuses a target that is not there, so the weekly run fails on it; this names it at lint time instead',
+    ]);
+  });
+
+  it('resolves a target through either route Cargo builds a binary from', () => {
+    // The directory form is a live binary, so a target living there is the
+    // target it is — red only when neither route reaches it.
+    const source = tree({ 'crate/.cargo/mutants.toml': manifest({ binaries: ['dir_test'] }) });
+    const nested = killSets(source, {
+      files: [...files(source), 'crate/tests/dir_test/main.rs'],
+    });
+    assert.deepEqual(nested.staleKillSetEntry, []);
+    assert.deepEqual(killSets(source).staleKillSetEntry, [
+      'crate/.cargo/mutants.toml: `test_args` names `--test dir_test`, which is no tracked binary at crate/tests/dir_test.rs or at crate/tests/dir_test/main.rs — cargo refuses a target that is not there, so the weekly run fails on it; this names it at lint time instead',
+    ]);
+  });
+
+  it('holds a target the joined spelling names, exactly as it holds the split one', () => {
+    const live = manifest().replace('"--test", "a_test",', '"--test=a_test",');
+    assert.deepEqual(killSets(tree({ 'crate/.cargo/mutants.toml': live })).staleKillSetEntry, []);
+    const dead = manifest().replace('"--test", "a_test",', '"--test=renamed_test",');
+    assert.deepEqual(killSets(tree({ 'crate/.cargo/mutants.toml': dead })).staleKillSetEntry, [
+      'crate/.cargo/mutants.toml: `test_args` names `--test renamed_test`, which is no tracked binary at crate/tests/renamed_test.rs or at crate/tests/renamed_test/main.rs — cargo refuses a target that is not there, so the weekly run fails on it; this names it at lint time instead',
+    ]);
+  });
+
+  it('accepts a glob argument that selects tracked files — the runner expands it', () => {
+    const source = tree({ 'mutate.desktop.mjs': jsConfig('pkg/tests/*.test.js') });
+    assert.deepEqual(killSets(source).staleKillSetEntry, []);
+  });
+
+  it('reds a glob argument selecting nothing, without the dead-literal explanation', () => {
+    const source = tree({ 'mutate.desktop.mjs': jsConfig('pkg/tests/*.spec.js') });
+    assert.deepEqual(killSets(source).staleKillSetEntry, [
+      'mutate.desktop.mjs: `command` states the glob pkg/tests/*.spec.js, which selects no tracked file — the runner expands it against the tree, so the weekly mutation run takes no test from this entry',
+    ]);
+  });
+
+  it('refuses an argument that globs across directories, which no membership rule models', () => {
+    const source = tree({ 'mutate.desktop.mjs': jsConfig('pkg/*/a.test.js') });
+    assert.deepEqual(killSets(source).unreadableKillSet, [
+      'mutate.desktop.mjs: its `command` globs across directories in `pkg/*/a.test.js`, which this reader does not model',
+    ]);
+  });
+
+  it('discovers every configuration the glob names, so a new one joins by existing', () => {
+    const source = tree({ 'mutate.shared.mjs': jsConfig('pkg/tests/nowhere.test.js') });
+    assert.deepEqual(killSets(source).staleKillSetEntry, [
+      'mutate.shared.mjs: `command` names pkg/tests/nowhere.test.js, which is not a tracked file — the weekly mutation run drops it in silence, since `node --test` runs the paths it finds and reports nothing for the one it does not',
+    ]);
+  });
+
+  it('flags a module the configuration mutates that the document does not state', () => {
+    const source = tree({ 'crate/.cargo/mutants.toml': manifest({ globs: ['src/a.rs', 'src/b.rs'] }) }); // prettier-ignore
+    assert.deepEqual(killSets(source).mutateScopeDrift, [
+      '`src/b.rs` is in `examine_globs` in crate/.cargo/mutants.toml but has no row in docs/mutation.md §XX-3',
+    ]);
+  });
+
+  it('flags a module the document states that the configuration does not mutate', () => {
+    const source = tree({ 'docs/mutation.md': scopeDoc(['src/a.rs', 'src/stale.rs']) });
+    assert.deepEqual(killSets(source).mutateScopeDrift, [
+      '`src/stale.rs` is a row of docs/mutation.md §XX-3 but is not in `examine_globs` in crate/.cargo/mutants.toml',
+    ]);
+  });
+
+  it('flags a module the document states twice — the drift a set diff cannot see', () => {
+    const source = tree({ 'docs/mutation.md': scopeDoc(['src/a.rs', 'src/a.rs']) });
+    assert.deepEqual(killSets(source).mutateScopeDrift, [
+      '`src/a.rs` appears more than once in docs/mutation.md §XX-3',
+    ]);
+  });
+
+  it('flags a module the configuration states twice — both statements read alike', () => {
+    const source = tree({
+      'crate/.cargo/mutants.toml': manifest({ globs: ['src/a.rs', 'src/a.rs'] }),
+    });
+    assert.deepEqual(killSets(source).mutateScopeDrift, [
+      '`src/a.rs` appears more than once in `examine_globs` in crate/.cargo/mutants.toml',
+    ]);
+  });
+
+  it('reds a module both surfaces agree on that the tree does not carry', () => {
+    // The two surfaces edited in step agree with each other about a module
+    // nothing mutates, which the agreement diff between them cannot see.
+    const agreed = tree({
+      'crate/.cargo/mutants.toml': manifest({ globs: ['src/a.rs', 'src/gone.rs'] }),
+      'docs/mutation.md': scopeDoc(['src/a.rs', 'src/gone.rs']),
+    });
+    const result = killSets(agreed);
+    assert.deepEqual(result.mutateScopeDrift, []);
+    assert.deepEqual(result.deadScopeModule, [
+      'crate/.cargo/mutants.toml: `examine_globs` names src/gone.rs, which is no tracked source at crate/src/gone.rs — both this configuration and docs/mutation.md §XX-3 state it',
+    ]);
+    // Stated by the configuration alone, the line says so and the agreement
+    // diff answers for the missing row separately.
+    const oneSided = tree({
+      'crate/.cargo/mutants.toml': manifest({ globs: ['src/a.rs', 'src/gone.rs'] }),
+    });
+    assert.deepEqual(killSets(oneSided).deadScopeModule, [
+      'crate/.cargo/mutants.toml: `examine_globs` names src/gone.rs, which is no tracked source at crate/src/gone.rs — this configuration states it',
+    ]);
+  });
+
+  it('holds a pattern entry to selecting a source, naming the form when it selects none', () => {
+    const selecting = tree({
+      'crate/.cargo/mutants.toml': manifest({ globs: ['src/*.rs'] }),
+      'docs/mutation.md': scopeDoc(['src/*.rs']),
+    });
+    assert.deepEqual(killSets(selecting).deadScopeModule, []);
+    const empty = tree({
+      'crate/.cargo/mutants.toml': manifest({ globs: ['src/capture/*.rs'] }),
+      'docs/mutation.md': scopeDoc(['src/capture/*.rs']),
+    });
+    assert.deepEqual(killSets(empty).deadScopeModule, [
+      'crate/.cargo/mutants.toml: `examine_globs` states the pattern src/capture/*.rs, which selects no tracked source under crate/ — both this configuration and docs/mutation.md §XX-3 state it',
+    ]);
+  });
+
+  it('reads each declared source at its own path, so a refusal names the file it opened', () => {
+    // The scope config and the kill-set config are two declared paths: reading
+    // the scope out of the neighbour's content would refuse a file this audit
+    // never opened, and diff a list it never read.
+    const source = tree();
+    const apart = { ...SETS.scope, config: 'crate/.cargo/scope.toml' };
+    const result = killSets(source, { mutateScope: apart });
+    assert.deepEqual(result.unreadableKillSet, [
+      'crate/.cargo/scope.toml: the mutate scope this leg reads could not be read',
+    ]);
+    assert.deepEqual(result.mutateScopeDrift, []);
+    assert.deepEqual(result.staleKillSetEntry, []);
+  });
+
+  it('diffs the scope against the list in the file it names, not one it already read', () => {
+    const source = {
+      ...tree({ 'docs/mutation.md': scopeDoc(['src/z.rs']) }),
+      'crate/.cargo/scope.toml': 'examine_globs = [\n  "src/z.rs",\n]\n',
+    };
+    const result = killSets(source, {
+      files: [...files(source), 'crate/src/z.rs'],
+      mutateScope: { ...SETS.scope, config: 'crate/.cargo/scope.toml' },
+    });
+    assert.deepEqual(result.mutateScopeDrift, []);
+    assert.deepEqual(result.deadScopeModule, []);
+    assert.deepEqual(result.unreadableKillSet, []);
+  });
+
+  it('refuses a tree the glob discovers no configuration in', () => {
+    const source = { 'crate/.cargo/mutants.toml': manifest(), 'docs/mutation.md': scopeDoc() };
+    assert.deepEqual(killSets(source).unreadableKillSet, [
+      'no tracked file matches `mutate.*.mjs`, so the JavaScript kill sets this leg holds are not where it reads them',
+    ]);
+  });
+
+  it('refuses a configuration it cannot read, and one whose list it cannot find', () => {
+    const unreadable = killSets(tree(), {
+      files: [...files(tree()), 'mutate.gone.mjs'],
+    });
+    assert.ok(
+      unreadable.unreadableKillSet.includes(
+        'mutate.gone.mjs: mutation configuration could not be read',
+      ),
+    );
+    const renamed = killSets(tree({ 'mutate.desktop.mjs': 'export default { commandRunner: {} };' })); // prettier-ignore
+    assert.deepEqual(renamed.unreadableKillSet, [
+      'mutate.desktop.mjs: no `command: [...]` array literal found',
+    ]);
+  });
+
+  it('refuses a command list that states no runner invocation, and one it cannot resolve', () => {
+    const noRunner = killSets(
+      tree({ 'mutate.desktop.mjs': "export default { commandRunner: { command: ['vitest run'] } };" }), // prettier-ignore
+    );
+    assert.deepEqual(noRunner.unreadableKillSet, [
+      'mutate.desktop.mjs: its `command` states no `node --test` invocation, so the kill set this leg holds is not where it reads it',
+    ]);
+    const relocated = killSets(
+      tree({ 'mutate.desktop.mjs': jsConfig('a.test.js').replace('node --test', 'cd pkg && node --test') }), // prettier-ignore
+    );
+    assert.match(relocated.unreadableKillSet[0], /its `command` runs `node --test` in a directory a `cd` moved/); // prettier-ignore
+  });
+
+  it('refuses a cargo configuration it cannot read, both lists at once', () => {
+    const source = { 'mutate.desktop.mjs': jsConfig('pkg/tests/a.test.js'), 'docs/mutation.md': scopeDoc() }; // prettier-ignore
+    const result = killSets(source, { files: [...Object.keys(source), 'pkg/tests/a.test.js'] });
+    assert.deepEqual(result.unreadableKillSet, [
+      'crate/.cargo/mutants.toml: the mutation configuration this leg reads could not be read',
+      'crate/.cargo/mutants.toml: the mutate scope this leg reads could not be read',
+    ]);
+    assert.deepEqual(result.mutateScopeDrift, []);
+  });
+
+  it('refuses a document it cannot read, and holds no scope against half a pair', () => {
+    const source = tree();
+    delete source['docs/mutation.md'];
+    const result = killSets(source, { files: files(tree()) });
+    assert.deepEqual(result.unreadableKillSet, [
+      'docs/mutation.md: the document stating the mutate scope could not be read',
+    ]);
+    assert.deepEqual(result.mutateScopeDrift, []);
+  });
+
+  it('refuses each list of a readable manifest it cannot read as a list, separately', () => {
+    // The two lists answer for themselves: the kill set and the mutate scope
+    // are read from the same file, and one being unreadable says nothing about
+    // the other.
+    const source = tree({
+      'crate/.cargo/mutants.toml': 'examine_globs = 3\ntest_args = "a"\n',
+    });
+    assert.deepEqual(killSets(source).unreadableKillSet, [
+      'crate/.cargo/mutants.toml: `test_args` is assigned `"a"`, which is not the array literal this reader models',
+      'crate/.cargo/mutants.toml: `examine_globs` is assigned `3`, which is not the array literal this reader models',
+    ]);
+  });
+
+  it('refuses a document whose scope table is not where this leg reads it', () => {
+    const source = tree({ 'docs/mutation.md': '# Mutation\n\n**XX-3.** No table here.\n' });
+    assert.deepEqual(killSets(source).unreadableKillSet, [
+      'docs/mutation.md: states no table headed "Module" inside §XX-3, where this leg reads the mutate scope',
+    ]);
+    assert.deepEqual(killSets(source).mutateScopeDrift, []);
+  });
+
+  it('refuses a kill-set list whose entries it cannot pair, naming the list', () => {
+    const source = tree({
+      'crate/.cargo/mutants.toml': manifest().replace('"--lib",', '"--features", "windows",'),
+    });
+    assert.match(
+      killSets(source).unreadableKillSet[0],
+      /`test_args` states `windows`, which this reader does not model/,
+    );
+  });
+
+  it('formats every populated problem class this audit reports', () => {
+    const blocks = formatProblems({
+      staleKillSetEntry: ['an entry'],
+      mutateScopeDrift: ['a module'],
+      deadScopeModule: ['a module'],
+      unreadableKillSet: ['a source'],
+    });
+    assert.equal(blocks.length, 4);
+    // One heading over both entry kinds: a dead literal names a file that is
+    // not there, and a glob names a set with nothing in it.
+    assert.match(blocks[0], /name no test file that is there[\s\S]*Fix: repoint each entry/);
+    // One heading over both kinds this class aggregates: a disagreement
+    // between the surfaces, and a module one surface states twice.
+    assert.match(
+      blocks[1],
+      /stated by one surface and not the other, or stated twice by one[\s\S]*Fix: state the scope/,
+    );
+    assert.match(blocks[2], /name no source the tree carries[\s\S]*Fix: repoint each entry/);
+    // The refusal block carries both surfaces, so its heading names both: a
+    // scope-table refusal routed under a kill-set headline would send a reader
+    // to the wrong file.
+    assert.match(
+      blocks[3],
+      /mutation kill-set or mutate-scope source\(s\) could not be read as what they state[\s\S]*Fix: restore the shape/,
+    );
+  });
+});
+
 describe('real-tree lock', () => {
   it('the committed inventories and coverage lists hold', () => {
     assert.deepEqual(
@@ -1419,7 +1987,22 @@ describe('real-tree lock', () => {
     assert.deepEqual(result.undiscoveredBinary, []);
   });
 
-  it('every configured document, suite, and coverage list is in the tree', () => {
+  it('the committed mutation kill sets name test files that are there', () => {
+    // The staleness guard's own day-one green, pinned by name rather than left
+    // inside the aggregate: one dead desktop entry was live on the tree when
+    // this leg was written, and removing it is what turned this green.
+    const result = auditMutationKillSets({ files: trackedFiles(), readFile: readRepoFile });
+    assert.deepEqual(result.staleKillSetEntry, []);
+    assert.deepEqual(result.unreadableKillSet, []);
+  });
+
+  it('the committed mutate scope is stated the same by its config and its document', () => {
+    const result = auditMutationKillSets({ files: trackedFiles(), readFile: readRepoFile });
+    assert.deepEqual(result.mutateScopeDrift, []);
+    assert.deepEqual(result.deadScopeModule, []);
+  });
+
+  it('every configured document, suite, coverage list, and kill set is in the tree', () => {
     const files = trackedFiles();
     const tracked = new Set(files);
     for (const { doc, dir, selects } of DOC_INVENTORIES) {
@@ -1430,6 +2013,15 @@ describe('real-tree lock', () => {
       );
     }
     for (const { file } of TRACKED_LISTS) assert.ok(tracked.has(file), `${file} is tracked`);
+    const jsConfigs = files.filter((f) => basenameGlobToRegExp(JS_KILL_SETS.glob).test(f));
+    assert.ok(jsConfigs.length > 0, `${JS_KILL_SETS.glob} names tracked configurations`);
+    assert.ok(tracked.has(RUST_KILL_SET.config), `${RUST_KILL_SET.config} is tracked`);
+    assert.ok(tracked.has(MUTATE_SCOPE.config), `${MUTATE_SCOPE.config} is tracked`);
+    assert.ok(tracked.has(MUTATE_SCOPE.doc), `${MUTATE_SCOPE.doc} is tracked`);
+    assert.ok(
+      files.some((f) => f.startsWith(`${RUST_KILL_SET.dir}/`)),
+      `${RUST_KILL_SET.dir} holds tracked test binaries`,
+    );
   });
 
   it('each membership rule matches the discovery it mirrors', () => {
