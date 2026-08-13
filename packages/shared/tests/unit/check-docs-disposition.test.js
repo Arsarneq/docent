@@ -53,6 +53,7 @@ const MAP = {
   },
   unassigned: [],
   'declared-governance': [],
+  'governance-partitions': [],
 };
 
 const REGISTRY = {
@@ -775,13 +776,17 @@ describe('run() release-automation class — the generated PR body carries no se
     'schemas/extension.delta.json': '{\n  "version": "3.0.0"\n}\n',
     'schemas/dist/extension.schema.json': '{\n  "x": 1\n}\n',
     // Governance data the non-exempt path reads; unchanged between the two
-    // commits, so it never enters the diff under test.
+    // commits, so it never enters the diff under test. The map is shape-valid —
+    // the check compiles it before resolving scope — and its one area owns a
+    // tree none of these files sit in, so the scope stays the edited repo-wide
+    // README line alone.
     [MAP_PATH]: JSON.stringify({
       description: 'fixture map',
       'repo-wide': { description: 'x', docs: ['README.md'] },
-      areas: {},
+      areas: { unrelated: { code: ['packages/unrelated/**'], docs: ['docs/unrelated.md'] } },
       unassigned: [],
       'declared-governance': [],
+      'governance-partitions': [],
     }),
     [REGISTRY_PATH]: JSON.stringify({
       description: 'fixture registry',
@@ -1101,13 +1106,17 @@ describe('auditBody — the governance-data-only record', () => {
 });
 
 describe('run() governance-data-only class — the recorded line end to end', () => {
+  // Shape-valid (the check compiles the map before resolving scope), with one
+  // area owning a tree none of these files sit in — so the scope the non-class
+  // case computes stays the edited repo-wide README line alone.
   const fixtureMap = (description) =>
     JSON.stringify({
       description,
       'repo-wide': { description: 'x', docs: ['README.md'] },
-      areas: {},
+      areas: { unrelated: { code: ['packages/unrelated/**'], docs: ['docs/unrelated.md'] } },
       unassigned: [],
       'declared-governance': [],
+      'governance-partitions': [],
     });
 
   const REGISTRY_FIXTURE = JSON.stringify({
@@ -1170,6 +1179,62 @@ describe('run() governance-data-only class — the recorded line end to end', ()
         `stdout: ${r.stdout}\nstderr: ${r.stderr}`,
     );
     assert.match(r.stderr, /outside the governance-data-only class/);
+  });
+});
+
+describe('run() on a malformed area map — the red is the refusal, on the ordinary red path', () => {
+  // The check reads the map to derive scope, so a map that is not shape-valid is
+  // breakage on its own input. The red names that surface and enumerates what is
+  // wrong with it — the same posture the class tests above pin: the red is the
+  // verdict itself, not a crash on the way to it.
+  const REGISTRY_FIXTURE = JSON.stringify({
+    description: 'fixture registry',
+    prefixes: {},
+    retired: {},
+    clauses: [],
+  });
+
+  /** Shape-invalid: `areas` is empty, and the partitions are a bare-string list. */
+  const malformedMap = JSON.stringify({
+    description: 'fixture map',
+    'repo-wide': { description: 'x', docs: ['README.md'] },
+    areas: {},
+    unassigned: [],
+    'declared-governance': [],
+    'governance-partitions': ['packages/alpha/**'],
+  });
+
+  it('exits non-zero naming the map and its shape errors, with no stack trace', () => {
+    const r = runCheckOnChange(
+      {
+        'README.md': 'a repo-wide doc\n',
+        [MAP_PATH]: malformedMap,
+        [REGISTRY_PATH]: REGISTRY_FIXTURE,
+      },
+      { 'README.md': 'an edited repo-wide doc\n' },
+      {
+        PR_BODY: [
+          '## Docs disposition',
+          '',
+          'unaffected: README.md — nothing here touches it',
+          '',
+          '## Change record',
+          '',
+          'Intent: test.',
+          'Outside knowledge: none.',
+          'mutation: no per-change claim; mutation testing runs as a standing weekly job.',
+        ].join('\n'),
+      },
+    );
+    assert.equal(
+      r.status,
+      1,
+      `expected the malformed map to red (exit 1), got exit ${r.status}.\n` +
+        `stdout: ${r.stdout}\nstderr: ${r.stderr}`,
+    );
+    assert.match(r.stderr, new RegExp(`${MAP_PATH.replace('.', '\\.')} is malformed`));
+    assert.match(r.stderr, /"areas" must be a non-empty object/);
+    assert.doesNotMatch(r.stderr, /^\s+at /m); // a verdict, not a thrown stack
   });
 });
 

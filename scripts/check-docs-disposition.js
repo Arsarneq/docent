@@ -62,7 +62,9 @@
  * too, with the marker line standing in for the per-doc lines.
  *
  * Red output enumerates the exact lines expected, so the check teaches its
- * own fix.
+ * own fix — except where the area map no longer fits the shape this check
+ * reads it through, which prints that shape refusal instead, there being no
+ * scope to derive the lines from.
  *
  * Inputs (CI): PR_BODY via env (from the event payload, never interpolated
  * into a shell), PR_HEAD_REF via env (the workflow computes it as the head
@@ -77,7 +79,13 @@ import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 import { isDeepStrictEqual } from 'node:util';
-import { compileMap, resolveFile, globToRegExp, MAP_PATH } from './check-area-map.js';
+import {
+  compileMap,
+  resolveFile,
+  globToRegExp,
+  MAP_PATH,
+  refuseOnShapeError,
+} from './check-area-map.js';
 import { AUTOMATED_BRANCH, isAllowedReleaseOutput } from './check-no-release-outputs.js';
 
 /** Repo-relative path of the clause registry (same file check-clause-registry.js guards). */
@@ -637,7 +645,15 @@ function run() {
         return null;
       }
     };
-    docs = docsInScope({ files, map, readFile });
+    try {
+      docs = docsInScope({ files, map, readFile });
+    } catch (err) {
+      // A map that no longer fits the shape this check reads it through is a
+      // refusal on the check's own input: the red is that named verdict,
+      // printed as the refusal states it on the ordinary red path — never a
+      // stack trace, and never an expected-line list derived from nothing.
+      refuseOnShapeError(err);
+    }
     expected = expectedDispositionLines({ docs, registry });
   }
   const r = auditBody({ body, expected, governanceData });

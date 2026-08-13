@@ -7,9 +7,17 @@
  *       (via a code pattern, doc-set membership, or a `// see docs/<path>.md`
  *       pointer in the file), or be a repo-wide doc, or match an `unassigned`
  *       entry. A file nobody owns is a red, not a shrug.
- *   (b) staleness — every code pattern (each brace alternative counted on its
- *       own) must match at least one tracked file, and every literal entry
- *       (docs, source-of-truth, repo-wide, unassigned) must point at something
+ *   (b) staleness — every pattern the map states, in whichever list states it
+ *       (an area's code patterns, an `unassigned` exception, a
+ *       `declared-governance` declaration, a `governance-partitions` tree), must
+ *       still describe the tree: each of its brace alternatives must match at
+ *       least one tracked file. An alternative that matches nothing while its
+ *       siblings still match reds on that alternative alone — braces expand to
+ *       their groups' cross product, so what is held is what the pattern
+ *       expands to rather than what its entry visibly spells, and the entry is
+ *       rewritten until every expansion matches, the entry itself staying — and
+ *       an entry with no live alternative left is stale as a whole. Every
+ *       literal entry (docs, source-of-truth, repo-wide) must point at something
  *       tracked. A dead entry is a red.
  *   (c) doc coverage — every tracked `.md` anywhere in the repo must be a
  *       repo-wide doc, belong to at least one area's doc set, or match an
@@ -30,13 +38,19 @@
  *       declared twice, or one that also sources governance from a repo-wide doc
  *       or a `// see docs/…` pointer into a live doc set, is a red (conflict /
  *       cross-governed — declare in one place); a governed-by target that is
- *       untracked or homeless (in no doc set and not repo-wide) is a red.
+ *       untracked or homeless (in no doc set and not repo-wide) is a red; and a
+ *       declaration matching no tracked file is stale (a red, as for
+ *       `unassigned`), with a dead brace alternative of a still-matching
+ *       declaration red on that alternative alone.
  *   (f) governance partitions — `governance-partitions` lists the trees whose
  *       files each declare their own governance, one `{ pattern, reason }` entry
  *       per tree. Every tracked file matching a partition pattern carries a
  *       `declared-governance` entry, so a new file there states its subject rather
- *       than inheriting the union its tree ride supplies; a partition pattern
- *       matching no tracked file is stale (a red, as for `unassigned`), and a
+ *       than inheriting the union its tree ride supplies — that red naming the
+ *       tree which claims the file and the reason its files declare one by one;
+ *       a partition pattern matching no tracked file is stale (a red, as for
+ *       `unassigned`), with a dead brace alternative of a still-matching pattern
+ *       red on that alternative alone, and a
  *       tracked file two partition entries both claim is a red naming them, since
  *       one entry per tree is what makes a partition's reason the file's own.
  *       Inside a partitioned tree an equal-set declaration is the honest statement
@@ -69,7 +83,8 @@
  * `{a,b}` alternation. Doc entries are literal paths, never patterns.
  *
  * Usage:
- *   node scripts/check-area-map.js      # or: npm run lint:area-map
+ *   node scripts/check-area-map.js                  # or: npm run lint:area-map
+ *   node scripts/check-area-map.js --explain <path> # what the map says about one file
  */
 
 import { execFileSync } from 'node:child_process';
@@ -78,6 +93,52 @@ import { pathToFileURL } from 'node:url';
 
 /** Repo-relative path of the map this check guards. */
 export const MAP_PATH = 'scripts/area-map.json';
+
+/** `name` of the refusal `compileMap` raises on a map that is not shape-valid. */
+export const SHAPE_ERROR_NAME = 'AreaMapShapeError';
+
+/** The printed verdict for a set of shape errors — the one home of its wording. */
+const shapeVerdict = (errors) =>
+  `✗ ${MAP_PATH} is malformed:\n` + errors.map((e) => `    ${e}`).join('\n');
+
+/**
+ * The refusal `compileMap` raises when handed a map that is not shape-valid.
+ * Its message is the complete verdict — every error `validateShape` reported,
+ * under the map's path — so a consumer catching it prints the message as its
+ * own red rather than re-deriving anything, and `name` identifies the refusal
+ * without depending on a shared class instance.
+ */
+export class AreaMapShapeError extends Error {
+  /** @param {string[]} shapeErrors every error validateShape reported */
+  constructor(shapeErrors) {
+    super(shapeVerdict(shapeErrors));
+    this.name = SHAPE_ERROR_NAME;
+    this.shapeErrors = shapeErrors;
+  }
+}
+
+/**
+ * The refusal posture every command line that resolves through the map shares,
+ * in one home so they cannot answer differently: a map that is not shape-valid
+ * is breakage on the check's own input, so the caller prints the refusal's own
+ * message and ends red on the ordinary red path, while anything else it caught
+ * is rethrown untouched. The printing and exiting seams are parameters so the
+ * decision can be exercised without ending the process.
+ * @param {unknown} err the error a caller caught around a map consumer
+ * @param {object} [io] the print and exit seams
+ * @param {(message: string) => void} [io.error] where the refusal is printed
+ * @param {(code: number) => void} [io.exit] how the run ends
+ * @throws {unknown} whatever it was handed, when that is not the shape refusal
+ * @returns {void}
+ */
+export function refuseOnShapeError(
+  err,
+  { error = (m) => console.error(m), exit = (c) => process.exit(c) } = {},
+) {
+  if (err?.name !== SHAPE_ERROR_NAME) throw err;
+  error(err.message);
+  exit(1);
+}
 
 /** Characters a pattern may contain (checked before compiling). */
 const PATTERN_ALLOWED = /^[A-Za-z0-9_\-./*{},]+$/;
@@ -179,7 +240,71 @@ export function extractDocPointers(content) {
   return [...targets];
 }
 
+/**
+ * One compiled brace alternative: the pattern as the map states it, the
+ * alternative it expands to, and the matcher that alternative compiles to.
+ * @typedef {{ pattern: string, alternative: string, regex: RegExp }} Matcher
+ */
+
+/**
+ * Compile one pattern into a matcher per brace alternative. Every
+ * pattern-bearing entry the map states — an area's code patterns, an
+ * `unassigned` exception, a `declared-governance` declaration, a
+ * `governance-partitions` tree — compiles through this one idiom, so matching
+ * and per-alternative liveness cannot drift apart between lists.
+ * @param {string} pattern a pattern as the map states it (braces allowed)
+ * @returns {Matcher[]} one entry per brace alternative
+ */
+export function compileAlternatives(pattern) {
+  return expandBraces(pattern).map((alternative) => ({
+    pattern,
+    alternative,
+    regex: globToRegExp(alternative),
+  }));
+}
+
+/** Does any alternative of a compiled entry match this file? */
+const matches = (matchers, file) => matchers.some((m) => m.regex.test(file));
+
 const isLiteralPath = (p) => typeof p === 'string' && p.length > 0 && !/[*{},]/.test(p);
+
+/**
+ * Validate one justified list. The `unassigned`, `declared-governance`, and
+ * `governance-partitions` lists state their entries in the same shape — an
+ * object naming a file or tree under one key, a non-empty reason recording why
+ * the entry exists, and a pattern that compiles — so they are validated once
+ * here, with each list's own wording and its own extra checks passed in.
+ * @param {object} spec
+ * @param {any} spec.value the map's value for the list
+ * @param {string} spec.list the map key the list sits under
+ * @param {string} spec.key the entry field naming the file or tree
+ * @param {string} spec.reasonWhy what this list's reason records
+ * @param {string} [spec.missingHint] appended to the missing-key error
+ * @param {(entry: any, errors: string[]) => void} [spec.extra] this list's further checks
+ * @param {string[]} errors collected shape errors
+ */
+function validateJustifiedList({ value, list, key, reasonWhy, missingHint = '', extra }, errors) {
+  if (!Array.isArray(value)) {
+    errors.push(`"${list}" must be an array`);
+    return;
+  }
+  for (const entry of value) {
+    if (!entry || typeof entry !== 'object' || typeof entry[key] !== 'string' || !entry[key]) {
+      errors.push(`${list} entry missing "${key}": ${JSON.stringify(entry)}${missingHint}`);
+      continue;
+    }
+    const named = entry[key];
+    if (typeof entry.reason !== 'string' || !entry.reason.trim()) {
+      errors.push(`${list} entry "${named}" has no reason — ${reasonWhy}`);
+    }
+    extra?.(entry, errors);
+    try {
+      compileAlternatives(named);
+    } catch (e) {
+      errors.push(`${list} entry "${named}": ${e.message}`);
+    }
+  }
+}
 
 /**
  * Validate the map's shape (keys, types, literal-path rules, non-empty
@@ -226,7 +351,7 @@ export function validateShape(map) {
             continue;
           }
           try {
-            expandBraces(g).forEach(globToRegExp);
+            compileAlternatives(g);
           } catch (e) {
             errors.push(`area "${name}": ${e.message}`);
           }
@@ -259,49 +384,35 @@ export function validateShape(map) {
       }
     }
   }
-  if (!Array.isArray(map.unassigned)) {
-    errors.push('"unassigned" must be an array');
-  } else {
-    for (const entry of map.unassigned) {
-      if (!entry || typeof entry !== 'object' || typeof entry.path !== 'string' || !entry.path) {
-        errors.push(`unassigned entry missing "path": ${JSON.stringify(entry)}`);
-        continue;
-      }
-      if (typeof entry.reason !== 'string' || !entry.reason.trim()) {
-        errors.push(
-          `unassigned entry "${entry.path}" has no reason — every exception is justified`,
-        );
-      }
-      try {
-        expandBraces(entry.path).forEach(globToRegExp);
-      } catch (e) {
-        errors.push(`unassigned entry "${entry.path}": ${e.message}`);
-      }
-    }
-  }
-  if (!Array.isArray(map['declared-governance'])) {
-    errors.push('"declared-governance" must be an array');
-  } else {
-    for (const entry of map['declared-governance']) {
-      if (!entry || typeof entry !== 'object' || typeof entry.path !== 'string' || !entry.path) {
-        errors.push(`declared-governance entry missing "path": ${JSON.stringify(entry)}`);
-        continue;
-      }
-      if (typeof entry.reason !== 'string' || !entry.reason.trim()) {
-        errors.push(
-          `declared-governance entry "${entry.path}" has no reason — every declaration says what the file is`,
-        );
-      }
-      if (!Array.isArray(entry['governed-by'])) {
-        errors.push(
-          `declared-governance entry "${entry.path}": "governed-by" must be present (an array; [] states the governing set is empty) — every declaration names its governing docs`,
-        );
-      } else {
+  validateJustifiedList(
+    {
+      value: map.unassigned,
+      list: 'unassigned',
+      key: 'path',
+      reasonWhy: 'every exception is justified',
+    },
+    errors,
+  );
+  validateJustifiedList(
+    {
+      value: map['declared-governance'],
+      list: 'declared-governance',
+      key: 'path',
+      reasonWhy: 'every declaration says what the file is',
+      // A declaration also names its governing docs: literal doc paths, or
+      // `area:<name>` references to an area of this map that carries docs.
+      extra: (entry, errs) => {
+        if (!Array.isArray(entry['governed-by'])) {
+          errs.push(
+            `declared-governance entry "${entry.path}": "governed-by" must be present (an array; [] states the governing set is empty) — every declaration names its governing docs`,
+          );
+          return;
+        }
         for (const d of entry['governed-by']) {
           const ref = areaRefName(d);
           if (ref === null) {
             if (!isLiteralPath(d)) {
-              errors.push(
+              errs.push(
                 `declared-governance entry "${entry.path}": governed-by is not a literal path: ${JSON.stringify(d)}`,
               );
             }
@@ -309,76 +420,69 @@ export function validateShape(map) {
           }
           const area = map.areas[ref];
           if (!area) {
-            errors.push(
+            errs.push(
               `declared-governance entry "${entry.path}": governed-by reference "${d}" names an area this map does not define`,
             );
           } else if (!Array.isArray(area.docs) || area.docs.length === 0) {
-            errors.push(
+            errs.push(
               `declared-governance entry "${entry.path}": governed-by reference "${d}" names an area that carries no docs — state the governing set with [] or literal doc paths`,
             );
           }
         }
-      }
-      try {
-        expandBraces(entry.path).forEach(globToRegExp);
-      } catch (e) {
-        errors.push(`declared-governance entry "${entry.path}": ${e.message}`);
-      }
-    }
-  }
-  if (!Array.isArray(map['governance-partitions'])) {
-    errors.push('"governance-partitions" must be an array');
-  } else {
-    for (const entry of map['governance-partitions']) {
-      if (
-        !entry ||
-        typeof entry !== 'object' ||
-        typeof entry.pattern !== 'string' ||
-        !entry.pattern
-      ) {
-        errors.push(
-          `governance-partitions entry missing "pattern": ${JSON.stringify(entry)} — each partition is an object naming the tree it covers, { "pattern": …, "reason": … }`,
-        );
-        continue;
-      }
-      if (typeof entry.reason !== 'string' || !entry.reason.trim()) {
-        errors.push(
-          `governance-partitions entry "${entry.pattern}" has no reason — every partition records why its tree declares file by file`,
-        );
-      }
-      try {
-        expandBraces(entry.pattern).forEach(globToRegExp);
-      } catch (e) {
-        errors.push(`governance-partitions entry "${entry.pattern}": ${e.message}`);
-      }
-    }
-  }
+      },
+    },
+    errors,
+  );
+  validateJustifiedList(
+    {
+      value: map['governance-partitions'],
+      list: 'governance-partitions',
+      key: 'pattern',
+      reasonWhy: 'every partition records why its tree declares file by file',
+      missingHint:
+        ' — each partition is an object naming the tree it covers, { "pattern": …, "reason": … }',
+    },
+    errors,
+  );
   return errors;
 }
 
 /**
- * Compile a shape-valid map once so per-file resolution is cheap.
+ * Compile a map once so per-file resolution is cheap.
+ *
+ * Shape-validity is this function's enforced precondition, not a documented
+ * assumption: a map `validateShape` rejects is refused here with an
+ * {@link AreaMapShapeError} carrying every reported error, so a consumer of the
+ * map fails on a named verdict about its input rather than deep inside the glob
+ * machinery. (`auditMap` validates before calling and reports the errors as its
+ * own result, so its graceful path never reaches this refusal.)
  *
  * This is the ONE place `area:<name>` references expand: each declared entry
- * carries both its RAW `governed-by` elements (what the map literally says, for
- * literal-target validation) and the EXPANDED doc set every consumer of the
- * declared governing set reads.
- * @param {any} map parsed area-map.json (must be shape-valid)
+ * carries both `rawGovernedBy` (the elements the map literally states, for
+ * literal-target validation) and `expandedGovernedBy` (the doc set every
+ * consumer of the declared governing set reads).
+ * @param {any} map parsed area-map.json
+ * @throws {AreaMapShapeError} when the map is not shape-valid
  * @returns {{
  *   map: any,
- *   areas: Map<string, { regexes: RegExp[], docs: Set<string> }>,
+ *   areas: Map<string, { codeEntries: { pattern: string, matchers: Matcher[] }[], docs: Set<string> }>,
  *   docSets: Set<string>,
  *   repoWideDocs: Set<string>,
- *   unassigned: { path: string, regexes: RegExp[] }[],
- *   declaredGovernance: { path: string, regexes: RegExp[], governedBy: string[], governedDocs: string[] }[],
- *   partitions: { pattern: string, regexes: RegExp[] }[]
+ *   unassigned: { path: string, matchers: Matcher[] }[],
+ *   declaredGovernance: { path: string, matchers: Matcher[], rawGovernedBy: string[], expandedGovernedBy: string[] }[],
+ *   partitions: { pattern: string, reason: string, matchers: Matcher[] }[]
  * }}
  */
 export function compileMap(map) {
+  const shapeErrors = validateShape(map);
+  if (shapeErrors.length) throw new AreaMapShapeError(shapeErrors);
   const areas = new Map();
   for (const [name, area] of Object.entries(map.areas)) {
     areas.set(name, {
-      regexes: (area.code ?? []).flatMap((g) => expandBraces(g).map(globToRegExp)),
+      codeEntries: (area.code ?? []).map((pattern) => ({
+        pattern,
+        matchers: compileAlternatives(pattern),
+      })),
       docs: new Set(area.docs ?? []),
     });
   }
@@ -399,19 +503,100 @@ export function compileMap(map) {
     repoWideDocs: new Set(map['repo-wide'].docs),
     unassigned: map.unassigned.map((e) => ({
       path: e.path,
-      regexes: expandBraces(e.path).map(globToRegExp),
+      matchers: compileAlternatives(e.path),
     })),
     declaredGovernance: (map['declared-governance'] ?? []).map((e) => ({
       path: e.path,
-      regexes: expandBraces(e.path).map(globToRegExp),
-      governedBy: e['governed-by'] ?? [],
-      governedDocs: expandGovernedBy(e['governed-by'] ?? []),
+      matchers: compileAlternatives(e.path),
+      rawGovernedBy: e['governed-by'] ?? [],
+      expandedGovernedBy: expandGovernedBy(e['governed-by'] ?? []),
     })),
     partitions: (map['governance-partitions'] ?? []).map((e) => ({
       pattern: e.pattern,
-      regexes: expandBraces(e.pattern).map(globToRegExp),
+      reason: e.reason,
+      matchers: compileAlternatives(e.pattern),
     })),
   };
+}
+
+/**
+ * Every pattern-bearing entry of a compiled map, in one list: the list it sits
+ * in, the entry as the map states it, the subject a red names it by, and its
+ * compiled alternatives. A leg that runs over patterns reads the map through
+ * this enumeration, so a list added to the map cannot silently escape it.
+ * @param {ReturnType<typeof compileMap>} compiled
+ * @returns {{ list: string, entry: string, subject: string, matchers: Matcher[] }[]}
+ */
+export function patternEntries(compiled) {
+  const sites = [];
+  for (const [name, area] of compiled.areas) {
+    // An area states one entry per code pattern, so each pattern is its own entry.
+    for (const c of area.codeEntries) {
+      sites.push({
+        list: 'areas',
+        entry: c.pattern,
+        subject: `area "${name}": pattern "${c.pattern}"`,
+        matchers: c.matchers,
+      });
+    }
+  }
+  for (const e of compiled.unassigned) {
+    sites.push({
+      list: 'unassigned',
+      entry: e.path,
+      subject: `"unassigned" entry "${e.path}"`,
+      matchers: e.matchers,
+    });
+  }
+  for (const e of compiled.declaredGovernance) {
+    sites.push({
+      list: 'declared-governance',
+      entry: e.path,
+      subject: `"declared-governance" entry "${e.path}"`,
+      matchers: e.matchers,
+    });
+  }
+  for (const p of compiled.partitions) {
+    sites.push({
+      list: 'governance-partitions',
+      entry: p.pattern,
+      subject: `"governance-partitions" entry "${p.pattern}"`,
+      matchers: p.matchers,
+    });
+  }
+  return sites;
+}
+
+/**
+ * Record one wholly dead pattern-bearing entry against the list that states it.
+ * The `unassigned` and `declared-governance` lists are named here and handed
+ * over deliberately: their per-entry accounting walks the tracked files anyway
+ * and reports a dead entry from there, so recording it again here would
+ * double-fire. A list this dispatch does not answer for is a programming error
+ * in this check — not map rot — so it throws rather than dropping that list's
+ * dead entries in silence.
+ * @param {{ list: string, entry: string, subject: string }} site a dead entry from patternEntries
+ * @param {{ stalePatterns: string[], stalePartitions: string[] }} result the audit result being built
+ * @throws {Error} when the entry's list has no whole-entry verdict here
+ * @returns {void}
+ */
+export function recordDeadEntry(site, result) {
+  switch (site.list) {
+    case 'areas':
+      result.stalePatterns.push(`${site.subject} matches no tracked file`);
+      return;
+    case 'governance-partitions':
+      result.stalePartitions.push(site.entry);
+      return;
+    case 'unassigned':
+    case 'declared-governance':
+      return; // reported by that list's own per-entry accounting
+    default:
+      throw new Error(
+        `no whole-entry verdict for pattern list "${site.list}" — every list patternEntries ` +
+          `states is either reported here or delegated by name`,
+      );
+  }
 }
 
 /**
@@ -422,24 +607,30 @@ export function compileMap(map) {
  * set contains the target.
  *
  * A file may instead **declare** its complete governing set via a
- * `declared-governance` entry: then its `docs` are exactly that `governed-by`
- * set as compiled (`area:<name>` references already expanded to their area's
- * doc set — area docs and pointers contribute nothing more, the complete
- * override), while `areas` (hence coverage) are unchanged. `areaSuppliedDocs` always
+ * `declared-governance` entry: then its `docs` are exactly that declared set as
+ * compiled — `expandedGovernedBy`, with `area:<name>` references already
+ * expanded to their area's doc set, area docs and pointers contributing nothing
+ * more — while `areas` (hence coverage) are unchanged. The declaration is also
+ * reported as the map states it: `declaredEntryPaths` names the matching
+ * entr(ies) and `rawGovernedBy` their elements verbatim, so a caller can show
+ * what the map says beside what it expands to. `areaSuppliedDocs` always
  * reports the bare code/doc-set-area docs — the file's pre-declaration governing
  * set — so the admission test can tell whether a declaration does real work.
  * @param {string} file repo-relative path
  * @param {ReturnType<typeof compileMap>} compiled
  * @param {string | null} [content] file content for pointer scanning
  * @returns {{ areas: string[], docs: string[], areaSuppliedDocs: string[],
- *             declaredGovernance: boolean, governedBy: string[], declaredMatchCount: number,
+ *             declaredGovernance: boolean, declaredEntryPaths: string[],
+ *             rawGovernedBy: string[], expandedGovernedBy: string[],
  *             repoWide: boolean, unassigned: boolean, pointerTargets: string[] }}
  */
 export function resolveFile(file, compiled, content = null) {
   // Areas that own the file via a code pattern or doc-set membership (pointer-independent).
   const codeAreas = new Set();
   for (const [name, area] of compiled.areas) {
-    if (area.docs.has(file) || area.regexes.some((re) => re.test(file))) codeAreas.add(name);
+    if (area.docs.has(file) || area.codeEntries.some((c) => matches(c.matchers, file))) {
+      codeAreas.add(name);
+    }
   }
   const areas = new Set(codeAreas);
   const pointerTargets = content ? extractDocPointers(content) : [];
@@ -455,13 +646,14 @@ export function resolveFile(file, compiled, content = null) {
   }
   // A declaration overrides governance with its own complete set.
   const declaredMatches = (compiled.declaredGovernance ?? []).filter((e) =>
-    e.regexes.some((re) => re.test(file)),
+    matches(e.matchers, file),
   );
   const declaredGovernance = declaredMatches.length > 0;
-  const governedBy = new Set(declaredMatches.flatMap((e) => e.governedDocs));
+  const expandedGovernedBy = new Set(declaredMatches.flatMap((e) => e.expandedGovernedBy));
   let docs;
   if (declaredGovernance) {
-    docs = new Set(governedBy); // exactly the declared set — area docs and pointers do not apply
+    // exactly the declared set — area docs and pointers do not apply
+    docs = new Set(expandedGovernedBy);
   } else {
     docs = new Set();
     for (const name of areas) {
@@ -473,13 +665,99 @@ export function resolveFile(file, compiled, content = null) {
     docs: [...docs],
     areaSuppliedDocs: [...areaSuppliedDocs],
     declaredGovernance,
-    governedBy: [...governedBy],
-    declaredMatchCount: declaredMatches.length,
+    declaredEntryPaths: declaredMatches.map((e) => e.path),
+    rawGovernedBy: [...new Set(declaredMatches.flatMap((e) => e.rawGovernedBy))],
+    expandedGovernedBy: [...expandedGovernedBy],
     repoWide: compiled.repoWideDocs.has(file),
-    unassigned: compiled.unassigned.some((e) => e.regexes.some((re) => re.test(file))),
+    unassigned: compiled.unassigned.some((e) => matches(e.matchers, file)),
     pointerTargets,
   };
 }
+
+/**
+ * Format what the map knows about one file, as the `--explain` mode prints it:
+ * the areas that own it, the docs that govern it, the partitioned tree that
+ * claims it (with the reason its files declare one by one), whether a
+ * declaration answers for it (and if so which entry, what that entry states,
+ * and the doc set it expands to), its repo-wide and exception membership, and
+ * the doc pointers its content names. A path the tree does not carry is
+ * reported as untracked — the map resolves against tracked files, so nothing is
+ * guessed for it.
+ *
+ * The mode answers only what the map answers. A file in a partitioned tree that
+ * declares nothing has no governing set yet — the docs its areas supply are not
+ * it, which is the same reading `auditMap` reds it under — so the report states
+ * the declaration it owes instead. A file that is itself a repo-wide doc is
+ * reported as one wherever its own governing set would otherwise read as an
+ * unqualified absence.
+ * @param {object} opts
+ * @param {string} opts.file repo-relative path
+ * @param {ReturnType<typeof compileMap>} opts.compiled
+ * @param {boolean} opts.tracked whether git tracks the path
+ * @param {string | null} [opts.content] file content for pointer scanning
+ * @returns {string} the report, one fact per line
+ */
+export function explainFile({ file, compiled, tracked, content = null }) {
+  if (!tracked) {
+    return (
+      `${file}\n` +
+      `  untracked — ${MAP_PATH} resolves against the tracked tree, so nothing is stated for this path.`
+    );
+  }
+  const r = resolveFile(file, compiled, content);
+  const list = (values) => (values.length ? values.join(', ') : 'none');
+  const matchedPartitions = compiled.partitions.filter((p) => matches(p.matchers, file));
+  const owesDeclaration = matchedPartitions.length > 0 && !r.declaredGovernance;
+  const lines = [file, `  areas: ${list(r.areas)}`];
+  lines.push(
+    owesDeclaration
+      ? `  governing docs: not stated — this file owes its own declaration (below)`
+      : `  governing docs: ${list(r.docs)}` +
+          (r.repoWide ? ' (and it is itself a repo-wide doc — below)' : ''),
+  );
+  if (matchedPartitions.length) {
+    lines.push(
+      `  in a partitioned tree: ` +
+        matchedPartitions.map((p) => `"${p.pattern}": ${p.reason}`).join(' | '),
+    );
+  }
+  if (r.declaredGovernance) {
+    lines.push(
+      `  declared by: ${list(r.declaredEntryPaths)}`,
+      `    governed-by as written: ${list(r.rawGovernedBy)}`,
+      `    expanded doc set: ${list(r.expandedGovernedBy)}`,
+    );
+  } else if (owesDeclaration) {
+    lines.push(
+      `  declared by: no entry — every file in a partitioned tree states its own subject, so this` +
+        ` one owes a "declared-governance" entry naming its governing set; what its areas supply` +
+        ` is not that set.`,
+    );
+  } else {
+    lines.push(`  declared by: no entry — the docs above are what its areas supply`);
+  }
+  lines.push(
+    `  repo-wide doc: ${
+      r.repoWide
+        ? 'yes — a repo-wide doc governs every area, and editing it puts it in its own disposition scope'
+        : 'no'
+    }`,
+    `  unassigned exception: ${r.unassigned ? 'yes' : 'no'}`,
+    `  doc pointers: ${list(r.pointerTargets)}`,
+  );
+  return lines.join('\n');
+}
+
+/**
+ * How many files per side a straddling declaration's red names before counting
+ * the rest — a wide entry states which files put it on each side without
+ * printing a wall that grows with the tree.
+ */
+export const STRADDLE_SAMPLE = 3;
+
+/** `a, b, c and 4 more` — one side's kept files, with the rest counted. */
+const sample = (kept, total) =>
+  kept.join(', ') + (total > kept.length ? ` and ${total - kept.length} more` : '');
 
 /**
  * Pure core: audit the map against the tracked-file universe.
@@ -497,7 +775,7 @@ export function resolveFile(file, compiled, content = null) {
  *   conflictingGovernance: string[], crossGovernedDeclaration: string[],
  *   badGovernedBy: string[], undeclaredInPartition: string[],
  *   stalePartitions: string[], overlappingPartitions: string[],
- *   straddlingGovernance: string[]
+ *   straddlingGovernance: string[], deadAlternatives: string[]
  * }}
  */
 export function auditMap({ files, map, readFile }) {
@@ -505,6 +783,7 @@ export function auditMap({ files, map, readFile }) {
     shapeErrors: [],
     zeroArea: [],
     stalePatterns: [],
+    deadAlternatives: [],
     untrackedEntries: [],
     uncoveredDocs: [],
     staleUnassigned: [],
@@ -527,18 +806,28 @@ export function auditMap({ files, map, readFile }) {
   const compiled = compileMap(map);
   const result = { ...empty };
 
-  // (b) staleness: every brace alternative matches >=1 tracked file.
-  for (const [name, area] of Object.entries(map.areas)) {
-    for (const g of area.code ?? []) {
-      for (const alt of expandBraces(g)) {
-        const re = globToRegExp(alt);
-        if (!files.some((f) => re.test(f))) {
-          result.stalePatterns.push(
-            `area "${name}": pattern "${alt}"${alt === g ? '' : ` (from "${g}")`} matches no tracked file`,
-          );
-        }
+  // (b) staleness, one leg over every pattern-bearing entry the map states.
+  // An alternative that matches nothing beside siblings that still match is a
+  // red about the ALTERNATIVE — its own condition, its own fix — and does not
+  // double-fire the whole-entry red. An entry with no live alternative left is
+  // dead as a whole: the `unassigned` and `declared-governance` lists report
+  // that through the per-entry accounting further down (which walks the same
+  // files anyway), so the area code patterns and the `governance-partitions`
+  // trees report it here.
+  for (const site of patternEntries(compiled)) {
+    const dead = site.matchers.filter((m) => !files.some((f) => m.regex.test(f)));
+    if (dead.length === 0) continue;
+    if (dead.length < site.matchers.length) {
+      for (const m of dead) {
+        result.deadAlternatives.push(
+          `${site.subject} — alternative "${m.alternative}" matches no tracked file`,
+        );
       }
+      continue;
     }
+    recordDeadEntry(site, result);
+  }
+  for (const [name, area] of Object.entries(map.areas)) {
     for (const d of [...(area.docs ?? []), ...(area['source-of-truth'] ?? [])]) {
       if (!tracked.has(d)) result.untrackedEntries.push(`area "${name}": ${d}`);
     }
@@ -549,8 +838,11 @@ export function auditMap({ files, map, readFile }) {
 
   // (a) coverage + (c) doc-coverage + (d) unassigned self-check.
   const unassignedHits = new Map(map.unassigned.map((e) => [e.path, { total: 0, needed: 0 }]));
-  const isUnassigned = (f) => compiled.unassigned.some((e) => e.regexes.some((re) => re.test(f)));
+  const isUnassigned = (f) => compiled.unassigned.some((e) => matches(e.matchers, f));
   // declared-governance self-check: per entry, does it change any matched file's governing set?
+  // Each side of a partition boundary also keeps the first few files it matched,
+  // so a straddling entry's red can name them without retaining (or printing) a
+  // file list that grows with the tree.
   const govAcc = compiled.declaredGovernance.map((e) => ({
     e,
     total: 0,
@@ -558,6 +850,8 @@ export function auditMap({ files, map, readFile }) {
     allEqual: true,
     inPartition: 0,
     outsidePartition: 0,
+    insideSample: [],
+    outsideSample: [],
   }));
   for (const file of files) {
     const bare = resolveFile(file, compiled);
@@ -589,7 +883,7 @@ export function auditMap({ files, map, readFile }) {
     const redWithoutException = failsCoverage || failsDocCoverage;
     if (bare.unassigned) {
       for (const e of compiled.unassigned) {
-        if (e.regexes.some((re) => re.test(file))) {
+        if (matches(e.matchers, file)) {
           const hit = unassignedHits.get(e.path);
           hit.total++;
           if (redWithoutException) hit.needed++;
@@ -599,12 +893,17 @@ export function auditMap({ files, map, readFile }) {
     if (failsCoverage && !bare.unassigned) result.zeroArea.push(file);
 
     // (f) governance partitions: inside a partitioned tree every file declares
-    // its own governance, so an undeclared one is a red naming what to add.
-    const matchedPartitions = compiled.partitions.filter((p) =>
-      p.regexes.some((re) => re.test(file)),
-    );
+    // its own governance, so an undeclared one is a red naming what to add —
+    // and naming the tree that claims it with the reason that tree declares file
+    // by file, which is the answer the author tripping it needs.
+    const matchedPartitions = compiled.partitions.filter((p) => matches(p.matchers, file));
     const inPartition = matchedPartitions.length > 0;
-    if (inPartition && !bare.declaredGovernance) result.undeclaredInPartition.push(file);
+    if (inPartition && !bare.declaredGovernance) {
+      result.undeclaredInPartition.push(
+        `${file} — in the partitioned tree ` +
+          matchedPartitions.map((p) => `"${p.pattern}": ${p.reason}`).join(' | '),
+      );
+    }
     // One entry per tree: a file two partition entries both claim sits under two
     // partition statements at once, so the overlap is named rather than silently
     // resolved (two entries with the same pattern are its degenerate case).
@@ -616,7 +915,7 @@ export function auditMap({ files, map, readFile }) {
 
     // declared-governance: conflict, single-source, and per-entry redundancy accounting.
     if (bare.declaredGovernance) {
-      const conflicted = bare.declaredMatchCount >= 2;
+      const conflicted = bare.declaredEntryPaths.length >= 2;
       if (conflicted) result.conflictingGovernance.push(file);
       let crossGoverned = bare.repoWide;
       if (!crossGoverned) {
@@ -634,13 +933,18 @@ export function auditMap({ files, map, readFile }) {
       const eligible = !conflicted && !crossGoverned && !inPartition;
       const areaSupplied = new Set(bare.areaSuppliedDocs);
       for (const acc of govAcc) {
-        if (!acc.e.regexes.some((re) => re.test(file))) continue;
+        if (!matches(acc.e.matchers, file)) continue;
         acc.total++;
-        if (inPartition) acc.inPartition++;
-        else acc.outsidePartition++;
+        if (inPartition) {
+          acc.inPartition++;
+          if (acc.insideSample.length < STRADDLE_SAMPLE) acc.insideSample.push(file);
+        } else {
+          acc.outsidePartition++;
+          if (acc.outsideSample.length < STRADDLE_SAMPLE) acc.outsideSample.push(file);
+        }
         if (eligible) {
           acc.eligible++;
-          const gb = new Set(acc.e.governedDocs);
+          const gb = new Set(acc.e.expandedGovernedBy);
           if (gb.size !== areaSupplied.size || [...gb].some((d) => !areaSupplied.has(d))) {
             acc.allEqual = false;
           }
@@ -648,23 +952,28 @@ export function auditMap({ files, map, readFile }) {
       }
     }
   }
-  // (f) staleness: every partition pattern describes a tree that exists.
-  for (const p of compiled.partitions) {
-    if (!files.some((f) => p.regexes.some((re) => re.test(f)))) {
-      result.stalePartitions.push(p.pattern);
-    }
-  }
   // A declaration earns its keep by changing the governing set of some eligible matched file.
   for (const acc of govAcc) {
     // An entry reaching across a partition boundary is read under both sides'
-    // rules at once, so it is refused and split at the boundary. The refusal
-    // displaces the redundancy red specifically: the entry is left out of the
-    // redundancy accounting, whose own remedy — remove the entry — would
-    // contradict the split. Every other red still applies to it.
+    // rules at once, so it is refused and split at the boundary — the red naming
+    // the files it matched on each side, which is what the split is made along.
+    // The refusal displaces the redundancy red specifically: the entry is left
+    // out of the redundancy accounting, whose own remedy — remove the entry —
+    // would contradict the split. Every other red still applies to it.
     const straddling = acc.inPartition > 0 && acc.outsidePartition > 0;
-    if (straddling) result.straddlingGovernance.push(acc.e.path);
+    if (straddling) {
+      result.straddlingGovernance.push(
+        `${acc.e.path} — inside a partitioned tree: ${sample(acc.insideSample, acc.inPartition)};` +
+          ` outside every partition: ${sample(acc.outsideSample, acc.outsidePartition)}`,
+      );
+    }
     if (acc.total === 0) result.staleGovernance.push(acc.e.path);
-    else if (!straddling && acc.eligible >= 1 && acc.e.governedDocs.length > 0 && acc.allEqual) {
+    else if (
+      !straddling &&
+      acc.eligible >= 1 &&
+      acc.e.expandedGovernedBy.length > 0 &&
+      acc.allEqual
+    ) {
       result.redundantGovernance.push(acc.e.path);
     }
   }
@@ -673,7 +982,7 @@ export function auditMap({ files, map, readFile }) {
   // is validated as an area name by validateShape, and the docs it expands to are
   // validated by that area's own doc entries.
   for (const e of compiled.declaredGovernance) {
-    for (const doc of e.governedBy) {
+    for (const doc of e.rawGovernedBy) {
       if (areaRefName(doc) !== null) continue;
       if (!tracked.has(doc)) {
         result.badGovernedBy.push(`${e.path}: ${doc} (untracked)`);
@@ -709,9 +1018,11 @@ export function auditMap({ files, map, readFile }) {
 }
 
 /* c8 ignore start — the CLI wrapper reads the tracked-file list from git and the
- * map from disk, then prints; the shape/coverage/staleness/doc-coverage and the
- * declared-governance self-check logic it delegates to (validateShape, compileMap,
- * resolveFile, auditMap) are unit-tested above. */
+ * map from disk, then prints; the shape/coverage/staleness/doc-coverage, the
+ * declared-governance self-check, the per-file explanation, and the refusal it
+ * prints for a map that does not fit that shape it delegates to (validateShape,
+ * compileMap, resolveFile, auditMap, explainFile, refuseOnShapeError) are
+ * unit-tested above. */
 function run() {
   const files = execFileSync('git', ['ls-files'], { encoding: 'utf8' })
     .split('\n')
@@ -726,13 +1037,50 @@ function run() {
     }
   };
 
+  const args = process.argv.slice(2);
+  const explainAt = args.indexOf('--explain');
+  // The full audit is what a bare invocation asks for, so an argument opening
+  // with `--` that is not the one flag this check has — a mistyped `--explain`,
+  // say — is answered as the typo it is rather than running the audit silently.
+  // A repo-relative path never opens that way, so the flag's own value is held
+  // to the same rule.
+  const unknownFlags = args.filter((a, i) => i !== explainAt && a.startsWith('--'));
+  if (unknownFlags.length) {
+    console.error(
+      `✗ unrecognized argument(s): ${unknownFlags.join(' ')}\n` +
+        `  usage: node scripts/check-area-map.js [--explain <path>]`,
+    );
+    process.exit(1);
+  }
+  if (explainAt !== -1) {
+    const target = args[explainAt + 1];
+    if (!target) {
+      console.error(`✗ --explain takes one repo-relative path, e.g. --explain ${MAP_PATH}`);
+      process.exit(1);
+    }
+    let compiled;
+    try {
+      compiled = compileMap(map);
+    } catch (err) {
+      // A map that no longer fits the shape this check reads it through is a
+      // refusal on its own input, printed as the refusal states it on the
+      // ordinary red path — never a stack trace.
+      refuseOnShapeError(err);
+    }
+    console.log(
+      explainFile({
+        file: target,
+        compiled,
+        tracked: files.includes(target),
+        content: readFile(target),
+      }),
+    );
+    return;
+  }
+
   const r = auditMap({ files, map, readFile });
   const problems = [];
-  if (r.shapeErrors.length) {
-    problems.push(
-      `✗ ${MAP_PATH} is malformed:\n` + r.shapeErrors.map((e) => `    ${e}`).join('\n'),
-    );
-  }
+  if (r.shapeErrors.length) problems.push(shapeVerdict(r.shapeErrors));
   if (r.zeroArea.length) {
     problems.push(
       `✗ ${r.zeroArea.length} tracked file(s) belong to no area:\n` +
@@ -748,6 +1096,17 @@ function run() {
       `✗ ${r.stalePatterns.length} stale code pattern(s) in ${MAP_PATH} (matching nothing):\n` +
         r.stalePatterns.map((s) => `    ${s}`).join('\n') +
         `\n\n  Fix: update or remove each pattern — a pattern matching nothing no longer describes the tree.`,
+    );
+  }
+  if (r.deadAlternatives.length) {
+    problems.push(
+      `✗ ${r.deadAlternatives.length} brace alternative(s) in ${MAP_PATH} match no tracked file,\n` +
+        `  in entries whose other alternatives still do:\n` +
+        r.deadAlternatives.map((s) => `    ${s}`).join('\n') +
+        `\n\n  Fix: rewrite the entry so every alternative it expands to matches the tree. With one\n` +
+        `  brace group that is updating or removing the named alternative; with several the\n` +
+        `  alternatives are the groups' cross product, so the dead one need not appear in the\n` +
+        `  entry as written. The rest of the entry still describes the tree, so the entry stays.`,
     );
   }
   if (r.untrackedEntries.length) {
@@ -852,7 +1211,8 @@ function run() {
   if (r.straddlingGovernance.length) {
     problems.push(
       `✗ ${r.straddlingGovernance.length} "declared-governance" entr(ies) reach across a "governance-partitions" boundary\n` +
-        `  (each matches files inside a partitioned tree and files outside every partition):\n` +
+        `  (each matches files inside a partitioned tree and files outside every partition; each\n` +
+        `  side names up to ${STRADDLE_SAMPLE} of the files it matched, with any remainder counted):\n` +
         r.straddlingGovernance.map((s) => `    ${s}`).join('\n') +
         `\n\n  Fix: split each entry at the boundary — one entry for the files inside the partitioned\n` +
         `  tree, one for the files outside it — so each side is read under the rule that applies to\n` +

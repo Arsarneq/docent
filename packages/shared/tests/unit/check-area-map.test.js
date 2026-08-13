@@ -1,23 +1,41 @@
 /**
  * check-area-map.test.js — Unit tests for the area-map admission test
  * (scripts/check-area-map.js) that gates CI. The map is committed data, so
- * every way it can rot must fail loud: these tests prove each red path fires
- * on synthetic input (zero-area files, stale patterns, untracked entries,
- * uncovered docs, stale/unnecessary exceptions, dangling doc pointers) and
- * that the pattern matcher includes dotfiles under `**` — the semantics that
- * make "everything under a package belongs to its area" actually total.
+ * every way it can rot must fail loud. These tests drive the check over
+ * synthetic maps and hold each red class of its audit result to the input that
+ * earns it — the check's own module header is where that set lives and says
+ * what each class holds, so this suite follows it rather than keeping a second
+ * copy of the list. Beside the reds they pin the resolution the whole map rests
+ * on: the pattern semantics that make "everything under a package belongs to
+ * its area" total, the refusal the compile boundary raises for a map that does
+ * not fit its shape (and the one posture every consumer prints it with), the
+ * declared/expanded governing sets, and the command line — the per-file
+ * explanation it prints on demand, and the arguments it declines to answer.
  */
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
+import { execFileSync, spawnSync } from 'node:child_process';
+import os from 'node:os';
+import path from 'node:path';
 import {
   expandBraces,
   globToRegExp,
+  compileAlternatives,
   extractDocPointers,
   validateShape,
   compileMap,
+  patternEntries,
+  recordDeadEntry,
   resolveFile,
+  explainFile,
   auditMap,
+  refuseOnShapeError,
+  AreaMapShapeError,
+  SHAPE_ERROR_NAME,
+  STRADDLE_SAMPLE,
+  MAP_PATH,
 } from '../../../../scripts/check-area-map.js';
 
 /** A minimal well-formed map two areas wide, for overriding per test. */
@@ -113,6 +131,24 @@ describe('expandBraces', () => {
   });
 });
 
+describe('compileAlternatives — the one compile idiom', () => {
+  it('yields a matcher per alternative, each naming the pattern it came from', () => {
+    const compiled = compileAlternatives('scripts/{check-*,gone-*}.js');
+    assert.deepEqual(
+      compiled.map((m) => m.alternative),
+      ['scripts/check-*.js', 'scripts/gone-*.js'],
+    );
+    assert.deepEqual([...new Set(compiled.map((m) => m.pattern))], ['scripts/{check-*,gone-*}.js']);
+    assert.equal(compiled[0].regex.test('scripts/check-area-map.js'), true);
+    assert.equal(compiled[1].regex.test('scripts/check-area-map.js'), false);
+  });
+
+  it('refuses an unsupported pattern instead of compiling something else', () => {
+    assert.throws(() => compileAlternatives('scripts/[ab].js'));
+    assert.throws(() => compileAlternatives('a/{x,y.js'));
+  });
+});
+
 describe('auditMap — green path', () => {
   it('reports nothing on a map that exactly covers its tree', () => {
     assert.deepEqual(flatten(audit()), []);
@@ -132,13 +168,16 @@ describe('auditMap — coverage (a)', () => {
 });
 
 describe('auditMap — staleness (b)', () => {
-  it('flags a pattern matching no tracked file, naming the dead brace member', () => {
+  it('flags a code pattern with no live alternative left as a stale entry', () => {
     const map = makeMap();
-    map.areas.tooling.code = ['scripts/{check-*,gone-*}.js', 'package.json'];
+    map.areas.tooling.code = ['scripts/{gone-*,vanished-*}.js', 'package.json'];
     const r = audit({ map });
-    assert.equal(r.stalePatterns.length, 1);
-    assert.match(r.stalePatterns[0], /scripts\/gone-\*\.js/);
-    assert.match(r.stalePatterns[0], /from "scripts\/\{check-\*,gone-\*\}\.js"/);
+    assert.deepEqual(r.stalePatterns, [
+      'area "tooling": pattern "scripts/{gone-*,vanished-*}.js" matches no tracked file',
+    ]);
+    // The entry is dead as a whole, so it is not ALSO reported alternative by
+    // alternative — one entry, one verdict, one remedy.
+    assert.deepEqual(r.deadAlternatives, []);
   });
 
   it('flags untracked doc, source-of-truth, and repo-wide entries', () => {
@@ -152,6 +191,162 @@ describe('auditMap — staleness (b)', () => {
       'area "alpha": schemas/gone.json',
       'repo-wide: docs/deleted-hub.md',
     ]);
+  });
+});
+
+describe('auditMap — per-alternative liveness, in every list that states a pattern', () => {
+  it('names a dead alternative of an area code pattern, and leaves the entry alone', () => {
+    const map = makeMap();
+    map.areas.tooling.code = ['scripts/{check-*,gone-*}.js', 'package.json'];
+    const r = audit({ map });
+    assert.deepEqual(flatten(r), [
+      'area "tooling": pattern "scripts/{check-*,gone-*}.js" — alternative "scripts/gone-*.js" matches no tracked file',
+    ]);
+  });
+
+  it('names a dead alternative of an "unassigned" exception the tree still needs', () => {
+    // LICENSE resolves to no area, so the exception is genuinely needed and the
+    // only thing wrong with the entry is the alternative that names nothing.
+    const map = makeMap({
+      unassigned: [{ path: '{LICENSE,GHOST}', reason: 'license text' }],
+    });
+    const r = audit({ map });
+    assert.deepEqual(flatten(r), [
+      '"unassigned" entry "{LICENSE,GHOST}" — alternative "GHOST" matches no tracked file',
+    ]);
+  });
+
+  it('names a dead alternative of a "declared-governance" declaration', () => {
+    const map = makeMap({
+      'declared-governance': [
+        {
+          path: 'packages/alpha/{index.js,ghost.js}',
+          reason: 'the alpha entry point',
+          'governed-by': ['docs/tooling.md'],
+        },
+      ],
+    });
+    const r = audit({ map });
+    assert.deepEqual(flatten(r), [
+      '"declared-governance" entry "packages/alpha/{index.js,ghost.js}" — alternative "packages/alpha/ghost.js" matches no tracked file',
+    ]);
+  });
+
+  it('names a dead alternative of a "governance-partitions" tree', () => {
+    const map = makeMap({
+      'governance-partitions': [{ pattern: 'packages/{alpha,ghost}/**', reason: 'alpha suites' }],
+      'declared-governance': [
+        { path: 'packages/alpha/**', reason: 'alpha suites', 'governed-by': ['area:alpha'] },
+      ],
+    });
+    const r = audit({ map });
+    assert.deepEqual(flatten(r), [
+      '"governance-partitions" entry "packages/{alpha,ghost}/**" — alternative "packages/ghost/**" matches no tracked file',
+    ]);
+  });
+
+  it('keeps the whole-entry verdict for an entry with no live alternative left', () => {
+    // Each list keeps its own remedy for a dead entry — remove it — and none of
+    // them also reports the alternatives it is dead through.
+    const unassigned = audit({
+      map: makeMap({ unassigned: [{ path: '{GHOST,PHANTOM}', reason: 'gone' }] }),
+      // LICENSE is tracked but no longer excepted, so its own red rides along.
+    });
+    assert.deepEqual(unassigned.staleUnassigned, ['{GHOST,PHANTOM}']);
+    assert.deepEqual(unassigned.deadAlternatives, []);
+
+    const declared = audit({
+      map: makeMap({
+        'declared-governance': [{ path: 'gone/{a,b}.js', reason: 'x', 'governed-by': [] }],
+      }),
+    });
+    assert.deepEqual(declared.staleGovernance, ['gone/{a,b}.js']);
+    assert.deepEqual(declared.deadAlternatives, []);
+
+    const partitions = audit({
+      map: makeMap({
+        'governance-partitions': [{ pattern: 'packages/{ghost,phantom}/**', reason: 'gone' }],
+      }),
+    });
+    assert.deepEqual(partitions.stalePartitions, ['packages/{ghost,phantom}/**']);
+    assert.deepEqual(partitions.deadAlternatives, []);
+  });
+
+  it('enumerates every pattern-bearing list, so a leg over patterns cannot skip one', () => {
+    // patternEntries is what the liveness leg reads the map through: a list the
+    // map grows that this enumeration does not name would be checked by nothing.
+    // So the expectation is read off the COMPILED MAP rather than off
+    // patternEntries' own output — every compiled list whose entries carry
+    // matchers, plus the code entries each area carries, must turn up here.
+    const compiled = compileMap(
+      makeMap({
+        'declared-governance': [
+          { path: 'package.json', reason: 'the root manifest', 'governed-by': ['docs/alpha.md'] },
+        ],
+        'governance-partitions': [{ pattern: 'packages/alpha/**', reason: 'alpha suites' }],
+      }),
+    );
+    const sites = patternEntries(compiled);
+    const carriesMatchers = (v) =>
+      Array.isArray(v) && v.length > 0 && v.every((e) => Array.isArray(e?.matchers));
+    const compiledLists = [
+      ...Object.entries(compiled).filter(([, v]) => carriesMatchers(v)),
+      ...[...compiled.areas].map(([name, area]) => [`areas.${name}`, area.codeEntries]),
+    ];
+    // The fixture populates every pattern-bearing list the compiled map has, so
+    // the coverage assertion below is answering about all of them.
+    assert.deepEqual(compiledLists.map(([name]) => name).sort(), [
+      'areas.alpha',
+      'areas.tooling',
+      'declaredGovernance',
+      'partitions',
+      'unassigned',
+    ]);
+    const enumerated = new Set(sites.map((s) => s.matchers));
+    for (const [name, entries] of compiledLists) {
+      for (const entry of entries) {
+        assert.equal(enumerated.has(entry.matchers), true, `${name}: entry not enumerated`);
+      }
+    }
+    // The labels and subjects the reds are printed under.
+    assert.deepEqual([...new Set(sites.map((s) => s.list))].sort(), [
+      'areas',
+      'declared-governance',
+      'governance-partitions',
+      'unassigned',
+    ]);
+    const areaEntry = sites.find((s) => s.entry === 'scripts/check-*.js');
+    assert.equal(areaEntry.subject, 'area "tooling": pattern "scripts/check-*.js"');
+    assert.deepEqual(
+      areaEntry.matchers.map((m) => m.alternative),
+      ['scripts/check-*.js'],
+    );
+  });
+
+  it('refuses a dead entry from a list the whole-entry verdict does not answer for', () => {
+    // The whole-entry dispatch names every list patternEntries states — the two
+    // it reports and the two it hands to their own accounting. A list the map
+    // grows that reaches it unnamed is a programming error in this check, not
+    // map rot, so it fails loudly instead of dropping that list's dead entries.
+    const result = { stalePatterns: [], stalePartitions: [] };
+    assert.throws(
+      () =>
+        recordDeadEntry(
+          { list: 'future-list', entry: 'x/**', subject: '"future-list" entry' },
+          result,
+        ),
+      /no whole-entry verdict for pattern list "future-list"/,
+    );
+    assert.deepEqual(result, { stalePatterns: [], stalePartitions: [] });
+    // The named lists: two report here, two delegate and record nothing.
+    recordDeadEntry({ list: 'areas', entry: 'a/**', subject: 'area "a": pattern "a/**"' }, result);
+    recordDeadEntry({ list: 'governance-partitions', entry: 'p/**', subject: 'x' }, result);
+    recordDeadEntry({ list: 'unassigned', entry: 'u', subject: 'x' }, result);
+    recordDeadEntry({ list: 'declared-governance', entry: 'd', subject: 'x' }, result);
+    assert.deepEqual(result, {
+      stalePatterns: ['area "a": pattern "a/**" matches no tracked file'],
+      stalePartitions: ['p/**'],
+    });
   });
 });
 
@@ -361,6 +556,82 @@ describe('validateShape — malformed maps fail loud', () => {
   });
 });
 
+describe('compileMap — shape-validity is enforced at the boundary', () => {
+  /** Partitions in the pre-object string form: a shape error, not a pattern. */
+  const stringFormPartitions = () => makeMap({ 'governance-partitions': ['packages/alpha/**'] });
+
+  /** Run `fn`, returning whatever it threw. */
+  const thrownBy = (fn) => {
+    try {
+      fn();
+    } catch (e) {
+      return e;
+    }
+    return null;
+  };
+
+  it('refuses a shape-invalid map with a named error naming the entry it choked on', () => {
+    // Before the precondition was enforced, this reached the glob machinery and
+    // surfaced as a TypeError about an undefined property — a verdict about the
+    // check's internals rather than about the map handed to it.
+    const err = thrownBy(() => compileMap(stringFormPartitions()));
+    assert.equal(err instanceof AreaMapShapeError, true);
+    assert.equal(err.name, SHAPE_ERROR_NAME);
+    assert.notEqual(err.name, 'TypeError');
+    assert.equal(err.message.includes(MAP_PATH), true);
+    assert.match(err.message, /governance-partitions/);
+    assert.match(err.message, /packages\/alpha/);
+  });
+
+  it('carries every error the shape validator reports for that map', () => {
+    const bad = stringFormPartitions();
+    bad.description = '';
+    bad.unassigned = [{ path: 'LICENSE', reason: '   ' }];
+    const errors = validateShape(bad);
+    const err = thrownBy(() => compileMap(bad));
+    assert.deepEqual(err.shapeErrors, errors); // the same shape implementation, not a second one
+    for (const e of errors) assert.equal(err.message.includes(e), true, e);
+  });
+
+  it('compiles a shape-valid map without complaint', () => {
+    assert.equal(
+      thrownBy(() => compileMap(makeMap())),
+      null,
+    );
+  });
+});
+
+describe('refuseOnShapeError — one refusal posture for every consumer of the map', () => {
+  /** Collectors standing in for the printing and exiting seams. */
+  const seams = () => {
+    const printed = [];
+    const exited = [];
+    return { printed, exited, io: { error: (m) => printed.push(m), exit: (c) => exited.push(c) } };
+  };
+
+  it('prints the refusal message and ends red', () => {
+    const s = seams();
+    refuseOnShapeError(new AreaMapShapeError(['"areas" must be a non-empty object']), s.io);
+    assert.equal(s.printed.length, 1);
+    assert.equal(s.printed[0].includes(MAP_PATH), true);
+    assert.match(s.printed[0], /"areas" must be a non-empty object/);
+    assert.deepEqual(s.exited, [1]);
+  });
+
+  it('rethrows anything else untouched, printing nothing and ending nothing', () => {
+    // A map that will not parse, a bug inside a leg: not this refusal's subject,
+    // so it leaves as it arrived rather than being reported as a shape verdict.
+    const s = seams();
+    const other = new SyntaxError('Unexpected token } in JSON at position 12');
+    assert.throws(
+      () => refuseOnShapeError(other, s.io),
+      (e) => e === other,
+    );
+    assert.deepEqual(s.printed, []);
+    assert.deepEqual(s.exited, []);
+  });
+});
+
 describe('resolveFile', () => {
   it('resolves via code patterns, doc-set membership, and pointers — and returns the governing docs', () => {
     const compiled = compileMap(makeMap());
@@ -379,6 +650,124 @@ describe('resolveFile', () => {
     assert.equal(resolveFile('README.md', compiled).repoWide, true);
     assert.equal(resolveFile('LICENSE', compiled).unassigned, true);
     assert.equal(resolveFile('packages/alpha/x.js', compiled).unassigned, false);
+  });
+});
+
+describe('explainFile — what the map says about one file', () => {
+  const compiled = () =>
+    compileMap(
+      makeMap({
+        'declared-governance': [
+          {
+            path: 'package.json',
+            reason: 'the root manifest',
+            'governed-by': ['area:alpha', 'docs/tooling.md'],
+          },
+        ],
+      }),
+    );
+
+  it('reports an undeclared file: its areas, its governing docs, and that no entry declares it', () => {
+    const text = explainFile({
+      file: 'packages/alpha/index.js',
+      compiled: compiled(),
+      tracked: true,
+    });
+    assert.match(text, /^packages\/alpha\/index\.js$/m);
+    assert.match(text, /areas: alpha/);
+    assert.match(text, /governing docs: docs\/alpha\.md/);
+    assert.match(text, /declared by: no entry/);
+    assert.match(text, /repo-wide doc: no/);
+    assert.match(text, /unassigned exception: no/);
+    assert.match(text, /doc pointers: none/);
+  });
+
+  it('reports a declared file: the entry, what it states, and the set that expands to', () => {
+    const text = explainFile({ file: 'package.json', compiled: compiled(), tracked: true });
+    assert.match(text, /declared by: package\.json/);
+    assert.match(text, /governed-by as written: area:alpha, docs\/tooling\.md/);
+    assert.match(text, /expanded doc set: docs\/alpha\.md, docs\/tooling\.md/);
+  });
+
+  it('reports a file in a partitioned tree that declares nothing as owing its own declaration', () => {
+    // The partition's answer is that the file states its own subject, so the
+    // report must not hand back the docs its areas supply as the governing set
+    // — that is the answer the partition forbids, and the same file reds under
+    // auditMap's undeclared-in-partition class.
+    const reason = 'The alpha suites sit under two tree-wide code patterns at once.';
+    const map = makeMap({
+      'governance-partitions': [{ pattern: 'packages/alpha/**', reason }],
+    });
+    const text = explainFile({
+      file: 'packages/alpha/index.js',
+      compiled: compileMap(map),
+      tracked: true,
+    });
+    assert.match(text, /in a partitioned tree: "packages\/alpha\/\*\*": /);
+    assert.equal(text.includes(reason), true);
+    assert.match(text, /owes a "declared-governance" entry/);
+    assert.doesNotMatch(text, /governing docs: docs\/alpha\.md/);
+    assert.doesNotMatch(text, /the docs above are what its areas supply/);
+    // The red the same input earns, which the report is now consistent with.
+    assert.equal(audit({ map }).undeclaredInPartition.length, 1);
+  });
+
+  it('keeps the declaration report for a declared file inside a partitioned tree', () => {
+    const map = makeMap({
+      'governance-partitions': [{ pattern: 'packages/alpha/**', reason: 'alpha suites' }],
+      'declared-governance': [
+        { path: 'packages/alpha/**', reason: 'the alpha suites', 'governed-by': ['area:alpha'] },
+      ],
+    });
+    const text = explainFile({
+      file: 'packages/alpha/index.js',
+      compiled: compileMap(map),
+      tracked: true,
+    });
+    assert.match(text, /in a partitioned tree: "packages\/alpha\/\*\*": alpha suites/);
+    assert.match(text, /governing docs: docs\/alpha\.md/);
+    assert.match(text, /declared by: packages\/alpha\/\*\*/);
+    assert.doesNotMatch(text, /owes a "declared-governance" entry/);
+  });
+
+  it('qualifies a repo-wide doc instead of reporting it as governed by nothing', () => {
+    // README.md sits in no area's doc set, so its own governing set is empty —
+    // an unqualified "none" would read as ungoverned, when what the map states
+    // is that this file governs every area and enters its own edit's scope.
+    const text = explainFile({ file: 'README.md', compiled: compiled(), tracked: true });
+    assert.doesNotMatch(text, /^ {2}governing docs: none$/m);
+    assert.match(text, /governing docs: none \(and it is itself a repo-wide doc — below\)/);
+    assert.match(text, /repo-wide doc: yes — a repo-wide doc governs every area/);
+    assert.match(text, /puts it in its own disposition scope/);
+  });
+
+  it('reports repo-wide and exception membership, and the pointers a file names', () => {
+    assert.match(
+      explainFile({ file: 'README.md', compiled: compiled(), tracked: true }),
+      /repo-wide doc: yes/,
+    );
+    assert.match(
+      explainFile({ file: 'LICENSE', compiled: compiled(), tracked: true }),
+      /unassigned exception: yes/,
+    );
+    const pointed = explainFile({
+      file: 'tools/standalone.rs',
+      compiled: compiled(),
+      tracked: true,
+      content: '// see docs/alpha.md\n',
+    });
+    assert.match(pointed, /doc pointers: docs\/alpha\.md/);
+    assert.match(pointed, /areas: alpha/); // the pointer is what puts it in one
+  });
+
+  it('reports an untracked path as untracked instead of resolving it', () => {
+    const text = explainFile({
+      file: 'packages/alpha/ghost.js',
+      compiled: compiled(),
+      tracked: false,
+    });
+    assert.match(text, /untracked/);
+    assert.doesNotMatch(text, /areas:/); // nothing is guessed for a path the tree does not carry
   });
 });
 
@@ -459,10 +848,10 @@ describe('validateShape — declared-governance', () => {
 
 describe('resolveFile — declared-governance', () => {
   /** makeMap plus one declared entry over a code-owned file. */
-  function declMap(governedBy) {
+  function declMap(rawGovernedBy) {
     return makeMap({
       'declared-governance': [
-        { path: 'packages/alpha/x.yml', reason: 'alpha config', 'governed-by': governedBy },
+        { path: 'packages/alpha/x.yml', reason: 'alpha config', 'governed-by': rawGovernedBy },
       ],
     });
   }
@@ -473,8 +862,10 @@ describe('resolveFile — declared-governance', () => {
     // live pointer to docs/alpha.md — yet the declaration overrides both to exactly governed-by.
     const r = resolveFile('packages/alpha/x.yml', compiled, '// see docs/alpha.md');
     assert.equal(r.declaredGovernance, true);
-    assert.deepEqual(r.docs, ['docs/tooling.md']); // governed-by verbatim, not alpha.md nor the pointer
-    assert.deepEqual(r.governedBy, ['docs/tooling.md']);
+    assert.deepEqual(r.docs, ['docs/tooling.md']); // the declared set verbatim, not alpha.md nor the pointer
+    assert.deepEqual(r.expandedGovernedBy, ['docs/tooling.md']);
+    assert.deepEqual(r.rawGovernedBy, ['docs/tooling.md']); // no reference to expand: raw equals expanded
+    assert.deepEqual(r.declaredEntryPaths, ['packages/alpha/x.yml']);
     assert.deepEqual(r.areaSuppliedDocs, ['docs/alpha.md']); // bare code-area docs, pre-override
     assert.deepEqual(r.areas, ['alpha']); // coverage preserved (declaration grants no coverage of its own)
   });
@@ -484,7 +875,8 @@ describe('resolveFile — declared-governance', () => {
     const r = resolveFile('packages/alpha/x.yml', compiled);
     assert.equal(r.declaredGovernance, true);
     assert.deepEqual(r.docs, []);
-    assert.deepEqual(r.governedBy, []);
+    assert.deepEqual(r.expandedGovernedBy, []);
+    assert.deepEqual(r.rawGovernedBy, []);
     assert.deepEqual(r.areaSuppliedDocs, ['docs/alpha.md']);
   });
 
@@ -640,11 +1032,11 @@ describe('auditMap — declared-governance', () => {
 });
 
 describe('validateShape — area references in governed-by', () => {
-  /** makeMap with one declared entry over package.json carrying `governedBy`. */
-  const withGov = (governedBy) =>
+  /** makeMap with one declared entry over package.json carrying the given elements. */
+  const withGov = (rawGovernedBy) =>
     makeMap({
       'declared-governance': [
-        { path: 'package.json', reason: 'the root manifest', 'governed-by': governedBy },
+        { path: 'package.json', reason: 'the root manifest', 'governed-by': rawGovernedBy },
       ],
     });
 
@@ -686,7 +1078,9 @@ describe('resolveFile — area references expand to the area doc set', () => {
     });
     const r = resolveFile('package.json', compileMap(map));
     assert.deepEqual(r.docs.sort(), ['docs/alpha.md', 'docs/tooling.md']);
-    assert.deepEqual(r.governedBy.sort(), ['docs/alpha.md', 'docs/tooling.md']);
+    assert.deepEqual(r.expandedGovernedBy.sort(), ['docs/alpha.md', 'docs/tooling.md']);
+    // The raw elements stay as the map states them — the reference, unexpanded.
+    assert.deepEqual(r.rawGovernedBy, ['area:alpha', 'docs/tooling.md']);
   });
 
   it('deduplicates a literal the referenced area already supplies', () => {
@@ -792,7 +1186,23 @@ describe('auditMap — governance partitions', () => {
   ];
 
   it('flags a file inside a partitioned tree that declares no governance', () => {
-    assert.deepEqual(audit({ map: partMap() }).undeclaredInPartition, ['packages/alpha/index.js']);
+    assert.deepEqual(audit({ map: partMap() }).undeclaredInPartition, [
+      'packages/alpha/index.js — in the partitioned tree "packages/alpha/**": alpha suites',
+    ]);
+  });
+
+  it("carries the partition's own reason into the red, so the author reads why", () => {
+    // The reason is the answer to "why must I declare here?" — the red is where
+    // the author tripping it is standing, so it says it there rather than
+    // sending them back to the map to look it up.
+    const map = partMap();
+    map['governance-partitions'][0].reason =
+      'The alpha suites sit under two tree-wide code patterns at once, so each states its own subject.';
+    const r = audit({ map });
+    assert.equal(r.undeclaredInPartition.length, 1);
+    assert.equal(r.undeclaredInPartition[0].includes(map['governance-partitions'][0].reason), true);
+    assert.match(r.undeclaredInPartition[0], /packages\/alpha\/index\.js/);
+    assert.match(r.undeclaredInPartition[0], /"packages\/alpha\/\*\*"/);
   });
 
   it('is clean once every file in the partitioned tree declares its governance', () => {
@@ -890,6 +1300,11 @@ describe('auditMap — a declaration belongs to one side of a partition boundary
     'governed-by': ['docs/tooling.md'],
   };
 
+  /** The refusal line for the straddler both cases below share. */
+  const STRADDLE_LINE =
+    'packages/*/shared-thing.js — inside a partitioned tree: packages/alpha/shared-thing.js;' +
+    ' outside every partition: packages/beta/shared-thing.js';
+
   it('refuses one entry matching files inside and outside a partitioned tree', () => {
     // Inside a partition an equal-set declaration is the honest statement and
     // outside one it states nothing — so a single entry cannot answer for both
@@ -902,8 +1317,9 @@ describe('auditMap — a declaration belongs to one side of a partition boundary
       files: FILES,
     });
     // The whole result, not just the straddle key: no other red applies to this
-    // fixture, so the refusal arrives alone.
-    assert.deepEqual(flatten(r), ['packages/*/shared-thing.js']);
+    // fixture, so the refusal arrives alone — naming the files that put the
+    // entry on each side, which is what the split is made along.
+    assert.deepEqual(flatten(r), [STRADDLE_LINE]);
   });
 
   it('refuses a straddler that is equal-set outside the partition, and draws nothing else', () => {
@@ -918,7 +1334,28 @@ describe('auditMap — a declaration belongs to one side of a partition boundary
       ]),
       files: FILES,
     });
-    assert.deepEqual(flatten(r), ['packages/*/shared-thing.js']);
+    assert.deepEqual(flatten(r), [STRADDLE_LINE]);
+  });
+
+  it('names each side of the boundary up to the printed bound, counting the rest', () => {
+    // A wide entry must not print a wall: each side names the first few files it
+    // matched and counts the remainder, so the red stays the same size whatever
+    // the tree grows to.
+    const extra = STRADDLE_SAMPLE + 2;
+    const inside = Array.from({ length: extra }, (_, i) => `packages/alpha/shared-thing-${i}.js`);
+    const r = audit({
+      map: boundaryMap([
+        { path: 'packages/*/shared-thing-*.js', reason: 'x', 'governed-by': ['docs/tooling.md'] },
+        alphaRest,
+      ]),
+      files: [...BASE_FILES, 'docs/beta.md', ...inside, 'packages/beta/shared-thing-0.js'],
+    });
+    assert.equal(r.straddlingGovernance.length, 1);
+    const line = r.straddlingGovernance[0];
+    for (const f of inside.slice(0, STRADDLE_SAMPLE)) assert.equal(line.includes(f), true, f);
+    for (const f of inside.slice(STRADDLE_SAMPLE)) assert.equal(line.includes(f), false, f);
+    assert.equal(line.includes(`and ${extra - STRADDLE_SAMPLE} more`), true);
+    assert.match(line, /outside every partition: packages\/beta\/shared-thing-0\.js$/);
   });
 
   it('reads an entry spanning two partitioned trees as no crossing — both sides are covered', () => {
@@ -950,5 +1387,82 @@ describe('auditMap — a declaration belongs to one side of a partition boundary
       files: FILES,
     });
     assert.deepEqual(flatten(r), []);
+  });
+});
+
+describe('run() — the command line', () => {
+  const SCRIPT = path.resolve(import.meta.dirname, '../../../../scripts/check-area-map.js');
+
+  /** Commit `files` in a throwaway repo and run the check CLI over that tree. */
+  const runCheckOn = (files, args = []) => {
+    const tmp = mkdtempSync(path.join(os.tmpdir(), 'area-map-'));
+    try {
+      const g = (a) => execFileSync('git', a, { cwd: tmp, encoding: 'utf8' });
+      g(['init', '-q', '-b', 'main']);
+      g(['config', 'user.email', 't@example.com']);
+      g(['config', 'user.name', 'Test']);
+      for (const [rel, text] of Object.entries(files)) {
+        const p = path.join(tmp, rel);
+        mkdirSync(path.dirname(p), { recursive: true });
+        writeFileSync(p, text);
+      }
+      g(['add', '.']);
+      g(['commit', '-qm', 'fixture']);
+      return spawnSync('node', [SCRIPT, ...args], { cwd: tmp, encoding: 'utf8' });
+    } finally {
+      rmSync(tmp, { recursive: true, force: true });
+    }
+  };
+
+  /** A tree one exception's `path` away from being exactly what the map states. */
+  const fixtureTree = (unassignedPath) => ({
+    'scripts/area-map.json': JSON.stringify({
+      description: 'fixture map',
+      'repo-wide': { description: 'x', docs: ['README.md'] },
+      areas: {
+        alpha: { code: ['packages/alpha/**'], docs: ['docs/alpha.md'] },
+        tooling: { code: ['scripts/**'], docs: ['docs/tooling.md'] },
+      },
+      unassigned: [{ path: unassignedPath, reason: 'license text' }],
+      'declared-governance': [],
+      'governance-partitions': [],
+    }),
+    'README.md': '# fixture\n',
+    'docs/alpha.md': '# alpha\n',
+    'docs/tooling.md': '# tooling\n',
+    'packages/alpha/index.js': 'export const x = 1;\n',
+    LICENSE: 'license text\n',
+  });
+
+  it('prints the dead alternative and prescribes rewriting the entry, not removing it', () => {
+    // The tree satisfies the map except for one alternative of an exception the
+    // tree still needs — so the printed verdict is that alternative's alone, and
+    // the remedy it teaches is the one that fits it: the entry is rewritten
+    // until every alternative it expands to matches, and the entry stays.
+    const r = runCheckOn(fixtureTree('{LICENSE,GHOST}'));
+    assert.equal(r.status, 1, `expected the dead alternative to red.\nstderr: ${r.stderr}`);
+    assert.match(r.stderr, /alternative "GHOST" matches no tracked file/);
+    assert.match(r.stderr, /rewrite the entry so every alternative it expands to matches the tree/);
+    assert.match(r.stderr, /the dead one need not appear in the\n\s+entry as written/);
+    // The entry itself still describes the tree, so its own removal is not the fix.
+    assert.doesNotMatch(r.stderr, /"unassigned" entr\(ies\) match no tracked file/);
+  });
+
+  it('refuses an unrecognized argument with the usage line instead of auditing', () => {
+    // A mistyped flag used to fall through to the full audit and exit green,
+    // reporting on a question nobody asked. The same tree audits green, so the
+    // red below is the argument's own.
+    const tree = fixtureTree('LICENSE');
+    const green = runCheckOn(tree);
+    assert.equal(
+      green.status,
+      0,
+      `expected the fixture tree to audit green.\nstderr: ${green.stderr}`,
+    );
+    const r = runCheckOn(tree, ['--explan', 'README.md']);
+    assert.equal(r.status, 1, `expected the mistyped flag to red.\nstdout: ${r.stdout}`);
+    assert.match(r.stderr, /unrecognized argument\(s\): --explan/);
+    assert.match(r.stderr, /usage: node scripts\/check-area-map\.js \[--explain <path>\]/);
+    assert.doesNotMatch(r.stdout, /area map covers the tree/);
   });
 });
