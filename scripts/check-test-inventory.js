@@ -2,8 +2,10 @@
  * check-test-inventory.js — the test-suite documents' inventories describe the
  * suites as they are, the coverage plumbing's hand-maintained file lists
  * identify real sources, the registered suites are the ones this repository
- * really selects, and no test binary sits where the pipeline that runs the
- * suite cannot see it. The closures, all committed data that can rot:
+ * really selects, no test binary sits where the pipeline that runs the suite
+ * cannot see it, and the mutation kill sets and the mutate scope name test
+ * files and modules the tree really carries. The closures, all committed data
+ * that can rot:
  *
  *   (a) suite tables — each suite document devotes a named section to the
  *       tables whose first column enumerates the suite's test files. That
@@ -52,6 +54,18 @@
  *       shared module code — the `tests/common/mod.rs` convention — which runs
  *       nowhere on its own. Benches and examples are outside the class: a
  *       widened lint builds them, and no test run selects them.
+ *   (e) mutation kill sets — the test lists the weekly mutation run
+ *       executes, held for STALENESS: every file argument of the JavaScript
+ *       configurations' command lists identifies a tracked test file, or, where
+ *       the argument is a glob, selects at least one; and every binary the
+ *       cargo-mutants configuration's `--test` entries name — in either
+ *       spelling Cargo reads as that selection — is reachable by one of the two
+ *       routes a test binary lives at. Beside them the mutate scope, held on
+ *       both its surfaces: the set that cargo configuration states and the
+ *       module table the mutation-strategy document states name the same
+ *       modules, in both directions and neither one twice, and each module the
+ *       configuration states is a source the tree carries. Which files a kill
+ *       set OUGHT to list is not held here — see the remainder below.
  *
  * Why the always-on `lint` job: the diff that stales a suite inventory is
  * frequently docs-only, and a docs-only PR skips every path-filtered test job.
@@ -71,7 +85,13 @@
  * route, and the crate manifest for its declaration route through a scan that
  * drops commented text first and tracks the table each line sits in, so a
  * declaration a comment holds is never read as a live one and a `test` key in
- * `[features]` is the feature it is. Every way any of it can fail to reach its
+ * `[features]` is the feature it is. The kill sets are read the same way on
+ * both sides: the JavaScript list through the tokenizer, as the property array
+ * its configuration states, and the command it joins to through the one reader
+ * that already models a `node --test` invocation; the Rust list through the
+ * same comment-dropping, table-aware manifest scan, paired flag to target in
+ * either spelling Cargo accepts for the pairing.
+ * Every way any of it can fail to reach its
  * whole subject — a renamed section or column, a relocated or renamed list, an
  * element form or a surrounding expression this reader does not model, a
  * manifest that will not parse or will not read at all, a renamed workflow
@@ -86,15 +106,22 @@
  * an entry naming a tracked source the suites never load, which is well-formed
  * here and simply collects nothing; and a coverage list that exists but is
  * named in TRACKED_LISTS below by no entry is outside this gate until it is
- * registered there, which a new list's change has to do for itself. Closure (c)
+ * registered there, which a new list's change has to do for itself. The same
+ * holds one closure further on: WHICH test files a mutation kill set lists is a
+ * curation nothing here decides — the lists are curated subsets of their
+ * packages' suites, closure (e) holds only that what they name is there, and a
+ * suite that never joins a kill set is invisible to every leg of this check.
+ * Closure (c)
  * leaves a named remainder open too, because no admission test here states it:
  * which cargo-run and browser-driven suites must be registered (their
  * membership rules are held above, their registration is hand-held — the corpus
  * spec tree is the live example of a Playwright suite in no entry); the
  * `node --test` invocations that reach the runner from somewhere other than an
  * admitted manifest script, namely the workflow's own inline steps and the
- * mutation configurations' per-file lists; and the manifests the admission rule
- * does not admit.
+ * mutation configurations' per-file lists — those lists' ENTRIES are held for
+ * staleness by closure (e), while the invocations carrying them stay
+ * unregistered here, so the lists remain part of this remainder; and the
+ * manifests the admission rule does not admit.
  *
  * Usage:
  *   node scripts/check-test-inventory.js      # or: npm run lint:test-inventory
@@ -153,8 +180,9 @@ export function normalizePath(path) {
  * The anchored pattern a basename glob selects: `*` stands for any run of
  * characters within one path segment, so a glob written for the top of a
  * directory never reaches a file one level deeper. Only `*` is modelled —
- * every other character is matched literally.
- * @param {string} pattern a glob with no directory separator, e.g. `*.test.js`
+ * every other character is matched literally, the separator included, so a
+ * multi-segment pattern is held segment for segment against a whole path.
+ * @param {string} pattern a glob, e.g. `*.test.js` or `src/capture/*.rs`
  * @returns {RegExp}
  */
 export function basenameGlobToRegExp(pattern) {
@@ -758,7 +786,7 @@ export function admittedManifests(files) {
 /** The command separators a script's segments are split on. */
 const SEPARATORS = new Set(['&&', '||', ';', '|']);
 
-/** The characters that make a `node --test` argument a glob rather than one file. */
+/** The characters that make an argument or a listed entry a glob rather than one file. */
 const GLOB_CHAR_RE = /[*?[\]]/;
 
 /** The shell loop a workflow step discovers through, with the words it iterates. */
@@ -1322,6 +1350,520 @@ function readPlaywrightMirror(entry, readFile, named, result) {
   }
 }
 
+/* ── The mutation kill sets ──────────────────────────────────────────────── */
+
+/**
+ * The JavaScript mutation configurations, discovered rather than listed: every
+ * tracked file the `glob` names states its kill set as the `property` array,
+ * so a configuration added beside them joins this closure by existing. The glob
+ * is read exactly as the area map reads the identical pattern in its own
+ * entries — `*` stays inside one path segment — so both surfaces name the same
+ * set of files. The arguments in that array are repository-relative, which is
+ * what the runner resolves them against: these configurations are run from the
+ * repository root by the manifest scripts that name them.
+ */
+export const JS_KILL_SETS = { glob: 'stryker.*.mjs', property: 'command' };
+
+/**
+ * The Rust mutation kill set: the `flag` entries of the cargo-mutants
+ * configuration's `key` list each name a test binary, which lives at either of
+ * the two places Cargo builds one from — the file `<dir>/<name><suffix>`, or
+ * the directory form `<dir>/<name>/<main>`. A target is resolved through both
+ * routes and is red only when neither reaches it, so a binary that moved into a
+ * directory of its own stays the live target it is.
+ *
+ * The two sides fail differently, which is why the JavaScript leg is the
+ * primary one. `node --test` runs the paths it finds and reports nothing for
+ * one that is not there (observed: an invocation naming a live file and a
+ * missing one exits 0 and runs the live file alone), so a stale entry there
+ * drops a whole file out of the weekly run in silence. Cargo refuses outright
+ * (`error: no test target named …`, before it builds anything), so a stale
+ * entry here reddens the weekly run rather than hiding — what this leg adds on
+ * that side is the same finding at lint time, in the same shape as its
+ * sibling's.
+ */
+export const RUST_KILL_SET = {
+  config: 'packages/desktop/src-tauri/.cargo/mutants.toml',
+  key: 'additional_cargo_test_args',
+  flag: '--test',
+  dir: 'packages/desktop/src-tauri/tests',
+  suffix: '.rs',
+  main: 'main.rs',
+};
+
+/**
+ * The mutate scope, stated twice: as `key` in the cargo-mutants configuration,
+ * and as the table under `column` inside `clause`'s scope in `doc`. The scope
+ * is a curated enumeration — nothing derives it from a module's properties — so
+ * the two statements of it are held to each other in both directions, neither
+ * of them stating one module twice, and the document names each module exactly
+ * as the configuration does. The entries are written against the crate, so
+ * `root` is what they resolve under: each one is held to the tree there, since
+ * two surfaces edited in step — or left stale in step — agree with each other
+ * about a module that is no longer anywhere.
+ */
+export const MUTATE_SCOPE = {
+  config: 'packages/desktop/src-tauri/.cargo/mutants.toml',
+  key: 'examine_globs',
+  root: 'packages/desktop/src-tauri',
+  doc: 'docs/test/strategy/mutation.md',
+  clause: 'MUT-3',
+  column: 'Module',
+};
+
+/**
+ * Read the string elements of the array literal one object property states —
+ * the shape a mutation configuration's command list has, whose literal carries
+ * a trailing `.join(…)`. The whole literal is read or none of it is, on the
+ * same terms as {@link readListEntries}: an element this reader does not model,
+ * a literal that never closes, an empty one, a property stated more than once
+ * (which literal states the list would be an accident of order), and a trailing
+ * expression other than the joining call each return an `error`. The joining
+ * call is modelled because it does not change the set; any other call could.
+ * @param {string} source JavaScript source text
+ * @param {string} key the property name
+ * @returns {{ entries: string[] } | { error: string }}
+ */
+export function readPropertyStringArray(source, key) {
+  const tokens = tokenizeJs(source);
+  const opens = [];
+  for (let i = 0; i + 2 < tokens.length; i++) {
+    if (
+      tokens[i].type === 'word' &&
+      tokens[i].value === key &&
+      tokens[i + 1].type === 'punct' &&
+      tokens[i + 1].value === ':' &&
+      tokens[i + 2].type === 'punct' &&
+      tokens[i + 2].value === '['
+    ) {
+      opens.push(i + 2);
+    }
+  }
+  if (opens.length === 0) return { error: `no \`${key}: [...]\` array literal found` };
+  if (opens.length > 1) {
+    return {
+      error: `states \`${key}: [...]\` ${opens.length} times, so which literal states the list cannot be read`,
+    };
+  }
+  const entries = [];
+  let depth = 1;
+  let i = opens[0] + 1;
+  for (; i < tokens.length && depth > 0; i++) {
+    const token = tokens[i];
+    if (token.type === 'punct' && OPENERS.includes(token.value)) {
+      // Every element of this list is a string, so an opener names a nested
+      // structure — an element form this reader would otherwise walk into and
+      // read the strings out of, flattening what it found into the list.
+      return {
+        error: `the \`${key}\` array literal holds \`${token.value}\`, which this reader does not model`,
+      };
+    }
+    if (token.type === 'punct' && CLOSERS.includes(token.value)) {
+      depth--;
+      continue;
+    }
+    if (token.type === 'punct' && token.value === ',') continue;
+    if (token.type === 'string') {
+      entries.push(token.value);
+      continue;
+    }
+    return {
+      error: `the \`${key}\` array literal holds \`${token.value}\`, which this reader does not model`,
+    };
+  }
+  if (depth > 0) return { error: `the \`${key}\` array literal is never closed` };
+  if (entries.length === 0) return { error: `the \`${key}\` array literal holds no entries` };
+  // What follows the literal decides whether the entries ARE the list: the
+  // joining call leaves the set alone, and anything else — a filter, a slice, a
+  // concatenation — would make this reader's answer a part of the real one.
+  const [dot, call, paren] = [tokens[i], tokens[i + 1], tokens[i + 2]];
+  const joined =
+    dot?.type === 'punct' &&
+    dot.value === '.' &&
+    call?.type === 'word' &&
+    call.value === 'join' &&
+    paren?.type === 'punct' &&
+    paren.value === '(';
+  const separator = dot?.type === 'punct' && [',', ';', '}', ')', ']'].includes(dot.value);
+  if (!joined && !separator && dot !== undefined) {
+    return {
+      error: `the \`${key}\` array literal is followed by \`${dot.value}\`, so the entries this reader read are not the list the property states`,
+    };
+  }
+  return { entries };
+}
+
+/**
+ * Read the string values of a root-table TOML array — the shape both
+ * cargo-mutants lists have. Comments are dropped and the table each line sits
+ * in travels with it (as in {@link readCargoDiscoveryAdmission}), so a
+ * commented-out list is never read as the live one and a same-named key inside
+ * another table stays that table's. The array is read whole or not at all: a
+ * missing assignment, a value that is not an array literal, an unterminated
+ * string, a value form this reader does not model, an array that never closes,
+ * and an empty one each return an `error`.
+ * @param {string} source the manifest's text
+ * @param {string} key the root-table key
+ * @returns {{ values: string[] } | { error: string }}
+ */
+export function readTomlStringArray(source, key) {
+  const lines = source.split(/\r?\n/).map(stripTomlComment);
+  let table = '';
+  let start = -1;
+  for (let i = 0; i < lines.length && start === -1; i++) {
+    const read = readTomlLine(lines[i]);
+    if (read === null) continue;
+    if (read.header !== undefined) {
+      table = read.header;
+      continue;
+    }
+    const at = read.within ? `${table ? `${table}.` : ''}${read.within}` : table;
+    if (read.key === key && at === '') start = i;
+  }
+  if (start === -1) return { error: `no root-table \`${key} = [ … ]\` assignment found` };
+  // TOML puts a value's first character on the assignment line, so the literal
+  // this reader models is one opening there. Reading a scalar as a one-value
+  // array would be exactly the silent partial read the check refuses.
+  const head = lines[start].slice(lines[start].indexOf('=') + 1).trim();
+  if (!head.startsWith('[')) {
+    return {
+      error: `\`${key}\` is assigned \`${head || 'nothing'}\`, which is not the array literal this reader models`,
+    };
+  }
+  const text = [head, ...lines.slice(start + 1)].join('\n');
+  const values = [];
+  let depth = 0;
+  let closed = false;
+  let i = 0;
+  while (i < text.length) {
+    const ch = text[i];
+    if (ch === '"' || ch === "'") {
+      let value = '';
+      i++;
+      while (i < text.length && text[i] !== ch) {
+        if (ch === '"' && text[i] === '\\') {
+          value += text[i + 1] ?? '';
+          i += 2;
+        } else value += text[i++];
+      }
+      if (i >= text.length) return { error: `the \`${key}\` array holds an unterminated string` };
+      i++;
+      values.push(value);
+      continue;
+    }
+    if (ch === '[') {
+      depth++;
+      // A nested array is a shape whose values this reader would otherwise
+      // flatten into the list beside the ones the list itself states.
+      if (depth > 1) {
+        return { error: `the \`${key}\` array holds a nested array, which this reader does not model` }; // prettier-ignore
+      }
+      i++;
+      continue;
+    }
+    if (ch === ']') {
+      closed = true;
+      break;
+    }
+    if (ch === ',' || /\s/.test(ch)) {
+      i++;
+      continue;
+    }
+    return { error: `the \`${key}\` array holds \`${ch}\`, which this reader does not model` };
+  }
+  if (!closed) return { error: `the \`${key}\` array is never closed` };
+  if (values.length === 0) return { error: `the \`${key}\` array holds no values` };
+  return { values };
+}
+
+/**
+ * The targets a flag selects in a cargo test-argument list: each `flag` takes
+ * the value after it, or carries that value joined to it by `=` — the two
+ * spellings Cargo reads as the same selection, so a list is read whichever one
+ * it uses. A valueless flag beside them is another option this leg does not
+ * read. A non-flag value nobody's flag claimed is refused by name — it is a
+ * flag's separate-token value, which would otherwise be read as a test target —
+ * as is a `flag` with nothing after it in either spelling, and a list selecting
+ * no target at all, which would leave this leg holding nothing.
+ * @param {string[]} values the list's values, in order
+ * @param {string} flag the selecting flag, e.g. `--test`
+ * @returns {{ targets: string[] } | { error: string }}
+ */
+export function killSetTargets(values, flag) {
+  const joined = `${flag}=`;
+  const noTarget = (spelling) => ({
+    error: `states \`${spelling}\` with no target after it, so which binary it names cannot be read`,
+  });
+  const targets = [];
+  for (let i = 0; i < values.length; i++) {
+    const value = values[i];
+    if (value === flag) {
+      const target = values[i + 1];
+      if (target === undefined || target.startsWith('-')) return noTarget(flag);
+      targets.push(target);
+      i++;
+      continue;
+    }
+    if (value.startsWith(joined)) {
+      // The joined spelling carries its own value, so nothing after it is
+      // claimed — reading it as a flag would leave the target unread, and this
+      // list's own option to skip would swallow it whole.
+      const target = value.slice(joined.length);
+      if (target === '') return noTarget(value);
+      targets.push(target);
+      continue;
+    }
+    if (value.startsWith('-')) continue;
+    return { error: `states \`${value}\`, which this reader does not model — a flag's separate-token value would otherwise be read as a test target` }; // prettier-ignore
+  }
+  if (targets.length === 0) {
+    return { error: `states no \`${flag}\` entry, so it names no test binary to hold` };
+  }
+  return { targets };
+}
+
+/**
+ * The modules a document's mutate-scope table names, read through the clause's
+ * own scope so a table elsewhere in the document names whatever it documents.
+ * @param {string} markdown the document's text
+ * @param {string} clause the clause whose scope carries the table
+ * @param {string} column the table's first header cell
+ * @returns {{ modules: string[] } | { error: string }}
+ */
+export function readScopeTable(markdown, clause, column) {
+  const section = extractClauseSection(markdown, clause);
+  if (section === '') return { error: `states no \`**${clause}.**\` marker, so the table this leg reads has no scope to sit in` }; // prettier-ignore
+  const tables = parseTables(section).filter((t) => t.header[0] === column);
+  if (tables.length === 0) {
+    return { error: `states no table headed "${column}" inside §${clause}, where this leg reads the mutate scope` }; // prettier-ignore
+  }
+  const modules = [];
+  for (const table of tables) {
+    for (const row of table.rows) {
+      const name = backtickedName(row[0]);
+      if (name === null) {
+        return { error: `§${clause} states the scope row "${row[0]}", whose first cell is not a single backticked module path` }; // prettier-ignore
+      }
+      modules.push(name);
+    }
+  }
+  return { modules };
+}
+
+/**
+ * Pure core: audit the mutation kill sets and the mutate scope. Staleness only,
+ * and deliberately so — the lists are curated subsets, and no surface states
+ * which files belong in one, so what is held here is that every listed entry
+ * identifies a file that exists. A test file no kill set names is invisible to
+ * this audit by design, and the module header records that limit beside the
+ * others.
+ *
+ * Every declared surface is read at its own path: the reads are memoized per
+ * call, so two entries naming one file cost one read, and two entries naming
+ * different files are two reads. Reusing a neighbouring entry's content would
+ * let a refusal name a file this audit never opened, and let an agreement pass
+ * on a list it never read.
+ * @param {object} opts
+ * @param {string[]} opts.files all git-tracked repo-relative paths
+ * @param {(f: string) => (string | null)} opts.readFile content reader (null if unreadable)
+ * @param {typeof JS_KILL_SETS} [opts.jsKillSets]
+ * @param {typeof RUST_KILL_SET} [opts.rustKillSet]
+ * @param {typeof MUTATE_SCOPE} [opts.mutateScope]
+ * @returns {{ staleKillSetEntry: string[], mutateScopeDrift: string[],
+ *             deadScopeModule: string[], unreadableKillSet: string[] }}
+ */
+export function auditMutationKillSets({
+  files,
+  readFile,
+  jsKillSets = JS_KILL_SETS,
+  rustKillSet = RUST_KILL_SET,
+  mutateScope = MUTATE_SCOPE,
+}) {
+  const result = {
+    staleKillSetEntry: [],
+    mutateScopeDrift: [],
+    deadScopeModule: [],
+    unreadableKillSet: [],
+  };
+  const tracked = new Set(files);
+  const sources = new Map();
+  const readSource = (path) => {
+    if (!sources.has(path)) sources.set(path, readFile(path));
+    return sources.get(path);
+  };
+
+  const configPattern = basenameGlobToRegExp(jsKillSets.glob);
+  const configs = files.filter((f) => configPattern.test(f));
+  if (configs.length === 0) {
+    result.unreadableKillSet.push(
+      `no tracked file matches \`${jsKillSets.glob}\`, so the JavaScript kill sets this leg holds are not where it reads them`,
+    );
+  }
+  for (const config of configs) {
+    const source = readSource(config);
+    if (source == null) {
+      result.unreadableKillSet.push(`${config}: mutation configuration could not be read`);
+      continue;
+    }
+    const read = readPropertyStringArray(source, jsKillSets.property);
+    if (read.error) {
+      result.unreadableKillSet.push(`${config}: ${read.error}`);
+      continue;
+    }
+    // The list joins into the command the runner is given, so the arguments are
+    // read through the one reader that models such an invocation.
+    const invocation = nodeTestArguments(read.entries.join(' '));
+    if (invocation.error) {
+      result.unreadableKillSet.push(
+        `${config}: its \`${jsKillSets.property}\` ${invocation.error}`,
+      );
+      continue;
+    }
+    if (invocation.args.length === 0) {
+      result.unreadableKillSet.push(
+        `${config}: its \`${jsKillSets.property}\` states no \`node --test\` invocation, so the kill set this leg holds is not where it reads it`,
+      );
+      continue;
+    }
+    for (const arg of invocation.args) {
+      // An argument is a file or a glob over one directory, on the same terms
+      // the registration closure reads a `node --test` argument: the runner
+      // expands a glob, so holding one to identity would report a live entry as
+      // a dead one, with an explanation that is not even true of it.
+      const path = normalizePath(arg);
+      const argument = classifyArgument(path);
+      if (argument.error) {
+        result.unreadableKillSet.push(
+          `${config}: its \`${jsKillSets.property}\` ${argument.error}`,
+        );
+        continue;
+      }
+      if (argument.kind === 'glob') {
+        const selects = basenameGlobToRegExp(argument.pattern);
+        const selected = files.some(
+          (f) => dirname(f) === argument.dir && selects.test(basename(f)),
+        );
+        if (!selected) {
+          result.staleKillSetEntry.push(
+            `${config}: \`${jsKillSets.property}\` states the glob ${path}, which selects no tracked file — the runner expands it against the tree, so the weekly mutation run takes no test from this entry`,
+          );
+        }
+        continue;
+      }
+      if (!tracked.has(path)) {
+        result.staleKillSetEntry.push(
+          `${config}: \`${jsKillSets.property}\` names ${path}, which is not a tracked file — the weekly mutation run drops it in silence, since \`node --test\` runs the paths it finds and reports nothing for the one it does not`,
+        );
+      }
+    }
+  }
+
+  const manifest = readSource(rustKillSet.config);
+  if (manifest == null) {
+    result.unreadableKillSet.push(
+      `${rustKillSet.config}: the mutation configuration this leg reads could not be read`,
+    );
+  } else {
+    const read = readTomlStringArray(manifest, rustKillSet.key);
+    if (read.error) result.unreadableKillSet.push(`${rustKillSet.config}: ${read.error}`);
+    else {
+      const selected = killSetTargets(read.values, rustKillSet.flag);
+      if (selected.error) {
+        result.unreadableKillSet.push(
+          `${rustKillSet.config}: \`${rustKillSet.key}\` ${selected.error}`,
+        );
+      } else {
+        for (const target of selected.targets) {
+          // Both routes Cargo builds a test binary from, because a target is
+          // live at either: holding only the file route would call a binary
+          // that moved into a directory of its own a target that is not there.
+          const routes = [
+            `${rustKillSet.dir}/${target}${rustKillSet.suffix}`,
+            `${rustKillSet.dir}/${target}/${rustKillSet.main}`,
+          ];
+          if (!routes.some((path) => tracked.has(path))) {
+            result.staleKillSetEntry.push(
+              `${rustKillSet.config}: \`${rustKillSet.key}\` names \`${rustKillSet.flag} ${target}\`, which is no tracked binary at ${routes.join(' or at ')} — cargo refuses a target that is not there, so the weekly run fails on it; this names it at lint time instead`,
+            );
+          }
+        }
+      }
+    }
+  }
+
+  const scopeSource = readSource(mutateScope.config);
+  const docSource = readSource(mutateScope.doc);
+  const scopeRead = scopeSource == null ? null : readTomlStringArray(scopeSource, mutateScope.key);
+  if (scopeSource == null) {
+    result.unreadableKillSet.push(
+      `${mutateScope.config}: the mutate scope this leg reads could not be read`,
+    );
+  } else if (scopeRead.error) {
+    result.unreadableKillSet.push(`${mutateScope.config}: ${scopeRead.error}`);
+  }
+  let stated = null;
+  if (docSource == null) {
+    result.unreadableKillSet.push(
+      `${mutateScope.doc}: the document stating the mutate scope could not be read`,
+    );
+  } else {
+    const table = readScopeTable(docSource, mutateScope.clause, mutateScope.column);
+    if (table.error) result.unreadableKillSet.push(`${mutateScope.doc}: ${table.error}`);
+    else stated = table.modules;
+  }
+  if (stated !== null && scopeRead?.values) {
+    // Both statements of one curated set are read on the same terms, repeats
+    // included: a repeat costs cargo nothing, but a set diff cannot see one,
+    // and a scope that names a module twice is a scope one of its two surfaces
+    // has been edited past.
+    result.mutateScopeDrift.push(...duplicatesIn(stated, `${mutateScope.doc} §${mutateScope.clause}`)); // prettier-ignore
+    result.mutateScopeDrift.push(...duplicatesIn(scopeRead.values, `\`${mutateScope.key}\` in ${mutateScope.config}`)); // prettier-ignore
+    result.mutateScopeDrift.push(
+      ...missingFrom(
+        scopeRead.values,
+        stated,
+        `is in \`${mutateScope.key}\` in ${mutateScope.config} but has no row in ${mutateScope.doc} §${mutateScope.clause}`,
+      ),
+    );
+    result.mutateScopeDrift.push(
+      ...missingFrom(
+        stated,
+        scopeRead.values,
+        `is a row of ${mutateScope.doc} §${mutateScope.clause} but is not in \`${mutateScope.key}\` in ${mutateScope.config}`,
+      ),
+    );
+  }
+  // The agreement above holds the two surfaces to each other; this holds the
+  // set they agree on to the tree. A module deleted with both surfaces edited
+  // in step — or left stale on both — is a scope they agree about and nothing
+  // mutates, which no diff between them can see.
+  for (const value of scopeRead?.values ?? []) {
+    const surfaces =
+      stated !== null && stated.includes(value)
+        ? `both this configuration and ${mutateScope.doc} §${mutateScope.clause} state it`
+        : 'this configuration states it';
+    const path = `${mutateScope.root}/${value}`;
+    if (GLOB_CHAR_RE.test(value)) {
+      // A pattern entry names a set, so what it is held to is selecting one:
+      // the red names the form it found rather than a path nobody wrote.
+      const selects = basenameGlobToRegExp(path);
+      if (!files.some((f) => selects.test(f))) {
+        result.deadScopeModule.push(
+          `${mutateScope.config}: \`${mutateScope.key}\` states the pattern ${value}, which selects no tracked source under ${mutateScope.root}/ — ${surfaces}`,
+        );
+      }
+      continue;
+    }
+    if (!tracked.has(path)) {
+      result.deadScopeModule.push(
+        `${mutateScope.config}: \`${mutateScope.key}\` names ${value}, which is no tracked source at ${path} — ${surfaces}`,
+      );
+    }
+  }
+
+  return result;
+}
+
 /**
  * The red wording for each problem class an audit can report: what the class
  * says about the count it carries, and the fix. Keyed by the result field, so
@@ -1426,6 +1968,36 @@ const PROBLEM_BLOCKS = {
       `  name, and a browser-driven suite reached through its working directory's default\n` +
       `  configuration — or update scripts/check-test-inventory.js to the new shape.`,
   },
+  staleKillSetEntry: {
+    heading: (n) => `${n} mutation kill-set entr(ies) name no test file that is there`,
+    fix:
+      `repoint each entry at the file's current path, or remove the entry — a renamed or\n` +
+      `  deleted test the list still names runs against no mutant, and which files a kill set\n` +
+      `  lists is curated in the configuration itself, so neither repair is this check's to pick.`,
+  },
+  mutateScopeDrift: {
+    heading: (n) => `${n} mutate-scope module(s) are stated by one surface and not the other, or stated twice by one`, // prettier-ignore
+    fix:
+      `state the scope the same way in both — the cargo-mutants configuration decides what is\n` +
+      `  mutated, and the mutation-strategy document's table is what a reader is given; a module\n` +
+      `  joins or leaves the scope in one edit to the two of them, and takes one place on each.`,
+  },
+  deadScopeModule: {
+    heading: (n) => `${n} mutate-scope entr(ies) name no source the tree carries`,
+    fix:
+      `repoint each entry at the module's current path, or drop it from the scope — and drop\n` +
+      `  the strategy document's row with it where it has one, since the two surfaces state one\n` +
+      `  set. A module that is not there is mutated by nothing, so a scope still naming it\n` +
+      `  reads as wider than the run it configures.`,
+  },
+  unreadableKillSet: {
+    heading: (n) => `${n} mutation kill-set or mutate-scope source(s) could not be read as what they state`, // prettier-ignore
+    fix:
+      `restore the shape this closure reads — a mutation configuration stating its test list as\n` +
+      `  the registered property's array of strings, a cargo-mutants manifest stating its lists\n` +
+      `  as root-table arrays of strings, and the mutate-scope table under its registered heading\n` +
+      `  inside its clause — or update scripts/check-test-inventory.js to the new shape.`,
+  },
 };
 
 /**
@@ -1472,6 +2044,7 @@ function run() {
   const problems = [
     ...formatProblems(auditInventories({ files, readFile })),
     ...formatProblems(auditRegistrationClosure({ files, readFile })),
+    ...formatProblems(auditMutationKillSets({ files, readFile })),
   ];
   if (problems.length) {
     console.error(problems.join('\n\n'));
@@ -1482,12 +2055,17 @@ function run() {
   const documents = new Set(DOC_INVENTORIES.map((inventory) => inventory.doc)).size;
   const globbed = DOC_INVENTORIES.filter((i) => i.discovery.runner === RUNNERS.node).length;
   const admitted = DOC_INVENTORIES.filter((i) => i.discovery.runner === RUNNERS.cargo).length;
+  const jsPattern = basenameGlobToRegExp(JS_KILL_SETS.glob);
+  const jsConfigs = files.filter((f) => jsPattern.test(f)).length;
   console.log(
     `✓ test inventories current: ${DOC_INVENTORIES.length} registered suite(s) across ` +
       `${documents} document(s) enumerate their suites exactly, ${TRACKED_LISTS.length} coverage ` +
       `list(s) identify tracked sources, ${globbed} node-test suite(s) are each run by an ` +
-      `admitted manifest script, and ${admitted} cargo suite(s) hide no test binary from CI in ` +
-      `their tree or their crate manifest.`,
+      `admitted manifest script, ${admitted} cargo suite(s) hide no test binary from CI in ` +
+      `their tree or their crate manifest, and the kill sets of ${jsConfigs} discovered ` +
+      `JavaScript configuration(s) and the cargo-mutants list name test files that are there, ` +
+      `over a mutate scope its configuration and the strategy document state alike and the ` +
+      `tree carries module for module.`,
   );
 }
 
