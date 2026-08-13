@@ -77,8 +77,14 @@ code itself must reach platform behaviour it does so through the two
 injected seams below — the sync-state store it is handed, and the
 rebindable HTTP transport. What the seam requires of an adapter:
 
-- **Backend messaging** — `send(message)` delivers a request to the
-  platform's backend and returns its response.
+- **Backend messaging** — `send(message)` is the seam's backend-messaging
+  member: the extension panel's route to its service worker, and on the desktop
+  the route for the message types the Tauri adapter maps onto backend commands,
+  which that adapter file enumerates. What each platform answers is stated by
+  the typedef's own `send` entry. The desktop panel reaches the backend by
+  `invoke` directly as well, under the caller and direct-invoke closures the
+  [application shell](../application/desktop/windows/application-shell.md#the-command-surface)
+  states.
 - **Settings persistence** — load/save for dispatch settings, sync settings,
   the theme, and the default step-context mode, each backed by the
   platform's own storage ([Persistence](persistence.md)).
@@ -90,6 +96,13 @@ rebindable HTTP transport. What the seam requires of an adapter:
   beside it.
 - **Capability flags** — `hasNativeFileDialog` selects the export/import
   file flow.
+
+**SC-3.** Each platform's concrete adapter MUST implement every member the
+`PlatformAdapter` typedef declares, and a member every concrete adapter
+implements MUST be declared in that typedef: the typedef is the contract's
+single home, and every concrete adapter answers to it in both directions. A
+member only some platforms' callers need is admitted by the rule the adapter
+file's own header states and documented in those platforms' own adapter files.
 
 Two further shared seams bind per platform alongside the adapter: the
 sync-state store (`sync-store.js`'s `load`/`save` interface — the extension
