@@ -80,10 +80,21 @@
  * so a call written with a template literal is refused by name (the shared
  * tokenizer gives a template a type of its own, and tokenizes each `${…}`
  * interpolation's contents as the code they are, so a call written inside one
- * is a call site like any other); the shared tokenizer does not model
- * regular-expression literals, so a quote inside one desynchronizes the token
- * stream for the rest of that file — in these whole-file scans that corruption
- * is SILENT, the call sites past it simply not seen rather than refused; the
+ * is a call site like any other); how the shared tokenizer reads a
+ * regular-expression literal, with the shapes where that reading and the
+ * grammar part, is stated at {@link tokenizeJs} in
+ * [`check-test-inventory.js`](./check-test-inventory.js), and those shapes
+ * reach the caller scans in BOTH directions — the pattern a literal read as
+ * division puts into the stream is read as the code that text spells, so a
+ * call written inside one is CREDITED as a call site and a command nothing
+ * really invokes stays green on it, while past an UNMATCHED quote written in
+ * such a pattern the stream stays out of step to the end of that file, and a
+ * call site standing beyond such a quote, or
+ * inside what a division read as a literal takes out of the stream (at most the
+ * rest of its own line), is not seen: SILENTLY where another site names the
+ * same command, and LOUDLY where it was the only one, since the caller sets are
+ * diffed both ways and the command then reds as one no call site names — a
+ * mismatch naming a command the frontend does call; the
  * Rust anchors — the `#[tauri::command]` attribute, the `generate_handler!`
  * list, and the emit-family call sites — are found on a view of each source
  * whose string-literal contents are blanked, so what a diagnostic message says
@@ -519,15 +530,16 @@ function siteLabel(site, fn) {
 
 /**
  * How the argument a refused call site passed is named in the check's output:
- * a template literal by its kind, with its leading run of literal text beside
- * it, and every other token by the token itself.
+ * a literal this reader does not read by its kind, with what the source wrote
+ * beside it — a template's leading run of literal text, a regular expression's
+ * literal as written — and every other token by the token itself.
  * @param {{ argToken: string, argKind?: string | null }} site
  * @returns {string}
  */
 function argLabel(site) {
-  return site.argKind === 'template'
-    ? `a template literal (\`${site.argToken}\`)`
-    : `\`${site.argToken}\``;
+  if (site.argKind === 'template') return `a template literal (\`${site.argToken}\`)`;
+  if (site.argKind === 'regex') return `a regular-expression literal (\`${site.argToken}\`)`;
+  return `\`${site.argToken}\``;
 }
 
 /**

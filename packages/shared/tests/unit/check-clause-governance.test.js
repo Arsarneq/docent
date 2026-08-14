@@ -23,7 +23,10 @@
  * a token leaning on a recorded exception is counted apart from the ones that
  * resolve on their own governance. A final baseline lock runs the
  * check over the real tree so the committed allowlist stays exactly the
- * recorded couplings — no more, no fewer.
+ * recorded couplings — no more, no fewer — and holds the citations of the
+ * shared tokenizer to that same line from both sides: recorded where the
+ * clause's doc sits outside the tokenizer's declared governance, and reported
+ * stale where it sits inside.
  */
 
 import { describe, it } from 'node:test';
@@ -371,20 +374,29 @@ describe('auditClauseGovernance — governance declared by the map', () => {
 });
 
 describe('baseline lock (real tree)', () => {
-  it('the committed allowlist is exactly the current couplings — no new miss, none stale', () => {
-    const files = execFileSync('git', ['ls-files'], { encoding: 'utf8' })
+  /**
+   * The real tree as this check reads it: the tracked file list, the committed
+   * registry and map, and a content reader.
+   * @returns {{ files: string[], registry: any, map: any, readFile: (f: string) => string | null }}
+   */
+  const realTree = () => ({
+    files: execFileSync('git', ['ls-files'], { encoding: 'utf8' })
       .split('\n')
       .map((s) => s.trim())
-      .filter(Boolean);
-    const registry = JSON.parse(readFileSync('docs/clause-registry.json', 'utf8'));
-    const map = JSON.parse(readFileSync('scripts/area-map.json', 'utf8'));
-    const readFile = (f) => {
+      .filter(Boolean),
+    registry: JSON.parse(readFileSync('docs/clause-registry.json', 'utf8')),
+    map: JSON.parse(readFileSync('scripts/area-map.json', 'utf8')),
+    readFile: (f) => {
       try {
         return readFileSync(f, 'utf8');
       } catch {
         return null;
       }
-    };
+    },
+  });
+
+  it('the committed allowlist is exactly the current couplings — no new miss, none stale', () => {
+    const { files, registry, map, readFile } = realTree();
     const r = auditClauseGovernance({ registry, map, files, readFile, allowlist: ALLOWLIST });
     assert.deepEqual(
       r.newMisses,
@@ -396,5 +408,44 @@ describe('baseline lock (real tree)', () => {
       [],
       'an ALLOWLIST entry is stale (its coupling now resolves) — remove it',
     );
+  });
+
+  it('records a tokenizer citation only where the clause’s doc sits outside the tokenizer’s declared governance', () => {
+    // The clause rows whose check reads its sources through the shared
+    // tokenizer cite it by path. The tokenizer declares its own governing set:
+    // the runtime and application-shell docs are inside it, so those citations
+    // resolve on their own; the extension-capture and shared-core docs are
+    // outside it, so those citations are recorded exceptions instead.
+    const TOKENIZER = 'scripts/check-test-inventory.js';
+    // One clause list, read two ways: the allowlist's own key shape, and the
+    // coupling as a reader sees it — both written from the parts rather than
+    // recovered from the key by surgery.
+    const key = (clause) => `${clause}\t${TOKENIZER}`;
+    const coupling = (clause) => `${clause} -> ${TOKENIZER}`;
+    const recorded = ['ECP-6', 'SC-3'];
+    const resolving = ['ERT-4', 'DSH-1'];
+    for (const clause of recorded) {
+      assert.ok(ALLOWLIST.has(key(clause)), `${coupling(clause)} is recorded with its reason`);
+    }
+    for (const clause of resolving) {
+      assert.ok(!ALLOWLIST.has(key(clause)), `${coupling(clause)} resolves without an entry`);
+    }
+    // Held from the other side as well: recorded, each of those couplings
+    // reports STALE — the check's own statement that the citation resolves
+    // without it — while the pair above stays hit in the same run, which is
+    // what makes the exemption live rather than a rotting blanket.
+    const { files, registry, map, readFile } = realTree();
+    const r = auditClauseGovernance({
+      registry,
+      map,
+      files,
+      readFile,
+      allowlist: new Map([
+        ...ALLOWLIST,
+        ...resolving.map((clause) => [key(clause), 'recorded for this run']),
+      ]),
+    });
+    assert.deepEqual(r.staleAllowlist, resolving.map(key));
+    assert.deepEqual(r.newMisses, []);
   });
 });

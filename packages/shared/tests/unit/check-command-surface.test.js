@@ -244,6 +244,22 @@ describe('evaluateCommandSurface — the caller side (both ways)', () => {
     assert.ok(!refusal.includes('passes `load_`'), refusal);
   });
 
+  it('names a regular-expression argument as the literal the source wrote', () => {
+    // One formatter over every literal this reader does not read: printing the
+    // token alone would state a command name of punctuation and pattern text,
+    // where naming the kind puts the reader on the shape that stopped the read.
+    const sites = extractCallSites(
+      new Map([[CALLER_PATH, 'await invoke(/load_state/);']]),
+      'invoke',
+    );
+    const problems = evaluateCommandSurface(
+      makeSurface({ invokeSites: [...makeSurface().invokeSites, { ...sites[0], ordinal: 3 }] }),
+    );
+    const refusal = problems.find((p) => p.includes(`${CALLER_PATH} (invoke( call site 3)`));
+    assert.ok(refusal, problems.join('\n') || 'no pattern-invoke refusal');
+    assert.match(refusal, /passes a regular-expression literal \(`\/load_state\/`\) where the command name goes/); // prettier-ignore
+  });
+
   it('names a template channel the same way on the listen side', () => {
     // One extractor, one refusal formatter: the channel scan reads the same
     // facts, so a template there is named as a template too.
@@ -861,9 +877,9 @@ describe('extractCallSites — the frontend caller scans', () => {
   });
 
   it('sees every call site past a backtick quoted inside an interpolation', () => {
-    // The one shape that desynchronized the token stream for the rest of the
-    // file: in this whole-file scan the corruption was silent, and both real
-    // sites simply stopped existing.
+    // One of the shapes that used to desynchronize the token stream for the
+    // rest of the file: in this whole-file scan the corruption was silent, and
+    // both real sites simply stopped existing.
     assert.deepEqual(
       extractCallSites(new Map([['a.js', "invoke(`${f('`')}`);\ninvoke('after');"]]), 'invoke').map(
         (s) => [s.ordinal, s.name],

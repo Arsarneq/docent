@@ -53,12 +53,30 @@
  * dispatcher, by contrast, is refused loudly; the equality scan is
  * module-wide, not listener-scoped, and where the guards sit is review-held
  * (ERT-4's ahead-of-the-switch mechanism is stated doctrine the scan does
- * not verify — token order is not control flow); a regular-expression literal
- * carrying a brace inside the dispatcher body corrupts the depth bound and
- * reds with a misleading diagnosis (loud, never green), while the same
- * unmodelled class costs the whole-file send scan silently: a quote inside a
- * regular-expression literal desynchronizes the token stream for the rest of
- * that file, and the send sites past it are simply not seen; the default arm
+ * not verify — token order is not control flow); how the shared tokenizer
+ * reads a regular-expression literal, with the shapes where that reading and
+ * the grammar part, is stated at {@link tokenizeJs} in
+ * [`check-test-inventory.js`](./check-test-inventory.js), and those shapes cost
+ * this check in both directions. The pattern a literal read as division puts
+ * into the stream is read as the code that text spells, so a send written
+ * inside one is CREDITED as a send the panel makes, and a type the enumeration
+ * does not state reds there, naming a send no source wrote. An UNBALANCED brace
+ * in such a pattern also moves the dispatcher's walk, which counts braces alone
+ * — a balanced pair, `/a{2,3}/` among them, moves it by nothing, and a bracket
+ * or a parenthesis costs it nothing at all — and what a moved bound costs is
+ * decided by where the literal stands. Standing right after the switch's own
+ * opening brace it leaves every arm unread, and the check reds vacuously,
+ * naming no type; standing between the arms it leaves the arms past it unread,
+ * each enumerated type whose arm went unread reported as unserviced and the
+ * `default:` arm no longer seen at the moved depth beside them; standing past
+ * every arm it leaves the labels read and carries the walk on, where a later
+ * `switch` word falling inside the moved bound reds at the nesting anchor,
+ * naming a nesting the source does not have, and where none does it passes
+ * green. Past an UNMATCHED quote written in such a pattern the stream stays out
+ * of step to the end of that file, and a send site
+ * standing beyond such a quote, or inside what a division read as a literal
+ * takes out of the stream (at most the rest of its own line), is simply not
+ * seen. The default arm
  * is presence-checked only (the envelope it answers is ERT-2's own
  * verification). The panel table's sender-side claim is held over the
  * literal-send subset the scan reads, and carries residues of its own, each
@@ -275,6 +293,8 @@ export function extractDispatcherSurface(workerSource) {
       if (read.lone) equalityHits.push(read.value);
       else if (read.kind === 'template') {
         problems.push(`${WORKER_PATH} guards a message type with a template literal (\`${read.token}\`) — the scan reads a quoted string literal standing alone as the operand, so the capture-path closure stays checkable`); // prettier-ignore
+      } else if (read.kind === 'regex') {
+        problems.push(`${WORKER_PATH} guards a message type with a regular-expression literal (\`${read.token}\`) — the scan reads a quoted string literal standing alone as the operand, so the capture-path closure stays checkable`); // prettier-ignore
       } else if (read.isString) {
         problems.push(`${WORKER_PATH} guards a message type with \`${read.token}\` followed by \`${read.follower ?? 'end of source'}\` — the scan reads a quoted string literal standing alone as the operand, so the capture-path closure stays checkable`); // prettier-ignore
       }
@@ -313,6 +333,8 @@ export function extractDispatcherSurface(workerSource) {
         i += 2;
       } else if (read.kind === 'template') {
         problems.push(`${WORKER_PATH}'s dispatcher switch labels an arm with a template literal (\`${read.token}\`) — the scan reads a quoted string literal the label's own colon follows, so the panel-protocol closure stays checkable`); // prettier-ignore
+      } else if (read.kind === 'regex') {
+        problems.push(`${WORKER_PATH}'s dispatcher switch labels an arm with a regular-expression literal (\`${read.token}\`) — the scan reads a quoted string literal the label's own colon follows, so the panel-protocol closure stays checkable`); // prettier-ignore
       } else if (read.isString) {
         problems.push(`${WORKER_PATH}'s dispatcher switch labels an arm \`${read.token}\` followed by \`${read.follower ?? 'end of source'}\` — the scan reads a quoted string literal the label's own colon follows, so the panel-protocol closure stays checkable`); // prettier-ignore
       }
@@ -331,7 +353,10 @@ export function extractDispatcherSurface(workerSource) {
  * reader does not read it: by the property shape it opens, so the diagnosis
  * states the send's actual shape rather than a missing property. A bare or
  * quoted name with no colon after it is the shorthand form, and naming the
- * name is what makes that case self-explaining.
+ * name is what makes that case self-explaining. A literal the key reader does
+ * not read is named by its kind, with what the source wrote beside it — a
+ * template's leading run of literal text, a regular expression's literal as
+ * written.
  * @param {{ type: string, value: string }} token the token at the property start
  * @returns {string}
  */
@@ -339,6 +364,7 @@ function describeKeyPosition(token) {
   if (token.type === 'punct' && token.value === '[') return 'a computed key';
   if (token.type === 'punct' && token.value === '.') return 'a spread';
   if (token.type === 'template') return `a template literal (\`${token.value}\`)`;
+  if (token.type === 'regex') return `a regular-expression literal (\`${token.value}\`)`;
   if (token.type === 'word' || token.type === 'string') {
     return `\`${token.value}\`, which no colon follows`;
   }

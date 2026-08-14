@@ -133,7 +133,9 @@ export const CITED_PATH_RE = /(?:[A-Za-z0-9_\-.*{},]+\/)*[A-Za-z0-9_\-.*{},]+\.[
  *   2. Cited implementation or util files whose clause is verified elsewhere —
  *      the citation names the site for orientation, not a per-file governance
  *      edge. Each entry's reason states where the verification actually lives:
- *      a registered guard suite that carries the doc, or — when the clause's
+ *      a registered guard suite that carries the doc, the verifying check the
+ *      same row names where the clause's doc governs that check and the
+ *      citation names shared machinery it reads through, or — when the clause's
  *      doc is repo-wide — the repo-wide "line only when itself edited" rule
  *      plus the end-to-end checks.
  *   3. The format-authority echo surfaces whose area-supplied governance
@@ -206,6 +208,14 @@ export const ALLOWLIST = new Map([
   [
     'DI-3\tpackages/shared/lib/format-stamp.js',
     "the stamp-source implementation DI-3 names; DI-3's wrapper contract is asserted per-diff by the contract, dispatch, and export test suites that carry the dispatch doc, and this file is exercised by the schema-composition suites — the citation names the site, not a per-file governance edge",
+  ],
+  [
+    'ECP-6\tscripts/check-test-inventory.js',
+    "the shared tokenizer scripts/check-capture-surface.js reads this clause's sources through, cited for where that reading is stated; the verification stays with that check, which the extension capture doc governs, and this clause's doc reaches the shared reader through this recorded citation alone — kept as an exception so the reader's own governing list stays the context its edits need",
+  ],
+  [
+    'SC-3\tscripts/check-test-inventory.js',
+    'the shared tokenizer scripts/check-adapter-surface.js reads each adapter through, cited for where that reading is stated; that check takes the tokenizer and the set-diff helpers alone, and the verification stays with it, held by the shared-core doc that governs it',
   ],
   // Class 3 — format-authority echo surfaces. Each echoes the session-format
   // ordering clause and is held by the schema-echo check; what stays open is

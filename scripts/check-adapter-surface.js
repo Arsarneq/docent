@@ -53,11 +53,25 @@
  * own — is refused by shape in the KEY position, as is the computed key that is
  * the only way one reaches that position in valid JavaScript, while a template
  * standing in a value position is read like any other value: the member scan
- * inspects keys, so the names either side of it are read as written; and the
- * shared tokenizer does not model regular-expression
- * literals, so a quote inside one desynchronizes the token stream for the rest
- * of that file — the members past it are then red as missing or refused by
- * shape, or the literal stops closing and reds as such, loud either way.
+ * inspects keys, so the names either side of it are read as written; and how
+ * the shared tokenizer reads a regular-expression literal, with the shapes
+ * where that reading and the grammar part, is stated at {@link tokenizeJs} in
+ * [`check-test-inventory.js`](./check-test-inventory.js). The pattern a literal
+ * read as division puts into the stream is read as the code that text spells,
+ * so a name standing where a property can start there is CREDITED as a member,
+ * and one adapter alone carrying it stays admitted, SILENTLY: the reverse leg
+ * holds the members every adapter implements, which is the only place such a
+ * name would show. A brace written in that pattern moves the member scan's own
+ * bound at the same time, and what that costs follows the brace: a balanced
+ * pair moves it by nothing; an unbalanced CLOSING brace ends the literal early,
+ * so the members past it go unread and red as unimplemented; an unbalanced
+ * OPENING brace leaves the literal never closing, which is refused by name —
+ * and a refusal is the whole report here, so no member red is derived from it
+ * at all. Past an UNMATCHED quote written there the stream stays out of step to
+ * the end of that file, while a division read as a
+ * literal takes at most the rest of its own line out of the stream; the members
+ * either of those covers red as missing or refused by shape, or the object
+ * literal stops closing and reds as such.
  *
  * Usage:
  *   node scripts/check-adapter-surface.js  # or: npm run lint:adapter-surface

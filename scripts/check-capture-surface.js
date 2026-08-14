@@ -64,8 +64,8 @@
  *
  * Honest limits. In the CAPTURE PAIR every shape outside the model is REFUSED,
  * never skipped: an event name that is not a lone quoted string literal (so a
- * concatenated, computed, or template name is refused, not read as its leading
- * fragment), a receiver outside `document`/`window` — which is what a helper
+ * concatenated, computed, template, or regular-expression name is refused, not
+ * read as its leading fragment), a receiver outside `document`/`window` — which is what a helper
  * taking its target as a parameter looks like, wherever that helper is defined
  * — and an `addListener` chain not rooted at `chrome`. Beyond the pair the
  * receiver and the registration root draw the boundary instead: an element
@@ -86,10 +86,22 @@
  * models template literals as a type of their own and tokenizes each `${…}`
  * interpolation's contents as the code they are: a registration written inside
  * an interpolation is a registration like any other, and a template event name
- * is refused rather than credited with its text. The tokenizer does not model
- * regular-expression literals, so a quote inside one desynchronizes the token
- * stream for the rest of that file — in these whole-file scans that corruption
- * is SILENT, the registrations past it simply not seen rather than refused.
+ * is refused rather than credited with its text. How it reads a
+ * regular-expression literal, with the shapes where that reading and the
+ * grammar part, is stated at {@link tokenizeJs} in
+ * [`check-test-inventory.js`](./check-test-inventory.js), and those shapes
+ * reach these whole-file scans in BOTH directions. The pattern a literal read
+ * as division puts into the stream is read as the code that text spells, so a
+ * registration written inside one is CREDITED as a registration the file makes:
+ * an event the enumeration does not describe reds there, naming a registration
+ * no source wrote. Past an UNMATCHED quote written in such a pattern the stream
+ * stays out of step to the end of that file, and a registration standing beyond
+ * such a quote, or inside what a division read as a literal takes out of the
+ * stream (at most the rest of its own line), is not
+ * seen: SILENTLY where nothing else names it, and LOUDLY where an enumeration
+ * does, since the DOM leg diffs both ways and an unseen registration reds there
+ * as an enumerated event the recorder no longer registers — a mismatch naming
+ * an event the recorder does register.
  * The desktop leg reads one view of the Rust source throughout: comment-
  * stripped, with every string literal's contents blanked. Its anchors — the
  * hook installations, the registration loop, the bracket closing its range list
@@ -520,7 +532,7 @@ export function extractRegistrations(source, path, legs = REGISTRATION_LEGS.capt
       // first, so reading the string alone would silently record `mouse`.
       const read = readLoneStringLiteral(tokens, i + 2, ',');
       if (!at(i + 1, 'punct', '(') || !read.lone) {
-        problems.push(`${path} registers a DOM listener on ${receiver.value} whose event name is not a string literal standing alone as the first argument — a concatenated, computed, or template name is refused, never read as its leading fragment`); // prettier-ignore
+        problems.push(`${path} registers a DOM listener on ${receiver.value} whose event name is not a string literal standing alone as the first argument — a concatenated, computed, template, or regular-expression name is refused, never read as its leading fragment`); // prettier-ignore
         continue;
       }
       const target = receiver.value === ENUMERATED_RECEIVER ? domEvents : windowEvents;

@@ -573,6 +573,17 @@ describe('extractDispatcherSurface — comment-safe tokenizer reads', () => {
     assert.match(read.problems[0], /guards a message type with a template literal \(`PONG_`\)/);
   });
 
+  it('refuses an equality guard written with a regular-expression literal', () => {
+    // A pattern reaches the operand position wherever an expression may start,
+    // and the kind travelling with the read is what names it as the literal the
+    // source wrote rather than letting it fall through unremarked.
+    const patterned = `${worker}\nif (message.type === /PONG_/) { return; }`;
+    const read = extractDispatcherSurface(patterned);
+    assert.deepEqual(read.equalityTypes, ['FRAME_READY']);
+    assert.equal(read.problems.length, 1);
+    assert.match(read.problems[0], /guards a message type with a regular-expression literal \(`\/PONG_\/`\)/); // prettier-ignore
+  });
+
   it('refuses a case label whose literal leads an expression', () => {
     // Before the label's own colon was required, this label vanished with no
     // problem at all — the enumeration then redded as a type nothing services,
@@ -591,6 +602,17 @@ describe('extractDispatcherSurface — comment-safe tokenizer reads', () => {
     assert.deepEqual(read.caseLabels, ['PROJECTS_LIST']);
     assert.equal(read.problems.length, 1);
     assert.match(read.problems[0], /labels an arm with a template literal \(`STEP_COMMIT`\)/);
+  });
+
+  it('refuses a case label written with a regular-expression literal', () => {
+    // `case` is a position an expression can start at, so a pattern stands
+    // there legally as far as the scanner is concerned; it is named as one
+    // instead of leaving the arm silently unlabelled.
+    const patterned = worker.replace("case 'STEP_COMMIT':", 'case /STEP_COMMIT/:');
+    const read = extractDispatcherSurface(patterned);
+    assert.deepEqual(read.caseLabels, ['PROJECTS_LIST']);
+    assert.equal(read.problems.length, 1);
+    assert.match(read.problems[0], /labels an arm with a regular-expression literal \(`\/STEP_COMMIT\/`\)/); // prettier-ignore
   });
 
   it('leaves a case label the scan never modelled outside the closure', () => {
@@ -732,6 +754,18 @@ describe('extractSendSites — the one shape the sender scan reads', () => {
         source,
       );
     }
+  });
+
+  it('names a regular-expression literal standing where a key belongs', () => {
+    // The kind travels with the token here too, so the diagnosis states the
+    // literal the source wrote rather than the punctuation it opens with.
+    const sites = extractSendSites(
+      new Map([['a.js', "await send({ /type/: 'RECORDING_OPEN' });"]]),
+    );
+    assert.deepEqual(
+      sites.map((s) => [s.type, s.found]),
+      [[null, 'no `type` key among the top-level properties (a regular-expression literal (`/type/`))']], // prettier-ignore
+    );
   });
 
   it('keeps the empty-literal diagnosis for a send that really states no property', () => {

@@ -467,11 +467,118 @@ const OPENERS = '([{';
 const CLOSERS = ')]}';
 
 /**
+ * The words a regular-expression literal may stand directly after: the
+ * keywords an expression can start after. Every other word is a value — an
+ * identifier, a number, `this`, `super` — and a `/` written after a value
+ * divides.
+ */
+const REGEX_START_WORDS = new Set([
+  'return',
+  'typeof',
+  'instanceof',
+  'in',
+  'of',
+  'new',
+  'delete',
+  'void',
+  'case',
+  'default',
+  'do',
+  'else',
+  'extends',
+  'yield',
+  'await',
+  'throw',
+]);
+
+/**
+ * The punctuation a `/` divides after — the closers that end a value. After
+ * every other punctuator an expression may start, so a `/` opens a literal.
+ */
+const DIVIDES_AFTER = new Set([')', ']']);
+
+/**
+ * Whether a `/` written after `token` opens a regular-expression literal rather
+ * than dividing, `before` being the token ahead of `token`. This is the whole
+ * of the decision, and it has one home because each rendering of the scan asks
+ * it: {@link tokenizeJs}, which answers with a token stream, and
+ * {@link blankJsLiterals}, which answers with an offset-preserving view.
+ *
+ * A word a `.` precedes is a property name, and therefore a value however it is
+ * spelled — `o.in / 2` divides — which is the same member rule the declarator
+ * reading in `check-clause-registry.js` applies. A `}` is read as the end of a
+ * statement rather than of an object literal, the reading that lets a literal
+ * open after one.
+ * @param {{ type: string, value: string } | null | undefined} token the token
+ *   the `/` follows, absent at the start of the source
+ * @param {{ type: string, value: string } | null | undefined} before the token
+ *   ahead of `token`
+ * @returns {boolean}
+ */
+function regexCanFollow(token, before) {
+  if (!token) return true;
+  if (token.type === 'word') {
+    const property = before?.type === 'punct' && before.value === '.';
+    return !property && REGEX_START_WORDS.has(token.value);
+  }
+  if (token.type === 'punct') return !DIVIDES_AFTER.has(token.value);
+  return false;
+}
+
+/**
+ * Read the extent of the regular-expression literal opening at `at`, the index
+ * of its `/`. Escapes are consumed in pairs; an unescaped `[` opens a character
+ * class and an unescaped `]` closes it, so a `/` written inside one is ordinary
+ * pattern text; the literal closes at the first unescaped `/` outside a class,
+ * and the flag run after it is a run of word characters.
+ *
+ * A literal may not cross a line terminator, so a run that reaches one is
+ * ABANDONED — the answer is `null` and the caller reads the `/` as the
+ * punctuation it was. That bound is what caps a `/` read as a literal by
+ * mistake at the line it is written on.
+ *
+ * A character class is tracked as open-or-not rather than by depth, which finds
+ * the closing delimiter of every valid literal: the flag that admits a nested
+ * class forbids an unescaped `/` inside one. The extent is all this reads — a
+ * pattern is never compiled, so what it would match is not this scan's
+ * question.
+ * @param {string} source
+ * @param {number} at index of the opening `/`
+ * @returns {{ close: number, end: number } | null} `close` indexes the closing
+ *   `/`, `end` the character just past the flag run
+ */
+function readRegexLiteral(source, at) {
+  let k = at + 1;
+  let inClass = false;
+  while (k < source.length) {
+    const ch = source[k];
+    if (ch === '\n' || ch === '\r') return null;
+    if (ch === '\\') {
+      const next = source[k + 1];
+      if (next === undefined || next === '\n' || next === '\r') return null;
+      k += 2;
+      continue;
+    }
+    if (ch === '[') inClass = true;
+    else if (ch === ']') inClass = false;
+    else if (ch === '/' && !inClass) {
+      const close = k;
+      k++;
+      while (k < source.length && WORD_CHAR_RE.test(source[k])) k++;
+      return { close, end: k };
+    }
+    k++;
+  }
+  return null;
+}
+
+/**
  * Tokenize JavaScript source far enough to read a data literal out of it:
  * quoted strings (quote style and escapes honoured), template literals,
- * identifier-ish words, and single punctuation characters. Comments and
- * whitespace are dropped, so a commented-out or documented occurrence of a name
- * is never mistaken for the declaration.
+ * regular-expression literals, identifier-ish words, and single punctuation
+ * characters. Comments and whitespace are dropped, so a commented-out or
+ * documented occurrence of a name is never mistaken for the declaration; a
+ * leading `#!` line is a comment of that kind and is skipped.
  *
  * A template literal is modelled as its own token type. Its text arrives as
  * `template` tokens carrying flat string values — one per run of literal text,
@@ -484,8 +591,40 @@ const CLOSERS = ')]}';
  * accepts a `string` token therefore accepts a quoted literal and nothing else,
  * and one that wants to name a template in a refusal has its flat value to
  * print.
+ *
+ * A regular-expression literal is modelled as its own token type too, carrying
+ * the literal exactly as written — both delimiters and the flag run — where a
+ * `string` or `template` token carries contents: a pattern's escapes are its
+ * meaning and no contents reading survives stripping them, so a refusal naming
+ * one prints the pattern the source states. Whether a
+ * `/` opens such a literal or divides is the decision the grammar makes with a
+ * parser this scanner does not have, so it is made from the token before, by
+ * {@link regexCanFollow}: a literal may open where an expression may start — at
+ * the start of the source, after a punctuator other than `)` or `]`, after one
+ * of the keywords an expression can start after, and at the start of a `${…}`
+ * interpolation — while after a value, meaning an identifier, a number, a
+ * string, a template, a literal already read, or a property name a `.`
+ * precedes, the `/` divides. What the literal spans is {@link readRegexLiteral}.
+ *
+ * Where that rule and the grammar part, each shape is named here. A literal
+ * written directly after the `)` closing an `if`/`for`/`while` head reads as
+ * division, and its pattern then enters the stream as the code that text
+ * spells: a call, a registration, or a declaration written inside a pattern is
+ * read as one the file makes. Quotes written in such a pattern are read as the
+ * quotes they look like — a matched pair opens and closes a string inside the
+ * pattern's own text, and the stream comes back into step at the literal's end,
+ * while an UNMATCHED one opens a string that runs to the next quote wherever in
+ * the file it stands, leaving the stream out of step from there to the end of
+ * the file. The other shape is a `/` that divides standing where an expression
+ * could start — after a `}`, after one of the words above written as an
+ * identifier, or after a postfix `++` or `--` — which reads as a literal
+ * instead and takes with it at most the rest of the line it is written on: the
+ * run closes at the next `/` on that line, and one that reaches the line
+ * terminator is abandoned, the `/` read as punctuation again. That line is the
+ * bound of this second shape alone. A scan over this stream states what those
+ * shapes cost IT, and cites this model rather than restating it.
  * @param {string} source
- * @returns {{ type: 'word' | 'string' | 'template' | 'punct', value: string }[]}
+ * @returns {{ type: 'word' | 'string' | 'template' | 'regex' | 'punct', value: string }[]}
  */
 export function tokenizeJs(source) {
   const tokens = [];
@@ -495,6 +634,25 @@ export function tokenizeJs(source) {
   // punctuation that moves the depth.
   const interpolations = [];
   let i = 0;
+  // A leading `#!` line is a comment: skipped whole, so its path never reads as
+  // a literal opening at the `/` of `/usr`.
+  if (source.startsWith('#!')) {
+    while (i < source.length && source[i] !== '\n') i++;
+  }
+  // Whether a `/` reached now opens a regular-expression literal. Recomputed
+  // from the token just emitted and the one before it, so the rule lives in one
+  // place and is asked the same way here and in the blanked view.
+  let regexOk = true;
+  /**
+   * Emit a token and recompute whether a `/` may open a literal after it.
+   * @param {{ type: string, value: string }} token
+   * @returns {void}
+   */
+  const emit = (token) => {
+    const before = tokens[tokens.length - 1];
+    tokens.push(token);
+    regexOk = regexCanFollow(token, before);
+  };
   /**
    * Consume a run of template text from `at`, emit it as one `template` token,
    * and answer the index just past whatever ended the run: the closing
@@ -506,6 +664,7 @@ export function tokenizeJs(source) {
   const readTemplateText = (at) => {
     let value = '';
     let k = at;
+    let opened = false;
     while (k < source.length) {
       const ch = source[k];
       if (ch === '\\') {
@@ -520,12 +679,15 @@ export function tokenizeJs(source) {
       if (ch === '$' && source[k + 1] === '{') {
         interpolations.push(0);
         k += 2;
+        opened = true;
         break;
       }
       value += ch;
       k++;
     }
-    tokens.push({ type: 'template', value });
+    emit({ type: 'template', value });
+    // An interpolation opens at an expression start, whatever text preceded it.
+    if (opened) regexOk = true;
     return k;
   };
   while (i < source.length) {
@@ -539,6 +701,16 @@ export function tokenizeJs(source) {
       while (i < source.length && !(source[i] === '*' && source[i + 1] === '/')) i++;
       i += 2;
       continue;
+    }
+    // After the comment branches, which own `//` and `/*`: neither can open a
+    // literal, so what reaches here is a `/` that divides or opens one.
+    if (ch === '/' && regexOk) {
+      const literal = readRegexLiteral(source, i);
+      if (literal) {
+        emit({ type: 'regex', value: source.slice(i, literal.end) });
+        i = literal.end;
+        continue;
+      }
     }
     if (ch === '`') {
       i = readTemplateText(i + 1);
@@ -566,19 +738,190 @@ export function tokenizeJs(source) {
         }
       }
       i++; // closing quote (or end of source, on an unterminated literal)
-      tokens.push({ type: 'string', value });
+      emit({ type: 'string', value });
       continue;
     }
     if (WORD_CHAR_RE.test(ch)) {
       let value = '';
       while (i < source.length && WORD_CHAR_RE.test(source[i])) value += source[i++];
-      tokens.push({ type: 'word', value });
+      emit({ type: 'word', value });
       continue;
     }
-    if (!/\s/.test(ch)) tokens.push({ type: 'punct', value: ch });
+    if (!/\s/.test(ch)) emit({ type: 'punct', value: ch });
     i++;
   }
   return tokens;
+}
+
+/**
+ * Blank out every comment, and the CONTENTS of every quoted string and every
+ * template literal — replacing each character with a space while keeping the
+ * literal's delimiters, every other character's offset, and every newline. The
+ * view is the source's own length, line for line, so an offset or a line number
+ * computed on it addresses the same character of the source it was made from,
+ * and a regular expression written against the source's shape still matches.
+ *
+ * A regular-expression literal keeps its delimiters and its PATTERN TEXT, and
+ * gives up its flag run. What a guard reads this view for is a REFERENCE — a
+ * name the code uses — and a pattern is where a source states the names it
+ * handles, so a mention written there stays visible and reds wherever a guard
+ * forbids that name: for a guard that asserts an absence, a mention reported is
+ * the answer a reviewer can weigh, and one kept in view is what makes the
+ * report possible. The flag run goes because it is word-shaped literal data,
+ * and a view that left it standing would hand such a guard an identifier the
+ * source never wrote.
+ *
+ * The JavaScript sibling of the comment-stripped and string-blanked Rust views
+ * in [`check-command-surface.js`](./check-command-surface.js), which stand
+ * beside each other there for the same reason: a scan looking for what a source
+ * DOES wants the calls it makes with the text of what it says about them left
+ * out. It is one function rather than that pair because in JavaScript those
+ * questions cannot be
+ * separated — whether a `/` opens a comment, a literal, or a division is
+ * decidable only while strings, templates and regular expressions are all being
+ * tracked, so one scan produces both answers at once.
+ *
+ * It is a second rendering of {@link tokenizeJs}'s scanning rules, not a second
+ * grammar: the comment branches, the string branch, the template model with its
+ * interpolations left as the code they are, and the regular-expression branch
+ * all read the same way, and the decisions that could drift —
+ * {@link regexCanFollow} and {@link readRegexLiteral} — are shared outright, so
+ * a guard searching this view and a reader of the token stream find the same
+ * literals in the same places. What differs is what each answer is FOR: a token
+ * carries a literal's value, so a `regex` token states the pattern as written,
+ * while this view is a source a text search runs over, so it leaves the pattern
+ * where it stands and blanks what a search could otherwise read as code.
+ * @param {string} source JavaScript source text
+ * @returns {string} the source with comments, string and template contents, and
+ *   regular-expression flag runs blanked
+ */
+export function blankJsLiterals(source) {
+  const out = source.split('');
+  const n = source.length;
+  /**
+   * Blank `[from, to)`, keeping newlines so the view stays line for line.
+   * @param {number} from
+   * @param {number} to
+   * @returns {void}
+   */
+  const blank = (from, to) => {
+    for (let k = Math.max(from, 0); k < to && k < n; k++) if (out[k] !== '\n') out[k] = ' ';
+  };
+  // The same interpolation bookkeeping tokenizeJs keeps, for the same reason.
+  const interpolations = [];
+  let i = 0;
+  if (source.startsWith('#!')) {
+    while (i < n && source[i] !== '\n') i++;
+    blank(0, i);
+  }
+  let regexOk = true;
+  let last = null;
+  let before = null;
+  /**
+   * Record the token the scan just passed, and recompute whether a `/` reached
+   * now opens a literal — tokenizeJs's `emit`, with nothing collected.
+   * @param {{ type: string, value: string }} token
+   * @returns {void}
+   */
+  const seen = (token) => {
+    before = last;
+    last = token;
+    regexOk = regexCanFollow(last, before);
+  };
+  /**
+   * Blank a run of template text from `at` and answer the index just past what
+   * ended it: the closing backtick, the `${` opening an interpolation, or the
+   * end of an unterminated literal. The `$` and `{` are delimiters and stay
+   * visible, like the backtick and like a quote.
+   * @param {number} at
+   * @returns {number}
+   */
+  const readTemplateText = (at) => {
+    let k = at;
+    while (k < n) {
+      const ch = source[k];
+      if (ch === '\\') {
+        k += 2;
+        continue;
+      }
+      if (ch === '`') {
+        blank(at, k);
+        seen({ type: 'template', value: '' });
+        return k + 1;
+      }
+      if (ch === '$' && source[k + 1] === '{') {
+        interpolations.push(0);
+        blank(at, k);
+        seen({ type: 'template', value: '' });
+        regexOk = true;
+        return k + 2;
+      }
+      k++;
+    }
+    blank(at, n);
+    seen({ type: 'template', value: '' });
+    return n;
+  };
+  while (i < n) {
+    const ch = source[i];
+    if (ch === '/' && source[i + 1] === '/') {
+      const from = i;
+      while (i < n && source[i] !== '\n') i++;
+      blank(from, i);
+      continue;
+    }
+    if (ch === '/' && source[i + 1] === '*') {
+      const from = i;
+      i += 2;
+      while (i < n && !(source[i] === '*' && source[i + 1] === '/')) i++;
+      i = Math.min(i + 2, n);
+      blank(from, i);
+      continue;
+    }
+    if (ch === '/' && regexOk) {
+      const literal = readRegexLiteral(source, i);
+      if (literal) {
+        // Both delimiters and the pattern between them stand; the flag run
+        // after the closing delimiter is what goes.
+        blank(literal.close + 1, literal.end);
+        i = literal.end;
+        seen({ type: 'regex', value: '' });
+        continue;
+      }
+    }
+    if (ch === '`') {
+      i = readTemplateText(i + 1);
+      continue;
+    }
+    if (interpolations.length > 0 && (ch === '{' || ch === '}')) {
+      const open = interpolations.length - 1;
+      if (ch === '}' && interpolations[open] === 0) {
+        interpolations.pop();
+        i = readTemplateText(i + 1);
+        continue;
+      }
+      interpolations[open] += ch === '{' ? 1 : -1;
+    }
+    if (ch === "'" || ch === '"') {
+      const quote = ch;
+      const from = i;
+      i++;
+      while (i < n && source[i] !== quote) i += source[i] === '\\' ? 2 : 1;
+      blank(from + 1, Math.min(i, n));
+      i = Math.min(i + 1, n); // closing quote (or end of source)
+      seen({ type: 'string', value: '' });
+      continue;
+    }
+    if (WORD_CHAR_RE.test(ch)) {
+      const from = i;
+      while (i < n && WORD_CHAR_RE.test(source[i])) i++;
+      seen({ type: 'word', value: source.slice(from, i) });
+      continue;
+    }
+    if (!/\s/.test(ch)) seen({ type: 'punct', value: ch });
+    i++;
+  }
+  return out.join('');
 }
 
 /**
@@ -597,7 +940,10 @@ export function tokenizeJs(source) {
  * the rest, so a caller naming a template literal as a template reads it from
  * this answer rather than reaching back into the stream beside the call — a
  * template's flat value is a run of its literal text, which is what a refusal
- * that printed the token alone would state as the whole argument.
+ * that printed the token alone would state as the whole argument. A
+ * regular-expression literal is named from the same fact, and its value is the
+ * literal as written, so a refusal naming one prints the pattern the source
+ * states.
  *
  * Who reads a value position without this helper, and why. The emit-site scan
  * and the mock's serviced-case scan ask the same question with regular
@@ -631,6 +977,23 @@ export function readLoneStringLiteral(tokens, at, followers) {
     isString,
     follower: next ? next.value : null,
   };
+}
+
+/**
+ * How a literal a reader of quoted strings does not read is named in a refusal:
+ * by its kind, with what the source wrote beside it — a template's flat run of
+ * text, a regular expression's literal as written. Naming the kind is what
+ * keeps such a refusal on the shape that stopped the read, where counting the
+ * literal among the values a reader could not read would state a cause the
+ * source does not have; any other token is named by itself, which says it
+ * already.
+ * @param {{ type: string, value: string }} token the literal standing there
+ * @returns {string}
+ */
+function namedLiteral(token) {
+  if (token.type === 'template') return `a template literal (\`${token.value}\`)`;
+  if (token.type === 'regex') return `a regular-expression literal (\`${token.value}\`)`;
+  return `\`${token.value}\``;
 }
 
 /**
@@ -709,12 +1072,13 @@ export function readListEntries(source, name, fields = null) {
       // value already is: its token value is a run of its literal text, so
       // printing the token alone would state an element the source never
       // writes — and an interpolated one, a name nothing can ever match.
-      if (token.type === 'template') {
-        return { error: unreadable(`a template literal (\`${token.value}\`)`) };
-      }
-      return { error: unreadable(`\`${token.value}\``) };
+      return { error: unreadable(namedLiteral(token)) };
     }
-    if (depth === 2 && record !== null && (token.type === 'string' || token.type === 'template')) {
+    if (
+      depth === 2 &&
+      record !== null &&
+      (token.type === 'string' || token.type === 'template' || token.type === 'regex')
+    ) {
       const key = tokens[i - 2];
       const colon = tokens[i - 1];
       if (
@@ -723,12 +1087,13 @@ export function readListEntries(source, name, fields = null) {
         key?.type === 'word' &&
         fields.includes(key.value)
       ) {
-        if (token.type === 'template') {
-          // A template literal standing where a requested value goes is named
-          // here: recording nothing would report the property missing from a
-          // record that states it, which names a cause the source does not have.
+        if (token.type !== 'string') {
+          // A literal this reader does not read, standing where a requested
+          // value goes, is named here: recording nothing would report the
+          // property missing from a record that states it, which names a cause
+          // the source does not have.
           return {
-            error: `the \`${name}\` array literal's \`${key.value}\` property is a template literal (\`${token.value}\`), and this reader reads a quoted string literal`,
+            error: `the \`${name}\` array literal's \`${key.value}\` property is ${namedLiteral(token)}, and this reader reads a quoted string literal`,
           };
         }
         record[key.value] = token.value;
@@ -1467,12 +1832,12 @@ function readPlaywrightMirror(entry, readFile, named, result) {
     );
   }
   const dirs = configValues(config, 'testDir');
-  if (dirs.length === 1 && dirs[0].type === 'template') {
-    // Naming the template is the diagnosis: counting it among the unreadable
+  if (dirs.length === 1 && (dirs[0].type === 'template' || dirs[0].type === 'regex')) {
+    // Naming the literal is the diagnosis: counting it among the unreadable
     // values would report a `testDir` the configuration states as one it does
     // not, which names a cause the source does not have.
     result.unreadableClosure.push(
-      `${configPath}: states its \`testDir\` as a template literal (\`${dirs[0].value}\`), and this reader reads a quoted string literal, so the directory it collects cannot be read`,
+      `${configPath}: states its \`testDir\` as ${namedLiteral(dirs[0])}, and this reader reads a quoted string literal, so the directory it collects cannot be read`,
     );
     return;
   }
