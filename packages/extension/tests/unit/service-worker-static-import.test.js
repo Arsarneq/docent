@@ -33,6 +33,16 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+// The shared blanked-literal view: comments blanked, and the contents of every
+// string and template with them, so the syntactic checks below read real CODE
+// and are never tripped by the explanatory prose documenting the very pitfall
+// this test guards against (the file's own comments mention `import()` and
+// `loadValidator()`). A call shape written into a regular-expression pattern
+// stays visible there, which is the direction these guards want: each asserts
+// an absence, so a mention they can report beats one they cannot see. Reading
+// the source through the same scanner the source checks use is what keeps this
+// guard's coverage honest.
+import { blankJsLiterals } from '../../../../scripts/check-test-inventory.js';
 
 // Resolved from this test file so it survives a move of the test directory.
 const SW_PATH = path.resolve(
@@ -40,34 +50,9 @@ const SW_PATH = path.resolve(
   '../../background/service-worker.js',
 );
 
-/**
- * The service-worker source with line comments (`// …`), block comments
- * (`/* … *​/`), and string/template literals stripped, so the syntactic checks
- * below match real CODE only and are never tripped by the explanatory prose that
- * documents the very pitfall this test guards against (the file's own comments
- * mention `import()` and `loadValidator()`).
- *
- * @param {string} src
- * @returns {string}
- */
-function stripCommentsAndStrings(src) {
-  return (
-    src
-      // Block comments (non-greedy, across newlines).
-      .replace(/\/\*[\s\S]*?\*\//g, ' ')
-      // Line comments.
-      .replace(/\/\/[^\n]*/g, ' ')
-      // Template literals.
-      .replace(/`(?:\\.|[^`\\])*`/g, '``')
-      // Double- and single-quoted strings.
-      .replace(/"(?:\\.|[^"\\])*"/g, '""')
-      .replace(/'(?:\\.|[^'\\])*'/g, "''")
-  );
-}
-
 describe('Service worker MV3 static-import guard (regression: auto-sync dynamic-import break)', () => {
   const rawSource = readFileSync(SW_PATH, 'utf8');
-  const code = stripCommentsAndStrings(rawSource);
+  const code = blankJsLiterals(rawSource);
 
   it('contains no dynamic import() — unsupported in a Manifest V3 service worker', () => {
     // `import(` as a call (not the static `import x from '…'` statement, and not
@@ -92,8 +77,8 @@ describe('Service worker MV3 static-import guard (regression: auto-sync dynamic-
 
   it('statically imports the generated platform validator at module scope', () => {
     // The fix: a top-level `import … from '…generated/validate-extension.js'`.
-    // Asserted against the RAW source (a static import specifier is a string,
-    // which the stripped copy blanks out).
+    // Asserted against the RAW source: a static import specifier is a string,
+    // whose contents every literal-blanking view erases by construction.
     const staticValidatorImport =
       /import\s+[A-Za-z_$][\w$]*\s+from\s+['"][^'"]*generated\/validate-extension\.js['"]/;
     assert.ok(

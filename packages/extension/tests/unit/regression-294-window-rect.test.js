@@ -32,6 +32,14 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+// The shared blanked-literal view: comments blanked, and the contents of every
+// string and template with them, so the check below reads real CODE and never
+// the explanatory prose that names the very field this test guards against. A
+// name written into a regular-expression pattern stays visible there, which is
+// the direction this guard wants: it asserts an absence, so a mention it can
+// report beats one it cannot see. Reading the sources through the same scanner
+// the source checks use is what keeps this guard's coverage honest.
+import { blankJsLiterals } from '../../../../scripts/check-test-inventory.js';
 
 // Resolved from this test file so they survive a move of the test directory.
 const DIR = path.dirname(fileURLToPath(import.meta.url));
@@ -40,27 +48,10 @@ const CAPTURE_SOURCES = {
   'content/recorder.js': path.resolve(DIR, '../../content/recorder.js'),
 };
 
-/**
- * Strip line comments, block comments, and string/template literals so the
- * check below matches real CODE only — never explanatory prose that names the
- * very field this test guards against.
- *
- * @param {string} src
- * @returns {string}
- */
-function stripCommentsAndStrings(src) {
-  return src
-    .replace(/\/\*[\s\S]*?\*\//g, ' ')
-    .replace(/\/\/[^\n]*/g, ' ')
-    .replace(/`(?:\\.|[^`\\])*`/g, '``')
-    .replace(/"(?:\\.|[^"\\])*"/g, '""')
-    .replace(/'(?:\\.|[^'\\])*'/g, "''");
-}
-
 describe('REGRESSION #294: extension never emits the desktop-only window_rect field', () => {
   it('regression_294_extension_source_emits_no_window_rect', () => {
     for (const [label, filePath] of Object.entries(CAPTURE_SOURCES)) {
-      const code = stripCommentsAndStrings(readFileSync(filePath, 'utf8'));
+      const code = blankJsLiterals(readFileSync(filePath, 'utf8'));
       assert.ok(
         !/\bwindow_rect\b/.test(code),
         `${label} references window_rect in code — a desktop-only field the ` +

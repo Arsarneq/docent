@@ -150,16 +150,20 @@
  * naming no Markdown at all sits outside that leg entirely, since the row cites
  * other files for other reasons.
  *
- * Honest limits of the declarator reading, each named. The shared tokenizer a
- * JavaScript title is read through ({@link tokenizeJs}) does not model
- * regular-expression literals — the limit
- * [`check-adapter-surface.js`](./check-adapter-surface.js) already discloses
- * for its own use — so what desynchronizes that file's token stream from there
- * on is a QUOTE written inside such a literal; the failure direction is a loud
- * false red at the CITE, a title past it ceasing to resolve, never a case
- * credited to a file that declares no such thing. The cited anchors carry
- * regular-expression literals today, and none of them carries a quote inside
- * one. On the
+ * Honest limits of the declarator reading, each named. How the shared tokenizer
+ * a JavaScript title is read through ({@link tokenizeJs}) reads a
+ * regular-expression literal, with the shapes where that reading and the
+ * grammar part, is stated at its own home,
+ * [`check-test-inventory.js`](./check-test-inventory.js), and each shape
+ * reaches this reading its own way. The pattern a literal read as division puts
+ * into the stream is read as the code that text spells, so a declarator call
+ * written inside one is CREDITED with the title it states, and a citation
+ * naming that title resolves against a case the file declares nowhere. Where a
+ * misreading COVERS a title instead — past an UNMATCHED quote written in such a
+ * pattern, where the stream stays out of step to the end of that file, or
+ * inside what a division read as a literal takes out of the stream, at most the
+ * rest of its own line — that title stops resolving, and the CITE reds: a loud
+ * false red naming a case the file does state. On the
  * Rust side a declaration is `fn <name>(` alone: the attribute stack above it
  * is not modelled, so a helper function sharing a cited case's name would
  * resolve as that case. A title built around a value declares nothing either

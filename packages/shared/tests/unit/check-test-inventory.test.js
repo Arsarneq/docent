@@ -49,6 +49,7 @@ import {
   auditRegistrationClosure,
   backtickedName,
   basenameGlobToRegExp,
+  blankJsLiterals,
   classifyArgument,
   configValues,
   extractClauseSection,
@@ -610,9 +611,9 @@ describe('tokenizeJs — template literals', () => {
   });
 
   it('keeps the stream in step through a backtick quoted inside an interpolation', () => {
-    // The one shape that desynchronized the rest of the file: the quoted
-    // backtick used to close the template and invert every literal after it, so
-    // both real call sites here were lost in silence.
+    // One of the shapes that used to desynchronize the rest of the file: the
+    // quoted backtick closed the template and inverted every literal after it,
+    // so both real call sites here were lost in silence.
     assert.deepEqual(tokenizeJs("invoke(`${f('`')}`); invoke('after');"), [
       { type: 'word', value: 'invoke' },
       { type: 'punct', value: '(' },
@@ -635,6 +636,423 @@ describe('tokenizeJs — template literals', () => {
   it('honours escapes in template text and closes an unterminated one', () => {
     assert.deepEqual(tokenizeJs('`a\\`b`'), [{ type: 'template', value: 'a`b' }]);
     assert.deepEqual(tokenizeJs('`open'), [{ type: 'template', value: 'open' }]);
+  });
+});
+
+describe('tokenizeJs — regular-expression literals', () => {
+  // Whether a `/` opens a literal or divides is decided from the token before
+  // it. These are the positions an expression can start at, so a literal may
+  // open at each — and the quote inside the body is what proves it was read as
+  // a literal: read as code, that quote opens a string and inverts every
+  // literal after it.
+  const OPENS_AFTER = [
+    'const re =',
+    'call(',
+    'call(a,',
+    'const o = { k:',
+    'const a = [',
+    'if (!',
+    'a &&',
+    'a ||',
+    'a ??',
+    'const f = () =>',
+    'a ?',
+    'a;',
+    'if (a) {',
+    'if (a) { g(); }',
+    'return',
+    'typeof',
+    'a instanceof',
+    'k in',
+    'for (const k of',
+    'new',
+    'delete',
+    'void',
+    'case',
+    'export default',
+    'do',
+    'else',
+    'class A extends',
+    'yield',
+    'await',
+    'throw',
+  ];
+
+  it('opens a literal wherever an expression can start', () => {
+    for (const before of OPENS_AFTER) {
+      const tokens = tokenizeJs(`${before} /a'b/`);
+      assert.deepEqual(
+        tokens[tokens.length - 1],
+        { type: 'regex', value: "/a'b/" },
+        `a literal should open after ${JSON.stringify(before)}`,
+      );
+      assert.equal(
+        tokens.some((t) => t.type === 'string'),
+        false,
+        `no phantom string after ${JSON.stringify(before)}`,
+      );
+    }
+  });
+
+  it('divides after a value, whatever kind of value it is', () => {
+    // The other half of the same decision: an identifier, a number, and the
+    // closers that end a call, a group, or an index are all values.
+    for (const source of ['a / b', '(a) / 2', '4 / 2', 'a[0] / 2', 'f() / 2', "'s' / 2"]) {
+      const tokens = tokenizeJs(source);
+      assert.equal(
+        tokens.some((t) => t.type === 'regex'),
+        false,
+        `${JSON.stringify(source)} divides`,
+      );
+      assert.ok(
+        tokens.some((t) => t.type === 'punct' && t.value === '/'),
+        `${JSON.stringify(source)} keeps its division as punctuation`,
+      );
+    }
+  });
+
+  it('reads a keyword written as a property name as the value it is', () => {
+    // A word a `.` precedes is a property, so `o.in` is a value and the `/`
+    // after it divides — the member rule, without which `in` would open a
+    // literal here and swallow the rest of the expression.
+    assert.deepEqual(tokenizeJs('o.in / 2 / 3'), [
+      { type: 'word', value: 'o' },
+      { type: 'punct', value: '.' },
+      { type: 'word', value: 'in' },
+      { type: 'punct', value: '/' },
+      { type: 'word', value: '2' },
+      { type: 'punct', value: '/' },
+      { type: 'word', value: '3' },
+    ]);
+    assert.deepEqual(tokenizeJs('RE.test(s)'), [
+      { type: 'word', value: 'RE' },
+      { type: 'punct', value: '.' },
+      { type: 'word', value: 'test' },
+      { type: 'punct', value: '(' },
+      { type: 'word', value: 's' },
+      { type: 'punct', value: ')' },
+    ]);
+  });
+
+  it('honours an escaped delimiter inside the pattern', () => {
+    assert.deepEqual(tokenizeJs('const re = /a\\/b/;'), [
+      { type: 'word', value: 'const' },
+      { type: 'word', value: 're' },
+      { type: 'punct', value: '=' },
+      { type: 'regex', value: '/a\\/b/' },
+      { type: 'punct', value: ';' },
+    ]);
+  });
+
+  it('reads a delimiter inside a character class as pattern text', () => {
+    // An unescaped `/` is legal inside `[…]`, so a class is what decides where
+    // the literal ends.
+    assert.deepEqual(tokenizeJs('const re = /x:\\/\\/([^/]+)/;'), [
+      { type: 'word', value: 'const' },
+      { type: 'word', value: 're' },
+      { type: 'punct', value: '=' },
+      { type: 'regex', value: '/x:\\/\\/([^/]+)/' },
+      { type: 'punct', value: ';' },
+    ]);
+    assert.deepEqual(tokenizeJs('const re = /[\\]]/;'), [
+      { type: 'word', value: 'const' },
+      { type: 'word', value: 're' },
+      { type: 'punct', value: '=' },
+      { type: 'regex', value: '/[\\]]/' },
+      { type: 'punct', value: ';' },
+    ]);
+  });
+
+  it('keeps the stream in step through a quote written inside a pattern', () => {
+    // The shape that desynchronized the rest of the file: the quote used to
+    // open a string literal, so the real call site after it was lost in
+    // silence — the same failure the quoted backtick used to cause in a
+    // template.
+    assert.deepEqual(tokenizeJs("const re = /[^'\"]+/g; send({ type: 'PING' });"), [
+      { type: 'word', value: 'const' },
+      { type: 'word', value: 're' },
+      { type: 'punct', value: '=' },
+      { type: 'regex', value: '/[^\'"]+/g' },
+      { type: 'punct', value: ';' },
+      { type: 'word', value: 'send' },
+      { type: 'punct', value: '(' },
+      { type: 'punct', value: '{' },
+      { type: 'word', value: 'type' },
+      { type: 'punct', value: ':' },
+      { type: 'string', value: 'PING' },
+      { type: 'punct', value: '}' },
+      { type: 'punct', value: ')' },
+      { type: 'punct', value: ';' },
+    ]);
+  });
+
+  it('keeps the stream in step through a backtick written inside a pattern', () => {
+    // A backtick inside a pattern must not open a template: it used to, and a
+    // phantom template run swallows code the same way a phantom string does.
+    assert.deepEqual(tokenizeJs("const re = /`/; send({ type: 'PING' });"), [
+      { type: 'word', value: 'const' },
+      { type: 'word', value: 're' },
+      { type: 'punct', value: '=' },
+      { type: 'regex', value: '/`/' },
+      { type: 'punct', value: ';' },
+      { type: 'word', value: 'send' },
+      { type: 'punct', value: '(' },
+      { type: 'punct', value: '{' },
+      { type: 'word', value: 'type' },
+      { type: 'punct', value: ':' },
+      { type: 'string', value: 'PING' },
+      { type: 'punct', value: '}' },
+      { type: 'punct', value: ')' },
+      { type: 'punct', value: ';' },
+    ]);
+  });
+
+  it('carries the flag run with the literal it belongs to', () => {
+    assert.deepEqual(tokenizeJs('const re = /a/gimsy;'), [
+      { type: 'word', value: 'const' },
+      { type: 'word', value: 're' },
+      { type: 'punct', value: '=' },
+      { type: 'regex', value: '/a/gimsy' },
+      { type: 'punct', value: ';' },
+    ]);
+    assert.deepEqual(tokenizeJs('const re = /a/;'), [
+      { type: 'word', value: 'const' },
+      { type: 'word', value: 're' },
+      { type: 'punct', value: '=' },
+      { type: 'regex', value: '/a/' },
+      { type: 'punct', value: ';' },
+    ]);
+  });
+
+  it('reads a literal written inside an interpolation', () => {
+    // An interpolation opens at an expression start, whatever text preceded
+    // the `${`.
+    assert.deepEqual(tokenizeJs('log(`x${/a"b/.test(s)}y`)'), [
+      { type: 'word', value: 'log' },
+      { type: 'punct', value: '(' },
+      { type: 'template', value: 'x' },
+      { type: 'regex', value: '/a"b/' },
+      { type: 'punct', value: '.' },
+      { type: 'word', value: 'test' },
+      { type: 'punct', value: '(' },
+      { type: 'word', value: 's' },
+      { type: 'punct', value: ')' },
+      { type: 'template', value: 'y' },
+      { type: 'punct', value: ')' },
+    ]);
+  });
+
+  it('skips a hashbang line rather than reading a path as a literal', () => {
+    assert.deepEqual(tokenizeJs('#!/usr/bin/env node\nconst a = 1;'), [
+      { type: 'word', value: 'const' },
+      { type: 'word', value: 'a' },
+      { type: 'punct', value: '=' },
+      { type: 'word', value: '1' },
+      { type: 'punct', value: ';' },
+    ]);
+    // Only at the start: `#!` anywhere else is punctuation like any other.
+    assert.deepEqual(tokenizeJs('a;\n#!b'), [
+      { type: 'word', value: 'a' },
+      { type: 'punct', value: ';' },
+      { type: 'punct', value: '#' },
+      { type: 'punct', value: '!' },
+      { type: 'word', value: 'b' },
+    ]);
+  });
+
+  it('abandons a run that reaches a line terminator, reading the `/` as punctuation', () => {
+    // A literal may not cross a line terminator. Abandoning the run is what
+    // bounds a `/` read as a literal by mistake to the line it is written on.
+    assert.deepEqual(tokenizeJs("const y = / b\nsend('after');"), [
+      { type: 'word', value: 'const' },
+      { type: 'word', value: 'y' },
+      { type: 'punct', value: '=' },
+      { type: 'punct', value: '/' },
+      { type: 'word', value: 'b' },
+      { type: 'word', value: 'send' },
+      { type: 'punct', value: '(' },
+      { type: 'string', value: 'after' },
+      { type: 'punct', value: ')' },
+      { type: 'punct', value: ';' },
+    ]);
+  });
+
+  it('reads a literal after the `)` of an `if` head as division — a named residual', () => {
+    // The prior token cannot tell that `)` from the one closing a call, so the
+    // literal is read as the code it is not: the pattern's own text enters the
+    // stream, and the unmatched quote written in it opens a string that runs on
+    // past the literal's end — which is what the last token below states.
+    assert.deepEqual(tokenizeJs("if (a) /x'y/.test(s);"), [
+      { type: 'word', value: 'if' },
+      { type: 'punct', value: '(' },
+      { type: 'word', value: 'a' },
+      { type: 'punct', value: ')' },
+      { type: 'punct', value: '/' },
+      { type: 'word', value: 'x' },
+      { type: 'string', value: 'y/.test(s);' },
+    ]);
+  });
+
+  it('caps a division read as a literal at its own line — the other named residual', () => {
+    // A `}` is read as ending a statement, so a division written after an
+    // object literal opens a literal instead. The run closes at the next `/`
+    // ON THAT LINE and cannot reach further: the line after it tokenizes
+    // exactly as written.
+    assert.deepEqual(tokenizeJs('const n = { a: 1 } / 2 / 3;\nsend({ type: "AFTER" });'), [
+      { type: 'word', value: 'const' },
+      { type: 'word', value: 'n' },
+      { type: 'punct', value: '=' },
+      { type: 'punct', value: '{' },
+      { type: 'word', value: 'a' },
+      { type: 'punct', value: ':' },
+      { type: 'word', value: '1' },
+      { type: 'punct', value: '}' },
+      { type: 'regex', value: '/ 2 /' },
+      { type: 'word', value: '3' },
+      { type: 'punct', value: ';' },
+      { type: 'word', value: 'send' },
+      { type: 'punct', value: '(' },
+      { type: 'punct', value: '{' },
+      { type: 'word', value: 'type' },
+      { type: 'punct', value: ':' },
+      { type: 'string', value: 'AFTER' },
+      { type: 'punct', value: '}' },
+      { type: 'punct', value: ')' },
+      { type: 'punct', value: ';' },
+    ]);
+  });
+
+  it('keeps a brace inside a literal read as one out of the surrounding depth count', () => {
+    // A literal is one token, so no brace it carries reaches a depth-bounded
+    // walk over the code around it — balanced or not.
+    for (const pattern of ['/a{2,3}/', '/[{]/', '/\\{/', '/[}]/']) {
+      const tokens = tokenizeJs(`if (${pattern}.test(s)) { g(); }`);
+      const braces = tokens.filter(
+        (t) => t.type === 'punct' && (t.value === '{' || t.value === '}'),
+      );
+      assert.deepEqual(
+        braces.map((t) => t.value),
+        ['{', '}'],
+        `${pattern} contributes no brace of its own`,
+      );
+    }
+  });
+});
+
+describe('blankJsLiterals', () => {
+  /**
+   * Assert the view is the source's own shape: same length, same newlines, and
+   * every character either its own or a space.
+   * @param {string} source
+   * @returns {string} the view
+   */
+  const view = (source) => {
+    const blanked = blankJsLiterals(source);
+    assert.equal(blanked.length, source.length, 'length preserved');
+    assert.deepEqual(
+      [...blanked].map((c, k) => (c === '\n' ? k : -1)).filter((k) => k !== -1),
+      [...source].map((c, k) => (c === '\n' ? k : -1)).filter((k) => k !== -1),
+      'every newline at its own offset',
+    );
+    for (let k = 0; k < source.length; k++) {
+      assert.ok(
+        blanked[k] === source[k] || blanked[k] === ' ',
+        `character ${k} is its own or a space`,
+      );
+    }
+    return blanked;
+  };
+
+  it('keeps every offset, every newline, and the source’s own length', () => {
+    const source = "const u = 'http://x';\n// gone\n/* also\ngone */\nconst t = `a${b}c`;\n";
+    const blanked = view(source);
+    assert.equal(blanked.indexOf('const t'), source.indexOf('const t'));
+  });
+
+  it('blanks a comment whole and a literal’s contents only', () => {
+    assert.equal(view('a; // gone\nb;'), 'a;        \nb;');
+    assert.equal(view('a; /* gone\ngone */ b;'), 'a;        \n        b;');
+    assert.equal(view("const u = 'http://x';"), "const u = '        ';");
+    assert.equal(view('const u = "ab";'), 'const u = "  ";');
+  });
+
+  it('keeps a template’s delimiters and reads its interpolation as the code it is', () => {
+    // The backtick, the `${`, and the `}` delimit; the text between them is
+    // what the literal carries.
+    assert.equal(view('x(`a${b}c`)'), 'x(` ${b} `)');
+  });
+
+  it('keeps a regular-expression literal’s delimiters and pattern, and blanks its flag run', () => {
+    // The pattern is text the source states about what it handles, so it
+    // stands; the flag run is word-shaped literal data, and a view that left it
+    // standing would hand a guard an identifier nobody wrote. Both delimiters
+    // stay, the closing one included, flagged or not.
+    assert.equal(view("const re = /a'b/g;"), "const re = /a'b/ ;");
+    assert.equal(view('const re = /\\/$/g;'), 'const re = /\\/$/ ;');
+    assert.equal(view('const re = /a/;'), 'const re = /a/;');
+  });
+
+  it('shows a search the name a pattern mentions, and hides the one a string carries', () => {
+    // The direction a guard asserting an absence depends on: a forbidden name
+    // written into a pattern is a mention the guard can report, while the same
+    // name inside a string is the source's own data and stays out of view.
+    assert.match(view('const re = /window_rect/;'), /\bwindow_rect\b/);
+    assert.doesNotMatch(view("const s = 'window_rect';"), /\bwindow_rect\b/);
+  });
+
+  it('reads the live shapes a guard meets in these sources', () => {
+    // A `//` inside a URL string is that string's contents; a glob inside a
+    // template is template text; a quote inside a pattern is pattern text. Code
+    // written after each of them is code, and stays visible as code.
+    const urls = "chrome.tabs.query({ url: ['http://*/*', 'https://*/*'] });\nchrome.runtime.id;";
+    assert.ok(view(urls).includes('chrome.runtime.id;'), 'code after a URL-glob string survives');
+
+    const scheme = "if (tab.url.startsWith('chrome://')) return;\nchrome.tabs.query();";
+    assert.ok(view(scheme).includes('chrome.tabs.query();'), 'code after a scheme string survives');
+
+    const glob =
+      'await page.route(`${origin}/**`, h);\nchrome.runtime.id;\n/** doc */\nchrome.tabs.query();';
+    assert.ok(view(glob).includes('chrome.tabs.query();'), 'code after a template glob survives');
+
+    const cssString =
+      'return String(v).replace(/\\\\/g, "x").replace(/"/g, "y");\nel.namespaceURI;';
+    assert.ok(
+      view(cssString).includes('el.namespaceURI;'),
+      'code after a quote-carrying pattern survives',
+    );
+  });
+
+  it('renders a source carrying each blanked kind exactly as stated', () => {
+    // Every kind the view blanks, in one source: a comment, a string's
+    // contents, a template's text either side of an interpolation whose code
+    // stands, and a pattern's flag run. What each rendering does with a
+    // literal's contents is its own — the stream carries a string's text as a
+    // token value where the view blanks it, and keeps a pattern as a token
+    // value where the view leaves it standing — and a comment reaches neither.
+    const source = "const re = /[^'\"]+/g;\nsend({ type: 'PING', at: `x${k}y` }); // note\n";
+    assert.equal(
+      view(source),
+      "const re = /[^'\"]+/ ;\nsend({ type: '    ', at: ` ${k} ` });        \n",
+    );
+  });
+
+  it('reads the shapes the tracked modules carry no instance of the same way as the stream', () => {
+    // Agreement over the tree can only hold what the tree contains, so the ends
+    // of the scanning rules are pinned by hand: a literal whose run reaches the
+    // line terminator, an escape standing at the very end of the source, and a
+    // lone carriage return as the terminator that abandons a run.
+    const edges = [
+      "const re = /unterminated;\nsend({ type: 'AFTER' });",
+      'const re = /a\\',
+      "const y = / b\rsend('after');",
+    ];
+    for (const source of edges) {
+      assert.deepEqual(
+        tokenizeJs(blankJsLiterals(source)).map((token) => token.type),
+        tokenizeJs(source).map((token) => token.type),
+        JSON.stringify(source),
+      );
+    }
   });
 });
 
@@ -680,6 +1098,21 @@ describe('readLoneStringLiteral', () => {
       value: null,
       token: 'commandName',
       kind: 'word',
+      isString: false,
+      follower: ')',
+    });
+  });
+
+  it('names a regular-expression literal standing in a value position', () => {
+    // `string` still means a quoted literal and nothing else, so a pattern in
+    // an argument is refused — and the kind travelling with the answer is what
+    // lets the refusal name it as the pattern the source states rather than as
+    // a lump of punctuation.
+    assert.deepEqual(readLoneStringLiteral(tokenizeJs('invoke(/load_state/);'), 2, ',)'), {
+      lone: false,
+      value: null,
+      token: '/load_state/',
+      kind: 'regex',
       isString: false,
       follower: ')',
     });
@@ -850,6 +1283,14 @@ describe('tokenizeJs / readListEntries', () => {
       assert.match(read.error, /`src` property is a template literal/, source);
       assert.match(read.error, /reads a quoted string literal/, source);
     }
+  });
+
+  it('names a requested property written as a regular expression, with the pattern the source states', () => {
+    // The same rule for the other literal this reader does not read, and the
+    // literal is named as written: a pattern's escapes are its meaning.
+    const read = readListEntries('const T = [{ src: /a\\.js/ }];', 'T', ['src']);
+    assert.match(read.error, /`src` property is a regular-expression literal \(`\/a\\\.js\/`\)/);
+    assert.match(read.error, /reads a quoted string literal/);
   });
 
   it('names a template element of a plain list as a template, not as its text', () => {
@@ -1368,6 +1809,13 @@ describe('auditRegistrationClosure — the mirrored discovery claims', () => {
     const templated = browserTree('export default { testDir: `./${d}` };');
     const problem = closure(templated, { inventories: [PLAYWRIGHT_ENTRY] }).unreadableClosure[0];
     assert.match(problem, /states its `testDir` as a template literal/);
+    assert.match(problem, /reads a quoted string literal/);
+  });
+
+  it('names a testDir written as a regular expression the same way', () => {
+    const patterned = browserTree('export default { testDir: /specs/ };');
+    const problem = closure(patterned, { inventories: [PLAYWRIGHT_ENTRY] }).unreadableClosure[0];
+    assert.match(problem, /states its `testDir` as a regular-expression literal \(`\/specs\/`\)/);
     assert.match(problem, /reads a quoted string literal/);
   });
 
@@ -2292,6 +2740,28 @@ describe('real-tree lock', () => {
     assert.equal(cargo('nested/main.rs'), false);
     assert.equal(cargo('common/mod.rs'), false);
     assert.equal(cargo('worker_pool_test.proptest-regressions'), false);
+  });
+
+  it('reads every tracked module the same way through the stream and through the view', () => {
+    // The stream and the view share their scanning rules, and this is where
+    // that sharing is held: over the modules the repository tracks rather than
+    // over one example. A literal either rendering opened where the other did not
+    // would show up as a token of a different kind, or as one more or one fewer,
+    // so the kinds and their count are what agree — the values are each
+    // rendering's own, the view carrying a blanked string where the stream
+    // carries its text.
+    const divergent = [];
+    for (const path of trackedFiles()) {
+      if (!/\.(js|mjs|cjs)$/.test(path)) continue;
+      const source = readRepoFile(path);
+      if (source === null) continue;
+      const stream = tokenizeJs(source).map((token) => token.type);
+      const view = tokenizeJs(blankJsLiterals(source)).map((token) => token.type);
+      if (stream.length !== view.length || stream.join(' ') !== view.join(' ')) {
+        divergent.push(`${path}: ${stream.length} tokens read from the source, ${view.length} from its view`); // prettier-ignore
+      }
+    }
+    assert.deepEqual(divergent, []);
   });
 });
 
