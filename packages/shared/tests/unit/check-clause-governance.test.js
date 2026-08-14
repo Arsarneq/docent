@@ -417,13 +417,18 @@ describe('baseline lock (real tree)', () => {
     // resolve on their own; the extension-capture and shared-core docs are
     // outside it, so those citations are recorded exceptions instead.
     const TOKENIZER = 'scripts/check-test-inventory.js';
-    const recorded = ['ECP-6', 'SC-3'].map((clause) => `${clause}\t${TOKENIZER}`);
-    const resolving = ['ERT-4', 'DSH-1'].map((clause) => `${clause}\t${TOKENIZER}`);
-    for (const key of recorded) {
-      assert.ok(ALLOWLIST.has(key), `${key.replace('\t', ' -> ')} is recorded with its reason`);
+    // One clause list, read two ways: the allowlist's own key shape, and the
+    // coupling as a reader sees it — both written from the parts rather than
+    // recovered from the key by surgery.
+    const key = (clause) => `${clause}\t${TOKENIZER}`;
+    const coupling = (clause) => `${clause} -> ${TOKENIZER}`;
+    const recorded = ['ECP-6', 'SC-3'];
+    const resolving = ['ERT-4', 'DSH-1'];
+    for (const clause of recorded) {
+      assert.ok(ALLOWLIST.has(key(clause)), `${coupling(clause)} is recorded with its reason`);
     }
-    for (const key of resolving) {
-      assert.ok(!ALLOWLIST.has(key), `${key.replace('\t', ' -> ')} resolves without an entry`);
+    for (const clause of resolving) {
+      assert.ok(!ALLOWLIST.has(key(clause)), `${coupling(clause)} resolves without an entry`);
     }
     // Held from the other side as well: recorded, each of those couplings
     // reports STALE — the check's own statement that the citation resolves
@@ -435,9 +440,12 @@ describe('baseline lock (real tree)', () => {
       map,
       files,
       readFile,
-      allowlist: new Map([...ALLOWLIST, ...resolving.map((key) => [key, 'recorded for this run'])]),
+      allowlist: new Map([
+        ...ALLOWLIST,
+        ...resolving.map((clause) => [key(clause), 'recorded for this run']),
+      ]),
     });
-    assert.deepEqual(r.staleAllowlist, resolving);
+    assert.deepEqual(r.staleAllowlist, resolving.map(key));
     assert.deepEqual(r.newMisses, []);
   });
 });
