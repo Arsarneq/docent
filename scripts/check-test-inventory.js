@@ -468,15 +468,66 @@ const CLOSERS = ')]}';
 
 /**
  * Tokenize JavaScript source far enough to read a data literal out of it:
- * strings (quote style and escapes honoured), identifier-ish words, and single
- * punctuation characters. Comments and whitespace are dropped, so a commented-out
- * or documented occurrence of a name is never mistaken for the declaration.
+ * quoted strings (quote style and escapes honoured), template literals,
+ * identifier-ish words, and single punctuation characters. Comments and
+ * whitespace are dropped, so a commented-out or documented occurrence of a name
+ * is never mistaken for the declaration.
+ *
+ * A template literal is modelled as its own token type. Its text arrives as
+ * `template` tokens carrying flat string values — one per run of literal text,
+ * so a `string` token is always a quoted literal — and each `${…}`
+ * interpolation's contents are tokenized as the code they are, in source order
+ * between the template tokens either side of them. Interpolation nesting is
+ * tracked by brace depth, so a brace written inside an interpolation closes
+ * what it opened, the `${` and `}` delimiters themselves never reach the
+ * stream, and a nested template's text is text rather than code. A reader that
+ * accepts a `string` token therefore accepts a quoted literal and nothing else,
+ * and one that wants to name a template in a refusal has its flat value to
+ * print.
  * @param {string} source
- * @returns {{ type: 'word' | 'string' | 'punct', value: string }[]}
+ * @returns {{ type: 'word' | 'string' | 'template' | 'punct', value: string }[]}
  */
 export function tokenizeJs(source) {
   const tokens = [];
+  // One entry per open `${…}` interpolation, each holding the brace depth
+  // reached inside it. A `}` whose entry stands at zero closes the
+  // interpolation and resumes its template's text; any other brace is ordinary
+  // punctuation that moves the depth.
+  const interpolations = [];
   let i = 0;
+  /**
+   * Consume a run of template text from `at`, emit it as one `template` token,
+   * and answer the index just past whatever ended the run: the closing
+   * backtick, the `${` that opens an interpolation (pushed on the stack), or
+   * the end of an unterminated literal.
+   * @param {number} at index of the run's first character
+   * @returns {number}
+   */
+  const readTemplateText = (at) => {
+    let value = '';
+    let k = at;
+    while (k < source.length) {
+      const ch = source[k];
+      if (ch === '\\') {
+        value += source[k + 1] ?? '';
+        k += 2;
+        continue;
+      }
+      if (ch === '`') {
+        k++;
+        break;
+      }
+      if (ch === '$' && source[k + 1] === '{') {
+        interpolations.push(0);
+        k += 2;
+        break;
+      }
+      value += ch;
+      k++;
+    }
+    tokens.push({ type: 'template', value });
+    return k;
+  };
   while (i < source.length) {
     const ch = source[i];
     if (ch === '/' && source[i + 1] === '/') {
@@ -489,7 +540,20 @@ export function tokenizeJs(source) {
       i += 2;
       continue;
     }
-    if (ch === "'" || ch === '"' || ch === '`') {
+    if (ch === '`') {
+      i = readTemplateText(i + 1);
+      continue;
+    }
+    if (interpolations.length > 0 && (ch === '{' || ch === '}')) {
+      const open = interpolations.length - 1;
+      if (ch === '}' && interpolations[open] === 0) {
+        interpolations.pop();
+        i = readTemplateText(i + 1);
+        continue;
+      }
+      interpolations[open] += ch === '{' ? 1 : -1;
+    }
+    if (ch === "'" || ch === '"') {
       const quote = ch;
       let value = '';
       i++;
@@ -515,6 +579,58 @@ export function tokenizeJs(source) {
     i++;
   }
   return tokens;
+}
+
+/**
+ * Read whether the token at `at` is a string literal standing alone as the
+ * whole value — the question every scan asks at a value position, over one
+ * token window: the literal itself, and then the punctuation that proves
+ * nothing was built around it. `followers` is that proof, spelled as the
+ * characters the caller accepts, so `'a' + b` is refused rather than credited
+ * with its leading piece.
+ *
+ * The answer is facts, never a verdict and never a message. Each caller keeps
+ * its own refusal text, its own order of precedence among the facts, and its
+ * own rendering of a stream that ran out: `token` and `follower` are `null`
+ * exactly where there is no such token, which is what a caller that
+ * distinguishes truncation keys on. The candidate's token KIND travels with
+ * the rest, so a caller naming a template literal as a template reads it from
+ * this answer rather than reaching back into the stream beside the call — a
+ * template's flat value is a run of its literal text, which is what a refusal
+ * that printed the token alone would state as the whole argument.
+ *
+ * Who reads a value position without this helper, and why. The emit-site scan
+ * and the mock's serviced-case scan ask the same question with regular
+ * expressions — one over Rust text, one over raw JavaScript text — so neither
+ * holds a token stream to hand it. The whole-expression pair asks a different
+ * question over a different window: what follows a list literal's own closing
+ * bracket, rather than what follows a value inside it, and its two copies
+ * deliberately accept different followers because one reads a standalone
+ * declaration and the other a property inside a literal.
+ * @param {{ type: string, value: string }[]} tokens the token stream
+ * @param {number} at index of the candidate value token
+ * @param {string} followers the punctuation characters that prove the literal
+ *   lone (`',)'` for a call argument, `',}'` inside an object literal)
+ * @returns {{ lone: boolean, value: string | null, token: string | null,
+ *   kind: string | null, isString: boolean, follower: string | null }} `lone`
+ *   is true exactly when the token is a string literal and its follower is one
+ *   of `followers`; `value` is the literal then and `null` otherwise; `kind` is
+ *   the candidate token's own type, `null` where the stream carries no such
+ *   token
+ */
+export function readLoneStringLiteral(tokens, at, followers) {
+  const candidate = tokens[at];
+  const next = tokens[at + 1];
+  const isString = candidate?.type === 'string';
+  const lone = isString && next?.type === 'punct' && followers.includes(next.value);
+  return {
+    lone,
+    value: lone ? candidate.value : null,
+    token: candidate ? candidate.value : null,
+    kind: candidate ? candidate.type : null,
+    isString,
+    follower: next ? next.value : null,
+  };
 }
 
 /**
@@ -589,9 +705,16 @@ export function readListEntries(source, name, fields = null) {
         entries.push(token.value);
         continue;
       }
+      // A template literal is named as one, the way a requested property's
+      // value already is: its token value is a run of its literal text, so
+      // printing the token alone would state an element the source never
+      // writes — and an interpolated one, a name nothing can ever match.
+      if (token.type === 'template') {
+        return { error: unreadable(`a template literal (\`${token.value}\`)`) };
+      }
       return { error: unreadable(`\`${token.value}\``) };
     }
-    if (depth === 2 && record !== null && token.type === 'string') {
+    if (depth === 2 && record !== null && (token.type === 'string' || token.type === 'template')) {
       const key = tokens[i - 2];
       const colon = tokens[i - 1];
       if (
@@ -600,15 +723,23 @@ export function readListEntries(source, name, fields = null) {
         key?.type === 'word' &&
         fields.includes(key.value)
       ) {
+        if (token.type === 'template') {
+          // A template literal standing where a requested value goes is named
+          // here: recording nothing would report the property missing from a
+          // record that states it, which names a cause the source does not have.
+          return {
+            error: `the \`${name}\` array literal's \`${key.value}\` property is a template literal (\`${token.value}\`), and this reader reads a quoted string literal`,
+          };
+        }
         record[key.value] = token.value;
         // The value is the whole value: a requested property's string must be
         // followed by the separator or the record's closing brace. Anything
         // else — a concatenation, a call, a conditional — is an expression this
         // reader would otherwise record as its leading string, silently.
-        const follower = tokens[i + 1];
-        if (!(follower?.type === 'punct' && (follower.value === ',' || follower.value === '}'))) {
+        const read = readLoneStringLiteral(tokens, i, ',}');
+        if (!read.lone) {
           return {
-            error: `the \`${name}\` array literal's \`${key.value}\` property is followed by \`${follower?.value ?? 'end of source'}\`, so its value is not the string this reader read`,
+            error: `the \`${name}\` array literal's \`${key.value}\` property is followed by \`${read.follower ?? 'end of source'}\`, so its value is not the string this reader read`,
           };
         }
       }
@@ -1336,6 +1467,15 @@ function readPlaywrightMirror(entry, readFile, named, result) {
     );
   }
   const dirs = configValues(config, 'testDir');
+  if (dirs.length === 1 && dirs[0].type === 'template') {
+    // Naming the template is the diagnosis: counting it among the unreadable
+    // values would report a `testDir` the configuration states as one it does
+    // not, which names a cause the source does not have.
+    result.unreadableClosure.push(
+      `${configPath}: states its \`testDir\` as a template literal (\`${dirs[0].value}\`), and this reader reads a quoted string literal, so the directory it collects cannot be read`,
+    );
+    return;
+  }
   if (dirs.length !== 1 || dirs[0].type !== 'string') {
     result.unreadableClosure.push(
       `${configPath}: states ${dirs.length} readable \`testDir\` value(s), so the directory it collects cannot be read`,

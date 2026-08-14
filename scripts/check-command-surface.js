@@ -75,11 +75,20 @@
  * locally bound or injected `invoke` counts as a caller-closure witness
  * (`packages/desktop/src/persistence.js` takes its `invoke` as a parameter);
  * which module carries the single listener is review-held — this check counts
- * the listen sites across the scanned surface, never which file holds one; the
- * shared tokenizer does not model regular-expression literals, so a quote
- * inside one desynchronizes the token stream for the rest of that file — in
- * these whole-file scans that corruption is SILENT, the call sites past it
- * simply not seen rather than refused; a `#[tauri::command]` declared inside a
+ * the listen sites across the scanned surface, never which file holds one; a
+ * command name and an event channel are each read as a quoted string literal,
+ * so a call written with a template literal is refused by name (the shared
+ * tokenizer gives a template a type of its own, and tokenizes each `${…}`
+ * interpolation's contents as the code they are, so a call written inside one
+ * is a call site like any other); the shared tokenizer does not model
+ * regular-expression literals, so a quote inside one desynchronizes the token
+ * stream for the rest of that file — in these whole-file scans that corruption
+ * is SILENT, the call sites past it simply not seen rather than refused; the
+ * Rust anchors — the `#[tauri::command]` attribute, the `generate_handler!`
+ * list, and the emit-family call sites — are found on a view of each source
+ * whose string-literal contents are blanked, so what a diagnostic message says
+ * about the surface never counts as the surface itself, while each emit's
+ * channel is read from the intact text at the same offset; a `#[tauri::command]` declared inside a
  * test-only module would count as shipped surface; the clause's section cannot
  * name a grant-shaped identifier the capability files do not hold (an
  * illustrative mention outside a fence reds the gate); one backticked mention
@@ -109,6 +118,7 @@ import {
   missingFrom,
   parseTables,
   readListEntries,
+  readLoneStringLiteral,
   tokenizeJs,
 } from './check-test-inventory.js';
 
@@ -218,24 +228,117 @@ export function stripRustComments(source) {
 }
 
 /**
+ * Blank out the CONTENTS of Rust string literals — `"…"` with escapes, the raw
+ * forms `r"…"` and `r#"…"#`, and char literals — replacing every character
+ * they carry with a space while keeping the quotes themselves, every other
+ * character's offset, and every newline. An offset computed on this view
+ * therefore addresses the same character of the source it was made from.
+ *
+ * It stands BESIDE {@link stripRustComments} rather than inside it, because the
+ * two views answer different questions and one scan needs both. Comment
+ * stripping keeps string contents on purpose: a channel name is a string
+ * literal, and reading it is the point. What a scan looking for an ANCHOR wants
+ * is the opposite — the calls the source makes, with the text of what it says
+ * about them left out — which is this view. A scan that anchors here and then
+ * reads a literal reads it from the intact text at the same offset.
+ * @param {string} source Rust source text
+ * @returns {string} the source with string-literal contents replaced by spaces
+ */
+export function blankRustStrings(source) {
+  const out = source.split('');
+  const n = source.length;
+  let i = 0;
+  const blank = (from, to) => {
+    for (let k = from; k < to; k++) if (out[k] !== '\n') out[k] = ' ';
+  };
+  while (i < n) {
+    const c = source[i];
+    const next = source[i + 1];
+    if (c === "'") {
+      // A char literal's own content is blanked; a lifetime tick ('a) matches
+      // no literal shape and falls through as an ordinary character.
+      const lit = /^'(?:\\.|[^\\'])'/.exec(source.slice(i, i + 4));
+      if (lit) {
+        blank(i + 1, i + lit[0].length - 1);
+        i += lit[0].length;
+      } else {
+        i++;
+      }
+    } else if (c === '/' && next === '/') {
+      // Comment text is not this view's subject, but a quote inside one would
+      // otherwise open a literal that never closes, so a comment is skipped
+      // whole and left exactly as it arrived.
+      const end = source.indexOf('\n', i);
+      i = end === -1 ? n : end;
+    } else if (c === '/' && next === '*') {
+      let depth = 1;
+      let j = i + 2;
+      while (j < n && depth > 0) {
+        if (source[j] === '/' && source[j + 1] === '*') {
+          depth++;
+          j += 2;
+        } else if (source[j] === '*' && source[j + 1] === '/') {
+          depth--;
+          j += 2;
+        } else {
+          j++;
+        }
+      }
+      i = j;
+    } else if (c === 'r' && (next === '"' || next === '#')) {
+      let hashes = 0;
+      let j = i + 1;
+      while (source[j] === '#') {
+        hashes++;
+        j++;
+      }
+      if (source[j] === '"') {
+        const closer = '"' + '#'.repeat(hashes);
+        const end = source.indexOf(closer, j + 1);
+        blank(j + 1, end === -1 ? n : end);
+        i = end === -1 ? n : end + closer.length;
+      } else {
+        i++;
+      }
+    } else if (c === '"') {
+      let j = i + 1;
+      while (j < n && source[j] !== '"') {
+        j += source[j] === '\\' ? 2 : 1;
+      }
+      blank(i + 1, Math.min(j, n));
+      i = Math.min(j + 1, n);
+    } else {
+      i++;
+    }
+  }
+  return out.join('');
+}
+
+/**
  * Extract the function names declared with a `#[tauri::command]` attribute.
+ * The attribute and the declaration are anchors — what the source DOES — so
+ * they are found on the strings-blanked view, and a declaration quoted inside a
+ * string literal is text rather than a command.
  * @param {string} strippedSource comment-stripped Rust source
  * @returns {string[]} command function names, in source order
  */
 export function extractCommandFns(strippedSource) {
   const re =
     /#\[tauri::command(?:\([^)]*\))?\]\s*(?:#\[[^\]]*\]\s*)*(?:pub(?:\([^)]*\))?\s+)?(?:async\s+)?fn\s+([A-Za-z0-9_]+)/g;
-  return [...strippedSource.matchAll(re)].map((m) => m[1]);
+  return [...blankRustStrings(strippedSource).matchAll(re)].map((m) => m[1]);
 }
 
 /**
- * Extract the command names registered in the `generate_handler!` list.
+ * Extract the command names registered in the `generate_handler!` list. The
+ * macro invocation is an anchor — what the source DOES — so the lists are found
+ * on the strings-blanked view, which is what keeps a quoted list from standing
+ * in for the real one and from counting as a second registration.
  * @param {string} strippedLib comment-stripped lib.rs source
  * @returns {{ commands: string[], occurrences: number }} last-segment names
  *   and how many generate_handler! lists the source carries
  */
 export function extractHandlerCommands(strippedLib) {
-  const lists = [...strippedLib.matchAll(/generate_handler!\s*\[([\s\S]*?)\]/g)];
+  const lists = [...blankRustStrings(strippedLib).matchAll(/generate_handler!\s*\[([\s\S]*?)\]/g)];
   const commands = (lists[0]?.[1] ?? '')
     .split(',')
     .map((s) => s.trim())
@@ -330,6 +433,13 @@ export function extractSectionProse(section) {
  * literal (`"capture:action".to_string()`) is refused rather than credited
  * with its leading piece; a call whose channel cannot be read is recorded with
  * `channel: null` and fails the evaluation loudly.
+ *
+ * The scan reads both views of each file, one per question. The call sites are
+ * anchors — what the source DOES — so they are found on the strings-blanked
+ * view, where an emit written inside a diagnostic message is text rather than a
+ * call site. The channel is a string literal, so it is read from the intact
+ * comment-stripped text at the same offset, which the blanked view preserves
+ * character for character.
  * @param {Map<string, string>} strippedByPath path → comment-stripped source
  * @returns {{ path: string, method: string, channel: string | null, line: number }[]}
  */
@@ -339,7 +449,8 @@ export function extractEmitSites(strippedByPath) {
   const SECOND_STR = /^\s*"(?:[^"\\]|\\.)*"\s*,\s*"((?:[^"\\]|\\.)*)"(?=\s*[,)])/;
   const FAMILY = /\.(emit|emit_str|emit_to|emit_str_to|emit_filter|emit_str_filter)\s*\(/g;
   for (const [path, source] of strippedByPath) {
-    for (const m of source.matchAll(FAMILY)) {
+    const anchored = blankRustStrings(source);
+    for (const m of anchored.matchAll(FAMILY)) {
       const line = source.slice(0, m.index).split('\n').length;
       const rest = source.slice(m.index + m[0].length);
       const second = m[1] === 'emit_to' || m[1] === 'emit_str_to';
@@ -360,14 +471,18 @@ export function extractEmitSites(strippedByPath) {
  * credited with its leading piece. Anything else is recorded as `name: null`
  * with the token that stands where the lone literal would — for a literal
  * inside an expression, the literal and the follower that gives it away — so
- * an unreadable call is refused by name rather than skipped. A declaration is
- * not a call: a match whose preceding token is `function` states the transport
- * rather than using it, and is skipped by that shape — which is why no module
- * needs excluding by path, the bridge included. Sites are numbered per file,
- * in source order, which is how the output names one.
+ * an unreadable call is refused by name rather than skipped. The token's kind
+ * travels with it in `argKind`, so a call written with a template literal is
+ * named as one: a template's token value is a run of its literal text, which
+ * printed alone would state a command name the source never writes. A
+ * declaration is not a call: a match whose preceding token is `function`
+ * states the transport rather than using it, and is skipped by that shape —
+ * which is why no module needs excluding by path, the bridge included. Sites
+ * are numbered per file, in source order, which is how the output names one.
  * @param {Map<string, string>} sourceByPath path → JavaScript source
  * @param {string} fn the called function's name
- * @returns {{ path: string, ordinal: number, name: string | null, argToken: string }[]}
+ * @returns {{ path: string, ordinal: number, name: string | null, argToken: string,
+ *   argKind: string | null }[]}
  */
 export function extractCallSites(sourceByPath, fn) {
   const sites = [];
@@ -379,15 +494,13 @@ export function extractCallSites(sourceByPath, fn) {
       if (tokens[i + 1].type !== 'punct' || tokens[i + 1].value !== '(') continue;
       if (i > 0 && tokens[i - 1].type === 'word' && tokens[i - 1].value === 'function') continue;
       ordinal += 1;
-      const arg = tokens[i + 2];
-      const follower = tokens[i + 3];
-      const literal = arg?.type === 'string';
-      const lone = follower?.type === 'punct' && (follower.value === ',' || follower.value === ')');
+      const read = readLoneStringLiteral(tokens, i + 2, ',)');
       let argToken;
-      if (!arg || (literal && !follower)) argToken = '(end of source)';
-      else if (literal && !lone) argToken = `${arg.value} ${follower.value}`;
-      else argToken = arg.value;
-      sites.push({ path, ordinal, name: literal && lone ? arg.value : null, argToken });
+      if (read.token === null || (read.isString && read.follower === null))
+        argToken = '(end of source)';
+      else if (read.isString && !read.lone) argToken = `${read.token} ${read.follower}`;
+      else argToken = read.token;
+      sites.push({ path, ordinal, name: read.value, argToken, argKind: read.kind });
     }
   }
   return sites;
@@ -402,6 +515,19 @@ export function extractCallSites(sourceByPath, fn) {
  */
 function siteLabel(site, fn) {
   return `${site.path} (${fn}( call site ${site.ordinal})`;
+}
+
+/**
+ * How the argument a refused call site passed is named in the check's output:
+ * a template literal by its kind, with its leading run of literal text beside
+ * it, and every other token by the token itself.
+ * @param {{ argToken: string, argKind?: string | null }} site
+ * @returns {string}
+ */
+function argLabel(site) {
+  return site.argKind === 'template'
+    ? `a template literal (\`${site.argToken}\`)`
+    : `\`${site.argToken}\``;
 }
 
 /**
@@ -487,8 +613,8 @@ export const DUPLICATE_SURFACES = [
  * @param {string[]} s.mockCommands the mock's CANONICAL_COMMANDS entries
  * @param {string[]} s.mockCases the injected mock script's serviced case labels
  * @param {string[]} s.invokeLiterals command names the frontend's invoke( call sites state, deduplicated
- * @param {{ path: string, ordinal: number, name: string | null, argToken: string }[]} s.invokeSites every frontend invoke( call site, readable or not
- * @param {{ path: string, ordinal: number, name: string | null, argToken: string }[]} s.listenSites every frontend listen( call site, readable or not
+ * @param {{ path: string, ordinal: number, name: string | null, argToken: string, argKind?: string | null }[]} s.invokeSites every frontend invoke( call site, readable or not
+ * @param {{ path: string, ordinal: number, name: string | null, argToken: string, argKind?: string | null }[]} s.listenSites every frontend listen( call site, readable or not
  * @returns {string[]} problems; empty when the contract holds
  */
 export function evaluateCommandSurface(s) {
@@ -501,10 +627,10 @@ export function evaluateCommandSurface(s) {
     problems.push(`the ${CLAUSE_ID} table carries a first cell the scan cannot read — ${cell} — rows are \`name\` or \`name\` (event), nothing else`); // prettier-ignore
   }
   for (const site of s.invokeSites.filter((x) => x.name === null)) {
-    problems.push(`${siteLabel(site, 'invoke')} passes \`${site.argToken}\` where the command name goes — the scan reads a lone string literal, so the caller closure stays checkable`); // prettier-ignore
+    problems.push(`${siteLabel(site, 'invoke')} passes ${argLabel(site)} where the command name goes — the scan reads a lone string literal, so the caller closure stays checkable`); // prettier-ignore
   }
   for (const site of s.listenSites.filter((x) => x.name === null)) {
-    problems.push(`${siteLabel(site, 'listen')} passes \`${site.argToken}\` where the event channel goes — the scan reads a lone string literal, so the single-listener pin stays checkable`); // prettier-ignore
+    problems.push(`${siteLabel(site, 'listen')} passes ${argLabel(site)} where the event channel goes — the scan reads a lone string literal, so the single-listener pin stays checkable`); // prettier-ignore
   }
 
   let vacuous = false;
@@ -703,8 +829,11 @@ export function auditTree(readFile, rustFiles, capabilityFiles, jsFiles) {
    formats the pass/fail output; the pure extraction and evaluation core above
    is unit-tested. */
 function run() {
+  // `core.quotepath` off: a path carrying a non-ASCII byte arrives as itself
+  // rather than quoted and escaped, which the extension filters below would
+  // drop in silence.
   const lsFiles = (dir) =>
-    execFileSync('git', ['ls-files', dir], { encoding: 'utf8' })
+    execFileSync('git', ['-c', 'core.quotepath=false', 'ls-files', dir], { encoding: 'utf8' })
       .split('\n')
       .map((s) => s.trim())
       .filter(Boolean);

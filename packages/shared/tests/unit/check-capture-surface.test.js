@@ -16,11 +16,17 @@
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
+import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import {
   RECORDER_PATH,
   WORKER_PATH,
+  PANEL_ADAPTER_PATH,
+  POPULATION_ROOT,
+  POPULATION_TEST_TREE,
+  POPULATION_EXTENSIONS,
+  derivePopulation,
   EXTENSION_DOC_PATH,
   DESKTOP_DOC_PATH,
   WINDOWS_CAPTURE_PATH,
@@ -31,6 +37,7 @@ import {
   EMPTY_SURFACES,
   DUPLICATE_SURFACES,
   ADMITTED_REGISTRATIONS,
+  REGISTRATION_LEGS,
   WIN_EVENT_VALUES,
   extractDomEnumeration,
   extractProxySources,
@@ -45,18 +52,42 @@ import {
 
 const ROOT = resolve(import.meta.dirname, '..', '..', '..', '..');
 
-/** A consistent synthetic surface every contract accepts. */
+/**
+ * The tracked JavaScript the shipped closure runs over — the check's own
+ * derivation, not a copy of it, so these locks cannot stay green over a
+ * population the check has stopped scanning.
+ */
+const shippedPopulation = () => derivePopulation(ROOT);
+
+/**
+ * A consistent synthetic surface every contract accepts. The chrome-registration
+ * surface is keyed by file, so the fixture states one list per scanned file:
+ * the two capture files, and one population file beyond them — which is what
+ * lets a test move a registration between files and see the closure answer
+ * differently.
+ */
 function makeSurface(overrides = {}) {
+  const {
+    recorderChromeApis = ['chrome.storage.onChanged'],
+    workerChromeApis = ['chrome.tabs.onCreated', 'chrome.alarms.onAlarm'],
+    panelChromeApis = [],
+    ...rest
+  } = overrides;
   return {
+    population: [RECORDER_PATH, WORKER_PATH, PANEL_ADAPTER_PATH],
+    chromeApisByFile: [
+      [RECORDER_PATH, recorderChromeApis],
+      [WORKER_PATH, workerChromeApis],
+      [PANEL_ADAPTER_PATH, panelChromeApis],
+    ],
+    beyondPairDomEvents: [],
     docDomEvents: ['click', 'change'],
     docProxyWorkerEvents: ['chrome.tabs.onCreated'],
     docProxyDomEvents: ['change'],
     extensionUnreadable: [],
     recorderDomEvents: ['click', 'change'],
     recorderWindowEvents: [],
-    recorderChromeApis: ['chrome.storage.onChanged'],
     workerDomEvents: [],
-    workerChromeApis: ['chrome.tabs.onCreated', 'chrome.alarms.onAlarm'],
     docHooks: ['WH_MOUSE_LL'],
     docCorrelationClasses: ['EVENT_OBJECT_CREATE', 'EVENT_OBJECT_DESTROY'],
     desktopUnreadable: [],
@@ -66,7 +97,7 @@ function makeSurface(overrides = {}) {
       { file: RECORDER_PATH, api: 'chrome.storage.onChanged', occurrences: 1, why: 'x' },
       { file: WORKER_PATH, api: 'chrome.alarms.onAlarm', occurrences: 1, why: 'x' },
     ],
-    ...overrides,
+    ...rest,
   };
 }
 
@@ -367,6 +398,156 @@ describe('evaluateCaptureSurface — empty parses are structural failures', () =
   });
 });
 
+describe('evaluateCaptureSurface — the scanned population', () => {
+  it('holds a registration in a population file beyond the two capture files', () => {
+    // The escape this closure exists to close: the same registration passes in
+    // one file and reds in another only while the file list is the difference.
+    const problems = evaluateCaptureSurface(
+      makeSurface({ panelChromeApis: ['chrome.tabs.onUpdated'] }),
+    );
+    assert.equal(problems.length, 1);
+    assert.match(problems[0], new RegExp(`^${PANEL_ADAPTER_PATH} registers \`chrome\\.tabs\\.onUpdated\``)); // prettier-ignore
+    assert.match(problems[0], /the admission list does not admit/);
+  });
+
+  it('counts a population file’s registrations against that file’s own admission', () => {
+    const admitted = [
+      { file: RECORDER_PATH, api: 'chrome.storage.onChanged', occurrences: 1, why: 'x' },
+      { file: WORKER_PATH, api: 'chrome.alarms.onAlarm', occurrences: 1, why: 'x' },
+      { file: PANEL_ADAPTER_PATH, api: 'chrome.storage.onChanged', occurrences: 2, why: 'x' },
+    ];
+    assert.deepEqual(
+      evaluateCaptureSurface(
+        makeSurface({
+          admitted,
+          panelChromeApis: ['chrome.storage.onChanged', 'chrome.storage.onChanged'],
+        }),
+      ),
+      [],
+    );
+    const problems = evaluateCaptureSurface(
+      makeSurface({
+        admitted,
+        panelChromeApis: ['chrome.storage.onChanged', 'chrome.storage.onChanged', 'chrome.storage.onChanged'], // prettier-ignore
+      }),
+    );
+    assert.equal(problems.length, 1);
+    assert.match(problems[0], new RegExp(`^${PANEL_ADAPTER_PATH} registers \`chrome\\.storage\\.onChanged\` 3 time\\(s\\); the admission list admits 2`)); // prettier-ignore
+  });
+
+  it('routes a beyond-pair file to the admission list, the one route it can take', () => {
+    // The proxy route is the worker's: the same API registered elsewhere can
+    // only be admitted here, so the refusal offers that route alone — and it
+    // never denies the table names an event the table does name.
+    const problems = evaluateCaptureSurface(
+      makeSurface({ panelChromeApis: ['chrome.tabs.onCreated'] }),
+    );
+    assert.equal(problems.length, 1);
+    assert.match(problems[0], new RegExp(`^${PANEL_ADAPTER_PATH} registers \`chrome\\.tabs\\.onCreated\`, which the admission list does not admit`)); // prettier-ignore
+    assert.match(problems[0], new RegExp(`are ${WORKER_PATH}'s`));
+    assert.ok(!problems[0].includes('state it in the doc'), problems[0]);
+    assert.ok(!problems[0].includes('is neither a capture proxy'), problems[0]);
+  });
+
+  it('lets a population file beyond the pair contribute nothing at all', () => {
+    // Most of the extension's production JavaScript registers no chrome
+    // listener; that is the ordinary case there, not an empty parse.
+    assert.deepEqual(evaluateCaptureSurface(makeSurface({ panelChromeApis: [] })), []);
+  });
+
+  it('reds a document listener registered outside the recorder, with no admission route', () => {
+    // §ECP-6 enumerates the recorder's DOM surface, so the recorder is the one
+    // home a capture listener has: the same registration in a capture-layer
+    // module beyond it is capture the enumeration does not describe, and the
+    // admission list — which admits `chrome.*` roles — is not a route to it.
+    const problems = evaluateCaptureSurface(
+      makeSurface({
+        beyondPairDomEvents: [
+          { file: 'packages/extension/lib/frame-trust.js', receiver: 'document', event: 'paste' },
+        ],
+      }),
+    );
+    assert.equal(problems.length, 1);
+    assert.match(problems[0], /^packages\/extension\/lib\/frame-trust\.js registers a DOM listener for `paste` on `document`/); // prettier-ignore
+    assert.match(problems[0], new RegExp(`${DOM_CLAUSE_ID} enumerates ${RECORDER_PATH}`));
+    assert.ok(!problems[0].includes('admission list'), problems[0]);
+  });
+
+  it('reds a window listener beyond the pair the same way', () => {
+    const problems = evaluateCaptureSurface(
+      makeSurface({
+        beyondPairDomEvents: [
+          { file: 'packages/extension/lib/storage-quota.js', receiver: 'window', event: 'resize' },
+        ],
+      }),
+    );
+    assert.equal(problems.length, 1);
+    assert.match(problems[0], /registers a DOM listener for `resize` on `window`/);
+  });
+
+  it('refuses registrations keyed to a file outside the population', () => {
+    // The two are one statement of one set: registrations from a file the
+    // population does not name describe a scan this closure never claimed.
+    const surface = makeSurface();
+    const problems = evaluateCaptureSurface({
+      ...surface,
+      chromeApisByFile: [...surface.chromeApisByFile, ['packages/extension/lib/stray.js', []]],
+    });
+    assert.ok(
+      problems.some((p) => p.startsWith('packages/extension/lib/stray.js carries scanned registrations but is outside the scanned population')), // prettier-ignore
+      problems.join('\n') || 'no agreement refusal',
+    );
+  });
+
+  it('refuses a population file that carries no registration entry', () => {
+    const surface = makeSurface();
+    const problems = evaluateCaptureSurface({
+      ...surface,
+      population: [...surface.population, 'packages/extension/lib/unread.js'],
+    });
+    assert.ok(
+      problems.some((p) => p.startsWith('packages/extension/lib/unread.js is in the scanned population but carries no registration entry')), // prettier-ignore
+      problems.join('\n') || 'no agreement refusal',
+    );
+    // A machinery refusal is the whole verdict: the surface diffs below it
+    // would describe a population that is not the one stated.
+    assert.ok(!problems.some((p) => p.includes('is registered in')), problems.join('\n'));
+  });
+
+  it('refuses a population that carries neither capture file', () => {
+    // The registrations state the same file set, so the one thing wrong here is
+    // the missing capture pair.
+    const problems = evaluateCaptureSurface(
+      makeSurface({
+        population: [PANEL_ADAPTER_PATH],
+        chromeApisByFile: [[PANEL_ADAPTER_PATH, []]],
+      }),
+    );
+    assert.equal(problems.length, 2);
+    for (const path of [RECORDER_PATH, WORKER_PATH]) {
+      assert.ok(problems.some((p) => p.startsWith(`${path} is outside the scanned population`)));
+    }
+  });
+
+  it('refuses an empty population rather than passing with nothing to hold', () => {
+    const problems = evaluateCaptureSurface(makeSurface({ population: [], chromeApisByFile: [] }));
+    const empty = problems.find((p) => /no tracked JavaScript module found under/.test(p));
+    assert.ok(empty, problems.join('\n') || 'no empty-population refusal');
+    // The refusal names the scope it derived from, both halves of it.
+    assert.ok(empty.includes(POPULATION_ROOT), empty);
+    assert.ok(empty.includes(POPULATION_TEST_TREE), empty);
+  });
+
+  it('a broken population short-circuits the surface diffs', () => {
+    // Every diff below the population guard reads a population that is not the
+    // one claimed, so its answers would name the wrong cause.
+    const problems = evaluateCaptureSurface(
+      makeSurface({ population: [], chromeApisByFile: [], docDomEvents: ['click', 'change', 'wheel'] }), // prettier-ignore
+    );
+    assert.ok(!problems.some((p) => p.includes('registers no listener for it')));
+  });
+});
+
 describe('extractDomEnumeration', () => {
   const doc = [
     '## Capture Surface',
@@ -510,6 +691,92 @@ describe('extractRegistrations', () => {
     assert.equal(problems.length, 1);
     assert.match(problems[0], /port\.onMessage\.addListener/);
   });
+
+  it('refuses a template event name rather than reading its text as the name', () => {
+    // A template is not a string literal: reading its text would record an
+    // event whose name the source never states, and an interpolated one would
+    // record a name no listener is ever registered for.
+    for (const source of [
+      'document.addEventListener(`click`, h);',
+      'document.addEventListener(`mouse${d}`, h);',
+    ]) {
+      const { domEvents, problems } = extractRegistrations(source, 'f.js');
+      assert.deepEqual(domEvents, [], source);
+      assert.equal(problems.length, 1, source);
+      assert.match(problems[0], /not a string literal standing alone as the first argument/);
+    }
+  });
+
+  it('reads a registration written inside a template interpolation', () => {
+    // The interpolation's contents are code, so a registration written there is
+    // a registration — before templates were modelled it was string text and
+    // the scan saw nothing at all.
+    const { domEvents, problems } = extractRegistrations(
+      "const t = `x${document.addEventListener('click', h)}y`;",
+      'f.js',
+    );
+    assert.deepEqual(domEvents, ['click']);
+    assert.deepEqual(problems, []);
+  });
+
+  it('reads both registration kinds beyond the pair, drawing the boundary by receiver', () => {
+    // The beyond-pair leg is not a chrome-only leg: a `document` listener there
+    // is read and returned — most of those files are capture-layer modules, and
+    // a capture listener moved into one would otherwise be invisible — while a
+    // listener bound to an element is outside this closure's subject and is
+    // passed over rather than refused.
+    const source = [
+      "btn.addEventListener('click', h);",
+      "document.addEventListener('paste', h);",
+      "window.addEventListener('resize', h);",
+      'chrome.storage.onChanged.addListener(h);',
+    ].join('\n');
+    const beyond = extractRegistrations(source, 'lib/frame-trust.js', REGISTRATION_LEGS.beyondPair);
+    assert.deepEqual(beyond.domEvents, ['paste']);
+    assert.deepEqual(beyond.windowEvents, ['resize']);
+    assert.deepEqual(beyond.chromeApis, ['chrome.storage.onChanged']);
+    assert.deepEqual(beyond.problems, []);
+    // The same source read for the capture pair reds on the element receiver,
+    // which is the discipline the pair alone is held to.
+    const capture = extractRegistrations(source, 'panel.js', REGISTRATION_LEGS.capture);
+    assert.deepEqual(capture.domEvents, ['paste']);
+    assert.deepEqual(capture.windowEvents, ['resize']);
+    assert.equal(capture.problems.length, 1);
+    assert.match(capture.problems[0], /receiver the scan does not model \(btn\)/);
+  });
+
+  it('passes over a non-chrome listener chain beyond the pair, and refuses it in the pair', () => {
+    // A `chrome.runtime.connect` port is the live shape: `port.onMessage` is a
+    // listener registration on nothing this closure holds, so beyond the pair
+    // there is nothing to say about it — a red would have no route to green.
+    const port = [
+      'const port = chrome.runtime.connect({ name: "capture" });',
+      'port.onMessage.addListener(h);',
+    ].join('\n');
+    const beyond = extractRegistrations(
+      port,
+      'lib/capture-timing.js',
+      REGISTRATION_LEGS.beyondPair,
+    );
+    assert.deepEqual(beyond.chromeApis, []);
+    assert.deepEqual(beyond.problems, []);
+    const capture = extractRegistrations(port, RECORDER_PATH, REGISTRATION_LEGS.capture);
+    assert.equal(capture.problems.length, 1);
+    assert.match(capture.problems[0], /registers a listener the scan does not model \(port\.onMessage\.addListener\)/); // prettier-ignore
+  });
+
+  it('refuses an unreadable event name on a document listener beyond the pair too', () => {
+    // The registration is in scope there — only its name is unread — so the
+    // silence beyond the pair is about receivers and roots, never about a
+    // listener the closure does hold.
+    const { problems } = extractRegistrations(
+      'document.addEventListener(`mouse${d}`, h);',
+      'lib/navigation-logic.js',
+      REGISTRATION_LEGS.beyondPair,
+    );
+    assert.equal(problems.length, 1);
+    assert.match(problems[0], /not a string literal standing alone as the first argument/);
+  });
 });
 
 describe('extractDesktopRegistrations', () => {
@@ -576,6 +843,44 @@ describe('extractDesktopRegistrations', () => {
     const { problems } = extractDesktopRegistrations(broken);
     assert.ok(problems.some((p) => /first argument the scan cannot read/.test(p)));
   });
+
+  it('closes the range list on the blanked view, so a bracket inside a string cannot move it', () => {
+    // The one anchor that was read with string contents intact: a `]` written
+    // inside a literal in the registration loop closed the list where the
+    // source does not, and every range past that point stopped existing —
+    // surfacing as correlation classes no registered range covers, a cause the
+    // source does not have. The entry carrying the literal is refused on its
+    // own terms instead, and the ranges around it are read as written.
+    const withLiteral = source.replace('    ] {', '        "[",\n    ] {');
+    const { ranges, problems } = extractDesktopRegistrations(withLiteral);
+    assert.deepEqual(ranges, [
+      ['EVENT_SYSTEM_FOREGROUND', 'EVENT_SYSTEM_FOREGROUND'],
+      ['EVENT_OBJECT_CREATE', 'EVENT_OBJECT_DESTROY'],
+    ]);
+    assert.equal(problems.length, 1, problems.join('\n'));
+    assert.match(problems[0], /cannot read as an \(event_min, event_max\) pair/);
+    assert.ok(!problems.some((p) => /is not closed/.test(p)), problems.join('\n'));
+  });
+
+  it('reads the list contents on that same view — a literal states no range', () => {
+    // The whole leg reads one view. A pair-shaped fragment inside a literal is
+    // text about the registrations, never one of them, so it contributes no
+    // range and is refused as the entry the scan cannot read.
+    const withLiteral = source.replace(
+      '    ] {',
+      '        "(EVENT_OBJECT_FOCUS, EVENT_OBJECT_FOCUS)",\n    ] {',
+    );
+    const { ranges, problems } = extractDesktopRegistrations(withLiteral);
+    assert.deepEqual(ranges, [
+      ['EVENT_SYSTEM_FOREGROUND', 'EVENT_SYSTEM_FOREGROUND'],
+      ['EVENT_OBJECT_CREATE', 'EVENT_OBJECT_DESTROY'],
+    ]);
+    assert.ok(
+      !ranges.some(([min]) => min === 'EVENT_OBJECT_FOCUS'),
+      'a literal contributes no registered range',
+    );
+    assert.ok(problems.length > 0, 'the unreadable entry is refused rather than skipped');
+  });
 });
 
 describe('extractClauseNames and extractCorrelationClasses', () => {
@@ -616,13 +921,24 @@ describe('extractClauseNames and extractCorrelationClasses', () => {
 
 describe('the admission list', () => {
   it('states a distinct file/api key, a positive occurrence count, and a reason per entry', () => {
+    const population = shippedPopulation();
     const keys = ADMITTED_REGISTRATIONS.map((e) => `${e.file} ${e.api}`);
     assert.equal(new Set(keys).size, keys.length);
     for (const entry of ADMITTED_REGISTRATIONS) {
-      assert.ok([RECORDER_PATH, WORKER_PATH].includes(entry.file), `${entry.api} names a scanned file`); // prettier-ignore
+      assert.ok(population.includes(entry.file), `${entry.api} names a scanned file`);
       assert.ok(Number.isInteger(entry.occurrences) && entry.occurrences > 0);
       assert.ok(entry.why.length > 40, `${entry.api} states why it is admitted`);
     }
+  });
+
+  it('states one entry per file and API, with its occurrence count carrying the rest', () => {
+    // The key is the pin: several registrations of one API in one file are one
+    // entry whose count states how many, and whose reason names each role — the
+    // panel adapter's storage watches are the shape that proves it.
+    const panelEntries = ADMITTED_REGISTRATIONS.filter((e) => e.file === PANEL_ADAPTER_PATH);
+    assert.equal(panelEntries.length, 1);
+    assert.equal(panelEntries[0].api, 'chrome.storage.onChanged');
+    assert.ok(panelEntries[0].occurrences > 1);
   });
 });
 
@@ -630,27 +946,169 @@ describe('auditTree — the shipped tree', () => {
   const readFile = (f) => readFileSync(resolve(ROOT, f), 'utf8');
 
   it('holds every capture surface in the working tree', () => {
-    const { problems } = auditTree(readFile);
+    const { problems } = auditTree(readFile, shippedPopulation());
     assert.deepEqual(problems, []);
   });
 
   it('reads a non-vacuous surface from each scanned file', () => {
-    const { domEventCount, proxyCount, winEventCount } = auditTree(readFile);
+    const { domEventCount, proxyCount, winEventCount } = auditTree(readFile, shippedPopulation());
     assert.ok(domEventCount > 0);
     assert.ok(proxyCount > 0);
     assert.ok(winEventCount > 0);
   });
 
   it('an unreadable input fails loudly rather than passing vacuously', () => {
-    const { problems } = auditTree((f) => (f === WINDOWS_CAPTURE_PATH ? '' : readFile(f)));
+    const { problems } = auditTree(
+      (f) => (f === WINDOWS_CAPTURE_PATH ? '' : readFile(f)),
+      shippedPopulation(),
+    );
     assert.ok(problems.length > 0);
     assert.ok(problems.some((p) => p.includes(WINDOWS_CAPTURE_PATH)));
+  });
+
+  it('derives a population with the properties the closure stands on', () => {
+    // The properties, not a second copy of the derivation: what the package
+    // tracks IS the population, so a production directory the extension grows
+    // is scanned with nothing to update — and the two capture files, which
+    // every leg reads by construction, are in it.
+    const population = shippedPopulation();
+    assert.ok(population.length > 0);
+    for (const p of [RECORDER_PATH, WORKER_PATH, PANEL_ADAPTER_PATH]) {
+      assert.ok(population.includes(p), `${p} is in the scanned population`);
+    }
+    for (const file of population) {
+      assert.ok(file.startsWith(`${POPULATION_ROOT}/`), `${file} is inside the extension package`);
+      assert.ok(
+        POPULATION_EXTENSIONS.some((ext) => file.endsWith(ext)),
+        `${file} carries a JavaScript module extension`,
+      );
+      assert.ok(!file.startsWith(`${POPULATION_TEST_TREE}/`), `${file} is outside the test tree`);
+    }
+    assert.equal(new Set(population).size, population.length, 'each file is stated once');
+    // The exclusion bites: the tree it excludes is not empty.
+    const excluded =
+      execFileSync('git', ['-c', 'core.quotepath=false', 'ls-files', POPULATION_TEST_TREE], { encoding: 'utf8', cwd: ROOT }) // prettier-ignore
+        .split('\n')
+        .map((line) => line.trim())
+        .filter((f) => POPULATION_EXTENSIONS.some((ext) => f.endsWith(ext)));
+    assert.ok(excluded.length > 0, 'the extension test tree tracks JavaScript of its own');
+    for (const file of excluded) assert.ok(!population.includes(file), `${file} stays excluded`);
+  });
+
+  it('states the module extensions as a set, so a module kind cannot escape by name', () => {
+    // The escape this closes: a tracked production module written with an
+    // explicit module extension was outside the closure entirely while the
+    // filter named one extension.
+    assert.deepEqual(POPULATION_EXTENSIONS, ['.js', '.mjs', '.cjs']);
+    assert.equal(new Set(POPULATION_EXTENSIONS).size, POPULATION_EXTENSIONS.length);
+    for (const ext of POPULATION_EXTENSIONS) assert.match(ext, /^\.[a-z]+$/);
+  });
+
+  it('the CLI scans that same derivation, never a second copy of it', () => {
+    // The lock these real-tree cases stand on: they hold the shipped
+    // derivation, so the CLI must consume it too — a private copy in the
+    // wrapper could drift while every case here stayed green.
+    const script = readFile('scripts/check-capture-surface.js');
+    assert.match(script, /auditTree\(\s*readFile,\s*derivePopulation\(\),?\s*\)/);
+    assert.equal(
+      script.split("'ls-files'").length - 1,
+      1,
+      'the file enumerates the tracked tree in exactly one place',
+    );
+  });
+
+  it('reds on a registration the population reaches only because it was widened', () => {
+    // The escape the closure closes, over the real tree: a listener the panel
+    // adapter would have registered unseen while the file list was the pair.
+    const { problems } = auditTree(
+      (f) =>
+        f === PANEL_ADAPTER_PATH
+          ? `${readFile(f)}\nchrome.tabs.onUpdated.addListener(() => {});\n`
+          : readFile(f),
+      shippedPopulation(),
+    );
+    assert.ok(
+      problems.some((p) =>
+        p.startsWith(`${PANEL_ADAPTER_PATH} registers \`chrome.tabs.onUpdated\``),
+      ),
+      problems.join('\n'),
+    );
+  });
+
+  it('stays green on an element listener added to a population file', () => {
+    // The boundary, observed on the real tree: a listener bound to an element
+    // registers on nothing either enumeration describes, so it is passed over
+    // wherever in the population it is written.
+    const { problems } = auditTree(
+      (f) =>
+        f === PANEL_ADAPTER_PATH
+          ? `${readFile(f)}\nconst el = document.body;\nel.addEventListener('click', () => {});\n`
+          : readFile(f),
+      shippedPopulation(),
+    );
+    assert.deepEqual(problems, []);
+  });
+
+  it('stays green on a message port opened in a population file', () => {
+    // The other half of the boundary: `port.onMessage.addListener` is a
+    // listener registration rooted outside `chrome`, and beyond the capture
+    // pair there is no route that would make it green — so it is passed over
+    // rather than redded.
+    const port = [
+      "const port = chrome.runtime.connect({ name: 'capture' });",
+      'port.onMessage.addListener(() => {});',
+    ].join('\n');
+    const { problems } = auditTree(
+      (f) => (f === PANEL_ADAPTER_PATH ? `${readFile(f)}\n${port}\n` : readFile(f)),
+      shippedPopulation(),
+    );
+    assert.deepEqual(problems, []);
+    // In the capture pair the same shape is refused, which is the discipline
+    // those two files alone are held to.
+    const inPair = auditTree(
+      (f) => (f === WORKER_PATH ? `${readFile(f)}\n${port}\n` : readFile(f)),
+      shippedPopulation(),
+    );
+    assert.ok(
+      inPair.problems.some((p) => /registers a listener the scan does not model/.test(p)),
+      inPair.problems.join('\n') || 'no unmodelled-chain refusal in the pair',
+    );
+  });
+
+  it('reds a document listener added to a capture-layer module beyond the pair', () => {
+    // The escape the leg model closes: those modules are capture-layer code,
+    // and a capture listener moved into one was invisible while the leg read
+    // `chrome.*` registrations alone.
+    const module = 'packages/extension/lib/frame-trust.js';
+    assert.ok(shippedPopulation().includes(module), `${module} is in the scanned population`);
+    const { problems } = auditTree(
+      (f) =>
+        f === module ? `${readFile(f)}\ndocument.addEventListener('paste', () => {});\n` : readFile(f), // prettier-ignore
+      shippedPopulation(),
+    );
+    assert.ok(
+      problems.some((p) => p.startsWith(`${module} registers a DOM listener for \`paste\` on \`document\``)), // prettier-ignore
+      problems.join('\n') || 'no beyond-pair DOM refusal',
+    );
+  });
+
+  it('carries no document or window listener outside the recorder today', () => {
+    // The day-one green the leg model rests on, stated rather than assumed:
+    // every population file beyond the capture pair registers none.
+    const population = shippedPopulation();
+    for (const file of population) {
+      if (file === RECORDER_PATH || file === WORKER_PATH) continue;
+      const read = extractRegistrations(readFile(file), file, REGISTRATION_LEGS.beyondPair);
+      assert.deepEqual(read.domEvents, [], `${file} registers a document listener`);
+      assert.deepEqual(read.windowEvents, [], `${file} registers a window listener`);
+    }
   });
 
   it('names each scanned surface path exactly once in its own constant', () => {
     const paths = [
       RECORDER_PATH,
       WORKER_PATH,
+      PANEL_ADAPTER_PATH,
       EXTENSION_DOC_PATH,
       DESKTOP_DOC_PATH,
       WINDOWS_CAPTURE_PATH,

@@ -13,7 +13,7 @@
  *     worker events the proxy table's Event source column names — each
  *     registered exactly once, since a second registration of one proxy emits
  *     a second proxy for one user action (core CP-9) — and every other
- *     `chrome.*` listener either extension file registers must appear on this
+ *     `chrome.*` listener the scanned population registers must appear on this
  *     check's admission list with the role it plays;
  *   - the desktop capture surface
  *     (docs/architecture/application/desktop/windows/capture-principles.md
@@ -21,6 +21,25 @@
  *     names, and every event id a registered WinEvent range CONTAINS must be a
  *     class the Input Correlation table (§DCP-7) names — held by the ids a range
  *     spans, not by its endpoints, so a silently widened pair reds.
+ *
+ * The registration legs run over a POPULATION, derived rather than listed: the
+ * extension package's tracked JavaScript modules (`git ls-files` over
+ * `packages/extension`, filtered to the module extensions `.js`, `.mjs`, and
+ * `.cjs`, outside the package's `tests` tree), so a production directory the
+ * package grows enters the closure the day it lands. EVERY file in it is read
+ * for both registration kinds. Its `chrome.*` registrations are held to the
+ * proxy table — the worker's own route — or to the admission list, keyed by the
+ * file that makes them; its `document`/`window` listeners are held to §ECP-6,
+ * which is a claim about the recorder: the recorder's own are diffed against
+ * the enumeration, and one anywhere else in the population reds, since the
+ * enumeration describes no DOM capture outside that file. What sits outside
+ * this closure's subject is drawn by RECEIVER and REGISTRATION ROOT, never by
+ * which file it is in: a listener bound to an element, and an `addListener`
+ * chain rooted anywhere but `chrome`, register on nothing either enumeration
+ * describes. The population itself is held non-empty and required to carry both
+ * capture files, and the per-file registrations are held to state that same set
+ * of files, so a file list that stopped naming what it exists to hold reds
+ * rather than passing over what is left.
  *
  * The recorder's registrations all sit OUTSIDE the mirrored capture block, so
  * this check reads the one production copy in `content/recorder.js`; the two
@@ -33,21 +52,50 @@
  * below so a range can be expanded id by id. A constant the table does not
  * carry fails the check rather than passing it.
  *
- * Every parsed surface must be non-empty, every enumeration entry must be
+ * Each surface this check knows is there must be non-empty — the two capture
+ * files' own registrations among them — every enumeration entry must be
  * readable (fence-aware, refusing unreadable list items and table cells rather
  * than skipping them), and a registration shape outside the scan's model — a
- * computed event name, a listener on a receiver the scan does not model, a
- * hook-installation site the extractor cannot anchor — is refused loudly
- * instead of passing vacuously.
+ * computed event name, a listener on a receiver the scan does not model in the
+ * capture pair, a hook-installation site the extractor cannot anchor — is
+ * refused loudly instead of passing vacuously. A population file that registers
+ * nothing either enumeration describes is the ordinary case there, and
+ * contributes nothing.
  *
- * Honest limits. A registration shape outside the scan's model is REFUSED,
- * never skipped: an event name that is not a lone string literal (so a
- * concatenated name is refused, not read as its leading fragment), a receiver
- * outside `document`/`window` — which is what a helper taking its target as a
- * parameter looks like, wherever that helper is defined — and an
- * `addListener` chain not rooted at `chrome`. What is genuinely invisible is a
- * registration SITE that lands in neither scanned file: a helper defined
- * elsewhere and merely called here registers nothing these two files show.
+ * Honest limits. In the CAPTURE PAIR every shape outside the model is REFUSED,
+ * never skipped: an event name that is not a lone quoted string literal (so a
+ * concatenated, computed, or template name is refused, not read as its leading
+ * fragment), a receiver outside `document`/`window` — which is what a helper
+ * taking its target as a parameter looks like, wherever that helper is defined
+ * — and an `addListener` chain not rooted at `chrome`. Beyond the pair the
+ * receiver and the registration root draw the boundary instead: an element
+ * listener and a non-`chrome` chain (a `chrome.runtime.connect` port's
+ * `port.onMessage.addListener`, an emitter helper, a `MediaQueryList`) are
+ * passed over in silence, because they register on nothing this closure holds
+ * and no admission route exists for something the enumerations never describe;
+ * an unreadable event name on a `document`/`window` listener is still refused
+ * there, the registration being in scope and only its name unread. What is
+ * genuinely invisible is a registration SITE that lands outside the scanned
+ * population: a helper defined elsewhere and merely called here registers
+ * nothing these files show, and the extension's test tree is outside the
+ * population by the derivation's own filter, a listener a test registers on a
+ * page it drives being that test's fixture rather than a surface the extension
+ * ships.
+ *
+ * The JavaScript is read through the shared comment-safe tokenizer, which
+ * models template literals as a type of their own and tokenizes each `${…}`
+ * interpolation's contents as the code they are: a registration written inside
+ * an interpolation is a registration like any other, and a template event name
+ * is refused rather than credited with its text. The tokenizer does not model
+ * regular-expression literals, so a quote inside one desynchronizes the token
+ * stream for the rest of that file — in these whole-file scans that corruption
+ * is SILENT, the registrations past it simply not seen rather than refused.
+ * The desktop leg reads one view of the Rust source throughout: comment-
+ * stripped, with every string literal's contents blanked. Its anchors — the
+ * hook installations, the registration loop, the bracket closing its range list
+ * — and the range list's own contents are all read there, so what a log message
+ * says about the capture layer never counts as a registration of it.
+ *
  * Beyond that: §ECP-6 also states the phase the recorder listens in (capture),
  * which this check does not read — the listener options are not parsed, so the
  * phase claim stays review-held; and the scan reads registration sites, never
@@ -66,6 +114,7 @@
  *   node scripts/check-capture-surface.js  # or: npm run lint:capture-surface
  */
 
+import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 import {
@@ -74,15 +123,72 @@ import {
   extractClauseSection,
   missingFrom,
   parseTables,
+  readLoneStringLiteral,
   stripFences,
   tokenizeJs,
 } from './check-test-inventory.js';
-import { stripRustComments } from './check-command-surface.js';
+import { blankRustStrings, stripRustComments } from './check-command-surface.js';
 
 /** Repo-relative path of the content-script recorder. */
 export const RECORDER_PATH = 'packages/extension/content/recorder.js';
 /** Repo-relative path of the extension service worker. */
 export const WORKER_PATH = 'packages/extension/background/service-worker.js';
+/** Repo-relative path of the side panel's platform adapter. */
+export const PANEL_ADAPTER_PATH = 'packages/extension/sidepanel/adapter-chrome.js';
+/**
+ * The extension package whose tracked JavaScript the chrome-registration
+ * closure scans.
+ */
+export const POPULATION_ROOT = 'packages/extension';
+/**
+ * The package's test tree. What it holds is a test's own fixture — a listener
+ * a test registers on a page it drives — rather than a surface the extension
+ * ships, so the population is the package's production JavaScript: everything
+ * the package tracks outside this tree.
+ */
+export const POPULATION_TEST_TREE = 'packages/extension/tests';
+/**
+ * The extensions a JavaScript module the extension ships can carry — the
+ * classic one and the two the module system defines for an explicit module
+ * kind. A file is production JavaScript by its extension, so a module written
+ * in any of them enters the closure on the day it lands.
+ */
+export const POPULATION_EXTENSIONS = ['.js', '.mjs', '.cjs'];
+
+/**
+ * Derive the scanned population: the tracked JavaScript modules the extension
+ * package ships, `git ls-files` over the package itself, filtered to
+ * {@link POPULATION_EXTENSIONS} outside {@link POPULATION_TEST_TREE}. Deriving
+ * from the package rather than from a list of its directories is what makes
+ * the set maintain itself — a production directory the package grows is
+ * scanned the day it lands, with nothing to update here.
+ *
+ * Paths come back verbatim: `core.quotepath` is turned off for the call, so a
+ * path carrying a non-ASCII byte arrives as itself rather than quoted and
+ * escaped, which the extension filter would drop in silence.
+ *
+ * This is the one derivation: the CLI runs the closure over what it returns,
+ * and the suite's real-tree locks hold that same set, so a change to the
+ * derivation cannot leave the locks holding a population the check no longer
+ * scans.
+ * @param {string} [cwd] the directory to enumerate from — the repository root,
+ *   which is where the CLI runs and where the suite points it
+ * @returns {string[]} repo-relative paths, in `git ls-files` order
+ */
+export function derivePopulation(cwd = process.cwd()) {
+  return execFileSync('git', ['-c', 'core.quotepath=false', 'ls-files', POPULATION_ROOT], {
+    encoding: 'utf8',
+    cwd,
+  })
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(
+      (file) =>
+        POPULATION_EXTENSIONS.some((ext) => file.endsWith(ext)) &&
+        !file.startsWith(`${POPULATION_TEST_TREE}/`),
+    );
+}
+
 /** Repo-relative path of the extension capture doc stating ECP-6 and ECP-7. */
 export const EXTENSION_DOC_PATH = 'docs/architecture/application/extension/capture-principles.md';
 /** Repo-relative path of the desktop capture doc stating DCP-4 and DCP-7. */
@@ -127,7 +233,7 @@ function admissionKey(file, api) {
   return `${file}${KEY_SEPARATOR}${api}`;
 }
 
-/** A `chrome.<api>.<event>` listener path, the shape both extension files use. */
+/** A `chrome.<api>.<event>` listener path, the shape the population registers. */
 const CHROME_API_RE = /^chrome(?:\.[A-Za-z][A-Za-z0-9]*)+$/;
 /** A DOM event name as the enumerations state it. */
 const DOM_EVENT_RE = /^[a-z]+$/;
@@ -223,10 +329,10 @@ export const WIN_EVENT_VALUES = {
 /**
  * The extension listener registrations that are admitted as something other
  * than a capture surface, keyed by file and API path. Every `chrome.*`
- * registration either extension file makes is either a capture proxy the
- * ECP-7 table's Event source column names, or an entry here — nothing else
- * passes. `occurrences` is the exact number of registrations of that API in
- * that file, so an added one reds until it is admitted with its own role.
+ * registration a scanned file makes is either a capture proxy the ECP-7
+ * table's Event source column names, or an entry here — nothing else passes.
+ * `occurrences` is the exact number of registrations of that API in that file,
+ * so an added one reds until it is admitted with its own role.
  */
 export const ADMITTED_REGISTRATIONS = [
   {
@@ -276,6 +382,12 @@ export const ADMITTED_REGISTRATIONS = [
     api: 'chrome.runtime.onMessage',
     occurrences: 1,
     why: "The extension's own message port: the recorder's tab-id request and its FRAME_READY registration, the APPEND_ACTION trust gate and sender stamping (ECP-3, ECP-4), and the panel command dispatcher. Actions arrive through it; none originates there.",
+  },
+  {
+    file: PANEL_ADAPTER_PATH,
+    api: 'chrome.storage.onChanged',
+    occurrences: 4,
+    why: "The panel adapter's four watches on the storage the worker writes, one per thing the panel UI reflects: the sync state behind the Auto-Sync controls (`onSyncStateChange`), the pending-action count (`onPendingCountChange`), each captured action as the step list appends it (`onActionEvent`), and the storage-quota band the pressure banner shows (`onStorageQuotaChange`). Each reads back what the extension already recorded; the panel is the recording UI, never a recorded application.",
   },
 ];
 
@@ -338,46 +450,81 @@ export function extractProxySources(docText) {
 }
 
 /**
+ * The two legs a scanned file can be read for. Both read the same two
+ * registration kinds — `document`/`window` listeners and `chrome.*` ones; what
+ * differs is what each does with a shape outside the model.
+ *
+ * `capture` refuses every one of them. That is the discipline the two capture
+ * files are held to: a listener on a receiver outside `document`/`window`, an
+ * event name that is not a lone literal, and an `addListener` chain not rooted
+ * at `chrome` are each capture the enumerations cannot describe, so each reds
+ * where it stands.
+ *
+ * `beyondPair` reads the same registrations and draws the boundary by RECEIVER
+ * and REGISTRATION ROOT rather than by file: a `document`/`window` listener is
+ * returned — §ECP-6 states the recorder is where DOM capture listens, so one
+ * anywhere else in the population reds — while a listener on any other receiver
+ * (an element the file built or holds) and an `addListener` chain rooted
+ * anywhere but `chrome` (a `chrome.runtime.connect` port's `port.onMessage`, an
+ * emitter helper, a `MediaQueryList`) are outside this closure's subject
+ * entirely and are passed over in silence, never refused.
+ */
+export const REGISTRATION_LEGS = { capture: 'capture', beyondPair: 'beyond-pair' };
+
+/**
  * Read one extension file's listener registrations through the shared
  * comment-safe tokenizer: `<receiver>.addEventListener('<event>'` and
- * `chrome.<path>.addListener(`. A registration whose event name is not a
- * string literal, whose receiver is outside the modelled set, or whose
- * `addListener` chain does not start at `chrome` is a problem of this
- * extractor, so it reds rather than vanishing. DOM registrations are returned
- * split by receiver: `domEvents` are the ones on the receiver §ECP-6 states,
- * `windowEvents` the ones on `window`, which the evaluator holds separately.
+ * `chrome.<path>.addListener(`. DOM registrations are returned split by
+ * receiver: `domEvents` are the ones on the receiver §ECP-6 states,
+ * `windowEvents` the ones on `window`, which the evaluator holds separately —
+ * for the recorder against the enumeration, for every other population file as
+ * a listener with no home there.
+ *
+ * What a shape outside the model costs depends on the leg
+ * ({@link REGISTRATION_LEGS}): the capture pair refuses each one where it
+ * stands, while beyond the pair an element receiver and a non-`chrome`
+ * `addListener` chain are outside this closure's subject and are passed over
+ * silently. An event name that is not a lone string literal is refused on
+ * either leg, because there the registration IS in scope and only its name is
+ * unreadable.
  * @param {string} source the file's source
  * @param {string} path the file's repo-relative path (for diagnostics)
+ * @param {string} [legs] which legs to read — one of {@link REGISTRATION_LEGS},
+ *   defaulting to the capture pair's full model
  * @returns {{ domEvents: string[], windowEvents: string[], chromeApis: string[], problems: string[] }}
  */
-export function extractRegistrations(source, path) {
+export function extractRegistrations(source, path, legs = REGISTRATION_LEGS.capture) {
   const tokens = tokenizeJs(source);
   const domEvents = [];
   const windowEvents = [];
   const chromeApis = [];
   const problems = [];
+  const pair = legs === REGISTRATION_LEGS.capture;
   const at = (i, type, value) => tokens[i] && tokens[i].type === type && tokens[i].value === value;
 
   for (let i = 0; i < tokens.length; i++) {
     if (at(i, 'word', 'addEventListener') && at(i - 1, 'punct', '.')) {
       const receiver = tokens[i - 2];
       if (!receiver || receiver.type !== 'word' || !DOM_RECEIVERS.has(receiver.value)) {
-        problems.push(`${path} registers a DOM listener on a receiver the scan does not model (${receiver?.value ?? '?'}) — the modelled receivers are document and window`); // prettier-ignore
+        // Beyond the pair the receiver is the boundary: a listener on an
+        // element is a component wiring its own UI, which this closure never
+        // claimed to hold. In the capture pair it is capture the enumerations
+        // cannot describe, so it reds.
+        if (pair) {
+          problems.push(`${path} registers a DOM listener on a receiver the scan does not model (${receiver?.value ?? '?'}) — the modelled receivers are document and window`); // prettier-ignore
+        }
         continue;
       }
       // The literal must be the WHOLE first argument, which the following
       // comma is what establishes: `'mouse' + 'down'` tokenizes as a string
       // first, so reading the string alone would silently record `mouse`.
-      if (
-        !at(i + 1, 'punct', '(') ||
-        tokens[i + 2]?.type !== 'string' ||
-        !at(i + 3, 'punct', ',')
-      ) {
-        problems.push(`${path} registers a DOM listener on ${receiver.value} whose event name is not a string literal standing alone as the first argument — a concatenated or computed name is refused, never read as its leading fragment`); // prettier-ignore
+      const read = readLoneStringLiteral(tokens, i + 2, ',');
+      if (!at(i + 1, 'punct', '(') || !read.lone) {
+        problems.push(`${path} registers a DOM listener on ${receiver.value} whose event name is not a string literal standing alone as the first argument — a concatenated, computed, or template name is refused, never read as its leading fragment`); // prettier-ignore
         continue;
       }
       const target = receiver.value === ENUMERATED_RECEIVER ? domEvents : windowEvents;
-      target.push(tokens[i + 2].value);
+      target.push(read.value);
       continue;
     }
     if (at(i, 'word', 'addListener') && at(i - 1, 'punct', '.')) {
@@ -389,7 +536,14 @@ export function extractRegistrations(source, path) {
       }
       const api = chain.join('.');
       if (chain.length < 2 || chain[0] !== 'chrome' || !CHROME_API_RE.test(api)) {
-        problems.push(`${path} registers a listener the scan does not model (${api || '?'}.addListener) — the modelled shape is chrome.<api>.<event>.addListener`); // prettier-ignore
+        // The registration root is the boundary the same way: beyond the pair
+        // a chain rooted anywhere but `chrome` — a message port's
+        // `port.onMessage`, an emitter helper — registers on no browser
+        // surface this closure holds, and passing over it is the answer rather
+        // than a red with no route to green.
+        if (pair) {
+          problems.push(`${path} registers a listener the scan does not model (${api || '?'}.addListener) — the modelled shape is chrome.<api>.<event>.addListener`); // prettier-ignore
+        }
         continue;
       }
       chromeApis.push(api);
@@ -404,16 +558,27 @@ export function extractRegistrations(source, path) {
  * of the one loop the `SetWinEventHook` calls are installed from. Anchor
  * failures — no loop, more than one, a `SetWinEventHook` call outside it, a
  * pair the scan cannot read — are this extractor's own problems.
+ *
+ * The whole leg reads one view of the source: comment-stripped, with every
+ * string literal's contents blanked. Each anchor is a call or a loop the source
+ * MAKES — the loop's own closing bracket among them — so an installation named
+ * in a log message is text about the capture layer, never a registration of it,
+ * and a bracket written inside a literal cannot move where the range list ends.
+ * The list's contents are read from that same view: it carries no literal the
+ * ranges are stated in, and blanking keeps a pair-shaped fragment inside one
+ * from reading as a registration. Offsets survive the blanking character for
+ * character, so what the anchors locate is what the slice reads.
  * @param {string} rustSource the capture backend's source
  * @returns {{ hooks: string[], ranges: [string, string][], problems: string[] }}
  */
 export function extractDesktopRegistrations(rustSource) {
   const stripped = stripRustComments(rustSource);
+  const anchored = blankRustStrings(stripped);
   const problems = [];
   const hooks = [];
   const named = new RegExp(`\\b${LOW_LEVEL_INSTALL}\\s*\\(\\s*([A-Za-z0-9_]+)`, 'g');
-  for (const match of stripped.matchAll(named)) hooks.push(match[1]);
-  const bareHookCalls = [...stripped.matchAll(new RegExp(`\\b${LOW_LEVEL_INSTALL}\\s*\\(`, 'g'))].length; // prettier-ignore
+  for (const match of anchored.matchAll(named)) hooks.push(match[1]);
+  const bareHookCalls = [...anchored.matchAll(new RegExp(`\\b${LOW_LEVEL_INSTALL}\\s*\\(`, 'g'))].length; // prettier-ignore
   if (bareHookCalls !== hooks.length) {
     problems.push(`${WINDOWS_CAPTURE_PATH} installs a low-level hook whose first argument the scan cannot read as a constant name`); // prettier-ignore
   }
@@ -422,12 +587,12 @@ export function extractDesktopRegistrations(rustSource) {
   const anchors = [];
   let from = 0;
   for (;;) {
-    const found = stripped.indexOf(WIN_EVENT_LOOP_ANCHOR, from);
+    const found = anchored.indexOf(WIN_EVENT_LOOP_ANCHOR, from);
     if (found === -1) break;
     anchors.push(found);
     from = found + WIN_EVENT_LOOP_ANCHOR.length;
   }
-  const installs = [...stripped.matchAll(new RegExp(`\\b${WIN_EVENT_INSTALL}\\s*\\(`, 'g'))].length;
+  const installs = [...anchored.matchAll(new RegExp(`\\b${WIN_EVENT_INSTALL}\\s*\\(`, 'g'))].length;
   if (anchors.length !== 1) {
     problems.push(`${WINDOWS_CAPTURE_PATH} carries ${anchors.length} WinEvent registration loops — the scan models exactly one \`${WIN_EVENT_LOOP_ANCHOR}\``); // prettier-ignore
     return { hooks, ranges, problems };
@@ -440,9 +605,13 @@ export function extractDesktopRegistrations(rustSource) {
   const open = anchors[0] + WIN_EVENT_LOOP_ANCHOR.length - 1;
   let depth = 0;
   let close = -1;
-  for (let i = open; i < stripped.length; i++) {
-    if (stripped[i] === '[') depth++;
-    else if (stripped[i] === ']' && --depth === 0) {
+  // The bracket that closes the range list is an anchor like the rest, so the
+  // walk runs on the blanked view: a bracket written inside a string literal
+  // in the registration loop is text, and counting it would move the close and
+  // red on a cause the source does not have.
+  for (let i = open; i < anchored.length; i++) {
+    if (anchored[i] === '[') depth++;
+    else if (anchored[i] === ']' && --depth === 0) {
       close = i;
       break;
     }
@@ -451,8 +620,11 @@ export function extractDesktopRegistrations(rustSource) {
     problems.push(`${WINDOWS_CAPTURE_PATH}'s WinEvent registration list is not closed — the range scan cannot run`); // prettier-ignore
     return { hooks, ranges, problems };
   }
-  const body = stripped.slice(open + 1, close);
-  if (stripped.indexOf(`${WIN_EVENT_INSTALL}`, close) === -1) {
+  // The list's contents are read on the blanked view too: it carries no
+  // literal the range scan needs, and a pair-shaped fragment written inside one
+  // would otherwise read as a registration the source never makes.
+  const body = anchored.slice(open + 1, close);
+  if (anchored.indexOf(`${WIN_EVENT_INSTALL}`, close) === -1) {
     problems.push(`${WINDOWS_CAPTURE_PATH} installs its WinEvent hook outside the registration loop the scan reads the ranges from`); // prettier-ignore
   }
   for (const piece of body.split(/\)\s*,/)) {
@@ -537,8 +709,17 @@ function nameOf(value) {
 }
 
 /**
- * The non-empty guard's legs: every parsed surface, with its empty-parse
- * diagnosis. Exported so the unit suite's family is generated from this list.
+ * The non-empty guard's legs: every surface whose empty parse is a broken read
+ * rather than a fact, with its diagnosis. Exported so the unit suite's family
+ * is generated from this list.
+ *
+ * The two capture files' own surfaces are here, because each is a surface this
+ * check knows is there — an empty parse of one means the scan stopped reaching
+ * it. The population's other files are deliberately absent: most of the
+ * extension's production JavaScript registers no `chrome.*` listener at all,
+ * and a file contributing nothing to the closure is the ordinary case there.
+ * What guards that leg instead is the population itself — non-empty, and
+ * carrying both capture files — which the evaluator refuses on its own terms.
  */
 export const EMPTY_SURFACES = [
   ['docDomEvents', `no DOM events enumerated in ${EXTENSION_DOC_PATH} §${DOM_CLAUSE_ID}`],
@@ -576,11 +757,12 @@ export const DUPLICATE_SURFACES = [
  * @param {string[]} s.docProxyWorkerEvents ECP-7's named worker events
  * @param {string[]} s.docProxyDomEvents ECP-7's named DOM events
  * @param {string[]} s.extensionUnreadable unreadable extension-doc entries
+ * @param {string[]} s.population the scanned files, in the order they were read
+ * @param {[string, string[]][]} s.chromeApisByFile each scanned file's `chrome.*` registrations, in source order
+ * @param {{ file: string, receiver: string, event: string }[]} s.beyondPairDomEvents `document`/`window` listeners registered outside the capture pair
  * @param {string[]} s.recorderDomEvents the recorder's `document` registrations
  * @param {string[]} s.recorderWindowEvents the recorder's `window` registrations (none enumerated)
- * @param {string[]} s.recorderChromeApis the recorder's chrome registrations
  * @param {string[]} s.workerDomEvents DOM registrations in the worker (none modelled)
- * @param {string[]} s.workerChromeApis the worker's chrome registrations
  * @param {string[]} s.docHooks DCP-4's named low-level hooks
  * @param {string[]} s.docCorrelationClasses DCP-7's WinEvent classes
  * @param {string[]} s.desktopUnreadable unreadable desktop-doc entries
@@ -608,20 +790,64 @@ export function evaluateCaptureSurface(s) {
   for (const event of s.recorderWindowEvents) {
     problems.push(`${RECORDER_PATH} registers \`${event}\` on \`window\` — §${DOM_CLAUSE_ID} states the recorder listens on \`${ENUMERATED_RECEIVER}\`, so the receiver is part of the enumerated surface`); // prettier-ignore
   }
+  // §ECP-6 enumerates the recorder's surface, which makes the recorder the one
+  // home a DOM capture listener has. A `document` or `window` listener in any
+  // other population file registers capture no enumeration describes, and no
+  // admission route is offered for one: the admission list admits `chrome.*`
+  // registrations playing a non-capture role, which a listener on the page's
+  // own event stream is not.
+  for (const { file, receiver, event } of s.beyondPairDomEvents) {
+    problems.push(`${file} registers a DOM listener for \`${event}\` on \`${receiver}\` — §${DOM_CLAUSE_ID} enumerates ${RECORDER_PATH}'s \`${ENUMERATED_RECEIVER}\` surface, which is the DOM capture this platform states; move the capture into that file and enumerate it there, or bind the listener to the element it is about`); // prettier-ignore
+  }
+
+  // The population is this closure's own subject. An empty one, or one that
+  // has lost a capture file, means the file list stopped naming what it exists
+  // to hold — a broken read of the surface, not a clean surface — and every
+  // diff below would then run over a population that is not the one claimed.
+  const scanned = new Set(s.population);
+  const machinery = [];
+  if (s.population.length === 0) {
+    machinery.push(`no tracked JavaScript module found under ${POPULATION_ROOT} outside ${POPULATION_TEST_TREE} — the registration closure has no population to hold`); // prettier-ignore
+  }
+  for (const required of [RECORDER_PATH, WORKER_PATH]) {
+    if (!scanned.has(required)) {
+      machinery.push(`${required} is outside the scanned population — the two capture files are read by this closure by construction, so a population without one is a population this check cannot stand on`); // prettier-ignore
+    }
+  }
+  // The registrations are keyed by file, so they and the population are two
+  // statements of one set: a file with no entry was never read, and an entry
+  // for a file outside the population is a registration set the closure does
+  // not claim to have scanned. Either way the diffs below would describe a
+  // population that is not the one stated.
+  const keyed = new Set(s.chromeApisByFile.map(([file]) => file));
+  for (const file of keyed) {
+    if (!scanned.has(file)) {
+      machinery.push(`${file} carries scanned registrations but is outside the scanned population — the registrations and the population state one set of files`); // prettier-ignore
+    }
+  }
+  for (const file of s.population) {
+    if (!keyed.has(file)) {
+      machinery.push(`${file} is in the scanned population but carries no registration entry — every population file is read, a file registering nothing contributing an empty entry`); // prettier-ignore
+    }
+  }
+  if (machinery.length) return [...problems, ...machinery];
+
+  const apisOf = (file) => s.chromeApisByFile.filter(([f]) => f === file).flatMap(([, a]) => a);
+  const withDerived = {
+    ...s,
+    workerChromeApis: apisOf(WORKER_PATH),
+    installedRangeLabels: s.installedRanges.map(([min, max]) => `${min}–${max}`),
+  };
 
   let vacuous = false;
   for (const [key, message] of EMPTY_SURFACES) {
-    if (s[key].length === 0) {
+    if (withDerived[key].length === 0) {
       problems.push(message);
       vacuous = true;
     }
   }
   if (vacuous) return problems; // empty parses make set diffs meaningless
 
-  const withDerived = {
-    ...s,
-    installedRangeLabels: s.installedRanges.map(([min, max]) => `${min}–${max}`),
-  };
   for (const [key, what] of DUPLICATE_SURFACES) {
     problems.push(...duplicatesIn(withDerived[key], what));
   }
@@ -641,8 +867,7 @@ export function evaluateCaptureSurface(s) {
     const key = admissionKey(file, api);
     registeredCounts.set(key, (registeredCounts.get(key) ?? 0) + 1);
   };
-  for (const api of s.workerChromeApis) record(WORKER_PATH, api);
-  for (const api of s.recorderChromeApis) record(RECORDER_PATH, api);
+  for (const [file, apis] of s.chromeApisByFile) for (const api of apis) record(file, api);
 
   for (const [key, count] of registeredCounts) {
     const [file, api] = key.split(KEY_SEPARATOR);
@@ -660,7 +885,16 @@ export function evaluateCaptureSurface(s) {
       continue;
     }
     if (!admittedKeys.has(key)) {
-      problems.push(`${file} registers \`${api}\`, which is neither a capture proxy the §${PROXY_CLAUSE_ID} ${SOURCE_HEADER} column names nor an admitted non-capture registration — state it in the doc, or admit it here with the role it plays`); // prettier-ignore
+      // The proxy route is the worker's: §ECP-7 states the proxies the service
+      // worker captures, so for every other file the admission list is the one
+      // route. Offering the doc there would name a route the file cannot take,
+      // and the worker's wording would deny the table names an event it may
+      // well name — the same API stated as a proxy, registered elsewhere.
+      problems.push(
+        file === WORKER_PATH
+          ? `${file} registers \`${api}\`, which is neither a capture proxy the §${PROXY_CLAUSE_ID} ${SOURCE_HEADER} column names nor an admitted non-capture registration — state it in the doc, or admit it here with the role it plays` // prettier-ignore
+          : `${file} registers \`${api}\`, which the admission list does not admit — the capture proxies the §${PROXY_CLAUSE_ID} ${SOURCE_HEADER} column names are ${WORKER_PATH}'s, so a registration this file makes is admitted here with the role it plays`, // prettier-ignore
+      );
       continue;
     }
     const entry = s.admitted.find((e) => e.file === file && e.api === api);
@@ -674,7 +908,7 @@ export function evaluateCaptureSurface(s) {
     }
   }
   problems.push(
-    ...missingFrom(s.docProxyWorkerEvents, s.workerChromeApis, `is named as a proxy's ${SOURCE_HEADER} in §${PROXY_CLAUSE_ID} but ${WORKER_PATH} registers no listener for it`), // prettier-ignore
+    ...missingFrom(s.docProxyWorkerEvents, withDerived.workerChromeApis, `is named as a proxy's ${SOURCE_HEADER} in §${PROXY_CLAUSE_ID} but ${WORKER_PATH} registers no listener for it`), // prettier-ignore
   );
 
   // ── The desktop capture surface (DCP-4, DCP-7) ─────────────────────────────
@@ -708,10 +942,19 @@ export function evaluateCaptureSurface(s) {
 
 /**
  * Read every surface from the working tree and evaluate both contracts.
+ *
+ * The population is passed in rather than derived here, so the suite can hold
+ * this closure over a population it states — the shape the two sibling checks'
+ * file-list legs already have. Over the real tree both callers pass the one
+ * derivation, {@link derivePopulation}. Every population file is read for both
+ * registration kinds; what the two capture files are held to differently is the
+ * refusal discipline of {@link REGISTRATION_LEGS}, and §ECP-6's enumeration
+ * diff, which is a claim about the recorder's own surface.
  * @param {(f: string) => string} readFile repo-relative content reader
+ * @param {string[]} population the tracked extension JavaScript to scan
  * @returns {{ problems: string[], domEventCount: number, proxyCount: number, winEventCount: number }}
  */
-export function auditTree(readFile) {
+export function auditTree(readFile, population) {
   const extensionDoc = readFile(EXTENSION_DOC_PATH);
   const desktopDoc = readFile(DESKTOP_DOC_PATH);
   const dom = extractDomEnumeration(extensionDoc);
@@ -721,18 +964,38 @@ export function auditTree(readFile) {
   const correlation = extractCorrelationClasses(desktopDoc);
   const desktop = extractDesktopRegistrations(readFile(WINDOWS_CAPTURE_PATH));
 
+  const chromeApisByFile = [];
+  const beyondPairProblems = [];
+  const beyondPairDomEvents = [];
+  for (const file of population) {
+    if (file === RECORDER_PATH) chromeApisByFile.push([file, recorder.chromeApis]);
+    else if (file === WORKER_PATH) chromeApisByFile.push([file, worker.chromeApis]);
+    else {
+      const read = extractRegistrations(readFile(file), file, REGISTRATION_LEGS.beyondPair);
+      chromeApisByFile.push([file, read.chromeApis]);
+      beyondPairProblems.push(...read.problems);
+      for (const event of read.domEvents) {
+        beyondPairDomEvents.push({ file, receiver: ENUMERATED_RECEIVER, event });
+      }
+      for (const event of read.windowEvents) {
+        beyondPairDomEvents.push({ file, receiver: 'window', event });
+      }
+    }
+  }
+
   const s = {
+    population,
+    chromeApisByFile,
+    beyondPairDomEvents,
     docDomEvents: dom.events,
     docProxyWorkerEvents: proxies.workerEvents,
     docProxyDomEvents: proxies.domEvents,
     extensionUnreadable: [...dom.unreadable, ...proxies.unreadable],
     recorderDomEvents: recorder.domEvents,
     recorderWindowEvents: recorder.windowEvents,
-    recorderChromeApis: recorder.chromeApis,
     // The worker's surface is the chrome-event one; a DOM listener there reds
     // whichever receiver it was registered on.
     workerDomEvents: [...worker.domEvents, ...worker.windowEvents],
-    workerChromeApis: worker.chromeApis,
     docHooks: extractClauseNames(desktopDoc, DESKTOP_CLAUSE_ID, HOOK_NAME_RE),
     docCorrelationClasses: correlation.classes,
     desktopUnreadable: correlation.unreadable,
@@ -744,6 +1007,7 @@ export function auditTree(readFile) {
     problems: [
       ...recorder.problems,
       ...worker.problems,
+      ...beyondPairProblems,
       ...desktop.problems,
       ...evaluateCaptureSurface(s),
     ],
@@ -763,7 +1027,10 @@ function run() {
       return ''; // an unreadable surface fails the non-empty guards loudly
     }
   };
-  const { problems, domEventCount, proxyCount, winEventCount } = auditTree(readFile);
+  const { problems, domEventCount, proxyCount, winEventCount } = auditTree(
+    readFile,
+    derivePopulation(),
+  );
 
   if (problems.length) {
     console.error(
@@ -774,9 +1041,11 @@ function run() {
         `  \`${ENUMERATED_RECEIVER}\` listeners must equal §${DOM_CLAUSE_ID}'s enumeration; the worker's capture proxies\n` +
         `  must equal the worker events the §${PROXY_CLAUSE_ID} table's ${SOURCE_HEADER} column names, each\n` +
         `  registered once (a DOM event that column names is held to §${DOM_CLAUSE_ID}'s enumeration\n` +
-        `  instead), with every other registration in ${RECORDER_PATH}\n` +
-        `  or ${WORKER_PATH} admitted in\n` +
-        `  ${'scripts/check-capture-surface.js'} with the role it plays; the installed low-level hooks\n` +
+        `  instead), with every other \`chrome.*\` registration the tracked ${POPULATION_EXTENSIONS.join('/')}\n` +
+        `  modules under ${POPULATION_ROOT} outside ${POPULATION_TEST_TREE} make\n` +
+        `  admitted in ${'scripts/check-capture-surface.js'} with the role it plays,\n` +
+        `  keyed by the file that makes it, and every \`${ENUMERATED_RECEIVER}\`/\`window\` listener\n` +
+        `  those modules register belonging in ${RECORDER_PATH}; the installed low-level hooks\n` +
         `  must equal §${DESKTOP_CLAUSE_ID}'s enumeration and the ${CORRELATION_SECTION} classes must each be covered\n` +
         `  by a registered WinEvent range, both in both directions; and every id a registered\n` +
         `  range spans must be one of those classes — held per id, so a widened pair reds.\n` +

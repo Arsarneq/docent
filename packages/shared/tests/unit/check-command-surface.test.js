@@ -28,6 +28,7 @@ import {
   FRONTEND_DIR,
   EMPTY_SURFACES,
   DUPLICATE_SURFACES,
+  blankRustStrings,
   stripRustComments,
   extractCommandFns,
   extractHandlerCommands,
@@ -215,7 +216,7 @@ describe('evaluateCommandSurface — the caller side (both ways)', () => {
       'invoke',
     );
     assert.deepEqual(sites, [
-      { path: CALLER_PATH, ordinal: 1, name: null, argToken: 'load_state +' },
+      { path: CALLER_PATH, ordinal: 1, name: null, argToken: 'load_state +', argKind: 'string' },
     ]);
     const problems = evaluateCommandSurface(
       makeSurface({ invokeSites: [...makeSurface().invokeSites, { ...sites[0], ordinal: 3 }] }),
@@ -223,6 +224,39 @@ describe('evaluateCommandSurface — the caller side (both ways)', () => {
     assert.ok(
       problems.some((p) => p.includes(`${CALLER_PATH} (invoke( call site 3)`) && p.includes('load_state +')), // prettier-ignore
       problems.join('\n') || 'no concatenated-invoke refusal',
+    );
+  });
+
+  it('names a template argument as a template rather than as the text it leads with', () => {
+    // `invoke(`load_${which}`)` reds — but as a template, never as a call
+    // passing `load_` where the command name goes, which is a command name the
+    // source does not write and a reader would hunt for.
+    const sites = extractCallSites(
+      new Map([[CALLER_PATH, 'await invoke(`load_${which}`);']]),
+      'invoke',
+    );
+    const problems = evaluateCommandSurface(
+      makeSurface({ invokeSites: [...makeSurface().invokeSites, { ...sites[0], ordinal: 3 }] }),
+    );
+    const refusal = problems.find((p) => p.includes(`${CALLER_PATH} (invoke( call site 3)`));
+    assert.ok(refusal, problems.join('\n') || 'no template-invoke refusal');
+    assert.match(refusal, /passes a template literal \(`load_`\) where the command name goes/);
+    assert.ok(!refusal.includes('passes `load_`'), refusal);
+  });
+
+  it('names a template channel the same way on the listen side', () => {
+    // One extractor, one refusal formatter: the channel scan reads the same
+    // facts, so a template there is named as a template too.
+    const sites = extractCallSites(
+      new Map([[CALLER_PATH, 'await listen(`capture:${kind}`, handler);']]),
+      'listen',
+    );
+    const problems = evaluateCommandSurface(
+      makeSurface({ listenSites: [{ ...sites[0], ordinal: 1 }] }),
+    );
+    assert.ok(
+      problems.some((p) => /passes a template literal \(`capture:`\) where the event channel goes/.test(p)), // prettier-ignore
+      problems.join('\n') || 'no template-listen refusal',
     );
   });
 });
@@ -404,7 +438,7 @@ describe('evaluateCommandSurface — the channel the doc row derives', () => {
       'listen',
     );
     assert.deepEqual(sites, [
-      { path: CALLER_PATH, ordinal: 1, name: null, argToken: 'capture: +' },
+      { path: CALLER_PATH, ordinal: 1, name: null, argToken: 'capture: +', argKind: 'string' },
     ]);
     const problems = evaluateCommandSurface(makeSurface({ listenSites: sites }));
     assert.ok(
@@ -521,6 +555,101 @@ describe('stripRustComments — the emit scan cannot count comment mentions', ()
     const stripped = stripRustComments(src);
     assert.ok(!stripped.includes('gone'));
     assert.equal(extractEmitSites(new Map([['a.rs', stripped]])).length, 1);
+  });
+});
+
+describe('blankRustStrings — the view an anchor scan is found on', () => {
+  it('blanks literal contents, keeping the quotes, the offsets, and the newlines', () => {
+    const src = 'let a = "one\\ntwo"; let b = r#"raw text"#; let c = \'x\';\nfn live() {}';
+    const view = blankRustStrings(src);
+    assert.equal(view.length, src.length, 'offsets must be preserved');
+    assert.equal(view.split('\n').length, src.split('\n').length);
+    assert.ok(!view.includes('raw text'));
+    assert.ok(!view.includes('one'));
+    assert.ok(view.includes('fn live() {}'), 'code must survive untouched');
+    // The quotes stay where they were, so a literal is still visible AS a
+    // literal — only what it carries is gone.
+    for (let k = 0; k < src.length; k++) {
+      if (src[k] === '"') assert.equal(view[k], '"', `the quote at ${k} stays`);
+    }
+    assert.equal(view.replace(/ /g, ''), 'leta="";letb=r#""#;letc=\'\';\nfnlive(){}');
+  });
+
+  it('leaves the intact text alone — the two views answer different questions', () => {
+    // The comment stripper keeps string contents on purpose: a channel name is
+    // a string literal, and reading it is the point. This view is its opposite,
+    // and it is a separate function precisely so both stay available.
+    const src = 'let a = "https://example.test"; let b = r#"// not a comment"#; let c = 1; // gone';
+    const stripped = stripRustComments(src);
+    assert.ok(stripped.includes('"https://example.test"'));
+    assert.ok(stripped.includes('// not a comment'));
+    assert.ok(!blankRustStrings(stripped).includes('https://example.test'));
+  });
+
+  it('does not open a phantom literal on a quote inside a comment', () => {
+    const view = blankRustStrings('// a lone " quote\nlet a = "kept";\nfn live() {}');
+    assert.ok(view.includes('a lone " quote'), 'comment text is left as it arrived');
+    assert.ok(!view.includes('kept'));
+    assert.ok(view.includes('fn live() {}'));
+  });
+
+  it('leaves a raw identifier alone', () => {
+    assert.equal(blankRustStrings('let r#type = 1;'), 'let r#type = 1;');
+  });
+});
+
+describe('the anchor scans read what the source DOES, not what it says', () => {
+  it('never reads a command declared inside a string literal', () => {
+    // The literal spans lines, which is what a declaration quoted in a
+    // doc-string or an error message looks like; before the anchors moved onto
+    // the blanked view this contributed `ghost_command` to the crate's set.
+    const src = [
+      "fn doc() -> &'static str {",
+      '    "#[tauri::command]',
+      '    fn ghost_command() {}"',
+      '}',
+    ].join('\n');
+    assert.deepEqual(extractCommandFns(stripRustComments(src)), []);
+  });
+
+  it('never reads a generate_handler! list quoted inside a string literal', () => {
+    // The quoted list used to be `lists[0]`, which discarded the real
+    // registration entirely and inflated the occurrence count that guards it.
+    const src = 'let msg = "generate_handler![a, b]"; tauri::generate_handler![real_one];';
+    assert.deepEqual(extractHandlerCommands(stripRustComments(src)), {
+      commands: ['real_one'],
+      occurrences: 1,
+    });
+  });
+
+  it('never reads an emit written inside a diagnostic, and still reads the real one', () => {
+    // A deleted emit whose only trace is a message naming it used to leave the
+    // channel's single-site count satisfied by the message.
+    const src = [
+      'fn forward(handle: H, event: E) {',
+      '    let m = r#"call handle.emit("capture:action", e)"#;',
+      '    let _ = handle.emit("capture:action", &event);',
+      '}',
+    ].join('\n');
+    const sites = extractEmitSites(new Map([['src/lib.rs', stripRustComments(src)]]));
+    assert.equal(sites.length, 1);
+    assert.deepEqual(sites[0], {
+      path: 'src/lib.rs',
+      method: 'emit',
+      channel: 'capture:action',
+      line: 3,
+    });
+  });
+
+  it('reads the channel of a real emit that follows a string-heavy line', () => {
+    // The channel comes from the intact text at the anchor's own offset, which
+    // is what the blanked view preserves character for character.
+    const src = 'let banner = "aaaa"; let _ = h.emit("capture:action", &e);';
+    const sites = extractEmitSites(new Map([['a.rs', stripRustComments(src)]]));
+    assert.deepEqual(
+      sites.map((s) => [s.method, s.channel]),
+      [['emit', 'capture:action']],
+    );
   });
 });
 
@@ -642,7 +771,9 @@ describe('extractCallSites — the frontend caller scans', () => {
 
   it('records a null name and the token standing in its place when the argument is not literal', () => {
     const sites = extractCallSites(new Map([['a.js', 'await invoke(commandName, args);']]), 'invoke'); // prettier-ignore
-    assert.deepEqual(sites, [{ path: 'a.js', ordinal: 1, name: null, argToken: 'commandName' }]);
+    assert.deepEqual(sites, [
+      { path: 'a.js', ordinal: 1, name: null, argToken: 'commandName', argKind: 'word' },
+    ]);
   });
 
   it('reads a lone literal only — the comma and the closing parenthesis are the followers it accepts', () => {
@@ -668,7 +799,7 @@ describe('extractCallSites — the frontend caller scans', () => {
       ['(end of source)'],
     );
     assert.deepEqual(extractCallSites(new Map([['a.js', "await invoke('load_state'"]]), 'invoke'), [
-      { path: 'a.js', ordinal: 1, name: null, argToken: '(end of source)' },
+      { path: 'a.js', ordinal: 1, name: null, argToken: '(end of source)', argKind: 'string' },
     ]);
   });
 
@@ -698,6 +829,55 @@ describe('extractCallSites — the frontend caller scans', () => {
     assert.deepEqual(
       extractCallSites(new Map([[CALLER_PATH, source]]), 'invoke').map((s) => [s.ordinal, s.name]),
       [[1, 'load_state']],
+    );
+  });
+
+  it('records a template argument as a template, so the refusal can name it as one', () => {
+    // A template is not a string literal. Its token value is a run of its
+    // literal text, so a site that carried the text alone would be refused as
+    // passing a command name the source never writes — and an interpolated one
+    // as passing a name no crate command can ever match. The kind travels with
+    // the token, which is what the refusal reads.
+    assert.deepEqual(
+      extractCallSites(
+        new Map([['a.js', 'invoke(`load_state`);\ninvoke(`load_${which}`);']]),
+        'invoke',
+      ),
+      [
+        { path: 'a.js', ordinal: 1, name: null, argToken: 'load_state', argKind: 'template' },
+        { path: 'a.js', ordinal: 2, name: null, argToken: 'load_', argKind: 'template' },
+      ],
+    );
+  });
+
+  it('reads a call written inside a template interpolation', () => {
+    // The interpolation's contents are code, so the site is a site — it was
+    // string text before templates were modelled, and no site existed at all.
+    assert.deepEqual(
+      extractCallSites(new Map([['a.js', "const t = `x${invoke('load_state')}y`;"]]), 'invoke'),
+      [{ path: 'a.js', ordinal: 1, name: 'load_state', argToken: 'load_state', argKind: 'string' }],
+    );
+  });
+
+  it('sees every call site past a backtick quoted inside an interpolation', () => {
+    // The one shape that desynchronized the token stream for the rest of the
+    // file: in this whole-file scan the corruption was silent, and both real
+    // sites simply stopped existing.
+    assert.deepEqual(
+      extractCallSites(new Map([['a.js', "invoke(`${f('`')}`);\ninvoke('after');"]]), 'invoke').map(
+        (s) => [s.ordinal, s.name],
+      ),
+      [
+        [1, null],
+        [2, 'after'],
+      ],
+    );
+  });
+
+  it('invents no call site from a nested template’s text', () => {
+    assert.deepEqual(
+      extractCallSites(new Map([['a.js', "const t = `${`invoke('fake_cmd')`}`;"]]), 'invoke'),
+      [],
     );
   });
 });

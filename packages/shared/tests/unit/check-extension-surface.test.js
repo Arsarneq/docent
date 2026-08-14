@@ -531,6 +531,77 @@ describe('extractDispatcherSurface — comment-safe tokenizer reads', () => {
     const read = extractDispatcherSurface('switch (msg.type) nope;');
     assert.ok(read.problems.some((p) => p.includes('no readable body')));
   });
+
+  it('refuses an equality guard whose literal leads an expression', () => {
+    // Before the operand's own end was required, this credited the guard with
+    // `CAPTURE_START` while the code tested `CAPTURE_STARTsuffix`: the doc and
+    // the guard then agreed in both directions on a type nothing guards.
+    const guarded = `${worker}\nif (message.type === 'CAPTURE_START' + suffix) { return start(); }`;
+    const read = extractDispatcherSurface(guarded);
+    assert.ok(!read.equalityTypes.includes('CAPTURE_START'));
+    assert.equal(read.problems.length, 1);
+    assert.match(read.problems[0], /guards a message type with `CAPTURE_START` followed by `\+`/);
+    assert.match(read.problems[0], /quoted string literal standing alone as the operand/);
+  });
+
+  it('accepts every punctuation that ends the operand, and refuses the rest', () => {
+    for (const tail of [
+      "'X') { return; }",
+      "'X';",
+      "'X' && busy) { return; }",
+      "'X' || busy) { return; }",
+      "'X' ? a : b;",
+      "['X' === message.type];",
+      "f(message.type === 'X', 1);",
+    ]) {
+      // prettier-ignore
+      const read = extractDispatcherSurface(`${worker}\nconst r = message.type === ${tail}`);
+      assert.deepEqual(read.problems, [], tail);
+    }
+    for (const tail of ["'X' + suffix;", "'X'.length;"]) {
+      const read = extractDispatcherSurface(`${worker}\nconst r = message.type === ${tail}`);
+      assert.equal(read.problems.length, 1, tail);
+      assert.match(read.problems[0], /guards a message type with `X` followed by/);
+    }
+  });
+
+  it('refuses an equality guard written with a template literal', () => {
+    const templated = `${worker}\nif (message.type === \`PONG_\${k}\`) { return; }`;
+    const read = extractDispatcherSurface(templated);
+    assert.deepEqual(read.equalityTypes, ['FRAME_READY']);
+    assert.equal(read.problems.length, 1);
+    assert.match(read.problems[0], /guards a message type with a template literal \(`PONG_`\)/);
+  });
+
+  it('refuses a case label whose literal leads an expression', () => {
+    // Before the label's own colon was required, this label vanished with no
+    // problem at all — the enumeration then redded as a type nothing services,
+    // naming a cause the source does not have.
+    const shaped = worker.replace("case 'STEP_COMMIT': {", "case 'STEP_COMMIT' + k: {");
+    const read = extractDispatcherSurface(shaped);
+    assert.deepEqual(read.caseLabels, ['PROJECTS_LIST']);
+    assert.equal(read.problems.length, 1);
+    assert.match(read.problems[0], /labels an arm `STEP_COMMIT` followed by `\+`/);
+    assert.match(read.problems[0], /quoted string literal the label's own colon follows/);
+  });
+
+  it('refuses a case label written with a template literal', () => {
+    const templated = worker.replace("case 'STEP_COMMIT':", 'case `STEP_COMMIT`:');
+    const read = extractDispatcherSurface(templated);
+    assert.deepEqual(read.caseLabels, ['PROJECTS_LIST']);
+    assert.equal(read.problems.length, 1);
+    assert.match(read.problems[0], /labels an arm with a template literal \(`STEP_COMMIT`\)/);
+  });
+
+  it('leaves a case label the scan never modelled outside the closure', () => {
+    // A constant label is not a shape this scan reads, and never was: the
+    // refusals above are about a literal the scan reads part of, not about
+    // every label form.
+    const constant = worker.replace("case 'STEP_COMMIT':", 'case STEP_COMMIT:');
+    const read = extractDispatcherSurface(constant);
+    assert.deepEqual(read.caseLabels, ['PROJECTS_LIST']);
+    assert.deepEqual(read.problems, []);
+  });
 });
 
 describe('extractSendSites — the one shape the sender scan reads', () => {
@@ -585,7 +656,7 @@ describe('extractSendSites — the one shape the sender scan reads', () => {
     // readable send.
     const sites = extractSendSites(new Map([['a.js', "await send({ label: 'x' });"]]));
     assert.deepEqual(sites, [
-      { path: 'a.js', ordinal: 1, type: null, found: 'no `type` key among the top-level properties `label`' }, // prettier-ignore
+      { path: 'a.js', ordinal: 1, type: null, found: 'no `type` key among the top-level properties (`label`)' }, // prettier-ignore
     ]);
     const problems = evaluateExtensionSurface(makeSurface({ sendSites: sites }));
     assert.ok(
@@ -618,8 +689,67 @@ describe('extractSendSites — the one shape the sender scan reads', () => {
     );
     assert.deepEqual(
       sites.map((s) => [s.type, s.found]),
-      [[null, 'no `type` key among the top-level properties `payload`, `label`']],
+      [[null, 'no `type` key among the top-level properties (`payload`, `label`)']],
     );
+  });
+
+  it('names a template type value as a template rather than as the text it leads with', () => {
+    // A template's token value is a run of its literal text, so naming the
+    // token alone would report a type the send never states — and an
+    // interpolated one, a type no enumeration can ever carry.
+    const found = [
+      'await send({ type: `RECORDING_OPEN` });',
+      'await send({ type: `RECORDING_${which}` });',
+    ].map((source) => {
+      const sites = extractSendSites(new Map([['a.js', source]]));
+      assert.equal(sites.length, 1, source);
+      assert.equal(sites[0].type, null, source);
+      return sites[0].found;
+    });
+    assert.deepEqual(found, [
+      'a `type` key set from a template literal (`RECORDING_OPEN`)',
+      'a `type` key set from a template literal (`RECORDING_`)',
+    ]);
+  });
+
+  it('names the shape standing where a key belongs, computed keys included', () => {
+    // The computed form is the one way an expression reaches a key position in
+    // valid JavaScript, and it is where a template can stand: the key scan
+    // reads a bare or quoted name, so neither is credited with a key it never
+    // wrote — and the diagnosis names the shape it found rather than reporting
+    // a literal with no properties, which is a cause these sends do not have.
+    const cases = [
+      ["await send({ ['type']: 'RECORDING_OPEN' });", 'no `type` key among the top-level properties (a computed key)'], // prettier-ignore
+      ['await send({ [`type`]: kind });', 'no `type` key among the top-level properties (a computed key)'], // prettier-ignore
+      ['await send({ ...payload });', 'no `type` key among the top-level properties (a spread)'],
+      ['await send({ type });', 'no `type` key among the top-level properties (`type`, which no colon follows)'], // prettier-ignore
+    ];
+    for (const [source, found] of cases) {
+      const sites = extractSendSites(new Map([['a.js', source]]));
+      assert.deepEqual(
+        sites.map((s) => [s.type, s.found]),
+        [[null, found]],
+        source,
+      );
+    }
+  });
+
+  it('keeps the empty-literal diagnosis for a send that really states no property', () => {
+    // The other cause, still its own: an object literal with nothing in it.
+    const sites = extractSendSites(new Map([['a.js', 'await send({});']]));
+    assert.deepEqual(
+      sites.map((s) => [s.type, s.found]),
+      [[null, 'no top-level properties at all']],
+    );
+  });
+
+  it('reads a send written inside a template interpolation', () => {
+    // The interpolation's contents are code, so the send is a send — it was
+    // string text before templates were modelled, and the scan saw nothing.
+    const sites = extractSendSites(
+      new Map([['a.js', "const t = `x${send({ type: 'RECORDING_OPEN' })}y`;"]]),
+    );
+    assert.deepEqual(sites, [{ path: 'a.js', ordinal: 1, type: 'RECORDING_OPEN', found: null }]);
   });
 
   it('a source that ends mid-send records the end-of-source stand-in', () => {
