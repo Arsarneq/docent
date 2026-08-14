@@ -114,9 +114,16 @@ the capture phase, for exactly these DOM events:
 The service worker captures the browser-chrome proxies in the table below, each
 row naming the worker event it is captured from.
 [`check-capture-surface.js`](../../../../scripts/check-capture-surface.js)
-holds this platform's registrations and the enumerations above and below to
-each other, in both directions. Interactions that would appear covered but are
-not are kept as
+holds the recorder's and the service worker's own registrations to the
+enumerations above and below, in both directions, and closes the same question
+over every JavaScript module the extension package ships: a `chrome.*`
+registration the service worker makes is a capture proxy where the table below
+names it and an admitted non-capture role otherwise, and one any other module
+makes is held to that same admission list, keyed by the file that makes it;
+the DOM listeners this enumeration describes are the recorder's, so a
+`document` or `window` listener registered in any other module is capture it
+does not describe.
+Interactions that would appear covered but are not are kept as
 [exceptions within the surface](#exceptions-within-the-surface) (core
 [CP-15](../../../architecture/system/capture-principles.md#capture-surface)).
 

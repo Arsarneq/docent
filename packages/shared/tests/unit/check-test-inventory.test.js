@@ -61,6 +61,7 @@ import {
   normalizePath,
   parseTables,
   readListEntries,
+  readLoneStringLiteral,
   readPropertyStringArray,
   readScopeTable,
   readTomlLine,
@@ -519,6 +520,199 @@ describe('parseTables / splitRow / backtickedName', () => {
   });
 });
 
+describe('tokenizeJs — template literals', () => {
+  it('reads a template with no interpolation as one template token', () => {
+    // A template is not a quoted string: every reader that accepts a `string`
+    // token accepts a quoted literal, so the type is what keeps a template from
+    // being credited as one.
+    assert.deepEqual(tokenizeJs('invoke(`load_state`)'), [
+      { type: 'word', value: 'invoke' },
+      { type: 'punct', value: '(' },
+      { type: 'template', value: 'load_state' },
+      { type: 'punct', value: ')' },
+    ]);
+  });
+
+  it('reads an interpolation’s contents as the code they are', () => {
+    assert.deepEqual(tokenizeJs('invoke(`load_${suffix}`)'), [
+      { type: 'word', value: 'invoke' },
+      { type: 'punct', value: '(' },
+      { type: 'template', value: 'load_' },
+      { type: 'word', value: 'suffix' },
+      { type: 'template', value: '' },
+      { type: 'punct', value: ')' },
+    ]);
+  });
+
+  it('surfaces a call written inside an interpolation', () => {
+    // The whole interpolation used to be string content, so a call written
+    // there was invisible to every whole-file scan.
+    assert.deepEqual(tokenizeJs('log(`x${invoke("load_state")}y`)'), [
+      { type: 'word', value: 'log' },
+      { type: 'punct', value: '(' },
+      { type: 'template', value: 'x' },
+      { type: 'word', value: 'invoke' },
+      { type: 'punct', value: '(' },
+      { type: 'string', value: 'load_state' },
+      { type: 'punct', value: ')' },
+      { type: 'template', value: 'y' },
+      { type: 'punct', value: ')' },
+    ]);
+  });
+
+  it('reads a nested template’s text as text, not as code', () => {
+    // Text inside a nested template is text of the outer template's
+    // interpolation; reading it as source would let a literal state a call, a
+    // case label, or a registration that nothing performs.
+    assert.deepEqual(tokenizeJs('invoke(`a${`b`}c`)'), [
+      { type: 'word', value: 'invoke' },
+      { type: 'punct', value: '(' },
+      { type: 'template', value: 'a' },
+      { type: 'template', value: 'b' },
+      { type: 'template', value: 'c' },
+      { type: 'punct', value: ')' },
+    ]);
+    assert.deepEqual(tokenizeJs("const t = `${`invoke('fake_cmd')`}`;"), [
+      { type: 'word', value: 'const' },
+      { type: 'word', value: 't' },
+      { type: 'punct', value: '=' },
+      { type: 'template', value: '' },
+      { type: 'template', value: "invoke('fake_cmd')" },
+      { type: 'template', value: '' },
+      { type: 'punct', value: ';' },
+    ]);
+  });
+
+  it('keeps a brace inside a template out of the surrounding depth count', () => {
+    // The `${` and `}` delimiters never reach the stream, and a brace written
+    // inside the template's text is text — so a depth-bounded walk over the
+    // code around it counts what the code opened and nothing else.
+    assert.deepEqual(tokenizeJs('{ const t = `${`}`}`; }'), [
+      { type: 'punct', value: '{' },
+      { type: 'word', value: 'const' },
+      { type: 'word', value: 't' },
+      { type: 'punct', value: '=' },
+      { type: 'template', value: '' },
+      { type: 'template', value: '}' },
+      { type: 'template', value: '' },
+      { type: 'punct', value: ';' },
+      { type: 'punct', value: '}' },
+    ]);
+  });
+
+  it('reads a tagged template as its tag and its text', () => {
+    assert.deepEqual(tokenizeJs('html`<p>${x}</p>`'), [
+      { type: 'word', value: 'html' },
+      { type: 'template', value: '<p>' },
+      { type: 'word', value: 'x' },
+      { type: 'template', value: '</p>' },
+    ]);
+  });
+
+  it('keeps the stream in step through a backtick quoted inside an interpolation', () => {
+    // The one shape that desynchronized the rest of the file: the quoted
+    // backtick used to close the template and invert every literal after it, so
+    // both real call sites here were lost in silence.
+    assert.deepEqual(tokenizeJs("invoke(`${f('`')}`); invoke('after');"), [
+      { type: 'word', value: 'invoke' },
+      { type: 'punct', value: '(' },
+      { type: 'template', value: '' },
+      { type: 'word', value: 'f' },
+      { type: 'punct', value: '(' },
+      { type: 'string', value: '`' },
+      { type: 'punct', value: ')' },
+      { type: 'template', value: '' },
+      { type: 'punct', value: ')' },
+      { type: 'punct', value: ';' },
+      { type: 'word', value: 'invoke' },
+      { type: 'punct', value: '(' },
+      { type: 'string', value: 'after' },
+      { type: 'punct', value: ')' },
+      { type: 'punct', value: ';' },
+    ]);
+  });
+
+  it('honours escapes in template text and closes an unterminated one', () => {
+    assert.deepEqual(tokenizeJs('`a\\`b`'), [{ type: 'template', value: 'a`b' }]);
+    assert.deepEqual(tokenizeJs('`open'), [{ type: 'template', value: 'open' }]);
+  });
+});
+
+describe('readLoneStringLiteral', () => {
+  it('answers lone for a string literal an accepted follower ends', () => {
+    const tokens = tokenizeJs("invoke('load_state');");
+    assert.deepEqual(readLoneStringLiteral(tokens, 2, ',)'), {
+      lone: true,
+      value: 'load_state',
+      token: 'load_state',
+      kind: 'string',
+      isString: true,
+      follower: ')',
+    });
+  });
+
+  it('answers the facts, never a verdict, when the literal leads an expression', () => {
+    const tokens = tokenizeJs("invoke('load_state' + suffix);");
+    assert.deepEqual(readLoneStringLiteral(tokens, 2, ',)'), {
+      lone: false,
+      value: null,
+      token: 'load_state',
+      kind: 'string',
+      isString: true,
+      follower: '+',
+    });
+  });
+
+  it('distinguishes a template and a non-literal from a string, naming each kind', () => {
+    // The kind is what lets a caller name a template as a template: both
+    // candidates below answer the same on every other fact, and a refusal
+    // reading `token` alone would state the template's text as the argument.
+    assert.deepEqual(readLoneStringLiteral(tokenizeJs('invoke(`load_state`);'), 2, ',)'), {
+      lone: false,
+      value: null,
+      token: 'load_state',
+      kind: 'template',
+      isString: false,
+      follower: ')',
+    });
+    assert.deepEqual(readLoneStringLiteral(tokenizeJs('invoke(commandName);'), 2, ',)'), {
+      lone: false,
+      value: null,
+      token: 'commandName',
+      kind: 'word',
+      isString: false,
+      follower: ')',
+    });
+  });
+
+  it('answers null for a token and a follower the stream does not carry', () => {
+    // Truncation is a fact of its own, because the callers that distinguish it
+    // render it differently from every other refusal.
+    assert.deepEqual(readLoneStringLiteral(tokenizeJs("invoke('load_state'"), 2, ',)'), {
+      lone: false,
+      value: null,
+      token: 'load_state',
+      kind: 'string',
+      isString: true,
+      follower: null,
+    });
+    assert.deepEqual(readLoneStringLiteral(tokenizeJs('invoke('), 2, ',)'), {
+      lone: false,
+      value: null,
+      token: null,
+      kind: null,
+      isString: false,
+      follower: null,
+    });
+  });
+
+  it('honours the follower set it is given rather than one of its own', () => {
+    const tokens = tokenizeJs("send({ type: 'PING' })");
+    assert.equal(readLoneStringLiteral(tokens, 5, ',}').lone, true);
+    assert.equal(readLoneStringLiteral(tokens, 5, ',)').lone, false);
+  });
+});
+
 describe('tokenizeJs / readListEntries', () => {
   it('drops comments and whitespace, keeping words, strings and punctuation', () => {
     const tokens = tokenizeJs("// gone\nconst A = ['x']; /* also gone */");
@@ -646,6 +840,27 @@ describe('tokenizeJs / readListEntries', () => {
     assert.deepEqual(readListEntries("const T = [{ src: 'a.js', note: 'x' + 'y' }];", 'T', ['src']), {
       entries: [{ src: 'a.js' }],
     }); // prettier-ignore
+  });
+
+  it('names a requested property written as a template rather than reporting it missing', () => {
+    // The property IS there; recording nothing and reporting "no `src`
+    // property" would name a cause the source does not have.
+    for (const source of ['const T = [{ src: `a.js` }];', 'const T = [{ src: `a-${v}.js` }];']) {
+      const read = readListEntries(source, 'T', ['src']);
+      assert.match(read.error, /`src` property is a template literal/, source);
+      assert.match(read.error, /reads a quoted string literal/, source);
+    }
+  });
+
+  it('names a template element of a plain list as a template, not as its text', () => {
+    // The element IS there, and a template's token value is a run of its
+    // literal text: naming the token alone would state an element the source
+    // never writes — and, interpolated, a name nothing can ever match.
+    for (const source of ['const T = [`a.js`];', 'const T = [`a-${v}.js`];']) {
+      const read = readListEntries(source, 'T');
+      assert.match(read.error, /holds a template literal \(`a/, source);
+      assert.match(read.error, /does not model/, source);
+    }
   });
 
   it('reads both shipped coverage lists as they stand (the real-tree parse)', () => {
@@ -1145,6 +1360,15 @@ describe('auditRegistrationClosure — the mirrored discovery claims', () => {
       closure(noDir, { inventories: [PLAYWRIGHT_ENTRY] }).unreadableClosure[0],
       /`testDir` value\(s\)/,
     );
+  });
+
+  it('names a testDir written as a template rather than counting it unreadable', () => {
+    // The configuration DOES state a `testDir`; counting it among the values
+    // this reader cannot read would name a cause the source does not have.
+    const templated = browserTree('export default { testDir: `./${d}` };');
+    const problem = closure(templated, { inventories: [PLAYWRIGHT_ENTRY] }).unreadableClosure[0];
+    assert.match(problem, /states its `testDir` as a template literal/);
+    assert.match(problem, /reads a quoted string literal/);
   });
 
   it('refuses a working directory whose test script does not run the runner', () => {

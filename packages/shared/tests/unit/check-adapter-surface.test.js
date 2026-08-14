@@ -392,6 +392,33 @@ describe('extractAdapterMembers — the default-exported literal, and only it', 
     }
   });
 
+  it('reads no member name from a template standing in the key position', () => {
+    // The exclusion is the token type doing its work: a member name is a bare
+    // or quoted name, and a template is neither. A template can only reach a
+    // key position through the computed form, which the scan already refuses;
+    // both shapes are refused here rather than credited with the text.
+    for (const property of ['[`loadTheme`]: 1,', '`loadTheme`: 1,']) {
+      const read = extractAdapterMembers(
+        makeAdapterSource(['send(message) { return post(message); },', `  ${property}`]),
+        FIXTURE_PATH,
+      );
+      const red = read.problems.find((p) => p.includes('does not model'));
+      assert.ok(red, read.problems.join('\n') || `no refusal for ${property}`);
+      assert.deepEqual(read.names, [], `${property} must leave no partial list`);
+    }
+  });
+
+  it('reads a template member VALUE without disturbing the member scan', () => {
+    // A template in a value position is nobody's key: the member names either
+    // side of it are read exactly as they were.
+    const read = extractAdapterMembers(
+      makeAdapterSource(['send(message) { return post(message); },', '  loadTheme: `auto`,']),
+      FIXTURE_PATH,
+    );
+    assert.deepEqual(read.names, ['send', 'loadTheme']);
+    assert.deepEqual(read.problems, []);
+  });
+
   it('a member in a second EXPORTED top-level literal never satisfies the contract — the live shape', () => {
     // `export const _testOnly = { … }` is the shape the desktop adapter ships
     // beside its default export. Its members are outside the literal the scan

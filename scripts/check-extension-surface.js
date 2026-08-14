@@ -33,6 +33,20 @@
  * any shape other than the empty array — so a broken read fails loudly
  * instead of passing vacuously.
  *
+ * Each of the three type reads — the dispatcher's case labels, the module's
+ * equality guards, and the panel's sends — takes a quoted string literal that
+ * its own end follows: the label's colon, the punctuation that ends the
+ * equality's operand, and the send property's separator or closing brace. A
+ * literal any other token follows is refused by name, so a type built around
+ * one is never credited with its leading piece; a template literal is refused
+ * the same way, the shared tokenizer giving it a type of its own, and that
+ * type is also what keeps a template out of the `type` key position — which a
+ * template reaches only through the computed form, that being the one way any
+ * expression stands where a key belongs in valid JavaScript. A property the
+ * key reader does not read — a computed key, a spread, a shorthand — is named
+ * as the shape it is, so a send stating no readable `type` says which shape
+ * stood there.
+ *
  * Honest limits: a dispatch route outside the tokenized shapes (a computed
  * message type, a negated or reversed-operand type test, an equality test on
  * a receiver other than `message`/`msg`) is invisible to the scan — a nested
@@ -71,6 +85,7 @@ import {
   duplicatesIn,
   missingFrom,
   parseTables,
+  readLoneStringLiteral,
   tokenizeJs,
 } from './check-test-inventory.js';
 
@@ -94,6 +109,18 @@ export const PROTOCOL_SECTION = 'Message protocol';
 export const CAPTURE_TABLE_HEADER = 'Type';
 /** The panel-protocol table's first header cell in that section. */
 export const PANEL_TABLE_HEADER = 'Group';
+
+/**
+ * The punctuation that ends an equality's right-hand operand, which is the
+ * proof that the type literal was the whole of it: a closing bracket of any
+ * kind, a statement or argument separator, a conditional's own punctuation, or
+ * the first character of `&&` / `||` (the tokenizer emits each as two). A
+ * literal any other token follows — `+` building a name, `.` calling a method
+ * on it — is refused, never credited with its leading piece.
+ */
+const EQUALITY_OPERAND_END = ')]};,?:&|';
+/** The punctuation that ends a case label: the label's own colon, nothing else. */
+const CASE_LABEL_END = ':';
 
 /**
  * Read the manifest's permission surface. Entries that are not strings are
@@ -238,10 +265,19 @@ export function extractDispatcherSurface(workerSource) {
       at(i + 2, 'word', 'type') &&
       at(i + 3, 'punct', '=') &&
       at(i + 4, 'punct', '=') &&
-      at(i + 5, 'punct', '=') &&
-      tokens[i + 6]?.type === 'string'
+      at(i + 5, 'punct', '=')
     ) {
-      equalityHits.push(tokens[i + 6].value);
+      // The literal is the whole operand, which the punctuation ending the
+      // operand is what establishes: `'CAPTURE_START' + suffix` tokenizes as a
+      // string first, so reading the string alone would credit the doc's type
+      // to a guard that tests another one.
+      const read = readLoneStringLiteral(tokens, i + 6, EQUALITY_OPERAND_END);
+      if (read.lone) equalityHits.push(read.value);
+      else if (read.kind === 'template') {
+        problems.push(`${WORKER_PATH} guards a message type with a template literal (\`${read.token}\`) — the scan reads a quoted string literal standing alone as the operand, so the capture-path closure stays checkable`); // prettier-ignore
+      } else if (read.isString) {
+        problems.push(`${WORKER_PATH} guards a message type with \`${read.token}\` followed by \`${read.follower ?? 'end of source'}\` — the scan reads a quoted string literal standing alone as the operand, so the capture-path closure stays checkable`); // prettier-ignore
+      }
     }
   }
 
@@ -266,14 +302,20 @@ export function extractDispatcherSurface(workerSource) {
     else if (at(i, 'word', 'switch')) {
       problems.push(`${WORKER_PATH} nests a switch inside the dispatcher's — the case-label scan models exactly one level`); // prettier-ignore
       return { caseLabels, equalityTypes, problems };
-    } else if (
-      depth === 1 &&
-      at(i, 'word', 'case') &&
-      tokens[i + 1]?.type === 'string' &&
-      at(i + 2, 'punct', ':')
-    ) {
-      caseLabels.push(tokens[i + 1].value);
-      i += 2;
+    } else if (depth === 1 && at(i, 'word', 'case')) {
+      // The label is the whole label, which its own colon is what establishes:
+      // `case 'PROJECTS_LIST' + k:` tokenizes as a string first, so reading the
+      // string alone would credit the enumeration's type to an arm that
+      // services another one.
+      const read = readLoneStringLiteral(tokens, i + 1, CASE_LABEL_END);
+      if (read.lone) {
+        caseLabels.push(read.value);
+        i += 2;
+      } else if (read.kind === 'template') {
+        problems.push(`${WORKER_PATH}'s dispatcher switch labels an arm with a template literal (\`${read.token}\`) — the scan reads a quoted string literal the label's own colon follows, so the panel-protocol closure stays checkable`); // prettier-ignore
+      } else if (read.isString) {
+        problems.push(`${WORKER_PATH}'s dispatcher switch labels an arm \`${read.token}\` followed by \`${read.follower ?? 'end of source'}\` — the scan reads a quoted string literal the label's own colon follows, so the panel-protocol closure stays checkable`); // prettier-ignore
+      }
     } else if (depth === 1 && at(i, 'word', 'default') && at(i + 1, 'punct', ':')) {
       hasDefault = true;
     }
@@ -285,6 +327,25 @@ export function extractDispatcherSurface(workerSource) {
 }
 
 /**
+ * How a token standing where a top-level key belongs is named when the key
+ * reader does not read it: by the property shape it opens, so the diagnosis
+ * states the send's actual shape rather than a missing property. A bare or
+ * quoted name with no colon after it is the shorthand form, and naming the
+ * name is what makes that case self-explaining.
+ * @param {{ type: string, value: string }} token the token at the property start
+ * @returns {string}
+ */
+function describeKeyPosition(token) {
+  if (token.type === 'punct' && token.value === '[') return 'a computed key';
+  if (token.type === 'punct' && token.value === '.') return 'a spread';
+  if (token.type === 'template') return `a template literal (\`${token.value}\`)`;
+  if (token.type === 'word' || token.type === 'string') {
+    return `\`${token.value}\`, which no colon follows`;
+  }
+  return `\`${token.value}\` where a key belongs`;
+}
+
+/**
  * Read one object literal's top-level `type` property, starting at the `{`
  * token that opens it. The walk is bounded by brace depth — the technique the
  * dispatcher scan uses — so a nested payload's own `type` is never read as the
@@ -293,21 +354,28 @@ export function extractDispatcherSurface(workerSource) {
  * (`type:`) or quoted (`'type':`), and its value must be a LONE string literal
  * — the token after it is the property separator or the literal's closing
  * brace, so a concatenation is refused rather than credited with its leading
- * piece.
+ * piece, and a template literal is named as a template rather than as its
+ * leading run of text.
+ * A property the key reader does not read is NAMED rather than dropped: a
+ * computed key, a spread, and a shorthand property each stand where a key
+ * belongs, so the diagnosis states what was there instead of reporting a
+ * literal with no properties at all — a cause such a send does not have.
  * @param {{ type: string, value: string }[]} tokens the file's tokens
  * @param {number} open index of the literal's opening `{`
  * @returns {{ type: string | null, found: string | null }} the type, or what
  *   the scan found in its place (`found` is null exactly when a type was read)
  */
 function readSendType(tokens, open) {
-  const keys = [];
+  const properties = [];
   let depth = 1;
   let atPropertyStart = true;
   let typeAt = -1;
   let closed = false;
   for (let i = open + 1; i < tokens.length; i++) {
     const t = tokens[i];
+    const startsProperty = depth === 1 && atPropertyStart;
     if (t.type === 'punct' && '([{'.includes(t.value)) {
+      if (startsProperty) properties.push(describeKeyPosition(t));
       depth++;
       atPropertyStart = false;
     } else if (t.type === 'punct' && ')]}'.includes(t.value)) {
@@ -319,16 +387,16 @@ function readSendType(tokens, open) {
     } else if (depth === 1 && t.type === 'punct' && t.value === ',') {
       atPropertyStart = true;
     } else if (
-      depth === 1 &&
-      atPropertyStart &&
+      startsProperty &&
       (t.type === 'word' || t.type === 'string') &&
       tokens[i + 1]?.type === 'punct' &&
       tokens[i + 1].value === ':'
     ) {
-      keys.push(t.value);
+      properties.push(`\`${t.value}\``);
       if (t.value === 'type') typeAt = i;
       atPropertyStart = false;
     } else {
+      if (startsProperty) properties.push(describeKeyPosition(t));
       atPropertyStart = false;
     }
   }
@@ -336,19 +404,28 @@ function readSendType(tokens, open) {
     if (!closed) return { type: null, found: '(end of source)' };
     return {
       type: null,
-      found: keys.length
-        ? `no \`type\` key among the top-level properties ${keys.map((k) => `\`${k}\``).join(', ')}`
+      // The list holds read key names and named shapes alike, so it is
+      // bracketed: `properties a computed key` would read as a garden path
+      // where `properties (a computed key)` reads as the list it is.
+      found: properties.length
+        ? `no \`type\` key among the top-level properties (${properties.join(', ')})`
         : 'no top-level properties at all',
     };
   }
-  const value = tokens[typeAt + 2];
-  const follower = tokens[typeAt + 3];
-  if (!value || !follower) return { type: null, found: '(end of source)' };
-  if (value.type !== 'string') return { type: null, found: `a \`type\` key set from \`${value.value}\`` }; // prettier-ignore
-  if (follower.type !== 'punct' || (follower.value !== ',' && follower.value !== '}')) {
-    return { type: null, found: `a \`type\` key set from \`${value.value}\` followed by \`${follower.value}\`` }; // prettier-ignore
+  const read = readLoneStringLiteral(tokens, typeAt + 2, ',}');
+  if (read.token === null || read.follower === null)
+    return { type: null, found: '(end of source)' };
+  // A template literal is named by its kind: its token value is a run of its
+  // literal text, so naming the token alone would state a type the send never
+  // writes — and an interpolated one, a type no enumeration can ever carry.
+  if (read.kind === 'template') {
+    return { type: null, found: `a \`type\` key set from a template literal (\`${read.token}\`)` };
   }
-  return { type: value.value, found: null };
+  if (!read.isString) return { type: null, found: `a \`type\` key set from \`${read.token}\`` };
+  if (!read.lone) {
+    return { type: null, found: `a \`type\` key set from \`${read.token}\` followed by \`${read.follower}\`` }; // prettier-ignore
+  }
+  return { type: read.value, found: null };
 }
 
 /**
@@ -551,7 +628,12 @@ function run() {
       return ''; // an unreadable surface fails the non-empty guards loudly
     }
   };
-  const panelFiles = execFileSync('git', ['ls-files', PANEL_DIR], { encoding: 'utf8' })
+  // `core.quotepath` off: a path carrying a non-ASCII byte arrives as itself
+  // rather than quoted and escaped, which the extension filter would drop in
+  // silence.
+  const panelFiles = execFileSync('git', ['-c', 'core.quotepath=false', 'ls-files', PANEL_DIR], {
+    encoding: 'utf8',
+  })
     .split('\n')
     .map((s) => s.trim())
     .filter((f) => f.endsWith('.js'));

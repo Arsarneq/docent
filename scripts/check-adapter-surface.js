@@ -48,11 +48,16 @@
  * extending the typedef's grammar is a decision that reaches review rather than
  * a silently unread entry; the typedef block is located textually over the
  * file's JSDoc comment spans, so exactly one block declaring the typedef is
- * required and any other count is refused; and the shared tokenizer does not
- * model regular-expression literals, so a quote inside one desynchronizes the
- * token stream for the rest of that file — the members past it are then red as
- * missing or refused by shape, or the literal stops closing and reds as such,
- * loud either way.
+ * required and any other count is refused; a member name is a bare or quoted
+ * name, so a template literal — which the shared tokenizer gives a type of its
+ * own — is refused by shape in the KEY position, as is the computed key that is
+ * the only way one reaches that position in valid JavaScript, while a template
+ * standing in a value position is read like any other value: the member scan
+ * inspects keys, so the names either side of it are read as written; and the
+ * shared tokenizer does not model regular-expression
+ * literals, so a quote inside one desynchronizes the token stream for the rest
+ * of that file — the members past it are then red as missing or refused by
+ * shape, or the literal stops closing and reds as such, loud either way.
  *
  * Usage:
  *   node scripts/check-adapter-surface.js  # or: npm run lint:adapter-surface
