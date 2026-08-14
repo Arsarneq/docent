@@ -806,6 +806,14 @@ describe('citedMarkdownPaths', () => {
     assert.deepEqual(cited.unmodelled, []);
   });
 
+  it('reads a directory-less link’s label the same way', () => {
+    // The file-name segment admits no bracket either, so a root-file link
+    // names its surface once rather than yielding a bracketed twin beside it.
+    const cited = citedMarkdownPaths('the register holds [README.md](README.md)');
+    assert.deepEqual(cited.paths, ['README.md']);
+    assert.deepEqual(cited.unmodelled, []);
+  });
+
   it('sees a mid-path glob whole, so the shorter path inside it is never taken as a surface', () => {
     // The shared shape reads directory segments with pattern characters now,
     // so this names one set and is refused as one — never read as `x.md`.

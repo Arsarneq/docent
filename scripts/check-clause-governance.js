@@ -13,13 +13,15 @@
  *
  * The check is deliberately LOCKED IN BOTH DIRECTIONS against a fixed, justified
  * ALLOWLIST of the couplings left open on the record (below):
- *   - a NEW uncovered citation (a cited file whose governance omits the citing
- *     doc, not on the allowlist) is red — the coupling must be closed (declare
- *     the file's governance, add a `// see` pointer, or record it here with a
- *     reason);
- *   - a STALE allowlist entry (an allowlisted coupling that now resolves) is red
- *     too — the exception is no longer needed and must be removed, so the
- *     allowlist cannot rot into a silent blanket.
+ *   - a NEW uncovered citation (a citation token naming a file whose governance
+ *     omits the citing doc, not on the allowlist) is red — the coupling must be
+ *     closed (declare the governance of the files that token names, add a
+ *     `// see` pointer, or record the token here with a reason);
+ *   - a STALE allowlist entry — one no citation leans on, whether because the
+ *     coupling now resolves on its own governance, because the citation is
+ *     gone, or because the entry's key is not the citation token this check
+ *     reads and reports — is red too: the exception is doing nothing and must
+ *     be removed, so the allowlist cannot rot into a silent blanket.
  *
  * Governance here is exactly `resolveFile(path).docs` (area membership,
  * declared-governance, and `// see` pointers) — repo-wide docs are NOT credited,
@@ -99,19 +101,27 @@ export const REGISTRY_PATH = 'docs/clause-registry.json';
  * ([`check-clause-registry.js`](./check-clause-registry.js)'s
  * `splitCitationTokens`) every reader of this shape applies before it resolves
  * anything, so the three cannot disagree about how many citations a text makes.
- * What the directory segments deliberately do NOT admit is the bracket
- * characters: the map's pattern language is closed at `*`, `**`, and brace
- * alternation, so a bracket buys no pattern there and would only weld a
- * Markdown link's label to the path that follows it — `[docs/x.md](docs/x.md)`
- * read as one token that then misreports as a refused pattern.
+ * What no segment of the shape admits — the file-name segment as much as the
+ * directory ones — is the bracket characters: the map's pattern language is
+ * closed at `*`, `**`, and brace alternation, so a bracket buys no pattern
+ * anywhere in a citation and would only weld a Markdown link's label to the
+ * name inside it. `[README.md](README.md)` names one surface, and the label is
+ * a citation of that surface rather than a token carrying the bracket before
+ * it, which would then misreport as a refused pattern.
  *
  * Two purposes, two shapes; this stays the single home of the finder shape, and
  * that check's header records the same split from its side.
  */
-export const CITED_PATH_RE = /(?:[A-Za-z0-9_\-.*{},]+\/)*[A-Za-z0-9_\-.*{},[\]]+\.[A-Za-z0-9]+/g;
+export const CITED_PATH_RE = /(?:[A-Za-z0-9_\-.*{},]+\/)*[A-Za-z0-9_\-.*{},]+\.[A-Za-z0-9]+/g;
 
 /**
- * Couplings deliberately left open, each keyed `"<clause>\t<path>"`. Every entry
+ * Couplings deliberately left open, each keyed `"<clause>\t<citation token>"` —
+ * the clause, a tab, and the citation token as this check reads and prints it
+ * ({@link citedPaths}: the part a row's text names, stripped of the Markdown
+ * emphasis at its edges). An exception is therefore
+ * granted to a CITATION: where that token names a set of files, the exception
+ * answers for the whole set the token names, the files it names today and the
+ * ones the tree grows under it later alike. Every entry
  * carries the recorded reason it is not an edge this check should force closed.
  * Three adjudicated classes (2026-07-17):
  *   1. Verification scripts (`sufficiency-lint.js`, `corpus-compare.js`) that
@@ -241,10 +251,11 @@ function expandPattern(token, files) {
 }
 
 /**
- * Extract the citations a clause row makes, deduplicated by the token as
- * written and split on the commas that separate two citations written without
- * a space ({@link splitCitationTokens}, the gate's one home for that rule):
- * a literal token names the one tracked file it is, and a
+ * Extract the citations a clause row makes, deduplicated and reported by the
+ * token a reader MATCHES against the tree: candidates are split on the commas
+ * that separate two citations written without a space and stripped of the
+ * emphasis at each part's edges ({@link splitCitationTokens}, the one home of
+ * both rules). A literal token names the one tracked file it is, and a
  * separator-carrying pattern names every tracked file it expands to, so a
  * mid-path glob contributes an edge per match rather than none. A
  * SEPARATOR-LESS pattern is left unexpanded — it is the residue this check
@@ -269,12 +280,12 @@ export function citedPaths(row, tracked, files = [...tracked]) {
     // implementation of the rule — is what keeps the second citation from
     // vanishing into the first, while a comma inside a brace alternation stays
     // with the pattern it belongs to.
-    for (const part of splitCitationTokens(raw)) {
-      // An asterisk run at the token's LEADING edge is Markdown emphasis, not a
-      // pattern — now that the directory segments admit pattern characters, the
-      // run would otherwise be read as part of the first segment and the whole
-      // citation lost. The gate reads emphasis the same way, from its side.
-      const tok = part.replace(/^\*+/, '');
+    // An asterisk run at a part's edges is Markdown emphasis, not a pattern —
+    // now that the directory segments admit pattern characters, the run would
+    // otherwise be read as part of a segment and the whole citation lost. The
+    // split strips those edges itself, so the gate and this finder cannot
+    // disagree about where a citation starts and ends.
+    for (const { token: tok } of splitCitationTokens(raw)) {
       if (!tok || seen.has(tok)) continue;
       seen.add(tok);
       if (!PATTERN_CHAR_RE.test(tok)) {
@@ -299,7 +310,7 @@ export function citedPaths(row, tracked, files = [...tracked]) {
  * @param {Map<string,string>} [opts.allowlist] override (tests); defaults to ALLOWLIST
  * @returns {{ citations: number, exempted: number, newMisses: string[], staleAllowlist: string[] }}
  *   citations: cited TOKENS, so a pattern counts once however many files it names
- *   exempted: the tokens among them carrying at least one allowlisted file — counted in the
+ *   exempted: the tokens among them a recorded exception answers for — counted in the
  *     same unit, so `citations - exempted` is the tokens that resolve on their own governance
  *     and the summary can state covered, total, and exceptions without arithmetic that lies
  *   newMisses: `"<clause> (<doc>) -> <path>"` for uncovered, non-allowlisted citations —
@@ -320,29 +331,29 @@ export function auditClauseGovernance({ registry, map, files, readFile, allowlis
   const newMisses = [];
   const hitAllow = new Set();
   for (const row of registry.clauses ?? []) {
-    // One citation is one cited TOKEN: a pattern names a set, and reporting it
-    // file by file would turn a single citation into a wall of findings that
-    // all say the same thing. The allowlist stays keyed by the file it records
-    // an open coupling for, so an exception inside a pattern's set is honoured
-    // without exempting the rest of the set.
+    // One citation is one cited TOKEN, and the allowlist is keyed the same way:
+    // an exception records that a CITATION is left open, so it answers for
+    // every file that token names — the set as it stands and as the tree grows
+    // it. Coverage is computed first and the key consulted after, so an entry
+    // is hit only where the citation really needs it and "stale" keeps meaning
+    // the coupling now resolves on its own governance.
     for (const citation of citedPaths(row, tracked, files)) {
       citations++;
       const uncovered = [];
-      let leansOnAllowlist = false;
       for (const path of citation.paths) {
         const governing = new Set(resolveFile(path, compiled, contentOf(path)).docs);
-        if (governing.has(row.doc)) continue;
-        const key = `${row.clause}\t${path}`;
-        if (allowlist.has(key)) {
-          hitAllow.add(key);
-          leansOnAllowlist = true;
-        } else uncovered.push(path);
+        if (!governing.has(row.doc)) uncovered.push(path);
       }
-      // A token that leans on a recorded exception for any of its files is not
-      // one that resolves on its own governance, so it is counted apart rather
-      // than folded into the covered total.
-      if (leansOnAllowlist) exempted++;
       if (!uncovered.length) continue;
+      const key = `${row.clause}\t${citation.token}`;
+      if (allowlist.has(key)) {
+        // A token a recorded exception answers for is not one that resolves on
+        // its own governance, so it is counted apart rather than folded into
+        // the covered total.
+        hitAllow.add(key);
+        exempted++;
+        continue;
+      }
       newMisses.push(
         citation.pattern
           ? `${row.clause} (${row.doc}) -> ${citation.token} (uncovered: ${uncovered.join(', ')})`
@@ -386,22 +397,28 @@ function run() {
   if (newMisses.length) {
     failed = true;
     console.error(
-      `✗ ${REGISTRY_PATH} has clause citations the cited file's governance does not cover:\n` +
+      `✗ ${REGISTRY_PATH} has clause citations the governance of the files they name does not cover:\n` +
         newMisses.map((m) => `    ${m}`).join('\n') +
-        `\n\n  Each names a citation whose governing docs omit the clause's doc, in one of two\n` +
-        `  shapes: a single-file finding names the one file the clause cites, and a pattern\n` +
-        `  finding names the pattern the clause cites and, after it, the files under that\n` +
-        `  pattern left uncovered — the rest of its set already resolves or is recorded.\n` +
+        `\n\n  Each names a citation token whose files' governing docs omit the clause's doc, in\n` +
+        `  one of two shapes: a single-file finding names the one file the clause cites, and a\n` +
+        `  pattern finding names the pattern the clause cites and, after it, every file that\n` +
+        `  pattern names whose governance omits the doc — the whole set is resolved before any\n` +
+        `  exception is consulted, and an exception exempts the finding by its citation token\n` +
+        `  rather than by subtracting files from it.\n` +
         `  Close the edge — give the file a declared-governance entry or a \`// see\` pointer\n` +
         `  to the clause's doc in ${MAP_PATH} — or, if the coupling is deliberately left open,\n` +
-        `  record it in the ALLOWLIST in scripts/check-clause-governance.js with its reason.\n`,
+        `  record it in the ALLOWLIST in scripts/check-clause-governance.js with its reason,\n` +
+        `  keyed "<clause>\\t<citation token>" — the citation token exactly as the finding above\n` +
+        `  prints it, which is what makes one entry answer for every file that citation names.\n`,
     );
   }
   if (staleAllowlist.length) {
     failed = true;
     console.error(
-      `✗ scripts/check-clause-governance.js ALLOWLIST has stale entries (the coupling now resolves,\n` +
-        `  or the citation is gone) — remove them so the allowlist stays honest:\n` +
+      `✗ scripts/check-clause-governance.js ALLOWLIST has stale entries — no citation leans on\n` +
+        `  them, because the coupling now resolves, the citation is gone, or the key is not the\n` +
+        `  citation token a finding above prints. Remove them so the allowlist stays honest;\n` +
+        `  each is keyed "<clause>\\t<citation token>", printed here with the tab as an arrow:\n` +
         staleAllowlist.map((k) => `    ${k.replace(/\t/g, ' -> ')}`).join('\n') +
         '\n',
     );

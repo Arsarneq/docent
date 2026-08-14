@@ -5,7 +5,14 @@
  * governance edge — the cited file must owe the clause's doc under the area map.
  * These tests prove every way the edge can rot fails loud (an uncovered
  * citation, a repo-wide doc that does not couple, a stale allowlist entry) and
- * that a deliberately-recorded exception is honoured. A citation naming files
+ * that a deliberately-recorded exception is honoured — keyed by the citation
+ * token the check reads and reports, so an exception recorded for a pattern
+ * token answers for
+ * the whole set that token names, and an entry is hit only where the citation
+ * needs it, which is what keeps "stale" meaning no citation leans on the entry
+ * — its coupling now resolving on its own governance, its citation gone, or
+ * its key being something other than the citation token the check reports.
+ * A citation naming files
  * by PATTERN gets the same treatment through its expansion: a mid-path glob
  * contributes an edge per tracked file it names, the files left uncovered
  * under it report as one finding naming the pattern and them, and the summary
@@ -129,6 +136,18 @@ describe('citedPaths', () => {
     // must survive, exactly as the citation gate reads the same token.
     const row = { 'check-ref': 'guarded by **packages/alpha/x.js**' };
     assert.deepEqual(cited(row), [['packages/alpha/x.js', ['packages/alpha/x.js'], false]]);
+  });
+
+  it('reads a Markdown link’s label as the citation it is, brackets and all', () => {
+    // No segment of the shape admits a bracket, so the label names the file
+    // rather than arriving welded to the bracket before it — which resolves
+    // against no tracked path and would drop the edge entirely.
+    assert.deepEqual(cited({ 'check-ref': 'held by [README.md] alone' }), [
+      ['README.md', ['README.md'], false],
+    ]);
+    assert.deepEqual(cited({ 'check-ref': 'held by [README.md](README.md)' }), [
+      ['README.md', ['README.md'], false],
+    ]);
   });
 
   it('names nothing for a pattern that matches no tracked file, or does not compile', () => {
@@ -255,23 +274,49 @@ describe('auditClauseGovernance — citations naming files by pattern', () => {
     assert.equal(r.citations, 1);
   });
 
-  it('honours a recorded exception inside a pattern without exempting the rest', () => {
-    const one = new Map([['AL-1\tdocs/repowide.md', 'recorded reason']]);
+  it('honours an exception recorded for the pattern token, over the whole set it names', () => {
+    // The key is the citation token the check reports, so one entry answers
+    // for every file that pattern names — the set as it stands, and what the
+    // tree grows under it later.
     const clauses = [{ doc: 'docs/alpha.md', clause: 'AL-1', 'check-ref': 'see docs/*.md' }];
-    // The recorded file drops out of the finding; the rest of the set stays in.
-    assert.deepEqual(audit({ clauses, allowlist: one }).newMisses, [
-      'AL-1 (docs/alpha.md) -> docs/*.md (uncovered: docs/tooling.md)',
-    ]);
-
-    const both = new Map([...one, ['AL-1\tdocs/tooling.md', 'recorded too']]);
-    const r = audit({ clauses, allowlist: both });
+    const r = audit({ clauses, allowlist: new Map([['AL-1\tdocs/*.md', 'recorded reason']]) });
     assert.deepEqual(r.newMisses, []);
-    assert.deepEqual(r.staleAllowlist, [], 'both entries were hit through the expansion');
+    assert.deepEqual(r.staleAllowlist, []);
     assert.deepEqual(
       [r.citations, r.exempted],
       [1, 1],
-      'the exempted count is in tokens too — one pattern leaning on two entries is one',
+      'the exempted count is in tokens too — one pattern the exception answers for is one',
     );
+  });
+
+  it('leaves an entry keyed by a file inside the set unhit — the citation is what is keyed', () => {
+    const clauses = [{ doc: 'docs/alpha.md', clause: 'AL-1', 'check-ref': 'see docs/*.md' }];
+    const r = audit({
+      clauses,
+      allowlist: new Map([['AL-1\tdocs/repowide.md', 'recorded for one file']]),
+    });
+    assert.deepEqual(r.newMisses, ['AL-1 (docs/alpha.md) -> docs/*.md (uncovered: docs/tooling.md, docs/repowide.md)']); // prettier-ignore
+    assert.deepEqual(r.staleAllowlist, ['AL-1\tdocs/repowide.md']);
+  });
+
+  it('leaves a pattern-token entry stale when the set resolves on its own governance', () => {
+    // Coverage is computed before the key is consulted, so an exception that
+    // is no longer needed reads as stale rather than as a token it answered
+    // for — which is what "stale" has always meant here.
+    const map = makeMap({
+      areas: {
+        alpha: { code: ['packages/alpha/**'], docs: ['docs/alpha.md'] },
+        tooling: { code: ['scripts/**'], docs: ['docs/alpha.md'] },
+      },
+    });
+    const r = audit({
+      clauses: [{ doc: 'docs/alpha.md', clause: 'AL-1', 'check-ref': 'see packages/alpha/*.js' }],
+      map,
+      allowlist: new Map([['AL-1\tpackages/alpha/*.js', 'no longer needed']]),
+    });
+    assert.deepEqual(r.newMisses, []);
+    assert.deepEqual(r.staleAllowlist, ['AL-1\tpackages/alpha/*.js']);
+    assert.deepEqual([r.citations, r.exempted], [1, 0]);
   });
 
   it('contributes no edge for a match-less, uncompilable, or separator-less pattern', () => {

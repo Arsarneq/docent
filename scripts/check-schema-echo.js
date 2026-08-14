@@ -376,8 +376,9 @@ const PLAIN_PATH_RE = /^(?:[A-Za-z0-9_\-.]+\/)*[A-Za-z0-9_\-.]+\.[A-Za-z0-9]+$/;
  * The Markdown paths a clause row cites, deduplicated, plus the citations
  * that reach for Markdown in a shape this leg refuses. Candidates come from
  * the shared cited-path shape, split on the commas that separate two citations
- * written without a space ({@link splitCitationTokens}, the one home of that
- * rule), and are then held to the plain one: a glob or
+ * written without a space and stripped of the emphasis at each part's edges
+ * ({@link splitCitationTokens}, the one home of both rules), and are then held
+ * to the plain one: a glob or
  * brace form naming Markdown names a SET, and this leg matches surfaces one
  * literal path at a time against the register, so it is refused by name rather
  * than silently extracting nothing — the sibling readers of the same shape
@@ -385,11 +386,11 @@ const PLAIN_PATH_RE = /^(?:[A-Za-z0-9_\-.]+\/)*[A-Za-z0-9_\-.]+\.[A-Za-z0-9]+$/;
  * A candidate that names no Markdown at all is simply outside this leg — the
  * row cites other files for other reasons.
  *
- * A refusal names the token AS WRITTEN. The leading asterisk run comes off for
- * the match, because it is Markdown emphasis rather than part of a pattern, but
- * reporting the stripped form would name a citation the row does not make —
- * `*.md` refused as `.md`, sending its author looking for text that is not
- * there.
+ * A refusal names the token AS WRITTEN — the `raw` half of the pair the split
+ * returns. The asterisk runs at a part's edges come off for the match, because
+ * they are Markdown emphasis rather than part of a pattern, but reporting the
+ * stripped form would name a citation the row does not make — `*.md` refused as
+ * `.md`, sending its author looking for text that is not there.
  *
  * The row's WHOLE text is the enumeration — a Markdown path mentioned
  * anywhere in it, residue prose included, is a cited surface. Paths are
@@ -408,19 +409,18 @@ export function citedMarkdownPaths(text) {
     // A lone comma separates two citations written without a space, so one
     // token can carry two; a comma inside a brace alternation stays with the
     // pattern it belongs to.
-    for (const token of splitCitationTokens(raw)) {
-      // An asterisk run at the token's LEADING edge is Markdown emphasis rather
-      // than part of a pattern — the same reading its sibling readers give it,
-      // so an emphasized surface citation resolves here instead of being
-      // refused. The stripped form is what is MATCHED; the token as written is
-      // what a refusal names.
-      const candidate = token.replace(/^\*+/, '');
+    // A part arrives from the split already stripped of the Markdown emphasis
+    // at its edges — the same reading its sibling readers give it — so an
+    // emphasized surface citation resolves here instead of being refused. The
+    // stripped form is what is MATCHED; the part as the text writes it is what
+    // a refusal names.
+    for (const { raw: written, token: candidate } of splitCitationTokens(raw)) {
       if (!candidate || seen.has(candidate)) continue;
       seen.add(candidate);
       if (PLAIN_PATH_RE.test(candidate)) {
         if (candidate.endsWith(MARKDOWN_EXTENSION)) paths.push(candidate);
       } else if (candidate.includes(MARKDOWN_EXTENSION)) {
-        unmodelled.push(token);
+        unmodelled.push(written);
       }
     }
   }

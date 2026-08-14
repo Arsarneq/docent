@@ -90,6 +90,21 @@ describe('check-script CLI smoke (deterministic green paths)', () => {
     assert.match(out, /extension surface consistent/);
   });
 
+  it('check-clause-registry: the committed markers, rows, and citations agree', () => {
+    // No env pinned: this check and its import closure (the area map's pattern
+    // helpers, the command-surface Rust views, and the test-inventory
+    // tokenizer) read no process.env, so no var can switch the path this runs.
+    const out = runScript('check-clause-registry.js');
+    assert.match(out, /clause registry consistent/);
+  });
+
+  it('check-clause-governance: every committed clause citation owes the clause’s doc', () => {
+    // Same closure through the citation gate it shares its token reader with,
+    // and the same absence of any process.env read in it.
+    const out = runScript('check-clause-governance.js');
+    assert.match(out, /clause citations governed/);
+  });
+
   it('check-clause-preamble: the committed clause-bearing docs satisfy both legs', () => {
     const out = runScript('check-clause-preamble.js');
     assert.match(out, /clause preambles canonical/);

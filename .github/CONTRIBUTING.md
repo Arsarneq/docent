@@ -386,9 +386,12 @@ is the one home of that list. What each kind of change keeps green:
   must resolve, or be refused as a citation that cannot identify what it names;
   the check's own list of citable root files is held to the tracked set on every
   run, so a stale entry reds there rather than in a row. A row may also name the
-  test cases that pin its clause, in an opt-in field whose every entry must
-  resolve in one of the files that row's `check-ref` cites, held by the same
-  lint.
+  test cases that pin its clause, in an opt-in field whose every entry must name
+  a case DECLARED by one of the anchor-bearing files that row's `check-ref`
+  cites — a `.js` or `.mjs` file, where a case is the title a bare `it`/`test`
+  call states (a member call's title, `it.skip` or `it.only` or another object's
+  own `it`, declares none), or a `.rs` one, where it is the name an `fn`
+  declares — held by the same lint.
   `lint:clause-registry` holds the doc markers and the registry rows in
   one-to-one agreement. Such a document also states the canonical preamble
   verbatim — the identifier, verification, RFC 2119, keyword-placement, and
