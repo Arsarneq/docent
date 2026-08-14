@@ -579,7 +579,8 @@ describe('blankRustStrings — the view an anchor scan is found on', () => {
     // The comment stripper keeps string contents on purpose: a channel name is
     // a string literal, and reading it is the point. This view is its opposite,
     // and it is a separate function precisely so both stay available.
-    const src = 'let a = "slashes // kept in a string"; let b = r#"// not a comment"#; let c = 1; // gone';
+    const src =
+      'let a = "slashes // kept in a string"; let b = r#"// not a comment"#; let c = 1; // gone';
     const stripped = stripRustComments(src);
     assert.ok(stripped.includes('"slashes // kept in a string"'));
     assert.ok(stripped.includes('// not a comment'));
