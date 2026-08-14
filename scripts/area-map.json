@@ -504,6 +504,11 @@
       ]
     },
     {
+      "path": "scripts/check-adapter-surface.js",
+      "reason": "The platform-adapter seam's admission test — it owes the ci/release area's whole doc set as a unit; beyond that set, the shared-core doc's adapter-seam clause is verified by it, per that clause's registry row, so the shared-core architecture doc governs it beside that set; the adapter files it reads are its subject, not its doctrine.",
+      "governed-by": ["area:ci/release", "docs/architecture/system/shared-core.md"]
+    },
+    {
       "path": "scripts/check-schema-echo.js",
       "reason": "The schema-echo admission test — it owes the ci/release area's whole doc set as a unit; beyond that set, the session-format doc's authority-ordering clause and its unknown-key posture clause (SF-1, SF-14) are verified by it, per their registry rows, so the format doc governs it beside that set; the surfaces it reads are its subject, not its doctrine.",
       "governed-by": ["area:ci/release", "docs/technical/session-format.md"]

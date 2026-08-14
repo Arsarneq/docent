@@ -259,6 +259,17 @@ jobs:
       - name: Validate capture surface enumerations
         run: npm run lint:capture-surface
 
+      # The platform-adapter seam is a committed contract too
+      # (shared-core.md §SC-3): the PlatformAdapter typedef is its one home, so
+      # every member the typedef declares is implemented by every concrete
+      # adapter (today the Chrome one and the Tauri one), and every member all
+      # of them implement is declared in the typedef. This admission test reads
+      # the typedef's properties and each adapter's default-exported literal
+      # and reds on drift in either direction;
+      # scripts/check-adapter-surface.js is the home of the complete red set.
+      - name: Validate platform-adapter surface contract
+        run: npm run lint:adapter-surface
+
       # The CI guides state closures the tree can silently outgrow. This
       # admission test recomputes them against the tree and reds on any
       # drift; scripts/check-doc-closure.js is the home of the complete
