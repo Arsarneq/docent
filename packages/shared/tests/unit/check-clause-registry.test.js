@@ -11,8 +11,10 @@
  * fixture path the tree no longer carries, and a reason-bearing map list the
  * entry-list constant does not name — and reuse of retired ids. The
  * structured test-case cites get the same treatment: a row's named case is
- * resolved in the files that row's check-ref cites — a suite file or a source
- * file whose in-crate module states it — and the cases where the field is
+ * resolved against the DECLARATORS of the anchor-bearing files that row's
+ * check-ref cites — the title a bare `it`/`test` call states in a JavaScript
+ * file, the name an `fn` declares in a Rust one, with each way a mention can
+ * look like one of those red — and the cases where the field is
  * stated with nowhere to resolve it, on a row that states no check-ref, or in a
  * shape that is not a list of identifiers each red as the row problems they
  * are, while a row that states no such field stays exactly as it was and a
@@ -45,9 +47,14 @@
  *
  * Which subject a red is filed under is asserted, not incidental: a surface
  * fact is the surfaces' to answer for, a map citation the map's, a fixture
- * citation the fixture's, and only a row's own citation is the registry's —
+ * citation the fixture's, a file that would not answer where the check reads it
+ * the tree's own, and only a row's own citation is the registry's —
  * asserted through the report's own section model, so the split cannot drift
- * into a formatting detail. A real-tree lock holds the committed map and
+ * into a formatting detail. The read-failure family gets its own cases — a
+ * registered document that will not read, a cited anchor that will not read or
+ * that the tracked set does not carry, and a computed title named rather than
+ * read — and the printed fix block is held to the constants it is built from,
+ * each closed list rendered whole. A real-tree lock holds the committed map and
  * fixtures green.
  *
  * Because those legs are unconditional, every fixture carries all of their
@@ -65,19 +72,23 @@ import {
   extractDocLockCites,
   extractLockOrdinalCites,
   extractRequirementKeywords,
+  fixBlock,
   isProsePathToken,
   parseLockListOrdinals,
   parseLockSuiteOrdinals,
+  splitCitationTokens,
   auditClauseRegistry,
   reportSections,
   resolvePatternCitation,
   AREA_MAP_ENTRY_LISTS,
+  BARE_FILE_SUFFIXES,
   CITABLE_ROOT_FILES,
   LOCK_ORDINAL_CLAUSE,
   LOCK_SUITE_PATH,
   REGISTRY_PATH,
   ROW_KEYS,
   TEST_CASES_FIELD,
+  VALID_TAGS,
   VECTOR_FIXTURES_PATH,
 } from '../../../../scripts/check-clause-registry.js';
 import { MAP_PATH } from '../../../../scripts/check-area-map.js';
@@ -85,6 +96,21 @@ import { MAP_PATH } from '../../../../scripts/check-area-map.js';
 /** The prefix the ordinal clause belongs to, and the doc a fixture registers it in. */
 const LOCK_PREFIX = LOCK_ORDINAL_CLAUSE.split('-')[0];
 const LOCK_DOC = 'docs/locks.md';
+
+/**
+ * The rule each normalized refusal states after its `;` — the house form is
+ * `<subject> <verb> <token>; <rule>`, so what the gate admits is written out
+ * where it is refused. Stated once here and cited by the cases, and derived
+ * from the constant wherever the message interpolates one.
+ */
+const PATH_RULE =
+  'a cited path is a tracked file — a token carrying a directory separator and ending in a dotted file name is read as one';
+const BARE_FILE_RULE = `a file citation carries the repository path that identifies it, and the suffixes held that way are ${BARE_FILE_SUFFIXES.join(', ')}`;
+const RUNNABLE_RULE =
+  "a check that exists is an npm run target, a scripts/*.js or scripts/*.mjs file, or a suite's own code — a .js, .mjs, or .rs file under a tests/ path, or a file named *.test.js or *.spec.js";
+/** The one unregistered-prefix rule, over the prefix set a fixture registers. */
+const prefixRule = (...prefixes) =>
+  `a registered prefix is one of the prefixes ${REGISTRY_PATH} states: ${prefixes.join(', ')}`;
 
 /** A numbered lock list: a number is an active entry, `{ n }` a retired one. */
 const lockList = (entries) =>
@@ -286,7 +312,7 @@ describe('extractCitedTargets', () => {
 
     registry.clauses[1]['check-ref'] = 'Guarded by **scripts/gone.js**; npm run real:check.';
     assert.deepEqual(audit({ registry }).refErrors, [
-      'clause "TP-2" check-ref cites scripts/gone.js; a cited path is a tracked file',
+      `clause "TP-2" check-ref cites scripts/gone.js; ${PATH_RULE}`,
     ]);
   });
 
@@ -328,6 +354,52 @@ describe('extractCitedTargets', () => {
   it('reads a comma as a separator, so an unspaced pair gates both', () => {
     const { paths } = extractCitedTargets('pinned by packages/a/x.js,packages/b/y.js today');
     assert.deepEqual(paths, ['packages/a/x.js', 'packages/b/y.js']);
+  });
+});
+
+describe('splitCitationTokens — the one home of the comma rule and a part’s edges', () => {
+  const tokens = (candidate) => splitCitationTokens(candidate).map((p) => p.token);
+
+  it('strips both edges of a part: the emphasis in front, the punctuation and stars behind', () => {
+    assert.deepEqual(tokens('**docs/x.md**'), ['docs/x.md']);
+    assert.deepEqual(tokens('docs/x.md.'), ['docs/x.md']);
+    // The strip class holds no `/`, so a directory pattern's trailing stars
+    // come off while the slash that makes it a directory stays.
+    assert.deepEqual(tokens('packages/extension/**'), ['packages/extension/']);
+  });
+
+  it('strips EACH part’s edges, so an unspaced emphasized pair reads as the two it is', () => {
+    // The run between the two citations sits in the middle of the text a
+    // caller sees; only the split knows it is two parts’ edges.
+    assert.deepEqual(splitCitationTokens('**a/x.js**,**b/y.js**'), [
+      { raw: '**a/x.js**', token: 'a/x.js' },
+      { raw: '**b/y.js**', token: 'b/y.js' },
+    ]);
+  });
+
+  it('answers with the part as WRITTEN beside the form a reader matches', () => {
+    // The pair is what lets a refusal name the citation the row makes while
+    // the match runs on the stripped form.
+    assert.deepEqual(splitCitationTokens('*.md'), [{ raw: '*.md', token: '.md' }]);
+  });
+
+  it('keeps a comma inside a brace alternation with the pattern it belongs to', () => {
+    assert.deepEqual(tokens('docs/{a,b}.md'), ['docs/{a,b}.md']);
+    assert.deepEqual(tokens('docs/a.md,docs/b.md'), ['docs/a.md', 'docs/b.md']);
+  });
+
+  it('gives a part that is nothing but edges the empty token', () => {
+    assert.deepEqual(tokens('**'), ['']);
+    assert.deepEqual(tokens('*,*'), ['', '']);
+    assert.deepEqual(tokens('**docs/a.md**,**,**docs/b.md**'), ['docs/a.md', '', 'docs/b.md']);
+  });
+
+  it('reads an empty part as no citation at all, rather than as a nonsense one', () => {
+    const out = extractCitedTargets('cites **docs/a.md**,**,**docs/b.md** today');
+    assert.deepEqual(
+      [out.paths, out.patterns, out.prefixes, out.rootFiles, out.bareFiles],
+      [['docs/a.md', 'docs/b.md'], [], [], [], []],
+    );
   });
 });
 
@@ -493,7 +565,7 @@ describe('auditClauseRegistry — marker/registry parity', () => {
       },
     });
     assert.deepEqual(r.markerErrors, [
-      'docs/newcomer.md states clause "ZZ-1" with unregistered prefix "ZZ"',
+      `docs/newcomer.md states clause "ZZ-1" with unregistered prefix "ZZ"; ${prefixRule('TP', LOCK_PREFIX)}`,
     ]);
   });
 
@@ -532,6 +604,21 @@ describe('auditClauseRegistry — row well-formedness', () => {
     assert.deepEqual(r.rowErrors, ['clause "TP-2" is check-exists but states no check-ref']);
   });
 
+  it('flags a row whose own prefix no table registers, stating the same rule', () => {
+    // The third site the one unregistered-prefix rule is stated at: a row, a
+    // retired list, and a marker each name the closed set the table states.
+    const registry = makeRegistry();
+    registry.clauses.push({
+      doc: 'docs/testable.md',
+      clause: 'ZZ-1',
+      tag: 'judgment-only',
+      justification: 'a person decides',
+    });
+    assert.deepEqual(audit({ registry }).rowErrors, [
+      `clause "ZZ-1" uses unregistered prefix "ZZ"; ${prefixRule('TP', LOCK_PREFIX)}`,
+    ]);
+  });
+
   it('flags an invalid tag, a duplicate row, and a doc/prefix mismatch', () => {
     const registry = makeRegistry();
     registry.clauses[0].tag = 'someday-maybe';
@@ -545,7 +632,9 @@ describe('auditClauseRegistry — row well-formedness', () => {
     const contents = { 'docs/testable.md': BASE_DOC + '\n**TP-3.** Third.\n' };
     const r = audit({ registry, contents });
     assert.equal(
-      r.rowErrors.some((e) => e.includes('invalid tag')),
+      r.rowErrors.some((e) =>
+        e.includes(`invalid tag "someday-maybe"; a row's tag is one of ${VALID_TAGS.join(', ')}`),
+      ),
       true,
     );
     assert.equal(
@@ -567,7 +656,7 @@ describe('auditClauseRegistry — citation resolvability', () => {
     registry.clauses[1]['check-ref'] = 'Guarded by scripts/imaginary-check.js.';
     const r = audit({ registry });
     assert.deepEqual(r.refErrors, [
-      'clause "TP-2" check-ref cites scripts/imaginary-check.js; a cited path is a tracked file',
+      `clause "TP-2" check-ref cites scripts/imaginary-check.js; ${PATH_RULE}`,
     ]);
   });
 
@@ -576,7 +665,7 @@ describe('auditClauseRegistry — citation resolvability', () => {
     registry.clauses[1]['check-ref'] = 'A check somewhere in CI guards this.';
     const r = audit({ registry });
     assert.deepEqual(r.refErrors, [
-      'clause "TP-2" is check-exists: its check-ref names the check that exists — an npm run target, or a cited .js/.mjs/.rs/.json file',
+      `clause "TP-2" is check-exists but its check-ref names nothing runnable; ${RUNNABLE_RULE}`,
     ]);
   });
 
@@ -622,10 +711,64 @@ describe('auditClauseRegistry — citation resolvability', () => {
     assert.deepEqual(audit({ registry }).refErrors, []);
   });
 
-  it('a citable root file satisfies check-exists on its own', () => {
+  it('names what runs a check: a script, a suite file, or an npm run target', () => {
+    const registry = makeRegistry();
+    for (const ref of [
+      'Guarded by scripts/real-check.js.',
+      'Pinned by packages/shared/tests/unit/thing.test.js.',
+      'Pinned by packages/shared/tests/helpers/fixture.js.',
+      'Run npm run real:check.',
+    ]) {
+      registry.clauses[1]['check-ref'] = ref;
+      const files = [
+        ...BASE_FILES,
+        'packages/shared/tests/unit/thing.test.js',
+        'packages/shared/tests/helpers/fixture.js',
+      ];
+      assert.deepEqual(audit({ registry, files }).refErrors, [], ref);
+    }
+  });
+
+  it('a tests/ path names a runnable check through the code that runs there', () => {
+    // What the alternative admits is a suite's own code; a page a suite loads
+    // and a manifest beside it are read by the suite rather than run as one.
+    const registry = makeRegistry();
+    for (const cited of [
+      'packages/extension/tests/manual/browser-chrome.html',
+      'packages/desktop/tests/integration/package.json',
+    ]) {
+      registry.clauses[1]['check-ref'] = `Pinned by ${cited}, alone.`;
+      const files = [...BASE_FILES, cited];
+      assert.deepEqual(
+        audit({ registry, files }).refErrors,
+        [
+          `clause "TP-2" is check-exists but its check-ref names nothing runnable; ${RUNNABLE_RULE}`,
+        ],
+        cited,
+      );
+    }
+  });
+
+  it('a configuration file names no runnable check, however citable it is', () => {
+    // A citable root file resolves as a citation — it is a tracked file the
+    // row may name — while naming nothing this repository RUNS, which is the
+    // separate question check-exists asks.
     const registry = makeRegistry();
     registry.clauses[1]['check-ref'] = 'The rule the lint runs lives in eslint.config.js, alone.';
+    assert.deepEqual(audit({ registry }).refErrors, [
+      `clause "TP-2" is check-exists but its check-ref names nothing runnable; ${RUNNABLE_RULE}`,
+    ]);
+    // The same citation on a row that only describes an intended check stands.
+    registry.clauses[1].tag = 'checkable';
     assert.deepEqual(audit({ registry }).refErrors, []);
+  });
+
+  it('a row citing only package.json names no runnable check either', () => {
+    const registry = makeRegistry();
+    registry.clauses[1]['check-ref'] = 'The gate is configured in package.json.';
+    assert.deepEqual(audit({ registry }).refErrors, [
+      `clause "TP-2" is check-exists but its check-ref names nothing runnable; ${RUNNABLE_RULE}`,
+    ]);
   });
 
   it('reports one line per citation however often a row repeats it', () => {
@@ -634,7 +777,7 @@ describe('auditClauseRegistry — citation resolvability', () => {
       'Guarded by scripts/imaginary-check.js; scripts/imaginary-check.js runs it, ' +
       'via npm run does:not:exist and again npm run does:not:exist.';
     assert.deepEqual(audit({ registry }).refErrors, [
-      'clause "TP-2" check-ref cites scripts/imaginary-check.js; a cited path is a tracked file',
+      `clause "TP-2" check-ref cites scripts/imaginary-check.js; ${PATH_RULE}`,
       'clause "TP-2" check-ref cites npm run does:not:exist; a cited script is one package.json defines',
     ]);
   });
@@ -659,8 +802,8 @@ describe('auditClauseRegistry — citation resolvability', () => {
     registry.clauses[0].justification = 'a person decides; commands.rs shows the shape';
     registry.clauses[1]['check-ref'] = 'Pinned by recorder.test.js; run npm run real:check.';
     assert.deepEqual(audit({ registry }).refErrors, [
-      'clause "TP-1" justification cites commands.rs; a file citation carries the repository path that identifies it',
-      'clause "TP-2" check-ref cites recorder.test.js; a file citation carries the repository path that identifies it',
+      `clause "TP-1" justification cites commands.rs; ${BARE_FILE_RULE}`,
+      `clause "TP-2" check-ref cites recorder.test.js; ${BARE_FILE_RULE}`,
     ]);
   });
 
@@ -720,7 +863,10 @@ describe('auditClauseRegistry — citation resolvability', () => {
   });
 
   it('extracts a citable root file that ends a sentence, and resolves it', () => {
+    // The row describes an intended check, so the sentence-final extraction is
+    // the whole subject here: the citation resolves, or reds as untracked.
     const registry = makeRegistry();
+    registry.clauses[1].tag = 'checkable';
     registry.clauses[1]['check-ref'] = 'The rule the lint runs lives in eslint.config.js.';
     assert.deepEqual(audit({ registry }).refErrors, []);
 
@@ -734,7 +880,7 @@ describe('auditClauseRegistry — citation resolvability', () => {
     const registry = makeRegistry();
     registry.clauses[1]['check-ref'] = 'Pinned by recorder.test.js. Run npm run real:check.';
     assert.deepEqual(audit({ registry }).refErrors, [
-      'clause "TP-2" check-ref cites recorder.test.js; a file citation carries the repository path that identifies it',
+      `clause "TP-2" check-ref cites recorder.test.js; ${BARE_FILE_RULE}`,
     ]);
   });
 
@@ -743,7 +889,7 @@ describe('auditClauseRegistry — citation resolvability', () => {
     registry.clauses[0].justification =
       'a person decides; scripts/gone.js and npm run nope are only orientation';
     assert.deepEqual(audit({ registry }).refErrors, [
-      'clause "TP-1" justification cites scripts/gone.js; a cited path is a tracked file',
+      `clause "TP-1" justification cites scripts/gone.js; ${PATH_RULE}`,
       'clause "TP-1" justification cites npm run nope; a cited script is one package.json defines',
     ]);
   });
@@ -798,7 +944,33 @@ describe('auditClauseRegistry — retirement', () => {
       r.retiredErrors.includes('retired id "XX-1" does not belong to prefix "TP"'),
       true,
     );
-    assert.equal(r.retiredErrors.includes('retired list for unregistered prefix "QQ"'), true);
+    assert.equal(
+      r.retiredErrors.includes(
+        `retired list for unregistered prefix "QQ"; ${prefixRule('TP', LOCK_PREFIX)}`,
+      ),
+      true,
+    );
+  });
+
+  it('states the rule over the prefixes the table itself states well', () => {
+    // A prefix this same run refuses for shape is not one to send a reader
+    // after, so the rule names the entries that passed the table's checks.
+    const registry = makeRegistry({
+      prefixes: { TP: 'docs/testable.md', bad: 'docs/testable.md', [LOCK_PREFIX]: LOCK_DOC },
+      retired: { QQ: ['QQ-1'] },
+    });
+    const r = audit({ registry });
+    assert.equal(r.shapeErrors.includes('prefix "bad" is not an uppercase identifier'), true);
+    assert.deepEqual(r.retiredErrors, [
+      `retired list for unregistered prefix "QQ"; ${prefixRule('TP', LOCK_PREFIX)}`,
+    ]);
+  });
+
+  it('says the table registers none rather than trailing off after the colon', () => {
+    const registry = makeRegistry({ prefixes: {}, retired: { QQ: ['QQ-1'] }, clauses: [] });
+    assert.deepEqual(audit({ registry }).retiredErrors, [
+      `retired list for unregistered prefix "QQ"; a registered prefix is one ${REGISTRY_PATH} states in its prefix table, which registers none this run — restore that table before a clause identifier can name a registered prefix`,
+    ]);
   });
 });
 
@@ -869,7 +1041,7 @@ describe('auditClauseRegistry: cited paths across the tree', () => {
       'check-ref': 'Interim probe: packages/shared/tests/unit/gone.test.js.',
     });
     assert.equal(r.refErrors.length, 1);
-    assert.ok(r.refErrors[0].includes('a cited path is a tracked file'));
+    assert.ok(r.refErrors[0].includes(PATH_RULE));
   });
 
   it('leaves a separator-less prose name outside the grammar unless a shape claims it', () => {
@@ -901,9 +1073,7 @@ describe('auditClauseRegistry: cited paths across the tree', () => {
     });
     assert.equal(r.refErrors.length, 1);
     assert.ok(
-      r.refErrors[0].includes(
-        'cites packages/shared/tests/unit/gone.test.js; a cited path is a tracked file',
-      ),
+      r.refErrors[0].includes(`cites packages/shared/tests/unit/gone.test.js; ${PATH_RULE}`),
     );
   });
 });
@@ -916,14 +1086,17 @@ describe('auditClauseRegistry — structured test-case cites, and the closed row
 
   /**
    * Audit a one-clause registry beside the lock surfaces, with the cited
-   * suite and source readable, so only the field under test can red.
+   * suite and source readable, so only the field under test can red. A case
+   * that means to change what an anchor file states — or to make one
+   * unreadable, by giving it `null` — overrides its content here.
    */
-  function auditRow(clause) {
+  function auditRow(clause, overrides = {}) {
     const contents = {
       ...BASE_CONTENTS,
       'docs/t.md': '**T-1.** rule',
       [SUITE]: SUITE_TEXT,
       [SOURCE]: SOURCE_TEXT,
+      ...overrides,
     };
     return auditClauseRegistry({
       registry: {
@@ -959,7 +1132,7 @@ describe('auditClauseRegistry — structured test-case cites, and the closed row
     assert.deepEqual(flatten(r), []);
   });
 
-  it('resolves a case stated by a cited source file’s in-crate test module', () => {
+  it('resolves a case a cited Rust source declares as a bare fn', () => {
     const r = auditRow(
       row({
         'check-ref': `Pinned in ${SOURCE} (npm run test:shared).`,
@@ -969,11 +1142,104 @@ describe('auditClauseRegistry — structured test-case cites, and the closed row
     assert.deepEqual(flatten(r), []);
   });
 
-  it('flags an identifier no cited file carries, naming it and the files searched', () => {
+  it('flags an identifier no cited file declares as a test case, naming the files searched', () => {
     const r = auditRow(row({ [TEST_CASES_FIELD]: ['the_case_that_pins_it', 'a_case_long_gone'] }));
     assert.deepEqual(r.refErrors, [
-      `clause "T-1" ${TEST_CASES_FIELD} names a_case_long_gone, which appears in none of the files its check-ref cites: ${SUITE}`,
+      `clause "T-1" ${TEST_CASES_FIELD} names a_case_long_gone, which none of the files its check-ref cites declares as a test case: ${SUITE}`,
     ]);
+  });
+
+  it('resolves a DECLARATOR, never a mention: each false-green class reds', () => {
+    // Each of these carries the cited identifier somewhere in the file while
+    // declaring no such case: what a whole-file search cannot tell apart from
+    // a declaration, and what a scan taking any `it`/`test` word for one
+    // cannot.
+    for (const [what, text] of [
+      ['a comment-only mention', "// the_case_that_pins_it lived here once\nit('another', () => {});\n"], // prettier-ignore
+      ['a superstring rename', "it('the_case_that_pins_it_but_renamed_entirely', () => {});\n"],
+      ['an assertion-message mention', "it('another', () => {\n  assert.ok(x, 'the_case_that_pins_it');\n});\n"], // prettier-ignore
+      ['a non-declarator string literal', "const title = 'the_case_that_pins_it';\nit('another', () => {});\n"], // prettier-ignore
+      ['a skipped title', "it.skip('the_case_that_pins_it', () => {});\n"],
+      ['a focused title', "it.only('the_case_that_pins_it', () => {});\n"],
+      ["another object's own it", "suite.it('the_case_that_pins_it', () => {});\n"],
+      ['a member call that is no declarator at all', "RE.test('the_case_that_pins_it');\nit('another', () => {});\n"], // prettier-ignore
+    ]) {
+      const r = auditRow(row({ [TEST_CASES_FIELD]: ['the_case_that_pins_it'] }), { [SUITE]: text });
+      assert.deepEqual(
+        r.refErrors,
+        [
+          `clause "T-1" ${TEST_CASES_FIELD} names the_case_that_pins_it, which none of the files its check-ref cites declares as a test case: ${SUITE}`,
+        ],
+        what,
+      );
+    }
+  });
+
+  it('reads a Rust declaration, never a comment, a message, or a longer name', () => {
+    const cited = row({
+      'check-ref': `Pinned in ${SOURCE} (npm run test:shared).`,
+      [TEST_CASES_FIELD]: ['the_in_crate_case'],
+    });
+    for (const [what, text] of [
+      ['a comment-only mention', '// fn the_in_crate_case() {}\n#[test]\nfn another_case() {}\n'],
+      ['a message quoting the declaration', '#[test]\nfn another_case() { panic!("fn the_in_crate_case("); }\n'], // prettier-ignore
+      ['a superstring rename', '#[test]\nfn the_in_crate_case_but_renamed_entirely() {}\n'],
+    ]) {
+      const r = auditRow(cited, { [SOURCE]: text });
+      assert.deepEqual(
+        r.refErrors,
+        [
+          `clause "T-1" ${TEST_CASES_FIELD} names the_in_crate_case, which none of the files its check-ref cites declares as a test case: ${SOURCE}`,
+        ],
+        what,
+      );
+    }
+  });
+
+  it('resolves a Rust case whose parameter list carries its inputs', () => {
+    // A property-based case declares its inputs in the parameter list, so the
+    // declaration is `fn <name>(` and not `fn <name>()`.
+    const r = auditRow(
+      row({
+        'check-ref': `Pinned in ${SOURCE} (npm run test:shared).`,
+        [TEST_CASES_FIELD]: ['the_in_crate_case'],
+      }),
+      {
+        [SOURCE]: 'proptest! {\n  #[test]\n  fn the_in_crate_case(events in any_events()) {}\n}\n',
+      },
+    );
+    assert.deepEqual(flatten(r), []);
+  });
+
+  it('resolves a title carrying regex metacharacters, by token equality', () => {
+    const title = 'does NOT capture exactly 200px (threshold is >200, not >=200)';
+    const r = auditRow(row({ [TEST_CASES_FIELD]: [title] }), {
+      [SUITE]: `it(${JSON.stringify(title)}, () => {});\n`,
+    });
+    assert.deepEqual(flatten(r), []);
+  });
+
+  it('reds cleanly on a metacharacter-bearing identifier cited against a Rust anchor', () => {
+    // A Rust function name carries no metacharacter, so one cited here names
+    // no declaration. Unescaped, the first would MATCH the declaration below
+    // and the second would not compile at all; escaped, both are plain reds.
+    for (const name of ['the_.*_case', 'the_(case']) {
+      const cited = row({
+        'check-ref': `Pinned in ${SOURCE} (npm run test:shared).`,
+        [TEST_CASES_FIELD]: [name],
+      });
+      let r;
+      assert.doesNotThrow(() => {
+        r = auditRow(cited, { [SOURCE]: '#[test]\nfn the_in_crate_case() {}\n' });
+      }, name);
+      assert.deepEqual(
+        r.refErrors,
+        [
+          `clause "T-1" ${TEST_CASES_FIELD} names ${name}, which none of the files its check-ref cites declares as a test case: ${SOURCE}`,
+        ],
+        name,
+      );
+    }
   });
 
   it('flags the field where the row cites no file to resolve it in', () => {
@@ -984,7 +1250,7 @@ describe('auditClauseRegistry — structured test-case cites, and the closed row
       }),
     );
     assert.deepEqual(r.rowErrors, [
-      `clause "T-1" states ${TEST_CASES_FIELD} but its check-ref cites no file path; a named case is resolved in the files the row cites`,
+      `clause "T-1" states ${TEST_CASES_FIELD} but its check-ref cites no anchor-bearing file; a named case is a test the row's own cited .js, .mjs, or .rs file declares`,
     ]);
     assert.deepEqual(r.refErrors, []);
   });
@@ -998,7 +1264,7 @@ describe('auditClauseRegistry — structured test-case cites, and the closed row
       [TEST_CASES_FIELD]: ['the_case_that_pins_it'],
     });
     assert.deepEqual(r.rowErrors, [
-      `clause "T-1" is judgment-only and states ${TEST_CASES_FIELD}; the field names cases a check-ref's files carry, so it belongs on a row that states a check-ref`,
+      `clause "T-1" is judgment-only and states ${TEST_CASES_FIELD}; the field names cases a check-ref's anchor-bearing files declare, so it belongs on a row that states a check-ref`,
     ]);
   });
 
@@ -1043,6 +1309,110 @@ describe('auditClauseRegistry — structured test-case cites, and the closed row
       `clause "T-1" states unknown key "notes"; a row states ${ROW_KEYS.join(', ')}`,
       `clause "T-1" states unknown key "owner"; a row states ${ROW_KEYS.join(', ')}`,
     ]);
+  });
+
+  it('states the same refusal where the row cites only anchor-less files', () => {
+    const r = auditRow(
+      row({
+        'check-ref': 'Stated in docs/t.md (npm run test:shared).',
+        [TEST_CASES_FIELD]: ['the_case_that_pins_it'],
+      }),
+    );
+    assert.deepEqual(r.rowErrors, [
+      `clause "T-1" states ${TEST_CASES_FIELD} but its check-ref cites no anchor-bearing file; a named case is a test the row's own cited .js, .mjs, or .rs file declares`,
+    ]);
+    assert.deepEqual(r.refErrors, []);
+  });
+
+  it('names an anchor file that will not read, and searches nothing in its place', () => {
+    // With no readable anchor there is no search space: naming the file once
+    // is the whole diagnosis, and a per-identifier cascade would only repeat it.
+    const r = auditRow(row({ [TEST_CASES_FIELD]: ['the_case_that_pins_it'] }), { [SUITE]: null });
+    assert.deepEqual(r.readErrors, [
+      `EMPTY SURFACE: no text read from ${SUITE} — clause "T-1" resolves its ${TEST_CASES_FIELD} in the anchor-bearing files its check-ref cites, so restore that file before a case can be held there`,
+    ]);
+    assert.deepEqual(r.refErrors, []);
+  });
+
+  it('keeps searching the anchors that DID read, and says the space was reduced', () => {
+    // Suppressing here would silently stop holding the readable anchors'
+    // identifiers, so the miss stays — labelled with what it could not search.
+    const cited = row({
+      'check-ref': `Pinned by ${SUITE} and in ${SOURCE} (npm run test:shared).`,
+      [TEST_CASES_FIELD]: ['the_case_that_pins_it', 'a_case_long_gone'],
+    });
+    const r = auditRow(cited, { [SOURCE]: null });
+    assert.deepEqual(r.readErrors, [
+      `EMPTY SURFACE: no text read from ${SOURCE} — clause "T-1" resolves its ${TEST_CASES_FIELD} in the anchor-bearing files its check-ref cites, so restore that file before a case can be held there`,
+    ]);
+    assert.deepEqual(r.refErrors, [
+      `clause "T-1" ${TEST_CASES_FIELD} names a_case_long_gone, which none of the files its check-ref cites declares as a test case: ${SUITE} — a reduced search space, computed without ${SOURCE}, which did not read`,
+    ]);
+  });
+
+  it('names a template title rather than reading it as its literal run', () => {
+    const r = auditRow(row({ [TEST_CASES_FIELD]: ['the_case_that_pins_it'] }), {
+      [SUITE]: 'it(`the_case_that_pins_it ${suffix}`, () => {});\n',
+    });
+    assert.deepEqual(r.readErrors, [
+      `no case title read from a template literal in ${SUITE} (\`the_case_that_pins_it \`) — clause "T-1" resolves its ${TEST_CASES_FIELD} against the titles that file declares, and a computed title is refused rather than read as its literal run`,
+    ]);
+    assert.deepEqual(r.refErrors, [
+      `clause "T-1" ${TEST_CASES_FIELD} names the_case_that_pins_it, which none of the files its check-ref cites declares as a test case: ${SUITE}`,
+    ]);
+  });
+
+  it('leaves a resolved row green whatever titles its anchor files compute', () => {
+    // The refusal is the reason a citation could not resolve there; with every
+    // named case resolved there is no such reason to give, and the titles a
+    // suite computes for its own purposes are its own business.
+    const r = auditRow(row({ [TEST_CASES_FIELD]: ['the_case_that_pins_it'] }), {
+      [SUITE]: "it('the_case_that_pins_it', () => {});\nit(`another ${suffix}`, () => {});\n",
+    });
+    assert.deepEqual(flatten(r), []);
+  });
+
+  it('names a template title that opens with an interpolation by where it sits', () => {
+    // Its leading literal run is empty, so the file it sits in is what
+    // identifies it — an empty backticked name would name nothing at all.
+    const r = auditRow(row({ [TEST_CASES_FIELD]: ['the_case_that_pins_it'] }), {
+      [SUITE]: 'it(`${prefix} the case`, () => {});\n',
+    });
+    assert.deepEqual(r.readErrors, [
+      `no case title read from a template literal in ${SUITE} opening with an interpolation — clause "T-1" resolves its ${TEST_CASES_FIELD} against the titles that file declares, and a computed title is refused rather than read as its literal run`,
+    ]);
+    assert.deepEqual(r.refErrors, [
+      `clause "T-1" ${TEST_CASES_FIELD} names the_case_that_pins_it, which none of the files its check-ref cites declares as a test case: ${SUITE}`,
+    ]);
+  });
+
+  it('leaves an untracked cited anchor to the one red that names it', () => {
+    // A file the tree does not carry is not a file that failed to read: the
+    // cited-path red is the whole diagnosis, and a read failure beside it
+    // would give one fact two subjects.
+    const missing = 'packages/shared/tests/unit/gone.test.js';
+    const r = auditRow(
+      row({
+        'check-ref': `Pinned by ${missing} (npm run test:shared).`,
+        [TEST_CASES_FIELD]: ['the_case_that_pins_it'],
+      }),
+    );
+    assert.deepEqual(r.refErrors, [`clause "T-1" check-ref cites ${missing}; ${PATH_RULE}`]);
+    assert.deepEqual([r.readErrors, r.rowErrors], [[], []]);
+
+    // It still narrowed the search, so where a tracked anchor remains to
+    // search, the miss says what the search was computed without.
+    const mixed = auditRow(
+      row({
+        'check-ref': `Pinned by ${SUITE} and ${missing} (npm run test:shared).`,
+        [TEST_CASES_FIELD]: ['a_case_long_gone'],
+      }),
+    );
+    assert.deepEqual(mixed.refErrors, [
+      `clause "T-1" check-ref cites ${missing}; ${PATH_RULE}`,
+      `clause "T-1" ${TEST_CASES_FIELD} names a_case_long_gone, which none of the files its check-ref cites declares as a test case: ${SUITE} — a reduced search space, computed without ${missing}, which the tracked set does not carry`,
+    ]);
+    assert.deepEqual(mixed.readErrors, []);
   });
 
   it('admits every key the grammar carries', () => {
@@ -1109,6 +1479,79 @@ describe("auditClauseRegistry — the check's own register", () => {
       withErrors.map((s) => s.subject),
       ['scripts/check-clause-registry.js'],
     );
+  });
+});
+
+describe('auditClauseRegistry — a registered doc that will not read', () => {
+  it('names the doc, under the tree’s own subject', () => {
+    // Its markers are what the bijection stands on, so a doc that does not
+    // read leaves that leg with nothing to assert — said out loud here.
+    const r = audit({ contents: { 'docs/testable.md': null } });
+    assert.deepEqual(r.readErrors, [
+      `EMPTY SURFACE: no text read from docs/testable.md — the check reads each registered doc's clause markers, so restore that file before its markers and the registry's rows can be held to each other`,
+    ]);
+    const withErrors = reportSections(r).filter((s) => s.errors.length);
+    assert.deepEqual(
+      withErrors.map((s) => s.subject),
+      ['the tree this check resolves against'],
+    );
+    // And the bijection stands down for that doc: a line per row claiming the
+    // document dropped a clause would be about text nobody has read.
+    assert.deepEqual(r.markerErrors, []);
+  });
+
+  it('passes over an UNREGISTERED tracked .md that will not read, as it always has', () => {
+    // Every fixture here carries the citable root files as tracked-but-
+    // contentless, which is the ordinary case: what a document outside the
+    // prefix table might state is unheld whether or not it reads.
+    assert.deepEqual(audit().readErrors, []);
+    const r = audit({ files: [...BASE_FILES, 'docs/nobody-registers-this.md'] });
+    assert.deepEqual(r.readErrors, []);
+  });
+});
+
+describe('fixBlock — the printed advice, built from the rules that produced the red', () => {
+  it('renders each closed list the audit reads, whole and in one piece', () => {
+    // Derived, not hand-kept: a member added to one of these constants reaches
+    // the printed text without anyone copying it there. What is asserted is the
+    // JOINED rendering, contiguous — so an interpolation replaced by hand-
+    // written text reds even where every member is echoed elsewhere in the
+    // block.
+    const block = fixBlock();
+    const lists = {
+      VALID_TAGS,
+      CITABLE_ROOT_FILES,
+      BARE_FILE_SUFFIXES,
+      ROW_KEYS,
+      AREA_MAP_ENTRY_LISTS,
+    };
+    for (const [name, members] of Object.entries(lists)) {
+      const rendered = members.join(', ');
+      assert.ok(
+        block.includes(rendered),
+        `${name} renders as "${rendered}", which the fix block does not state in one piece`,
+      );
+    }
+  });
+
+  it('every problem class the audit reports reaches the report', () => {
+    // Driven from the audit's own result shape, so a bucket added later cannot
+    // be dropped by a section list that enumerates a hand-kept set instead.
+    const shape = auditClauseRegistry({
+      registry: null,
+      files: [],
+      readFile: () => null,
+      packageScripts: [],
+    });
+    const populated = Object.fromEntries(Object.keys(shape).map((k) => [k, [`a ${k} problem`]]));
+    const sections = reportSections(populated);
+    assert.equal(sections.length, Object.keys(shape).length);
+    for (const key of Object.keys(shape)) {
+      assert.ok(
+        sections.some((s) => s.subject && s.what && s.errors.includes(`a ${key} problem`)),
+        `the ${key} class reaches the report under a subject`,
+      );
+    }
   });
 });
 

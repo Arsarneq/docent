@@ -9,7 +9,12 @@
  *     registry's rows, those Markdown markers, and the area map's reason
  *     strings below — a clause-id-shaped token carrying a registered prefix in
  *     a tracked non-Markdown source, in a code comment and in a string literal
- *     alike, is read by no check;
+ *     alike, is read by no check. The same scope bounds the read failure the
+ *     sweep names: a REGISTERED doc that will not read is named, because its
+ *     markers are what the bijection stands on, while an unregistered tracked
+ *     `.md` that will not read is passed over as it always has been — the
+ *     markers it might carry stay unheld either way, which is the standing
+ *     posture of every document outside the prefix table;
  *   - markers and registry rows are a bijection per doc — no unregistered
  *     clause, no registry row for a clause the doc no longer states;
  *   - each row's tag carries its required field: `judgment-only` states a
@@ -20,15 +25,27 @@
  *   - every citation the resolution grammar below admits — in a row's
  *     `check-ref` and in its `justification` alike — resolves: a reference to
  *     something that does not exist is a red, not a promise;
- *   - a check-exists row names something runnable: an `npm run` target or a
- *     cited `.js`/`.mjs`/`.rs`/`.json` file;
+ *   - a check-exists row names something runnable: an `npm run` target, a
+ *     `scripts/*.js` or `scripts/*.mjs` file — the flat `scripts/` tree, which
+ *     is by design where this repository keeps the scripts it runs — or a
+ *     suite's own code: a `.js`, `.mjs`, or `.rs` file under a `tests/` path,
+ *     or a file named `*.test.js`/`*.spec.js`. Whether the thing named
+ *     really guards the clause stays review's judgment, as below; what this
+ *     admits is a check something in this repository RUNS;
  *   - a row that states {@link TEST_CASES_FIELD} names test cases its own
- *     check-ref's files carry: the field is a list of test-case identifiers on
- *     a check-ref-bearing row, and each identifier appears literally in one of
- *     the tracked files that check-ref cites by path — a suite file, or a
- *     source file whose in-crate test module states the case. The field is
- *     opt-in, and that is its admission test: what a row states here is held,
- *     and identifiers a row's prose merely mentions stay prose;
+ *     check-ref's files DECLARE: the field is a list of test-case identifiers
+ *     on a check-ref-bearing row, and each identifier is resolved against the
+ *     declarators of the anchor-bearing files that check-ref cites by path
+ *     ({@link isCaseAnchorFile}) — the title an `it`/`test` call states in a
+ *     `.js`/`.mjs` file ({@link jsDeclaredCases}), the name an `fn` declares in
+ *     a `.rs` one ({@link rustDeclaresCase}). A declarator is the whole search:
+ *     a name a comment mentions, an assertion message quotes, a non-declaring
+ *     literal states, or a longer identifier contains is not a case, and
+ *     neither is a title a MEMBER call states — `it.skip`, `it.only`, and
+ *     another object's own `it` alike break the bare-call shape a declaration
+ *     is read as, and a skipped or focused case pins nothing. The field is opt-in, and that
+ *     is its admission test: what a row states here is held, and identifiers a
+ *     row's prose merely mentions stay prose;
  *   - the hygiene-lock surfaces state one numbering, checked on every run
  *     whether or not a row cites an ordinal: the active entries of the
  *     {@link LOCK_ORDINAL_CLAUSE} list and the {@link LOCK_SUITE_PATH} suite's
@@ -95,10 +112,12 @@
  * resolves nothing for, so it stays outside the gate.
  *
  * Three boundaries keep the grammar off ordinary prose. Asterisk runs at a
- * token's EDGES are Markdown emphasis, so `**docs/x.md**` gates the citation
- * inside them — and they come off with the sentence punctuation, so the
- * trailing stars of `packages/extension/**` leave the directory citation the
- * token names. A lone comma is a separator rather than part of a path, so an
+ * PART's edges are Markdown emphasis, so `**docs/x.md**` gates the citation
+ * inside them — and they come off with the sentence punctuation inside
+ * {@link splitCitationTokens}, part by part, so the trailing stars of
+ * `packages/extension/**` leave the directory citation the token names and a
+ * run landing where two unspaced citations meet comes off with them. A lone
+ * comma is a separator rather than part of a path, so an
  * unspaced `a/x.js,b/y.js` gates both, while a comma inside a brace
  * alternation belongs to the pattern and stays with it. And a token whose
  * first segment is a bare number or carries an interior dot is prose, not a
@@ -131,6 +150,22 @@
  * naming no Markdown at all sits outside that leg entirely, since the row cites
  * other files for other reasons.
  *
+ * Honest limits of the declarator reading, each named. The shared tokenizer a
+ * JavaScript title is read through ({@link tokenizeJs}) does not model
+ * regular-expression literals — the limit
+ * [`check-adapter-surface.js`](./check-adapter-surface.js) already discloses
+ * for its own use — so what desynchronizes that file's token stream from there
+ * on is a QUOTE written inside such a literal; the failure direction is a loud
+ * false red at the CITE, a title past it ceasing to resolve, never a case
+ * credited to a file that declares no such thing. The cited anchors carry
+ * regular-expression literals today, and none of them carries a quote inside
+ * one. On the
+ * Rust side a declaration is `fn <name>(` alone: the attribute stack above it
+ * is not modelled, so a helper function sharing a cited case's name would
+ * resolve as that case. A title built around a value declares nothing either
+ * way — named where it is written as a template, and passed over otherwise,
+ * with the cite's own red the loud half in both.
+ *
  * This checks form, resolvability, and — for the lock ordinals — that the two
  * surfaces defining them agree. Whether a check actually guards its clause, or
  * a justification is adequate, is judged in review, never here.
@@ -150,6 +185,8 @@ import { unified } from 'unified';
 import remarkParse from 'remark-parse';
 import { visit } from 'unist-util-visit';
 import { MAP_PATH, expandBraces, globToRegExp } from './check-area-map.js';
+import { blankRustStrings, stripRustComments } from './check-command-surface.js';
+import { readLoneStringLiteral, tokenizeJs } from './check-test-inventory.js';
 
 /** Repo-relative path of the registry this check guards. */
 export const REGISTRY_PATH = 'docs/clause-registry.json';
@@ -179,17 +216,19 @@ const MARKER_TEXT_RE = /^([A-Z][A-Z0-9]*-[1-9][0-9]*)\.$/;
  */
 const CLAUSE_TOKEN_RE = /(?<![\w-])([A-Z][A-Z0-9]*)-([1-9][0-9]*)(?![\w-])/g;
 
-const VALID_TAGS = ['checkable', 'check-exists', 'judgment-only'];
+/** The closed set of tags a row states, in the order a refusal lists them. */
+export const VALID_TAGS = ['checkable', 'check-exists', 'judgment-only'];
 
 /** The row text fields this check reads, in the order it reports them. */
 const TEXT_FIELDS = ['check-ref', 'justification'];
 
 /**
  * The optional row field carrying test-case identifiers: the cases that pin the
- * clause, each resolvable in a file the same row's check-ref cites by path.
+ * clause, each one a case DECLARED by an anchor-bearing file the same row's
+ * check-ref cites by path.
  * A row opts in by stating it, which is what keeps the leg exact — every
- * identifier it lists is held against those files, and nothing else in the tree
- * is scanned for case-shaped text.
+ * identifier it lists is held against those files' declarators, and nothing
+ * else in the tree is scanned for case-shaped text.
  */
 export const TEST_CASES_FIELD = 'test-cases';
 
@@ -235,8 +274,28 @@ export const CITABLE_ROOT_FILES = [
  */
 export const BARE_FILE_SUFFIXES = ['.test.js', '.spec.js', '.rs', '.mjs'];
 
-/** Extensions that make a cited file a runnable check for the check-exists leg. */
-const RUNNABLE_EXT_RE = /\.(?:js|mjs|rs|json)$/;
+/**
+ * What makes a cited file a runnable check for the check-exists leg: a script
+ * this repository runs — the flat `scripts/` tree (`scripts/<name>.js`,
+ * `.mjs`), which is where those scripts live by design — or a suite's own
+ * code: a `.js`, `.mjs`, or `.rs` file under a `tests/` directory, or a file
+ * named `*.test.js`/`*.spec.js` wherever it sits. What a `tests/` path admits
+ * is therefore the code that runs there: a page a suite loads, a manifest
+ * beside it, or a recorded artifact states no check, however useful it is to
+ * the suite that reads it. A row that names none of those, and no `npm run`
+ * target either, has described a check rather than named one.
+ */
+const RUNNABLE_PATH_RE =
+  /^scripts\/[^/]+\.m?js$|(?:^|\/)tests\/.*\.(?:m?js|rs)$|\.(?:test|spec)\.js$/;
+
+/** A JavaScript module, where a test case is declared by its title. */
+const JS_ANCHOR_RE = /\.m?js$/;
+
+/** A Rust source, where a test case is declared by its function name. */
+const RUST_ANCHOR_RE = /\.rs$/;
+
+/** The call words a JavaScript suite declares a case with. */
+const CASE_DECLARATORS = ['it', 'test'];
 
 /**
  * A token carrying at least one directory separator. The pattern characters
@@ -334,30 +393,47 @@ export function extractClauseMarkers(markdown) {
  * belongs to. An unclosed brace holds its commas the same way — the pattern
  * that results is then refused as uncompilable, which names the typo.
  *
- * Exported as the ONE home of the comma rule: the governance finder
+ * Exported as the ONE home of the comma rule AND of a part's edges: the
+ * governance finder
  * ([`check-clause-governance.js`](./check-clause-governance.js)) and the
  * schema-echo register reader ([`check-schema-echo.js`](./check-schema-echo.js))
  * read the same rows through a wider token shape that admits a comma inside a
  * directory segment, so an unspaced `a/x.js,b/y.js` reaches each of them as one
  * token. Splitting it here, once, is what keeps the three readers from
  * disagreeing about how many citations that text makes.
- * @param {string} candidate one edge-stripped path token
- * @returns {string[]}
+ *
+ * The split is also what decides where a part's edges ARE, so it strips them:
+ * Markdown emphasis around two unspaced citations (`**a/x.js**,**b/y.js**`)
+ * puts an asterisk run in the MIDDLE of the text a caller sees, and a caller
+ * stripping before the split — or stripping one edge after it — reads a
+ * different citation set than its siblings. The strip class holds no `/`, so a
+ * directory pattern's trailing stars come off while its trailing slash stays
+ * (`packages/extension/**` → `packages/extension/`).
+ *
+ * Each part arrives as a PAIR, because the two forms answer different
+ * questions: `token` is the form a reader MATCHES against the tree, and `raw`
+ * is the form the text writes, which is what a refusal names — reporting the
+ * stripped form would name a citation the row does not make. A part that is
+ * nothing but edges has the empty string for its token; every caller refuses
+ * one.
+ * @param {string} candidate one path token, edges included
+ * @returns {{ raw: string, token: string }[]} one entry per part, in text order
  */
 export function splitCitationTokens(candidate) {
-  const tokens = [];
+  const parts = [];
   let current = '';
   let depth = 0;
+  const push = (raw) => parts.push({ raw, token: raw.replace(/^\*+/, '').replace(/[.,*]+$/, '') });
   for (const ch of candidate) {
     if (ch === '{') depth++;
     else if (ch === '}') depth = Math.max(0, depth - 1);
     if (ch === ',' && depth === 0) {
-      tokens.push(current);
+      push(current);
       current = '';
     } else current += ch;
   }
-  tokens.push(current);
-  return tokens;
+  push(current);
+  return parts;
 }
 
 /**
@@ -379,11 +455,11 @@ export function extractCitedTargets(text) {
   const rootFiles = [];
   const bareFiles = [];
   for (const m of text.matchAll(PATH_TOKEN_RE)) {
-    // Markdown emphasis wraps a citation in asterisk runs at the token's edges
-    // (`**docs/x.md**`); those come off with the sentence punctuation, and what
-    // remains is judged as the citation.
-    const candidate = m[0].replace(/^\*+/, '').replace(/[.,*]+$/, '');
-    for (const token of splitCitationTokens(candidate)) {
+    // Markdown emphasis wraps a citation in asterisk runs at a part's edges
+    // (`**docs/x.md**`); those come off with the sentence punctuation inside
+    // the split, part by part, so a run landing where two unspaced citations
+    // meet comes off too. What each part is left with is judged as the citation.
+    for (const { token } of splitCitationTokens(m[0])) {
       if (isProsePathToken(token)) continue;
       if (PATTERN_CHAR_RE.test(token)) {
         // A pattern naming files is gated as a pattern; one naming
@@ -589,6 +665,86 @@ export function extractRequirementKeywords(text) {
 }
 
 /**
+ * Whether a cited path is a file whose DECLARATORS can anchor a test case: a
+ * JavaScript module, where a case is the title an `it`/`test` call declares, or
+ * a Rust source, where it is a function name. Every other cited extension
+ * contributes no anchors — a document, a schema, or a configuration states no
+ * test case, and a directory citation resolves no file to read.
+ * @param {string} path a cited repository path
+ * @returns {boolean}
+ */
+export function isCaseAnchorFile(path) {
+  return JS_ANCHOR_RE.test(path) || RUST_ANCHOR_RE.test(path);
+}
+
+/**
+ * The test-case titles a JavaScript source DECLARES: the string literal
+ * standing alone as the first argument of an `it(`/`test(` call, read off the
+ * shared token stream ({@link tokenizeJs}) so a title in a comment, in an
+ * assertion message, or in any other string is not one of them.
+ *
+ * Read as a token SEQUENCE — the call word standing FREE, its `(`, and the
+ * literal the following punctuation proves whole — so a title a member call
+ * states declares nothing here: a `.` on either side of the word breaks that
+ * shape. That is what makes `it.skip('…')` and `it.only('…')` declare no case,
+ * a skipped or focused title pinning nothing, and what keeps `suite.it('…')`
+ * or `RE.test('…')` from crediting a case to a file that declares none.
+ * A title built around a value is not a literal standing
+ * alone; a TEMPLATE one is refused by name rather than passed over, because a
+ * template is how a computed title is written and its author is owed the
+ * reason their citation cannot resolve there.
+ * @param {string} source the suite's text
+ * @returns {{ titles: Set<string>, refused: string[] }} `refused` names each
+ *   template title, by the run of literal text it opens with — the empty string
+ *   where the title opens with an interpolation instead
+ */
+export function jsDeclaredCases(source) {
+  const tokens = tokenizeJs(source);
+  const titles = new Set();
+  const refused = [];
+  for (let i = 0; i < tokens.length; i++) {
+    if (tokens[i].type !== 'word' || !CASE_DECLARATORS.includes(tokens[i].value)) continue;
+    // The word stands free or it declares nothing: a preceding `.` makes this a
+    // member call on some other object, whose argument is that object's
+    // business rather than a case this file states.
+    const before = tokens[i - 1];
+    if (before?.type === 'punct' && before.value === '.') continue;
+    const open = tokens[i + 1];
+    if (open?.type !== 'punct' || open.value !== '(') continue;
+    const read = readLoneStringLiteral(tokens, i + 2, ',)');
+    // A template's own flat value is what a refusal names, and the reader
+    // answers with the candidate token wherever the kind says there is one.
+    if (read.lone) titles.add(read.value);
+    else if (read.kind === 'template') refused.push(read.token);
+  }
+  return { titles, refused };
+}
+
+/** Every regular-expression metacharacter, so a name matches only itself. */
+const REGEXP_META_RE = /[.*+?^${}()|[\]\\]/g;
+
+/**
+ * Whether a Rust source DECLARES `name` as a function — `fn <name>(`, read over
+ * the comment-stripped, string-blanked view ({@link stripRustComments},
+ * {@link blankRustStrings}) so a name a comment or a message mentions is not a
+ * declaration. The parameter list is not required empty: a property-based case
+ * declares its inputs there.
+ *
+ * The name is escaped before it becomes a pattern. A Rust function name cannot
+ * carry a metacharacter, so one cited against a Rust anchor names no
+ * declaration — and escaping is what makes that a clean red rather than a throw
+ * or a pattern matching something it was never meant to.
+ * @param {string} source the Rust source's text
+ * @param {string} name the cited identifier
+ * @returns {boolean}
+ */
+export function rustDeclaresCase(source, name) {
+  const anchors = blankRustStrings(stripRustComments(source));
+  const escaped = name.replace(REGEXP_META_RE, '\\$&');
+  return new RegExp(`(?<![A-Za-z0-9_])fn\\s+${escaped}\\s*\\(`).test(anchors);
+}
+
+/**
  * Pure core: audit the registry against the tracked docs.
  * @param {object} opts
  * @param {any} opts.registry parsed clause-registry.json
@@ -598,10 +754,11 @@ export function extractRequirementKeywords(text) {
  * @returns {{ shapeErrors: string[], rowErrors: string[], markerErrors: string[],
  *             refErrors: string[], textErrors: string[], retiredErrors: string[],
  *             listErrors: string[], surfaceErrors: string[], mapErrors: string[],
- *             fixtureErrors: string[] }}
+ *             fixtureErrors: string[], readErrors: string[] }}
  *   each bucket named for the surface that answers for it — `mapErrors` the
  *   area map's own clause citations, `fixtureErrors` the vector fixtures'
- *   description, neither of them the registry's to answer for
+ *   description, `readErrors` the tree itself where a file this check reads did
+ *   not answer, none of them the registry's to answer for
  */
 export function auditClauseRegistry({ registry, files, readFile, packageScripts }) {
   const r = {
@@ -615,6 +772,7 @@ export function auditClauseRegistry({ registry, files, readFile, packageScripts 
     surfaceErrors: [],
     mapErrors: [],
     fixtureErrors: [],
+    readErrors: [],
   };
 
   const tracked = new Set(files);
@@ -654,17 +812,32 @@ export function auditClauseRegistry({ registry, files, readFile, packageScripts 
   if (!Array.isArray(registry.clauses)) r.shapeErrors.push('"clauses" must be an array');
   if (r.shapeErrors.length) return r;
 
+  const registered = [];
   for (const [prefix, doc] of Object.entries(prefixes)) {
+    let stated = true;
     if (!/^[A-Z][A-Z0-9]*$/.test(prefix)) {
       r.shapeErrors.push(`prefix "${prefix}" is not an uppercase identifier`);
+      stated = false;
     }
     if (typeof doc !== 'string' || !tracked.has(doc)) {
       r.shapeErrors.push(`prefix "${prefix}" registers untracked doc ${JSON.stringify(doc)}`);
+      stated = false;
     }
+    if (stated) registered.push(prefix);
   }
+  // One rule text for every unregistered-prefix refusal, wherever it is found:
+  // what a registered prefix IS is the closed list the registry's own prefix
+  // table states, so a reader is shown that list rather than left to look it
+  // up. The list is the entries that passed the checks above, so the refusal
+  // offers a reader the prefixes this run stands behind — and where that
+  // leaves none, the rule says so, because a list ending in nothing tells a
+  // reader nothing about what to write.
+  const prefixRule = registered.length
+    ? `a registered prefix is one of the prefixes ${REGISTRY_PATH} states: ${registered.join(', ')}`
+    : `a registered prefix is one ${REGISTRY_PATH} states in its prefix table, which registers none this run — restore that table before a clause identifier can name a registered prefix`;
   for (const [prefix, ids] of Object.entries(retired)) {
     if (!(prefix in prefixes)) {
-      r.retiredErrors.push(`retired list for unregistered prefix "${prefix}"`);
+      r.retiredErrors.push(`retired list for unregistered prefix "${prefix}"; ${prefixRule}`);
       continue;
     }
     if (!Array.isArray(ids)) {
@@ -699,7 +872,7 @@ export function auditClauseRegistry({ registry, files, readFile, packageScripts 
       continue;
     }
     if (!(m[1] in prefixes)) {
-      r.rowErrors.push(`clause "${id}" uses unregistered prefix "${m[1]}"`);
+      r.rowErrors.push(`clause "${id}" uses unregistered prefix "${m[1]}"; ${prefixRule}`);
       continue;
     }
     // The row grammar is closed, so a key no leg reads is named rather than
@@ -722,7 +895,9 @@ export function auditClauseRegistry({ registry, files, readFile, packageScripts 
       );
     }
     if (!VALID_TAGS.includes(row.tag)) {
-      r.rowErrors.push(`clause "${id}" has invalid tag ${JSON.stringify(row.tag)}`);
+      r.rowErrors.push(
+        `clause "${id}" has invalid tag ${JSON.stringify(row.tag)}; a row's tag is one of ${VALID_TAGS.join(', ')}`,
+      );
       continue;
     }
     if (row.tag === 'judgment-only') {
@@ -746,16 +921,18 @@ export function auditClauseRegistry({ registry, files, readFile, packageScripts 
         bareFiles,
       } = extractCitedTargets(text);
       if (field === 'check-ref' && row.tag === 'check-exists') {
-        const runnable = [...paths, ...rootFiles].filter((p) => RUNNABLE_EXT_RE.test(p));
+        const runnable = [...paths, ...rootFiles].filter((p) => RUNNABLE_PATH_RE.test(p));
         if (runnable.length + npmScripts.length === 0) {
           r.refErrors.push(
-            `clause "${id}" is check-exists: its check-ref names the check that exists — an npm run target, or a cited .js/.mjs/.rs/.json file`,
+            `clause "${id}" is check-exists but its check-ref names nothing runnable; a check that exists is an npm run target, a scripts/*.js or scripts/*.mjs file, or a suite's own code — a .js, .mjs, or .rs file under a tests/ path, or a file named *.test.js or *.spec.js`,
           );
         }
       }
       for (const p of paths) {
         if (!tracked.has(p)) {
-          r.refErrors.push(`clause "${id}" ${field} cites ${p}; a cited path is a tracked file`);
+          r.refErrors.push(
+            `clause "${id}" ${field} cites ${p}; a cited path is a tracked file — a token carrying a directory separator and ending in a dotted file name is read as one`,
+          );
         }
       }
       // A pattern citation names a set, so what it must do is name a real one:
@@ -796,7 +973,7 @@ export function auditClauseRegistry({ registry, files, readFile, packageScripts 
       }
       for (const name of bareFiles) {
         r.refErrors.push(
-          `clause "${id}" ${field} cites ${name}; a file citation carries the repository path that identifies it`,
+          `clause "${id}" ${field} cites ${name}; a file citation carries the repository path that identifies it, and the suffixes held that way are ${BARE_FILE_SUFFIXES.join(', ')}`,
         );
       }
       for (const keyword of extractRequirementKeywords(text)) {
@@ -810,8 +987,11 @@ export function auditClauseRegistry({ registry, files, readFile, packageScripts 
 
     // Structured test-case cites. The field states identifiers; the row's own
     // check-ref states where they live, so the two are read together — the
-    // files that check-ref cites by path are the whole search space, and an
-    // identifier none of them carries is a citation that resolves to nothing.
+    // anchor-bearing files that check-ref cites by path are the whole search
+    // space, and an identifier none of them DECLARES is a citation that
+    // resolves to nothing. A declarator is what is read, never the file's whole
+    // text: a name a comment mentions, an assertion message quotes, or a longer
+    // identifier contains states no case.
     if (TEST_CASES_FIELD in row) {
       const cases = row[TEST_CASES_FIELD];
       const wellFormed =
@@ -820,7 +1000,7 @@ export function auditClauseRegistry({ registry, files, readFile, packageScripts 
         cases.every((name) => typeof name === 'string' && name.trim());
       if (row.tag === 'judgment-only') {
         r.rowErrors.push(
-          `clause "${id}" is judgment-only and states ${TEST_CASES_FIELD}; the field names cases a check-ref's files carry, so it belongs on a row that states a check-ref`,
+          `clause "${id}" is judgment-only and states ${TEST_CASES_FIELD}; the field names cases a check-ref's anchor-bearing files declare, so it belongs on a row that states a check-ref`,
         );
       } else if (!wellFormed) {
         r.rowErrors.push(
@@ -828,19 +1008,74 @@ export function auditClauseRegistry({ registry, files, readFile, packageScripts 
         );
       } else {
         const ref = typeof row['check-ref'] === 'string' ? row['check-ref'] : '';
-        const anchors = extractCitedTargets(ref).paths;
-        if (!anchors.length) {
+        const cited = extractCitedTargets(ref).paths.filter(isCaseAnchorFile);
+        if (!cited.length) {
           r.rowErrors.push(
-            `clause "${id}" states ${TEST_CASES_FIELD} but its check-ref cites no file path; a named case is resolved in the files the row cites`,
+            `clause "${id}" states ${TEST_CASES_FIELD} but its check-ref cites no anchor-bearing file; a named case is a test the row's own cited .js, .mjs, or .rs file declares`,
           );
         } else {
-          const sources = anchors.map((p) => readFile(p)).filter((text) => text != null);
-          for (const name of cases) {
-            if (!sources.some((text) => text.includes(name))) {
-              r.refErrors.push(
-                `clause "${id}" ${TEST_CASES_FIELD} names ${name}, which appears in none of the files its check-ref cites: ${anchors.join(', ')}`,
-              );
-            }
+          // The read leg runs over the TRACKED anchors: a citation the tracked
+          // set does not answer for is already named by the cited-path red
+          // above, and one subject per fact is what keeps that red the whole
+          // diagnosis rather than half of two. It still narrows the search,
+          // so it is named in the label below beside a file that would not
+          // read — a miss reported as a search over the files the row cites
+          // would be a search the check never made.
+          const anchors = cited.filter((path) => tracked.has(path));
+          const untracked = cited.filter((path) => !tracked.has(path));
+          // A file that will not read is a fact about the TREE, not about the
+          // citation: naming it is what keeps a search over the files that did
+          // read from reporting as a search over the files the row cites.
+          const searched = [];
+          const unread = [];
+          for (const path of anchors) {
+            const text = readFile(path);
+            if (text == null) unread.push(path);
+            else searched.push({ path, text });
+          }
+          for (const path of unread) {
+            r.readErrors.push(
+              `EMPTY SURFACE: no text read from ${path} — clause "${id}" resolves its ${TEST_CASES_FIELD} in the anchor-bearing files its check-ref cites, so restore that file before a case can be held there`,
+            );
+          }
+          const templates = [];
+          const declarators = searched.map(({ path, text }) => {
+            if (!JS_ANCHOR_RE.test(path)) return (name) => rustDeclaresCase(text, name);
+            const { titles, refused } = jsDeclaredCases(text);
+            for (const title of refused) templates.push({ path, title });
+            return (name) => titles.has(name);
+          });
+          // With nothing readable there is no search space at all, so the
+          // per-identifier cascade is suppressed: every line it would print
+          // would say the row cites what could not be read, which the reds
+          // above already say once per file.
+          const excluded = [];
+          if (untracked.length) {
+            excluded.push(`${untracked.join(', ')}, which the tracked set does not carry`);
+          }
+          if (unread.length) excluded.push(`${unread.join(', ')}, which did not read`);
+          const reduced = excluded.length
+            ? ` — a reduced search space, computed without ${excluded.join(' and ')}`
+            : '';
+          const unresolved = (searched.length ? cases : []).filter(
+            (name) => !declarators.some((declares) => declares(name)),
+          );
+          // A refused template is the reason a citation could not resolve in
+          // that file, so it is stated where a citation failed to resolve: a
+          // row whose every named case resolves is answered already, and the
+          // titles a suite computes for its own reasons are its own business.
+          for (const { path, title } of unresolved.length ? templates : []) {
+            const which = title
+              ? `a template literal in ${path} (\`${title}\`)`
+              : `a template literal in ${path} opening with an interpolation`;
+            r.readErrors.push(
+              `no case title read from ${which} — clause "${id}" resolves its ${TEST_CASES_FIELD} against the titles that file declares, and a computed title is refused rather than read as its literal run`,
+            );
+          }
+          for (const name of unresolved) {
+            r.refErrors.push(
+              `clause "${id}" ${TEST_CASES_FIELD} names ${name}, which none of the files its check-ref cites declares as a test case: ${searched.map((s) => s.path).join(', ')}${reduced}`,
+            );
           }
         }
       }
@@ -1036,17 +1271,33 @@ export function auditClauseRegistry({ registry, files, readFile, packageScripts 
 
   // Markers across every tracked Markdown file.
   const markersByDoc = new Map();
+  const registeredDocs = new Set(Object.values(prefixes));
+  const unreadableDocs = new Set();
   for (const file of files) {
     if (!file.endsWith('.md')) continue;
     const content = readFile(file);
-    if (content == null) continue;
+    if (content == null) {
+      // A REGISTERED doc is one whose markers this check holds to the rows in
+      // one-to-one agreement, so a doc that does not read leaves that leg with
+      // nothing to assert — named here rather than left to be read as a
+      // document stating no clause.
+      if (registeredDocs.has(file)) {
+        unreadableDocs.add(file);
+        r.readErrors.push(
+          `EMPTY SURFACE: no text read from ${file} — the check reads each registered doc's clause markers, so restore that file before its markers and the registry's rows can be held to each other`,
+        );
+      }
+      continue;
+    }
     const ids = extractClauseMarkers(content);
     if (!ids.length) continue;
     const seen = new Set();
     for (const id of ids) {
       const prefix = id.match(CLAUSE_ID_RE)[1];
       if (!(prefix in prefixes)) {
-        r.markerErrors.push(`${file} states clause "${id}" with unregistered prefix "${prefix}"`);
+        r.markerErrors.push(
+          `${file} states clause "${id}" with unregistered prefix "${prefix}"; ${prefixRule}`,
+        );
         continue;
       }
       if (prefixes[prefix] !== file) {
@@ -1062,8 +1313,12 @@ export function auditClauseRegistry({ registry, files, readFile, packageScripts 
     markersByDoc.set(file, seen);
   }
 
-  // Bijection per registered doc: markers <-> rows.
-  for (const doc of new Set(Object.values(prefixes))) {
+  // Bijection per registered doc: markers <-> rows. A doc whose text did not
+  // read states nothing this leg can pair, so the read failure named above is
+  // the whole diagnosis for it — the alternative is a line per row claiming
+  // the document dropped a clause, about text nobody has seen.
+  for (const doc of registeredDocs) {
+    if (unreadableDocs.has(doc)) continue;
     const markers = markersByDoc.get(doc) ?? new Set();
     const rows = rowsByDoc.get(doc) ?? new Set();
     for (const id of markers) {
@@ -1086,7 +1341,8 @@ export function auditClauseRegistry({ registry, files, readFile, packageScripts 
  * red is filed under is part of the contract, not a formatting detail: the
  * registry answers for its rows, this check for the list it registers, the
  * lock surfaces for their numbering, the area map for the clauses its reasons
- * cite, and the vector fixtures for the locks their description cites.
+ * cite, the vector fixtures for the locks their description cites, and the tree
+ * itself for a file this check reads that did not answer there.
  * @param {ReturnType<typeof auditClauseRegistry>} r
  * @returns {{ subject: string, what: string, errors: string[] }[]}
  */
@@ -1106,13 +1362,63 @@ export function reportSections(r) {
     ],
     [MAP_PATH, 'states clause citations that do not resolve', r.mapErrors],
     [VECTOR_FIXTURES_PATH, 'cites lock ordinals that do not resolve', r.fixtureErrors],
+    [
+      'the tree this check resolves against',
+      'does not answer where this check reads it',
+      r.readErrors,
+    ],
   ].map(([subject, what, errors]) => ({ subject, what, errors }));
 }
 
+/**
+ * The report's closing fix block: what a row states, what a citation resolves
+ * against, and which subject answers for each block above it. BUILT rather than
+ * written out, so every closed list it describes is the constant the audit
+ * itself reads — a member added to one of them reaches this text without anyone
+ * copying it here, which is what keeps the printed advice from drifting away
+ * from the rules that produced the red.
+ * @returns {string}
+ */
+export function fixBlock() {
+  return (
+    `  Fix: keep doc clause markers (e.g. **CP-3.**) and registry rows in one-to-one\n` +
+    `  agreement. A row's tag is one of ${VALID_TAGS.join(', ')}: give every\n` +
+    `  judgment-only row a justification and every checkable or check-exists row a check-ref,\n` +
+    `  and never reuse a retired identifier. A row's text cites a tracked path (with its\n` +
+    `  directories), a pattern naming at least one tracked file, a directory holding tracked\n` +
+    `  files, an npm run target package.json defines, one of\n` +
+    `  ${CITABLE_ROOT_FILES.join(', ')}, or an ACTIVE lock ordinal both\n` +
+    `  ${LOCK_ORDINAL_CLAUSE} and ${LOCK_SUITE_PATH} state; a\n` +
+    `  file whose name ends in one of ${BARE_FILE_SUFFIXES.join(', ')} is cited by the\n` +
+    `  repository path that identifies it. An intended-but-unbuilt check is described in\n` +
+    `  prose, and a check-exists row names the runnable check that exists: an npm run target,\n` +
+    `  a scripts/*.js or scripts/*.mjs file, or a suite's own code — a .js, .mjs, or .rs file\n` +
+    `  under a tests/ path, or a file named *.test.js or *.spec.js.\n` +
+    `  A row states "${TEST_CASES_FIELD}" to have its named test cases held: each identifier\n` +
+    `  listed there is a test DECLARED by one of the anchor-bearing files that row's check-ref\n` +
+    `  cites by path — a title a BARE it/test call states in a .js or .mjs file (a member\n` +
+    `  call's title, it.skip or it.only or another object's own it, declares none), a fn name\n` +
+    `  in a .rs one. The row grammar is closed at ${ROW_KEYS.join(', ')} — a key\n` +
+    `  outside it is read by no leg, so it is named here rather than left looking held.\n` +
+    `  A retired lock keeps its numbered entry in ${LOCK_ORDINAL_CLAUSE}'s list, marked\n` +
+    `  Retired: with the reason, and loses its suite title — that is what keeps the numbering\n` +
+    `  append-only, so the two surfaces are held to each other on every run, cited or not.\n` +
+    `  The blocks after the registry's own name other subjects: this check's register (the\n` +
+    `  citable root files and the fixture path it names must be tracked sources, and a\n` +
+    `  reason-bearing top-level list the map states outside the entry lists this check\n` +
+    `  reads — ${AREA_MAP_ENTRY_LISTS.join(', ')} — is a class of entry no leg reads),\n` +
+    `  the lock surfaces, the clause citations ${MAP_PATH} states in its entry reasons\n` +
+    `  together with its stating each of those lists at all, the lock ordinals\n` +
+    `  ${VECTOR_FIXTURES_PATH} cites in its description, and the tree itself wherever a file\n` +
+    `  this check reads did not answer where it reads it — each reds against an otherwise\n` +
+    `  correct registry, and is fixed where it is stated.`
+  );
+}
+
 /* c8 ignore start — the CLI wrapper reads the registry, the git file list, and
-   package.json and formats the pass/fail output; the pure audit core and the
-   report's section model above are unit-tested, and what remains here is thin
-   plumbing. */
+   package.json and formats the pass/fail output; the pure audit core, the
+   report's section model, and the fix block above are unit-tested, and what
+   remains here is thin plumbing. */
 function run() {
   const files = execFileSync('git', ['ls-files'], { encoding: 'utf8' })
     .split('\n')
@@ -1136,31 +1442,7 @@ function run() {
     console.error(`✗ ${subject} ${what}:\n` + errors.map((e) => `    ${e}`).join('\n') + '\n');
   }
   if (failed) {
-    console.error(
-      `  Fix: keep doc clause markers (e.g. **CP-3.**) and registry rows in one-to-one agreement,\n` +
-        `  give every judgment-only row a justification and every checkable/check-exists row a\n` +
-        `  check-ref, and never reuse a retired identifier. A row's text cites a tracked path (with\n` +
-        `  its directories), a pattern naming at least one tracked file, a directory holding\n` +
-        `  tracked files, an npm run target package.json defines, one of\n` +
-        `  ${CITABLE_ROOT_FILES.join(', ')}, or an ACTIVE lock ordinal both\n` +
-        `  ${LOCK_ORDINAL_CLAUSE} and ${LOCK_SUITE_PATH} state; an intended-but-unbuilt check is\n` +
-        `  described in prose, and a check-exists row names the runnable check that exists.\n` +
-        `  A row states "${TEST_CASES_FIELD}" to have its named test cases held: each identifier\n` +
-        `  listed there is looked for in the files that row's check-ref cites by path. The row\n` +
-        `  grammar is closed at ${ROW_KEYS.join(', ')} — a key outside it is read by no leg,\n` +
-        `  so it is named here rather than left looking held.\n` +
-        `  A retired lock keeps its numbered entry in ${LOCK_ORDINAL_CLAUSE}'s list, marked\n` +
-        `  Retired: with the reason, and loses its suite title — that is what keeps the numbering\n` +
-        `  append-only, so the two surfaces are held to each other on every run, cited or not.\n` +
-        `  The blocks after the registry's own name other subjects: this check's register (the\n` +
-        `  citable root files and the fixture path it names must be tracked sources, and a\n` +
-        `  reason-bearing top-level list the map states outside the entry lists this check\n` +
-        `  reads — ${AREA_MAP_ENTRY_LISTS.join(', ')} — is a class of entry no leg reads),\n` +
-        `  the lock surfaces, the clause citations ${MAP_PATH} states in its entry reasons\n` +
-        `  together with its stating each of those lists at all, and the lock ordinals\n` +
-        `  ${VECTOR_FIXTURES_PATH} cites in its description — each reds against an otherwise\n` +
-        `  correct registry, and is fixed where it is stated.`,
-    );
+    console.error(fixBlock());
     process.exit(1);
   }
   const docCount = new Set(Object.values(registry.prefixes)).size;
