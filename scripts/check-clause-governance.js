@@ -44,10 +44,16 @@ import {
   compileMap,
   expandBraces,
   globToRegExp,
+  loadMap,
   refuseOnShapeError,
   resolveFile,
 } from './check-area-map.js';
-import { splitCitationTokens } from './check-clause-registry.js';
+import {
+  REGISTRY_PATH,
+  loadRegistry,
+  refuseOnRegistryError,
+  splitCitationTokens,
+} from './check-clause-registry.js';
 
 /**
  * Repo-relative path of the map whose resolution this check reads — the map's
@@ -55,8 +61,12 @@ import { splitCitationTokens } from './check-clause-registry.js';
  * in its output is the path it resolves against.
  */
 export { MAP_PATH };
-/** Repo-relative path of the clause registry this check reads. */
-export const REGISTRY_PATH = 'docs/clause-registry.json';
+/**
+ * Repo-relative path of the clause registry this check reads — the registry
+ * check's own constant, re-exported rather than restated, for the same reason:
+ * the path this check names in its output is the path it reads.
+ */
+export { REGISTRY_PATH };
 
 /**
  * A repository-path token as a clause row cites one: an optional directory
@@ -382,8 +392,22 @@ function run() {
     .split('\n')
     .map((s) => s.trim())
     .filter(Boolean);
-  const registry = JSON.parse(readFileSync(REGISTRY_PATH, 'utf8'));
-  const map = JSON.parse(readFileSync(MAP_PATH, 'utf8'));
+  // Both governance-data files are read through their own check's loader, so a
+  // file that cannot be read as its own data — one that cannot be read at all,
+  // or text that is not JSON — is the refusal that check states, printed on the
+  // ordinary red path, never a stack trace.
+  let registry;
+  try {
+    registry = loadRegistry();
+  } catch (err) {
+    refuseOnRegistryError(err);
+  }
+  let map;
+  try {
+    map = loadMap();
+  } catch (err) {
+    refuseOnShapeError(err);
+  }
   const readFile = (f) => {
     try {
       return readFileSync(f, 'utf8');

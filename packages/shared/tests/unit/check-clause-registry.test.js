@@ -78,11 +78,15 @@ import {
   parseLockSuiteOrdinals,
   splitCitationTokens,
   auditClauseRegistry,
+  loadRegistry,
+  refuseOnRegistryError,
   reportSections,
   resolvePatternCitation,
   AREA_MAP_ENTRY_LISTS,
   BARE_FILE_SUFFIXES,
   CITABLE_ROOT_FILES,
+  ClauseRegistryInputError,
+  REGISTRY_INPUT_ERROR_NAME,
   LOCK_ORDINAL_CLAUSE,
   LOCK_SUITE_PATH,
   REGISTRY_PATH,
@@ -1510,6 +1514,90 @@ describe('auditClauseRegistry — a registered doc that will not read', () => {
   });
 });
 
+describe('loadRegistry — the read that turns the committed file into the rows', () => {
+  it('reads the one committed path and parses what it finds there', () => {
+    const asked = [];
+    const registry = { prefixes: {}, clauses: [] };
+    const loaded = loadRegistry((p) => {
+      asked.push(p);
+      return JSON.stringify(registry);
+    });
+    assert.deepEqual(asked, [REGISTRY_PATH]);
+    assert.deepEqual(loaded, registry);
+  });
+
+  it('refuses a file that does not read as JSON, naming the file and the parser reason', () => {
+    assert.throws(
+      () => loadRegistry(() => '{ "clauses": '),
+      (err) => {
+        assert.equal(err instanceof ClauseRegistryInputError, true);
+        assert.equal(err.name, REGISTRY_INPUT_ERROR_NAME);
+        assert.equal(err.message.includes(REGISTRY_PATH), true);
+        assert.match(err.message, /does not read as JSON/);
+        // What the file is read for, so the refusal states what cannot be held
+        // until it is restored rather than leaving a parser message to speak.
+        assert.match(err.message, /before any clause can be held/);
+        return true;
+      },
+    );
+  });
+
+  it('refuses a file it cannot read at all with the same class, saying which of the two it was', () => {
+    // The read sits inside the guarded region with the parse, so a registry
+    // that is not there to read reaches a consumer as the same named refusal a
+    // registry that will not parse does, each saying which of the two it was.
+    assert.throws(
+      () =>
+        loadRegistry(() => {
+          throw new Error(`ENOENT: no such file or directory, open '${REGISTRY_PATH}'`);
+        }),
+      (err) => {
+        assert.equal(err instanceof ClauseRegistryInputError, true);
+        assert.equal(err.name, REGISTRY_INPUT_ERROR_NAME);
+        assert.equal(err.message.includes(REGISTRY_PATH), true);
+        assert.match(err.message, /could not be read/);
+        assert.match(err.message, /ENOENT/);
+        assert.doesNotMatch(err.message, /does not read as JSON/);
+        assert.match(err.message, /before any clause can be held/);
+        return true;
+      },
+    );
+  });
+
+  it('prints that refusal and ends red through the one posture, without a stack', () => {
+    const printed = [];
+    const exited = [];
+    try {
+      loadRegistry(() => 'not json at all');
+    } catch (err) {
+      refuseOnRegistryError(err, {
+        error: (m) => printed.push(m),
+        exit: (c) => exited.push(c),
+      });
+    }
+    assert.equal(printed.length, 1);
+    assert.match(printed[0], /does not read as JSON/);
+    assert.doesNotMatch(printed[0], /^\s+at /m);
+    assert.deepEqual(exited, [1]);
+  });
+
+  it('rethrows anything else untouched, printing nothing and ending nothing', () => {
+    const printed = [];
+    const exited = [];
+    const other = new Error('a bug inside a leg');
+    assert.throws(
+      () =>
+        refuseOnRegistryError(other, {
+          error: (m) => printed.push(m),
+          exit: (c) => exited.push(c),
+        }),
+      (e) => e === other,
+    );
+    assert.deepEqual(printed, []);
+    assert.deepEqual(exited, []);
+  });
+});
+
 describe('fixBlock — the printed advice, built from the rules that produced the red', () => {
   it('renders each closed list the audit reads, whole and in one piece', () => {
     // Derived, not hand-kept: a member added to one of these constants reaches
@@ -1777,18 +1865,37 @@ describe("auditClauseRegistry — the area map's clause citations", () => {
     assert.deepEqual([r.mapErrors, r.listErrors], [[], []]);
   });
 
-  it('refuses a map that does not read as JSON', () => {
-    for (const text of ['{ not json', null]) {
-      const contents = { [MAP_PATH]: text };
-      const r = audit({ contents });
+  it('refuses a map whose text is not JSON, saying that is what it found', () => {
+    const r = audit({ contents: { [MAP_PATH]: '{ not json' } });
+    assert.deepEqual(r.mapErrors, [
+      `EMPTY SURFACE: ${MAP_PATH} does not read as JSON — the check reads the reason of every entry in ${AREA_MAP_ENTRY_LISTS.join(', ')}, so restore that shape before a reason's clause citation can be held`,
+    ]);
+  });
+
+  it('refuses a map whose text is JSON but not the map object, saying THAT is what it found', () => {
+    // The third class the guard admits: the text parses, so calling it bad JSON
+    // would be false. Each scalar reaches the same repair — put the map object
+    // back — and takes the wording the map's own check prints for that input.
+    for (const text of ['null', '42', '"a map"', 'true']) {
+      const r = audit({ contents: { [MAP_PATH]: text } });
       assert.deepEqual(
         r.mapErrors,
         [
-          `EMPTY SURFACE: ${MAP_PATH} does not read as JSON — the check reads the reason of every entry in ${AREA_MAP_ENTRY_LISTS.join(', ')}, so restore that shape before a reason's clause citation can be held`,
+          `EMPTY SURFACE: ${MAP_PATH} is not an object — the check reads the reason of every entry in ${AREA_MAP_ENTRY_LISTS.join(', ')}, so restore that shape before a reason's clause citation can be held`,
         ],
-        String(text),
+        text,
       );
     }
+  });
+
+  it('refuses a map it could not read at all, saying THAT is what it found', () => {
+    // Each class is a different repair — restore the file, fix its text, or put
+    // the map object back — so the surface red names the one it found instead of
+    // reporting an absent file as bad JSON.
+    const r = audit({ contents: { [MAP_PATH]: null } });
+    assert.deepEqual(r.mapErrors, [
+      `EMPTY SURFACE: ${MAP_PATH} could not be read — the check reads the reason of every entry in ${AREA_MAP_ENTRY_LISTS.join(', ')}, so restore that shape before a reason's clause citation can be held`,
+    ]);
   });
 
   it("reports under the map's own subject, never the registry's", () => {

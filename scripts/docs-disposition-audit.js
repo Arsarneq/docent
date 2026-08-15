@@ -33,9 +33,8 @@
  *   GITHUB_TOKEN=... GITHUB_REPOSITORY=owner/repo node scripts/docs-disposition-audit.js [--weeks N] [--detail]
  */
 
-import { readFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
-import { compileMap, resolveFile, MAP_PATH, refuseOnShapeError } from './check-area-map.js';
+import { compileMap, resolveFile, loadMap, refuseOnShapeError } from './check-area-map.js';
 import { extractSection, parseDispositionSection } from './check-docs-disposition.js';
 
 /** A PR's diff is "mostly docs" when more than half its files sit under docs/. */
@@ -206,7 +205,16 @@ async function run() {
     process.exit(1);
   }
 
-  const map = JSON.parse(readFileSync(MAP_PATH, 'utf8'));
+  // The map is read through its own check's loader: a file that cannot be read
+  // as that map — one that cannot be read at all, or text that is not JSON — is
+  // refused with the named verdict on the ordinary red path, rather than
+  // reaching the tail catch as a stack.
+  let map;
+  try {
+    map = loadMap();
+  } catch (err) {
+    refuseOnShapeError(err);
+  }
   const { prs, editedAfterMerge } = await harvest({ repo, token, weeks });
   let r;
   try {

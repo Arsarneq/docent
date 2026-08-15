@@ -31,10 +31,11 @@ import {
   resolveFile,
   explainFile,
   auditMap,
+  loadMap,
   refuseOnShapeError,
   AreaMapShapeError,
   SHAPE_ERROR_NAME,
-  STRADDLE_SAMPLE,
+  FILE_SAMPLE,
   MAP_PATH,
 } from '../../../../scripts/check-area-map.js';
 
@@ -467,6 +468,79 @@ describe('auditMap — unassigned exceptions (d, self-failing)', () => {
   });
 });
 
+describe('auditMap — an exception earns its keep file by file', () => {
+  it('names a covered file that resolves anyway, and the entry covering it', () => {
+    // LICENSE resolves to no area (the exception is needed for it); the vendored
+    // file under packages/alpha is owned by that area anyway.
+    const map = makeMap({
+      unassigned: [{ path: '{LICENSE,packages/alpha/vendored.txt}', reason: 'x' }],
+    });
+    const r = audit({ map, files: [...BASE_FILES, 'packages/alpha/vendored.txt'] });
+    assert.deepEqual(r.unnecessaryUnassignedFiles, [
+      'packages/alpha/vendored.txt — covered by "unassigned" entry "{LICENSE,packages/alpha/vendored.txt}"',
+    ]);
+    // The entry as a whole is still needed, and still live.
+    assert.deepEqual(r.unnecessaryUnassigned, []);
+    assert.deepEqual(r.staleUnassigned, []);
+    assert.deepEqual(r.deadAlternatives, []);
+  });
+
+  it('answers per FILE, not per alternative — one wide pattern is read the same way', () => {
+    const map = makeMap();
+    map.unassigned.push({ path: '**/blob.bin', reason: 'opaque binaries' });
+    const r = audit({
+      map,
+      files: [...BASE_FILES, 'vendor/blob.bin', 'packages/alpha/blob.bin'],
+    });
+    assert.deepEqual(r.unnecessaryUnassignedFiles, [
+      'packages/alpha/blob.bin — covered by "unassigned" entry "**/blob.bin"',
+    ]);
+    assert.deepEqual(r.unnecessaryUnassigned, []);
+  });
+
+  it('reads a doc the map already places as covered anyway', () => {
+    const map = makeMap({ unassigned: [{ path: '{LICENSE,docs/alpha.md}', reason: 'x' }] });
+    const r = audit({ map });
+    assert.deepEqual(r.unnecessaryUnassignedFiles, [
+      'docs/alpha.md — covered by "unassigned" entry "{LICENSE,docs/alpha.md}"',
+    ]);
+  });
+
+  it('reports the whole entry once when no file needs it, never the files too', () => {
+    const map = makeMap();
+    map.unassigned.push({ path: 'packages/alpha/{one,two}.txt', reason: 'covered anyway' });
+    const r = audit({
+      map,
+      files: [...BASE_FILES, 'packages/alpha/one.txt', 'packages/alpha/two.txt'],
+    });
+    assert.deepEqual(r.unnecessaryUnassigned, ['packages/alpha/{one,two}.txt']);
+    assert.deepEqual(r.unnecessaryUnassignedFiles, []);
+  });
+
+  it('leaves an entry every covered file needs alone', () => {
+    const map = makeMap({ unassigned: [{ path: '{LICENSE,NOTICE}', reason: 'x' }] });
+    assert.deepEqual(flatten(audit({ map, files: [...BASE_FILES, 'NOTICE'] })), []);
+  });
+
+  it('names one entry once, sampling its files and counting the rest', () => {
+    // A wide entry over a growing tree must not print a wall: the entry's own
+    // line names up to the cap and counts what it left, the way a straddling
+    // declaration's sides already do.
+    const extra = FILE_SAMPLE + 2;
+    const inert = Array.from({ length: extra }, (_, i) => `packages/alpha/vendored${i}.txt`);
+    const map = makeMap({
+      unassigned: [{ path: '{LICENSE,packages/alpha/vendored*.txt}', reason: 'x' }],
+    });
+    const r = audit({ map, files: [...BASE_FILES, ...inert] });
+    assert.equal(r.unnecessaryUnassignedFiles.length, 1);
+    const line = r.unnecessaryUnassignedFiles[0];
+    for (const f of inert.slice(0, FILE_SAMPLE)) assert.equal(line.includes(f), true, f);
+    for (const f of inert.slice(FILE_SAMPLE)) assert.equal(line.includes(f), false, f);
+    assert.equal(line.includes(`and ${extra - FILE_SAMPLE} more`), true);
+    assert.equal(line.includes('{LICENSE,packages/alpha/vendored*.txt}'), true);
+  });
+});
+
 describe('auditMap — doc pointers', () => {
   it('rescues an otherwise unowned file whose pointer names an owned doc', () => {
     const r = audit({
@@ -601,6 +675,78 @@ describe('compileMap — shape-validity is enforced at the boundary', () => {
   });
 });
 
+describe('loadMap — the read that turns the committed file into the map', () => {
+  it('reads the one committed path and parses what it finds there', () => {
+    const asked = [];
+    const map = makeMap();
+    const loaded = loadMap((p) => {
+      asked.push(p);
+      return JSON.stringify(map);
+    });
+    assert.deepEqual(asked, [MAP_PATH]);
+    assert.deepEqual(loaded, map);
+  });
+
+  it('refuses a file that does not read as JSON, naming the file and the parser reason', () => {
+    assert.throws(
+      () => loadMap(() => '{ "areas": '),
+      (err) => {
+        assert.equal(err instanceof AreaMapShapeError, true);
+        assert.equal(err.name, SHAPE_ERROR_NAME);
+        assert.equal(err.message.includes(MAP_PATH), true);
+        assert.match(err.message, /does not read as JSON/);
+        assert.equal(err.shapeErrors.length, 1);
+        // The reason a reader acts on: what the map is read for, so the fix is
+        // stated rather than left to be inferred from a parser message.
+        assert.match(err.message, /governing docs/);
+        return true;
+      },
+    );
+  });
+
+  it('refuses a file it cannot read at all with the same class, saying which of the two it was', () => {
+    // The read sits inside the guarded region with the parse, so a map that is
+    // not there to read reaches a consumer as the same refusal a map that will
+    // not parse does — under a headline saying it could not be read, never the
+    // shape verdict, which would send a reader hunting a syntax error in a file
+    // that is not there.
+    assert.throws(
+      () =>
+        loadMap(() => {
+          throw new Error(`ENOENT: no such file or directory, open '${MAP_PATH}'`);
+        }),
+      (err) => {
+        assert.equal(err instanceof AreaMapShapeError, true);
+        assert.equal(err.name, SHAPE_ERROR_NAME);
+        assert.match(err.message, new RegExp(`${MAP_PATH.replace('.', '\\.')} could not be read`));
+        assert.match(err.message, /ENOENT/);
+        assert.doesNotMatch(err.message, /is malformed/);
+        assert.doesNotMatch(err.message, /does not read as JSON/);
+        // The same reason a reader acts on, whichever way the read failed.
+        assert.match(err.message, /governing docs/);
+        return true;
+      },
+    );
+  });
+
+  it('hands that refusal to the posture every consumer already prints, ending red without a stack', () => {
+    const printed = [];
+    const exited = [];
+    try {
+      loadMap(() => 'not json at all');
+    } catch (err) {
+      refuseOnShapeError(err, {
+        error: (m) => printed.push(m),
+        exit: (c) => exited.push(c),
+      });
+    }
+    assert.equal(printed.length, 1);
+    assert.match(printed[0], /does not read as JSON/);
+    assert.doesNotMatch(printed[0], /^\s+at /m);
+    assert.deepEqual(exited, [1]);
+  });
+});
+
 describe('refuseOnShapeError — one refusal posture for every consumer of the map', () => {
   /** Collectors standing in for the printing and exiting seams. */
   const seams = () => {
@@ -619,8 +765,10 @@ describe('refuseOnShapeError — one refusal posture for every consumer of the m
   });
 
   it('rethrows anything else untouched, printing nothing and ending nothing', () => {
-    // A map that will not parse, a bug inside a leg: not this refusal's subject,
-    // so it leaves as it arrived rather than being reported as a shape verdict.
+    // A raw parser error, a bug inside a leg: not this refusal's subject, so it
+    // leaves as it arrived rather than being reported as a shape verdict. (The
+    // committed file failing to parse arrives as the refusal itself — loadMap
+    // above — which is how a consumer prints it without a stack.)
     const s = seams();
     const other = new SyntaxError('Unexpected token } in JSON at position 12');
     assert.throws(
@@ -1031,6 +1179,235 @@ describe('auditMap — declared-governance', () => {
   });
 });
 
+describe('auditMap — a declaration is read for equality file by file', () => {
+  it('names a declared file its areas already supply, and the entry declaring it', () => {
+    // package.json's covering area supplies exactly docs/tooling.md (the declared
+    // set — nothing new); the alpha file's supplies docs/alpha.md (changed).
+    const map = makeMap({
+      'declared-governance': [
+        {
+          path: '{package.json,packages/alpha/index.js}',
+          reason: 'x',
+          'governed-by': ['docs/tooling.md'],
+        },
+      ],
+    });
+    const r = audit({ map });
+    assert.deepEqual(r.redundantGovernanceFiles, [
+      'package.json — declared by "declared-governance" entry "{package.json,packages/alpha/index.js}"',
+    ]);
+    assert.deepEqual(r.redundantGovernance, []);
+    assert.deepEqual(r.staleGovernance, []);
+    assert.deepEqual(r.deadAlternatives, []);
+  });
+
+  it('answers per FILE, not per alternative — one wide pattern is read the same way', () => {
+    const map = makeMap({
+      'declared-governance': [
+        { path: '**/*.json', reason: 'x', 'governed-by': ['docs/tooling.md'] },
+      ],
+    });
+    const r = audit({ map, files: [...BASE_FILES, 'packages/alpha/data.json'] });
+    assert.deepEqual(r.redundantGovernanceFiles, [
+      'package.json — declared by "declared-governance" entry "**/*.json"',
+    ]);
+    assert.deepEqual(r.redundantGovernance, []);
+  });
+
+  it('reports the whole entry once when it states nothing new for any file, never the files too', () => {
+    const map = makeMap({
+      'declared-governance': [
+        { path: 'package.json', reason: 'x', 'governed-by': ['docs/tooling.md'] },
+      ],
+    });
+    const r = audit({ map });
+    assert.deepEqual(r.redundantGovernance, ['package.json']);
+    assert.deepEqual(r.redundantGovernanceFiles, []);
+  });
+
+  it('reads an explicit empty declaration as the statement it is, for every file it reaches', () => {
+    // [] states "no doc governs it" — an absence stated, never redundant, whether
+    // or not a sibling file's areas supply something.
+    const map = makeMap({
+      'declared-governance': [
+        { path: '{package.json,packages/alpha/index.js}', reason: 'x', 'governed-by': [] },
+      ],
+    });
+    const r = audit({ map });
+    assert.deepEqual(r.redundantGovernanceFiles, []);
+    assert.deepEqual(r.redundantGovernance, []);
+  });
+
+  it('leaves partition-covered files out of the accounting, as the entry-wide reading does', () => {
+    // Inside a partitioned tree, declaring what the areas supply is the honest
+    // statement — so the equal file there is not a red, and the entry keeps its
+    // one side of the boundary.
+    const map = makeMap({
+      'governance-partitions': [{ pattern: 'packages/alpha/**', reason: 'declares one by one' }],
+      'declared-governance': [
+        {
+          path: 'packages/alpha/{index,other}.js',
+          reason: 'x',
+          'governed-by': ['docs/alpha.md'],
+        },
+      ],
+    });
+    const r = audit({ map, files: [...BASE_FILES, 'packages/alpha/other.js'] });
+    assert.deepEqual(r.redundantGovernanceFiles, []);
+    assert.deepEqual(r.redundantGovernance, []);
+    assert.deepEqual(r.straddlingGovernance, []);
+  });
+
+  it('is displaced by the straddle refusal, whose remedy the per-file red would contradict', () => {
+    const map = makeMap({
+      'governance-partitions': [{ pattern: 'packages/alpha/**', reason: 'declares one by one' }],
+      'declared-governance': [
+        {
+          path: '{packages/alpha/index.js,package.json}',
+          reason: 'x',
+          'governed-by': ['docs/tooling.md'],
+        },
+      ],
+    });
+    const r = audit({ map });
+    assert.equal(r.straddlingGovernance.length, 1);
+    assert.deepEqual(r.redundantGovernanceFiles, []);
+    assert.deepEqual(r.redundantGovernance, []);
+  });
+
+  it('names one entry once, sampling its files and counting the rest', () => {
+    // The same cap the exception leg and the straddle red take: a family-wide
+    // declaration answers on one line, however many files it reaches.
+    const extra = FILE_SAMPLE + 2;
+    const equal = Array.from({ length: extra }, (_, i) => `scripts/check-eq${i}.js`);
+    const map = makeMap({
+      'declared-governance': [
+        {
+          path: '{packages/alpha/index.js,scripts/check-eq*.js}',
+          reason: 'x',
+          'governed-by': ['docs/tooling.md'],
+        },
+      ],
+    });
+    const r = audit({ map, files: [...BASE_FILES, ...equal] });
+    assert.equal(r.redundantGovernanceFiles.length, 1);
+    const line = r.redundantGovernanceFiles[0];
+    for (const f of equal.slice(0, FILE_SAMPLE)) assert.equal(line.includes(f), true, f);
+    for (const f of equal.slice(FILE_SAMPLE)) assert.equal(line.includes(f), false, f);
+    assert.equal(line.includes(`and ${extra - FILE_SAMPLE} more`), true);
+    assert.equal(line.includes('{packages/alpha/index.js,scripts/check-eq*.js}'), true);
+  });
+
+  it('skips a file whose declaration conflicts or is cross-governed, as the entry-wide reading does', () => {
+    const map = makeMap({
+      'declared-governance': [
+        {
+          path: '{package.json,packages/alpha/index.js}',
+          reason: 'a',
+          'governed-by': ['docs/tooling.md'],
+        },
+        { path: 'package.json', reason: 'b', 'governed-by': ['docs/alpha.md'] },
+      ],
+    });
+    const r = audit({ map });
+    assert.deepEqual(r.conflictingGovernance, ['package.json']);
+    assert.deepEqual(r.redundantGovernanceFiles, []);
+  });
+});
+
+describe('auditMap — an area earns its place by supplying what the rest of the map does not', () => {
+  it('names an area whose doc set another area already supplies', () => {
+    const map = makeMap();
+    map.areas.alpha.docs = ['docs/alpha.md', 'docs/retired.md'];
+    map.areas['retired/user'] = { docs: ['docs/retired.md'] };
+    const r = audit({ map, files: [...BASE_FILES, 'docs/retired.md'] });
+    assert.deepEqual(r.redundantAreas, ['retired/user']);
+  });
+
+  it('names both of two areas supplying the same docs, and settles once one goes', () => {
+    // Each twin is judged on its own against the rest of the map, so each finds
+    // the other already supplying its docs and both are named. The names are
+    // therefore alternatives, not a set: the red's Fix has a reader remove one
+    // and re-run, each removal being a new question the next run answers. At two
+    // areas that next run is already green, which is what the second half pins.
+    const twins = () => {
+      const map = makeMap();
+      map.areas['left/user'] = { docs: ['docs/shared.md'] };
+      map.areas['right/user'] = { docs: ['docs/shared.md'] };
+      return map;
+    };
+    const files = [...BASE_FILES, 'docs/shared.md'];
+    assert.deepEqual(audit({ map: twins(), files }).redundantAreas, ['left/user', 'right/user']);
+
+    const settled = twins();
+    delete settled.areas['left/user'];
+    assert.deepEqual(flatten(audit({ map: settled, files })), []);
+  });
+
+  it('leaves an area that supplies a doc no other area does', () => {
+    const map = makeMap();
+    map.areas['own/area'] = { docs: ['docs/own.md'] };
+    const r = audit({ map, files: [...BASE_FILES, 'docs/own.md'] });
+    assert.deepEqual(r.redundantAreas, []);
+  });
+
+  it('asks what an area supplies, not whether a declaration names it', () => {
+    // An `area:<name>` reference would refuse the deletion as a broken reference;
+    // inlining it to the docs it stands for asks the honest question instead.
+    const map = makeMap();
+    map.areas['retired/user'] = { docs: ['docs/alpha.md'] };
+    map['declared-governance'] = [
+      { path: 'package.json', reason: 'x', 'governed-by': ['area:retired/user'] },
+    ];
+    assert.deepEqual(audit({ map }).redundantAreas, ['retired/user']);
+  });
+
+  it('leaves an area whose deletion would leave a file owned by nobody', () => {
+    // A code-only area supplies no doc, so no governing set changes when it goes
+    // — but the files it covers stop resolving. That coverage is a contribution
+    // the rest of the map does not make, which is what the guard reads.
+    const map = makeMap();
+    map.areas.codeonly = { code: ['vendor/**'] };
+    const r = audit({ map, files: [...BASE_FILES, 'vendor/thing.bin'] });
+    assert.deepEqual(r.redundantAreas, []);
+    assert.deepEqual(r.zeroArea, []);
+  });
+
+  it('leaves the area a map cannot be read without', () => {
+    // Deleting the only area leaves a map with no areas at all, which the shape
+    // refusal reports — the one class this leg reads as its own answer (the area
+    // supplies that readability). Anything else compileMap could raise is not an
+    // answer to this question and is rethrown rather than read as necessity.
+    const map = {
+      description: 'one-area map',
+      'repo-wide': { docs: ['README.md'] },
+      areas: { only: { code: ['src/**'], docs: ['docs/only.md'] } },
+      unassigned: [],
+      'declared-governance': [],
+      'governance-partitions': [],
+    };
+    const r = auditMap({
+      files: ['README.md', 'docs/only.md', 'src/a.js'],
+      map,
+      readFile: () => null,
+    });
+    assert.deepEqual(flatten(r), []);
+  });
+
+  it('reads pointer-supplied governance too, so an area a pointer reaches is necessary', () => {
+    // The area owns no code and its doc is reached only by a `// see` pointer;
+    // deleting it changes that file's governing set, so it stays.
+    const map = makeMap();
+    map.areas['pointed/at'] = { docs: ['docs/pointed.md'] };
+    const r = audit({
+      map,
+      files: [...BASE_FILES, 'docs/pointed.md', 'packages/alpha/uses.js'],
+      contents: { 'packages/alpha/uses.js': '// see docs/pointed.md\n' },
+    });
+    assert.deepEqual(r.redundantAreas, []);
+  });
+});
+
 describe('validateShape — area references in governed-by', () => {
   /** makeMap with one declared entry over package.json carrying the given elements. */
   const withGov = (rawGovernedBy) =>
@@ -1341,7 +1718,7 @@ describe('auditMap — a declaration belongs to one side of a partition boundary
     // A wide entry must not print a wall: each side names the first few files it
     // matched and counts the remainder, so the red stays the same size whatever
     // the tree grows to.
-    const extra = STRADDLE_SAMPLE + 2;
+    const extra = FILE_SAMPLE + 2;
     const inside = Array.from({ length: extra }, (_, i) => `packages/alpha/shared-thing-${i}.js`);
     const r = audit({
       map: boundaryMap([
@@ -1352,9 +1729,9 @@ describe('auditMap — a declaration belongs to one side of a partition boundary
     });
     assert.equal(r.straddlingGovernance.length, 1);
     const line = r.straddlingGovernance[0];
-    for (const f of inside.slice(0, STRADDLE_SAMPLE)) assert.equal(line.includes(f), true, f);
-    for (const f of inside.slice(STRADDLE_SAMPLE)) assert.equal(line.includes(f), false, f);
-    assert.equal(line.includes(`and ${extra - STRADDLE_SAMPLE} more`), true);
+    for (const f of inside.slice(0, FILE_SAMPLE)) assert.equal(line.includes(f), true, f);
+    for (const f of inside.slice(FILE_SAMPLE)) assert.equal(line.includes(f), false, f);
+    assert.equal(line.includes(`and ${extra - FILE_SAMPLE} more`), true);
     assert.match(line, /outside every partition: packages\/beta\/shared-thing-0\.js$/);
   });
 
@@ -1446,6 +1823,24 @@ describe('run() — the command line', () => {
     assert.match(r.stderr, /the dead one need not appear in the\n\s+entry as written/);
     // The entry itself still describes the tree, so its own removal is not the fix.
     assert.doesNotMatch(r.stderr, /"unassigned" entr\(ies\) match no tracked file/);
+  });
+
+  it('refuses a committed map that does not read as JSON, in both modes, without a stack', () => {
+    // The audit and the per-file explanation both resolve through the same file,
+    // so both answer the same way when it is not the map: the verdict names the
+    // surface and states the parser's reason, and neither prints a stack.
+    const tree = { ...fixtureTree('LICENSE'), 'scripts/area-map.json': '{ "description": ' };
+    for (const args of [[], ['--explain', 'README.md']]) {
+      const r = runCheckOn(tree, args);
+      assert.equal(
+        r.status,
+        1,
+        `expected the unparseable map to red for args ${JSON.stringify(args)}.\nstderr: ${r.stderr}`,
+      );
+      assert.match(r.stderr, new RegExp(`${MAP_PATH.replace('.', '\\.')} is malformed`));
+      assert.match(r.stderr, /does not read as JSON/);
+      assert.doesNotMatch(r.stderr, /^\s+at /m);
+    }
   });
 
   it('refuses an unrecognized argument with the usage line instead of auditing', () => {
