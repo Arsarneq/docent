@@ -1137,6 +1137,30 @@ jobs:
           pattern: coverage-*
           path: coverage-artifacts
 
+      # When the pattern matches exactly one artifact, download-artifact writes
+      # its files into the path directly instead of a per-artifact
+      # subdirectory. The upload guards below read fixed per-artifact paths, so
+      # restore that layout for the flattened case. The unit-JS and Rust files
+      # carry unique names; a flat lcov.info is routed by the paths its records
+      # cover, which the two producing suites keep disjoint (extension sources
+      # vs desktop sources).
+      - name: Restore per-artifact layout for a single-artifact download
+        run: |
+          move() { mkdir -p "coverage-artifacts/$2" && mv "coverage-artifacts/$1" "coverage-artifacts/$2/$1"; }
+          for f in shared-desktop-unit.lcov extension-unit.lcov; do
+            if [ -f "coverage-artifacts/$f" ]; then move "$f" coverage-unit-javascript; fi
+          done
+          for f in coverage-unit.lcov coverage-integration.lcov; do
+            if [ -f "coverage-artifacts/$f" ]; then move "$f" coverage-rust; fi
+          done
+          if [ -f coverage-artifacts/lcov.info ]; then
+            if grep -qm1 '^SF:packages/extension/' coverage-artifacts/lcov.info; then
+              move lcov.info coverage-e2e-javascript
+            else
+              move lcov.info coverage-integration-javascript
+            fi
+          fi
+
       - name: Detect whether any coverage was produced
         id: detect
         run: |
