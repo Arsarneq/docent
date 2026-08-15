@@ -54,7 +54,9 @@ every `#[tauri::command]` the crate defines is registered in `lib.rs`'s
 only event channel the backend emits. A change that adds, removes, or renames
 a command or an event channel MUST update this table in the same change, and
 a change to the granted plugin surface MUST update this section's grant
-enumeration likewise.
+enumeration likewise. This section's prose outside the table names that
+channel and no other channel-shaped token, so a rename MUST land on the prose
+and the table together.
 
 The contract is closed on the caller side too. Every command the table states
 is invoked from the desktop frontend's own modules — the caller closure — and

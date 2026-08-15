@@ -5,7 +5,14 @@
  * must fail loud: these tests prove each red-path family fires on synthetic
  * input — the pairwise set inequalities across every surface the check
  * compares, the emit-family and channel arms, the caller-side invoke arms,
- * the derived event channel's emit / listen / clause-prose sides, the
+ * the derived event channel's emit / listen / clause-prose sides — the prose
+ * read in both of its directions, the absent mention and the foreign
+ * channel-shaped token standing beside it, the event row itself refused where
+ * it states a channel that read cannot see, with the token shape's near
+ * misses, its grant exemptions, the same-shape tokens that name no channel at
+ * all, and the residue the channel and grant shapes leave between them pinned
+ * against both readers, and a partial rename over the real document as the
+ * false green that read closes — the
  * capability-source and fixture-shape refusals, unreadable rows and cells,
  * duplicate structures, and empty parses — that the Rust comment stripper, the
  * shared JavaScript tokenizer the caller scans read through, and the fence
@@ -36,6 +43,7 @@ import {
   extractDocRows,
   extractDocGrants,
   extractSectionProse,
+  extractProseChannelTokens,
   extractEmitSites,
   extractCallSites,
   extractMockCommands,
@@ -463,13 +471,113 @@ describe('evaluateCommandSurface — the channel the doc row derives', () => {
     );
   });
 
+  it('refuses an event row the prose weld cannot read — that leg can never go inert', () => {
+    // The silent lapse the derivation pin closes: rename EVERY side to a
+    // channel outside the shape the weld reads, and the weld's foreign-token
+    // read goes blind while the whole contract still greens — a stale mention
+    // of the new name would stand unread. Held at the row instead, which is
+    // what makes the residue's reason true by construction.
+    const OUT_OF_SHAPE = 'Capture:Action';
+    const problems = evaluateCommandSurface(
+      makeSurface({
+        docEvents: [OUT_OF_SHAPE],
+        emitSites: [{ path: 'src/lib.rs', method: 'emit', channel: OUT_OF_SHAPE, line: 90 }],
+        listenSites: [{ path: CALLER_PATH, ordinal: 1, name: OUT_OF_SHAPE, argToken: OUT_OF_SHAPE }], // prettier-ignore
+        sectionProse: `The \`${OUT_OF_SHAPE}\` channel is consumed by one listener.`,
+      }),
+    );
+    assert.deepEqual(problems, [
+      `the DSH-1 table's event row states \`${OUT_OF_SHAPE}\`, which is not a channel the clause-prose weld can read — it reads a whole backticked token that is a namespace and a name joined by a single colon, each of the two segments opening on a lowercase letter or a digit and carrying lowercase letters, digits, \`-\`, or \`_\` after it, the capability-grant shape excluded — so a stale mention of this channel in the clause's prose would stand unread and that leg would hold nothing: state the channel in that shape, or widen the shape the weld reads in the same change`,
+    ]);
+  });
+
+  it('refuses a grant-shaped event row too — the prose read leaves those to the grants leg', () => {
+    // The other half of the pairing: the prose read exempts grant-shaped
+    // tokens, so a channel written in that shape would be exactly as unread.
+    const problems = evaluateCommandSurface(
+      makeSurface({
+        docEvents: ['core:default'],
+        emitSites: [{ path: 'src/lib.rs', method: 'emit', channel: 'core:default', line: 90 }],
+        listenSites: [{ path: CALLER_PATH, ordinal: 1, name: 'core:default', argToken: 'core:default' }], // prettier-ignore
+        sectionProse: 'The `core:default` channel is consumed by one listener.',
+      }),
+    );
+    assert.deepEqual(problems, [
+      `the DSH-1 table's event row states \`core:default\`, which is not a channel the clause-prose weld can read — it reads a whole backticked token that is a namespace and a name joined by a single colon, each of the two segments opening on a lowercase letter or a digit and carrying lowercase letters, digits, \`-\`, or \`_\` after it, the capability-grant shape excluded — so a stale mention of this channel in the clause's prose would stand unread and that leg would hold nothing: state the channel in that shape, or widen the shape the weld reads in the same change`,
+    ]);
+  });
+
   it('fires when the clause prose stops naming the channel while the table still does', () => {
+    // The absent-mention direction on its own: prose naming NO channel-shaped
+    // token at all carries the one problem, which is what keeps this pin
+    // readable beside the foreign-token pin below.
     const problems = evaluateCommandSurface(
       makeSurface({ sectionProse: 'The event channel is consumed by one listener.' }),
     );
     assert.deepEqual(problems, [
       `the DSH-1 section's prose outside its table never names \`${CHANNEL}\` in backticks — the channel the table states is stated in the clause's own prose too`,
     ]);
+  });
+
+  it('fires on a second channel-shaped token standing beside the channel, naming it', () => {
+    const problems = evaluateCommandSurface(
+      makeSurface({
+        sectionProse: `The \`${CHANNEL}\` channel is consumed by one listener. Actions also ride \`capture:legacy\`, which nothing emits.`, // prettier-ignore
+      }),
+    );
+    assert.deepEqual(problems, [
+      `the DSH-1 section's prose outside its table names \`capture:legacy\` in backticks — a whole backticked token shaped like \`${CHANNEL}\`, the channel the table states (a namespace and a name joined by a single colon, each of the two segments opening on a lowercase letter or a digit and carrying lowercase letters, digits, \`-\`, or \`_\` after it, the capability-grant shape excluded) — and the clause's prose names that channel and no other token of that shape: a token of the shape that names something else (a script or npm target, a URL scheme) belongs in this prose in some form other than a bare backticked token, while a second channel that really is one is a contract change this clause and this check take together`,
+    ]);
+  });
+
+  it('fires on a token of the shape that is no channel at all, without calling it one', () => {
+    // The class the residue statements name: a script or npm target, a URL
+    // scheme — same shape, no channel behind it. The read cannot tell them
+    // apart, so it reds and says what to do about it, rather than asserting
+    // the token IS a second event channel.
+    const problems = evaluateCommandSurface(
+      makeSurface({
+        sectionProse: `The \`${CHANNEL}\` channel is consumed by one listener. Run \`lint:command-surface\` to hold it.`, // prettier-ignore
+      }),
+    );
+    assert.deepEqual(problems, [
+      `the DSH-1 section's prose outside its table names \`lint:command-surface\` in backticks — a whole backticked token shaped like \`${CHANNEL}\`, the channel the table states (a namespace and a name joined by a single colon, each of the two segments opening on a lowercase letter or a digit and carrying lowercase letters, digits, \`-\`, or \`_\` after it, the capability-grant shape excluded) — and the clause's prose names that channel and no other token of that shape: a token of the shape that names something else (a script or npm target, a URL scheme) belongs in this prose in some form other than a bare backticked token, while a second channel that really is one is a contract change this clause and this check take together`,
+    ]);
+  });
+
+  it('states both problems when the prose names a foreign channel and never the table’s own', () => {
+    // The rename that landed on the prose alone: the mention is gone AND a
+    // stale token stands in its place. The two legs are independent, so the
+    // report carries both lines, each self-explaining on its own.
+    const problems = evaluateCommandSurface(
+      makeSurface({ sectionProse: 'The `notify:action` channel is consumed by one listener.' }),
+    );
+    assert.deepEqual(problems, [
+      `the DSH-1 section's prose outside its table never names \`${CHANNEL}\` in backticks — the channel the table states is stated in the clause's own prose too`,
+      `the DSH-1 section's prose outside its table names \`notify:action\` in backticks — a whole backticked token shaped like \`${CHANNEL}\`, the channel the table states (a namespace and a name joined by a single colon, each of the two segments opening on a lowercase letter or a digit and carrying lowercase letters, digits, \`-\`, or \`_\` after it, the capability-grant shape excluded) — and the clause's prose names that channel and no other token of that shape: a token of the shape that names something else (a script or npm target, a URL scheme) belongs in this prose in some form other than a bare backticked token, while a second channel that really is one is a contract change this clause and this check take together`,
+    ]);
+  });
+
+  it('leaves the grant identifiers the same prose names exempt — they are the grants leg’s', () => {
+    assert.deepEqual(
+      evaluateCommandSurface(
+        makeSurface({
+          sectionProse: `The \`${CHANNEL}\` channel rides the \`core:default\` grant, beside \`dialog:allow-open\` and \`dialog:allow-save\`.`, // prettier-ignore
+        }),
+      ),
+      [],
+    );
+  });
+
+  it('leaves the crate attribute exempt — the read takes whole tokens, and it is not one', () => {
+    assert.deepEqual(
+      evaluateCommandSurface(
+        makeSurface({
+          sectionProse: `Every \`#[tauri::command]\` the crate defines is in the table, and \`${CHANNEL}\` is the only event channel.`, // prettier-ignore
+        }),
+      ),
+      [],
+    );
   });
 
   it('greens when the row, the emit site, the listener, and the prose are renamed together', () => {
@@ -927,6 +1035,113 @@ describe('extractSectionProse — the weld reads the section without its table',
   });
 });
 
+describe('extractProseChannelTokens — the shape the widened weld admits', () => {
+  it('reads whole backticked channel-shaped tokens, deduplicated, in order', () => {
+    assert.deepEqual(
+      extractProseChannelTokens(
+        'The `capture:action` channel, and `notify:action`, and `capture:action` again.',
+      ),
+      ['capture:action', 'notify:action'],
+    );
+  });
+
+  it('admits the `_` and `-` a channel name can carry', () => {
+    // Admitted, so a stale token written either way reds instead of hiding.
+    assert.deepEqual(
+      extractProseChannelTokens('`capture:legacy_v2` beside `capture-v2:action_x`'),
+      ['capture:legacy_v2', 'capture-v2:action_x'], // prettier-ignore
+    );
+  });
+
+  // The near-miss decisions, pinned. Each of these is IGNORED rather than
+  // admitted, and the reason is the shape, not an allow-list: an uppercase or
+  // `_` opening a segment, a missing segment, a bare word with no colon at
+  // all, and a further colon-joined segment each put the token outside this
+  // shape. Outside it is not the same as inside the grants leg's, as the
+  // residue pinned below shows — and the doc's event row is held to this same
+  // shape, so none of these can be the channel itself.
+  for (const near of [
+    'capture:legacy:v2',
+    'Capture:Legacy',
+    'capture:Legacy',
+    '_capture:legacy',
+    'capture:',
+    ':legacy',
+    'capture',
+  ]) {
+    it(`ignores \`${near}\` — outside the shape, so it can neither satisfy nor red the weld`, () => {
+      assert.deepEqual(extractProseChannelTokens(`The \`${near}\` mention.`), []);
+    });
+  }
+
+  it('leaves grant identifiers to the grants leg', () => {
+    const grants = '`core:default`, `dialog:allow-open`, `dialog:allow-save`';
+    assert.deepEqual(extractProseChannelTokens(grants), []);
+    // The other half of "leaves them to": the grants leg does read them.
+    assert.deepEqual(extractDocGrants(grants), [
+      'core:default',
+      'dialog:allow-open',
+      'dialog:allow-save',
+    ]);
+  });
+
+  it('leaves a token NEITHER shape covers to neither leg — the residue, pinned', () => {
+    // The committed residue statements say it as a property, not as a list of
+    // ways a token can land there: a token neither the channel shape nor the
+    // grant shape covers is read by neither reader. Both readers are asserted
+    // on each, so the claim cannot decay into "the grants leg covers it", and
+    // the sample deliberately spans different ways of falling outside both —
+    // a further segment, an `_` the grant shape does not admit, and an
+    // uppercase letter inside a grant terminal.
+    for (const token of ['capture:legacy:v2', 'a_b:c_d:default', 'dialog:allow-Open']) {
+      const prose = `The \`${token}\` mention.`;
+      assert.deepEqual(extractProseChannelTokens(prose), [], token);
+      assert.deepEqual(extractDocGrants(prose), [], token);
+    }
+    // Ending in a grant terminal puts the same segment count back inside the
+    // grants leg — the terminal is what decides it, not the count.
+    assert.deepEqual(extractDocGrants('`core:event:allow-listen`'), ['core:event:allow-listen']);
+    assert.deepEqual(extractProseChannelTokens('`core:event:allow-listen`'), []);
+  });
+
+  it('reads a token of the shape that is no channel — the class the residues name', () => {
+    // A script or npm target and a URL scheme are the shape exactly, with no
+    // channel behind either. The read admits them — it reads shape, not
+    // meaning — so each reds as a foreign channel and the clause's prose
+    // writes such a token in some other form than a bare backticked one.
+    assert.deepEqual(extractProseChannelTokens('Run `lint:command-surface` to hold it.'), [
+      'lint:command-surface',
+    ]);
+    assert.deepEqual(extractProseChannelTokens('A tab at `about:blank`.'), ['about:blank']);
+  });
+
+  it('reads a two-segment grant the grant shape misses as a channel — the residue that reds', () => {
+    // The gap that runs the other way, also committed: a capability grant the
+    // grant shape does not cover — ending in none of `:default` / `:allow-…` /
+    // `:deny-…`, or carrying an `_` that shape's segments do not admit — is
+    // channel-shaped here, so it would red as a foreign channel until the
+    // section states it differently.
+    assert.deepEqual(extractDocGrants('A future `dialog:scope` grant.'), []);
+    assert.deepEqual(extractProseChannelTokens('A future `dialog:scope` grant.'), ['dialog:scope']);
+    assert.deepEqual(extractDocGrants('A future `foo_bar:default` grant.'), []);
+    assert.deepEqual(extractProseChannelTokens('A future `foo_bar:default` grant.'), [
+      'foo_bar:default',
+    ]);
+  });
+
+  it('reads the token WHOLE — a channel inside a larger backticked span is unread', () => {
+    // The same mechanism that keeps `#[tauri::command]` out of the read, and
+    // the residue the check's honest limits name: a quoted call site carrying
+    // a stale channel is invisible here.
+    assert.deepEqual(extractProseChannelTokens("`listen('capture:legacy')`"), []);
+    assert.deepEqual(extractProseChannelTokens('`#[tauri::command]`'), []);
+  });
+
+  it('reads backticked tokens only — an unbackticked mention is unread', () => {
+    assert.deepEqual(extractProseChannelTokens('Actions also ride capture:legacy today.'), []);
+  });
+});
+
 describe('extractCommandFns / extractHandlerCommands', () => {
   it('reads pub, pub(crate), async, and attribute-argument command forms', () => {
     const src = [
@@ -1300,12 +1515,37 @@ describe('extractMockCommands / extractMockServicedCases', () => {
 });
 
 describe('real-tree lock', () => {
+  const lsFiles = (dir) =>
+    execFileSync('git', ['ls-files', dir], { encoding: 'utf8', cwd: ROOT })
+      .split('\n')
+      .map((s) => s.trim())
+      .filter(Boolean);
+
+  it('a rename landing on one live prose mention reds, naming the token left behind', () => {
+    // The false green the widened weld exists to close: the clause names the
+    // channel in several places, so renaming ONE of them leaves the others
+    // satisfying the presence read while a stale token stands in the prose.
+    // Run over the shipped tree with that one sentence rewritten, so the case
+    // is the real document's shape, not a fixture's.
+    const anchor = 'The `capture:action` channel is the shell';
+    const doc = readFileSync(resolve(ROOT, DOC_PATH), 'utf8');
+    assert.ok(doc.includes(anchor), 'the doc must carry the sentence this rename targets');
+    const readFile = (f) =>
+      f === DOC_PATH
+        ? doc.replace(anchor, 'The `capture:legacy` channel is the shell')
+        : readFileSync(resolve(ROOT, f), 'utf8');
+    const { problems } = auditTree(
+      readFile,
+      lsFiles(SRC_DIR).filter((f) => f.endsWith('.rs')),
+      lsFiles(CAPABILITIES_DIR),
+      lsFiles(FRONTEND_DIR).filter((f) => f.endsWith('.js')),
+    );
+    assert.deepEqual(problems, [
+      `the DSH-1 section's prose outside its table names \`capture:legacy\` in backticks — a whole backticked token shaped like \`${CHANNEL}\`, the channel the table states (a namespace and a name joined by a single colon, each of the two segments opening on a lowercase letter or a digit and carrying lowercase letters, digits, \`-\`, or \`_\` after it, the capability-grant shape excluded) — and the clause's prose names that channel and no other token of that shape: a token of the shape that names something else (a script or npm target, a URL scheme) belongs in this prose in some form other than a bare backticked token, while a second channel that really is one is a contract change this clause and this check take together`,
+    ]);
+  });
+
   it('the shipped tree satisfies the whole contract', () => {
-    const lsFiles = (dir) =>
-      execFileSync('git', ['ls-files', dir], { encoding: 'utf8', cwd: ROOT })
-        .split('\n')
-        .map((s) => s.trim())
-        .filter(Boolean);
     const rustFiles = lsFiles(SRC_DIR).filter((f) => f.endsWith('.rs'));
     // The same unfiltered input set the CLI wrapper passes, so the
     // format-refusal branch stays locked against the real tree.

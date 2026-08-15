@@ -16,6 +16,13 @@
  *     tokenizer, each diffed in both directions, with the two doc
  *     enumerations disjoint.
  *
+ * The clause's own sender statement is held present beside those sets: ERT-4's
+ * scope carries the existence claim the send leg enforces
+ * ({@link SENDER_STATEMENT_ANCHOR}) exactly once, so the leg can never go on
+ * enforcing a rule the document has stopped making, and an update can never
+ * land on one copy of it while another stands — anywhere in the clause, a
+ * paragraph of its own or the one the claim already sits in.
+ *
  * The sender side reads one shape: a `send(` call whose first argument OPENS
  * an object literal. That literal's TOP-LEVEL properties are then read for a
  * `type` key — bare or quoted, in any position, since property order is not
@@ -87,6 +94,11 @@
  * beforehand are all that shape — and, in the reverse direction, an
  * enumerated type sent only through such a site reds as "never sent", a
  * misleading red the check cannot tell from a genuinely unsent type. The
+ * sender statement's own presence guard holds the claim's WORDS: a faithful
+ * rewording that drops them reds although the doctrine still stands, and a
+ * sentence keeping them while the prose around them turns into something else
+ * passes — what the statement means stays review-held, the same way the
+ * tables' prose does. The
  * tables' rationale, payload, and response prose stays review-held; and the
  * manifest's resource-exposure facts (CSP absence, empty
  * `web_accessible_resources`) stay judgment-held with their doc bullets.
@@ -101,6 +113,7 @@ import { pathToFileURL } from 'node:url';
 import {
   backtickedName,
   duplicatesIn,
+  extractClauseSection,
   missingFrom,
   parseTables,
   readLoneStringLiteral,
@@ -139,6 +152,33 @@ export const PANEL_TABLE_HEADER = 'Group';
 const EQUALITY_OPERAND_END = ')]};,?:&|';
 /** The punctuation that ends a case label: the label's own colon, nothing else. */
 const CASE_LABEL_END = ':';
+
+/**
+ * The words the clause's sender statement makes its existence claim in — the
+ * doctrine the send leg holds, quoted from the clause rather than paraphrased,
+ * so the phrase has one home and the suite reads it from here.
+ */
+export const SENDER_STATEMENT_ANCHOR = 'has at least one send written as an object literal';
+
+/**
+ * Count how many times the clause's own scope states the sender statement.
+ * The clause section is fence-aware (so a fenced illustration cannot stand in
+ * for the doctrine) and bounded at the clause's marker, so a statement that
+ * drifts out of the clause counts as gone; the whole scope is
+ * whitespace-flattened before the anchor is sought, so the anchor is found
+ * whatever line the prose wraps on.
+ *
+ * Occurrences, not paragraphs: a second copy of the claim is a second copy an
+ * update can land beside whether or not a blank line separates the two, so
+ * the count the one-statement rule is read from cannot depend on where the
+ * copy was pasted.
+ * @param {string} runtimeText the runtime doc's text
+ * @returns {number} occurrences of the anchor in the clause's scope
+ */
+export function countSenderStatements(runtimeText) {
+  const scope = extractClauseSection(runtimeText, ERT_CLAUSE_ID).replace(/\s+/g, ' ');
+  return scope.split(SENDER_STATEMENT_ANCHOR).length - 1;
+}
 
 /**
  * Read the manifest's permission surface. Entries that are not strings are
@@ -549,6 +589,7 @@ export const DUPLICATE_SURFACES = [
  * @param {string[]} s.equalityTypes the worker module's equality-literal types
  * @param {string[]} s.sendTypes the panel's literal send types, deduplicated
  * @param {{ path: string, ordinal: number, type: string | null, found: string | null }[]} s.sendSites every object-literal send site, readable or not
+ * @param {number} s.senderStatements times the clause's scope states its sender statement
  * @returns {string[]} problems; empty when both contracts hold (the
  *   dispatcher anchor guards — switch count, the default arm, nesting — are
  *   the extractor's own problems and are reported beside these)
@@ -567,6 +608,16 @@ export function evaluateExtensionSurface(s) {
   }
   for (const site of s.sendSites.filter((x) => x.type === null)) {
     problems.push(`${sendLabel(site)} states no readable message type — the scan found ${site.found} — an object-literal send carries its type as a string literal in a top-level \`type\` property, in any position, so the sender side stays readable`); // prettier-ignore
+  }
+
+  // The sender statement is the doctrine the send leg holds, so it is read
+  // ahead of the vacuous return: a doc edit that broke the tables and took the
+  // statement with it must say both things. Written fail-closed — a surface
+  // that states no count is a surface that proved nothing.
+  if (!(s.senderStatements >= 1)) {
+    problems.push(`${RUNTIME_DOC_PATH} §${ERT_CLAUSE_ID} states no sender statement — nothing in the clause's scope carries "${SENDER_STATEMENT_ANCHOR}" — the panel-side closure this check's send leg holds (every panel-protocol type carrying at least one object-literal send( that names it) is doctrine the clause states, and the leg cannot hold a rule the document no longer makes`); // prettier-ignore
+  } else if (s.senderStatements > 1) {
+    problems.push(`${RUNTIME_DOC_PATH} §${ERT_CLAUSE_ID} makes the "${SENDER_STATEMENT_ANCHOR}" claim ${s.senderStatements} times — the clause states it once, so an update cannot land on one copy and leave another standing, wherever in the clause that copy was written`); // prettier-ignore
   }
 
   let vacuous = false;
@@ -618,7 +669,8 @@ export function auditTree(readFile, panelFiles) {
   const permDoc = readFile(PERMISSIONS_DOC_PATH);
   const permissions = extractSectionTableNames(permDoc, 'Permissions', 'Permission');
   const hostPermissions = extractSectionTableNames(permDoc, 'Host permissions', 'Host permission');
-  const protocol = extractProtocolTables(readFile(RUNTIME_DOC_PATH));
+  const runtimeDoc = readFile(RUNTIME_DOC_PATH);
+  const protocol = extractProtocolTables(runtimeDoc);
   const dispatcher = extractDispatcherSurface(readFile(WORKER_PATH));
   const sendSites = extractSendSites(new Map(panelFiles.map((p) => [p, readFile(p)])));
 
@@ -635,6 +687,7 @@ export function auditTree(readFile, panelFiles) {
     equalityTypes: dispatcher.equalityTypes,
     sendTypes: [...new Set(sendSites.filter((x) => x.type !== null).map((x) => x.type))],
     sendSites,
+    senderStatements: countSenderStatements(runtimeDoc),
   };
   return {
     problems: [...manifest.problems, ...dispatcher.problems, ...evaluateExtensionSurface(s)],
@@ -681,7 +734,8 @@ function run() {
   console.log(
     `✓ extension surface consistent: ${permissionCount} permissions match the doc tables; ` +
       `${typeCount} message types agree between the runtime doc and the worker dispatcher, ` +
-      `and its ${panelTypeCount} panel-protocol types agree with the panel's literal sends.`,
+      `and its ${panelTypeCount} panel-protocol types agree with the panel's literal sends, ` +
+      `whose closure the clause's own scope states once.`,
   );
 }
 
