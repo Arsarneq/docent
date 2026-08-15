@@ -1327,17 +1327,34 @@ describe('run() governance-data-only class — the recorded line end to end', ()
   });
 });
 
-describe('run() on a malformed area map — the red is the refusal, on the ordinary red path', () => {
-  // The check reads the map to derive scope, so a map that is not shape-valid is
-  // breakage on its own input. The red names that surface and enumerates what is
-  // wrong with it — the same posture the class tests above pin: the red is the
-  // verdict itself, not a crash on the way to it.
+describe('run() on governance data it cannot use — the red is the refusal, on the ordinary red path', () => {
+  // The check reads both governance-data files to derive scope, so either one it
+  // cannot use is breakage on its own input, and the red is the verdict itself
+  // rather than a crash on the way to it — the same posture the class tests above
+  // pin. What that verdict says differs by file and by what was found: the map's
+  // shape errors are enumerated as found where the map read but its shape failed,
+  // while text that does not read as JSON states one reason in their place; the
+  // registry answers with the single-sentence verdict its own check states,
+  // whether its text is not JSON or it could not be read at all.
   const REGISTRY_FIXTURE = JSON.stringify({
     description: 'fixture registry',
     prefixes: {},
     retired: {},
     clauses: [],
   });
+
+  /** A body that satisfies every format rule, so only the input refusal reds. */
+  const BODY = [
+    '## Docs disposition',
+    '',
+    'unaffected: README.md — nothing here touches it',
+    '',
+    '## Change record',
+    '',
+    'Intent: test.',
+    'Outside knowledge: none.',
+    'mutation: no per-change claim; mutation testing runs as a standing weekly job.',
+  ].join('\n');
 
   /** Shape-invalid: `areas` is empty, and the partitions are a bare-string list. */
   const malformedMap = JSON.stringify({
@@ -1380,6 +1397,92 @@ describe('run() on a malformed area map — the red is the refusal, on the ordin
     assert.match(r.stderr, new RegExp(`${MAP_PATH.replace('.', '\\.')} is malformed`));
     assert.match(r.stderr, /"areas" must be a non-empty object/);
     assert.doesNotMatch(r.stderr, /^\s+at /m); // a verdict, not a thrown stack
+  });
+
+  it('answers a map that does not read as JSON with that same refusal', () => {
+    // The step before the shape check is the read itself, and it answers alike:
+    // the surface is named, the parser's reason is stated, and what reaches the
+    // contributor is a verdict rather than the parser's stack.
+    const r = runCheckOnChange(
+      {
+        'README.md': 'a repo-wide doc\n',
+        [MAP_PATH]: '{ "description": "fixture map",',
+        [REGISTRY_PATH]: REGISTRY_FIXTURE,
+      },
+      { 'README.md': 'an edited repo-wide doc\n' },
+      { PR_BODY: BODY },
+    );
+    assert.equal(
+      r.status,
+      1,
+      `expected the unparseable map to red (exit 1), got exit ${r.status}.\n` +
+        `stdout: ${r.stdout}\nstderr: ${r.stderr}`,
+    );
+    assert.match(r.stderr, new RegExp(`${MAP_PATH.replace('.', '\\.')} is malformed`));
+    assert.match(r.stderr, /does not read as JSON/);
+    assert.doesNotMatch(r.stderr, /^\s+at /m);
+  });
+
+  it('answers a registry that does not read as JSON with the registry check\u2019s refusal', () => {
+    const r = runCheckOnChange(
+      {
+        'README.md': 'a repo-wide doc\n',
+        [MAP_PATH]: JSON.stringify({
+          description: 'fixture map',
+          'repo-wide': { description: 'x', docs: ['README.md'] },
+          areas: { alpha: { code: ['packages/alpha/**'], docs: ['docs/alpha.md'] } },
+          unassigned: [],
+          'declared-governance': [],
+          'governance-partitions': [],
+        }),
+        'docs/alpha.md': 'alpha doctrine\n',
+        [REGISTRY_PATH]: '{ "clauses": [',
+      },
+      { 'README.md': 'an edited repo-wide doc\n' },
+      { PR_BODY: BODY },
+    );
+    assert.equal(
+      r.status,
+      1,
+      `expected the unparseable registry to red (exit 1), got exit ${r.status}.\n` +
+        `stdout: ${r.stdout}\nstderr: ${r.stderr}`,
+    );
+    assert.match(
+      r.stderr,
+      new RegExp(`${REGISTRY_PATH.replace('.', '\\.')} does not read as JSON`),
+    );
+    assert.doesNotMatch(r.stderr, /^\s+at /m);
+  });
+
+  it('answers a registry it cannot read at all with that same refusal', () => {
+    // The other branch of the same read: the registry is simply not in the tree,
+    // so the read itself fails. The check answers with the registry check's own
+    // verdict, saying which of the two it was, and still prints no stack.
+    const r = runCheckOnChange(
+      {
+        'README.md': 'a repo-wide doc\n',
+        [MAP_PATH]: JSON.stringify({
+          description: 'fixture map',
+          'repo-wide': { description: 'x', docs: ['README.md'] },
+          areas: { alpha: { code: ['packages/alpha/**'], docs: ['docs/alpha.md'] } },
+          unassigned: [],
+          'declared-governance': [],
+          'governance-partitions': [],
+        }),
+        'docs/alpha.md': 'alpha doctrine\n',
+      },
+      { 'README.md': 'an edited repo-wide doc\n' },
+      { PR_BODY: BODY },
+    );
+    assert.equal(
+      r.status,
+      1,
+      `expected the unreadable registry to red (exit 1), got exit ${r.status}.\n` +
+        `stdout: ${r.stdout}\nstderr: ${r.stderr}`,
+    );
+    assert.match(r.stderr, new RegExp(`${REGISTRY_PATH.replace('.', '\\.')} could not be read`));
+    assert.doesNotMatch(r.stderr, /does not read as JSON/);
+    assert.doesNotMatch(r.stderr, /^\s+at /m);
   });
 });
 

@@ -25,16 +25,24 @@
  *       doc-home decision: a doctrine doc the map places nowhere is a red.
  *       (Only tracked files are seen — the list is `git ls-files` — so
  *       gitignored docs are never scanned and never required here.)
- *   (d) self-failing unassigned list — an `unassigned` entry whose files all
- *       resolve through areas anyway (and, for a `.md`, are doc-placed anyway)
- *       is unnecessary and must be removed.
+ *   (d) self-failing unassigned list — an `unassigned` entry earns its keep file
+ *       by file. An entry whose files all resolve through areas anyway (and, for
+ *       a `.md`, are doc-placed anyway) is unnecessary as a whole and must be
+ *       removed; a file that resolves anyway beside files the tree still needs
+ *       the entry for is red on that file alone, and the entry is narrowed until
+ *       it covers only the files that need it. Necessity is accounted per FILE,
+ *       so what an entry spells — one path, a brace alternation, a wide pattern
+ *       — never decides which files it is answered for.
  *   (e) declared governance — a `declared-governance` entry names files that keep
  *       their code-area coverage but declare their own COMPLETE governing doc set
  *       explicitly (a `governed-by` array; `[]` states the set is empty), in place
  *       of the docs their covering area supplies. Each element is a literal doc
  *       path or an `area:<name>` reference, which stands for that area's whole doc
  *       set and expands to it. Outside a partitioned tree, a declaration whose set
- *       already equals what the area supplies states nothing new (redundant); a file
+ *       already equals what the area supplies states nothing new (redundant) —
+ *       accounted per FILE, so an entry equal for every file it answers for is
+ *       redundant as a whole, while one equal for some of them beside files it
+ *       really does answer for is red on those files and splits; a file
  *       declared twice, or one that also sources governance from a repo-wide doc
  *       or a `// see docs/…` pointer into a live doc set, is a red (conflict /
  *       cross-governed — declare in one place); a governed-by target that is
@@ -64,6 +72,20 @@
  *       redundancy accounting, whose own remedy (remove the entry) would
  *       contradict the split this one asks for; every other red still applies
  *       to it.
+ *   (g) area necessity — an area earns its place by supplying something the rest
+ *       of the map does not: docs some tracked file's governing set would
+ *       otherwise lose, coverage some tracked file would otherwise lack, or the
+ *       readability of the map itself. The question is asked by deleting it:
+ *       every `area:<name>` reference to it is first inlined to the docs it
+ *       stands for (so what is asked is what the area supplies, not whether
+ *       something names it), and every tracked file is resolved again. An area
+ *       whose deletion leaves every file governed by exactly the same docs, and
+ *       leaves no file unowned, makes no contribution the rest of the map does
+ *       not already make — a red naming it. Each area is judged on its own
+ *       against the rest of the map: areas that supply the same docs each answer
+ *       for the others, so each is named and each removal is a new question the
+ *       next run answers. An area the map cannot be read without (deleting it
+ *       leaves no areas at all) supplies that readability.
  *
  * What this check deliberately cannot see: a file or doc filed under the WRONG
  * area still passes — the map's content is reviewed, not derived. Pointer
@@ -97,21 +119,30 @@ export const MAP_PATH = 'scripts/area-map.json';
 /** `name` of the refusal `compileMap` raises on a map that is not shape-valid. */
 export const SHAPE_ERROR_NAME = 'AreaMapShapeError';
 
-/** The printed verdict for a set of shape errors — the one home of its wording. */
-const shapeVerdict = (errors) =>
-  `✗ ${MAP_PATH} is malformed:\n` + errors.map((e) => `    ${e}`).join('\n');
+/**
+ * The printed verdict for a set of errors about the map — the one home of its
+ * wording. The headline states what the file turned out to be, so a map that is
+ * there and misshapen and a map that is not there to read are told apart on the
+ * first line; the default is the shape verdict every `validateShape` red takes.
+ */
+const shapeVerdict = (errors, headline = `${MAP_PATH} is malformed`) =>
+  `✗ ${headline}:\n` + errors.map((e) => `    ${e}`).join('\n');
 
 /**
- * The refusal `compileMap` raises when handed a map that is not shape-valid.
- * Its message is the complete verdict — every error `validateShape` reported,
- * under the map's path — so a consumer catching it prints the message as its
- * own red rather than re-deriving anything, and `name` identifies the refusal
- * without depending on a shared class instance.
+ * The refusal `compileMap` raises when handed a map that is not shape-valid,
+ * and `loadMap` raises for a file it cannot turn into a map at all. Its message
+ * is the complete verdict — every error reported, under a headline naming the
+ * map and what it turned out to be — so a consumer catching it prints the
+ * message as its own red rather than re-deriving anything, and `name`
+ * identifies the refusal without depending on a shared class instance.
  */
 export class AreaMapShapeError extends Error {
-  /** @param {string[]} shapeErrors every error validateShape reported */
-  constructor(shapeErrors) {
-    super(shapeVerdict(shapeErrors));
+  /**
+   * @param {string[]} shapeErrors every error reported about the map
+   * @param {string} [headline] what the file turned out to be, as the verdict names it
+   */
+  constructor(shapeErrors, headline) {
+    super(shapeVerdict(shapeErrors, headline));
     this.name = SHAPE_ERROR_NAME;
     this.shapeErrors = shapeErrors;
   }
@@ -138,6 +169,43 @@ export function refuseOnShapeError(
   if (err?.name !== SHAPE_ERROR_NAME) throw err;
   error(err.message);
   exit(1);
+}
+
+/** What the map is read for, stated on every refusal its read can raise. */
+const MAP_READ_FOR =
+  `every consumer reads a file's areas and its governing docs through this map, ` +
+  `so restore it before any of that can be resolved`;
+
+/**
+ * Read the map from disk and parse it — the step that turns the committed file
+ * into the object every consumer resolves through. The read is inside the
+ * guarded region with the parse, following the same shape the clause-preamble
+ * check reads its inputs through: a file that cannot be read at all and a file
+ * whose text is not JSON are both refused with the same
+ * {@link AreaMapShapeError} a shape-invalid map raises, each saying which of the
+ * two it was. The input step and the shape step answering alike is what lets the
+ * refusal posture every consumer already prints reach the read, so no consumer
+ * answers a missing or broken map with a stack trace. The read seam is a
+ * parameter so the decision can be exercised without touching the tree.
+ * @param {(path: string) => string} [read] how the file's text is read
+ * @throws {AreaMapShapeError} when the file cannot be read, or its text is not JSON
+ * @returns {any} the parsed map
+ */
+export function loadMap(read = (p) => readFileSync(p, 'utf8')) {
+  let text;
+  try {
+    text = read(MAP_PATH);
+  } catch (err) {
+    throw new AreaMapShapeError(
+      [`${err.message} — ${MAP_READ_FOR}`],
+      `${MAP_PATH} could not be read`,
+    );
+  }
+  try {
+    return JSON.parse(text);
+  } catch (err) {
+    throw new AreaMapShapeError([`does not read as JSON — ${err.message} — ${MAP_READ_FOR}`]);
+  }
 }
 
 /** Characters a pattern may contain (checked before compiling). */
@@ -749,15 +817,96 @@ export function explainFile({ file, compiled, tracked, content = null }) {
 }
 
 /**
- * How many files per side a straddling declaration's red names before counting
- * the rest — a wide entry states which files put it on each side without
- * printing a wall that grows with the tree.
+ * How many files one entry's red names before counting the rest — minted for a
+ * straddling declaration's two sides, and the cap every red here that names
+ * files of a single entry takes, so a wide entry states which files answered for
+ * it without printing a wall that grows with the tree.
  */
-export const STRADDLE_SAMPLE = 3;
+export const FILE_SAMPLE = 3;
 
 /** `a, b, c and 4 more` — one side's kept files, with the rest counted. */
 const sample = (kept, total) =>
   kept.join(', ') + (total > kept.length ? ` and ${total - kept.length} more` : '');
+
+/**
+ * The map as it reads with one area deleted, with every `area:<name>` reference
+ * to that area inlined to the docs it stands for first. Inlining is what makes
+ * the deletion answerable: a reference names an area, so deleting a referenced
+ * area would otherwise be refused as a broken reference before anything about
+ * what it supplies could be asked, and the question here is what its doc set
+ * supplies rather than whether some declaration spells its name.
+ * @param {any} map parsed area-map.json
+ * @param {string} name the area to delete
+ * @returns {any} the same map without that area
+ */
+function withoutArea(map, name) {
+  const inlined = map.areas[name]?.docs ?? [];
+  const areas = { ...map.areas };
+  delete areas[name];
+  return {
+    ...map,
+    areas,
+    'declared-governance': (map['declared-governance'] ?? []).map((e) => ({
+      ...e,
+      'governed-by': [
+        ...new Set(
+          (e['governed-by'] ?? []).flatMap((el) => (areaRefName(el) === name ? inlined : [el])),
+        ),
+      ],
+    })),
+  };
+}
+
+/**
+ * (g) The areas that supply what the rest of the map already supplies: an area
+ * is deleted, the map recompiled, and every tracked file resolved again against
+ * it. An area whose deletion leaves every file governed by exactly the same docs
+ * — and leaves no file that was owned unowned, since coverage the rest of the
+ * map does not supply is a contribution of its own — makes no contribution the
+ * rest of the map does not already make. Each area is judged on its own against
+ * the rest of the map, never as a set: areas that supply the same docs each
+ * answer for the others, so each is named and each removal is a new question the
+ * next run answers.
+ * An area whose deletion leaves the map unreadable (no areas at all) supplies
+ * that readability, which is what the shape refusal here records; any other
+ * error leaves as it arrived, since only the shape refusal answers a question
+ * this leg asked.
+ * @param {object} opts
+ * @param {string[]} opts.files all git-tracked repo-relative paths
+ * @param {any} opts.map parsed area-map.json (already shape-valid)
+ * @param {ReturnType<typeof compileMap>} opts.compiled the same map, compiled
+ * @param {(f: string) => (string | null)} opts.contentOf file content, for pointer resolution
+ * @returns {string[]} the redundant area names, in the order the map states them
+ */
+function redundantAreaNames({ files, map, compiled, contentOf }) {
+  const before = new Map(
+    files.map((f) => {
+      const r = resolveFile(f, compiled, contentOf(f));
+      return [f, { docs: new Set(r.docs), owned: r.areas.length > 0 }];
+    }),
+  );
+  const redundant = [];
+  for (const name of Object.keys(map.areas)) {
+    let trimmed;
+    try {
+      trimmed = compileMap(withoutArea(map, name));
+    } catch (err) {
+      // The map not being readable without the area is this leg's answer: the
+      // area supplies that readability, so it is necessary. Anything else is
+      // not an answer to the question asked here and leaves as it arrived.
+      if (err?.name !== SHAPE_ERROR_NAME) throw err;
+      continue;
+    }
+    const changes = files.some((f) => {
+      const was = before.get(f);
+      const now = resolveFile(f, trimmed, contentOf(f));
+      if (was.owned && now.areas.length === 0) return true;
+      return now.docs.length !== was.docs.size || now.docs.some((d) => !was.docs.has(d));
+    });
+    if (!changes) redundant.push(name);
+  }
+  return redundant;
+}
 
 /**
  * Pure core: audit the map against the tracked-file universe.
@@ -765,13 +914,17 @@ const sample = (kept, total) =>
  * @param {string[]} opts.files all git-tracked repo-relative paths
  * @param {any} opts.map parsed area-map.json
  * @param {(f: string) => (string | null)} opts.readFile content reader (null if unreadable);
- *   consulted only for files that would otherwise resolve to no area
+ *   consulted for the files whose `// see docs/…` pointers can decide a resolution — those
+ *   that would otherwise resolve to no area, those a declaration answers for, and, for the
+ *   area-necessity leg, the tracked set it resolves twice. Each file is read at most once.
  * @returns {{
  *   shapeErrors: string[], zeroArea: string[],
  *   stalePatterns: string[], untrackedEntries: string[],
  *   uncoveredDocs: string[], staleUnassigned: string[],
- *   unnecessaryUnassigned: string[], badPointers: string[],
+ *   unnecessaryUnassigned: string[], unnecessaryUnassignedFiles: string[],
+ *   badPointers: string[],
  *   staleGovernance: string[], redundantGovernance: string[],
+ *   redundantGovernanceFiles: string[], redundantAreas: string[],
  *   conflictingGovernance: string[], crossGovernedDeclaration: string[],
  *   badGovernedBy: string[], undeclaredInPartition: string[],
  *   stalePartitions: string[], overlappingPartitions: string[],
@@ -788,9 +941,12 @@ export function auditMap({ files, map, readFile }) {
     uncoveredDocs: [],
     staleUnassigned: [],
     unnecessaryUnassigned: [],
+    unnecessaryUnassignedFiles: [],
     badPointers: [],
     staleGovernance: [],
     redundantGovernance: [],
+    redundantGovernanceFiles: [],
+    redundantAreas: [],
     conflictingGovernance: [],
     crossGovernedDeclaration: [],
     badGovernedBy: [],
@@ -805,6 +961,14 @@ export function auditMap({ files, map, readFile }) {
   const tracked = new Set(files);
   const compiled = compileMap(map);
   const result = { ...empty };
+  // Content is read through one cache: several legs ask the same file for its
+  // `// see docs/…` pointers, and the area-necessity leg resolves the tracked
+  // set once per area, so a file is read at most once however often it is asked.
+  const contents = new Map();
+  const contentOf = (f) => {
+    if (!contents.has(f)) contents.set(f, readFile(f));
+    return contents.get(f);
+  };
 
   // (b) staleness, one leg over every pattern-bearing entry the map states.
   // An alternative that matches nothing beside siblings that still match is a
@@ -836,18 +1000,27 @@ export function auditMap({ files, map, readFile }) {
     if (!tracked.has(d)) result.untrackedEntries.push(`repo-wide: ${d}`);
   }
 
-  // (a) coverage + (c) doc-coverage + (d) unassigned self-check.
-  const unassignedHits = new Map(map.unassigned.map((e) => [e.path, { total: 0, needed: 0 }]));
+  // (a) coverage + (c) doc-coverage + (d) unassigned self-check. Each entry
+  // keeps the files it covered that the tree does not need it for, so necessity
+  // can be answered per file when the entry as a whole is still needed.
+  const unassignedHits = new Map(
+    map.unassigned.map((e) => [e.path, { total: 0, needed: 0, inert: 0, inertSample: [] }]),
+  );
   const isUnassigned = (f) => compiled.unassigned.some((e) => matches(e.matchers, f));
   // declared-governance self-check: per entry, does it change any matched file's governing set?
   // Each side of a partition boundary also keeps the first few files it matched,
   // so a straddling entry's red can name them without retaining (or printing) a
   // file list that grows with the tree.
+  // Each entry also keeps the eligible files it states nothing new for, so
+  // equality can be answered per file when the entry as a whole still states
+  // something.
   const govAcc = compiled.declaredGovernance.map((e) => ({
     e,
     total: 0,
     eligible: 0,
     allEqual: true,
+    equal: 0,
+    equalSample: [],
     inPartition: 0,
     outsidePartition: 0,
     insideSample: [],
@@ -862,7 +1035,7 @@ export function auditMap({ files, map, readFile }) {
     let owned = docPlaced || bare.areas.length > 0;
     if (!owned) {
       // Pointer rescue: a `// see docs/<path>.md` comment names the governing doc.
-      const content = readFile(file);
+      const content = contentOf(file);
       if (content != null) {
         const withContent = resolveFile(file, compiled, content);
         for (const target of withContent.pointerTargets) {
@@ -887,6 +1060,10 @@ export function auditMap({ files, map, readFile }) {
           const hit = unassignedHits.get(e.path);
           hit.total++;
           if (redWithoutException) hit.needed++;
+          else {
+            hit.inert++;
+            if (hit.inertSample.length < FILE_SAMPLE) hit.inertSample.push(file);
+          }
         }
       }
     }
@@ -921,7 +1098,7 @@ export function auditMap({ files, map, readFile }) {
       if (!crossGoverned) {
         // Read content only to enforce single-source; this runs no pointer validation, so a
         // declared file's dead `// see` fixture strings (targets in no doc set) stay inert.
-        const content = readFile(file);
+        const content = contentOf(file);
         if (content != null && extractDocPointers(content).some((t) => compiled.docSets.has(t))) {
           crossGoverned = true;
         }
@@ -937,17 +1114,19 @@ export function auditMap({ files, map, readFile }) {
         acc.total++;
         if (inPartition) {
           acc.inPartition++;
-          if (acc.insideSample.length < STRADDLE_SAMPLE) acc.insideSample.push(file);
+          if (acc.insideSample.length < FILE_SAMPLE) acc.insideSample.push(file);
         } else {
           acc.outsidePartition++;
-          if (acc.outsideSample.length < STRADDLE_SAMPLE) acc.outsideSample.push(file);
+          if (acc.outsideSample.length < FILE_SAMPLE) acc.outsideSample.push(file);
         }
         if (eligible) {
           acc.eligible++;
           const gb = new Set(acc.e.expandedGovernedBy);
-          if (gb.size !== areaSupplied.size || [...gb].some((d) => !areaSupplied.has(d))) {
-            acc.allEqual = false;
-          }
+          const equal = gb.size === areaSupplied.size && [...gb].every((d) => areaSupplied.has(d));
+          if (equal) {
+            acc.equal++;
+            if (acc.equalSample.length < FILE_SAMPLE) acc.equalSample.push(file);
+          } else acc.allEqual = false;
         }
       }
     }
@@ -967,14 +1146,22 @@ export function auditMap({ files, map, readFile }) {
           ` outside every partition: ${sample(acc.outsideSample, acc.outsidePartition)}`,
       );
     }
-    if (acc.total === 0) result.staleGovernance.push(acc.e.path);
-    else if (
-      !straddling &&
-      acc.eligible >= 1 &&
-      acc.e.expandedGovernedBy.length > 0 &&
-      acc.allEqual
-    ) {
+    // An entry declaring the empty set states that absence itself, and a
+    // straddling one is answered by the refusal above, so neither is read for
+    // equality. What is left is accounted per file: equal for every file the
+    // entry answers for is the entry's own red, equal for some of them is a red
+    // on those files — one condition each, so the two never double-fire. The
+    // files come out under the entry that declares them, sampled, so one wide
+    // entry is one line however many files it reaches.
+    const accountable = !straddling && acc.e.expandedGovernedBy.length > 0;
+    if (acc.total === 0) {
+      result.staleGovernance.push(acc.e.path);
+    } else if (accountable && acc.eligible >= 1 && acc.allEqual) {
       result.redundantGovernance.push(acc.e.path);
+    } else if (accountable && acc.equal > 0) {
+      result.redundantGovernanceFiles.push(
+        `${sample(acc.equalSample, acc.equal)} — declared by "declared-governance" entry "${acc.e.path}"`,
+      );
     }
   }
   // badGovernedBy — a per-entry check on the RAW declared elements, independent of
@@ -991,13 +1178,24 @@ export function auditMap({ files, map, readFile }) {
       }
     }
   }
-  for (const [path, { total, needed }] of unassignedHits) {
+  // Necessity per file: an entry no covered file needs is the entry's own red,
+  // and an entry the tree still needs is read file by file for the ones it
+  // covers that resolve anyway — one condition each, so the two never
+  // double-fire. The files come out under the entry that covers them, sampled,
+  // so one wide entry is one line however many files it reaches.
+  for (const [path, { total, needed, inert, inertSample }] of unassignedHits) {
     if (total === 0) {
       result.staleUnassigned.push(path);
     } else if (needed === 0) {
       result.unnecessaryUnassigned.push(path);
+    } else if (inert > 0) {
+      result.unnecessaryUnassignedFiles.push(
+        `${sample(inertSample, inert)} — covered by "unassigned" entry "${path}"`,
+      );
     }
   }
+
+  result.redundantAreas = redundantAreaNames({ files, map, compiled, contentOf });
 
   // (c) every tracked `.md` (repo-wide, not just under docs/) is repo-wide, in
   // some area's doc set, or a justified `unassigned` exception. Only tracked
@@ -1019,16 +1217,25 @@ export function auditMap({ files, map, readFile }) {
 
 /* c8 ignore start — the CLI wrapper reads the tracked-file list from git and the
  * map from disk, then prints; the shape/coverage/staleness/doc-coverage, the
- * declared-governance self-check, the per-file explanation, and the refusal it
- * prints for a map that does not fit that shape it delegates to (validateShape,
- * compileMap, resolveFile, auditMap, explainFile, refuseOnShapeError) are
- * unit-tested above. */
+ * declared-governance self-check, the area-necessity leg, the per-file
+ * explanation, the read that turns the committed file into the map, and the
+ * refusal it prints for a file it cannot read as that map it delegates to
+ * (validateShape, compileMap, resolveFile, auditMap, explainFile, loadMap,
+ * refuseOnShapeError) are unit-tested above. */
 function run() {
   const files = execFileSync('git', ['ls-files'], { encoding: 'utf8' })
     .split('\n')
     .map((s) => s.trim())
     .filter(Boolean);
-  const map = JSON.parse(readFileSync(MAP_PATH, 'utf8'));
+  let map;
+  try {
+    map = loadMap();
+  } catch (err) {
+    // A file this check cannot read as the map it guards — one it cannot read at
+    // all, or text that is not JSON — is breakage on its own input, printed as
+    // the refusal states it on the ordinary red path, never a stack trace.
+    refuseOnShapeError(err);
+  }
   const readFile = (f) => {
     try {
       return readFileSync(f, 'utf8');
@@ -1137,6 +1344,17 @@ function run() {
         r.unnecessaryUnassigned.map((s) => `    ${s}`).join('\n'),
     );
   }
+  if (r.unnecessaryUnassignedFiles.length) {
+    problems.push(
+      `✗ ${r.unnecessaryUnassignedFiles.length} "unassigned" entr(ies) cover file(s) the tree does not need them for, beside files it does — each file named already resolves to an area (and a doc is already doc-placed); each entry names up to ${FILE_SAMPLE} of them, with any remainder counted:\n` +
+        r.unnecessaryUnassignedFiles.map((s) => `    ${s}`).join('\n') +
+        `\n\n  Fix: narrow each named entry so it covers only the files that need it — the exception\n` +
+        `  stays for those — then re-run; each run names the next files that entry still covers\n` +
+        `  unnecessarily, until none is left. An entry is answered for file by file, so what it\n` +
+        `  spells (one path, a brace alternation, a wide pattern) does not decide which files it\n` +
+        `  is needed for.`,
+    );
+  }
   if (r.badPointers.length) {
     problems.push(
       `✗ ${r.badPointers.length} doc pointer(s) do not resolve:\n` +
@@ -1154,6 +1372,17 @@ function run() {
     problems.push(
       `✗ ${r.redundantGovernance.length} "declared-governance" entr(ies) are redundant — every matched file's covering area already supplies exactly the declared docs, so the declaration states nothing new; remove:\n` +
         r.redundantGovernance.map((s) => `    ${s}`).join('\n'),
+    );
+  }
+  if (r.redundantGovernanceFiles.length) {
+    problems.push(
+      `✗ ${r.redundantGovernanceFiles.length} "declared-governance" entr(ies) state nothing new for file(s) they declare, beside files they do state something for — each file named has a covering area already supplying exactly the declared docs; each entry names up to ${FILE_SAMPLE} of them, with any remainder counted:\n` +
+        r.redundantGovernanceFiles.map((s) => `    ${s}`).join('\n') +
+        `\n\n  Fix: split each named entry so it declares only the files whose governing set it\n` +
+        `  changes; the files above take what their areas supply — then re-run; each run names\n` +
+        `  the next files that entry still states nothing new for, until none is left. Equality\n` +
+        `  is answered file by file, so an entry covering a family answers for each file in that\n` +
+        `  family.`,
     );
   }
   if (r.conflictingGovernance.length) {
@@ -1212,12 +1441,26 @@ function run() {
     problems.push(
       `✗ ${r.straddlingGovernance.length} "declared-governance" entr(ies) reach across a "governance-partitions" boundary\n` +
         `  (each matches files inside a partitioned tree and files outside every partition; each\n` +
-        `  side names up to ${STRADDLE_SAMPLE} of the files it matched, with any remainder counted):\n` +
+        `  side names up to ${FILE_SAMPLE} of the files it matched, with any remainder counted):\n` +
         r.straddlingGovernance.map((s) => `    ${s}`).join('\n') +
         `\n\n  Fix: split each entry at the boundary — one entry for the files inside the partitioned\n` +
         `  tree, one for the files outside it — so each side is read under the rule that applies to\n` +
         `  it: inside a partitioned tree a declaration equal to the covering areas' own set is the\n` +
         `  honest statement and stays green, while outside one the same set states nothing new.`,
+    );
+  }
+
+  if (r.redundantAreas.length) {
+    problems.push(
+      `✗ ${r.redundantAreas.length} area(s) supply what the rest of the map already supplies — with the area deleted (and every "area:<name>" reference to it inlined to the docs it stands for), every file it reached still resolves to an area, governed by exactly the same docs:\n` +
+        r.redundantAreas.map((s) => `    ${s}`).join('\n') +
+        `\n\n  Fix: remove ONE of the areas above, or give it the docs or code that make it supply\n` +
+        `  something the rest of the map does not — then re-run. Each was judged on its own\n` +
+        `  against the rest of the map, so these are alternatives rather than a set to remove\n` +
+        `  together: areas that supply the same docs each answer for the others, and each\n` +
+        `  removal is a new question the next run answers. An area is the unit a contributor\n` +
+        `  loads, so one whose every contribution the rest of the map already makes adds a\n` +
+        `  name without adding governance.`,
     );
   }
 

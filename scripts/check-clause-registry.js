@@ -192,8 +192,92 @@ import { MAP_PATH, expandBraces, globToRegExp } from './check-area-map.js';
 import { blankRustStrings, stripRustComments } from './check-command-surface.js';
 import { readLoneStringLiteral, tokenizeJs } from './check-test-inventory.js';
 
-/** Repo-relative path of the registry this check guards. */
+/**
+ * Repo-relative path of the registry this check guards. The checks that read the
+ * registry through this check's loader — clause governance and docs disposition
+ * — take this constant rather than restating the literal, so the path each of
+ * them names in its output is the path it read. A check that reads the registry
+ * for a subject of its own states its own path.
+ */
 export const REGISTRY_PATH = 'docs/clause-registry.json';
+
+/** `name` of the refusal `loadRegistry` raises on a file that is not the registry. */
+export const REGISTRY_INPUT_ERROR_NAME = 'ClauseRegistryInputError';
+
+/** What the registry is read for, stated on every refusal its read can raise. */
+const REGISTRY_READ_FOR =
+  `every clause row a consumer reads there (the doc that states the clause, how it is ` +
+  `verified, and what it cites) is read from this file, so restore it before any clause ` +
+  `can be held`;
+
+/**
+ * The refusal `loadRegistry` raises when the committed registry cannot be turned
+ * into rows — whether the file could not be read at all or its text is not JSON.
+ * Its message is the complete verdict — the file, which of the two it was, the
+ * underlying reason, and what every consumer reads there — so a caller prints
+ * the message as its own red without re-deriving anything, and `name` identifies
+ * the refusal without depending on a shared class instance.
+ */
+export class ClauseRegistryInputError extends Error {
+  /** @param {string} problem what the file turned out to be, with its underlying reason */
+  constructor(problem) {
+    super(`✗ ${REGISTRY_PATH} ${problem} — ${REGISTRY_READ_FOR}`);
+    this.name = REGISTRY_INPUT_ERROR_NAME;
+    this.problem = problem;
+  }
+}
+
+/**
+ * Read the registry from disk and parse it — the step that turns the committed
+ * file into the rows the command lines that load it through here read. The read
+ * is inside the guarded region
+ * with the parse, following the same shape the clause-preamble check reads its
+ * inputs through: a file that cannot be read at all and a file whose text is not
+ * JSON are both refused with a named verdict about this check's own input, each
+ * saying which of the two it was. Holding both in one home is what keeps the
+ * command lines that load the registry through this loader from answering a
+ * broken file differently. The read seam is a parameter so the decision can be
+ * exercised without touching the tree.
+ * @param {(path: string) => string} [read] how the file's text is read
+ * @throws {ClauseRegistryInputError} when the file cannot be read, or its text is not JSON
+ * @returns {any} the parsed registry
+ */
+export function loadRegistry(read = (p) => readFileSync(p, 'utf8')) {
+  let text;
+  try {
+    text = read(REGISTRY_PATH);
+  } catch (err) {
+    throw new ClauseRegistryInputError(`could not be read — ${err.message}`);
+  }
+  try {
+    return JSON.parse(text);
+  } catch (err) {
+    throw new ClauseRegistryInputError(`does not read as JSON — ${err.message}`);
+  }
+}
+
+/**
+ * The refusal posture every command line that loads the registry through this
+ * home shares, in one home so they cannot answer differently: a file that does
+ * not read as the registry is breakage on the check's own input, so the caller
+ * prints the refusal's own message and ends red on the ordinary red path, while
+ * anything else it caught is rethrown untouched. The printing and exiting seams
+ * are parameters so the decision can be exercised without ending the process.
+ * @param {unknown} err the error a caller caught around the registry read
+ * @param {object} [io] the print and exit seams
+ * @param {(message: string) => void} [io.error] where the refusal is printed
+ * @param {(code: number) => void} [io.exit] how the run ends
+ * @throws {unknown} whatever it was handed, when that is not the refusal
+ * @returns {void}
+ */
+export function refuseOnRegistryError(
+  err,
+  { error = (m) => console.error(m), exit = (c) => process.exit(c) } = {},
+) {
+  if (err?.name !== REGISTRY_INPUT_ERROR_NAME) throw err;
+  error(err.message);
+  exit(1);
+}
 
 /**
  * The area-map entry lists whose `reason` text this check reads for clause
@@ -1099,15 +1183,32 @@ export function auditClauseRegistry({ registry, files, readFile, packageScripts 
   // what this leg holds is the registered-prefix citations.
   {
     const mapText = readFile(MAP_PATH);
-    let map;
-    try {
-      map = mapText === null ? null : JSON.parse(mapText);
-    } catch {
-      map = null;
+    let map = null;
+    let parsedAsJson = false;
+    if (mapText !== null) {
+      try {
+        map = JSON.parse(mapText);
+        parsedAsJson = true;
+      } catch {
+        map = null;
+      }
     }
     if (!map || typeof map !== 'object') {
+      // Which of them it was: a map this check could not read at all, one whose
+      // text is not JSON, and one whose text is JSON but not the map object are
+      // different repairs, so the surface red names the one it found rather than
+      // reporting them all as bad JSON. Counting the classes here is what went
+      // stale before — the label set follows the guard, so it is enumerated and
+      // never totalled. The last label is the wording the map's own check
+      // already prints for that input.
+      const problem =
+        mapText === null
+          ? 'could not be read'
+          : parsedAsJson
+            ? 'is not an object'
+            : 'does not read as JSON';
       r.mapErrors.push(
-        `EMPTY SURFACE: ${MAP_PATH} does not read as JSON — the check reads the reason of every entry in ${AREA_MAP_ENTRY_LISTS.join(', ')}, so restore that shape before a reason's clause citation can be held`,
+        `EMPTY SURFACE: ${MAP_PATH} ${problem} — the check reads the reason of every entry in ${AREA_MAP_ENTRY_LISTS.join(', ')}, so restore that shape before a reason's clause citation can be held`,
       );
     } else {
       // The both-directions hold on this check's own register of entry lists.
@@ -1428,7 +1529,16 @@ function run() {
     .split('\n')
     .map((s) => s.trim())
     .filter(Boolean);
-  const registry = JSON.parse(readFileSync(REGISTRY_PATH, 'utf8'));
+  let registry;
+  try {
+    registry = loadRegistry();
+  } catch (err) {
+    // A file this check cannot read as the registry it guards — one it cannot
+    // read at all, or text that is not JSON — is breakage on its own input,
+    // printed as the refusal states it on the ordinary red path, never a stack
+    // trace.
+    refuseOnRegistryError(err);
+  }
   const packageScripts = Object.keys(JSON.parse(readFileSync('package.json', 'utf8')).scripts);
   const readFile = (f) => {
     try {

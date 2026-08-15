@@ -52,9 +52,13 @@ PR_BODY="$(cat pr-body.md)" PR_HEAD_REF=automated/version-table-update \
 ```
 
 Its red output enumerates the exact lines the sections must carry, so a
-failing run teaches its own fix — except where the area map no longer fits the
-shape the check reads it through, which prints that shape refusal instead,
-there being no scope to derive the lines from.
+failing run teaches its own fix — except where a governance-data file the check
+reads is not the data it reads there, which prints that file's own refusal
+instead, there being no scope to derive the lines from: for the area map, its
+shape errors enumerated as found where the map read but its shape failed, and
+the one reason in their place where the text is not JSON or the file could not
+be read at all; for the clause registry, the single sentence its own check
+states.
 
 ### The release-output guard's positive mode
 

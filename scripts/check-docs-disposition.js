@@ -87,17 +87,23 @@ import {
   compileMap,
   resolveFile,
   globToRegExp,
+  loadMap,
   MAP_PATH,
   refuseOnShapeError,
 } from './check-area-map.js';
+import { REGISTRY_PATH, loadRegistry, refuseOnRegistryError } from './check-clause-registry.js';
 import {
   AUTOMATED_BRANCH,
   effectiveHeadRef,
   isAllowedReleaseOutput,
 } from './check-no-release-outputs.js';
 
-/** Repo-relative path of the clause registry (same file check-clause-registry.js guards). */
-export const REGISTRY_PATH = 'docs/clause-registry.json';
+/**
+ * Repo-relative path of the clause registry — the constant of the check that
+ * guards that file, re-exported rather than restated, so the path this check
+ * reads is the path that check holds.
+ */
+export { REGISTRY_PATH };
 
 /** Section headings required in every non-exempt PR body. */
 export const DISPOSITION_HEADING = '## Docs disposition';
@@ -657,8 +663,22 @@ function run() {
   let docs = [];
   let expected = [];
   if (!governanceData) {
-    const map = JSON.parse(readFileSync(MAP_PATH, 'utf8'));
-    const registry = JSON.parse(readFileSync(REGISTRY_PATH, 'utf8'));
+    // Each governance-data file is read through its own check's loader, so one
+    // that cannot be read as its own data — one that cannot be read at all, or
+    // text that is not JSON — is refused with that check's named verdict, never
+    // a stack trace and never an expected-line list derived from nothing.
+    let map;
+    try {
+      map = loadMap();
+    } catch (err) {
+      refuseOnShapeError(err);
+    }
+    let registry;
+    try {
+      registry = loadRegistry();
+    } catch (err) {
+      refuseOnRegistryError(err);
+    }
     const readFile = (f) => {
       try {
         return readFileSync(f, 'utf8');
