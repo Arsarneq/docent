@@ -32,11 +32,22 @@
  *     `npm run lint:…` passes only while at least one key starts with the
  *     stem);
  *   - script-key citations: a backticked colon-bearing token in tracked
- *     markdown is admitted to the leg when its leading segment plus `:`
- *     prefixes a script key — the admission test that tells a script
- *     citation from an event name, a capability grant, or a YAML key — and
- *     an admitted token must itself be a defined key, so a renamed script's
- *     leftover cite reds even where the old name prefixes the new one.
+ *     markdown is admitted to the leg when the register below carries it —
+ *     shape first, register second, so a colon-named thing that is not a
+ *     script is left alone whatever its leading segment reads as. An
+ *     admitted token must itself be a defined key, so a renamed script's
+ *     leftover cite reds even when the family it was named in is renamed
+ *     with it; a defined key cited without being registered reds so the
+ *     register grows with the citations; and a registered token nothing
+ *     cites reds so it cannot outlive them;
+ *   - the runner and act-verdict cells: each table's runner column states
+ *     the labels the workflow runs that job on, read through that table's
+ *     own spelling of a matrix, and the act table's verdict agrees with what
+ *     the workflow makes derivable — a Windows-only runner, a mixed matrix
+ *     whose Linux leg alone runs locally, an artifact only a Windows job
+ *     produces, or a repository secret. Recomputed rather than merely
+ *     present, so a cell that is deleted reds exactly as a falsified one
+ *     does.
  *
  * Every parsed surface must be non-empty, an unreadable table cell is
  * refused rather than skipped, and the line scans require their shared
@@ -81,10 +92,17 @@
  * script keys, so which package a doc means is review-held; a bare cite of a
  * family no manifest defines any more is unread, and so is a bare family
  * stem, which the colon-cite grammar deliberately does not admit — that leg
- * names keys, never stems; the runner columns of the path-filtered jobs
- * table and the act table restate `runs-on`, which nothing here recomputes;
- * and a tracked YAML nested below the workflows directory is not a workflow
- * the platform runs. The line scans are shaped to test.yml's committed
+ * names keys, never stems; and a tracked YAML nested below the workflows
+ * directory is not a workflow the platform runs. The runner leg has its own
+ * three: that `act` runs Linux containers is the premise the guide states in
+ * prose and the derivation stands on, never a fact read from the tree; the
+ * REASON a pinned image is pinned, like every other parenthetical a runner
+ * cell carries, is prose beside a recomputed label; and the two
+ * recommendation verdicts — a job not worth running locally, a job with
+ * nothing of its own to run — are advice, admitted wherever the tree says
+ * the job CAN run and held no further. One derivation boundary rides with
+ * them: a job that downloads its artifacts by PATTERN states no artifact
+ * name to join to a producer, so its verdict stands on the other facts. The line scans are shaped to test.yml's committed
  * layout — the shared top-level `jobs:` anchor and the two-space job keys
  * they read — and each refuses the file loudly, naming itself, if the anchor
  * vanishes.
@@ -94,19 +112,22 @@
  */
 
 import { readFileSync } from 'node:fs';
-import { execFileSync } from 'node:child_process';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import yaml from 'js-yaml';
 import {
+  backtickedName,
   duplicatesIn,
+  flattenWhitespace,
   missingFrom,
   parseTables,
-  backtickedName,
   stripFences,
+  trackedFilesUnder,
 } from './check-test-inventory.js';
 import { jobFlags } from './check-ci-filter.js';
 
+/** This check's own path, as its reds name the register that lives here. */
+export const SELF_PATH = 'scripts/check-doc-closure.js';
 export const CI_DOC_PATH = 'docs/guides/ci.md';
 export const LOCAL_CI_DOC_PATH = 'docs/guides/local-ci.md';
 export const WORKFLOWS_DIR = '.github/workflows';
@@ -364,34 +385,236 @@ export function extractJobIds(yamlText) {
 }
 
 /**
- * The `npm run` tokens of one job's steps, bounded to that job's lines
- * (from its two-space key inside the `jobs:` block to the next one) — both
- * workflow scans share the one `jobs:` anchor, so a same-named key under an
- * earlier top-level block can never win. The anchor's or the job's absence
- * is the extractor's own problem.
- * @param {string} yamlText
+ * The runner columns, one grammar per table: which document states them, the
+ * table each sits in, and the conjunction that table writes a matrix job's
+ * several runners with. Their differing spellings are the reason the grammar is
+ * per-table rather than one house form — each document writes the same fact
+ * the way its own prose reads, and the recompute holds the FACT, never the
+ * spelling.
+ */
+export const RUNNER_TABLES = [
+  {
+    doc: CI_DOC_PATH,
+    section: GATES_SECTION,
+    header: JOBS_TABLE_HEADER,
+    column: 'Runner',
+    conjunction: /\s*\+\s*/,
+  },
+  {
+    doc: LOCAL_CI_DOC_PATH,
+    section: ACT_SECTION,
+    header: ACT_HEADER,
+    column: 'CI runner',
+    conjunction: /\s*\*\*and\*\*\s*/,
+  },
+];
+
+/** The act table's verdict column, the one cell this check recomputes a class for. */
+export const ACT_VERDICT_HEADER = 'Runs under `act`?';
+
+/**
+ * The verdict classes an act row can open with, and what each states. Two of
+ * them are RECOMMENDATIONS rather than boundary facts: a job that could run
+ * under act, which the guide tells a reader not to bother with, or which has
+ * nothing of its own to run. Those are review-held prose — the tree cannot
+ * derive advice — so the leg admits them wherever a job CAN run, and holds
+ * the boundary markers exactly.
+ */
+export const ACT_VERDICTS = [
+  ['yes', '✅'],
+  ['no', '❌'],
+  ['unneeded', 'unneeded'],
+  ['nothing to run', 'nothing to run'],
+];
+
+/** What an act cell states for the one job whose matrix runs on both platforms. */
+export const ACT_PARTIAL_PHRASE = 'the ubuntu leg only';
+
+/** A trailing parenthetical rationale a runner cell carries after its label. */
+const RUNNER_RATIONALE_RE = /\s*\([^)]*\)\s*$/;
+/** The word a runner cell may close a matrix statement with. */
+const MATRIX_WORD_RE = /\s+matrix$/;
+
+/** The action a step uploads an artifact through, as its `uses` names it. */
+const UPLOAD_ARTIFACT_USES = 'upload-artifact';
+/** The action a step downloads an artifact through, as its `uses` names it. */
+const DOWNLOAD_ARTIFACT_USES = 'download-artifact';
+/** A reference to a repository secret, anywhere in a job's own text. */
+const SECRET_REFERENCE_RE = /secrets\./;
+/** The runner family a Windows runner label opens with. */
+const WINDOWS_RUNNER_PREFIX = 'windows';
+/** A runner label stating no version, which the shorthand `-latest` completes. */
+const BARE_RUNNER_RE = /^[a-z]+$/;
+/** A `runs-on` deferring to the matrix, naming the key that carries the runner. */
+const MATRIX_RUNNER_RE = /\$\{\{\s*matrix\.([A-Za-z0-9_-]+)\s*\}\}/;
+
+/**
+ * The runner labels one parsed job runs on: its `runs-on`, or — where that
+ * defers to the matrix — the label each matrix leg states. A matrix is what
+ * makes a job's runner a SET rather than one label, which is the fact both
+ * runner columns state in their own spelling.
+ * @param {any} job one parsed job
+ * @returns {string[]} the labels, in the order the workflow states them
+ */
+function runnersOf(job) {
+  const runsOn = String(job?.['runs-on'] ?? '');
+  const deferred = MATRIX_RUNNER_RE.exec(runsOn);
+  if (deferred === null) return runsOn === '' ? [] : [runsOn];
+  // The expression names WHICH matrix key carries the runner, so a leg's other
+  // keys — a display label, a feature flag — are never read as runners.
+  const key = deferred[1];
+  const legs = Array.isArray(job?.strategy?.matrix?.include) ? job.strategy.matrix.include : [];
+  return legs
+    .map((leg) => (leg === null || typeof leg !== 'object' ? '' : String(leg[key] ?? '')))
+    .filter((label) => label !== '');
+}
+
+/**
+ * The artifact names a job's steps name through one artifact action. A step
+ * that names its artifacts by PATTERN states no name here: the producer of a
+ * pattern's artifacts cannot be joined by name, which is this leg's own
+ * recorded boundary — a job that consumes by pattern is read as consuming
+ * nothing, so its verdict stands on the facts that are derivable.
+ * @param {any[]} steps the job's steps
+ * @param {string} uses the artifact action's name fragment
+ * @returns {string[]} the artifact names, in step order
+ */
+function artifactNames(steps, uses) {
+  return steps
+    .filter((step) => String(step?.uses ?? '').includes(uses))
+    .map((step) => String(step?.with?.name ?? ''))
+    .filter((name) => name !== '');
+}
+
+/**
+ * Read one document's runner column through its own grammar: each row's job,
+ * the runner labels its cell states, and whether the cell carried a
+ * parenthetical rationale (which stays prose — the pinned image's REASON is
+ * not derivable, only the label is). A cell the grammar cannot read is
+ * returned unreadable, never skipped.
+ * @param {string} docText the document's text
+ * @param {typeof RUNNER_TABLES[number]} grammar the table's own grammar
+ * @returns {{ rows: { job: string, runners: string[], rationale: boolean }[], unreadable: string[] }}
+ */
+export function extractRunnerCells(docText, grammar) {
+  const rows = [];
+  const unreadable = [];
+  for (const table of parseTables(docText)) {
+    if (table.section !== grammar.section || table.header[0] !== grammar.header) continue;
+    const column = table.header.indexOf(grammar.column);
+    if (column === -1) {
+      unreadable.push(`${grammar.doc}: the ${grammar.section} table states no \`${grammar.column}\` column`); // prettier-ignore
+      continue;
+    }
+    for (const row of table.rows) {
+      const job = backtickedName(row[0]);
+      const cell = (row[column] ?? '').trim();
+      if (job === null || !JOB_ID_RE.test(job)) continue;
+      if (cell === '') {
+        unreadable.push(`${grammar.doc}: \`${job}\` states an empty ${grammar.column} cell`);
+        continue;
+      }
+      const rationale = RUNNER_RATIONALE_RE.test(cell);
+      const labels = cell
+        .replace(RUNNER_RATIONALE_RE, '')
+        .replace(MATRIX_WORD_RE, '')
+        .split(grammar.conjunction)
+        .map((label) => label.trim())
+        .filter(Boolean);
+      rows.push({ job, runners: labels.map(completeRunnerLabel), rationale });
+    }
+  }
+  return { rows, unreadable };
+}
+
+/**
+ * A runner label as the workflow spells it: a cell may write the shorthand a
+ * reader says out loud (`ubuntu`), and the workflow states the image
+ * (`ubuntu-latest`). Completing the shorthand is what lets the two be
+ * compared without either side restating the other's spelling.
+ * @param {string} label a runner label as a cell states it
+ * @returns {string}
+ */
+export function completeRunnerLabel(label) {
+  return BARE_RUNNER_RE.test(label) ? `${label}-latest` : label;
+}
+
+/**
+ * Read the act table's verdict column as the class each row opens with.
+ * @param {string} docText the local-CI guide's text
+ * @returns {{ rows: { job: string, verdict: string | null }[], unreadable: string[] }}
+ */
+export function extractActVerdicts(docText) {
+  const rows = [];
+  const unreadable = [];
+  for (const table of parseTables(docText)) {
+    if (table.section !== ACT_SECTION || table.header[0] !== ACT_HEADER) continue;
+    const column = table.header.indexOf(ACT_VERDICT_HEADER);
+    if (column === -1) {
+      unreadable.push(`${LOCAL_CI_DOC_PATH}: the act table states no \`${ACT_VERDICT_HEADER}\` column`); // prettier-ignore
+      continue;
+    }
+    for (const row of table.rows) {
+      const job = backtickedName(row[0]);
+      const cell = (row[column] ?? '').trim();
+      if (job === null || !JOB_ID_RE.test(job)) continue;
+      const match = ACT_VERDICTS.find(([, opening]) => cell.startsWith(opening));
+      if (match === undefined) {
+        unreadable.push(`${LOCAL_CI_DOC_PATH}: \`${job}\` opens its act verdict "${cell}", which is none of ${ACT_VERDICTS.map(([, o]) => `"${o}"`).join(', ')}`); // prettier-ignore
+        continue;
+      }
+      rows.push({ job, verdict: match[0], partial: cell.includes(ACT_PARTIAL_PHRASE) });
+    }
+  }
+  return { rows, unreadable };
+}
+
+/**
+ * What the tree says about running one job under act — the boundary facts a
+ * workflow states, and nothing beyond them. Act runs Linux containers, which
+ * is the premise the guide states in prose and this derivation stands on: a
+ * job every runner of which is Windows cannot run, one whose matrix has a
+ * Linux leg runs that leg only, a job consuming an artifact only a Windows
+ * job produces cannot run, and a job reaching for a repository secret is
+ * outside the boundary a local run can reproduce. Everything else can run —
+ * whether it is WORTH running is the guide's own advice, not a fact here.
+ * @param {{ id: string, runners: string[], downloads: string[], usesSecret: boolean }} job
+ * @param {{ id: string, runners: string[], uploads: string[] }[]} jobs every parsed job
+ * @returns {'yes' | 'no' | 'partial'}
+ */
+export function deriveActVerdict(job, jobs) {
+  const isWindows = (label) => label.startsWith(WINDOWS_RUNNER_PREFIX);
+  const windows = job.runners.filter(isWindows);
+  if (job.runners.length > 0 && windows.length === job.runners.length) return 'no';
+  if (windows.length > 0) return 'partial';
+  if (job.usesSecret) return 'no';
+  const producedOnWindows = job.downloads.some((name) =>
+    jobs.some(
+      (other) =>
+        other.uploads.includes(name) && other.runners.length > 0 && other.runners.every(isWindows),
+    ),
+  );
+  return producedOnWindows ? 'no' : 'yes';
+}
+
+/**
+ * The `npm run` tokens one parsed job's steps run, read from the step
+ * commands the workflow parse already yields — the same text the runner
+ * executes, so a token written in a step's display name, in a YAML comment,
+ * or as an action input is not read as a command the job runs. A job the
+ * parse does not carry is the caller's own problem, named where the parsed
+ * jobs are read.
+ * @param {{ id: string, stepLines: string[] }[]} jobs the parsed jobs
  * @param {string} jobId
  * @returns {{ tokens: string[], problems: string[] }}
  */
-export function extractJobNpmRunTokens(yamlText, jobId) {
-  const lines = yamlText.split(/\r?\n/);
-  const block = findJobsBlock(lines, 'step scan');
-  if (block.problem) return { tokens: [], problems: [block.problem] };
-  let start = -1;
-  for (let i = block.start + 1; i < lines.length; i++) {
-    if (/^\S/.test(lines[i])) break;
-    if (lines[i].startsWith(`  ${jobId}:`)) {
-      start = i;
-      break;
-    }
-  }
-  if (start === -1) {
-    return { tokens: [], problems: [`${TEST_WORKFLOW_PATH} has no \`${jobId}\` job — the step scan cannot anchor`] }; // prettier-ignore
+export function jobNpmRunTokens(jobs, jobId) {
+  const job = jobs.find((j) => j.id === jobId);
+  if (job === undefined) {
+    return { tokens: [], problems: [`${TEST_WORKFLOW_PATH} has no \`${jobId}\` job — its step commands cannot be read`] }; // prettier-ignore
   }
   const tokens = [];
-  for (let i = start + 1; i < lines.length; i++) {
-    const line = lines[i];
-    if (/^ {2}[A-Za-z0-9_-]+:/.test(line) || /^\S/.test(line)) break;
+  for (const line of job.stepLines) {
     for (const match of line.matchAll(NPM_RUN_TOKEN_RE)) tokens.push(match[1]);
   }
   return { tokens: [...new Set(tokens)], problems: [] };
@@ -433,6 +656,10 @@ export function extractWorkflowGating(yamlText) {
       .filter((step) => typeof step?.run === 'string')
       .flatMap((step) => step.run.split(/\r?\n/))
       .filter((line) => line.trim() !== ''),
+    runners: runnersOf(job),
+    uploads: artifactNames(stepsOf(job), UPLOAD_ARTIFACT_USES),
+    downloads: artifactNames(stepsOf(job), DOWNLOAD_ARTIFACT_USES),
+    usesSecret: SECRET_REFERENCE_RE.test(JSON.stringify(job ?? null)),
   }));
   const changes = jobsMap[CHANGES_JOB_ID];
   const filterStep = stepsOf(changes).find(
@@ -546,21 +773,42 @@ export function extractColonCites(docText, docPath) {
 }
 
 /**
- * The colon-bearing tokens that are script citations: those whose leading
- * segment plus `:` prefixes at least one defined script key, i.e. that name
- * a live script family. A token of no live family (an event channel, a
- * capability grant, a YAML key) names something this check does not read and
- * is left alone; an admitted one is then held to being a defined key
- * exactly.
+ * The script-key citations this check holds, by name. Admission is shape
+ * first and this register second: a colon-bearing backticked token enters the
+ * leg only if it is written here, so a colon-named thing that is not a script
+ * — an event channel, a capability grant, a YAML key, a URL scheme — is left
+ * alone however its leading segment happens to read, and a token whose family
+ * is renamed away is still held rather than falling out of the leg with it.
+ *
+ * The register is held in both directions below: every token here names a
+ * defined script key, and every token here is cited by some tracked document
+ * — so the list cannot outlive the citations it exists for.
+ */
+export const REGISTERED_COLON_CITES = [
+  'corpus:check:desktop',
+  'lint:area-map',
+  'lint:clause-governance',
+  'lint:clause-preamble',
+  'lint:clause-registry',
+  'lint:js',
+  'lint:links',
+  'lint:reachability',
+  'sufficiency:check',
+  'vectors:assemble:desktop',
+  'vectors:produce:desktop',
+];
+
+/**
+ * The citations the register admits, out of every colon-shaped token the scan
+ * read. An unregistered token names something this check does not read and is
+ * left alone; an admitted one is then held to being a defined key exactly.
  * @param {{ path: string, line: number, token: string }[]} cites
- * @param {Set<string>} scriptKeys
+ * @param {string[]} [registered] the register to admit against
  * @returns {{ path: string, line: number, token: string }[]}
  */
-export function admitColonCites(cites, scriptKeys) {
-  const families = new Set(
-    [...scriptKeys].filter((key) => key.includes(':')).map((key) => `${key.split(':')[0]}:`),
-  );
-  return cites.filter((cite) => families.has(`${cite.token.split(':')[0]}:`));
+export function admitColonCites(cites, registered = REGISTERED_COLON_CITES) {
+  const admitted = new Set(registered);
+  return cites.filter((cite) => admitted.has(cite.token));
 }
 
 /**
@@ -621,7 +869,7 @@ export const EMPTY_SURFACES = [
   ['lintKeys', `no \`${LINT_FAMILY_PREFIX}*\` scripts found in ${ROOT_MANIFEST_PATH}`],
   ['lintStepTokens', `no npm-run step tokens found in ${TEST_WORKFLOW_PATH}'s \`${LINT_JOB_ID}\` job`], // prettier-ignore
   ['cites', `no npm-run citations found in tracked markdown — the citation scan is broken`],
-  ['colonCites', `no script-key citations found in tracked markdown — the family scan is broken`],
+  ['colonCites', `no registered script-key citation found in tracked markdown — the register or the scan that feeds it is broken`], // prettier-ignore
   ['scriptKeys', `no script keys found in any tracked package.json`],
 ];
 
@@ -747,7 +995,13 @@ function runsGate(job, token, command) {
  * @param {string[]} s.lintStepTokens the lint job's `npm run` step tokens
  * @param {{ path: string, line: number, token: string, elided: boolean }[]} s.cites
  * @param {string[]} s.citeUnreadable unreadable citations
- * @param {{ path: string, line: number, token: string }[]} s.colonCites admitted script cites
+ * @param {{ doc: string, rows: { job: string, runners: string[] }[] }[]} s.runnerCells each table's runner column
+ * @param {string[]} s.runnerCellsUnreadable the runner cells the grammar cannot read
+ * @param {{ job: string, verdict: string, partial: boolean }[]} s.actVerdicts the act verdict classes
+ * @param {string[]} s.actVerdictsUnreadable the act verdicts the grammar cannot read
+ * @param {{ path: string, line: number, token: string }[]} s.colonCites registered script cites
+ * @param {{ path: string, line: number, token: string }[]} s.allColonCites every colon-shaped token read
+ * @param {string[]} s.registeredColonCites the register admission runs against
  * @param {Set<string>} s.scriptKeys the union of tracked manifests' keys
  * @param {Record<string, string>} s.scriptCommands the root manifest's script commands
  * @returns {string[]} problems; empty when every closure holds
@@ -772,6 +1026,12 @@ export function evaluateDocClosure(s) {
   }
   for (const cite of s.citeUnreadable) {
     problems.push(`npm-run citation the scan cannot read — ${cite}`);
+  }
+  for (const cell of s.runnerCellsUnreadable) {
+    problems.push(`runner cell the scan cannot read — ${cell}`);
+  }
+  for (const cell of s.actVerdictsUnreadable) {
+    problems.push(`act verdict the scan cannot read — ${cell}`);
   }
 
   let vacuous = false;
@@ -799,7 +1059,7 @@ export function evaluateDocClosure(s) {
     ...missingFrom(s.lintStepTokens, [...gateTokens], `is run by the \`${LINT_JOB_ID}\` job's steps but no lint-gates row names it (${CI_DOC_PATH})`), // prettier-ignore
   );
 
-  problems.push(...evaluateJobPartition(s), ...evaluateGateLiveness(s));
+  problems.push(...evaluateJobPartition(s), ...evaluateGateLiveness(s), ...evaluateRunnerCells(s));
 
   for (const cite of s.cites) {
     if (cite.elided) {
@@ -812,12 +1072,73 @@ export function evaluateDocClosure(s) {
     }
   }
 
+  // The register's own directions, then the citations it admits. A
+  // registered token that is no longer a defined key reds wherever it is
+  // cited, whatever became of the family it was named in; a defined key cited
+  // in prose without being registered reds so the register grows with the
+  // citations; and a registered token nothing cites reds so it cannot outlive
+  // them. Every other colon-shaped token in the tree is outside the leg.
+  const registered = new Set(s.registeredColonCites);
+  const citedTokens = new Set(s.allColonCites.map((cite) => cite.token));
   for (const cite of s.colonCites) {
     if (!s.scriptKeys.has(cite.token)) {
-      problems.push(`${cite.path}:${cite.line} cites \`${cite.token}\`, whose family names live scripts, but no tracked package.json defines that script key`); // prettier-ignore
+      problems.push(`${cite.path}:${cite.line} cites \`${cite.token}\`, a registered script-key citation, but no tracked package.json defines that script key`); // prettier-ignore
+    }
+  }
+  for (const cite of s.allColonCites) {
+    if (!registered.has(cite.token) && s.scriptKeys.has(cite.token)) {
+      problems.push(`${cite.path}:${cite.line} cites \`${cite.token}\`, which is a defined script key, but ${SELF_PATH}'s register does not carry it — register it, or the day that key is renamed this citation goes stale in silence`); // prettier-ignore
+    }
+  }
+  for (const token of s.registeredColonCites) {
+    if (!citedTokens.has(token)) {
+      problems.push(`${SELF_PATH}'s register carries \`${token}\` but no tracked markdown cites it — drop it, so the register states the citations this check holds and nothing else`); // prettier-ignore
     }
   }
 
+  return problems;
+}
+
+/**
+ * The runner legs: every runner cell states the labels the workflow runs that
+ * job on — read through each table's own grammar, so a matrix each document
+ * spells its own way is one fact — and every act verdict agrees with what the tree makes
+ * derivable. The recommendation verdicts are admitted wherever the job
+ * CAN run, since advice is not a fact this check derives; the boundary
+ * verdicts are held exactly, in both directions.
+ * @param {object} s the extracted surfaces
+ * @returns {string[]} problems
+ */
+export function evaluateRunnerCells(s) {
+  const problems = [];
+  const byId = new Map(s.workflowJobs.map((job) => [job.id, job]));
+  for (const { doc, rows } of s.runnerCells) {
+    for (const { job, runners } of rows) {
+      const parsed = byId.get(job);
+      if (parsed === undefined) continue; // the job-set legs above name this
+      problems.push(
+        ...missingFrom(runners, parsed.runners, `is a runner ${doc} states for \`${job}\` but ${TEST_WORKFLOW_PATH} does not run it there`), // prettier-ignore
+        ...missingFrom(parsed.runners, runners, `is a runner ${TEST_WORKFLOW_PATH} runs \`${job}\` on but ${doc} does not state it`), // prettier-ignore
+      );
+    }
+  }
+  for (const { job, verdict, partial } of s.actVerdicts) {
+    const parsed = byId.get(job);
+    if (parsed === undefined) continue;
+    const derived = deriveActVerdict(parsed, s.workflowJobs);
+    if (derived === 'no' && verdict !== 'no') {
+      problems.push(`${LOCAL_CI_DOC_PATH} states \`${job}\` as "${verdict}" under act, but ${TEST_WORKFLOW_PATH} puts it outside what a Linux container can run — a Windows-only runner, an artifact only a Windows job produces, or a repository secret`); // prettier-ignore
+    }
+    if (derived !== 'no' && verdict === 'no') {
+      problems.push(`${LOCAL_CI_DOC_PATH} states \`${job}\` as not runnable under act, but ${TEST_WORKFLOW_PATH} states no boundary this check derives for it`); // prettier-ignore
+    }
+    if (derived === 'partial' && !partial) {
+      problems.push(`${LOCAL_CI_DOC_PATH} states \`${job}\` without "${ACT_PARTIAL_PHRASE}", but its matrix runs a Linux leg beside a Windows one — only the Linux leg runs locally`); // prettier-ignore
+    }
+    if (derived !== 'partial' && partial) {
+      problems.push(`${LOCAL_CI_DOC_PATH} states "${ACT_PARTIAL_PHRASE}" for \`${job}\`, whose matrix ${TEST_WORKFLOW_PATH} does not split across platforms`); // prettier-ignore
+    }
+  }
   return problems;
 }
 
@@ -858,7 +1179,7 @@ function evaluateJobPartition(s) {
 
   for (const job of s.workflowJobs) {
     if (job.flags.length === 0 && !runsAlways(job.condition)) {
-      problems.push(`\`${job.id}\` gates on no \`${CHANGES_JOB_ID}\` flag, but its \`if:\` condition — ${String(job.condition).replace(/\s+/g, ' ').trim()} — is neither absent nor \`always()\`, so which side of ${CI_DOC_PATH} it belongs on is gating this check does not model`); // prettier-ignore
+      problems.push(`\`${job.id}\` gates on no \`${CHANGES_JOB_ID}\` flag, but its \`if:\` condition — ${flattenWhitespace(String(job.condition))} — is neither absent nor \`always()\`, so which side of ${CI_DOC_PATH} it belongs on is gating this check does not model`); // prettier-ignore
       continue;
     }
     const gating =
@@ -949,7 +1270,18 @@ export function auditTree(readFile, listWorkflows, listMarkdown, listManifests) 
   const alwaysRun = extractAlwaysRunIds(ciDoc);
   const jobs = extractJobIds(workflowYaml);
   const gating = extractWorkflowGating(workflowYaml);
-  const steps = extractJobNpmRunTokens(workflowYaml, LINT_JOB_ID);
+  const steps = jobNpmRunTokens(gating.jobs, LINT_JOB_ID);
+  // Keyed by path, so a grammar naming a third document reads THAT document
+  // rather than falling through to whichever side an either/or defaulted to.
+  const guideTexts = new Map([
+    [CI_DOC_PATH, ciDoc],
+    [LOCAL_CI_DOC_PATH, localCiDoc],
+  ]);
+  const runnerCells = RUNNER_TABLES.map((grammar) => ({
+    doc: grammar.doc,
+    ...extractRunnerCells(guideTexts.get(grammar.doc) ?? readFile(grammar.doc), grammar),
+  }));
+  const actVerdicts = extractActVerdicts(localCiDoc);
   const lint = extractLintSurface(readFile(ROOT_MANIFEST_PATH));
   const cites = [];
   const citeUnreadable = [];
@@ -980,9 +1312,15 @@ export function auditTree(readFile, listWorkflows, listMarkdown, listManifests) 
     chainTokens: lint.chainTokens,
     lintKeys: lint.lintKeys,
     lintStepTokens: steps.tokens,
+    runnerCells,
+    runnerCellsUnreadable: runnerCells.flatMap((t) => t.unreadable),
+    actVerdicts: actVerdicts.rows,
+    actVerdictsUnreadable: actVerdicts.unreadable,
     cites,
     citeUnreadable,
-    colonCites: admitColonCites(colonCites, scripts.keys),
+    colonCites: admitColonCites(colonCites),
+    allColonCites: colonCites,
+    registeredColonCites: REGISTERED_COLON_CITES,
     scriptKeys: scripts.keys,
     scriptCommands: lint.commands,
     anchorProblems: [
@@ -1006,16 +1344,17 @@ export function auditTree(readFile, listWorkflows, listMarkdown, listManifests) 
  */
 export function treeSurfaces(root) {
   const resolvePath = (p) => join(root, p);
-  const gitList = (pattern) =>
-    execFileSync('git', ['ls-files', pattern], { cwd: root, encoding: 'utf8' })
-      .split('\n')
-      .filter(Boolean);
+  // Through the shared population reader, so this listing states the same
+  // quotepath policy every other tree scan does: a path carrying a non-ASCII
+  // byte arrives as itself rather than quoted, and a citation in such a file
+  // is read rather than silently absent.
+  const gitList = (pathspec) => trackedFilesUnder(pathspec, { cwd: root });
   return auditTree(
     (path) => {
       try {
         return readFileSync(resolvePath(path), 'utf8');
       } catch {
-        return '';
+        return ''; // an unreadable surface fails the non-empty guards loudly
       }
     },
     () => workflowBasenames(gitList(`${WORKFLOWS_DIR}/*.y*ml`)),
@@ -1039,6 +1378,6 @@ if (isMain) {
     console.error(`\n${problems.length} problem(s). The guides' closure tables and the tree must agree; fix whichever side is wrong.`); // prettier-ignore
     process.exit(1);
   }
-  console.log(`✓ doc closure holds: ${surfaces.workflowFiles.length} workflows, ${surfaces.jobIds.length} jobs, ${surfaces.gateRows.length} gate rows, ${surfaces.cites.length} npm-run citations, and ${surfaces.colonCites.length} script-key citations agree with the tree.`); // prettier-ignore
+  console.log(`✓ doc closure holds: ${surfaces.workflowFiles.length} workflows, ${surfaces.jobIds.length} jobs, ${surfaces.gateRows.length} gate rows, ${surfaces.cites.length} npm-run citations, ${surfaces.colonCites.length} script-key citations, and the runner and act-verdict cells of ${surfaces.runnerCells.reduce((n, t) => n + t.rows.length, 0)} table rows agree with the tree.`); // prettier-ignore
 }
 /* c8 ignore stop */

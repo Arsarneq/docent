@@ -220,7 +220,7 @@
         ".github/**",
         "scripts/check-*.js",
         "scripts/docs-disposition-audit.js",
-        "scripts/{release-context,next-release-version,sync-shared,inject-shared-views,build-desktop-dist,strip-ai-coauthor}.js",
+        "scripts/{release-context,next-release-version,sync-shared,inject-shared-views,build-desktop-dist,strip-ai-coauthor,governance-data}.js",
         "scripts/area-map.json",
         "docs/clause-registry.json",
         "lefthook.yml",

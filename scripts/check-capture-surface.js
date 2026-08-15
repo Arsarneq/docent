@@ -126,18 +126,23 @@
  *   node scripts/check-capture-surface.js  # or: npm run lint:capture-surface
  */
 
-import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 import {
   backtickedName,
+  backtickedTokens,
   duplicatesIn,
+  emptySurfaceProblems,
   extractClauseSection,
+  formatProblemBlock,
   missingFrom,
   parseTables,
   readLoneStringLiteral,
+  readTableColumn,
+  selectTablesByHeader,
   stripFences,
   tokenizeJs,
+  trackedFilesUnder,
 } from './check-test-inventory.js';
 import { blankRustStrings, stripRustComments } from './check-command-surface.js';
 
@@ -188,17 +193,11 @@ export const POPULATION_EXTENSIONS = ['.js', '.mjs', '.cjs'];
  * @returns {string[]} repo-relative paths, in `git ls-files` order
  */
 export function derivePopulation(cwd = process.cwd()) {
-  return execFileSync('git', ['-c', 'core.quotepath=false', 'ls-files', POPULATION_ROOT], {
-    encoding: 'utf8',
+  return trackedFilesUnder(POPULATION_ROOT, {
+    extensions: POPULATION_EXTENSIONS,
+    exclude: POPULATION_TEST_TREE,
     cwd,
-  })
-    .split('\n')
-    .map((line) => line.trim())
-    .filter(
-      (file) =>
-        POPULATION_EXTENSIONS.some((ext) => file.endsWith(ext)) &&
-        !file.startsWith(`${POPULATION_TEST_TREE}/`),
-    );
+  });
 }
 
 /** Repo-relative path of the extension capture doc stating ECP-6 and ECP-7. */
@@ -220,14 +219,14 @@ export const CORRELATION_CLAUSE_ID = 'DCP-7';
 
 /** The `##` section carrying the browser-chrome proxy table. */
 export const PROXY_SECTION = 'Browser Chrome Proxies';
-/** That table's first header cell. */
-export const PROXY_HEADER = 'User action';
+/** That table's whole header — selection by the whole header, not one cell. */
+export const PROXY_HEADER = ['User action', 'Captured as', 'Event source'];
 /** That table's event-source header cell — the column this check holds. */
 export const SOURCE_HEADER = 'Event source';
 /** The `##` section carrying the WinEvent correlation table. */
 export const CORRELATION_SECTION = 'Input Correlation';
-/** That table's first header cell. */
-export const CORRELATION_HEADER = 'WinEvent';
+/** That table's whole header — selection by the whole header, not one cell. */
+export const CORRELATION_HEADER = ['WinEvent', 'Correlation source', 'Additional filter'];
 
 /**
  * The admission list is keyed by file AND API path, joined by a character
@@ -424,6 +423,9 @@ export function extractDomEnumeration(docText) {
   return { events, unreadable };
 }
 
+/** A table header as a report names it: its cells, pipe-separated. */
+const headerText = (header) => `\`${header.map((cell) => cell.trim()).join(' | ')}\``;
+
 /**
  * Read the ECP-7 proxy table's Event source column: the backticked tokens of
  * each body row's source cell, split into the worker events (`chrome.a.onB`)
@@ -436,14 +438,23 @@ export function extractProxySources(docText) {
   const workerEvents = [];
   const domEvents = [];
   const unreadable = [];
-  for (const table of parseTables(docText)) {
-    if (table.section !== PROXY_SECTION) continue;
-    if ((table.header[0] ?? '').trim() !== PROXY_HEADER) continue;
-    const column = table.header.findIndex((cell) => cell.trim() === SOURCE_HEADER);
-    if (column === -1) {
-      unreadable.push(`(the proxy table states no ${SOURCE_HEADER} column)`);
-      continue;
+  const { tables } = selectTablesByHeader(docText, {
+    section: PROXY_SECTION,
+    header: PROXY_HEADER,
+  });
+  // Selection is by the whole header, so a table under this heading that leads
+  // with the same first cell and states a different header is refused by name
+  // rather than read through a column it does not have — the same refusal the
+  // missing-column check made, now covering every way the header can move.
+  if (tables.length === 0) {
+    for (const table of parseTables(docText)) {
+      if (table.section !== PROXY_SECTION) continue;
+      if ((table.header[0] ?? '').trim() !== PROXY_HEADER[0]) continue;
+      unreadable.push(`(the proxy table states the header ${headerText(table.header)}, and this leg reads the table headed ${headerText(PROXY_HEADER)})`); // prettier-ignore
     }
+  }
+  for (const table of tables) {
+    const column = table.header.findIndex((cell) => cell.trim() === SOURCE_HEADER);
     for (const row of table.rows) {
       const cell = (row[column] ?? '').trim();
       const tokens = [...cell.matchAll(/`([^`]+)`/g)].map((m) => m[1]);
@@ -501,17 +512,17 @@ export const REGISTRATION_LEGS = { capture: 'capture', beyondPair: 'beyond-pair'
  * unreadable.
  * @param {string} source the file's source
  * @param {string} path the file's repo-relative path (for diagnostics)
- * @param {string} [legs] which legs to read — one of {@link REGISTRATION_LEGS},
+ * @param {string} [leg] which leg to read — ONE of {@link REGISTRATION_LEGS},
  *   defaulting to the capture pair's full model
  * @returns {{ domEvents: string[], windowEvents: string[], chromeApis: string[], problems: string[] }}
  */
-export function extractRegistrations(source, path, legs = REGISTRATION_LEGS.capture) {
+export function extractRegistrations(source, path, leg = REGISTRATION_LEGS.capture) {
   const tokens = tokenizeJs(source);
   const domEvents = [];
   const windowEvents = [];
   const chromeApis = [];
   const problems = [];
-  const pair = legs === REGISTRATION_LEGS.capture;
+  const pair = leg === REGISTRATION_LEGS.capture;
   const at = (i, type, value) => tokens[i] && tokens[i].type === type && tokens[i].value === value;
 
   for (let i = 0; i < tokens.length; i++) {
@@ -661,8 +672,9 @@ export function extractDesktopRegistrations(rustSource) {
  * @returns {string[]} the matching names, in document order
  */
 export function extractClauseNames(docText, clauseId, shape) {
-  const scope = extractClauseSection(docText, clauseId);
-  return [...scope.matchAll(/`([^`]+)`/g)].map((m) => m[1]).filter((name) => shape.test(name));
+  // Repeats are kept: the duplicate leg over this surface is what holds the
+  // clause's enumeration from stating one hook twice.
+  return backtickedTokens(extractClauseSection(docText, clauseId), { shape });
 }
 
 /**
@@ -673,19 +685,18 @@ export function extractClauseNames(docText, clauseId, shape) {
  * @returns {{ classes: string[], unreadable: string[] }}
  */
 export function extractCorrelationClasses(docText) {
-  const classes = [];
-  const unreadable = [];
-  for (const table of parseTables(stripFences(docText))) {
-    if (table.section !== CORRELATION_SECTION) continue;
-    if ((table.header[0] ?? '').trim() !== CORRELATION_HEADER) continue;
-    for (const row of table.rows) {
-      const cell = (row[0] ?? '').trim();
+  const { tables } = selectTablesByHeader(stripFences(docText), {
+    section: CORRELATION_SECTION,
+    header: CORRELATION_HEADER,
+  });
+  const read = readTableColumn(tables, {
+    empty: '(empty WinEvent cell)',
+    read: (cell) => {
       const name = backtickedName(cell);
-      if (name !== null && WIN_EVENT_RE.test(name)) classes.push(name);
-      else unreadable.push(cell === '' ? '(empty WinEvent cell)' : cell);
-    }
-  }
-  return { classes, unreadable };
+      return name !== null && WIN_EVENT_RE.test(name) ? name : null;
+    },
+  });
+  return { classes: read.names, unreadable: read.unreadable };
 }
 
 /**
@@ -733,11 +744,31 @@ function nameOf(value) {
  * What guards that leg instead is the population itself — non-empty, and
  * carrying both capture files — which the evaluator refuses on its own terms.
  */
+/**
+ * The listeners the worker registers, projected out of the per-file
+ * registration entries: the guard names a surface the extraction states by
+ * file, so the projector is what makes it one list to guard.
+ * @param {{ chromeApisByFile: [string, string[]][] }} s the extracted surfaces
+ * @returns {string[]}
+ */
+const workerChromeApis = (s) =>
+  s.chromeApisByFile.filter(([file]) => file === WORKER_PATH).flatMap(([, apis]) => apis);
+
+/**
+ * The registered WinEvent ranges as labels: a repeated `(min, max)` pair
+ * installs the hook twice while the range-inclusion diff, being set-based,
+ * stays green — so the duplicate guard reads the pairs as the labels they
+ * print as.
+ * @param {{ installedRanges: [number, number][] }} s the extracted surfaces
+ * @returns {string[]}
+ */
+const installedRangeLabels = (s) => s.installedRanges.map(([min, max]) => `${min}–${max}`);
+
 export const EMPTY_SURFACES = [
   ['docDomEvents', `no DOM events enumerated in ${EXTENSION_DOC_PATH} §${DOM_CLAUSE_ID}`],
   ['docProxyWorkerEvents', `no worker events named in the ${SOURCE_HEADER} column of ${EXTENSION_DOC_PATH} §${PROXY_CLAUSE_ID}`], // prettier-ignore
   ['recorderDomEvents', `no DOM listener registrations found in ${RECORDER_PATH}`],
-  ['workerChromeApis', `no chrome listener registrations found in ${WORKER_PATH}`],
+  ['workerChromeApis', `no chrome listener registrations found in ${WORKER_PATH}`, workerChromeApis], // prettier-ignore
   ['docHooks', `no low-level hooks named in ${DESKTOP_DOC_PATH} §${DESKTOP_CLAUSE_ID}`],
   ['docCorrelationClasses', `no WinEvent classes found in the ${CORRELATION_SECTION} table of ${DESKTOP_DOC_PATH}`], // prettier-ignore
   ['installedHooks', `no low-level hook installations found in ${WINDOWS_CAPTURE_PATH}`],
@@ -759,7 +790,7 @@ export const DUPLICATE_SURFACES = [
   ['docHooks', `the ${DESKTOP_CLAUSE_ID} hook enumeration`],
   ['docCorrelationClasses', `the ${CORRELATION_SECTION} table`],
   ['installedHooks', `the installed low-level hooks`],
-  ['installedRangeLabels', `the registered WinEvent ranges`],
+  ['installedRangeLabels', `the registered WinEvent ranges`, installedRangeLabels],
 ];
 
 /**
@@ -844,24 +875,14 @@ export function evaluateCaptureSurface(s) {
   }
   if (machinery.length) return [...problems, ...machinery];
 
-  const apisOf = (file) => s.chromeApisByFile.filter(([f]) => f === file).flatMap(([, a]) => a);
-  const withDerived = {
-    ...s,
-    workerChromeApis: apisOf(WORKER_PATH),
-    installedRangeLabels: s.installedRanges.map(([min, max]) => `${min}–${max}`),
-  };
-
-  let vacuous = false;
-  for (const [key, message] of EMPTY_SURFACES) {
-    if (withDerived[key].length === 0) {
-      problems.push(message);
-      vacuous = true;
-    }
+  const empty = emptySurfaceProblems(s, EMPTY_SURFACES);
+  if (empty.length > 0) {
+    problems.push(...empty);
+    return problems; // empty parses make set diffs meaningless
   }
-  if (vacuous) return problems; // empty parses make set diffs meaningless
 
-  for (const [key, what] of DUPLICATE_SURFACES) {
-    problems.push(...duplicatesIn(withDerived[key], what));
+  for (const [key, what, project] of DUPLICATE_SURFACES) {
+    problems.push(...duplicatesIn(project === undefined ? s[key] : project(s), what));
   }
 
   // ── The extension's DOM surface (ECP-6) ────────────────────────────────────
@@ -920,7 +941,7 @@ export function evaluateCaptureSurface(s) {
     }
   }
   problems.push(
-    ...missingFrom(s.docProxyWorkerEvents, withDerived.workerChromeApis, `is named as a proxy's ${SOURCE_HEADER} in §${PROXY_CLAUSE_ID} but ${WORKER_PATH} registers no listener for it`), // prettier-ignore
+    ...missingFrom(s.docProxyWorkerEvents, workerChromeApis(s), `is named as a proxy's ${SOURCE_HEADER} in §${PROXY_CLAUSE_ID} but ${WORKER_PATH} registers no listener for it`), // prettier-ignore
   );
 
   // ── The desktop capture surface (DCP-4, DCP-7) ─────────────────────────────
@@ -1046,22 +1067,24 @@ function run() {
 
   if (problems.length) {
     console.error(
-      `✗ a capture surface drifted from its committed enumeration:\n` +
-        problems.map((p) => `    ${p}`).join('\n') +
-        `\n\n  Each platform's capture surface is enumerated positively and treated as closed\n` +
-        `  (${'docs/architecture/system/capture-principles.md'} §CP-14). The recorder's\n` +
-        `  \`${ENUMERATED_RECEIVER}\` listeners must equal §${DOM_CLAUSE_ID}'s enumeration; the worker's capture proxies\n` +
-        `  must equal the worker events the §${PROXY_CLAUSE_ID} table's ${SOURCE_HEADER} column names, each\n` +
-        `  registered once (a DOM event that column names is held to §${DOM_CLAUSE_ID}'s enumeration\n` +
-        `  instead), with every other \`chrome.*\` registration the tracked ${POPULATION_EXTENSIONS.join('/')}\n` +
-        `  modules under ${POPULATION_ROOT} outside ${POPULATION_TEST_TREE} make\n` +
-        `  admitted in ${'scripts/check-capture-surface.js'} with the role it plays,\n` +
-        `  keyed by the file that makes it, and every \`${ENUMERATED_RECEIVER}\`/\`window\` listener\n` +
-        `  those modules register belonging in ${RECORDER_PATH}; the installed low-level hooks\n` +
-        `  must equal §${DESKTOP_CLAUSE_ID}'s enumeration and the ${CORRELATION_SECTION} classes must each be covered\n` +
-        `  by a registered WinEvent range, both in both directions; and every id a registered\n` +
-        `  range spans must be one of those classes — held per id, so a widened pair reds.\n` +
-        `  Update the drifted surfaces together in the same change.\n`,
+      formatProblemBlock(
+        'a capture surface drifted from its committed enumeration',
+        problems,
+        `  Each platform's capture surface is enumerated positively and treated as closed\n` +
+          `  (${'docs/architecture/system/capture-principles.md'} §CP-14). The recorder's\n` +
+          `  \`${ENUMERATED_RECEIVER}\` listeners must equal §${DOM_CLAUSE_ID}'s enumeration; the worker's capture proxies\n` +
+          `  must equal the worker events the §${PROXY_CLAUSE_ID} table's ${SOURCE_HEADER} column names, each\n` +
+          `  registered once (a DOM event that column names is held to §${DOM_CLAUSE_ID}'s enumeration\n` +
+          `  instead), with every other \`chrome.*\` registration the tracked ${POPULATION_EXTENSIONS.join('/')}\n` +
+          `  modules under ${POPULATION_ROOT} outside ${POPULATION_TEST_TREE} make\n` +
+          `  admitted in ${'scripts/check-capture-surface.js'} with the role it plays,\n` +
+          `  keyed by the file that makes it, and every \`${ENUMERATED_RECEIVER}\`/\`window\` listener\n` +
+          `  those modules register belonging in ${RECORDER_PATH}; the installed low-level hooks\n` +
+          `  must equal §${DESKTOP_CLAUSE_ID}'s enumeration and the ${CORRELATION_SECTION} classes must each be covered\n` +
+          `  by a registered WinEvent range, both in both directions; and every id a registered\n` +
+          `  range spans must be one of those classes — held per id, so a widened pair reds.\n` +
+          `  Update the drifted surfaces together in the same change.\n`,
+      ),
     );
     process.exit(1);
   }

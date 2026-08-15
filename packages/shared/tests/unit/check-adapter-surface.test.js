@@ -50,7 +50,7 @@ function makeSurface(overrides = {}) {
   return {
     typedefProperties: ['send', 'loadTheme', 'hasNativeFileDialog'],
     // Each adapter carries one platform-specific member beyond the contract —
-    // the shape the adapter file's header admission rule covers.
+    // the shape the admission rule in the typedef's own header covers.
     chromeMembers: ['send', 'loadTheme', 'hasNativeFileDialog', 'loadStorageQuota'],
     tauriMembers: ['send', 'loadTheme', 'hasNativeFileDialog', 'getPendingActions'],
     ...overrides,
@@ -611,7 +611,10 @@ describe('the command-line wrapper', () => {
       assert.ok(red.includes('`loadTheme`') && red.includes(ADAPTERS[1].path), red);
       assert.ok(red.includes(SC_CLAUSE_ID), red);
       assert.ok(red.includes('implement the member in the adapter that lacks it'), red);
-      assert.ok(red.includes("under the admission rule the adapter file's header states"), red);
+      // The rule the sentence points at lives in the shared contract's own
+      // header, so the trailer names that file rather than the adapters'.
+      assert.ok(red.includes("under the admission rule the typedef's own header states"), red);
+      assert.ok(red.includes(TYPEDEF_PATH), red);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

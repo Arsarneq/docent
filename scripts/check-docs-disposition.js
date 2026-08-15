@@ -80,7 +80,6 @@
  */
 
 import { execFileSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 import { isDeepStrictEqual } from 'node:util';
 import {
@@ -91,7 +90,12 @@ import {
   MAP_PATH,
   refuseOnShapeError,
 } from './check-area-map.js';
-import { REGISTRY_PATH, loadRegistry, refuseOnRegistryError } from './check-clause-registry.js';
+import {
+  REGISTRY_PATH,
+  loadRegistry,
+  readTextOrNull,
+  refuseOnRegistryError,
+} from './governance-data.js';
 import {
   AUTOMATED_BRANCH,
   effectiveHeadRef,
@@ -99,9 +103,9 @@ import {
 } from './check-no-release-outputs.js';
 
 /**
- * Repo-relative path of the clause registry — the constant of the check that
- * guards that file, re-exported rather than restated, so the path this check
- * reads is the path that check holds.
+ * Repo-relative path of the clause registry — the shared governance-data
+ * constant, re-exported rather than restated, so the path this check reads is
+ * the path every check that reads that file names.
  */
 export { REGISTRY_PATH };
 
@@ -663,10 +667,11 @@ function run() {
   let docs = [];
   let expected = [];
   if (!governanceData) {
-    // Each governance-data file is read through its own check's loader, so one
-    // that cannot be read as its own data — one that cannot be read at all, or
-    // text that is not JSON — is refused with that check's named verdict, never
-    // a stack trace and never an expected-line list derived from nothing.
+    // The map is read through its own check's loader and the registry through
+    // the shared governance-data home, so one that cannot be read as its own
+    // data — one that cannot be read at all, or text that is not JSON — is
+    // refused with that loader's named verdict, never a stack trace and never
+    // an expected-line list derived from nothing.
     let map;
     try {
       map = loadMap();
@@ -679,15 +684,8 @@ function run() {
     } catch (err) {
       refuseOnRegistryError(err);
     }
-    const readFile = (f) => {
-      try {
-        return readFileSync(f, 'utf8');
-      } catch {
-        return null;
-      }
-    };
     try {
-      docs = docsInScope({ files, map, readFile });
+      docs = docsInScope({ files, map, readFile: readTextOrNull });
     } catch (err) {
       // A map that no longer fits the shape this check reads it through is a
       // refusal on the check's own input: the red is that named verdict,

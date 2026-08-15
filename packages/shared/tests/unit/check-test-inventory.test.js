@@ -33,8 +33,10 @@
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { tmpdir } from 'node:os';
+import { join, resolve } from 'node:path';
 import { execFileSync } from 'node:child_process';
 import {
   DOC_INVENTORIES,
@@ -48,12 +50,14 @@ import {
   auditMutationKillSets,
   auditRegistrationClosure,
   backtickedName,
+  backtickedTokens,
   basenameGlobToRegExp,
   blankJsLiterals,
   classifyArgument,
   configValues,
   extractClauseSection,
   extractLoopGlobs,
+  flattenWhitespace,
   extractStepBody,
   formatProblems,
   identifiesSameFile,
@@ -65,14 +69,20 @@ import {
   readLoneStringLiteral,
   readPropertyStringArray,
   readScopeTable,
+  readTableColumn,
   readTomlLine,
   readTomlStringArray,
   registered,
+  selectTablesByHeader,
   selectsFor,
   splitRow,
   stripFences,
   stripTomlComment,
+  switchCaseLabels,
+  trackedFilesUnder,
   tokenizeJs,
+  topLevelListItems,
+  walkObjectLiteral,
 } from '../../../../scripts/check-test-inventory.js';
 
 const ROOT = resolve(import.meta.dirname, '..', '..', '..', '..');
@@ -103,7 +113,7 @@ const INVENTORY = [
   {
     doc: 'docs/suite.md',
     section: 'What the suite covers',
-    column: 'Spec',
+    header: ['Spec', 'Covers'],
     dir: 'tests/specs',
     selects: (name) => /^[^/]+\.spec\.js$/.test(name),
   },
@@ -233,10 +243,12 @@ describe('auditInventories — suite tables vs the suite directory', () => {
     assert.deepEqual(listed.absent, []);
   });
 
-  it('reads only tables whose first column carries the documented header', () => {
+  it('reads only the tables carrying the documented WHOLE header', () => {
+    // The sibling leads with the same first cell and differs in the second:
+    // selection by the whole header is what leaves it alone.
     const doc = suiteDoc(['a.spec.js']).replace(
       '| Spec | Covers |',
-      ['| Other | Covers |', '| --- | --- |', '| `not-a-spec.js` | a different table |', '', '| Spec | Covers |'].join('\n'), // prettier-ignore
+      ['| Spec | Notes |', '| --- | --- |', '| `not-a-spec.js` | a different table |', '', '| Spec | Covers |'].join('\n'), // prettier-ignore
     );
     const result = audit(
       { 'docs/suite.md': doc },
@@ -320,7 +332,7 @@ describe('auditInventories — the extraction fails loudly', () => {
     const bare = registered({
       doc: 'docs/suite.md',
       section: 'What the suite covers',
-      column: 'Spec',
+      header: ['Spec', 'Covers'],
       dir: 'tests/specs',
     });
     const result = auditInventories({
@@ -411,6 +423,23 @@ describe('auditInventories — the coverage lists', () => {
     );
     assert.deepEqual(result.missingSource, []);
     assert.deepEqual(result.splitEntry, []);
+  });
+
+  it('refuses a list that states one file twice — the drift the tracked-set diff cannot see', () => {
+    const result = audit(
+      {
+        'tests/coverage-fixture.js': "const TRACKED_FILES = ['panel.js', 'panel.js'];",
+        'tests/teardown.js':
+          "const TRACKED_FILES = [{ match: 'a/panel.js', src: 'a/panel.js' }, { match: 'a/panel.js', src: 'a/panel.js' }];", // prettier-ignore
+      },
+      { files: ['src/panel.js', 'pkg/a/panel.js'], inventories: [], lists: LISTS },
+    );
+    assert.deepEqual(result.duplicatedEntry, [
+      '`panel.js` appears more than once in `TRACKED_FILES` in tests/coverage-fixture.js',
+      '`a/panel.js` appears more than once in `TRACKED_FILES` in tests/teardown.js',
+    ]);
+    // The entry is a tracked file either way: the repeat is the whole finding.
+    assert.deepEqual(result.missingSource, []);
   });
 
   it('flags an entry naming a file that is not tracked', () => {
@@ -518,6 +547,254 @@ describe('parseTables / splitRow / backtickedName', () => {
     assert.equal(backtickedName('the `smoke.spec.js` spec'), null);
     assert.equal(backtickedName('smoke.spec.js'), null);
     assert.equal(backtickedName(undefined), null);
+  });
+});
+
+describe('trackedFilesUnder — the one population read', () => {
+  it('states the quotepath policy: a non-ASCII path arrives as itself', () => {
+    // The policy this reader exists to state, held behaviourally: git's
+    // default quotes such a path (`"caf\303\251.js"`), and every filter a
+    // caller applies then drops the file — present in the tree, absent from
+    // the scan. Deleting the policy reds here, in its own name.
+    const dir = mkdtempSync(join(tmpdir(), 'docent-quotepath-'));
+    try {
+      const name = 'café.js';
+      execFileSync('git', ['init', '-q'], { cwd: dir });
+      writeFileSync(join(dir, name), '// probe\n');
+      execFileSync('git', ['add', name], { cwd: dir });
+
+      assert.deepEqual(trackedFilesUnder('.', { cwd: dir }), [name]);
+      assert.deepEqual(trackedFilesUnder('.', { cwd: dir, extensions: ['.js'] }), [name]);
+
+      // The contrast, run the way git does it without the policy: the same
+      // file comes back quoted and escaped, so an extension filter loses it.
+      const quoted = execFileSync('git', ['ls-files', '.'], { cwd: dir, encoding: 'utf8' })
+        .split('\n')
+        .filter(Boolean);
+      assert.notDeepEqual(quoted, [name], 'git quotes the path without the policy');
+      assert.equal(
+        quoted.filter((f) => f.endsWith('.js')).length,
+        0,
+        'and an extension filter then drops it',
+      );
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('applies the caller’s filters, and neither by default', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'docent-population-'));
+    try {
+      execFileSync('git', ['init', '-q'], { cwd: dir });
+      for (const name of ['a.js', 'b.mjs', 'notes.md']) writeFileSync(join(dir, name), 'x\n');
+      execFileSync('git', ['add', '-A'], { cwd: dir });
+      assert.deepEqual(trackedFilesUnder('.', { cwd: dir }), ['a.js', 'b.mjs', 'notes.md']);
+      assert.deepEqual(trackedFilesUnder('.', { cwd: dir, extensions: ['.js', '.mjs'] }), ['a.js', 'b.mjs']); // prettier-ignore
+      assert.deepEqual(trackedFilesUnder('*.md', { cwd: dir }), ['notes.md'], 'a pathspec, not only a directory'); // prettier-ignore
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('the shared doc-scan primitives', () => {
+  const doc = [
+    '## Section',
+    '',
+    '| Spec | Covers |',
+    '| --- | --- |',
+    '| `a.spec.js` | one |',
+    '',
+    '### Deeper',
+    '',
+    '| Spec | Covers |',
+    '| --- | --- |',
+    '| `b.spec.js` | two |',
+    '',
+    '| Spec | Notes |',
+    '| --- | --- |',
+    '| `c.spec.js` | a sibling with another header |',
+    '',
+  ].join('\n');
+
+  it('tags each table with the deeper heading it sits under, so a section can hold several', () => {
+    const tables = parseTables(doc);
+    assert.deepEqual(
+      tables.map((t) => [t.section, t.subsection, t.header[1]]),
+      [
+        ['Section', null, 'Covers'],
+        ['Section', 'Deeper', 'Covers'],
+        ['Section', 'Deeper', 'Notes'],
+      ],
+    );
+  });
+
+  it('selects by the WHOLE header, and a subsection addresses one same-header table', () => {
+    const all = selectTablesByHeader(doc, { section: 'Section', header: ['Spec', 'Covers'] });
+    assert.equal(all.matches, 2, 'both same-header tables of the section');
+    assert.deepEqual(all.tables.flatMap((t) => t.rows.map((r) => r[0])), ['`a.spec.js`', '`b.spec.js`']); // prettier-ignore
+
+    const one = selectTablesByHeader(doc, {
+      section: 'Section',
+      subsection: 'Deeper',
+      header: ['Spec', 'Covers'],
+    });
+    assert.equal(one.matches, 1, 'the subsection tag addresses one of them');
+    assert.deepEqual(one.tables[0].rows[0][0], '`b.spec.js`');
+
+    const sibling = selectTablesByHeader(doc, { section: 'Section', header: ['Spec', 'Notes'] });
+    assert.equal(sibling.matches, 1, 'the sibling is its own table, never conscripted');
+  });
+
+  it('reads a column as names, keeping the cells that do not read as one', () => {
+    const table = { header: ['Spec', 'Covers'], rows: [['`a.js`', 'x'], ['plain', 'y'], ['', 'z']] }; // prettier-ignore
+    const read = readTableColumn([table], { empty: '(empty first cell)' });
+    assert.deepEqual(read.names, ['a.js']);
+    assert.deepEqual(read.unreadable, ['plain', '(empty first cell)']);
+  });
+
+  it('reads a column the table itself names, and passes over a table that has none', () => {
+    const named = { header: ['Spec', 'Source'], rows: [['x', '`b.js`']] };
+    const without = { header: ['Spec', 'Covers'], rows: [['x', 'y']] };
+    const column = (t) => t.header.findIndex((cell) => cell === 'Source');
+    const read = readTableColumn([named, without], { empty: '(empty)', column });
+    assert.deepEqual(read.names, ['b.js']);
+    assert.deepEqual(read.unreadable, []);
+  });
+
+  it('collects WHOLE backticked spans only, in document order, dedup at the caller', () => {
+    const text = 'takes `alpha`, then `alpha` again, and `emit("alpha") beside beta` in one span';
+    assert.deepEqual(backtickedTokens(text), ['alpha', 'alpha', 'emit("alpha") beside beta']);
+    assert.deepEqual(backtickedTokens(text, { dedupe: true }), [
+      'alpha',
+      'emit("alpha") beside beta',
+    ]);
+    // A token inside a larger span is not a token here — the property every
+    // collector asserted for itself before this primitive existed.
+    assert.deepEqual(backtickedTokens(text, { shape: /^alpha$/ }), ['alpha', 'alpha']);
+    assert.deepEqual(backtickedTokens(text, { shape: (t) => t.startsWith('beta') }), []);
+    assert.deepEqual(backtickedTokens(null), []);
+  });
+
+  it('bounds a top-level list item to its own lines', () => {
+    const text = ['- one', '  continued', '- two', '', 'a paragraph after'].join('\n');
+    assert.deepEqual(topLevelListItems(text), ['one continued', 'two']);
+  });
+
+  it('flattens every whitespace run and trims the ends', () => {
+    assert.equal(flattenWhitespace('  a\n  b\tc  '), 'a b c');
+    assert.equal(flattenWhitespace(null), '');
+  });
+
+  it('reads the shipped multi-table section as the one inventory it is', () => {
+    // The live pin for merge-all: this section states its inventory as several
+    // tables of one header, so a selector that demanded exactly one would red
+    // the shipped tree, and the subsection tag is what makes them addressable
+    // one at a time.
+    const e2e = readRepoFile('docs/test/e2e.md');
+    const { tables, matches } = selectTablesByHeader(e2e, {
+      section: 'What the suite covers',
+      header: ['Spec', 'Covers'],
+    });
+    assert.ok(matches > 1, `expected several tables, got ${matches}`);
+    assert.equal(new Set(tables.map((t) => t.subsection)).size, matches, 'each under its own heading'); // prettier-ignore
+    assert.ok(tables.flatMap((t) => t.rows).length > 0);
+  });
+});
+
+describe('switchCaseLabels — the brace-bounded case collector', () => {
+  const view = (source) => blankJsLiterals(source, { literals: false });
+
+  it('reads every label of the switch body, including one after the default arm', () => {
+    const src = [
+      'switch (cmd) {',
+      "  case 'a': return 1;",
+      '  default: return 0;',
+      "  case 'after_default': return 2;",
+      '}',
+    ].join('\n');
+    const read = switchCaseLabels(view(src), 'switch (cmd)');
+    assert.deepEqual(read.labels, ['a', 'after_default']);
+    assert.equal(read.hasDefault, true);
+    assert.deepEqual(read.problems, []);
+  });
+
+  it('never reads a label the source comments out', () => {
+    const src = ['switch (cmd) {', '  /*', "  case 'commented': return 1;", '  */', '}'].join('\n');
+    assert.deepEqual(switchCaseLabels(view(src), 'switch (cmd)').labels, []);
+  });
+
+  it('refuses a second switch at its own depth rather than crediting those labels', () => {
+    const src = "switch (cmd) { case 'host': switch (x) { case 'inner': break; } }";
+    const read = switchCaseLabels(view(src), 'switch (cmd)');
+    assert.deepEqual(read.labels, []);
+    assert.match(read.problems[0], /carries a second switch at this switch's own depth/);
+  });
+
+  it('refuses a body that never closes, and an anchor that is not there', () => {
+    assert.match(switchCaseLabels("switch (cmd) { case 'a':", 'switch (cmd)').problems[0], /never closes/); // prettier-ignore
+    assert.match(switchCaseLabels('const x = 1;', 'switch (cmd)').problems[0], /no .* statement found/); // prettier-ignore
+  });
+
+  it('blanks an unterminated template to the end of the source', () => {
+    // The arm that runs off the end: the view stays a view, and the scan that
+    // reads it finds no switch rather than reading the rest of the file.
+    const src = 'const script = `switch (cmd) { case ';
+    assert.deepEqual(switchCaseLabels(blankJsLiterals(src, { literals: false }), 'switch (cmd)').labels, []); // prettier-ignore
+    assert.match(blankJsLiterals(src), /const script = `\s+$/);
+  });
+
+  it('reads a switch a template literal carries, through the template’s own text', () => {
+    // The welded half, and the nesting it forces. A token stream hands a
+    // template over as ONE token, so the scan cannot see the switch at all
+    // through the default view — and a view of the outer source that merely
+    // keeps literal text does not blank the SCRIPT's comments either, because
+    // at that level the template's text is not code. The caller therefore
+    // takes the template's text and reads it as the source it becomes.
+    const src = "const script = `switch (cmd) { case 'a': return 1; /* case 'off': */ }`;";
+    assert.deepEqual(switchCaseLabels(blankJsLiterals(src), 'switch (cmd)').labels, []);
+    assert.deepEqual(switchCaseLabels(view(src), 'switch (cmd)').labels, ['a', 'off']);
+
+    const carrier = tokenizeJs(src).find((t) => t.type === 'template');
+    assert.deepEqual(switchCaseLabels(view(carrier.value), 'switch (cmd)').labels, ['a']);
+  });
+});
+
+describe('walkObjectLiteral — the shared object-literal skeleton', () => {
+  /** The property-start tokens the walk hands its policy, as text. */
+  const starts = (source) => {
+    const tokens = tokenizeJs(source);
+    const open = tokens.findIndex((t) => t.type === 'punct' && t.value === '{');
+    const seen = [];
+    const { closed } = walkObjectLiteral(tokens, open, (i, t) => seen.push(t.value));
+    return { seen, closed };
+  };
+
+  it('hands the policy each top-level property start and passes nested shapes through whole', () => {
+    const read = starts('({ a: 1, b: { c: 2 }, d: [3, 4], e: f(5, 6) })');
+    assert.deepEqual(read.seen, ['a', 'b', 'd', 'e']);
+    assert.equal(read.closed, true);
+  });
+
+  it('reads a comma at a property start as the separator it is', () => {
+    // The one semantic decision the merged skeleton fixes: the walks it
+    // replaces disagreed here, and this is the reading both callers now get.
+    assert.deepEqual(starts('({ a: 1,, b: 2 })').seen, ['a', 'b']);
+    assert.deepEqual(starts('({ , a: 1 })').seen, ['a']);
+  });
+
+  it('hands an opening bracket at a property start to the policy, then descends', () => {
+    assert.deepEqual(starts('({ [k]: 1, b: 2 })').seen, ['[', 'b']);
+  });
+
+  it('reports a literal that never closes, having walked what it could', () => {
+    const read = starts('({ a: 1, b: 2');
+    assert.deepEqual(read.seen, ['a', 'b']);
+    assert.equal(read.closed, false);
+  });
+
+  it('leaves a trailing comma stating no property', () => {
+    assert.deepEqual(starts('({ a: 1, })').seen, ['a']);
   });
 });
 
@@ -1385,7 +1662,7 @@ describe('discovery descriptors — one statement, two readers', () => {
 const NODE_ENTRY = registered({
   doc: 'docs/suite.md',
   section: 'What the suite covers',
-  column: 'Test file',
+  header: ['Test file', 'Covers'],
   dir: 'packages/thing/tests/unit',
   discovery: { runner: RUNNERS.node, pattern: '*.test.js' },
 });
@@ -1394,7 +1671,7 @@ const NODE_ENTRY = registered({
 const CARGO_ENTRY = registered({
   doc: 'docs/rust.md',
   section: 'Suite layout',
-  column: 'Test file',
+  header: ['Test file', 'Covers'],
   dir: 'crate/tests',
   discovery: {
     runner: RUNNERS.cargo,
@@ -1409,7 +1686,7 @@ const CARGO_ENTRY = registered({
 const PLAYWRIGHT_ENTRY = registered({
   doc: 'docs/browser.md',
   section: 'What the suite covers',
-  column: 'Spec',
+  header: ['Spec', 'Covers'],
   dir: 'pkg/tests/e2e/specs',
   discovery: { runner: RUNNERS.playwright, workdir: 'pkg/tests/e2e' },
 });
@@ -1671,7 +1948,7 @@ describe('auditRegistrationClosure — the node-test class, both directions', ()
     const bare = registered({
       doc: NODE_ENTRY.doc,
       section: NODE_ENTRY.section,
-      column: NODE_ENTRY.column,
+      header: NODE_ENTRY.header,
       dir: NODE_ENTRY.dir,
     });
     assert.equal(Object.hasOwn(bare, 'selects'), false, 'no descriptor, no derived rule');
@@ -2101,6 +2378,28 @@ describe('the mutation kill sets — reading the two list shapes', () => {
     assert.match(readPropertyStringArray(source, 'command').error, /no `command: \[\.\.\.\]`/);
   });
 
+  it('accepts the joining call’s chain, the residue of modelling one call', () => {
+    // The guard bounds the FIRST call after the literal, so a chained call
+    // rides through: recorded at the guard site, and held here so the record
+    // is executable rather than a claim about code nobody runs.
+    assert.deepEqual(
+      readPropertyStringArray("const a = { command: ['x'].join(' ') };", 'command'),
+      {
+        entries: ['x'],
+      },
+    );
+    assert.deepEqual(
+      readPropertyStringArray("const a = { command: ['x'].join(' ').concat(y) };", 'command'),
+      { entries: ['x'] },
+    );
+    // What the guard does refuse, for contrast: a first call that is not the
+    // joining one.
+    assert.match(
+      readPropertyStringArray("const a = { command: ['x'].filter(Boolean) };", 'command').error,
+      /is followed by `\.`/,
+    );
+  });
+
   it('refuses a property stated twice, which literal states the list being an accident of order', () => {
     const source = "const a = { command: ['x'] }; const b = { command: ['y'] };";
     assert.match(readPropertyStringArray(source, 'command').error, /states `command: \[\.\.\.\]` 2 times/); // prettier-ignore
@@ -2259,21 +2558,24 @@ describe('the mutation kill sets — reading the two list shapes', () => {
       '| --- | --- |',
       '| `src/after.rs` | a table after the clause |',
     ].join('\n');
-    assert.deepEqual(readScopeTable(doc, 'XX-3', 'Module'), {
+    assert.deepEqual(readScopeTable(doc, 'XX-3', ['Module', 'What it carries']), {
       modules: ['src/a.rs', 'src/b.rs'],
     });
+    // The clause also carries a `Module | Note` table in the fixture's other
+    // clauses: whole-header selection is what leaves those to their own leg.
   });
 
   it('refuses a missing marker, a missing table, and a cell that is not a module path', () => {
     const doc =
       '**XX-3.** The scope:\n\n| Module | X |\n| --- | --- |\n| the `a.rs` module | a |\n';
-    assert.match(readScopeTable('# Doc\n', 'XX-3', 'Module').error, /states no `\*\*XX-3\.\*\*` marker/); // prettier-ignore
+    const header = ['Module', 'What it carries'];
+    assert.match(readScopeTable('# Doc\n', 'XX-3', header).error, /states no `\*\*XX-3\.\*\*` marker/); // prettier-ignore
     assert.match(
-      readScopeTable('**XX-3.** No table here.\n', 'XX-3', 'Module').error,
-      /states no table headed "Module" inside §XX-3/,
+      readScopeTable('**XX-3.** No table here.\n', 'XX-3', header).error,
+      /states no table headed "Module" \| "What it carries" inside §XX-3/,
     );
     assert.match(
-      readScopeTable(doc, 'XX-3', 'Module').error,
+      readScopeTable(doc.replace('| Module | X |', '| Module | What it carries |'), 'XX-3', header).error, // prettier-ignore
       /whose first cell is not a single backticked module path/,
     );
   });
@@ -2296,7 +2598,7 @@ describe('auditMutationKillSets — staleness, agreement, and the refusals', () 
       root: 'crate',
       doc: 'docs/mutation.md',
       clause: 'XX-3',
-      column: 'Module',
+      header: ['Module', 'What it carries'],
     },
   };
 
@@ -2591,9 +2893,35 @@ describe('auditMutationKillSets — staleness, agreement, and the refusals', () 
   it('refuses a document whose scope table is not where this leg reads it', () => {
     const source = tree({ 'docs/mutation.md': '# Mutation\n\n**XX-3.** No table here.\n' });
     assert.deepEqual(killSets(source).unreadableKillSet, [
-      'docs/mutation.md: states no table headed "Module" inside §XX-3, where this leg reads the mutate scope',
+      'docs/mutation.md: states no table headed "Module" | "What it carries" inside §XX-3, where this leg reads the mutate scope',
     ]);
     assert.deepEqual(killSets(source).mutateScopeDrift, []);
+  });
+
+  it('refuses a kill set that states one entry twice, on the projection each list states', () => {
+    // The Rust flip reads the `--test` TARGETS, never the raw argument list:
+    // the flag itself repeats once per target by the grammar of a cargo
+    // argument list, so a raw-list reading would red every healthy tree.
+    const source = tree({
+      'crate/.cargo/mutants.toml': manifest({ binaries: ['a_test', 'a_test'] }),
+      'mutate.desktop.mjs': jsConfig('pkg/tests/a.test.js', 'pkg/tests/a.test.js'),
+    });
+    const result = killSets(source);
+    assert.deepEqual(result.duplicatedEntry, [
+      '`pkg/tests/a.test.js` appears more than once in `command`\'s `node --test` arguments in mutate.desktop.mjs', // prettier-ignore
+      "`a_test` appears more than once in `test_args`'s `--test` targets in crate/.cargo/mutants.toml",
+    ]);
+    // Both entries name tracked binaries: the repeat is the whole finding.
+    assert.deepEqual(result.staleKillSetEntry, []);
+  });
+
+  it('reads the raw argument list without refusing the repeated flag token', () => {
+    // The control for the projection: `--test` appears once per target, and a
+    // healthy configuration must stay green with it.
+    const result = killSets(tree({
+      'crate/.cargo/mutants.toml': manifest({ binaries: ['a_test', 'b_test'] }),
+    })); // prettier-ignore
+    assert.deepEqual(result.duplicatedEntry, []);
   });
 
   it('refuses a kill-set list whose entries it cannot pair, naming the list', () => {

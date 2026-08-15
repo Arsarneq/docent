@@ -58,6 +58,7 @@ the crate:
 | `src/capture/element_mapping.rs` | Native element data mapped onto element descriptions and locator candidates. |
 | `src/capture/coordinate.rs`      | Coordinate math, the multi-monitor and DPI cases included.                   |
 | `src/capture/scroll.rs`          | Scroll accumulation, settling, and the displacement floor.                   |
+| `src/capture/timing.rs`          | The capture layer's timing constants and the windows derived from them.      |
 
 Outside that set sits the rest of the capture backend. The live-input capture
 path among it is unmutated for a reason of its own: its only exercising tests

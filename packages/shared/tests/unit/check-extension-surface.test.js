@@ -511,24 +511,25 @@ describe('extractSectionTableNames / extractProtocolTables', () => {
     '```',
   ].join('\n');
 
-  it('reads names per section and header cell, fence-aware, refusing unreadable cells', () => {
-    const perms = extractSectionTableNames(doc, 'Permissions', 'Permission');
+  it('reads names per section and whole header, fence-aware, refusing unreadable cells', () => {
+    const perms = extractSectionTableNames(doc, 'Permissions', ['Permission', 'Why']);
     assert.deepEqual(perms.names, ['storage']);
     assert.deepEqual(perms.unreadable, ['un-backticked']);
-    const hosts = extractSectionTableNames(doc, 'Host permissions', 'Host permission');
+    const hosts = extractSectionTableNames(doc, 'Host permissions', ['Host permission', 'Why']);
     assert.deepEqual(hosts.names, ['<all_urls>']);
     assert.deepEqual(hosts.unreadable, []);
   });
 
   it('a sibling table under the same heading with a different header is never conscripted', () => {
+    // The sibling leads with the SAME first cell, which is what makes this the
+    // whole-header selector's own property rather than the first cell's.
     const withSibling = doc.replace(
       '## Host permissions',
-      ['| Optional permission | Why |', '| ------------------- | --- |', '| `downloads`         | e   |', '', '## Host permissions'].join('\n'), // prettier-ignore
+      ['| Permission | Note |', '| ---------- | ---- |', '| `downloads` | e   |', '', '## Host permissions'].join('\n'), // prettier-ignore
     );
-    const perms = extractSectionTableNames(withSibling, 'Permissions', 'Permission');
+    const perms = extractSectionTableNames(withSibling, 'Permissions', ['Permission', 'Why']);
     assert.deepEqual(perms.names, ['storage']);
-    assert.ok(!perms.names.includes('downloads'));
-    assert.ok(!perms.unreadable.length || !perms.unreadable.includes('`downloads`'));
+    assert.deepEqual(perms.unreadable, ['un-backticked']);
   });
 
   const runtime = [
@@ -746,6 +747,26 @@ describe('extractDispatcherSurface — comment-safe tokenizer reads', () => {
     const read = extractDispatcherSurface(constant);
     assert.deepEqual(read.caseLabels, ['PROJECTS_LIST']);
     assert.deepEqual(read.problems, []);
+  });
+  it('is silent on a reversed-operand type test — the limit the header names, pinned', () => {
+    // The file header states this limit ("a negated or reversed-operand type
+    // test … is invisible to the scan"); this is the case that holds it, so
+    // the disclosure cannot drift from the behaviour without one of them
+    // reddening. A receiver-first guard beside it is read as usual.
+    const yoda = [
+      "if ('CAPTURE_START' === message.type) { return start(); }",
+      "if (message.type === 'CAPTURE_STOP') { return stop(); }",
+      'function handle(msg) {',
+      '  switch (msg.type) {',
+      "    case 'PING': return pong();",
+      '    default: return null;',
+      '  }',
+      '}',
+    ].join('\n');
+    const read = extractDispatcherSurface(yoda);
+    assert.deepEqual(read.equalityTypes, ['CAPTURE_STOP'], 'the reversed operand is unread');
+    assert.deepEqual(read.caseLabels, ['PING']);
+    assert.deepEqual(read.problems, [], 'and it is silent, not refused');
   });
 });
 

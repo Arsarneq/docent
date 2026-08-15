@@ -145,17 +145,22 @@
  *   node scripts/check-command-surface.js   # or: npm run lint:command-surface
  */
 
-import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 import {
+  backtickedTokens,
+  blankJsLiterals,
   duplicatesIn,
+  emptySurfaceProblems,
   extractClauseSection,
+  formatProblemBlock,
   missingFrom,
   parseTables,
   readListEntries,
   readLoneStringLiteral,
+  switchCaseLabels,
   tokenizeJs,
+  trackedFilesUnder,
 } from './check-test-inventory.js';
 
 /** Repo-relative path of the doc whose DSH-1 table states the contract. */
@@ -403,13 +408,13 @@ export function blankRustStrings(source) {
  * The attribute and the declaration are anchors — what the source DOES — so
  * they are found on the strings-blanked view, and a declaration quoted inside a
  * string literal is text rather than a command.
- * @param {string} strippedSource comment-stripped Rust source
+ * @param {string} blankedSource comment-stripped, strings-blanked Rust source
  * @returns {string[]} command function names, in source order
  */
-export function extractCommandFns(strippedSource) {
+export function extractCommandFns(blankedSource) {
   const re =
     /#\[tauri::command(?:\([^)]*\))?\]\s*(?:#\[[^\]]*\]\s*)*(?:pub(?:\([^)]*\))?\s+)?(?:async\s+)?fn\s+([A-Za-z0-9_]+)/g;
-  return [...blankRustStrings(strippedSource).matchAll(re)].map((m) => m[1]);
+  return [...blankedSource.matchAll(re)].map((m) => m[1]);
 }
 
 /**
@@ -417,12 +422,12 @@ export function extractCommandFns(strippedSource) {
  * macro invocation is an anchor — what the source DOES — so the lists are found
  * on the strings-blanked view, which is what keeps a quoted list from standing
  * in for the real one and from counting as a second registration.
- * @param {string} strippedLib comment-stripped lib.rs source
+ * @param {string} blankedLib comment-stripped, strings-blanked lib.rs source
  * @returns {{ commands: string[], occurrences: number }} last-segment names
  *   and how many generate_handler! lists the source carries
  */
-export function extractHandlerCommands(strippedLib) {
-  const lists = [...blankRustStrings(strippedLib).matchAll(/generate_handler!\s*\[([\s\S]*?)\]/g)];
+export function extractHandlerCommands(blankedLib) {
+  const lists = [...blankedLib.matchAll(/generate_handler!\s*\[([\s\S]*?)\]/g)];
   const commands = (lists[0]?.[1] ?? '')
     .split(',')
     .map((s) => s.trim())
@@ -477,11 +482,9 @@ export function extractDocRows(section) {
  * @returns {string[]} grant identifiers in first-appearance order, deduplicated
  */
 export function extractDocGrants(section) {
-  const out = [];
-  for (const m of section.matchAll(/`([^`]+)`/g)) {
-    if (GRANT_RE.test(m[1]) && !out.includes(m[1])) out.push(m[1]);
-  }
-  return out;
+  // Deduplicated: a grant named twice in the prose is one grant, and the diff
+  // legs over this surface are set diffs.
+  return backtickedTokens(section, { shape: GRANT_RE, dedupe: true });
 }
 
 /**
@@ -516,12 +519,7 @@ export function extractSectionProse(section) {
  * @returns {string[]} channel-shaped tokens in first-appearance order, deduplicated
  */
 export function extractProseChannelTokens(prose) {
-  const out = [];
-  for (const m of prose.matchAll(/`([^`]+)`/g)) {
-    const token = m[1];
-    if (isChannelShaped(token) && !out.includes(token)) out.push(token);
-  }
-  return out;
+  return backtickedTokens(prose, { shape: isChannelShaped, dedupe: true });
 }
 
 /**
@@ -543,15 +541,18 @@ export function extractProseChannelTokens(prose) {
  * comment-stripped text at the same offset, which the blanked view preserves
  * character for character.
  * @param {Map<string, string>} strippedByPath path → comment-stripped source
+ * @param {Map<string, string>} [blankedByPath] path → that source with string
+ *   contents blanked; the anchors are found there, and the channel is read
+ *   from the intact text at the same offset
  * @returns {{ path: string, method: string, channel: string | null, line: number }[]}
  */
-export function extractEmitSites(strippedByPath) {
+export function extractEmitSites(strippedByPath, blankedByPath) {
   const sites = [];
   const STR = /^\s*"((?:[^"\\]|\\.)*)"(?=\s*[,)])/;
   const SECOND_STR = /^\s*"(?:[^"\\]|\\.)*"\s*,\s*"((?:[^"\\]|\\.)*)"(?=\s*[,)])/;
   const FAMILY = /\.(emit|emit_str|emit_to|emit_str_to|emit_filter|emit_str_filter)\s*\(/g;
   for (const [path, source] of strippedByPath) {
-    const anchored = blankRustStrings(source);
+    const anchored = blankedByPath.get(path) ?? blankRustStrings(source);
     for (const m of anchored.matchAll(FAMILY)) {
       const line = source.slice(0, m.index).split('\n').length;
       const rest = source.slice(m.index + m[0].length);
@@ -649,20 +650,35 @@ export function extractMockCommands(fixtureSource) {
 
 /**
  * Extract the command names the injected mock script's invoke switch actually
- * services — the `case 'name':` labels between `switch (cmd)` and its
- * `default:` arm in the fixture's script template. A missing switch or
- * default anchor yields an empty list, which the evaluation reds as a
- * structural failure rather than passing vacuously.
+ * services — the `case 'name':` labels of the `switch (cmd)` body, bounded by
+ * that switch's own braces. The bound matters both ways: a live case written
+ * after the `default:` arm is serviced at runtime, so reading only the text
+ * before that arm reds a command the mock really does service and passes over
+ * a stale one written there.
+ *
+ * The mock's script is a template the fixture injects, so the switch is text
+ * a literal CARRIES — invisible to a token stream, which hands a template
+ * over as one token. The scan therefore takes that token's text and reads it
+ * as the script it becomes: its own comments blanked, its own string literals
+ * standing (a label IS one). A fixture that states the switch outright rather
+ * than through a template is read the same way, on its own text. A missing
+ * switch, one carrying a second switch at its own depth, and an unclosed body
+ * each yield no labels AND a refusal naming which it was — the refusal is the
+ * caller's to report, so the reader never states a structural failure as an
+ * empty read.
  * @param {string} fixtureSource tauri-mock-fixture.js source
- * @returns {string[]} serviced case labels, in switch order
+ * @returns {{ cases: string[], problems: string[] }} serviced case labels in
+ *   switch order, and the refusals that stopped the read
  */
 export function extractMockServicedCases(fixtureSource) {
-  const start = fixtureSource.indexOf(MOCK_SWITCH_ANCHOR);
-  if (start === -1) return [];
-  const end = fixtureSource.indexOf('default:', start);
-  if (end === -1) return [];
-  const body = fixtureSource.slice(start, end);
-  return [...body.matchAll(/^\s*case '([A-Za-z0-9_]+)':/gm)].map((m) => m[1]);
+  const carrier = tokenizeJs(fixtureSource).find(
+    (token) => token.type === 'template' && token.value.includes(MOCK_SWITCH_ANCHOR),
+  );
+  // Where a template carries the switch, that template's text IS the script;
+  // where the fixture states the switch outright, the source is.
+  const script = carrier === undefined ? fixtureSource : carrier.value;
+  const read = switchCaseLabels(blankJsLiterals(script, { literals: false }), MOCK_SWITCH_ANCHOR);
+  return { cases: read.labels, problems: read.problems };
 }
 
 /**
@@ -736,14 +752,11 @@ export function evaluateCommandSurface(s) {
     problems.push(`${siteLabel(site, 'listen')} passes ${argLabel(site)} where the event channel goes — the scan reads a lone string literal, so the single-listener pin stays checkable`); // prettier-ignore
   }
 
-  let vacuous = false;
-  for (const [key, message] of EMPTY_SURFACES) {
-    if (s[key].length === 0) {
-      problems.push(message);
-      vacuous = true;
-    }
+  const empty = emptySurfaceProblems(s, EMPTY_SURFACES);
+  if (empty.length > 0) {
+    problems.push(...empty);
+    return problems; // empty parses make set diffs meaningless
   }
-  if (vacuous) return problems; // empty parses make set diffs meaningless
 
   if (s.handlerOccurrences !== 1) {
     problems.push(
@@ -856,6 +869,14 @@ export function auditTree(readFile, rustFiles, capabilityFiles, jsFiles) {
   const strippedByPath = new Map(
     rustFiles.map((p) => [p, stripRustComments(readFile(p).replace(/\r\n/g, '\n'))]),
   );
+  // The anchors every Rust leg finds are found on ONE view per source: the
+  // comment-stripped text with its string-literal contents blanked. Computing
+  // it here rather than inside each leg is what keeps the legs reading the
+  // same view of the same file — and stops one file being blanked once per
+  // leg that reads it.
+  const blankedByPath = new Map(
+    [...strippedByPath].map(([path, source]) => [path, blankRustStrings(source)]),
+  );
   const callerSources = new Map(jsFiles.map((p) => [p, readFile(p).replace(/\r\n/g, '\n')]));
   const invokeSites = extractCallSites(callerSources, 'invoke');
   const listenSites = extractCallSites(callerSources, 'listen');
@@ -863,7 +884,7 @@ export function auditTree(readFile, rustFiles, capabilityFiles, jsFiles) {
   const section = extractDsh1Section(docText);
   const { commands: docCommands, events: docEvents, unreadable: docUnreadableRows } = extractDocRows(section); // prettier-ignore
   const { commands: handlerCommands, occurrences: handlerOccurrences } = extractHandlerCommands(
-    strippedByPath.get(LIB_PATH) ?? '',
+    blankedByPath.get(LIB_PATH) ?? '',
   );
 
   // Union the grants across every tracked capability file — Tauri loads the
@@ -910,24 +931,32 @@ export function auditTree(readFile, rustFiles, capabilityFiles, jsFiles) {
   const mockSource = readFile(MOCK_PATH).replace(/\r\n/g, '\n');
   const mockRead = extractMockCommands(mockSource);
   if (mockRead.error) collectionProblems.push(`${MOCK_PATH}: ${mockRead.error}`);
+  // The serviced-case read states WHY it stopped, and that verdict is more
+  // use than the empty-surface guard it would otherwise reach as: a refusal
+  // names the shape it found, where the guard can only say the surface parsed
+  // to nothing.
+  const mockCasesRead = extractMockServicedCases(mockSource);
+  for (const problem of mockCasesRead.problems) {
+    collectionProblems.push(`${MOCK_PATH}: ${problem}`);
+  }
   const switchCount = mockSource.split(MOCK_SWITCH_ANCHOR).length - 1;
   if (switchCount !== 1) {
     collectionProblems.push(`${MOCK_PATH} carries ${switchCount} \`${MOCK_SWITCH_ANCHOR}\` blocks — the serviced-case scan models exactly one`); // prettier-ignore
   }
 
   const s = {
-    commandFns: [...strippedByPath.values()].flatMap((src) => extractCommandFns(src)),
+    commandFns: [...blankedByPath.values()].flatMap((src) => extractCommandFns(src)),
     handlerCommands,
     handlerOccurrences,
     docCommands,
     docEvents,
     docUnreadableRows,
     sectionProse: extractSectionProse(section),
-    emitSites: extractEmitSites(strippedByPath),
+    emitSites: extractEmitSites(strippedByPath, blankedByPath),
     fileGrants,
     docGrants: extractDocGrants(section),
     mockCommands: mockRead.commands,
-    mockCases: extractMockServicedCases(mockSource),
+    mockCases: mockCasesRead.cases,
     invokeLiterals: [...new Set(invokeSites.filter((x) => x.name !== null).map((x) => x.name))],
     invokeSites,
     listenSites,
@@ -945,17 +974,9 @@ export function auditTree(readFile, rustFiles, capabilityFiles, jsFiles) {
    formats the pass/fail output; the pure extraction and evaluation core above
    is unit-tested. */
 function run() {
-  // `core.quotepath` off: a path carrying a non-ASCII byte arrives as itself
-  // rather than quoted and escaped, which the extension filters below would
-  // drop in silence.
-  const lsFiles = (dir) =>
-    execFileSync('git', ['-c', 'core.quotepath=false', 'ls-files', dir], { encoding: 'utf8' })
-      .split('\n')
-      .map((s) => s.trim())
-      .filter(Boolean);
-  const rustFiles = lsFiles(SRC_DIR).filter((f) => f.endsWith('.rs'));
-  const capabilityFiles = lsFiles(CAPABILITIES_DIR);
-  const jsFiles = lsFiles(FRONTEND_DIR).filter((f) => f.endsWith('.js'));
+  const rustFiles = trackedFilesUnder(SRC_DIR, { extensions: ['.rs'] });
+  const capabilityFiles = trackedFilesUnder(CAPABILITIES_DIR);
+  const jsFiles = trackedFilesUnder(FRONTEND_DIR, { extensions: ['.js'] });
   const readFile = (f) => {
     try {
       return readFileSync(f, 'utf8');
@@ -972,14 +993,16 @@ function run() {
 
   if (problems.length) {
     console.error(
-      `✗ the desktop command surface drifted from its committed contract:\n` +
-        problems.map((p) => `    ${p}`).join('\n') +
-        `\n\n  The DSH-1 table (${DOC_PATH}), the #[tauri::command] set, the generate_handler!\n` +
-        `  registration, the frontend's invoke( call sites, and the capability grants must\n` +
-        `  state the same surface, updated together in the same change (${DOC_PATH}\n` +
-        `  §DSH-1); the integration mock's serviced-command list is held equal to that\n` +
-        `  surface by the desktop integration suite's contract\n` +
-        `  (docs/test/integration/desktop.md).\n`,
+      formatProblemBlock(
+        'the desktop command surface drifted from its committed contract',
+        problems,
+        `  The DSH-1 table (${DOC_PATH}), the #[tauri::command] set, the generate_handler!\n` +
+          `  registration, the frontend's invoke( call sites, and the capability grants must\n` +
+          `  state the same surface, updated together in the same change (${DOC_PATH}\n` +
+          `  §DSH-1); the integration mock's serviced-command list is held equal to that\n` +
+          `  surface by the desktop integration suite's contract\n` +
+          `  (docs/test/integration/desktop.md).\n`,
+      ),
     );
     process.exit(1);
   }

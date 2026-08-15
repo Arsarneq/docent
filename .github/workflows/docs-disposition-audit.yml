@@ -35,10 +35,8 @@ jobs:
         with:
           node-version: ${{ env.NODE_VERSION }}
 
-      # The audit imports the disposition check, which reads the clause registry
-      # through the registry check's own loader, and that module imports its
-      # installed markdown parser at load — so this job installs packages before
-      # running the audit.
+      # The audit runs on the packages this job installs, so what it imports is
+      # there however its import closure grows.
       - name: Install dependencies
         run: npm ci
 

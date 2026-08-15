@@ -123,6 +123,16 @@
  * unregistered here, so the lists remain part of this remainder; and the
  * manifests the admission rule does not admit.
  *
+ * This file is also the SHARED-PRIMITIVE HOME the sibling checks read through:
+ * the Markdown table parser and its selectors, the whole-span and list-item
+ * readers, the JavaScript tokenizer and the blanked views it renders, the
+ * object-literal walk and the switch-case collector, the set-diff and
+ * duplicate reporters, the report block, and the one tracked-file population
+ * read. Anything exported here is therefore load-bearing well beyond this
+ * check — the sibling check scripts and the suites import from it — so a
+ * change to an exported reader's behaviour or wording is a change to every
+ * leg that reads through it, and the blast radius is the offer's price.
+ *
  * Usage:
  *   node scripts/check-test-inventory.js      # or: npm run lint:test-inventory
  */
@@ -234,10 +244,13 @@ export const registered = (entry) =>
 
 /**
  * The suite documents and the suites they enumerate. `section` is the `##`
- * heading whose tables make the enumeration claim and `column` their first
- * header cell — together they identify the inventory tables, so a table added
- * elsewhere in the document is free to name whatever it documents, and several
- * suites may share one document, each taking its own section. `dir` is the
+ * heading whose tables make the enumeration claim and `header` their whole
+ * header — together they identify the inventory tables, so a table added
+ * elsewhere in the document, or one under the same heading written to a
+ * different header, is free to name whatever it documents, and several
+ * suites may share one document, each taking its own section. A section
+ * stating its inventory as several tables of one header is read as the one
+ * inventory it is. `dir` is the
  * directory the suite lives in, and `discovery` states how this repository
  * selects that suite's tests: `selects` is derived from it (see
  * {@link selectsFor}), so what the check demands a row for is what gets
@@ -248,14 +261,14 @@ export const DOC_INVENTORIES = [
   registered({
     doc: 'docs/test/e2e.md',
     section: 'What the suite covers',
-    column: 'Spec',
+    header: ['Spec', 'Covers'],
     dir: 'packages/extension/tests/e2e/specs',
     discovery: { runner: RUNNERS.playwright, workdir: 'packages/extension/tests/e2e' },
   }),
   registered({
     doc: 'docs/test/desktop-rust.md',
     section: 'Suite layout',
-    column: 'Test file',
+    header: ['Test file', 'Covers'],
     dir: 'packages/desktop/src-tauri/tests',
     discovery: {
       runner: RUNNERS.cargo,
@@ -268,28 +281,28 @@ export const DOC_INVENTORIES = [
   registered({
     doc: 'docs/test/integration/desktop.md',
     section: 'What the suite covers',
-    column: 'Spec',
+    header: ['Spec', 'Covers'],
     dir: 'packages/desktop/tests/integration',
     discovery: { runner: RUNNERS.playwright, workdir: 'packages/desktop/tests/integration' },
   }),
   registered({
     doc: 'docs/test/unit.md',
     section: 'Shared modules',
-    column: 'Test file',
+    header: ['Test file', 'Covers'],
     dir: 'packages/shared/tests/unit',
     discovery: { runner: RUNNERS.node, pattern: '*.test.js' },
   }),
   registered({
     doc: 'docs/test/unit.md',
     section: 'Desktop application',
-    column: 'Test file',
+    header: ['Test file', 'Covers'],
     dir: 'packages/desktop/tests/unit',
     discovery: { runner: RUNNERS.node, pattern: '*.test.js' },
   }),
   registered({
     doc: 'docs/test/unit.md',
     section: 'Chrome extension',
-    column: 'Test file',
+    header: ['Test file', 'Covers'],
     dir: 'packages/extension/tests/unit',
     discovery: { runner: RUNNERS.node, pattern: '*.test.js' },
   }),
@@ -346,24 +359,34 @@ const isDelimiterRow = (line) => {
 /**
  * Parse the tables out of a Markdown document, each tagged with the `##`
  * section it sits in (deeper headings stay inside their section; a `#` heading
- * starts document-level text again). A table is a header row followed by a
+ * starts document-level text again) and with the deeper heading it sits under
+ * inside that section, its `subsection` — null until the section states one.
+ * The subsection is what makes same-header tables of one section
+ * addressable: without it a selector can only take them all or none, however
+ * exactly it states the header. A table is a header row followed by a
  * delimiter row and the body rows after it; fenced content is blanked first
  * (via {@link stripFences} — the one fence model), so a table-shaped example
  * inside a fence is never read as one.
  * @param {string} markdown
- * @returns {{ section: string | null, header: string[], rows: string[][] }[]}
+ * @returns {{ section: string | null, subsection: string | null, header: string[], rows: string[][] }[]}
  */
 export function parseTables(markdown) {
   const lines = stripFences(markdown).split('\n');
   const tables = [];
   let section = null;
+  let subsection = null;
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
     const headingMatch = HEADING_RE.exec(line);
     if (headingMatch) {
       const level = headingMatch[1].length;
-      if (level === 2) section = headingMatch[2];
-      else if (level < 2) section = null;
+      if (level === 2) {
+        section = headingMatch[2];
+        subsection = null;
+      } else if (level < 2) {
+        section = null;
+        subsection = null;
+      } else subsection = headingMatch[2];
       continue;
     }
     if (!isRow(line) || !isDelimiterRow(lines[i + 1])) continue;
@@ -371,10 +394,269 @@ export function parseTables(markdown) {
     const rows = [];
     let j = i + 2;
     while (j < lines.length && isRow(lines[j])) rows.push(splitRow(lines[j++]));
-    tables.push({ section, header, rows });
+    tables.push({ section, subsection, header, rows });
     i = j - 1;
   }
   return tables;
+}
+
+/**
+ * Select a document's tables by their WHOLE header — not the first cell alone,
+ * so a sibling table under the same heading can never be conscripted by
+ * sharing one column name — optionally bounded to a `##` section and to a
+ * deeper heading inside it. Every match is returned, with the count, so the
+ * caller states its own posture: a register that must address exactly one
+ * table refuses anything else by count, while an inventory a document
+ * deliberately writes as several tables reads them together.
+ * @param {string} docText the document (or the slice) to select in
+ * @param {object} where the selection
+ * @param {string[]} where.header the exact header cells
+ * @param {string} [where.section] the `##` section the table sits in
+ * @param {string} [where.subsection] the deeper heading inside that section
+ * @returns {{ tables: { section: string | null, subsection: string | null, header: string[], rows: string[][] }[], matches: number }}
+ */
+export function selectTablesByHeader(docText, { header, section, subsection }) {
+  const tables = parseTables(docText).filter(
+    (t) =>
+      (section === undefined || t.section === section) &&
+      (subsection === undefined || t.subsection === subsection) &&
+      t.header.length === header.length &&
+      t.header.every((cell, i) => cell.trim() === header[i]),
+  );
+  return { tables, matches: tables.length };
+}
+
+/**
+ * Read one column of selected tables as names, collecting the cells that do
+ * not read as one rather than skipping them — the pairing every table
+ * inventory needs: a renamed or re-shaped cell must red loudly instead of
+ * leaving the scanned set quietly smaller.
+ * @param {{ header: string[], rows: string[][] }[]} tables the selected tables
+ * @param {object} how the column and its grammar
+ * @param {string} how.empty what an empty cell is called in the report
+ * @param {number|((table: { header: string[] }) => number)} [how.column] the column, per table
+ * @param {(cell: string) => (string | null)} [how.read] the cell grammar; null = unreadable
+ * @returns {{ names: string[], unreadable: string[] }}
+ */
+export function readTableColumn(tables, { empty, column = 0, read = backtickedName }) {
+  const names = [];
+  const unreadable = [];
+  for (const table of tables) {
+    const index = typeof column === 'function' ? column(table) : column;
+    if (index === -1) continue;
+    for (const row of table.rows) {
+      const cell = (row[index] ?? '').trim();
+      const name = read(cell);
+      if (name !== null) names.push(name);
+      else unreadable.push(cell === '' ? empty : cell);
+    }
+  }
+  return { names, unreadable };
+}
+
+/**
+ * Every WHOLE backticked span of a text, in document order — the read the
+ * enumeration collectors share. Whole is the property: the predicate judges a
+ * span's entire content, so a token embedded in a longer span (a call, a
+ * sentence, an example) is never collected, and a caller can state a token in
+ * running prose without it counting as an entry.
+ *
+ * The scope is the caller's: this reads the text it is handed, so slicing a
+ * clause, dropping table lines, and stripping fences stay decisions each
+ * collector makes for its own leg. Dedup is the caller's too — a repeat is
+ * noise to a set-diff and the whole subject of a duplicate leg.
+ * @param {string} text pre-sliced, fence-stripped text
+ * @param {object} [how] the predicate and the dedup posture
+ * @param {RegExp|((token: string) => boolean)} [how.shape] which spans count
+ * @param {boolean} [how.dedupe] keep the first appearance of a repeat only
+ * @returns {string[]} the collected spans, in first-appearance order
+ */
+export function backtickedTokens(text, { shape, dedupe = false } = {}) {
+  const matches = (token) =>
+    shape === undefined ? true : shape instanceof RegExp ? shape.test(token) : shape(token);
+  const out = [];
+  for (const [, token] of (text ?? '').matchAll(/`([^`]+)`/g)) {
+    if (!matches(token)) continue;
+    if (dedupe && out.includes(token)) continue;
+    out.push(token);
+  }
+  return out;
+}
+
+/**
+ * The top-level `- ` list items of a text, each bounded to its own lines: an
+ * item runs from its `- ` marker through the continuation lines indented under
+ * it, and ends at the first blank line or unindented line — so the paragraph
+ * that follows a list is never absorbed into its last item.
+ * @param {string} text a clause section's or document's text
+ * @returns {string[]} one flattened string per item (marker stripped)
+ */
+export function topLevelListItems(text) {
+  const items = [];
+  let current = null;
+  for (const line of (text ?? '').split(/\r?\n/)) {
+    if (/^- \S/.test(line)) {
+      current = [line.slice(2).trim()];
+      items.push(current);
+    } else if (current !== null && /^\s+\S/.test(line)) {
+      current.push(line.trim());
+    } else {
+      current = null;
+    }
+  }
+  return items.map((parts) => parts.join(' '));
+}
+
+/**
+ * The tracked files a pathspec names, as `git ls-files` lists them — the one
+ * population read the checks that scan a tree share. The argument is a
+ * PATHSPEC, so a directory, a glob, or a bare name all reach the same reader.
+ *
+ * `core.quotepath` is off, so a path carrying a non-ASCII byte arrives as
+ * itself rather than quoted and escaped, which every filter a caller applies
+ * would otherwise drop in silence — a file present in the tree and absent from
+ * the scan. Stating that policy once, here, is the point of this reader.
+ *
+ * Both filters are the caller's to state and both are optional: `extensions`
+ * keeps the files whose name ends in one of them, and `exclude` drops the ones
+ * under a directory the caller does not scan.
+ * @param {string} pathspec what to enumerate — a directory, a glob, or a name
+ * @param {object} [how] the caller's filters and where to run
+ * @param {string[]} [how.extensions] keep only files ending in one of these
+ * @param {string} [how.exclude] drop files under this directory
+ * @param {string} [how.cwd] the directory to enumerate from (default: the process's)
+ * @returns {string[]} repo-relative paths, in `git ls-files` order
+ */
+export function trackedFilesUnder(pathspec, { extensions, exclude, cwd } = {}) {
+  return execFileSync('git', ['-c', 'core.quotepath=false', 'ls-files', pathspec], {
+    encoding: 'utf8',
+    ...(cwd === undefined ? {} : { cwd }),
+  })
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .filter((file) => extensions === undefined || extensions.some((ext) => file.endsWith(ext)))
+    .filter((file) => exclude === undefined || !file.startsWith(`${exclude}/`));
+}
+
+/**
+ * The case labels one `switch` services, bounded by the switch's own BRACES
+ * rather than by its `default:` arm — which is the difference between reading
+ * a switch and reading the text before a keyword: a live case written after
+ * the default arm is serviced at runtime and must be read, and a stale one
+ * written there must be seen rather than passed over.
+ *
+ * The scan reads text, so its caller states which VIEW: comments blanked, so
+ * a commented-out label is never read as serviced, and the switch's own text
+ * standing. Where a template literal CARRIES the switch — a script a test
+ * injects — the caller hands over that template's own text, since a view of
+ * the source around it leaves the script's comments standing as the literal
+ * text they are at that level. A second `switch` standing at this switch's own
+ * depth — where an arm's statements stand — is refused rather than read past:
+ * its labels are not this switch's surface, and the refusal names the anchor
+ * instead of guessing. One written deeper, inside a braced arm, sits past the
+ * bound and is never reached, so its labels are not credited either.
+ * @param {string} view the text to read, with comments already blanked
+ * @param {string} anchor the switch statement's own text, e.g. `switch (cmd)`
+ * @returns {{ labels: string[], hasDefault: boolean, problems: string[] }}
+ */
+export function switchCaseLabels(view, anchor) {
+  const at = view.indexOf(anchor);
+  if (at === -1) return { labels: [], hasDefault: false, problems: [`no \`${anchor}\` statement found`] }; // prettier-ignore
+  const open = view.indexOf('{', at + anchor.length);
+  if (open === -1) return { labels: [], hasDefault: false, problems: [`\`${anchor}\` opens no body the scan can read`] }; // prettier-ignore
+  const labels = [];
+  let hasDefault = false;
+  let depth = 1;
+  for (let i = open + 1; i < view.length && depth > 0; i++) {
+    const ch = view[i];
+    if (ch === '{') {
+      depth++;
+      continue;
+    }
+    if (ch === '}') {
+      depth--;
+      continue;
+    }
+    if (depth !== 1) continue;
+    const rest = view.slice(i);
+    const secondSwitch = /^switch\s*\(/.exec(rest);
+    if (secondSwitch) {
+      return { labels: [], hasDefault, problems: [`\`${anchor}\` carries a second switch at this switch's own depth — the serviced labels of one switch are what this scan reads`] }; // prettier-ignore
+    }
+    const label = CASE_LABEL_RE.exec(rest);
+    if (label) {
+      labels.push(label[1]);
+      i += label[0].length - 1;
+      continue;
+    }
+    if (DEFAULT_ARM_RE.test(rest)) hasDefault = true;
+  }
+  if (depth > 0) {
+    return { labels: [], hasDefault, problems: [`\`${anchor}\` never closes — the serviced labels cannot be read`] }; // prettier-ignore
+  }
+  return { labels, hasDefault, problems: [] };
+}
+
+/** A `case` arm labelled by a quoted name, as the scan reads one. */
+const CASE_LABEL_RE = /^case\s+['"]([A-Za-z0-9_]+)['"]\s*:/;
+/** A `default` arm, which a switch the scan reads is required to carry. */
+const DEFAULT_ARM_RE = /^default\s*:/;
+
+/**
+ * Walk the TOP-LEVEL properties of an object literal in a token stream, from
+ * its opening brace: the skeleton the object-literal readers share. Depth is
+ * counted over every bracket pair, so a nested literal, call, or array is
+ * passed through whole, and a property start is the first token after the
+ * brace or after a depth-1 comma.
+ *
+ * What a property IS stays the caller's: the walk hands its policy the index
+ * of each property-start token and reads nothing itself, so one caller can
+ * read member names where another reads keys and their values, each keeping
+ * its own accumulators and its own refusal wording.
+ *
+ * One decision the merged skeleton fixes: a comma standing where a property
+ * would start is read as the separator it is, never handed to the policy —
+ * so a doubled comma states no property rather than an unmodelled one.
+ * @param {{ type: string, value: string }[]} tokens the tokenized source
+ * @param {number} open index of the literal's `{`
+ * @param {(index: number, token: { type: string, value: string }) => void} onProperty the policy
+ * @returns {{ closed: boolean, end: number }} whether the literal closed, and where the walk stopped
+ */
+export function walkObjectLiteral(tokens, open, onProperty) {
+  let depth = 1;
+  let atPropertyStart = true;
+  for (let i = open + 1; i < tokens.length; i++) {
+    const t = tokens[i];
+    const startsProperty = depth === 1 && atPropertyStart;
+    if (t.type === 'punct' && '([{'.includes(t.value)) {
+      if (startsProperty) onProperty(i, t);
+      depth++;
+      atPropertyStart = false;
+    } else if (t.type === 'punct' && ')]}'.includes(t.value)) {
+      depth--;
+      // A trailing comma leaves the property start open — closing it is not a
+      // property.
+      if (depth === 0) return { closed: true, end: i };
+    } else if (depth === 1 && t.type === 'punct' && t.value === ',') {
+      atPropertyStart = true;
+    } else {
+      if (startsProperty) onProperty(i, t);
+      atPropertyStart = false;
+    }
+  }
+  return { closed: false, end: tokens.length };
+}
+
+/**
+ * One line of text with every run of whitespace collapsed to a single space
+ * and the ends trimmed — so an anchor phrase is found whatever line the prose
+ * wraps on, and a re-wrap never changes what a scan reads.
+ * @param {string} text
+ * @returns {string}
+ */
+export function flattenWhitespace(text) {
+  return (text ?? '').replace(/\s+/g, ' ').trim();
 }
 
 /**
@@ -404,7 +686,13 @@ export function missingFrom(a, b, where) {
 /**
  * Report duplicate names within one extracted list — the one drift the
  * deduplicating set diffs above cannot see.
- * @param {string[]} names an extracted name list
+ *
+ * Feed it what the surface ENUMERATES, never the raw text a reader lifted the
+ * enumeration out of: a command's argument list repeats its flag token by that
+ * list's own grammar (`--test a --test b` states two targets, not a repeat),
+ * so a raw-list reading reds a healthy tree, while the projection — the
+ * targets, the files, the entries — is the list whose repeat is drift.
+ * @param {string[]} names an extracted name list, as the surface enumerates it
  * @param {string} what description of the surface
  * @returns {string[]} problem lines
  */
@@ -791,11 +1079,17 @@ export function tokenizeJs(source) {
  * carries a literal's value, so a `regex` token states the pattern as written,
  * while this view is a source a text search runs over, so it leaves the pattern
  * where it stands and blanks what a search could otherwise read as code.
+ * One view serves two readings. By default a literal's contents go with the
+ * comments, which is what a scan for CODE wants. A caller reading code a
+ * literal CARRIES — the script an integration mock injects as a template —
+ * asks for the other by stating `literals: false`: the comments still go, so a
+ * commented-out line is never read as live, and the literal text stands.
  * @param {string} source JavaScript source text
- * @returns {string} the source with comments, string and template contents, and
- *   regular-expression flag runs blanked
+ * @param {{ literals?: boolean }} [view] whether literal contents are blanked too
+ * @returns {string} the source with comments — and, by default, string and
+ *   template contents and regular-expression flag runs — blanked
  */
-export function blankJsLiterals(source) {
+export function blankJsLiterals(source, { literals = true } = {}) {
   const out = source.split('');
   const n = source.length;
   /**
@@ -806,6 +1100,17 @@ export function blankJsLiterals(source) {
    */
   const blank = (from, to) => {
     for (let k = Math.max(from, 0); k < to && k < n; k++) if (out[k] !== '\n') out[k] = ' ';
+  };
+  /**
+   * Blank a literal's contents, unless this view keeps them: a caller reading
+   * code a literal CARRIES — a script a test injects as a template, say —
+   * needs the comments gone and the text standing.
+   * @param {number} from
+   * @param {number} to
+   * @returns {void}
+   */
+  const blankLiteral = (from, to) => {
+    if (literals) blank(from, to);
   };
   // The same interpolation bookkeeping tokenizeJs keeps, for the same reason.
   const interpolations = [];
@@ -845,20 +1150,20 @@ export function blankJsLiterals(source) {
         continue;
       }
       if (ch === '`') {
-        blank(at, k);
+        blankLiteral(at, k);
         seen({ type: 'template', value: '' });
         return k + 1;
       }
       if (ch === '$' && source[k + 1] === '{') {
         interpolations.push(0);
-        blank(at, k);
+        blankLiteral(at, k);
         seen({ type: 'template', value: '' });
         regexOk = true;
         return k + 2;
       }
       k++;
     }
-    blank(at, n);
+    blankLiteral(at, n);
     seen({ type: 'template', value: '' });
     return n;
   };
@@ -883,7 +1188,7 @@ export function blankJsLiterals(source) {
       if (literal) {
         // Both delimiters and the pattern between them stand; the flag run
         // after the closing delimiter is what goes.
-        blank(literal.close + 1, literal.end);
+        blankLiteral(literal.close + 1, literal.end);
         i = literal.end;
         seen({ type: 'regex', value: '' });
         continue;
@@ -907,7 +1212,7 @@ export function blankJsLiterals(source) {
       const from = i;
       i++;
       while (i < n && source[i] !== quote) i += source[i] === '\\' ? 2 : 1;
-      blank(from + 1, Math.min(i, n));
+      blankLiteral(from + 1, Math.min(i, n));
       i = Math.min(i + 1, n); // closing quote (or end of source)
       seen({ type: 'string', value: '' });
       continue;
@@ -952,7 +1257,8 @@ export function blankJsLiterals(source) {
  * question over a different window: what follows a list literal's own closing
  * bracket, rather than what follows a value inside it, and its two copies
  * deliberately accept different followers because one reads a standalone
- * declaration and the other a property inside a literal.
+ * declaration and the other a property inside a literal — each stating its own
+ * window where it stands.
  * @param {{ type: string, value: string }[]} tokens the token stream
  * @param {number} at index of the candidate value token
  * @param {string} followers the punctuation characters that prove the literal
@@ -1111,6 +1417,13 @@ export function readListEntries(source, name, fields = null) {
     }
   }
   if (depth > 0) return { error: `the \`${name}\` array literal is never closed` };
+  // The window here is the WHOLE DECLARATION, so only a statement end proves
+  // the entries read are the list the declaration states: the accept set is
+  // the end of the stream and `;`, and nothing else. Its sibling guard — over
+  // a list stated as a property INSIDE a literal — accepts strictly more,
+  // because more can legally follow a property's value there. The two are not
+  // opposite readings of one window; they are two windows, and unifying them
+  // would widen this one to followers a declaration cannot have.
   const follower = tokens[i];
   if (follower && !(follower.type === 'punct' && follower.value === ';')) {
     return {
@@ -1151,8 +1464,8 @@ export function identifiesSameFile(match, path) {
  * @param {typeof DOC_INVENTORIES} [opts.inventories]
  * @param {typeof TRACKED_LISTS} [opts.lists]
  * @returns {{ unreadable: string[], unparsed: string[], undocumented: string[],
- *             absent: string[], duplicated: string[], missingSource: string[],
- *             splitEntry: string[] }}
+ *             absent: string[], duplicated: string[], duplicatedEntry: string[],
+ *             missingSource: string[], splitEntry: string[] }}
  */
 export function auditInventories({
   files,
@@ -1166,13 +1479,14 @@ export function auditInventories({
     undocumented: [],
     absent: [],
     duplicated: [],
+    duplicatedEntry: [],
     missingSource: [],
     splitEntry: [],
   };
   const tracked = new Set(files);
 
   for (const inventory of inventories) {
-    const { doc, section, column, dir, selects } = inventory;
+    const { doc, section, header, dir, selects } = inventory;
     // An entry stating no discovery descriptor derives no membership rule. The
     // registration closure is the one place that names that refusal, so this
     // audit passes the entry by rather than raising a second verdict on it —
@@ -1183,12 +1497,10 @@ export function auditInventories({
       result.unreadable.push(`${doc}: inventory document could not be read`);
       continue;
     }
-    const tables = parseTables(content).filter(
-      (t) => t.section === section && t.header[0] === column,
-    );
+    const { tables } = selectTablesByHeader(content, { section, header });
     if (tables.length === 0) {
       result.unparsed.push(
-        `${doc}: no inventory table found (expected a table under "## ${section}" whose first column is headed "${column}")`,
+        `${doc}: no inventory table found (expected a table under "## ${section}" headed ${header.map((cell) => `"${cell}"`).join(' | ')})`,
       );
       continue;
     }
@@ -1244,6 +1556,14 @@ export function auditInventories({
       result.unparsed.push(`${file}: ${read.error}`);
       continue;
     }
+    // The list is an enumeration, so a file stated twice is edit slop the
+    // tracked-set diffs below cannot see: they collect the entry once.
+    result.duplicatedEntry.push(
+      ...duplicatesIn(
+        read.entries.map((entry) => (fields === null ? entry : entry[pathField])),
+        `\`${name}\` in ${file}`,
+      ),
+    );
     for (const entry of read.entries) {
       const value = fields === null ? entry : entry[pathField];
       const path = `${root}/${value}`;
@@ -1898,7 +2218,7 @@ export const RUST_KILL_SET = {
 
 /**
  * The mutate scope, stated twice: as `key` in the cargo-mutants configuration,
- * and as the table under `column` inside `clause`'s scope in `doc`. The scope
+ * and as the table `header` heads inside `clause`'s scope in `doc`. The scope
  * is a curated enumeration — nothing derives it from a module's properties — so
  * the two statements of it are held to each other in both directions, neither
  * of them stating one module twice, and the document names each module exactly
@@ -1913,7 +2233,7 @@ export const MUTATE_SCOPE = {
   root: 'packages/desktop/src-tauri',
   doc: 'docs/test/strategy/mutation.md',
   clause: 'MUT-3',
-  column: 'Module',
+  header: ['Module', 'What it carries'],
 };
 
 /**
@@ -1978,9 +2298,20 @@ export function readPropertyStringArray(source, key) {
   }
   if (depth > 0) return { error: `the \`${key}\` array literal is never closed` };
   if (entries.length === 0) return { error: `the \`${key}\` array literal holds no entries` };
+  // The window here is ONE PROPERTY, so the accept set is the punctuation that
+  // can end a property's value — `,`, `}`, `)`, `]`, `;`, the end of the
+  // stream — plus the one call modelled because it cannot change the set. Its
+  // sibling guard — over a list stated as a standalone declaration — accepts
+  // strictly less, and deliberately: a declaration ends at a statement end.
+  //
   // What follows the literal decides whether the entries ARE the list: the
   // joining call leaves the set alone, and anything else — a filter, a slice, a
-  // concatenation — would make this reader's answer a part of the real one.
+  // concatenation — would make this reader's answer a part of the real one. The
+  // live shape it is modelled for is a mutation configuration's command list,
+  // which states `].join(' ')` and whose consumer re-joins the entries itself.
+  // The test is a three-token prefix, so it bounds the FIRST call only: a
+  // chained `.join(' ').concat(x)` is accepted where `.filter(` and `.length`
+  // are refused — the residue of modelling one call rather than an expression.
   const [dot, call, paren] = [tokens[i], tokens[i + 1], tokens[i + 2]];
   const joined =
     dot?.type === 'punct' &&
@@ -2132,15 +2463,15 @@ export function killSetTargets(values, flag) {
  * own scope so a table elsewhere in the document names whatever it documents.
  * @param {string} markdown the document's text
  * @param {string} clause the clause whose scope carries the table
- * @param {string} column the table's first header cell
+ * @param {string[]} header the table's whole header
  * @returns {{ modules: string[] } | { error: string }}
  */
-export function readScopeTable(markdown, clause, column) {
+export function readScopeTable(markdown, clause, header) {
   const section = extractClauseSection(markdown, clause);
   if (section === '') return { error: `states no \`**${clause}.**\` marker, so the table this leg reads has no scope to sit in` }; // prettier-ignore
-  const tables = parseTables(section).filter((t) => t.header[0] === column);
+  const { tables } = selectTablesByHeader(section, { header });
   if (tables.length === 0) {
-    return { error: `states no table headed "${column}" inside §${clause}, where this leg reads the mutate scope` }; // prettier-ignore
+    return { error: `states no table headed ${header.map((cell) => `"${cell}"`).join(' | ')} inside §${clause}, where this leg reads the mutate scope` }; // prettier-ignore
   }
   const modules = [];
   for (const table of tables) {
@@ -2174,8 +2505,9 @@ export function readScopeTable(markdown, clause, column) {
  * @param {typeof JS_KILL_SETS} [opts.jsKillSets]
  * @param {typeof RUST_KILL_SET} [opts.rustKillSet]
  * @param {typeof MUTATE_SCOPE} [opts.mutateScope]
- * @returns {{ staleKillSetEntry: string[], mutateScopeDrift: string[],
- *             deadScopeModule: string[], unreadableKillSet: string[] }}
+ * @returns {{ staleKillSetEntry: string[], duplicatedEntry: string[],
+ *             mutateScopeDrift: string[], deadScopeModule: string[],
+ *             unreadableKillSet: string[] }}
  */
 export function auditMutationKillSets({
   files,
@@ -2186,6 +2518,7 @@ export function auditMutationKillSets({
 }) {
   const result = {
     staleKillSetEntry: [],
+    duplicatedEntry: [],
     mutateScopeDrift: [],
     deadScopeModule: [],
     unreadableKillSet: [],
@@ -2230,6 +2563,15 @@ export function auditMutationKillSets({
       );
       continue;
     }
+    // The flip reads the ARGUMENTS the invocation states, not the raw list:
+    // the flags a command repeats are its grammar, and only a repeated target
+    // is a curated list stating one file twice.
+    result.duplicatedEntry.push(
+      ...duplicatesIn(
+        invocation.args.map((arg) => normalizePath(arg)),
+        `\`${jsKillSets.property}\`'s \`node --test\` arguments in ${config}`,
+      ),
+    );
     for (const arg of invocation.args) {
       // An argument is a file or a glob over one directory, on the same terms
       // the registration closure reads a `node --test` argument: the runner
@@ -2278,6 +2620,15 @@ export function auditMutationKillSets({
           `${rustKillSet.config}: \`${rustKillSet.key}\` ${selected.error}`,
         );
       } else {
+        // The projection, never the raw values: `--test` itself repeats once
+        // per target by the grammar of a cargo argument list, so the targets
+        // are what a curated list can state twice.
+        result.duplicatedEntry.push(
+          ...duplicatesIn(
+            selected.targets,
+            `\`${rustKillSet.key}\`'s \`${rustKillSet.flag}\` targets in ${rustKillSet.config}`,
+          ),
+        );
         for (const target of selected.targets) {
           // Both routes Cargo builds a test binary from, because a target is
           // live at either: holding only the file route would call a binary
@@ -2312,7 +2663,7 @@ export function auditMutationKillSets({
       `${mutateScope.doc}: the document stating the mutate scope could not be read`,
     );
   } else {
-    const table = readScopeTable(docSource, mutateScope.clause, mutateScope.column);
+    const table = readScopeTable(docSource, mutateScope.clause, mutateScope.header);
     if (table.error) result.unreadableKillSet.push(`${mutateScope.doc}: ${table.error}`);
     else stated = table.modules;
   }
@@ -2402,6 +2753,13 @@ const PROBLEM_BLOCKS = {
   duplicated: {
     heading: (n) => `${n} test file(s) have more than one inventory row`,
     fix: `keep one row per test file — the table is the suite's enumeration.`,
+  },
+  duplicatedEntry: {
+    heading: (n) => `${n} enumerated entr(ies) are stated more than once`,
+    fix:
+      `keep one entry per file — each of these lists is a curated enumeration, so a\n` +
+      `  repeat collects once and every diff that holds the list deduplicates before\n` +
+      `  comparing, which is the one drift those diffs cannot see.`,
   },
   missingSource: {
     heading: (n) => `${n} coverage list entr(ies) name a file that is not tracked`,
@@ -2513,7 +2871,6 @@ const PROBLEM_BLOCKS = {
  *   registration hold)
  */
 export function formatProblems(result) {
-  const list = (entries) => entries.map((e) => `    ${e}`).join('\n');
   const blocks = [];
   for (const [name, entries] of Object.entries(result)) {
     if (!Array.isArray(entries) || entries.length === 0) continue;
@@ -2524,9 +2881,48 @@ export function formatProblems(result) {
     const fix = block
       ? block.fix
       : `add a "${name}" entry to PROBLEM_BLOCKS in scripts/check-test-inventory.js.`;
-    blocks.push(`✗ ${heading}:\n` + list(entries) + `\n\n  Fix: ${fix}`);
+    blocks.push(formatProblemBlock(heading, entries, `  Fix: ${fix}`));
   }
   return blocks;
+}
+
+/**
+ * One red block: the heading a reader scans, the findings indented under it,
+ * and the closing paragraph that says what to do about them. Every check that
+ * prints a red prints this shape, so the reports stay one report however many
+ * checks a run puts side by side, and the shape is unit-testable rather than
+ * spelled inside a command line's own glue.
+ * @param {string} heading what drifted, without the leading mark
+ * @param {string[]} problems the findings, one per line
+ * @param {string} closing the paragraph after them, already indented as it reads
+ * @returns {string} the rendered block
+ */
+export function formatProblemBlock(heading, problems, closing) {
+  return `✗ ${heading}:\n` + problems.map((p) => `    ${p}`).join('\n') + `\n\n${closing}`;
+}
+
+/**
+ * The empty-surface guard every surface check runs before its diffs: a
+ * surface that parsed to nothing makes every diff over it vacuously true, so
+ * the guard names each empty surface and the caller stops there.
+ *
+ * A guard entry states the surface key and its message, and may state a
+ * PROJECTOR where the surface is derived rather than read — which is what
+ * lets one loop serve a check whose guarded list is computed from the
+ * surfaces rather than sitting on them. Membership is what the guard states:
+ * the messages come back in the order the entries are written, and no caller
+ * reads more into that than which surfaces were empty.
+ * @param {object} surfaces the extracted surfaces
+ * @param {[string, string, ((s: object) => unknown[])?][]} entries the guard's tuples
+ * @returns {string[]} one message per empty surface, in entry order
+ */
+export function emptySurfaceProblems(surfaces, entries) {
+  const problems = [];
+  for (const [key, message, project] of entries) {
+    const list = project === undefined ? surfaces[key] : project(surfaces);
+    if ((list ?? []).length === 0) problems.push(message);
+  }
+  return problems;
 }
 
 /* c8 ignore start — the CLI wrapper reads the tracked-file list from git and the

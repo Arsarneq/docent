@@ -33,7 +33,6 @@ import {
   ACTION_WRAPPER_DEF,
   AUTHORITY_CLAUSE_ID,
   AUTHORITY_SURFACES,
-  CLAUSE_REGISTRY_PATH,
   EMPTY_SURFACES,
   FIELD_TABLE_HEADER,
   FIELD_TABLE_LEGS,
@@ -41,6 +40,7 @@ import {
   METADATA_REF,
   PLATFORM_IDS,
   POSTURE_CLASSES,
+  REGISTRY_PATH,
   REQUIRED_COLUMN,
   REQUIRED_HEADER,
   SESSION_FORMAT_DOC_PATH,
@@ -845,7 +845,7 @@ describe('AUTHORITY_SURFACES ⇄ the row’s citation shape', () => {
 
 describe('readClauseRow', () => {
   it('reads the clause’s check-ref from the registry', () => {
-    const read = readClauseRow(readTree(CLAUSE_REGISTRY_PATH), AUTHORITY_CLAUSE_ID);
+    const read = readClauseRow(readTree(REGISTRY_PATH), AUTHORITY_CLAUSE_ID);
     assert.deepEqual(read.problems, []);
     assert.ok(read.text.includes('check-schema-echo.js'));
   });
@@ -1156,7 +1156,7 @@ describe('real-tree lock', () => {
 
   it('a root without the session-format document fails loudly, never vacuously', () => {
     // A tracked subdirectory is a root where every document read misses: the
-    // fallback returns empty, the table selections refuse by name, and the
+    // reader answers unreadable, the table selections refuse by name, and the
     // vacuous guard reds. The schemas still compose — they come from the
     // repository this script ships in — so the posture legs stay live.
     const surfaces = treeSurfaces(resolve(ROOT, 'corpus'));
@@ -1164,6 +1164,38 @@ describe('real-tree lock', () => {
     assert.ok(surfaces.objects.length > 0);
     const problems = evaluateSchemaEcho(surfaces);
     assert.ok(problems.some((p) => p.includes('no field-table rows read')));
-    assert.ok(problems.some((p) => p.includes('read empty')));
+    assert.ok(problems.some((p) => p.includes('could not be read')));
+  });
+
+  it('a surface that cannot be read is named apart from one that read empty', () => {
+    // The two reads a tree can answer with are different facts, so the report
+    // says which it was: a document the tree cannot hand over is unreadable, a
+    // document that is there and says nothing read empty. A reader answering
+    // the same thing to both is what made the second indistinguishable.
+    const empty = auditTree(() => '', () => ({})); // prettier-ignore
+    const unreadable = auditTree(() => null, () => ({})); // prettier-ignore
+    assert.ok(empty.authority.every((s) => s.empty && !s.unreadable));
+    assert.ok(unreadable.authority.every((s) => s.empty && s.unreadable));
+
+    const emptyProblems = evaluateSchemaEcho(empty);
+    const unreadableProblems = evaluateSchemaEcho(unreadable);
+    for (const [path] of AUTHORITY_SURFACES) {
+      assert.ok(emptyProblems.some((p) => p === `${path} read empty — ${describe1(path)}`), path); // prettier-ignore
+      assert.ok(unreadableProblems.some((p) => p === `${path} could not be read — ${describe1(path)}`), path); // prettier-ignore
+    }
+    // The registry read discriminates too: its own refusal names the read, not
+    // a parse it never reached.
+    assert.deepEqual(readClauseRow(null, AUTHORITY_CLAUSE_ID).problems, [
+      `${REGISTRY_PATH} could not be read — the §${AUTHORITY_CLAUSE_ID} register closure cannot run`,
+    ]);
+    assert.deepEqual(readClauseRow('{', AUTHORITY_CLAUSE_ID).problems, [
+      `${REGISTRY_PATH} does not parse as JSON — the §${AUTHORITY_CLAUSE_ID} register closure cannot run`,
+    ]);
   });
 });
+
+/** The description the register states for one authority surface, with its tail. */
+function describe1(path) {
+  const [, , description] = AUTHORITY_SURFACES.find(([p]) => p === path);
+  return `${description} cannot be checked`;
+}

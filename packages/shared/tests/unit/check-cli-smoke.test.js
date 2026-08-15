@@ -98,6 +98,16 @@ describe('check-script CLI smoke (deterministic green paths)', () => {
     assert.match(out, /extension surface consistent/);
   });
 
+  it('check-adapter-surface: the committed adapters satisfy the seam typedef', () => {
+    const out = runScript('check-adapter-surface.js');
+    assert.match(out, /adapter surface consistent/);
+  });
+
+  it('check-capture-surface: the committed capture surfaces satisfy their enumerations', () => {
+    const out = runScript('check-capture-surface.js');
+    assert.match(out, /capture surfaces consistent/);
+  });
+
   it('check-clause-registry: the committed markers, rows, and citations agree', () => {
     // No env pinned: this check and its import closure (the area map's pattern
     // helpers, the command-surface Rust views, and the test-inventory

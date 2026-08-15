@@ -38,7 +38,11 @@
  * is as red as a code entry the doc does not state. The job citations are the
  * one leg held one-way, by design: every cite must name a real job of the
  * workflow, and a job owes no cite — a workflow may grow a job neither
- * verification document has reason to mention. Every extraction must be
+ * verification document has reason to mention. That leg is also the one place
+ * a repeat is legitimate rather than drift: an enumeration states each entry
+ * once, but a document may cite the same job in two sentences, so the citation
+ * scan collects a repeated cite once instead of refusing it — the carve-out
+ * the enumerations' refuse-a-repeat posture is stated against. Every extraction must be
  * non-empty (per scanned document, for the citation leg), every table is
  * selected by its exact header tuple and must match exactly one table, and
  * the job-id extractor's own anchor problems are reported rather than read as
@@ -96,11 +100,14 @@ import { readFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 import {
   backtickedName,
+  backtickedTokens,
   duplicatesIn,
   extractClauseSection,
+  flattenWhitespace,
   missingFrom,
-  parseTables,
+  selectTablesByHeader,
   stripFences,
+  topLevelListItems,
 } from './check-test-inventory.js';
 import { TEST_WORKFLOW_PATH, extractJobIds } from './check-doc-closure.js';
 import {
@@ -183,8 +190,6 @@ export const SESSION_ID_TOKEN_RE = /^d-[a-z-]+$/;
 export const SESSION_ID_PREFIX_RE = /^d-/i;
 /** A job citation as either verification document writes one. */
 const JOB_CITE_RE = /`([a-z0-9-]+)` job/g;
-/** Every backticked token of one line or cell. */
-const BACKTICKED_TOKEN_RE = /`([^`]+)`/g;
 
 /**
  * Which exported comparator list carries each relaxation kind's covered
@@ -248,9 +253,6 @@ export const STRICT_WATCH_PLATFORMS = [
  */
 export const activeSessionsKey = (platform) => `activeSessions:${platform}`;
 
-/** The backticked tokens of one string, in order. */
-const backtickedTokens = (text) => [...(text ?? '').matchAll(BACKTICKED_TOKEN_RE)].map((m) => m[1]);
-
 /**
  * Read one string's backticked tokens as field names. A token that is neither
  * field-shaped nor one of the scope's allowed literals is returned as
@@ -269,30 +271,6 @@ export function readFieldTokens(text, allowed, skip = 0) {
     else if (!allowed.has(token)) unreadable.push(token);
   }
   return { fields, unreadable };
-}
-
-/**
- * The top-level `- ` list items of a clause's text, each bounded to its own
- * lines: an item runs from its `- ` marker through the continuation lines
- * indented under it, and ends at the first blank line or unindented line — so
- * the paragraph that follows a list is never absorbed into its last item.
- * @param {string} clauseText a clause section's text
- * @returns {string[]} one flattened string per item (marker stripped)
- */
-export function topLevelListItems(clauseText) {
-  const items = [];
-  let current = null;
-  for (const line of (clauseText ?? '').split(/\r?\n/)) {
-    if (/^- \S/.test(line)) {
-      current = [line.slice(2).trim()];
-      items.push(current);
-    } else if (current !== null && /^\s+\S/.test(line)) {
-      current.push(line.trim());
-    } else {
-      current = null;
-    }
-  }
-  return items.map((parts) => parts.join(' '));
 }
 
 /**
@@ -344,7 +322,7 @@ export function extractRelaxationCoverage(docText) {
  *             unreadableTokens: { where: string, token: string, expected: string }[] }}
  */
 export function extractStatedKinds(docText) {
-  const clause = extractClauseSection(docText, RELAXATION_KINDS_CLAUSE_ID).replace(/\s+/g, ' ');
+  const clause = flattenWhitespace(extractClauseSection(docText, RELAXATION_KINDS_CLAUSE_ID));
   const at = clause.indexOf(RELAXATION_KINDS_ANCHOR);
   if (at === -1) return { kinds: [], unreadableTokens: [] };
   const rest = clause.slice(at);
@@ -409,10 +387,8 @@ export function argumentValue(command, argument) {
  * @returns {{ table: { header: string[], rows: string[][] } | null, matches: number }}
  */
 export function selectTableByHeader(docText, header) {
-  const matches = parseTables(docText).filter(
-    (t) => t.header.length === header.length && t.header.every((cell, i) => cell === header[i]),
-  );
-  return { table: matches.length === 1 ? matches[0] : null, matches: matches.length };
+  const { tables, matches } = selectTablesByHeader(docText, { header });
+  return { table: matches === 1 ? tables[0] : null, matches };
 }
 
 /**

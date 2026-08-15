@@ -19,6 +19,7 @@ examine_globs = [
   "src/capture/element_mapping.rs",
   "src/capture/coordinate.rs",
   "src/capture/scroll.rs",
+  "src/capture/timing.rs",
 ]
 
 # Pin which tests RUN per mutant: --lib keeps the in-module #[cfg(test)] unit
