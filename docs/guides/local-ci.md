@@ -33,16 +33,20 @@ runs too:
 [`docs-disposition.yml`](../../.github/workflows/docs-disposition.yml) runs
 [`check-docs-disposition.js`](../../scripts/check-docs-disposition.js) with
 the PR body in the `PR_BODY` environment variable, the PR head branch in
-`PR_HEAD_REF`, and the base ref as its argument. `PR_HEAD_REF` is optional:
-the workflow supplies it for same-repo pull requests, and the
-release-automation class keys on it, so a local run without it simply never
-admits that class. The same run locally, with your draft body in a file:
+`PR_HEAD_REF`, the head repository in `PR_HEAD_REPO`, and the base ref as its
+argument. Under Actions the check derives the branch it may act on from that
+pair, so a pull request opened elsewhere never reaches the release-automation
+class. A local run has no Actions context and takes `PR_HEAD_REF` as you give
+it, which is what makes the second recipe below exercise that class;
+`PR_HEAD_REF` stays optional, and a run without it simply never admits it. The
+same run locally, with your draft body in a file:
 
 ```bash
 git fetch --no-tags origin main
 PR_BODY="$(cat pr-body.md)" node scripts/check-docs-disposition.js origin/main
 
-# with the head branch, to exercise the release-automation class as CI does
+# name the head branch to exercise the release-automation class: with no
+# Actions context around it, the check acts on the branch you name
 PR_BODY="$(cat pr-body.md)" PR_HEAD_REF=automated/version-table-update \
   node scripts/check-docs-disposition.js origin/main
 ```
@@ -54,9 +58,9 @@ there being no scope to derive the lines from.
 
 ### The release-output guard's positive mode
 
-[`check-no-release-outputs.js`](../../scripts/check-no-release-outputs.js)
-reads `PR_HEAD_REF` the same way, and it selects the guard's mode: the plain
-run tabled with the `lint` gates
+[`check-no-release-outputs.js`](../../scripts/check-no-release-outputs.js) is
+where that derivation lives, and it reads `PR_HEAD_REF` the same way to select
+the guard's mode: the plain run tabled with the `lint` gates
 ([CI gates § The lint and freshness gates](ci.md#the-lint-and-freshness-gates))
 is the negative mode every feature branch gets, while the release pipeline's
 automation branch as the head ref runs the positive validation CI performs on

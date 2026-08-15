@@ -35,12 +35,20 @@ describe('check-script CLI smoke (deterministic green paths)', () => {
   });
 
   it('check-no-release-outputs: an empty diff (HEAD base) is clean', () => {
-    // Env pinned: a release tag build sets GITHUB_REF=refs/tags/... which would
-    // switch the script onto its skip path; force the ordinary PR shape.
+    // Env pinned across this script's whole read-set, so the same path runs
+    // everywhere. Its release-context import reads DOCENT_RELEASE,
+    // GITHUB_EVENT_NAME and GITHUB_REF — a release tag build would switch the
+    // script onto its skip path — and its head-ref derivation reads
+    // PR_HEAD_REF, PR_HEAD_REPO, GITHUB_ACTIONS and GITHUB_REPOSITORY, which
+    // together choose between the guard's modes. Pinned to the shape of an
+    // ordinary feature-branch pull request run by hand.
     const out = runScript('check-no-release-outputs.js', {
       args: ['HEAD'],
       env: {
         PR_HEAD_REF: '',
+        PR_HEAD_REPO: '',
+        GITHUB_ACTIONS: '',
+        GITHUB_REPOSITORY: '',
         DOCENT_RELEASE: '',
         GITHUB_EVENT_NAME: 'pull_request',
         GITHUB_REF: 'refs/heads/smoke',

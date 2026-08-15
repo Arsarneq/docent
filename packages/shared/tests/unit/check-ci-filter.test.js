@@ -37,7 +37,7 @@ function ifFrom(flags) {
 /** A minimal well-formed workflow + filter map that satisfies every invariant. */
 function makeWorkflow(overrides = {}) {
   const jobFlagsMap = {
-    'unit-tests': ['extension', 'desktop', 'shared', 'schema', 'corpus', 'ci', 'ciCore'],
+    'unit-tests': ['extension', 'desktop', 'shared', 'schema', 'corpus', 'ci', 'ciCore', 'releasePipeline', 'contractDocs', 'dispositionWorkflow'], // prettier-ignore
     'extension-e2e-tests': ['extension', 'shared', 'schema', 'referenceServer', 'corpus', 'ciCore', 'buildScripts'], // prettier-ignore
     'desktop-rust-tests': ['desktop', 'shared', 'corpus', 'schema', 'ciCore', 'buildScripts'],
     'desktop-corpus-diff': ['desktop', 'shared', 'corpus', 'schema', 'ciCore', 'buildScripts'],
@@ -60,6 +60,8 @@ function makeWorkflow(overrides = {}) {
     referenceServer: ['reference-implementations/**'],
     corpus: ['corpus/**'],
     releasePipeline: ['.github/workflows/publish.yml'],
+    contractDocs: ['.github/CONTRIBUTING.md'],
+    dispositionWorkflow: ['.github/workflows/docs-disposition.yml'],
     ciCore: [...CI_CORE_GLOBS],
     buildScripts: ['scripts/a.js', 'scripts/b.js'],
     ci: ['scripts/**', '.c8rc.json'],
@@ -170,6 +172,67 @@ describe('evaluateContract — invariant 3 (required per-job flags)', () => {
     const problems = evaluateContract(base);
     assert.ok(
       problems.some((p) => p.includes('reference-server-tests') && p.includes('`releasePipeline`')),
+    );
+  });
+
+  it('fires when unit-tests does not gate on releasePipeline', () => {
+    // The disposition suite unit-tests runs reads committed files rather than
+    // executing them — both publish workflows, and the contributor contract
+    // files whose governance-line copies it pins to the check's own constant;
+    // without this flag a PR touching only one of them skips the very suite
+    // welding it.
+    const base = withJobFlags(makeWorkflow(), 'unit-tests', [
+      'extension',
+      'desktop',
+      'shared',
+      'schema',
+      'corpus',
+      'ci',
+      'ciCore',
+    ]);
+    const problems = evaluateContract(base);
+    assert.ok(problems.some((p) => p.includes('unit-tests') && p.includes('`releasePipeline`')));
+  });
+
+  it('fires when unit-tests does not gate on contractDocs', () => {
+    // The disposition suite unit-tests runs reads the contributor contract
+    // files as files, holding their governance-line copies to the check's own
+    // constant; no other job's suite reads them, so without this flag a PR
+    // touching one alone skips the very suite welding it.
+    const base = withJobFlags(makeWorkflow(), 'unit-tests', [
+      'extension',
+      'desktop',
+      'shared',
+      'schema',
+      'corpus',
+      'ci',
+      'ciCore',
+      'releasePipeline',
+      'dispositionWorkflow',
+    ]);
+    const problems = evaluateContract(base);
+    assert.ok(problems.some((p) => p.includes('unit-tests') && p.includes('`contractDocs`')));
+  });
+
+  it('fires when unit-tests does not gate on dispositionWorkflow', () => {
+    // The release-guard suite unit-tests runs reads docs-disposition.yml as a
+    // file, holding its guard step's env block to the inputs the head-ref
+    // derivation is written against; no other flag watches that workflow, so
+    // without this one a PR touching it alone skips the suite holding it.
+    const base = withJobFlags(makeWorkflow(), 'unit-tests', [
+      'extension',
+      'desktop',
+      'shared',
+      'schema',
+      'corpus',
+      'ci',
+      'ciCore',
+      'releasePipeline',
+      'contractDocs',
+    ]);
+    const problems = evaluateContract(base);
+    assert.ok(
+      problems.some((p) => p.includes('unit-tests') && p.includes('`dispositionWorkflow`')),
     );
   });
 
