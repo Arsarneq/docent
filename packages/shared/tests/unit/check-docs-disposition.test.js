@@ -8,8 +8,19 @@
  * directions, and that each declared class is exactly as narrow as documented:
  * the dependency-only class (the manifests' dependency-resolution fields and
  * same-action pin bumps), the release-automation class (the pipeline's own
- * branch plus the release-output surface), and the governance-data-only class
- * (one recorded line replacing the per-doc wall, unearned anywhere else).
+ * branch plus the release-output surface, with the branch that counts derived
+ * from the pull request's head branch and head repository — so the class is
+ * driven over each shape those inputs arrive in, under a GitHub Actions run and
+ * without one), and the governance-data-only class (one recorded line replacing
+ * the per-doc wall, unearned anywhere else).
+ *
+ * Beyond the check's own behaviour, the suite welds it to the committed
+ * surfaces it is stated on and read from: both publish workflows to the
+ * automation branch and to one generated PR body apiece, CONTRIBUTING's
+ * exemption paragraph to the fields the exemption reads and to citing the
+ * release-output surface by its home, and the governance line CONTRIBUTING
+ * fences and the PR template scaffolds to the constant this check builds its
+ * own red output from.
  */
 
 import { describe, it } from 'node:test';
@@ -31,6 +42,7 @@ import {
   DEPENDENCY_ONLY_CLASS,
   RELEASE_AUTOMATION_CLASS,
   GOVERNANCE_MARKER,
+  GOVERNANCE_LINE_TEMPLATE,
   REGISTRY_PATH,
   isExemptDiff,
   docsInScope,
@@ -112,6 +124,19 @@ const pkgWith = (patch) => ({ ...structuredClone(BASE_PKG), ...patch });
 const SCRIPT = path.resolve(import.meta.dirname, '../../../../scripts/check-docs-disposition.js');
 
 /**
+ * A run with no release-automation context of any kind: no Actions event to
+ * derive a head branch from, and no head ref supplied by hand. Both spawn
+ * harnesses below apply it before the per-case env, so the baseline is a
+ * property of the harness rather than something each case remembers: the
+ * harnesses spread `process.env` into the child, and without this the
+ * surrounding environment (a runner's, or a shell that happens to export
+ * PR_HEAD_REF) would be an unstated input to every decision under test. A case
+ * about the release-automation class states its own context on top, which is
+ * what makes that context visible at the case that means it.
+ */
+const NO_AUTOMATION_CONTEXT = { GITHUB_ACTIONS: '', PR_HEAD_REF: '' };
+
+/**
  * Commit `files` in a throwaway git repo, commit the changed versions over
  * them, and run the check CLI against that diff with the given env.
  * @returns {{ status: number | null, stdout: string, stderr: string }}
@@ -138,7 +163,7 @@ const runCheckOnChange = (before, after, env) => {
     g(['commit', '-qm', 'change']);
     return spawnSync('node', [SCRIPT, base], {
       cwd: tmp,
-      env: { ...process.env, ...env },
+      env: { ...process.env, ...NO_AUTOMATION_CONTEXT, ...env },
       encoding: 'utf8',
     });
   } finally {
@@ -442,32 +467,57 @@ describe('the exemption declaration — welded to its doctrine home', () => {
   });
 });
 
-describe('the governance-data-only marker — welded to the surfaces it is copied from', () => {
+describe('the governance-data-only line — its template welded to the surfaces that show it', () => {
   const repoFile = (rel) =>
     readFileSync(path.resolve(import.meta.dirname, '../../../..', rel), 'utf8');
 
-  it('CONTRIBUTING.md shows the marker verbatim in its fenced example', () => {
-    // Contributors type the marker exactly as the example spells it, and the
-    // parser accepts exactly one spelling — so an example that drifts teaches
-    // a line the check reports as malformed.
+  it('CONTRIBUTING.md shows the template line verbatim in its fenced example', () => {
+    // Contributors type the line exactly as the example spells it, and the
+    // parser accepts exactly one spelling of the marker — so an example that
+    // drifts teaches a line the check reports as malformed, and a placeholder
+    // that drifts teaches a judgment the check's own red output does not ask
+    // for. Exactly one fenced block opens with the marker, so a second one
+    // added later cannot quietly satisfy this off a stale copy.
     const fenced = [...repoFile('.github/CONTRIBUTING.md').matchAll(/```text\n([\s\S]*?)```/g)].map(
       (m) => m[1],
     );
-    assert.ok(
-      fenced.some((block) => block.trimStart().startsWith(GOVERNANCE_MARKER)),
-      `CONTRIBUTING.md must show a fenced example opening with "${GOVERNANCE_MARKER}"`,
+    const shown = fenced.filter((block) => block.trimStart().startsWith(GOVERNANCE_MARKER));
+    assert.equal(
+      shown.length,
+      1,
+      `CONTRIBUTING.md must show exactly one fenced example opening with "${GOVERNANCE_MARKER}" (found ${shown.length})`,
+    );
+    assert.equal(
+      shown[0].trim(),
+      GOVERNANCE_LINE_TEMPLATE,
+      'CONTRIBUTING.md’s fenced example must be the template line verbatim',
     );
   });
 
-  it('the PR template scaffolds the marker verbatim in its Docs disposition comment', () => {
+  it('the PR template scaffolds the template line verbatim in its Docs disposition comment', () => {
+    // The same reason as above, on the surface a contributor actually opens.
+    // Here the line sits inside a multi-line comment scaffold, so the pin reads
+    // the marker-opening lines of the section: exactly one, spelling the
+    // template. Asking only that the section contain the template would leave a
+    // second, drifted marker line beside it green.
     const section = extractSection(
       repoFile('.github/PULL_REQUEST_TEMPLATE.md'),
       'Docs disposition',
     );
     assert.notEqual(section, null, 'the template must carry a "## Docs disposition" section');
-    assert.ok(
-      section.includes(GOVERNANCE_MARKER),
-      `the PR template's Docs-disposition comment must spell "${GOVERNANCE_MARKER}" verbatim`,
+    const shown = section
+      .split('\n')
+      .map((line) => line.trim())
+      .filter((line) => line.startsWith(GOVERNANCE_MARKER));
+    assert.equal(
+      shown.length,
+      1,
+      `the PR template's Docs-disposition comment must carry exactly one "${GOVERNANCE_MARKER}" line (found ${shown.length})`,
+    );
+    assert.equal(
+      shown[0],
+      GOVERNANCE_LINE_TEMPLATE,
+      "the PR template's Docs-disposition comment must spell the template line verbatim",
     );
   });
 });
@@ -613,8 +663,9 @@ describe('isReleaseAutomationDiff — the release pipeline’s own regeneration 
   });
 
   it('admits nothing when the head ref is another branch, or is not supplied at all', () => {
-    // The workflow supplies the head ref for same-repo PRs only, so a fork PR
-    // arrives here with the empty string — and existing callers pass none.
+    // The derivation names a branch only for a pull request opened on this
+    // repository, so every other one arrives here with the empty string — and
+    // existing callers pass none.
     assert.equal(isReleaseAutomationDiff({ files: RELEASE_FILES, headRef: 'feature/x' }), false);
     assert.equal(isReleaseAutomationDiff({ files: RELEASE_FILES, headRef: '' }), false);
     assert.equal(isExemptDiff({ files: RELEASE_FILES, fileDiff: () => '' }), false);
@@ -703,7 +754,7 @@ describe('run() manifest exemption — full-file context so the block opener is 
       g(['commit', '-qm', 'change']);
       return spawnSync('node', [SCRIPT, base], {
         cwd: tmp,
-        env: { ...process.env, PR_BODY: '' },
+        env: { ...process.env, ...NO_AUTOMATION_CONTEXT, PR_BODY: '' },
         encoding: 'utf8',
       });
     } finally {
@@ -753,7 +804,7 @@ describe('run() manifest exemption — full-file context so the block opener is 
   });
 });
 
-describe('run() release-automation class — the generated PR body carries no sections', () => {
+describe('run() release-automation class — which runs it admits, and the publish workflows it is welded to', () => {
   const REPO = path.resolve(import.meta.dirname, '../../../..');
 
   /**
@@ -762,13 +813,30 @@ describe('run() release-automation class — the generated PR body carries no se
    */
   const generatedBody = (workflowFile = '.github/workflows/publish.yml') => {
     const workflow = readFileSync(path.join(REPO, workflowFile), 'utf8');
-    const m = workflow.match(/^\s*body: '(.*)'$/m);
-    assert.notEqual(
-      m,
-      null,
-      `${workflowFile} must state the automation PR body as a single-quoted scalar`,
+    const m = [...workflow.matchAll(/^\s*body: '(.*)'$/gm)];
+    assert.equal(
+      m.length,
+      1,
+      `${workflowFile} must state exactly one \`body:\` key — the automation PR body, ` +
+        `as a single-quoted scalar (found ${m.length})`,
     );
-    return m[1];
+    return m[0][1];
+  };
+
+  /**
+   * The head branch a publish workflow opens its automation PR on.
+   * @param {string} [workflowFile] repo-relative workflow path
+   */
+  const declaredBranch = (workflowFile = '.github/workflows/publish.yml') => {
+    const workflow = readFileSync(path.join(REPO, workflowFile), 'utf8');
+    const m = [...workflow.matchAll(/^\s*branch: (\S+)$/gm)];
+    assert.equal(
+      m.length,
+      1,
+      `${workflowFile} must state exactly one \`branch:\` key — the automation PR head ` +
+        `branch, as a plain scalar (found ${m.length})`,
+    );
+    return m[0][1];
   };
 
   const before = {
@@ -801,8 +869,20 @@ describe('run() release-automation class — the generated PR body carries no se
     'schemas/dist/extension.schema.json': '{\n  "x": 2\n}\n',
   };
 
+  /**
+   * A pull request on this repository, as Actions presents it to the check.
+   * The repository names are fixtures: the derivation compares them for equality,
+   * so what they spell never matters, only whether they agree.
+   */
+  const SAME_REPO_CI = {
+    GITHUB_ACTIONS: 'true',
+    GITHUB_REPOSITORY: 'owner/repo',
+    PR_HEAD_REPO: 'owner/repo',
+  };
+
   it('exits 0 on a release-output-only diff carried by the automation head ref', () => {
     const r = runCheckOnChange(before, after, {
+      ...SAME_REPO_CI,
       PR_BODY: generatedBody(),
       PR_HEAD_REF: AUTOMATED_BRANCH,
     });
@@ -816,7 +896,11 @@ describe('run() release-automation class — the generated PR body carries no se
   });
 
   it('exits 1 on the same diff without the head ref — the class is never decided from the diff alone', () => {
-    const r = runCheckOnChange(before, after, { PR_BODY: generatedBody(), PR_HEAD_REF: '' });
+    const r = runCheckOnChange(before, after, {
+      ...SAME_REPO_CI,
+      PR_BODY: generatedBody(),
+      PR_HEAD_REF: '',
+    });
     assert.equal(
       r.status,
       1,
@@ -827,12 +911,77 @@ describe('run() release-automation class — the generated PR body carries no se
     assert.match(r.stderr, /missing PR-body section\(s\)/);
   });
 
+  it('exits 1 when that branch name arrives on a pull request opened from another repository', () => {
+    // Everything the diff can show is right: a self-consistent regeneration of
+    // the release outputs, on a branch named exactly like the pipeline's. The
+    // one thing that differs is where the branch lives, and that is what the
+    // class turns on — so this PR owes the sections like any other.
+    const r = runCheckOnChange(before, after, {
+      ...SAME_REPO_CI,
+      PR_HEAD_REPO: 'somewhere-else/repo',
+      PR_BODY: generatedBody(),
+      PR_HEAD_REF: AUTOMATED_BRANCH,
+    });
+    assert.equal(
+      r.status,
+      1,
+      `expected a head repository other than this one to owe the sections, got exit ${r.status}.\n` +
+        `stdout: ${r.stdout}\nstderr: ${r.stderr}`,
+    );
+    assert.match(r.stderr, /missing PR-body section\(s\)/);
+  });
+
+  it('exits 1 under CI that carries no head repository — the derivation fails closed', () => {
+    const r = runCheckOnChange(before, after, {
+      ...SAME_REPO_CI,
+      PR_HEAD_REPO: '',
+      PR_BODY: generatedBody(),
+      PR_HEAD_REF: AUTOMATED_BRANCH,
+    });
+    assert.equal(
+      r.status,
+      1,
+      `expected a missing head repository to owe the sections, got exit ${r.status}.\n` +
+        `stdout: ${r.stdout}\nstderr: ${r.stderr}`,
+    );
+    assert.match(r.stderr, /missing PR-body section\(s\)/);
+  });
+
+  it('admits the class off CI on the supplied head ref alone — the documented local run', () => {
+    // Off CI there is no event to derive anything from: the head ref is what
+    // the person running the check typed, which is how the local recipes in
+    // docs/guides/local-ci.md exercise this class.
+    const r = runCheckOnChange(before, after, {
+      GITHUB_ACTIONS: '',
+      PR_BODY: generatedBody(),
+      PR_HEAD_REF: AUTOMATED_BRANCH,
+    });
+    assert.equal(
+      r.status,
+      0,
+      `expected the documented local run to admit the class (exit 0), got exit ${r.status}.\n` +
+        `stdout: ${r.stdout}\nstderr: ${r.stderr}`,
+    );
+    assert.match(r.stdout, /release-automation/);
+  });
+
   it('both publish workflows generate the same automation PR body', () => {
     // One branch, one PR body: whichever pipeline opens the version PR, the
     // body a reader finds there says the same thing about why it carries no
     // sections. Byte equality, so a sentence added to one and not the other
     // reds here rather than shipping as a per-platform difference.
     assert.equal(generatedBody('.github/workflows/publish-desktop.yml'), generatedBody());
+  });
+
+  it('both publish workflows open the automation PR on the branch the guards key on', () => {
+    // The head ref is what selects the release-output guard's positive mode and
+    // what admits the version PR without the disposition sections. A rename in
+    // either workflow — or in the constant — routes the release PR down the
+    // feature-branch paths instead, red at release time on the one PR no human
+    // is watching. Pinning both workflows to the constant reds that rename here
+    // instead, at the keystroke.
+    assert.equal(declaredBranch(), AUTOMATED_BRANCH);
+    assert.equal(declaredBranch('.github/workflows/publish-desktop.yml'), AUTOMATED_BRANCH);
   });
 });
 
@@ -1151,9 +1300,7 @@ describe('run() governance-data-only class — the recorded line end to end', ()
     const r = runCheckOnChange(
       before,
       { [MAP_PATH]: fixtureMap('fixture map, edited') },
-      {
-        PR_BODY: body([markerLine]),
-      },
+      { PR_BODY: body([markerLine]) },
     );
     assert.equal(
       r.status,
@@ -1168,9 +1315,7 @@ describe('run() governance-data-only class — the recorded line end to end', ()
     const r = runCheckOnChange(
       before,
       { 'README.md': 'an edited repo-wide doc\n' },
-      {
-        PR_BODY: body([markerLine]),
-      },
+      { PR_BODY: body([markerLine]) },
     );
     assert.equal(
       r.status,

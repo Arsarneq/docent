@@ -6,11 +6,12 @@
 # Re-runs when the PR body is edited. The classes that skip the sections, each
 # with the inputs deciding it: dependency-only PRs (manifests, lockfiles,
 # action-pin bumps), decided from the diff alone; and the release pipeline's own
-# regeneration PR, decided from the diff plus the head branch supplied below —
-# computed as the empty string for a fork PR, so the class reaches only branches
-# on this repository. A diff whose changed files are the area map, alone or
-# together with the clause registry, records one governance-data-only line in
-# place of the per-doc lines. The classes and the grammar:
+# regeneration PR, decided from the diff plus the head branch the check derives
+# from the event inputs supplied below — a branch on this repository, and
+# nothing for a pull request opened from anywhere else. A diff whose changed
+# files are the area map, alone or together with the clause registry, records
+# one governance-data-only line in place of the per-doc lines. The classes and
+# the grammar:
 # .github/CONTRIBUTING.md ("Docs Disposition and Change Record").
 name: Docs disposition format
 
@@ -44,10 +45,13 @@ jobs:
           # Passed via env (never interpolated into the shell) so a crafted
           # body cannot inject commands.
           PR_BODY: ${{ github.event.pull_request.body }}
-          # Input contract for the release-automation class: the head branch,
-          # but only when the head repository is this one. A fork PR gets the
-          # empty string, so no fork branch can name its way into the class.
-          PR_HEAD_REF: ${{ github.event.pull_request.head.repo.full_name == github.repository && github.head_ref || '' }}
+          # The event's head branch and head repository, forwarded as they
+          # arrive. Which branch the release-automation class may act on is
+          # derived from the pair by check-no-release-outputs.js
+          # (effectiveHeadRef), so that rule has one home and one set of tests
+          # rather than a copy in every workflow that supplies the inputs.
+          PR_HEAD_REF: ${{ github.head_ref }}
+          PR_HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
         run: |
           git fetch --no-tags origin "$GITHUB_BASE_REF"
           node scripts/check-docs-disposition.js "origin/$GITHUB_BASE_REF"

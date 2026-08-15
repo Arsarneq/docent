@@ -4,17 +4,28 @@
  * the release pipeline's outputs: feature branches must not touch them, and the
  * pipeline's own automation branch must contain nothing else. These tests prove
  * the classification red paths fire (a dist/ touch, a delta version bump, a
- * ride-along file on the automation branch) and that the deliberate green edges
- * stay green (delta content changes, added/deleted deltas).
+ * ride-along file on the automation branch), that the deliberate green edges
+ * stay green (delta content changes, added/deleted deltas), and that the switch
+ * between its modes reads the CI inputs the way the readers of that decision —
+ * this guard's own mode switch, and check-docs-disposition.js's
+ * release-automation class — depend on: a branch on this repository selects the
+ * positive mode, every other event shape takes the feature-branch guard. The
+ * last of them reads the shipped workflows, holding the guard steps that supply
+ * those inputs to the event fields the derivation is written against.
  */
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
+import yaml from 'js-yaml';
 import {
   isAllowedReleaseOutput,
   featureBranchViolations,
   automatedBranchViolations,
   parsePorcelainPaths,
+  effectiveHeadRef,
+  isAutomatedBranchRun,
   AUTOMATED_BRANCH,
   DELTA_RE,
 } from '../../../../scripts/check-no-release-outputs.js';
@@ -129,6 +140,190 @@ describe('isAllowedReleaseOutput / DELTA_RE', () => {
     assert.equal(isAllowedReleaseOutput('docs/README.md'), false);
     assert.equal(isAllowedReleaseOutput('README.md.bak'), false);
   });
+});
+
+describe('effectiveHeadRef — which branch a run may act on', () => {
+  // The repository names are fixtures: the rule compares them for equality, so
+  // what they spell never matters, only whether they agree.
+  const CI = { GITHUB_ACTIONS: 'true', GITHUB_REPOSITORY: 'owner/repo' };
+
+  it('takes the supplied ref as given off CI — the documented local runs', () => {
+    // docs/guides/local-ci.md tells a maintainer to name the automation branch
+    // to exercise the positive mode; there is no event to derive anything from,
+    // so the ref they typed is the answer.
+    assert.equal(effectiveHeadRef({ PR_HEAD_REF: AUTOMATED_BRANCH }), AUTOMATED_BRANCH);
+    assert.equal(effectiveHeadRef({ PR_HEAD_REF: 'feature/x' }), 'feature/x');
+    assert.equal(effectiveHeadRef({}), '');
+  });
+
+  it('names the branch under CI when the head repository is this repository', () => {
+    assert.equal(
+      effectiveHeadRef({ ...CI, PR_HEAD_REPO: 'owner/repo', PR_HEAD_REF: AUTOMATED_BRANCH }),
+      AUTOMATED_BRANCH,
+    );
+  });
+
+  it('names nothing under CI when the head repository is another one', () => {
+    assert.equal(
+      effectiveHeadRef({ ...CI, PR_HEAD_REPO: 'fork-owner/repo', PR_HEAD_REF: AUTOMATED_BRANCH }),
+      '',
+    );
+  });
+
+  it('names nothing under CI when either side of the comparison is absent', () => {
+    // Fail closed: an event that did not carry the head repository, or a run
+    // with no repository of its own to compare against, decides nothing — two
+    // absent values must never read as agreement.
+    assert.equal(effectiveHeadRef({ ...CI, PR_HEAD_REF: AUTOMATED_BRANCH }), '');
+    assert.equal(
+      effectiveHeadRef({
+        GITHUB_ACTIONS: 'true',
+        PR_HEAD_REPO: '',
+        PR_HEAD_REF: AUTOMATED_BRANCH,
+      }),
+      '',
+    );
+    assert.equal(
+      effectiveHeadRef({
+        GITHUB_ACTIONS: 'true',
+        PR_HEAD_REPO: 'owner/repo',
+        PR_HEAD_REF: AUTOMATED_BRANCH,
+      }),
+      '',
+    );
+  });
+});
+
+describe('isAutomatedBranchRun — the mode switch', () => {
+  const SAME_REPO = {
+    GITHUB_ACTIONS: 'true',
+    GITHUB_REPOSITORY: 'owner/repo',
+    PR_HEAD_REPO: 'owner/repo',
+  };
+
+  it('selects the positive validation for the automation branch on this repository', () => {
+    assert.equal(isAutomatedBranchRun({ ...SAME_REPO, PR_HEAD_REF: AUTOMATED_BRANCH }), true);
+  });
+
+  it('takes the feature-branch guard for that same name from another repository', () => {
+    // The name is the pipeline's, the diff could be anything; the head
+    // repository is what decides, so this run is guarded, not validated.
+    assert.equal(
+      isAutomatedBranchRun({
+        ...SAME_REPO,
+        PR_HEAD_REPO: 'fork-owner/repo',
+        PR_HEAD_REF: AUTOMATED_BRANCH,
+      }),
+      false,
+    );
+  });
+
+  it('takes the feature-branch guard for an ordinary branch and for no branch at all', () => {
+    assert.equal(isAutomatedBranchRun({ ...SAME_REPO, PR_HEAD_REF: 'feature/x' }), false);
+    assert.equal(isAutomatedBranchRun({ ...SAME_REPO, PR_HEAD_REF: '' }), false);
+    assert.equal(isAutomatedBranchRun({}), false);
+  });
+
+  it('selects the positive validation off CI on the supplied ref alone', () => {
+    assert.equal(isAutomatedBranchRun({ PR_HEAD_REF: AUTOMATED_BRANCH }), true);
+  });
+});
+
+describe('the guard steps forward what the derivation reads', () => {
+  // Under a GitHub Actions run the derivation above answers the empty string
+  // unless the head branch and the head repository both arrive, and the empty
+  // string selects no mode and admits no class. So a workflow that stops
+  // forwarding one of them leaves the release pipeline's own PR taking the
+  // feature-branch paths — red at release time, on the one PR nobody is
+  // watching. These env blocks have no other reader, so this is where that edit
+  // can red at the keystroke instead.
+  //
+  // `env:` on a step reaches that step's own process and nothing else, so the
+  // pin is step-scoped: the assignments are read out of the block belonging to
+  // the step that runs the script, which is what makes moving them to a
+  // neighbouring step a red rather than a rename the file-wide count would miss.
+  // The whole-file count runs beside it, refusing a second, drifted copy.
+  const REPO = path.resolve(import.meta.dirname, '../../../..');
+
+  /** The event fields a guard step forwards, spelled as the workflows state them. */
+  const FORWARDED = {
+    PR_HEAD_REF: '${{ github.head_ref }}',
+    PR_HEAD_REPO: '${{ github.event.pull_request.head.repo.full_name }}',
+  };
+
+  /** Escape a literal for embedding in a RegExp source. */
+  const esc = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+  /**
+   * A workflow parsed into steps, refusing readably where YAML cannot read it
+   * at all — a key written twice inside one block is exactly the drift this
+   * pin exists for, and the parser reports it as breakage rather than as an
+   * answer, so the refusal states the rule instead of re-throwing.
+   * @param {string} text the workflow source
+   * @param {string} workflowFile repo-relative workflow path, for the refusal
+   */
+  const parseWorkflow = (text, workflowFile) => {
+    try {
+      return yaml.load(text);
+    } catch (err) {
+      assert.fail(
+        `${workflowFile} does not parse as YAML, so the guard step's env block cannot be read ` +
+          `— a variable assigned twice inside one block reads as this rather than as a value: ` +
+          `${err.message.split('\n')[0]}`,
+      );
+    }
+  };
+
+  /**
+   * The one step in a parsed workflow whose `run:` invokes `script`, with the
+   * step's own name for the refusals.
+   * @param {any} workflow the parsed workflow document
+   * @param {string} workflowFile repo-relative workflow path, for the refusal
+   * @param {string} script repo-relative path of the check the step runs
+   * @returns {{ name: string, env: Record<string, string> }}
+   */
+  const guardStep = (workflow, workflowFile, script) => {
+    const steps = Object.values(workflow.jobs ?? {}).flatMap((job) => job?.steps ?? []);
+    const running = steps.filter(
+      (step) => typeof step?.run === 'string' && step.run.includes(script),
+    );
+    assert.equal(
+      running.length,
+      1,
+      `${workflowFile} must run ${script} from exactly one step — the guard step whose own ` +
+        `env block supplies the head-ref derivation its inputs (found ${running.length})`,
+    );
+    return { name: running[0].name ?? '(unnamed step)', env: running[0].env ?? {} };
+  };
+
+  for (const [workflowFile, script] of [
+    ['.github/workflows/test.yml', 'scripts/check-no-release-outputs.js'],
+    ['.github/workflows/docs-disposition.yml', 'scripts/check-docs-disposition.js'],
+  ]) {
+    it(`${workflowFile} hands ${script} the head branch and the head repository`, () => {
+      const text = readFileSync(path.join(REPO, workflowFile), 'utf8');
+      const step = guardStep(parseWorkflow(text, workflowFile), workflowFile, script);
+
+      for (const [key, expression] of Object.entries(FORWARDED)) {
+        assert.equal(
+          step.env[key],
+          expression,
+          `${workflowFile}: the "${step.name}" step must set ${key} to ${expression} in its ` +
+            `own env block — step env reaches that step alone, and the derivation reads the ` +
+            `head branch and the head repository together, naming no branch unless both ` +
+            `arrive, so a ${key} dropped, rewritten, or moved to another step silently ` +
+            `selects no mode (found ${step.env[key] === undefined ? 'no such key there' : `"${step.env[key]}"`})`,
+        );
+        const copies = [...text.matchAll(new RegExp(String.raw`^\s*${esc(key)}:`, 'gm'))];
+        assert.equal(
+          copies.length,
+          1,
+          `${workflowFile} must assign ${key} exactly once — the "${step.name}" step's env ` +
+            `block is its one home in this workflow (found ${copies.length})`,
+        );
+      }
+    });
+  }
 });
 
 describe('parsePorcelainPaths', () => {

@@ -27,9 +27,16 @@
  *   3. Each job gates on the flags it must because it exercises an input the
  *      buildScripts closure can't model: `schema` on desktop-rust-tests and
  *      desktop-corpus-diff (they validate the desktop corpus against the schema
- *      composed from schemas/**), and `releasePipeline` on reference-server-tests
- *      (its release-exclusion suite readFileSyncs the publish workflows + the
- *      release-output guard).
+ *      composed from schemas/**), `releasePipeline` on each job whose suite
+ *      reads the release-pipeline sources as files — reference-server-tests
+ *      (release-exclusion) and unit-tests (the disposition suite's weld between
+ *      the publish workflows and the automation branch) — and, on unit-tests
+ *      alone, the narrow flags for the files only its suites read:
+ *      `contractDocs` (the surfaces that suite welds itself to in each
+ *      contributor contract file — the governance line both show, CONTRIBUTING's
+ *      exemption paragraph, and the shipped template's inert guidance comments)
+ *      and `dispositionWorkflow` (the guard-step env block in
+ *      .github/workflows/docs-disposition.yml).
  *   4. `.github/actions/**` is in ciCore (composite actions are used by nearly
  *      every job).
  *   5. Each needs-chained produce/diff pair co-fires — identical trigger flags —
@@ -70,10 +77,24 @@ const CI_CORE_GLOBS = [
 //     against the schema composed from schemas/**.
 //   reference-server-tests — its release-exclusion suite readFileSyncs the
 //     publish workflows + the release-output guard (the `releasePipeline` flag).
+//   unit-tests — its disposition suite readFileSyncs both publish workflows to
+//     hold them to the automation branch the release guards key on, so a PR
+//     touching only a publish workflow must still run it (same flag). It also
+//     readFileSyncs files no other job's suite reads: the contributor contract
+//     files, welded surface by surface — the governance line both show held to
+//     the check's own constant, CONTRIBUTING's exemption paragraph held to the
+//     fields the exemption reads and to citing the release-output surface by
+//     its home, and the shipped template audited as-is so its comments stay
+//     inert — and docs-disposition.yml, whose guard step's env block is held to
+//     the inputs the head-ref derivation is written against. Each takes a narrow flag of
+//     its own (`contractDocs`, `dispositionWorkflow`) gating this job alone, so
+//     an edit to those files reaches the suite that reads them and no heavy job
+//     beyond it.
 const REQUIRED_JOB_FLAGS = {
   'desktop-rust-tests': ['schema'],
   'desktop-corpus-diff': ['schema'],
   'reference-server-tests': ['releasePipeline'],
+  'unit-tests': ['releasePipeline', 'contractDocs', 'dispositionWorkflow'],
 };
 const PRODUCE_DIFF_PAIRS = [
   ['desktop-rust-tests', 'desktop-corpus-diff'],

@@ -48,6 +48,8 @@ jobs:
       ciCore: ${{ steps.filter.outputs.ciCore }}
       buildScripts: ${{ steps.filter.outputs.buildScripts }}
       releasePipeline: ${{ steps.filter.outputs.releasePipeline }}
+      contractDocs: ${{ steps.filter.outputs.contractDocs }}
+      dispositionWorkflow: ${{ steps.filter.outputs.dispositionWorkflow }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -94,15 +96,44 @@ jobs:
               - 'scripts/corpus-assemble-desktop.js'
               - 'scripts/corpus-assemble-desktop-vectors.js'
               - 'scripts/sufficiency-lint.js'
-            # Release-pipeline sources that reference-server-tests' release-exclusion
-            # suite reads (readFileSync, not import) to assert the publish pipelines
-            # and the release-output guard never sweep in reference-implementations/.
-            # A source-read coupling the buildScripts closure can't model, so it gets
-            # its own flag; keep it equal to the files that suite reads.
+            # Release-pipeline sources read as files (readFileSync, not import)
+            # rather than executed: by reference-server-tests' release-exclusion
+            # suite, asserting the publish pipelines and the release-output
+            # guard never sweep in reference-implementations/, and by
+            # unit-tests' disposition suite, holding both publish workflows to
+            # the automation branch the release guards key on. A source-read
+            # coupling the buildScripts closure can't model, so it gets its own
+            # flag. The rule is per reading job: a file belongs here when some
+            # job whose suite reads it gates on no other flag already matching
+            # that file. That is what keeps the guard script listed — unit-tests
+            # reaches it through the broad ci bucket, but reference-server-tests
+            # is a heavy job and never gates on ci.
             releasePipeline:
               - '.github/workflows/publish.yml'
               - '.github/workflows/publish-desktop.yml'
               - 'scripts/check-no-release-outputs.js'
+            # The contributor contract files, read as files by unit-tests'
+            # disposition suite, which welds itself to a surface in each: the
+            # governance line CONTRIBUTING fences and the PR template scaffolds,
+            # held to the check's own constant; CONTRIBUTING's exemption
+            # paragraph, held to every field the exemption reads and to citing
+            # the release-output surface by its home rather than restating it;
+            # and the shipped template itself, audited as-is so its guidance
+            # comments stay inert. An edit to either file must run that suite.
+            # Narrow on purpose — it gates unit-tests alone, the only job whose
+            # suite reads them. Same per-reading-job rule as the flag above.
+            contractDocs:
+              - '.github/CONTRIBUTING.md'
+              - '.github/PULL_REQUEST_TEMPLATE.md'
+            # .github/workflows/docs-disposition.yml, read as a file by
+            # unit-tests' release-guard suite: it holds that workflow's guard
+            # step env block to the event fields the head-ref derivation is
+            # written against, so an edit there must run that suite. Narrow on
+            # purpose — it gates unit-tests alone, so the heavy jobs never fire
+            # for a workflow only that suite reads. Same per-reading-job rule as
+            # the flags above.
+            dispositionWorkflow:
+              - '.github/workflows/docs-disposition.yml'
             # The broad script bucket — gates unit-tests only (its shared unit
             # suite imports most scripts via packages/shared/tests/unit/check-*.test.js);
             # .c8rc.json configures that job's JS coverage.
@@ -303,16 +334,19 @@ jobs:
       # On the automation branch the release pipeline opens
       # (automated/version-table-update) it instead POSITIVELY validates that the
       # PR is exactly the mechanical regeneration — only release outputs, and a
-      # dist/ that composes from source. The script switches on PR_HEAD_REF. Only
-      # meaningful on PRs, where we have a base branch to diff against; skipped on
-      # push/release.
+      # dist/ that composes from source. The script picks its mode from the head
+      # branch it derives out of the inputs below. Only meaningful on PRs, where
+      # we have a base branch to diff against; skipped on push/release.
       - name: No release-only outputs on PR
         if: github.event_name == 'pull_request'
         env:
-          # Input contract for the mode switch: the head branch, but only when
-          # the head repository is this one. A fork PR gets the empty string, so
-          # a fork branch cannot select the guard's POSITIVE mode by name alone.
-          PR_HEAD_REF: ${{ github.event.pull_request.head.repo.full_name == github.repository && github.head_ref || '' }}
+          # The event's head branch and head repository, forwarded as they
+          # arrive. The script derives the branch its mode switch may act on
+          # from the pair (effectiveHeadRef), so a branch on a fork cannot
+          # select POSITIVE mode by name alone and the rule stays testable in
+          # one place rather than copied into each workflow.
+          PR_HEAD_REF: ${{ github.head_ref }}
+          PR_HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
         run: |
           git fetch --no-tags origin "$GITHUB_BASE_REF"
           node scripts/check-no-release-outputs.js "origin/$GITHUB_BASE_REF"
@@ -400,6 +434,9 @@ jobs:
       needs.changes.outputs.corpus == 'true' ||
       needs.changes.outputs.ci == 'true' ||
       needs.changes.outputs.ciCore == 'true' ||
+      needs.changes.outputs.releasePipeline == 'true' ||
+      needs.changes.outputs.contractDocs == 'true' ||
+      needs.changes.outputs.dispositionWorkflow == 'true' ||
       github.event_name == 'release' ||
       github.event_name == 'push' ||
       github.event_name == 'workflow_dispatch'

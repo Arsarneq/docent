@@ -38,23 +38,25 @@
  *   included; or a workflow file whose change only moves action pins (same
  *   action, new SHA). Such a PR carries neither section.
  *
- *   release-automation — decided from the diff together with PR_HEAD_REF, the
- *   head branch CI supplies for same-repo pull requests only. The head ref is
- *   the branch the release pipeline opens for its own regeneration PR, and
- *   every changed file is part of the release-output surface — whose one home
- *   is the enumeration in check-no-release-outputs.js, imported here rather
- *   than restated. Such a PR carries neither section; its record is the release
- *   itself plus the body the pipeline generates.
+ *   release-automation — decided from the diff together with the head branch
+ *   this run is entitled to act on, which check-no-release-outputs.js derives
+ *   from the forwarded head branch and head repository (effectiveHeadRef):
+ *   under a GitHub Actions run that names a branch only for a pull request
+ *   opened on this repository, and with no Actions context it is the head ref
+ *   as supplied.
+ *   That head ref is the branch the release pipeline opens for its own
+ *   regeneration PR, and every changed file is part of the release-output
+ *   surface — whose one home is the enumeration in check-no-release-outputs.js,
+ *   imported here rather than restated. Such a PR carries neither section; its
+ *   record is the release itself plus the body the pipeline generates.
  *
  *   governance-data-only — decided from the diff alone: every changed file is
  *   the area map or the clause registry, and the map is among them. Such a PR
  *   carries `## Change record` as usual, and a `## Docs disposition` section of
- *   exactly one line, in place of the per-doc lines:
- *
- *     governance-data-only: <why the documented governance goals survive this edit>
- *
- *   recording the judgment CONTRIBUTING ("Extending the Docs Governance")
- *   asks for. The same line on any other diff is unearned, and red.
+ *   exactly one line, in place of the per-doc lines — the line
+ *   GOVERNANCE_LINE_TEMPLATE spells out below, recording the judgment
+ *   CONTRIBUTING ("Extending the Docs Governance") asks for. The same line on
+ *   any other diff is unearned, and red.
  *
  * A change admitted by neither exempt class — an npm script edit, an engines
  * bump, an action identity swap, a file the release pipeline does not write —
@@ -66,10 +68,12 @@
  * reads it through, which prints that shape refusal instead, there being no
  * scope to derive the lines from.
  *
- * Inputs (CI): PR_BODY via env (from the event payload, never interpolated
- * into a shell), PR_HEAD_REF via env (the workflow computes it as the head
- * branch of a same-repo PR and the empty string for a fork PR), the base ref
- * as argv[2] (default origin/main).
+ * Inputs: PR_BODY via env (from the event payload, never interpolated into a
+ * shell), the event's head branch and head repository via env (PR_HEAD_REF /
+ * PR_HEAD_REPO, forwarded as they arrive and never read raw — effectiveHeadRef
+ * reads them against the run context to decide which branch this run may act
+ * on, and takes PR_HEAD_REF as supplied where there is no Actions context), the
+ * base ref as argv[2] (default origin/main).
  *
  * Usage:
  *   PR_BODY="..." [PR_HEAD_REF="<branch>"] node scripts/check-docs-disposition.js [baseRef]
@@ -86,7 +90,11 @@ import {
   MAP_PATH,
   refuseOnShapeError,
 } from './check-area-map.js';
-import { AUTOMATED_BRANCH, isAllowedReleaseOutput } from './check-no-release-outputs.js';
+import {
+  AUTOMATED_BRANCH,
+  effectiveHeadRef,
+  isAllowedReleaseOutput,
+} from './check-no-release-outputs.js';
 
 /** Repo-relative path of the clause registry (same file check-clause-registry.js guards). */
 export const REGISTRY_PATH = 'docs/clause-registry.json';
@@ -317,12 +325,13 @@ export function isDependencyOnlyDiff({ files, fileDiff }) {
  * Pure core: is this the release pipeline's own regeneration PR? True when the
  * head ref is the pipeline's automation branch AND every changed file is part
  * of the release-output surface. The surface's one home is
- * check-no-release-outputs.js, which this consults rather than restates; the
- * head ref is CI-supplied and empty for a fork PR, so the class admits only
- * branches on this repository.
+ * check-no-release-outputs.js, which this consults rather than restates; so is
+ * the rule deriving the head ref its caller passes, which under a GitHub
+ * Actions run names a branch only for a pull request opened on this repository
+ * and passes the supplied ref through with no Actions context.
  * @param {object} opts
  * @param {string[]} opts.files changed file paths
- * @param {string} opts.headRef the PR head branch (empty when not supplied)
+ * @param {string} opts.headRef the head branch this run may act on (empty when none does)
  * @returns {boolean}
  */
 export function isReleaseAutomationDiff({ files, headRef }) {
@@ -336,7 +345,7 @@ export function isReleaseAutomationDiff({ files, headRef }) {
  * @param {object} opts
  * @param {string[]} opts.files changed file paths
  * @param {(f: string) => string} opts.fileDiff unified diff text for one file
- * @param {string} [opts.headRef] the PR head branch (empty when not supplied)
+ * @param {string} [opts.headRef] the head branch this run may act on (empty when none does)
  * @returns {string | null} the admitting class name
  */
 export function exemptionClass({ files, fileDiff, headRef = '' }) {
@@ -350,7 +359,7 @@ export function exemptionClass({ files, fileDiff, headRef = '' }) {
  * @param {object} opts
  * @param {string[]} opts.files changed file paths
  * @param {(f: string) => string} opts.fileDiff unified diff text for one file
- * @param {string} [opts.headRef] the PR head branch (empty when not supplied)
+ * @param {string} [opts.headRef] the head branch this run may act on (empty when none does)
  * @returns {boolean}
  */
 export function isExemptDiff({ files, fileDiff, headRef = '' }) {
@@ -433,6 +442,15 @@ const PREFIX_RE = /^(?:>\s*)?(?:[-*+]\s+|\d+\.\s+)?/;
 
 /** The marker opening the governance-data-only class's single line. */
 export const GOVERNANCE_MARKER = 'governance-data-only:';
+
+/**
+ * That line as the contributor-facing surfaces show it — the marker followed by
+ * the placeholder naming what the reason has to say. One home for a template
+ * that is otherwise typed out wherever a contributor meets it: this check's own
+ * red output builds it from here, and the unit suite holds the copies in
+ * CONTRIBUTING and the PR template against it.
+ */
+export const GOVERNANCE_LINE_TEMPLATE = `${GOVERNANCE_MARKER} <why the documented governance goals survive this edit>`;
 
 /** That line in full: the exact marker, then a non-empty reason. */
 const GOVERNANCE_LINE_RE = /^governance-data-only:\s*(\S.*)$/;
@@ -606,9 +624,12 @@ export function auditBody({ body, expected, governanceData = false }) {
 function run() {
   const baseRef = process.argv[2] || 'origin/main';
   const body = process.env.PR_BODY || '';
-  // Supplied by CI for a same-repo PR only, so the release-automation class
-  // admits nothing a fork branch can name (see docs-disposition.yml).
-  const headRef = process.env.PR_HEAD_REF || '';
+  // Derived from the forwarded head branch and head repository by the guard
+  // that owns that rule: under a GitHub Actions run the release-automation
+  // class then admits nothing a branch on another repository can name, and with
+  // no Actions context the supplied ref passes through
+  // (check-no-release-outputs.js, effectiveHeadRef).
+  const headRef = effectiveHeadRef();
 
   const git = (args) => execFileSync('git', args, { encoding: 'utf8' });
   const files = git(['diff', '--name-only', `${baseRef}...HEAD`])
@@ -683,7 +704,7 @@ function run() {
         (governanceData
           ? `\n  This diff changes only the governance data, so its section carries exactly this\n` +
             `  one line in place of every per-doc line:\n` +
-            `    ${GOVERNANCE_MARKER} <why the documented governance goals survive this edit>`
+            `    ${GOVERNANCE_LINE_TEMPLATE}`
           : `\n  Scope is derived from the changed files via ${MAP_PATH}; remove lines that are not in scope\n` +
             `  (and write paths bare — a path that only differs by backticks parses as a different doc).`),
     );
@@ -695,7 +716,7 @@ function run() {
         (governanceData
           ? `\n  Every changed file here is ${MAP_PATH} or ${REGISTRY_PATH}, with the map among\n` +
             `  them, so the "${DISPOSITION_HEADING}" section carries exactly this one line:\n` +
-            `    ${GOVERNANCE_MARKER} <why the documented governance goals survive this edit>\n` +
+            `    ${GOVERNANCE_LINE_TEMPLATE}\n` +
             `  and no per-doc lines. "${CHANGE_RECORD_HEADING}" is unchanged.`
           : `\n  That line is earned only by a diff whose every changed file is ${MAP_PATH} or\n` +
             `  ${REGISTRY_PATH}, with the map among them. ` +
@@ -709,7 +730,7 @@ function run() {
       `✗ ${r.malformed.length} line(s) look like dispositions but do not parse:\n` +
         r.malformed.map((d) => `    ${d}`).join('\n') +
         `\n  Form: "updated: docs/<path> [§<clause-id>] — <text>" or "unaffected: docs/<path> [§<clause-id>] — <text>" (em dash),\n` +
-        `  or "${GOVERNANCE_MARKER} <reason>" for a diff whose changed files are ${MAP_PATH},\n` +
+        `  or "${GOVERNANCE_LINE_TEMPLATE}" for a diff whose changed files are ${MAP_PATH},\n` +
         `  alone or together with ${REGISTRY_PATH}.`,
     );
   }

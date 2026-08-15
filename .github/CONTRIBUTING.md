@@ -302,8 +302,10 @@ formatting-only differences count as no change, while `scripts`, `engines`, or
 any other field keeps the sections); `Cargo.toml` changes whose changed lines
 all sit inside the dependency sections Cargo defines for them, the per-crate
 table form included; and same-action pin bumps. Decided from the diff together
-with the head branch CI supplies for same-repo pull requests: a PR on the
-release pipeline's automation branch whose every changed file belongs to the
+with a head branch the checks derive from the pull request's own head branch and
+head repository — under a GitHub Actions run, a branch opened on this repository
+and nothing otherwise; run by hand, the branch you supply: a PR on the release
+pipeline's automation branch whose every changed file belongs to the
 release-output surface enumerated in
 [`scripts/check-no-release-outputs.js`](../scripts/check-no-release-outputs.js),
 which is that surface's one home. Every other change carries the sections. A
@@ -312,18 +314,18 @@ reason you actually relied on.
 
 A PR whose changed files are the governance data itself — the
 [area map](../scripts/area-map.json), alone or together with the
-[clause registry](../docs/clause-registry.json) — records that judgment as one
-line, in place of the per-doc lines:
+[clause registry](../docs/clause-registry.json) — records, in place of the
+per-doc lines, one line judging the edit against the goals in
+[Extending the Docs Governance](#extending-the-docs-governance):
 
 ```text
 governance-data-only: <why the documented governance goals survive this edit>
 ```
 
-The goals are the ones stated below in
-[Extending the Docs Governance](#extending-the-docs-governance); the reason is
-free text and the check verifies only that exactly one such line is there and
-that it says something. `## Change record` is required as usual, and the same
-line on any other PR is red — it is earned by that class of diff alone.
+The reason is free text and the check verifies only that exactly one such line
+is there and that it says something. `## Change record` is required as usual,
+and the same line on any other PR is red — it is earned by that class of diff
+alone.
 
 The judgments are also audited in aggregate: a weekly job measures how often
 a doc judged unaffected was edited shortly after by overlapping work — a

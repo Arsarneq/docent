@@ -1,7 +1,9 @@
 /**
  * check-no-release-outputs.js — CI guard for release-output changes on PRs.
  *
- * Two complementary modes, selected by the PR head branch (PR_HEAD_REF):
+ * Two complementary modes, selected by the head branch this run is entitled to
+ * act on — derived below from the forwarded event inputs (effectiveHeadRef),
+ * never read raw:
  *
  *   NEGATIVE (every normal feature branch) — FAIL if the branch touches a
  *   release-only output. Release outputs (the composed schemas under
@@ -20,9 +22,12 @@
  *        layers (recompose + assert no drift).
  *   So the release PR's CI is green when legitimate and red when tampered.
  *
- * CI supplies PR_HEAD_REF for same-repo pull requests only — a fork branch
- * therefore cannot select POSITIVE mode by naming itself after the automation
- * branch (the input contract is stated where the workflows compute the value).
+ * The workflows forward the event's head branch (PR_HEAD_REF) and head
+ * repository (PR_HEAD_REPO) exactly as they arrive; which branch counts is
+ * decided here, by effectiveHeadRef, so the readers of that decision — this
+ * guard's own mode switch, and check-docs-disposition.js's release-automation
+ * class — reach it through one implementation rather than a copy of the rule
+ * in every workflow that supplies the inputs.
  *
  * Compares the current ref against a base ref (default: origin/main). Pass a
  * different base as argv[2]. Skips entirely in a release context
@@ -48,6 +53,46 @@ const ROOT = resolve(import.meta.dirname, '..');
 // The branch the release pipeline opens to land the regenerated release outputs.
 // On this branch the guard runs in POSITIVE mode (see file header).
 export const AUTOMATED_BRANCH = 'automated/version-table-update';
+
+/**
+ * The head branch a run is entitled to act on, derived from the CI inputs.
+ *
+ * Under CI the branch counts when the pull request's head repository is this
+ * repository: PR_HEAD_REPO and GITHUB_REPOSITORY both present and equal. Every
+ * other CI shape — a head repository naming somewhere else, or an input the
+ * event did not carry — yields the empty string, which selects no mode and
+ * admits no class, so a branch on a fork cannot reach either by name.
+ *
+ * With no CI context (GITHUB_ACTIONS unset), the caller is a person running the
+ * check by hand and PR_HEAD_REF is their own statement of which branch to
+ * simulate, so it is taken as supplied — the local recipes in
+ * docs/guides/local-ci.md work exactly as written.
+ *
+ * @param {Record<string, string | undefined>} [env] environment to read
+ * @returns {string} the head branch this run may act on ('' when none does)
+ */
+export function effectiveHeadRef(env = process.env) {
+  const headRef = env.PR_HEAD_REF || '';
+  if (!env.GITHUB_ACTIONS) return headRef;
+  const headRepo = env.PR_HEAD_REPO || '';
+  const repository = env.GITHUB_REPOSITORY || '';
+  return headRepo !== '' && headRepo === repository ? headRef : '';
+}
+
+/**
+ * Does this environment select POSITIVE mode — the positive validation of the
+ * release pipeline's own regeneration PR? True exactly when the effective head
+ * ref is the automation branch. Every other environment takes the
+ * feature-branch guard: another branch, no head ref at all, or — under a
+ * GitHub Actions run, where the head repository is what decides — that same
+ * branch name arriving from a fork.
+ *
+ * @param {Record<string, string | undefined>} [env] environment to read
+ * @returns {boolean}
+ */
+export function isAutomatedBranchRun(env = process.env) {
+  return effectiveHeadRef(env) === AUTOMATED_BRANCH;
+}
 
 // ── The release-output surface ────────────────────────────────────────────────
 //
@@ -252,7 +297,6 @@ function validateAutomatedBranch(baseRef) {
 
 function run() {
   const baseRef = process.argv[2] || 'origin/main';
-  const headRef = process.env.PR_HEAD_REF || '';
 
   if (isReleaseContext()) {
     console.log('✓ Release context — release-output changes are expected, skipping guard.');
@@ -264,7 +308,7 @@ function run() {
     return;
   }
 
-  if (headRef === AUTOMATED_BRANCH) {
+  if (isAutomatedBranchRun()) {
     validateAutomatedBranch(baseRef);
   } else {
     guardFeatureBranch(baseRef);
