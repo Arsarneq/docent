@@ -37,7 +37,6 @@
  */
 
 import { execFileSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 import {
   MAP_PATH,
@@ -48,12 +47,13 @@ import {
   refuseOnShapeError,
   resolveFile,
 } from './check-area-map.js';
+import { splitCitationTokens } from './check-clause-registry.js';
 import {
   REGISTRY_PATH,
   loadRegistry,
+  readTextOrNull,
   refuseOnRegistryError,
-  splitCitationTokens,
-} from './check-clause-registry.js';
+} from './governance-data.js';
 
 /**
  * Repo-relative path of the map whose resolution this check reads — the map's
@@ -62,9 +62,9 @@ import {
  */
 export { MAP_PATH };
 /**
- * Repo-relative path of the clause registry this check reads — the registry
- * check's own constant, re-exported rather than restated, for the same reason:
- * the path this check names in its output is the path it reads.
+ * Repo-relative path of the clause registry this check reads — the shared
+ * governance-data constant, re-exported rather than restated, for the same
+ * reason: the path this check names in its output is the path it reads.
  */
 export { REGISTRY_PATH };
 
@@ -392,10 +392,10 @@ function run() {
     .split('\n')
     .map((s) => s.trim())
     .filter(Boolean);
-  // Both governance-data files are read through their own check's loader, so a
-  // file that cannot be read as its own data — one that cannot be read at all,
-  // or text that is not JSON — is the refusal that check states, printed on the
-  // ordinary red path, never a stack trace.
+  // The map is read through its own check's loader and the registry through the
+  // shared governance-data home, so a file that cannot be read as its own data
+  // — one that cannot be read at all, or text that is not JSON — is the refusal
+  // that loader states, printed on the ordinary red path, never a stack trace.
   let registry;
   try {
     registry = loadRegistry();
@@ -408,17 +408,9 @@ function run() {
   } catch (err) {
     refuseOnShapeError(err);
   }
-  const readFile = (f) => {
-    try {
-      return readFileSync(f, 'utf8');
-    } catch {
-      return null;
-    }
-  };
-
   let audited;
   try {
-    audited = auditClauseGovernance({ registry, map, files, readFile });
+    audited = auditClauseGovernance({ registry, map, files, readFile: readTextOrNull });
   } catch (err) {
     // A map that no longer fits the shape this check reads it through is a
     // refusal on the check's own input: the red is that named verdict, printed

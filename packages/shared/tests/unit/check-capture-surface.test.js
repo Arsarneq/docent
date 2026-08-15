@@ -619,7 +619,10 @@ describe('extractProxySources', () => {
     assert.deepEqual(extractProxySources(broken).unreadable, ['Tabs::onActivated']);
   });
 
-  it('refuses a proxy table that states no Event source column', () => {
+  it('refuses a proxy table whose header has moved, naming both headers', () => {
+    // Selection is by the WHOLE header, so a table that lost the Event source
+    // column — or that states any other header under this heading — is named
+    // rather than read through a column it does not have.
     const narrowed = [
       '## Browser Chrome Proxies',
       '',
@@ -629,8 +632,23 @@ describe('extractProxySources', () => {
       '',
     ].join('\n');
     assert.deepEqual(extractProxySources(narrowed).unreadable, [
-      '(the proxy table states no Event source column)',
+      '(the proxy table states the header `User action | Captured as`, and this leg reads the table headed `User action | Captured as | Event source`)', // prettier-ignore
     ]);
+  });
+
+  it('never conscripts a sibling table that shares only the first header cell', () => {
+    // The strictly-stronger half of whole-header selection: a second table
+    // under the same heading, leading with the same cell, contributes nothing.
+    const withSibling = [
+      doc,
+      '| User action | Note |',
+      '| --- | --- |',
+      '| Something else | `chrome.runtime.onInstalled` |',
+      '',
+    ].join('\n');
+    const read = extractProxySources(withSibling);
+    assert.ok(!read.workerEvents.includes('chrome.runtime.onInstalled'));
+    assert.deepEqual(read.workerEvents, extractProxySources(doc).workerEvents);
   });
 });
 
@@ -893,10 +911,10 @@ describe('extractClauseNames and extractCorrelationClasses', () => {
     '',
     `**${CORRELATION_CLAUSE_ID}.** Correlated classes:`,
     '',
-    '| WinEvent | Correlation source |',
-    '| --- | --- |',
-    '| `EVENT_OBJECT_CREATE` | Any low-level input |',
-    '| `EVENT_OBJECT_DESTROY` | Any low-level input |',
+    '| WinEvent | Correlation source | Additional filter |',
+    '| --- | --- | --- |',
+    '| `EVENT_OBJECT_CREATE` | Any low-level input | none |',
+    '| `EVENT_OBJECT_DESTROY` | Any low-level input | none |',
     '',
   ].join('\n');
 
@@ -916,6 +934,20 @@ describe('extractClauseNames and extractCorrelationClasses', () => {
     const { classes, unreadable } = extractCorrelationClasses(broken);
     assert.deepEqual(classes, ['EVENT_OBJECT_DESTROY']);
     assert.deepEqual(unreadable, ['EVENT_OBJECT_CREATE']);
+  });
+
+  it('reads the table by its whole header, so a sibling under the heading is not conscripted', () => {
+    const withSibling = [
+      doc,
+      '| WinEvent | Note |',
+      '| --- | --- |',
+      '| `EVENT_SYSTEM_FOREGROUND` | an aside |',
+      '',
+    ].join('\n');
+    assert.deepEqual(
+      extractCorrelationClasses(withSibling).classes,
+      extractCorrelationClasses(doc).classes,
+    );
   });
 });
 
@@ -1010,10 +1042,14 @@ describe('auditTree — the shipped tree', () => {
     // wrapper could drift while every case here stayed green.
     const script = readFile('scripts/check-capture-surface.js');
     assert.match(script, /auditTree\(\s*readFile,\s*derivePopulation\(\),?\s*\)/);
+    // The enumeration itself is the shared population reader's, so this file
+    // states no `ls-files` invocation of its own, and reaches that reader from
+    // exactly one place — the derivation these cases hold.
+    assert.equal(script.split("'ls-files'").length - 1, 0, 'no private enumeration here');
     assert.equal(
-      script.split("'ls-files'").length - 1,
+      script.split('trackedFilesUnder(').length - 1,
       1,
-      'the file enumerates the tracked tree in exactly one place',
+      'the file reaches the shared population reader in exactly one place',
     );
   });
 

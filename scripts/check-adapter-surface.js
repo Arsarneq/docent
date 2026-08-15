@@ -79,7 +79,14 @@
 
 import { readFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
-import { duplicatesIn, missingFrom, tokenizeJs } from './check-test-inventory.js';
+import {
+  duplicatesIn,
+  emptySurfaceProblems,
+  formatProblemBlock,
+  missingFrom,
+  tokenizeJs,
+  walkObjectLiteral,
+} from './check-test-inventory.js';
 
 /** Repo-relative path of the shared file declaring the adapter contract. */
 export const TYPEDEF_PATH = 'packages/shared/views/adapter.js';
@@ -268,43 +275,13 @@ export function extractAdapterMembers(source, path) {
     return { names, problems };
   }
 
-  let depth = 1;
-  let atPropertyStart = true;
-  let closed = false;
-  for (let i = open + 1; i < tokens.length; i++) {
-    const t = tokens[i];
-    const opens = t.type === 'punct' && '([{'.includes(t.value);
-
-    if (t.type === 'punct' && ')]}'.includes(t.value)) {
-      depth--;
-      if (depth === 0) {
-        closed = true; // a trailing comma leaves the property start open — closing it is not a property
-        break;
-      }
-      atPropertyStart = false;
-      continue;
-    }
-
-    if (depth === 1 && atPropertyStart) {
-      const { name, found } = readMember(tokens, i);
-      if (name !== null) names.push(name);
-      else problems.push(`${path}'s \`${binding}\` object literal states a property the member scan does not model, beginning ${found} — a member is read as a name or a quoted name followed by \`:\`, by an argument list, or by the property's end, with \`async\` admitted before a method name`); // prettier-ignore
-      atPropertyStart = false;
-      if (opens) depth++;
-      continue;
-    }
-
-    if (opens) {
-      depth++;
-      atPropertyStart = false;
-      continue;
-    }
-    if (depth === 1 && t.type === 'punct' && t.value === ',') {
-      atPropertyStart = true;
-      continue;
-    }
-    atPropertyStart = false;
-  }
+  // The walk is the shared skeleton; what a property IS is this check's own
+  // policy, which reads a member name or refuses the shape by name.
+  const { closed } = walkObjectLiteral(tokens, open, (i) => {
+    const { name, found } = readMember(tokens, i);
+    if (name !== null) names.push(name);
+    else problems.push(`${path}'s \`${binding}\` object literal states a property the member scan does not model, beginning ${found} — a member is read as a name or a quoted name followed by \`:\`, by an argument list, or by the property's end, with \`async\` admitted before a method name`); // prettier-ignore
+  });
   if (!closed) {
     problems.push(`${path}'s \`${binding}\` object literal never closes — the member scan cannot run`); // prettier-ignore
   }
@@ -348,14 +325,11 @@ export const DUPLICATE_SURFACES = [
 export function evaluateAdapterSurface(s) {
   const problems = [];
 
-  let vacuous = false;
-  for (const [key, message] of EMPTY_SURFACES) {
-    if (s[key].length === 0) {
-      problems.push(message);
-      vacuous = true;
-    }
+  const empty = emptySurfaceProblems(s, EMPTY_SURFACES);
+  if (empty.length > 0) {
+    problems.push(...empty);
+    return problems; // empty parses make the member diffs meaningless
   }
-  if (vacuous) return problems; // empty parses make the member diffs meaningless
 
   for (const [key, what] of DUPLICATE_SURFACES) {
     problems.push(...duplicatesIn(s[key], what));
@@ -377,7 +351,7 @@ export function evaluateAdapterSurface(s) {
       ADAPTERS.every(({ key }) => s[key].includes(member)),
     );
     problems.push(
-      ...missingFrom(sharedMembers, s.typedefProperties, `is implemented by ${ADAPTER_PATHS} but the ${TYPEDEF_NAME} typedef (${TYPEDEF_PATH}) declares no such member (${SC_CLAUSE_ID}) — declare it as an @property there, or keep it to the platforms whose callers need it, which the adapter file's header admits`), // prettier-ignore
+      ...missingFrom(sharedMembers, s.typedefProperties, `is implemented by ${ADAPTER_PATHS} but the ${TYPEDEF_NAME} typedef (${TYPEDEF_PATH}) declares no such member (${SC_CLAUSE_ID}) — declare it as an @property there, or keep it to the platforms whose callers need it, which that typedef's own header admits`), // prettier-ignore
     );
   }
 
@@ -438,17 +412,19 @@ function run() {
 
   if (problems.length) {
     console.error(
-      `✗ the platform-adapter seam drifted from the ${TYPEDEF_NAME} typedef:\n` +
-        problems.map((p) => `    ${p}`).join('\n') +
-        `\n\n  The ${TYPEDEF_NAME} typedef (${TYPEDEF_PATH}) is the seam's\n` +
-        `  one home: every member it declares is implemented by each concrete adapter\n` +
-        `  (${ADAPTER_PATHS}),\n` +
-        `  and every member all of them implement is declared there (§${SC_CLAUSE_ID}). Close\n` +
-        `  the gap the way the change intends: implement the member in the adapter that\n` +
-        `  lacks it, drop the @property once the seam no longer requires it, or declare\n` +
-        `  the @property the adapters already agree on. A member only some platforms'\n` +
-        `  callers need belongs in those platforms' own adapter files, under the admission\n` +
-        `  rule the adapter file's header states.\n`,
+      formatProblemBlock(
+        `the platform-adapter seam drifted from the ${TYPEDEF_NAME} typedef`,
+        problems,
+        `  The ${TYPEDEF_NAME} typedef (${TYPEDEF_PATH}) is the seam's\n` +
+          `  one home: every member it declares is implemented by each concrete adapter\n` +
+          `  (${ADAPTER_PATHS}),\n` +
+          `  and every member all of them implement is declared there (§${SC_CLAUSE_ID}). Close\n` +
+          `  the gap the way the change intends: implement the member in the adapter that\n` +
+          `  lacks it, drop the @property once the seam no longer requires it, or declare\n` +
+          `  the @property the adapters already agree on. A member only some platforms'\n` +
+          `  callers need belongs in those platforms' own adapter files, under the admission\n` +
+          `  rule the typedef's own header states (${TYPEDEF_PATH}).\n`,
+      ),
     );
     process.exit(1);
   }

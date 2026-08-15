@@ -191,7 +191,13 @@ verifies, and when it runs, is the companion's job inventory
 ([CI gates § The test suite](ci.md#the-test-suite-testyml)) and is not
 restated here. The keying claim is recomputed both ways on every PR by the
 doc-closure gate
-([CI gates § The lint and freshness gates](ci.md#the-lint-and-freshness-gates)).
+([CI gates § The lint and freshness gates](ci.md#the-lint-and-freshness-gates)),
+and so are the runner labels and the verdict each row states: a cell deleted
+reds there exactly as a falsified one does. What that gate cannot derive is
+stated in prose here — that `act` runs Linux containers is this section's own
+premise, the reason a pinned image is pinned rides beside the label it pins,
+and a row advising that a job is not worth running locally is advice about a
+job that could.
 
 | Job (in `test.yml`)         | CI runner                            | Runs under `act`?                                                                                   |
 | --------------------------- | ------------------------------------ | --------------------------------------------------------------------------------------------------- |

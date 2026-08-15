@@ -41,7 +41,14 @@ import {
   extractJobsTableRows,
   extractAlwaysRunIds,
   extractJobIds,
-  extractJobNpmRunTokens,
+  ACT_PARTIAL_PHRASE,
+  RUNNER_TABLES,
+  completeRunnerLabel,
+  deriveActVerdict,
+  evaluateRunnerCells,
+  extractActVerdicts,
+  extractRunnerCells,
+  jobNpmRunTokens,
   extractWorkflowGating,
   extractLintSurface,
   extractNpmRunCites,
@@ -81,17 +88,23 @@ function makeSurface(overrides = {}) {
     jobsTableUnreadable: [],
     alwaysRunIds: ['lint'],
     workflowJobs: [
-      { id: 'lint', flags: [], stepLines: ['npm run lint:js', 'npm run lint:format -- --quiet'] },
-      { id: 'unit-tests', flags: ['ci'], stepLines: ['npm ci', 'npm run test:shared'] },
-      { id: 'desktop-rust-tests', flags: ['desktop'], stepLines: ['cargo clippy -- -D warnings'] },
+      { id: 'lint', flags: [], stepLines: ['npm run lint:js', 'npm run lint:format -- --quiet'], runners: ['ubuntu-latest'], uploads: [], downloads: [], usesSecret: false }, // prettier-ignore
+      { id: 'unit-tests', flags: ['ci'], stepLines: ['npm ci', 'npm run test:shared'], runners: ['ubuntu-latest'], uploads: [], downloads: [], usesSecret: false }, // prettier-ignore
+      { id: 'desktop-rust-tests', flags: ['desktop'], stepLines: ['cargo clippy -- -D warnings'], runners: ['windows-latest'], uploads: ['corpus-desktop-events'], downloads: [], usesSecret: false }, // prettier-ignore
     ],
     filterFlags: ['ci', 'desktop'],
     chainTokens: ['lint:js', 'lint:format'],
     lintKeys: ['lint:js', 'lint:format'],
     lintStepTokens: ['lint:js', 'lint:format'],
+    runnerCells: [],
+    runnerCellsUnreadable: [],
+    actVerdicts: [],
+    actVerdictsUnreadable: [],
     cites: [{ path: 'docs/a.md', line: 3, token: 'lint:js', elided: false }],
     citeUnreadable: [],
     colonCites: [{ path: 'docs/a.md', line: 3, token: 'lint:js' }],
+    allColonCites: [{ path: 'docs/a.md', line: 3, token: 'lint:js' }],
+    registeredColonCites: ['lint:js'],
     scriptKeys: new Set(['lint:js', 'lint:format', 'format', 'test:shared']),
     scriptCommands: {
       'lint:js': 'eslint .',
@@ -111,7 +124,7 @@ function makeDeferringSurface(overrides = {}) {
     actRows: [...base.actRows, 'desktop-corpus-diff'],
     workflowJobs: [
       ...base.workflowJobs,
-      { id: 'desktop-corpus-diff', flags: ['desktop'], stepLines: ['npm run corpus:check:desktop'] }, // prettier-ignore
+      { id: 'desktop-corpus-diff', flags: ['desktop'], stepLines: ['npm run corpus:check:desktop'], runners: ['ubuntu-latest'], uploads: [], downloads: ['corpus-desktop-events'], usesSecret: false }, // prettier-ignore
     ],
     jobsTableRows: [
       ...base.jobsTableRows,
@@ -994,7 +1007,7 @@ describe('extractAlwaysRunIds', () => {
   });
 });
 
-describe('extractJobIds / extractJobNpmRunTokens', () => {
+describe('extractJobIds / jobNpmRunTokens', () => {
   const wf = [
     'name: test',
     'on: push',
@@ -1024,28 +1037,56 @@ describe('extractJobIds / extractJobNpmRunTokens', () => {
     assert.deepEqual(read.problems, []);
   });
 
-  it('anchors loudly when jobs: is absent — each scan naming itself', () => {
+  it('anchors loudly when jobs: is absent — the line scan naming itself', () => {
     const read = extractJobIds('name: test\non: push\n');
     assert.deepEqual(read.ids, []);
     assert.ok(read.problems[0].includes('no top-level `jobs:` key'));
     assert.ok(read.problems[0].includes('the job scan'));
-    const steps = extractJobNpmRunTokens('name: test\non: push\n', 'lint');
-    assert.deepEqual(steps.tokens, []);
-    assert.ok(steps.problems[0].includes('no top-level `jobs:` key'));
-    assert.ok(steps.problems[0].includes('the step scan'));
-    // One fault, two facts: the shared anchor's two diagnoses stay distinct.
-    assert.notEqual(read.problems[0], steps.problems[0]);
   });
 
-  it('collects one job’s npm-run tokens, deduplicated and bounded to the job', () => {
-    const read = extractJobNpmRunTokens(wf, 'lint');
-    assert.deepEqual(read.tokens, ['lint:js', 'lint:format']);
-    const other = extractJobNpmRunTokens(wf, 'unit-tests');
-    assert.deepEqual(other.tokens, ['test:shared']);
+  it('collects one job’s npm-run tokens from the parsed step commands', () => {
+    // Parsed, so the fixture is the workflow shape the parse reads — the line
+    // scan's raw-text fixture above is what the retired reader needed.
+    const parsed = [
+      'jobs:',
+      '  lint:',
+      '    steps:',
+      '      - name: ESLint',
+      '        run: npm run lint:js',
+      '      - name: Prettier',
+      "        run: npm run lint:format ${{ runner.debug == '1' && '-- --log-level debug' || '' }}",
+      '      - name: Install',
+      '        run: npm ci',
+      '  unit-tests:',
+      '    steps:',
+      '      - run: npm run test:shared',
+    ].join('\n');
+    const jobs = extractWorkflowGating(parsed).jobs;
+    assert.deepEqual(jobNpmRunTokens(jobs, 'lint').tokens, ['lint:js', 'lint:format']);
+    assert.deepEqual(jobNpmRunTokens(jobs, 'unit-tests').tokens, ['test:shared']);
+  });
+
+  it('reads only text the job runs — never a display name, a comment, or an action input', () => {
+    // The retired line scan read the job's raw lines, so a token anywhere in
+    // them counted. Reading the parsed step commands is what draws the line at
+    // what the runner executes.
+    const noisy = [
+      'jobs:',
+      '  lint:',
+      '    steps:',
+      '      # npm run phantom-comment',
+      '      - name: npm run phantom-name',
+      '        run: npm run real-gate',
+      '      - uses: some/action@abc123',
+      '        with:',
+      '          args: npm run phantom-with',
+    ].join('\n');
+    const jobs = extractWorkflowGating(noisy).jobs;
+    assert.deepEqual(jobNpmRunTokens(jobs, 'lint').tokens, ['real-gate']);
   });
 
   it('anchors loudly when the job is absent', () => {
-    const read = extractJobNpmRunTokens(wf, 'ghost');
+    const read = jobNpmRunTokens([{ id: 'lint', stepLines: [] }], 'ghost');
     assert.deepEqual(read.tokens, []);
     assert.ok(read.problems[0].includes('no `ghost` job'));
   });
@@ -1223,30 +1264,257 @@ describe('extractColonCites / admitColonCites', () => {
     ]);
   });
 
-  it('admits only the tokens whose leading segment names a live script family', () => {
+  it('admits only the tokens the register carries, whatever family they read as', () => {
     const cites = extractColonCites(
       '`lint:js` `capture:action` `node:http` `corpus:check`',
       'd.md',
     );
-    const keys = new Set(['lint:js', 'lint:format', 'corpus:check:desktop', 'format']);
     assert.deepEqual(
-      admitColonCites(cites, keys).map((cite) => cite.token),
+      admitColonCites(cites, ['lint:js', 'corpus:check']).map((cite) => cite.token),
       ['lint:js', 'corpus:check'],
     );
+    // A token sharing a live family's stem is NOT admitted by that alone —
+    // the false red the register exists to close.
+    assert.deepEqual(admitColonCites(cites, ['lint:js']).map((cite) => cite.token), ['lint:js']); // prettier-ignore
   });
 
-  it('leaves a token of no live family unread — it is not a script citation', () => {
+  it('leaves an unregistered token unread — it is not a script citation', () => {
     const cites = extractColonCites(
       'The `capture:action` event channel, beside `lint:js`.',
       'docs/x.md',
     );
-    const admitted = admitColonCites(cites, new Set(['lint:js', 'lint:format', 'format']));
+    const admitted = admitColonCites(cites, ['lint:js']);
     assert.deepEqual(
       admitted.map((cite) => cite.token),
       ['lint:js'],
     );
     // …so the unadmitted token never reaches the evaluator's red path.
-    assert.deepEqual(evaluateDocClosure(makeSurface({ colonCites: admitted })), []);
+    assert.deepEqual(
+      evaluateDocClosure(
+        makeSurface({
+          colonCites: admitted,
+          allColonCites: cites,
+          registeredColonCites: ['lint:js'],
+        }),
+      ),
+      [],
+    );
+  });
+
+  it('reds a registered token that is no longer a defined key — the family-rename miss', () => {
+    // The direction the family-stem admission could not hold: renaming the
+    // family took the token out of the leg with it, silently.
+    const cite = { path: 'docs/a.md', line: 4, token: 'corpus:check:desktop' };
+    const problems = evaluateDocClosure(
+      makeSurface({
+        colonCites: [cite],
+        allColonCites: [cite],
+        registeredColonCites: ['corpus:check:desktop'],
+      }),
+    );
+    assert.ok(
+      problems.some((p) => p.includes('docs/a.md:4') && p.includes('a registered script-key citation')), // prettier-ignore
+      problems.join('\n'),
+    );
+  });
+
+  it('reds a defined key cited but unregistered, and a registered token nothing cites', () => {
+    const cite = { path: 'docs/a.md', line: 9, token: 'test:shared' };
+    const registered = { path: 'docs/a.md', line: 3, token: 'lint:js' };
+    const problems = evaluateDocClosure(
+      makeSurface({
+        colonCites: [registered],
+        allColonCites: [registered, cite],
+        registeredColonCites: ['lint:js', 'format:never-cited'],
+      }),
+    );
+    assert.ok(
+      problems.some((p) => p.includes('docs/a.md:9') && p.includes('register does not carry it')),
+      problems.join('\n'),
+    );
+    assert.ok(
+      problems.some((p) => p.includes('`format:never-cited`') && p.includes('no tracked markdown cites it')), // prettier-ignore
+      problems.join('\n'),
+    );
+  });
+});
+
+describe('the runner cells and the act verdict', () => {
+  const jobs = () => [
+    { id: 'lint', runners: ['ubuntu-latest'], uploads: [], downloads: [], usesSecret: false },
+    { id: 'win-only', runners: ['windows-latest'], uploads: ['vectors'], downloads: [], usesSecret: false }, // prettier-ignore
+    { id: 'both-legs', runners: ['windows-latest', 'ubuntu-latest'], uploads: [], downloads: [], usesSecret: false }, // prettier-ignore
+    { id: 'consumer', runners: ['ubuntu-latest'], uploads: [], downloads: ['vectors'], usesSecret: false }, // prettier-ignore
+    { id: 'uploader', runners: ['ubuntu-latest'], uploads: [], downloads: [], usesSecret: true },
+    { id: 'pattern-consumer', runners: ['ubuntu-latest'], uploads: [], downloads: [], usesSecret: false }, // prettier-ignore
+  ];
+
+  it('derives the boundary facts, and only those', () => {
+    const all = jobs();
+    const of = (id) =>
+      deriveActVerdict(
+        all.find((j) => j.id === id),
+        all,
+      );
+    assert.equal(of('lint'), 'yes');
+    assert.equal(of('win-only'), 'no', 'every runner is Windows');
+    assert.equal(of('both-legs'), 'partial', 'a Linux leg beside a Windows one');
+    assert.equal(of('consumer'), 'no', 'the artifact it downloads is produced on Windows');
+    assert.equal(of('uploader'), 'no', 'a repository secret is outside a local run');
+    // The recorded boundary: an artifact taken by PATTERN names no producer,
+    // so the job is read as consuming nothing and its verdict rests on the
+    // facts that ARE derivable.
+    assert.equal(of('pattern-consumer'), 'yes');
+  });
+
+  it('reads each table’s runner column through that table’s own matrix spelling', () => {
+    const [ciGrammar, localGrammar] = RUNNER_TABLES;
+    const ciDoc = [
+      `## ${ciGrammar.section}`,
+      '',
+      `| ${ciGrammar.header} | Runs on a PR when the diff sets | ${ciGrammar.column} | What it verifies |`,
+      '| --- | --- | --- | --- |',
+      '| `both-legs` | ci | windows-latest + ubuntu | x |',
+      '| `win-only` | ci | windows-2022 (deliberately pinned) | x |',
+    ].join('\n');
+    const localDoc = [
+      `## ${localGrammar.section}`,
+      '',
+      `| ${localGrammar.header} | ${localGrammar.column} | Runs under \`act\`? |`,
+      '| --- | --- | --- |',
+      '| `both-legs` | windows-latest **and** ubuntu matrix | ✅ the ubuntu leg only |',
+      '| `lint` | ubuntu | ✅ yes |',
+    ].join('\n');
+    assert.deepEqual(extractRunnerCells(ciDoc, ciGrammar).rows, [
+      { job: 'both-legs', runners: ['windows-latest', 'ubuntu-latest'], rationale: false },
+      { job: 'win-only', runners: ['windows-2022'], rationale: true },
+    ]);
+    assert.deepEqual(extractRunnerCells(localDoc, localGrammar).rows, [
+      { job: 'both-legs', runners: ['windows-latest', 'ubuntu-latest'], rationale: false },
+      { job: 'lint', runners: ['ubuntu-latest'], rationale: false },
+    ]);
+    // The shorthand a cell may write completes to the image the workflow names.
+    assert.equal(completeRunnerLabel('ubuntu'), 'ubuntu-latest');
+    assert.equal(completeRunnerLabel('windows-2022'), 'windows-2022');
+  });
+
+  it('reads the act verdict as the class its cell opens with, refusing an unknown opening', () => {
+    const doc = [
+      `## ${RUNNER_TABLES[1].section}`,
+      '',
+      `| ${RUNNER_TABLES[1].header} | CI runner | Runs under \`act\`? |`,
+      '| --- | --- | --- |',
+      '| `lint` | ubuntu | ✅ yes |',
+      '| `win-only` | windows-latest | ❌ no — Windows-only |',
+      '| `tool` | ubuntu | unneeded — the tool runs directly |',
+      '| `gate` | ubuntu | nothing to run — it aggregates |',
+      '| `odd` | ubuntu | maybe? |',
+    ].join('\n');
+    const read = extractActVerdicts(doc);
+    assert.deepEqual(
+      read.rows.map((r) => [r.job, r.verdict]),
+      [
+        ['lint', 'yes'],
+        ['win-only', 'no'],
+        ['tool', 'unneeded'],
+        ['gate', 'nothing to run'],
+      ],
+    );
+    assert.equal(read.unreadable.length, 1);
+    assert.match(read.unreadable[0], /`odd` opens its act verdict "maybe\?"/);
+  });
+
+  it('refuses a table whose runner or verdict column is gone, and an empty cell', () => {
+    const [ciGrammar, localGrammar] = RUNNER_TABLES;
+    const noColumn = [
+      `## ${ciGrammar.section}`,
+      '',
+      `| ${ciGrammar.header} | What it verifies |`,
+      '| --- | --- |',
+      '| `lint` | x |',
+    ].join('\n');
+    assert.match(
+      extractRunnerCells(noColumn, ciGrammar).unreadable[0],
+      /states no `Runner` column/,
+    );
+    const emptyCell = [
+      `## ${localGrammar.section}`,
+      '',
+      `| ${localGrammar.header} | ${localGrammar.column} | Runs under \`act\`? |`,
+      '| --- | --- | --- |',
+      '| `lint` |  | ✅ yes |',
+    ].join('\n');
+    assert.match(
+      extractRunnerCells(emptyCell, localGrammar).unreadable[0],
+      /`lint` states an empty CI runner cell/,
+    );
+    const noVerdict = [
+      `## ${localGrammar.section}`,
+      '',
+      `| ${localGrammar.header} | ${localGrammar.column} |`,
+      '| --- | --- |',
+      '| `lint` | ubuntu |',
+    ].join('\n');
+    assert.match(extractActVerdicts(noVerdict).unreadable[0], /states no .* column/);
+  });
+
+  it('reports an unreadable runner cell and an unreadable verdict ahead of the diffs', () => {
+    const problems = evaluateDocClosure(
+      makeSurface({
+        runnerCellsUnreadable: ['docs/guides/ci.md: `lint` states an empty Runner cell'],
+        actVerdictsUnreadable: ['docs/guides/local-ci.md: `lint` opens its act verdict "maybe?"'],
+      }),
+    );
+    assert.ok(problems.some((p) => p.startsWith('runner cell the scan cannot read —')));
+    assert.ok(problems.some((p) => p.startsWith('act verdict the scan cannot read —')));
+  });
+
+  it('reds a falsified or deleted runner cell, in both directions', () => {
+    const problems = evaluateRunnerCells({
+      workflowJobs: jobs(),
+      runnerCells: [
+        { doc: 'docs/guides/ci.md', rows: [{ job: 'lint', runners: ['commodore-64'] }] },
+        { doc: 'docs/guides/local-ci.md', rows: [{ job: 'both-legs', runners: ['ubuntu-latest'] }] }, // prettier-ignore
+      ],
+      actVerdicts: [],
+    });
+    assert.ok(problems.some((p) => p.includes('`commodore-64`') && p.includes('does not run it there'))); // prettier-ignore
+    assert.ok(problems.some((p) => p.includes('`ubuntu-latest`') && p.includes('docs/guides/ci.md does not state it'))); // prettier-ignore
+    assert.ok(problems.some((p) => p.includes('`windows-latest`') && p.includes('docs/guides/local-ci.md does not state it'))); // prettier-ignore
+  });
+
+  it('holds the boundary verdicts exactly and admits the recommendations', () => {
+    const surface = (actVerdicts) => ({ workflowJobs: jobs(), runnerCells: [], actVerdicts });
+    assert.deepEqual(
+      evaluateRunnerCells(surface([{ job: 'lint', verdict: 'unneeded', partial: false }])),
+      [],
+      'advice about a job that CAN run is admitted',
+    );
+    assert.ok(
+      evaluateRunnerCells(surface([{ job: 'win-only', verdict: 'unneeded', partial: false }])).some(
+        (p) => p.includes('outside what a Linux container can run'),
+      ),
+      'advice cannot stand where the tree states a boundary',
+    );
+    assert.ok(
+      evaluateRunnerCells(surface([{ job: 'lint', verdict: 'no', partial: false }])).some((p) =>
+        p.includes('states no boundary this check derives'),
+      ),
+    );
+    assert.ok(
+      evaluateRunnerCells(surface([{ job: 'both-legs', verdict: 'yes', partial: false }])).some(
+        (p) => p.includes(ACT_PARTIAL_PHRASE),
+      ),
+    );
+    assert.deepEqual(
+      evaluateRunnerCells(surface([{ job: 'both-legs', verdict: 'yes', partial: true }])),
+      [],
+    );
+    assert.ok(
+      evaluateRunnerCells(surface([{ job: 'lint', verdict: 'yes', partial: true }])).some((p) =>
+        p.includes('does not split across platforms'),
+      ),
+    );
   });
 });
 

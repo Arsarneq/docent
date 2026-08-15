@@ -60,6 +60,36 @@ const ROOT = resolve(import.meta.dirname, '..', '..', '..', '..');
  * fixtures state it the same way a document does.
  */
 const CHANNEL = 'capture:action';
+
+/**
+ * The refusal the check states for a channel-shaped token the DSH-1 prose
+ * names beside the channel — spelled once here, so the cases that assert it
+ * stay one statement of one wording rather than copies drifting apart.
+ * @param {string} token the token the prose named
+ * @returns {string} the refusal, exactly as the check states it
+ */
+/**
+ * The view the check's Rust legs read: a source with its comments stripped
+ * and its string-literal contents blanked, built here exactly as the tree
+ * audit builds it, so a unit case exercises the reading the check performs.
+ * @param {string} source Rust source text
+ * @returns {string}
+ */
+/**
+ * The two views the emit scan takes: the comment-stripped sources it reads
+ * channels from, and the strings-blanked views it finds the calls on.
+ * @param {[string, string][]} entries path/source pairs, already stripped
+ * @returns {[Map<string, string>, Map<string, string>]}
+ */
+const emitViews = (entries) => [
+  new Map(entries),
+  new Map(entries.map(([path, source]) => [path, blankRustStrings(source)])),
+];
+
+const anchorView = (source) => blankRustStrings(stripRustComments(source));
+
+const foreignChannelRefusal = (token) =>
+  `the DSH-1 section's prose outside its table names \`${token}\` in backticks — a whole backticked token shaped like \`${CHANNEL}\`, the channel the table states (a namespace and a name joined by a single colon, each of the two segments opening on a lowercase letter or a digit and carrying lowercase letters, digits, \`-\`, or \`_\` after it, the capability-grant shape excluded) — and the clause's prose names that channel and no other token of that shape: a token of the shape that names something else (a script or npm target, a URL scheme) belongs in this prose in some form other than a bare backticked token, while a second channel that really is one is a contract change this clause and this check take together`;
 /** A frontend path inside the scanned surface. */
 const CALLER_PATH = `${FRONTEND_DIR}/panel.js`;
 /**
@@ -525,9 +555,7 @@ describe('evaluateCommandSurface — the channel the doc row derives', () => {
         sectionProse: `The \`${CHANNEL}\` channel is consumed by one listener. Actions also ride \`capture:legacy\`, which nothing emits.`, // prettier-ignore
       }),
     );
-    assert.deepEqual(problems, [
-      `the DSH-1 section's prose outside its table names \`capture:legacy\` in backticks — a whole backticked token shaped like \`${CHANNEL}\`, the channel the table states (a namespace and a name joined by a single colon, each of the two segments opening on a lowercase letter or a digit and carrying lowercase letters, digits, \`-\`, or \`_\` after it, the capability-grant shape excluded) — and the clause's prose names that channel and no other token of that shape: a token of the shape that names something else (a script or npm target, a URL scheme) belongs in this prose in some form other than a bare backticked token, while a second channel that really is one is a contract change this clause and this check take together`,
-    ]);
+    assert.deepEqual(problems, [foreignChannelRefusal('capture:legacy')]);
   });
 
   it('fires on a token of the shape that is no channel at all, without calling it one', () => {
@@ -540,9 +568,7 @@ describe('evaluateCommandSurface — the channel the doc row derives', () => {
         sectionProse: `The \`${CHANNEL}\` channel is consumed by one listener. Run \`lint:command-surface\` to hold it.`, // prettier-ignore
       }),
     );
-    assert.deepEqual(problems, [
-      `the DSH-1 section's prose outside its table names \`lint:command-surface\` in backticks — a whole backticked token shaped like \`${CHANNEL}\`, the channel the table states (a namespace and a name joined by a single colon, each of the two segments opening on a lowercase letter or a digit and carrying lowercase letters, digits, \`-\`, or \`_\` after it, the capability-grant shape excluded) — and the clause's prose names that channel and no other token of that shape: a token of the shape that names something else (a script or npm target, a URL scheme) belongs in this prose in some form other than a bare backticked token, while a second channel that really is one is a contract change this clause and this check take together`,
-    ]);
+    assert.deepEqual(problems, [foreignChannelRefusal('lint:command-surface')]);
   });
 
   it('states both problems when the prose names a foreign channel and never the table’s own', () => {
@@ -554,7 +580,7 @@ describe('evaluateCommandSurface — the channel the doc row derives', () => {
     );
     assert.deepEqual(problems, [
       `the DSH-1 section's prose outside its table never names \`${CHANNEL}\` in backticks — the channel the table states is stated in the clause's own prose too`,
-      `the DSH-1 section's prose outside its table names \`notify:action\` in backticks — a whole backticked token shaped like \`${CHANNEL}\`, the channel the table states (a namespace and a name joined by a single colon, each of the two segments opening on a lowercase letter or a digit and carrying lowercase letters, digits, \`-\`, or \`_\` after it, the capability-grant shape excluded) — and the clause's prose names that channel and no other token of that shape: a token of the shape that names something else (a script or npm target, a URL scheme) belongs in this prose in some form other than a bare backticked token, while a second channel that really is one is a contract change this clause and this check take together`,
+      foreignChannelRefusal('notify:action'),
     ]);
   });
 
@@ -664,7 +690,7 @@ describe('stripRustComments — the emit scan cannot count comment mentions', ()
       '    let _ = handle.emit("capture:action", &event);',
       '}',
     ].join('\n');
-    const sites = extractEmitSites(new Map([['src/lib.rs', stripRustComments(src)]]));
+    const sites = extractEmitSites(...emitViews([['src/lib.rs', stripRustComments(src)]]));
     assert.equal(sites.length, 1);
     assert.deepEqual(sites[0], {
       path: 'src/lib.rs',
@@ -678,7 +704,7 @@ describe('stripRustComments — the emit scan cannot count comment mentions', ()
     const src = 'let r#type = 1; // gone\nlet _ = h.emit("capture:action", &e);';
     const stripped = stripRustComments(src);
     assert.ok(!stripped.includes('gone'));
-    assert.equal(extractEmitSites(new Map([['a.rs', stripped]])).length, 1);
+    assert.equal(extractEmitSites(...emitViews([['a.rs', stripped]])).length, 1);
   });
 });
 
@@ -721,6 +747,20 @@ describe('blankRustStrings — the view an anchor scan is found on', () => {
   it('leaves a raw identifier alone', () => {
     assert.equal(blankRustStrings('let r#type = 1;'), 'let r#type = 1;');
   });
+  it('blanks an unterminated plain string to the end of the source', () => {
+    // The truncation arm: a literal the source never closes still leaves a
+    // view the anchor scans can run over, blanked to the end rather than
+    // reaching past it.
+    const view = blankRustStrings('let a = "abc');
+    assert.equal(view, 'let a = "   ');
+    assert.equal(view.length, 'let a = "abc'.length, 'the view stays offset for offset');
+  });
+
+  it('blanks an unterminated raw string to the end of the source', () => {
+    const view = blankRustStrings('let b = r#"xyz');
+    assert.equal(view, 'let b = r#"   ');
+    assert.equal(view.length, 'let b = r#"xyz'.length, 'the view stays offset for offset');
+  });
 });
 
 describe('the anchor scans read what the source DOES, not what it says', () => {
@@ -734,14 +774,14 @@ describe('the anchor scans read what the source DOES, not what it says', () => {
       '    fn ghost_command() {}"',
       '}',
     ].join('\n');
-    assert.deepEqual(extractCommandFns(stripRustComments(src)), []);
+    assert.deepEqual(extractCommandFns(anchorView(src)), []);
   });
 
   it('never reads a generate_handler! list quoted inside a string literal', () => {
     // The quoted list used to be `lists[0]`, which discarded the real
     // registration entirely and inflated the occurrence count that guards it.
     const src = 'let msg = "generate_handler![a, b]"; tauri::generate_handler![real_one];';
-    assert.deepEqual(extractHandlerCommands(stripRustComments(src)), {
+    assert.deepEqual(extractHandlerCommands(anchorView(src)), {
       commands: ['real_one'],
       occurrences: 1,
     });
@@ -756,7 +796,7 @@ describe('the anchor scans read what the source DOES, not what it says', () => {
       '    let _ = handle.emit("capture:action", &event);',
       '}',
     ].join('\n');
-    const sites = extractEmitSites(new Map([['src/lib.rs', stripRustComments(src)]]));
+    const sites = extractEmitSites(...emitViews([['src/lib.rs', stripRustComments(src)]]));
     assert.equal(sites.length, 1);
     assert.deepEqual(sites[0], {
       path: 'src/lib.rs',
@@ -770,7 +810,7 @@ describe('the anchor scans read what the source DOES, not what it says', () => {
     // The channel comes from the intact text at the anchor's own offset, which
     // is what the blanked view preserves character for character.
     const src = 'let banner = "aaaa"; let _ = h.emit("capture:action", &e);';
-    const sites = extractEmitSites(new Map([['a.rs', stripRustComments(src)]]));
+    const sites = extractEmitSites(...emitViews([['a.rs', stripRustComments(src)]]));
     assert.deepEqual(
       sites.map((s) => [s.method, s.channel]),
       [['emit', 'capture:action']],
@@ -788,7 +828,7 @@ describe('extractEmitSites — the emit family', () => {
       'h.emit_filter("capture:action", &e, |t| true);',
       'h.emit_str_filter("capture:action", s, |t| true);',
     ].join('\n');
-    const sites = extractEmitSites(new Map([['a.rs', src]]));
+    const sites = extractEmitSites(...emitViews([['a.rs', src]]));
     assert.deepEqual(
       sites.map((s) => [s.method, s.channel]),
       [
@@ -803,7 +843,7 @@ describe('extractEmitSites — the emit family', () => {
   });
 
   it('records a null channel when the argument is not a string literal', () => {
-    const sites = extractEmitSites(new Map([['a.rs', 'h.emit(channel_name, &e);']]));
+    const sites = extractEmitSites(...emitViews([['a.rs', 'h.emit(channel_name, &e);']]));
     assert.deepEqual(
       sites.map((s) => [s.method, s.channel]),
       [['emit', null]],
@@ -817,7 +857,7 @@ describe('extractEmitSites — the emit family', () => {
       'h.emit("capture:action".to_string(), &e);',
       'h.emit_to("main", "capture:action".to_owned(), &e);',
     ].join('\n');
-    const sites = extractEmitSites(new Map([['a.rs', src]]));
+    const sites = extractEmitSites(...emitViews([['a.rs', src]]));
     assert.deepEqual(
       sites.map((s) => [s.method, s.channel]),
       [
@@ -849,7 +889,7 @@ describe('extractEmitSites — the emit family', () => {
       '/// doc: handle.emit("capture:action", &e)',
       'fn forward(h: H, e: E) { let _ = h.emit("capture:action", &e); }',
     ].join('\n');
-    const sites = extractEmitSites(new Map([['a.rs', stripRustComments(src)]]));
+    const sites = extractEmitSites(...emitViews([['a.rs', stripRustComments(src)]]));
     assert.equal(sites.length, 1);
     assert.equal(sites[0].line, 3);
   });
@@ -1157,7 +1197,7 @@ describe('extractCommandFns / extractHandlerCommands', () => {
       'fn private_cmd() {}',
       'fn not_a_command() {}',
     ].join('\n');
-    assert.deepEqual(extractCommandFns(stripRustComments(src)), [
+    assert.deepEqual(extractCommandFns(anchorView(src)), [
       'plain_cmd',
       'crate_cmd',
       'async_cmd',
@@ -1168,14 +1208,17 @@ describe('extractCommandFns / extractHandlerCommands', () => {
 
   it('takes the last path segment of each registration and reports the list count', () => {
     const src = 'generate_handler![commands::start_capture, sync_http::sync_http_request,]';
-    assert.deepEqual(extractHandlerCommands(src), {
+    assert.deepEqual(extractHandlerCommands(anchorView(src)), {
       commands: ['start_capture', 'sync_http_request'],
       occurrences: 1,
     });
   });
 
   it('reports zero occurrences on a source with no registration', () => {
-    assert.deepEqual(extractHandlerCommands('fn run() {}'), { commands: [], occurrences: 0 });
+    assert.deepEqual(extractHandlerCommands(anchorView('fn run() {}')), {
+      commands: [],
+      occurrences: 0,
+    });
   });
 });
 
@@ -1510,7 +1553,44 @@ describe('extractMockCommands / extractMockServicedCases', () => {
       '            throw new Error("nope");',
       '        }',
     ].join('\n');
-    assert.deepEqual(extractMockServicedCases(src), ['load_state', 'save_state']);
+    assert.deepEqual(extractMockServicedCases(src), {
+      cases: ['load_state', 'save_state'],
+      problems: [],
+    });
+  });
+
+  it('refuses a second switch at the switch’s own depth, and reads through a braced arm', () => {
+    // The two nesting shapes read differently, and both readings are correct:
+    // a switch standing where an arm's statements stand sits at the scanned
+    // switch's own depth and is refused by name, while one inside a braced arm
+    // is past that depth and is never read — its labels are not credited to
+    // this switch either way.
+    const sameDepth = [
+      'switch (cmd) {',
+      "  case 'host': switch (other) {",
+      "    case 'inner': break;",
+      '  }',
+      '  default: return;',
+      '}',
+    ].join('\n');
+    const refused = extractMockServicedCases(sameDepth);
+    assert.deepEqual(refused.cases, []);
+    assert.match(refused.problems[0], /carries a second switch at this switch's own depth/);
+
+    const bracedArm = [
+      'switch (cmd) {',
+      "  case 'host': {",
+      '    switch (other) {',
+      "      case 'inner': break;",
+      '    }',
+      '    break;',
+      '  }',
+      '  default: return;',
+      '}',
+    ].join('\n');
+    const read = extractMockServicedCases(bracedArm);
+    assert.deepEqual(read.cases, ['host']);
+    assert.deepEqual(read.problems, []);
   });
 });
 
@@ -1540,9 +1620,7 @@ describe('real-tree lock', () => {
       lsFiles(CAPABILITIES_DIR),
       lsFiles(FRONTEND_DIR).filter((f) => f.endsWith('.js')),
     );
-    assert.deepEqual(problems, [
-      `the DSH-1 section's prose outside its table names \`capture:legacy\` in backticks — a whole backticked token shaped like \`${CHANNEL}\`, the channel the table states (a namespace and a name joined by a single colon, each of the two segments opening on a lowercase letter or a digit and carrying lowercase letters, digits, \`-\`, or \`_\` after it, the capability-grant shape excluded) — and the clause's prose names that channel and no other token of that shape: a token of the shape that names something else (a script or npm target, a URL scheme) belongs in this prose in some form other than a bare backticked token, while a second channel that really is one is a contract change this clause and this check take together`,
-    ]);
+    assert.deepEqual(problems, [foreignChannelRefusal('capture:legacy')]);
   });
 
   it('the shipped tree satisfies the whole contract', () => {

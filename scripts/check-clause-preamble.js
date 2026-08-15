@@ -85,10 +85,20 @@
 import { readFileSync } from 'node:fs';
 import { posix } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { extractClauseSection, stripFences } from './check-test-inventory.js';
+import {
+  extractClauseSection,
+  flattenWhitespace as flatten,
+  stripFences,
+} from './check-test-inventory.js';
+import { REGISTRY_PATH } from './governance-data.js';
 
-/** Repo-relative path of the registry whose `prefixes` map is the register. */
-export const REGISTRY_PATH = 'docs/clause-registry.json';
+/**
+ * Repo-relative path of the registry whose `prefixes` map is the register — the
+ * shared governance-data constant, re-exported rather than restated, so the
+ * path this check names in its output is the path every check that reads that
+ * file names.
+ */
+export { REGISTRY_PATH };
 
 /**
  * The structural anchor the preamble paragraph is located by: the identifier
@@ -307,13 +317,10 @@ export class InputError extends Error {}
 
 /**
  * Collapse every whitespace run to one space and trim, so hand wrapping is
- * invisible to every comparison this check makes.
- * @param {string} text
- * @returns {string}
+ * invisible to every comparison this check makes — the shared primitive, taken
+ * under the name the comparisons in this file read it by.
  */
-export function flatten(text) {
-  return text.replace(/\s+/g, ' ').trim();
-}
+export { flatten };
 
 /**
  * Blank out inline code spans, preserving length so offsets into the masked

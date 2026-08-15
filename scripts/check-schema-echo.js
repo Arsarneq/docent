@@ -84,15 +84,16 @@
  *   node scripts/check-schema-echo.js  # or: npm run lint:schema-echo
  */
 
-import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { PLATFORMS, composePlatform } from './build-schemas.js';
 import { CITED_PATH_RE } from './check-clause-governance.js';
 import { splitCitationTokens } from './check-clause-registry.js';
+import { REGISTRY_PATH, readTextOrNull } from './governance-data.js';
 import {
   backtickedName,
   duplicatesIn,
+  flattenWhitespace,
   missingFrom,
   parseTables,
   stripFences,
@@ -104,8 +105,12 @@ export const SESSION_FORMAT_DOC_PATH = 'docs/technical/session-format.md';
 export const AUTHORITY_CLAUSE_ID = 'SF-1';
 /** The unknown-key posture clause the posture walk verifies. */
 export const POSTURE_CLAUSE_ID = 'SF-14';
-/** Repo-relative path of the registry whose rows name these checks. */
-export const CLAUSE_REGISTRY_PATH = 'docs/clause-registry.json';
+/**
+ * Repo-relative path of the registry whose rows name these checks — the shared
+ * governance-data constant, re-exported rather than restated, so the path this
+ * check names in its output is the path it read.
+ */
+export { REGISTRY_PATH };
 /** The extension the authority surfaces — and the row's citations — carry. */
 export const MARKDOWN_EXTENSION = '.md';
 /**
@@ -287,9 +292,7 @@ const isPlainObject = (v) => typeof v === 'object' && v !== null && !Array.isArr
  * @returns {string}
  */
 export function normalizeProse(docText) {
-  return stripFences(docText ?? '')
-    .replace(/\s+/g, ' ')
-    .trim();
+  return flattenWhitespace(stripFences(docText ?? ''));
 }
 
 /**
@@ -430,22 +433,27 @@ export function citedMarkdownPaths(text) {
 /**
  * The clause row that names this check, read from the registry: the text a
  * reader consults to learn which surfaces are held. Returns null with a
- * problem when the registry cannot be read or carries no such row.
- * @param {string} registryJson the registry's text
+ * problem when the registry cannot be read or carries no such row — and the
+ * problem says which it was, so a file the tree cannot hand over is never
+ * reported as a file whose text is not JSON.
+ * @param {string | null} registryJson the registry's text, or null if it could not be read
  * @param {string} clauseId the clause whose row to read
  * @returns {{ text: string | null, problems: string[] }}
  */
 export function readClauseRow(registryJson, clauseId) {
+  if (registryJson === null) {
+    return { text: null, problems: [`${REGISTRY_PATH} could not be read — the §${clauseId} register closure cannot run`] }; // prettier-ignore
+  }
   let parsed;
   try {
     parsed = JSON.parse(registryJson);
   } catch {
-    return { text: null, problems: [`${CLAUSE_REGISTRY_PATH} does not parse as JSON — the §${clauseId} register closure cannot run`] }; // prettier-ignore
+    return { text: null, problems: [`${REGISTRY_PATH} does not parse as JSON — the §${clauseId} register closure cannot run`] }; // prettier-ignore
   }
   const rows = Array.isArray(parsed?.clauses) ? parsed.clauses : [];
   const row = rows.find((r) => r?.clause === clauseId);
   if (!isPlainObject(row) || typeof row['check-ref'] !== 'string') {
-    return { text: null, problems: [`${CLAUSE_REGISTRY_PATH} carries no §${clauseId} row with a check-ref — the register closure cannot run`] }; // prettier-ignore
+    return { text: null, problems: [`${REGISTRY_PATH} carries no §${clauseId} row with a check-ref — the register closure cannot run`] }; // prettier-ignore
   }
   return { text: row['check-ref'], problems: [] };
 }
@@ -671,7 +679,7 @@ export const EMPTY_SURFACES = [
 /**
  * Pure core: evaluate every echo leg.
  * @param {object} s the extracted surfaces
- * @param {{ path: string, description: string, matched: boolean, empty: boolean }[]} s.authority
+ * @param {{ path: string, description: string, matched: boolean, empty: boolean, unreadable: boolean }[]} s.authority
  * @param {{ platform: string, pointer: string, klass: string, declared: unknown, discriminates: boolean }[]} s.objects
  * @param {{ platform: string, defName: string, referenced: boolean, found: boolean }[]} s.metadataHosts
  * @param {string | null} s.authorityRow the §SF-1 row's check-ref, or null when unreadable
@@ -694,7 +702,9 @@ export function evaluateSchemaEcho(s) {
     problems.push(`${SESSION_FORMAT_DOC_PATH} carries a cell the scan cannot read — ${cell}`);
   }
   for (const surface of s.authority) {
-    if (surface.empty) {
+    if (surface.unreadable) {
+      problems.push(`${surface.path} could not be read — ${surface.description} cannot be checked`); // prettier-ignore
+    } else if (surface.empty) {
       problems.push(`${surface.path} read empty — ${surface.description} cannot be checked`);
     }
   }
@@ -758,11 +768,11 @@ export function evaluateSchemaEcho(s) {
     // refusal must name — the stripped candidate form belongs to the matching
     // inside citedMarkdownPaths, not to this diagnosis.
     for (const token of cited.unmodelled) {
-      problems.push(`the §${AUTHORITY_CLAUSE_ID} row in ${CLAUSE_REGISTRY_PATH} cites \`${token}\`, a path shape this leg refuses by design — the citation gate and the governance finder resolve a pattern against the tracked set, while this leg enumerates surfaces one literal path at a time, and a set of files is not something the register answers`); // prettier-ignore
+      problems.push(`the §${AUTHORITY_CLAUSE_ID} row in ${REGISTRY_PATH} cites \`${token}\`, a path shape this leg refuses by design — the citation gate and the governance finder resolve a pattern against the tracked set, while this leg enumerates surfaces one literal path at a time, and a set of files is not something the register answers`); // prettier-ignore
     }
     problems.push(
-      ...missingFrom(registered, cited.paths, `is a registered authority surface but the §${AUTHORITY_CLAUSE_ID} row in ${CLAUSE_REGISTRY_PATH} does not cite it — the row states which surfaces are held`), // prettier-ignore
-      ...missingFrom(cited.paths, registered, `is cited as an authority surface by the §${AUTHORITY_CLAUSE_ID} row in ${CLAUSE_REGISTRY_PATH} but no registered surface holds it`), // prettier-ignore
+      ...missingFrom(registered, cited.paths, `is a registered authority surface but the §${AUTHORITY_CLAUSE_ID} row in ${REGISTRY_PATH} does not cite it — the row states which surfaces are held`), // prettier-ignore
+      ...missingFrom(cited.paths, registered, `is cited as an authority surface by the §${AUTHORITY_CLAUSE_ID} row in ${REGISTRY_PATH} but no registered surface holds it`), // prettier-ignore
     );
   }
 
@@ -844,7 +854,7 @@ export function evaluateSchemaEcho(s) {
 
 /**
  * Read every surface from a tree.
- * @param {(path: string) => string} readFile repo-relative reader
+ * @param {(path: string) => (string | null)} readFile repo-relative reader (null if unreadable)
  * @param {(platform: string) => object} composeFor composes one platform's schema
  * @returns {Parameters<typeof evaluateSchemaEcho>[0] & { anchorProblems: string[] }}
  */
@@ -852,8 +862,15 @@ export function auditTree(readFile, composeFor) {
   const anchorProblems = [];
 
   const authority = AUTHORITY_SURFACES.map(([path, claim, description]) => {
-    const prose = normalizeProse(readFile(path));
-    return { path, description, empty: prose === '', matched: claim.test(prose) };
+    const text = readFile(path);
+    const prose = text === null ? '' : normalizeProse(text);
+    return {
+      path,
+      description,
+      unreadable: text === null,
+      empty: prose === '',
+      matched: claim.test(prose),
+    };
   });
 
   const objects = [];
@@ -885,10 +902,13 @@ export function auditTree(readFile, composeFor) {
     actionMembers.push({ platform, members: membership.members, prefixed: membership.prefixed });
   }
 
-  const row = readClauseRow(readFile(CLAUSE_REGISTRY_PATH), AUTHORITY_CLAUSE_ID);
+  const row = readClauseRow(readFile(REGISTRY_PATH), AUTHORITY_CLAUSE_ID);
   anchorProblems.push(...row.problems);
 
-  const docText = readFile(SESSION_FORMAT_DOC_PATH);
+  // The document's own unreadability is named by the authority leg, which reads
+  // the same path; the field-table legs then run over no text and refuse their
+  // tables by name, rather than the read throwing here.
+  const docText = readFile(SESSION_FORMAT_DOC_PATH) ?? '';
   const tables = [];
   const tableUnreadable = [];
   for (const [section, headerCell, defName, label] of FIELD_TABLE_LEGS) {
@@ -936,18 +956,12 @@ export function auditTree(readFile, composeFor) {
  * @returns {ReturnType<typeof auditTree>}
  */
 export function treeSurfaces(root) {
-  return auditTree((path) => {
-    try {
-      return readFileSync(join(root, path), 'utf8');
-    } catch {
-      return '';
-    }
-  }, composePlatform);
+  return auditTree((path) => readTextOrNull(join(root, path)), composePlatform);
 }
 
 /* c8 ignore start -- CLI wrapper: the pure pieces above are unit-tested; this
- * glue reads the real tree and formats the verdict. An unreadable surface
- * fails the non-empty guards loudly. */
+ * glue reads the real tree and formats the verdict. A surface that cannot be
+ * read is named as unreadable, distinctly from one that read empty. */
 const isMain =
   process.argv[1] !== undefined && import.meta.url === pathToFileURL(process.argv[1]).href;
 

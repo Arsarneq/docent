@@ -63,7 +63,6 @@ import {
   BASELINE_ARG,
   SUFFICIENCY_SCRIPT,
   readFieldTokens,
-  topLevelListItems,
   extractRelaxationCoverage,
   extractStatedKinds,
   selectTableByHeader,
@@ -87,6 +86,7 @@ import {
   readTreeFile,
   listActiveSessions,
 } from '../../../../scripts/check-verification-inventory.js';
+import { topLevelListItems } from '../../../../scripts/check-test-inventory.js';
 import { RELAX_KINDS } from '../../../../scripts/corpus-compare.js';
 import { TEST_WORKFLOW_PATH } from '../../../../scripts/check-doc-closure.js';
 

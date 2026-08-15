@@ -64,7 +64,9 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import {
   extractClauseCites,
   extractClauseMarkers,
@@ -78,24 +80,27 @@ import {
   parseLockSuiteOrdinals,
   splitCitationTokens,
   auditClauseRegistry,
-  loadRegistry,
-  refuseOnRegistryError,
   reportSections,
   resolvePatternCitation,
   AREA_MAP_ENTRY_LISTS,
   BARE_FILE_SUFFIXES,
   CITABLE_ROOT_FILES,
-  ClauseRegistryInputError,
-  REGISTRY_INPUT_ERROR_NAME,
   LOCK_ORDINAL_CLAUSE,
   LOCK_SUITE_PATH,
-  REGISTRY_PATH,
   ROW_KEYS,
   TEST_CASES_FIELD,
   VALID_TAGS,
   VECTOR_FIXTURES_PATH,
 } from '../../../../scripts/check-clause-registry.js';
 import { MAP_PATH } from '../../../../scripts/check-area-map.js';
+import {
+  ClauseRegistryInputError,
+  REGISTRY_INPUT_ERROR_NAME,
+  REGISTRY_PATH,
+  loadRegistry,
+  readTextOrNull,
+  refuseOnRegistryError,
+} from '../../../../scripts/governance-data.js';
 
 /** The prefix the ordinal clause belongs to, and the doc a fixture registers it in. */
 const LOCK_PREFIX = LOCK_ORDINAL_CLAUSE.split('-')[0];
@@ -1514,6 +1519,29 @@ describe('auditClauseRegistry — a registered doc that will not read', () => {
   });
 });
 
+describe('readTextOrNull — the discriminated tree read', () => {
+  it("answers null for a file that is not there and '' for one that is there and empty", () => {
+    // The reader's own contract, held beside the loader's: the answers a read
+    // can give are what every consumer's diagnosis rests on, and a reader
+    // collapsing the unreadable read into the empty one makes an unreadable
+    // surface indistinguishable from an empty one for every guard downstream.
+    const dir = mkdtempSync(join(tmpdir(), 'docent-reader-'));
+    try {
+      const empty = join(dir, 'empty.md');
+      const filled = join(dir, 'filled.md');
+      writeFileSync(empty, '');
+      writeFileSync(filled, 'text\n');
+      assert.equal(readTextOrNull(join(dir, 'absent.md')), null, 'absent reads as null');
+      assert.equal(readTextOrNull(empty), '', 'present and empty reads as the empty string');
+      assert.equal(readTextOrNull(filled), 'text\n');
+      // The three are distinct at the boundary, which is the whole point.
+      assert.notEqual(readTextOrNull(empty), readTextOrNull(join(dir, 'absent.md')));
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
 describe('loadRegistry — the read that turns the committed file into the rows', () => {
   it('reads the one committed path and parses what it finds there', () => {
     const asked = [];
@@ -1967,13 +1995,7 @@ describe('baseline lock (real tree)', () => {
       .split('\n')
       .map((s) => s.trim())
       .filter(Boolean);
-    const readFile = (f) => {
-      try {
-        return readFileSync(f, 'utf8');
-      } catch {
-        return null;
-      }
-    };
+    const readFile = readTextOrNull;
     const r = auditClauseRegistry({
       registry: JSON.parse(readFileSync(REGISTRY_PATH, 'utf8')),
       files,

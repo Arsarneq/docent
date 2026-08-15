@@ -38,6 +38,7 @@ import {
   auditClauseGovernance,
   ALLOWLIST,
 } from '../../../../scripts/check-clause-governance.js';
+import { REGISTRY_PATH, readTextOrNull } from '../../../../scripts/governance-data.js';
 
 /** A minimal map: one area 'alpha', one 'tooling', one repo-wide doc. */
 function makeMap(overrides = {}) {
@@ -384,15 +385,9 @@ describe('baseline lock (real tree)', () => {
       .split('\n')
       .map((s) => s.trim())
       .filter(Boolean),
-    registry: JSON.parse(readFileSync('docs/clause-registry.json', 'utf8')),
+    registry: JSON.parse(readFileSync(REGISTRY_PATH, 'utf8')),
     map: JSON.parse(readFileSync('scripts/area-map.json', 'utf8')),
-    readFile: (f) => {
-      try {
-        return readFileSync(f, 'utf8');
-      } catch {
-        return null;
-      }
-    },
+    readFile: readTextOrNull,
   });
 
   it('the committed allowlist is exactly the current couplings — no new miss, none stale', () => {

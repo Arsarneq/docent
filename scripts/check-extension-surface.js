@@ -107,17 +107,22 @@
  *   node scripts/check-extension-surface.js  # or: npm run lint:extension-surface
  */
 
-import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 import {
   backtickedName,
   duplicatesIn,
+  emptySurfaceProblems,
   extractClauseSection,
+  flattenWhitespace,
+  formatProblemBlock,
   missingFrom,
-  parseTables,
   readLoneStringLiteral,
+  readTableColumn,
+  selectTablesByHeader,
   tokenizeJs,
+  trackedFilesUnder,
+  walkObjectLiteral,
 } from './check-test-inventory.js';
 
 /** Repo-relative path of the extension manifest. */
@@ -136,10 +141,15 @@ export const EPM_CLAUSE_ID = 'EPM-1';
 export const ERT_CLAUSE_ID = 'ERT-4';
 /** The `##` section of the runtime doc carrying both protocol tables. */
 export const PROTOCOL_SECTION = 'Message protocol';
-/** The capture-path table's first header cell in that section. */
-export const CAPTURE_TABLE_HEADER = 'Type';
-/** The panel-protocol table's first header cell in that section. */
-export const PANEL_TABLE_HEADER = 'Group';
+/** The capture-path table's whole header in that section. */
+export const CAPTURE_TABLE_HEADER = ['Type', 'Payload', 'Response'];
+/** The panel-protocol table's whole header in that section. */
+export const PANEL_TABLE_HEADER = ['Group', 'Types'];
+/** The permission tables' whole headers, each with the `##` section it sits in. */
+export const PERMISSION_TABLES = [
+  ['Permissions', ['Permission', 'What Docent does with it']],
+  ['Host permissions', ['Host permission', 'What Docent does with it']],
+];
 
 /**
  * The punctuation that ends an equality's right-hand operand, which is the
@@ -176,7 +186,7 @@ export const SENDER_STATEMENT_ANCHOR = 'has at least one send written as an obje
  * @returns {number} occurrences of the anchor in the clause's scope
  */
 export function countSenderStatements(runtimeText) {
-  const scope = extractClauseSection(runtimeText, ERT_CLAUSE_ID).replace(/\s+/g, ' ');
+  const scope = flattenWhitespace(extractClauseSection(runtimeText, ERT_CLAUSE_ID));
   return scope.split(SENDER_STATEMENT_ANCHOR).length - 1;
 }
 
@@ -226,30 +236,20 @@ export function extractManifestSurface(manifestJson) {
 }
 
 /**
- * Read the first-column backticked names of every matching table in a named
- * `##` section of a doc (fence-aware through the shared table parser). A
- * table is selected by its section AND its first header cell — the house
- * pattern — so a future sibling table under the same heading is never
- * conscripted into the closed set. A body row whose first cell is not a lone
+ * Read the first-column backticked names of every table in a named `##`
+ * section of a doc carrying an exact header (fence-aware through the shared
+ * table parser). A table is selected by its section AND its WHOLE header, so a
+ * sibling table under the same heading is never conscripted into the closed
+ * set by sharing a column name. A body row whose first cell is not a lone
  * backticked name is returned as unreadable, so no row is skipped silently.
  * @param {string} docText the doc's text
  * @param {string} section the `##` section title the table lives under
- * @param {string} headerCell the table's first header cell
+ * @param {string[]} header the table's whole header
  * @returns {{ names: string[], unreadable: string[] }}
  */
-export function extractSectionTableNames(docText, section, headerCell) {
-  const names = [];
-  const unreadable = [];
-  for (const table of parseTables(docText)) {
-    if (table.section !== section || (table.header[0] ?? '').trim() !== headerCell) continue;
-    for (const row of table.rows) {
-      const cell = (row[0] ?? '').trim();
-      const name = backtickedName(cell);
-      if (name !== null) names.push(name);
-      else unreadable.push(cell === '' ? '(empty first cell)' : cell);
-    }
-  }
-  return { names, unreadable };
+export function extractSectionTableNames(docText, section, header) {
+  const { tables } = selectTablesByHeader(docText, { section, header });
+  return readTableColumn(tables, { empty: '(empty first cell)' });
 }
 
 /**
@@ -266,9 +266,11 @@ export function extractProtocolTables(runtimeText) {
   const capture = extractSectionTableNames(runtimeText, PROTOCOL_SECTION, CAPTURE_TABLE_HEADER);
   const panelTypes = [];
   const unreadable = [...capture.unreadable];
-  for (const table of parseTables(runtimeText)) {
-    if (table.section !== PROTOCOL_SECTION) continue;
-    if ((table.header[0] ?? '').trim() !== PANEL_TABLE_HEADER) continue;
+  const panel = selectTablesByHeader(runtimeText, {
+    section: PROTOCOL_SECTION,
+    header: PANEL_TABLE_HEADER,
+  });
+  for (const table of panel.tables) {
     for (const row of table.rows) {
       for (const piece of (row[1] ?? '').split(',')) {
         const token = piece.trim();
@@ -433,39 +435,22 @@ function describeKeyPosition(token) {
  */
 function readSendType(tokens, open) {
   const properties = [];
-  let depth = 1;
-  let atPropertyStart = true;
   let typeAt = -1;
-  let closed = false;
-  for (let i = open + 1; i < tokens.length; i++) {
-    const t = tokens[i];
-    const startsProperty = depth === 1 && atPropertyStart;
-    if (t.type === 'punct' && '([{'.includes(t.value)) {
-      if (startsProperty) properties.push(describeKeyPosition(t));
-      depth++;
-      atPropertyStart = false;
-    } else if (t.type === 'punct' && ')]}'.includes(t.value)) {
-      depth--;
-      if (depth === 0) {
-        closed = true;
-        break;
-      }
-    } else if (depth === 1 && t.type === 'punct' && t.value === ',') {
-      atPropertyStart = true;
-    } else if (
-      startsProperty &&
+  // The walk is the shared skeleton; what a property IS is this check's own
+  // policy, which reads a key name where the shape states one and names the
+  // position otherwise.
+  const { closed } = walkObjectLiteral(tokens, open, (i, t) => {
+    const isKey =
       (t.type === 'word' || t.type === 'string') &&
       tokens[i + 1]?.type === 'punct' &&
-      tokens[i + 1].value === ':'
-    ) {
-      properties.push(`\`${t.value}\``);
-      if (t.value === 'type') typeAt = i;
-      atPropertyStart = false;
-    } else {
-      if (startsProperty) properties.push(describeKeyPosition(t));
-      atPropertyStart = false;
+      tokens[i + 1].value === ':';
+    if (!isKey) {
+      properties.push(describeKeyPosition(t));
+      return;
     }
-  }
+    properties.push(`\`${t.value}\``);
+    if (t.value === 'type') typeAt = i;
+  });
   if (typeAt === -1) {
     if (!closed) return { type: null, found: '(end of source)' };
     return {
@@ -620,14 +605,11 @@ export function evaluateExtensionSurface(s) {
     problems.push(`${RUNTIME_DOC_PATH} §${ERT_CLAUSE_ID} makes the "${SENDER_STATEMENT_ANCHOR}" claim ${s.senderStatements} times — the clause states it once, so an update cannot land on one copy and leave another standing, wherever in the clause that copy was written`); // prettier-ignore
   }
 
-  let vacuous = false;
-  for (const [key, message] of EMPTY_SURFACES) {
-    if (s[key].length === 0) {
-      problems.push(message);
-      vacuous = true;
-    }
+  const empty = emptySurfaceProblems(s, EMPTY_SURFACES);
+  if (empty.length > 0) {
+    problems.push(...empty);
+    return problems; // empty parses make set diffs meaningless
   }
-  if (vacuous) return problems; // empty parses make set diffs meaningless
 
   for (const [key, what] of DUPLICATE_SURFACES) {
     problems.push(...duplicatesIn(s[key], what));
@@ -667,8 +649,9 @@ export function evaluateExtensionSurface(s) {
 export function auditTree(readFile, panelFiles) {
   const manifest = extractManifestSurface(readFile(MANIFEST_PATH));
   const permDoc = readFile(PERMISSIONS_DOC_PATH);
-  const permissions = extractSectionTableNames(permDoc, 'Permissions', 'Permission');
-  const hostPermissions = extractSectionTableNames(permDoc, 'Host permissions', 'Host permission');
+  const [permissions, hostPermissions] = PERMISSION_TABLES.map(([section, header]) =>
+    extractSectionTableNames(permDoc, section, header),
+  );
   const runtimeDoc = readFile(RUNTIME_DOC_PATH);
   const protocol = extractProtocolTables(runtimeDoc);
   const dispatcher = extractDispatcherSurface(readFile(WORKER_PATH));
@@ -707,27 +690,21 @@ function run() {
       return ''; // an unreadable surface fails the non-empty guards loudly
     }
   };
-  // `core.quotepath` off: a path carrying a non-ASCII byte arrives as itself
-  // rather than quoted and escaped, which the extension filter would drop in
-  // silence.
-  const panelFiles = execFileSync('git', ['-c', 'core.quotepath=false', 'ls-files', PANEL_DIR], {
-    encoding: 'utf8',
-  })
-    .split('\n')
-    .map((s) => s.trim())
-    .filter((f) => f.endsWith('.js'));
+  const panelFiles = trackedFilesUnder(PANEL_DIR, { extensions: ['.js'] });
   const { problems, permissionCount, typeCount, panelTypeCount } = auditTree(readFile, panelFiles);
 
   if (problems.length) {
     console.error(
-      `✗ the extension surface drifted from its committed contracts:\n` +
-        problems.map((p) => `    ${p}`).join('\n') +
-        `\n\n  The manifest's permission surface and the Permissions / Host permissions tables\n` +
-        `  must state the same sets (${PERMISSIONS_DOC_PATH} §${EPM_CLAUSE_ID}); the dispatcher's\n` +
-        `  serviced message types, the panel's literal sends, and the runtime doc's\n` +
-        `  capture-path and panel-protocol enumerations must state the same sets\n` +
-        `  (${RUNTIME_DOC_PATH} §${ERT_CLAUSE_ID}).\n` +
-        `  Update the drifted surfaces together in the same change.\n`,
+      formatProblemBlock(
+        'the extension surface drifted from its committed contracts',
+        problems,
+        `  The manifest's permission surface and the Permissions / Host permissions tables\n` +
+          `  must state the same sets (${PERMISSIONS_DOC_PATH} §${EPM_CLAUSE_ID}); the dispatcher's\n` +
+          `  serviced message types, the panel's literal sends, and the runtime doc's\n` +
+          `  capture-path and panel-protocol enumerations must state the same sets\n` +
+          `  (${RUNTIME_DOC_PATH} §${ERT_CLAUSE_ID}).\n` +
+          `  Update the drifted surfaces together in the same change.\n`,
+      ),
     );
     process.exit(1);
   }
