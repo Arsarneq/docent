@@ -538,9 +538,32 @@ jobs:
         working-directory: packages/extension/tests/e2e
         run: npm ci
 
+      # The browser download can hang without a byte of progress, so the step
+      # carries its own bound instead of eating the job's. The cache keys on
+      # this suite's lockfile, which pins the browser build Playwright fetches;
+      # on a hit the install finds the browser in place and skips the download,
+      # while --with-deps still provides the OS packages each run. Saves happen
+      # only on the main branch — pull-request runs restore from main's entry
+      # and never write, so the repository's shared cache budget carries one
+      # entry per installing suite rather than one per ref.
+      - name: Restore Playwright browser cache
+        id: pw-browser-cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ runner.os }}-playwright-${{ hashFiles('packages/extension/tests/e2e/package-lock.json') }}
+
       - name: Install Playwright browsers
         working-directory: packages/extension/tests/e2e
+        timeout-minutes: 10
         run: npx playwright install chromium --with-deps
+
+      - name: Save Playwright browser cache
+        if: github.ref == 'refs/heads/main' && steps.pw-browser-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ runner.os }}-playwright-${{ hashFiles('packages/extension/tests/e2e/package-lock.json') }}
 
       - name: Run Playwright tests
         working-directory: packages/extension/tests/e2e
@@ -1031,9 +1054,28 @@ jobs:
         working-directory: packages/desktop/tests/integration
         run: npm ci
 
+      # Same bound and cache posture as the extension E2E job's browser
+      # install: the download can hang without progress, this suite's lockfile
+      # pins the browser build the cache keys on, and saves happen only on the
+      # main branch.
+      - name: Restore Playwright browser cache
+        id: pw-browser-cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ runner.os }}-playwright-${{ hashFiles('packages/desktop/tests/integration/package-lock.json') }}
+
       - name: Install Playwright browsers
         working-directory: packages/desktop/tests/integration
+        timeout-minutes: 10
         run: npx playwright install chromium --with-deps
+
+      - name: Save Playwright browser cache
+        if: github.ref == 'refs/heads/main' && steps.pw-browser-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ runner.os }}-playwright-${{ hashFiles('packages/desktop/tests/integration/package-lock.json') }}
 
       - name: Run desktop Playwright tests
         working-directory: packages/desktop/tests/integration
