@@ -5,7 +5,11 @@
  * family must fail loud: these tests prove the pairwise set inequalities in
  * each direction on every leg, the sender side's readable shape and its
  * refusal, the unreadable-cell and unknown-shape refusals, the dispatcher
- * anchor guards (one switch, a default arm, no nesting), the disjointness
+ * anchor guards (one switch, a default arm, no nesting), the presence of the
+ * clause's own sender statement in the clause's scope — the doctrine the send
+ * leg holds, read for its words and for the single occurrence of them,
+ * wherever in the clause a second copy would sit, with the fail-closed form
+ * pinned — the disjointness
  * rule, duplicates, and empty parses — that the comment-safe tokenizer keeps
  * commented labels out of the scans — and, as a real-tree lock, that the
  * shipped tree satisfies both contracts. One case is a demonstration rather
@@ -27,6 +31,8 @@ import {
   PANEL_DIR,
   EMPTY_SURFACES,
   DUPLICATE_SURFACES,
+  SENDER_STATEMENT_ANCHOR,
+  countSenderStatements,
   extractManifestSurface,
   extractSectionTableNames,
   extractProtocolTables,
@@ -58,6 +64,11 @@ function makeSurface(overrides = {}) {
       { path: PANEL_PATH, ordinal: 1, type: 'PROJECTS_LIST', found: null },
       { path: PANEL_PATH, ordinal: 2, type: 'STEP_COMMIT', found: null },
     ],
+    // The clause states its sender statement once. The key is stated here
+    // because the guard is fail-closed: a fixture omitting it reds rather than
+    // no-opping, which is what keeps a later scalar leg from being added to
+    // this evaluator and silently passing on every hand-written surface.
+    senderStatements: 1,
     ...overrides,
   };
 }
@@ -225,6 +236,118 @@ describe('evaluateExtensionSurface — the sender side (both ways)', () => {
     assert.ok(
       problems.some((p) => p.includes("updates the runtime doc's sender statement and this check together")), // prettier-ignore
       'the red names the change that closes it',
+    );
+  });
+});
+
+describe('evaluateExtensionSurface — the clause states the doctrine the send leg holds', () => {
+  it('fires when the clause states no sender statement — the leg cannot hold an unstated rule', () => {
+    assert.deepEqual(evaluateExtensionSurface(makeSurface({ senderStatements: 0 })), [
+      `${RUNTIME_DOC_PATH} §ERT-4 states no sender statement — nothing in the clause's scope carries "${SENDER_STATEMENT_ANCHOR}" — the panel-side closure this check's send leg holds (every panel-protocol type carrying at least one object-literal send( that names it) is doctrine the clause states, and the leg cannot hold a rule the document no longer makes`,
+    ]);
+  });
+
+  it('fires when the claim is made a second time — an update would land on one copy', () => {
+    assert.deepEqual(evaluateExtensionSurface(makeSurface({ senderStatements: 2 })), [
+      `${RUNTIME_DOC_PATH} §ERT-4 makes the "${SENDER_STATEMENT_ANCHOR}" claim 2 times — the clause states it once, so an update cannot land on one copy and leave another standing, wherever in the clause that copy was written`,
+    ]);
+  });
+
+  it('is fail-closed: a surface stating no count reds rather than passing silently', () => {
+    // The `!(n >= 1)` form, pinned. Written as `=== 0` this guard no-ops on
+    // every surface that omits the key, which is how a scalar leg gets added
+    // to this evaluator and proves nothing.
+    const surface = makeSurface();
+    delete surface.senderStatements;
+    assert.ok(
+      evaluateExtensionSurface(surface).some((p) => p.includes('states no sender statement')),
+      'a surface without the key must red',
+    );
+  });
+
+  it('is read ahead of the vacuous return — a doc edit that broke both says both', () => {
+    const problems = evaluateExtensionSurface(
+      makeSurface({ senderStatements: 0, docPanelTypes: [] }),
+    );
+    assert.ok(problems.some((p) => p.includes('states no sender statement')));
+    assert.ok(problems.some((p) => p.includes(`no panel-protocol types found in ${RUNTIME_DOC_PATH}`))); // prettier-ignore
+  });
+});
+
+describe('countSenderStatements — the clause scope the sender statement must sit in', () => {
+  /** The clause, with `body` standing where its sender paragraph does. */
+  const doc = (body) =>
+    [
+      '## Message protocol',
+      '',
+      '**ERT-4.** The dispatcher’s serviced surface is exactly the two enumerations.',
+      '',
+      body,
+      '',
+      '### Capture path',
+      '',
+      `A later section, outside the clause: ${SENDER_STATEMENT_ANCHOR} whose type it names.`,
+    ].join('\n');
+  /**
+   * Where the live clause's line break falls inside the anchor — before
+   * `an object literal`. Derived from the anchor rather than spelled, so the
+   * fixture keeps wrapping mid-phrase if the anchor is ever reworded.
+   */
+  const WRAP_AT = SENDER_STATEMENT_ANCHOR.indexOf(' an object literal');
+  /**
+   * The clause's sender paragraph, wrapped where the live document wraps it:
+   * the anchor is split ACROSS a line boundary, so no line of this fixture
+   * carries it whole and a read over the raw text finds nothing.
+   */
+  const paragraph = [
+    'The panel states its half of that surface literally: each type of the',
+    `closed set ${SENDER_STATEMENT_ANCHOR.slice(0, WRAP_AT)}`,
+    `${SENDER_STATEMENT_ANCHOR.slice(WRAP_AT + 1)} whose top-level \`type\` property`,
+    'carries the type name as a string literal.',
+  ].join('\n');
+
+  it('counts the hand-wrapped statement — the anchor is found whatever line it wraps on', () => {
+    // The guard is the point: the fixture's raw text carries the anchor
+    // NOWHERE, because the line break falls inside it. A read that did not
+    // flatten the scope first would count zero here.
+    assert.ok(
+      !paragraph.includes(SENDER_STATEMENT_ANCHOR),
+      'the fixture must split the anchor across a line boundary',
+    );
+    assert.equal(countSenderStatements(doc(paragraph)), 1);
+  });
+
+  it('counts a duplicated paragraph twice — the drift a presence-only read cannot see', () => {
+    assert.equal(countSenderStatements(doc(`${paragraph}\n\n${paragraph}`)), 2);
+  });
+
+  it('counts a copy pasted into the same paragraph — occurrences, not paragraphs', () => {
+    // Where the second copy sits decides nothing: it is a second copy an
+    // update can land beside either way, so a paragraph-granular read would
+    // green on exactly the drift the one-statement rule exists to catch.
+    assert.equal(countSenderStatements(doc(`${paragraph} ${paragraph}`)), 2);
+  });
+
+  it('does not count a paragraph moved out of the clause scope', () => {
+    // The trailing sentence past `### Capture path` carries the anchor, so
+    // this proves the scope bound, not the anchor's absence from the file.
+    assert.ok(doc('The panel sends what it sends.').includes(SENDER_STATEMENT_ANCHOR));
+    assert.equal(countSenderStatements(doc('The panel sends what it sends.')), 0);
+  });
+
+  it('does not count a fenced illustration — a code sample is not the doctrine', () => {
+    assert.equal(countSenderStatements(doc(['```text', paragraph, '```'].join('\n'))), 0);
+  });
+
+  it('does not count the paragraph when the clause marker is renumbered away', () => {
+    assert.equal(countSenderStatements(doc(paragraph).replace('**ERT-4.**', '**ERT-9.**')), 0);
+  });
+
+  it('the shipped runtime doc states it exactly once', () => {
+    assert.equal(
+      countSenderStatements(readFileSync(resolve(ROOT, RUNTIME_DOC_PATH), 'utf8')),
+      1,
+      'the clause must carry the sender statement the send leg holds',
     );
   });
 });

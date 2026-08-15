@@ -25,9 +25,15 @@
  *      `listen(` call site CARRYING that channel — a readable listen site on
  *      another channel is outside this leg, neither counted nor redded on its
  *      own, and the zero case names any such site it found; and the clause
- *      section's prose OUTSIDE its table names that channel in backticks, so a
- *      rename that updates the table and the backend while leaving the adapter
- *      or the prose behind reds. An emit-family or `listen(` call whose channel
+ *      section's prose OUTSIDE its table names that channel in backticks and
+ *      names no other channel-shaped token, so a rename that updates the table
+ *      and the backend while leaving the adapter or the prose behind reds, and
+ *      a stale channel left standing beside an updated one reds beside it —
+ *      the two are separate problems, and prose that names a foreign channel
+ *      and never the table's own states both. The row deriving the channel is
+ *      itself held to the shape that weld reads by, so a channel the weld
+ *      could not see fails the row rather than leaving the leg standing green
+ *      and holding nothing. An emit-family or `listen(` call whose channel
  *      the scan cannot read as a LONE string literal — one the argument
  *      separator or the call's closing parenthesis follows — fails the check
  *      rather than passing;
@@ -102,12 +108,31 @@
  * channel is read from the intact text at the same offset; a `#[tauri::command]` declared inside a
  * test-only module would count as shipped surface; the clause's section cannot
  * name a grant-shaped identifier the capability files do not hold (an
- * illustrative mention outside a fence reds the gate); one backticked mention
- * of the channel in the clause section's non-table prose satisfies the weld,
- * so a second, stale mention standing beside an updated first stays
- * review-held, and mentions of the channel outside the clause section —
- * sibling documents, the integration-suite document, workflow comments — are
- * not held here. The table's Direction / What-it-does / Who-calls-it columns
+ * illustrative mention outside a fence reds the gate); the prose weld reads
+ * every WHOLE backticked token of the clause section's non-table prose that is
+ * channel-shaped and not grant-shaped, and each one must be the channel the
+ * table states, so a stale second channel standing beside an updated first
+ * reds by name. What that read leaves outside itself stays review-held, and
+ * these are the forms of it observed so far: a channel written inside a LARGER
+ * backticked span (a call site quoted into the prose, say) is not a whole
+ * token and is unread, the same mechanism that keeps the crate's
+ * `#[tauri::command]` attribute out of the read; an unbackticked mention is
+ * unread; a mention in a table cell is dropped with the line it sits on, this
+ * weld's own scope choice; and a token NEITHER the channel shape nor the grant
+ * shape covers is read by neither this weld nor the grants leg, so a stale
+ * mention written that way stands unread — stated as that property rather than
+ * as the ways a token can fall there, and true of a mention alone: the channel
+ * itself can never be such a token, the event row deriving it being held to
+ * the same pairing. The gaps that run the other way red rather than passing: a
+ * token of the channel shape naming something else — a script or npm target, a
+ * URL scheme, or a capability grant the grant shape misses — reads here as a
+ * foreign channel, so the clause's prose names such a token in some form other
+ * than a bare backticked token, and the red is the prompt to write it that way
+ * rather than a claim the token is a channel. Mentions of the channel
+ * outside the clause section — sibling
+ * documents, the integration-suite document, workflow comments — are not held
+ * here either.
+ * The table's Direction / What-it-does / Who-calls-it columns
  * are still never parsed: the caller closure and the single-listener
  * consumption those columns describe are clause-stated and held by legs 2 and
  * 5 above, and the columns' remaining prose stays review-held. The grants
@@ -162,6 +187,54 @@ export const MOCK_SWITCH_ANCHOR = 'switch (cmd)';
  */
 const GRANT_RE =
   /^[a-z0-9][a-z0-9-]*(?::[a-z0-9][a-z0-9-]*)*:(?:default|allow-[a-z0-9-]+|deny-[a-z0-9-]+)$/;
+
+/**
+ * An event-channel identifier, in the shape the channel is written in: a
+ * namespace and a name joined by a single colon, each of the two segments
+ * opening on a lowercase letter or a digit and carrying lowercase letters,
+ * digits, `-`, or `_` after it. It is read PAIRED with {@link GRANT_RE},
+ * which the grants leg reads by — a token that shape covers is read as a grant
+ * by the grants leg, and the prose weld leaves it alone — and
+ * {@link isChannelShaped} is that pairing, which both sides of the weld go
+ * through.
+ *
+ * The pairing is two narrow shapes, not a partition of the tokens a section
+ * can carry, and what it leaves between them is stated as a property rather
+ * than as ways a token can fall there. A token NEITHER shape covers is read
+ * by neither leg, so a stale mention written that way stands unread — while
+ * the channel itself can never be one, because the doc's event row is held to
+ * this same pairing and reds where it is not. A token this shape covers that
+ * names something other than a channel — a script or npm target, a URL scheme
+ * — is read here as channel-shaped and reds as a foreign channel; a
+ * capability grant the grant shape misses is that same case arriving from the
+ * grants leg. Such a token belongs in the clause's prose in some form other
+ * than a bare backticked token, and its red is the prompt to write it that
+ * way or to state the shape differently — never a claim that the token is an
+ * event channel.
+ */
+const CHANNEL_TOKEN_RE = /^[a-z0-9][a-z0-9_-]*:[a-z0-9][a-z0-9_-]*$/;
+
+/**
+ * How the channel shape reads in a refusal — spelled once, so the two
+ * refusals naming it cannot drift from each other or from the shape itself.
+ */
+const CHANNEL_SHAPE_PHRASE =
+  'a namespace and a name joined by a single colon, each of the two segments opening on a lowercase letter or a digit and carrying lowercase letters, digits, `-`, or `_` after it, the capability-grant shape excluded';
+
+/**
+ * Is this token one the prose weld reads as a channel? The pairing of the two
+ * shapes, in one place: {@link CHANNEL_TOKEN_RE} covers it and
+ * {@link GRANT_RE} does not. BOTH sides of the weld are held to it — the
+ * tokens the clause's prose is read for, and the channel the doc's event row
+ * derives — which is what makes the residue statements true by construction
+ * rather than by assumption: the row cannot state a channel the read is blind
+ * to, so the weld can never stand green while holding nothing.
+ * @param {string} token a whole backticked token
+ * @returns {boolean} whether the prose weld reads it as a channel
+ */
+function isChannelShaped(token) {
+  return CHANNEL_TOKEN_RE.test(token) && !GRANT_RE.test(token);
+}
 
 /**
  * Blank out Rust comments (line `//…` and nested block `/* … *\/`) while
@@ -434,6 +507,24 @@ export function extractSectionProse(section) {
 }
 
 /**
+ * Extract the channel-shaped tokens the clause section's prose names in
+ * backticks: every WHOLE backticked span {@link isChannelShaped} admits. Read
+ * whole, the way {@link extractDocGrants} reads a grant, so a channel standing
+ * inside a larger backticked span is no more a token here than the crate's
+ * attribute is a grant there.
+ * @param {string} prose the clause section's non-table text
+ * @returns {string[]} channel-shaped tokens in first-appearance order, deduplicated
+ */
+export function extractProseChannelTokens(prose) {
+  const out = [];
+  for (const m of prose.matchAll(/`([^`]+)`/g)) {
+    const token = m[1];
+    if (isChannelShaped(token) && !out.includes(token)) out.push(token);
+  }
+  return out;
+}
+
+/**
  * Find emit-family call sites — every Emitter emit method (`emit`,
  * `emit_str`, `emit_to`, `emit_str_to`, `emit_filter`, `emit_str_filter`) —
  * in comment-stripped crate sources. The channel is the first string-literal
@@ -683,6 +774,12 @@ export function evaluateCommandSurface(s) {
   if (s.docEvents.length > 1) {
     problems.push(`the ${CLAUSE_ID} table carries ${s.docEvents.length} event rows (${s.docEvents.map((e) => `\`${e}\``).join(', ')}) — the contract states exactly one event channel, and the first row is the channel every other side is held against`); // prettier-ignore
   }
+  // The row derives the channel, so it is held to the shape the prose weld
+  // reads BY: a channel the weld cannot see would leave that leg standing
+  // green while holding nothing, and a stale mention of it unread beside it.
+  if (!isChannelShaped(channel)) {
+    problems.push(`the ${CLAUSE_ID} table's event row states \`${channel}\`, which is not a channel the clause-prose weld can read — it reads a whole backticked token that is ${CHANNEL_SHAPE_PHRASE} — so a stale mention of this channel in the clause's prose would stand unread and that leg would hold nothing: state the channel in that shape, or widen the shape the weld reads in the same change`); // prettier-ignore
+  }
   for (const e of s.emitSites.filter((x) => x.channel === null)) {
     const what =
       e.method === 'emit_to' || e.method === 'emit_str_to'
@@ -722,8 +819,15 @@ export function evaluateCommandSurface(s) {
       `expected exactly one listen( call site on \`${channel}\` in the tracked ${FRONTEND_DIR} JavaScript, found ${channelListeners.length}${detail}`,
     );
   }
+  // The prose weld runs in both directions over the same read, and the two
+  // directions are independent problems: prose that names a foreign channel
+  // and never the table's own is missing the mention AND carrying a stale
+  // token, and says both.
   if (!s.sectionProse.includes(`\`${channel}\``)) {
     problems.push(`the ${CLAUSE_ID} section's prose outside its table never names \`${channel}\` in backticks — the channel the table states is stated in the clause's own prose too`); // prettier-ignore
+  }
+  for (const token of extractProseChannelTokens(s.sectionProse).filter((t) => t !== channel)) {
+    problems.push(`the ${CLAUSE_ID} section's prose outside its table names \`${token}\` in backticks — a whole backticked token shaped like \`${channel}\`, the channel the table states (${CHANNEL_SHAPE_PHRASE}) — and the clause's prose names that channel and no other token of that shape: a token of the shape that names something else (a script or npm target, a URL scheme) belongs in this prose in some form other than a bare backticked token, while a second channel that really is one is a contract change this clause and this check take together`); // prettier-ignore
   }
 
   problems.push(
@@ -882,8 +986,8 @@ function run() {
   console.log(
     `✓ desktop command surface consistent: ${commandCount} commands agree across the crate, ` +
       `the registration, the doc table, the frontend's invoke( call sites, and the integration ` +
-      `mock; one ${channel} emit site, one frontend listener, and the clause's prose names the ` +
-      `channel; ${grantCount} grants match the doc.`,
+      `mock; one ${channel} emit site, one frontend listener, and the clause's prose names that ` +
+      `channel and no other channel-shaped token; ${grantCount} grants match the doc.`,
   );
 }
 
