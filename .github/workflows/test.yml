@@ -337,6 +337,15 @@ jobs:
       - name: Check GitHub Actions are SHA-pinned
         run: npm run check:action-pins
 
+      # The Clippy gate's invocation is stated once (docs/guides/ci.md §CI-1) and
+      # run in the Rust jobs below. This admission test holds them together —
+      # the jobs the gates row names against the jobs carrying a clippy step, and
+      # every stated spelling of the command against the run lines — without
+      # running the tool; scripts/check-clippy-invocation.js is the home of the
+      # complete red set.
+      - name: Validate the stated clippy invocation
+        run: npm run check:clippy-invocation
+
       # Guard 2: release-output guard. On a normal feature branch it FAILS if the
       # branch touched release-only outputs (schemas/dist/ or a delta `version`).
       # On the automation branch the release pipeline opens

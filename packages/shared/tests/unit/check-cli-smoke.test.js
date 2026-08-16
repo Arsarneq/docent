@@ -133,6 +133,15 @@ describe('check-script CLI smoke (deterministic green paths)', () => {
     assert.match(out, /doc closure holds/);
   });
 
+  it('check-clippy-invocation: the committed guides state the invocation CI runs', () => {
+    // No env pinned: this check and its import closure (the doc-closure gate's
+    // table readers, the path-filter's job reader, and the test-inventory
+    // tokenizer) read no process.env, and its only external is the YAML parser
+    // — so no var can switch the path this runs.
+    const out = runScript('check-clippy-invocation.js');
+    assert.match(out, /clippy invocation single-sourced/);
+  });
+
   it('check-schema-echo: the committed session-format document matches the composed schemas', () => {
     const out = runScript('check-schema-echo.js');
     assert.match(out, /schema echoes consistent/);

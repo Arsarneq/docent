@@ -15,7 +15,8 @@
     "DSH": "docs/architecture/application/desktop/windows/application-shell.md",
     "SL": "docs/verification/sufficiency-lint.md",
     "COV": "docs/test/strategy/coverage.md",
-    "MUT": "docs/test/strategy/mutation.md"
+    "MUT": "docs/test/strategy/mutation.md",
+    "CI": "docs/guides/ci.md"
   },
   "retired": {
     "CP": [],
@@ -32,7 +33,8 @@
     "DSH": [],
     "SL": [],
     "COV": [],
-    "MUT": []
+    "MUT": [],
+    "CI": []
   },
   "clauses": [
     {
@@ -1080,6 +1082,12 @@
       "clause": "MUT-6",
       "tag": "judgment-only",
       "justification": "Whether the Rust engine's baseline has settled enough to drop the exit-code tolerance is a judgment about a run of weekly results rather than a property of the tree. The tolerance itself is a step in .github/workflows/mutation.yml that either posture states in the same shape, so no check can tell a deliberate report-only posture from one left in place after its reason expired."
+    },
+    {
+      "doc": "docs/guides/ci.md",
+      "clause": "CI-1",
+      "tag": "check-exists",
+      "check-ref": "scripts/check-clippy-invocation.js (npm run check:clippy-invocation, a step in CI's lint job) recomputes each half against the tree: the jobs the Clippy row names against the jobs .github/workflows/test.yml gives a clippy step, both ways, the working directory those steps run from against the directory the row states, and every spelling of the command in tracked markdown against the run lines, with the one deliberate variant recorded as a register the same check holds from both sides. It reads surfaces and never runs the tool, so which flags belong in the invocation stays a review judgment."
     }
   ]
 }
