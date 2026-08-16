@@ -164,6 +164,36 @@ describe('workflowClippySites', () => {
     );
   });
 
+  it('falls back to the workflow’s own run defaults when neither job nor step states one', () => {
+    const wf = {
+      defaults: { run: { 'working-directory': CRATE } },
+      jobs: { 'desktop-rust-tests': { steps: [{ name: 'Clippy', run: EXECUTED }] } },
+    };
+    assert.deepEqual(workflowClippySites(wf), [
+      { job: 'desktop-rust-tests', command: EXECUTED, directory: CRATE },
+    ]);
+  });
+
+  it('refuses a clippy step carrying a quote rather than comparing two readings', () => {
+    // The segment model blanks quoted contents; a documentation span is read as
+    // written. Comparing the two would make the truthful statement red and a
+    // hollowed one green, so the shape is refused by name.
+    const wf = {
+      jobs: {
+        'desktop-rust-tests': {
+          steps: [
+            {
+              name: 'Clippy',
+              'working-directory': CRATE,
+              run: `${EXECUTED} -A "clippy::too_many_lines"`,
+            },
+          ],
+        },
+      },
+    };
+    assert.throws(() => workflowClippySites(wf), InputError);
+  });
+
   it('reads a workflow with no jobs as no sites at all', () => {
     assert.deepEqual(workflowClippySites({}), []);
   });
@@ -330,6 +360,11 @@ describe('evaluate — the stated invocations', () => {
     assert.match(problem, /check-clippy-invocation\.js/);
   });
 
+  it('refuses a stated span carrying a quote, the same shape and the same reason', () => {
+    const docs = { 'a.md': `run \`${EXECUTED} -A "clippy::too_many_lines"\` from the crate` };
+    assert.throws(() => statedInvocations(Object.keys(docs), (d) => docs[d]), InputError);
+  });
+
   it('reds on a registered exception no document states any more', () => {
     const input = greenInput();
     input.stated = [{ doc: 'docs/guides/ci.md', span: EXECUTED }];
@@ -374,7 +409,20 @@ describe('checkClippyInvocation — the refusals', () => {
     );
   });
 
-  it('refuses an empty tracked-markdown listing rather than scanning nothing', () => {
+  it('refuses a read that throws, so machinery breakage never wears a drift’s exit code', () => {
+    assert.throws(
+      () =>
+        checkClippyInvocation({
+          readFile: () => {
+            throw new Error('ENOENT');
+          },
+          listMarkdown: () => [CI_DOC_PATH],
+        }),
+      InputError,
+    );
+  });
+
+  it('refuses a listing that has stopped naming the guide it must scan', () => {
     const workflow = [
       'jobs:',
       '  desktop-rust-tests:',

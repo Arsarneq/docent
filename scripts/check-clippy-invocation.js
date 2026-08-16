@@ -30,13 +30,18 @@
  * the RIGHT flags is a review judgment, and whether the crate is clippy-clean is
  * the gate's own job in CI.
  *
- * Honest limits, in the order a drift would escape them. The workflow read is
- * the TEST workflow alone, so a clippy step in a sibling workflow states
- * nothing this check sees. Inside that file the read is structural (js-yaml,
- * then the neighbour's shell-segment model), so a clippy invocation reaching
- * the crate some other way — from a composite action, a cargo alias, a script a
- * step calls — is equally invisible, and the row leg would report the job
- * carrying it as one the workflow gives no clippy step. The stated-invocation
+ * Honest limits, in the order a drift would escape them, and in the forms
+ * observed so far rather than as a closed set. The workflow read is the TEST
+ * workflow alone, so a clippy step in a sibling workflow states nothing this
+ * check sees. Inside that file the read is structural (js-yaml, then the
+ * neighbour's shell-segment model), so a clippy invocation reaching the crate
+ * some other way — from a composite action, a cargo alias, a script a step
+ * calls — is equally invisible, and the row leg would report the job carrying
+ * it as one the workflow gives no clippy step. Where the two sides cannot be
+ * compared faithfully the comparison is refused rather than guessed: the
+ * segment model blanks quoted contents and a documentation span is read as
+ * written, so a clippy command carrying a quote on either side is named and
+ * refused. The stated-invocation
  * leg reads tracked markdown only, on the view its fenced blocks are stripped
  * from, and only a span that OPENS with the command: the same command inside a
  * longer span, spelled without backticks, written inside a fence, or stated in
@@ -105,6 +110,16 @@ const EXPRESSION_RE = /\$\{\{[\s\S]*?\}\}/g;
 const STATED_DIRECTORY_RE = /\(from\s+`([^`]+)`\)/;
 
 /**
+ * A quote surviving expression-stripping. The workflow side reads a step through
+ * the neighbour's shell-segment model, which blanks quoted CONTENTS by design;
+ * a documentation span is read as written. Rather than compare two texts read
+ * by different rules — where a quoted flag argument would make the truthful
+ * statement red and a hollowed one green — a clippy command carrying a quote on
+ * either side is refused by name.
+ */
+const QUOTE_RE = /['"]/;
+
+/**
  * The stated spans that are deliberately not the gate's own invocation, each
  * with the reason it states something else. The list is a negative one, so it
  * carries its own admission test: an entry whose span no document states any
@@ -144,14 +159,25 @@ export function normalizeCommand(text) {
  * @returns {{ job: string, command: string, directory: string | null }[]}
  */
 export function workflowClippySites(wf) {
+  const runDirectory = (spec) => spec?.defaults?.run?.['working-directory'] ?? null;
+  const workflowDirectory = runDirectory(wf);
   const sites = [];
   for (const [job, spec] of Object.entries(wf?.jobs ?? {})) {
-    const jobDirectory = spec?.defaults?.run?.['working-directory'] ?? null;
+    const jobDirectory = runDirectory(spec) ?? workflowDirectory;
     for (const step of spec?.steps ?? []) {
       const directory = step?.['working-directory'] ?? jobDirectory;
-      for (const segment of commandSegments((step?.run ?? '').replace(EXPRESSION_RE, ' '))) {
+      const bare = (step?.run ?? '').replace(EXPRESSION_RE, ' ');
+      for (const segment of commandSegments(bare)) {
         const command = flattenWhitespace(segment);
-        if (command.startsWith(CLIPPY_COMMAND)) sites.push({ job, command, directory });
+        if (!command.startsWith(CLIPPY_COMMAND)) continue;
+        if (QUOTE_RE.test(bare))
+          throw new InputError(
+            `${TEST_WORKFLOW_PATH}'s \`${job}\` runs clippy from a step carrying a quote ` +
+              `(\`${flattenWhitespace(bare)}\`) — the workflow and documentation sides are read ` +
+              `by different rules about quoting, so this check refuses the comparison rather ` +
+              `than making one of the two spellings un-greenable`,
+          );
+        sites.push({ job, command, directory });
       }
     }
   }
@@ -194,8 +220,15 @@ export function statedInvocations(docs, read) {
   const stated = [];
   for (const doc of docs)
     for (const line of stripFences(read(doc)).split('\n'))
-      for (const span of backtickedTokens(line, { shape: opensWithCommand }))
+      for (const span of backtickedTokens(line, { shape: opensWithCommand })) {
+        if (QUOTE_RE.test(span))
+          throw new InputError(
+            `${doc} states a clippy command carrying a quote (\`${span}\`) — the workflow and ` +
+              `documentation sides are read by different rules about quoting, so this check ` +
+              `refuses the comparison rather than making one of the two spellings un-greenable`,
+          );
         stated.push({ doc, span: normalizeCommand(span) });
+      }
   return stated;
 }
 
@@ -299,20 +332,41 @@ export function treeSurfaces(root = ROOT) {
  * @returns {string[]}
  */
 export function checkClippyInvocation({ readFile, listMarkdown } = treeSurfaces()) {
-  const sites = workflowClippySites(yaml.load(readFile(TEST_WORKFLOW_PATH)));
+  /** Every read and parse this check makes, so a broken surface is machinery
+   *  breakage on its own exit code rather than a stack trace on the exit code a
+   *  real disagreement uses. */
+  const surface = (what, take) => {
+    try {
+      return take();
+    } catch (error) {
+      if (error instanceof InputError) throw error;
+      throw new InputError(`${what} could not be read: ${error.message}`);
+    }
+  };
+
+  const wf = surface(TEST_WORKFLOW_PATH, () => yaml.load(readFile(TEST_WORKFLOW_PATH)));
+  const sites = workflowClippySites(wf);
   if (sites.length === 0)
     throw new InputError(
       `${TEST_WORKFLOW_PATH} states no \`${CLIPPY_COMMAND}\` step — the run lines this check ` +
         `reads the executed invocation from`,
     );
 
-  const row = clippyGateRow(readFile(CI_DOC_PATH));
+  const row = clippyGateRow(surface(CI_DOC_PATH, () => readFile(CI_DOC_PATH)));
 
-  const docs = listMarkdown();
-  if (docs.length === 0)
-    throw new InputError('the tracked markdown listing came back empty — nothing to scan');
+  const docs = surface('the tracked markdown listing', () => listMarkdown());
+  if (!docs.includes(CI_DOC_PATH))
+    throw new InputError(
+      `the tracked markdown listing does not carry ${CI_DOC_PATH} (${docs.length} file(s)) — a ` +
+        `listing that has stopped naming the guide it must scan would pass this leg holding ` +
+        `nothing`,
+    );
 
-  return evaluate({ sites, row, stated: statedInvocations(docs, readFile) });
+  return evaluate({
+    sites,
+    row,
+    stated: statedInvocations(docs, (doc) => surface(doc, () => readFile(doc))),
+  });
 }
 
 /* c8 ignore start — the CLI wrapper prints and exits; the smoke suite runs it
