@@ -215,6 +215,17 @@ coverage is measured and sliced is in
   the markers only — a parity test asserts the two blocks are identical
   up to its mechanical transformation (export-stripping and indentation) and
   fails the unit suite when they drift.
+- **Cite the owner of a fact the code does not own.** A comment asserting
+  something another artifact owns — which component writes a storage key, what
+  order a documented path guarantees, what a doctrine clause promises — names
+  that owner and stops there; the mechanics the file itself owns stay written
+  out. The form is the parenthetical clause cite already in use across the tree
+  (`(extension runtime ERT-3)`, `(sync-protocol SP-5)`, `(DCP-12)`), so a
+  doctrine change lands in one home instead of in every echo of it. The header
+  of `packages/extension/background/service-worker.js` (write ownership) and
+  that of [`scripts/corpus-compare.js`](../scripts/corpus-compare.js) (the
+  truth files' derivation) are the pattern to copy. A reconcile pass sweeps the
+  whole file it touches, not just the header block.
 
 ### Rust
 
@@ -289,8 +300,10 @@ unaffected: docs/architecture/system/capture-principles.md §CP-3 — <why this 
 **`## Change record`** — a short, honest record of the work: an `Intent:` line
 (one sentence), an `Outside knowledge:` line (sources you consulted beyond this
 repository — write `none` explicitly if nothing), what you verified and how, and
-a `mutation:` line (mutation testing runs as a standing weekly job, never per
-change — `mutation: no per-change claim; mutation testing runs as a standing weekly job.`).
+a `mutation:` line carrying the standing sentence —
+`mutation: no per-change claim; mutation testing runs as a standing weekly job.`
+The cadence that sentence reports is stated once, in
+[mutation testing §MUT-1](../docs/test/strategy/mutation.md#cadence).
 
 Dependency-only PRs skip both sections, and so does the release pipeline's own
 regeneration PR. Each admitted class states its admission test and the inputs
@@ -386,8 +399,11 @@ is the one home of that list. What each kind of change keeps green:
   is verified — by a named existing check, an intended check, or a justified
   judgment — and every citation a row's `check-ref` or `justification` carries
   must resolve, or be refused as a citation that cannot identify what it names;
-  the check's own list of citable root files is held to the tracked set on every
-  run, so a stale entry reds there rather than in a row. A row may also name the
+  the gate's own register of the surfaces it resolves citations against is held
+  to the tracked tree on every run
+  ([`scripts/check-clause-registry.js`](../scripts/check-clause-registry.js) is
+  that register's one home), so a stale entry reds there rather than in a row. A
+  row may also name the
   test cases that pin its clause, in an opt-in field whose every entry must name
   a case DECLARED by one of the anchor-bearing files that row's `check-ref`
   cites — a `.js` or `.mjs` file, where a case is the title a bare `it`/`test`
