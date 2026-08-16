@@ -109,8 +109,9 @@ split into a unit and an integration `cargo llvm-cov` run so each lands under
 its own coverage flag — see [coverage reporting](strategy/coverage.md). Clippy
 runs over the crate's Cargo targets, so these test sources and the
 `#[cfg(test)]` modules are linted too; the invocation that decides which targets
-those are is stated once, in the Clippy row of
-[CI gates](../guides/ci.md#the-lint-and-freshness-gates) (§CI-1).
+those are has its home in the Clippy row of
+[CI gates](../guides/ci.md#the-lint-and-freshness-gates) (§CI-1), which any other
+statement of it repeats exactly.
 A separate job compiles and lints the crate on Windows and Linux without running
 its tests.
 

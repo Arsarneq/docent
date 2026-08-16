@@ -337,8 +337,9 @@ jobs:
       - name: Check GitHub Actions are SHA-pinned
         run: npm run check:action-pins
 
-      # The Clippy gate's invocation is stated once (docs/guides/ci.md §CI-1) and
-      # run in the Rust jobs below. This admission test holds them together —
+      # The Clippy gate's invocation has one home (docs/guides/ci.md §CI-1), which
+      # any other statement of it repeats exactly, and is run in the Rust jobs
+      # below. This admission test holds them together —
       # the gates row's own command, directory, and job set against the clippy
       # steps, which spell one command between them, and each backticked spelling
       # in tracked markdown that opens with the command, read outside fenced
@@ -999,8 +1000,9 @@ jobs:
 
   # Cross-platform COMPILE + LINT gate (#97). This is the comprehensive "builds
   # on every platform we prepare for" job: on each platform of its matrix —
-  # Windows and Linux — it compiles the crate and runs the Clippy gate over it,
-  # whose invocation and target scope docs/guides/ci.md §CI-1 states. It runs NO
+  # Windows and Linux — it compiles every Cargo target the `cargo check` step
+  # below names, then runs the Clippy gate over the crate, whose invocation the
+  # Clippy row states (docs/guides/ci.md §CI-1). It runs NO
   # tests. What a platform lints is what that platform compiles: a
   # test binary gated to Windows is empty on Linux, so the Linux leg holds the
   # seam and the sources that compile everywhere rather than the Windows-only

@@ -1317,7 +1317,9 @@ function applyAutomaticOutcomes(state, localProjects, pulledProjects, lockedReco
  * `haltReason: 'capture-active'` while capture is active, and
  * `haltReason: 'pending-actions-unprotected'` for a recording holding
  * uncommitted Pending Actions without being locked. SP-7's remaining protection
- * excludes rather than halts, and runs later, in the reconcile phase below. The gate runs only when a
+ * excludes rather than halts: the locked set is established here alongside these
+ * two and takes effect where that clause's own bullet places it, at the inbound
+ * merge — threaded into the detection phase below. The gate runs only when a
  * `liveState` adapter is supplied; callers that do not pass one (the original
  * 5-argument form) keep the prior behavior unchanged.
  *
