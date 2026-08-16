@@ -919,7 +919,8 @@ function runsAlways(condition) {
  * One step's text as the command segments a shell would run. Quoted spans
  * keep their delimiters and lose their CONTENTS, so an advisory
  * `echo 'npm run sync-shared'` names no command; a `#` comment is dropped to
- * end of line; and the remainder splits on `&&`, `||`, `;`, `|`, and newline.
+ * end of line, in the same pass as the quoting so an apostrophe inside one
+ * cannot open a quote over the commands that follow it; and the remainder splits on `&&`, `||`, `;`, `|`, and newline.
  * A leading `(` — the subshell form — is stripped so the segment still opens
  * with the command it runs.
  * @param {string} text one step's `run:` line or block
@@ -928,19 +929,37 @@ function runsAlways(condition) {
 export function commandSegments(text) {
   let bare = '';
   let quote = null;
+  let comment = false;
+  let previous = '\n';
   for (const char of text) {
+    if (comment) {
+      // A comment runs to end of line; nothing inside it is a command, and
+      // nothing inside it opens a quote — an apostrophe in prose would
+      // otherwise swallow the commands on the lines after it.
+      if (char !== '\n') continue;
+      comment = false;
+      bare += char;
+      previous = char;
+      continue;
+    }
     if (quote !== null) {
       if (char === quote) {
         bare += char;
         quote = null;
       }
+      previous = char;
       continue; // quoted text is data the shell passes on, never a command
+    }
+    if (char === '#' && /[\s]/.test(previous)) {
+      comment = true;
+      previous = char;
+      continue;
     }
     if (char === "'" || char === '"') quote = char;
     bare += char;
+    previous = char;
   }
   return bare
-    .replace(/(^|\s)#.*$/gm, '$1')
     .split(/&&|\|\||;|\||\n/)
     .map((segment) => segment.trim().replace(/^\(\s*/, ''))
     .filter((segment) => segment !== '');

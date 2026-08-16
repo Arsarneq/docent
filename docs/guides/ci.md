@@ -297,8 +297,9 @@ as the rustfmt row's does.
 **CI-1.** The Clippy gate has ONE invocation: the workflow's clippy steps spell
 one command between them and run it from one directory. That invocation has one
 home — the command the Clippy row above carries, in its local-command cell,
-together with the directory that cell states it runs from — and the jobs that row
-names are exactly the jobs whose steps run it. Any OTHER document spelling the
+together with the directory that same cell states it runs from, in its
+`(from …)` form — and the jobs that row names are exactly the jobs whose steps
+run it. Any OTHER document spelling the
 command out spells it exactly as that row does; a document describing what the
 gate covers, this table's own Red-when cell included, cites this clause rather
 than restating its flags. The Clippy-invocation row above recomputes that

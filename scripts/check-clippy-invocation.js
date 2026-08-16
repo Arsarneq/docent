@@ -39,15 +39,21 @@
  * calls — is equally invisible, and the row leg would report the job carrying
  * it as one the workflow gives no clippy step. Where the two sides cannot be
  * compared faithfully the comparison is refused rather than guessed: the
- * segment model blanks quoted contents and a documentation span is read as
- * written, so a clippy command carrying a quote on either side is named and
- * refused. That test is the clippy command's own — a quote survives blanking as
- * the character it is — so a quoted argument to some OTHER command sharing the
- * step is none of this check's business and refuses nothing. The stated-invocation
+ * segment model blanks quoted contents, so a RUN LINE whose clippy command
+ * carries a quote is named and refused: what the workflow states there cannot
+ * be recovered to compare. That test is the clippy command's own — a quote
+ * survives blanking as the character it is — so a quoted argument to some other
+ * command sharing the step refuses nothing. A documentation span is read as
+ * written and needs no such refusal: with the run lines quote-free the two
+ * readings agree, so a quoted spelling there is an ordinary disagreement, and
+ * the register admits it like any other. The stated-invocation
  * leg reads tracked markdown only, on the view its fenced blocks are stripped
  * from, and only a span that OPENS with the command: the same command inside a
  * longer span, spelled without backticks, written inside a fence, or stated in
- * a non-markdown file is outside it — the conservative direction for a scan
+ * a non-markdown file is outside it — as is a bare flag standing on its own, a
+ * `--all-targets` or a `-D warnings` restating part of the invocation without
+ * naming the command, which is the form this slice's own prose carried in three
+ * places and repaired by hand — the conservative direction for a scan
  * whose register would otherwise have to carry every prose mention of the tool,
  * and the reason the span reader runs a line at a time, where a span's two
  * backticks are on one line or are not a span. Flags are compared as written:
@@ -221,15 +227,8 @@ export function statedInvocations(docs, read) {
   const stated = [];
   for (const doc of docs)
     for (const line of stripFences(read(doc)).split('\n'))
-      for (const span of backtickedTokens(line, { shape: opensWithCommand })) {
-        if (QUOTE_RE.test(span))
-          throw new InputError(
-            `${doc} states a clippy command carrying a quote (\`${span}\`) — the workflow and ` +
-              `documentation sides are read by different rules about quoting, so this check ` +
-              `refuses the comparison rather than making one of the two spellings un-greenable`,
-          );
+      for (const span of backtickedTokens(line, { shape: opensWithCommand }))
         stated.push({ doc, span: normalizeCommand(span) });
-      }
   return stated;
 }
 
@@ -333,9 +332,10 @@ export function treeSurfaces(root = ROOT) {
  * @returns {string[]}
  */
 export function checkClippyInvocation({ readFile, listMarkdown } = treeSurfaces()) {
-  /** Every read and parse this check makes, so a broken surface is machinery
-   *  breakage on its own exit code rather than a stack trace on the exit code a
-   *  real disagreement uses. */
+  /** Every read and every parse over what it returns, so a broken surface is
+   *  machinery breakage on its own exit code rather than a stack trace on the
+   *  exit code a real disagreement uses. A refusal raised deliberately inside
+   *  passes through as itself. */
   const surface = (what, take) => {
     try {
       return take();
@@ -345,15 +345,16 @@ export function checkClippyInvocation({ readFile, listMarkdown } = treeSurfaces(
     }
   };
 
-  const wf = surface(TEST_WORKFLOW_PATH, () => yaml.load(readFile(TEST_WORKFLOW_PATH)));
-  const sites = workflowClippySites(wf);
+  const sites = surface(TEST_WORKFLOW_PATH, () =>
+    workflowClippySites(yaml.load(readFile(TEST_WORKFLOW_PATH))),
+  );
   if (sites.length === 0)
     throw new InputError(
       `${TEST_WORKFLOW_PATH} states no \`${CLIPPY_COMMAND}\` step — the run lines this check ` +
         `reads the executed invocation from`,
     );
 
-  const row = clippyGateRow(surface(CI_DOC_PATH, () => readFile(CI_DOC_PATH)));
+  const row = surface(CI_DOC_PATH, () => clippyGateRow(readFile(CI_DOC_PATH)));
 
   const docs = surface('the tracked markdown listing', () => listMarkdown());
   if (!docs.includes(CI_DOC_PATH))

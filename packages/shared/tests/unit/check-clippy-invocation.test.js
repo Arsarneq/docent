@@ -216,6 +216,27 @@ describe('workflowClippySites', () => {
     ]);
   });
 
+  it('keeps the step visible when a shell comment on the line above carries an apostrophe', () => {
+    // The comment is dropped in the same pass as the quoting, so its apostrophe
+    // cannot open a quote over the command beneath it and hide the step.
+    const wf = {
+      jobs: {
+        'desktop-rust-tests': {
+          steps: [
+            {
+              name: 'Clippy',
+              'working-directory': CRATE,
+              run: `# don't skip the test targets\n${EXECUTED}\n`,
+            },
+          ],
+        },
+      },
+    };
+    assert.deepEqual(workflowClippySites(wf), [
+      { job: 'desktop-rust-tests', command: EXECUTED, directory: CRATE },
+    ]);
+  });
+
   it('reads a workflow with no jobs as no sites at all', () => {
     assert.deepEqual(workflowClippySites({}), []);
   });
@@ -382,9 +403,16 @@ describe('evaluate — the stated invocations', () => {
     assert.match(problem, /check-clippy-invocation\.js/);
   });
 
-  it('refuses a stated span carrying a quote, the same shape and the same reason', () => {
-    const docs = { 'a.md': `run \`${EXECUTED} -A "clippy::too_many_lines"\` from the crate` };
-    assert.throws(() => statedInvocations(Object.keys(docs), (d) => docs[d]), InputError);
+  it('reads a quoted spelling as a span like any other, for the register to admit or red', () => {
+    // With the run lines quote-free the two sides read alike, so a quoted
+    // documentation spelling is an ordinary disagreement — refusing it would put
+    // the natural suppression recipe beyond the register CI-1 promises.
+    const span = `${EXECUTED} -A "clippy::too_many_lines"`;
+    const docs = { 'a.md': `run \`${span}\` from the crate` };
+    assert.deepEqual(
+      statedInvocations(Object.keys(docs), (d) => docs[d]),
+      [{ doc: 'a.md', span }],
+    );
   });
 
   it('reds on a registered exception no document states any more', () => {
@@ -427,6 +455,25 @@ describe('checkClippyInvocation — the refusals', () => {
         checkClippyInvocation(
           surfaces({ workflow: 'jobs:\n  lint:\n    steps:\n      - run: npm ci\n', ciDoc: gatesDoc() }), // prettier-ignore
         ),
+      InputError,
+    );
+  });
+
+  it('refuses a parse that throws, not only a read — a `run:` scalar that is not a string', () => {
+    const workflow = [
+      'jobs:',
+      '  desktop-rust-tests:',
+      '    steps:',
+      '      - run: 42',
+      `      - working-directory: ${CRATE}`,
+      `        run: ${EXECUTED}`,
+    ].join('\n');
+    assert.throws(
+      () =>
+        checkClippyInvocation({
+          readFile: (path) => (path === TEST_WORKFLOW_PATH ? workflow : gatesDoc()),
+          listMarkdown: () => [CI_DOC_PATH],
+        }),
       InputError,
     );
   });
