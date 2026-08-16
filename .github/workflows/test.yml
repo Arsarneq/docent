@@ -35,7 +35,14 @@ env:
   NODE_VERSION: '24'
 
 jobs:
+  # Jobs below, and some individual steps, carry a `timeout-minutes` bound. A
+  # bound is a ceiling, not a budget: it caps how long the work under it can
+  # run, and it sits above what that work has been measured to take on `main`.
+  # Where a number rests on something those measurements do not show on their
+  # own, the note beside it says so. Raising one is an edit to its own line.
+
   changes:
+    timeout-minutes: 10
     runs-on: ubuntu-latest
     outputs:
       extension: ${{ steps.filter.outputs.extension }}
@@ -143,6 +150,7 @@ jobs:
 
   lint:
     needs: [changes]
+    timeout-minutes: 15
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -362,6 +370,11 @@ jobs:
         run: cargo fmt --check ${{ runner.debug == '1' && '-- --verbose' || '' }}
 
   dependency-audit:
+    # Sized for the run the observed sample does not contain: the one where a
+    # cargo-deny cache miss adds a `cargo install` to this job. That install is
+    # skipped on every sampled run, so there is no measured step duration to
+    # size a step bound from — this job's own bound covers it instead.
+    timeout-minutes: 20
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -440,6 +453,7 @@ jobs:
       github.event_name == 'release' ||
       github.event_name == 'push' ||
       github.event_name == 'workflow_dispatch'
+    timeout-minutes: 15
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -516,6 +530,7 @@ jobs:
           needs.changes.outputs.buildScripts == 'true')) ||
       ((github.event_name == 'release' || github.event_name == 'workflow_dispatch') &&
         (inputs.platform == '' || inputs.platform == 'extension'))
+    timeout-minutes: 40
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -565,8 +580,14 @@ jobs:
           path: ~/.cache/ms-playwright
           key: ${{ runner.os }}-playwright-${{ hashFiles('packages/extension/tests/e2e/package-lock.json') }}
 
+      # This step spends most of the job's budget, so it carries a bound of its
+      # own: inside the job bound alone, a browser that stops responding
+      # mid-suite is indistinguishable from a suite that is merely slow. Sized
+      # against this step's own observed maximum, whose run-to-run spread the
+      # margin has to leave room above.
       - name: Run Playwright tests
         working-directory: packages/extension/tests/e2e
+        timeout-minutes: 25
         run: xvfb-run npx playwright test
 
       # Superset of truth production: the vectors config also produces the
@@ -644,17 +665,49 @@ jobs:
           toolchain: stable
           components: llvm-tools-preview
 
+      # The path follows the sibling tool caches — cargo-mutants in
+      # mutation.yml and cargo-deny in the dependency-audit job above — and
+      # spells `.exe` because this job's matrix runs on Windows runners, where
+      # `cargo install` produces `cargo-llvm-cov.exe`. So it names the file the
+      # install actually leaves behind, and it tracks the matrix: a leg on
+      # another platform needs a path matching what that platform's install
+      # writes. The path is what decides whether anything is saved at all: one
+      # naming no existing file makes the post-job save a no-op and every later
+      # restore a miss, so the tool is re-fetched and re-compiled on every run.
+      # (cargo-mutants spells the suffix for the same reason; the Linux-only
+      # cargo-deny cache needs none.)
+      #
+      # The key's version segment names the version the install below pins,
+      # after cargo-deny, whose segment and pin state the same version. That is
+      # what keeps the segment truthful — the binary a hit serves is the one
+      # the segment claims — and moving to a new release is then one deliberate
+      # edit to both, with the changed key making that release refetch.
       - name: Cache cargo-llvm-cov
         id: cache-llvm-cov
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
-          path: ~/.cargo/bin/cargo-llvm-cov
-          key: ${{ runner.os }}-cargo-llvm-cov-0.6
+          path: ~/.cargo/bin/cargo-llvm-cov.exe
+          key: ${{ runner.os }}-cargo-llvm-cov-0.8.7
 
+      # Reaches crates.io and compiles, so it carries a bound of its own, sized
+      # against this step's observed maximum — a registry that stops answering
+      # ends here, well inside the job's own cap.
       - name: Install cargo-llvm-cov
         if: steps.cache-llvm-cov.outputs.cache-hit != 'true'
-        run: cargo install cargo-llvm-cov
+        timeout-minutes: 15
+        run: cargo install cargo-llvm-cov --version 0.8.7 --locked
 
+      # The key pins the entry to the current lockfile; `restore-keys` adds the
+      # fallback the run takes when that key is new. Candidates come only from
+      # entries saved under this same path list, so what the prefix can reach
+      # is this platform's cargo trees: earlier lockfile generations of this
+      # key, which several jobs write, and — since the key carries no family
+      # segment to stay inside — the cross-compile job's trees as well. What
+      # any of them reliably supplies is a populated registry; the target
+      # directory it carries was built by whichever job saved it, so cargo
+      # revalidates that rather than trusting it. The floor is the cold start a
+      # bare key gives. A save always writes the exact key, so each lockfile
+      # still gets its own full entry.
       - name: Cache cargo registry and build
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
@@ -663,6 +716,7 @@ jobs:
             ~/.cargo/git
             packages/desktop/src-tauri/target
           key: ${{ runner.os }}-cargo-${{ hashFiles('packages/desktop/src-tauri/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-
 
       - name: Create frontend dist directory
         working-directory: packages/desktop
@@ -774,6 +828,7 @@ jobs:
           needs.changes.outputs.buildScripts == 'true')) ||
       ((github.event_name == 'release' || github.event_name == 'workflow_dispatch') &&
         (inputs.platform == '' || inputs.platform == 'desktop'))
+    timeout-minutes: 15
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -845,6 +900,8 @@ jobs:
         with:
           toolchain: stable
 
+      # Same key and fallback posture as the desktop-rust-tests cargo cache,
+      # which carries the reasoning for both.
       - name: Cache cargo registry and build
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
@@ -853,6 +910,7 @@ jobs:
             ~/.cargo/git
             packages/desktop/src-tauri/target
           key: ${{ runner.os }}-cargo-${{ hashFiles('packages/desktop/src-tauri/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-
 
       - name: Create frontend dist directory
         working-directory: packages/desktop
@@ -891,6 +949,7 @@ jobs:
           needs.changes.outputs.buildScripts == 'true')) ||
       ((github.event_name == 'release' || github.event_name == 'workflow_dispatch') &&
         (inputs.platform == '' || inputs.platform == 'desktop'))
+    timeout-minutes: 15
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -977,10 +1036,24 @@ jobs:
       # Tauri's Linux build links against WebKitGTK/GTK; these dev packages must
       # be present for `cargo check` to resolve the tauri build script.
       # (macOS uses the system WebKit — no install needed.)
+      #
+      # The index refresh is wrapped in the retry loop the actionlint image
+      # pull already uses: re-running it asks for the same state, so a repeat
+      # is honest, and a refresh still failing on the last attempt fails the
+      # step. The package install that follows runs once — retrying it would be
+      # defensible on the same grounds, and retrying the refresh alone is the
+      # narrower move taken here. The step bound covers both legs, sized
+      # against this step's observed maximum, so a mirror that stops answering
+      # ends the step here rather than consuming the job's whole cap.
       - name: Install Linux system dependencies
         if: matrix.os == 'ubuntu-latest'
+        timeout-minutes: 10
         run: |
-          sudo apt-get update
+          for i in 1 2 3; do
+            sudo apt-get update && break
+            if [ "$i" = 3 ]; then echo "::error::apt-get update failed after 3 attempts"; exit 1; fi
+            echo "apt-get update failed (attempt $i) — retrying in 5s…"; sleep 5
+          done
           sudo apt-get install -y \
             libwebkit2gtk-4.1-dev \
             build-essential \
@@ -1006,6 +1079,13 @@ jobs:
             ~/.cargo/git
             packages/desktop/src-tauri/target
           key: ${{ runner.os }}-cargo-xcompile-${{ hashFiles('packages/desktop/src-tauri/Cargo.lock') }}
+          # This key carries a family segment, so the prefix stays inside it: a
+          # lockfile bump warm-starts from the previous cross-compile entry — a
+          # tree built by the same command on the same platform — leaving this
+          # platform's other cargo trees out of the fallback. As at the
+          # desktop-rust-tests cache, the save still writes the exact key, so
+          # each lockfile gets its own full entry either way.
+          restore-keys: ${{ runner.os }}-cargo-xcompile-
 
       - name: Create frontend dist directory
         shell: bash
@@ -1032,6 +1112,7 @@ jobs:
           needs.changes.outputs.buildScripts == 'true')) ||
       ((github.event_name == 'release' || github.event_name == 'workflow_dispatch') &&
         (inputs.platform == '' || inputs.platform == 'desktop'))
+    timeout-minutes: 20
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -1117,6 +1198,7 @@ jobs:
       github.event_name == 'release' ||
       github.event_name == 'push' ||
       github.event_name == 'workflow_dispatch'
+    timeout-minutes: 15
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -1165,6 +1247,7 @@ jobs:
       - desktop-rust-tests
       - desktop-integration-tests
     if: always()
+    timeout-minutes: 15
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -1279,6 +1362,7 @@ jobs:
   # documented in .github/zizmor.yml; anything new fails the gate. The tool
   # version is pinned so a zizmor release can't surprise-break CI.
   zizmor:
+    timeout-minutes: 10
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -1295,6 +1379,7 @@ jobs:
   # local `docker run rhysd/actionlint` check; intentional shellcheck exceptions
   # are annotated inline with `# shellcheck disable=…`.
   actionlint:
+    timeout-minutes: 10
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -1314,6 +1399,7 @@ jobs:
           docker run --rm -v "$PWD:/repo" --workdir /repo "$img" -color
 
   ci-gate:
+    timeout-minutes: 10
     runs-on: ubuntu-latest
     if: always()
     needs:
