@@ -52,8 +52,7 @@
  * longer span, spelled without backticks, written inside a fence, or stated in
  * a non-markdown file is outside it — as is a bare flag standing on its own, a
  * `--all-targets` or a `-D warnings` restating part of the invocation without
- * naming the command, which is the form this slice's own prose carried in three
- * places and repaired by hand — the conservative direction for a scan
+ * naming the command — the conservative direction for a scan
  * whose register would otherwise have to carry every prose mention of the tool,
  * and the reason the span reader runs a line at a time, where a span's two
  * backticks are on one line or are not a span. Flags are compared as written:
@@ -118,12 +117,14 @@ const EXPRESSION_RE = /\$\{\{[\s\S]*?\}\}/g;
 const STATED_DIRECTORY_RE = /\(from\s+`([^`]+)`\)/;
 
 /**
- * A quote surviving expression-stripping. The workflow side reads a step through
- * the neighbour's shell-segment model, which blanks quoted CONTENTS by design;
- * a documentation span is read as written. Rather than compare two texts read
- * by different rules — where a quoted flag argument would make the truthful
- * statement red and a hollowed one green — a clippy command carrying a quote on
- * either side is refused by name.
+ * A quote surviving expression-stripping, tested against a RUN LINE's clippy
+ * command alone. The workflow side reads a step through the neighbour's
+ * shell-segment model, which blanks quoted CONTENTS by design, so what a quoted
+ * run line states cannot be recovered to compare — a quoted flag argument there
+ * would make the truthful documentation red and a hollowed spelling green, and
+ * the run line is refused by name instead. A documentation span is read as
+ * written, so with the run lines quote-free the two readings agree and a quoted
+ * spelling there is an ordinary disagreement the register can admit.
  */
 const QUOTE_RE = /['"]/;
 

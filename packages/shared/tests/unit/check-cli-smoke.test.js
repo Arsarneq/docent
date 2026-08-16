@@ -145,9 +145,10 @@ describe('check-script CLI smoke (deterministic green paths)', () => {
   it('check-clippy-invocation: the committed guides state the invocation CI runs', () => {
     // No env pinned: this check and its import closure (the doc-closure gate's
     // table and step readers, the path-filter's job reader, and the
-    // test-inventory tokenizer) read no process.env. Its externals are the YAML
-    // parser it loads the workflow through and the `git ls-files` the shared
-    // tracked-file reader shells out to, neither of which reads one either.
+    // test-inventory tokenizer) read no process.env, which is the read-set this
+    // suite's rule is about. Its tracked-file reader shells out to
+    // `git ls-files`, which answers to git's own environment — that sits outside
+    // the rule rather than under it, and nothing here pins it.
     const out = runScript('check-clippy-invocation.js');
     assert.match(out, /clippy invocation single-sourced/);
   });
