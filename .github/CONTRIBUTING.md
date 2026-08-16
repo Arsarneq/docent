@@ -195,8 +195,9 @@ coverage is measured and sliced is in
 
 ### Single-source logic
 
-The first two rules below are JavaScript-specific, and say so; the third binds
-every surface this repository tracks — code in any language, and prose.
+Pure-logic extraction and the mirrored capture block are JavaScript's own, and
+name the JavaScript surfaces they govern; cite-the-owner binds every surface
+this repository tracks — code in any language, and prose.
 
 - **Pure-logic extraction.** Logic that needs unit testing without a live
   platform is extracted into a pure module — plain data in and out, no
@@ -236,8 +237,8 @@ every surface this repository tracks — code in any language, and prose.
 
 ### Rust
 
-- The cite-the-owner rule above binds this tree too — `(DCP-12)` in the capture
-  crate is its in-tree example
+- [Cite the owner of a fact you do not own](#single-source-logic) binds this
+  tree as it binds the others
 - Follow standard Rust conventions (`rustfmt`, `clippy`)
 - `snake_case` for functions and variables, `CamelCase` for types
 - Use `thiserror` for error types
