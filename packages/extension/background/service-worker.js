@@ -24,8 +24,7 @@
  *   activeProjectId    — project currently open in the panel
  *   activeRecordingId  — recording currently being recorded
  *   recording          — whether the content script should capture events
- *   pendingActions[]   — actions captured since last step boundary (written
- *                        only by this worker)
+ *   pendingActions[]   — actions captured since last step boundary
  *   pendingCount       — length of pendingActions (for panel commit button)
  *
  * This file is part of Docent.
@@ -169,8 +168,8 @@ chrome.runtime.onInstalled.addListener(async ({ reason }) => {
 
   // Rehydrate the storage-quota gate (#127) so an MV3 suspension doesn't silently
   // forget the user's "keep recording" override or the warn hysteresis — otherwise
-  // capture would re-pause on the next wake. (Only the SW writes this key, so the
-  // stored value is the SW's own last state.)
+  // capture would re-pause on the next wake. (This worker is the key's writer —
+  // extension runtime ERT-3 — so the stored value is its own last state.)
   const quota = stored[STORAGE_QUOTA_KEY];
   if (quota) {
     userOverride = quota.override === true;

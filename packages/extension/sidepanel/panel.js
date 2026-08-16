@@ -240,8 +240,8 @@ function send(message) {
 }
 
 // ─── SW restart recovery ──────────────────────────────────────────────────────
-// pendingActions live in chrome.storage.local (written by the content
-// script directly), so they survive SW suspension. The panel watches
+// pendingActions live in chrome.storage.local (writer: the service worker —
+// extension runtime ERT-3), so they survive SW suspension. The panel watches
 // pendingCount from local storage to keep the commit button in sync.
 adapter.onPendingCountChange((count) => {
   pendingCount = count;

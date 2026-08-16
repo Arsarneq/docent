@@ -1123,9 +1123,9 @@ async function commitStepSimple(logicalId) {
     const wasRecording = isRecording;
 
     if (isRecording) {
-      // Stop capture and run the fused in-order flush barrier in one call: wait
-      // for its delivery sentinel so every action drained on stop is inserted
-      // before we collect this step (docent#298).
+      // Stop capture and run the fused in-order flush barrier in one call, so
+      // every action drained on stop is inserted before we collect this step
+      // (docent#298; desktop capture-principles DCP-2 owns the guarantee).
       await stopWithCompleteness();
       isRecording = false;
     } else {
@@ -1212,9 +1212,9 @@ async function commitStep(inputEl, source, logicalId) {
     const wasRecording = isRecording;
 
     if (isRecording) {
-      // Stop capture and run the fused in-order flush barrier in one call: wait
-      // for its delivery sentinel so every action drained on stop is inserted
-      // before we collect this step (docent#298).
+      // Stop capture and run the fused in-order flush barrier in one call, so
+      // every action drained on stop is inserted before we collect this step
+      // (docent#298; desktop capture-principles DCP-2 owns the guarantee).
       await stopWithCompleteness();
       isRecording = false;
     } else {

@@ -93,16 +93,13 @@ function _notifyPendingCount() {
 }
 
 // ─── Ordered Insertion ────────────────────────────────────────────────────────
-// Events from the worker pool may arrive out of order due to variable
-// accessibility query times. Instead of holding events in a buffer until
-// gaps are filled (which causes lag), we deliver every event immediately
-// and insert it at the correct position in the pending actions list based
-// on its sequence_id. This means the UI updates instantly — no waiting
-// for slow workers. The final committed step always has correct order.
+// The frontend half of ordered insertion (desktop capture-principles DCP-2),
+// which owns the guarantee and its bounds. What lives here is the mechanism:
+// every event is delivered immediately and spliced into the pending list by its
+// sequence_id, searching from the end because events mostly arrive in order.
 
-// The step-commit flush barrier (docent#298) confirms delivery via a
-// `barrier_complete` sentinel the backend emits LAST on the capture:action
-// stream. `_barrierResolvers` holds the waiter for an in-flight commit keyed by
+// The waiter bookkeeping behind that barrier (DCP-2 states what the sentinel
+// is): `_barrierResolvers` holds the waiter for an in-flight commit keyed by
 // barrier id; a sentinel that arrives before its waiter is registered is parked
 // in `_seenBarriers`. Every `stop_capture` now runs the barrier (the flush is
 // fused into stop), so a non-commit stop (re-record/cancel) emits a sentinel no
@@ -177,13 +174,11 @@ function _insertOrdered(action) {
 }
 
 // ─── Completeness Guarantee ───────────────────────────────────────────────────
-// On step commit, run the backend flush barrier (docent#298): the Rust worker
-// pool drains every worker's completed-but-held actions into this same
-// capture:action stream and then emits a `barrier_complete` sentinel LAST.
-// Waiting for that sentinel — not merely for the command to return — guarantees
-// every drained action has already been inserted before we collect the step
-// (the command-return and event-emit IPC channels have no mutual ordering).
-// Then strip the internal _seq fields from all pending actions.
+// The frontend half of the step-commit flush barrier (docent#298; desktop
+// capture-principles DCP-2 states the guarantee and why the wait is on the
+// stream rather than on the command). What lives here: wait for the
+// `barrier_complete` sentinel the backend emits last on the capture:action
+// stream, then strip the internal _seq fields from all pending actions.
 
 /** Resolve (or park) the delivery sentinel for a completed barrier. */
 function _resolveBarrier(barrierId) {
@@ -267,12 +262,9 @@ async function _completeBarrier(report) {
 }
 
 // Stop capture AND run the in-order commit flush barrier atomically in the
-// backend (docent#298): `stop_capture` drains every worker's completed-but-held
-// actions behind this step's events and emits the `barrier_complete` sentinel
-// last, returning its report. Waiting for that sentinel — not merely for the
-// command to return — guarantees every drained action was inserted before the
-// step is collected (the command-return and event-emit IPC channels have no
-// mutual ordering). This is the completeness path for a commit while recording.
+// backend (docent#298): `stop_capture` drains behind this step's events and
+// returns the barrier report this waits on, per DCP-2. This is the completeness
+// path for a commit while recording.
 async function stopWithCompleteness() {
   await _completeBarrier(await invoke('stop_capture'));
 }
