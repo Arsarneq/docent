@@ -17,6 +17,11 @@ env:
 
 jobs:
   suggest:
+    # A ceiling, not a budget. A full-history checkout, a Node setup, a
+    # dependency install, and one read-only script — measured runs complete in
+    # seconds. The bound sits far above that, so what it ends is a job stalled on
+    # the clone or on the package registry.
+    timeout-minutes: 15
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

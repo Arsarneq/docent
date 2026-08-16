@@ -23,6 +23,12 @@ jobs:
   # the reusable test.yml; `publish` needs it, so a release can never publish
   # with red tests. Guarded by the same tag check so a desktop-v* release doesn't
   # spin the suite here for nothing.
+  #
+  # This job carries no `timeout-minutes` of its own, unlike the one below it: a
+  # job that calls a reusable workflow accepts a fixed set of keys, and that is
+  # not among them — actionlint rejects the file outright when it is added here.
+  # Whatever bounds this work is therefore whatever the called workflow's own
+  # jobs carry.
   test:
     if: github.event_name == 'workflow_dispatch' || startsWith(github.event.release.tag_name, 'extension-v')
     uses: ./.github/workflows/test.yml
@@ -34,6 +40,12 @@ jobs:
   publish:
     needs: [test]
     if: github.event_name == 'workflow_dispatch' || startsWith(github.event.release.tag_name, 'extension-v')
+    # A ceiling, not a budget. The steps below reach the npm registry, the
+    # GitHub API, and — on a final release — the Chrome Web Store. The store
+    # calls carry per-call caps of their own, and this bound sits above what
+    # those caps could add up to alongside the rest of the job, whose measured
+    # runs complete in seconds.
+    timeout-minutes: 30
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -188,11 +200,25 @@ jobs:
             --exclude 'package-lock.json' \
             --exclude 'tests/*'
 
+      # Each call below carries a total cap and a connect cap, so a store that
+      # accepts a connection and then stops answering ends that call rather than
+      # holding the job to its own bound. Both caps sit far above what this step
+      # has been measured to take. An expired cap exits curl non-zero, and this
+      # step takes the Linux runner's default shell, `bash -e`, so the step ends
+      # right there — the response checks below are never reached, and no call is
+      # treated as having succeeded.
+      #
+      # No call retries. When one of these calls ends without a reply, the step
+      # cannot tell how far it got, and repeating a request the store may already
+      # have acted on is not a decision this workflow is in a position to make.
+      # So every call gets one attempt and a cap, and a failure is left to the
+      # maintainer to resolve with the store dashboard in view — which is what
+      # the release guide's re-run advice points at.
       - name: Upload to Chrome Web Store
         if: steps.mode.outputs.value == 'final'
         run: |
           # Get access token from refresh token
-          TOKEN_RESPONSE=$(curl -s -X POST https://oauth2.googleapis.com/token \
+          TOKEN_RESPONSE=$(curl -s --max-time 300 --connect-timeout 30 -X POST https://oauth2.googleapis.com/token \
             -d "client_id=${{ secrets.CHROME_CLIENT_ID }}" \
             -d "client_secret=${{ secrets.CHROME_CLIENT_SECRET }}" \
             -d "refresh_token=${{ secrets.CHROME_REFRESH_TOKEN }}" \
@@ -208,6 +234,8 @@ jobs:
           # Upload the zip
           echo "Uploading extension.zip to Chrome Web Store..."
           UPLOAD_RESPONSE=$(curl -s \
+            --max-time 300 \
+            --connect-timeout 30 \
             -X PUT \
             -H "Authorization: Bearer $ACCESS_TOKEN" \
             -H "x-goog-api-version: 2" \
@@ -227,6 +255,8 @@ jobs:
           # Publish
           echo "Publishing extension..."
           PUBLISH_RESPONSE=$(curl -s \
+            --max-time 300 \
+            --connect-timeout 30 \
             -X POST \
             -H "Authorization: Bearer $ACCESS_TOKEN" \
             -H "x-goog-api-version: 2" \
