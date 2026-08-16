@@ -169,6 +169,14 @@ async function appendStepOnServer(id, recId) {
   assert.ok(res.status === 200 || res.status === 201, `server PUT ${res.status}`);
 }
 
+/** Add an unrecognized top-level field to the server's stored payload. */
+async function addTopLevelFieldOnServer(id, field, value) {
+  const payload = await serverProject(id);
+  payload[field] = value;
+  const res = await request(server.baseUrl, 'PUT', `/projects/${id}`, { body: payload });
+  assert.ok(res.status === 200 || res.status === 201, `server PUT ${res.status}`);
+}
+
 // ─── Scenarios ────────────────────────────────────────────────────────────────
 
 describe('client ↔ real server: sync lifecycle', () => {
@@ -190,6 +198,59 @@ describe('client ↔ real server: sync lifecycle', () => {
     assert.deepEqual(c2.result.review, []);
     assert.deepEqual(c2.result.pushed, [], 'converged project is not re-pushed');
     assert.ok((await loadSyncState(store)).baselines[PID], 'baseline recorded on agreement');
+  });
+
+  it('a server-added top-level field is preserved until a client push replaces it', async () => {
+    // The Sync Protocol's forward-compatibility rule (sync-protocol SP-5) states
+    // both halves of this against a real server: the server stores and returns
+    // an unrecognized top-level field verbatim (SP-1), the client tolerates it
+    // on pull, and any push of that project writes a payload built without it.
+    // The shared unit suites pin the client's two halves against a mocked fetch;
+    // this pins the sentence a server author actually reads, against the
+    // implementation they are invited to copy.
+    const store = makeStore();
+    const settled = await converge(store, [freshProject()]);
+
+    await addTopLevelFieldOnServer(PID, 'x_future_protocol_field', { added_by: 'a later version' });
+    assert.deepEqual(
+      (await serverProject(PID)).x_future_protocol_field,
+      { added_by: 'a later version' },
+      'the server stores and returns the unrecognized field verbatim (SP-1)',
+    );
+
+    // The "preserved until" half: a converged cycle writes nothing, and the
+    // added field survives it. Adding the field is not itself a change the
+    // client can observe — the pull drops it on the known-field projection
+    // before the content comparison that decides whether to push (SP-13) — so
+    // it never triggers the push that would clear it.
+    const idle = await runCycle(store, settled);
+    assert.deepEqual(idle.result.pushed, [], 'a converged cycle writes nothing');
+    assert.deepEqual(
+      (await serverProject(PID)).x_future_protocol_field,
+      { added_by: 'a later version' },
+      'the added field survives a cycle that pushes nothing (SP-5)',
+    );
+
+    // Now a local edit, so the NEXT cycle has something to write.
+    const edited = deep(settled);
+    edited[0].recordings[0].name = 'renamed locally';
+
+    const cycle = await runCycle(store, edited);
+    assert.deepEqual(cycle.result.errors, [], 'the added field is not an error on pull (SP-5)');
+    assert.deepEqual(cycle.result.conflicts, [], 'the added field is not a conflict');
+    assert.ok(cycle.result.pushed.includes(PID), 'the project was pushed');
+
+    const afterPush = await serverProject(PID);
+    assert.deepEqual(
+      Object.keys(afterPush).sort(),
+      ['docent_format', 'project', 'recordings'],
+      'the pushed payload replaced the stored one, so the added field is gone (SP-5)',
+    );
+    assert.equal(
+      afterPush.recordings[0].name,
+      'renamed locally',
+      'and the replacement is the reconciled local state, not a no-op write',
+    );
   });
 
   it('server-only change surfaces a REVIEW (not a conflict) and does not push', async () => {

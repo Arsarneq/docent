@@ -12,11 +12,10 @@
  * server on this very cycle, without a prompt and without advancing the baseline
  * (the baseline advances only when a later pull confirms incoming == local).
  *
- * (sync-protocol SP-13): "For any sync cycle, a Unit classified
- * `changed-local-outgoing` has its local version included in the push, and no
- * Unit in an unresolved Conflict or pending Review state has its local version
- * pushed; a project with no pushable, deferred, or locked unit requiring a write
- * is not pushed at all."
+ * Per sync-protocol SP-13: a Unit classified `changed-local-outgoing` is
+ * pushable and sent at its local version; a deferred (review or conflict) Unit
+ * is never sent at its un-reconciled local edits; and a project with nothing
+ * to write is skipped rather than re-sending an unchanged payload.
  *
  * ── What this property pins (and how it differs from per-unit-push-assembly) ──
  * (`per-unit-push-assembly`) pins the COMPLETENESS of the assembled

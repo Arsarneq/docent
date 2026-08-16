@@ -360,7 +360,20 @@
       "doc": "docs/technical/session-format.md",
       "clause": "SF-13",
       "tag": "checkable",
-      "check-ref": "Intended: a test pinning the unavailable-validator degradation (logged, unvalidated import) and the validate-before-persist ordering (not built). Existing coverage: the bounds, bounds-before-validation order, and validator delegation are pinned by packages/shared/tests/unit/validate-import.test.js; the stamp const gate by the composed-schema tests (packages/shared/tests/unit/schema-composition.test.js); the sync-pull half's known-field-projection scope by the regression_429_ cases in packages/shared/tests/unit/sync-client.test.js; all run via npm run test:shared."
+      "check-ref": "Intended: a test pinning the unavailable-validator degradation (logged, unvalidated import) and the validate-before-persist ordering (not built). Existing coverage: the bounds, bounds-before-validation order, and validator delegation are pinned by packages/shared/tests/unit/validate-import.test.js; the stamp const gate by the composed-schema tests (packages/shared/tests/unit/schema-composition.test.js); the sync-pull half's known-field-projection scope by the regression_429_ cases named in this row's test-cases, in packages/shared/tests/unit/sync-client.test.js; all run via npm run test:shared.",
+      "test-cases": [
+        "rejects a payload over maxBytes before validating",
+        "accepts a payload within maxBytes",
+        "rejects a payload nested deeper than maxDepth",
+        "accepts a payload within maxDepth",
+        "returns valid when the validator passes",
+        "returns the validator errors, formatted, when it fails",
+        "composer pins docent_format platform + schema_version consts per platform",
+        "regression_429_bounds_measure_the_projection_on_pull",
+        "regression_429_unknown_field_with_stamp_mismatch_still_skipped",
+        "regression_429_unknown_field_with_invalid_known_field_still_skipped",
+        "regression_429_absent_known_field_stays_absent_through_the_projection"
+      ]
     },
     {
       "doc": "docs/technical/session-format.md",
@@ -583,7 +596,7 @@
       "doc": "docs/api/sync-protocol.md",
       "clause": "SP-1",
       "tag": "check-exists",
-      "check-ref": "The reference server integration suite pins store-and-return-verbatim and no-server-side-state (reference-implementations/sync-server/tests/integration/protocol.test.js, reference-implementations/sync-server/tests/integration/round-trip.test.js; run by the server package test script in CI)."
+      "check-ref": "The reference server integration suite pins the opaque store-and-return contract — the payload is stored as received (this server adds nothing at storage time) and returned as stored — and that the server holds no conflict state of its own (reference-implementations/sync-server/tests/integration/protocol.test.js, reference-implementations/sync-server/tests/integration/round-trip.test.js; run by the server package test script in CI)."
     },
     {
       "doc": "docs/api/sync-protocol.md",
@@ -601,13 +614,26 @@
       "doc": "docs/api/sync-protocol.md",
       "clause": "SP-4",
       "tag": "check-exists",
-      "check-ref": "PUT semantics (path/body id match, verbatim replacement, 200/201) are pinned by reference-implementations/sync-server/tests/integration/protocol.test.js and reference-implementations/sync-server/tests/integration/round-trip.test.js."
+      "check-ref": "PUT semantics (path/body id match, whole-project replacement of the stored copy, 200/201) are pinned on a server that adds nothing at storage time by reference-implementations/sync-server/tests/integration/protocol.test.js and reference-implementations/sync-server/tests/integration/round-trip.test.js."
     },
     {
       "doc": "docs/api/sync-protocol.md",
       "clause": "SP-5",
       "tag": "check-exists",
-      "check-ref": "The tolerance is pinned against both platforms' real generated validators by the regression_429_unknown_top_level_field_accepted_on_pull_extension and regression_429_unknown_top_level_field_accepted_on_pull_desktop_windows cases in packages/shared/tests/unit/sync-client.test.js: a pulled payload carrying an unrecognized top-level field is accepted, and its reconstructed project is the one the same payload without that field yields. That the tolerance leaves the pull's own gates as strict as they were — the stamp check, a violation inside a known field, and a known field the payload omits — is pinned by the regression_429_unknown_field_with_stamp_mismatch_still_skipped, regression_429_unknown_field_with_invalid_known_field_still_skipped, and regression_429_absent_known_field_stays_absent_through_the_projection cases in the same file (npm run test:shared)."
+      "check-ref": "Held by the cases listed below, run by npm run test:shared, plus the reference server's client-lifecycle integration suite (reference-implementations/sync-server/tests/integration/client-lifecycle.test.js, run by its own npm test). In packages/shared/tests/unit/sync-client.test.js: the tolerance is pinned against both platforms' real generated validators — a pulled payload carrying an unrecognized top-level field is accepted and reconstructs to the project the same payload without that field yields — and the pull's own gates stay as strict as they were, the stamp check, a violation inside a known field, a known field the payload omits, and a body that is not an object skipping only its own project. The same file pins the push half on the direct-caller path over arbitrary generated projects, including that a metadata key is carried when the source has one, empty included, and never materialized when it does not; welds the names the pull projection copies to the names a push body carries, recovering the projection's own key literal by recording the names it reads, over the access traps a reader can go through, rather than inferring it from a chosen input — the recorder is what sees a name added to the projection alone, and its reach is the set of traps it installs, so trimming one reopens the gap it closed; and composes both halves end-to-end through sync() with a durable store and a live-state adapter — the graded branch shipped clients take — over a baseline seeded to the project the served payload reconstructs to. In packages/shared/tests/unit/placement-contract.test.js: the push half on the assembly path sync() drives. In the client-lifecycle suite: the whole rule against a real server, which stores the added field verbatim, tolerates it on pull, and loses it to the next push of that project.",
+      "test-cases": [
+        "regression_429_unknown_top_level_field_accepted_on_pull_desktop_windows",
+        "regression_429_unknown_top_level_field_accepted_on_pull_extension",
+        "regression_429_unknown_field_with_stamp_mismatch_still_skipped",
+        "regression_429_unknown_field_with_invalid_known_field_still_skipped",
+        "regression_429_absent_known_field_stays_absent_through_the_projection",
+        "the pushed body is a Full_Project_Payload carrying no conflict/baseline/review fields",
+        "payload matches Full_Project_Payload shape (property-based)",
+        "regression_429_server_added_field_does_not_survive_pull_edit_push",
+        "regression_429_pull_projection_and_push_body_name_the_same_fields",
+        "regression_429_null_per_project_body_skips_only_that_project",
+        "a server-added top-level field is preserved until a client push replaces it"
+      ]
     },
     {
       "doc": "docs/api/sync-protocol.md",
@@ -625,13 +651,17 @@
       "doc": "docs/api/sync-protocol.md",
       "clause": "SP-8",
       "tag": "check-exists",
-      "check-ref": "The stamp gate (skip-and-report, never a conflict, per-project) is pinned by packages/shared/tests/unit/stamp-compatibility.test.js; pulled-payload schema validation (invalid is an error, never a conflict, per-project) by packages/shared/tests/unit/safeguard-composition.property.test.js; that what the validator is handed is the payload's known-field projection, carrying each known field through as sent, by the regression_429_ cases in packages/shared/tests/unit/sync-client.test.js (npm run test:shared)."
+      "check-ref": "The stamp gate (skip-and-report, never a conflict, per-project) is pinned by packages/shared/tests/unit/stamp-compatibility.test.js; pulled-payload schema validation (invalid is an error, never a conflict, per-project) by packages/shared/tests/unit/safeguard-composition.property.test.js; that what the validator is handed is the payload's known-field projection, carrying each known field through as sent, by the pull-side regression_429_ cases in packages/shared/tests/unit/sync-client.test.js (npm run test:shared)."
     },
     {
       "doc": "docs/api/sync-protocol.md",
       "clause": "SP-9",
       "tag": "check-exists",
-      "check-ref": "The digest-based classification is pinned by packages/shared/tests/unit/classify-decision-table.property.test.js and packages/shared/tests/unit/classify-deterministic.property.test.js (npm run test:shared)."
+      "check-ref": "The digest-based classification is pinned by packages/shared/tests/unit/classify-decision-table.property.test.js and packages/shared/tests/unit/classify-deterministic.property.test.js (npm run test:shared). That the digest copies an allowlisted field's presence rather than defaulting it — an absent metadata and an empty one being distinct inputs, while values are canonicalized — is pinned in packages/shared/tests/unit/digest-unrecognized-fields.property.test.js (npm run test:shared).",
+      "test-cases": [
+        "an absent metadata and an empty one are distinct digest inputs",
+        "the same content in two key insertion orders digests identically"
+      ]
     },
     {
       "doc": "docs/api/sync-protocol.md",

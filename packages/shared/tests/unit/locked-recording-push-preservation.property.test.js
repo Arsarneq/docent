@@ -3,9 +3,9 @@
  * outbound-push preservation of a Locked_Recording at its agreed-or-pulled
  * version.
  *
- * The push is a *whole-project write*: the server stores the `Full_Project_Payload`
- * VERBATIM, so whatever recordings the payload omits would read to other clients
- * as a deliberate recording deletion. A recording open in the Recording_View is
+ * The push is a *whole-project write* that REPLACES the stored copy
+ * (sync-protocol SP-4), so whatever recordings the payload omits would read to
+ * other clients as a deliberate recording deletion. A recording open in the Recording_View is
  * locked — its *inbound* merge is excluded — but it must still be present in the
  * *outbound* payload, and crucially at the version most recently AGREED-OR-PULLED
  * for it: its Sync_Snapshot version when one was pulled this cycle, otherwise its
@@ -411,8 +411,9 @@ describe('A locked recording is preserved in the outbound push at its agreed-or-
 
           // ── No accidental deletion ──────────────────────────────────
           // Every recording present on any side appears in the pushed payload —
-          // locked recordings included; the verbatim-store server can never read
-          // the write as a deletion.
+          // locked recordings included — so the whole-project write that
+          // replaces the stored copy (sync-protocol SP-4) never reads as a
+          // deletion.
           assert.equal(
             pushedById.size,
             allRecIds.size,

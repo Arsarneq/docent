@@ -109,10 +109,10 @@ export function buildHeaders(apiKey) {
  * docs/api/sync-protocol.md.
  *
  * ── Per-unit assembly mode ─────────────────────────────────────
- * The push is a whole-project write the server stores VERBATIM, so two rules
- * govern what the payload may contain:
+ * The push is a whole-project write that REPLACES the stored copy (sync-protocol
+ * SP-4), so two rules govern what the payload may contain:
  *   - it must never OMIT a recording that still exists on any side, because the
- *     verbatim store would read the omission as a deliberate deletion; and
+ *     replacing write would read the omission as a deliberate deletion; and
  *   - it must not OVERWRITE the server's copy of a recording that this client has
  *     not reconciled — a deferred (Review/Conflict) or Locked recording must be
  *     sent at the version most recently agreed-or-pulled for it, not at the
@@ -442,11 +442,15 @@ function retainSnapshots(state, pulledProjects, now = Date.now) {
  * malformed stamp (`mismatched`); the validation stage is not where that
  * diagnosis lands on the normal path.
  *
+ * Exported so a test can hold the names this function copies against the ones
+ * {@link buildPayloadForProject} emits — the weld sync-protocol SP-5 asserts
+ * between the pull and push halves, which nothing else holds.
+ *
  * @param {unknown} payload - the parsed pulled payload (untrusted)
  * @returns {unknown} the envelope projection, or the payload itself when it is
  *   `null` or a primitive
  */
-function envelopeProjection(payload) {
+export function envelopeProjection(payload) {
   if (payload === null || typeof payload !== 'object') return payload;
   const projection = {};
   if (Object.hasOwn(payload, 'docent_format')) projection.docent_format = payload.docent_format;
@@ -1548,7 +1552,8 @@ export async function sync(serverUrl, apiKey, localProjects, schema, validator, 
       // locked units — and decide whether the project has anything to write:
       //   - a project AUTO-ADDED from the server this cycle (present in the
       //     merged list but NOT among the local projects, e.g. a brand-new-remote
-      //     project) is already on the server verbatim, so it is never re-pushed;
+      //     project) is exactly what this client just pulled — it carries
+      //     nothing locally authored — so it is never re-pushed;
       // and
       //   - a project whose whole assembled payload is just the agreed-or-pulled
       //     server state (`writeNeeded === false`) has nothing local to
@@ -1612,8 +1617,9 @@ export async function sync(serverUrl, apiKey, localProjects, schema, validator, 
   // detected and deferred before this client's push, instead of being silently
   // overwritten.
   //
-  // The push is a whole-project write the server stores VERBATIM, so the payload
-  // is assembled PER-UNIT rather than re-sending raw local edits:
+  // The push is a whole-project write that REPLACES the stored copy
+  // (sync-protocol SP-4), so the payload is assembled PER-UNIT rather than
+  // re-sending raw local edits:
   //   - a pushable recording (clean-local-new, `changed-local-outgoing`,
   //     `already-converged`, or an auto-applied incoming version) is sent at its
   //     LOCAL/merged version, so the local edit reaches the server; and
@@ -1622,7 +1628,7 @@ export async function sync(serverUrl, apiKey, localProjects, schema, validator, 
   //     pulled this cycle, else its Sync_Baseline version), NOT its un-reconciled
   //     local edits — so the whole-project write cannot clobber a concurrent
   //     server change this client has not reconciled, and a Locked_Recording is
-  //     never dropped (which the verbatim store would read as a deletion).
+  //     never dropped (which the replacing write would read as a deletion).
   // No recording present in a pushed project is ever omitted; only its VERSION
   // is swapped for the deferred/locked ones. The lock excludes the *inbound*
   // merge (the reconcile phase above), never the recording's *outbound* presence.
