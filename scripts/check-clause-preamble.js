@@ -123,6 +123,8 @@ export const QUALIFIED_OPENING_DOCS = {
     'Orientation prose for a format the per-platform JSON Schemas define: most of what this document states is the schemas talking, so the qualifier separates the rules it makes on its own authority from the ones it restates.',
   'docs/verification/scripted-truth-corpus.md':
     'The corpus document describes committed artifacts — sessions, truth files, vectors, and the locks over them — alongside the rules it states itself, so the qualifier separates its own rules from the contracts those artifacts carry.',
+  'docs/guides/ci.md':
+    'The CI guide reports what the workflow files and the checks decide — it says so outright, that where its prose and a workflow disagree the workflow governs — alongside the rules it states itself, so the qualifier separates the rules it makes on its own authority from the behaviour it describes.',
 };
 
 /**

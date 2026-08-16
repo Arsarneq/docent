@@ -43,9 +43,12 @@
  * Throughout, the server payloads carry arbitrary UNRECOGNIZED top-level fields
  * (a `last_modified` plus a generated grab-bag) on the payload root, the project,
  * and every recording. Because the pull reconstruction and the digest project
- * over an explicit allowlist, those fields are dropped before classification, so
- * none of them can shift behavior — exercised here
- * inside the full resolve-then-propagate loop.
+ * over an explicit allowlist (sync-protocol SP-5's known-field projection — see
+ * `envelopeProjection` in sync-client.js), those fields are dropped before
+ * classification, so none of them can shift the behavior this suite drives
+ * across the full resolve-then-propagate loop. The validator here passes every
+ * payload, so SP-5's validate-on-the-projection half is pinned elsewhere, not
+ * by this harness.
  *
  * `fetch` is mocked exactly as in the sibling sync property tests
  * (`changed-local-outgoing-push` / `no-permanent-loss`): `makeResponse`-style

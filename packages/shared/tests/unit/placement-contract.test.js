@@ -1,8 +1,9 @@
 /**
  * placement-contract.test.js — Placement & protocol-contract smoke tests.
  *
- * A standard smoke/contract suite (NOT a property test). It pins
- * three architectural guarantees the rest of the feature relies on:
+ * A standard smoke/contract suite (NOT a property test). It pins the
+ * architectural guarantees the rest of the feature relies on, one per entry
+ * below:
  *
  *   1. PLACEMENT — detection, snapshot retention, deferral, and
  *      resolution all live in `packages/shared`. The parity-bearing modules

@@ -37,6 +37,7 @@ import {
   WORKFLOW_FILE_RE,
   linkedFileName,
   extractTableFileNames,
+  commandSegments,
   extractGateRows,
   extractJobsTableRows,
   extractAlwaysRunIds,
@@ -820,6 +821,27 @@ describe('linkedFileName / extractTableFileNames', () => {
     const read = extractTableFileNames(doc, 'Target', 'Workflow');
     assert.deepEqual(read.names, ['real.yml']);
     assert.deepEqual(read.unreadable, ['unreadable cell']);
+  });
+});
+
+describe('commandSegments', () => {
+  it('drops a `#` comment in the same pass as the quoting, so an apostrophe in one cannot open a quote', () => {
+    // An unmatched apostrophe in prose would otherwise swallow every command on
+    // the lines beneath it, hiding a gate a step really runs.
+    assert.deepEqual(commandSegments("# don't skip the lint\nnpm run lint:js"), [
+      'npm run lint:js',
+    ]);
+  });
+
+  it('keeps a `#` inside a quoted argument out of the comment reading', () => {
+    assert.deepEqual(commandSegments('echo "a # b" && npm run lint:js'), [
+      'echo ""',
+      'npm run lint:js',
+    ]);
+  });
+
+  it('reads a `#` joined to a word as part of it, never as a comment', () => {
+    assert.deepEqual(commandSegments('cargo test --features a#b'), ['cargo test --features a#b']);
   });
 });
 

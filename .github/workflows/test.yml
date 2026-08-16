@@ -337,6 +337,18 @@ jobs:
       - name: Check GitHub Actions are SHA-pinned
         run: npm run check:action-pins
 
+      # The Clippy gate's invocation has one home (docs/guides/ci.md §CI-1), which
+      # any other statement of it repeats exactly, and is run in the Rust jobs
+      # below. This admission test holds them together —
+      # the gates row's own command, directory, and job set against the clippy
+      # steps, which spell one command between them, and each backticked spelling
+      # in tracked markdown that opens with the command, read outside fenced
+      # blocks, against those run lines — without running the tool;
+      # scripts/check-clippy-invocation.js is the home of the complete red set
+      # and of the limits that read leaves review-held.
+      - name: Validate the stated clippy invocation
+        run: npm run check:clippy-invocation
+
       # Guard 2: release-output guard. On a normal feature branch it FAILS if the
       # branch touched release-only outputs (schemas/dist/ or a delta `version`).
       # On the automation branch the release pipeline opens
@@ -988,9 +1000,10 @@ jobs:
 
   # Cross-platform COMPILE + LINT gate (#97). This is the comprehensive "builds
   # on every platform we prepare for" job: on each platform of its matrix —
-  # Windows and Linux — it compiles AND lints every Cargo target in the crate
-  # (`--all-targets`): the library, the binary, and the test binaries' sources.
-  # It runs NO tests. What a platform lints is what that platform compiles: a
+  # Windows and Linux — it compiles every Cargo target the `cargo check` step
+  # below names, then runs the Clippy gate over the crate, whose invocation the
+  # Clippy row states (docs/guides/ci.md §CI-1). It runs NO
+  # tests. What a platform lints is what that platform compiles: a
   # test binary gated to Windows is empty on Linux, so the Linux leg holds the
   # seam and the sources that compile everywhere rather than the Windows-only
   # test helpers (the deliberate trade-off, recorded in

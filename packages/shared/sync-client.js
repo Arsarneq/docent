@@ -565,7 +565,8 @@ export async function pushProjects(
  * @param {string} serverUrl - base URL of the sync server
  * @param {string|null} apiKey - Bearer token, or null for unauthenticated
  * @param {(data: unknown) => boolean & { errors?: object[] }} validator -
- *   generated platform validator for the full `.docent.json` envelope
+ *   generated platform validator, applied to the pulled payload's known-field
+ *   projection (see {@link envelopeProjection}; sync-protocol SP-5)
  * @param {{ platform: string, schema_version: string }} localStamp -
  *   this client's expected stamp (from stampFromSchema of its own schema)
  * @returns {Promise<{projects: object[], errors: SyncError[], mismatched: SyncError[], halted: boolean}>}
@@ -1307,18 +1308,18 @@ function applyAutomaticOutcomes(state, localProjects, pulledProjects, lockedReco
 }
 
 /**
- * Execute a full sync cycle in PULL-FIRST order: pre-flight gate → pull +
- * snapshot → reconcile → persist → push. Pulling and
- * reconciling BEFORE pushing is the precondition for detecting a concurrent
- * server change: a push-first order would set the server equal to local before
- * the pull observed it, so `incoming == local` would always hold and a
- * divergence could never be detected (this is the defect this ordering fixes).
- * 401/403 on any request halts the cycle.
+ * Execute a full sync cycle in the pull-first order sync-protocol SP-6 states,
+ * with this client's own stages inside it: pre-flight gate → pull + snapshot →
+ * reconcile → persist → push. 401/403 on any request halts the cycle.
  *
- * Before any transport work, a **pre-flight live-work gate** runs. It is a hard block, not an advisory check: while capture is active no
- * cycle starts at all (`haltReason: 'capture-active'`), and any recording that
- * holds uncommitted Pending Actions without being locked halts sync immediately
- * (`haltReason: 'pending-actions-unprotected'`). The gate runs only when a
+ * Before any transport work, a **pre-flight live-work gate** runs — the halting
+ * protections of sync-protocol SP-7, which block rather than warn:
+ * `haltReason: 'capture-active'` while capture is active, and
+ * `haltReason: 'pending-actions-unprotected'` for a recording holding
+ * uncommitted Pending Actions without being locked. SP-7's remaining protection
+ * excludes rather than halts: the locked set is established here alongside these
+ * two and takes effect where that clause's own bullet places it, at the inbound
+ * merge — threaded into the detection phase below. The gate runs only when a
  * `liveState` adapter is supplied; callers that do not pass one (the original
  * 5-argument form) keep the prior behavior unchanged.
  *

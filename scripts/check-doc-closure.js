@@ -236,14 +236,17 @@ export function extractTableFileNames(docText, section, headerCell) {
  *
  * The gate CLAIM is that cell's leading backticked command: any trailing
  * remark — a fix-command parenthetical, a comma clause — is commentary, and
- * its own tokens stay held by the citation leg. The Where cell is read
+ * its own tokens stay held by the citation leg. The cell itself rides along
+ * as `commandCell`, so a neighbouring check reading more of that cell reads
+ * the cell this reader selected rather than selecting one of its own. The Where cell is read
  * positively: every backticked span matching the job-id grammar is a named
  * job and any non-backticked remainder is qualifier prose, so only a cell
  * naming no job at all is refused. A row with an unreadable gate cell, a
  * Where cell naming nothing, or no backticked command is refused rather than
  * skipped, and a table with no `Where` column is refused as a whole.
  * @param {string} docText
- * @returns {{ rows: { gate: string, tokens: string[], where: string[], command: string }[],
+ * @returns {{ rows: { gate: string, tokens: string[], where: string[], command: string,
+ *                     commandCell: string }[],
  *             unreadable: string[] }}
  */
 export function extractGateRows(docText) {
@@ -267,7 +270,7 @@ export function extractGateRows(docText) {
         continue;
       }
       const tokens = [...commandCell.matchAll(NPM_RUN_TOKEN_RE)].map((m) => m[1]);
-      rows.push({ gate, tokens, where, command });
+      rows.push({ gate, tokens, where, command, commandCell });
     }
   }
   return { rows, unreadable };
@@ -916,28 +919,47 @@ function runsAlways(condition) {
  * One step's text as the command segments a shell would run. Quoted spans
  * keep their delimiters and lose their CONTENTS, so an advisory
  * `echo 'npm run sync-shared'` names no command; a `#` comment is dropped to
- * end of line; and the remainder splits on `&&`, `||`, `;`, `|`, and newline.
+ * end of line, in the same pass as the quoting so an apostrophe inside one
+ * cannot open a quote over the commands that follow it; and the remainder splits on `&&`, `||`, `;`, `|`, and newline.
  * A leading `(` — the subshell form — is stripped so the segment still opens
  * with the command it runs.
  * @param {string} text one step's `run:` line or block
  * @returns {string[]} the trimmed, non-empty segments
  */
-function commandSegments(text) {
+export function commandSegments(text) {
   let bare = '';
   let quote = null;
+  let comment = false;
+  let previous = '\n';
   for (const char of text) {
+    if (comment) {
+      // A comment runs to end of line; nothing inside it is a command, and
+      // nothing inside it opens a quote — an apostrophe in prose would
+      // otherwise swallow the commands on the lines after it.
+      if (char !== '\n') continue;
+      comment = false;
+      bare += char;
+      previous = char;
+      continue;
+    }
     if (quote !== null) {
       if (char === quote) {
         bare += char;
         quote = null;
       }
+      previous = char;
       continue; // quoted text is data the shell passes on, never a command
+    }
+    if (char === '#' && /[\s]/.test(previous)) {
+      comment = true;
+      previous = char;
+      continue;
     }
     if (char === "'" || char === '"') quote = char;
     bare += char;
+    previous = char;
   }
   return bare
-    .replace(/(^|\s)#.*$/gm, '$1')
     .split(/&&|\|\||;|\||\n/)
     .map((segment) => segment.trim().replace(/^\(\s*/, ''))
     .filter((segment) => segment !== '');

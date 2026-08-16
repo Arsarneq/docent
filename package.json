@@ -20,6 +20,7 @@
     "check:no-release-outputs": "node scripts/check-no-release-outputs.js",
     "check:pr-title": "node scripts/check-pr-title.js",
     "check:action-pins": "node scripts/check-action-pins.js",
+    "check:clippy-invocation": "node scripts/check-clippy-invocation.js",
     "check:licenses": "node scripts/check-licenses-npm.js",
     "sync-shared": "node scripts/sync-shared.js",
     "build:desktop-dist": "node scripts/build-desktop-dist.js",

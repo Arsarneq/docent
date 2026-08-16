@@ -116,6 +116,13 @@ describe('expectedPreamble — the canonical text with its variables resolved', 
     assert.ok(expectedPreamble(doc, 'SF').startsWith(PREAMBLE_OPENINGS.qualified));
   });
 
+  it('uses the qualified opening for the CI guide, whose prose reports what CI decides', () => {
+    // The guide states outright that a workflow governs where the two disagree,
+    // so most of what it carries is the workflows and the checks talking. The
+    // qualifier is what separates the rules it makes on its own authority.
+    assert.ok(expectedPreamble('docs/guides/ci.md', 'CI').startsWith(PREAMBLE_OPENINGS.qualified));
+  });
+
   it('is whitespace-flat, so the constant may be wrapped however it reads best', () => {
     assert.doesNotMatch(expectedPreamble('docs/api/dispatch.md', 'DI'), /\s\s|\n/);
     assert.match(CANONICAL_PREAMBLE, /\n/); // the constant itself is hand-wrapped
