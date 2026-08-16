@@ -12,7 +12,14 @@ env:
   NODE_VERSION: '24'
 
 jobs:
+  # Every job below carries a `timeout-minutes` bound. Some individual steps
+  # carry one too, each with a note saying why it needs its own. A bound is a
+  # ceiling, not a budget: it caps how long the work under it can run, and it
+  # sits above what that work has been measured to take across this workflow's
+  # own past runs. Raising one is an edit to its own line.
+
   stryker-shared:
+    timeout-minutes: 60
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -48,6 +55,7 @@ jobs:
           retention-days: 30
 
   stryker-extension:
+    timeout-minutes: 30
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -81,6 +89,7 @@ jobs:
           retention-days: 30
 
   stryker-desktop:
+    timeout-minutes: 45
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -121,6 +130,7 @@ jobs:
   # drop the exit-code tolerance below so a regression reddens the run like the
   # Stryker jobs do.
   cargo-mutants-desktop:
+    timeout-minutes: 180
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -134,17 +144,39 @@ jobs:
         with:
           toolchain: stable
 
+      # The key's version segment states the version the install below pins, in
+      # full, so that bumping the pin misses this cache and fetches the new
+      # binary. A segment shortened to fewer components would keep matching
+      # across a patch bump and restore the old binary under a key that still
+      # looked current, leaving the run on a version the file no longer names.
+      # (The cargo-deny cache in the test workflow spells its pin the same way.)
       - name: Cache cargo-mutants
         id: cache-cargo-mutants
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.cargo/bin/cargo-mutants.exe
-          key: ${{ runner.os }}-cargo-mutants-27.1
+          key: ${{ runner.os }}-cargo-mutants-27.1.0
 
+      # Reaches crates.io and compiles, so it carries a bound of its own, sized
+      # above this step's observed maximum over the runs where the cache missed
+      # and it ran — a registry that stops answering ends here, leaving the
+      # mutation run that follows the budget it needs.
       - name: Install cargo-mutants
         if: steps.cache-cargo-mutants.outputs.cache-hit != 'true'
+        timeout-minutes: 15
         run: cargo install cargo-mutants --version 27.1.0 --locked
 
+      # The key pins the entry to the current lockfile; `restore-keys` adds the
+      # fallback the run takes when that key is new. A fallback match is confined
+      # to entries saved under this same path list, so what the prefix can reach
+      # is the other cargo registry-and-build entries this platform holds, never
+      # the single-file tool caches beside them — those are stored as distinct
+      # caches. On a lockfile bump the fallback buys a warm registry; a warm
+      # build tree is what it may buy, since the newest matching entry was not
+      # necessarily built by this job's own command. A save always writes the
+      # exact key, so each lockfile still gets its own entry beside the ones
+      # already resident — and the entry this job writes is the one every job
+      # sharing this key restores.
       - name: Cache cargo registry and build
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
@@ -153,6 +185,7 @@ jobs:
             ~/.cargo/git
             packages/desktop/src-tauri/target
           key: ${{ runner.os }}-cargo-${{ hashFiles('packages/desktop/src-tauri/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-
 
       # The Tauri build script only needs the frontend dist directory to exist.
       - name: Create frontend dist directory
@@ -165,8 +198,21 @@ jobs:
       # Exit codes 2 (missed mutants) and 3 (a mutant timed out — a normal
       # mutation outcome) are tolerated while this job is measuring its
       # baseline; a genuine build/tool failure still fails the job.
+      #
+      # Nearly all of the job's elapsed time goes here, so this step carries a
+      # bound of its own: under the job bound alone, a run that has stopped
+      # progressing looks like one still working through a long mutant list. It
+      # is an outer wall around the whole run, distinct from the per-mutant
+      # timeout the tool applies itself — the one whose expiry reports as the
+      # tolerated outcome above. Sized above this step's own observed maximum,
+      # and below the job bound so the steps after it — the run summary and the
+      # artifact upload, which are what report the outcome — still have room.
+      # That maximum is the elapsed time of the module set the mutants
+      # configuration enumerates, so widening that set is the moment to re-check
+      # this number.
       - name: Run cargo-mutants (scoped)
         working-directory: packages/desktop/src-tauri
+        timeout-minutes: 150
         shell: bash
         run: |
           set +e

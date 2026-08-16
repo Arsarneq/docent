@@ -25,6 +25,11 @@ env:
 
 jobs:
   audit:
+    # A ceiling, not a budget. The audit paginates merged-pull-request history
+    # through the GitHub API, which is this job's longest step and the one whose
+    # duration grows with that history. Sized above the maximum measured across
+    # this workflow's own past runs, with room for that growth.
+    timeout-minutes: 20
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

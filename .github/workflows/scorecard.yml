@@ -25,6 +25,11 @@ permissions: read-all
 jobs:
   analysis:
     name: Scorecard analysis
+    # A ceiling, not a budget. Scorecard pulls its own container image and then
+    # queries GitHub for the repository's posture signals, so most of this job is
+    # spent waiting on services outside this repository. Sized far above the
+    # maximum measured across this workflow's runs.
+    timeout-minutes: 20
     runs-on: ubuntu-latest
     permissions:
       security-events: write # upload the SARIF result to the Security tab

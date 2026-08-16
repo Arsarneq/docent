@@ -27,6 +27,13 @@ env:
 
 jobs:
   disposition-format:
+    # A ceiling, not a budget. A full-history checkout, a Node setup, a
+    # dependency install, a base-ref fetch, and one check — measured runs
+    # complete in seconds, and the bound sits far above that. This job reports on
+    # every pull request, so what the bound buys is a stalled fetch reddening
+    # promptly, with the cause readable in the run, instead of a check that stays
+    # pending for hours.
+    timeout-minutes: 15
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

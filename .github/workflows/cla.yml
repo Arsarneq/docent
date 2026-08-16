@@ -14,6 +14,12 @@ permissions:
 
 jobs:
   cla_assistant:
+    # A ceiling, not a budget. This job's work is a short exchange with the
+    # GitHub API — reading the signature record on its own branch, and writing a
+    # comment or a signature back — and its measured runs complete in seconds.
+    # The bound sits far above that, so what it ends is a job that has stopped
+    # making progress against that API rather than one merely answered slowly.
+    timeout-minutes: 10
     runs-on: ubuntu-latest
     permissions:
       actions: write

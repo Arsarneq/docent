@@ -23,6 +23,12 @@ jobs:
   # the reusable test.yml; `publish-desktop` needs it, so a release can never
   # publish with red tests. Guarded by the same tag check so an extension-v*
   # release doesn't spin the suite here for nothing.
+  #
+  # This job carries no `timeout-minutes` of its own, unlike the one below it: a
+  # job that calls a reusable workflow accepts a fixed set of keys, and that is
+  # not among them — actionlint rejects the file outright when it is added here.
+  # Whatever bounds this work is therefore whatever the called workflow's own
+  # jobs carry.
   test:
     if: github.event_name == 'workflow_dispatch' || startsWith(github.event.release.tag_name, 'desktop-v')
     uses: ./.github/workflows/test.yml
@@ -45,6 +51,15 @@ jobs:
           #   label: Linux
           # (macOS was dropped — see #83 — no free code-signing path; unsigned
           # macOS apps are unusable for Docent's non-technical audience.)
+    # A ceiling, not a budget, and a deliberately wide one. This is the release
+    # path: a bound that fires on a legitimately slow build sends the release
+    # down the re-run route `.github/PUBLISHING.md` records, and does so after
+    # this job has already opened the version-table pull request. The build's
+    # duration also tracks the crate graph it compiles rather than anything this
+    # workflow controls, so it moves with dependency changes between releases. It
+    # sits well above the maximum this job has been measured at across the
+    # sampled runs of this workflow.
+    timeout-minutes: 60
     runs-on: ${{ matrix.os }}
     permissions:
       contents: write
@@ -218,8 +233,15 @@ jobs:
       - name: Build desktop frontend dist
         run: node scripts/build-desktop-dist.js
 
+      # This step fetches the crate graph, compiles it, and bundles the
+      # installer, and it is where most of the job's elapsed time goes — so it
+      # carries a bound of its own: under the job bound alone, a crate fetch that
+      # stops answering is indistinguishable from a long compile. Sized above the
+      # step's observed maximum across the sampled runs of this workflow, which
+      # adds no cargo cache of its own.
       - name: Build Tauri application
         id: tauri
+        timeout-minutes: 45
         uses: tauri-apps/tauri-action@1deb371b0cd8bd54025b384f1cd735e725c4060f # v1.0.0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

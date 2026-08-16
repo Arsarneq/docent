@@ -16,6 +16,11 @@ env:
 
 jobs:
   conventional-title:
+    # A ceiling, not a budget. A checkout, a Node setup, and one script reading
+    # the title out of the environment — the network is reached by the first two
+    # steps alone, and measured runs complete in seconds. The bound sits far
+    # above that, so what it ends is a job stalled on one of those fetches.
+    timeout-minutes: 10
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
