@@ -250,8 +250,7 @@ an `npm run` gate resolves to a step one of those Where jobs actually runs.
 A row whose local command takes another form is held to its Where jobs only —
 whether such a job still runs that gate stays held by review there, the Clippy
 row excepted: a gate of its own holds that row's jobs to carrying a clippy step
-(§CI-1), which leaves the rustfmt row as the one this paragraph's review still
-covers. A row claiming
+(§CI-1), which leaves the rustfmt row held that way. A row claiming
 an `npm run` gate is held further: the gate must open a command segment of one
 of those jobs' steps, either as the `npm run` invocation itself or as the
 script's own command, so a gate moved into a step form outside those two — a
