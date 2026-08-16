@@ -12,7 +12,8 @@ under [`.github/workflows/`](../../.github/workflows/) are the deciding
 mechanism throughout — where this prose and a workflow disagree, the
 workflow governs.
 
-Each rule carries a stable identifier (**CI-n**) so other documents, reviews,
+Each rule this document makes in its own right carries a stable identifier
+(**CI-n**) so other documents, reviews,
 and checks can cite it precisely. Identifiers are never renumbered; a retired
 identifier stays reserved and is never reused. How each rule is verified — by an
 existing named check, by a check that could be built, or by judgment — is
