@@ -194,6 +194,28 @@ describe('workflowClippySites', () => {
     assert.throws(() => workflowClippySites(wf), InputError);
   });
 
+  it('leaves a quoted argument to another command in the same step alone', () => {
+    // The refusal is the clippy command's own. A sibling command's quoting says
+    // nothing about how the two sides read THIS command, so refusing on it would
+    // be a false red on an ordinary multi-line step.
+    const wf = {
+      jobs: {
+        'desktop-rust-tests': {
+          steps: [
+            {
+              name: 'Lint',
+              'working-directory': CRATE,
+              run: `echo "building the crate"\n${EXECUTED}\n`,
+            },
+          ],
+        },
+      },
+    };
+    assert.deepEqual(workflowClippySites(wf), [
+      { job: 'desktop-rust-tests', command: EXECUTED, directory: CRATE },
+    ]);
+  });
+
   it('reads a workflow with no jobs as no sites at all', () => {
     assert.deepEqual(workflowClippySites({}), []);
   });

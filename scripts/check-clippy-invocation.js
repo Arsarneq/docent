@@ -41,7 +41,9 @@
  * compared faithfully the comparison is refused rather than guessed: the
  * segment model blanks quoted contents and a documentation span is read as
  * written, so a clippy command carrying a quote on either side is named and
- * refused. The stated-invocation
+ * refused. That test is the clippy command's own — a quote survives blanking as
+ * the character it is — so a quoted argument to some OTHER command sharing the
+ * step is none of this check's business and refuses nothing. The stated-invocation
  * leg reads tracked markdown only, on the view its fenced blocks are stripped
  * from, and only a span that OPENS with the command: the same command inside a
  * longer span, spelled without backticks, written inside a fence, or stated in
@@ -166,16 +168,15 @@ export function workflowClippySites(wf) {
     const jobDirectory = runDirectory(spec) ?? workflowDirectory;
     for (const step of spec?.steps ?? []) {
       const directory = step?.['working-directory'] ?? jobDirectory;
-      const bare = (step?.run ?? '').replace(EXPRESSION_RE, ' ');
-      for (const segment of commandSegments(bare)) {
+      for (const segment of commandSegments((step?.run ?? '').replace(EXPRESSION_RE, ' '))) {
         const command = flattenWhitespace(segment);
         if (!command.startsWith(CLIPPY_COMMAND)) continue;
-        if (QUOTE_RE.test(bare))
+        if (QUOTE_RE.test(command))
           throw new InputError(
-            `${TEST_WORKFLOW_PATH}'s \`${job}\` runs clippy from a step carrying a quote ` +
-              `(\`${flattenWhitespace(bare)}\`) — the workflow and documentation sides are read ` +
-              `by different rules about quoting, so this check refuses the comparison rather ` +
-              `than making one of the two spellings un-greenable`,
+            `${TEST_WORKFLOW_PATH}'s \`${job}\` runs a clippy command carrying a quote ` +
+              `(\`${command}\`, its quoted contents already blanked) — the workflow and ` +
+              `documentation sides are read by different rules about quoting, so this check ` +
+              `refuses the comparison rather than making one of the two spellings un-greenable`,
           );
         sites.push({ job, command, directory });
       }
