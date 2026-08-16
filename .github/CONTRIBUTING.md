@@ -193,7 +193,10 @@ coverage is measured and sliced is in
 - JSDoc comments on all exported functions
 - No external runtime dependencies in the extension
 
-### Single-source logic (JavaScript)
+### Single-source logic
+
+The first two rules below are JavaScript-specific, and say so; the third binds
+every surface this repository tracks — code in any language, and prose.
 
 - **Pure-logic extraction.** Logic that needs unit testing without a live
   platform is extracted into a pure module — plain data in and out, no
@@ -215,20 +218,26 @@ coverage is measured and sliced is in
   the markers only — a parity test asserts the two blocks are identical
   up to its mechanical transformation (export-stripping and indentation) and
   fails the unit suite when they drift.
-- **Cite the owner of a fact the code does not own.** A comment asserting
-  something another artifact owns — which component writes a storage key, what
-  order a documented path guarantees, what a doctrine clause promises — names
-  that owner and stops there; the mechanics the file itself owns stay written
-  out. The form is the parenthetical clause cite already in use across the tree
-  (`(extension runtime ERT-3)`, `(sync-protocol SP-5)`, `(DCP-12)`), so a
-  doctrine change lands in one home instead of in every echo of it. The header
-  of `packages/extension/background/service-worker.js` (write ownership) and
-  that of [`scripts/corpus-compare.js`](../scripts/corpus-compare.js) (the
-  truth files' derivation) are the pattern to copy. A reconcile pass sweeps the
-  whole file it touches, not just the header block.
+- **Cite the owner of a fact you do not own.** A comment — or a documentation
+  sentence — asserting something another artifact owns names that owner and
+  stops there; the mechanics the file itself owns stay written out. Which
+  component writes a storage key, what order a documented path guarantees, what
+  a doctrine clause promises: each has a home, and the home is what a second
+  statement of it cites. The form is the parenthetical clause cite already in
+  use across the tree, in every language it tracks — `(extension runtime ERT-3)`
+  and `(sync-protocol SP-5)` in JavaScript, `(DCP-12)` in the desktop crate — so
+  a doctrine change lands in one home instead of in every echo of it. The
+  headers of
+  [`packages/extension/background/service-worker.js`](../packages/extension/background/service-worker.js)
+  (write ownership) and
+  [`scripts/corpus-compare.js`](../scripts/corpus-compare.js) (the truth files'
+  derivation) are the pattern to copy. A reconcile pass sweeps the whole file it
+  touches, not just the header block.
 
 ### Rust
 
+- The cite-the-owner rule above binds this tree too — `(DCP-12)` in the capture
+  crate is its in-tree example
 - Follow standard Rust conventions (`rustfmt`, `clippy`)
 - `snake_case` for functions and variables, `CamelCase` for types
 - Use `thiserror` for error types

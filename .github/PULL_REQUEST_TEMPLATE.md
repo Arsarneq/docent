@@ -51,7 +51,8 @@
        Outside knowledge: <sources consulted beyond this repo, or "none">
        <what you verified and how — tests run, checks observed>
        mutation: no per-change claim; mutation testing runs as a standing weekly job.
-     That mutation line is a fixed sentence to paste, not a claim to compose — the cadence
-     it reports is stated once, in docs/test/strategy/mutation.md ("Cadence", MUT-1).
+     That mutation line is a fixed sentence to paste, not a claim to compose; see
+     .github/CONTRIBUTING.md ("Docs Disposition and Change Record") for the cadence it
+     reports and where that cadence is stated.
      The classes that skip the section above skip this one too — dependency-only PRs and
      the release pipeline's own regeneration PR; a governance-data-only PR keeps it. -->
