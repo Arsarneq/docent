@@ -144,9 +144,10 @@ describe('check-script CLI smoke (deterministic green paths)', () => {
 
   it('check-clippy-invocation: the committed guides state the invocation CI runs', () => {
     // No env pinned: this check and its import closure (the doc-closure gate's
-    // table readers, the path-filter's job reader, and the test-inventory
-    // tokenizer) read no process.env, and its only external is the YAML parser
-    // — so no var can switch the path this runs.
+    // table and step readers, the path-filter's job reader, and the
+    // test-inventory tokenizer) read no process.env. Its externals are the YAML
+    // parser and the `git ls-files` this family's tracked-file reader shells out
+    // to — the same closure the clause-registry case above runs on.
     const out = runScript('check-clippy-invocation.js');
     assert.match(out, /clippy invocation single-sourced/);
   });

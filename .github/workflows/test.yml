@@ -339,10 +339,11 @@ jobs:
 
       # The Clippy gate's invocation is stated once (docs/guides/ci.md §CI-1) and
       # run in the Rust jobs below. This admission test holds them together —
-      # the jobs the gates row names against the jobs carrying a clippy step, and
-      # every stated spelling of the command against the run lines — without
-      # running the tool; scripts/check-clippy-invocation.js is the home of the
-      # complete red set.
+      # the gates row's own command, directory, and job set against the clippy
+      # steps, and each backticked spelling of the command in tracked markdown
+      # against those run lines — without running the tool;
+      # scripts/check-clippy-invocation.js is the home of the complete red set
+      # and of the limits that read leaves review-held.
       - name: Validate the stated clippy invocation
         run: npm run check:clippy-invocation
 

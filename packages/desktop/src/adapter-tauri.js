@@ -98,8 +98,9 @@ function _notifyPendingCount() {
 // every event is delivered immediately and spliced into the pending list by its
 // sequence_id, searching from the end because events mostly arrive in order.
 
-// The waiter bookkeeping behind that barrier (DCP-2 states what the sentinel
-// is): `_barrierResolvers` holds the waiter for an in-flight commit keyed by
+// The waiter bookkeeping behind the step-commit flush barrier (docent#298;
+// DCP-2 states the guarantee and what the sentinel is): `_barrierResolvers`
+// holds the waiter for an in-flight commit keyed by
 // barrier id; a sentinel that arrives before its waiter is registered is parked
 // in `_seenBarriers`. Every `stop_capture` now runs the barrier (the flush is
 // fused into stop), so a non-commit stop (re-record/cancel) emits a sentinel no

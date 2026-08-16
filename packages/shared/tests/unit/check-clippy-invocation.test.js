@@ -16,15 +16,17 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
+  CI_DOC_PATH,
   CLIPPY_GATE,
   InputError,
   STATED_INVOCATION_EXCEPTIONS,
-  backtickedSpans,
+  TEST_WORKFLOW_PATH,
   checkClippyInvocation,
   clippyGateRow,
   evaluate,
   normalizeCommand,
   statedInvocations,
+  treeSurfaces,
   workflowClippySites,
 } from '../../../../scripts/check-clippy-invocation.js';
 
@@ -89,16 +91,6 @@ describe('normalizeCommand', () => {
   });
 });
 
-describe('backtickedSpans', () => {
-  it('returns each span of a cell in order', () => {
-    assert.deepEqual(backtickedSpans('`one` then `two`'), ['one', 'two']);
-  });
-
-  it('returns nothing for a cell carrying no span', () => {
-    assert.deepEqual(backtickedSpans('plain prose'), []);
-  });
-});
-
 describe('workflowClippySites', () => {
   it('reads one site per clippy step, with the job and directory it runs in', () => {
     assert.deepEqual(workflowClippySites(workflow()), [
@@ -133,6 +125,45 @@ describe('workflowClippySites', () => {
     ]);
   });
 
+  it('reads a clippy call inside a multi-line run block as a site', () => {
+    const wf = {
+      jobs: {
+        'desktop-rust-tests': {
+          steps: [
+            {
+              name: 'Lint',
+              'working-directory': CRATE,
+              run: `rustup component add clippy\n${EXECUTED}\n`,
+            },
+          ],
+        },
+      },
+    };
+    assert.deepEqual(workflowClippySites(wf), [
+      { job: 'desktop-rust-tests', command: EXECUTED, directory: CRATE },
+    ]);
+  });
+
+  it('reads the shipped expression form without splitting on the `||` inside it', () => {
+    const wf = {
+      jobs: {
+        'desktop-rust-tests': {
+          steps: [
+            {
+              name: 'Clippy',
+              'working-directory': CRATE,
+              run: "cargo clippy --all-targets ${{ runner.debug == '1' && '-v' || '' }} -- -D warnings",
+            },
+          ],
+        },
+      },
+    };
+    assert.deepEqual(
+      workflowClippySites(wf).map((s) => s.command),
+      [EXECUTED],
+    );
+  });
+
   it('reads a workflow with no jobs as no sites at all', () => {
     assert.deepEqual(workflowClippySites({}), []);
   });
@@ -143,7 +174,7 @@ describe('clippyGateRow', () => {
     const row = clippyGateRow(gatesDoc());
     assert.deepEqual(row.where, ['desktop-rust-tests', 'desktop-cross-compile']);
     assert.equal(row.command, EXECUTED);
-    assert.ok(row.spans.includes(CRATE), 'the cell’s directory span is read');
+    assert.equal(row.directory, CRATE, 'the cell’s `(from …)` form is read as the directory');
   });
 
   it('refuses a guide whose gates table states no Clippy row', () => {
@@ -221,12 +252,56 @@ describe('evaluate — the run lines', () => {
     assert.match(evaluate(input)[0], /runs clippy from more than one directory/);
   });
 
-  it('reds when the directory the steps run from is one the row does not state', () => {
+  it('reds when the directory the steps run from is not the one the row states', () => {
     const input = greenInput();
     input.row = clippyGateRow(gatesDoc({ command: `\`${EXECUTED}\` (from \`packages/desktop\`)` }));
     const [problem] = evaluate(input);
     assert.match(problem, /runs clippy from `packages\/desktop\/src-tauri`/);
-    assert.match(problem, /ci\.md/);
+    assert.match(problem, /states `packages\/desktop`/);
+  });
+
+  it('reds when the steps state no directory and the row states one', () => {
+    const input = greenInput();
+    input.sites = workflowClippySites({
+      jobs: Object.fromEntries(
+        ['desktop-rust-tests', 'desktop-cross-compile'].map((id) => [
+          id,
+          { steps: [{ name: 'Clippy', run: EXECUTED }] },
+        ]),
+      ),
+    });
+    const [problem] = evaluate(input);
+    assert.match(problem, /runs clippy from the checkout root, while/);
+    assert.match(problem, /states `packages\/desktop\/src-tauri`/);
+  });
+
+  it('reds when the row states no directory and the steps run from one', () => {
+    const input = greenInput();
+    input.row = clippyGateRow(gatesDoc({ command: `\`${EXECUTED}\`` }));
+    const [problem] = evaluate(input);
+    assert.match(problem, /states none/);
+  });
+});
+
+describe('evaluate — the row’s own command', () => {
+  it('reds when the row leads with a command the workflow does not run', () => {
+    const input = greenInput();
+    input.row = clippyGateRow(
+      gatesDoc({ command: '`cargo clippy --workspace -- -D warnings` (from `' + CRATE + '`)' }),
+    );
+    const [problem] = evaluate(input);
+    assert.match(problem, /row leads with `cargo clippy --workspace -- -D warnings`/);
+    assert.match(problem, /invocation's one home/);
+  });
+
+  it('reds when the cell states a directory but no command at all', () => {
+    // The reader takes a cell's LEADING span as the command, so a cell reworked
+    // into prose around its directory leaves that directory standing as the
+    // claimed command — the shape CI-1's leading sentence exists to refuse.
+    const input = greenInput();
+    input.row = clippyGateRow(gatesDoc({ command: 'the crate lint, run from `' + CRATE + '`' }));
+    const [problem] = evaluate(input);
+    assert.match(problem, /row leads with `packages\/desktop\/src-tauri`/);
   });
 });
 
@@ -282,8 +357,44 @@ describe('evaluate — the stated invocations', () => {
   });
 });
 
+describe('checkClippyInvocation — the refusals', () => {
+  const surfaces = ({ workflow, ciDoc, markdown = [] }) => ({
+    readFile: (path) =>
+      path === TEST_WORKFLOW_PATH ? workflow : path === CI_DOC_PATH ? ciDoc : '',
+    listMarkdown: () => markdown,
+  });
+
+  it('refuses a workflow that states no clippy step', () => {
+    assert.throws(
+      () =>
+        checkClippyInvocation(
+          surfaces({ workflow: 'jobs:\n  lint:\n    steps:\n      - run: npm ci\n', ciDoc: gatesDoc() }), // prettier-ignore
+        ),
+      InputError,
+    );
+  });
+
+  it('refuses an empty tracked-markdown listing rather than scanning nothing', () => {
+    const workflow = [
+      'jobs:',
+      '  desktop-rust-tests:',
+      '    steps:',
+      `      - working-directory: ${CRATE}`,
+      `        run: ${EXECUTED}`,
+      '  desktop-cross-compile:',
+      '    steps:',
+      `      - working-directory: ${CRATE}`,
+      `        run: ${EXECUTED}`,
+    ].join('\n');
+    assert.throws(
+      () => checkClippyInvocation(surfaces({ workflow, ciDoc: gatesDoc(), markdown: [] })),
+      InputError,
+    );
+  });
+});
+
 describe('the committed tree', () => {
   it('states one clippy invocation, and it is the one CI runs', () => {
-    assert.deepEqual(checkClippyInvocation(), []);
+    assert.deepEqual(checkClippyInvocation(treeSurfaces()), []);
   });
 });

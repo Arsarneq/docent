@@ -236,14 +236,17 @@ export function extractTableFileNames(docText, section, headerCell) {
  *
  * The gate CLAIM is that cell's leading backticked command: any trailing
  * remark — a fix-command parenthetical, a comma clause — is commentary, and
- * its own tokens stay held by the citation leg. The Where cell is read
+ * its own tokens stay held by the citation leg. The cell itself rides along
+ * as `commandCell`, so a neighbouring check reading more of that cell reads
+ * the cell this reader selected rather than selecting one of its own. The Where cell is read
  * positively: every backticked span matching the job-id grammar is a named
  * job and any non-backticked remainder is qualifier prose, so only a cell
  * naming no job at all is refused. A row with an unreadable gate cell, a
  * Where cell naming nothing, or no backticked command is refused rather than
  * skipped, and a table with no `Where` column is refused as a whole.
  * @param {string} docText
- * @returns {{ rows: { gate: string, tokens: string[], where: string[], command: string }[],
+ * @returns {{ rows: { gate: string, tokens: string[], where: string[], command: string,
+ *                     commandCell: string }[],
  *             unreadable: string[] }}
  */
 export function extractGateRows(docText) {
@@ -267,7 +270,7 @@ export function extractGateRows(docText) {
         continue;
       }
       const tokens = [...commandCell.matchAll(NPM_RUN_TOKEN_RE)].map((m) => m[1]);
-      rows.push({ gate, tokens, where, command });
+      rows.push({ gate, tokens, where, command, commandCell });
     }
   }
   return { rows, unreadable };
@@ -922,7 +925,7 @@ function runsAlways(condition) {
  * @param {string} text one step's `run:` line or block
  * @returns {string[]} the trimmed, non-empty segments
  */
-function commandSegments(text) {
+export function commandSegments(text) {
   let bare = '';
   let quote = null;
   for (const char of text) {

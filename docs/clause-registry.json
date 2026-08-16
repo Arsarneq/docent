@@ -1087,7 +1087,7 @@
       "doc": "docs/guides/ci.md",
       "clause": "CI-1",
       "tag": "check-exists",
-      "check-ref": "scripts/check-clippy-invocation.js (npm run check:clippy-invocation, a step in CI's lint job) recomputes each half against the tree: the jobs the Clippy row names against the jobs .github/workflows/test.yml gives a clippy step, both ways, the working directory those steps run from against the directory the row states, and every spelling of the command in tracked markdown against the run lines, with the one deliberate variant recorded as a register the same check holds from both sides. It reads surfaces and never runs the tool, so which flags belong in the invocation stays a review judgment."
+      "check-ref": "scripts/check-clippy-invocation.js (npm run check:clippy-invocation, a step in CI's lint job) recomputes the agreement against the tree: the command the Clippy row leads with, and the directory its cell states, against the command and working directory of the clippy steps .github/workflows/test.yml gives; the jobs that row names against the jobs carrying such a step, both ways; and each backticked span of tracked markdown that opens with the command, read outside fenced blocks, against those run lines, with every admitted variant recorded as a register the same check holds from both sides. What that read leaves outside — an unbackticked, fenced, or embedded spelling, a file that is not tracked markdown, and a clippy step another workflow or an indirection runs — is stated as this check's own limits and stays review-held, as does which flags belong in the invocation, since the check reads surfaces and never runs the tool."
     }
   ]
 }

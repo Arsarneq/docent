@@ -1312,11 +1312,12 @@ function applyAutomaticOutcomes(state, localProjects, pulledProjects, lockedReco
  * with this client's own stages inside it: pre-flight gate → pull + snapshot →
  * reconcile → persist → push. 401/403 on any request halts the cycle.
  *
- * Before any transport work, a **pre-flight live-work gate** runs — the local
- * protections of sync-protocol SP-7, which block rather than warn. Here that is
- * `haltReason: 'capture-active'` while capture is active and
+ * Before any transport work, a **pre-flight live-work gate** runs — the halting
+ * protections of sync-protocol SP-7, which block rather than warn:
+ * `haltReason: 'capture-active'` while capture is active, and
  * `haltReason: 'pending-actions-unprotected'` for a recording holding
- * uncommitted Pending Actions without being locked. The gate runs only when a
+ * uncommitted Pending Actions without being locked. SP-7's remaining protection
+ * excludes rather than halts, and runs later, in the reconcile phase below. The gate runs only when a
  * `liveState` adapter is supplied; callers that do not pass one (the original
  * 5-argument form) keep the prior behavior unchanged.
  *
