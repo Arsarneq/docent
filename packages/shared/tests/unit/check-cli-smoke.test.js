@@ -133,6 +133,15 @@ describe('check-script CLI smoke (deterministic green paths)', () => {
     assert.match(out, /doc closure holds/);
   });
 
+  it('check-ci-filter: the committed path-filter split satisfies its contract', () => {
+    // No env pinned: the script reads no process.env — its whole closure is the
+    // workflow read, the root manifest read, and the YAML parser — so no var can
+    // switch the path this runs. It is measured with the rest of the family, and
+    // this is what exercises its wrapper.
+    const out = runScript('check-ci-filter.js');
+    assert.match(out, /path-filter contract holds/);
+  });
+
   it('check-clippy-invocation: the committed guides state the invocation CI runs', () => {
     // No env pinned: this check and its import closure (the doc-closure gate's
     // table readers, the path-filter's job reader, and the test-inventory
