@@ -2,9 +2,9 @@
  * per-unit-push-assembly.property.test.js — Property test for the per-unit
  * assembly of the outbound push payload.
  *
- * The push is a *whole-project write*: the server stores the `Full_Project_Payload`
- * VERBATIM. That makes the payload's per-recording contents load-bearing in two
- * opposite directions at once:
+ * The push is a *whole-project write* that REPLACES the stored copy
+ * (sync-protocol SP-4). That makes the payload's per-recording contents
+ * load-bearing in two opposite directions at once:
  *
  *   - **No accidental deletion.** A recording present on ANY side (local,
  *     server, or baseline) that the payload omits would read to other clients as
@@ -17,12 +17,12 @@
  *     version), NOT the un-reconciled live local edits, so the whole-project write
  *     cannot overwrite the concurrent server change.
  *
- * (sync-protocol SP-13): "For any project pushed in a cycle, the assembled
- * `Full_Project_Payload` contains, for each recording: the local version when the
- * recording is clean-local-new, `changed-local-outgoing`, or `already-converged`;
- * and the agreed-or-pulled version when the recording is deferred (Review/Conflict)
- * or locked. No recording present locally, on the server, or in the baseline is
- * omitted from the payload."
+ * Per sync-protocol SP-13, the client assembles each pushed project's payload
+ * per recording: a pushable recording (clean brand-new-local,
+ * changed-local-outgoing, already-converged, or an auto-applied incoming
+ * version) is sent at its local version; a deferred (review or conflict) or
+ * locked recording is sent at the version most recently agreed-or-pulled for
+ * it; and no recording is ever omitted — only its version is swapped.
  *
  * ── How the invariant is pinned ──────────────────────────────────────────────
  * The test drives the REAL `sync()` (pull → reconcile → per-unit push) with a
@@ -507,8 +507,9 @@ describe('The push payload is assembled per-unit (no clobber, no accidental dele
 
           // ── No accidental deletion ──────────────────────────────────
           // Every recording present on ANY side (local, server, or baseline) is
-          // present in the pushed payload; the verbatim-store server can never
-          // read the write as a deletion.
+          // present in the pushed payload, so the whole-project write that
+          // replaces the stored copy (sync-protocol SP-4) never reads as a
+          // deletion.
           assert.equal(
             pushedById.size,
             allRecIds.size,

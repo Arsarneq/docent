@@ -12,8 +12,12 @@ This server is part of the repository's
 It runs on Node.js using only the standard library (`node:http` and friends) —
 no web framework, no build step — and persists to flat JSON files under the OS
 temp folder through a pluggable storage seam. Like any compliant server, it is
-**opaque**: it stores and returns each `Full_Project_Payload` verbatim and holds
-no conflict, baseline, or version state.
+**opaque** — returning each `Full_Project_Payload` verbatim is
+[SP-1](../../docs/api/sync-protocol.md)'s rule, and this server stores what it
+receives unchanged, adding nothing of its own. Beside each stored payload it
+keeps one server-maintained value, a `last_modified` timestamp, never merged
+into the payload; the optional conditional write's `ETag` is stored nowhere,
+being derived from the stored content on each response that carries one.
 
 > **This is a repository and testing artifact only.** The server lives under
 > `reference-implementations/` (separate from `packages/`, which holds the
@@ -134,6 +138,15 @@ The payload is stored verbatim — the server never interprets the stamp,
 recordings, or steps. On a successful write the server records a fresh
 `last_modified` timestamp (used only for the manifest, never merged into the
 payload) and returns an `ETag` header reflecting the newly stored content.
+
+Because the write is whole-project, an optional top-level field a server adds to
+a stored payload lasts no longer than the next landing push of that project — a
+refused write replaces nothing, whatever refuses it; the store-unchanged outcome
+is tabled above for the `400`s and is
+[SP-14](../../docs/api/sync-protocol.md#optional-conditional-write)'s statement
+for the conditional write's `412` — so how long it lasts, and why no push is
+triggered by the addition itself, is
+[SP-5](../../docs/api/sync-protocol.md#full_project_payload)'s.
 
 ---
 

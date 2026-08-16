@@ -3,15 +3,16 @@
  * user-gated resolution action PUSHES NOTHING, and that the resolved state
  * propagates on the NEXT sync cycle per the resolved-against baseline.
  *
- * (sync-protocol SP-10): "For any resolved Conflict or accepted Review, the
- * resolution action issues no push; the affected Unit's baseline entry is set to
- * the resolved-against incoming version (per-unit, leaving siblings untouched),
- * removing the entry when the resolved-against side is a deletion. Consequently,
- * on a subsequent cycle with an unchanged server: an accept or keep-incoming
- * reads as `already-converged` (no push); a keep-local/merge reads as
- * `changed-local-outgoing` (pushed); a delete-vs-change keep-survivor reads as
- * local-new (pushed, re-propagating the survivor); and a server that changed
- * again re-classifies the Unit as `diverged` (a fresh Conflict)."
+ * Per sync-protocol SP-10, the baseline advances only on confirmed agreement
+ * or adoption — never on push — and on adoption it advances to the
+ * resolved-against incoming version, so the adopted state is re-validated
+ * against the server on the next cycle. The consequences this property pins
+ * follow from that per-unit baseline placement: with an unchanged server, an
+ * accept or keep-incoming reads as `already-converged` (no push); a
+ * keep-local/merge reads as `changed-local-outgoing` (pushed); a
+ * delete-vs-change keep-survivor reads as local-new (pushed, re-propagating
+ * the survivor); and a server that changed again re-classifies the Unit as
+ * `diverged` (a fresh Conflict).
  *
  * ── What this property pins ──────────────────────────────────────────────────
  * The resolution helpers (`acceptReview` / `declineReview` / `resolveConflict` in

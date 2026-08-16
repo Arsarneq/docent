@@ -6,7 +6,7 @@
  *
  */
 
-import { describe, it, before, beforeEach, afterEach } from 'node:test';
+import { describe, it, before, after, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync, existsSync } from 'node:fs';
 import { resolve, join } from 'node:path';
@@ -19,9 +19,12 @@ import {
   pullProjects,
   buildHeaders,
   buildPayloadForProject,
+  envelopeProjection,
 } from '../../sync-client.js';
+import { createEmptySyncState } from '../../sync-store.js';
+import { advanceBaseline } from '../../sync-baseline.js';
 import { STUB_SCHEMA } from '../fixtures/stub-schema.js';
-import { composePlatform } from '../../../../scripts/build-schemas.js';
+import { composePlatform, PLATFORMS } from '../../../../scripts/build-schemas.js';
 import { stampFromSchema } from '../../lib/format-stamp.js';
 import { validatePayload, MAX_IMPORT_DEPTH } from '../../lib/validate-import.js';
 
@@ -67,6 +70,9 @@ function makeResponse(status, body = null) {
     json: async () => body,
   };
 }
+
+/** Structural clone, so a fixture-derived fixture cannot alias its source. */
+const deep = (v) => JSON.parse(JSON.stringify(v));
 
 /** Permissive stub validator — these tests exercise sync mechanics, not schema validation. */
 function passValidator() {
@@ -115,7 +121,14 @@ describe('pushProjects', () => {
           name: fc.string({ minLength: 1, maxLength: 50 }),
           created_at: fc.constant('2026-01-01T00:00:00.000Z'),
           metadata: fc.option(
-            fc.dictionary(fc.string({ minLength: 1, maxLength: 10 }), fc.string()),
+            fc.oneof(
+              // An explicit empty-object arm. The metadata contract asserted
+              // below turns on empty-vs-absent, and a plain dictionary reaches
+              // {} only by chance — too rarely to rely on for a registry-held
+              // case.
+              fc.constant({}),
+              fc.dictionary(fc.string({ minLength: 1, maxLength: 10 }), fc.string()),
+            ),
             { nil: undefined },
           ),
           recordings: fc.array(
@@ -124,7 +137,14 @@ describe('pushProjects', () => {
               name: fc.string({ minLength: 1, maxLength: 50 }),
               created_at: fc.constant('2026-01-01T00:00:00.000Z'),
               metadata: fc.option(
-                fc.dictionary(fc.string({ minLength: 1, maxLength: 10 }), fc.string()),
+                fc.oneof(
+                  // The same explicit empty arm as the project generator above:
+                  // the recording assertion below claims "empty included" too,
+                  // so it gets the same determinism rather than relying on a
+                  // dictionary happening to draw {}.
+                  fc.constant({}),
+                  fc.dictionary(fc.string({ minLength: 1, maxLength: 10 }), fc.string()),
+                ),
                 { nil: undefined },
               ),
               steps: fc.array(fc.record({ action: fc.string() }), { maxLength: 3 }),
@@ -141,12 +161,51 @@ describe('pushProjects', () => {
 
           await pushProjects('https://srv.test', null, [project], STUB_SCHEMA);
 
-          // Verify Full_Project_Payload shape
+          // Verify Full_Project_Payload shape. The key set is exact: the sync
+          // protocol's forward-compatibility rule (sync-protocol SP-5) states
+          // that the client builds EVERY PUT body from these same named
+          // top-level fields, which is what stops a field a server added from
+          // surviving a pull-edit-push cycle. placement-contract.test.js pins
+          // the same key set on the assembly path that sync() drives; this
+          // pins it on the direct-caller path, over arbitrary projects.
+          assert.deepEqual(
+            Object.keys(capturedBody).sort(),
+            ['docent_format', 'project', 'recordings'],
+            'the PUT body carries the three named top-level fields and no others',
+          );
           assert.ok(capturedBody.project, 'payload must have .project');
           assert.ok(Array.isArray(capturedBody.recordings), 'payload must have .recordings array');
           assert.equal(capturedBody.project.project_id, project.project_id);
           assert.equal(capturedBody.project.name, project.name);
           assert.equal(capturedBody.project.created_at, project.created_at);
+
+          // The metadata key is carried, never defaulted: an empty object is
+          // sent as one, and a metadata the source does not really have is
+          // omitted rather than materialized as {}. The field tables state this,
+          // and the two forms are distinct under the canonical digest
+          // classification compares (sync-protocol SP-9), so defaulting here
+          // would make an unchanged unit compare as changed.
+          //
+          // The predicate is truthiness, not Object.hasOwn: this generator's
+          // `nil: undefined` emits an OWN `metadata` key whose value is
+          // undefined, which the client treats exactly like an absent one. Both
+          // forms therefore ride the generator's free coverage.
+          assert.equal(
+            Object.hasOwn(capturedBody.project, 'metadata'),
+            Boolean(project.metadata),
+            'project metadata is carried when present (empty included), omitted otherwise',
+          );
+          // The value carried is the source's JSON image: the wire is JSON, so
+          // the expected side is JSON-cloned — a generator artifact JSON cannot
+          // carry (a null-prototype map) must not fail a faithfully carried
+          // value, while any rewrite of the keys or values still does.
+          if (project.metadata) {
+            assert.deepEqual(
+              capturedBody.project.metadata,
+              deep(project.metadata),
+              'the project metadata carried is the source value, not a rewrite',
+            );
+          }
 
           // Recordings match
           assert.equal(capturedBody.recordings.length, (project.recordings ?? []).length);
@@ -156,6 +215,19 @@ describe('pushProjects', () => {
             assert.equal(sent.recording_id, orig.recording_id);
             assert.equal(sent.name, orig.name);
             assert.ok(Array.isArray(sent.steps), 'recording must have .steps array');
+            assert.equal(
+              Object.hasOwn(sent, 'metadata'),
+              Boolean(orig.metadata),
+              'recording metadata is carried when present (empty included), omitted otherwise',
+            );
+            // Same JSON-image comparison as the project site above.
+            if (orig.metadata) {
+              assert.deepEqual(
+                sent.metadata,
+                deep(orig.metadata),
+                'the recording metadata carried is the source value, not a rewrite',
+              );
+            }
           }
         },
       ),
@@ -267,6 +339,86 @@ describe('buildPayloadForProject', () => {
     const project = { ...makeProject('p1'), recordings: [makeRecording('r1')] };
     const payload = buildPayloadForProject(project, STUB_SCHEMA);
     assert.deepEqual(payload.recordings[0].steps, []);
+  });
+
+  it('regression_429_pull_projection_and_push_body_name_the_same_fields', () => {
+    // Regression: #429 — https://github.com/Arsarneq/docent/issues/429
+    //
+    // SP-5 says the client builds every PUT body from "these same named
+    // top-level fields" the pull path projects onto. That is a WELD between two
+    // independent literals — the names envelopeProjection copies and the object
+    // buildPayloadForProject returns — which no other case holds to each other:
+    // the push-side cases here would catch a name appearing in the push body,
+    // but a name added to the projection alone is invisible to all of them, and
+    // the specification's sentence goes false on the wire either way.
+    //
+    // The projection's key set is RECOVERED, not inferred from an input we
+    // chose: feeding it a superset built from the push body could only ever
+    // observe drift on the push side, since a name only the projection knows
+    // would never be offered to it.
+    //
+    // Recovery works by reading the names the function asks for, so the recorder
+    // has to cover the ways a reader can ask. `Object.hasOwn(payload, k)`,
+    // `payload[k] !== undefined`, and `k in payload` / `Reflect.has` are all
+    // ordinary ways to write this projection, and they trip THREE different
+    // proxy traps; each idiom left uncovered is a name the recorder cannot see.
+    //
+    // Trap enumeration is inherently open — it can only cover the ways of asking
+    // someone thought of, which is why the output-side assertion below backs it
+    // up and why deriving both literals from one shared constant would retire
+    // this machinery altogether.
+    const projectionKeys = new Set();
+    const keyRecorder = new Proxy(
+      {},
+      {
+        getOwnPropertyDescriptor(_target, key) {
+          if (typeof key === 'string') projectionKeys.add(key);
+          return undefined;
+        },
+        get(_target, key) {
+          if (typeof key === 'string') projectionKeys.add(key);
+          return undefined;
+        },
+        has(_target, key) {
+          if (typeof key === 'string') projectionKeys.add(key);
+          return false;
+        },
+        ownKeys() {
+          return [];
+        },
+      },
+    );
+    envelopeProjection(keyRecorder);
+
+    const pushBody = buildPayloadForProject(
+      { ...makeProject('p1', 'Test'), recordings: [makeRecording('r1', [{ action: 'click' }])] },
+      STUB_SCHEMA,
+    );
+
+    assert.ok(projectionKeys.size > 0, 'the recorder observed the projection reading its keys');
+    assert.deepEqual(
+      [...projectionKeys].sort(),
+      Object.keys(pushBody).sort(),
+      'the fields the pull projection names are exactly the fields a push body carries (SP-5)',
+    );
+
+    // Belt and braces from the OUTPUT side — and note which direction it guards.
+    // The superset is built FROM the push body, so this catches a name the PUSH
+    // side gained that the projection does not keep, and a name the projection
+    // drops; a name only the PROJECTION knows is never offered to it, so the
+    // recorder above remains the sole guard for that direction and is bounded by
+    // the idioms it traps. Deriving both literals from one shared constant is
+    // what would retire the split.
+    const superset = {
+      ...pushBody,
+      future_top_level_field: { added_by: 'a later protocol version' },
+      another_future_field: 'also unrecognized',
+    };
+    assert.deepEqual(
+      Object.keys(envelopeProjection(superset)).sort(),
+      Object.keys(pushBody).sort(),
+      'the projection of a superset payload carries exactly the fields a push body carries (SP-5)',
+    );
   });
 });
 
@@ -944,8 +1096,8 @@ describe('sync — pull stamp mismatch handling', () => {
  * generated-validators.test.js models), because a permissive stub validator
  * would accept the unknown field on its own and mask the defect they exist to
  * pin. The block therefore requires the generated artifacts and FAILS LOUDLY
- * when they are absent — the `before` hook asserts, naming the build step to
- * run; it does not skip.
+ * when they are absent — `loadPlatformValidatorAndFixture` asserts, naming the
+ * build step to run; it does not skip.
  *
  * Bounds note (accepted at design time): with the projection in place, the
  * size/depth bounds `validatePayload` runs before the schema walk measure the
@@ -955,11 +1107,21 @@ describe('sync — pull stamp mismatch handling', () => {
  * the allowlisted reconstruction, so each keeps the bounded input it had.
  */
 
+/** Platform keys whose tolerance case actually ran (see the after() hook below). */
+const TOLERANCE_CASES_RUN = new Set();
+
 const REGRESSION_429_DIRNAME = fileURLToPath(new URL('.', import.meta.url));
 const GENERATED_DIR = resolve(REGRESSION_429_DIRNAME, '../../generated');
 const FIXTURES_DIR = resolve(REGRESSION_429_DIRNAME, '../fixtures');
 
-/** The frozen fixture backing each platform's real generated validator. */
+/**
+ * The frozen fixture backing each platform's real generated validator.
+ *
+ * Adding a platform here does NOT add a tolerance case: those are written out
+ * one per platform below, because a generated `it()` title cannot be named in a
+ * clause-registry row and so could be renamed or deleted with nothing red. A new
+ * entry needs its own hand-written case beside them.
+ */
 const REGRESSION_429_PLATFORMS = [
   { key: 'extension', fixture: 'extension/v3.0.0.docent.json' },
   { key: 'desktop-windows', fixture: 'desktop-windows/v2.0.0.docent.json' },
@@ -980,7 +1142,12 @@ async function loadPlatformValidatorAndFixture(key) {
     `Missing ${file} — run \`npm run sync-shared\` (or node scripts/build-validators.js) before this test.`,
   );
   const validate = (await import(pathToFileURL(file).href)).default;
-  const fixture = REGRESSION_429_PLATFORMS.find((p) => p.key === key).fixture;
+  const entry = REGRESSION_429_PLATFORMS.find((p) => p.key === key);
+  assert.ok(
+    entry,
+    `No REGRESSION_429_PLATFORMS entry for "${key}" — add one with its frozen fixture.`,
+  );
+  const fixture = entry.fixture;
   const payload = JSON.parse(readFileSync(join(FIXTURES_DIR, fixture), 'utf8'));
   const localStamp = stampFromSchema(composePlatform(key));
   // Re-stamp to the CURRENT schema version so a schema bump never needs a
@@ -1008,55 +1175,79 @@ function mockPullOf(projectId, payload) {
   });
 }
 
-for (const { key } of REGRESSION_429_PLATFORMS) {
-  describe(`pullProjects — docent#429 forward compatibility (${key})`, () => {
-    let validate;
-    let payload;
-    let localStamp;
+/**
+ * The tolerance assertion, shared by the per-platform cases below (written out
+ * one per platform for the reason given on `REGRESSION_429_PLATFORMS`).
+ *
+ * @param {string} key - the platform key (`extension` / `desktop-windows`)
+ * @returns {Promise<void>}
+ */
+async function assertUnknownTopLevelFieldToleratedOnPull(key) {
+  TOLERANCE_CASES_RUN.add(key);
+  const { validate, payload, localStamp } = await loadPlatformValidatorAndFixture(key);
+  const projectId = payload.project.project_id;
 
-    before(async () => {
-      ({ validate, payload, localStamp } = await loadPlatformValidatorAndFixture(key));
-    });
-
-    it(`regression_429_unknown_top_level_field_accepted_on_pull_${key.replace(/-/g, '_')}`, async () => {
-      // Regression: #429 — an unknown top-level field made the whole project
-      // skip into `errors`, contradicting SP-5's forward-compatibility promise.
-      // https://github.com/Arsarneq/docent/issues/429
-      const projectId = payload.project.project_id;
-
-      mockPullOf(projectId, {
-        ...payload,
-        future_top_level_field: { added_by: 'a later protocol version' },
-      });
-      const tolerated = await pullProjects('https://srv.test', null, validate, localStamp);
-
-      mockPullOf(projectId, payload);
-      const baseline = await pullProjects('https://srv.test', null, validate, localStamp);
-
-      assert.deepEqual(
-        tolerated.errors.map((e) => e.message),
-        [],
-        'an unrecognized top-level field is not an error (SP-5)',
-      );
-      assert.deepEqual(
-        tolerated.mismatched.map((e) => e.message),
-        [],
-        'an unrecognized top-level field is not a stamp mismatch',
-      );
-      assert.equal(tolerated.projects.length, 1, 'the project is accepted');
-      assert.deepEqual(
-        tolerated.projects,
-        baseline.projects,
-        'the reconstructed project is exactly the one the same payload without the extra field yields',
-      );
-    });
+  mockPullOf(projectId, {
+    ...payload,
+    future_top_level_field: { added_by: 'a later protocol version' },
   });
+  const tolerated = await pullProjects('https://srv.test', null, validate, localStamp);
+
+  mockPullOf(projectId, payload);
+  const baseline = await pullProjects('https://srv.test', null, validate, localStamp);
+
+  assert.deepEqual(
+    tolerated.errors.map((e) => e.message),
+    [],
+    'an unrecognized top-level field is not an error (SP-5)',
+  );
+  assert.deepEqual(
+    tolerated.mismatched.map((e) => e.message),
+    [],
+    'an unrecognized top-level field is not a stamp mismatch',
+  );
+  assert.equal(tolerated.projects.length, 1, 'the project is accepted');
+  assert.deepEqual(
+    tolerated.projects,
+    baseline.projects,
+    'the reconstructed project is exactly the one the same payload without the extra field yields',
+  );
 }
+
+describe('pullProjects — docent#429 forward compatibility', () => {
+  // Regression: #429 — an unknown top-level field made the whole project skip
+  // into `errors`, contradicting SP-5's forward-compatibility promise.
+  // https://github.com/Arsarneq/docent/issues/429
+  //
+  // One case per platform, written out rather than generated, for the reason
+  // given on REGRESSION_429_PLATFORMS.
+  it('regression_429_unknown_top_level_field_accepted_on_pull_extension', async () => {
+    await assertUnknownTopLevelFieldToleratedOnPull('extension');
+  });
+
+  it('regression_429_unknown_top_level_field_accepted_on_pull_desktop_windows', async () => {
+    await assertUnknownTopLevelFieldToleratedOnPull('desktop-windows');
+  });
+
+  // The hand-written-case convention above is only a docstring unless something
+  // reds when a platform joins the canonical map without a case here. Checking
+  // the fixture list alone would prove a fixture exists, not that a case RAN —
+  // so this asserts over the keys the cases actually exercised, which is the
+  // half the convention is about, and needs no generated titles to do it.
+  after(() => {
+    assert.deepEqual(
+      [...TOLERANCE_CASES_RUN].sort(),
+      Object.keys(PLATFORMS).sort(),
+      'every platform build-schemas composes ran a tolerance case here ' +
+        '(a filtered run that skips one trips this too — re-run unfiltered before treating it as a coverage gap)',
+    );
+  });
+});
 
 describe('pullProjects — docent#429 the gates the projection keeps', () => {
   // The cases below pin gates in platform-independent pull-path code, so one
-  // platform's real validator exercises them; the tolerance case above is the
-  // platform-shaped one and runs against both.
+  // platform's real validator exercises them; the tolerance above is the
+  // platform-shaped property and takes a case per platform.
   let validate;
   let payload;
   let localStamp;
@@ -1133,27 +1324,40 @@ describe('pullProjects — docent#429 the gates the projection keeps', () => {
   it('regression_429_null_per_project_body_skips_only_that_project', async () => {
     // Regression: #429 — the projection runs on every pulled body, so a body
     // that is no Full_Project_Payload at all stays a per-project skip: `null`
-    // leaves the projection unchanged, the stamp stage reads no stamp off it,
-    // and the rest of the pull continues.
+    // and a string primitive each pass through the projection unchanged, while
+    // an array takes the projection path (typeof [] is 'object') and yields an
+    // empty projection — either way the stamp stage reads no stamp, and the
+    // rest of the pull continues.
     // https://github.com/Arsarneq/docent/issues/429
     const goodId = payload.project.project_id;
     const nullBodyId = '0192f0a0-0000-7000-8000-0000000000d1';
+    const stringBodyId = '0192f0a0-0000-7000-8000-0000000000d2';
+    const arrayBodyId = '0192f0a0-0000-7000-8000-0000000000d3';
     const manifest = [
       { project_id: nullBodyId, name: 'Null body', last_modified: '2026-06-01T00:00:00.000Z' },
+      { project_id: stringBodyId, name: 'String body', last_modified: '2026-06-01T00:00:00.000Z' },
+      { project_id: arrayBodyId, name: 'Array body', last_modified: '2026-06-01T00:00:00.000Z' },
       { project_id: goodId, name: 'Regression 429', last_modified: '2026-06-01T00:00:00.000Z' },
     ];
     mockFetch((url) => {
       if (url.endsWith('/projects')) return makeResponse(200, manifest);
       if (url.endsWith(`/projects/${nullBodyId}`)) return makeResponse(200, null);
+      if (url.endsWith(`/projects/${stringBodyId}`)) return makeResponse(200, 'no payload shape');
+      if (url.endsWith(`/projects/${arrayBodyId}`)) return makeResponse(200, []);
       if (url.endsWith(`/projects/${goodId}`)) return makeResponse(200, payload);
       return makeResponse(404);
     });
 
     const result = await pullProjects('https://srv.test', null, validate, localStamp);
 
-    assert.equal(result.mismatched.length, 1, 'the null body is one compatibility skip');
-    assert.equal(result.mismatched[0].projectName, 'Null body');
-    assert.match(result.mismatched[0].message, /missing or malformed docent_format stamp/);
+    assert.deepEqual(
+      result.mismatched.map((m) => m.projectName),
+      ['Null body', 'String body', 'Array body'],
+      'each non-object body is its own compatibility skip',
+    );
+    for (const skipped of result.mismatched) {
+      assert.match(skipped.message, /missing or malformed docent_format stamp/);
+    }
     assert.deepEqual(
       result.errors.map((e) => e.message),
       [],
@@ -1218,6 +1422,128 @@ describe('pullProjects — docent#429 where the bounds are measured', () => {
       pulled.projects,
       baseline.projects,
       'and it is the project the same payload without that field yields',
+    );
+  });
+});
+
+// ─── sync — docent#429 the round trip the projection decides ──────────────────
+
+describe('sync — docent#429 the round trip the projection decides', () => {
+  // SP-5 states that a top-level field a server STORED lasts only until a push
+  // of its project lands. Its halves are pinned apart — the projection drops the
+  // field on pull (above), and the PUT body carries exactly docent_format, project and recordings
+  // (placement-contract.test.js on the assembly path, the property test above on
+  // the direct-caller path). This case composes them on the path shipped clients
+  // actually run: sync() with a durable store and a live-state adapter, which is
+  // the graded reconcile branch, not the five-argument legacy one.
+  //
+  // The baseline is seeded to the state the server serves, so the incoming side
+  // is converged and the local edit classifies as changed-local-outgoing. Both
+  // halves of that setup are load-bearing: with no baseline the same divergence
+  // is a conflict and nothing is pushed at all.
+
+  /**
+   * A durable SyncStore whose baseline already agrees with `agreedProject`, so a
+   * later local edit is the only divergence in the cycle.
+   *
+   * @param {string} projectId - the project the baseline is seeded for
+   * @param {object} agreedProject - the project state to record as agreed
+   * @returns {{load: Function, save: Function}} an in-memory store adapter
+   */
+  function makeStoreAgreedOn(projectId, agreedProject) {
+    const state = createEmptySyncState();
+    advanceBaseline(state, projectId, agreedProject);
+    let saved = state;
+    return {
+      load: async () => saved,
+      save: async (s) => {
+        saved = s;
+      },
+    };
+  }
+
+  /** LiveState with nothing live — no capture, no locks, no pending actions. */
+  const idleLiveState = {
+    isCaptureActive: () => false,
+    getLockedRecordingIds: () => new Set(),
+    recordingsWithPendingActions: () => new Set(),
+  };
+
+  it('regression_429_server_added_field_does_not_survive_pull_edit_push', async () => {
+    // Regression: #429 — https://github.com/Arsarneq/docent/issues/429
+    const { validate, payload } = await loadPlatformValidatorAndFixture('extension');
+    const projectId = payload.project.project_id;
+    const schema = composePlatform('extension');
+
+    const served = {
+      ...deep(payload),
+      future_top_level_field: { added_by: 'a later protocol version' },
+    };
+    const agreed = {
+      ...deep(payload.project),
+      recordings: deep(payload.recordings),
+    };
+    const localProject = {
+      ...deep(payload.project),
+      name: `${payload.project.name} (edited locally)`,
+      recordings: deep(payload.recordings),
+    };
+
+    const manifest = [
+      {
+        project_id: projectId,
+        name: payload.project.name,
+        last_modified: '2026-06-01T00:00:00.000Z',
+      },
+    ];
+    let putBody;
+    let servedOnTheWire;
+    mockFetch((url, opts) => {
+      if (opts?.method === 'PUT') {
+        putBody = JSON.parse(opts.body);
+        return makeResponse(200, { ok: true });
+      }
+      if (url.endsWith('/projects')) return makeResponse(200, manifest);
+      if (url.endsWith(`/projects/${projectId}`)) {
+        // A copy per read, so the object the client parses is genuinely not the
+        // literal above and a later mutation of one cannot flatter the other.
+        servedOnTheWire = deep(served);
+        return makeResponse(200, servedOnTheWire);
+      }
+      return makeResponse(404);
+    });
+
+    const { result } = await sync(
+      'https://srv.test',
+      null,
+      [localProject],
+      schema,
+      validate,
+      makeStoreAgreedOn(projectId, agreed),
+      idleLiveState,
+    );
+
+    assert.ok(
+      servedOnTheWire && Object.hasOwn(servedOnTheWire, 'future_top_level_field'),
+      'the pull read a payload carrying the unrecognized top-level field',
+    );
+    assert.deepEqual(result.pulled, [projectId], 'the payload was accepted on pull (SP-5)');
+    assert.equal(
+      result.conflicts.length,
+      0,
+      'the seeded baseline keeps this a clean outgoing push',
+    );
+    assert.deepEqual(result.pushed, [projectId], 'the cycle pushed the project');
+    assert.ok(putBody, 'the cycle reached its push phase');
+    assert.equal(
+      putBody.project.name,
+      localProject.name,
+      'the push carried the local edit, so the pushed body is the reconciled one',
+    );
+    assert.deepEqual(
+      Object.keys(putBody).sort(),
+      ['docent_format', 'project', 'recordings'],
+      'the PUT body carries exactly the named top-level fields, so the stored server-added field did not survive the cycle (SP-5)',
     );
   });
 });

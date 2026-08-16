@@ -17,13 +17,24 @@ stated without a keyword, and subsidiary absolutes inside a clause inherit its
 force. A clause's scope runs from its marker to the next marker or heading;
 identifiers reflect minting order and can appear out of numeric sequence.
 
-**SP-1.** The server is **opaque**: it stores and returns each
-`Full_Project_Payload` verbatim and holds no conflict state of its own. All conflict detection and
+**SP-1.** The server is **opaque**: it returns each stored
+`Full_Project_Payload` verbatim, stores it as received apart from what SP-5
+permits a server to add at storage time, and holds no conflict state of its
+own. All conflict detection and
 resolution is client-side. A server built against the
 [Endpoints](#endpoints) and [Payload Shapes](#payload-shapes) sections below is
 complete and correct regardless of how the client reconciles — the
 [Sync Behavior](#sync-behavior) section documents the client cycle for context,
-not as a server obligation.
+not as a server obligation. What the other sections add is bound to a choice a
+deployment makes: [Authentication](#authentication) binds a server that requires
+it (SP-2), the [optional conditional write](#optional-conditional-write) binds
+one that offers it (SP-14), and [Server scope and CORS](#server-scope-and-cors)
+binds the
+deployment choice to expose the server to a browser origin (SP-25), while
+directing consuming systems to the underlying storage (SP-24). The same is true
+of a choice made inside [Endpoints](#endpoints) and
+[Payload Shapes](#payload-shapes) themselves — a server that adds an optional
+top-level field takes on what SP-5 says about it.
 
 ---
 
@@ -85,7 +96,8 @@ deployment choice. Adding permissive CORS (e.g.
 or running without authentication — would let any website the user visits read
 and overwrite their data from the browser. If you intentionally expose your
 server to a trusted browser origin, you SHOULD scope CORS to that exact origin
-and MUST NOT use `*` on an unauthenticated server.
+and MUST NOT use `*` on an unauthenticated server. This is the deployment choice
+SP-1 names.
 
 ---
 
@@ -181,7 +193,7 @@ configured.
 
 **Response (200 OK):**
 
-Returns a `Full_Project_Payload` object (see [Payload Shapes](#full_project_payload)
+Returns a `Full_Project_Payload` object (see [Payload Shapes](#payload-shapes)
 below for the complete example).
 
 ---
@@ -201,13 +213,14 @@ Authorization: Bearer <api_key>
 ```
 
 The request body is a `Full_Project_Payload` object (see
-[Payload Shapes](#full_project_payload) below). It is a **whole-project write**:
+[Payload Shapes](#payload-shapes) below). It is a **whole-project write**:
 the client always sends the complete project (every recording, full step
-history), and the server stores it verbatim, replacing any prior stored copy.
+history), and the server stores it as received — apart from what SP-5 permits a
+server to add at storage time — replacing any prior stored copy.
 The client assembles the body per recording so that this whole-project write
 never clobbers an un-reconciled server change and never omits a recording (see
 [Push phase](#push-phase)) — but that assembly is invisible to the server, which
-just stores what it receives.
+neither reconstructs nor interprets it.
 
 The `Content-Type` header is always `application/json`. The `Authorization`
 header is present only when an API key is configured.
@@ -245,7 +258,8 @@ for `PUT /projects/:id`.
 > auto-update is in play — clients on different schema versions. The stamp lets
 > the pulling client identify each project's platform and schema version and
 > validate or route it accordingly, instead of guessing. The server treats the
-> payload as opaque — it stores and returns it verbatim and never reads the stamp.
+> payload as opaque — it stores it as received apart from what SP-5 permits,
+> returns the stored copy verbatim, and never reads the stamp.
 
 The `schema_version` shown is illustrative, not the current version.
 
@@ -350,35 +364,69 @@ The `schema_version` shown is illustrative, not the current version.
 
 **Project fields:**
 
-| Field        | Type              | Required | Description                                       |
-| ------------ | ----------------- | -------- | ------------------------------------------------- |
-| `project_id` | string (UUIDv7)   | yes      | Unique project identifier.                        |
-| `name`       | string            | yes      | Human-readable project name.                      |
-| `created_at` | string (ISO 8601) | yes      | Creation timestamp.                               |
-| `metadata`   | object            | no       | User-defined key-value pairs. Omitted when empty. |
+| Field        | Type              | Required | Description                                                                        |
+| ------------ | ----------------- | -------- | ---------------------------------------------------------------------------------- |
+| `project_id` | string (UUIDv7)   | yes      | Unique project identifier.                                                         |
+| `name`       | string            | yes      | Human-readable project name.                                                       |
+| `created_at` | string (ISO 8601) | yes      | Creation timestamp.                                                                |
+| `metadata`   | object            | no       | User-defined key-value pairs. Omitted when absent; an empty object is sent as one. |
 
 **Recording fields:**
 
-| Field          | Type              | Required | Description                                                |
-| -------------- | ----------------- | -------- | ---------------------------------------------------------- |
-| `recording_id` | string (UUIDv7)   | yes      | Unique recording identifier.                               |
-| `name`         | string            | yes      | Human-readable recording name.                             |
-| `created_at`   | string (ISO 8601) | yes      | Creation timestamp.                                        |
-| `metadata`     | object            | no       | User-defined key-value pairs. Omitted when empty.          |
-| `steps`        | array             | yes      | Full step history including re-recorded and deleted steps. |
+| Field          | Type              | Required | Description                                                                        |
+| -------------- | ----------------- | -------- | ---------------------------------------------------------------------------------- |
+| `recording_id` | string (UUIDv7)   | yes      | Unique recording identifier.                                                       |
+| `name`         | string            | yes      | Human-readable recording name.                                                     |
+| `created_at`   | string (ISO 8601) | yes      | Creation timestamp.                                                                |
+| `metadata`     | object            | no       | User-defined key-value pairs. Omitted when absent; an empty object is sent as one. |
+| `steps`        | array             | yes      | Full step history including re-recorded and deleted steps.                         |
 
 The `steps` array contains the **complete version history** — it is not filtered
 to active steps only. See the [Docent Session Format](../technical/session-format.md)
 documentation for the step structure (the per-platform schemas define it
 authoritatively).
 
-> **SP-5.** **Forward compatibility.** The client ignores any unrecognized top-level fields
+> **SP-5.** **Forward compatibility.** A server MAY add optional top-level fields
+> to the payload it stores, whether it is storing a client's `PUT` or rewriting
+> its stored copy in a later write of its own. SP-1's verbatim return leaves it
+> no way to inject one on read, so a stored field is the only kind this clause
+> is about.
+> The client ignores any unrecognized top-level fields
 > the server returns, so a future protocol version can add fields without
 > breaking clients built against this specification. The tolerance belongs to
 > the client's transport layer: a pulled payload is validated and reconstructed
 > on its **known-field projection** — the `docent_format`, `project`, and
 > `recordings` fields tabled above — so a field this specification does not name
-> is dropped there. The `.docent.json` format keeps its own
+> is dropped there. The projection also decides what a push carries: the client
+> builds every `PUT` body from these same named top-level fields, so **a push that
+> lands replaces the stored payload with one built without the added field**. A
+> top-level field therefore lasts no longer than the next landing push of its
+> project — a refused push replaces nothing, whatever refuses it; SP-4's `400`
+> and SP-14's `412` are where this specification states the store-unchanged
+> outcome — and whether a given cycle writes a given project at all is SP-13's. Adding one is
+> not itself a change a client can observe: the projection drops it before the
+> content comparison SP-13 makes, so the field never triggers the push that would
+> clear it. A server is free to write it again — in a later store write, or as
+> part of the very write that lands the client's push; either way that is a fresh
+> addition, not the earlier field surviving.
+>
+> Only the top level behaves this way. The places the schemas leave open inside
+> the payload — the user-defined `metadata` maps, whose arbitrary keys take typed
+> values, and the action objects, both described in
+> [Session Format §SF-14](../technical/session-format.md#field-stability) — are
+> reconstructed into client state, so what a server writes there becomes the
+> client's own data: re-pushed on a later cycle, and inside the canonical digest
+> SP-9 classifies on, which surfaces it as a review or a conflict on a unit
+> nobody edited. Every other object is closed, so an unknown key there fails
+> validation on pull rather than travelling at all.
+>
+> Server-maintained response data lives beside
+> the payload instead — the manifest's `last_modified` and the
+> [conditional write](#optional-conditional-write)'s `ETag` are both produced by
+> the server rather than sent by the client. The `ETag` derives from the stored
+> content, and `last_modified` records when the server last wrote it, so neither
+> is a place to park any other fact of the server's own. The
+> `.docent.json` format keeps its own
 > [field-stability posture](../technical/session-format.md#field-stability),
 > which states per object where an unknown key is an extension and where it is a
 > validation error. (The optional
@@ -419,15 +467,15 @@ lightweight summary used by the client to determine which projects to fetch.
 
 The client interprets the following HTTP status codes:
 
-| Code | Meaning                                                            | Client behavior                                                                                                                       |
-| ---- | ------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------- |
-| 200  | OK — request succeeded                                             | Pull: payload snapshotted and reconciled. Push: project marked as pushed.                                                             |
-| 201  | Created — new project stored                                       | Same as 200 (treated as success).                                                                                                     |
-| 400  | Bad Request — invalid JSON body or path/body `project_id` mismatch | Server rejects the write; store unchanged. The client never sends such a request; a received 400 is non-fatal (skipped like 404/500). |
-| 401  | Unauthorized — invalid or missing API key                          | Sync halted immediately. Error reported to user.                                                                                      |
-| 403  | Forbidden — valid key but insufficient permissions                 | Sync halted immediately. Error reported to user.                                                                                      |
-| 404  | Not found — project does not exist                                 | Error recorded for that project. Other projects continue.                                                                             |
-| 500  | Internal server error                                              | Error recorded for that project. Other projects continue.                                                                             |
+| Code | Meaning                                                            | Client behavior                                                                                                                              |
+| ---- | ------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| 200  | OK — request succeeded                                             | Pull: payload snapshotted and reconciled. Push: project marked as pushed.                                                                    |
+| 201  | Created — new project stored                                       | Same as 200 (treated as success).                                                                                                            |
+| 400  | Bad Request — invalid JSON body or path/body `project_id` mismatch | Server rejects the write; store unchanged (SP-4). The client never sends such a request; a received 400 is non-fatal (skipped like 404/500). |
+| 401  | Unauthorized — invalid or missing API key                          | Sync halted immediately. Error reported to user.                                                                                             |
+| 403  | Forbidden — valid key but insufficient permissions                 | Sync halted immediately. Error reported to user.                                                                                             |
+| 404  | Not found — project does not exist                                 | Error recorded for that project. Other projects continue.                                                                                    |
+| 500  | Internal server error                                              | Error recorded for that project. Other projects continue.                                                                                    |
 
 **Important:** A `401` or `403` response on any request (pull or push) causes the
 client to halt the entire sync operation. A halt on the pull returns before any
@@ -500,7 +548,11 @@ the unit by comparing three states: the **local** version, the **incoming**
 (pulled) version, and the **baseline** — the last state this client and the
 server mutually agreed on. Classification uses content equality (a canonical
 digest of name, metadata, and full step history), not timestamps, because
-`last_modified` is unreliable against an opaque store.
+`last_modified` is unreliable against an opaque store. That digest canonicalizes
+the values it covers, so key order never shifts identity, but it copies a field's
+presence rather than defaulting it: an absent `metadata` and an empty one are
+distinct inputs and yield distinct digests, so a client that materializes one
+into the other before comparing reads a round-tripped unit as changed.
 
 | Classification         | Condition                                                     | Outcome                                                                                                 |
 | ---------------------- | ------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
@@ -884,30 +936,31 @@ implements this capability; the shipped clients do not yet send `If-Match`.
 
 ## Implementation Notes
 
-- The server stays **opaque and unchanged**. It stores the `Full_Project_Payload`
-  as-is and returns it verbatim; it holds no conflict, baseline, or version state.
-  All reconciliation — baseline tracking, classification, snapshot retention, and
-  conflict resolution — is **client-side**. A compatible
-  server needs only the three endpoints above.
-- The client sends the complete project state on every push — there is no
-  incremental/delta sync.
-- The `last_modified` field in the manifest is informational. The client does not
-  use it for conditional fetching or for classification (which relies on content
-  equality, since `last_modified` is unreliable against an opaque store).
-- The `metadata` field on projects and recordings is optional and may be absent
-  from the payload. Treat missing `metadata` as an empty object.
+- The server stays **opaque and unchanged** (SP-1). A compatible server needs only
+  the endpoints above; baseline tracking, classification, snapshot retention, and
+  conflict resolution all run in the client.
+- Each push is a whole-project write — there is no incremental/delta sync. Which
+  version of each unit that write carries, and which projects are written at all,
+  are SP-13's.
+- The `last_modified` field in the manifest is informational: the client does not
+  use it for conditional fetching, and classification does not read it either.
+  What classification compares instead, and why it compares that, is SP-9's.
+- A `metadata` that is absent and one that is present but empty are both
+  well-formed, and they are distinct on the wire. Returning whichever arrived is
+  already SP-1's verbatim rule — collapsing one into the other is the same defect
+  as dropping any other field, and it changes what the client reads back. What
+  the distinction means for classification is SP-9's.
 - The `steps` array may be empty for recordings that have no captured steps yet.
 - IDs use UUIDv7 format (time-ordered), but the server does not need to validate
-  or generate them — they are always provided by the client.
+  or generate them — the client sends them with every write (SP-4).
 - The server does not need to understand the internal structure of steps or
-  actions. It stores and returns them verbatim.
-- The `docent_format` stamp is part of the stored payload. The server treats it as
-  opaque — it does not read or validate it. Only the pulling client uses it (to
-  identify the platform/schema version and validate the payload before reconciling).
-- A server MAY add optional top-level fields; the client ignores unrecognized
-  fields, so this is non-breaking. (The optional
-  [conditional write](#optional-conditional-write) needed none — it rides on
-  HTTP headers.)
+  actions; storing and returning them as received is SP-1's rule.
+- What the `docent_format` stamp is for, and why the server never reads it, is in
+  the [Full_Project_Payload](#full_project_payload) note above; the check the
+  pulling client runs on it is SP-8's.
+- Adding an optional top-level field is SP-5's: the permission, the tolerance a
+  client built against this specification gives it, and how long such a field
+  lasts.
 
 > **Working example.** For a small, runnable implementation of this contract, see
 > the [Reference Sync Server](../../reference-implementations/sync-server/README.md).
