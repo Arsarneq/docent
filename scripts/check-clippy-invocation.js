@@ -81,8 +81,8 @@ const ROOT = join(import.meta.dirname, '..');
 export const SELF_PATH = 'scripts/check-clippy-invocation.js';
 
 /**
- * The two surfaces, re-exported rather than restated, so the paths this check
- * names in its output are the paths its neighbour names.
+ * The surfaces, re-exported rather than restated, so the paths this check names
+ * in its output are the paths its neighbour names.
  */
 export { CI_DOC_PATH, TEST_WORKFLOW_PATH };
 

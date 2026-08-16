@@ -146,8 +146,8 @@ describe('check-script CLI smoke (deterministic green paths)', () => {
     // No env pinned: this check and its import closure (the doc-closure gate's
     // table and step readers, the path-filter's job reader, and the
     // test-inventory tokenizer) read no process.env. Its externals are the YAML
-    // parser and the `git ls-files` this family's tracked-file reader shells out
-    // to — the same closure the clause-registry case above runs on.
+    // parser it loads the workflow through and the `git ls-files` the shared
+    // tracked-file reader shells out to, neither of which reads one either.
     const out = runScript('check-clippy-invocation.js');
     assert.match(out, /clippy invocation single-sourced/);
   });
