@@ -7,7 +7,7 @@
     "test:headed": "npx playwright test --headed"
   },
   "devDependencies": {
-    "@axe-core/playwright": "^4.12.1",
+    "@axe-core/playwright": "^4.13.0",
     "@playwright/test": "^1.62.1",
     "v8-to-istanbul": "^9.3.0",
     "ws": "^8.21.3"
