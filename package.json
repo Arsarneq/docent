@@ -84,7 +84,7 @@
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
-    "@stryker-mutator/core": "^9.6.1",
+    "@stryker-mutator/core": "^10.0.0",
     "@tauri-apps/api": "^2.0.0",
     "ajv": "^8.20.0",
     "ajv-formats": "^3.0.1",
