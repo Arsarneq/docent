@@ -195,10 +195,10 @@ jobs:
         run: npm run lint:reachability
 
       # scripts/area-map.json (which docs govern which code) is committed data,
-      # so it can rot; this is its admission test. Red when the map goes stale
-      # (a pattern matching nothing, an entry pointing at a moved file), when a
-      # tracked file belongs to no area, or when a doc under docs/ is in no
-      # area's doc set — "which docs govern this change?" must always resolve.
+      # so it can rot; this is its admission test. Red when the map stops
+      # describing the tree it maps, so that "which docs govern this change?"
+      # always resolves; scripts/check-area-map.js is the home of the complete
+      # red set.
       - name: Validate area-map coverage
         run: npm run lint:area-map
 
@@ -235,14 +235,14 @@ jobs:
         run: npm run lint:clause-preamble
 
       # The suite documents the check registers enumerate their suites: in each
-      # one's inventory section, the coverage tables' first column and the test
+      # one's inventory section, the suite tables' first column and the test
       # files that are members of the suite it documents (the check registers
       # the rule that decides that) stand in one-to-one agreement, every entry
-      # of the registered hand-maintained TRACKED_FILES lists identifies one
-      # tracked source, and an inventory the check can no longer read where it
-      # looks is red rather than skipped. It runs here, in the always-on job,
-      # because the diff that stales an inventory is often docs-only — and a
-      # docs-only PR skips every path-filtered test job.
+      # of the registered hand-maintained coverage lists (TRACKED_FILES)
+      # identifies one tracked source, and an inventory the check can no longer
+      # read where it looks is red rather than skipped. It runs here, in the
+      # always-on job, because the diff that stales an inventory is often
+      # docs-only — and a docs-only PR skips every path-filtered test job.
       - name: Validate test-suite inventories
         run: npm run lint:test-inventory
 
@@ -336,6 +336,18 @@ jobs:
       # Dependabot bumps the SHA + `# version` comment weekly.
       - name: Check GitHub Actions are SHA-pinned
         run: npm run check:action-pins
+
+      # Every job of every tracked workflow states a `timeout-minutes` bound —
+      # the shape that states none being a job calling a reusable workflow,
+      # which does not admit the key — and where a job's steps state bounds of
+      # their own they add up to less than the job's, so each step bound is
+      # what ends its own step. It runs here, in the always-on job, because
+      # most workflow files set no path-filter flag: an edit to one fires no
+      # path-filtered test job. scripts/check-workflow-bounds.js is the home of
+      # the complete red set, and of the refusals it reports on its own exit
+      # code instead of passing vacuously.
+      - name: Validate workflow bounds
+        run: npm run lint:workflow-bounds
 
       # The Clippy gate's invocation has one home (docs/guides/ci.md §CI-1), which
       # any other statement of it repeats exactly, and is run in the Rust jobs
@@ -503,7 +515,7 @@ jobs:
 
       - name: Verify sync-shared output is fresh
         run: |
-          git diff --exit-code packages/*/shared/ packages/extension/sidepanel/index.html packages/desktop/src/index.html || (echo "ERROR: sync-shared produced changes — run 'npm run sync-shared' locally and commit" && exit 1)
+          git diff --exit-code packages/extension/sidepanel/index.html packages/desktop/src/index.html || (echo "ERROR: sync-shared produced changes — run 'npm run sync-shared' locally and commit" && exit 1)
 
       - name: Run shared and desktop tests with coverage
         run: npm run test:coverage
@@ -1125,7 +1137,16 @@ jobs:
           needs.changes.outputs.buildScripts == 'true')) ||
       ((github.event_name == 'release' || github.event_name == 'workflow_dispatch') &&
         (inputs.platform == '' || inputs.platform == 'desktop'))
-    timeout-minutes: 20
+    # Bounded steps take 18 of these minutes (10 for the browser install, 8
+    # for the suite). Every other step in the job carries no bound of its own
+    # — from the checkout through the cache save, and the artifact uploads
+    # that run after the suite — and together they took 23–30 s across recent
+    # `main` runs (each run’s total less its two bounded steps). This bound
+    # sits above the two step bounds and that observed maximum many times
+    # over, so the job bound cannot fire before the suite step’s own does:
+    # that is what leaves the step bound the thing that ends a suite which
+    # stops responding.
+    timeout-minutes: 25
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -1171,8 +1192,16 @@ jobs:
           path: ~/.cache/ms-playwright
           key: ${{ runner.os }}-playwright-${{ hashFiles('packages/desktop/tests/integration/package-lock.json') }}
 
+      # This step is the job's work, so it carries a bound of its own: inside
+      # the job bound alone, a browser that stops responding mid-suite is
+      # indistinguishable from a suite that is merely slow, and the artifact
+      # steps below would go with it. Sized well above this step's own observed
+      # maximum on `main` — under two minutes, with a few seconds of
+      # run-to-run spread — and low enough that it and the browser install's
+      # bound above stay below this job's.
       - name: Run desktop Playwright tests
         working-directory: packages/desktop/tests/integration
+        timeout-minutes: 8
         run: npx playwright test
 
       - name: Upload desktop integration coverage artifact

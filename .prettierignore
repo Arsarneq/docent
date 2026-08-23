@@ -8,4 +8,3 @@ coverage/
 reports/
 .stryker-tmp/
 *.lock
-.github/workflows/

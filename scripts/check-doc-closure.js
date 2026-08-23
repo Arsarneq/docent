@@ -71,9 +71,11 @@
  * Honest limits: the guides' prose paragraphs stay review-held — this check
  * reads tables, the always-run subsection's backticked job ids, and cited
  * commands and script keys, never sentence meaning. Among the claims outside
- * its legs: a row whose local command is not an `npm run` form (rustfmt,
- * clippy) is held to naming live Where jobs only — whether such a job still
- * runs that gate, and in what step form, stays review-held. An `npm run` row
+ * its legs: a row whose local command is not an `npm run` form is held to
+ * naming live Where jobs only — whether such a job still runs that gate, and
+ * in what step form, stays review-held, unless a gate of its own holds those
+ * jobs to carrying the step, as the clippy-invocation check does for the
+ * Clippy row, which leaves the rustfmt row held the first way. An `npm run` row
  * is held further, and the two modelled step shapes are that leg's boundary
  * rather than a limit on it: the `npm run <token>` invocation, and the
  * token's own manifest command, each opening a command segment of a step one
@@ -87,7 +89,7 @@
  * invocation — the sync-shared freshness row, whose gate is the `git diff`
  * following the sync — therefore resolves through the step that prepares the
  * check rather than the one that fails it, and its liveness stays
- * review-held like an other-form row's. Back among the review-held claims:
+ * review-held. Back among the review-held claims:
  * npm-run citations resolve against the union of every tracked manifest's
  * script keys, so which package a doc means is review-held; a bare cite of a
  * family no manifest defines any more is unread, and so is a bare family

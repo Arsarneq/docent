@@ -151,7 +151,7 @@ jobs:
           base: main
           commit-message: 'chore: auto-version schemas and refresh published dist'
           title: 'chore: auto-version schemas and refresh published dist'
-          body: 'Automated schema versioning: the schema change since the last release was classified and the affected version(s) bumped in the leaf delta(s), with schemas/dist/, the version tables, and badges refreshed to match. Every changed file lies within the release-output surface enumerated in scripts/check-no-release-outputs.js, which, together with this PR''s head branch and head repository, is what the docs-disposition check reads to admit it without the PR-body sections.'
+          body: "Automated schema versioning: the schema change since the last release was classified and the affected version(s) bumped in the leaf delta(s), with schemas/dist/, the version tables, and badges refreshed to match. Every changed file lies within the release-output surface enumerated in scripts/check-no-release-outputs.js, which, together with this PR's head branch and head repository, is what the docs-disposition check reads to admit it without the PR-body sections."
           branch: automated/version-table-update
           labels: docs
           delete-branch: true
@@ -200,13 +200,13 @@ jobs:
             --exclude 'package-lock.json' \
             --exclude 'tests/*'
 
-      # Each call below carries a total cap and a connect cap, so a store that
-      # accepts a connection and then stops answering ends that call rather than
-      # holding the job to its own bound. Both caps sit far above what this step
-      # has been measured to take. An expired cap exits curl non-zero, and this
-      # step takes the Linux runner's default shell, `bash -e`, so the step ends
-      # right there — the response checks below are never reached, and no call is
-      # treated as having succeeded.
+      # Every call below expands the one cap definition the script opens with:
+      # a total cap and a connect cap, so a store that accepts a connection and
+      # then stops answering ends that call rather than holding the job to its
+      # own bound. An expired cap exits curl non-zero, and this step takes the
+      # Linux runner's default shell, `bash -e`, so the step ends right there —
+      # the response checks below are never reached, and no call is treated as
+      # having succeeded.
       #
       # No call retries. When one of these calls ends without a reply, the step
       # cannot tell how far it got, and repeating a request the store may already
@@ -217,8 +217,12 @@ jobs:
       - name: Upload to Chrome Web Store
         if: steps.mode.outputs.value == 'final'
         run: |
+          # The caps every call below expands: a total cap and a connect cap,
+          # both far above what this step has been measured to take.
+          CAPS=(--max-time 300 --connect-timeout 30)
+
           # Get access token from refresh token
-          TOKEN_RESPONSE=$(curl -s --max-time 300 --connect-timeout 30 -X POST https://oauth2.googleapis.com/token \
+          TOKEN_RESPONSE=$(curl -s "${CAPS[@]}" -X POST https://oauth2.googleapis.com/token \
             -d "client_id=${{ secrets.CHROME_CLIENT_ID }}" \
             -d "client_secret=${{ secrets.CHROME_CLIENT_SECRET }}" \
             -d "refresh_token=${{ secrets.CHROME_REFRESH_TOKEN }}" \
@@ -234,8 +238,7 @@ jobs:
           # Upload the zip
           echo "Uploading extension.zip to Chrome Web Store..."
           UPLOAD_RESPONSE=$(curl -s \
-            --max-time 300 \
-            --connect-timeout 30 \
+            "${CAPS[@]}" \
             -X PUT \
             -H "Authorization: Bearer $ACCESS_TOKEN" \
             -H "x-goog-api-version: 2" \
@@ -255,8 +258,7 @@ jobs:
           # Publish
           echo "Publishing extension..."
           PUBLISH_RESPONSE=$(curl -s \
-            --max-time 300 \
-            --connect-timeout 30 \
+            "${CAPS[@]}" \
             -X POST \
             -H "Authorization: Bearer $ACCESS_TOKEN" \
             -H "x-goog-api-version: 2" \
