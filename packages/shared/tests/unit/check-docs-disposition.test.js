@@ -29,6 +29,7 @@ import { readFileSync, mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'nod
 import { execFileSync, spawnSync } from 'node:child_process';
 import os from 'node:os';
 import path from 'node:path';
+import yaml from 'js-yaml';
 import {
   changedLines,
   isPinOnlyWorkflowDiff,
@@ -808,19 +809,42 @@ describe('run() release-automation class — which runs it admits, and the publi
   const REPO = path.resolve(import.meta.dirname, '../../../..');
 
   /**
+   * The values a publish workflow states for one input key, read through YAML
+   * so each is the value the action receives rather than the spelling the
+   * formatter chose to write it in.
+   * @param {string} workflowFile repo-relative workflow path
+   * @param {string} key the input key to collect
+   * @returns {unknown[]} every value stated under that key, document order
+   */
+  const statedValues = (workflowFile, key) => {
+    const walk = (node, found) => {
+      if (Array.isArray(node)) {
+        for (const item of node) walk(item, found);
+        return found;
+      }
+      if (typeof node !== 'object' || node === null) return found;
+      for (const [name, value] of Object.entries(node)) {
+        if (name === key) found.push(value);
+        else walk(value, found);
+      }
+      return found;
+    };
+    return walk(yaml.load(readFileSync(path.join(REPO, workflowFile), 'utf8')), []);
+  };
+
+  /**
    * The body a publish workflow generates for its automation PR.
    * @param {string} [workflowFile] repo-relative workflow path
    */
   const generatedBody = (workflowFile = '.github/workflows/publish.yml') => {
-    const workflow = readFileSync(path.join(REPO, workflowFile), 'utf8');
-    const m = [...workflow.matchAll(/^\s*body: '(.*)'$/gm)];
+    const values = statedValues(workflowFile, 'body');
     assert.equal(
-      m.length,
+      values.length,
       1,
-      `${workflowFile} must state exactly one \`body:\` key — the automation PR body, ` +
-        `as a single-quoted scalar (found ${m.length})`,
+      `${workflowFile} must state exactly one \`body:\` key — the automation PR body ` +
+        `(found ${values.length})`,
     );
-    return m[0][1];
+    return values[0];
   };
 
   /**
@@ -828,15 +852,14 @@ describe('run() release-automation class — which runs it admits, and the publi
    * @param {string} [workflowFile] repo-relative workflow path
    */
   const declaredBranch = (workflowFile = '.github/workflows/publish.yml') => {
-    const workflow = readFileSync(path.join(REPO, workflowFile), 'utf8');
-    const m = [...workflow.matchAll(/^\s*branch: (\S+)$/gm)];
+    const values = statedValues(workflowFile, 'branch');
     assert.equal(
-      m.length,
+      values.length,
       1,
       `${workflowFile} must state exactly one \`branch:\` key — the automation PR head ` +
-        `branch, as a plain scalar (found ${m.length})`,
+        `branch (found ${values.length})`,
     );
-    return m[0][1];
+    return values[0];
   };
 
   const before = {
