@@ -2,17 +2,17 @@
  * frame-trust.js — Pure sender-trust decision for captured actions.
  *
  * The service worker tracks the frames of recorded tabs in an active-frame
- * registry (seeded from the browser's frame table, updated on readiness
- * reports, reseeded after a worker suspension). An `APPEND_ACTION` message is
- * trusted only when it comes from our own extension, during a live recording,
- * from a (tab, frame) pair present in that registry — otherwise a page that
- * can reach the extension's message port could inject arbitrary actions into
- * a session (an embedded ad / analytics / third-party widget).
+ * registry, populated and cleared along the routes extension capture-principles
+ * ECP-3 states. An `APPEND_ACTION` message is trusted only when it comes from
+ * our own extension, during a live recording, from a (tab, frame) pair present
+ * in that registry — otherwise a page that can reach the extension's message
+ * port could inject arbitrary actions into a session (an embedded ad /
+ * analytics / third-party widget).
  *
  * Extracted from service-worker.js for unit testability, mirroring
  * navigation-logic.js: a pure predicate over plain data, with no chrome.*
  * side-effects. The service worker owns the `activeFrames` Map (and the
- * lazy-reseed escape hatch after an SW restart); this only decides trust.
+ * lazy-reseed escape hatch ECP-3 states); this only decides trust.
  *
  * This file is part of Docent.
  * Licensed under the GNU General Public License v3.0

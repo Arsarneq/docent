@@ -71,9 +71,9 @@ worker:
 - **Correlation markers** — the tab-lifecycle suppression timestamps, whose
   meaning expires within the timing windows centralized in
   [`lib/capture-timing.js`](../../../../packages/extension/lib/capture-timing.js),
-  and the programmatic-tab set, whose membership lasts as long as its tab —
-  losing it to a suspension degrades capture to the heuristic boundary those
-  detections already admit
+  and the programmatic-tab set, whose membership lasts as long as its tab
+  (the entry is deleted as its tab closes) — losing it to a suspension
+  degrades capture to the heuristic boundary those detections already admit
   ([ECP-12](capture-principles.md#exceptions-within-the-surface)). The
   correlation signals that must outlive a single worker instance or cross
   contexts (`lastUserActionTimestamp`, `lastTabNavUrl`) are persisted
@@ -81,6 +81,32 @@ worker:
 
 A change that introduces worker in-memory state MUST place it in one of
 these classes or extend this enumeration in the same change.
+
+The worker also assigns an introspection handle over the rebuildable-state
+class and one correlation marker — the frame registry and the programmatic-tab
+set — on its own `globalThis` (`__docentCaptureBookkeeping` in
+`background/service-worker.js`): it reads facts — the two structures, and the
+tabs a record-start seed would target, answered by running the seed's own
+query so an observer of what a clear spared never restates that set — plants
+entries, and simulates suspension loss with raw wipes run outside any
+production trigger; each structure's removal paths run from production events
+— the registry's at the sites that implement the departures
+[ECP-3](capture-principles.md#frame-trust-and-readiness) governs, the
+recording-flag watch included (Injection, below; which clears run on which
+flag change is stated at
+[ECP-3](capture-principles.md#frame-trust-and-readiness)), the set's by the
+per-tab delete stated above — the wipes from none. Each structure's writers
+likewise run from production events — the registry's the ones
+[ECP-3](capture-principles.md#frame-trust-and-readiness) governs, the on-load
+registration included (Injection, below), the set's the tab-created
+suppression decision behind the correlation marker above — the plants from
+none. It decides nothing and holds no state of its own — the structures it
+reaches are the ones placed above, and it adds none — so it introduces no
+worker in-memory state for the placement rule above to place, and the worker's
+global scope is reachable only at DevTools level, never from pages or content
+scripts — so the handle is not a page-visible surface, held to the same
+page-visibility test as the readiness beacon
+([ECP-3](capture-principles.md#frame-trust-and-readiness)).
 
 ### Startup
 
@@ -120,22 +146,27 @@ the event wiring that implements them:
   `content/recorder.js` into every open http/https tab across all frames
   (`chrome.scripting.executeScript` with `injectImmediately`), and seeds the
   registry from the browser's frame table. The record-start message handlers
-  run this sequence, and the worker's `storage.onChanged` listener on the
-  `recording` flag runs the same sequence whenever the flag becomes true, so
-  the injection behaves identically however the flag changes — the worker's
-  own write path or a writer outside the extension (a test harness driving
-  the browser); the recorder's `__docentLoaded` guard makes the overlap
-  idempotent per document.
+  run this sequence, and the recording-flag watch runs the same sequence
+  whenever the flag becomes true, so the injection behaves identically
+  however the flag changes — the worker's own write path or a writer outside
+  the extension (a test harness driving the browser); the recorder's
+  `__docentLoaded` guard makes the overlap idempotent per document.
 - **During the recording** — `webNavigation.onCompleted` injects the
   recorder into each frame as it finishes loading (main frames, srcdoc
   iframes, dynamically created subframes) and registers it as trusted;
   `webNavigation.onBeforeNavigate` drops a navigating subframe's
   registration, since its recorder unloads with the old document and the
   following `onCompleted` re-injects.
-- **Record-stop** — every stop path clears the frame registry synchronously
-  and clears the `recording` flag in storage; already-injected recorders go
-  inactive through their own `recording` watch. The resulting idle surface
-  is governed by [ECP-2](capture-principles.md#architecture).
+- **Record-stop** — every stop path clears the frame registry synchronously,
+  ahead of clearing the `recording` flag in storage, and the recording-flag
+  watch clears it whenever the flag becomes false, on the same mirrors
+  reading as the record-start half above
+  ([ERT-1](#lifecycle-and-the-persisted-state-model)); which clears run on
+  which flag change is stated at
+  [ECP-3](capture-principles.md#frame-trust-and-readiness).
+  Already-injected recorders go inactive through their own `recording` watch.
+  The resulting idle surface is governed by
+  [ECP-2](capture-principles.md#architecture).
 
 Once all its listeners are wired, each injected recorder sends the worker a
 `FRAME_READY` message — the readiness beacon
@@ -270,6 +301,6 @@ Five keys double as change signals watched via `chrome.storage.onChanged`:
 the panel watches `pendingActions` (the live captured-actions list),
 `pendingCount` (commit-button state), `docentStorageQuota` (the pressure
 banner), and `docentSyncState` (sync attention indicators and settings
-state); the worker watches `recording` (injection and the capture mirror)
-and `docentSyncState` (the Auto-Sync trigger); each injected recorder
-watches `recording` to activate and deactivate in place.
+state); the worker watches `recording` (injection, the frame-registry clear,
+and the capture mirror) and `docentSyncState` (the Auto-Sync trigger); each
+injected recorder watches `recording` to activate and deactivate in place.

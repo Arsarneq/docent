@@ -95,12 +95,20 @@ let liveRecording = false;
 // page that can reach the message port, from injecting actions into a session.
 //
 // In-memory only — frameIds are session-scoped and churn as frames load/unload,
-// so this is NOT persisted. After an SW restart it is empty; the APPEND_ACTION
-// handler lazily reseeds it from chrome.webNavigation rather than false-rejecting
-// a legitimate frame whose registration was lost with the suspended worker.
+// so this is NOT persisted. An SW restart leaves it empty, and a clear can leave
+// a live tab's key missing from a registry that is not; on either the
+// APPEND_ACTION handler lazily reseeds it from chrome.webNavigation rather than
+// false-rejecting a legitimate frame whose registration is gone.
 const activeFrames = new Map();
 
-/** Add (tabId, frameId) to the active-frame registry. */
+/**
+ * Add (tabId, frameId) to the active-frame registry. A write from a production
+ * writer can land here after a record-stop's clear, harmlessly: it re-adds
+ * entries no capture decision acts on while stopped, since an append is refused
+ * whatever the registry holds and every start clears ahead of its seed. The
+ * introspection handle's plant runs from no production event (extension runtime
+ * ERT-1), so it lands at the moment a case plants it, outside that account.
+ */
 function registerFrame(tabId, frameId) {
   if (tabId == null || frameId == null) return;
   let frames = activeFrames.get(tabId);
@@ -121,20 +129,76 @@ async function seedFramesForTab(tabId) {
   }
 }
 
-/** Seed the registry for every http/https tab (mirrors injectContentScript's set). */
+/**
+ * The tabs a record-start targets, as ONE query: the record-start sweep injects
+ * the recorder into them and the registry seed registers their frames, so the
+ * two cover the same set by construction rather than by two matching literals
+ * (the set extension capture-principles ECP-2 defines for record-start). It
+ * bounds those two only: the per-frame writers extension capture-principles
+ * ECP-3 inventories — the on-load registration below and each recorder's
+ * readiness beacon — each admit the (tab, frame) pair their own event carries,
+ * whatever tab it sits in.
+ */
+function queryCaptureTargetTabs() {
+  return chrome.tabs.query({ url: ['http://*/*', 'https://*/*'] });
+}
+
+/** Seed the registry for the tabs a record-start targets. */
 async function seedActiveFrames() {
   try {
-    const tabs = await chrome.tabs.query({ url: ['http://*/*', 'https://*/*'] });
+    const tabs = await queryCaptureTargetTabs();
     await Promise.allSettled(tabs.map((tab) => seedFramesForTab(tab.id)));
   } catch {
     // Best-effort — a failed seed is recovered by the lazy reseed on append.
   }
 }
 
-/** Clear the whole registry on any record-stop path. */
+/**
+ * Clear the whole registry — the clears extension capture-principles ECP-3
+ * inventories, at the call sites that run them: the record-start clear-and-seed
+ * routes, every record-stop path, and both branches of the recording-flag
+ * watch.
+ */
 function clearActiveFrames() {
   activeFrames.clear();
 }
+
+// ─── Worker-state introspection handle ────────────────────────────────────────
+
+/**
+ * Introspection handle over the worker's in-memory capture bookkeeping — the
+ * active-frame registry above and the programmatic-tab set declared with its
+ * consumers below — and over the tab set a record-start would target, which is
+ * no worker structure at all: it is answered by running the seed's own query
+ * above, so an observer of what a clear spared never restates that set. The
+ * full surface statement, and why the handle is not a page-visible surface,
+ * live beside the in-memory principle it observes (extension runtime ERT-1);
+ * member mechanics: the two structure reads snapshot, the target-set read runs
+ * the seed's query, the plants insert the way production registration does,
+ * and the wipes empty each structure directly, outside any production trigger,
+ * to simulate suspension loss. The object is frozen, so no member can be
+ * replaced or added in place. The freeze does not hold the surface, though — the
+ * globalThis binding is writable like every worker global, so rebinding it
+ * installs a different handle with no edit here; the surface the runtime doc
+ * describes is review-held. No capture decision reads the handle.
+ */
+globalThis.__docentCaptureBookkeeping = Object.freeze({
+  /** Snapshot of the active-frame registry as { [tabId]: frameId[] }. */
+  frameRegistry: () =>
+    Object.fromEntries([...activeFrames].map(([tabId, frames]) => [tabId, [...frames]])),
+  /** Snapshot of the programmatic-tab set as tabId[]. */
+  programmaticTabs: () => [...programmaticTabs],
+  /** The ids a record-start would target, read through the seed's own query. */
+  captureTargetTabIds: async () => (await queryCaptureTargetTabs()).map((t) => t.id),
+  /** Register a (tabId, frameId) entry the way a production registration does. */
+  plantFrame: (tabId, frameId) => registerFrame(tabId, frameId),
+  /** Plant a programmatic-tab entry. */
+  plantProgrammaticTab: (tabId) => programmaticTabs.add(tabId),
+  /** Simulate suspension loss of the registry (raw wipe, not a clear path). */
+  wipeFrameRegistry: () => activeFrames.clear(),
+  /** Simulate suspension loss of the programmatic-tab set. */
+  wipeProgrammaticTabs: () => programmaticTabs.clear(),
+});
 
 // ─── Boot ─────────────────────────────────────────────────────────────────────
 
@@ -194,6 +258,16 @@ chrome.action.onClicked.addListener((tab) => {
 // (including about:srcdoc iframes that don't match manifest patterns).
 // Also mirror the `recording` flag into memory so the Auto-Sync scheduler can
 // drop triggers synchronously while capture is active.
+// The recording-flag watch keys the registry's clears to the flag itself
+// (extension capture-principles ECP-3), so how the flag changes decides which
+// clears run: storage.onChanged fires only when a stored value actually
+// changes — a same-value write fires no event — so the watch repeats the start
+// routes' clear-and-seed and the stop routes' clear only on a flag transition;
+// on a same-value start or stop the call-site clear is the sole clear; and on
+// a flag write that reaches no call-site clear at all — a writer outside the
+// extension's own routes, which ERT-1's mirrors doctrine requires this watch to
+// answer — this watch is the sole clear when that write transitions the flag,
+// and no clear runs when it does not.
 chrome.storage.onChanged.addListener((changes, area) => {
   if (area === 'local' && changes.recording) {
     liveRecording = changes.recording.newValue === true;
@@ -204,7 +278,7 @@ chrome.storage.onChanged.addListener((changes, area) => {
       clearActiveFrames();
       injectContentScript().then(() => seedActiveFrames());
     } else {
-      // Capture stopped externally — drop the trust registry.
+      // The flag went false, on whatever route — drop the trust registry.
       clearActiveFrames();
     }
   }
@@ -231,8 +305,8 @@ chrome.webNavigation.onCompleted.addListener(async (details) => {
 });
 
 // A subframe navigating away unloads its recorder; drop it from the trust
-// registry so a stale frameId can't be reused. (Main-frame navigations reseed on
-// the following onCompleted, so they are left alone here.)
+// registry so a stale frameId can't be reused. (A main frame's registration
+// follows on the next onCompleted, so main frames are left alone here.)
 chrome.webNavigation.onBeforeNavigate.addListener((details) => {
   if (details.frameId === 0) return;
   const frames = activeFrames.get(details.tabId);
@@ -354,9 +428,11 @@ async function appendSwAction(action) {
 // on success. Drops untrusted senders silently (warn + return — never throw), so
 // a frame we did not inject into cannot write actions into the recording.
 async function validateAndAppend(action, sender) {
-  // Lazy reseed: if a recording is live but the in-memory registry is empty, the
-  // SW was suspended and lost it. Rebuild this tab's frames from webNavigation
-  // BEFORE validating, rather than false-rejecting a legitimate frame.
+  // Lazy reseed: if a recording is live but this tab has no registry entry, its
+  // registration is missing — a suspension lost the registry, or a clear took a
+  // key the following seed does not re-cover. Rebuild this tab's frames from
+  // webNavigation BEFORE validating, rather than false-rejecting a legitimate
+  // frame.
   const tabId = sender?.tab?.id;
   if (liveRecording && tabId != null && !activeFrames.has(tabId)) {
     await seedFramesForTab(tabId);
@@ -610,20 +686,21 @@ async function setRecording(value) {
   // Update the in-memory capture mirror eagerly so the Auto-Sync scheduler sees
   // the new value immediately — in particular, a RECORDING_STOP must clear the
   // flag BEFORE its recording-close trigger fires, or the scheduler would drop
-  // that trigger as capture-active. The storage write below also fires
-  // the onChanged listener, which keeps the mirror correct for any external
-  // change as well.
+  // that trigger as capture-active. The storage write below also fires the
+  // recording-flag watch (this file registers two storage.onChanged listeners
+  // — that one and the sync-state watch), which keeps the mirror correct for
+  // any external change as well.
   liveRecording = value === true;
   // Drop the trust registry the moment capture stops, on every record-stop path
-  // (RECORDING_STOP, RECORDING_OPEN, PROJECT_OPEN/DELETE, RECORDING_DELETE). The
-  // storage.onChanged listener also clears it, but doing it here makes the
-  // record-stop chokepoint synchronous and independent of the async change event.
+  // (RECORDING_STOP, RECORDING_OPEN, PROJECT_OPEN/DELETE, RECORDING_DELETE).
+  // This chokepoint stays synchronous, ahead of the storage write below;
+  // doubling stated at the recording-flag watch.
   if (value !== true) clearActiveFrames();
   await chrome.storage.local.set({ recording: value });
 }
 
 async function injectContentScript() {
-  const tabs = await chrome.tabs.query({ url: ['http://*/*', 'https://*/*'] });
+  const tabs = await queryCaptureTargetTabs();
   // Inject into all frames of all matching tabs.
   // The content script's __docentLoaded guard prevents double-initialization.
   await Promise.allSettled(
@@ -844,9 +921,9 @@ async function disableAutoSyncOnAuthFailure() {
   }
 }
 
-// Observe the `autoSync` setting (it lives inside the durable SyncState blob):
-// when the panel toggles it, the blob changes and we start/stop the background
-// trigger to match.
+// The sync-state watch: observe the `autoSync` setting (it lives inside the
+// durable SyncState blob) — when the panel toggles it, the blob changes and we
+// start/stop the background trigger to match.
 chrome.storage.onChanged.addListener((changes, area) => {
   if (area === 'local' && changes[SYNC_STATE_STORAGE_KEY]) {
     reconcileAutoSync();
@@ -867,6 +944,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   // its listeners) that this frame is live and capturing. Register the frame as
   // trusted — a stronger signal than mere frame existence, so its APPEND_ACTIONs
   // are accepted. No response is sent (the sender passes no callback).
+  // Ungated by recording state: a beacon is accepted whether or not a recording
+  // is live. What a late write costs is stated once at registerFrame.
   if (message.type === 'FRAME_READY') {
     const tabId = sender.tab?.id;
     if (tabId != null && sender.frameId != null) registerFrame(tabId, sender.frameId);
@@ -998,6 +1077,7 @@ async function handle(msg) {
       activeRecordingId = recording.recording_id;
       await clearPending();
       await persist();
+      // Leading clear ahead of this route's seed; doubling stated at the recording-flag watch.
       clearActiveFrames();
       await injectContentScript();
       await seedActiveFrames();
@@ -1057,6 +1137,7 @@ async function handle(msg) {
 
     case 'RECORDING_START': {
       if (!getActiveRecording()) return { ok: false, error: 'No active recording' };
+      // Leading clear ahead of this route's seed; doubling stated at the recording-flag watch.
       clearActiveFrames();
       await injectContentScript();
       await seedActiveFrames();
