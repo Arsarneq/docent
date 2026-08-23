@@ -1067,9 +1067,11 @@ describe('SERVICE WORKER: APPEND_ACTION sender validation', () => {
 
   // -- BEGIN MIRRORED APPEND CHOKEPOINT (two-copy: background/service-worker.js <-> this suite; parity-tested) --
   async function validateAndAppend(action, sender) {
-    // Lazy reseed: if a recording is live but the in-memory registry is empty, the
-    // SW was suspended and lost it. Rebuild this tab's frames from webNavigation
-    // BEFORE validating, rather than false-rejecting a legitimate frame.
+    // Lazy reseed: if a recording is live but this tab has no registry entry, its
+    // registration is missing — a suspension lost the registry, or a clear took a
+    // key the following seed does not re-cover. Rebuild this tab's frames from
+    // webNavigation BEFORE validating, rather than false-rejecting a legitimate
+    // frame.
     const tabId = sender?.tab?.id;
     if (liveRecording && tabId != null && !activeFrames.has(tabId)) {
       await seedFramesForTab(tabId);

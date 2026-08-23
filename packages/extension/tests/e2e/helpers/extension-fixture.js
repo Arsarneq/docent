@@ -135,9 +135,9 @@ export const test = base.extend({
     const pageUrl = `http://127.0.0.1:${serverPort}/`;
     await page.goto(pageUrl);
 
-    // Start recording via the service worker. Flipping `recording` true fires the
-    // SW's storage.onChanged hook, which programmatically injects the recorder
-    // into this tab's frames and seeds the active-frame trust registry.
+    // Start recording via the service worker. Flipping `recording` true fires
+    // the SW's recording-flag watch, which programmatically injects the
+    // recorder into this tab's frames and seeds the active-frame registry.
     await serviceWorker.evaluate(async () => {
       await chrome.storage.local.set({ recording: true, pendingActions: [], pendingCount: 0 });
     });

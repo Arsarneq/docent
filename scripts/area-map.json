@@ -783,6 +783,15 @@
       "governed-by": ["docs/technical/locator-resolution.md", "docs/test/e2e.md"]
     },
     {
+      "path": "packages/extension/tests/e2e/specs/registry-departures.spec.js",
+      "reason": "The registry departure-route spec: the departure routes and the arrival-side lazy reseed pinned through the worker-state introspection handle, with suspension loss simulated and labeled. The extension capture doctrine owns the departure routes and its row names this spec (ECP-3); the extension runtime states the handle's surface, and its persisted-state judgment cites this spec's simulated-loss probes of the rebuildable-state class and the programmatic-tab correlation marker (ERT-1); the extension capture doctrine's exceptions judgment names this spec in its justification (ECP-12); the end-to-end suite document lists it and states the harness contract.",
+      "governed-by": [
+        "docs/architecture/application/extension/capture-principles.md",
+        "docs/architecture/application/extension/runtime.md",
+        "docs/test/e2e.md"
+      ]
+    },
+    {
       "path": "packages/extension/tests/e2e/specs/service-worker-{coverage,lifecycle}.spec.js",
       "reason": "The service-worker end-to-end specs: the message protocol driven from an extension page across the handler surface, and suspension survival — state persisted to extension storage and re-read from it. The extension runtime document owns the dispatcher envelope, the lifecycle and persisted-state model, and the storage write-ownership contract: its persisted-state judgment names the lifecycle spec as the probe of the shipped state's survival (ERT-1), its dispatcher-envelope row names the coverage spec among the interim probes standing in for the unit it still intends (ERT-2), and its write-ownership row names both specs among that row's exercised paths (ERT-3). The end-to-end suite document lists them and states the harness contract.",
       "governed-by": ["docs/architecture/application/extension/runtime.md", "docs/test/e2e.md"]
