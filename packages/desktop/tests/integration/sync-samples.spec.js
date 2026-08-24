@@ -40,7 +40,7 @@
  */
 
 import { test, expect } from './coverage-fixture.js';
-import { installTauriMockServer } from './tauri-mock-fixture.js';
+import { installTauriMockServer, openPanel } from './tauri-mock-fixture.js';
 import http from 'http';
 import path from 'path';
 import { spawn } from 'child_process';
@@ -185,8 +185,7 @@ test.describe('Sync pulls the bundled seed samples end-to-end (desktop)', () => 
   test('pulls and reconciles the desktop sample; rejects the extension sample as a stamp mismatch', async ({
     page,
   }) => {
-    await page.goto(server.url());
-    await page.waitForSelector('#view-projects:not(.hidden)', { timeout: 10000 });
+    await openPanel(page, server);
 
     // Configure the sync endpoint to the SAME-ORIGIN dist server (which proxies
     // the protocol paths to the reference server). Same origin ⇒ no CORS.

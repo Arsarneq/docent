@@ -1564,7 +1564,14 @@ btnSettingsSyncSave.addEventListener('click', async () => {
 
   try {
     await adapter.saveSyncSettings(url, apiKey);
-    // Update sessionState to reflect new sync settings
+    // Mirror the seam's write back into sessionState before anything saves it
+    // again: disableAutoSync below reaches saveState(), which serializes this
+    // whole in-memory blob over the file the adapter just wrote. For a cleared
+    // sync configuration — both fields empty — the adapter's write omits both
+    // keys, and the null the mirror-back writes here is what deletes the key's
+    // credential entry (application-shell DSH-2). The rule this follows — and
+    // what it prevents — is the desktop caller model in the PlatformAdapter
+    // typedef's header (shared/views/adapter.js).
     sessionState.settings.syncUrl = url || null;
     sessionState.settings.syncApiKey = apiKey || null;
     syncSettings = {

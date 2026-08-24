@@ -17,7 +17,7 @@
  */
 
 import { test, expect } from './coverage-fixture.js';
-import { installTauriMockServer } from './tauri-mock-fixture.js';
+import { installTauriMockServer, fireCaptureActions, openPanel } from './tauri-mock-fixture.js';
 import { composePlatform } from '../../../../scripts/build-schemas.js';
 import { stampFromSchema } from '../../../../packages/shared/lib/format-stamp.js';
 
@@ -33,8 +33,7 @@ const server = installTauriMockServer();
 
 // Helper: create a project and navigate to project detail
 async function createProject(page, name = 'Test Project') {
-  await page.goto(server.url());
-  await page.waitForSelector('#view-projects:not(.hidden)', { timeout: 10000 });
+  await openPanel(page, server);
   await page.click('#btn-new-project');
   await page.waitForSelector('#view-new-project:not(.hidden)', { timeout: 5000 });
   await page.fill('#new-project-name', name);
@@ -49,19 +48,15 @@ async function createRecordingWithStep(page) {
   await page.fill('#new-recording-name', 'Rec');
   await page.click('#btn-new-recording-create');
   await page.waitForSelector('#view-recording:not(.hidden)', { timeout: 5000 });
-  await page.evaluate(() => {
-    const h = window.__TAURI__._listeners['capture:action'];
-    if (h)
-      h({
-        payload: {
-          type: 'click',
-          timestamp: Date.now(),
-          capture_mode: 'accessibility',
-          context_id: 1,
-          element: { text: 'Button', tag: 'Button', selector: '#btn' },
-        },
-      });
-  });
+  await fireCaptureActions(page, [
+    {
+      type: 'click',
+      timestamp: Date.now(),
+      capture_mode: 'accessibility',
+      context_id: 1,
+      element: { text: 'Button', tag: 'Button', selector: '#btn' },
+    },
+  ]);
   await page.waitForTimeout(300);
   await page.fill('#narration-input', 'Click button');
   await page.click('#btn-commit-step');
@@ -143,8 +138,7 @@ test.describe('Desktop Panel — Metadata CRUD', () => {
 
 test.describe('Desktop Panel — Import Project', () => {
   test('import via native dialog creates new project', async ({ page }) => {
-    await page.goto(server.url());
-    await page.waitForSelector('#view-projects:not(.hidden)', { timeout: 10000 });
+    await openPanel(page, server);
 
     // Set what the native import dialog returns
     await page.evaluate((stamp) => {
@@ -205,8 +199,7 @@ test.describe('Desktop Panel — Import Project', () => {
   });
 
   test('import duplicate project creates copy with new name', async ({ page }) => {
-    await page.goto(server.url());
-    await page.waitForSelector('#view-projects:not(.hidden)', { timeout: 10000 });
+    await openPanel(page, server);
 
     const importData = JSON.stringify({
       docent_format: DESKTOP_STAMP,
@@ -264,8 +257,7 @@ test.describe('Desktop Panel — Export Project', () => {
 
 test.describe('Desktop Panel — Sync Flows', () => {
   test('sync partial success — pulled project appears in list', async ({ page }) => {
-    await page.goto(server.url());
-    await page.waitForSelector('#view-projects:not(.hidden)', { timeout: 10000 });
+    await openPanel(page, server);
 
     // Configure sync
     await page.click('#btn-settings');
@@ -326,8 +318,7 @@ test.describe('Desktop Panel — Sync Flows', () => {
   });
 
   test('sync auth error shows halted alert', async ({ page }) => {
-    await page.goto(server.url());
-    await page.waitForSelector('#view-projects:not(.hidden)', { timeout: 10000 });
+    await openPanel(page, server);
 
     // Configure sync
     await page.click('#btn-settings');
@@ -366,8 +357,7 @@ test.describe('Desktop Panel — Sync Flows', () => {
 
 test.describe('Desktop Panel — Target App Selector', () => {
   test('refresh populates dropdown with windows', async ({ page }) => {
-    await page.goto(server.url());
-    await page.waitForSelector('#view-projects:not(.hidden)', { timeout: 10000 });
+    await openPanel(page, server);
 
     // Supply the windows the target-app refresh enumerates.
     await page.evaluate(() => {
@@ -413,8 +403,7 @@ test.describe('Desktop Panel — Target App Selector', () => {
 
 test.describe('Desktop Panel — Self-Capture Toggle', () => {
   test('toggling self-capture calls invoke with correct value', async ({ page }) => {
-    await page.goto(server.url());
-    await page.waitForSelector('#view-projects:not(.hidden)', { timeout: 10000 });
+    await openPanel(page, server);
 
     await page.click('#btn-settings');
     await page.waitForSelector('#view-settings:not(.hidden)', { timeout: 5000 });
@@ -444,8 +433,7 @@ test.describe('Desktop Panel — Self-Capture Toggle', () => {
 
 test.describe('Desktop Panel — Recording Selector Send All', () => {
   test('send all button shows total step count in confirmation', async ({ page }) => {
-    await page.goto(server.url());
-    await page.waitForSelector('#view-projects:not(.hidden)', { timeout: 10000 });
+    await openPanel(page, server);
 
     // Configure endpoint
     await page.click('#btn-settings');
@@ -469,19 +457,15 @@ test.describe('Desktop Panel — Recording Selector Send All', () => {
     await page.fill('#new-recording-name', 'R1');
     await page.click('#btn-new-recording-create');
     await page.waitForSelector('#view-recording:not(.hidden)', { timeout: 5000 });
-    await page.evaluate(() => {
-      const h = window.__TAURI__._listeners['capture:action'];
-      if (h)
-        h({
-          payload: {
-            type: 'click',
-            timestamp: Date.now(),
-            capture_mode: 'accessibility',
-            context_id: 1,
-            element: { text: 'A' },
-          },
-        });
-    });
+    await fireCaptureActions(page, [
+      {
+        type: 'click',
+        timestamp: Date.now(),
+        capture_mode: 'accessibility',
+        context_id: 1,
+        element: { text: 'A' },
+      },
+    ]);
     await page.waitForTimeout(300);
     await page.fill('#narration-input', 'Step A');
     await page.click('#btn-commit-step');
@@ -495,19 +479,15 @@ test.describe('Desktop Panel — Recording Selector Send All', () => {
     await page.fill('#new-recording-name', 'R2');
     await page.click('#btn-new-recording-create');
     await page.waitForSelector('#view-recording:not(.hidden)', { timeout: 5000 });
-    await page.evaluate(() => {
-      const h = window.__TAURI__._listeners['capture:action'];
-      if (h)
-        h({
-          payload: {
-            type: 'click',
-            timestamp: Date.now(),
-            capture_mode: 'accessibility',
-            context_id: 1,
-            element: { text: 'B' },
-          },
-        });
-    });
+    await fireCaptureActions(page, [
+      {
+        type: 'click',
+        timestamp: Date.now(),
+        capture_mode: 'accessibility',
+        context_id: 1,
+        element: { text: 'B' },
+      },
+    ]);
     await page.waitForTimeout(300);
     await page.fill('#narration-input', 'Step B');
     await page.click('#btn-commit-step');
@@ -540,38 +520,30 @@ test.describe('Desktop Panel — Drag Reorder Steps', () => {
     await page.waitForSelector('#view-recording:not(.hidden)', { timeout: 5000 });
 
     // Step 1
-    await page.evaluate(() => {
-      const h = window.__TAURI__._listeners['capture:action'];
-      if (h)
-        h({
-          payload: {
-            type: 'click',
-            timestamp: Date.now(),
-            capture_mode: 'accessibility',
-            context_id: 1,
-            element: { text: 'First' },
-          },
-        });
-    });
+    await fireCaptureActions(page, [
+      {
+        type: 'click',
+        timestamp: Date.now(),
+        capture_mode: 'accessibility',
+        context_id: 1,
+        element: { text: 'First' },
+      },
+    ]);
     await page.waitForTimeout(300);
     await page.fill('#narration-input', 'First step');
     await page.click('#btn-commit-step');
     await page.waitForTimeout(500);
 
     // Step 2
-    await page.evaluate(() => {
-      const h = window.__TAURI__._listeners['capture:action'];
-      if (h)
-        h({
-          payload: {
-            type: 'click',
-            timestamp: Date.now(),
-            capture_mode: 'accessibility',
-            context_id: 1,
-            element: { text: 'Second' },
-          },
-        });
-    });
+    await fireCaptureActions(page, [
+      {
+        type: 'click',
+        timestamp: Date.now(),
+        capture_mode: 'accessibility',
+        context_id: 1,
+        element: { text: 'Second' },
+      },
+    ]);
     await page.waitForTimeout(300);
     await page.fill('#narration-input', 'Second step');
     await page.click('#btn-commit-step');

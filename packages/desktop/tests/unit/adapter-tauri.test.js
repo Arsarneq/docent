@@ -4,7 +4,8 @@
  * Tests the adapter's send(), loadSettings(), saveSettings(), loadSyncSettings(),
  * saveSyncSettings(), loadTheme(), saveTheme(), loadRecordingMode(),
  * saveRecordingMode(), loadReadingGuidance(), loadSchema(), and
- * commitWithCompleteness() functions.
+ * commitWithCompleteness() functions — and, over one shared session store, the
+ * panel's mirror-back beside a seam save.
  *
  * adapter-tauri.js accesses window.__TAURI__ at module level, so we
  * set up globalThis.window before the dynamic import.
@@ -15,6 +16,7 @@ import assert from 'node:assert/strict';
 import { mock } from 'node:test';
 import { composePlatform, locatorStrategyDefs } from '../../../../scripts/build-schemas.js';
 import { valueDerivedStrategies } from '../../../../scripts/sufficiency-lint.js';
+import { loadSessionState, saveSessionState } from '../../src/persistence.js';
 
 // ─── Global mocks ─────────────────────────────────────────────────────────────
 
@@ -222,6 +224,140 @@ describe('adapter.saveSyncSettings()', () => {
 
   it('throws for invalid URL', async () => {
     await assert.rejects(() => adapter.saveSyncSettings('not-a-url', 'key'), /http/);
+  });
+});
+
+// ─── The panel's mirror-back over one session blob ────────────────────────────
+// Both desktop writers of the settings blob — this adapter's load-mutate-save
+// round-trip and the panel's whole-blob save through persistence.js — run here
+// against one in-memory store standing in for the session file, so what is
+// under test is the interleave between them rather than either writer alone.
+// The rule these cases pin is the desktop caller model in the PlatformAdapter
+// typedef's header (packages/shared/views/adapter.js).
+
+describe("the panel's mirror-back over one session blob", () => {
+  /**
+   * Point the shared invoke mock at one JSON string, and keep every `save_state`
+   * payload in order so a case can read what each writer handed the command.
+   */
+  function installSessionStore(initial = { projects: [], settings: {} }) {
+    const store = { json: JSON.stringify(initial), saves: [] };
+    mockInvoke.mock.mockImplementation(async (cmd, args) => {
+      if (cmd === 'load_state') return store.json;
+      if (cmd === 'save_state') {
+        store.json = args.data;
+        store.saves.push(args.data);
+      }
+      return undefined;
+    });
+    return store;
+  }
+
+  beforeEach(resetMocks);
+
+  // Every settings-persistence save member the typedef declares, each with the
+  // values it writes, the mirror-back a caller owes for them, and the answer its
+  // own load counterpart gives afterwards. The interleave is a property of the
+  // shape every entry of SAVE_MEMBERS shares — a load-mutate-save over the blob
+  // the panel also holds
+  // — so each is driven the same way rather than one standing in for the rest.
+  const SAVE_MEMBERS = [
+    {
+      member: 'saveSettings',
+      save: () => adapter.saveSettings('https://endpoint.test/ingest', 'dispatch-key'),
+      mirror: (settings) => {
+        settings.endpointUrl = 'https://endpoint.test/ingest';
+        settings.apiKey = 'dispatch-key';
+      },
+      read: () => adapter.loadSettings(),
+      lost: { endpointUrl: null, apiKey: null },
+      kept: { endpointUrl: 'https://endpoint.test/ingest', apiKey: 'dispatch-key' },
+    },
+    {
+      member: 'saveSyncSettings',
+      save: () => adapter.saveSyncSettings('https://sync.test', 'sync-key'),
+      mirror: (settings) => {
+        settings.syncUrl = 'https://sync.test';
+        settings.syncApiKey = 'sync-key';
+      },
+      read: () => adapter.loadSyncSettings(),
+      lost: { serverUrl: null, apiKey: null },
+      kept: { serverUrl: 'https://sync.test', apiKey: 'sync-key' },
+    },
+    {
+      member: 'saveTheme',
+      save: () => adapter.saveTheme('dark'),
+      mirror: (settings) => {
+        settings.theme = 'dark';
+      },
+      read: () => adapter.loadTheme(),
+      lost: 'auto',
+      kept: 'dark',
+    },
+    {
+      member: 'saveRecordingMode',
+      save: () => adapter.saveRecordingMode('simple'),
+      mirror: (settings) => {
+        settings.recordingMode = 'simple';
+      },
+      read: () => adapter.loadRecordingMode(),
+      lost: 'narration',
+      kept: 'simple',
+    },
+  ];
+
+  for (const { member, save, mirror, read, lost, kept } of SAVE_MEMBERS) {
+    it(`loses a ${member} write the panel never mirrored back`, async () => {
+      installSessionStore();
+      const sessionState = await loadSessionState(mockInvoke);
+
+      await save();
+      // The seam's write landed: its own load counterpart reads the value back
+      // before the panel writes anything. Without this the loss below would also
+      // be satisfied by a save that never wrote at all.
+      assert.deepEqual(await read(), kept);
+
+      // The panel's next save of its own model, with nothing mirrored in between.
+      await saveSessionState(mockInvoke, sessionState);
+
+      assert.deepEqual(await read(), lost);
+    });
+
+    it(`keeps a ${member} write the panel mirrored back`, async () => {
+      installSessionStore();
+      const sessionState = await loadSessionState(mockInvoke);
+
+      await save();
+      mirror(sessionState.settings);
+      await saveSessionState(mockInvoke, sessionState);
+
+      assert.deepEqual(await read(), kept);
+    });
+  }
+
+  it('hands save_state opposite shapes for a cleared sync key', async () => {
+    const store = installSessionStore({
+      projects: [],
+      settings: { syncUrl: 'https://sync.test', syncApiKey: 'key1' },
+    });
+    const sessionState = await loadSessionState(mockInvoke);
+
+    await adapter.saveSyncSettings('', '');
+    const adapterWrite = JSON.parse(store.saves.at(-1)).settings;
+
+    sessionState.settings.syncUrl = null;
+    sessionState.settings.syncApiKey = null;
+    await saveSessionState(mockInvoke, sessionState);
+    const panelWrite = JSON.parse(store.saves.at(-1)).settings;
+
+    // What each shape does to the stored credential is DSH-2's rule
+    // (docs/architecture/application/desktop/windows/application-shell.md):
+    // a managed key present and null deletes its credential entry, while a save
+    // whose JSON omits the key leaves the credential stored. So of these two
+    // writes it is the panel's that clears the sync API key.
+    assert.equal('syncApiKey' in adapterWrite, false);
+    assert.equal('syncApiKey' in panelWrite, true);
+    assert.equal(panelWrite.syncApiKey, null);
   });
 });
 

@@ -30,7 +30,7 @@
  */
 
 import { test, expect } from './coverage-fixture.js';
-import { installTauriMockServer } from './tauri-mock-fixture.js';
+import { installTauriMockServer, fireCaptureActions, openPanel } from './tauri-mock-fixture.js';
 
 // The barrier id the fused stop path reports; the commit must wait for the
 // matching `barrier_complete` sentinel on the capture:action stream.
@@ -49,10 +49,7 @@ async function invokedCommands(page) {
 
 /** Fire one capture:action payload through the recorded backend listener. */
 async function fireCaptureAction(page, payload) {
-  await page.evaluate((p) => {
-    const handler = window.__TAURI__._listeners['capture:action'];
-    if (handler) handler({ payload: p });
-  }, payload);
+  await fireCaptureActions(page, [payload]);
 }
 
 const clickAction = (text) => ({
@@ -65,8 +62,7 @@ const clickAction = (text) => ({
 
 test.describe('Desktop Panel — commit completeness barrier', () => {
   test('regression_noissue_commit_engages_stop_path_flush_barrier', async ({ page }) => {
-    await page.goto(server.url());
-    await page.waitForSelector('#view-projects:not(.hidden)', { timeout: 10000 });
+    await openPanel(page, server);
 
     // Simple mode so "Done this step" commits without a narration entry.
     await page.click('#btn-settings');
