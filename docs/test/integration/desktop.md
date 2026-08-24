@@ -24,9 +24,11 @@ Chromium, rewritten on the way out so the mock can stand in for the backend:
   panel, and the mock, under the same policy the application ships;
 - the mock implements the Tauri v2 surface the frontend calls:
   `core.invoke` handles the backend commands (`load_state`/`save_state`
-  persist to an in-memory string; `start_capture`, `set_target_pid`,
-  `set_self_capture_exclusion`, and `set_auto_sync_keepalive` accept and
-  return; `stop_capture` and `commit_barrier` answer the zero barrier report
+  persist to a blob held in the page's own tab storage, so it outlives the
+  document: opening the panel again in the same tab reads back what was last
+  saved — the restart a persistence assertion needs — while a fresh test page
+  starts from the empty state; `start_capture`, `set_target_pid`,
+  `set_self_capture_exclusion`, and `set_auto_sync_keepalive` accept and return; `stop_capture` and `commit_barrier` answer the zero barrier report
   the backend returns when no capture was active, so no barrier engages;
   `list_windows` returns the windows a spec supplies, and an empty list where
   it supplies none; `import_file` returns a spec-controlled payload;
@@ -37,9 +39,18 @@ Chromium, rewritten on the way out so the mock can stand in for the backend:
   events directly, simulating captured input arriving from the backend.
 
 Because the mock is suite-wide, so are its affordances: every spec can read the
-recorded invoke traffic (`_getInvokeCalls` / `_clearInvokeCalls`) and drive the
-spec-controlled hooks (`_setWindows`, `_setImportResult`, `_getLastExport`) on
-`window.__TAURI__`.
+recorded invoke traffic (`_getInvokeCalls` / `_clearInvokeCalls`), read the
+persisted blob itself (`_getSavedState`, what `load_state` would answer, without
+adding an invoke to the record), and drive the spec-controlled hooks
+(`_setWindows`, `_setImportResult`, `_getLastExport`) on `window.__TAURI__`. Two
+helpers beside them carry the shapes every spec repeats: `openPanel` is the
+panel-open preamble (navigate, then wait for the panel's startup `load_state`
+invoke beside a visible projects view — that view alone matches the moment the
+document parses), and `fireCaptureActions` delivers captured actions through the
+registered `capture:action` listener — throwing, and naming the absent listener,
+where the
+page has none, so a delivery that would have reached nothing fails there instead
+of leaving an assertion to hold for the wrong reason.
 
 **Unknown invokes fail loudly.** An invoke of a command the mock does not
 service is recorded and rejects, and after every test the fixture asserts the
@@ -88,16 +99,16 @@ The suite is exactly the test files below — the fixtures and configs beside th
 are helpers, not specs; a new spec joins this table in the same change that adds
 it, and a CI lint holds the two in agreement.
 
-| Spec                                        | Covers                                                                                                                                                                             |
-| ------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `panel-desktop.spec.js`                     | Core panel UI: project/recording creation, view transitions, step commit via simulated `capture:action` events.                                                                    |
-| `panel-commit-completeness-barrier.spec.js` | Step-commit completeness: a normal recording commit engages the fused stop-path flush barrier and waits for its `barrier_complete` sentinel before finalizing the step.            |
-| `panel-dispatch-sync.spec.js`               | Dispatch confirmation flow, settings persistence, sync button behaviour, re-record flow, project deletion.                                                                         |
-| `panel-advanced-flows.spec.js`              | Dispatch send with stubbed fetch, sync flow, inline rename, the multi-recording dispatch selector, re-record cancel.                                                               |
-| `panel-coverage-boost.spec.js`              | Metadata CRUD, import (including duplicate-project copies), export, sync partial-success and auth-error paths, "Send all", target-app selector, self-capture toggle, drag reorder. |
-| `import-export-rerecord-desktop.spec.js`    | Import/export round-trips (format stamp derived from the composed schema, never hardcoded), re-record, drag reorder persistence.                                                   |
-| `accessibility-desktop.spec.js`             | axe-core WCAG 2.1 AA scan of each major panel view (machine-detectable issues only).                                                                                               |
-| `sync-samples.spec.js`                      | The real desktop client pulls the bundled `desktop-windows` seed sample from a running reference sync server and rejects the `extension`-stamped one.                              |
+| Spec                                        | Covers                                                                                                                                                                                                                                                                                                                             |
+| ------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `panel-desktop.spec.js`                     | Core panel UI: project/recording creation, view transitions, step commit via simulated `capture:action` events; sync settings read back after the panel is opened again as a fresh document, saved and cleared; and a `RECORDING_START` sent through the adapter seam, which reaches `start_capture` and clears the reorder state. |
+| `panel-commit-completeness-barrier.spec.js` | Step-commit completeness: a normal recording commit engages the fused stop-path flush barrier and waits for its `barrier_complete` sentinel before finalizing the step.                                                                                                                                                            |
+| `panel-dispatch-sync.spec.js`               | Dispatch confirmation flow, settings persistence, sync button behaviour, re-record flow, project deletion.                                                                                                                                                                                                                         |
+| `panel-advanced-flows.spec.js`              | Dispatch send with stubbed fetch, sync flow, inline rename, the multi-recording dispatch selector, re-record cancel.                                                                                                                                                                                                               |
+| `panel-coverage-boost.spec.js`              | Metadata CRUD, import (including duplicate-project copies), export, sync partial-success and auth-error paths, "Send all", target-app selector, self-capture toggle, drag reorder.                                                                                                                                                 |
+| `import-export-rerecord-desktop.spec.js`    | Import/export round-trips (format stamp derived from the composed schema, never hardcoded), re-record, drag reorder persistence.                                                                                                                                                                                                   |
+| `accessibility-desktop.spec.js`             | axe-core WCAG 2.1 AA scan of each major panel view (machine-detectable issues only).                                                                                                                                                                                                                                               |
+| `sync-samples.spec.js`                      | The real desktop client pulls the bundled `desktop-windows` seed sample from a running reference sync server and rejects the `extension`-stamped one.                                                                                                                                                                              |
 
 ## Running the suite
 

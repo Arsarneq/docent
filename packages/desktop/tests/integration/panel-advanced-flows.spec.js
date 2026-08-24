@@ -7,14 +7,13 @@
  */
 
 import { test, expect } from './coverage-fixture.js';
-import { installTauriMockServer } from './tauri-mock-fixture.js';
+import { installTauriMockServer, fireCaptureActions, openPanel } from './tauri-mock-fixture.js';
 
 const server = installTauriMockServer();
 
 // Helper: set up a project with endpoint configured and a committed step
 async function setupDispatchReady(page) {
-  await page.goto(server.url());
-  await page.waitForSelector('#view-projects:not(.hidden)', { timeout: 10000 });
+  await openPanel(page, server);
 
   // Configure endpoint
   await page.click('#btn-settings');
@@ -38,19 +37,15 @@ async function setupDispatchReady(page) {
   await page.click('#btn-new-recording-create');
   await page.waitForSelector('#view-recording:not(.hidden)', { timeout: 5000 });
 
-  await page.evaluate(() => {
-    const handler = window.__TAURI__._listeners['capture:action'];
-    if (handler)
-      handler({
-        payload: {
-          type: 'click',
-          timestamp: Date.now(),
-          capture_mode: 'accessibility',
-          context_id: 1,
-          element: { text: 'Submit', tag: 'Button', selector: '#btn' },
-        },
-      });
-  });
+  await fireCaptureActions(page, [
+    {
+      type: 'click',
+      timestamp: Date.now(),
+      capture_mode: 'accessibility',
+      context_id: 1,
+      element: { text: 'Submit', tag: 'Button', selector: '#btn' },
+    },
+  ]);
   await page.waitForTimeout(300);
   await page.fill('#narration-input', 'Click submit');
   await page.click('#btn-commit-step');
@@ -127,8 +122,7 @@ test.describe('Desktop Panel — Dispatch Send', () => {
 
 test.describe('Desktop Panel — Sync Flow', () => {
   test('sync button triggers sync and shows summary', async ({ page }) => {
-    await page.goto(server.url());
-    await page.waitForSelector('#view-projects:not(.hidden)', { timeout: 10000 });
+    await openPanel(page, server);
 
     // Configure sync settings
     await page.click('#btn-settings');
@@ -165,8 +159,7 @@ test.describe('Desktop Panel — Sync Flow', () => {
 
 test.describe('Desktop Panel — Inline Rename', () => {
   test('rename project via prompt dialog', async ({ page }) => {
-    await page.goto(server.url());
-    await page.waitForSelector('#view-projects:not(.hidden)', { timeout: 10000 });
+    await openPanel(page, server);
 
     await page.click('#btn-new-project');
     await page.waitForSelector('#view-new-project:not(.hidden)', { timeout: 5000 });
@@ -188,8 +181,7 @@ test.describe('Desktop Panel — Inline Rename', () => {
   });
 
   test('rename recording via prompt dialog', async ({ page }) => {
-    await page.goto(server.url());
-    await page.waitForSelector('#view-projects:not(.hidden)', { timeout: 10000 });
+    await openPanel(page, server);
 
     await page.click('#btn-new-project');
     await page.waitForSelector('#view-new-project:not(.hidden)', { timeout: 5000 });
@@ -217,8 +209,7 @@ test.describe('Desktop Panel — Inline Rename', () => {
 
 test.describe('Desktop Panel — Recording Selector', () => {
   test('multiple recordings show selector view', async ({ page }) => {
-    await page.goto(server.url());
-    await page.waitForSelector('#view-projects:not(.hidden)', { timeout: 10000 });
+    await openPanel(page, server);
 
     // Configure endpoint
     await page.click('#btn-settings');
@@ -242,19 +233,15 @@ test.describe('Desktop Panel — Recording Selector', () => {
     await page.fill('#new-recording-name', 'Rec 1');
     await page.click('#btn-new-recording-create');
     await page.waitForSelector('#view-recording:not(.hidden)', { timeout: 5000 });
-    await page.evaluate(() => {
-      const h = window.__TAURI__._listeners['capture:action'];
-      if (h)
-        h({
-          payload: {
-            type: 'click',
-            timestamp: Date.now(),
-            capture_mode: 'accessibility',
-            context_id: 1,
-            element: { text: 'A' },
-          },
-        });
-    });
+    await fireCaptureActions(page, [
+      {
+        type: 'click',
+        timestamp: Date.now(),
+        capture_mode: 'accessibility',
+        context_id: 1,
+        element: { text: 'A' },
+      },
+    ]);
     await page.waitForTimeout(300);
     await page.fill('#narration-input', 'Step 1');
     await page.click('#btn-commit-step');
@@ -268,19 +255,15 @@ test.describe('Desktop Panel — Recording Selector', () => {
     await page.fill('#new-recording-name', 'Rec 2');
     await page.click('#btn-new-recording-create');
     await page.waitForSelector('#view-recording:not(.hidden)', { timeout: 5000 });
-    await page.evaluate(() => {
-      const h = window.__TAURI__._listeners['capture:action'];
-      if (h)
-        h({
-          payload: {
-            type: 'click',
-            timestamp: Date.now(),
-            capture_mode: 'accessibility',
-            context_id: 1,
-            element: { text: 'B' },
-          },
-        });
-    });
+    await fireCaptureActions(page, [
+      {
+        type: 'click',
+        timestamp: Date.now(),
+        capture_mode: 'accessibility',
+        context_id: 1,
+        element: { text: 'B' },
+      },
+    ]);
     await page.waitForTimeout(300);
     await page.fill('#narration-input', 'Step 2');
     await page.click('#btn-commit-step');
@@ -303,8 +286,7 @@ test.describe('Desktop Panel — Recording Selector', () => {
 
 test.describe('Desktop Panel — Re-record Cancel', () => {
   test('cancel re-record hides banner and restores state', async ({ page }) => {
-    await page.goto(server.url());
-    await page.waitForSelector('#view-projects:not(.hidden)', { timeout: 10000 });
+    await openPanel(page, server);
 
     await page.click('#btn-new-project');
     await page.waitForSelector('#view-new-project:not(.hidden)', { timeout: 5000 });
@@ -318,19 +300,15 @@ test.describe('Desktop Panel — Re-record Cancel', () => {
     await page.waitForSelector('#view-recording:not(.hidden)', { timeout: 5000 });
 
     // Commit a step
-    await page.evaluate(() => {
-      const h = window.__TAURI__._listeners['capture:action'];
-      if (h)
-        h({
-          payload: {
-            type: 'click',
-            timestamp: Date.now(),
-            capture_mode: 'accessibility',
-            context_id: 1,
-            element: { text: 'X' },
-          },
-        });
-    });
+    await fireCaptureActions(page, [
+      {
+        type: 'click',
+        timestamp: Date.now(),
+        capture_mode: 'accessibility',
+        context_id: 1,
+        element: { text: 'X' },
+      },
+    ]);
     await page.waitForTimeout(300);
     await page.fill('#narration-input', 'Original');
     await page.click('#btn-commit-step');
@@ -357,8 +335,7 @@ test.describe('Desktop Panel — Re-record Cancel', () => {
 
 test.describe('Desktop Panel — New Project via Enter Key', () => {
   test('pressing Enter in project name field creates project', async ({ page }) => {
-    await page.goto(server.url());
-    await page.waitForSelector('#view-projects:not(.hidden)', { timeout: 10000 });
+    await openPanel(page, server);
 
     await page.click('#btn-new-project');
     await page.waitForSelector('#view-new-project:not(.hidden)', { timeout: 5000 });
@@ -370,8 +347,7 @@ test.describe('Desktop Panel — New Project via Enter Key', () => {
   });
 
   test('pressing Enter in recording name field creates recording', async ({ page }) => {
-    await page.goto(server.url());
-    await page.waitForSelector('#view-projects:not(.hidden)', { timeout: 10000 });
+    await openPanel(page, server);
 
     await page.click('#btn-new-project');
     await page.waitForSelector('#view-new-project:not(.hidden)', { timeout: 5000 });
@@ -390,8 +366,7 @@ test.describe('Desktop Panel — New Project via Enter Key', () => {
 
 test.describe('Desktop Panel — Cancel New Project/Recording', () => {
   test('cancel new project returns to projects list', async ({ page }) => {
-    await page.goto(server.url());
-    await page.waitForSelector('#view-projects:not(.hidden)', { timeout: 10000 });
+    await openPanel(page, server);
 
     await page.click('#btn-new-project');
     await page.waitForSelector('#view-new-project:not(.hidden)', { timeout: 5000 });
@@ -400,8 +375,7 @@ test.describe('Desktop Panel — Cancel New Project/Recording', () => {
   });
 
   test('cancel new recording returns to project view', async ({ page }) => {
-    await page.goto(server.url());
-    await page.waitForSelector('#view-projects:not(.hidden)', { timeout: 10000 });
+    await openPanel(page, server);
 
     await page.click('#btn-new-project');
     await page.waitForSelector('#view-new-project:not(.hidden)', { timeout: 5000 });

@@ -7,6 +7,47 @@
  * import of `@tauri-apps/api`, since the app ships with `withGlobalTauri: false`),
  * plus filesystem persistence via Tauri commands.
  *
+ * What this platform's panel does with the facilities the typedef declares:
+ * it keeps the dispatch settings, the sync settings, the theme, and the
+ * default step-context mode in its own in-memory session model and persists
+ * them through its own session save. The one seam route it takes for a setting
+ * is the sync-settings save (`saveSyncSettings`), whose values it mirrors back
+ * into that model afterwards. That mirror-back is load-bearing: the panel's
+ * next whole-blob save replaces an unmirrored seam write with the copy it was
+ * already holding. A cleared sync server URL makes the adapter's write omit both
+ * keys; clearing both fields is what has the panel's mirror-back write them
+ * null, and that null is the write that deletes the key's credential entry
+ * (application-shell DSH-2). The requirement itself — that a desktop caller
+ * taking the seam route mirrors what it saved — belongs to the typedef's header
+ * (shared/views/adapter.js), where the seam declares it.
+ *
+ * It starts and stops capture by `invoke` instead — directly through the
+ * bridge, and through this file's `stopWithCompleteness` where a commit
+ * flushes first — under the direct-invoke closure the application shell states
+ * (application-shell DSH-1); so the reorder-state reset in this file's `send`
+ * arm runs for a caller that takes the seam route to capture start, and the
+ * shipped panel loses nothing by taking the direct one, because both reorder
+ * collections bound themselves (a resolver is deleted as its wait settles, and
+ * a parked sentinel is evicted on the wait window below). It reaches the pending
+ * list through the platform-specific members this file adds beside the declared
+ * set: `getPendingActions` for the count and the actions a commit collects, and
+ * `clearPendingActions` when a recording opens, when the user clears the step,
+ * and once a step has been committed.
+ *
+ * Which declared members the shipped panel reaches, and what for:
+ * `loadSchema` for the composed schema behind an export's format stamp, a
+ * dispatch payload, and the sync cycle; `loadValidator` for the generated
+ * import validator it checks an incoming file against, and each payload a sync
+ * pull brings in; `loadReadingGuidance` for the prose a dispatch payload
+ * carries; `onPendingCountChange` and `onActionEvent` for the pending count
+ * and the live action list it renders as capture arrives; `hasNativeFileDialog`
+ * to choose the native export/import flow over the browser one; and
+ * `saveSyncSettings` for the sync-settings save, whose values it mirrors back
+ * per the typedef's caller model. Every other member the typedef declares is
+ * implemented here for the seam, which is what the adapter contract asks of
+ * each concrete adapter (shared-core SC-3), and stays reachable for a future
+ * desktop caller.
+ *
  * This file is part of Docent.
  * Licensed under the GNU General Public License v3.0
  * See LICENSE in the project root for license information.
@@ -538,6 +579,15 @@ export const _testOnly = {
   handleCaptureAction: _handleCaptureAction,
   stripSeqFields: _stripSeqFields,
   redactSensitive: _redactSensitive,
+  /**
+   * The barrier ids parked because their sentinel arrived before a waiter did.
+   * Read-only: the returned array is a copy, so a reader cannot reach the set
+   * the sentinel path owns. It makes the reorder state observable from outside
+   * — a reset is otherwise silent, since a parked sentinel resolves nothing.
+   *
+   * @returns {number[]} the parked ids
+   */
+  seenBarrierIds: () => [..._seenBarriers],
   /**
    * Override the sentinel-wait bound (ms) so the timeout arm is pinnable
    * without a five-second test. Returns the previous bound so a test can

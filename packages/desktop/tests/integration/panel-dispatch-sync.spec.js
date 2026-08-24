@@ -7,14 +7,13 @@
  */
 
 import { test, expect } from './coverage-fixture.js';
-import { installTauriMockServer } from './tauri-mock-fixture.js';
+import { installTauriMockServer, fireCaptureActions, openPanel } from './tauri-mock-fixture.js';
 
 const server = installTauriMockServer();
 
 // Helper: create a project with a committed step
 async function setupProjectWithStep(page) {
-  await page.goto(server.url());
-  await page.waitForSelector('#view-projects:not(.hidden)', { timeout: 10000 });
+  await openPanel(page, server);
 
   await page.click('#btn-new-project');
   await page.waitForSelector('#view-new-project:not(.hidden)', { timeout: 5000 });
@@ -29,19 +28,15 @@ async function setupProjectWithStep(page) {
   await page.waitForSelector('#view-recording:not(.hidden)', { timeout: 5000 });
 
   // Simulate capture event
-  await page.evaluate(() => {
-    const handler = window.__TAURI__._listeners['capture:action'];
-    if (handler)
-      handler({
-        payload: {
-          type: 'click',
-          timestamp: Date.now(),
-          capture_mode: 'accessibility',
-          context_id: 1,
-          element: { text: 'Submit', tag: 'Button', selector: '#btn' },
-        },
-      });
-  });
+  await fireCaptureActions(page, [
+    {
+      type: 'click',
+      timestamp: Date.now(),
+      capture_mode: 'accessibility',
+      context_id: 1,
+      element: { text: 'Submit', tag: 'Button', selector: '#btn' },
+    },
+  ]);
   await page.waitForTimeout(300);
 
   await page.fill('#narration-input', 'Click submit');
@@ -51,8 +46,7 @@ async function setupProjectWithStep(page) {
 
 test.describe('Desktop Panel — Dispatch Settings', () => {
   test('saving dispatch settings persists endpoint URL', async ({ page }) => {
-    await page.goto(server.url());
-    await page.waitForSelector('#view-projects:not(.hidden)', { timeout: 10000 });
+    await openPanel(page, server);
 
     await page.click('#btn-settings');
     await page.waitForSelector('#view-settings:not(.hidden)', { timeout: 5000 });
@@ -74,8 +68,7 @@ test.describe('Desktop Panel — Dispatch Settings', () => {
   });
 
   test('invalid endpoint URL shows error', async ({ page }) => {
-    await page.goto(server.url());
-    await page.waitForSelector('#view-projects:not(.hidden)', { timeout: 10000 });
+    await openPanel(page, server);
 
     await page.click('#btn-settings');
     await page.waitForSelector('#view-settings:not(.hidden)', { timeout: 5000 });
@@ -90,8 +83,7 @@ test.describe('Desktop Panel — Dispatch Settings', () => {
 
 test.describe('Desktop Panel — Sync Settings', () => {
   test('saving sync settings persists sync URL', async ({ page }) => {
-    await page.goto(server.url());
-    await page.waitForSelector('#view-projects:not(.hidden)', { timeout: 10000 });
+    await openPanel(page, server);
 
     await page.click('#btn-settings');
     await page.waitForSelector('#view-settings:not(.hidden)', { timeout: 5000 });
@@ -111,8 +103,7 @@ test.describe('Desktop Panel — Sync Settings', () => {
   });
 
   test('invalid sync URL shows error', async ({ page }) => {
-    await page.goto(server.url());
-    await page.waitForSelector('#view-projects:not(.hidden)', { timeout: 10000 });
+    await openPanel(page, server);
 
     await page.click('#btn-settings');
     await page.waitForSelector('#view-settings:not(.hidden)', { timeout: 5000 });
@@ -138,8 +129,7 @@ test.describe('Desktop Panel — Dispatch Flow', () => {
 
   test('dispatch flow shows confirmation with step count', async ({ page }) => {
     // First configure endpoint
-    await page.goto(server.url());
-    await page.waitForSelector('#view-projects:not(.hidden)', { timeout: 10000 });
+    await openPanel(page, server);
 
     await page.click('#btn-settings');
     await page.waitForSelector('#view-settings:not(.hidden)', { timeout: 5000 });
@@ -161,19 +151,15 @@ test.describe('Desktop Panel — Dispatch Flow', () => {
     await page.click('#btn-new-recording-create');
     await page.waitForSelector('#view-recording:not(.hidden)', { timeout: 5000 });
 
-    await page.evaluate(() => {
-      const handler = window.__TAURI__._listeners['capture:action'];
-      if (handler)
-        handler({
-          payload: {
-            type: 'click',
-            timestamp: Date.now(),
-            capture_mode: 'accessibility',
-            context_id: 1,
-            element: { text: 'OK' },
-          },
-        });
-    });
+    await fireCaptureActions(page, [
+      {
+        type: 'click',
+        timestamp: Date.now(),
+        capture_mode: 'accessibility',
+        context_id: 1,
+        element: { text: 'OK' },
+      },
+    ]);
     await page.waitForTimeout(300);
     await page.fill('#narration-input', 'Click OK');
     await page.click('#btn-commit-step');
@@ -190,8 +176,7 @@ test.describe('Desktop Panel — Dispatch Flow', () => {
   });
 
   test('cancel dispatch returns to project view', async ({ page }) => {
-    await page.goto(server.url());
-    await page.waitForSelector('#view-projects:not(.hidden)', { timeout: 10000 });
+    await openPanel(page, server);
 
     // Configure endpoint
     await page.click('#btn-settings');
@@ -214,19 +199,15 @@ test.describe('Desktop Panel — Dispatch Flow', () => {
     await page.click('#btn-new-recording-create');
     await page.waitForSelector('#view-recording:not(.hidden)', { timeout: 5000 });
 
-    await page.evaluate(() => {
-      const handler = window.__TAURI__._listeners['capture:action'];
-      if (handler)
-        handler({
-          payload: {
-            type: 'click',
-            timestamp: Date.now(),
-            capture_mode: 'accessibility',
-            context_id: 1,
-            element: { text: 'X' },
-          },
-        });
-    });
+    await fireCaptureActions(page, [
+      {
+        type: 'click',
+        timestamp: Date.now(),
+        capture_mode: 'accessibility',
+        context_id: 1,
+        element: { text: 'X' },
+      },
+    ]);
     await page.waitForTimeout(300);
     await page.fill('#narration-input', 'Step');
     await page.click('#btn-commit-step');
@@ -244,8 +225,7 @@ test.describe('Desktop Panel — Dispatch Flow', () => {
 
 test.describe('Desktop Panel — Delete Project', () => {
   test('delete project removes it from list', async ({ page }) => {
-    await page.goto(server.url());
-    await page.waitForSelector('#view-projects:not(.hidden)', { timeout: 10000 });
+    await openPanel(page, server);
 
     // Create a project
     await page.click('#btn-new-project');
@@ -273,8 +253,7 @@ test.describe('Desktop Panel — Delete Project', () => {
 
 test.describe('Desktop Panel — Re-record Flow', () => {
   test('re-record button enters re-record state', async ({ page }) => {
-    await page.goto(server.url());
-    await page.waitForSelector('#view-projects:not(.hidden)', { timeout: 10000 });
+    await openPanel(page, server);
 
     // Create project + recording + commit step
     await page.click('#btn-new-project');
@@ -288,19 +267,15 @@ test.describe('Desktop Panel — Re-record Flow', () => {
     await page.click('#btn-new-recording-create');
     await page.waitForSelector('#view-recording:not(.hidden)', { timeout: 5000 });
 
-    await page.evaluate(() => {
-      const handler = window.__TAURI__._listeners['capture:action'];
-      if (handler)
-        handler({
-          payload: {
-            type: 'click',
-            timestamp: Date.now(),
-            capture_mode: 'accessibility',
-            context_id: 1,
-            element: { text: 'A' },
-          },
-        });
-    });
+    await fireCaptureActions(page, [
+      {
+        type: 'click',
+        timestamp: Date.now(),
+        capture_mode: 'accessibility',
+        context_id: 1,
+        element: { text: 'A' },
+      },
+    ]);
     await page.waitForTimeout(300);
     await page.fill('#narration-input', 'Original step');
     await page.click('#btn-commit-step');
@@ -320,8 +295,7 @@ test.describe('Desktop Panel — Re-record Flow', () => {
 
 test.describe('Desktop Panel — Toggle Recording', () => {
   test('pause and resume recording toggles state', async ({ page }) => {
-    await page.goto(server.url());
-    await page.waitForSelector('#view-projects:not(.hidden)', { timeout: 10000 });
+    await openPanel(page, server);
 
     await page.click('#btn-new-project');
     await page.waitForSelector('#view-new-project:not(.hidden)', { timeout: 5000 });
@@ -351,8 +325,7 @@ test.describe('Desktop Panel — Toggle Recording', () => {
 
 test.describe('Desktop Panel — Delete Recording', () => {
   test('delete recording returns to project view', async ({ page }) => {
-    await page.goto(server.url());
-    await page.waitForSelector('#view-projects:not(.hidden)', { timeout: 10000 });
+    await openPanel(page, server);
 
     await page.click('#btn-new-project');
     await page.waitForSelector('#view-new-project:not(.hidden)', { timeout: 5000 });

@@ -26,8 +26,18 @@
  * settings-persistence save members are load-mutate-save round-trips
  * over that same blob (their load counterparts read it and return), so a
  * desktop call to a save member interleaves with the panel's own saves.
- * The panel's sync-settings save takes that route today and mirrors the
- * result back into its in-memory state afterwards.
+ * A desktop caller that takes the seam route to a save member therefore
+ * writes the same values into its in-memory state before that state is
+ * saved again: the panel's next save serializes its whole blob over the
+ * file the adapter just round-tripped, so a seam write left unmirrored is
+ * replaced by the panel's older copy — and silently, because neither
+ * writer reads back what the other wrote. What a lost write costs on the
+ * desktop — including the credential entry a cleared key would otherwise
+ * keep — is stated in the desktop adapter's own header. The mirror-back is what
+ * closes the interleave, and the panel's sync-settings save is the one
+ * caller taking this route today. The interleave belongs to this
+ * platform: the Chrome adapter writes discrete storage keys, so an
+ * extension caller has nothing to mirror.
  *
  * This file is part of Docent.
  * Licensed under the GNU General Public License v3.0

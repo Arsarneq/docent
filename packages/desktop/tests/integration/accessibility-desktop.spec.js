@@ -12,7 +12,7 @@
  */
 
 import { test, expect } from './coverage-fixture.js';
-import { installTauriMockServer } from './tauri-mock-fixture.js';
+import { installTauriMockServer, fireCaptureActions, openPanel } from './tauri-mock-fixture.js';
 import AxeBuilder from '@axe-core/playwright';
 
 const server = installTauriMockServer();
@@ -35,11 +35,6 @@ function formatViolations(violations) {
     .join('\n\n');
 }
 
-async function navigateAndWait(page) {
-  await page.goto(server.url());
-  await page.waitForSelector('#view-projects:not(.hidden)', { timeout: 10000 });
-}
-
 async function createProject(page, name = 'A11y Test') {
   await page.click('#btn-new-project');
   await page.waitForSelector('#view-new-project:not(.hidden)', { timeout: 5000 });
@@ -57,20 +52,15 @@ async function createRecording(page, name = 'Flow') {
 }
 
 async function simulateCapture(page) {
-  await page.evaluate(() => {
-    const handler = window.__TAURI__._listeners['capture:action'];
-    if (handler) {
-      handler({
-        payload: {
-          type: 'click',
-          timestamp: Date.now(),
-          capture_mode: 'accessibility',
-          context_id: 1,
-          element: { text: 'OK', tag: 'Button' },
-        },
-      });
-    }
-  });
+  await fireCaptureActions(page, [
+    {
+      type: 'click',
+      timestamp: Date.now(),
+      capture_mode: 'accessibility',
+      context_id: 1,
+      element: { text: 'OK', tag: 'Button' },
+    },
+  ]);
   await page.waitForTimeout(300);
 }
 
@@ -78,13 +68,13 @@ async function simulateCapture(page) {
 
 test.describe('Desktop Accessibility — WCAG 2.1 AA', () => {
   test('projects list view has no violations', async ({ page }) => {
-    await navigateAndWait(page);
+    await openPanel(page, server);
     const violations = await runAxe(page);
     expect(violations, formatViolations(violations)).toHaveLength(0);
   });
 
   test('new project form has no violations', async ({ page }) => {
-    await navigateAndWait(page);
+    await openPanel(page, server);
     await page.click('#btn-new-project');
     await page.waitForSelector('#view-new-project:not(.hidden)', { timeout: 5000 });
     const violations = await runAxe(page);
@@ -92,14 +82,14 @@ test.describe('Desktop Accessibility — WCAG 2.1 AA', () => {
   });
 
   test('project detail view has no violations', async ({ page }) => {
-    await navigateAndWait(page);
+    await openPanel(page, server);
     await createProject(page);
     const violations = await runAxe(page);
     expect(violations, formatViolations(violations)).toHaveLength(0);
   });
 
   test('new recording form has no violations', async ({ page }) => {
-    await navigateAndWait(page);
+    await openPanel(page, server);
     await createProject(page);
     await page.click('#btn-new-recording');
     await page.waitForSelector('#view-new-recording:not(.hidden)', { timeout: 5000 });
@@ -108,7 +98,7 @@ test.describe('Desktop Accessibility — WCAG 2.1 AA', () => {
   });
 
   test('recording view (narration mode) has no violations', async ({ page }) => {
-    await navigateAndWait(page);
+    await openPanel(page, server);
     await createProject(page);
     await createRecording(page);
 
@@ -123,7 +113,7 @@ test.describe('Desktop Accessibility — WCAG 2.1 AA', () => {
   });
 
   test('recording view (simple mode) has no violations', async ({ page }) => {
-    await navigateAndWait(page);
+    await openPanel(page, server);
 
     // Switch to simple mode
     await page.click('#btn-settings');
@@ -143,7 +133,7 @@ test.describe('Desktop Accessibility — WCAG 2.1 AA', () => {
   });
 
   test('step detail view has no violations', async ({ page }) => {
-    await navigateAndWait(page);
+    await openPanel(page, server);
     await createProject(page);
     await createRecording(page);
     await simulateCapture(page);
@@ -159,7 +149,7 @@ test.describe('Desktop Accessibility — WCAG 2.1 AA', () => {
   });
 
   test('settings view has no violations', async ({ page }) => {
-    await navigateAndWait(page);
+    await openPanel(page, server);
     await page.click('#btn-settings');
     await page.waitForSelector('#view-settings:not(.hidden)', { timeout: 5000 });
 
@@ -168,7 +158,7 @@ test.describe('Desktop Accessibility — WCAG 2.1 AA', () => {
   });
 
   test('step history view has no violations', async ({ page }) => {
-    await navigateAndWait(page);
+    await openPanel(page, server);
     await createProject(page);
     await createRecording(page);
     await simulateCapture(page);

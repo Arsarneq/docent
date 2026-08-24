@@ -9,7 +9,7 @@
  */
 
 import { test, expect } from './coverage-fixture.js';
-import { installTauriMockServer } from './tauri-mock-fixture.js';
+import { installTauriMockServer, fireCaptureActions, openPanel } from './tauri-mock-fixture.js';
 import { composePlatform } from '../../../../scripts/build-schemas.js';
 import { stampFromSchema } from '../../../../packages/shared/lib/format-stamp.js';
 
@@ -22,11 +22,6 @@ const DESKTOP_STAMP = stampFromSchema(composePlatform('desktop-windows'));
 const server = installTauriMockServer();
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
-
-async function navigateAndWait(page) {
-  await page.goto(server.url());
-  await page.waitForSelector('#view-projects:not(.hidden)', { timeout: 10000 });
-}
 
 async function createProjectWithStep(page) {
   await page.click('#btn-new-project');
@@ -41,20 +36,15 @@ async function createProjectWithStep(page) {
   await page.waitForSelector('#view-recording:not(.hidden)', { timeout: 5000 });
 
   // Simulate a capture event and commit
-  await page.evaluate(() => {
-    const handler = window.__TAURI__._listeners['capture:action'];
-    if (handler) {
-      handler({
-        payload: {
-          type: 'click',
-          timestamp: Date.now(),
-          capture_mode: 'accessibility',
-          context_id: 1,
-          element: { text: 'Login', tag: 'Button', selector: '#btn' },
-        },
-      });
-    }
-  });
+  await fireCaptureActions(page, [
+    {
+      type: 'click',
+      timestamp: Date.now(),
+      capture_mode: 'accessibility',
+      context_id: 1,
+      element: { text: 'Login', tag: 'Button', selector: '#btn' },
+    },
+  ]);
   await page.waitForTimeout(300);
   await page.fill('#narration-input', 'Click the login button');
   await page.click('#btn-commit-step');
@@ -65,7 +55,7 @@ async function createProjectWithStep(page) {
 
 test.describe('Desktop Import Flow', () => {
   test('importing via native dialog adds project to list', async ({ page }) => {
-    await navigateAndWait(page);
+    await openPanel(page, server);
 
     // Set up the mock to return a valid import JSON
     const importData = {
@@ -132,7 +122,7 @@ test.describe('Desktop Import Flow', () => {
 
 test.describe('Desktop Export Flow', () => {
   test('export calls invoke with valid JSON', async ({ page }) => {
-    await navigateAndWait(page);
+    await openPanel(page, server);
     await createProjectWithStep(page);
 
     // Go to project view
@@ -164,7 +154,7 @@ test.describe('Desktop Export Flow', () => {
 
 test.describe('Desktop Re-record Flow', () => {
   test('edit step → new actions → commit → narration updated', async ({ page }) => {
-    await navigateAndWait(page);
+    await openPanel(page, server);
     await createProjectWithStep(page);
 
     // Verify initial step
@@ -178,21 +168,16 @@ test.describe('Desktop Re-record Flow', () => {
     await expect(page.locator('#rerecord-banner')).toBeVisible();
 
     // Simulate new capture event for the re-record
-    await page.evaluate(() => {
-      const handler = window.__TAURI__._listeners['capture:action'];
-      if (handler) {
-        handler({
-          payload: {
-            type: 'type',
-            timestamp: Date.now(),
-            capture_mode: 'accessibility',
-            context_id: 1,
-            element: { selector: '#email', tag: 'Input' },
-            value: 'new@test.com',
-          },
-        });
-      }
-    });
+    await fireCaptureActions(page, [
+      {
+        type: 'type',
+        timestamp: Date.now(),
+        capture_mode: 'accessibility',
+        context_id: 1,
+        element: { selector: '#email', tag: 'Input' },
+        value: 'new@test.com',
+      },
+    ]);
     await page.waitForTimeout(300);
 
     // Update narration and commit
@@ -215,7 +200,7 @@ test.describe('Desktop Re-record Flow', () => {
 
 test.describe('Desktop Drag Reorder Flow', () => {
   test('drag step to new position → order persists after navigation', async ({ page }) => {
-    await navigateAndWait(page);
+    await openPanel(page, server);
 
     // Create project with recording
     await page.click('#btn-new-project');
@@ -231,20 +216,15 @@ test.describe('Desktop Drag Reorder Flow', () => {
 
     // Commit 3 steps
     for (const label of ['First', 'Second', 'Third']) {
-      await page.evaluate((stepLabel) => {
-        const handler = window.__TAURI__._listeners['capture:action'];
-        if (handler) {
-          handler({
-            payload: {
-              type: 'click',
-              timestamp: Date.now(),
-              capture_mode: 'accessibility',
-              context_id: 1,
-              element: { text: stepLabel, tag: 'Button' },
-            },
-          });
-        }
-      }, label);
+      await fireCaptureActions(page, [
+        {
+          type: 'click',
+          timestamp: Date.now(),
+          capture_mode: 'accessibility',
+          context_id: 1,
+          element: { text: label, tag: 'Button' },
+        },
+      ]);
       await page.waitForTimeout(300);
       await page.fill('#narration-input', label);
       await page.click('#btn-commit-step');
