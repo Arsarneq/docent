@@ -131,11 +131,12 @@ startup. The two writers reach that command differently, and their order is
 part of the arrangement: the adapter's settings save is a load-mutate-save over
 the copy on disk, while the panel's is a whole-blob write of the copy in its
 memory, so a seam save is followed by the panel writing the same values into
-that memory copy — which is what carries them into the panel's next write. For a
-cleared key — both fields empty — `saveSyncSettings` omits both keys while the
-panel's mirror-back writes them null, so DSH-2's clear branch is satisfied by the
-panel's write on that path. The caller model this rests on is stated where the
-seam declares it, in the `PlatformAdapter` typedef's header
+that memory copy — which is what carries them into the panel's next write. When
+the sync server URL is cleared, `saveSyncSettings` omits both keys from its
+write; when both fields are cleared, the panel's mirror-back writes them null —
+so on that path DSH-2's clear branch is satisfied by the panel's write. The
+caller model this rests on is stated where the seam declares it, in the
+`PlatformAdapter` typedef's header
 ([`adapter.js`](../../../../../packages/shared/views/adapter.js)). The Rust side
 owns the path and the file I/O
 ([`commands.rs`](../../../../../packages/desktop/src-tauri/src/commands.rs));

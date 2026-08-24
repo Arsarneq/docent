@@ -14,12 +14,12 @@
  * is the sync-settings save (`saveSyncSettings`), whose values it mirrors back
  * into that model afterwards. That mirror-back is load-bearing: the panel's
  * next whole-blob save replaces an unmirrored seam write with the copy it was
- * already holding, and for a cleared sync configuration — both fields empty —
- * the adapter's write omits both keys, and the null the panel's mirror-back
- * writes is what deletes the key's credential entry (application-shell DSH-2).
- * The requirement itself — that a desktop caller taking the seam route mirrors
- * what it saved — belongs to the typedef's header (shared/views/adapter.js),
- * where the seam declares it.
+ * already holding. A cleared sync server URL makes the adapter's write omit both
+ * keys; clearing both fields is what has the panel's mirror-back write them
+ * null, and that null is the write that deletes the key's credential entry
+ * (application-shell DSH-2). The requirement itself — that a desktop caller
+ * taking the seam route mirrors what it saved — belongs to the typedef's header
+ * (shared/views/adapter.js), where the seam declares it.
  *
  * It starts and stops capture by `invoke` instead — directly through the
  * bridge, and through this file's `stopWithCompleteness` where a commit
