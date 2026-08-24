@@ -335,7 +335,7 @@ describe("the panel's mirror-back over one session blob", () => {
     });
   }
 
-  it('hands save_state opposite shapes for a cleared sync key', async () => {
+  it('hands save_state opposite shapes for a cleared sync configuration', async () => {
     const store = installSessionStore({
       projects: [],
       settings: { syncUrl: 'https://sync.test', syncApiKey: 'key1' },
