@@ -10,7 +10,8 @@ Everything lives under `packages/extension/tests/e2e/`:
 - `specs/` — the suite this document covers, run by `npm run test:e2e`
   (`playwright.config.js`).
 - `helpers/` — the shared harness: the extension fixture, the frame-readiness
-  helpers, and the coverage plumbing.
+  helpers, the coverage plumbing, and the reference-server launcher the
+  sync-samples spec spawns its server through.
 - `corpus/` — the extension producer of the
   [scripted-truth corpus](../verification/scripted-truth-corpus.md), a separate
   run under its own configs (see

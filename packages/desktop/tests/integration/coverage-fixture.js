@@ -4,6 +4,11 @@
  *
  * Coverage is collected via Chromium's built-in page.coverage API and
  * converted to lcov format using v8-to-istanbul.
+ *
+ * Simultaneous suite runs share the raw-dump directory: every dump carries
+ * the run id `global-setup.js` mints, and the report step merges and sweeps
+ * only this run's dumps (aging out stale leftovers from runs that died
+ * before their own sweep).
  */
 
 import { test as base } from '@playwright/test';
@@ -23,6 +28,15 @@ const srcPath = path.resolve(__dirname, '../../src');
 // Source files we want coverage for (served from dist/, mapped back to src/)
 const TRACKED_FILES = ['panel.js', 'persistence.js', 'adapter-tauri.js'];
 
+// The id scoping this run's dumps: minted by global-setup.js in the runner's
+// main process and inherited here by every worker through the environment.
+// `unscoped` only ever appears when the fixture runs outside the suite config.
+const runId = process.env.DOCENT_COVERAGE_RUN ?? 'unscoped';
+
+// Raw dumps from runs that died before their teardown could sweep them are
+// aged out by any later run once they are this old.
+const STALE_DUMP_MS = 60 * 60 * 1000;
+
 // Ensure coverage directories exist
 fs.mkdirSync(rawDir, { recursive: true });
 
@@ -38,10 +52,15 @@ export const test = base.extend({
 
     await use(page);
 
-    // Stop coverage and save raw V8 data
+    // Stop coverage and save raw V8 data. The run id scopes the file to THIS
+    // run — each teardown merges and sweeps only its own run's dumps — and
+    // the pid keeps names unique across this run's worker processes. The
+    // directory is (re)created before every write, because a simultaneous
+    // run's teardown may have just removed it.
     const coverage = await page.coverage.stopJSCoverage();
     const id = testCounter++;
-    const outFile = path.join(rawDir, `coverage-${id}.json`);
+    fs.mkdirSync(rawDir, { recursive: true });
+    const outFile = path.join(rawDir, `coverage-${runId}-${process.pid}-${id}.json`);
     fs.writeFileSync(outFile, JSON.stringify(coverage));
   },
 });
@@ -53,14 +72,46 @@ export { expect } from '@playwright/test';
  * Called from the global teardown.
  */
 export async function generateLcovReport() {
-  const rawFiles = fs.readdirSync(rawDir).filter((f) => f.endsWith('.json'));
+  let allFiles;
+  try {
+    allFiles = fs.readdirSync(rawDir);
+  } catch {
+    return; // no dump directory — nothing was collected
+  }
+
+  // Age out leftovers from runs that died before their own sweep. Only
+  // clearly stale files go: a fresh file that is not this run's belongs to a
+  // simultaneous run whose own teardown sweeps it.
+  const now = Date.now();
+  for (const f of allFiles) {
+    if (f.startsWith(`coverage-${runId}-`) || !f.endsWith('.json')) continue;
+    try {
+      if (now - fs.statSync(path.join(rawDir, f)).mtimeMs > STALE_DUMP_MS) {
+        fs.rmSync(path.join(rawDir, f), { force: true });
+      }
+    } catch {
+      // raced by another run's teardown — fine
+    }
+  }
+
+  // This run's own dumps: the only files merged below, and the only files
+  // swept at the end — one filtered list drives both.
+  const rawFiles = allFiles.filter(
+    (f) => f.startsWith(`coverage-${runId}-`) && f.endsWith('.json'),
+  );
   if (rawFiles.length === 0) return;
 
   // Merge coverage entries by script URL
   const mergedByUrl = new Map();
 
   for (const file of rawFiles) {
-    const entries = JSON.parse(fs.readFileSync(path.join(rawDir, file), 'utf-8'));
+    let entries;
+    try {
+      entries = JSON.parse(fs.readFileSync(path.join(rawDir, file), 'utf-8'));
+    } catch (err) {
+      console.warn(`[coverage] skipping unreadable raw dump ${file}: ${err.message}`);
+      continue;
+    }
     for (const entry of entries) {
       // Only track our source files served from the local test server
       const url = entry.url;
@@ -180,9 +231,15 @@ export async function generateLcovReport() {
   const lcovPath = path.join(coverageDir, 'lcov.info');
   fs.writeFileSync(lcovPath, lcovOutput);
 
-  // Clean up raw files
+  // Sweep this run's dumps — the same list the merge above consumed. The
+  // directory is left in place when it is not empty (a simultaneous run
+  // still owns files there) or already gone.
   for (const file of rawFiles) {
-    fs.unlinkSync(path.join(rawDir, file));
+    fs.rmSync(path.join(rawDir, file), { force: true });
   }
-  fs.rmdirSync(rawDir);
+  try {
+    fs.rmdirSync(rawDir);
+  } catch {
+    // Not empty, or already gone — leave it to the run that owns the rest.
+  }
 }
