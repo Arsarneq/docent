@@ -33,6 +33,7 @@ import { fileURLToPath } from 'url';
 import http from 'http';
 import fs from 'fs';
 import { installReadyProbe, waitForFrameReady } from './frame-ready.js';
+import { writeRawDump } from '../../../../shared/tests/support/coverage-run.js';
 
 // The active service worker for the current test. Set by the serviceWorker
 // fixture; read by setTestContent (which is a free function with no fixture
@@ -169,8 +170,7 @@ export const test = base.extend({
           .map((entry) => ({ url: entry.url, functions: entry.functions }));
 
         if (extensionScripts.length > 0) {
-          const file = path.join(rawDir, `content-${contentCoverageCounter++}.json`);
-          fs.writeFileSync(file, JSON.stringify(extensionScripts));
+          writeRawDump(rawDir, 'content', contentCoverageCounter++, extensionScripts);
         }
       } catch {
         // Best-effort — don't break tests

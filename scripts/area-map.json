@@ -678,6 +678,11 @@
       "governed-by": ["docs/technical/session-format.md", "docs/test/backward-compat.md"]
     },
     {
+      "path": "packages/shared/tests/support/coverage-run.js",
+      "reason": "The run-scoped naming contract for the two Playwright suites' raw coverage dumps — consumed by the extension e2e harness and the desktop integration harness alike, so its contract is what those two suite documents state about coverage collection.",
+      "governed-by": ["docs/test/e2e.md", "docs/test/integration/desktop.md"]
+    },
+    {
       "path": "packages/desktop/src-tauri/tests/{action_mapping_test,capture_mode_test,coordinate_dpi_test,coordinate_test,element_mapping_test,pid_filter_test,windows_capture_test}.rs",
       "reason": "Deterministic binaries over the Windows capture layer's pure decisions — native event to action mapping, accessibility-versus-coordinate mode selection, the coordinate helpers with their multi-monitor and DPI math, native element mapping, the platform-agnostic PID base filter, and the scroll accumulator and recording-state transitions. Their contract is the Windows capture doctrine, which states those rules and whose scope-filter row names the PID and Windows-unit binaries as its guards (DCP-5), and the suite orientation whose table lists each binary by name.",
       "governed-by": [
