@@ -4,6 +4,15 @@
  *
  * Coverage is collected via Chromium's built-in page.coverage API and
  * converted to lcov format using v8-to-istanbul.
+ *
+ * Simultaneous suite runs share the raw-dump directory: every dump carries
+ * the run id `global-setup.js` mints, and the report step merges and sweeps
+ * only this run's dumps (aging out stale leftovers from runs that died
+ * before their own sweep). The naming contract — id mint and validation,
+ * dump naming, the prefix-anchored ownership predicate, age-out, and the
+ * unreadable-dump skip — is the shared module
+ * `packages/shared/tests/support/coverage-run.js`, consumed by the
+ * extension e2e harness too.
  */
 
 import { test as base } from '@playwright/test';
@@ -11,6 +20,12 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import v8toIstanbul from 'v8-to-istanbul';
+import {
+  writeRawDump,
+  ownDumpMatcher,
+  ageOutForeignDumps,
+  readRawDump,
+} from '../../../shared/tests/support/coverage-run.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -38,11 +53,13 @@ export const test = base.extend({
 
     await use(page);
 
-    // Stop coverage and save raw V8 data
+    // Stop coverage and save raw V8 data. The run id scopes the file to THIS
+    // run — each teardown merges and sweeps only its own run's dumps — and
+    // the pid keeps names unique across this run's worker processes. The
+    // directory is (re)created before every write, because a simultaneous
+    // run's teardown may have just removed it.
     const coverage = await page.coverage.stopJSCoverage();
-    const id = testCounter++;
-    const outFile = path.join(rawDir, `coverage-${id}.json`);
-    fs.writeFileSync(outFile, JSON.stringify(coverage));
+    writeRawDump(rawDir, 'coverage', testCounter++, coverage);
   },
 });
 
@@ -53,14 +70,28 @@ export { expect } from '@playwright/test';
  * Called from the global teardown.
  */
 export async function generateLcovReport() {
-  const rawFiles = fs.readdirSync(rawDir).filter((f) => f.endsWith('.json'));
+  let allFiles;
+  try {
+    allFiles = fs.readdirSync(rawDir);
+  } catch {
+    return; // no dump directory — nothing was collected
+  }
+
+  // This suite's one writer family is the `coverage` prefix stamped above.
+  const isOwn = ownDumpMatcher(['coverage']);
+  ageOutForeignDumps(rawDir, allFiles, isOwn);
+
+  // This run's own dumps: the only files merged below, and the only files
+  // swept at the end — one filtered list drives both.
+  const rawFiles = allFiles.filter(isOwn);
   if (rawFiles.length === 0) return;
 
   // Merge coverage entries by script URL
   const mergedByUrl = new Map();
 
   for (const file of rawFiles) {
-    const entries = JSON.parse(fs.readFileSync(path.join(rawDir, file), 'utf-8'));
+    const entries = readRawDump(rawDir, file);
+    if (entries === null) continue;
     for (const entry of entries) {
       // Only track our source files served from the local test server
       const url = entry.url;
@@ -180,9 +211,15 @@ export async function generateLcovReport() {
   const lcovPath = path.join(coverageDir, 'lcov.info');
   fs.writeFileSync(lcovPath, lcovOutput);
 
-  // Clean up raw files
+  // Sweep this run's dumps — the same list the merge above consumed. The
+  // directory is left in place when it is not empty (a simultaneous run
+  // still owns files there) or already gone.
   for (const file of rawFiles) {
-    fs.unlinkSync(path.join(rawDir, file));
+    fs.rmSync(path.join(rawDir, file), { force: true });
   }
-  fs.rmdirSync(rawDir);
+  try {
+    fs.rmdirSync(rawDir);
+  } catch {
+    // Not empty, or already gone — leave it to the run that owns the rest.
+  }
 }

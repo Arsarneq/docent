@@ -34,57 +34,106 @@
  * no-CORS server; only the test's own dev server gains a proxy.
  *
  * Server lifecycle: the real Reference Sync Server is spawned as a child process
- * on an ephemeral port (`--port 0`), seeded via `POST /__debug/seed
+ * on an ephemeral port over a per-run temp storage directory (through the
+ * suite's launcher, which hands the directory to the server's own documented
+ * storage-provider override), seeded via `POST /__debug/seed
  * { samples: true }` (the real seed path + on-disk sample files), and torn down
- * after the suite.
+ * after the suite together with the run's storage directory — so simultaneous
+ * runs on one machine never share server state.
  */
 
 import { test, expect } from './coverage-fixture.js';
 import { installTauriMockServer, openPanel } from './tauri-mock-fixture.js';
 import http from 'http';
+import os from 'os';
 import path from 'path';
 import { spawn } from 'child_process';
+import { mkdtemp, rm } from 'fs/promises';
 import { fileURLToPath } from 'url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-// reference-implementations/sync-server/server.js, from packages/desktop/tests/integration.
-const SERVER_ENTRY = path.resolve(
-  __dirname,
-  '../../../../reference-implementations/sync-server/server.js',
-);
+// The suite's spawnable entry for reference-implementations/sync-server: it
+// runs the real server over the storage directory passed to it (see the
+// launcher's header for the seam it exposes).
+const SERVER_LAUNCHER = path.resolve(__dirname, 'reference-server-launcher.js');
 
 /**
- * Spawn the real Reference Sync Server on an ephemeral port; resolve with its
- * base URL once it logs the bound address.
+ * Spawn the real Reference Sync Server on an ephemeral port, storing under a
+ * fresh per-run temp directory (passed through the launcher to the server's
+ * own documented storage-provider override); resolve with its base URL once it
+ * logs the bound address. The returned async `stop` kills the child and
+ * removes the run's storage directory.
  *
- * @returns {Promise<{ baseUrl: string, stop: () => void }>}
+ * @returns {Promise<{ baseUrl: string, stop: () => Promise<void> }>}
  */
-function startReferenceServer() {
-  return new Promise((resolve, reject) => {
-    const child = spawn(process.execPath, [SERVER_ENTRY, '--port', '0'], {
-      stdio: ['ignore', 'pipe', 'pipe'],
+async function startReferenceServer() {
+  // Fresh storage per run: simultaneous runs never share server state, and the
+  // machine-wide default storage directory is never touched.
+  const storageDir = await mkdtemp(path.join(os.tmpdir(), 'docent-sync-samples-desktop-'));
+  // `maxRetries` absorbs the transient EBUSY/EPERM a just-killed child's open
+  // handles can cause on Windows.
+  const removeStorageDir = () =>
+    rm(storageDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+
+  let child;
+  try {
+    return await new Promise((resolve, reject) => {
+      child = spawn(
+        process.execPath,
+        [SERVER_LAUNCHER, '--storage-dir', storageDir, '--port', '0'],
+        { stdio: ['ignore', 'pipe', 'pipe'] },
+      );
+      let out = '';
+      const onData = (chunk) => {
+        out += chunk.toString();
+        const match = out.match(/listening on (http:\/\/\S+)/);
+        if (match) {
+          child.stdout.off('data', onData);
+          resolve({
+            baseUrl: match[1].trim(),
+            stop: async () => {
+              await new Promise((exited) => {
+                if (child.exitCode !== null || child.signalCode !== null) {
+                  exited();
+                  return;
+                }
+                child.once('exit', exited);
+                child.kill();
+              });
+              await removeStorageDir();
+            },
+          });
+        }
+      };
+      child.stdout.on('data', onData);
+      child.stderr.on('data', (c) => {
+        out += c.toString();
+      });
+      child.on('error', reject);
+      child.on('exit', (code) => {
+        if (code !== null && code !== 0 && !out.includes('listening on')) {
+          reject(new Error(`Reference server exited early (code ${code}):\n${out}`));
+        }
+      });
+      setTimeout(() => reject(new Error(`Reference server did not start in time:\n${out}`)), 10000);
     });
-    let out = '';
-    const onData = (chunk) => {
-      out += chunk.toString();
-      const match = out.match(/listening on (http:\/\/\S+)/);
-      if (match) {
-        child.stdout.off('data', onData);
-        resolve({ baseUrl: match[1].trim(), stop: () => child.kill() });
-      }
-    };
-    child.stdout.on('data', onData);
-    child.stderr.on('data', (c) => {
-      out += c.toString();
-    });
-    child.on('error', reject);
-    child.on('exit', (code) => {
-      if (code !== null && code !== 0 && !out.includes('listening on')) {
-        reject(new Error(`Reference server exited early (code ${code}):\n${out}`));
-      }
-    });
-    setTimeout(() => reject(new Error(`Reference server did not start in time:\n${out}`)), 10000);
-  });
+  } catch (err) {
+    // Kill the child BEFORE removing the directory — a server still starting
+    // constructs its storage provider late enough to recreate a directory
+    // removed under it. The wait is capped: this is already the failure path.
+    if (child && child.exitCode === null && child.signalCode === null) {
+      await new Promise((exited) => {
+        const cap = setTimeout(exited, 5000);
+        child.once('exit', () => {
+          clearTimeout(cap);
+          exited();
+        });
+        child.kill();
+      });
+    }
+    await removeStorageDir().catch(() => {});
+    throw err;
+  }
 }
 
 /**
@@ -142,12 +191,9 @@ let referenceServer;
 test.beforeAll(async () => {
   referenceServer = await startReferenceServer();
 
-  // The spawned server uses its default storage dir under the OS temp folder,
-  // which persists across runs — reset it first so the pull sees EXACTLY the two
-  // bundled samples and nothing left over from a previous run.
-  const resetRes = await fetch(`${referenceServer.baseUrl}/__debug/reset`, { method: 'POST' });
-  expect(resetRes.status).toBe(200);
-
+  // The spawned server stores under a fresh per-run temp directory, so the
+  // store starts empty and the pull sees EXACTLY the two bundled samples — no
+  // reset needed, and nothing shared with any other run on the machine.
   // Seed both bundled samples via the real seed affordance.
   const seedRes = await fetch(`${referenceServer.baseUrl}/__debug/seed`, {
     method: 'POST',
@@ -159,7 +205,7 @@ test.beforeAll(async () => {
 });
 
 test.afterAll(async () => {
-  referenceServer?.stop();
+  await referenceServer?.stop();
 });
 
 // The shared dist server (mock injection, static frontend) plus this
