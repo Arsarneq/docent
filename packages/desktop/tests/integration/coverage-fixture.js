@@ -8,7 +8,11 @@
  * Simultaneous suite runs share the raw-dump directory: every dump carries
  * the run id `global-setup.js` mints, and the report step merges and sweeps
  * only this run's dumps (aging out stale leftovers from runs that died
- * before their own sweep).
+ * before their own sweep). The naming contract — id mint and validation,
+ * dump naming, the prefix-anchored ownership predicate, age-out, and the
+ * unreadable-dump skip — is the shared module
+ * `packages/shared/tests/support/coverage-run.js`, consumed by the
+ * extension e2e harness too.
  */
 
 import { test as base } from '@playwright/test';
@@ -16,6 +20,12 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import v8toIstanbul from 'v8-to-istanbul';
+import {
+  writeRawDump,
+  ownDumpMatcher,
+  ageOutForeignDumps,
+  readRawDump,
+} from '../../../shared/tests/support/coverage-run.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -27,15 +37,6 @@ const srcPath = path.resolve(__dirname, '../../src');
 
 // Source files we want coverage for (served from dist/, mapped back to src/)
 const TRACKED_FILES = ['panel.js', 'persistence.js', 'adapter-tauri.js'];
-
-// The id scoping this run's dumps: minted by global-setup.js in the runner's
-// main process and inherited here by every worker through the environment.
-// `unscoped` only ever appears when the fixture runs outside the suite config.
-const runId = process.env.DOCENT_COVERAGE_RUN ?? 'unscoped';
-
-// Raw dumps from runs that died before their teardown could sweep them are
-// aged out by any later run once they are this old.
-const STALE_DUMP_MS = 60 * 60 * 1000;
 
 // Ensure coverage directories exist
 fs.mkdirSync(rawDir, { recursive: true });
@@ -58,10 +59,7 @@ export const test = base.extend({
     // directory is (re)created before every write, because a simultaneous
     // run's teardown may have just removed it.
     const coverage = await page.coverage.stopJSCoverage();
-    const id = testCounter++;
-    fs.mkdirSync(rawDir, { recursive: true });
-    const outFile = path.join(rawDir, `coverage-${runId}-${process.pid}-${id}.json`);
-    fs.writeFileSync(outFile, JSON.stringify(coverage));
+    writeRawDump(rawDir, 'coverage', testCounter++, coverage);
   },
 });
 
@@ -79,39 +77,21 @@ export async function generateLcovReport() {
     return; // no dump directory — nothing was collected
   }
 
-  // Age out leftovers from runs that died before their own sweep. Only
-  // clearly stale files go: a fresh file that is not this run's belongs to a
-  // simultaneous run whose own teardown sweeps it.
-  const now = Date.now();
-  for (const f of allFiles) {
-    if (f.startsWith(`coverage-${runId}-`) || !f.endsWith('.json')) continue;
-    try {
-      if (now - fs.statSync(path.join(rawDir, f)).mtimeMs > STALE_DUMP_MS) {
-        fs.rmSync(path.join(rawDir, f), { force: true });
-      }
-    } catch {
-      // raced by another run's teardown — fine
-    }
-  }
+  // This suite's one writer family is the `coverage` prefix stamped above.
+  const isOwn = ownDumpMatcher(['coverage']);
+  ageOutForeignDumps(rawDir, allFiles, isOwn);
 
   // This run's own dumps: the only files merged below, and the only files
   // swept at the end — one filtered list drives both.
-  const rawFiles = allFiles.filter(
-    (f) => f.startsWith(`coverage-${runId}-`) && f.endsWith('.json'),
-  );
+  const rawFiles = allFiles.filter(isOwn);
   if (rawFiles.length === 0) return;
 
   // Merge coverage entries by script URL
   const mergedByUrl = new Map();
 
   for (const file of rawFiles) {
-    let entries;
-    try {
-      entries = JSON.parse(fs.readFileSync(path.join(rawDir, file), 'utf-8'));
-    } catch (err) {
-      console.warn(`[coverage] skipping unreadable raw dump ${file}: ${err.message}`);
-      continue;
-    }
+    const entries = readRawDump(rawDir, file);
+    if (entries === null) continue;
     for (const entry of entries) {
       // Only track our source files served from the local test server
       const url = entry.url;

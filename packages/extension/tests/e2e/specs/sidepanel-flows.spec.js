@@ -14,6 +14,7 @@ import { test as base, chromium, expect } from '@playwright/test';
 import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
+import { writeRawDump } from '../../../../shared/tests/support/coverage-run.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const extensionPath = path.resolve(__dirname, '../../..');
@@ -70,8 +71,7 @@ const test = base.extend({
     await use(page);
 
     const coverage = await page.coverage.stopJSCoverage();
-    const outFile = path.join(rawDir, `panel-flows-${coverageCounter++}.json`);
-    fs.writeFileSync(outFile, JSON.stringify(coverage));
+    writeRawDump(rawDir, 'panel-flows', coverageCounter++, coverage);
     await page.close();
   },
 });

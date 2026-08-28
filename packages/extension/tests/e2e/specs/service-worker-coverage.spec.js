@@ -10,36 +10,25 @@
  * Closes #107
  */
 
-import { test as base, expect, chromium } from '@playwright/test';
+import { test as base, expect } from '@playwright/test';
 import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
+import { coverageLaunchFixtures } from '../helpers/coverage-launch.js';
+import { writeRawDump } from '../../../../shared/tests/support/coverage-run.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const extensionPath = path.resolve(__dirname, '../../..');
 const coverageDir = path.resolve(__dirname, '../coverage');
 const rawDir = path.resolve(coverageDir, 'raw');
 
 fs.mkdirSync(rawDir, { recursive: true });
 
 let coverageCounter = 0;
-const DEBUG_PORT = 9340;
 
 const test = base.extend({
-  context: async ({}, use) => {
-    const context = await chromium.launchPersistentContext('', {
-      headless: false,
-      args: [
-        `--disable-extensions-except=${extensionPath}`,
-        `--load-extension=${extensionPath}`,
-        '--no-first-run',
-        '--disable-default-apps',
-        `--remote-debugging-port=${DEBUG_PORT}`,
-      ],
-    });
-    await use(context);
-    await context.close();
-  },
+  // Profile directory, extension-loaded context, and the browser's ephemeral
+  // CDP port — shared with the sidepanel coverage spec.
+  ...coverageLaunchFixtures,
 
   extensionId: async ({ context }, use) => {
     let sw;
@@ -64,14 +53,14 @@ const test = base.extend({
   },
 
   swCoverage: [
-    async ({ context, extensionId }, use) => {
+    async ({ debugPort, extensionId }, use) => {
       // Auto fixture: every test in this spec collects SW coverage via the raw
       // CDP WebSocket. This captures the message handler AND the tab/navigation
       // lifecycle listeners executing in the SW context.
       let swConnection = null;
       try {
         const { connectToServiceWorker } = await import('../helpers/cdp-sw-coverage.js');
-        swConnection = await connectToServiceWorker(DEBUG_PORT, extensionId);
+        swConnection = await connectToServiceWorker(debugPort, extensionId);
       } catch (err) {
         console.warn('[coverage] SW CDP connection failed:', err.message);
       }
@@ -84,8 +73,7 @@ const test = base.extend({
           const { collectAndClose } = await import('../helpers/cdp-sw-coverage.js');
           const swScripts = await collectAndClose(swConnection, extensionId);
           if (swScripts.length > 0) {
-            const cdpFile = path.join(rawDir, `sw-coverage-${coverageCounter++}.json`);
-            fs.writeFileSync(cdpFile, JSON.stringify(swScripts));
+            writeRawDump(rawDir, 'sw-coverage', coverageCounter++, swScripts);
           }
         } catch (err) {
           console.warn('[coverage] SW coverage collection failed:', err.message);
