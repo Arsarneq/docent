@@ -52,6 +52,12 @@ reports/
 mutants.out/
 mutants.out.old/
 
+# Local working trees kept beside the checkout (one per in-flight branch) —
+# never repository content, and ignoring them here also keeps them out of the
+# filesystem-walking lint gates (Prettier, markdownlint, remark), which all
+# read this file's patterns.
+/docent-worktrees/
+
 # Lefthook local config
 lefthook-local.yml
 

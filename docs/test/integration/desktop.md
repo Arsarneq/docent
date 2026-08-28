@@ -137,7 +137,10 @@ Its `globalTeardown` converts the raw V8 coverage collected per page by
 `integration,javascript` coverage flag. The files it reports on are a
 closed, hard-coded list — see
 [coverage reporting](../strategy/coverage.md#closed-world-tracked-file-lists-e2e-and-desktop-integration)
-for the mechanism and the maintenance rule. A new spec imports `test`/`expect`
+for the mechanism and the maintenance rule. The run-scoped dump naming and
+tolerant sweep behind that conversion live in the shared contract module
+`packages/shared/tests/support/coverage-run.js`, shared with
+[the extension e2e suite](../e2e.md). A new spec imports `test`/`expect`
 from `./coverage-fixture.js` (not `@playwright/test` directly) so its pages
 contribute coverage, and calls `installTauriMockServer()` from
 `./tauri-mock-fixture.js` for the mocked backend — the mock fixture registers

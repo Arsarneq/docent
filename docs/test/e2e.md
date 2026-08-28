@@ -10,7 +10,9 @@ Everything lives under `packages/extension/tests/e2e/`:
 - `specs/` — the suite this document covers, run by `npm run test:e2e`
   (`playwright.config.js`).
 - `helpers/` — the shared harness: the extension fixture, the frame-readiness
-  helpers, and the coverage plumbing.
+  helpers, the coverage plumbing, the vector-snapshot collector the corpus
+  run's vector mode produces conformance vectors through, and the
+  reference-server launcher the sync-samples spec spawns its server through.
 - `corpus/` — the extension producer of the
   [scripted-truth corpus](../verification/scripted-truth-corpus.md), a separate
   run under its own configs (see
@@ -137,8 +139,15 @@ spec (the spawned-server sync spec) skips it — the recorder never loads on
 The suite doubles as the e2e coverage source: the `testPage` fixture profiles
 the page's extension scripts via CDP, `sidepanel-coverage.spec.js` adds
 `page.coverage` for the panel and a raw-CDP connection for the service worker
-(`helpers/cdp-sw-coverage.js`), and `global-teardown.js` merges everything into
-`coverage/lcov.info`. How that reaches Codecov is in
+(`helpers/cdp-sw-coverage.js`, over the ephemeral debug port the launched
+browser reports — `helpers/devtools-port.js` — never a fixed one), and
+`global-teardown.js` merges the run's raw dumps into `coverage/lcov.info`.
+Each dump's name carries the run id `global-setup.js` mints (the naming
+contract is `packages/shared/tests/support/coverage-run.js`, shared with the
+desktop integration suite), and the teardown merges and sweeps only that
+id's dumps, aging out hour-old leftovers from runs that died before their
+own sweep — so simultaneous runs on one machine collide on neither ports nor
+`coverage/raw/`. How that reaches Codecov is in
 [coverage reporting](strategy/coverage.md).
 
 ## What the suite covers

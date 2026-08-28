@@ -2,18 +2,27 @@
  * Global teardown for extension E2E tests.
  *
  * Converts collected V8 coverage data to lcov format using v8-to-istanbul.
- * Processes two types of coverage files:
- * - Page coverage (sidepanel-page-*.json) — from page.coverage API
- * - CDP coverage (sidepanel-cdp-*.json) — from Profiler.takePreciseCoverage
+ * The raw dumps are two kinds of coverage: page coverage from the
+ * page.coverage API, and CDP coverage from Profiler.takePreciseCoverage —
+ * the latter captures service worker and content script execution that
+ * page.coverage cannot reach.
  *
- * The CDP coverage captures service worker and content script execution
- * that page.coverage cannot reach.
+ * Simultaneous suite runs share the raw-dump directory: every dump carries
+ * the run id `global-setup.js` mints (the naming contract is the shared
+ * module `packages/shared/tests/support/coverage-run.js`), and this
+ * teardown merges and sweeps only this run's dumps, aging out stale
+ * leftovers from runs that died before their own sweep.
  */
 
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import v8toIstanbul from 'v8-to-istanbul';
+import {
+  ownDumpMatcher,
+  ageOutForeignDumps,
+  readRawDump,
+} from '../../../shared/tests/support/coverage-run.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const coverageDir = path.resolve(__dirname, 'coverage');
@@ -31,21 +40,40 @@ const TRACKED_FILES = [
 ];
 
 export default async function globalTeardown() {
-  if (!fs.existsSync(rawDir)) return;
+  let allFiles;
+  try {
+    allFiles = fs.readdirSync(rawDir);
+  } catch {
+    return; // no dump directory — nothing was collected
+  }
 
-  const rawFiles = fs.readdirSync(rawDir).filter((f) => f.endsWith('.json'));
+  // This suite's writer families — every dump-writing site's prefix: the
+  // shared fixture's `content` (helpers/extension-fixture.js), the panel
+  // flows spec's `panel-flows`, the sidepanel coverage spec's
+  // `sidepanel-page` and `sidepanel-sw`, and the service-worker coverage
+  // spec's `sw-coverage`. A new writer family joins this list in the same
+  // change that adds it: an omitted family is never merged, and its dumps
+  // are aged out unmerged an hour later.
+  const isOwn = ownDumpMatcher([
+    'content',
+    'panel-flows',
+    'sidepanel-page',
+    'sidepanel-sw',
+    'sw-coverage',
+  ]);
+  ageOutForeignDumps(rawDir, allFiles, isOwn);
+
+  // This run's own dumps: the only files merged below, and the only files
+  // swept at the end — one filtered list drives both.
+  const rawFiles = allFiles.filter(isOwn);
   if (rawFiles.length === 0) return;
 
   // Merge coverage entries by source file
   const mergedByFile = new Map();
 
   for (const file of rawFiles) {
-    let entries;
-    try {
-      entries = JSON.parse(fs.readFileSync(path.join(rawDir, file), 'utf-8'));
-    } catch {
-      continue;
-    }
+    const entries = readRawDump(rawDir, file);
+    if (entries === null) continue;
 
     for (const entry of entries) {
       const url = entry.url || '';
@@ -151,13 +179,16 @@ export default async function globalTeardown() {
   cleanup(rawFiles);
 }
 
+// Sweep this run's dumps — the same list the merge above consumed. The
+// directory is left in place when it is not empty (a simultaneous run still
+// owns files there) or already gone.
 function cleanup(rawFiles) {
   for (const file of rawFiles) {
-    fs.unlinkSync(path.join(rawDir, file));
+    fs.rmSync(path.join(rawDir, file), { force: true });
   }
   try {
     fs.rmdirSync(rawDir);
   } catch {
-    /* ignore */
+    /* not empty, or already gone — leave it to the run that owns the rest */
   }
 }
