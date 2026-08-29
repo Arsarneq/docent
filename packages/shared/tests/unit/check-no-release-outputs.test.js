@@ -11,7 +11,10 @@
  * release-automation class — depend on: a branch on this repository selects the
  * positive mode, every other event shape takes the feature-branch guard. The
  * last of them reads the shipped workflows, holding the guard steps that supply
- * those inputs to the event fields the derivation is written against.
+ * those inputs to the event fields the derivation is written against. Beside
+ * them the suite welds the automation branch's name to the contributor-facing
+ * documents that spell it out, so a rename cannot leave a reader pointed at a
+ * PR that no longer exists.
  */
 
 import { describe, it } from 'node:test';
@@ -324,6 +327,88 @@ describe('the guard steps forward what the derivation reads', () => {
       }
     });
   }
+});
+
+describe('the automation branch name — welded to the prose that spells it out', () => {
+  // The branch name is a value with one home (AUTOMATED_BRANCH), and the
+  // documents a contributor reads before a release spell it out in full: the
+  // release process itself, and the local reproduction of the guards that key
+  // on it. A rename lands in the constant and the workflows — which the
+  // disposition suite pins from the other side, holding both publish workflows'
+  // `branch:` key to this constant ('both publish workflows open the automation
+  // PR on the branch the guards key on', in
+  // packages/shared/tests/unit/check-docs-disposition.test.js) — while these
+  // prose copies would keep naming a branch that no longer exists, sending a
+  // reader to a PR they will never find. This suite holds that class: the
+  // contributor-facing documents that spell the name out. The name's echoes
+  // inside code comments and workflow comments are a different class,
+  // cite-the-owner territory, and stay outside this weld.
+  const REPO_ROOT = path.resolve(import.meta.dirname, '../../../..');
+
+  /** Escape a literal for embedding in a RegExp source. */
+  const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+  /**
+   * The branch's own namespace — the segment the name opens with, derived from
+   * the constant rather than spelled a second time. Anchoring the scan on it is
+   * what makes a DRIFTED name visible: a scan for the whole name would find a
+   * renamed copy nowhere and pass on silence.
+   */
+  const BRANCH_NAMESPACE = `${AUTOMATED_BRANCH.split('/')[0]}/`;
+  const TOKEN_RE = new RegExp(`${escapeRe(BRANCH_NAMESPACE)}\\S+`, 'g');
+
+  /**
+   * What a prose mention can put after the name and still be naming it: the
+   * punctuation that ends the sentence or closes the code span, the markdown
+   * emphasis a mention can be wrapped in, and the possessive a sentence can
+   * attach to it. The name itself carries none of these, so trimming them is
+   * what leaves the branch a reader reads.
+   */
+  const TRAILER_RE = /(?:'s|[`*.,;:)\]'"])+$/;
+
+  /**
+   * The branch tokens a document spells, each with that trailer removed.
+   * @param {string} text
+   * @returns {string[]}
+   */
+  const branchTokens = (text) =>
+    [...text.matchAll(TOKEN_RE)].map((m) => m[0].replace(TRAILER_RE, ''));
+
+  for (const doc of ['.github/PUBLISHING.md', 'docs/guides/local-ci.md']) {
+    it(`${doc} names the automation branch as the constant spells it`, () => {
+      const tokens = branchTokens(readFileSync(path.join(REPO_ROOT, doc), 'utf8'));
+      assert.notEqual(
+        tokens.length,
+        0,
+        `${doc} must name the automation branch — this weld holds what it says about it, and a ` +
+          `document that stopped saying it would pass this on silence`,
+      );
+      for (const token of tokens) {
+        assert.equal(
+          token,
+          AUTOMATED_BRANCH,
+          `${doc} names "${token}", but the branch the guards key on is "${AUTOMATED_BRANCH}" ` +
+            `(scripts/check-no-release-outputs.js) — a reader sent to that PR would not find it`,
+        );
+      }
+    });
+  }
+
+  it('reads a name that ends a sentence, closes a code span, carries emphasis or a possessive as the name alone', () => {
+    // The documents spell the branch inside backticks, inside emphasis, at the
+    // end of sentences, and with a possessive attached, so the trim is
+    // load-bearing: without it every such mention would read as a different
+    // branch and the weld would red on prose that is perfectly correct.
+    assert.deepEqual(
+      branchTokens(
+        `The pipeline opens its PR on \`${AUTOMATED_BRANCH}\`.\n` +
+          `Nothing else lands on ${AUTOMATED_BRANCH}.\n` +
+          `The branch is **${AUTOMATED_BRANCH}**, and ${AUTOMATED_BRANCH}'s PR is the one to read.\n` +
+          `Run it with PR_HEAD_REF=${AUTOMATED_BRANCH} first`,
+      ),
+      Array(5).fill(AUTOMATED_BRANCH),
+    );
+  });
 });
 
 describe('parsePorcelainPaths', () => {

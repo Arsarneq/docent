@@ -18,9 +18,15 @@
  * surfaces it is stated on and read from: both publish workflows to the
  * automation branch and to one generated PR body apiece, CONTRIBUTING's
  * exemption paragraph to the fields the exemption reads and to citing the
- * release-output surface by its home, and the governance line CONTRIBUTING
- * fences and the PR template scaffolds to the constant this check builds its
- * own red output from.
+ * release-output surface by its home, the governance line CONTRIBUTING fences
+ * and the PR template scaffolds to the constant this check builds its own red
+ * output from, the per-doc grammar those same two surfaces show — and the
+ * check's own red output beside them — to the one set of forms both are
+ * rendered from, the clause example's anchor to a clause the registry carries
+ * as judgment-only, and the mutation cadence to the workflow schedule that is
+ * the fact: its trigger set and each cron field read on its own, the cron's own
+ * comment included, and each prose surface restating that cadence held at its
+ * own site.
  */
 
 import { describe, it } from 'node:test';
@@ -44,6 +50,17 @@ import {
   RELEASE_AUTOMATION_CLASS,
   GOVERNANCE_MARKER,
   GOVERNANCE_LINE_TEMPLATE,
+  CHANGE_RECORD_MARKERS,
+  UPDATED_LINE_TEMPLATE,
+  UNAFFECTED_LINE_TEMPLATE,
+  CLAUSE_LINE_TEMPLATE,
+  CLAUSE_EXAMPLE_ANCHOR,
+  updatedLine,
+  unaffectedLine,
+  clauseLine,
+  FORM_ANCHOR,
+  MUTATION_CADENCE,
+  MUTATION_LINE,
   REGISTRY_PATH,
   isExemptDiff,
   docsInScope,
@@ -55,7 +72,12 @@ import {
   auditBody,
 } from '../../../../scripts/check-docs-disposition.js';
 import { MAP_PATH } from '../../../../scripts/check-area-map.js';
+import { extractClauseSection } from '../../../../scripts/check-test-inventory.js';
 import { AUTOMATED_BRANCH } from '../../../../scripts/check-no-release-outputs.js';
+
+/** A committed file of this repository, read as the shipped surface it is. */
+const repoFile = (rel) =>
+  readFileSync(path.resolve(import.meta.dirname, '../../../..', rel), 'utf8');
 
 const MAP = {
   description: 'test map',
@@ -469,9 +491,6 @@ describe('the exemption declaration — welded to its doctrine home', () => {
 });
 
 describe('the governance-data-only line — its template welded to the surfaces that show it', () => {
-  const repoFile = (rel) =>
-    readFileSync(path.resolve(import.meta.dirname, '../../../..', rel), 'utf8');
-
   it('CONTRIBUTING.md shows the template line verbatim in its fenced example', () => {
     // Contributors type the line exactly as the example spells it, and the
     // parser accepts exactly one spelling of the marker — so an example that
@@ -519,6 +538,575 @@ describe('the governance-data-only line — its template welded to the surfaces 
       shown[0],
       GOVERNANCE_LINE_TEMPLATE,
       "the PR template's Docs-disposition comment must spell the template line verbatim",
+    );
+  });
+});
+
+describe('the per-doc grammar — its forms welded to the surfaces that show them', () => {
+  /** The `text`-fenced blocks of a markdown file, fence markers stripped. */
+  const fencedBlocks = (rel) =>
+    [...repoFile(rel).matchAll(/```text\n([\s\S]*?)```/g)].map((m) => m[1]);
+
+  it('CONTRIBUTING.md shows the updated/unaffected pair verbatim in its fenced example', () => {
+    // Contributors type the lines exactly as the example spells them, and the
+    // check's own red output offers exactly one spelling of each — so an
+    // example that drifts teaches a judgment the red does not ask for. Exactly
+    // one fenced block opens with the verb, so a second one added later cannot
+    // quietly satisfy this off a stale copy.
+    const shown = fencedBlocks('.github/CONTRIBUTING.md').filter((block) =>
+      block.trimStart().startsWith('updated:'),
+    );
+    assert.equal(
+      shown.length,
+      1,
+      `CONTRIBUTING.md must show exactly one fenced example opening with "updated:" (found ${shown.length})`,
+    );
+    assert.equal(
+      shown[0].trim(),
+      [UPDATED_LINE_TEMPLATE, UNAFFECTED_LINE_TEMPLATE].join('\n'),
+      'CONTRIBUTING.md’s fenced example must be the two per-doc forms verbatim',
+    );
+  });
+
+  it('CONTRIBUTING.md shows the clause-anchored form verbatim in its fenced example', () => {
+    // Same reason, for the line a clause-carrying doc adds. The clause example
+    // is pinned whole — anchor included — so the example cannot drift onto a
+    // clause the registry does not carry.
+    const shown = fencedBlocks('.github/CONTRIBUTING.md').filter((block) =>
+      block.trimStart().startsWith('unaffected:'),
+    );
+    assert.equal(
+      shown.length,
+      1,
+      `CONTRIBUTING.md must show exactly one fenced example opening with "unaffected:" (found ${shown.length})`,
+    );
+    assert.equal(
+      shown[0].trim(),
+      CLAUSE_LINE_TEMPLATE,
+      'CONTRIBUTING.md’s clause example must be the clause-anchored form verbatim',
+    );
+  });
+
+  it('the PR template scaffolds the grammar forms verbatim in its Docs disposition comment', () => {
+    // The same reason as above, on the surface a contributor actually opens.
+    // The lines sit inside a multi-line comment scaffold, so the pin reads the
+    // verb-opening lines of the section — the clause-anchored one told apart by
+    // its anchor. Asking only that the section contain each form would leave a
+    // second, drifted line beside it green.
+    const section = extractSection(
+      repoFile('.github/PULL_REQUEST_TEMPLATE.md'),
+      'Docs disposition',
+    );
+    assert.notEqual(section, null, 'the template must carry a "## Docs disposition" section');
+    const lines = section.split('\n').map((line) => line.trim());
+    const pin = (label, predicate, template) => {
+      const shown = lines.filter(predicate);
+      assert.equal(
+        shown.length,
+        1,
+        `the PR template's Docs-disposition comment must carry exactly one ${label} line (found ${shown.length})`,
+      );
+      assert.equal(
+        shown[0],
+        template,
+        `the PR template's Docs-disposition comment must spell the ${label} form verbatim`,
+      );
+    };
+    pin('"updated:"', (line) => line.startsWith('updated:'), UPDATED_LINE_TEMPLATE);
+    pin(
+      '"unaffected:" per-doc',
+      (line) => line.startsWith('unaffected:') && !line.includes('§'),
+      UNAFFECTED_LINE_TEMPLATE,
+    );
+    pin(
+      'clause-anchored',
+      (line) => line.startsWith('unaffected:') && line.includes('§'),
+      CLAUSE_LINE_TEMPLATE,
+    );
+  });
+
+  it('the clause example stands on a clause the registry carries as judgment-only', () => {
+    // The example is a line the check would actually expect: a doc in scope
+    // takes a clause line only for a clause the registry tags judgment-only. An
+    // anchor that is retired, renamed, or retagged to a checked clause would
+    // teach a line the check reports as out of scope, so the anchor is held to
+    // the registry rather than to its own spelling.
+    const [doc, marked] = CLAUSE_EXAMPLE_ANCHOR.split(' ');
+    const clause = marked.replace(/^§/, '');
+    const registry = JSON.parse(repoFile(REGISTRY_PATH));
+    const rows = (registry.clauses ?? []).filter((r) => r.doc === doc && r.clause === clause);
+    assert.equal(
+      rows.length,
+      1,
+      `${REGISTRY_PATH} must carry exactly one row for the clause the example anchors on, ${doc} §${clause} (found ${rows.length})`,
+    );
+    assert.equal(
+      rows[0].tag,
+      'judgment-only',
+      `${doc} §${clause} must stay tagged judgment-only — the example teaches a line the check expects only for such a clause`,
+    );
+  });
+});
+
+describe('the per-doc grammar — the red output rendered from the same forms', () => {
+  // The weld above holds the docs to the forms; this holds the check's own red
+  // output to them, so a line re-typed into the red (rather than rendered from
+  // the form) is caught instead of drifting silently away from what the docs
+  // teach.
+  const MAP_FIXTURE = JSON.stringify({
+    description: 'fixture map',
+    'repo-wide': { description: 'x', docs: ['README.md'] },
+    areas: { alpha: { code: ['packages/alpha/**'], docs: ['README.md'] } },
+    unassigned: [],
+    'declared-governance': [],
+    'governance-partitions': [],
+  });
+  const registryFixture = (clauses) =>
+    JSON.stringify({ description: 'fixture registry', prefixes: {}, retired: {}, clauses });
+  const body = (dispositionLines) =>
+    [
+      '## Docs disposition',
+      '',
+      ...dispositionLines,
+      '',
+      '## Change record',
+      '',
+      'Intent: test.',
+      'Outside knowledge: none.',
+      MUTATION_LINE,
+    ].join('\n');
+  const redFor = (dispositionLines, clauses = []) =>
+    runCheckOnChange(
+      {
+        'README.md': 'a repo-wide doc\n',
+        [MAP_PATH]: MAP_FIXTURE,
+        [REGISTRY_PATH]: registryFixture(clauses),
+      },
+      { 'README.md': 'an edited repo-wide doc\n' },
+      { PR_BODY: body(dispositionLines) },
+    );
+
+  it('the missing-line red offers both per-doc forms, rendered for the doc it names', () => {
+    const r = redFor([]);
+    assert.equal(r.status, 1, `expected a red, got exit ${r.status}.\nstderr: ${r.stderr}`);
+    assert.ok(
+      r.stderr.includes(`${updatedLine('README.md')}   OR   ${unaffectedLine('README.md')}`),
+      `the missing-line red must render both forms for the doc it names.\nstderr: ${r.stderr}`,
+    );
+  });
+
+  it('the missing-line red offers the clause form for a clause entry it names', () => {
+    // A clause line's placeholder asks about the rule, not the document, so the
+    // red for a missing clause entry renders the clause form rather than the
+    // per-doc one it would otherwise share a verb with.
+    const r = redFor(
+      [],
+      [{ doc: 'README.md', clause: 'AL-1', tag: 'judgment-only', justification: 'x' }],
+    );
+    assert.equal(r.status, 1, `expected a red, got exit ${r.status}.\nstderr: ${r.stderr}`);
+    assert.ok(
+      r.stderr.includes(
+        `${updatedLine('README.md §AL-1')}   OR   ${clauseLine('README.md §AL-1')}`,
+      ),
+      `the missing-line red must render the clause form for a clause entry.\nstderr: ${r.stderr}`,
+    );
+  });
+
+  it('the malformed-line red states the form from the same two forms', () => {
+    const r = redFor(['updated: README.md - not an em dash']);
+    assert.equal(r.status, 1, `expected a red, got exit ${r.status}.\nstderr: ${r.stderr}`);
+    assert.ok(
+      r.stderr.includes(`"${updatedLine(FORM_ANCHOR)}" or "${unaffectedLine(FORM_ANCHOR)}"`),
+      `the malformed-line red must state the form from the same forms.\nstderr: ${r.stderr}`,
+    );
+  });
+
+  it('the change-record red offers the standing mutation sentence as the paste-able fix', () => {
+    // What the check requires is the marker; the sentence behind it is fixed
+    // text a contributor pastes, so the red names the marker and then offers
+    // that sentence rather than leaving them to compose one. The pin is on the
+    // offer as the red renders it — sentence and the line that introduces it —
+    // so a sentence re-typed into the red instead of rendered from the constant
+    // is caught here.
+    const r = runCheckOnChange(
+      {
+        'README.md': 'a repo-wide doc\n',
+        [MAP_PATH]: MAP_FIXTURE,
+        [REGISTRY_PATH]: registryFixture([]),
+      },
+      { 'README.md': 'an edited repo-wide doc\n' },
+      {
+        PR_BODY: [
+          '## Docs disposition',
+          '',
+          unaffectedLine('README.md').replace('<why this diff cannot violate it>', 'prose only'),
+          '',
+          '## Change record',
+          '',
+          'Intent: test.',
+          'Outside knowledge: none.',
+        ].join('\n'),
+      },
+    );
+    assert.equal(r.status, 1, `expected a red, got exit ${r.status}.\nstderr: ${r.stderr}`);
+    assert.ok(
+      r.stderr.includes(`the "mutation:" line's standing sentence to paste:\n    ${MUTATION_LINE}`),
+      `the change-record red must offer the standing sentence to paste.\nstderr: ${r.stderr}`,
+    );
+  });
+});
+
+/**
+ * The mutation workflow, and the one reading of its schedule the two cadence
+ * describes below share. Both — the schedule's own fields, and the prose
+ * surfaces welded to them — derive every cron field and every day name from
+ * here, so the path, the day numbering, and the parse cannot be spelled a
+ * second time and drift.
+ */
+const MUTATION_WORKFLOW = '.github/workflows/mutation.yml';
+
+/** Cron's own day-of-week numbering, which the guides' day names derive from. */
+const DAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+
+/**
+ * The cadence words these welds read: the one the schedule denotes plus the
+ * ones that would contradict it. The vocabulary is stated here and nowhere
+ * else, and the negative leg below forbids exactly this list minus the stated
+ * cadence — that subtraction is what keeps the leg from forbidding the stated
+ * cadence itself, and it is the only part of these welds a cadence change gets
+ * for free. The schedule-shape cases encode, deliberately, what today's weekly
+ * cadence means in cron fields — one fixed day-of-week, day-of-month and month
+ * unrestricted, and the literal bind below — so a real cadence change re-derives
+ * those cases rather than passing through them.
+ */
+const CADENCE_VOCABULARY = ['weekly', 'daily', 'nightly', 'monthly', 'hourly', 'fortnightly'];
+
+const mutationTriggers = () => yaml.load(repoFile(MUTATION_WORKFLOW)).on;
+
+/** The single schedule entry's cron fields, by name. */
+const cronFields = () => {
+  const entries = mutationTriggers().schedule;
+  const [minute, hour, dom, month, dow] = entries[0].cron.trim().split(/\s+/);
+  return { minute, hour, dom, month, dow };
+};
+
+/**
+ * The day the schedule names, derived rather than spelled a second time —
+ * guarded, so every reading below states a day the field actually denotes. The
+ * guard's own subject is the form these welds stand on: the day-of-week field
+ * has to stay a single fixed number in cron's 0-6 range for a day name to be
+ * derivable from it at all.
+ */
+const scheduledDay = () => {
+  const { dow } = cronFields();
+  const day = DAY_NAMES[Number(dow)];
+  assert.ok(
+    day,
+    `${MUTATION_WORKFLOW}: day-of-week "${dow}" is not the single fixed number in cron's 0-6 ` +
+      `range these welds derive a day name from`,
+  );
+  return day;
+};
+
+describe('the mutation cadence — the schedule that is the fact', () => {
+  // The standing mutation sentence reports a cadence, and the cadence's
+  // authoritative statement is mutation testing §MUT-1; the schedule in
+  // .github/workflows/mutation.yml is the fact both describe. These cases read
+  // that schedule field by field, so a workflow whose trigger set or timing
+  // stopped denoting the stated cadence reds against the word rather than
+  // drifting away from every document that spells it.
+
+  it('the mutation workflow states exactly one schedule entry', () => {
+    const entries = mutationTriggers().schedule;
+    assert.equal(
+      entries.length,
+      1,
+      `${MUTATION_WORKFLOW} must state exactly one schedule entry — a second one adds runs the stated ` +
+        `cadence does not account for (found ${entries.length})`,
+    );
+  });
+
+  it('the mutation workflow triggers are the schedule and the manual dispatch, with no pull_request beside them', () => {
+    assert.deepEqual(
+      Object.keys(mutationTriggers()).sort(),
+      ['schedule', 'workflow_dispatch'],
+      `${MUTATION_WORKFLOW} runs on its schedule and on manual dispatch; a trigger added beside them — a ` +
+        `pull_request one above all — would make it a per-PR gate, which is exactly what the ` +
+        `standing sentence says it is not`,
+    );
+  });
+
+  it("the mutation cron's day-of-week is one fixed day, not the wildcard '*'", () => {
+    assert.notEqual(
+      cronFields().dow,
+      '*',
+      `${MUTATION_WORKFLOW}: an unrestricted day-of-week runs daily`,
+    );
+  });
+
+  it("the mutation cron's day-of-week is one fixed day, not a list like '1,4'", () => {
+    const { dow } = cronFields();
+    assert.ok(
+      !dow.includes(','),
+      `${MUTATION_WORKFLOW}: a day-of-week list runs more than once a week`,
+    );
+  });
+
+  it("the mutation cron's day-of-week is one fixed day, not a range like '1-5'", () => {
+    const { dow } = cronFields();
+    assert.ok(
+      !dow.includes('-'),
+      `${MUTATION_WORKFLOW}: a day-of-week range runs more than once a week`,
+    );
+  });
+
+  it("the mutation cron's day-of-week is one fixed day, not a step like '*/2'", () => {
+    const { dow } = cronFields();
+    assert.ok(
+      !dow.includes('/'),
+      `${MUTATION_WORKFLOW}: a day-of-week step runs more than once a week`,
+    );
+  });
+
+  it("the mutation cron's minute and hour are fixed numbers, not wildcards or steps", () => {
+    const { minute, hour } = cronFields();
+    assert.match(
+      minute,
+      /^\d+$/,
+      `${MUTATION_WORKFLOW}: a minute that is not one number runs hourly or more`,
+    );
+    assert.match(
+      hour,
+      /^\d+$/,
+      `${MUTATION_WORKFLOW}: an hour that is not one number runs several times a day`,
+    );
+  });
+
+  it('the mutation cron restricts neither day-of-month nor month', () => {
+    const { dom, month } = cronFields();
+    assert.equal(
+      dom,
+      '*',
+      `${MUTATION_WORKFLOW}: a restricted day-of-month makes the run monthly, not weekly`,
+    );
+    assert.equal(
+      month,
+      '*',
+      `${MUTATION_WORKFLOW}: a restricted month makes the run yearly, not weekly`,
+    );
+  });
+
+  it('the mutation cron denotes the cadence the standing sentence reports', () => {
+    // What the field cases above add up to: one fixed time, on one named day,
+    // every week. That reading is the word the standing sentence spells and the
+    // documents restate — so the word is held to the weekly-shaped predicates
+    // those cases form, not to itself, and the bind below is their anchor.
+    const { dow } = cronFields();
+    assert.match(
+      dow,
+      /^[0-6]$/,
+      `${MUTATION_WORKFLOW}: the day-of-week must name one day — that is what "${MUTATION_CADENCE}" means`,
+    );
+    assert.equal(
+      MUTATION_CADENCE,
+      'weekly',
+      'the exported cadence word is bound here to the weekly-shaped schedule predicates around it ' +
+        '— one fixed day-of-week, day-of-month and month unrestricted — so a cadence change reds ' +
+        'at this bind first, as the signal that those predicates have to be re-derived for the new ' +
+        'cadence rather than left standing',
+    );
+  });
+
+  it("the cron's own comment states the day and time the cron sets", () => {
+    // The comment is what a reader of the workflow believes; nothing else holds
+    // it to the fields beside it, so a schedule moved without its comment leaves
+    // the file stating two different runs.
+    const cronLines = repoFile(MUTATION_WORKFLOW)
+      .split('\n')
+      .filter((line) => /^\s*-\s*cron:/.test(line));
+    assert.equal(cronLines.length, 1, `${MUTATION_WORKFLOW} must carry exactly one cron line`);
+    assert.ok(
+      cronLines[0].includes('#'),
+      `${MUTATION_WORKFLOW}: the cron line must carry its comment`,
+    );
+    const comment = cronLines[0].slice(cronLines[0].indexOf('#'));
+    const { minute, hour } = cronFields();
+    const day = scheduledDay();
+    const time = `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`;
+    assert.ok(
+      comment.includes(day),
+      `${MUTATION_WORKFLOW}: the cron comment must name ${day}, the day its own day-of-week field sets (comment: "${comment.trim()}")`,
+    );
+    assert.ok(
+      comment.includes(time),
+      `${MUTATION_WORKFLOW}: the cron comment must state ${time}, the time its own fields set (comment: "${comment.trim()}")`,
+    );
+  });
+});
+
+describe('the mutation cadence — the prose surfaces welded to it', () => {
+  // Each site below DESCRIBES the workflow's schedule to a contributor or a
+  // user, so each is held to the schedule's own reading. A site that refers to a
+  // run as an event inside explanatory rationale describes no schedule and stays
+  // outside. Every weld is anchored at its own site — a file-wide search for the
+  // word would pass off a mention somewhere else in the same document.
+  const CI_GUIDE = 'docs/guides/ci.md';
+  const LOCAL_CI_GUIDE = 'docs/guides/local-ci.md';
+  const MUTATION_DOC = 'docs/test/strategy/mutation.md';
+
+  /** The cadence word as a sentence or a table cell opens with it. */
+  const Cadence = MUTATION_CADENCE[0].toUpperCase() + MUTATION_CADENCE.slice(1);
+
+  /**
+   * A `#`-headed section's body, from its heading through the line before the
+   * next heading — the extent a weld anchors in, so a word elsewhere in the
+   * document cannot answer for the site under test.
+   */
+  const headingSection = (text, heading) => {
+    const start = text.indexOf(`\n${heading}\n`);
+    assert.notEqual(start, -1, `expected the heading "${heading}"`);
+    const rest = text.slice(start + heading.length + 2);
+    const next = rest.search(/^#{1,6}\s/m);
+    return next === -1 ? rest : rest.slice(0, next);
+  };
+
+  it('CONTRIBUTING.md spells the standing mutation sentence verbatim', () => {
+    // The doctrine home prescribes the exact text a contributor pastes, and the
+    // check's red offers that same text as the fix — so the two are one string.
+    const section = extractSection(
+      repoFile('.github/CONTRIBUTING.md'),
+      'Docs Disposition and Change Record',
+    );
+    assert.notEqual(section, null, 'CONTRIBUTING.md must carry that section');
+    const shown = section
+      .split('\n')
+      .map((line) => line.trim())
+      .filter((line) => line.startsWith('`mutation:') || line.startsWith('mutation:'));
+    assert.equal(
+      shown.length,
+      1,
+      `CONTRIBUTING.md's change-record section must spell the standing sentence exactly once (found ${shown.length})`,
+    );
+    assert.equal(shown[0].replace(/^`|`$/g, ''), MUTATION_LINE);
+  });
+
+  it('the PR template scaffolds the standing mutation sentence verbatim', () => {
+    const section = extractSection(repoFile('.github/PULL_REQUEST_TEMPLATE.md'), 'Change record');
+    assert.notEqual(section, null, 'the template must carry a "## Change record" section');
+    const shown = section
+      .split('\n')
+      .map((line) => line.trim())
+      .filter((line) => line.startsWith('mutation:'));
+    assert.equal(
+      shown.length,
+      1,
+      `the PR template's Change-record comment must scaffold the standing sentence exactly once (found ${shown.length})`,
+    );
+    assert.equal(shown[0], MUTATION_LINE);
+  });
+
+  it('the standing sentence opens with the change-record marker it is written for', () => {
+    const opening = CHANGE_RECORD_MARKERS.filter((marker) => MUTATION_LINE.startsWith(marker));
+    assert.deepEqual(
+      opening,
+      ['mutation:'],
+      "the standing sentence must satisfy the change record's mutation marker by opening with it",
+    );
+  });
+
+  it('MUT-1 states the cadence, and states no other', () => {
+    // The clause is the cadence's authoritative statement, so its own scope is
+    // where the word is held — and where a second, contradicting cadence word
+    // would otherwise sit unnoticed beside it. The bound of the negative leg:
+    // it catches a contradicting word from the stated vocabulary sitting beside
+    // the pinned sentence, and a novel phrasing of a second cadence is review's
+    // to catch. The positive leg above is what pins the stated cadence itself.
+    const section = extractClauseSection(repoFile(MUTATION_DOC), 'MUT-1');
+    assert.notEqual(section, '', `${MUTATION_DOC} must carry a MUT-1 clause`);
+    assert.match(
+      section,
+      new RegExp(`standing \\*\\*${MUTATION_CADENCE}\\*\\* job`),
+      `${MUTATION_DOC} §MUT-1 must state the cadence the schedule denotes`,
+    );
+    for (const other of CADENCE_VOCABULARY.filter((word) => word !== MUTATION_CADENCE)) {
+      assert.ok(
+        !section.toLowerCase().includes(other),
+        `${MUTATION_DOC} §MUT-1 must not also say "${other}"`,
+      );
+    }
+  });
+
+  it('the CI guide’s workflow table states the cadence and the scheduled day', () => {
+    const rows = repoFile(CI_GUIDE)
+      .split('\n')
+      .filter((line) => line.startsWith('|') && line.includes(MUTATION_WORKFLOW));
+    assert.equal(
+      rows.length,
+      1,
+      `${CI_GUIDE}'s workflow table must carry exactly one row for ${MUTATION_WORKFLOW} (found ${rows.length})`,
+    );
+    const when = rows[0].split('|')[2].trim();
+    assert.ok(
+      when.startsWith(`${Cadence} (${scheduledDay()}s)`),
+      `${CI_GUIDE}: the ${MUTATION_WORKFLOW} row's trigger cell must open "${Cadence} (${scheduledDay()}s)" (found "${when}")`,
+    );
+  });
+
+  it('the CI guide’s scheduled-run heading states the cadence, and both inbound anchors match its slug', () => {
+    // The heading carries the word AND the anchor every cross-reference lands
+    // on, so a reworded heading is two breakages at once: a cadence claim and a
+    // pair of links. Deriving the slug from the heading holds both.
+    const ci = repoFile(CI_GUIDE);
+    const heading = `### ${Cadence} mutation run`;
+    const headings = ci.split('\n').filter((line) => line === heading);
+    assert.equal(
+      headings.length,
+      1,
+      `${CI_GUIDE} must carry exactly one "${heading}" heading (found ${headings.length})`,
+    );
+    const slug = heading
+      .replace(/^#+\s+/, '')
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-');
+    assert.ok(
+      ci.includes(`(#${slug})`),
+      `${CI_GUIDE} must link its own scheduled-run section as (#${slug})`,
+    );
+    assert.ok(
+      repoFile(LOCAL_CI_GUIDE).includes(`ci.md#${slug}`),
+      `${LOCAL_CI_GUIDE} must link that section as ci.md#${slug}`,
+    );
+  });
+
+  it('the CI guide’s scheduled-run section names the scheduled day', () => {
+    const section = headingSection(repoFile(CI_GUIDE), `### ${Cadence} mutation run`);
+    const day = scheduledDay();
+    assert.ok(
+      section.replace(/\s+/g, ' ').includes(`(${day}s, plus manual dispatch)`),
+      `${CI_GUIDE}'s scheduled-run section must say "(${day}s, plus manual dispatch)"`,
+    );
+  });
+
+  it('the local-CI guide describes the mutation jobs by their cadence', () => {
+    const section = headingSection(repoFile(LOCAL_CI_GUIDE), '### The mutation runs');
+    assert.ok(
+      section.replace(/\s+/g, ' ').includes(`${MUTATION_CADENCE} jobs`),
+      `${LOCAL_CI_GUIDE}'s mutation-runs section must describe them as the ${MUTATION_CADENCE} jobs`,
+    );
+  });
+
+  it('the test-suite index describes the mutation signal by its cadence', () => {
+    const bullets = repoFile('docs/test/README.md')
+      .split('\n')
+      .filter((line) => line.trimStart().startsWith('-') && line.includes('strategy/mutation.md'));
+    assert.equal(
+      bullets.length,
+      1,
+      `docs/test/README.md must carry exactly one bullet linking the mutation-strategy doc (found ${bullets.length})`,
+    );
+    assert.ok(
+      bullets[0].includes(`the ${MUTATION_CADENCE} mutation-score`),
+      `docs/test/README.md's mutation bullet must describe the ${MUTATION_CADENCE} signal (found "${bullets[0].trim()}")`,
     );
   });
 });
@@ -1002,7 +1590,11 @@ describe('run() release-automation class — which runs it admits, and the publi
     // either workflow — or in the constant — routes the release PR down the
     // feature-branch paths instead, red at release time on the one PR no human
     // is watching. Pinning both workflows to the constant reds that rename here
-    // instead, at the keystroke.
+    // instead, at the keystroke. The prose side of the same rename — the
+    // documents that spell the branch out for a reader — is welded in that
+    // constant's own suite ('the automation branch name — welded to the prose
+    // that spells it out', in
+    // packages/shared/tests/unit/check-no-release-outputs.test.js).
     assert.equal(declaredBranch(), AUTOMATED_BRANCH);
     assert.equal(declaredBranch('.github/workflows/publish-desktop.yml'), AUTOMATED_BRANCH);
   });
@@ -1173,7 +1765,7 @@ describe('auditBody — the governance-data-only record', () => {
     '',
     'Intent: test.',
     'Outside knowledge: none.',
-    'mutation: no per-change claim; mutation testing runs as a standing weekly job.',
+    MUTATION_LINE,
   ].join('\n');
   const withDisposition = (lines) => ['## Docs disposition', '', ...lines, record].join('\n');
   const goodLine = `${GOVERNANCE_MARKER} the map still names a governing doc set for every file it moved`;
@@ -1314,7 +1906,7 @@ describe('run() governance-data-only class — the recorded line end to end', ()
       '',
       'Intent: test.',
       'Outside knowledge: none.',
-      'mutation: no per-change claim; mutation testing runs as a standing weekly job.',
+      MUTATION_LINE,
     ].join('\n');
 
   const markerLine = `${GOVERNANCE_MARKER} every tracked file still resolves to a governing doc set`;
@@ -1376,7 +1968,7 @@ describe('run() on governance data it cannot use — the red is the refusal, on 
     '',
     'Intent: test.',
     'Outside knowledge: none.',
-    'mutation: no per-change claim; mutation testing runs as a standing weekly job.',
+    MUTATION_LINE,
   ].join('\n');
 
   /** Shape-invalid: `areas` is empty, and the partitions are a bare-string list. */
@@ -1407,7 +1999,7 @@ describe('run() on governance data it cannot use — the red is the refusal, on 
           '',
           'Intent: test.',
           'Outside knowledge: none.',
-          'mutation: no per-change claim; mutation testing runs as a standing weekly job.',
+          MUTATION_LINE,
         ].join('\n'),
       },
     );
@@ -1538,7 +2130,7 @@ describe('auditBody', () => {
     '',
     'Intent: test.',
     'Outside knowledge: none.',
-    'mutation: no per-change claim; mutation testing runs as a standing weekly job.',
+    MUTATION_LINE,
   ].join('\n');
 
   it('passes a complete body — also with CRLF line endings', () => {
