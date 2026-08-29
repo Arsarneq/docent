@@ -25,6 +25,14 @@ import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
+/**
+ * This program's own name, DERIVED from the file it is written in rather than
+ * written out, so the name a crash report leads with is the file that printed
+ * it. The bare basename is the form here: this line prefixes a message the way
+ * a program names itself, where the sibling checks name a repository path.
+ */
+const PROGRAM_NAME = path.basename(import.meta.filename);
+
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
 // The real npm install roots (this is not an npm-workspaces monorepo). Anything
@@ -308,7 +316,7 @@ async function run() {
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   run().catch((err) => {
-    console.error('check-licenses-npm.js errored:', err);
+    console.error(`${PROGRAM_NAME} errored:`, err);
     process.exit(1);
   });
 }

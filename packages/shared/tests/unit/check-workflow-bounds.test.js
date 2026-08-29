@@ -380,6 +380,12 @@ describe('real-tree lock', () => {
   });
 
   it('the constants still point where the check reads', () => {
+    // SELF_PATH is derived from the file the check is written in, so reading it
+    // back cannot fail while that file is the one being imported. What it does
+    // hold — and what a bad derivation would break — is the SHAPE the verdicts
+    // print: a repo-relative path under `scripts/`, resolving inside this tree,
+    // with the platform's own separator nowhere in it.
+    assert.match(SELF_PATH, /^scripts\/check-[a-z-]+\.js$/);
     assert.ok(readFileSync(resolve(ROOT, SELF_PATH), 'utf8').length > 0);
     assert.match(WORKFLOW_PATHSPEC, /^\.github\/workflows\//);
   });

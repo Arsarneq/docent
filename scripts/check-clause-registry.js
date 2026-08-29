@@ -182,15 +182,15 @@
  *   node scripts/check-clause-registry.js      # or: npm run lint:clause-registry
  */
 
-import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
+import { basename } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { unified } from 'unified';
 import remarkParse from 'remark-parse';
 import { visit } from 'unist-util-visit';
 import { MAP_PATH, expandBraces, globToRegExp } from './check-area-map.js';
 import { blankRustStrings, stripRustComments } from './check-command-surface.js';
-import { readLoneStringLiteral, tokenizeJs } from './check-test-inventory.js';
+import { readLoneStringLiteral, tokenizeJs, trackedFilesUnder } from './check-test-inventory.js';
 import {
   REGISTRY_PATH,
   loadRegistry,
@@ -214,6 +214,15 @@ import {
  * partition covers — so a red can name the entry a reader has to open.
  */
 export const AREA_MAP_ENTRY_LISTS = ['declared-governance', 'unassigned', 'governance-partitions'];
+
+/**
+ * This check's own path, DERIVED from the file it is written in rather than
+ * written out: the path a verdict names is then the file that printed it, and a
+ * rename carries the value with the file instead of leaving a literal behind.
+ * The `node scripts/<name>.js` usage line in the header above is a comment and
+ * stays hand-written — that is the stated boundary of this derivation.
+ */
+const SELF_PATH = `scripts/${basename(import.meta.filename)}`;
 
 /** Repo-relative path of the fixture file whose description cites lock ordinals. */
 export const VECTOR_FIXTURES_PATH = 'corpus/vector-fixtures.json';
@@ -328,8 +337,12 @@ const PATH_TOKEN_RE = /[A-Za-z0-9_.*{},-]+(?:\/[A-Za-z0-9_.*{},-]*)+/g;
  * What makes a token a pattern rather than one file's path. A comma is NOT
  * here: alone it separates two citations, and only inside a brace alternation
  * does it belong to a pattern — which the braces themselves already say.
+ *
+ * Exported as the one home of that alphabet: the governance finder and the
+ * schema-echo register read the same citation shape this gate does, so a
+ * character the patterns grow is learned by all three at once.
  */
-const PATTERN_CHAR_RE = /[*{}]/;
+export const PATTERN_CHAR_RE = /[*{}]/;
 
 /**
  * Whether a separator-carrying token is ordinary prose rather than a citation,
@@ -1388,7 +1401,7 @@ export function reportSections(r) {
     [REGISTRY_PATH, 'cites what does not resolve', r.refErrors],
     [REGISTRY_PATH, 'states requirements its clauses own', r.textErrors],
     [REGISTRY_PATH, 'violates retirement (retired identifiers are never reused)', r.retiredErrors],
-    ['scripts/check-clause-registry.js', 'registers what does not resolve', r.listErrors],
+    [SELF_PATH, 'registers what does not resolve', r.listErrors],
     [
       `the hygiene-lock surfaces (${LOCK_ORDINAL_CLAUSE}'s list and prose, ${LOCK_SUITE_PATH})`,
       'do not state one numbering',
@@ -1454,18 +1467,19 @@ export function fixBlock() {
    report's section model, and the fix block above are unit-tested, and what
    remains here is thin plumbing. */
 function run() {
-  const files = execFileSync('git', ['ls-files'], { encoding: 'utf8' })
-    .split('\n')
-    .map((s) => s.trim())
-    .filter(Boolean);
+  // Through the shared population reader, so this listing states the same
+  // quotepath policy every other tree scan does: a path carrying a non-ASCII
+  // byte arrives as itself rather than quoted, and a citation naming such a
+  // file resolves rather than reading as a path no tracked file matches.
+  const files = trackedFilesUnder('.');
   let registry;
   try {
     registry = loadRegistry();
   } catch (err) {
     // A file this check cannot read as the registry it guards — one it cannot
     // read at all, or text that is not JSON — is breakage on its own input,
-    // printed as the refusal states it on the ordinary red path, never a stack
-    // trace.
+    // printed as the refusal states it on this check's own exit code (exit 2),
+    // never a stack trace and never the code a clause that drifted takes.
     refuseOnRegistryError(err);
   }
   const packageScripts = Object.keys(JSON.parse(readFileSync('package.json', 'utf8')).scripts);

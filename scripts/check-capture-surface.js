@@ -127,11 +127,12 @@
  */
 
 import { readFileSync } from 'node:fs';
+import { basename } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import {
   backtickedName,
   backtickedTokens,
-  duplicatesIn,
+  duplicateSurfaceProblems,
   emptySurfaceProblems,
   extractClauseSection,
   formatProblemBlock,
@@ -145,6 +146,15 @@ import {
   trackedFilesUnder,
 } from './check-test-inventory.js';
 import { blankRustStrings, stripRustComments } from './check-command-surface.js';
+
+/**
+ * This check's own path, DERIVED from the file it is written in rather than
+ * written out: the path a verdict names is then the file that printed it, and a
+ * rename carries the value with the file instead of leaving a literal behind.
+ * The `node scripts/<name>.js` usage line in the header above is a comment and
+ * stays hand-written — that is the stated boundary of this derivation.
+ */
+const SELF_PATH = `scripts/${basename(import.meta.filename)}`;
 
 /** Repo-relative path of the content-script recorder. */
 export const RECORDER_PATH = 'packages/extension/content/recorder.js';
@@ -881,9 +891,7 @@ export function evaluateCaptureSurface(s) {
     return problems; // empty parses make set diffs meaningless
   }
 
-  for (const [key, what, project] of DUPLICATE_SURFACES) {
-    problems.push(...duplicatesIn(project === undefined ? s[key] : project(s), what));
-  }
+  problems.push(...duplicateSurfaceProblems(s, DUPLICATE_SURFACES));
 
   // ── The extension's DOM surface (ECP-6) ────────────────────────────────────
   problems.push(
@@ -1077,7 +1085,7 @@ function run() {
           `  registered once (a DOM event that column names is held to §${DOM_CLAUSE_ID}'s enumeration\n` +
           `  instead), with every other \`chrome.*\` registration the tracked ${POPULATION_EXTENSIONS.join('/')}\n` +
           `  modules under ${POPULATION_ROOT} outside ${POPULATION_TEST_TREE} make\n` +
-          `  admitted in ${'scripts/check-capture-surface.js'} with the role it plays,\n` +
+          `  admitted in ${SELF_PATH} with the role it plays,\n` +
           `  keyed by the file that makes it, and every \`${ENUMERATED_RECEIVER}\`/\`window\` listener\n` +
           `  those modules register belonging in ${RECORDER_PATH}; the installed low-level hooks\n` +
           `  must equal §${DESKTOP_CLAUSE_ID}'s enumeration and the ${CORRELATION_SECTION} classes must each be covered\n` +

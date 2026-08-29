@@ -4,16 +4,26 @@
  * the schema": every tracked .md must be reachable from README.md by following
  * links, or be on the non-doctrine allowlist. These tests prove the check has teeth
  * (an unlinked doc fails) and that the AST walk ignores links inside code fences —
- * a regex walk would follow those and silently mask a real orphan.
+ * a regex walk would follow those and silently mask a real orphan. The command
+ * line's two exit codes are pinned at the process boundary beside them: a
+ * listing naming no document is refused on the check's own code, and an orphan
+ * keeps the ordinary red.
  */
 
-import { describe, it } from 'node:test';
+import { after, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
+import { spawnSync, execFileSync } from 'node:child_process';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { dirname, join, resolve } from 'node:path';
 import {
   findOrphans,
   extractMdLinks,
+  refuseEmptyListing,
   resolveTarget,
 } from '../../../../scripts/check-doc-reachability.js';
+
+const ROOT = resolve(import.meta.dirname, '..', '..', '..', '..');
 
 /** Run findOrphans over an in-memory { path: markdown } graph. */
 function walk(graph, { start = 'README.md', allowlist = [] } = {}) {
@@ -24,6 +34,68 @@ function walk(graph, { start = 'README.md', allowlist = [] } = {}) {
     allowlist,
   });
 }
+
+describe('refuseEmptyListing — the listing every leg reads', () => {
+  it('refuses a listing that names no document', () => {
+    // Every leg is taken over that listing, so an empty one answers
+    // "reachable" for the whole tree — a pass with nothing behind it.
+    const refusal = refuseEmptyListing([]);
+    assert.notEqual(refusal, null);
+    assert.match(refusal, /named no document/);
+    // What the empty listing does to the legs themselves: nothing reds.
+    assert.deepEqual(walk({}), { orphans: [], staleAllowlist: [], reachable: new Set() });
+  });
+
+  it('passes a listing that names documents', () => {
+    assert.equal(refuseEmptyListing(['README.md']), null);
+  });
+});
+
+describe('the command line’s two exit codes, over throwaway trees', () => {
+  const SCRIPT = join(ROOT, 'scripts', 'check-doc-reachability.js');
+  let root = null;
+
+  after(() => {
+    if (root) rmSync(root, { recursive: true, force: true });
+  });
+
+  /** A throwaway git tree whose tracked files are exactly `files`. */
+  function tree(files) {
+    root ??= mkdtempSync(join(tmpdir(), 'docent-reach-cli-'));
+    const dir = mkdtempSync(join(root, 'case-'));
+    for (const [rel, text] of Object.entries(files)) {
+      const target = join(dir, ...rel.split('/'));
+      mkdirSync(dirname(target), { recursive: true });
+      writeFileSync(target, text);
+    }
+    const git = (args) => execFileSync('git', args, { cwd: dir, encoding: 'utf8' });
+    git(['init', '-q', '-b', 'main']);
+    git(['add', '.']);
+    return dir;
+  }
+
+  /** Run the real CLI against a throwaway tree. */
+  function run(dir) {
+    const result = spawnSync(process.execPath, [SCRIPT], { cwd: dir, encoding: 'utf8' });
+    return { status: result.status, stdout: result.stdout ?? '', stderr: result.stderr ?? '' };
+  }
+
+  it('a listing naming no document is the refusal, on the check’s own code', () => {
+    // A tracked tree carrying no Markdown at all: every leg would answer
+    // "reachable" over nothing, which is the pass this refusal replaces.
+    const r = run(tree({ 'a.txt': 'not markdown\n' }));
+    assert.equal(r.status, 2, `${r.stdout}${r.stderr}`);
+    assert.match(r.stderr, /named no document/);
+    assert.match(r.stderr, /exit 2/);
+  });
+
+  it('an orphan keeps the ordinary red, so the two answers stay apart', () => {
+    const r = run(tree({ 'README.md': 'no links here\n', 'stray.md': 'unreachable\n' }));
+    assert.equal(r.status, 1, `${r.stdout}${r.stderr}`);
+    assert.match(r.stderr, /stray\.md/);
+    assert.match(r.stderr, /unreachable from README\.md/);
+  });
+});
 
 describe('findOrphans — documentation reachability', () => {
   it('reports no orphans when every file is reachable from README', () => {

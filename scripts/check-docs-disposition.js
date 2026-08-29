@@ -338,6 +338,20 @@ export function isDependencyOnlyDiff({ files, fileDiff }) {
         ? isDependencyOnlyCargoTomlDiff(fileDiff(f))
         : isDependencyOnlyPackageJsonDiff(fileDiff(f));
     }
+    // The workflow-file boundary. Its one home is `WORKFLOW_FILE_RE` in
+    // check-doc-closure.js; this literal is a deliberate second copy rather
+    // than an import, because importing it would ADD that check's own closure —
+    // a YAML parser, and check-ci-filter.js, which brings the same parser — to
+    // the command line that runs on every pull request, against the
+    // lean-closure principle scripts/governance-data.js states: a command
+    // line's import closure must not inherit parsers or heavy modules it does
+    // not use. The parser is what that principle declines here; the shared
+    // tracked-file reader that closure also names is already inherited through
+    // check-area-map.js and is builtins-only, so it costs nothing either way.
+    // The copy is WELDED instead: a unit
+    // case in check-docs-disposition.test.js reads this file's source text and
+    // asserts the literal below equals `WORKFLOW_FILE_RE.source`, so the two
+    // cannot drift even though neither runs the other's code.
     if (/^\.github\/workflows\/[^/]+\.ya?ml$/.test(f)) return isPinOnlyWorkflowDiff(fileDiff(f));
     return false;
   });
@@ -734,7 +748,11 @@ function run() {
     // the shared governance-data home, so one that cannot be read as its own
     // data — one that cannot be read at all, or text that is not JSON — is
     // refused with that loader's named verdict, never a stack trace and never
-    // an expected-line list derived from nothing.
+    // an expected-line list derived from nothing. The two loaders end on
+    // different codes, deliberately: the registry's refusal takes this check's
+    // own exit code (exit 2), which keeps machinery breakage apart from a body
+    // that is missing lines (exit 1), while the map's refusal is still printed
+    // on that ordinary red path.
     let map;
     try {
       map = loadMap();

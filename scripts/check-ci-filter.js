@@ -56,9 +56,18 @@
  */
 
 import { readFileSync, existsSync } from 'node:fs';
-import { resolve, join, dirname, sep } from 'node:path';
+import { basename, dirname, join, resolve, sep } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import yaml from 'js-yaml';
+
+/**
+ * This check's own path, DERIVED from the file it is written in rather than
+ * written out: the path a verdict names is then the file that printed it, and a
+ * rename carries the value with the file instead of leaving a literal behind.
+ * The `node scripts/<name>.js` usage line in the header above is a comment and
+ * stays hand-written — that is the stated boundary of this derivation.
+ */
+const SELF_PATH = `scripts/${basename(import.meta.filename)}`;
 
 const ROOT = resolve(import.meta.dirname, '..');
 const WORKFLOW = join(ROOT, '.github', 'workflows', 'test.yml');
@@ -331,7 +340,7 @@ function run() {
     for (const p of problems) console.error(`  - ${p}`);
     console.error(
       `\n${problems.length} violation${problems.length === 1 ? '' : 's'}. ` +
-        `See scripts/check-ci-filter.js and docs/guides/ci.md for the intended split.`,
+        `See ${SELF_PATH} and docs/guides/ci.md for the intended split.`,
     );
     process.exit(1);
   }

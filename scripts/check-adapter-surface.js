@@ -80,7 +80,7 @@
 import { readFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 import {
-  duplicatesIn,
+  duplicateSurfaceProblems,
   emptySurfaceProblems,
   formatProblemBlock,
   missingFrom,
@@ -331,9 +331,7 @@ export function evaluateAdapterSurface(s) {
     return problems; // empty parses make the member diffs meaningless
   }
 
-  for (const [key, what] of DUPLICATE_SURFACES) {
-    problems.push(...duplicatesIn(s[key], what));
-  }
+  problems.push(...duplicateSurfaceProblems(s, DUPLICATE_SURFACES));
 
   for (const { key, path } of ADAPTERS) {
     problems.push(

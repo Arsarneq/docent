@@ -36,8 +36,9 @@
  *   node scripts/check-clause-governance.js    # or: npm run lint:clause-governance
  */
 
-import { execFileSync } from 'node:child_process';
+import { basename } from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { trackedFilesUnder } from './check-test-inventory.js';
 import {
   MAP_PATH,
   compileMap,
@@ -47,13 +48,22 @@ import {
   refuseOnShapeError,
   resolveFile,
 } from './check-area-map.js';
-import { splitCitationTokens } from './check-clause-registry.js';
+import { PATTERN_CHAR_RE, splitCitationTokens } from './check-clause-registry.js';
 import {
   REGISTRY_PATH,
   loadRegistry,
   readTextOrNull,
   refuseOnRegistryError,
 } from './governance-data.js';
+
+/**
+ * This check's own path, DERIVED from the file it is written in rather than
+ * written out: the path a verdict names is then the file that printed it, and a
+ * rename carries the value with the file instead of leaving a literal behind.
+ * The `node scripts/<name>.js` usage line in the header above is a comment and
+ * stays hand-written — that is the stated boundary of this derivation.
+ */
+const SELF_PATH = `scripts/${basename(import.meta.filename)}`;
 
 /**
  * Repo-relative path of the map whose resolution this check reads — the map's
@@ -248,9 +258,6 @@ export const ALLOWLIST = new Map([
   ],
 ]);
 
-/** What makes a cited token name a set of files rather than one. */
-const PATTERN_CHAR_RE = /[*{}]/;
-
 /**
  * The tracked files a pattern token names, expanded and compiled through the
  * map's own helpers so a citation is read exactly as an ownership pattern is.
@@ -388,14 +395,19 @@ export function auditClauseGovernance({ registry, map, files, readFile, allowlis
 /* c8 ignore start — the CLI wrapper reads the registry, map, and git file list
    and formats the pass/fail output; the pure audit core above is unit-tested. */
 function run() {
-  const files = execFileSync('git', ['ls-files'], { encoding: 'utf8' })
-    .split('\n')
-    .map((s) => s.trim())
-    .filter(Boolean);
+  // Through the shared population reader, so this listing states the same
+  // quotepath policy every other tree scan does: a path carrying a non-ASCII
+  // byte arrives as itself rather than quoted, and a pattern citation expands
+  // over such a file rather than passing over it.
+  const files = trackedFilesUnder('.');
   // The map is read through its own check's loader and the registry through the
   // shared governance-data home, so a file that cannot be read as its own data
   // — one that cannot be read at all, or text that is not JSON — is the refusal
-  // that loader states, printed on the ordinary red path, never a stack trace.
+  // that loader states, printed as its own verdict, never a stack trace. The
+  // two loaders end on different codes, deliberately: the registry's refusal
+  // takes this check's own exit code (exit 2), which keeps machinery breakage
+  // apart from a citation that drifted (exit 1), while the map's refusal is
+  // still printed on that ordinary red path.
   let registry;
   try {
     registry = loadRegistry();
@@ -433,7 +445,7 @@ function run() {
         `  rather than by subtracting files from it.\n` +
         `  Close the edge — give the file a declared-governance entry or a \`// see\` pointer\n` +
         `  to the clause's doc in ${MAP_PATH} — or, if the coupling is deliberately left open,\n` +
-        `  record it in the ALLOWLIST in scripts/check-clause-governance.js with its reason,\n` +
+        `  record it in the ALLOWLIST in ${SELF_PATH} with its reason,\n` +
         `  keyed "<clause>\\t<citation token>" — the citation token exactly as the finding above\n` +
         `  prints it, which is what makes one entry answer for every file that citation names.\n`,
     );
@@ -441,7 +453,7 @@ function run() {
   if (staleAllowlist.length) {
     failed = true;
     console.error(
-      `✗ scripts/check-clause-governance.js ALLOWLIST has stale entries — no citation leans on\n` +
+      `✗ ${SELF_PATH} ALLOWLIST has stale entries — no citation leans on\n` +
         `  them, because the coupling now resolves, the citation is gone, or the key is not the\n` +
         `  citation token a finding above prints. Remove them so the allowlist stays honest;\n` +
         `  each is keyed "<clause>\\t<citation token>", printed here with the tab as an arrow:\n` +

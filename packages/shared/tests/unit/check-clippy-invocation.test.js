@@ -19,6 +19,8 @@ import {
   CI_DOC_PATH,
   CLIPPY_GATE,
   InputError,
+  LISTING_CARRIERS,
+  LOCAL_CI_DOC_PATH,
   STATED_INVOCATION_EXCEPTIONS,
   TEST_WORKFLOW_PATH,
   checkClippyInvocation,
@@ -449,6 +451,19 @@ describe('checkClippyInvocation — the refusals', () => {
     listMarkdown: () => markdown,
   });
 
+  /** A workflow stating the executed invocation in both clippy jobs. */
+  const TWO_JOB_WORKFLOW = [
+    'jobs:',
+    '  desktop-rust-tests:',
+    '    steps:',
+    `      - working-directory: ${CRATE}`,
+    `        run: ${EXECUTED}`,
+    '  desktop-cross-compile:',
+    '    steps:',
+    `      - working-directory: ${CRATE}`,
+    `        run: ${EXECUTED}`,
+  ].join('\n');
+
   it('refuses a workflow that states no clippy step', () => {
     assert.throws(
       () =>
@@ -468,44 +483,91 @@ describe('checkClippyInvocation — the refusals', () => {
       `      - working-directory: ${CRATE}`,
       `        run: ${EXECUTED}`,
     ].join('\n');
+    // A full listing, so the workflow read is the only thing that can refuse
+    // here and the assert names that read's own reason: a widened listing guard
+    // cannot mask this case by reding first.
     assert.throws(
       () =>
         checkClippyInvocation({
           readFile: (path) => (path === TEST_WORKFLOW_PATH ? workflow : gatesDoc()),
-          listMarkdown: () => [CI_DOC_PATH],
+          listMarkdown: () => [...LISTING_CARRIERS],
         }),
-      InputError,
+      (error) =>
+        error instanceof InputError &&
+        error.message.includes(`${TEST_WORKFLOW_PATH} could not be read`),
     );
   });
 
   it('refuses a read that throws, so machinery breakage never wears a drift’s exit code', () => {
+    // Same shape: the listing carries what it must, so the refusal that arrives
+    // is the read's own and the assert says which.
     assert.throws(
       () =>
         checkClippyInvocation({
           readFile: () => {
             throw new Error('ENOENT');
           },
-          listMarkdown: () => [CI_DOC_PATH],
+          listMarkdown: () => [...LISTING_CARRIERS],
         }),
+      (error) => error instanceof InputError && error.message.includes('ENOENT'),
+    );
+  });
+
+  it('refuses a listing that has stopped naming a guide it must scan', () => {
+    assert.throws(
+      () =>
+        checkClippyInvocation(
+          surfaces({ workflow: TWO_JOB_WORKFLOW, ciDoc: gatesDoc(), markdown: [] }),
+        ),
       InputError,
     );
   });
 
-  it('refuses a listing that has stopped naming the guide it must scan', () => {
-    const workflow = [
-      'jobs:',
-      '  desktop-rust-tests:',
-      '    steps:',
-      `      - working-directory: ${CRATE}`,
-      `        run: ${EXECUTED}`,
-      '  desktop-cross-compile:',
-      '    steps:',
-      `      - working-directory: ${CRATE}`,
-      `        run: ${EXECUTED}`,
-    ].join('\n');
+  // One case per carrier, generated from the register itself, so a document
+  // added there is exercised the day it lands: a listing carrying everything
+  // BUT that one is refused, and the refusal names the missing carrier.
+  for (const carrier of LISTING_CARRIERS) {
+    it(`refuses a listing carrying everything but ${carrier}`, () => {
+      const markdown = LISTING_CARRIERS.filter((path) => path !== carrier);
+      assert.throws(
+        () =>
+          checkClippyInvocation(
+            surfaces({ workflow: TWO_JOB_WORKFLOW, ciDoc: gatesDoc(), markdown }),
+          ),
+        (error) => error instanceof InputError && error.message.includes(carrier),
+      );
+    });
+  }
+
+  it('refuses a listing narrowed to the one guide the old pin named', () => {
+    // The collapse the carrier pin exists for: a listing holding only the gates
+    // guide passed the single-file pin, and what caught it was the register's
+    // own staleness leg — which stops catching it the moment the register
+    // empties. Held here on the listing itself instead.
     assert.throws(
-      () => checkClippyInvocation(surfaces({ workflow, ciDoc: gatesDoc(), markdown: [] })),
-      InputError,
+      () =>
+        checkClippyInvocation(
+          surfaces({ workflow: TWO_JOB_WORKFLOW, ciDoc: gatesDoc(), markdown: [CI_DOC_PATH] }),
+        ),
+      (error) => error instanceof InputError && error.message.includes(LOCAL_CI_DOC_PATH),
+    );
+  });
+
+  it('refuses the narrowed listing without leaning on the exception register', () => {
+    // What the previous pin leaned on: the register's stale-exception leg,
+    // which reds only while some entry names a span the narrowed listing hides.
+    // The refusal here is raised before any register leg runs and is a refusal
+    // rather than a problem in the returned list, so an emptied register cannot
+    // take it away — stated as the two facts that show it.
+    assert.throws(
+      () =>
+        checkClippyInvocation(
+          surfaces({ workflow: TWO_JOB_WORKFLOW, ciDoc: gatesDoc(), markdown: [CI_DOC_PATH] }),
+        ),
+      (error) =>
+        error instanceof InputError &&
+        error.message.includes('the tracked markdown listing') &&
+        !error.message.includes('records an exception'),
     );
   });
 });

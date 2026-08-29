@@ -14,19 +14,35 @@
  * block is not a link node, so it can never falsely mark `x` reachable and mask a
  * real orphan.
  *
+ * The listing every leg reads is refused when it names no document at all: the
+ * walk, the reachability answer, and the allowlist's staleness leg are all taken
+ * over that listing, so an empty one would leave every document reachable by
+ * having nothing to reach. That refusal is machinery breakage on this check's
+ * own input, so it ends the run on this check's own exit code (exit 2), which
+ * is what keeps it apart from a document that really is unreachable (exit 1).
+ *
  * Usage:
  *   node scripts/check-doc-reachability.js      # or: npm run lint:reachability
  */
 
-import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { trackedFilesUnder } from './check-test-inventory.js';
 import { unified } from 'unified';
 import remarkParse from 'remark-parse';
 import { visit } from 'unist-util-visit';
 
 const posix = path.posix;
+
+/**
+ * This check's own path, DERIVED from the file it is written in rather than
+ * written out: the path a verdict names is then the file that printed it, and a
+ * rename carries the value with the file instead of leaving a literal behind.
+ * The `node scripts/<name>.js` usage line in the header above is a comment and
+ * stays hand-written — that is the stated boundary of this derivation.
+ */
+const SELF_PATH = `scripts/${path.basename(import.meta.filename)}`;
 
 /** The file every doc must be reachable from. */
 export const START = 'README.md';
@@ -121,11 +137,39 @@ export function findOrphans({ files, readFile, start = START, allowlist = ALLOWL
   return { orphans, staleAllowlist, reachable };
 }
 
+/**
+ * The refusal a listing this check cannot walk raises. Everything below reads
+ * the tracked Markdown listing: the walk starts at a member of it, reachability
+ * is decided against it, and the allowlist is held stale against it. A listing
+ * that names no document therefore answers "reachable" for every document there
+ * is — the vacuous pass this refusal stands in place of.
+ * @param {string[]} files the tracked `.md` listing, as the read answered
+ * @returns {string | null} the refusal, or null when the listing names documents
+ */
+export function refuseEmptyListing(files) {
+  if (files.length > 0) return null;
+  return (
+    `✗ the tracked listing of \`*.md\` named no document — this check walks the links from ${START}\n` +
+    `  over exactly that listing, so a listing naming none leaves every document reachable by\n` +
+    `  having nothing to reach, and the ALLOWLIST's own staleness leg is all that would red.\n` +
+    `  The listing is a tracked-file read taken from the repository root: run this check there,\n` +
+    `  in a checkout whose Markdown is tracked.\n` +
+    `  This is breakage on the check's own input, so it ends on the check's own exit code\n` +
+    `  (exit 2), apart from a document that is genuinely unreachable (exit 1).`
+  );
+}
+
 function run() {
-  const files = execFileSync('git', ['ls-files', '*.md'], { encoding: 'utf8' })
-    .split('\n')
-    .map((s) => s.trim())
-    .filter(Boolean);
+  // Through the shared population reader, so this listing states the same
+  // quotepath policy every other tree scan does: a path carrying a non-ASCII
+  // byte arrives as itself rather than quoted, and a link naming such a file
+  // can match the listing instead of reading as an orphan.
+  const files = trackedFilesUnder('*.md');
+  const emptyListing = refuseEmptyListing(files);
+  if (emptyListing !== null) {
+    console.error(emptyListing);
+    process.exit(2);
+  }
   const readFile = (f) => {
     try {
       return readFileSync(f, 'utf8');
@@ -144,7 +188,7 @@ function run() {
         orphans.map((o) => `    ${o}`).join('\n') +
         `\n\n  Fix: link each into the doc tree (start at ${START}, branch out until no leaves),\n` +
         `  or — only if it is genuinely non-doctrine (e.g. a shipped consumer asset) — add it to\n` +
-        `  ALLOWLIST in scripts/check-doc-reachability.js with a one-line reason.`,
+        `  ALLOWLIST in ${SELF_PATH} with a one-line reason.`,
     );
   }
   if (staleAllowlist.length) {
@@ -152,7 +196,7 @@ function run() {
     console.error(
       `${orphans.length ? '\n' : ''}✗ ${staleAllowlist.length} stale ALLOWLIST entr${
         staleAllowlist.length === 1 ? 'y' : 'ies'
-      } in scripts/check-doc-reachability.js (untracked, or now reachable) — remove:\n` +
+      } in ${SELF_PATH} (untracked, or now reachable) — remove:\n` +
         staleAllowlist.map((s) => `    ${s}`).join('\n'),
     );
   }

@@ -71,7 +71,7 @@
  */
 
 import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import yaml from 'js-yaml';
 import {
@@ -82,6 +82,7 @@ import {
 } from './check-test-inventory.js';
 import {
   CI_DOC_PATH,
+  LOCAL_CI_DOC_PATH,
   TEST_WORKFLOW_PATH,
   commandSegments,
   extractGateRows,
@@ -89,20 +90,44 @@ import {
 
 const ROOT = join(import.meta.dirname, '..');
 
-/** This check's own path, as its reds name the register that lives here. */
-export const SELF_PATH = 'scripts/check-clippy-invocation.js';
+/**
+ * This check's own path, DERIVED from the file it is written in rather than
+ * written out: the path a verdict names is then the file that printed it, and a
+ * rename carries the value with the file instead of leaving a literal behind.
+ * The `node scripts/<name>.js` usage line in the header above is a comment and
+ * stays hand-written — that is the stated boundary of this derivation.
+ */
+export const SELF_PATH = `scripts/${basename(import.meta.filename)}`;
 
 /**
  * The surfaces, re-exported rather than restated, so the paths this check names
  * in its output are the paths its neighbour names.
  */
-export { CI_DOC_PATH, TEST_WORKFLOW_PATH };
+export { CI_DOC_PATH, LOCAL_CI_DOC_PATH, TEST_WORKFLOW_PATH };
 
 /** The gates-table row this check reads, by the name that table gives it. */
 export const CLIPPY_GATE = 'Clippy';
 
 /** The command a run segment or a stated span opens with to be read as one. */
 export const CLIPPY_COMMAND = 'cargo clippy';
+
+/**
+ * The documents the tracked markdown listing must CARRY for the stated-span leg
+ * to have read what it exists to read: the two guides that state a clippy
+ * invocation today. The sibling idiom is
+ * [`check-capture-surface.js`](./check-capture-surface.js)'s required-file loop
+ * over its scanned population.
+ *
+ * What this pin holds, exactly: that the listing carries these documents — NOT
+ * that the listing is complete, and NOT that either document still states a
+ * clippy span. A listing narrowed to exactly these two would still pass. That
+ * bound is accepted because the listing's completeness is the tracked read's
+ * own answer, and the failure shape this stands against — a read that broke or
+ * narrowed — drops a carrier. It follows that retiring the clippy span from one
+ * of these guides does not retire its entry here: the entry is about the
+ * listing, not about the span.
+ */
+export const LISTING_CARRIERS = [CI_DOC_PATH, LOCAL_CI_DOC_PATH];
 
 /**
  * A workflow expression, stripped before any command is compared — and before
@@ -358,12 +383,14 @@ export function checkClippyInvocation({ readFile, listMarkdown } = treeSurfaces(
   const row = surface(CI_DOC_PATH, () => clippyGateRow(readFile(CI_DOC_PATH)));
 
   const docs = surface('the tracked markdown listing', () => listMarkdown());
-  if (!docs.includes(CI_DOC_PATH))
-    throw new InputError(
-      `the tracked markdown listing does not carry ${CI_DOC_PATH} (${docs.length} file(s)) — a ` +
-        `listing that has stopped naming the guide it must scan would pass this leg holding ` +
-        `nothing`,
-    );
+  for (const carrier of LISTING_CARRIERS) {
+    if (!docs.includes(carrier))
+      throw new InputError(
+        `the tracked markdown listing does not carry ${carrier} (${docs.length} file(s)) — a ` +
+          `listing that has stopped naming a guide it must scan would pass this leg holding ` +
+          `less than it reads`,
+      );
+  }
 
   return evaluate({
     sites,

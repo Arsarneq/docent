@@ -150,11 +150,12 @@ import { pathToFileURL } from 'node:url';
 import {
   backtickedTokens,
   blankJsLiterals,
-  duplicatesIn,
+  duplicateSurfaceProblems,
   emptySurfaceProblems,
   extractClauseSection,
   formatProblemBlock,
   missingFrom,
+  namedLiteral,
   parseTables,
   readListEntries,
   readLoneStringLiteral,
@@ -629,9 +630,7 @@ function siteLabel(site, fn) {
  * @returns {string}
  */
 function argLabel(site) {
-  if (site.argKind === 'template') return `a template literal (\`${site.argToken}\`)`;
-  if (site.argKind === 'regex') return `a regular-expression literal (\`${site.argToken}\`)`;
-  return `\`${site.argToken}\``;
+  return namedLiteral(site.argKind, site.argToken);
 }
 
 /**
@@ -725,7 +724,7 @@ export const DUPLICATE_SURFACES = [
  * @param {string[]} s.docCommands the doc table's command rows
  * @param {string[]} s.docEvents the doc table's event rows
  * @param {string[]} s.docUnreadableRows table body-row first cells the row reader could not read — an empty cell arrives as the reader's `(empty first cell)` stand-in, never as a blank
- * @param {string} s.sectionProse the clause section's text with its table lines removed
+ * @param {string} s.sectionProse the clause section's text with its table lines removed — the family's one raw-text surface key, admitted because both reads over it are relative to the channel derived in-core below (the shared rule is stated at `emptySurfaceProblems` in scripts/check-test-inventory.js)
  * @param {{ path: string, method: string, channel: string | null, line: number }[]} s.emitSites
  * @param {string[]} s.fileGrants permissions across the tracked capability files
  * @param {string[]} s.docGrants grant identifiers the doc section names
@@ -758,15 +757,17 @@ export function evaluateCommandSurface(s) {
     return problems; // empty parses make set diffs meaningless
   }
 
+  // A scalar count, guarded fail-closed on the `!== 1` form the shared rule
+  // states (`emptySurfaceProblems` in scripts/check-test-inventory.js): an
+  // extraction that produced no count hands this `undefined`, which is not 1,
+  // so the guard reds instead of passing over a read that answered nothing.
   if (s.handlerOccurrences !== 1) {
     problems.push(
       `${LIB_PATH} carries ${s.handlerOccurrences} generate_handler! lists — the registration must live in exactly one`,
     );
   }
 
-  for (const [key, what] of DUPLICATE_SURFACES) {
-    problems.push(...duplicatesIn(s[key], what));
-  }
+  problems.push(...duplicateSurfaceProblems(s, DUPLICATE_SURFACES));
 
   problems.push(
     ...missingFrom(s.commandFns, s.handlerCommands, `has #[tauri::command] but is not registered in generate_handler! (${LIB_PATH})`), // prettier-ignore

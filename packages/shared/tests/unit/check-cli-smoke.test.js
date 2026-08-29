@@ -168,11 +168,23 @@ describe('check-script CLI smoke (deterministic green paths)', () => {
     assert.match(out, /verification inventories current/);
   });
 
-  it('check-tracked-ignored: no tracked file matches a .gitignore rule', () => {
-    // Also the one place the git flag combination itself is exercised — the
-    // whole check is that invocation, and a flag git rejects would otherwise
+  it('check-tracked-ignored: no tracked file is ignored, and none is a symbolic link', () => {
+    // Also the one place the two git flag combinations are exercised — the
+    // whole check is those invocations, and a flag git rejects would otherwise
     // surface only in CI.
     const out = runScript('check-tracked-ignored.js');
     assert.match(out, /tracked files and ignore rules agree/);
+    assert.match(out, /no tracked entry is a symbolic link/);
+  });
+
+  it('check-workflow-bounds: every tracked workflow job states a bound it stands above', () => {
+    // No env pinned: this check and its import closure (the doc-closure
+    // boundary it reads the workflow set through, the path-filter's job reader
+    // that boundary imports, the test-inventory population reader, and the YAML
+    // parser) read no process.env. Its tracked-file reader
+    // shells out to `git ls-files`, which answers to git's own environment —
+    // that sits outside the rule rather than under it, and nothing here pins it.
+    const out = runScript('check-workflow-bounds.js');
+    assert.match(out, /workflow bounds hold across/);
   });
 });

@@ -54,14 +54,20 @@
  */
 
 import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import yaml from 'js-yaml';
 import { trackedFilesUnder } from './check-test-inventory.js';
-import { WORKFLOWS_DIR, WORKFLOW_FILE_RE } from './check-doc-closure.js';
+import { WORKFLOWS_DIR, WORKFLOW_PATHSPEC, workflowPaths } from './check-doc-closure.js';
 
-/** This check's own path, as its verdict names where these legs live. */
-export const SELF_PATH = 'scripts/check-workflow-bounds.js';
+/**
+ * This check's own path, DERIVED from the file it is written in rather than
+ * written out: the path a verdict names is then the file that printed it, and a
+ * rename carries the value with the file instead of leaving a literal behind.
+ * The `node scripts/<name>.js` usage line in the header above is a comment and
+ * stays hand-written — that is the stated boundary of this derivation.
+ */
+export const SELF_PATH = `scripts/${basename(import.meta.filename)}`;
 
 /** The guide section stating what these legs hold, named beside a drift red. */
 export const GUIDE_SECTION = 'docs/guides/ci.md (§Job bounds and caches)';
@@ -69,8 +75,13 @@ export const GUIDE_SECTION = 'docs/guides/ci.md (§Job bounds and caches)';
 /** The key a job and a step each state their bound under. */
 export const BOUND_KEY = 'timeout-minutes';
 
-/** The pathspec the tracked listing is taken over. */
-export const WORKFLOW_PATHSPEC = `${WORKFLOWS_DIR}/*.y*ml`;
+/**
+ * The pathspec the tracked listing is taken over, and the filter its answer is
+ * held to — both re-exported rather than restated, so the file set this check
+ * reads is the one [`check-doc-closure.js`](./check-doc-closure.js) states for
+ * the guides' workflow inventory, decided once for both.
+ */
+export { WORKFLOW_PATHSPEC, workflowPaths };
 
 /**
  * An input this check reads that is in a shape it does not read — machinery
@@ -93,20 +104,6 @@ const isBound = (value) => typeof value === 'number' && Number.isFinite(value) &
  */
 const renderBound = (value) =>
   typeof value === 'number' && !Number.isFinite(value) ? String(value) : JSON.stringify(value);
-
-/**
- * The workflow files among a listing: tracked YAML directly under the
- * workflows directory. The boundary has one home — `WORKFLOW_FILE_RE` in
- * scripts/check-doc-closure.js, where the guides' workflow-inventory closure
- * states it — so this reads the same set through it. Applying it here is what
- * keeps the boundary: git's pathspec `*` crosses `/`, so the listing itself
- * sweeps nested YAML in.
- * @param {string[]} paths repo-relative paths from the listing
- * @returns {string[]} the workflow files among them, paths intact
- */
-export function workflowPaths(paths) {
-  return paths.filter((path) => WORKFLOW_FILE_RE.test(path));
-}
 
 /**
  * One workflow's `jobs` map, read through the reader it is handed.

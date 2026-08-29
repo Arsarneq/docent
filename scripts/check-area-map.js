@@ -109,9 +109,24 @@
  *   node scripts/check-area-map.js --explain <path> # what the map says about one file
  */
 
-import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
+import { basename } from 'node:path';
 import { pathToFileURL } from 'node:url';
+// The shared population reader only — that module imports node builtins and
+// nothing else, so a command line loading the map through this check still
+// inherits no parser or heavy module it does not use. Importing a builtins-only
+// module is within the lean-closure principle scripts/governance-data.js
+// states: what the principle bounds is what a closure CARRIES.
+import { trackedFilesUnder } from './check-test-inventory.js';
+
+/**
+ * This check's own path, DERIVED from the file it is written in rather than
+ * written out: the path a verdict names is then the file that printed it, and a
+ * rename carries the value with the file instead of leaving a literal behind.
+ * The `node scripts/<name>.js` usage line in the header above is a comment and
+ * stays hand-written — that is the stated boundary of this derivation.
+ */
+const SELF_PATH = `scripts/${basename(import.meta.filename)}`;
 
 /** Repo-relative path of the map this check guards. */
 export const MAP_PATH = 'scripts/area-map.json';
@@ -1223,10 +1238,11 @@ export function auditMap({ files, map, readFile }) {
  * (validateShape, compileMap, resolveFile, auditMap, explainFile, loadMap,
  * refuseOnShapeError) are unit-tested above. */
 function run() {
-  const files = execFileSync('git', ['ls-files'], { encoding: 'utf8' })
-    .split('\n')
-    .map((s) => s.trim())
-    .filter(Boolean);
+  // Through the shared population reader, so this listing states the same
+  // quotepath policy every other tree scan does: a path carrying a non-ASCII
+  // byte arrives as itself rather than quoted, so the doc-coverage leg sees the
+  // real name instead of dropping it on its `.md` test.
+  const files = trackedFilesUnder('.');
   let map;
   try {
     map = loadMap();
@@ -1255,7 +1271,7 @@ function run() {
   if (unknownFlags.length) {
     console.error(
       `✗ unrecognized argument(s): ${unknownFlags.join(' ')}\n` +
-        `  usage: node scripts/check-area-map.js [--explain <path>]`,
+        `  usage: node ${SELF_PATH} [--explain <path>]`,
     );
     process.exit(1);
   }

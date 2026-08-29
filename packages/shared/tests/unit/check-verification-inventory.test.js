@@ -726,6 +726,20 @@ describe('evaluateVerificationInventory — table selection is exactly one', () 
       const problems = evaluateVerificationInventory(makeSurface({ [key]: 2 }));
       assert.ok(problems.some((p) => p.includes(header.join(' | ')) && p.includes('exactly one')));
     });
+
+    it(`is fail-closed when the ${label} surface states no count at all`, () => {
+      // The `!== 1` form, pinned per key. A comparison that reads as its
+      // opposite would no-op on every surface omitting the key, so a read that
+      // answered nothing would pass here instead of reding.
+      const surface = makeSurface();
+      delete surface[key];
+      assert.ok(
+        evaluateVerificationInventory(surface).some(
+          (p) => p.includes(header.join(' | ')) && p.includes('exactly one'),
+        ),
+        'a surface without the key must red',
+      );
+    });
   }
 });
 

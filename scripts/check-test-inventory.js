@@ -139,6 +139,9 @@
 
 import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
+// Aliased: this module states its own repo-relative `basename` below, which
+// reads a posix path, while this one reads the platform's own file path.
+import { basename as fileBasename } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 /**
@@ -146,6 +149,15 @@ import { pathToFileURL } from 'node:url';
  * at any depth. Both browser-driven suites leave that default in place.
  */
 const PLAYWRIGHT_TEST_FILE = /(^|\/)[^/]+\.(?:spec|test)\.[cm]?[jt]sx?$/;
+
+/**
+ * This check's own path, DERIVED from the file it is written in rather than
+ * written out: the path a verdict names is then the file that printed it, and a
+ * rename carries the value with the file instead of leaving a literal behind.
+ * The `node scripts/<name>.js` usage line in the header above is a comment and
+ * stays hand-written — that is the stated boundary of this derivation.
+ */
+const SELF_PATH = `scripts/${fileBasename(import.meta.filename)}`;
 
 /** The runner each discovery descriptor names, one constant per selecting form. */
 export const RUNNERS = {
@@ -1286,6 +1298,20 @@ export function readLoneStringLiteral(tokens, at, followers) {
 }
 
 /**
+ * The literal kinds a reader of quoted strings does not read. {@link tokenizeJs}
+ * emits `word`, `string`, `template`, `regex`, and `punct`; of those, the two
+ * named here are literals whose token value is not the value the source states —
+ * a template's flat run of text, a regular expression's own literal text. Every
+ * refusal that turns on "a literal this reader does not read" asks here, so a
+ * literal kind the tokenizer grows is learned by all of them at once.
+ * @param {string | null | undefined} kind a token kind, as the tokenizer states it
+ * @returns {boolean}
+ */
+export function isUnreadLiteralKind(kind) {
+  return kind === 'template' || kind === 'regex';
+}
+
+/**
  * How a literal a reader of quoted strings does not read is named in a refusal:
  * by its kind, with what the source wrote beside it — a template's flat run of
  * text, a regular expression's literal as written. Naming the kind is what
@@ -1293,13 +1319,19 @@ export function readLoneStringLiteral(tokens, at, followers) {
  * literal among the values a reader could not read would state a cause the
  * source does not have; any other token is named by itself, which says it
  * already.
- * @param {{ type: string, value: string }} token the literal standing there
+ *
+ * The kind and the text are taken apart rather than as one token, because the
+ * readers that call this carry them under their own names — a lone-literal
+ * read's `kind`/`token`, a tokenizer token's `type`/`value` — and this is the
+ * one home of the phrases either way.
+ * @param {string | null | undefined} kind the literal's kind, as the tokenizer states it
+ * @param {string} text what the source wrote there
  * @returns {string}
  */
-function namedLiteral(token) {
-  if (token.type === 'template') return `a template literal (\`${token.value}\`)`;
-  if (token.type === 'regex') return `a regular-expression literal (\`${token.value}\`)`;
-  return `\`${token.value}\``;
+export function namedLiteral(kind, text) {
+  if (kind === 'template') return `a template literal (\`${text}\`)`;
+  if (kind === 'regex') return `a regular-expression literal (\`${text}\`)`;
+  return `\`${text}\``;
 }
 
 /**
@@ -1378,12 +1410,15 @@ export function readListEntries(source, name, fields = null) {
       // value already is: its token value is a run of its literal text, so
       // printing the token alone would state an element the source never
       // writes — and an interpolated one, a name nothing can ever match.
-      return { error: unreadable(namedLiteral(token)) };
+      return { error: unreadable(namedLiteral(token.type, token.value)) };
     }
     if (
       depth === 2 &&
       record !== null &&
-      (token.type === 'string' || token.type === 'template' || token.type === 'regex')
+      // Every literal kind, the readable one INCLUDED: what follows decides
+      // whether this one is read or named, and a string that is not lone is
+      // refused there too.
+      (token.type === 'string' || isUnreadLiteralKind(token.type))
     ) {
       const key = tokens[i - 2];
       const colon = tokens[i - 1];
@@ -1399,7 +1434,7 @@ export function readListEntries(source, name, fields = null) {
           // property missing from a record that states it, which names a cause
           // the source does not have.
           return {
-            error: `the \`${name}\` array literal's \`${key.value}\` property is ${namedLiteral(token)}, and this reader reads a quoted string literal`,
+            error: `the \`${name}\` array literal's \`${key.value}\` property is ${namedLiteral(token.type, token.value)}, and this reader reads a quoted string literal`,
           };
         }
         record[key.value] = token.value;
@@ -2152,12 +2187,12 @@ function readPlaywrightMirror(entry, readFile, named, result) {
     );
   }
   const dirs = configValues(config, 'testDir');
-  if (dirs.length === 1 && (dirs[0].type === 'template' || dirs[0].type === 'regex')) {
+  if (dirs.length === 1 && isUnreadLiteralKind(dirs[0].type)) {
     // Naming the literal is the diagnosis: counting it among the unreadable
     // values would report a `testDir` the configuration states as one it does
     // not, which names a cause the source does not have.
     result.unreadableClosure.push(
-      `${configPath}: states its \`testDir\` as ${namedLiteral(dirs[0])}, and this reader reads a quoted string literal, so the directory it collects cannot be read`,
+      `${configPath}: states its \`testDir\` as ${namedLiteral(dirs[0].type, dirs[0].value)}, and this reader reads a quoted string literal, so the directory it collects cannot be read`,
     );
     return;
   }
@@ -2730,7 +2765,7 @@ export function auditMutationKillSets({
 const PROBLEM_BLOCKS = {
   unreadable: {
     heading: (n) => `${n} inventory source(s) could not be read`,
-    fix: `repoint the moved file in DOC_INVENTORIES / TRACKED_LISTS in scripts/check-test-inventory.js.`,
+    fix: `repoint the moved file in DOC_INVENTORIES / TRACKED_LISTS in ${SELF_PATH}.`,
   },
   unparsed: {
     heading: (n) => `${n} inventory source(s) could not be read as an inventory`,
@@ -2738,7 +2773,7 @@ const PROBLEM_BLOCKS = {
       `restore the shape the check reads — an inventory table in the documented section,\n` +
       `  its first column the documented header with one backticked file name per row, and a\n` +
       `  TRACKED_FILES array literal whose elements are string paths or object records carrying\n` +
-      `  the named properties — or update scripts/check-test-inventory.js to the new shape.`,
+      `  the named properties — or update ${SELF_PATH} to the new shape.`,
   },
   undocumented: {
     heading: (n) => `${n} test file(s) are in a suite but in no document`,
@@ -2777,13 +2812,13 @@ const PROBLEM_BLOCKS = {
     heading: (n) => `${n} registered suite entr(ies) state no discovery descriptor`,
     fix:
       `give the entry a \`discovery\` descriptor in DOC_INVENTORIES in\n` +
-      `  scripts/check-test-inventory.js — it is what states how this repository selects the\n` +
+      `  ${SELF_PATH} — it is what states how this repository selects the\n` +
       `  suite, and the entry's membership rule is derived from it.`,
   },
   unregisteredSuite: {
     heading: (n) => `${n} node-test suite(s) are run but registered by no single entry`,
     fix:
-      `register the suite in DOC_INVENTORIES in scripts/check-test-inventory.js — a document\n` +
+      `register the suite in DOC_INVENTORIES in ${SELF_PATH} — a document\n` +
       `  section, the directory, and the descriptor stating the glob that selects it — and give\n` +
       `  that section an inventory table, or stop running the suite from an admitted manifest.\n` +
       `  One directory takes one entry: two entries over it leave the rule ambiguous.`,
@@ -2829,7 +2864,7 @@ const PROBLEM_BLOCKS = {
       `restore the shape the closure reads — an admitted manifest whose \`scripts\` map holds\n` +
       `  command strings, a workflow step discovering through a shell loop under its registered\n` +
       `  name, and a browser-driven suite reached through its working directory's default\n` +
-      `  configuration — or update scripts/check-test-inventory.js to the new shape.`,
+      `  configuration — or update ${SELF_PATH} to the new shape.`,
   },
   staleKillSetEntry: {
     heading: (n) => `${n} mutation kill-set entr(ies) name no test file that is there`,
@@ -2859,7 +2894,7 @@ const PROBLEM_BLOCKS = {
       `restore the shape this closure reads — a mutation configuration stating its test list as\n` +
       `  the registered property's array of strings, a cargo-mutants manifest stating its lists\n` +
       `  as root-table arrays of strings, and the mutate-scope table under its registered heading\n` +
-      `  inside its clause — or update scripts/check-test-inventory.js to the new shape.`,
+      `  inside its clause — or update ${SELF_PATH} to the new shape.`,
   },
 };
 
@@ -2878,9 +2913,7 @@ export function formatProblems(result) {
     const heading = block
       ? block.heading(entries.length)
       : `${entries.length} problem(s) of class "${name}", which this report has no wording for`;
-    const fix = block
-      ? block.fix
-      : `add a "${name}" entry to PROBLEM_BLOCKS in scripts/check-test-inventory.js.`;
+    const fix = block ? block.fix : `add a "${name}" entry to PROBLEM_BLOCKS in ${SELF_PATH}.`;
     blocks.push(formatProblemBlock(heading, entries, `  Fix: ${fix}`));
   }
   return blocks;
@@ -2912,6 +2945,38 @@ export function formatProblemBlock(heading, problems, closing) {
  * surfaces rather than sitting on them. Membership is what the guard states:
  * the messages come back in the order the entries are written, and no caller
  * reads more into that than which surfaces were empty.
+ *
+ * An entry naming a key the surfaces do not carry, with no projector to derive
+ * one, is a different finding from an empty surface and is reported as its own:
+ * the guard read for that key, the extraction handed it an object stating none,
+ * and the entry supplies no other route to the list — so the caller is told
+ * what the entry asked for and what the extraction stated, rather than being
+ * told a document went empty. It is this guard's own table disagreeing with its
+ * extraction, never a verdict about a file the check read.
+ *
+ * ## What a surface key carries, and how each shape is guarded
+ *
+ * This block is the family's one home for that rule; each guard elsewhere
+ * points here rather than restating it.
+ *
+ * - **List keys** — a surface extracted as a list of names is guarded through
+ *   this helper and its twin {@link duplicateSurfaceProblems}, so a check
+ *   states its guarded surfaces as a table and reads them through one loop.
+ * - **Scalar counts** — a surface extracted as a NUMBER (how many registration
+ *   lists a file carries, how many tables match a header tuple, how many times
+ *   a document makes a claim) has no length for those loops to read, so its
+ *   guard is written out. It is written FAIL-CLOSED — `!(n >= 1)` where any
+ *   count is enough, `n !== 1` where exactly one is — because a surface that
+ *   states the key on nothing hands the guard `undefined`, and `undefined` is
+ *   neither `>= 1` nor `=== 1`: both of those forms then red, while the
+ *   forms that read as their opposites (`n === 0`, `n < 1`) pass an
+ *   extraction that produced no count at all.
+ * - **Raw-text keys** — a surface put on the object as text, read inside the
+ *   evaluator rather than extracted ahead of it, is for the one case where the
+ *   read cannot be taken earlier: the read is relative to a value the evaluator
+ *   itself derives. The command surface's clause prose is that case — the
+ *   channel its two prose reads are relative to is derived in-core from the
+ *   doc's own event row, so the extraction has nothing to key a read on yet.
  * @param {object} surfaces the extracted surfaces
  * @param {[string, string, ((s: object) => unknown[])?][]} entries the guard's tuples
  * @returns {string[]} one message per empty surface, in entry order
@@ -2919,8 +2984,45 @@ export function formatProblemBlock(heading, problems, closing) {
 export function emptySurfaceProblems(surfaces, entries) {
   const problems = [];
   for (const [key, message, project] of entries) {
+    if (project === undefined && !(key in (surfaces ?? {}))) {
+      problems.push(`the empty-surface guard reads \`${key}\`, and the extraction it was handed states that key on nothing and the entry states no projector to derive it — the guard reads each surface from one of those two, so this is the guard's own table and its extraction disagreeing, not a document that went empty`); // prettier-ignore
+      continue;
+    }
     const list = project === undefined ? surfaces[key] : project(surfaces);
     if ((list ?? []).length === 0) problems.push(message);
+  }
+  return problems;
+}
+
+/**
+ * The duplicate-surface guard's twin of {@link emptySurfaceProblems}: the same
+ * `[key, what, project?]` tuples, read the same way, with each surface's own
+ * repeated entries reported through {@link duplicatesIn}. Having the projector
+ * SUPPLIED by an entry and APPLIED here is what lets a check whose guarded list
+ * is derived — a set to spread, a table to project — share the one loop with
+ * the checks whose lists sit on the surfaces directly.
+ *
+ * Reading them the same way includes the same discriminator: an entry naming a
+ * key the surfaces do not carry, with no projector to derive one, is this
+ * guard's table disagreeing with its extraction rather than a surface with no
+ * repeats, and is reported as its own finding — what the entry asked for beside
+ * what the extraction stated. Without it the guard reads `undefined` as an
+ * empty list and answers "no duplicates" for a key the extraction stopped
+ * stating at all — the one shape a duplicate loop cannot otherwise see, since a
+ * surface that is really free of repeats answers the same way.
+ * @param {object} surfaces the extracted surfaces
+ * @param {[string, string, ((s: object) => unknown[])?][]} entries the guard's tuples
+ * @returns {string[]} one message per repeated entry, in entry order
+ */
+export function duplicateSurfaceProblems(surfaces, entries) {
+  const problems = [];
+  for (const [key, what, project] of entries) {
+    if (project === undefined && !(key in (surfaces ?? {}))) {
+      problems.push(`the duplicate-surface guard reads \`${key}\`, and the extraction it was handed states that key on nothing and the entry states no projector to derive it — the guard reads each surface from one of those two, so this is the guard's own table and its extraction disagreeing, not a surface free of repeats`); // prettier-ignore
+      continue;
+    }
+    const list = project === undefined ? surfaces[key] : project(surfaces);
+    problems.push(...duplicatesIn(list ?? [], what));
   }
   return problems;
 }
@@ -2930,10 +3032,11 @@ export function emptySurfaceProblems(surfaces, entries) {
  * delegates to (parseTables, readListEntries, auditInventories,
  * auditRegistrationClosure, formatProblems) is unit-tested. */
 function run() {
-  const files = execFileSync('git', ['ls-files'], { encoding: 'utf8' })
-    .split('\n')
-    .map((s) => s.trim())
-    .filter(Boolean);
+  // Through this module's own population reader, so this listing states the
+  // same quotepath policy every other tree scan does: a path carrying a
+  // non-ASCII byte arrives as itself rather than quoted, and a file named that
+  // way is read by the scans below rather than silently absent from them.
+  const files = trackedFilesUnder('.');
   const readFile = (f) => {
     try {
       return readFileSync(f, 'utf8');
