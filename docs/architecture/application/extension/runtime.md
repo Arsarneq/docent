@@ -82,9 +82,9 @@ worker:
 A change that introduces worker in-memory state MUST place it in one of
 these classes or extend this enumeration in the same change.
 
-The worker also assigns an introspection handle over the rebuildable-state
-class and one correlation marker — the frame registry and the programmatic-tab
-set — on its own `globalThis` (`__docentCaptureBookkeeping` in
+**ERT-5.** The worker also assigns an introspection handle over the
+rebuildable-state class and one correlation marker — the frame registry and the
+programmatic-tab set — on its own `globalThis` (`__docentCaptureBookkeeping` in
 `background/service-worker.js`): it reads facts — the two structures, and the
 tabs a record-start seed would target, answered by running the seed's own
 query so an observer of what a clear spared never restates that set — plants
@@ -102,11 +102,38 @@ registration included (Injection, below), the set's the tab-created
 suppression decision behind the correlation marker above — the plants from
 none. It decides nothing and holds no state of its own — the structures it
 reaches are the ones placed above, and it adds none — so it introduces no
-worker in-memory state for the placement rule above to place, and the worker's
-global scope is reachable only at DevTools level, never from pages or content
-scripts — so the handle is not a page-visible surface, held to the same
-page-visibility test as the readiness beacon
+worker in-memory state for
+[ERT-1](#lifecycle-and-the-persisted-state-model)'s placement rule to place, and
+the worker's global scope is reachable only at DevTools level, never from pages
+or content scripts — so the handle is not a page-visible surface, held to the
+same page-visibility test as the readiness beacon
 ([ECP-3](capture-principles.md#frame-trust-and-readiness)).
+
+The handle's member surface is the table below, stated closed: each member
+reaches exactly the structures its row names, and the handle assigns no member
+the table does not carry. A change that adds, removes, or renames a member, or
+gives one a reach the table does not state, MUST update the table in the same
+change.
+
+| Member                 | Reaches                                                     | What it does                                                                               |
+| ---------------------- | ----------------------------------------------------------- | ------------------------------------------------------------------------------------------ |
+| `frameRegistry`        | The active-frame registry                                   | Answers a snapshot of the registry, as frame ids per tab.                                  |
+| `programmaticTabs`     | The programmatic-tab set                                    | Answers a snapshot of the set, as tab ids.                                                 |
+| `captureTargetTabIds`  | No worker structure — the record-start seed's own tab query | Answers the tab ids a record-start would target, by running that query.                    |
+| `plantFrame`           | The active-frame registry                                   | Adds a (tab, frame) entry the way a production registration does.                          |
+| `plantProgrammaticTab` | The programmatic-tab set                                    | Adds a tab id to the set.                                                                  |
+| `wipeFrameRegistry`    | The active-frame registry                                   | Empties the registry directly, outside any production trigger, simulating suspension loss. |
+| `wipeProgrammaticTabs` | The programmatic-tab set                                    | Empties the set the same way, for the same purpose.                                        |
+
+**ERT-6.** The handle ships in release builds: the packaged extension carries
+the worker as written, so a released build assigns the members the table
+states. What that grants is what access to the worker's own global scope
+already grants — the structures are the worker's, the reads answer what it
+holds at that moment, and the plants and wipes reach what a caller standing in
+that scope reaches directly — so the handle widens no boundary the runtime
+draws. Each other extension surface runs in a global scope of its own, the
+recorder's content-script world among them: a handle mention written there
+names a binding that scope has never held, and is a defect rather than a use.
 
 ### Startup
 

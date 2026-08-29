@@ -93,7 +93,7 @@ describe('check-script CLI smoke (deterministic green paths)', () => {
     assert.match(out, /desktop command surface consistent/);
   });
 
-  it('check-extension-surface: the committed extension surface satisfies both contracts', () => {
+  it('check-extension-surface: the committed extension surface satisfies its contracts', () => {
     const out = runScript('check-extension-surface.js');
     assert.match(out, /extension surface consistent/);
   });
