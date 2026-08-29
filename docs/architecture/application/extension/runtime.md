@@ -143,17 +143,19 @@ recording, frame trust and readiness, the readiness latency bound, and the
 the event wiring that implements them:
 
 - **Record-start** — the worker clears the frame registry, injects
-  `content/recorder.js` into every open http/https tab across all frames
-  (`chrome.scripting.executeScript` with `injectImmediately`), and seeds the
-  registry from the browser's frame table. The record-start message handlers
-  run this sequence, and the recording-flag watch runs the same sequence
-  whenever the flag becomes true, so the injection behaves identically
-  however the flag changes — the worker's own write path or a writer outside
-  the extension (a test harness driving the browser); the recorder's
+  `content/recorder.js` into every frame of every open http/https tab that the
+  browser lets the extension reach (`chrome.scripting.executeScript` with
+  `injectImmediately`), and seeds the registry from the browser's frame table.
+  The record-start message handlers run this sequence, and the recording-flag
+  watch runs the same sequence whenever the flag becomes true, so the
+  injection behaves identically however the flag changes — the worker's own
+  write path or a writer outside the extension (a test harness driving the
+  browser); the recorder's
   `__docentLoaded` guard makes the overlap idempotent per document.
 - **During the recording** — `webNavigation.onCompleted` injects the
   recorder into each frame as it finishes loading (main frames, srcdoc
-  iframes, dynamically created subframes) and registers it as trusted;
+  iframes, dynamically created subframes), whenever the browser lets the
+  extension reach it, and registers each injected frame as trusted;
   `webNavigation.onBeforeNavigate` drops a navigating subframe's
   registration, since its recorder unloads with the old document and the
   following `onCompleted` re-injects.
