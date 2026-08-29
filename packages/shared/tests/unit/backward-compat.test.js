@@ -14,8 +14,7 @@
  *     (never schemas/dist/, which can lag a PR's schema changes)
  *   - fixtures come from globbing `tests/fixtures/<platform>/*.docent.json` —
  *     discovery is by the `.docent.json` suffix alone; `v<version>` is the
- *     naming convention (a leading `v` is stripped when deriving the
- *     version, never required)
+ *     naming convention, never a requirement
  *   - a fixture under `<platform>/` is validated against that platform's
  *     composed schema
  *
@@ -29,7 +28,7 @@
 import { describe, it, before } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync, readdirSync, existsSync } from 'node:fs';
-import { resolve, join, basename } from 'node:path';
+import { resolve, join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import Ajv from 'ajv/dist/2020.js';
 import addFormats from 'ajv-formats';
@@ -40,6 +39,7 @@ import {
 } from '../../../../scripts/build-schemas.js';
 
 const __dirname = fileURLToPath(new URL('.', import.meta.url));
+const REPO_ROOT = resolve(__dirname, '../../../..');
 const FIXTURES_DIR = resolve(__dirname, '../fixtures');
 
 // ─── Discover platform schemas ────────────────────────────────────────────────
@@ -71,17 +71,18 @@ function discoverValidators() {
       // the definition.
       validate: ajv.compile(relaxVersionStamp(schema)),
       version: schema.version,
-      file: `${platform}.schema.json (composed from source, shape-only)`,
     });
   }
   return validators;
 }
 
 /**
- * Discover fixtures as { platform, version, path } from
+ * Discover fixtures as { platform, path, relPath } from
  * `tests/fixtures/<platform>/*.docent.json` — any file carrying the
- * `.docent.json` suffix is admitted; a leading `v` is stripped when
- * deriving the version.
+ * `.docent.json` suffix is admitted. `relPath` is the repo-relative,
+ * forward-slash key the failure messages render — the same file-key form the
+ * replay-sufficiency lint (`scripts/sufficiency-lint.js`) uses for its
+ * baseline entries.
  */
 function discoverFixtures() {
   const fixtures = [];
@@ -92,11 +93,11 @@ function discoverFixtures() {
     const platformDir = join(FIXTURES_DIR, platform.name);
     for (const file of readdirSync(platformDir)) {
       if (!file.endsWith('.docent.json')) continue;
-      const version = basename(file, '.docent.json').replace(/^v/, '');
+      const path = join(platformDir, file);
       fixtures.push({
         platform: platform.name,
-        version,
-        path: join(platformDir, file),
+        path,
+        relPath: relative(REPO_ROOT, path).replaceAll('\\', '/'),
       });
     }
   }
@@ -121,37 +122,39 @@ describe('Schema backward compatibility: frozen fixtures validate against curren
   });
 
   it('discovers at least one platform schema and one fixture', () => {
-    // Guards against the harness silently passing because globbing found
-    // nothing (e.g. moved directories). If this fails, the corpus or schema
-    // discovery is misconfigured — not a backward-compat break.
+    // Guards against the harness silently passing with nothing to check: an
+    // emptied PLATFORMS map leaves no validator, a moved or renamed fixture
+    // tree leaves no fixture. If this fails, the platform map or the corpus
+    // layout is misconfigured — not a backward-compat break.
     assert.ok(validators.size >= 1, 'expected to discover at least one platform schema');
     assert.ok(fixtures.length >= 1, 'expected to discover at least one fixture');
   });
 
   it('every fixture maps to a known platform schema', () => {
-    for (const { platform, path } of fixtures) {
+    for (const { platform, relPath } of fixtures) {
       assert.ok(
         validators.has(platform),
-        `fixture ${path} is under platform "${platform}" but no schemas/${platform}.schema.json exists`,
+        `fixture ${relPath} sits under platform "${platform}", which build-schemas' PLATFORMS map does not declare`,
       );
     }
   });
 
-  // One assertion per fixture, generated dynamically so a failure names the
-  // exact fixture and schema involved.
+  // One assertion over every fixture: each failure is collected with the
+  // fixture and the schema it was checked against, so a single red names them
+  // all rather than stopping at the first.
   it('all frozen fixtures validate against their current platform schema', () => {
     assert.ok(fixtures.length >= 1, 'no fixtures discovered');
 
     const failures = [];
-    for (const { platform, version, path } of fixtures) {
+    for (const { platform, path, relPath } of fixtures) {
       const entry = validators.get(platform);
       if (!entry) continue; // covered by the mapping test above
       const data = JSON.parse(readFileSync(path, 'utf-8'));
       const valid = entry.validate(data);
       if (!valid) {
         failures.push(
-          `Fixture ${platform}/v${version}.docent.json no longer validates against ` +
-            `schemas/${entry.file} (current v${entry.version}):\n${formatErrors(entry.validate)}`,
+          `Fixture ${relPath} no longer validates against the composed ${platform} ` +
+            `schema (source layers, shape-only; current v${entry.version}):\n${formatErrors(entry.validate)}`,
         );
       }
     }
