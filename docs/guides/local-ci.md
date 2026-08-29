@@ -159,7 +159,7 @@ same setup its CI job performs first:
 | `stryker-desktop`   | `npm ci`; `npm run sync-shared`; `npm run build:desktop-dist`      | `npm run test:mutation:desktop`   |
 
 The Rust job, `cargo-mutants-desktop`, runs on `windows-latest` — so
-natively on a Windows machine: install cargo-mutants (the job pins 27.1.0),
+natively on a Windows machine: install cargo-mutants (the job pins `27.1.0`),
 make sure `packages/desktop/dist` exists, then from
 `packages/desktop/src-tauri`:
 

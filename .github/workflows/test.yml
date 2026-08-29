@@ -345,7 +345,15 @@ jobs:
       # the shape that states none being a job calling a reusable workflow,
       # which does not admit the key — and where a job's steps state bounds of
       # their own they add up to less than the job's, so each step bound is
-      # what ends its own step. It runs here, in the always-on job, because
+      # what ends its own step. The same check reads the workflows' CACHE steps
+      # beside their bounds, holding the two cache tables in docs/guides/ci.md
+      # (§What the caches key on) to them in both directions: each key family's
+      # key, paths, writer job, fallback and save gating, with the family names
+      # held pairwise prefix-free within each exact-path-list group and one name
+      # shared there only where the two keys hash different inputs;
+      # and each pinned tool's key version segment against the version its
+      # install pins and against the version docs/guides/local-ci.md states
+      # beside the tool's own name. It runs here, in the always-on job, because
       # most workflow files set no path-filter flag: an edit to one fires no
       # path-filtered test job. scripts/check-workflow-bounds.js is the home of
       # the complete red set, and of the refusals it reports on its own exit
@@ -695,26 +703,31 @@ jobs:
 
       # The path follows the sibling tool caches — cargo-mutants in
       # mutation.yml and cargo-deny in the dependency-audit job above — and
-      # spells `.exe` because this job's matrix runs on Windows runners, where
-      # `cargo install` produces `cargo-llvm-cov.exe`. So it names the file the
-      # install actually leaves behind, and it tracks the matrix: a leg on
-      # another platform needs a path matching what that platform's install
-      # writes. The path is what decides whether anything is saved at all: one
-      # naming no existing file makes the post-job save a no-op and every later
-      # restore a miss, so the tool is re-fetched and re-compiled on every run.
-      # (cargo-mutants spells the suffix for the same reason; the Linux-only
-      # cargo-deny cache needs none.)
+      # DERIVES its suffix from the runner the leg is on: `cargo install`
+      # writes `cargo-llvm-cov.exe` on a Windows runner and `cargo-llvm-cov`
+      # everywhere else. So it names the file the install actually leaves
+      # behind on whichever platform this job's matrix runs, and a leg added on
+      # another platform needs no edit here. The path is what decides whether
+      # anything is saved at all: one naming no existing file makes the
+      # post-job save a no-op and every later restore a miss, so the tool is
+      # re-fetched and re-compiled on every run. (cargo-mutants keeps `.exe` as
+      # a literal: its job is fixed to a Windows runner, so it has no second
+      # platform to derive a suffix for; the Linux-only cargo-deny cache needs
+      # no suffix at all.)
       #
       # The key's version segment names the version the install below pins,
       # after cargo-deny, whose segment and pin state the same version. That is
       # what keeps the segment truthful — the binary a hit serves is the one
       # the segment claims — and moving to a new release is then one deliberate
-      # edit to both, with the changed key making that release refetch.
+      # edit to both, with the changed key making that release refetch. The
+      # tool-caches table in docs/guides/ci.md (§What the caches key on) states
+      # that pairing for every pinned tool, and scripts/check-workflow-bounds.js
+      # recomputes it from this step and the install below.
       - name: Cache cargo-llvm-cov
         id: cache-llvm-cov
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
-          path: ~/.cargo/bin/cargo-llvm-cov.exe
+          path: ~/.cargo/bin/cargo-llvm-cov${{ runner.os == 'Windows' && '.exe' || '' }}
           key: ${{ runner.os }}-cargo-llvm-cov-0.8.7
 
       # Reaches crates.io and compiles, so it carries a bound of its own, sized
@@ -725,26 +738,59 @@ jobs:
         timeout-minutes: 15
         run: cargo install cargo-llvm-cov --version 0.8.7 --locked
 
-      # The key pins the entry to the current lockfile; `restore-keys` adds the
-      # fallback the run takes when that key is new. Candidates come only from
-      # entries saved under this same path list, so what the prefix can reach
-      # is this platform's cargo trees: earlier lockfile generations of this
-      # key, which several jobs write, and — since the key carries no family
-      # segment to stay inside — the cross-compile job's trees as well. What
-      # any of them reliably supplies is a populated registry; the target
-      # directory it carries was built by whichever job saved it, so cargo
-      # revalidates that rather than trusting it. The floor is the cold start a
-      # bare key gives. A save always writes the exact key, so each lockfile
-      # still gets its own full entry.
-      - name: Cache cargo registry and build
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      # THE HOME of the cargo cache key policy: the other cargo blocks — the
+      # desktop-vectors-produce and desktop-cross-compile jobs below, and
+      # mutation.yml's — cite this one rather than restating it.
+      #
+      # Each writing job owns a KEY FAMILY of its own: `rust-tests` here,
+      # `vectors`, `xcompile`, and `mutation` at the other three. A key is
+      # `<runner.os>-cargo-<family>-<lockfile hash>`, so the runner's OS
+      # separates the platforms a family spans (only `xcompile` spans two) and
+      # the family segment separates the jobs sharing one platform, each of
+      # which builds a differently-shaped target tree. Nothing in the key names
+      # the runner IMAGE: an entry written under one Windows image is
+      # restorable by a later run on a newer one — a standing residue, stated
+      # here rather than keyed around.
+      #
+      # `restore-keys` names the fallback a run takes when its exact key is
+      # new. Candidates come only from entries saved under the SAME path list,
+      # so what a prefix can reach is this platform's other registry-and-build
+      # entries, never the single-file tool caches beside them — those are
+      # stored as distinct caches. This family lists its own prefix first and
+      # then the bare `<runner.os>-cargo-` prefix, so a lockfile bump
+      # warm-starts from this job's own previous tree and, failing that, from a
+      # sibling family's. What either reliably supplies is a populated
+      # registry; the target directory it carries was built by whichever job
+      # saved it, so cargo revalidates that rather than trusting it. The floor
+      # is the cold start a bare key gives.
+      #
+      # The restore and the save are SPLIT so the save can be gated. It writes
+      # only from `main`, and only when the restore was not an exact hit:
+      # `cache-hit` is true on an exact match alone, so the conjunction keeps
+      # the exact-hit skip the combined action performs and still writes the
+      # new exact key on a main run whose lockfile moved. Pull requests read
+      # main's entry and never write one, so the repository's cache budget
+      # carries one entry per family rather than one per ref — the same posture
+      # the Playwright pairs take. The save sits after the last step that
+      # builds into the tree it stores, so what it writes is the tree the job
+      # finished with — and a run that fails before reaching it writes nothing,
+      # which a combined step's post-job save would not have respected.
+      #
+      # docs/guides/ci.md (§What the caches key on) states every family's key,
+      # paths, writer job, fallback and save gating as a table, recomputed from
+      # these steps by scripts/check-workflow-bounds.js.
+      - name: Restore cargo registry and build
+        id: cargo-cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
             packages/desktop/src-tauri/target
-          key: ${{ runner.os }}-cargo-${{ hashFiles('packages/desktop/src-tauri/Cargo.lock') }}
-          restore-keys: ${{ runner.os }}-cargo-
+          key: ${{ runner.os }}-cargo-rust-tests-${{ hashFiles('packages/desktop/src-tauri/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-rust-tests-
+            ${{ runner.os }}-cargo-
 
       - name: Create frontend dist directory
         working-directory: packages/desktop
@@ -823,6 +869,18 @@ jobs:
           # a separate cargo argument (and an empty value expands to nothing).
           # shellcheck disable=SC2086
           cargo llvm-cov $RUST_INTEGRATION_TEST_ARGS --ignore-filename-regex "(lib|main)\.rs$" --lcov --output-path coverage-integration.lcov -- --test-threads=1 ${{ runner.debug == '1' && '--nocapture' || '' }}
+
+      # The save half of the split above, after the last step that builds into
+      # the tree it stores. Its gate and its reasoning are that block's.
+      - name: Save cargo registry and build
+        if: github.ref == 'refs/heads/main' && steps.cargo-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            packages/desktop/src-tauri/target
+          key: ${{ runner.os }}-cargo-rust-tests-${{ hashFiles('packages/desktop/src-tauri/Cargo.lock') }}
 
       - name: Upload Rust coverage reports
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
@@ -928,17 +986,22 @@ jobs:
         with:
           toolchain: stable
 
-      # Same key and fallback posture as the desktop-rust-tests cargo cache,
-      # which carries the reasoning for both.
-      - name: Cache cargo registry and build
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      # The `vectors` family: the same paths and the same fallback and save
+      # posture as the desktop-rust-tests cargo cache, under a family segment
+      # of its own so this job's tree and that job's stop overwriting each
+      # other under one key. That block carries the reasoning for both.
+      - name: Restore cargo registry and build
+        id: cargo-cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
             packages/desktop/src-tauri/target
-          key: ${{ runner.os }}-cargo-${{ hashFiles('packages/desktop/src-tauri/Cargo.lock') }}
-          restore-keys: ${{ runner.os }}-cargo-
+          key: ${{ runner.os }}-cargo-vectors-${{ hashFiles('packages/desktop/src-tauri/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-vectors-
+            ${{ runner.os }}-cargo-
 
       - name: Create frontend dist directory
         working-directory: packages/desktop
@@ -951,6 +1014,19 @@ jobs:
       - name: Produce desktop conformance vector
         working-directory: packages/desktop/src-tauri
         run: cargo test --test corpus_capture v_vector_fixture -- --test-threads=1 ${{ runner.debug == '1' && '--nocapture' || '' }}
+
+      # The save half of the split above, after the step that builds into the
+      # tree it stores. Its gate and its reasoning are the desktop-rust-tests
+      # block's.
+      - name: Save cargo registry and build
+        if: github.ref == 'refs/heads/main' && steps.cargo-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            packages/desktop/src-tauri/target
+          key: ${{ runner.os }}-cargo-vectors-${{ hashFiles('packages/desktop/src-tauri/Cargo.lock') }}
 
       - name: Upload desktop vector dumps
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
@@ -1100,20 +1176,25 @@ jobs:
           toolchain: stable
           components: clippy
 
-      - name: Cache cargo registry and build
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      # The `xcompile` family — one of the TWO whose fallback stays inside its
+      # own family: this one by the isolation argued below, and the `mutation`
+      # family on its own ground, where a path list no other family shares
+      # makes any wider prefix dead weight. Its key shape, its split, and its
+      # save's gate are the desktop-rust-tests block's, which carries the
+      # reasoning for all four.
+      - name: Restore cargo registry and build
+        id: cargo-cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
             packages/desktop/src-tauri/target
           key: ${{ runner.os }}-cargo-xcompile-${{ hashFiles('packages/desktop/src-tauri/Cargo.lock') }}
-          # This key carries a family segment, so the prefix stays inside it: a
-          # lockfile bump warm-starts from the previous cross-compile entry — a
-          # tree built by the same command on the same platform — leaving this
-          # platform's other cargo trees out of the fallback. As at the
-          # desktop-rust-tests cache, the save still writes the exact key, so
-          # each lockfile gets its own full entry either way.
+          # The prefix stays inside the family: a lockfile bump warm-starts
+          # from the previous cross-compile entry — a tree built by the same
+          # command on the same platform — leaving this platform's other cargo
+          # trees out of the fallback.
           restore-keys: ${{ runner.os }}-cargo-xcompile-
 
       - name: Create frontend dist directory
@@ -1127,6 +1208,19 @@ jobs:
       - name: Clippy
         working-directory: packages/desktop/src-tauri
         run: cargo clippy --all-targets ${{ runner.debug == '1' && '-v' || '' }} -- -D warnings
+
+      # The save half of the split above, after the last step that builds into
+      # the tree it stores. Its gate and its reasoning are the
+      # desktop-rust-tests block's.
+      - name: Save cargo registry and build
+        if: github.ref == 'refs/heads/main' && steps.cargo-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            packages/desktop/src-tauri/target
+          key: ${{ runner.os }}-cargo-xcompile-${{ hashFiles('packages/desktop/src-tauri/Cargo.lock') }}
 
   desktop-integration-tests:
     needs: [lint, changes]
