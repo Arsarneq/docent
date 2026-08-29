@@ -31,11 +31,13 @@ enforce this at the worker's entry module.
 is injected programmatically by the service worker, and **only while a
 recording is active**:
 
-- On record-start, the service worker injects the recorder into every open
-  http/https tab and frame.
+- On record-start, the service worker sweeps the open http/https tabs: the
+  scheme test is the tab's — every frame of a swept tab that the browser lets
+  the extension reach is injected, whatever scheme its own document carries.
 - For the rest of the recording, each frame is injected as it finishes loading
-  (`webNavigation.onCompleted`), so newly opened tabs, navigations, and
-  dynamically created iframes are covered as they appear.
+  (`webNavigation.onCompleted`), whenever the browser lets the extension reach
+  it — no scheme test on this path — so newly opened tabs, navigations,
+  `srcdoc` frames, and dynamically created iframes are covered as they appear.
 
 When no recording is running, nothing is injected and nothing captures: the
 service worker injects no recorder, and recorder instances a prior recording
@@ -43,7 +45,8 @@ left in still-open documents are inactive — each deactivates in place through
 its `recording` watch — until navigation replaces their documents. The idle
 surface that acts is just the service worker. (The
 `host_permissions: <all_urls>` grant is retained by decision: it is what lets
-the service worker inject into any page the moment recording starts.)
+the service worker inject into any open http/https tab the moment recording
+starts.)
 
 ### Frame trust and readiness
 

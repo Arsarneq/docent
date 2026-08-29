@@ -18,10 +18,12 @@
  * The service worker injects content/recorder.js programmatically
  * (chrome.scripting.executeScript), and only while a recording is active: a
  * sweep of the open http/https tabs at record-start, then each frame as it
- * finishes loading (webNavigation.onCompleted). A top-level test page must
- * therefore live on a real http(s) URL for the injection to reach it
- * (about:blank is not injectable), so we serve test HTML via a local HTTP
- * server.
+ * finishes loading (webNavigation.onCompleted). A top-level test page therefore
+ * lives on a real http(s) URL — the initial page because that is what the
+ * sweep's tab query matches, and a mid-recording page because reaching it
+ * takes the real navigation that fires the per-frame route, while its http(s)
+ * URL is what a restart's record-start sweep matches again (ECP-2) — so we
+ * serve test HTML via a local HTTP server.
  *
  * Coverage: Uses CDP Profiler on the testPage to capture content script
  * (recorder.js) execution in the page's isolated world.
@@ -51,8 +53,12 @@ fs.mkdirSync(rawDir, { recursive: true });
 let contentCoverageCounter = 0;
 
 // ─── Local HTTP server for serving test pages ─────────────────────────────────
-// The SW injects the recorder only into real http(s) pages (about:blank is not
-// injectable), so we need a real server.
+// A served page is what satisfies both of the SW's injection routes (ECP-2).
+// The initial testPage navigation happens before recording flips, so the
+// record-start sweep's tab query — the open http/https tabs — is what reaches
+// it; and setTestContent, running mid-recording, is reached by the per-frame
+// route, because a real navigation produces the webNavigation.onCompleted that
+// route keys on, which page.setContent never performs.
 
 let server;
 let serverPort;
@@ -189,7 +195,9 @@ export { expect } from '@playwright/test';
 
 /**
  * Set page content via navigation to the local server with the HTML as response.
- * This ensures the content script is active (unlike page.setContent which uses about:blank).
+ * The navigation is what keeps a recorder live in the new document: it produces
+ * the webNavigation.onCompleted the per-frame injection route keys on (ECP-2),
+ * which page.setContent never performs.
  */
 export async function setTestContent(page, html) {
   await page.route(`http://127.0.0.1:${serverPort}/**`, (route) => {

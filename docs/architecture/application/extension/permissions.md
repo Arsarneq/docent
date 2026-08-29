@@ -43,9 +43,9 @@ privacy-practices justification filled before the next release
 
 ## Host permissions
 
-| Host permission | What Docent does with it                                                                                                                                                                                                                                                                                       |
-| --------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `<all_urls>`    | Lets the service worker inject the recorder into any open http/https page the moment recording starts — a recording follows the user to any site without a per-site grant. Retaining the broad grant alongside programmatic injection is the decision recorded in [ECP-2](capture-principles.md#architecture). |
+| Host permission | What Docent does with it                                                                                                                                                                                                                                                                                      |
+| --------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `<all_urls>`    | Lets the service worker inject the recorder into any open http/https tab the moment recording starts — a recording follows the user to any site without a per-site grant. Retaining the broad grant alongside programmatic injection is the decision recorded in [ECP-2](capture-principles.md#architecture). |
 
 ## Resource exposure stated by the manifest
 

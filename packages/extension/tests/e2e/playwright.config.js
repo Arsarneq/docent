@@ -16,7 +16,10 @@ export default defineConfig({
       // Launch flags live with the launchers, not here: every spec runs the
       // extension in a persistent context created by the shared fixture (or a
       // local in-file fixture), whose chromium.launchPersistentContext call
-      // takes its own options — config-level launchOptions never reach it.
+      // takes its own options. The runner merges its defaults underneath a
+      // caller's — each launcher's options win per key, and a launcher's args
+      // replace the config's wholesale — so keeping the flags with the
+      // launchers is what keeps one launcher's args readable in one place.
       name: 'chromium',
     },
   ],

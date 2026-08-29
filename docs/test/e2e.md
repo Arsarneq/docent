@@ -23,11 +23,23 @@ Everything lives under `packages/extension/tests/e2e/`:
 1. Launch a headed Chromium **persistent context** with the extension loaded
    (`--load-extension`); extensions run neither headless nor in the default
    incognito context. Each test gets its own fresh context.
-2. Serve the test page over loopback HTTP. The recorder is injected only into
-   http/https pages, so `page.setContent` / `about:blank` content would never
-   be captured; the shared fixture runs an in-process server on an ephemeral
-   port, and `setTestContent(page, html)` navigates to a fresh URL served with
-   exactly that HTML.
+2. Serve the test page over loopback HTTP. A served page is what satisfies both
+   injection routes
+   ([runtime — injection](../architecture/application/extension/runtime.md#injection)
+   owns them): the record-start sweep targets the open http/https tabs, so the
+   fixture's initial page is one its tab query matches — a `page.setContent`
+   page would sit on `about:blank`, which that query does not match; and
+   `setTestContent`'s mid-recording pages are reached by the per-frame route,
+   because a real navigation produces the `webNavigation.onCompleted` that
+   route keys on — which `page.setContent` never performs. The shared fixture
+   runs an in-process server on an ephemeral port, and
+   `setTestContent(page, html)` navigates to a fresh URL served with exactly
+   that HTML. The constraint is the top-level page's — the scheme test is the
+   tab's, so a frame nested inside a served page needs no scheme of its own:
+   one already present when recording starts is reached by the sweep wherever
+   the browser lets the extension reach it, and one that finishes loading
+   while recording is live is injected by the per-frame route — the route the
+   srcdoc-iframe rows below rest on.
 3. Start recording by flipping `recording: true` in `chrome.storage.local`
    from the service worker. The SW's recording-flag watch injects the
    recorder into the open frames and seeds the active-frame registry
@@ -109,9 +121,11 @@ context, not from parallelism.
 
 `retries: 3` (four attempts) with `trace: 'on-first-retry'`, and a 30-second
 per-test timeout. Retries absorb real-input timing flakes; a genuine failure
-stays red on every attempt. The consequence for authors: a test must be
-self-contained and repeatable — every attempt starts from a fresh context, so
-nothing may depend on state a previous attempt or test left behind.
+stays red on every attempt. At most one attempt is traced — the first retry,
+and only when there is one, so a test that passes first time produces no trace
+at all. The consequence for authors: a test must be self-contained and
+repeatable — every attempt starts from a fresh context, so nothing may depend
+on state a previous attempt or test left behind.
 
 ### Settle waits
 
@@ -152,9 +166,10 @@ own sweep — so simultaneous runs on one machine collide on neither ports nor
 
 ## What the suite covers
 
-The `specs/` suite is exactly the test files below; a new spec file joins this
-enumeration in the same change that adds it, and a CI lint holds the two in
-agreement.
+The `specs/` suite is exactly the test files below — every spec or test file
+Playwright's default discovery finds under `specs/`, at any depth; a new one
+joins this enumeration in the same change that adds it, and a CI lint holds the
+two in agreement.
 
 ### Capture behaviour — real input in, captured actions out
 
@@ -213,10 +228,10 @@ agreement.
 - **Panel or service-worker behaviour**: copy the `panelPage` fixture pattern
   (open `sidepanel/index.html` by extension id) or `evaluate` against the
   `serviceWorker` fixture directly.
-- New spec or test files under `specs/` are picked up by `testDir`
-  automatically; this document's coverage tables are the listing to update
-  here. What a new file, and the clause rows that pin it, must additionally
-  satisfy is stated in
+- A new spec or test file under `specs/` is discovered by the rule
+  [What the suite covers](#what-the-suite-covers) states; this document's
+  coverage tables are the listing to update here. What a new file, and the
+  clause rows that pin it, must additionally satisfy is stated in
   [CONTRIBUTING § Extending the Docs Governance](../../.github/CONTRIBUTING.md#extending-the-docs-governance).
 - Write for four attempts: fresh context per attempt, no reliance on prior
   state, and waits keyed to observable signals (readiness, settle) rather than
