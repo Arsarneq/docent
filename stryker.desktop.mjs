@@ -14,10 +14,11 @@ export default {
   htmlReporter: {
     fileName: 'reports/mutation-desktop/index.html',
   },
-  // Break just below the measured score (53.50 on the 2026-07-06 weekly run) so
-  // a mutation-score regression reddens the weekly run instead of drifting
-  // silently; ratchet upward as the score improves.
-  thresholds: { break: 51 },
+  // Break just below the measured score (60.39 on the 2026-08-29 local
+  // re-measure against the criterion-reconciled kill set) so a mutation-score
+  // regression reddens the weekly run instead of drifting silently; ratchet
+  // upward as the score improves.
+  thresholds: { break: 58 },
   coverageAnalysis: 'off',
   tempDirName: '.stryker-tmp',
   timeoutMS: 30000,
