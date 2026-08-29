@@ -103,6 +103,13 @@ implements MUST be declared in that typedef: the typedef is the contract's
 single home, and every concrete adapter answers to it in both directions. A
 member only some platforms' callers need is admitted by the rule the adapter
 file's own header states and documented in those platforms' own adapter files.
+Which files those concrete adapters are is settled by name: a concrete adapter
+is a tracked `adapter-<platform>.js` under `packages/`, outside the packages'
+test trees, with
+`packages/shared/views/adapter.js` — the file declaring the contract itself —
+excluded as that one named path. A new platform's adapter therefore owes these
+obligations by being named that way, with no second list to keep in step, and
+the section above sends a reader to exactly that set.
 
 Two further shared seams bind per platform alongside the adapter: the
 sync-state store (`sync-store.js`'s `load`/`save` interface — the extension
