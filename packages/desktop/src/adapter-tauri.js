@@ -267,7 +267,7 @@ function _waitForBarrierSentinel(barrierId, timeoutMs = _barrierWaitTimeoutMs) {
 
 // Wait for a barrier `report`'s delivery sentinel (if the barrier engaged), then
 // strip the internal _seq fields from the collected actions. Shared by the
-// stop-path flush and the mid-capture flush. A falsy or zero `barrier_id` means
+// stop-path flush and the stopped-capture commit. A falsy or zero `barrier_id` means
 // nothing was flushed — no active capture, or an unsupported platform — so we
 // just normalise what is already pending.
 async function _completeBarrier(report) {
