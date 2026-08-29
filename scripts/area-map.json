@@ -441,7 +441,7 @@
     },
     {
       "path": ".github/workflows/mutation.yml",
-      "reason": "The weekly mutation workflow — the mutation-strategy doc owns its cadence and threshold posture.",
+      "reason": "The mutation workflow — the mutation-strategy doc owns its cadence and threshold posture.",
       "governed-by": [
         "docs/guides/ci.md",
         "docs/guides/local-ci.md",
