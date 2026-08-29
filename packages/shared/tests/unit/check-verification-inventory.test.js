@@ -6,13 +6,23 @@
  * red-path family must fail loud: these tests prove the both-way set diffs on
  * each set inventory and the one-way containment of the job-citation leg (every
  * cite names a real job; a job owes no cite), the per-kind field diffs, the
- * class claim, the unreadable-item, unreadable-cell, and unreadable-token
- * refusals, the exactly-one-table selection, the per-document
+ * class claim and the heading the document states it in, the outcome the
+ * corpus clause and the vector meta-schema state of every shipped vector, the
+ * unreadable-item, unreadable-cell, and unreadable-token
+ * refusals, the exactly-one-table and exactly-one-heading selections, the
+ * per-document
  * citation vacuity guard, duplicates, empty parses, and the loud refusal of an
  * input file the command-line readers cannot read or cannot recognise as the
  * surface they read it as — plus the extraction
  * grammars on synthetic documents, and, as a real-tree lock, that the shipped
  * documents satisfy every pin.
+ *
+ * The decisions the check declares rather than derives get their own families:
+ * which documents the citation leg scans, held to the tracked verification
+ * documents so a third one cannot land outside the leg unseen, and which
+ * problem of the shared job-id extractor means the workflow itself could not be
+ * read — the words that classification keys on are pinned, so a problem that
+ * extractor grows later keeps the route it has today.
  *
  * The strict-flip watch gets its own families: every quadrant of both flag legs
  * on every watched platform, the axis independence between them (one flag owed
@@ -46,6 +56,7 @@ import {
   MANIFEST_PATH,
   PACKAGE_JSON_PATH,
   SUFFICIENCY_BASELINE_PATH,
+  VECTOR_SCHEMA_PATH,
   NORMALIZATION_TABLE_HEADER,
   PER_ACTION_TABLE_HEADER,
   RECORDING_TABLE_HEADER,
@@ -62,22 +73,33 @@ import {
   PLATFORM_ARG,
   BASELINE_ARG,
   SUFFICIENCY_SCRIPT,
+  PER_ACTION_CLASS,
+  OUTCOME_FIELD,
+  OUTCOME_CLAUSE_ID,
+  CITED_JOB_DOCUMENTS,
+  NAMED_CAUSE_CAP,
+  JOB_ANCHOR_PROBLEM,
   readFieldTokens,
   extractRelaxationCoverage,
   extractStatedKinds,
+  extractStatedOutcome,
   selectTableByHeader,
   extractNormalizationTokens,
   extractSessionIds,
   extractPredicateTables,
+  extractPerActionClass,
   extractJobCites,
+  documentCitations,
   commandTokens,
   passesFlag,
   argumentValue,
+  namedCauses,
   strictWatchProblems,
   gateArgumentProblems,
   readKnownDiffsBaseline,
   readSufficiencyBaseline,
-  corpusFailEntries,
+  readVectorOutcome,
+  corpusFailKeys,
   readGateCommands,
   readManifestPlatforms,
   evaluateVerificationInventory,
@@ -86,9 +108,9 @@ import {
   readTreeFile,
   listActiveSessions,
 } from '../../../../scripts/check-verification-inventory.js';
-import { topLevelListItems } from '../../../../scripts/check-test-inventory.js';
+import { topLevelListItems, trackedFilesUnder } from '../../../../scripts/check-test-inventory.js';
 import { RELAX_KINDS } from '../../../../scripts/corpus-compare.js';
-import { TEST_WORKFLOW_PATH } from '../../../../scripts/check-doc-closure.js';
+import { TEST_WORKFLOW_PATH, extractJobIds } from '../../../../scripts/check-doc-closure.js';
 
 const ROOT = resolve(import.meta.dirname, '..', '..', '..', '..');
 
@@ -96,16 +118,25 @@ const ROOT = resolve(import.meta.dirname, '..', '..', '..', '..');
  * One platform's gate state for the strict-flip watch, defaulting to the
  * shipped situation: a baseline that still carries a diff, corpus truths that
  * still carry a fail-class finding, and neither flag passed.
+ *
+ * `knownDiffsEmpty` and `failFree` are DERIVED from the populations beside
+ * them, exactly as `auditTree` derives them from what it read, so no fixture
+ * can state a watch state a real tree cannot produce. A case that wants a
+ * trigger's condition met passes that condition's population empty, and the
+ * boolean follows it.
  */
 function watchEntry(overrides = {}) {
   const platform = overrides.platform ?? 'extension';
   const baselinePath = overrides.baselinePath ?? 'corpus/known-diffs.extension.json';
-  return {
+  const entry = {
     platform,
     script: 'corpus:check',
     baselinePath,
-    knownDiffsEmpty: false,
-    failFree: false,
+    // What is holding each trigger shut, as the shipped watch reads it: the
+    // baseline sessions still carrying a diff, and the baseline keys whose
+    // active corpus truths still carry a fail-class finding.
+    knownDiffsCarrying: [`${platform}-open-diff`],
+    failKeys: [`corpus/sessions/${platform}-a/truth.docent.json`],
     strict: false,
     lintStrict: false,
     // The gate command's own argument values, defaulting to agreement with the
@@ -113,6 +144,11 @@ function watchEntry(overrides = {}) {
     platformArg: platform,
     baselineArg: baselinePath,
     ...overrides,
+  };
+  return {
+    ...entry,
+    knownDiffsEmpty: entry.knownDiffsCarrying.length === 0,
+    failFree: entry.failKeys.length === 0,
   };
 }
 
@@ -147,6 +183,10 @@ function makeSurface(overrides = {}) {
     normalizationTableMatches: 1,
     codeNormalizationTokens: ['project_id', 'timestamp'],
     docSessionIds: ['d-click', 'd-redaction'],
+    docOutcomeFields: [OUTCOME_FIELD],
+    docOutcomes: ['resolved'],
+    schemaOutcomes: ['resolved'],
+    schemaRequiresOutcome: true,
     // One per watched platform, keyed exactly as the check keys its own — so a
     // platform added to the watch needs no edit here to stay covered.
     ...Object.fromEntries(
@@ -157,6 +197,8 @@ function makeSurface(overrides = {}) {
     ),
     docPerAction: ['element-locators', 'key-nonempty'],
     perActionTableMatches: 1,
+    docPerActionClass: PER_ACTION_CLASS,
+    perActionHeadingMatches: 1,
     codePerAction: ['element-locators', 'key-nonempty'],
     codeNonFailPerAction: [],
     docRecording: ['context-introduced fail', 'start-point gap'],
@@ -388,7 +430,27 @@ describe('evaluateVerificationInventory — predicate catalogue', () => {
     const problems = evaluateVerificationInventory(
       makeSurface({ codeNonFailPerAction: ['key-nonempty'] }),
     );
-    assert.ok(problems.some((p) => p.includes('key-nonempty') && p.includes('not `fail` class')));
+    const named = problems.filter((p) => p.includes('key-nonempty') && p.includes('not `fail` class')); // prettier-ignore
+    assert.equal(named.length, 1, problems.join('\n'));
+    // The heading was read stating that same class here, so this line may
+    // attribute the class to the document.
+    assert.ok(named[0].includes('per-action heading states of all of them'), named[0]);
+  });
+
+  it('drops the heading attribution where the heading states another class', () => {
+    // Both claims are the document's own and they disagree: the heading finding
+    // carries the doc-side claim, so the per-predicate line must not also tell
+    // the reader the heading states `fail` of all of them.
+    const problems = evaluateVerificationInventory(
+      makeSurface({ docPerActionClass: 'gap', codeNonFailPerAction: ['key-nonempty'] }),
+    );
+    const named = problems.filter((p) => p.includes('key-nonempty') && p.includes('not `fail` class')); // prettier-ignore
+    assert.equal(named.length, 1, problems.join('\n'));
+    assert.ok(!named[0].includes('heading'), named[0]);
+    assert.ok(
+      problems.some((p) => p.includes('states its predicates are all `gap` class')),
+      problems.join('\n'),
+    );
   });
 });
 
@@ -422,7 +484,11 @@ describe('evaluateVerificationInventory — job citations', () => {
     const empty = problems.filter((p) => p.includes(LINT_DOC_PATH) && p.includes('no job citations found')); // prettier-ignore
     assert.equal(empty.length, 1, problems.join('\n'));
     assert.ok(empty[0].includes('restore a job cite'), empty[0]);
-    assert.ok(empty[0].includes("drop the document from this check's scanned set"), empty[0]);
+    // The other exit names the declared list and what dropping a document from
+    // it really costs: the case below holding that list to the tracked
+    // verification documents has to be retired or narrowed in the same change.
+    assert.ok(empty[0].includes('drop the document from CITED_JOB_DOCUMENTS'), empty[0]);
+    assert.ok(empty[0].includes('retiring or narrowing that case'), empty[0]);
   });
 });
 
@@ -435,7 +501,7 @@ for (const { platform, script, baselinePath } of STRICT_WATCH_PLATFORMS) {
 
   describe(`strict-flip watch — ${platform}`, () => {
     it('demands the strict flag once the known-diffs baseline empties', () => {
-      const problems = strictWatchProblems(gate({ knownDiffsEmpty: true }));
+      const problems = strictWatchProblems(gate({ knownDiffsCarrying: [] }));
       assert.equal(problems.length, 1, problems.join('\n'));
       assert.ok(problems[0].includes(baselinePath), problems[0]);
       assert.ok(problems[0].includes(`npm run ${script}`), problems[0]);
@@ -452,15 +518,15 @@ for (const { platform, script, baselinePath } of STRICT_WATCH_PLATFORMS) {
 
     it('is green with the flag absent before the trigger, and present after it', () => {
       assert.deepEqual(strictWatchProblems(gate({})), []);
-      assert.deepEqual(strictWatchProblems(gate({ knownDiffsEmpty: true, strict: true })), []);
+      assert.deepEqual(strictWatchProblems(gate({ knownDiffsCarrying: [], strict: true })), []);
     });
 
     it('demands the lint-strict flag only once BOTH of its conditions hold', () => {
       // Known-diffs empty alone is not enough — that is the `--strict` axis.
-      const halfway = strictWatchProblems(gate({ knownDiffsEmpty: true, strict: true }));
+      const halfway = strictWatchProblems(gate({ knownDiffsCarrying: [], strict: true }));
       assert.deepEqual(halfway, []);
       const problems = strictWatchProblems(
-        gate({ knownDiffsEmpty: true, failFree: true, strict: true }),
+        gate({ knownDiffsCarrying: [], failKeys: [], strict: true }),
       );
       assert.equal(problems.length, 1, problems.join('\n'));
       assert.ok(problems[0].includes(LINT_STRICT_FLAG), problems[0]);
@@ -469,13 +535,13 @@ for (const { platform, script, baselinePath } of STRICT_WATCH_PLATFORMS) {
     });
 
     it('names every unmet condition when the lint-strict flag is passed early', () => {
-      const onlyDiffs = strictWatchProblems(gate({ failFree: true, lintStrict: true }));
+      const onlyDiffs = strictWatchProblems(gate({ failKeys: [], lintStrict: true }));
       assert.equal(onlyDiffs.length, 1, onlyDiffs.join('\n'));
       assert.ok(onlyDiffs[0].includes('still carries a known diff'), onlyDiffs[0]);
       assert.ok(!onlyDiffs[0].includes('fail`-class entry'), onlyDiffs[0]);
 
       const onlyFails = strictWatchProblems(
-        gate({ knownDiffsEmpty: true, strict: true, lintStrict: true }),
+        gate({ knownDiffsCarrying: [], strict: true, lintStrict: true }),
       );
       assert.equal(onlyFails.length, 1, onlyFails.join('\n'));
       assert.ok(onlyFails[0].includes('`fail`-class entry'), onlyFails[0]);
@@ -489,17 +555,17 @@ for (const { platform, script, baselinePath } of STRICT_WATCH_PLATFORMS) {
     });
 
     it('is green with the lint-strict flag absent before, and present after, both conditions', () => {
-      assert.deepEqual(strictWatchProblems(gate({ failFree: true })), []);
+      assert.deepEqual(strictWatchProblems(gate({ failKeys: [] })), []);
       assert.deepEqual(
         strictWatchProblems(
-          gate({ knownDiffsEmpty: true, failFree: true, strict: true, lintStrict: true }),
+          gate({ knownDiffsCarrying: [], failKeys: [], strict: true, lintStrict: true }),
         ),
         [],
       );
     });
 
     it('keeps the two axes independent — one flag owed never implies the other', () => {
-      const problems = strictWatchProblems(gate({ knownDiffsEmpty: true }));
+      const problems = strictWatchProblems(gate({ knownDiffsCarrying: [] }));
       assert.ok(!problems.some((p) => p.includes(LINT_STRICT_FLAG)), problems.join('\n'));
     });
   });
@@ -508,7 +574,7 @@ for (const { platform, script, baselinePath } of STRICT_WATCH_PLATFORMS) {
 describe('the strict-flip watch reaches the evaluator', () => {
   it('a demanded flag surfaces through evaluateVerificationInventory', () => {
     const problems = evaluateVerificationInventory(
-      makeSurface({ strictWatch: [watchEntry({ knownDiffsEmpty: true })] }),
+      makeSurface({ strictWatch: [watchEntry({ knownDiffsCarrying: [] })] }),
     );
     assert.ok(
       problems.some((p) => p.includes(STRICT_FLAG) && p.includes('does not pass it')),
@@ -523,7 +589,7 @@ describe('the strict-flip watch reaches the evaluator', () => {
     const problems = evaluateVerificationInventory(
       makeSurface({
         [activeSessionsKey('extension')]: [],
-        strictWatch: [watchEntry({ knownDiffsEmpty: true, failFree: true })],
+        strictWatch: [watchEntry({ knownDiffsCarrying: [], failKeys: [] })],
       }),
     );
     assert.ok(
@@ -531,6 +597,127 @@ describe('the strict-flip watch reaches the evaluator', () => {
       problems.join('\n'),
     );
     assert.ok(!problems.some((p) => p.includes(LINT_STRICT_FLAG)), problems.join('\n'));
+  });
+});
+
+// The gate-argument cross-check reads gate commands and this check's own
+// constants only — no parsed document surface, no session discovery — so it is
+// sound on a tree whose extractions came back empty, and it runs there. Behind
+// the vacuity return it was undiagnosable: any one empty surface hid a gate
+// pointed at a file it does not gate on.
+describe('the gate-argument cross-check survives a vacuous surface', () => {
+  it('diagnoses a repointed gate beside an emptied active-session list', () => {
+    const problems = evaluateVerificationInventory(
+      makeSurface({
+        [activeSessionsKey('extension')]: [],
+        strictWatch: [watchEntry({ baselineArg: 'corpus/elsewhere.json' })],
+      }),
+    );
+    assert.ok(problems.some((p) => p.includes('no active extension sessions')), problems.join('\n')); // prettier-ignore
+    assert.ok(problems.some((p) => p.includes('corpus/elsewhere.json') && p.includes(BASELINE_ARG)), problems.join('\n')); // prettier-ignore
+  });
+
+  it('diagnoses one beside a scanned document that stopped citing a job', () => {
+    // The likelier trigger of the two: one scanned document carries a single
+    // job cite, so an ordinary reword fires its per-document vacuity leg.
+    const problems = evaluateVerificationInventory(
+      makeSurface({
+        docCites: [
+          { path: CORPUS_DOC_PATH, cites: ['unit-tests'] },
+          { path: LINT_DOC_PATH, cites: [] },
+        ],
+        strictWatch: [watchEntry({ platformArg: 'desktop-windows' })],
+      }),
+    );
+    assert.ok(
+      problems.some((p) => p.includes('no job citations found')),
+      problems.join('\n'),
+    );
+    assert.ok(problems.some((p) => p.includes(PLATFORM_ARG) && p.includes('desktop-windows')), problems.join('\n')); // prettier-ignore
+  });
+
+  it('a surface stating no watch reaches the guard rather than a type error', () => {
+    const surface = makeSurface();
+    delete surface.strictWatch;
+    const problems = evaluateVerificationInventory(surface);
+    assert.ok(
+      problems.some((p) => p.includes('`strictWatch`')),
+      problems.join('\n'),
+    );
+  });
+
+  it('a surface stating no sufficiency baseline argument reads as nothing, never as `undefined`', () => {
+    const surface = makeSurface();
+    delete surface.sufficiencyBaselineArg;
+    const problems = evaluateVerificationInventory(surface);
+    const named = problems.filter((p) => p.includes(`npm run ${SUFFICIENCY_SCRIPT}`));
+    assert.equal(named.length, 1, problems.join('\n'));
+    assert.ok(named[0].includes('passes nothing for'), named[0]);
+    assert.ok(!named[0].includes('undefined'), named[0]);
+  });
+});
+
+// A verdict about a trigger that has not come true names what is holding it
+// shut: without that, "still carries a known diff" sends the reader to a file
+// of per-session lists to search by hand.
+describe('strict-flip verdicts name what is holding a trigger shut', () => {
+  const truthKey = (id) => `corpus/sessions/${id}/truth.docent.json`;
+
+  it('names the baseline sessions still carrying a diff, on both legs that report one', () => {
+    const premature = strictWatchProblems([
+      watchEntry({ strict: true, knownDiffsCarrying: ['ext-pointer-drag', 'ext-scroll-floor'] }),
+    ]);
+    assert.equal(premature.length, 1, premature.join('\n'));
+    assert.ok(premature[0].includes('(ext-pointer-drag, ext-scroll-floor)'), premature[0]);
+
+    const unmet = strictWatchProblems([
+      watchEntry({ lintStrict: true, failKeys: [], knownDiffsCarrying: ['ext-pointer-drag'] }),
+    ]);
+    assert.equal(unmet.length, 1, unmet.join('\n'));
+    assert.ok(unmet[0].includes('still carries a known diff (ext-pointer-drag)'), unmet[0]);
+  });
+
+  it('names the corpus truths still carrying a fail-class finding, by baseline key alone', () => {
+    const problems = strictWatchProblems([
+      watchEntry({
+        knownDiffsCarrying: [],
+        strict: true,
+        lintStrict: true,
+        failKeys: [truthKey('ext-tab-open')],
+      }),
+    ]);
+    assert.equal(problems.length, 1, problems.join('\n'));
+    assert.ok(problems[0].includes(`(${truthKey('ext-tab-open')})`), problems[0]);
+    // The key names a file to open; the findings under it stay out of the line,
+    // which is what keeps one verdict readable at the width a reader scans.
+    assert.ok(!problems[0].includes('fail:element-locators'), problems[0]);
+  });
+
+  it('names up to the cap and counts the rest, so one line stays one line', () => {
+    const carrying = Array.from({ length: NAMED_CAUSE_CAP + 2 }, (_, i) => `ext-session-${i}`);
+    const problems = strictWatchProblems([
+      watchEntry({ strict: true, knownDiffsCarrying: carrying }),
+    ]);
+    assert.equal(problems.length, 1, problems.join('\n'));
+    for (const named of carrying.slice(0, NAMED_CAUSE_CAP)) {
+      assert.ok(problems[0].includes(named), problems[0]);
+    }
+    assert.ok(!problems[0].includes(carrying[NAMED_CAUSE_CAP]), problems[0]);
+    assert.ok(problems[0].includes('and 2 more'), problems[0]);
+  });
+
+  it('names nothing where an entry states no population, and the verdict still stands', () => {
+    const bare = { ...watchEntry({ strict: true }), knownDiffsCarrying: undefined };
+    const problems = strictWatchProblems([bare]);
+    assert.equal(problems.length, 1, problems.join('\n'));
+    assert.ok(problems[0].includes('still carries a known diff —'), problems[0]);
+    assert.ok(!problems[0].includes(' ('), problems[0]);
+  });
+
+  it('the cap renders a name list, a counted remainder, and nothing for nothing', () => {
+    assert.equal(namedCauses([]), '');
+    assert.equal(namedCauses(['a', 'b']), ' (a, b)');
+    assert.equal(namedCauses(['a', 'b', 'c'], 2), ' (a, b, and 1 more)');
   });
 });
 
@@ -965,6 +1152,200 @@ describe('extractStatedKinds — §STC-5’s kind sentence', () => {
   });
 });
 
+describe('extractStatedOutcome — §STC-23’s shipping outcome', () => {
+  /** A minimal §STC-23 shaped like the shipped clause: the whole section read. */
+  const doc = (
+    sentence = 'Only vectors whose `expected_outcome` is `resolved` ship: every committed vector MUST state that outcome.', // prettier-ignore
+  ) =>
+    [
+      `**STC-23.** ${sentence}`,
+      '',
+      '### Emission',
+      '',
+      'A later section naming `not-resolved` outside the clause.',
+    ].join('\n');
+
+  it('bins the clause’s tokens by the field this check reads the meta-schema under', () => {
+    const read = extractStatedOutcome(doc());
+    assert.deepEqual(read.fields, [OUTCOME_FIELD]);
+    assert.deepEqual(read.outcomes, ['resolved']);
+    assert.deepEqual(read.unreadableTokens, []);
+  });
+
+  it('takes nothing from outside the clause’s own section', () => {
+    assert.ok(!extractStatedOutcome(doc()).outcomes.includes('not-resolved'));
+  });
+
+  it('binds the two roles by that constant, never by where a token sits', () => {
+    // The equivalent reword: the same tokens, the other order. A positional
+    // rule would read the outcome as the field and red a document that says
+    // exactly what the shipped one says.
+    const read = extractStatedOutcome(
+      doc('Every committed vector MUST state the outcome `resolved`, under `expected_outcome`.'),
+    );
+    assert.deepEqual(read.fields, [OUTCOME_FIELD]);
+    assert.deepEqual(read.outcomes, ['resolved']);
+    assert.deepEqual(
+      evaluateVerificationInventory(
+        makeSurface({ docOutcomeFields: read.fields, docOutcomes: read.outcomes }),
+      ),
+      [],
+    );
+  });
+
+  it('collapses a repeat, so a sibling sentence naming the outcome again is prose', () => {
+    const twice = doc(
+      'Only vectors whose `expected_outcome` is `resolved` ship. A vector stating anything but `resolved` is outside the shipped set.', // prettier-ignore
+    );
+    assert.deepEqual(extractStatedOutcome(twice).outcomes, ['resolved']);
+  });
+
+  it('refuses a token the outcome grammar cannot read rather than dropping it', () => {
+    const read = extractStatedOutcome(
+      doc('Only vectors whose `expected_outcome` is `Resolved_OK` ship.'),
+    );
+    assert.deepEqual(read.outcomes, []);
+    assert.deepEqual(
+      read.unreadableTokens.map((u) => u.token),
+      ['Resolved_OK'],
+    );
+    const problems = evaluateVerificationInventory(
+      makeSurface({ unreadableTokens: read.unreadableTokens }),
+    );
+    assert.ok(
+      problems.some((p) => p.includes('Resolved_OK') && p.includes('lower-case hyphenated token')),
+      problems.join('\n'),
+    );
+  });
+
+  it('reads nothing when the clause marker is absent', () => {
+    const read = extractStatedOutcome('# no clauses here');
+    assert.deepEqual(read.fields, []);
+    assert.deepEqual(read.outcomes, []);
+  });
+
+  it('the shipped clause and the shipped meta-schema state the same outcome', () => {
+    const read = extractStatedOutcome(readFileSync(join(ROOT, CORPUS_DOC_PATH), 'utf8'));
+    const schema = readVectorOutcome(
+      (path) => readFileSync(join(ROOT, path), 'utf8'),
+      VECTOR_SCHEMA_PATH,
+    );
+    assert.deepEqual(read.unreadableTokens, []);
+    assert.deepEqual(read.fields, [OUTCOME_FIELD]);
+    assert.deepEqual(read.outcomes, [schema.outcome]);
+    assert.equal(schema.required, true);
+  });
+
+  it('a mutated outcome in the shipped clause reds — the leg is not vacuous', () => {
+    const text = readFileSync(join(ROOT, CORPUS_DOC_PATH), 'utf8');
+    const stated = 'is `resolved` ship';
+    assert.ok(text.includes(stated), 'the mutation anchor moved');
+    const read = extractStatedOutcome(text.replace(stated, 'is `matched` ship'));
+    assert.deepEqual(read.outcomes, ['matched']);
+    const problems = evaluateVerificationInventory(makeSurface({ docOutcomes: read.outcomes }));
+    assert.ok(
+      problems.some((p) => p.includes('`matched`') && p.includes(VECTOR_SCHEMA_PATH)),
+      problems.join('\n'),
+    );
+  });
+});
+
+describe('evaluateVerificationInventory — the shipping outcome, both ways', () => {
+  it('fires when the clause states an outcome the meta-schema does not', () => {
+    const problems = evaluateVerificationInventory(makeSurface({ docOutcomes: ['matched'] }));
+    assert.ok(
+      problems.some((p) => p.includes('`matched`') && p.includes('does not state under')),
+      problems.join('\n'),
+    );
+  });
+
+  it('fires when the meta-schema states one the clause does not', () => {
+    const problems = evaluateVerificationInventory(makeSurface({ schemaOutcomes: ['matched'] }));
+    assert.ok(
+      problems.some((p) => p.includes('`matched`') && p.includes(`§${OUTCOME_CLAUSE_ID} does not state`)), // prettier-ignore
+      problems.join('\n'),
+    );
+  });
+
+  it('a clause that renamed the field is drift naming both surfaces, never machinery', () => {
+    // The escape a schema lookup keyed by the DOCUMENT's token would take: it
+    // would refuse the meta-schema, which never moved, and exit on the
+    // machinery verdict instead of naming the two surfaces that disagree.
+    const problems = evaluateVerificationInventory(makeSurface({ docOutcomeFields: [] }));
+    const named = problems.filter((p) => p.includes(OUTCOME_FIELD) && p.includes(OUTCOME_CLAUSE_ID)); // prettier-ignore
+    assert.equal(named.length, 1, problems.join('\n'));
+    assert.ok(named[0].includes(VECTOR_SCHEMA_PATH), named[0]);
+    assert.ok(!named[0].includes('shape is what failed here'), named[0]);
+  });
+
+  it('fires when the meta-schema stops requiring the field of every vector', () => {
+    const problems = evaluateVerificationInventory(makeSurface({ schemaRequiresOutcome: false }));
+    assert.ok(
+      problems.some((p) => p.includes('does not require') && p.includes(OUTCOME_FIELD)),
+      problems.join('\n'),
+    );
+  });
+
+  it('is fail-closed when the surface states no required membership at all', () => {
+    // The treatment the table and heading count guards take: a surface omitting
+    // the key hands `undefined` — not the required membership — so a read that
+    // answered nothing reds rather than passing over as a requiring meta-schema.
+    const surface = makeSurface();
+    delete surface.schemaRequiresOutcome;
+    assert.ok(
+      evaluateVerificationInventory(surface).some((p) => p.includes('does not require')),
+      'a surface without the key must red',
+    );
+  });
+});
+
+describe('readVectorOutcome — the meta-schema side, keyed by this check’s constant', () => {
+  const reader = (text) => (path) => {
+    if (path !== VECTOR_SCHEMA_PATH) throw new InputError(`${path} could not be read`);
+    return text;
+  };
+  const schema = (properties, required = [OUTCOME_FIELD]) =>
+    JSON.stringify({ required, properties });
+
+  it('reads the stated outcome and the required membership', () => {
+    const read = readVectorOutcome(
+      reader(schema({ [OUTCOME_FIELD]: { const: 'resolved' } })),
+      VECTOR_SCHEMA_PATH,
+    );
+    assert.deepEqual(read, { outcome: 'resolved', required: true });
+  });
+
+  it('reads a meta-schema that lists the field nowhere in `required` as not requiring it', () => {
+    const read = readVectorOutcome(
+      reader(schema({ [OUTCOME_FIELD]: { const: 'resolved' } }, ['vector_id'])),
+      VECTOR_SCHEMA_PATH,
+    );
+    assert.equal(read.required, false);
+  });
+
+  for (const [label, text, expected] of [
+    ['unparseable', '{ "properties": ', /is not parseable JSON/],
+    ['no properties object', '{"properties": []}', /carries no `properties` object/],
+    ['no such property', '{"properties": {"vector_id": {}}}', /carries no `properties\.expected_outcome` object/], // prettier-ignore
+    ['no const', '{"properties": {"expected_outcome": {"type": "string"}}}', /states no `const` outcome/], // prettier-ignore
+    ['a blank const', '{"properties": {"expected_outcome": {"const": "  "}}}', /states no `const` outcome/], // prettier-ignore
+  ]) {
+    it(`refuses ${label} as machinery, naming the meta-schema`, () => {
+      assert.throws(
+        () => readVectorOutcome(reader(text), VECTOR_SCHEMA_PATH),
+        (error) => {
+          assert.ok(error instanceof InputError, `not an InputError: ${error}`);
+          assert.match(error.message, expected);
+          assert.ok(error.message.includes(VECTOR_SCHEMA_PATH), error.message);
+          // The verdict a meta-schema this check cannot read must never take.
+          assert.doesNotMatch(error.message, /does not state/);
+          return true;
+        },
+      );
+    });
+  }
+});
+
 /** A minimal document whose normalization table sits under §STC-19, as shipped. */
 const normalizationDoc = () =>
   [
@@ -1107,6 +1488,191 @@ describe('extractSessionIds / extractPredicateTables / extractJobCites', () => {
   });
 });
 
+describe('extractPerActionClass — the class the lint document’s heading states', () => {
+  const doc = (heading = '### Per-action predicates (all `fail` class)') =>
+    [
+      heading,
+      '',
+      '| Predicate | Applies to | Requires |',
+      '| --- | --- | --- |',
+      '| `element-locators` | elements | one candidate |',
+    ].join('\n');
+
+  it('reads the class out of the one heading that states it', () => {
+    assert.deepEqual(extractPerActionClass(doc()), {
+      klass: 'fail',
+      matches: 1,
+      unreadableTokens: [],
+    });
+  });
+
+  it('reads a heading stating another class rather than missing the claim', () => {
+    const read = extractPerActionClass(doc('### Per-action predicates (all `gap` class)'));
+    assert.equal(read.klass, 'gap');
+    const problems = evaluateVerificationInventory(makeSurface({ docPerActionClass: read.klass }));
+    assert.ok(
+      problems.some((p) => p.includes('`gap`') && p.includes(PER_ACTION_CLASS) && p.includes('per-action heading')), // prettier-ignore
+      problems.join('\n'),
+    );
+  });
+
+  it('counts a document stating that class in no heading, rather than passing over it', () => {
+    assert.deepEqual(extractPerActionClass(doc('### Per-action predicates')), {
+      klass: null,
+      matches: 0,
+      unreadableTokens: [],
+    });
+    const problems = evaluateVerificationInventory(
+      makeSurface({ docPerActionClass: null, perActionHeadingMatches: 0 }),
+    );
+    assert.ok(
+      problems.some((p) => p.includes('0 heading(s)') && p.includes('exactly one')),
+      problems.join('\n'),
+    );
+  });
+
+  it('refuses a document stating it twice rather than reading whichever came first', () => {
+    const read = extractPerActionClass(
+      [doc(), '', '### Per-action predicates (all `gap` class)'].join('\n'),
+    );
+    assert.equal(read.matches, 2);
+    assert.equal(read.klass, null);
+    const problems = evaluateVerificationInventory(
+      makeSurface({ docPerActionClass: null, perActionHeadingMatches: 2 }),
+    );
+    assert.ok(
+      problems.some((p) => p.includes('2 heading(s)') && p.includes('exactly one')),
+      problems.join('\n'),
+    );
+  });
+
+  it('never reads a heading written inside an illustrative fence', () => {
+    const fenced = [doc(), '', '```md', '### Per-action predicates (all `gap` class)', '```'].join('\n'); // prettier-ignore
+    const read = extractPerActionClass(fenced);
+    assert.equal(read.matches, 1);
+    assert.equal(read.klass, 'fail');
+  });
+
+  it('refuses an unbackticked class, and shows the fragment as the heading writes it', () => {
+    // The evidence is the whole finding here: a fragment the renderer wrapped in
+    // backticks of its own would show an unbackticked class as `fail` — exactly
+    // the one lower-case backticked token the expectation beside it asks for, so
+    // the line would read as a heading that satisfies it being refused anyway.
+    const read = extractPerActionClass(doc('### Per-action predicates (all fail class)'));
+    assert.equal(read.klass, null);
+    assert.deepEqual(
+      read.unreadableTokens.map((u) => u.token),
+      ['fail'],
+    );
+    const problems = evaluateVerificationInventory(
+      makeSurface({ unreadableTokens: read.unreadableTokens }),
+    );
+    const named = problems.filter((p) => p.includes('one lower-case backticked token'));
+    assert.equal(named.length, 1, problems.join('\n'));
+    assert.ok(named[0].includes('per-action heading carries fail,'), named[0]);
+    assert.ok(!named[0].includes('carries `fail`'), named[0]);
+  });
+
+  for (const [label, stated] of [
+    ['a backticked class the grammar refuses', '`Fail`'],
+    ['a heading stating more than one token', '`fail` `gap`'],
+  ]) {
+    it(`refuses ${label}, showing its own backticks once`, () => {
+      const read = extractPerActionClass(doc(`### Per-action predicates (all ${stated} class)`));
+      assert.equal(read.klass, null);
+      const problems = evaluateVerificationInventory(
+        makeSurface({ unreadableTokens: read.unreadableTokens }),
+      );
+      const named = problems.filter((p) => p.includes('one lower-case backticked token'));
+      assert.equal(named.length, 1, problems.join('\n'));
+      assert.ok(named[0].includes(`carries ${stated},`), named[0]);
+      // A re-wrapped fragment renders its delimiters doubled, which is unreadable
+      // as evidence: the reader cannot tell what the heading actually states.
+      assert.ok(!named[0].includes('``'), named[0]);
+    });
+  }
+
+  it('is fail-closed when the surface states no heading count at all', () => {
+    // The `!== 1` form, as on the table counts: a surface omitting the key
+    // hands the guard `undefined`, which is not 1, so a read that answered
+    // nothing reds here instead of passing over.
+    const surface = makeSurface();
+    delete surface.perActionHeadingMatches;
+    assert.ok(
+      evaluateVerificationInventory(surface).some((p) => p.includes('exactly one')),
+      'a surface without the key must red',
+    );
+  });
+
+  it('a surface stating no class reads as one the scan did not read, never as `undefined`', () => {
+    const surface = makeSurface();
+    delete surface.docPerActionClass;
+    assert.ok(
+      !evaluateVerificationInventory(surface).some((p) => p.includes('undefined')),
+      'the class finding must not render an absent read',
+    );
+  });
+
+  it('the shipped document states this check’s own per-action class', () => {
+    const read = extractPerActionClass(readFileSync(join(ROOT, LINT_DOC_PATH), 'utf8'));
+    assert.equal(read.matches, 1);
+    assert.equal(read.klass, PER_ACTION_CLASS);
+    assert.deepEqual(read.unreadableTokens, []);
+  });
+
+  it('a mutated heading in the shipped document reds — the leg is not vacuous', () => {
+    const text = readFileSync(join(ROOT, LINT_DOC_PATH), 'utf8');
+    const stated = '### Per-action predicates (all `fail` class)';
+    assert.ok(text.includes(stated), 'the mutation anchor moved');
+    const read = extractPerActionClass(
+      text.replace(stated, '### Per-action predicates (all `gap` class)'),
+    );
+    const problems = evaluateVerificationInventory(makeSurface({ docPerActionClass: read.klass }));
+    assert.ok(
+      problems.some((p) => p.includes('states its predicates are all `gap` class')),
+      problems.join('\n'),
+    );
+  });
+});
+
+// Which documents the citation leg scans is a declared decision, not a pair
+// written into the call — and the suite is where that decision is forced to
+// stay true of the tree.
+describe('the citation leg’s scanned set is declared', () => {
+  it('the declared set is exactly the tracked verification documents', () => {
+    assert.deepEqual(
+      [...CITED_JOB_DOCUMENTS].sort(),
+      trackedFilesUnder('docs/verification', { extensions: ['.md'], cwd: ROOT }).sort(),
+    );
+  });
+
+  it('the deliberately unscanned document is outside it', () => {
+    // The check's own header names it: it cites no job, so an empty extraction
+    // there could not tell a broken scan from a document that never cited.
+    assert.ok(!CITED_JOB_DOCUMENTS.includes('docs/requirements/replay-sufficiency.md'));
+  });
+
+  it('the leg reads whatever list it is handed, one entry per document', () => {
+    const cites = documentCitations(
+      ['a.md', 'b.md', 'c.md'],
+      (path) => `Produced by the \`${path.replace('.md', '')}-job\` job.`,
+    );
+    assert.deepEqual(cites, [
+      { path: 'a.md', cites: ['a-job'] },
+      { path: 'b.md', cites: ['b-job'] },
+      { path: 'c.md', cites: ['c-job'] },
+    ]);
+  });
+
+  it('every declared document of the shipped tree cites a job', () => {
+    const cites = documentCitations(CITED_JOB_DOCUMENTS, (path) =>
+      readFileSync(join(ROOT, path), 'utf8'),
+    );
+    assert.equal(cites.length, CITED_JOB_DOCUMENTS.length);
+    for (const { path, cites: found } of cites) assert.ok(found.length > 0, `${path} cites no job`);
+  });
+});
+
 describe('unreadable backticked tokens are refused, never dropped', () => {
   it('a camelCase token in a scanned Class cell reds instead of shrinking the scan', () => {
     const doc = normalizationDoc().replace('`recording_id`', '`matchCount`');
@@ -1123,6 +1689,8 @@ describe('unreadable backticked tokens are refused, never dropped', () => {
       problems.some((p) => p.includes('matchCount') && p.includes('lower-case with underscores')),
       problems.join('\n'),
     );
+    // Pins the wrap side of the render contract: a bare token renders backticked.
+    assert.ok(problems.some((p) => p.includes('carries `matchCount`,')), problems.join('\n')); // prettier-ignore
   });
 
   it('a digit-bearing field name reds rather than vanishing from a kind’s coverage', () => {
@@ -1186,10 +1754,20 @@ describe('strict-watch readers — a broken input is never a flipped trigger', (
   it('reads emptiness only from a baseline that covers every active session', () => {
     assert.deepEqual(readKnownDiffsBaseline(at('{"a": [], "b": []}'), KD, ['a', 'b']), {
       empty: true,
+      carrying: [],
     });
     assert.deepEqual(readKnownDiffsBaseline(at('{"a": [], "b": ["x"]}'), KD, ['a', 'b']), {
       empty: false,
+      carrying: ['b'],
     });
+  });
+
+  it('returns the sessions still carrying a diff, so the verdict can name them', () => {
+    // The read a diagnosis stands on: emptiness alone leaves "still carries a
+    // known diff" pointing at a file of per-session lists to search by hand.
+    const read = readKnownDiffsBaseline(at('{"a": ["x"], "b": [], "c": ["y", "z"]}'), KD, ['a']);
+    assert.equal(read.empty, false);
+    assert.deepEqual(read.carrying, ['a', 'c']);
   });
 
   for (const [label, text, expected] of [
@@ -1267,19 +1845,24 @@ describe('strict-watch readers — a broken input is never a flipped trigger', (
     );
   });
 
-  it('counts fail entries of ACTIVE sessions only, and never a frozen fixture’s', () => {
+  it('names ACTIVE sessions’ truth keys only, once each, and never a frozen fixture’s', () => {
     const baseline = {
-      [truthKey('active-one')]: ['fail:element-locators rec[0]', 'gap:start-point rec[0]'],
+      [truthKey('active-one')]: ['fail:element-locators rec[0]', 'fail:key-nonempty rec[1]', 'gap:start-point rec[0]'], // prettier-ignore
+      [truthKey('active-two')]: ['gap:start-point rec[0]'],
       [truthKey('retired-one')]: ['fail:element-locators rec[0]'],
       'packages/shared/tests/fixtures/extension/v3.0.0.docent.json': ['fail:element-locators rec[0]'], // prettier-ignore
     };
-    const found = corpusFailEntries(baseline, ['active-one']);
-    assert.equal(found.length, 1);
-    assert.ok(found[0].includes('active-one'), found[0]);
+    // One truth file carrying several fail findings names once — the diagnosis
+    // names files to open, not the findings inside them — and a truth carrying
+    // none is not holding the trigger shut at all.
+    assert.deepEqual(corpusFailKeys(baseline, ['active-one', 'active-two']), [truthKey('active-one')]); // prettier-ignore
     // A retired session's truth stays on disk and in the ledger by §STC-14;
     // unfiltered, its entry would hold the trigger shut forever.
-    assert.deepEqual(corpusFailEntries(baseline, ['other']), []);
-    assert.deepEqual(corpusFailEntries(baseline, ['active-one', 'retired-one']).length, 2);
+    assert.deepEqual(corpusFailKeys(baseline, ['other']), []);
+    assert.deepEqual(corpusFailKeys(baseline, ['active-one', 'retired-one']), [
+      truthKey('active-one'),
+      truthKey('retired-one'),
+    ]);
   });
 
   const PKG = PACKAGE_JSON_PATH;
@@ -1312,6 +1895,45 @@ describe('strict-watch readers — a broken input is never a flipped trigger', (
       );
     });
   }
+});
+
+// The job ids come from a file this check reads, so a workflow the shared scan
+// cannot anchor in is that file failing, not an inventory drifting. The
+// classification sits on this check's side of the shared call, which is why the
+// vocabulary it keys on is pinned here.
+describe('the workflow anchor is an input this check reads', () => {
+  const deAnchor = (yaml) => yaml.replace(/^jobs:/m, '# jobs:');
+
+  it('the shared extractor states the anchor problem in the words this check matches', () => {
+    const workflow = readFileSync(join(ROOT, TEST_WORKFLOW_PATH), 'utf8');
+    const read = extractJobIds(deAnchor(workflow));
+    assert.deepEqual(read.ids, []);
+    assert.equal(read.problems.length, 1, read.problems.join('\n'));
+    assert.ok(read.problems[0].includes(JOB_ANCHOR_PROBLEM), read.problems[0]);
+    assert.ok(read.problems[0].includes(TEST_WORKFLOW_PATH), read.problems[0]);
+
+    // An anchored workflow with no job keys is a different fact: the extractor
+    // reports no problem at all, so that emptiness stays the vacuity leg's.
+    assert.deepEqual(extractJobIds(['jobs:', '', 'name: t'].join('\n')), { ids: [], problems: [] });
+  });
+
+  it('auditTree refuses a de-anchored workflow as an input, once, naming it', () => {
+    const readFile = (path) =>
+      path === TEST_WORKFLOW_PATH
+        ? deAnchor(readFileSync(join(ROOT, path), 'utf8'))
+        : readTreeFile(join(ROOT, path));
+    assert.throws(
+      () => auditTree(readFile, (platform) => listActiveSessions(platform, join(ROOT, MANIFEST_PATH))), // prettier-ignore
+      (error) => {
+        assert.ok(error instanceof InputError, `not an InputError: ${error}`);
+        assert.ok(error.message.includes(JOB_ANCHOR_PROBLEM), error.message);
+        // The duplicate the reclassification dissolves: the same fact reported
+        // again as an inventory that came back empty.
+        assert.doesNotMatch(error.message, /no job ids found/);
+        return true;
+      },
+    );
+  });
 });
 
 describe('command-line readers — an unreadable input is never an empty inventory', () => {
@@ -1449,6 +2071,7 @@ describe('check-verification-inventory: CLI exit codes at the process boundary',
     MANIFEST_PATH,
     SUFFICIENCY_BASELINE_PATH,
     PACKAGE_JSON_PATH,
+    VECTOR_SCHEMA_PATH,
     ...STRICT_WATCH_PLATFORMS.map((w) => w.baselinePath),
   ];
   let root = null;
@@ -1559,6 +2182,58 @@ describe('check-verification-inventory: CLI exit codes at the process boundary',
     assert.match(stderr, /carries no session keys at all/);
     assert.doesNotMatch(stderr, /inventory drifted/);
     assert.doesNotMatch(stderr, /carries no known diff/);
+  });
+
+  it('exit 2 when the workflow carries no anchor, and the fact is stated once', () => {
+    // Before the reclassification this exited 1 under the drift headline, and
+    // twice over: once as the extractor's problem and again as an inventory
+    // that came back empty.
+    const anchor = run(
+      tree((files) =>
+        files.set(TEST_WORKFLOW_PATH, files.get(TEST_WORKFLOW_PATH).replace(/^jobs:/m, '# jobs:')),
+      ),
+    );
+    assert.equal(anchor.status, 2, anchor.stderr);
+    assert.match(anchor.stderr, /could not be used/);
+    assert.match(anchor.stderr, /carries no top-level/);
+    assert.doesNotMatch(anchor.stderr, /inventory drifted/);
+    assert.doesNotMatch(anchor.stderr, /no job ids found/);
+
+    const drift = run(
+      tree((files) =>
+        files.set(CORPUS_DOC_PATH, files.get(CORPUS_DOC_PATH).replace(', and `delta_x` (', ' (')),
+      ),
+    );
+    assert.notEqual(anchor.status, drift.status);
+  });
+
+  it('exit 2 when the vector meta-schema states no outcome under the field it is read by', () => {
+    const { status, stderr } = run(
+      tree((files) => {
+        const schema = JSON.parse(files.get(VECTOR_SCHEMA_PATH));
+        delete schema.properties.expected_outcome.const;
+        files.set(VECTOR_SCHEMA_PATH, JSON.stringify(schema, null, 2));
+      }),
+    );
+    assert.equal(status, 2, stderr);
+    assert.match(stderr, /could not be used/);
+    assert.match(stderr, /states no `const` outcome/);
+    assert.doesNotMatch(stderr, /inventory drifted/);
+  });
+
+  it('exit 1 when the clause states an outcome the meta-schema does not', () => {
+    const { status, stderr } = run(
+      tree((files) => {
+        const doc = files.get(CORPUS_DOC_PATH);
+        const stated = 'is `resolved` ship';
+        assert.ok(doc.includes(stated), 'the mutation anchor moved');
+        files.set(CORPUS_DOC_PATH, doc.replace(stated, 'is `matched` ship'));
+      }),
+    );
+    assert.equal(status, 1, stderr);
+    assert.match(stderr, /inventory drifted/);
+    assert.match(stderr, /matched/);
+    assert.doesNotMatch(stderr, /could not be used/);
   });
 
   it('the drift verdict and the machinery verdict never share an exit code', () => {

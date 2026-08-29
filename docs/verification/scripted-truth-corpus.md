@@ -332,7 +332,10 @@ this document owns the inventory of shipped vectors and the machinery that
 emits and locks them. Nothing here executes the resolution procedure.
 
 **STC-23.** Only vectors whose `expected_outcome` is `resolved` ship: every
-committed vector MUST state that outcome.
+committed vector MUST state that outcome. This clause and the meta-schema are
+held to each other by the verification-inventory lint: it reds when either
+states an outcome the other does not, and when the meta-schema stops requiring
+the field this clause states that outcome under.
 
 ### Emission (produced, then reviewed and committed)
 

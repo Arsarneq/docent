@@ -477,7 +477,7 @@
     },
     {
       "path": "scripts/check-verification-inventory.js",
-      "reason": "The verification-inventory admission test — it owes the ci/release area's whole doc set as a unit; beyond that set, it holds the corpus doctrine's relaxation, normalization, and session-catalogue clauses and the sufficiency-lint doc's predicate tables to the constants and manifest they describe, per those clauses' registry rows, and holds both verification docs' job cites against .github/workflows/test.yml's job ids, so both verification docs govern it beside that set.",
+      "reason": "The verification-inventory admission test — it owes the ci/release area's whole doc set as a unit; beyond that set, it holds the corpus doctrine's relaxation, normalization, session-catalogue, and vector-outcome clauses and the sufficiency-lint doc's predicate tables and per-action class heading to the constants, manifest, and vector meta-schema they describe, per those clauses' registry rows, and holds the job cites of the verification documents it declares as its scanned set against .github/workflows/test.yml's job ids, so both verification docs govern it beside that set.",
       "governed-by": [
         "area:ci/release",
         "docs/verification/scripted-truth-corpus.md",
