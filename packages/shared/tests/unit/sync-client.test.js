@@ -366,7 +366,12 @@ describe('buildPayloadForProject', () => {
     // Trap enumeration is inherently open — it can only cover the ways of asking
     // someone thought of, which is why the output-side assertion below backs it
     // up and why deriving both literals from one shared constant would retire
-    // this machinery altogether.
+    // this machinery altogether. The composed-schema-authority form of that
+    // derivation was deliberately not taken: churn against benefit — the schema
+    // would need threading through pullProjects from the caller that already
+    // computes the local stamp from it — with the coverage judged sufficient:
+    // these traps, the output-side assertion below, and the composed-schema
+    // case holding every root property through the projection.
     const projectionKeys = new Set();
     const keyRecorder = new Proxy(
       {},
@@ -408,7 +413,9 @@ describe('buildPayloadForProject', () => {
     // drops; a name only the PROJECTION knows is never offered to it, so the
     // recorder above remains the sole guard for that direction and is bounded by
     // the idioms it traps. Deriving both literals from one shared constant is
-    // what would retire the split.
+    // what would retire the split — its composed-schema form was deliberately
+    // not taken; the record sits at the recorder's trap-enumeration comment
+    // above.
     const superset = {
       ...pushBody,
       future_top_level_field: { added_by: 'a later protocol version' },
