@@ -305,8 +305,9 @@ pub struct Modifiers {
 
 /// Action-specific payload data.
 ///
-/// Each variant corresponds to an action type in the desktop platform schema.
-/// The variant is flattened into the parent `ActionEvent` during serialisation.
+/// Each user-action variant corresponds to an action type in the desktop
+/// platform schema.
+/// Every variant is flattened into the parent `ActionEvent` during serialisation.
 // Variants embed full `ElementDescription` values (Drop carries two); events
 // occur at human-input rate, so the variant-size spread is not worth boxing
 // every construction and match site.
