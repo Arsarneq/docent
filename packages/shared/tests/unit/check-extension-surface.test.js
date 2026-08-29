@@ -5,14 +5,22 @@
  * family must fail loud: these tests prove the pairwise set inequalities in
  * each direction on every leg, the sender side's readable shape and its
  * refusal, the unreadable-cell and unknown-shape refusals, the dispatcher
- * anchor guards (one switch, a default arm, no nesting), the presence of the
+ * anchor guards over the scanned population (one switch, standing in the
+ * service worker, with a default arm and no nesting), the population
+ * machinery guards beside them (an empty file list, one that has lost the
+ * worker), the asymmetry of the capture-path pair (forward from the table to
+ * the worker's own guards, back to it from every guard the population makes),
+ * the presence of the
  * clause's own sender statement in the clause's scope — the doctrine the send
  * leg holds, read for its words and for the single occurrence of them,
  * wherever in the clause a second copy would sit, with the fail-closed form
  * pinned — the disjointness
  * rule, duplicates, and empty parses — that the comment-safe tokenizer keeps
- * commented labels out of the scans — and, as a real-tree lock, that the
- * shipped tree satisfies both contracts. One case is a demonstration rather
+ * commented labels out of the scans — and, as real-tree locks over the shipped
+ * tree, that both contracts hold on it, that the derived population carries
+ * the properties the dispatcher legs stand on and is the one the CLI scans,
+ * and that an unreadable worker fails loudly rather than passing vacuously.
+ * One case is a demonstration rather
  * than a guard: the reverse send direction's documented limit, exercised so
  * the misleading red it produces is observed behaviour, never an assertion in
  * prose alone.
@@ -29,9 +37,12 @@ import {
   RUNTIME_DOC_PATH,
   WORKER_PATH,
   PANEL_DIR,
+  BACKGROUND_ROOT,
+  BACKGROUND_EXTENSIONS,
   EMPTY_SURFACES,
   DUPLICATE_SURFACES,
   SENDER_STATEMENT_ANCHOR,
+  derivePopulation,
   countSenderStatements,
   extractManifestSurface,
   extractSectionTableNames,
@@ -45,6 +56,25 @@ import {
 const ROOT = resolve(import.meta.dirname, '..', '..', '..', '..');
 /** A panel path inside the scanned surface. */
 const PANEL_PATH = `${PANEL_DIR}/panel.js`;
+/** A second background module, inside the derived population beside the worker. */
+const SECOND_BACKGROUND_PATH = `${BACKGROUND_ROOT}/router.js`;
+
+/**
+ * The tracked background JavaScript the shipped closure runs over — the
+ * check's own derivation, not a copy of it, so the real-tree locks cannot stay
+ * green over a population the check has stopped scanning.
+ */
+const shippedPopulation = () => derivePopulation(ROOT);
+
+/**
+ * The dispatcher extractor over ONE file, keyed as the service worker. The key
+ * is what makes these fixtures the worker's own: the location leg holds the
+ * dispatcher to {@link WORKER_PATH}, so a one-file fixture keyed anywhere else
+ * would draw that refusal on every case below that supplies a dispatcher,
+ * rather than only on the one that case is about.
+ * @param {string} source the module source to read
+ */
+const workerOnly = (source) => extractDispatcherSurface(new Map([[WORKER_PATH, source]]));
 
 /** A consistent synthetic surface both contracts accept. */
 function makeSurface(overrides = {}) {
@@ -57,8 +87,10 @@ function makeSurface(overrides = {}) {
     docCaptureTypes: ['FRAME_READY'],
     docPanelTypes: ['PROJECTS_LIST', 'STEP_COMMIT'],
     protocolUnreadable: [],
+    backgroundFiles: [WORKER_PATH],
     caseLabels: ['PROJECTS_LIST', 'STEP_COMMIT'],
     equalityTypes: ['FRAME_READY'],
+    workerEqualityTypes: ['FRAME_READY'],
     sendTypes: ['PROJECTS_LIST', 'STEP_COMMIT'],
     sendSites: [
       { path: PANEL_PATH, ordinal: 1, type: 'PROJECTS_LIST', found: null },
@@ -157,6 +189,7 @@ describe('evaluateExtensionSurface — message legs (both ways)', () => {
       makeSurface({
         docCaptureTypes: ['FRAME_READY', 'STEP_COMMIT'],
         equalityTypes: ['FRAME_READY', 'STEP_COMMIT'],
+        workerEqualityTypes: ['FRAME_READY', 'STEP_COMMIT'],
       }),
     );
     assert.ok(problems.some((p) => p.includes('STEP_COMMIT') && p.includes('disjoint')));
@@ -595,7 +628,7 @@ describe('extractDispatcherSurface — comment-safe tokenizer reads', () => {
   ].join('\n');
 
   it('reads case labels and equality literals, skipping comments', () => {
-    const read = extractDispatcherSurface(worker);
+    const read = workerOnly(worker);
     assert.deepEqual(read.caseLabels, ['PROJECTS_LIST', 'STEP_COMMIT']);
     assert.deepEqual(read.equalityTypes, ['FRAME_READY']);
     assert.deepEqual(read.problems, []);
@@ -608,51 +641,61 @@ describe('extractDispatcherSurface — comment-safe tokenizer reads', () => {
         '    default:\n      return { ok: false };',
         "    default:\n      return { ok: false };\n    case 'STEP_COMMIT': {\n      return commit();\n    }",
       );
-    const read = extractDispatcherSurface(reordered);
+    const read = workerOnly(reordered);
     assert.deepEqual(read.caseLabels.sort(), ['PROJECTS_LIST', 'STEP_COMMIT']);
     assert.deepEqual(read.problems, []);
   });
 
   it('a sibling switch after the dispatcher is not misread as nesting', () => {
     const sibling = `${worker}\nswitch (mode) { default: break; }`;
-    const read = extractDispatcherSurface(sibling);
+    const read = workerOnly(sibling);
     assert.deepEqual(read.caseLabels, ['PROJECTS_LIST', 'STEP_COMMIT']);
     assert.deepEqual(read.problems, []);
   });
 
   it('reports a nested switch instead of misreading its cases', () => {
     const nested = worker.replace("case 'STEP_COMMIT': {", "case 'STEP_COMMIT': { switch (x) {");
-    const read = extractDispatcherSurface(nested);
+    const read = workerOnly(nested);
     assert.ok(read.problems.some((p) => p.includes('nests a switch')));
   });
 
   it('reports a missing dispatcher as an extractor problem — reachable on the real path', () => {
-    const read = extractDispatcherSurface('const x = 1;');
-    assert.ok(read.problems.some((p) => p.includes('0 dispatcher switches')));
+    const read = workerOnly('const x = 1;');
+    assert.ok(
+      read.problems.some((p) => p.includes('no dispatcher switch over the message type')),
+      read.problems.join('\n') || 'no missing-dispatcher diagnostic',
+    );
+    // The refusal is about the population that WAS read, so it names the
+    // derived scope rather than any one file in it.
+    assert.ok(read.problems.some((p) => p.includes(BACKGROUND_ROOT)));
     assert.deepEqual(read.caseLabels, []);
   });
 
   it('reports a second dispatcher switch as an extractor problem — reachable on the real path', () => {
     const two = `${worker}\nfunction other(message) { switch (message.type) { default: break; } }`;
-    const read = extractDispatcherSurface(two);
-    assert.ok(read.problems.some((p) => p.includes('2 dispatcher switches')));
+    const read = workerOnly(two);
+    assert.ok(
+      read.problems.some((p) => p.includes('2 dispatcher switches over the message type')),
+      read.problems.join('\n') || 'no second-dispatcher diagnostic',
+    );
   });
 
-  it('reports a missing default arm as an extractor problem', () => {
+  it('reports a missing default arm as an extractor problem, naming the file', () => {
     const noDefault = worker.replace('    default:\n      return { ok: false };\n', '');
-    const read = extractDispatcherSurface(noDefault);
-    assert.ok(read.problems.some((p) => p.includes('no default: arm')));
+    const read = workerOnly(noDefault);
+    assert.ok(read.problems.some((p) => p.includes('no default: arm') && p.includes(WORKER_PATH)));
   });
 
-  it('collects equality guards module-wide and deduplicates a repeated guard', () => {
+  it('collects equality guards from anywhere in the population and deduplicates a repeated guard', () => {
     const spread = `${worker}\nif (message.type === 'LATE_GUARD') { return; }\nif (message.type === 'FRAME_READY' && busy) { return; }`;
-    const read = extractDispatcherSurface(spread);
+    const read = workerOnly(spread);
     assert.deepEqual(read.equalityTypes.sort(), ['FRAME_READY', 'LATE_GUARD']);
+    assert.deepEqual(read.workerEqualityTypes.sort(), ['FRAME_READY', 'LATE_GUARD']);
     assert.deepEqual(read.problems, []);
   });
 
   it('reports an unreadable dispatcher head as an extractor problem', () => {
-    const read = extractDispatcherSurface('switch (msg.type) nope;');
+    const read = workerOnly('switch (msg.type) nope;');
     assert.ok(read.problems.some((p) => p.includes('no readable body')));
   });
 
@@ -661,7 +704,7 @@ describe('extractDispatcherSurface — comment-safe tokenizer reads', () => {
     // `CAPTURE_START` while the code tested `CAPTURE_STARTsuffix`: the doc and
     // the guard then agreed in both directions on a type nothing guards.
     const guarded = `${worker}\nif (message.type === 'CAPTURE_START' + suffix) { return start(); }`;
-    const read = extractDispatcherSurface(guarded);
+    const read = workerOnly(guarded);
     assert.ok(!read.equalityTypes.includes('CAPTURE_START'));
     assert.equal(read.problems.length, 1);
     assert.match(read.problems[0], /guards a message type with `CAPTURE_START` followed by `\+`/);
@@ -679,11 +722,11 @@ describe('extractDispatcherSurface — comment-safe tokenizer reads', () => {
       "f(message.type === 'X', 1);",
     ]) {
       // prettier-ignore
-      const read = extractDispatcherSurface(`${worker}\nconst r = message.type === ${tail}`);
+      const read = workerOnly(`${worker}\nconst r = message.type === ${tail}`);
       assert.deepEqual(read.problems, [], tail);
     }
     for (const tail of ["'X' + suffix;", "'X'.length;"]) {
-      const read = extractDispatcherSurface(`${worker}\nconst r = message.type === ${tail}`);
+      const read = workerOnly(`${worker}\nconst r = message.type === ${tail}`);
       assert.equal(read.problems.length, 1, tail);
       assert.match(read.problems[0], /guards a message type with `X` followed by/);
     }
@@ -691,7 +734,7 @@ describe('extractDispatcherSurface — comment-safe tokenizer reads', () => {
 
   it('refuses an equality guard written with a template literal', () => {
     const templated = `${worker}\nif (message.type === \`PONG_\${k}\`) { return; }`;
-    const read = extractDispatcherSurface(templated);
+    const read = workerOnly(templated);
     assert.deepEqual(read.equalityTypes, ['FRAME_READY']);
     assert.equal(read.problems.length, 1);
     assert.match(read.problems[0], /guards a message type with a template literal \(`PONG_`\)/);
@@ -702,7 +745,7 @@ describe('extractDispatcherSurface — comment-safe tokenizer reads', () => {
     // and the kind travelling with the read is what names it as the literal the
     // source wrote rather than letting it fall through unremarked.
     const patterned = `${worker}\nif (message.type === /PONG_/) { return; }`;
-    const read = extractDispatcherSurface(patterned);
+    const read = workerOnly(patterned);
     assert.deepEqual(read.equalityTypes, ['FRAME_READY']);
     assert.equal(read.problems.length, 1);
     assert.match(read.problems[0], /guards a message type with a regular-expression literal \(`\/PONG_\/`\)/); // prettier-ignore
@@ -713,7 +756,7 @@ describe('extractDispatcherSurface — comment-safe tokenizer reads', () => {
     // problem at all — the enumeration then redded as a type nothing services,
     // naming a cause the source does not have.
     const shaped = worker.replace("case 'STEP_COMMIT': {", "case 'STEP_COMMIT' + k: {");
-    const read = extractDispatcherSurface(shaped);
+    const read = workerOnly(shaped);
     assert.deepEqual(read.caseLabels, ['PROJECTS_LIST']);
     assert.equal(read.problems.length, 1);
     assert.match(read.problems[0], /labels an arm `STEP_COMMIT` followed by `\+`/);
@@ -722,7 +765,7 @@ describe('extractDispatcherSurface — comment-safe tokenizer reads', () => {
 
   it('refuses a case label written with a template literal', () => {
     const templated = worker.replace("case 'STEP_COMMIT':", 'case `STEP_COMMIT`:');
-    const read = extractDispatcherSurface(templated);
+    const read = workerOnly(templated);
     assert.deepEqual(read.caseLabels, ['PROJECTS_LIST']);
     assert.equal(read.problems.length, 1);
     assert.match(read.problems[0], /labels an arm with a template literal \(`STEP_COMMIT`\)/);
@@ -733,7 +776,7 @@ describe('extractDispatcherSurface — comment-safe tokenizer reads', () => {
     // there legally as far as the scanner is concerned; it is named as one
     // instead of leaving the arm silently unlabelled.
     const patterned = worker.replace("case 'STEP_COMMIT':", 'case /STEP_COMMIT/:');
-    const read = extractDispatcherSurface(patterned);
+    const read = workerOnly(patterned);
     assert.deepEqual(read.caseLabels, ['PROJECTS_LIST']);
     assert.equal(read.problems.length, 1);
     assert.match(read.problems[0], /labels an arm with a regular-expression literal \(`\/STEP_COMMIT\/`\)/); // prettier-ignore
@@ -744,7 +787,7 @@ describe('extractDispatcherSurface — comment-safe tokenizer reads', () => {
     // refusals above are about a literal the scan reads part of, not about
     // every label form.
     const constant = worker.replace("case 'STEP_COMMIT':", 'case STEP_COMMIT:');
-    const read = extractDispatcherSurface(constant);
+    const read = workerOnly(constant);
     assert.deepEqual(read.caseLabels, ['PROJECTS_LIST']);
     assert.deepEqual(read.problems, []);
   });
@@ -763,10 +806,231 @@ describe('extractDispatcherSurface — comment-safe tokenizer reads', () => {
       '  }',
       '}',
     ].join('\n');
-    const read = extractDispatcherSurface(yoda);
+    const read = workerOnly(yoda);
     assert.deepEqual(read.equalityTypes, ['CAPTURE_STOP'], 'the reversed operand is unread');
     assert.deepEqual(read.caseLabels, ['PING']);
     assert.deepEqual(read.problems, [], 'and it is silent, not refused');
+  });
+});
+
+describe('extractDispatcherSurface — the derived population, read as one set', () => {
+  /** The worker as the shipped shape has it: one guard, one dispatcher. */
+  const worker = [
+    "if (message.type === 'FRAME_READY') { return ready(); }",
+    'function handle(msg) {',
+    '  switch (msg.type) {',
+    "    case 'PROJECTS_LIST': return list();",
+    '    default: return { ok: false };',
+    '  }',
+    '}',
+  ].join('\n');
+  /** The dispatcher alone, for the case that moves it out of the worker. */
+  const dispatcherOnly = worker.slice(worker.indexOf('function handle'));
+  /** The population as the CLI hands it over: the worker plus one more module. */
+  const population = (second) =>
+    new Map([
+      [WORKER_PATH, worker],
+      [SECOND_BACKGROUND_PATH, second],
+    ]);
+
+  it('reads a second module that states nothing without changing the surface', () => {
+    const read = extractDispatcherSurface(population('export const VERSION = 3;\n'));
+    assert.deepEqual(read.caseLabels, ['PROJECTS_LIST']);
+    assert.deepEqual(read.equalityTypes, ['FRAME_READY']);
+    assert.deepEqual(read.workerEqualityTypes, ['FRAME_READY']);
+    assert.deepEqual(read.problems, []);
+  });
+
+  it('reds on a dispatcher a second module carries, naming every file with its count', () => {
+    // The blind spot the population closes: read over the worker alone, a
+    // dispatcher delegated to the module beside it was a switch nothing saw.
+    const read = extractDispatcherSurface(
+      population("function route(message) { switch (message.type) { case 'X': return x(); default: return null; } }"), // prettier-ignore
+    );
+    const refusal = read.problems.find((p) => p.includes('dispatcher switches over the message type')); // prettier-ignore
+    assert.ok(refusal, read.problems.join('\n') || 'no second-dispatcher diagnostic');
+    assert.ok(refusal.includes(`${WORKER_PATH} (1)`), refusal);
+    assert.ok(refusal.includes(`${SECOND_BACKGROUND_PATH} (1)`), refusal);
+    // Fail-closed: labels from an ambiguous pair never reach the diffs.
+    assert.deepEqual(read.caseLabels, []);
+  });
+
+  it("collects a second module's guards into the population set, outside the worker subset", () => {
+    const read = extractDispatcherSurface(
+      population("if (message.type === 'SIDE_CHANNEL') { return side(); }"),
+    );
+    assert.deepEqual(read.equalityTypes.sort(), ['FRAME_READY', 'SIDE_CHANNEL']);
+    assert.deepEqual(read.workerEqualityTypes, ['FRAME_READY']);
+    assert.deepEqual(read.problems, []);
+  });
+
+  it('names the file a per-file guard refusal is about', () => {
+    const read = extractDispatcherSurface(
+      population("if (message.type === 'CAPTURE_START' + suffix) { return start(); }"),
+    );
+    assert.equal(read.problems.length, 1, read.problems.join('\n'));
+    assert.ok(read.problems[0].startsWith(SECOND_BACKGROUND_PATH), read.problems[0]);
+    assert.match(read.problems[0], /guards a message type with `CAPTURE_START` followed by `\+`/);
+  });
+
+  it('holds the one dispatcher to the service worker, letting its labels through', () => {
+    // The mechanical hold the single-file read gave the Components row: a
+    // dispatcher moved out of the worker redded then as a zero count, and goes
+    // on redding now as a refusal naming where it went. The labels are well
+    // defined — the singleton holds — so they pass through; withholding them
+    // could only hide drift the diffs would otherwise name.
+    const read = extractDispatcherSurface(
+      new Map([
+        [WORKER_PATH, "if (message.type === 'FRAME_READY') { return ready(); }"],
+        [SECOND_BACKGROUND_PATH, dispatcherOnly],
+      ]),
+    );
+    const refusal = read.problems.find((p) => p.includes('carries the dispatcher switch'));
+    assert.ok(refusal, read.problems.join('\n') || 'no location diagnostic');
+    assert.ok(refusal.includes(SECOND_BACKGROUND_PATH) && refusal.includes(WORKER_PATH), refusal);
+    assert.deepEqual(read.caseLabels, ['PROJECTS_LIST']);
+  });
+
+  it('states nothing about a dispatcher when nothing was scanned', () => {
+    // An empty map is a population that was never read — the evaluator's own
+    // machinery diagnosis. A singleton refusal here would report a missing
+    // dispatcher over a set nobody handed over.
+    assert.deepEqual(extractDispatcherSurface(new Map()), {
+      caseLabels: [],
+      equalityTypes: [],
+      workerEqualityTypes: [],
+      problems: [],
+    });
+  });
+
+  it('states the module extensions as a set, so a module kind cannot escape by name', () => {
+    // The escape this closes: a background module written with an explicit
+    // module extension would sit outside the closure entirely while the filter
+    // named one extension.
+    assert.deepEqual(BACKGROUND_EXTENSIONS, ['.js', '.mjs', '.cjs']);
+    assert.equal(new Set(BACKGROUND_EXTENSIONS).size, BACKGROUND_EXTENSIONS.length);
+    for (const ext of BACKGROUND_EXTENSIONS) assert.match(ext, /^\.[a-z]+$/);
+  });
+});
+
+describe('evaluateExtensionSurface — the population machinery guards', () => {
+  it('diagnoses an empty population itself, in place of the empty-parse lines', () => {
+    const problems = evaluateExtensionSurface(
+      makeSurface({
+        backgroundFiles: [],
+        caseLabels: [],
+        equalityTypes: [],
+        workerEqualityTypes: [],
+      }),
+    );
+    assert.ok(
+      problems.some((p) => p.includes('has no population to hold')),
+      problems.join('\n') || 'no empty-population diagnostic',
+    );
+    // Both machinery lines stand: a file list naming nothing has also lost the
+    // worker, and the two state distinct facts — no population to scan, and no
+    // file for the forward diff to stand on. Pinning only the first would let
+    // the required-member line be dropped from this path unnoticed.
+    assert.ok(
+      problems.some((p) => p.includes(WORKER_PATH) && p.includes('outside the scanned population')),
+      problems.join('\n') || 'no required-member diagnostic beside the empty-population one',
+    );
+    // The lines that would otherwise blame the dispatcher for a file list that
+    // stopped naming anything.
+    for (const [, message] of EMPTY_SURFACES) {
+      assert.ok(!problems.some((p) => p.includes(message)), message);
+    }
+  });
+
+  it('keeps the unreadable-cell and sender-statement reads ahead of the machinery return', () => {
+    const problems = evaluateExtensionSurface(
+      makeSurface({ backgroundFiles: [], protocolUnreadable: ['FRAME_READY'], senderStatements: 0 }), // prettier-ignore
+    );
+    assert.ok(problems.some((p) => p.includes('FRAME_READY') && p.includes('cannot read')));
+    assert.ok(problems.some((p) => p.includes('states no sender statement')));
+    assert.ok(problems.some((p) => p.includes('has no population to hold')));
+  });
+
+  it('reds when the population has lost the service worker', () => {
+    const problems = evaluateExtensionSurface(
+      makeSurface({ backgroundFiles: [SECOND_BACKGROUND_PATH] }),
+    );
+    assert.ok(
+      problems.some((p) => p.includes(WORKER_PATH) && p.includes('outside the scanned population')),
+      problems.join('\n') || 'no required-member diagnostic',
+    );
+  });
+});
+
+describe('the capture-path pair is asymmetric — read through the extractor', () => {
+  /** The worker guarding both documented capture-path types. */
+  const bothGuarded = [
+    "if (message.type === 'FRAME_READY') { return ready(); }",
+    "if (message.type === 'GET_TAB_ID') { return tab(); }",
+    'function handle(msg) {',
+    '  switch (msg.type) {',
+    "    case 'PROJECTS_LIST': return list();",
+    "    case 'STEP_COMMIT': return commit();",
+    '    default: return { ok: false };',
+    '  }',
+    '}',
+  ].join('\n');
+  const DOC_CAPTURE_TYPES = ['FRAME_READY', 'GET_TAB_ID'];
+  const read = (workerSource, secondSource) =>
+    extractDispatcherSurface(
+      new Map([
+        [WORKER_PATH, workerSource],
+        [SECOND_BACKGROUND_PATH, secondSource],
+      ]),
+    );
+  /**
+   * The two equality sets wired from a real extractor read, everything else
+   * left at the compliant baseline — so what these cases observe is the
+   * capture-path pair and nothing beside it.
+   */
+  const evaluate = (dispatcher) =>
+    evaluateExtensionSurface(
+      makeSurface({
+        docCaptureTypes: DOC_CAPTURE_TYPES,
+        equalityTypes: dispatcher.equalityTypes,
+        workerEqualityTypes: dispatcher.workerEqualityTypes,
+        backgroundFiles: [WORKER_PATH, SECOND_BACKGROUND_PATH],
+      }),
+    );
+
+  it("takes the worker's own guards in both directions", () => {
+    const dispatcher = read(bothGuarded, 'export const VERSION = 3;\n');
+    assert.deepEqual(dispatcher.problems, []);
+    assert.deepEqual(evaluate(dispatcher), []);
+  });
+
+  it('reds FORWARD on a worker guard deleted while a stale copy sits in a second module', () => {
+    // ERT-4 states the capture-path types are serviced by the listener's own
+    // guards, and the listener is the worker's: a copy elsewhere is not that
+    // guard. The shape is deliberately two-type — the worker keeps FRAME_READY
+    // — so its subset stays non-empty and the diff actually runs.
+    const dispatcher = read(
+      bothGuarded.replace("if (message.type === 'GET_TAB_ID') { return tab(); }\n", ''),
+      "if (message.type === 'GET_TAB_ID') { return tab(); }",
+    );
+    assert.deepEqual(dispatcher.workerEqualityTypes, ['FRAME_READY']);
+    assert.deepEqual(dispatcher.equalityTypes.sort(), ['FRAME_READY', 'GET_TAB_ID']);
+    assert.ok(
+      evaluate(dispatcher).some((p) => p.includes('GET_TAB_ID') && p.includes('no equality guard in the worker module services it')), // prettier-ignore
+      evaluate(dispatcher).join('\n') || 'no forward capture-path diagnostic',
+    );
+  });
+
+  it('reds in REVERSE on an undocumented type guarded in a second module', () => {
+    // The direction the population buys: a guard on a type the table does not
+    // state is drift wherever in the scanned set it was written.
+    const dispatcher = read(bothGuarded, "if (message.type === 'SIDE_CHANNEL') { return side(); }"); // prettier-ignore
+    assert.deepEqual(dispatcher.workerEqualityTypes.sort(), DOC_CAPTURE_TYPES);
+    const problems = evaluate(dispatcher);
+    assert.ok(
+      problems.some((p) => p.includes('SIDE_CHANNEL') && p.includes(BACKGROUND_ROOT)),
+      problems.join('\n') || 'no reverse capture-path diagnostic',
+    );
   });
 });
 
@@ -956,13 +1220,17 @@ describe('extractSendSites — the one shape the sender scan reads', () => {
 });
 
 describe('real-tree lock', () => {
+  const readFile = (f) => readFileSync(resolve(ROOT, f), 'utf8');
+
   it('the shipped tree satisfies both contracts', () => {
-    // The recursive enumeration the CLI wrapper passes, filtered the same way.
+    // The recursive enumeration the CLI wrapper passes, filtered the same way,
+    // beside the check's own background derivation — the set the CLI scans.
     const panelFiles = trackedFilesUnder(PANEL_DIR, { cwd: ROOT, extensions: ['.js'] });
     assert.ok(panelFiles.length >= 1, 'the panel tree must carry tracked JavaScript');
     const { problems, permissionCount, typeCount, panelTypeCount } = auditTree(
-      (f) => readFileSync(resolve(ROOT, f), 'utf8'),
+      readFile,
       panelFiles,
+      shippedPopulation(),
     );
     assert.deepEqual(problems, [], problems.join('\n'));
     assert.ok(permissionCount > 0);
@@ -976,5 +1244,56 @@ describe('real-tree lock', () => {
     for (const p of [MANIFEST_PATH, PERMISSIONS_DOC_PATH, RUNTIME_DOC_PATH, WORKER_PATH]) {
       assert.doesNotThrow(() => readFileSync(resolve(ROOT, p)));
     }
+  });
+
+  it('derives a population with the properties the dispatcher legs stand on', () => {
+    // The properties, not a second copy of the derivation: what the background
+    // tree tracks IS the population, so a module the extension grows there is
+    // scanned with nothing to update — and the service worker, whose own guards
+    // the forward diff reads, is in it.
+    const population = shippedPopulation();
+    assert.ok(population.length > 0);
+    assert.ok(population.includes(WORKER_PATH), `${WORKER_PATH} is in the scanned population`);
+    for (const file of population) {
+      assert.ok(file.startsWith(`${BACKGROUND_ROOT}/`), `${file} is inside the background tree`);
+      assert.ok(
+        BACKGROUND_EXTENSIONS.some((ext) => file.endsWith(ext)),
+        `${file} carries a JavaScript module extension`,
+      );
+    }
+    assert.equal(new Set(population).size, population.length, 'each file is stated once');
+  });
+
+  it('an unreadable worker fails loudly rather than passing vacuously', () => {
+    const panelFiles = trackedFilesUnder(PANEL_DIR, { cwd: ROOT, extensions: ['.js'] });
+    const { problems } = auditTree(
+      (f) => (f === WORKER_PATH ? '' : readFile(f)),
+      panelFiles,
+      shippedPopulation(),
+    );
+    assert.ok(problems.length > 0);
+    assert.ok(
+      problems.some((p) => p.includes('no dispatcher switch over the message type')),
+      problems.join('\n') || 'no missing-dispatcher diagnostic',
+    );
+  });
+
+  it('the CLI scans that same derivation, never a second copy of it', () => {
+    // The lock these real-tree cases stand on: they hold the shipped
+    // derivation, so the CLI must consume it too — a private copy in the
+    // wrapper could drift while every case here stayed green.
+    const script = readFile('scripts/check-extension-surface.js');
+    assert.match(script, /auditTree\(\s*readFile,\s*panelFiles,\s*derivePopulation\(\),?\s*\)/);
+    // The enumeration itself is the shared population reader's, so this file
+    // states no `ls-files` invocation of its own…
+    assert.equal(script.split("'ls-files'").length - 1, 0, 'no private enumeration here');
+    // …and reaches that reader from exactly the two places it is entitled to:
+    // the panel derivation in the CLI wrapper, and the background derivation
+    // these cases hold. A third private derivation cannot land green.
+    assert.equal(
+      script.split('trackedFilesUnder(').length - 1,
+      2,
+      'the file reaches the shared population reader at the panel and background derivations, and nowhere else',
+    );
   });
 });
