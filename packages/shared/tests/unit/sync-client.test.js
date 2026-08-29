@@ -420,6 +420,40 @@ describe('buildPayloadForProject', () => {
       'the projection of a superset payload carries exactly the fields a push body carries (SP-5)',
     );
   });
+
+  // Every composed-schema root property survives the projection: this welds
+  // the drop direction to that authority per platform, so a root property the
+  // composed schema declares cannot be silently dropped on pull (the root
+  // envelope comes from the layer carrying `type` — today the shared base
+  // layer). A name the
+  // projection alone carries is never offered to it here — the recorder case
+  // above stays the sole guard for that direction, and the two compose:
+  // schema properties survive the projection, whose names the recorder holds
+  // to the push body's. On a red, the projection is only half the fix — the
+  // sync protocol doc's payload table and its projection sentence state the
+  // same field set and must move with it (SP-5).
+  it('the pull projection keeps every composed schema top-level property', () => {
+    const kept = {};
+    const expected = {};
+    for (const platform of Object.keys(PLATFORMS)) {
+      const properties = Object.keys(composePlatform(platform).properties).sort();
+      const full = Object.fromEntries(properties.map((key) => [key, {}]));
+      kept[platform] = Object.keys(envelopeProjection(full)).sort();
+      expected[platform] = properties;
+    }
+    assert.ok(
+      Object.keys(expected).length > 0 &&
+        Object.values(expected).every((names) => names.length > 0),
+      'every platform must contribute a non-empty root property set (and there must be at least one platform)',
+    );
+    assert.deepEqual(
+      kept,
+      expected,
+      'a drifted platform dropped a composed-schema top-level property on pull — ' +
+        'extend the projection AND the sync protocol doc: its payload table and ' +
+        'projection sentence state this same field set (SP-5)',
+    );
+  });
 });
 
 // ─── pullProjects ─────────────────────────────────────────────────────────────
