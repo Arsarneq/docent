@@ -6,9 +6,10 @@
  * One test per active extension session in corpus/manifest.json. Each test:
  *   1. launches a fresh persistent context at the FIXED corpus viewport,
  *   2. navigates to the session's start page on the fixed-port corpus server,
- *   3. flips recording on (SW injects the recorder + seeds frame trust) and
- *      waits for FRAME_READY newer than the navigation (the corpus's stable
- *      URLs make the plain per-URL wait stale on reload/revisit),
+ *   3. flips recording on (SW injects the recorder + seeds the
+ *      active-frame registry) and waits for FRAME_READY newer than the
+ *      navigation (the corpus's stable URLs make the plain per-URL wait
+ *      stale on reload/revisit),
  *   4. runs the session's committed input driver (real Playwright input only —
  *      the recorder drops synthetic events),
  *   5. assembles the export envelope through the REAL shared production path
@@ -109,8 +110,9 @@ for (const session of sessions) {
     const startUrl = `${CORPUS_ORIGIN}/${session.id}/${session.page}`;
 
     // Land on the start page first, then flip recording: the SW's
-    // storage.onChanged hook injects the recorder into open tabs and seeds the
-    // frame-trust registry; readiness is then observed via FRAME_READY.
+    // recording-flag watch injects the recorder into the open frames and seeds
+    // the active-frame registry (extension capture-principles ECP-3); readiness
+    // is then observed via FRAME_READY.
     const beforeInject = Date.now();
     await page.goto(startUrl);
     await serviceWorker.evaluate(async () => {
