@@ -33,7 +33,7 @@
        unaffected: docs/<path> — <why this diff cannot violate it>
      Docs whose rules carry clause ids also take one line per clause tagged judgment-only
      in docs/clause-registry.json, e.g.:
-       unaffected: docs/architecture/system/capture-principles.md §CP-3 — <why>
+       unaffected: docs/architecture/system/capture-principles.md §CP-3 — <why this diff cannot violate this rule>
      The admitted classes skip this section entirely: dependency-only PRs (lockfiles,
      dependency-only manifest changes, action-pin bumps), and the release pipeline's own
      regeneration PR on its automation branch.

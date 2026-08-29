@@ -4,16 +4,11 @@
  *
  * Every change is governed by docs (scripts/area-map.json maps code to them),
  * and the PR body must carry one explicit line per governing doc saying what
- * happened to it:
- *
- *   updated: docs/<path> — <what changed>
- *   unaffected: docs/<path> — <why this diff cannot violate it>
- *
- * When a governing doc states its rules as registered clauses
- * (docs/clause-registry.json), each clause tagged judgment-only additionally
- * takes its own line, anchored by the clause id:
- *
- *   unaffected: docs/<path> §CP-3 — <why this diff cannot violate this rule>
+ * happened to it — one of the two per-doc forms UPDATED_LINE_TEMPLATE and
+ * UNAFFECTED_LINE_TEMPLATE spell out below. When a governing doc states its
+ * rules as registered clauses (docs/clause-registry.json), each clause tagged
+ * judgment-only additionally takes its own line, anchored by the clause id, in
+ * the form CLAUSE_LINE_TEMPLATE spells out beside them.
  *
  * (Clauses guarded by named checks need no per-clause line — the checks
  * themselves guard those.) The `## Change record` section must be present and
@@ -115,6 +110,23 @@ export const CHANGE_RECORD_HEADING = '## Change record';
 
 /** Structural markers the change record must carry, each at a line start. */
 export const CHANGE_RECORD_MARKERS = ['Intent:', 'Outside knowledge:', 'mutation:'];
+
+/**
+ * The cadence word the standing mutation sentence reports. The fact itself is
+ * the schedule in .github/workflows/mutation.yml, and the cadence's
+ * authoritative statement is mutation testing §MUT-1 — this constant is only
+ * the word the sentence below has to spell, held to both by the unit suite.
+ */
+export const MUTATION_CADENCE = 'weekly';
+
+/**
+ * The fixed mutation line a contributor pastes into the change record, spelled
+ * once. One home for a sentence that is otherwise typed out wherever a
+ * contributor meets it: this check's own red output offers it as the fix, and
+ * the unit suite holds the copies in CONTRIBUTING and the PR template against
+ * it.
+ */
+export const MUTATION_LINE = `mutation: no per-change claim; mutation testing runs as a standing ${MUTATION_CADENCE} job.`;
 
 /** Lockfiles — machine-generated, path-exempt. */
 const LOCKFILE_GLOBS = ['**/package-lock.json', '**/Cargo.lock'];
@@ -464,6 +476,57 @@ const LINE_RE = /^(updated|unaffected):\s+(\S+?)(?:\s+§(\S+))?\s+—\s+(.+)$/;
 /** Markdown prefixes tolerated in front of a disposition line. */
 const PREFIX_RE = /^(?:>\s*)?(?:[-*+]\s+|\d+\.\s+)?/;
 
+/** The doc placeholder the contributor-facing examples of the grammar stand on. */
+export const DOC_PLACEHOLDER = 'docs/<path>';
+
+/**
+ * The anchor the clause-anchored example stands on — a real registered clause,
+ * so the line a contributor copies is one the check would actually expect for
+ * that doc. One example, so the surfaces cannot teach two.
+ */
+export const CLAUSE_EXAMPLE_ANCHOR = 'docs/architecture/system/capture-principles.md §CP-3';
+
+/**
+ * The per-doc grammar forms, each rendered for the anchor it names — a
+ * doc path, a `doc §clause` pair, or a placeholder standing for either. One
+ * home for a grammar that is otherwise typed out wherever a contributor meets
+ * it: this check's own red output builds its lines from here, and the unit
+ * suite holds the copies in CONTRIBUTING and the PR template against it.
+ * @param {string} anchor
+ * @returns {string}
+ */
+export const updatedLine = (anchor) => `updated: ${anchor} — <what changed>`;
+
+/**
+ * The per-doc form for a doc this diff cannot violate.
+ * @param {string} anchor
+ * @returns {string}
+ */
+export const unaffectedLine = (anchor) =>
+  `unaffected: ${anchor} — <why this diff cannot violate it>`;
+
+/**
+ * The clause-anchored form, whose placeholder asks about the rule rather than
+ * the document.
+ * @param {string} anchor
+ * @returns {string}
+ */
+export const clauseLine = (anchor) =>
+  `unaffected: ${anchor} — <why this diff cannot violate this rule>`;
+
+/** Those forms as the contributor-facing surfaces show them. */
+export const UPDATED_LINE_TEMPLATE = updatedLine(DOC_PLACEHOLDER);
+export const UNAFFECTED_LINE_TEMPLATE = unaffectedLine(DOC_PLACEHOLDER);
+export const CLAUSE_LINE_TEMPLATE = clauseLine(CLAUSE_EXAMPLE_ANCHOR);
+
+/**
+ * The anchor the malformed-line red shows: a doc, its clause optional. The
+ * bracketed optional is this red's parse-shape notation rather than another
+ * template home — it teaches the accepted grammar in the one line that has to
+ * state what would have parsed.
+ */
+export const FORM_ANCHOR = `${DOC_PLACEHOLDER} [§<clause-id>]`;
+
 /** The marker opening the governance-data-only class's single line. */
 export const GOVERNANCE_MARKER = 'governance-data-only:';
 
@@ -726,9 +789,10 @@ function run() {
       `✗ ${r.missing.length} expected disposition line(s) are missing. The PR body's\n` +
         `"${DISPOSITION_HEADING}" section needs exactly one line for each of:\n` +
         r.missing
-          .map(
-            (d) =>
-              `    updated: ${d} — <what changed>   OR   unaffected: ${d} — <why this diff cannot violate it>`,
+          .map((d) =>
+            d.includes('§')
+              ? `    ${updatedLine(d)}   OR   ${clauseLine(d)}`
+              : `    ${updatedLine(d)}   OR   ${unaffectedLine(d)}`,
           )
           .join('\n'),
     );
@@ -765,7 +829,7 @@ function run() {
     problems.push(
       `✗ ${r.malformed.length} line(s) look like dispositions but do not parse:\n` +
         r.malformed.map((d) => `    ${d}`).join('\n') +
-        `\n  Form: "updated: docs/<path> [§<clause-id>] — <text>" or "unaffected: docs/<path> [§<clause-id>] — <text>" (em dash),\n` +
+        `\n  Form: "${updatedLine(FORM_ANCHOR)}" or "${unaffectedLine(FORM_ANCHOR)}" (em dash),\n` +
         `  or "${GOVERNANCE_LINE_TEMPLATE}" for a diff whose changed files are ${MAP_PATH},\n` +
         `  alone or together with ${REGISTRY_PATH}.`,
     );
@@ -781,7 +845,8 @@ function run() {
         r.changeRecordProblems.map((d) => `    ${d}`).join('\n') +
         `\n  Every PR carries a "${CHANGE_RECORD_HEADING}" section with at least "Intent:",\n` +
         `  "Outside knowledge:" (say "none" explicitly if so), and a "mutation:" statement,\n` +
-        `  each starting its own line.`,
+        `  each starting its own line — the "mutation:" line's standing sentence to paste:\n` +
+        `    ${MUTATION_LINE}`,
     );
   }
 

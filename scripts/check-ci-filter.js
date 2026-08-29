@@ -33,8 +33,10 @@
  *      the publish workflows and the automation branch) — and, on unit-tests
  *      alone, the narrow flags for the files only its suites read:
  *      `contractDocs` (the surfaces that suite welds itself to in each
- *      contributor contract file — the governance line both show, CONTRIBUTING's
- *      exemption paragraph, and the shipped template's inert guidance comments)
+ *      contributor contract file — the governance line both show, the per-doc
+ *      grammar forms both show, the standing mutation sentence both spell,
+ *      CONTRIBUTING's exemption paragraph, and the shipped template's inert
+ *      guidance comments)
  *      and `dispositionWorkflow` (the guard-step env block in
  *      .github/workflows/docs-disposition.yml).
  *   4. `.github/actions/**` is in ciCore (composite actions are used by nearly
@@ -90,12 +92,10 @@ const CI_CORE_GLOBS = [
 //     hold them to the automation branch the release guards key on, so a PR
 //     touching only a publish workflow must still run it (same flag). It also
 //     readFileSyncs files no other job's suite reads: the contributor contract
-//     files, welded surface by surface — the governance line both show held to
-//     the check's own constant, CONTRIBUTING's exemption paragraph held to the
-//     fields the exemption reads and to citing the release-output surface by
-//     its home, and the shipped template audited as-is so its comments stay
-//     inert — and docs-disposition.yml, whose guard step's env block is held to
-//     the inputs the head-ref derivation is written against. Each takes a narrow flag of
+//     files, welded surface by surface — this file's header enumerates those
+//     surfaces where it states the `contractDocs` gate, which is the one place
+//     they are listed — and docs-disposition.yml, whose guard step's env block
+//     is held to the inputs the head-ref derivation is written against. Each takes a narrow flag of
 //     its own (`contractDocs`, `dispositionWorkflow`) gating this job alone, so
 //     an edit to those files reaches the suite that reads them and no heavy job
 //     beyond it.

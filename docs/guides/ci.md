@@ -169,10 +169,14 @@ only the jobs that can observe it:
 - `contractDocs` — the contributor contract files (`CONTRIBUTING.md` and the PR
   template), gating `unit-tests` alone: its disposition suite reads them as
   files and welds itself to a surface in each — the governance line both show,
-  held to the constant the check builds its own red output from;
-  `CONTRIBUTING.md`'s exemption paragraph, held to the fields the exemption
-  reads and to citing the release-output surface by its home; and the shipped
-  template, audited as-is so its guidance comments stay inert.
+  held to the constant the check builds its own red output from; the per-doc
+  grammar forms both show, held to the same forms that red output is rendered
+  from; the standing mutation sentence both spell, held to the constant the
+  check offers as the change-record fix and through it to the mutation
+  workflow's own schedule; `CONTRIBUTING.md`'s exemption paragraph, held to the
+  fields the exemption reads and to citing the release-output surface by its
+  home; and the shipped template, audited as-is so its guidance comments stay
+  inert.
 - `dispositionWorkflow` — the docs-disposition workflow, gating `unit-tests`
   alone: its release-guard suite reads that workflow's guard step as a file,
   holding the env block to the event fields the head-ref derivation is written

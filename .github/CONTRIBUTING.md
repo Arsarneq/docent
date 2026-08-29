@@ -312,8 +312,11 @@ unaffected: docs/architecture/system/capture-principles.md §CP-3 — <why this 
 repository — write `none` explicitly if nothing), what you verified and how, and
 a `mutation:` line carrying the standing sentence —
 `mutation: no per-change claim; mutation testing runs as a standing weekly job.`
-The cadence that sentence reports is stated once, in
-[mutation testing §MUT-1](../docs/test/strategy/mutation.md#cadence).
+The cadence that sentence reports is stated authoritatively in
+[mutation testing §MUT-1](../docs/test/strategy/mutation.md#cadence). The copy
+of the sentence in this document, and the mutation workflow's schedule, are each
+held to the cadence that clause states by the shared unit suite
+(`npm run test:shared`).
 
 Dependency-only PRs skip both sections, and so does the release pipeline's own
 regeneration PR. Each admitted class states its admission test and the inputs
