@@ -27,6 +27,7 @@ import {
   LOCAL_CI_DOC_PATH,
   TEST_WORKFLOW_PATH,
   ROOT_MANIFEST_PATH,
+  SELF_PATH,
   WORKFLOW_SECTION,
   WORKFLOW_HEADER,
   ACT_SECTION,
@@ -1567,6 +1568,10 @@ describe('real-tree lock', () => {
   });
 
   it('the constants still point where the check reads', () => {
+    // SELF_PATH is deliberately outside this loop: it is derived from the file
+    // the check is written in, so reading it back cannot fail while that file
+    // is the one being imported. What a bad derivation WOULD break is the shape
+    // the verdicts print, which the case below reads instead.
     for (const p of [CI_DOC_PATH, LOCAL_CI_DOC_PATH, TEST_WORKFLOW_PATH, ROOT_MANIFEST_PATH]) {
       assert.ok(readFileSync(resolve(ROOT, p), 'utf8').length > 0, p);
     }
@@ -1580,6 +1585,14 @@ describe('real-tree lock', () => {
     assert.ok(extractAlwaysRunIds(ciDoc).ids.length > 0);
     assert.ok(extractJobIds(workflowYaml).ids.includes(LINT_JOB_ID));
     assert.ok(extractWorkflowGating(workflowYaml).filterFlags.length > 0);
+  });
+
+  it('the derived self path still has the shape the verdicts print', () => {
+    // A repo-relative path under `scripts/`, resolving inside this tree, with
+    // the platform's own separator nowhere in it — the shape a verdict naming
+    // the check that printed it depends on.
+    assert.match(SELF_PATH, /^scripts\/check-[a-z-]+\.js$/);
+    assert.ok(readFileSync(resolve(ROOT, SELF_PATH), 'utf8').length > 0);
   });
 });
 

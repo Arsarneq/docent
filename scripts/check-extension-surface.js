@@ -111,12 +111,14 @@ import { readFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 import {
   backtickedName,
-  duplicatesIn,
+  duplicateSurfaceProblems,
   emptySurfaceProblems,
   extractClauseSection,
   flattenWhitespace,
   formatProblemBlock,
+  isUnreadLiteralKind,
   missingFrom,
+  namedLiteral,
   readLoneStringLiteral,
   readTableColumn,
   selectTablesByHeader,
@@ -333,10 +335,8 @@ export function extractDispatcherSurface(workerSource) {
       // to a guard that tests another one.
       const read = readLoneStringLiteral(tokens, i + 6, EQUALITY_OPERAND_END);
       if (read.lone) equalityHits.push(read.value);
-      else if (read.kind === 'template') {
-        problems.push(`${WORKER_PATH} guards a message type with a template literal (\`${read.token}\`) — the scan reads a quoted string literal standing alone as the operand, so the capture-path closure stays checkable`); // prettier-ignore
-      } else if (read.kind === 'regex') {
-        problems.push(`${WORKER_PATH} guards a message type with a regular-expression literal (\`${read.token}\`) — the scan reads a quoted string literal standing alone as the operand, so the capture-path closure stays checkable`); // prettier-ignore
+      else if (isUnreadLiteralKind(read.kind)) {
+        problems.push(`${WORKER_PATH} guards a message type with ${namedLiteral(read.kind, read.token)} — the scan reads a quoted string literal standing alone as the operand, so the capture-path closure stays checkable`); // prettier-ignore
       } else if (read.isString) {
         problems.push(`${WORKER_PATH} guards a message type with \`${read.token}\` followed by \`${read.follower ?? 'end of source'}\` — the scan reads a quoted string literal standing alone as the operand, so the capture-path closure stays checkable`); // prettier-ignore
       }
@@ -373,10 +373,8 @@ export function extractDispatcherSurface(workerSource) {
       if (read.lone) {
         caseLabels.push(read.value);
         i += 2;
-      } else if (read.kind === 'template') {
-        problems.push(`${WORKER_PATH}'s dispatcher switch labels an arm with a template literal (\`${read.token}\`) — the scan reads a quoted string literal the label's own colon follows, so the panel-protocol closure stays checkable`); // prettier-ignore
-      } else if (read.kind === 'regex') {
-        problems.push(`${WORKER_PATH}'s dispatcher switch labels an arm with a regular-expression literal (\`${read.token}\`) — the scan reads a quoted string literal the label's own colon follows, so the panel-protocol closure stays checkable`); // prettier-ignore
+      } else if (isUnreadLiteralKind(read.kind)) {
+        problems.push(`${WORKER_PATH}'s dispatcher switch labels an arm with ${namedLiteral(read.kind, read.token)} — the scan reads a quoted string literal the label's own colon follows, so the panel-protocol closure stays checkable`); // prettier-ignore
       } else if (read.isString) {
         problems.push(`${WORKER_PATH}'s dispatcher switch labels an arm \`${read.token}\` followed by \`${read.follower ?? 'end of source'}\` — the scan reads a quoted string literal the label's own colon follows, so the panel-protocol closure stays checkable`); // prettier-ignore
       }
@@ -405,8 +403,9 @@ export function extractDispatcherSurface(workerSource) {
 function describeKeyPosition(token) {
   if (token.type === 'punct' && token.value === '[') return 'a computed key';
   if (token.type === 'punct' && token.value === '.') return 'a spread';
-  if (token.type === 'template') return `a template literal (\`${token.value}\`)`;
-  if (token.type === 'regex') return `a regular-expression literal (\`${token.value}\`)`;
+  // The literal arms are the shared phrase's, so a key-position literal reads
+  // exactly as one standing anywhere else this family refuses a literal.
+  if (isUnreadLiteralKind(token.type)) return namedLiteral(token.type, token.value);
   if (token.type === 'word' || token.type === 'string') {
     return `\`${token.value}\`, which no colon follows`;
   }
@@ -469,8 +468,11 @@ function readSendType(tokens, open) {
   // A template literal is named by its kind: its token value is a run of its
   // literal text, so naming the token alone would state a type the send never
   // writes — and an interpolated one, a type no enumeration can ever carry.
+  // Template only, deliberately: a regular expression falls through to the arm
+  // below, which names the token as written — and a regex's token value IS its
+  // literal text, so that is the reading its own shape asks for.
   if (read.kind === 'template') {
-    return { type: null, found: `a \`type\` key set from a template literal (\`${read.token}\`)` };
+    return { type: null, found: `a \`type\` key set from ${namedLiteral(read.kind, read.token)}` };
   }
   if (!read.isString) return { type: null, found: `a \`type\` key set from \`${read.token}\`` };
   if (!read.lone) {
@@ -597,8 +599,10 @@ export function evaluateExtensionSurface(s) {
 
   // The sender statement is the doctrine the send leg holds, so it is read
   // ahead of the vacuous return: a doc edit that broke the tables and took the
-  // statement with it must say both things. Written fail-closed — a surface
-  // that states no count is a surface that proved nothing.
+  // statement with it must say both things. Written fail-closed on the
+  // `!(n >= 1)` form the shared rule states (`emptySurfaceProblems` in
+  // scripts/check-test-inventory.js) — a surface that states no count is a
+  // surface that proved nothing.
   if (!(s.senderStatements >= 1)) {
     problems.push(`${RUNTIME_DOC_PATH} §${ERT_CLAUSE_ID} states no sender statement — nothing in the clause's scope carries "${SENDER_STATEMENT_ANCHOR}" — the panel-side closure this check's send leg holds (every panel-protocol type carrying at least one object-literal send( that names it) is doctrine the clause states, and the leg cannot hold a rule the document no longer makes`); // prettier-ignore
   } else if (s.senderStatements > 1) {
@@ -611,9 +615,7 @@ export function evaluateExtensionSurface(s) {
     return problems; // empty parses make set diffs meaningless
   }
 
-  for (const [key, what] of DUPLICATE_SURFACES) {
-    problems.push(...duplicatesIn(s[key], what));
-  }
+  problems.push(...duplicateSurfaceProblems(s, DUPLICATE_SURFACES));
 
   problems.push(
     ...missingFrom(s.manifestPermissions, s.docPermissions, `is requested in ${MANIFEST_PATH} but the Permissions table does not document it (${EPM_CLAUSE_ID})`), // prettier-ignore

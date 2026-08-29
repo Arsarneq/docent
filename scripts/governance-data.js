@@ -4,21 +4,28 @@
  * committed file into rows, and the tree reader whose answer says which of the
  * things a read can find it found.
  *
- * This module is deliberately lean: it imports node builtins and nothing else.
- * A check that wants only the registry's data takes it from here and inherits
- * exactly that, which is what keeps the import closure of a command line free
- * of the markdown parser the registry check itself needs for its own legs.
+ * This module is deliberately lean, on the principle it is the home of: a
+ * command line's import closure must not inherit parsers or heavy modules it
+ * does not use. This module imports node builtins and nothing else, so a check
+ * that wants only the registry's data takes it from here and inherits exactly
+ * that, rather than the markdown parser the registry check needs for its own
+ * legs. A module that is itself builtins-only is WITHIN the principle: importing
+ * one adds no closure to inherit, so the principle is about what a closure
+ * carries, never about how many modules it names.
  *
  * It is data access, not a check — it has no CLI and holds nothing on its own.
  * What each consumer does with what it reads stays that check's own subject.
  *
  * Two neighbours a reader arriving here will want. The AREA MAP's loader is
  * deliberately not here: it lives with its own check
- * ([`check-area-map.js`](./check-area-map.js)), which is already
- * dependency-free, so moving it would buy nothing and cost a redirection.
- * And this module has no suite of its own — its pins sit beside the consumers
- * that exercise it, in `packages/shared/tests/unit/check-clause-registry.test.js`
- * (the loader family and the discriminated reader's contract).
+ * ([`check-area-map.js`](./check-area-map.js)), whose own imports are node
+ * builtins plus the shared tracked-file reader — itself builtins-only — so a
+ * command line loading the map through it still inherits no parser or heavy
+ * module it does not use, and moving the loader would buy nothing and cost a
+ * redirection. And this module has no suite of its own — its pins sit beside
+ * the consumers that exercise it, in
+ * `packages/shared/tests/unit/check-clause-registry.test.js` (the loader family
+ * and the discriminated reader's contract).
  */
 
 import { readFileSync } from 'node:fs';
@@ -87,9 +94,11 @@ export function loadRegistry(read = (p) => readFileSync(p, 'utf8')) {
  * The refusal posture every command line that loads the registry through this
  * home shares, in one home so they cannot answer differently: a file that does
  * not read as the registry is breakage on the check's own input, so the caller
- * prints the refusal's own message and ends red on the ordinary red path, while
- * anything else it caught is rethrown untouched. The printing and exiting seams
- * are parameters so the decision can be exercised without ending the process.
+ * prints the refusal's own message and ends on the caller's own exit code
+ * (exit 2), which is what keeps machinery breakage apart from a doctrine that
+ * drifted (exit 1); anything else it caught is rethrown untouched. The printing
+ * and exiting seams are parameters so the decision can be exercised without
+ * ending the process.
  * @param {unknown} err the error a caller caught around the registry read
  * @param {object} [io] the print and exit seams
  * @param {(message: string) => void} [io.error] where the refusal is printed
@@ -103,7 +112,7 @@ export function refuseOnRegistryError(
 ) {
   if (err?.name !== REGISTRY_INPUT_ERROR_NAME) throw err;
   error(err.message);
-  exit(1);
+  exit(2);
 }
 
 /**

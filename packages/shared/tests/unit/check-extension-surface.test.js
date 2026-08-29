@@ -22,7 +22,7 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { execFileSync } from 'node:child_process';
+import { trackedFilesUnder } from '../../../../scripts/check-test-inventory.js';
 import {
   MANIFEST_PATH,
   PERMISSIONS_DOC_PATH,
@@ -900,6 +900,17 @@ describe('extractSendSites — the one shape the sender scan reads', () => {
     }
   });
 
+  it('names a template literal standing where a key belongs', () => {
+    // The literal's sibling arm, on the shared phrase: a template standing in
+    // key position is named by its kind with its own run of text beside it,
+    // rather than by the backtick it opens with.
+    const sites = extractSendSites(new Map([['a.js', 'await send({ `type`: 1 });']]));
+    assert.deepEqual(
+      sites.map((s) => [s.type, s.found]),
+      [[null, 'no `type` key among the top-level properties (a template literal (`type`))']],
+    );
+  });
+
   it('names a regular-expression literal standing where a key belongs', () => {
     // The kind travels with the token here too, so the diagnosis states the
     // literal the source wrote rather than the punctuation it opens with.
@@ -947,10 +958,7 @@ describe('extractSendSites — the one shape the sender scan reads', () => {
 describe('real-tree lock', () => {
   it('the shipped tree satisfies both contracts', () => {
     // The recursive enumeration the CLI wrapper passes, filtered the same way.
-    const panelFiles = execFileSync('git', ['ls-files', PANEL_DIR], { encoding: 'utf8', cwd: ROOT })
-      .split('\n')
-      .map((s) => s.trim())
-      .filter((f) => f.endsWith('.js'));
+    const panelFiles = trackedFilesUnder(PANEL_DIR, { cwd: ROOT, extensions: ['.js'] });
     assert.ok(panelFiles.length >= 1, 'the panel tree must carry tracked JavaScript');
     const { problems, permissionCount, typeCount, panelTypeCount } = auditTree(
       (f) => readFileSync(resolve(ROOT, f), 'utf8'),

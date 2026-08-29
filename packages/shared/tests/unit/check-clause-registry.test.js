@@ -63,7 +63,6 @@
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { execFileSync } from 'node:child_process';
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -93,6 +92,7 @@ import {
   VECTOR_FIXTURES_PATH,
 } from '../../../../scripts/check-clause-registry.js';
 import { MAP_PATH } from '../../../../scripts/check-area-map.js';
+import { trackedFilesUnder } from '../../../../scripts/check-test-inventory.js';
 import {
   ClauseRegistryInputError,
   REGISTRY_INPUT_ERROR_NAME,
@@ -1592,7 +1592,7 @@ describe('loadRegistry — the read that turns the committed file into the rows'
     );
   });
 
-  it('prints that refusal and ends red through the one posture, without a stack', () => {
+  it('prints that refusal and ends on the machinery exit code, without a stack', () => {
     const printed = [];
     const exited = [];
     try {
@@ -1606,7 +1606,7 @@ describe('loadRegistry — the read that turns the committed file into the rows'
     assert.equal(printed.length, 1);
     assert.match(printed[0], /does not read as JSON/);
     assert.doesNotMatch(printed[0], /^\s+at /m);
-    assert.deepEqual(exited, [1]);
+    assert.deepEqual(exited, [2]);
   });
 
   it('rethrows anything else untouched, printing nothing and ending nothing', () => {
@@ -1991,10 +1991,8 @@ describe("auditClauseRegistry — the vector fixtures' lock citations", () => {
 
 describe('baseline lock (real tree)', () => {
   it("the committed map's and fixtures' citations resolve", () => {
-    const files = execFileSync('git', ['ls-files'], { encoding: 'utf8' })
-      .split('\n')
-      .map((s) => s.trim())
-      .filter(Boolean);
+    // The listing the check itself takes, through the shared population reader.
+    const files = trackedFilesUnder('.');
     const readFile = readTextOrNull;
     const r = auditClauseRegistry({
       registry: JSON.parse(readFileSync(REGISTRY_PATH, 'utf8')),

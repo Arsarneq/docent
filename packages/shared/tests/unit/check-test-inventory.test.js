@@ -55,6 +55,8 @@ import {
   blankJsLiterals,
   classifyArgument,
   configValues,
+  duplicateSurfaceProblems,
+  emptySurfaceProblems,
   extractClauseSection,
   extractLoopGlobs,
   flattenWhitespace,
@@ -88,11 +90,7 @@ import {
 const ROOT = resolve(import.meta.dirname, '..', '..', '..', '..');
 
 /** All tracked repo-relative paths, for the real-tree locks. */
-const trackedFiles = () =>
-  execFileSync('git', ['ls-files'], { cwd: ROOT, encoding: 'utf8' })
-    .split('\n')
-    .map((s) => s.trim())
-    .filter(Boolean);
+const trackedFiles = () => trackedFilesUnder('.', { cwd: ROOT });
 
 /** The real-tree locks' reader: a repo-relative path's content, null when unreadable. */
 const readRepoFile = (f) => {
@@ -1041,10 +1039,10 @@ describe('tokenizeJs — regular-expression literals', () => {
   });
 
   it('keeps the stream in step through a quote written inside a pattern', () => {
-    // The shape that desynchronized the rest of the file: the quote used to
-    // open a string literal, so the real call site after it was lost in
-    // silence — the same failure the quoted backtick used to cause in a
-    // template.
+    // One of the shapes that used to desynchronize the rest of the file: the
+    // quote used to open a string literal, so the real call site after it was
+    // lost in silence — the same failure the quoted backtick used to cause in
+    // a template.
     assert.deepEqual(tokenizeJs("const re = /[^'\"]+/g; send({ type: 'PING' });"), [
       { type: 'word', value: 'const' },
       { type: 'word', value: 're' },
@@ -3164,5 +3162,67 @@ describe('extractClauseSection — the shared clause-scope slice', () => {
     const section = extractClauseSection(fenced, 'XX-1');
     assert.ok(section.includes('the real clause'));
     assert.ok(!section.includes('impostor'));
+  });
+});
+
+describe('the shared surface guards — one loop, one projector contract', () => {
+  it('names an empty surface by its own diagnosis, and only that surface', () => {
+    const entries = [
+      ['alpha', 'no alpha rows read'],
+      ['beta', 'no beta rows read'],
+    ];
+    assert.deepEqual(emptySurfaceProblems({ alpha: [], beta: ['b'] }, entries), [
+      'no alpha rows read',
+    ]);
+    assert.deepEqual(emptySurfaceProblems({ alpha: ['a'], beta: ['b'] }, entries), []);
+  });
+
+  it('applies the projector an entry supplies, so a derived surface is readable', () => {
+    // A Set has no length, so the projection is what makes the guard able to
+    // read it at all — the contract both loops share.
+    const project = (s) => [...s.keys];
+    assert.deepEqual(
+      emptySurfaceProblems({ keys: new Set() }, [['keys', 'no keys read', project]]),
+      ['no keys read'],
+    );
+    assert.deepEqual(
+      emptySurfaceProblems({ keys: new Set(['k']) }, [['keys', 'no keys read', project]]),
+      [],
+    );
+  });
+
+  it('a key the extraction does not state is its own finding, not an empty surface', () => {
+    // The guard's table and its extraction disagreeing reads nothing like a
+    // document that went empty: the message names the key the entry asked for
+    // and says the extraction states it on nothing, so the reader is sent to
+    // the table rather than to the document.
+    const problems = emptySurfaceProblems({ alpha: ['a'] }, [['bteo', 'no beta rows read']]);
+    assert.equal(problems.length, 1);
+    assert.match(problems[0], /the empty-surface guard reads `bteo`/);
+    assert.match(problems[0], /states that key on nothing/);
+    assert.doesNotMatch(problems[0], /no beta rows read/);
+  });
+
+  it('the duplicate twin reads the same tuples, projector included', () => {
+    const entries = [
+      ['names', 'the name list'],
+      ['keys', 'the key set', (s) => [...s.keys]],
+    ];
+    const surfaces = { names: ['a', 'b', 'a'], keys: new Set(['k']) };
+    const problems = duplicateSurfaceProblems(surfaces, entries);
+    assert.equal(problems.length, 1);
+    assert.match(problems[0], /`a` appears more than once in the name list/);
+    assert.deepEqual(duplicateSurfaceProblems({ names: ['a'], keys: new Set() }, entries), []);
+  });
+
+  it('the duplicate twin takes the same missing-key finding, not a silent no-duplicates', () => {
+    // A duplicate list keyed on a surface the extraction stopped stating reads
+    // `undefined` as "nothing repeated" — the shape only this arm can see,
+    // since a surface genuinely free of repeats answers the same way.
+    const problems = duplicateSurfaceProblems({ names: ['a', 'a'] }, [['nmaes', 'the name list']]);
+    assert.equal(problems.length, 1);
+    assert.match(problems[0], /the duplicate-surface guard reads `nmaes`/);
+    assert.match(problems[0], /states that key on nothing/);
+    assert.doesNotMatch(problems[0], /appears more than once/);
   });
 });

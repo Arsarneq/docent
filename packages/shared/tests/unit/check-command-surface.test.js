@@ -24,7 +24,7 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { execFileSync } from 'node:child_process';
+import { trackedFilesUnder } from '../../../../scripts/check-test-inventory.js';
 import {
   DOC_PATH,
   LIB_PATH,
@@ -407,6 +407,18 @@ describe('evaluateCommandSurface — the one event channel', () => {
   it('fires when the crate carries two generate_handler! lists', () => {
     const problems = evaluateCommandSurface(makeSurface({ handlerOccurrences: 2 }));
     assert.ok(problems.some((p) => p.includes('2 generate_handler! lists')));
+  });
+
+  it('is fail-closed: a surface stating no count reds rather than passing silently', () => {
+    // The `!== 1` form, pinned. Written as a comparison that reads as its
+    // opposite this guard no-ops on every surface that omits the key, which is
+    // how a scalar leg is added to this evaluator and proves nothing.
+    const surface = makeSurface();
+    delete surface.handlerOccurrences;
+    assert.ok(
+      evaluateCommandSurface(surface).some((p) => p.includes('generate_handler! lists')),
+      'a surface without the key must red',
+    );
   });
 });
 
@@ -1595,11 +1607,8 @@ describe('extractMockCommands / extractMockServicedCases', () => {
 });
 
 describe('real-tree lock', () => {
-  const lsFiles = (dir) =>
-    execFileSync('git', ['ls-files', dir], { encoding: 'utf8', cwd: ROOT })
-      .split('\n')
-      .map((s) => s.trim())
-      .filter(Boolean);
+  // The listing the check itself takes, through the shared population reader.
+  const lsFiles = (dir) => trackedFilesUnder(dir, { cwd: ROOT });
 
   it('a rename landing on one live prose mention reds, naming the token left behind', () => {
     // The false green the widened weld exists to close: the clause names the

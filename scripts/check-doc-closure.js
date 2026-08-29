@@ -114,12 +114,13 @@
  */
 
 import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import yaml from 'js-yaml';
 import {
   backtickedName,
-  duplicatesIn,
+  duplicateSurfaceProblems,
+  emptySurfaceProblems,
   flattenWhitespace,
   missingFrom,
   parseTables,
@@ -128,8 +129,14 @@ import {
 } from './check-test-inventory.js';
 import { jobFlags } from './check-ci-filter.js';
 
-/** This check's own path, as its reds name the register that lives here. */
-export const SELF_PATH = 'scripts/check-doc-closure.js';
+/**
+ * This check's own path, DERIVED from the file it is written in rather than
+ * written out: the path a verdict names is then the file that printed it, and a
+ * rename carries the value with the file instead of leaving a literal behind.
+ * The `node scripts/<name>.js` usage line in the header above is a comment and
+ * stays hand-written — that is the stated boundary of this derivation.
+ */
+export const SELF_PATH = `scripts/${basename(import.meta.filename)}`;
 export const CI_DOC_PATH = 'docs/guides/ci.md';
 export const LOCAL_CI_DOC_PATH = 'docs/guides/local-ci.md';
 export const WORKFLOWS_DIR = '.github/workflows';
@@ -180,16 +187,35 @@ function backtickedSpans(text) {
 export const WORKFLOW_FILE_RE = /^\.github\/workflows\/[^/]+\.ya?ml$/;
 
 /**
- * The workflow basenames a raw listing yields. Applying
- * {@link WORKFLOW_FILE_RE} here is what keeps the leg's boundary: git's
- * pathspec `*` crosses `/`, so the listing itself sweeps nested YAML in.
- * Exported so the suite drives the filter on the listing path, not only the
- * pattern.
+ * The pathspec a tracked listing of the workflow files is taken over. It sits
+ * beside the boundary it feeds because the two are one decision: the pathspec
+ * is what git is asked for, and {@link workflowPaths} is what the answer is
+ * held to. Every check that reads this file set takes both from here.
+ */
+export const WORKFLOW_PATHSPEC = `${WORKFLOWS_DIR}/*.y*ml`;
+
+/**
+ * The workflow files among a listing, paths intact: tracked YAML directly under
+ * the workflows directory. Applying {@link WORKFLOW_FILE_RE} here is what keeps
+ * the boundary — git's pathspec `*` crosses `/`, so the listing itself sweeps
+ * nested YAML in. Exported so every check reading this file set applies one
+ * filter, and so the suites can drive it on the listing path rather than only
+ * on the pattern.
+ * @param {string[]} paths repo-relative paths from the listing
+ * @returns {string[]} the workflow files among them, paths intact
+ */
+export function workflowPaths(paths) {
+  return paths.filter((path) => WORKFLOW_FILE_RE.test(path));
+}
+
+/**
+ * The workflow basenames a raw listing yields — {@link workflowPaths} read for
+ * the names the inventory table states rather than for the paths themselves.
  * @param {string[]} paths repo-relative paths from the listing
  * @returns {string[]} basenames of the workflow files among them
  */
 export function workflowBasenames(paths) {
-  return paths.filter((path) => WORKFLOW_FILE_RE.test(path)).map((path) => path.split('/').pop());
+  return workflowPaths(paths).map((path) => path.split('/').pop());
 }
 
 /**
@@ -841,9 +867,10 @@ export function collectScriptKeys(manifests) {
 
 /**
  * How a surface that is not a plain name list is read as one, keyed by
- * surface. Both guard loops below read through this projection, so a
- * surface of records is counted and de-duplicated by the name it carries
- * rather than by its shape.
+ * surface. Both shared guard loops below are handed this projection per entry,
+ * so a surface of records is counted and de-duplicated by the name it carries
+ * rather than by its shape, and a key with no entry here is read off the
+ * surfaces directly.
  */
 const SURFACE_LISTS = {
   scriptKeys: (s) => [...s.scriptKeys],
@@ -851,9 +878,6 @@ const SURFACE_LISTS = {
   jobsTableRows: (s) => s.jobsTableRows.map((row) => row.job),
   colonCites: (s) => s.colonCites.map((cite) => cite.token),
 };
-
-/** One surface as a list of names, through its projection where it has one. */
-const surfaceList = (key, s) => (SURFACE_LISTS[key] ? SURFACE_LISTS[key](s) : s[key]);
 
 /**
  * The non-empty guard's legs: every parsed surface, with its empty-parse
@@ -1058,18 +1082,25 @@ export function evaluateDocClosure(s) {
     problems.push(`act verdict the scan cannot read — ${cell}`);
   }
 
-  let vacuous = false;
-  for (const [key, message] of EMPTY_SURFACES) {
-    if (surfaceList(key, s).length === 0) {
-      problems.push(message);
-      vacuous = true;
-    }
+  // Both guards run through the shared loops, each entry carrying its own
+  // projection: the projector an entry supplies is what the loop applies, and
+  // a key with none is read off the surfaces directly. `scriptKeys` is a Set,
+  // so its projection is what makes its length readable at all.
+  const empty = emptySurfaceProblems(
+    s,
+    EMPTY_SURFACES.map(([key, message]) => [key, message, SURFACE_LISTS[key]]),
+  );
+  if (empty.length > 0) {
+    problems.push(...empty);
+    return problems; // empty parses make the closure diffs meaningless
   }
-  if (vacuous) return problems; // empty parses make the closure diffs meaningless
 
-  for (const [key, what] of DUPLICATE_SURFACES) {
-    problems.push(...duplicatesIn(surfaceList(key, s), what));
-  }
+  problems.push(
+    ...duplicateSurfaceProblems(
+      s,
+      DUPLICATE_SURFACES.map(([key, what]) => [key, what, SURFACE_LISTS[key]]),
+    ),
+  );
 
   const gateTokens = new Set(s.gateRows.flatMap((r) => r.tokens));
   problems.push(
@@ -1381,7 +1412,7 @@ export function treeSurfaces(root) {
         return ''; // an unreadable surface fails the non-empty guards loudly
       }
     },
-    () => workflowBasenames(gitList(`${WORKFLOWS_DIR}/*.y*ml`)),
+    () => workflowBasenames(gitList(WORKFLOW_PATHSPEC)),
     () => gitList('*.md'),
     () => gitList('*package.json').filter((p) => p.split('/').pop() === 'package.json'),
   );

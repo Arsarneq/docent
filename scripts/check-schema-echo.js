@@ -35,6 +35,16 @@
  * every registered class is judged as a closed object, so it must declare
  * `additionalProperties: false` like the rest.
  *
+ * The two answers are kept apart by exit code. An input this check reads that
+ * answered with something other than the surface it reads there — a registered
+ * authority surface the tree could not hand over or that read empty, a
+ * field-table cell that is not a lone backticked field name, a section and
+ * header selecting other than exactly one table, a moved Required column, a
+ * registry that could not be read, and one whose text is not JSON — is
+ * machinery breakage on the check's own input and ends the run on exit 2. An
+ * echo that read fine and disagrees with the schemas is drift, and ends it on
+ * exit 1.
+ *
  * Honest limits, and where each one's residue is held instead:
  *
  *   - the prose MEANING of an authority statement is review-held — the leg
@@ -88,11 +98,12 @@ import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { PLATFORMS, composePlatform } from './build-schemas.js';
 import { CITED_PATH_RE } from './check-clause-governance.js';
-import { splitCitationTokens } from './check-clause-registry.js';
+import { PATTERN_CHAR_RE, isProsePathToken, splitCitationTokens } from './check-clause-registry.js';
 import { REGISTRY_PATH, readTextOrNull } from './governance-data.js';
 import {
   backtickedName,
   duplicatesIn,
+  emptySurfaceProblems,
   flattenWhitespace,
   missingFrom,
   parseTables,
@@ -389,6 +400,20 @@ const PLAIN_PATH_RE = /^(?:[A-Za-z0-9_\-.]+\/)*[A-Za-z0-9_\-.]+\.[A-Za-z0-9]+$/;
  * A candidate that names no Markdown at all is simply outside this leg — the
  * row cites other files for other reasons.
  *
+ * A separator-carrying token whose first segment reads as prose rather than a
+ * directory — a version, a measurement, a host — is ordinary sentence text and
+ * is passed over, through the same reading the citation gate
+ * ([`check-clause-registry.js`](./check-clause-registry.js)) gives it
+ * ({@link isProsePathToken}, the one home of that rule). The condition is the
+ * separator: a bare name like `README.md` is a registered surface here, and its
+ * interior dot is what that rule reads as prose in a first SEGMENT.
+ *
+ * The two shapes this leg cannot match are reported apart, because the routes
+ * out of them differ: `unmodelled` carries the tokens naming a SET — a glob or
+ * brace form — and `unshaped` the Markdown-reaching tokens that name no set and
+ * no path either, which is what a comma split can leave behind (`docs/x.md,.md`
+ * cites one surface and one bare extension).
+ *
  * A refusal names the token AS WRITTEN — the `raw` half of the pair the split
  * returns. The asterisk runs at a part's edges come off for the match, because
  * they are Markdown emphasis rather than part of a pattern, but reporting the
@@ -402,11 +427,12 @@ const PLAIN_PATH_RE = /^(?:[A-Za-z0-9_\-.]+\/)*[A-Za-z0-9_\-.]+\.[A-Za-z0-9]+$/;
  * `docs/README.md`, and would never see a path the row cites that no
  * surface backs.
  * @param {string} text a clause row's check-ref
- * @returns {{ paths: string[], unmodelled: string[] }}
+ * @returns {{ paths: string[], unmodelled: string[], unshaped: string[] }}
  */
 export function citedMarkdownPaths(text) {
   const paths = [];
   const unmodelled = [];
+  const unshaped = [];
   const seen = new Set();
   for (const raw of (text ?? '').match(CITED_PATH_RE) ?? []) {
     // A lone comma separates two citations written without a space, so one
@@ -420,14 +446,20 @@ export function citedMarkdownPaths(text) {
     for (const { raw: written, token: candidate } of splitCitationTokens(raw)) {
       if (!candidate || seen.has(candidate)) continue;
       seen.add(candidate);
+      // Ordinary prose that happens to carry a separator is read as prose, on
+      // the sibling readers' own rule; the condition is that separator, since
+      // that rule judges a FIRST SEGMENT and a bare surface name has none.
+      if (candidate.includes('/') && isProsePathToken(candidate)) continue;
       if (PLAIN_PATH_RE.test(candidate)) {
         if (candidate.endsWith(MARKDOWN_EXTENSION)) paths.push(candidate);
       } else if (candidate.includes(MARKDOWN_EXTENSION)) {
-        unmodelled.push(written);
+        // The pattern test reads the token AS WRITTEN, which is where the
+        // emphasis a strip removes may be the only pattern character there.
+        (PATTERN_CHAR_RE.test(written) ? unmodelled : unshaped).push(written);
       }
     }
   }
-  return { paths, unmodelled };
+  return { paths, unmodelled, unshaped };
 }
 
 /**
@@ -436,26 +468,31 @@ export function citedMarkdownPaths(text) {
  * problem when the registry cannot be read or carries no such row — and the
  * problem says which it was, so a file the tree cannot hand over is never
  * reported as a file whose text is not JSON.
+ *
+ * `machinery` says which side of the exit-code partition the problem sits on:
+ * a registry this check cannot read at all, or whose text is not JSON, is
+ * breakage on the check's own input, while a registry that reads and parses
+ * and states no such row is a register that has drifted from what it discloses.
  * @param {string | null} registryJson the registry's text, or null if it could not be read
  * @param {string} clauseId the clause whose row to read
- * @returns {{ text: string | null, problems: string[] }}
+ * @returns {{ text: string | null, problems: string[], machinery: boolean }}
  */
 export function readClauseRow(registryJson, clauseId) {
   if (registryJson === null) {
-    return { text: null, problems: [`${REGISTRY_PATH} could not be read — the §${clauseId} register closure cannot run`] }; // prettier-ignore
+    return { text: null, machinery: true, problems: [`${REGISTRY_PATH} could not be read — the §${clauseId} register closure cannot run`] }; // prettier-ignore
   }
   let parsed;
   try {
     parsed = JSON.parse(registryJson);
   } catch {
-    return { text: null, problems: [`${REGISTRY_PATH} does not parse as JSON — the §${clauseId} register closure cannot run`] }; // prettier-ignore
+    return { text: null, machinery: true, problems: [`${REGISTRY_PATH} does not parse as JSON — the §${clauseId} register closure cannot run`] }; // prettier-ignore
   }
   const rows = Array.isArray(parsed?.clauses) ? parsed.clauses : [];
   const row = rows.find((r) => r?.clause === clauseId);
   if (!isPlainObject(row) || typeof row['check-ref'] !== 'string') {
-    return { text: null, problems: [`${REGISTRY_PATH} carries no §${clauseId} row with a check-ref — the register closure cannot run`] }; // prettier-ignore
+    return { text: null, machinery: false, problems: [`${REGISTRY_PATH} carries no §${clauseId} row with a check-ref — the register closure cannot run`] }; // prettier-ignore
   }
-  return { text: row['check-ref'], problems: [] };
+  return { text: row['check-ref'], machinery: false, problems: [] };
 }
 
 /**
@@ -677,6 +714,31 @@ export const EMPTY_SURFACES = [
 ];
 
 /**
+ * The surfaces this check asked for that it could not read as what it reads
+ * there: a field-table cell it cannot read as a backticked field name, and a
+ * registered authority surface the tree could not hand over or that read empty.
+ * This is one half of the machinery set the CLI ends on its own exit code, and
+ * the whole of the half {@link evaluateSchemaEcho} derives — the other half is
+ * the reads {@link auditTree} takes, which it collects as it takes them.
+ * @param {Parameters<typeof evaluateSchemaEcho>[0]} s the extracted surfaces
+ * @returns {string[]} one line per surface, empty when every read answered
+ */
+export function readFailureProblems(s) {
+  const problems = [];
+  for (const cell of s.tableUnreadable) {
+    problems.push(`${SESSION_FORMAT_DOC_PATH} carries a cell the scan cannot read — ${cell}`);
+  }
+  for (const surface of s.authority) {
+    if (surface.unreadable) {
+      problems.push(`${surface.path} could not be read — ${surface.description} cannot be checked`); // prettier-ignore
+    } else if (surface.empty) {
+      problems.push(`${surface.path} read empty — ${surface.description} cannot be checked`);
+    }
+  }
+  return problems;
+}
+
+/**
  * Pure core: evaluate every echo leg.
  * @param {object} s the extracted surfaces
  * @param {{ path: string, description: string, matched: boolean, empty: boolean, unreadable: boolean }[]} s.authority
@@ -697,26 +759,16 @@ export function evaluateSchemaEcho(s) {
   // Unreadable cells and unread surfaces are reported ahead of the vacuous
   // guards: the likeliest cause of an empty parse is rows or files that
   // stopped being readable, so the most useful line must survive the early
-  // return.
-  for (const cell of s.tableUnreadable) {
-    problems.push(`${SESSION_FORMAT_DOC_PATH} carries a cell the scan cannot read — ${cell}`);
-  }
-  for (const surface of s.authority) {
-    if (surface.unreadable) {
-      problems.push(`${surface.path} could not be read — ${surface.description} cannot be checked`); // prettier-ignore
-    } else if (surface.empty) {
-      problems.push(`${surface.path} read empty — ${surface.description} cannot be checked`);
-    }
-  }
+  // return. They are the machinery half of the partition the CLI's two exit
+  // codes state, derived here through its one home so both readings stream the
+  // same text.
+  problems.push(...readFailureProblems(s));
 
-  let vacuous = false;
-  for (const [key, message] of EMPTY_SURFACES) {
-    if (s[key].length === 0) {
-      problems.push(message);
-      vacuous = true;
-    }
+  const empty = emptySurfaceProblems(s, EMPTY_SURFACES);
+  if (empty.length > 0) {
+    problems.push(...empty);
+    return problems; // empty parses make the echo diffs meaningless
   }
-  if (vacuous) return problems; // empty parses make the echo diffs meaningless
 
   for (const surface of s.authority) {
     if (!surface.empty && !surface.matched) {
@@ -769,6 +821,11 @@ export function evaluateSchemaEcho(s) {
     // inside citedMarkdownPaths, not to this diagnosis.
     for (const token of cited.unmodelled) {
       problems.push(`the §${AUTHORITY_CLAUSE_ID} row in ${REGISTRY_PATH} cites \`${token}\`, a path shape this leg refuses by design — the citation gate and the governance finder resolve a pattern against the tracked set, while this leg enumerates surfaces one literal path at a time, and a set of files is not something the register answers`); // prettier-ignore
+    }
+    // A residue that names no set either: the diagnosis above would send its
+    // author looking for a pattern, so this one says what the token is instead.
+    for (const token of cited.unshaped) {
+      problems.push(`the §${AUTHORITY_CLAUSE_ID} row in ${REGISTRY_PATH} cites \`${token}\`, which reaches for Markdown and states no path this leg can match — the register is read as one literal path per surface, and this token names a file the shape does not admit rather than a set of them`); // prettier-ignore
     }
     problems.push(
       ...missingFrom(registered, cited.paths, `is a registered authority surface but the §${AUTHORITY_CLAUSE_ID} row in ${REGISTRY_PATH} does not cite it — the row states which surfaces are held`), // prettier-ignore
@@ -854,12 +911,20 @@ export function evaluateSchemaEcho(s) {
 
 /**
  * Read every surface from a tree.
+ *
+ * `machineryProblems` carries the reads taken here that answered with something
+ * other than the surface asked for — a registry that could not be read or whose
+ * text is not JSON, and a field table whose section and header no longer select
+ * exactly one table or whose Required column has moved. It is a subset of
+ * `anchorProblems`, streamed a second time so the CLI can end machinery
+ * breakage on its own exit code without re-deriving which lines those are.
  * @param {(path: string) => (string | null)} readFile repo-relative reader (null if unreadable)
  * @param {(platform: string) => object} composeFor composes one platform's schema
- * @returns {Parameters<typeof evaluateSchemaEcho>[0] & { anchorProblems: string[] }}
+ * @returns {Parameters<typeof evaluateSchemaEcho>[0] & { anchorProblems: string[], machineryProblems: string[] }}
  */
 export function auditTree(readFile, composeFor) {
   const anchorProblems = [];
+  const machineryProblems = [];
 
   const authority = AUTHORITY_SURFACES.map(([path, claim, description]) => {
     const text = readFile(path);
@@ -904,6 +969,7 @@ export function auditTree(readFile, composeFor) {
 
   const row = readClauseRow(readFile(REGISTRY_PATH), AUTHORITY_CLAUSE_ID);
   anchorProblems.push(...row.problems);
+  if (row.machinery) machineryProblems.push(...row.problems);
 
   // The document's own unreadability is named by the authority leg, which reads
   // the same path; the field-table legs then run over no text and refuse their
@@ -914,6 +980,7 @@ export function auditTree(readFile, composeFor) {
   for (const [section, headerCell, defName, label] of FIELD_TABLE_LEGS) {
     const read = extractFieldTable(docText, section, headerCell, label);
     anchorProblems.push(...read.problems);
+    machineryProblems.push(...read.problems);
     tableUnreadable.push(...read.unreadable);
     const marked = (mark) => read.rows.filter((r) => r.required === mark).map((r) => r.field);
     tables.push({
@@ -943,6 +1010,7 @@ export function auditTree(readFile, composeFor) {
     tableUnreadable,
     defs,
     anchorProblems,
+    machineryProblems,
   };
 }
 
@@ -967,6 +1035,13 @@ const isMain =
 
 if (isMain) {
   const surfaces = treeSurfaces('.');
+  const machinery = [...surfaces.machineryProblems, ...readFailureProblems(surfaces)];
+  if (machinery.length > 0) {
+    console.error('An input this check reads answered with something other than the surface it reads there:\n'); // prettier-ignore
+    for (const problem of machinery) console.error(`  - ${problem}`);
+    console.error(`\n${machinery.length} input(s). This check asks the tree for the registered authority surfaces, the ${SESSION_FORMAT_DOC_PATH} field tables its legs are keyed to, and the §${AUTHORITY_CLAUSE_ID} row of ${REGISTRY_PATH}, then compares each with the schemas composed from their source layers. What came back instead is listed above — a surface the tree could not hand over or one that read empty, a cell that is not a lone backticked field name, a section and header selecting other than exactly one table, a moved Required column, a registry that could not be read, or one whose text is not JSON. That is breakage on this check's own input, so it ends on this check's own exit code (exit 2), apart from an echo that drifted (exit 1). Restore the surface where the check reads it, or move the register and the surface together.\n`); // prettier-ignore
+    process.exit(2);
+  }
   const problems = [...surfaces.anchorProblems, ...evaluateSchemaEcho(surfaces)];
   if (problems.length > 0) {
     console.error('Schema-echo check failed:\n');

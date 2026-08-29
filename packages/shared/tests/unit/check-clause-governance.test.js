@@ -31,7 +31,6 @@
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import {
   citedPaths,
@@ -39,6 +38,7 @@ import {
   ALLOWLIST,
 } from '../../../../scripts/check-clause-governance.js';
 import { REGISTRY_PATH, readTextOrNull } from '../../../../scripts/governance-data.js';
+import { trackedFilesUnder } from '../../../../scripts/check-test-inventory.js';
 
 /** A minimal map: one area 'alpha', one 'tooling', one repo-wide doc. */
 function makeMap(overrides = {}) {
@@ -381,10 +381,8 @@ describe('baseline lock (real tree)', () => {
    * @returns {{ files: string[], registry: any, map: any, readFile: (f: string) => string | null }}
    */
   const realTree = () => ({
-    files: execFileSync('git', ['ls-files'], { encoding: 'utf8' })
-      .split('\n')
-      .map((s) => s.trim())
-      .filter(Boolean),
+    // The listing the check itself takes, through the shared population reader.
+    files: trackedFilesUnder('.'),
     registry: JSON.parse(readFileSync(REGISTRY_PATH, 'utf8')),
     map: JSON.parse(readFileSync('scripts/area-map.json', 'utf8')),
     readFile: readTextOrNull,

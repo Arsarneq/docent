@@ -24,10 +24,12 @@
  * bracket in front of it.
  */
 
-import { describe, it } from 'node:test';
+import { after, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { spawnSync } from 'node:child_process';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { dirname, join, resolve } from 'node:path';
 import {
   ACTION_DEF_PREFIX,
   ACTION_WRAPPER_DEF,
@@ -500,6 +502,16 @@ describe('evaluateSchemaEcho — the authority register and the clause row that 
     );
   });
 
+  it('words a Markdown-reaching token that names no set on its own terms', () => {
+    // The pattern diagnosis would send this author looking for a glob; this
+    // one states what the token is instead.
+    const problems = evaluateSchemaEcho(makeSurface({ authorityRow: 'docs/x.md,.md is held' }));
+    const found = problems.filter((p) => p.includes('cites `.md`'));
+    assert.equal(found.length, 1, problems.join('\n'));
+    assert.match(found[0], /states no path this leg can match/);
+    assert.doesNotMatch(found[0], /refuses by design/);
+  });
+
   it('does not let a shorter path ride inside a longer one', () => {
     // `README.md` is a substring of `docs/README.md`: a substring test would
     // call the root README disclosed by a row that only cites the index.
@@ -829,6 +841,36 @@ describe('citedMarkdownPaths', () => {
     const script = citedMarkdownPaths('held by scripts/*.js and the checks');
     assert.deepEqual(script.paths, []);
     assert.deepEqual(script.unmodelled, []);
+  });
+
+  it('reads a separator-carrying prose token as prose, on the sibling readers’ rule', () => {
+    // A host and a version each carry a separator and an interior dot in the
+    // first segment, which is what that rule reads as sentence text — so
+    // neither is extracted as a surface nor refused as a shape.
+    const host = citedMarkdownPaths('as github.com/Arsarneq/docent/README.md shows');
+    assert.deepEqual(host.paths, []);
+    assert.deepEqual(host.unmodelled, []);
+    assert.deepEqual(host.unshaped, []);
+    const version = citedMarkdownPaths('between 1.2/2.0.md and the rest');
+    assert.deepEqual(version.paths, []);
+    assert.deepEqual(version.unshaped, []);
+  });
+
+  it('keeps the bare surface name the separator condition protects', () => {
+    // That prose rule judges a first SEGMENT; a registered root surface has
+    // none, so gating it unconditionally would drop a surface the row cites.
+    assert.deepEqual(citedMarkdownPaths('the register holds README.md').paths, ['README.md']);
+  });
+
+  it('reports a Markdown-reaching token that names no set apart from a pattern', () => {
+    // The comma splits one matched token into two citations, and the second
+    // reaches for Markdown while carrying no pattern character and no path the
+    // shape admits — a different finding from a glob, so it comes back on its
+    // own list and the two diagnoses can differ.
+    const cited = citedMarkdownPaths('the register holds docs/x.md,.md');
+    assert.deepEqual(cited.paths, ['docs/x.md']);
+    assert.deepEqual(cited.unmodelled, []);
+    assert.deepEqual(cited.unshaped, ['.md']);
   });
 });
 
@@ -1191,6 +1233,83 @@ describe('real-tree lock', () => {
     assert.deepEqual(readClauseRow('{', AUTHORITY_CLAUSE_ID).problems, [
       `${REGISTRY_PATH} does not parse as JSON — the §${AUTHORITY_CLAUSE_ID} register closure cannot run`,
     ]);
+    // And it says which side of the exit-code partition each answer sits on.
+    assert.equal(readClauseRow(null, AUTHORITY_CLAUSE_ID).machinery, true);
+    assert.equal(readClauseRow('{', AUTHORITY_CLAUSE_ID).machinery, true);
+    assert.equal(readClauseRow('{"clauses":[]}', AUTHORITY_CLAUSE_ID).machinery, false);
+  });
+});
+
+describe('the CLI’s two exit codes, over copies of the surfaces it reads', () => {
+  const SCRIPT = join(ROOT, 'scripts', 'check-schema-echo.js');
+  // Exactly the tree-side read-set: the registered authority surfaces (the
+  // session-format document among them) and the registry the register closure
+  // reads. The schemas are composed from the source layers of the repository
+  // the script ships in, so a copy needs no schema sources of its own.
+  const READ_SET = [...AUTHORITY_SURFACES.map(([path]) => path), REGISTRY_PATH];
+  let root = null;
+
+  after(() => {
+    if (root) rmSync(root, { recursive: true, force: true });
+  });
+
+  /** A throwaway tree holding copies of the surfaces the check reads. */
+  function tree(mutate = null) {
+    root ??= mkdtempSync(join(tmpdir(), 'docent-echo-cli-'));
+    const dir = mkdtempSync(join(root, 'case-'));
+    const files = new Map(READ_SET.map((rel) => [rel, readTree(rel)]));
+    if (mutate) mutate(files);
+    for (const [rel, text] of files) {
+      const target = join(dir, ...rel.split('/'));
+      mkdirSync(dirname(target), { recursive: true });
+      writeFileSync(target, text);
+    }
+    return dir;
+  }
+
+  /** Run the real CLI against a throwaway tree. */
+  function run(dir) {
+    const result = spawnSync(process.execPath, [SCRIPT], { cwd: dir, encoding: 'utf8' });
+    return { status: result.status, stdout: result.stdout ?? '', stderr: result.stderr ?? '' };
+  }
+
+  it('exit 0 over pristine copies of every surface it reads', () => {
+    const r = run(tree());
+    assert.equal(r.status, 0, `${r.stdout}${r.stderr}`);
+    assert.match(r.stdout, /schema echoes consistent/);
+  });
+
+  it('a registry it cannot read at all is the machinery verdict, on exit 2', () => {
+    const r = run(tree((files) => files.delete(REGISTRY_PATH)));
+    assert.equal(r.status, 2, `${r.stdout}${r.stderr}`);
+    assert.match(r.stderr, new RegExp(`${REGISTRY_PATH.replace('.', '\\.')} could not be read`));
+    assert.match(r.stderr, /exit 2/);
+    assert.doesNotMatch(r.stderr, /^\s+at /m);
+  });
+
+  it('a registry whose text is not JSON is that same verdict, on the same code', () => {
+    const r = run(tree((files) => files.set(REGISTRY_PATH, '{ "clauses": [')));
+    assert.equal(r.status, 2, `${r.stdout}${r.stderr}`);
+    assert.match(r.stderr, /does not parse as JSON/);
+    assert.doesNotMatch(r.stderr, /^\s+at /m);
+  });
+
+  it('an echo that drifted, every read having answered, ends on exit 1 instead', () => {
+    // One perturbation, on a surface the machinery legs read cleanly: the row
+    // that discloses which surfaces are held cites one more than the register
+    // backs. Every read answers, so what is left is the disagreement itself.
+    const cited = 'docs/an-unregistered-surface.md';
+    const r = run(
+      tree((files) => {
+        const registry = JSON.parse(files.get(REGISTRY_PATH));
+        const row = registry.clauses.find((c) => c.clause === AUTHORITY_CLAUSE_ID);
+        row['check-ref'] = `${row['check-ref']} and ${cited}`;
+        files.set(REGISTRY_PATH, JSON.stringify(registry, null, 2));
+      }),
+    );
+    assert.equal(r.status, 1, `${r.stdout}${r.stderr}`);
+    assert.match(r.stderr, new RegExp(cited.replace('.', '\\.')));
+    assert.match(r.stderr, /no registered surface holds it/);
   });
 });
 

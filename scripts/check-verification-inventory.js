@@ -97,11 +97,14 @@
  */
 
 import { readFileSync } from 'node:fs';
+import { basename } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import {
   backtickedName,
   backtickedTokens,
+  duplicateSurfaceProblems,
   duplicatesIn,
+  emptySurfaceProblems,
   extractClauseSection,
   flattenWhitespace,
   missingFrom,
@@ -119,6 +122,15 @@ import {
   discoverSessions,
 } from './corpus-compare.js';
 import { PREDICATES, RECORDING_PREDICATES } from './sufficiency-lint.js';
+
+/**
+ * This check's own path, DERIVED from the file it is written in rather than
+ * written out: the path a verdict names is then the file that printed it, and a
+ * rename carries the value with the file instead of leaving a literal behind.
+ * The `node scripts/<name>.js` usage line in the header above is a comment and
+ * stays hand-written — that is the stated boundary of this derivation.
+ */
+const SELF_PATH = `scripts/${basename(import.meta.filename)}`;
 
 /** Repo-relative path of the corpus doctrine whose clauses this check reads. */
 export const CORPUS_DOC_PATH = 'docs/verification/scripted-truth-corpus.md';
@@ -590,6 +602,10 @@ export function evaluateVerificationInventory(s) {
     [s.perActionTableMatches, PER_ACTION_TABLE_HEADER, `${LINT_DOC_PATH}'s per-action catalogue`],
     [s.recordingTableMatches, RECORDING_TABLE_HEADER, `${LINT_DOC_PATH}'s recording-level catalogue`], // prettier-ignore
   ]) {
+    // Scalar counts, guarded fail-closed on the `!== 1` form the shared rule
+    // states (`emptySurfaceProblems` in scripts/check-test-inventory.js): a
+    // surface stating no count hands this `undefined`, which is not 1, so a
+    // read that answered nothing reds here rather than passing over.
     if (count !== 1) {
       problems.push(`${where}: ${count} table(s) carry the header \`${header.join(' | ')}\` — the scan reads exactly one`); // prettier-ignore
     }
@@ -600,18 +616,15 @@ export function evaluateVerificationInventory(s) {
     }
   }
 
-  let vacuous = s.docCites.some((d) => d.cites.length === 0);
-  for (const [key, message] of EMPTY_SURFACES) {
-    if (s[key].length === 0) {
-      problems.push(message);
-      vacuous = true;
-    }
-  }
-  if (vacuous) return problems; // empty parses make the set diffs meaningless
+  // The vacuous seed above the shared guard: a scanned document that cites no
+  // job is already reported, and it stops the run for the same reason an empty
+  // surface does, so the early return has to survive an all-non-empty pass.
+  const vacuousCites = s.docCites.some((d) => d.cites.length === 0);
+  const empty = emptySurfaceProblems(s, EMPTY_SURFACES);
+  problems.push(...empty);
+  if (empty.length > 0 || vacuousCites) return problems; // empty parses make the set diffs meaningless
 
-  for (const [key, what] of DUPLICATE_SURFACES) {
-    problems.push(...duplicatesIn(s[key], what));
-  }
+  problems.push(...duplicateSurfaceProblems(s, DUPLICATE_SURFACES));
 
   const docFields = new Map(s.docKindFields);
   const codeFields = new Map(s.codeKindFields);
@@ -620,9 +633,9 @@ export function evaluateVerificationInventory(s) {
     ...missingFrom(s.codeKinds, s.docKinds, `is a relaxation kind the comparator carries but ${CORPUS_DOC_PATH} §${RELAXATION_CLAUSE_ID} does not state`), // prettier-ignore
     ...missingFrom(s.docStatedKinds, s.codeKinds, `is a relaxation kind ${CORPUS_DOC_PATH} §${RELAXATION_KINDS_CLAUSE_ID}'s kind sentence states but the comparator's RELAX_KINDS does not carry`), // prettier-ignore
     ...missingFrom(s.codeKinds, s.docStatedKinds, `is a relaxation kind the comparator carries but ${CORPUS_DOC_PATH} §${RELAXATION_KINDS_CLAUSE_ID}'s kind sentence does not state`), // prettier-ignore
-    ...missingFrom(s.codeKinds, [...codeFields.keys()], `is in the comparator's RELAX_KINDS but scripts/check-verification-inventory.js knows no field list for it — extend CODE_RELAXATION_FIELDS in the same change`), // prettier-ignore
-    ...missingFrom([...codeFields.keys()], s.codeKinds, `has a field list in scripts/check-verification-inventory.js but is not a comparator relaxation kind`), // prettier-ignore
-    ...missingFrom(s.manifestPlatforms, s.watchedPlatforms, `has sessions in ${MANIFEST_PATH} but is a platform the ${STRICT_CLAUSE_ID} strict-flip watch has not learned — extend STRICT_WATCH_PLATFORMS in scripts/check-verification-inventory.js in the same change, so the platform's gate is watched from the moment its sessions land`), // prettier-ignore
+    ...missingFrom(s.codeKinds, [...codeFields.keys()], `is in the comparator's RELAX_KINDS but ${SELF_PATH} knows no field list for it — extend CODE_RELAXATION_FIELDS in the same change`), // prettier-ignore
+    ...missingFrom([...codeFields.keys()], s.codeKinds, `has a field list in ${SELF_PATH} but is not a comparator relaxation kind`), // prettier-ignore
+    ...missingFrom(s.manifestPlatforms, s.watchedPlatforms, `has sessions in ${MANIFEST_PATH} but is a platform the ${STRICT_CLAUSE_ID} strict-flip watch has not learned — extend STRICT_WATCH_PLATFORMS in ${SELF_PATH} in the same change, so the platform's gate is watched from the moment its sessions land`), // prettier-ignore
     ...missingFrom(s.watchedPlatforms, s.manifestPlatforms, `is a platform the ${STRICT_CLAUSE_ID} strict-flip watch covers but ${MANIFEST_PATH} carries no session for`), // prettier-ignore
     ...missingFrom(s.docNormalizationTokens, s.codeNormalizationTokens, `is a field token ${CORPUS_DOC_PATH} §${NORMALIZATION_CLAUSE_ID} normalizes but the comparator's class map does not carry`), // prettier-ignore
     ...missingFrom(s.codeNormalizationTokens, s.docNormalizationTokens, `is a field token the comparator's class map normalizes but ${CORPUS_DOC_PATH} §${NORMALIZATION_CLAUSE_ID}'s table does not state`), // prettier-ignore

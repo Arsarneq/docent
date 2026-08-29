@@ -1825,6 +1825,19 @@ describe('run() — the command line', () => {
     assert.doesNotMatch(r.stderr, /"unassigned" entr\(ies\) match no tracked file/);
   });
 
+  it('sees a tracked doc whose name carries a non-ASCII byte, under its real name', () => {
+    // What the shared population reader's quotepath policy buys here. Read the
+    // way git lists paths by default, this file comes back quoted and escaped,
+    // which fails the `.md` test the doc-coverage leg makes — so a doc with no
+    // home in the map would be dropped from that leg instead of reported. Under
+    // the policy the leg sees the name as it is written and says so.
+    const named = 'docs/café.md';
+    const r = runCheckOn({ ...fixtureTree('LICENSE'), [named]: '# a doc with no home\n' });
+    assert.equal(r.status, 1, `expected the uncovered doc to red.\nstderr: ${r.stderr}`);
+    assert.match(r.stderr, /tracked doc\(s\) have no home/);
+    assert.ok(r.stderr.includes(named), `the real name must appear:\n${r.stderr}`);
+  });
+
   it('refuses a committed map that does not read as JSON, in both modes, without a stack', () => {
     // The audit and the per-file explanation both resolve through the same file,
     // so both answer the same way when it is not the map: the verdict names the
