@@ -1,7 +1,8 @@
 /**
  * check-verification-inventory.js — admission test for the inventories the
  * verification documents state in their own text, each held to the code
- * constant, the committed manifest, or the workflow it describes:
+ * constant, the committed manifest, the vector meta-schema, or the workflow it
+ * describes:
  *
  *   - the relaxation coverage lists
  *     (docs/verification/scripted-truth-corpus.md §STC-21): the clause's list
@@ -16,9 +17,15 @@
  *     the active `desktop-windows` sessions of corpus/manifest.json;
  *   - the predicate catalogue
  *     (docs/verification/sufficiency-lint.md): the per-action table's names
- *     equal the lint's `PREDICATES` ids and every one of those is `fail`
- *     class, and the recording-level table's (predicate, class) pairs equal
+ *     equal the lint's `PREDICATES` ids, the class that table's own heading
+ *     states of all of them is the class this check holds every one of them
+ *     to, and the recording-level table's (predicate, class) pairs equal
  *     the lint's `RECORDING_PREDICATES`;
+ *   - the shipping outcome §STC-23 states: the clause names the field the
+ *     vector meta-schema corpus/vector.schema.json states a committed
+ *     vector's outcome under, and the outcome the clause states equals that
+ *     property's `const` — which the meta-schema also requires of every
+ *     vector, as the clause says every committed vector states it;
  *   - the strict-flip watch (§STC-3): per platform, the corpus gate command
  *     in package.json carries `--strict` exactly when that platform's
  *     known-diffs baseline is empty, and `--lint-strict` exactly when that is
@@ -35,24 +42,39 @@
  *     cites names a job of .github/workflows/test.yml.
  *
  * Every set inventory is diffed BOTH ways — a doc entry the code does not have
- * is as red as a code entry the doc does not state. The job citations are the
- * one leg held one-way, by design: every cite must name a real job of the
- * workflow, and a job owes no cite — a workflow may grow a job neither
- * verification document has reason to mention. That leg is also the one place
- * a repeat is legitimate rather than drift: an enumeration states each entry
- * once, but a document may cite the same job in two sentences, so the citation
- * scan collects a repeated cite once instead of refusing it — the carve-out
- * the enumerations' refuse-a-repeat posture is stated against. Every extraction must be
+ * is as red as a code entry the doc does not state. A leg held one-way states
+ * its own ground for the side it does not hold. The job citations: every cite
+ * must name a real job of the workflow, and a job owes no cite — a workflow may
+ * grow a job neither verification document has reason to mention, so the
+ * workflow side carries nothing the documents can be found to have dropped. The
+ * vector meta-schema's `required` membership: the meta-schema must require the
+ * outcome field of every vector, while §STC-23's own every-committed-vector
+ * demand is running prose this check never reads, so that leg reds when the
+ * meta-schema stops requiring the field and says nothing about a clause that
+ * stopped demanding it.
+ *
+ * A repeat is legitimate wherever a claim is read from running prose rather
+ * than from an enumeration: an enumeration states each entry once, so a repeat
+ * there is drift, while prose may state the same fact in two sentences. The
+ * citation scan therefore collects a repeated cite once instead of refusing it,
+ * and §STC-23's outcome extraction dedupes the tokens its clause's prose
+ * carries for the same reason — the carve-out the enumerations'
+ * refuse-a-repeat posture is stated against. Every extraction must be
  * non-empty (per scanned document, for the citation leg), every table is
- * selected by its exact header tuple and must match exactly one table, and
- * the job-id extractor's own anchor problems are reported rather than read as
- * an empty green — a check that silently reads part of an inventory, or none
- * of it, would pass forever. An input file the readers refuse — unreadable,
- * unparseable, or parseable but not shaped like the surface it is read as (the
- * session catalogue, a known-diffs baseline, the sufficiency baseline, or the
- * package manifest) — is a third verdict, not a drift finding: they refuse
- * loudly, naming the file and which failure mode it was, and the wrapper exits
- * 2 so machinery breakage never reads as an inventory that went stale.
+ * selected by its exact header tuple and must match exactly one table, the
+ * per-action heading is read the same way — exactly one heading states that
+ * class — and the workflow the job ids come from must carry the anchor the
+ * scan reads them under; a check that silently reads part of an inventory, or
+ * none of it, would pass forever. An input file the readers refuse —
+ * unreadable, unparseable, or parseable but not shaped like the surface it is
+ * read as (the session catalogue, a known-diffs baseline, the sufficiency
+ * baseline, the vector meta-schema, or the package manifest) — is a third
+ * verdict, not a drift finding: they refuse loudly, naming the file and which
+ * failure mode it was, and the wrapper exits 2 so machinery breakage never
+ * reads as an inventory that went stale. A workflow whose top-level `jobs:`
+ * anchor the shared extractor cannot find takes that same verdict here: no
+ * inventory drifted, the file the job ids are read from moved, so it is
+ * refused as an input rather than reported beside the drift findings.
  *
  * Why the always-on `lint` job: the diff that stales a doc inventory is
  * frequently docs-only, and a docs-only pull request skips every
@@ -71,8 +93,10 @@
  * the session catalogue's platform population is diffed against it both ways:
  * a platform the corpus grows sessions for that the watch has not learned reds
  * here rather than going unwatched, and a watched platform the catalogue no
- * longer carries reds equally. Documents outside those named here are outside
- * the citation leg — docs/requirements/replay-sufficiency.md
+ * longer carries reds equally. Which documents the citation leg scans is this
+ * check's own declared decision too, stated once in `CITED_JOB_DOCUMENTS`
+ * below and held to the tracked verification documents by the unit suite; a
+ * document outside that list is outside the leg — docs/requirements/replay-sufficiency.md
  * cites no job and is deliberately unscanned, so an empty extraction there
  * could never distinguish a doc with no cites from a broken scan. The job
  * citations are the one leg with no registered clause behind it: both
@@ -142,6 +166,8 @@ export const MANIFEST_PATH = 'corpus/manifest.json';
 export const SUFFICIENCY_BASELINE_PATH = 'packages/shared/tests/fixtures/sufficiency-baseline.json';
 /** Repo-relative path of the root package manifest whose scripts wire the gates. */
 export const PACKAGE_JSON_PATH = 'package.json';
+/** Repo-relative path of the meta-schema every committed conformance vector is shaped by. */
+export const VECTOR_SCHEMA_PATH = 'corpus/vector.schema.json';
 /** The manifest platform whose session ids §STC-22 enumerates. */
 export const DESKTOP_PLATFORM = 'desktop-windows';
 /** The manifest platform the browser corpus gate runs. */
@@ -157,6 +183,8 @@ export const NORMALIZATION_CLAUSE_ID = 'STC-19';
 export const SESSION_CLAUSE_ID = 'STC-22';
 /** The clause stating the per-platform strict-flip triggers. */
 export const STRICT_CLAUSE_ID = 'STC-3';
+/** The clause stating the outcome every committed conformance vector carries. */
+export const OUTCOME_CLAUSE_ID = 'STC-23';
 
 /** Exact header tuple of the normalization-class table. */
 export const NORMALIZATION_TABLE_HEADER = ['Class', 'Rule'];
@@ -167,6 +195,28 @@ export const RECORDING_TABLE_HEADER = ['Predicate', 'Class', 'States'];
 
 /** The class every per-action predicate carries. */
 export const PER_ACTION_CLASS = 'fail';
+/**
+ * The heading the lint document states that class in, with the class itself as
+ * the capture. Capturing it rather than matching it is what makes a heading
+ * restating another class READ and diffed instead of missed: only a heading
+ * that no longer states a class this way is absent, and the exactly-one rule
+ * on the match count refuses a document carrying two rather than reading the
+ * first one it finds.
+ */
+export const PER_ACTION_HEADING_RE = /^#{1,6} +Per-action predicates \(all (.+) class\)\s*$/gm;
+/** A finding class as the lint document writes one. */
+export const CLASS_TOKEN_RE = /^[a-z][a-z-]*$/;
+/** What a readable class looks like in that heading. */
+export const PER_ACTION_CLASS_EXPECTATION =
+  'the class that heading states is one lower-case backticked token and nothing else';
+
+/** The property §STC-23 and the vector meta-schema both state a vector's outcome under. */
+export const OUTCOME_FIELD = 'expected_outcome';
+/** An outcome as the clause and the meta-schema write one: lower-case, hyphen-separated. */
+export const OUTCOME_TOKEN_RE = /^[a-z][a-z-]*$/;
+/** What a readable token looks like in §STC-23's scope, beside the field name. */
+export const OUTCOME_TOKEN_EXPECTATION =
+  'the clause states its outcome as a lower-case hyphenated token, beside the field name it states that outcome under';
 
 /** A field token as the docs write one: lower-case, underscore-separated. */
 export const FIELD_TOKEN_RE = /^[a-z][a-z_]*$/;
@@ -200,8 +250,49 @@ const SESSION_ID_RE = /`(d-[a-z-]+)`/g;
 export const SESSION_ID_TOKEN_RE = /^d-[a-z-]+$/;
 /** What marks a token as *meant* as a session id, however it is then spelled. */
 export const SESSION_ID_PREFIX_RE = /^d-/i;
-/** A job citation as either verification document writes one. */
+/** A job citation as a scanned verification document writes one. */
 const JOB_CITE_RE = /`([a-z0-9-]+)` job/g;
+
+/**
+ * What the shared job-id extractor says when the workflow carries no anchor to
+ * read job ids under. Matched on those words rather than on "the extractor
+ * reported something", so a problem that extractor grows later keeps the route
+ * it has today instead of being swept into this check's machinery verdict by a
+ * wildcard.
+ */
+export const JOB_ANCHOR_PROBLEM = 'carries no top-level `jobs:` key';
+
+/**
+ * The documents whose job citations this leg holds — the check's own declared
+ * decision about which documentation surfaces are kept honest, stated here
+ * once instead of at the call site, so widening the leg is an edit to a list
+ * a reviewer can read. The unit suite holds this list to the tracked documents
+ * under docs/verification/, so a third verification document reds there rather
+ * than landing silently outside the leg.
+ */
+export const CITED_JOB_DOCUMENTS = [CORPUS_DOC_PATH, LINT_DOC_PATH];
+
+/**
+ * How many causes a diagnosis names before it counts the rest. A watch verdict
+ * is one line in a list, and the population it names is a corpus that grows.
+ */
+export const NAMED_CAUSE_CAP = 3;
+
+/**
+ * The causes a diagnosis names, capped: up to {@link NAMED_CAUSE_CAP} of them
+ * by name, then how many more there are. An empty list renders as the empty
+ * string, so a caller can append this to a message that stands on its own —
+ * which is also what a hand-built watch entry omitting the population gets.
+ * @param {string[]} causes what is holding the state the diagnosis reports
+ * @param {number} [cap] how many to name
+ * @returns {string} ` (a, b, and N more)`, or '' for nothing to name
+ */
+export function namedCauses(causes, cap = NAMED_CAUSE_CAP) {
+  if (causes.length === 0) return '';
+  const named = causes.slice(0, cap);
+  const rest = causes.length - named.length;
+  return ` (${named.join(', ')}${rest > 0 ? `, and ${rest} more` : ''})`;
+}
 
 /**
  * Which exported comparator list carries each relaxation kind's covered
@@ -351,6 +442,41 @@ export function extractStatedKinds(docText) {
 }
 
 /**
+ * The shipping outcome §STC-23 states, and whether the clause still names the
+ * field it states that outcome under. The clause's WHOLE section is read: it
+ * carries no declarative anchor phrase to slice a sentence at, and a
+ * sentence scan would bound at the period inside the clause's own marker.
+ * Reading it whole keeps every token the clause carries in scope, which is
+ * what the grammars below then bin.
+ *
+ * The field name is this check's own constant, matched against the document
+ * rather than inferred from where a token sits: both tokens the clause
+ * carries are lower-case words, so shape cannot tell the field from the
+ * outcome, and a positional rule would misread an equivalent reword. Every
+ * remaining token is either outcome-shaped or returned unreadable, never
+ * dropped. Repeats collapse: the clause states its outcome in running prose,
+ * so a sibling sentence naming the same field or outcome again is a sentence,
+ * not a second entry — the carve-out the citation leg takes, for the reason it
+ * takes it.
+ * @param {string} docText the corpus doctrine's text
+ * @returns {{ fields: string[], outcomes: string[],
+ *             unreadableTokens: { where: string, token: string, expected: string }[] }}
+ */
+export function extractStatedOutcome(docText) {
+  const clause = extractClauseSection(docText, OUTCOME_CLAUSE_ID);
+  const where = `${CORPUS_DOC_PATH} §${OUTCOME_CLAUSE_ID}`;
+  const fields = [];
+  const outcomes = [];
+  const unreadableTokens = [];
+  for (const token of backtickedTokens(clause, { dedupe: true })) {
+    if (token === OUTCOME_FIELD) fields.push(token);
+    else if (OUTCOME_TOKEN_RE.test(token)) outcomes.push(token);
+    else unreadableTokens.push({ where, token, expected: OUTCOME_TOKEN_EXPECTATION });
+  }
+  return { fields, outcomes, unreadableTokens };
+}
+
+/**
  * The whitespace-separated tokens of one npm script command.
  * @param {string} command
  * @returns {string[]}
@@ -491,6 +617,49 @@ export function extractPredicateTables(docText) {
 }
 
 /**
+ * The class the lint document's per-action heading states of all its
+ * predicates. Read from the document's fence-stripped text rather than from a
+ * clause section: that heading sits outside every clause scope, so it is
+ * ordinary prose — and a heading written inside an illustrative fence is not
+ * the document's claim about its own catalogue.
+ *
+ * The match count comes back with it, so the caller can refuse a document
+ * stating that class in no heading or in two: either way the attribution this
+ * check prints would be a guess. A stated class the grammar cannot read comes
+ * back as an unreadable entry with its own expectation, never as a claim that
+ * silently went absent — and it carries the heading's fragment AS WRITTEN,
+ * marked so the shared renderer shows it verbatim. The channel's other
+ * producers hand a name whose backticks the extraction already consumed, so
+ * that renderer puts them back; here the backticks are part of what can be
+ * wrong — absent, or wrapped around more than one token — and a fragment the
+ * renderer re-wrapped would show an unbackticked class as exactly the
+ * backticked token its expectation asks for.
+ * @param {string} docText the sufficiency-lint doctrine's text
+ * @returns {{ klass: string | null, matches: number,
+ *             unreadableTokens: { where: string, token: string, asWritten?: boolean,
+ *                                 expected: string }[] }}
+ */
+export function extractPerActionClass(docText) {
+  const headings = [...stripFences(docText ?? '').matchAll(PER_ACTION_HEADING_RE)];
+  if (headings.length !== 1) {
+    return { klass: null, matches: headings.length, unreadableTokens: [] };
+  }
+  const stated = headings[0][1].trim();
+  const klass = backtickedName(stated);
+  if (klass === null || !CLASS_TOKEN_RE.test(klass)) {
+    const where = `${LINT_DOC_PATH}'s per-action heading`;
+    return {
+      klass: null,
+      matches: 1,
+      unreadableTokens: [
+        { where, token: stated, asWritten: true, expected: PER_ACTION_CLASS_EXPECTATION },
+      ],
+    };
+  }
+  return { klass, matches: 1, unreadableTokens: [] };
+}
+
+/**
  * The job ids one document cites, read from its text with fenced blocks
  * blanked (a job named inside an illustrative command is not a claim about
  * the workflow's job graph).
@@ -499,6 +668,19 @@ export function extractPredicateTables(docText) {
  */
 export function extractJobCites(docText) {
   return [...stripFences(docText ?? '').matchAll(JOB_CITE_RE)].map((m) => m[1]);
+}
+
+/**
+ * The job citations of every document the citation leg scans, in the order the
+ * scanned set states them. The set is the caller's — {@link CITED_JOB_DOCUMENTS}
+ * at the one call site — so the leg's population is a list a reader can find,
+ * and a document added to that list is scanned by the same edit.
+ * @param {string[]} paths the documents to scan
+ * @param {(path: string) => string} readDoc one scanned document's text
+ * @returns {{ path: string, cites: string[] }[]}
+ */
+export function documentCitations(paths, readDoc) {
+  return paths.map((path) => ({ path, cites: extractJobCites(readDoc(path)) }));
 }
 
 /**
@@ -515,6 +697,9 @@ export const EMPTY_SURFACES = [
   ['docNormalizationTokens', `no class field tokens found in ${CORPUS_DOC_PATH} §${NORMALIZATION_CLAUSE_ID}`], // prettier-ignore
   ['codeNormalizationTokens', `no field tokens found in the comparator's normalization class map`],
   ['docSessionIds', `no session ids found in ${CORPUS_DOC_PATH} §${SESSION_CLAUSE_ID}`],
+  ['docOutcomeFields', `no \`${OUTCOME_FIELD}\` field token found in ${CORPUS_DOC_PATH} §${OUTCOME_CLAUSE_ID}, which is the property ${VECTOR_SCHEMA_PATH} states a committed vector's outcome under`], // prettier-ignore
+  ['docOutcomes', `no shipping outcome found in ${CORPUS_DOC_PATH} §${OUTCOME_CLAUSE_ID}`],
+  ['schemaOutcomes', `no outcome found in ${VECTOR_SCHEMA_PATH}'s \`${OUTCOME_FIELD}\` property`],
   // One leg per watched platform, derived so a platform added to the watch
   // gains its vacuity guard in the same edit that adds it.
   ...STRICT_WATCH_PLATFORMS.map((w) => [
@@ -558,24 +743,34 @@ export const DUPLICATE_SURFACES = [
  * @param {string[]} s[activeSessionsKey(platform)] one list per watched platform:
  *   that platform's active manifest session ids. The desktop platform's list is
  *   also §STC-22's diff partner; each is its own vacuity leg.
+ * @param {string[]} s.docOutcomeFields the tokens §STC-23 names the outcome field with
+ * @param {string[]} s.docOutcomes the outcome §STC-23 states committed vectors carry
+ * @param {string[]} s.schemaOutcomes what the vector meta-schema states under that field
+ * @param {boolean} s.schemaRequiresOutcome whether the meta-schema requires the field
  * @param {string[]} s.docPerAction the per-action table's predicate names
  * @param {number} s.perActionTableMatches how many tables carry its header tuple
+ * @param {string | null} s.docPerActionClass the class the per-action heading states
+ * @param {number} s.perActionHeadingMatches how many headings state that class
  * @param {string[]} s.codePerAction the lint's per-action predicate ids
  * @param {string[]} s.codeNonFailPerAction those whose class is not `fail`
  * @param {string[]} s.docRecording the recording-level table's `"<id> <class>"` pairs
  * @param {number} s.recordingTableMatches how many tables carry its header tuple
  * @param {string[]} s.codeRecording the lint's recording-level pairs
  * @param {string[]} s.predicateUnreadable unreadable predicate-table cells
- * @param {{ where: string, token: string, expected: string }[]} s.unreadableTokens
- *   backticked tokens a scanned scope carries that its grammar cannot read, each
- *   with the expectation its own scope states
+ * @param {{ where: string, token: string, asWritten?: boolean, expected: string }[]}
+ *   s.unreadableTokens backticked tokens a scanned scope carries that its
+ *   grammar cannot read, each with the expectation its own scope states; an
+ *   `asWritten` entry carries the scope's fragment showing its own delimiters
+ *   rather than a token whose backticks the extraction consumed
  * @param {{ path: string, cites: string[] }[]} s.docCites per-document job citations
  * @param {{ platform: string, script: string, baselinePath: string,
- *           knownDiffsEmpty: boolean, failFree: boolean, strict: boolean,
+ *           knownDiffsEmpty: boolean, knownDiffsCarrying: string[],
+ *           failFree: boolean, failKeys: string[], strict: boolean,
  *           lintStrict: boolean, platformArg: string | null,
  *           baselineArg: string | null }[]} s.strictWatch per-platform gate
- *   state: whether each trigger has come true, whether its flag is passed, and
- *   the platform and baseline the gate command itself names
+ *   state: whether each trigger has come true, which baseline keys are holding
+ *   a shut one shut, whether its flag is passed, and the platform and baseline
+ *   the gate command itself names
  * @param {string[]} s.manifestPlatforms every platform the session catalogue carries
  * @param {string[]} s.watchedPlatforms the platforms the strict-flip watch covers
  * @param {string | null} s.sufficiencyBaselineArg the baseline `sufficiency:check` names
@@ -594,8 +789,12 @@ export function evaluateVerificationInventory(s) {
   for (const cell of s.predicateUnreadable) {
     problems.push(`${LINT_DOC_PATH} has a predicate cell the scan cannot read — ${cell} — predicate and class cells are lone backticked names`); // prettier-ignore
   }
-  for (const { where, token, expected } of s.unreadableTokens) {
-    problems.push(`${where} carries \`${token}\`, which the scan cannot read — ${expected} — and a token the scan cannot read is an inventory entry it would silently drop`); // prettier-ignore
+  for (const { where, token, asWritten, expected } of s.unreadableTokens) {
+    // A token producer hands a name whose backticks its extraction consumed, so
+    // they go back on here; an `asWritten` entry already shows its own
+    // delimiters and is rendered verbatim, the way the predicate cell above is.
+    const carried = asWritten ? token : `\`${token}\``;
+    problems.push(`${where} carries ${carried}, which the scan cannot read — ${expected} — and a token the scan cannot read is an inventory entry it would silently drop`); // prettier-ignore
   }
   for (const [count, header, where] of [
     [s.normalizationTableMatches, NORMALIZATION_TABLE_HEADER, `${CORPUS_DOC_PATH} §${NORMALIZATION_CLAUSE_ID}`], // prettier-ignore
@@ -610,11 +809,29 @@ export function evaluateVerificationInventory(s) {
       problems.push(`${where}: ${count} table(s) carry the header \`${header.join(' | ')}\` — the scan reads exactly one`); // prettier-ignore
     }
   }
+  // The same fail-closed `!== 1` form on the one heading this check reads: a
+  // document stating its per-action class in no heading, or in two, leaves the
+  // attribution the class finding prints a guess, so the count reds here and
+  // the class itself is never read from whichever heading came first.
+  if (s.perActionHeadingMatches !== 1) {
+    problems.push(`${LINT_DOC_PATH}: ${s.perActionHeadingMatches} heading(s) state the per-action predicates' class — the scan reads exactly one`); // prettier-ignore
+  }
   for (const { path, cites } of s.docCites) {
     if (cites.length === 0) {
-      problems.push(`no job citations found in ${path} — a scanned document that cites nothing cannot tell a scan that broke from a document that legitimately stopped citing, so this reds either way: restore a job cite, or drop the document from this check's scanned set (its docCites list and the header note naming what is scanned)`); // prettier-ignore
+      problems.push(`no job citations found in ${path} — a scanned document that cites nothing cannot tell a scan that broke from a document that legitimately stopped citing, so this reds either way: restore a job cite, or drop the document from CITED_JOB_DOCUMENTS in ${SELF_PATH}, which the unit suite holds equal to the tracked docs/verification documents — so dropping one means retiring or narrowing that case in the same change`); // prettier-ignore
     }
   }
+
+  // The gate-argument cross-check runs ahead of the early return, because it
+  // is sound on a vacuous tree: every input it reads is a gate command's own
+  // arguments or one of this check's constants, and not one of them comes from
+  // a parsed document surface or from active-session discovery. A gate pointed
+  // at another file is exactly as wrong on a tree whose extractions came back
+  // empty — and behind the return it went undiagnosed there, since any one
+  // empty surface hid it. The strict-flip watch stays behind the return for
+  // the opposite reason: `failFree` over an empty active set is vacuously
+  // true, so it would read a retired corpus as a flip trigger.
+  problems.push(...gateArgumentProblems(s.strictWatch ?? [], s.sufficiencyBaselineArg));
 
   // The vacuous seed above the shared guard: a scanned document that cites no
   // job is already reported, and it stops the run for the same reason an empty
@@ -641,6 +858,8 @@ export function evaluateVerificationInventory(s) {
     ...missingFrom(s.codeNormalizationTokens, s.docNormalizationTokens, `is a field token the comparator's class map normalizes but ${CORPUS_DOC_PATH} §${NORMALIZATION_CLAUSE_ID}'s table does not state`), // prettier-ignore
     ...missingFrom(s.docSessionIds, s[activeSessionsKey(DESKTOP_PLATFORM)], `is a session ${CORPUS_DOC_PATH} §${SESSION_CLAUSE_ID} enumerates but ${MANIFEST_PATH} carries no active ${DESKTOP_PLATFORM} session for`), // prettier-ignore
     ...missingFrom(s[activeSessionsKey(DESKTOP_PLATFORM)], s.docSessionIds, `is an active ${DESKTOP_PLATFORM} session in ${MANIFEST_PATH} but ${CORPUS_DOC_PATH} §${SESSION_CLAUSE_ID} does not enumerate it`), // prettier-ignore
+    ...missingFrom(s.docOutcomes, s.schemaOutcomes, `is an outcome ${CORPUS_DOC_PATH} §${OUTCOME_CLAUSE_ID} states every committed vector carries but ${VECTOR_SCHEMA_PATH} does not state under \`${OUTCOME_FIELD}\``), // prettier-ignore
+    ...missingFrom(s.schemaOutcomes, s.docOutcomes, `is the outcome ${VECTOR_SCHEMA_PATH} states under \`${OUTCOME_FIELD}\` but ${CORPUS_DOC_PATH} §${OUTCOME_CLAUSE_ID} does not state`), // prettier-ignore
     ...missingFrom(s.docPerAction, s.codePerAction, `is a per-action predicate ${LINT_DOC_PATH} tabulates but the lint's PREDICATES does not define`), // prettier-ignore
     ...missingFrom(s.codePerAction, s.docPerAction, `is a per-action predicate the lint defines but ${LINT_DOC_PATH}'s table does not carry`), // prettier-ignore
     ...missingFrom(s.docRecording, s.codeRecording, `is a recording-level (predicate, class) pair ${LINT_DOC_PATH} tabulates but the lint's RECORDING_PREDICATES does not define`), // prettier-ignore
@@ -660,8 +879,31 @@ export function evaluateVerificationInventory(s) {
     );
   }
 
+  if (!s.schemaRequiresOutcome) {
+    problems.push(`${VECTOR_SCHEMA_PATH} does not require \`${OUTCOME_FIELD}\` of every vector while ${CORPUS_DOC_PATH} §${OUTCOME_CLAUSE_ID} states every committed vector states its outcome — the clause's demand and the meta-schema's are the same demand or one of them moved`); // prettier-ignore
+  }
+
+  // The heading's own claim, read rather than assumed: the per-predicate loop
+  // below holds predicates to this check's class constant, and the heading is
+  // diffed against that same constant here, so neither claim is asserted from
+  // the other's side. A surface stating no class at all reads as one the scan
+  // did not read — the count guard above owns that state — rather than
+  // rendering `undefined` as the class the document supposedly states.
+  if (s.docPerActionClass != null && s.docPerActionClass !== PER_ACTION_CLASS) {
+    problems.push(`${LINT_DOC_PATH}'s per-action heading states its predicates are all \`${s.docPerActionClass}\` class while ${SELF_PATH} holds every one of them to \`${PER_ACTION_CLASS}\` — the heading and the class this check reads it as must name the same one`); // prettier-ignore
+  }
+  // The attributive clause below is the DOCUMENT's claim, so it is rendered
+  // only where the heading was read stating that same class. Where the heading
+  // states another class — or none this scan could read — the finding above is
+  // the one carrying the doc-side claim, and this line states the code-side
+  // fact alone rather than telling a reader the heading states a class it does
+  // not.
+  const statedOfAll =
+    s.docPerActionClass === PER_ACTION_CLASS
+      ? `, which ${LINT_DOC_PATH}'s per-action heading states of all of them`
+      : '';
   for (const id of s.codeNonFailPerAction) {
-    problems.push(`the lint's per-action predicate \`${id}\` is not \`${PER_ACTION_CLASS}\` class, which ${LINT_DOC_PATH}'s per-action heading states of all of them`); // prettier-ignore
+    problems.push(`the lint's per-action predicate \`${id}\` is not \`${PER_ACTION_CLASS}\` class${statedOfAll}`); // prettier-ignore
   }
 
   const jobIds = new Set(s.workflowJobIds);
@@ -674,7 +916,6 @@ export function evaluateVerificationInventory(s) {
   }
 
   problems.push(...strictWatchProblems(s.strictWatch));
-  problems.push(...gateArgumentProblems(s.strictWatch, s.sufficiencyBaselineArg));
 
   return problems;
 }
@@ -695,7 +936,10 @@ export function evaluateVerificationInventory(s) {
  */
 export function gateArgumentProblems(watch, sufficiencyBaselineArg) {
   const problems = [];
-  const named = (value) => (value === null ? 'nothing' : `\`${value}\``);
+  // A command that passes no value at all and a surface that states none read
+  // the same way here — both are the absence this leg has words for, and
+  // neither renders as a backticked `undefined`.
+  const named = (value) => (value == null ? 'nothing' : `\`${value}\``);
   for (const w of watch) {
     for (const [argument, passed, read, what] of [
       [PLATFORM_ARG, w.platformArg, w.platform, 'the platform this watch reads it as'],
@@ -725,6 +969,13 @@ export function gateArgumentProblems(watch, sufficiencyBaselineArg) {
  * that truth keeps its baseline entry whatever its status. An unfiltered scan
  * would therefore let one retired session's `fail` entry hold the trigger shut
  * forever, which is the drift this watch exists to prevent.
+ *
+ * A verdict about a trigger that has not come true names what is holding it
+ * shut — the baseline keys still carrying a diff, the corpus truths still
+ * carrying a `fail` finding — capped at {@link NAMED_CAUSE_CAP} with a count
+ * of the rest, so the line stays one line as the corpus grows. Each population
+ * names keys, never the entries under them: a name a reader can open. An entry
+ * that states no population names none, and the verdict stands without it.
  * @param {object[]} watch the per-platform gate state
  * @returns {string[]} problems; empty when every gate matches its triggers
  */
@@ -736,13 +987,15 @@ export function strictWatchProblems(watch) {
     if (w.knownDiffsEmpty && !w.strict) {
       problems.push(`${w.baselinePath} carries no known diff, so ${cite} wires \`${STRICT_FLAG}\` for ${w.platform} — ${gate} does not pass it: flip the gate, or regenerate the baseline if its emptiness is not the real state`); // prettier-ignore
     }
+    // What is holding each trigger shut, named: a reader of the verdict would
+    // otherwise go looking for it by hand in a file of per-session lists, and
+    // the population these come from is a corpus that grows.
+    const carrying = `${w.baselinePath} still carries a known diff${namedCauses(w.knownDiffsCarrying ?? [])}`; // prettier-ignore
+    const failing = `${SUFFICIENCY_BASELINE_PATH} still carries a \`fail\`-class entry on an active ${w.platform} corpus truth${namedCauses(w.failKeys ?? [])}`; // prettier-ignore
     if (!w.knownDiffsEmpty && w.strict) {
-      problems.push(`${gate} passes \`${STRICT_FLAG}\` while ${w.baselinePath} still carries a known diff — ${cite} wires that flag only once the baseline empties`); // prettier-ignore
+      problems.push(`${gate} passes \`${STRICT_FLAG}\` while ${carrying} — ${cite} wires that flag only once the baseline empties`); // prettier-ignore
     }
-    const unmet = [
-      ...(w.knownDiffsEmpty ? [] : [`${w.baselinePath} still carries a known diff`]),
-      ...(w.failFree ? [] : [`${SUFFICIENCY_BASELINE_PATH} still carries a \`fail\`-class entry on an active ${w.platform} corpus truth`]), // prettier-ignore
-    ];
+    const unmet = [...(w.knownDiffsEmpty ? [] : [carrying]), ...(w.failFree ? [] : [failing])];
     if (unmet.length === 0 && !w.lintStrict) {
       problems.push(`${w.baselinePath} carries no known diff and no active ${w.platform} corpus truth carries a \`fail\`-class entry in ${SUFFICIENCY_BASELINE_PATH}, so ${cite} wires \`${LINT_STRICT_FLAG}\` for ${w.platform} — ${gate} does not pass it`); // prettier-ignore
     }
@@ -766,8 +1019,19 @@ export function auditTree(readFile, listActive) {
   const statedKinds = extractStatedKinds(corpusDoc);
   const normalization = extractNormalizationTokens(corpusDoc);
   const sessions = extractSessionIds(corpusDoc);
+  const outcome = extractStatedOutcome(corpusDoc);
+  const vector = readVectorOutcome(readFile, VECTOR_SCHEMA_PATH);
   const predicates = extractPredicateTables(lintDoc);
+  const perActionClass = extractPerActionClass(lintDoc);
   const jobs = extractJobIds(readFile(TEST_WORKFLOW_PATH));
+  // The anchor condition alone, matched by the words the shared extractor
+  // states it in rather than by "any problem it reported": a workflow the job
+  // scan cannot anchor in is a file this check could not use — the machinery
+  // verdict every other unusable input already takes — while a problem that
+  // extractor grows later keeps the route it has today until this check has
+  // learned what it means.
+  const anchorProblem = jobs.problems.find((problem) => problem.includes(JOB_ANCHOR_PROBLEM));
+  if (anchorProblem !== undefined) throw new InputError(anchorProblem);
 
   // The strict-flip watch's inputs. Active discovery runs once per platform and
   // feeds both the required-key guards on the two baselines and the
@@ -784,12 +1048,16 @@ export function auditTree(readFile, listActive) {
   const strictWatch = STRICT_WATCH_PLATFORMS.map((w) => {
     const active = activeByPlatform.get(w.platform);
     const command = gateCommands.get(w.script);
+    const knownDiffs = readKnownDiffsBaseline(readFile, w.baselinePath, active);
+    const failKeys = corpusFailKeys(sufficiency, active);
     return {
       platform: w.platform,
       script: w.script,
       baselinePath: w.baselinePath,
-      knownDiffsEmpty: readKnownDiffsBaseline(readFile, w.baselinePath, active).empty,
-      failFree: corpusFailEntries(sufficiency, active).length === 0,
+      knownDiffsEmpty: knownDiffs.empty,
+      knownDiffsCarrying: knownDiffs.carrying,
+      failFree: failKeys.length === 0,
+      failKeys,
       strict: passesFlag(command, STRICT_FLAG),
       lintStrict: passesFlag(command, LINT_STRICT_FLAG),
       platformArg: argumentValue(command, PLATFORM_ARG),
@@ -808,8 +1076,19 @@ export function auditTree(readFile, listActive) {
     normalizationTableMatches: normalization.matches,
     codeNormalizationTokens: CODE_NORMALIZATION_TOKENS,
     docSessionIds: sessions.ids,
+    docOutcomeFields: outcome.fields,
+    docOutcomes: outcome.outcomes,
+    schemaOutcomes: [vector.outcome],
+    schemaRequiresOutcome: vector.required,
     // One active-session surface per watched platform, from the same derived
     // keys the vacuity legs read, so neither can be added without the other.
+    //
+    // Only the desktop key is a diff partner (§STC-22's session catalogue).
+    // Every other watched platform's key is read by one thing, the vacuity
+    // leg — and that leg is load-bearing rather than ceremonial: `failFree`
+    // over an empty active set is vacuously true, so a platform whose sessions
+    // were all retired would otherwise have its `--lint-strict` demanded on a
+    // corpus the comparator lints nothing from.
     ...Object.fromEntries(
       STRICT_WATCH_PLATFORMS.map((w) => [
         activeSessionsKey(w.platform),
@@ -818,6 +1097,8 @@ export function auditTree(readFile, listActive) {
     ),
     docPerAction: predicates.perAction,
     perActionTableMatches: predicates.perActionMatches,
+    docPerActionClass: perActionClass.klass,
+    perActionHeadingMatches: perActionClass.matches,
     codePerAction: PREDICATES.map((p) => p.id),
     codeNonFailPerAction: PREDICATES.filter((p) => p.class !== PER_ACTION_CLASS).map((p) => p.id),
     docRecording: predicates.recording,
@@ -829,11 +1110,15 @@ export function auditTree(readFile, listActive) {
       ...statedKinds.unreadableTokens,
       ...normalization.unreadableTokens,
       ...sessions.unreadableTokens,
+      ...outcome.unreadableTokens,
+      ...perActionClass.unreadableTokens,
     ],
-    docCites: [
-      { path: CORPUS_DOC_PATH, cites: extractJobCites(corpusDoc) },
-      { path: LINT_DOC_PATH, cites: extractJobCites(lintDoc) },
-    ],
+    // The scanned set is the declared list, read through the same injected
+    // reader: the leg's population comes from that list alone, rather than
+    // from a second table of the documents this check happens to have read
+    // for other legs — which would be one more place to keep in step with it.
+    // The re-read is the price of that, and it is one file read per document.
+    docCites: documentCitations(CITED_JOB_DOCUMENTS, readFile),
     strictWatch,
     manifestPlatforms: readManifestPlatforms(readFile, MANIFEST_PATH),
     watchedPlatforms: STRICT_WATCH_PLATFORMS.map((w) => w.platform),
@@ -847,7 +1132,12 @@ export function auditTree(readFile, listActive) {
       s.docStatedKinds.length +
       s.docNormalizationTokens.length +
       s.docSessionIds.length +
+      s.docOutcomeFields.length +
+      s.docOutcomes.length +
       s.docPerAction.length +
+      // The class the heading states is one documented entry when it was read;
+      // a heading the scan refused states none it could hold.
+      (s.docPerActionClass === null ? 0 : 1) +
       s.docRecording.length +
       s.strictWatch.length +
       s.docCites.reduce((n, d) => n + new Set(d.cites).size, 0),
@@ -912,8 +1202,10 @@ function parseJsonInput(readFile, path) {
 const isRecord = (value) => typeof value === 'object' && value !== null && !Array.isArray(value);
 
 /**
- * One platform's known-diffs baseline, reduced to the single fact the watch
- * needs: whether it still carries a diff.
+ * One platform's known-diffs baseline, reduced to the facts the watch needs:
+ * whether it still carries a diff, and which sessions are carrying one — so a
+ * verdict about a trigger that has not come true can name what is holding it
+ * shut instead of leaving the reader to find it in the file.
  *
  * Emptiness is only computed once the file has proved it is the whole
  * baseline. A truncated or hand-emptied file would otherwise read as "every
@@ -926,7 +1218,8 @@ const isRecord = (value) => typeof value === 'object' && value !== null && !Arra
  * @param {(path: string) => string} readFile repo-relative content reader
  * @param {string} path the baseline's repo-relative path
  * @param {string[]} requiredIds the platform's active session ids
- * @returns {{ empty: boolean }}
+ * @returns {{ empty: boolean, carrying: string[] }} whether the baseline is
+ *   empty, and the session keys whose entry lists are not
  * @throws {InputError} naming the baseline and which way it failed
  */
 export function readKnownDiffsBaseline(readFile, path, requiredIds) {
@@ -948,7 +1241,8 @@ export function readKnownDiffsBaseline(readFile, path, requiredIds) {
   if (missing.length > 0) {
     throw shapeError(path, subject, `it carries no key for active session(s) ${missing.join(', ')}`); // prettier-ignore
   }
-  return { empty: entries.every(([, list]) => list.length === 0) };
+  const carrying = entries.filter(([, list]) => list.length > 0).map(([id]) => id);
+  return { empty: carrying.length === 0, carrying };
 }
 
 /**
@@ -1036,28 +1330,69 @@ export function readManifestPlatforms(readFile, path) {
 }
 
 /**
- * The fail-class entries the sufficiency baseline records against one
- * platform's ACTIVE corpus truths, each returned with the key it sits under so
- * a caller can name what is holding the trigger shut. A retired session keeps
- * its truth on disk and — because SL-5's standing corpus is a directory walk of
- * `corpus/sessions` — its baseline entry with it; those entries are
- * deliberately outside this population, since the comparator's `--lint-strict`
- * never lints them.
+ * The baseline keys that carry a fail-class entry against one platform's ACTIVE
+ * corpus truths — the truth files holding the `--lint-strict` trigger shut, so
+ * a verdict can name them and a reader knows which files to open. The keys are
+ * what a diagnosis names, not the entries under them: one truth file carrying
+ * several fail findings names once, and a line that named whole findings would
+ * run past the width a reader takes in at a glance. A retired session keeps its
+ * truth on disk and — because SL-5's standing corpus is a directory walk of
+ * `corpus/sessions` — its baseline entry with it; those keys are deliberately
+ * outside this population, since the comparator's `--lint-strict` never lints
+ * them.
  * @param {Record<string, string[]>} baseline a validated sufficiency baseline
  * @param {string[]} activeIds the platform's active session ids
- * @returns {string[]} `"<key> <entry>"` per fail-class entry, in file order
+ * @returns {string[]} each such key once, in file order
  */
-export function corpusFailEntries(baseline, activeIds) {
+export function corpusFailKeys(baseline, activeIds) {
   const active = new Set(activeIds);
   const found = [];
   for (const [key, list] of Object.entries(baseline)) {
     const match = CORPUS_TRUTH_KEY_RE.exec(key);
     if (!match || !active.has(match[1])) continue;
-    for (const finding of list) {
-      if (finding.startsWith(FAIL_ENTRY_PREFIX)) found.push(`${key} ${finding}`);
-    }
+    if (list.some((finding) => finding.startsWith(FAIL_ENTRY_PREFIX))) found.push(key);
   }
   return found;
+}
+
+/**
+ * The outcome the vector meta-schema states every committed vector carries,
+ * and whether it requires the field that outcome sits under. Both are read
+ * under this check's own field constant, never under a name taken from the
+ * document: a clause that renamed the field has to red as the drift it is,
+ * naming both surfaces, instead of sending the reader to a meta-schema that
+ * never moved.
+ *
+ * Validated to the depth it reads, like the sibling readers above — a
+ * meta-schema that states no outcome under that property is a machinery
+ * verdict naming the file, never an outcome the clause can be found to
+ * disagree with.
+ * @param {(path: string) => string} readFile repo-relative content reader
+ * @param {string} path the meta-schema's repo-relative path
+ * @returns {{ outcome: string, required: boolean }}
+ * @throws {InputError} naming the meta-schema and which way it failed
+ */
+export function readVectorOutcome(readFile, path) {
+  const subject = 'the vector meta-schema';
+  const parsed = parseJsonInput(readFile, path);
+  if (!isRecord(parsed) || !isRecord(parsed.properties)) {
+    throw shapeError(path, subject, 'carries no `properties` object');
+  }
+  const property = parsed.properties[OUTCOME_FIELD];
+  if (!isRecord(property)) {
+    throw shapeError(path, subject, `carries no \`properties.${OUTCOME_FIELD}\` object`);
+  }
+  if (typeof property.const !== 'string' || property.const.trim() === '') {
+    throw shapeError(
+      path,
+      subject,
+      `its \`${OUTCOME_FIELD}\` property states no \`const\` outcome`,
+    );
+  }
+  return {
+    outcome: property.const,
+    required: Array.isArray(parsed.required) && parsed.required.includes(OUTCOME_FIELD),
+  };
 }
 
 /**
@@ -1126,13 +1461,7 @@ export function readGateCommands(readFile, path, scriptKeys) {
  * @throws {InputError} naming the manifest and which way it failed
  */
 export function listActiveSessions(platform, manifestPath = MANIFEST_PATH) {
-  const raw = readTreeFile(manifestPath); // unreadable → that reader's words
-  let manifest;
-  try {
-    manifest = JSON.parse(raw);
-  } catch (error) {
-    throw new InputError(`${manifestPath} is not parseable JSON — ${error.message}`);
-  }
+  const manifest = parseJsonInput(readTreeFile, manifestPath);
   const shapeProblem = (what) => shapeError(manifestPath, 'the session catalogue', what);
   if (!Array.isArray(manifest?.sessions)) {
     throw shapeProblem('carries no `sessions` array');
@@ -1183,18 +1512,18 @@ function run() {
       `✗ a verification document's inventory drifted from what it describes:\n` +
         problems.map((p) => `    ${p}`).join('\n') +
         `\n\n  A finding naming two surfaces — a document, a code constant, the manifest, the\n` +
-        `  workflow, or a gate command's own arguments — is telling you the two no longer state\n` +
-        `  the same thing: update both sides in the same change, and read the finding for which\n` +
-        `  side moved. A gate-watch FLAG finding names no second statement, so its remedy is the\n` +
-        `  gate itself: flip the command's flag, or regenerate the baseline whose state it\n` +
-        `  disagrees with.\n`,
+        `  vector meta-schema, the workflow, or a gate command's own arguments — is telling you\n` +
+        `  the two no longer state the same thing: update both sides in the same change, and\n` +
+        `  read the finding for which side moved. A gate-watch FLAG finding names no second\n` +
+        `  statement, so its remedy is the gate itself: flip the command's flag, or regenerate\n` +
+        `  the baseline whose state it disagrees with.\n`,
     );
     process.exit(1);
   }
   console.log(
     `✓ verification inventories current: ${pinCount} held entr(ies) — the documented inventory ` +
       `entries plus the watched platforms — across the relaxation, normalization, session, ` +
-      `predicate, gate-watch, and job-citation legs match their subjects.`,
+      `vector-outcome, predicate, gate-watch, and job-citation legs match their subjects.`,
   );
 }
 

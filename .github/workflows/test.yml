@@ -247,10 +247,14 @@ jobs:
         run: npm run lint:test-inventory
 
       # The verification documents state inventories of things that live
-      # elsewhere: the relaxation kinds and their covered fields, the
-      # normalized field classes, the desktop session catalogue, the predicate
-      # catalogue, and the CI jobs they cite. Each inventory is held to the
-      # code constant or the manifest it describes, both ways; the job cites
+      # elsewhere: the relaxation kinds — stated twice, as a closed set and as
+      # the per-kind coverage list — and their covered fields, the normalized
+      # field classes, the desktop session catalogue, the predicate catalogue
+      # and the class its own heading states of the per-action half, the
+      # outcome every committed conformance vector ships with, the corpus
+      # gate commands the strict-flip watch reads, and the CI jobs the
+      # documents cite. Each inventory is held to the code constant, the
+      # manifest, or the meta-schema it describes, both ways; the job cites
       # are held one-way — every cite must name a job of this workflow, and a
       # job owes no cite. It runs here for the same reason the test-inventory
       # gate does — the diff that stales a doc inventory is often docs-only,
