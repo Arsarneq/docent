@@ -49,9 +49,15 @@ pub struct RawScrollEvent {
 /// The result of processing a scroll sequence through debounce + threshold.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ScrollResult {
-    /// Total horizontal scroll distance (sum of all `delta_x` in the sequence).
+    /// Net horizontal displacement (signed sum of the sequence's `delta_x`
+    /// values) — carried through in the same native wheel-delta units, not
+    /// pixels, and with the same sign convention as `RawScrollEvent::delta_x`;
+    /// the events are summed unchanged.
     pub total_delta_x: f64,
-    /// Total vertical scroll distance (sum of all `delta_y` in the sequence).
+    /// Net vertical displacement (signed sum of the sequence's `delta_y`
+    /// values) — carried through in the same native wheel-delta units, not
+    /// pixels, and with the same sign convention as `RawScrollEvent::delta_y`;
+    /// the events are summed unchanged.
     pub total_delta_y: f64,
 }
 
