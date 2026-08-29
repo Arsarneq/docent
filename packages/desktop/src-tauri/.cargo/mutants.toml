@@ -23,13 +23,14 @@ examine_globs = [
 ]
 
 # Pin which tests RUN per mutant: --lib keeps the in-module #[cfg(test)] unit
-# tests in the kill set, and the --test entries below are the curated kill set
-# of test binaries — a binary takes part by being listed here, so a new
-# unit-test binary must be added to this list to participate. Which binaries
-# belong in the set is a curation decision this list records; each --test target
-# in it is held to a tracked test binary by the test-inventory lint. Note this
-# pins only the test RUN — the per-mutant build still compiles all workspace
-# test targets.
+# tests in the kill set, and the --test entries below name the test binaries
+# that run against every mutant. Which binaries belong is decided by the
+# membership criterion the test-strategy doc states
+# (docs/test/strategy/mutation.md §MUT-7), and the test-inventory lint
+# (npm run lint:test-inventory) derives that set from this crate and holds this
+# list to it in both directions, so a binary joining or leaving is one edit
+# here. Note this pins only the test RUN — the per-mutant build still compiles
+# all workspace test targets.
 additional_cargo_test_args = [
   "--lib",
   "--test", "action_mapping_test",
@@ -40,4 +41,6 @@ additional_cargo_test_args = [
   "--test", "password_test",
   "--test", "pid_filter_test",
   "--test", "scroll_test",
+  "--test", "windows_capture_test",
+  "--test", "worker_pool_test",
 ]

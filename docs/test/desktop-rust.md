@@ -123,6 +123,8 @@ its tests.
   named `<concern>_test.rs`, beside the ones above. Import `enigo` only if it
   genuinely synthesizes input (that import is the integration classifier);
   add `#[serial]` if it does.
-- A new fast, deterministic unit binary that should also help kill mutants
-  must be added to the mutation run's per-mutant test list — see
-  [mutation testing](strategy/mutation.md).
+- Whether a new binary joins the mutation run's per-mutant test list is not a
+  choice made here: the membership criterion in
+  [mutation testing](strategy/mutation.md) (§MUT-7) decides it from what the
+  binary reaches and how it runs, and the test-inventory lint holds the list to
+  the set that criterion derives.

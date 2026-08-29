@@ -150,6 +150,7 @@ import { pathToFileURL } from 'node:url';
 import {
   backtickedTokens,
   blankJsLiterals,
+  blankRustStrings,
   duplicateSurfaceProblems,
   emptySurfaceProblems,
   extractClauseSection,
@@ -159,6 +160,7 @@ import {
   parseTables,
   readListEntries,
   readLoneStringLiteral,
+  stripRustComments,
   switchCaseLabels,
   tokenizeJs,
   trackedFilesUnder,
@@ -242,167 +244,14 @@ function isChannelShaped(token) {
   return CHANNEL_TOKEN_RE.test(token) && !GRANT_RE.test(token);
 }
 
-/**
- * Blank out Rust comments (line `//…` and nested block `/* … *\/`) while
- * preserving every non-comment character's offset and every newline, so
- * line numbers computed on the stripped text match the source. String
- * literals — `"…"` with escapes and raw `r"…"` / `r#"…"#` forms — are
- * honoured so comment markers inside them survive.
- *
- * @param {string} source Rust source text
- * @returns {string} the source with comment characters replaced by spaces
- */
-export function stripRustComments(source) {
-  const out = source.split('');
-  const n = source.length;
-  let i = 0;
-  const blank = (from, to) => {
-    for (let k = from; k < to; k++) if (out[k] !== '\n') out[k] = ' ';
-  };
-  while (i < n) {
-    const c = source[i];
-    const next = source[i + 1];
-    if (c === "'") {
-      // A simple char literal ('x', '\n', '\'') is skipped wholesale so a
-      // quote inside one cannot open a phantom string; a lifetime tick ('a)
-      // falls through and is treated as an ordinary character.
-      const lit = /^'(?:\\.|[^\\'])'/.exec(source.slice(i, i + 4));
-      i += lit ? lit[0].length : 1;
-    } else if (c === '/' && next === '/') {
-      const end = source.indexOf('\n', i);
-      const stop = end === -1 ? n : end;
-      blank(i, stop);
-      i = stop;
-    } else if (c === '/' && next === '*') {
-      let depth = 1;
-      let j = i + 2;
-      while (j < n && depth > 0) {
-        if (source[j] === '/' && source[j + 1] === '*') {
-          depth++;
-          j += 2;
-        } else if (source[j] === '*' && source[j + 1] === '/') {
-          depth--;
-          j += 2;
-        } else {
-          j++;
-        }
-      }
-      blank(i, j);
-      i = j;
-    } else if (c === 'r' && (next === '"' || next === '#')) {
-      // Possible raw string: r"…" or r#"…"# with any number of hashes.
-      let hashes = 0;
-      let j = i + 1;
-      while (source[j] === '#') {
-        hashes++;
-        j++;
-      }
-      if (source[j] === '"') {
-        const closer = '"' + '#'.repeat(hashes);
-        const end = source.indexOf(closer, j + 1);
-        i = end === -1 ? n : end + closer.length;
-      } else {
-        i++;
-      }
-    } else if (c === '"') {
-      let j = i + 1;
-      while (j < n && source[j] !== '"') {
-        j += source[j] === '\\' ? 2 : 1;
-      }
-      i = Math.min(j + 1, n);
-    } else {
-      i++;
-    }
-  }
-  return out.join('');
-}
-
-/**
- * Blank out the CONTENTS of Rust string literals — `"…"` with escapes, the raw
- * forms `r"…"` and `r#"…"#`, and char literals — replacing every character
- * they carry with a space while keeping the quotes themselves, every other
- * character's offset, and every newline. An offset computed on this view
- * therefore addresses the same character of the source it was made from.
- *
- * It stands BESIDE {@link stripRustComments} rather than inside it, because the
- * two views answer different questions and one scan needs both. Comment
- * stripping keeps string contents on purpose: a channel name is a string
- * literal, and reading it is the point. What a scan looking for an ANCHOR wants
- * is the opposite — the calls the source makes, with the text of what it says
- * about them left out — which is this view. A scan that anchors here and then
- * reads a literal reads it from the intact text at the same offset.
- * @param {string} source Rust source text
- * @returns {string} the source with string-literal contents replaced by spaces
- */
-export function blankRustStrings(source) {
-  const out = source.split('');
-  const n = source.length;
-  let i = 0;
-  const blank = (from, to) => {
-    for (let k = from; k < to; k++) if (out[k] !== '\n') out[k] = ' ';
-  };
-  while (i < n) {
-    const c = source[i];
-    const next = source[i + 1];
-    if (c === "'") {
-      // A char literal's own content is blanked; a lifetime tick ('a) matches
-      // no literal shape and falls through as an ordinary character.
-      const lit = /^'(?:\\.|[^\\'])'/.exec(source.slice(i, i + 4));
-      if (lit) {
-        blank(i + 1, i + lit[0].length - 1);
-        i += lit[0].length;
-      } else {
-        i++;
-      }
-    } else if (c === '/' && next === '/') {
-      // Comment text is not this view's subject, but a quote inside one would
-      // otherwise open a literal that never closes, so a comment is skipped
-      // whole and left exactly as it arrived.
-      const end = source.indexOf('\n', i);
-      i = end === -1 ? n : end;
-    } else if (c === '/' && next === '*') {
-      let depth = 1;
-      let j = i + 2;
-      while (j < n && depth > 0) {
-        if (source[j] === '/' && source[j + 1] === '*') {
-          depth++;
-          j += 2;
-        } else if (source[j] === '*' && source[j + 1] === '/') {
-          depth--;
-          j += 2;
-        } else {
-          j++;
-        }
-      }
-      i = j;
-    } else if (c === 'r' && (next === '"' || next === '#')) {
-      let hashes = 0;
-      let j = i + 1;
-      while (source[j] === '#') {
-        hashes++;
-        j++;
-      }
-      if (source[j] === '"') {
-        const closer = '"' + '#'.repeat(hashes);
-        const end = source.indexOf(closer, j + 1);
-        blank(j + 1, end === -1 ? n : end);
-        i = end === -1 ? n : end + closer.length;
-      } else {
-        i++;
-      }
-    } else if (c === '"') {
-      let j = i + 1;
-      while (j < n && source[j] !== '"') {
-        j += source[j] === '\\' ? 2 : 1;
-      }
-      blank(i + 1, Math.min(j, n));
-      i = Math.min(j + 1, n);
-    } else {
-      i++;
-    }
-  }
-  return out.join('');
-}
+// Both Rust views moved down to the shared-primitive home when the kill-set
+// membership legs — which read Rust `use` declarations through them and cannot
+// import from here, since that module deliberately carries node builtins and
+// nothing else — needed them: the comment-stripped view first, and the
+// string-blanked one with it, once a `use` written inside a string literal
+// proved readable as an edge. These re-exports keep the names resolving where
+// their readers already ask for them, while each view has one home.
+export { blankRustStrings, stripRustComments };
 
 /**
  * Extract the function names declared with a `#[tauri::command]` attribute.

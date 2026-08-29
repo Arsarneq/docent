@@ -12,13 +12,30 @@
  * binding count, a default export that names no binding the scan can resolve, a
  * named binding initialized from something other than an object literal, a
  * property shape outside the set read, a literal that never closes, and a file
- * that cannot be read. A refusal is held to be the whole report: a refused
- * surface yields no member list, and no member diff is derived from it. A
+ * that cannot be read. A refusal is held to take the MEMBER legs off the report:
+ * a refused surface yields no member list, and no member diff is derived from
+ * it — while the seam document's enumeration diff, computed from a derivation
+ * that held against a document that was read, rides beside such a refusal and is
+ * suppressed only by a refusal in that derivation, which a case holds both ways.
+ * A
  * member only some platforms' callers need stays admitted, and a case holds
  * that admission on each adapter side. The decoy literals — a second top-level
  * literal, exported and not — are a demonstration rather than a guard: they
- * must never satisfy a typedef member. The real-tree lock and the CLI smoke
- * observe the shipped tree satisfying the contract.
+ * must never satisfy a typedef member.
+ *
+ * WHICH adapters those legs run over is itself derived, so the derivation has
+ * its own family: the filename convention it reads, the packages' test trees
+ * and the contract file it leaves out, the platform token it refuses and the
+ * collision it refuses, the diff against the seam document's own link targets
+ * in both directions, and the explicit red below two adapters — the arity the
+ * direction over every adapter's members needs. Every generated family here
+ * follows that derivation rather than a copy of it.
+ *
+ * The real-tree lock and the CLI smoke observe the shipped tree satisfying the
+ * contract; the drifted-tree case runs the wrapper over a scratch git
+ * repository, because the derivation reads the tracked files of the directory
+ * it is invoked in, and a source lock holds the wrapper to taking its adapters
+ * from that derivation rather than from a list of its own.
  */
 
 import { describe, it } from 'node:test';
@@ -31,9 +48,15 @@ import {
   TYPEDEF_PATH,
   TYPEDEF_NAME,
   SC_CLAUSE_ID,
-  ADAPTERS,
-  EMPTY_SURFACES,
-  DUPLICATE_SURFACES,
+  ADAPTER_TREE,
+  ADAPTER_TEST_DIR,
+  SEAM_DOC_PATH,
+  SEAM_SECTION,
+  deriveAdapters,
+  trackedAdapters,
+  extractSeamEnumeration,
+  emptySurfaces,
+  duplicateSurfaces,
   extractTypedefProperties,
   extractAdapterMembers,
   evaluateAdapterSurface,
@@ -45,16 +68,26 @@ const SCRIPT = resolve(ROOT, 'scripts', 'check-adapter-surface.js');
 /** A path stood in for an adapter in the extractor-level fixtures. */
 const FIXTURE_PATH = 'packages/fixture/adapter-fixture.js';
 
-/** A consistent synthetic surface the contract accepts. */
+/**
+ * The adapters the shipped tree derives — the same list the check itself runs
+ * on, so every generated family below follows the tree rather than a copy of
+ * it. The suite runs from the repository root, which is what the derivation
+ * reads its population from.
+ */
+const ADAPTERS = trackedAdapters().adapters;
+const EMPTY_SURFACES = emptySurfaces(ADAPTERS);
+const DUPLICATE_SURFACES = duplicateSurfaces(ADAPTERS);
+
+/** A consistent synthetic surface the contract accepts, keyed to the derivation. */
 function makeSurface(overrides = {}) {
-  return {
-    typedefProperties: ['send', 'loadTheme', 'hasNativeFileDialog'],
-    // Each adapter carries one platform-specific member beyond the contract —
-    // the shape the admission rule in the typedef's own header covers.
-    chromeMembers: ['send', 'loadTheme', 'hasNativeFileDialog', 'loadStorageQuota'],
-    tauriMembers: ['send', 'loadTheme', 'hasNativeFileDialog', 'getPendingActions'],
-    ...overrides,
-  };
+  const surface = { typedefProperties: ['send', 'loadTheme', 'hasNativeFileDialog'] };
+  // Each adapter carries one platform-specific member beyond the contract — the
+  // shape the admission rule in the typedef's own header covers — named after
+  // its own platform so the fixtures stay distinct however the tree grows.
+  for (const { key, platform } of ADAPTERS) {
+    surface[key] = ['send', 'loadTheme', 'hasNativeFileDialog', `load_${platform}_only`];
+  }
+  return { ...surface, ...overrides };
 }
 
 /**
@@ -97,6 +130,49 @@ function makeAdapterSource(members, { binding = 'adapter', prologue = '', epilog
   ].join('\n');
 }
 
+/**
+ * A seam document shaped like the real one: the `##` section whose links send a
+ * reader to each concrete adapter, which is the enumeration the check diffs its
+ * derivation against.
+ * @param {string[]} paths repo-relative adapter paths the section links to
+ * @returns {string} the document's text
+ */
+function makeSeamDoc(paths) {
+  const up = '../'.repeat(SEAM_DOC_PATH.split('/').length - 1);
+  return [
+    '# Shared Core — fixture',
+    '',
+    `## ${SEAM_SECTION}`,
+    '',
+    'Each platform implements the seam once:',
+    ...paths.map((path) => `- [\`${path.split('/').pop()}\`](${up}${path})`),
+    '',
+    '## After',
+    '',
+    'Text past the section.',
+    '',
+  ].join('\n');
+}
+
+/**
+ * A scratch git repository the wrapper's own derivation can read: `git init`,
+ * the files the case writes, and `git add` so they are TRACKED — the population
+ * every check in this family reads from the directory it is invoked in.
+ * @param {(write: (path: string, content: string) => void) => void} populate
+ * @returns {string} the repository's directory
+ */
+function makeScratchRepo(populate) {
+  const dir = mkdtempSync(join(tmpdir(), 'adapter-surface-'));
+  const git = (...args) => execFileSync('git', args, { cwd: dir, encoding: 'utf8' });
+  git('init', '--quiet');
+  populate((path, content) => {
+    mkdirSync(dirname(join(dir, path)), { recursive: true });
+    writeFileSync(join(dir, path), content);
+  });
+  git('add', '--all');
+  return dir;
+}
+
 /** The member shapes the adapters actually use. */
 const LIVE_MEMBER_SHAPES = [
   'send(message) {',
@@ -118,17 +194,17 @@ describe('evaluateAdapterSurface — compliant baseline', () => {
   });
 
   it('returns no problems when every adapter implements the whole contract', () => {
-    assert.deepEqual(evaluateAdapterSurface(makeSurface()), []);
+    assert.deepEqual(evaluateAdapterSurface(makeSurface(), ADAPTERS), []);
   });
 });
 
 describe('evaluateAdapterSurface — the shared-member leg', () => {
   it('fires when every adapter implements a member the typedef does not declare', () => {
     const problems = evaluateAdapterSurface(
-      makeSurface({
-        chromeMembers: [...makeSurface().chromeMembers, 'loadWidget'],
-        tauriMembers: [...makeSurface().tauriMembers, 'loadWidget'],
-      }),
+      makeSurface(
+        Object.fromEntries(ADAPTERS.map(({ key }) => [key, [...makeSurface()[key], 'loadWidget']])),
+      ),
+      ADAPTERS,
     );
     const red = problems.find((p) => p.includes('loadWidget'));
     assert.ok(red, problems.join('\n') || 'no undeclared-shared-member diagnostic');
@@ -147,6 +223,7 @@ describe('evaluateAdapterSurface — the shared-member leg', () => {
     it(`admits a member only ${path} implements — the platform-specific case`, () => {
       const problems = evaluateAdapterSurface(
         makeSurface({ [key]: [...makeSurface()[key], 'loadWidget'] }),
+        ADAPTERS,
       );
       assert.deepEqual(problems, [], problems.join('\n'));
     });
@@ -167,6 +244,7 @@ describe('evaluateAdapterSurface — the member-agreement leg, every adapter', (
     it(`fires when ${path} does not implement a declared member`, () => {
       const problems = evaluateAdapterSurface(
         makeSurface({ [key]: makeSurface()[key].filter((m) => m !== 'loadTheme') }),
+        ADAPTERS,
       );
       const red = problems.find((p) => p.includes('loadTheme'));
       assert.ok(red, problems.join('\n') || `no missing-member diagnostic for ${path}`);
@@ -181,6 +259,7 @@ describe('evaluateAdapterSurface — the member-agreement leg, every adapter', (
   it('fires on every adapter when the typedef declares a member neither implements', () => {
     const problems = evaluateAdapterSurface(
       makeSurface({ typedefProperties: [...makeSurface().typedefProperties, 'loadCapabilities'] }),
+      ADAPTERS,
     );
     for (const { path } of ADAPTERS) {
       assert.ok(
@@ -217,7 +296,10 @@ describe('evaluateAdapterSurface — duplicates, every leg of the duplicates loo
 
   for (const [key, what] of DUPLICATE_SURFACES) {
     it(`fires on a name written twice in ${what}`, () => {
-      const problems = evaluateAdapterSurface(makeSurface({ [key]: DUPLICATE_FIXTURES[key] }));
+      const problems = evaluateAdapterSurface(
+        makeSurface({ [key]: DUPLICATE_FIXTURES[key] }),
+        ADAPTERS,
+      );
       assert.ok(
         problems.some((p) => p.includes('more than once') && p.includes(what)),
         problems.join('\n') || `no duplicates diagnostic for ${what}`,
@@ -235,7 +317,7 @@ describe('evaluateAdapterSurface — empty parses are structural failures', () =
 
   for (const [key, message] of EMPTY_SURFACES) {
     it(`fires when ${key} parses empty`, () => {
-      const problems = evaluateAdapterSurface(makeSurface({ [key]: [] }));
+      const problems = evaluateAdapterSurface(makeSurface({ [key]: [] }), ADAPTERS);
       assert.ok(
         problems.some((p) => p.includes(message)),
         problems.join('\n') || `no vacuous diagnostic for ${key}`,
@@ -315,7 +397,10 @@ describe('extractTypedefProperties — the one block, the one entry grammar', ()
   it('a block whose every entry is refused parses empty, and that empty parse evaluates as vacuous', () => {
     const read = extractTypedefProperties(makeTypedefSource(['boolean hasNativeFileDialog']));
     assert.deepEqual(read.names, []);
-    const problems = evaluateAdapterSurface(makeSurface({ typedefProperties: read.names }));
+    const problems = evaluateAdapterSurface(
+      makeSurface({ typedefProperties: read.names }),
+      ADAPTERS,
+    );
     assert.ok(problems.some((p) => p.includes('no @property entries found')));
   });
 });
@@ -429,7 +514,10 @@ describe('extractAdapterMembers — the default-exported literal, and only it', 
     const read = extractAdapterMembers(source, FIXTURE_PATH);
     assert.deepEqual(read.names, ['send']);
     assert.deepEqual(read.problems, []);
-    const problems = evaluateAdapterSurface(makeSurface({ chromeMembers: read.names }));
+    const problems = evaluateAdapterSurface(
+      makeSurface({ [ADAPTERS[0].key]: read.names }),
+      ADAPTERS,
+    );
     assert.ok(
       problems.some((p) => p.includes('`loadTheme`') && p.includes('does not implement it')),
       problems.join('\n') || 'the decoy member greened a typedef member',
@@ -443,7 +531,10 @@ describe('extractAdapterMembers — the default-exported literal, and only it', 
     const read = extractAdapterMembers(source, FIXTURE_PATH);
     assert.deepEqual(read.names, ['send']);
     assert.deepEqual(read.problems, []);
-    const problems = evaluateAdapterSurface(makeSurface({ tauriMembers: read.names }));
+    const problems = evaluateAdapterSurface(
+      makeSurface({ [ADAPTERS[1].key]: read.names }),
+      ADAPTERS,
+    );
     assert.ok(
       problems.some((p) => p.includes('`loadTheme`') && p.includes('does not implement it')),
       problems.join('\n') || 'the decoy member greened a typedef member',
@@ -575,27 +666,227 @@ describe('auditTree — reading the tree', () => {
   });
 });
 
+describe('deriveAdapters — the filename convention decides the set', () => {
+  const CHROME = 'packages/extension/sidepanel/adapter-chrome.js';
+  const TAURI = 'packages/desktop/src/adapter-tauri.js';
+
+  it('takes every tracked adapter-<platform>.js and derives its surface key from the name', () => {
+    const { adapters, problems } = deriveAdapters([
+      CHROME,
+      TAURI,
+      'packages/shared/lib/session.js',
+    ]);
+    assert.deepEqual(problems, []);
+    assert.deepEqual(
+      adapters.map(({ platform, key, path }) => [platform, key, path]),
+      [
+        ['tauri', 'tauriMembers', TAURI],
+        ['chrome', 'chromeMembers', CHROME],
+      ],
+    );
+  });
+
+  it('leaves out the packages’ test trees, the contract file, and everything outside packages/', () => {
+    const { adapters, problems } = deriveAdapters([
+      CHROME,
+      TAURI,
+      TYPEDEF_PATH,
+      `packages/extension/${ADAPTER_TEST_DIR}/unit/adapter-chrome.test.js`,
+      `packages/desktop/${ADAPTER_TEST_DIR}/unit/adapter-tauri.test.js`,
+      'scripts/check-adapter-surface.js',
+    ]);
+    assert.deepEqual(problems, []);
+    assert.deepEqual(adapters.map(({ path }) => path).sort(), [TAURI, CHROME].sort());
+  });
+
+  it('refuses a platform token it cannot read rather than leaving the file unread', () => {
+    const { adapters, problems } = deriveAdapters([
+      CHROME,
+      TAURI,
+      `${ADAPTER_TREE}/desktop/src/adapter-web.view.js`,
+    ]);
+    assert.equal(adapters.length, 2);
+    assert.ok(
+      problems.some((p) => p.includes('adapter-web.view.js') && p.includes('platform token')),
+      problems.join('\n') || 'no refusal for an unreadable platform token',
+    );
+  });
+
+  it('refuses two adapters claiming one platform token', () => {
+    const { problems } = deriveAdapters([CHROME, TAURI, `${ADAPTER_TREE}/other/src/adapter-tauri.js`]); // prettier-ignore
+    assert.ok(
+      problems.some((p) => p.includes('`tauri`') && p.includes('two adapters')),
+      problems.join('\n') || 'no refusal for a colliding platform token',
+    );
+  });
+
+  it('the shipped tree derives the adapters the seam document sends a reader to', () => {
+    const derived = trackedAdapters();
+    assert.deepEqual(derived.problems, []);
+    assert.ok(derived.adapters.length > 1);
+    const enumeration = extractSeamEnumeration(readFileSync(resolve(ROOT, SEAM_DOC_PATH), 'utf8'));
+    assert.equal(enumeration.error, undefined);
+    assert.deepEqual(
+      enumeration.targets.slice().sort(),
+      derived.adapters.map(({ path }) => path).sort(),
+    );
+  });
+});
+
+describe('evaluateAdapterSurface — the arity guard', () => {
+  for (const derived of [[], [ADAPTERS[0]]]) {
+    it(`reds explicitly on a derivation of ${derived.length} adapter(s)`, () => {
+      const problems = evaluateAdapterSurface(makeSurface(), derived);
+      assert.ok(
+        problems.some((p) => p.includes(`finds ${derived.length} concrete adapter(s)`)),
+        problems.join('\n') || 'the arity guard passed over a derivation it cannot hold',
+      );
+      assert.ok(problems.some((p) => p.includes(SC_CLAUSE_ID)), problems.join('\n')); // prettier-ignore
+    });
+  }
+});
+
+describe('extractSeamEnumeration — the document’s own enumeration, read as link targets', () => {
+  it('resolves each link target against the document’s directory, adapters only', () => {
+    const read = extractSeamEnumeration(
+      makeSeamDoc(['packages/extension/sidepanel/adapter-chrome.js']).replace(
+        'Each platform implements the seam once:',
+        `Each platform implements the seam once, over [the contract](${'../'.repeat(SEAM_DOC_PATH.split('/').length - 1)}${TYPEDEF_PATH}) and [a guide](../../user/extension.md):`,
+      ),
+    );
+    assert.deepEqual(read.targets, ['packages/extension/sidepanel/adapter-chrome.js']);
+  });
+
+  it('refuses a document that no longer states the section', () => {
+    const read = extractSeamEnumeration('# Shared Core\n\n## Something else\n\nText.\n');
+    assert.ok(read.error?.includes(SEAM_SECTION), read.error ?? 'no refusal');
+  });
+
+  it('reads no link a fenced example carries, and stops at the next heading', () => {
+    const doc = [
+      `## ${SEAM_SECTION}`,
+      '',
+      '```md',
+      '[`adapter-ghost.js`](../../../packages/ghost/src/adapter-ghost.js)',
+      '```',
+      '',
+      '## After',
+      '',
+      '[`adapter-later.js`](../../../packages/later/src/adapter-later.js)',
+      '',
+    ].join('\n');
+    assert.deepEqual(extractSeamEnumeration(doc).targets, []);
+  });
+});
+
+describe('auditTree — the derivation and the document’s enumeration are held together', () => {
+  const REAL = (f) => readFileSync(resolve(ROOT, f), 'utf8');
+
+  it('a planted tracked adapter reds the drift direction, on the tree and in the document', () => {
+    const planted = `${ADAPTER_TREE}/ghost/src/adapter-ghost.js`;
+    const files = [...ADAPTERS.map(({ path }) => path), planted];
+    const { problems } = auditTree(
+      (f) =>
+        f === planted ? makeAdapterSource(['send(message) { return post(message); },']) : REAL(f),
+      files,
+    );
+    // The seam document sends a reader to no such adapter…
+    assert.ok(
+      problems.some((p) => p.includes(planted) && p.includes('no link of')),
+      problems.join('\n') || 'the planted adapter was not held against the document',
+    );
+    // …and it implements none of the members the typedef declares.
+    assert.ok(
+      problems.some((p) => p.includes(planted) && p.includes('does not implement it')),
+      problems.join('\n') || 'the planted adapter was not held against the typedef',
+    );
+  });
+
+  it('enumeration drift rides beside an unrelated refusal, and a derivation refusal suppresses it', () => {
+    const planted = `${ADAPTER_TREE}/ghost/src/adapter-ghost.js`;
+    const files = [...ADAPTERS.map(({ path }) => path), planted];
+    // The DERIVATION holds; what refuses is the planted adapter's own member
+    // extraction. The drift was measured against a set that was derived and a
+    // document that was read, so it rides beside that refusal.
+    const beside = auditTree(
+      (f) => (f === planted ? 'const ghost = 1;\nexport default ghost;\n' : REAL(f)),
+      files,
+    );
+    assert.ok(
+      beside.problems.some((p) => p.includes(planted) && p.includes('rather than an object literal')), // prettier-ignore
+      beside.problems.join('\n') || 'the member-extraction refusal is missing',
+    );
+    assert.ok(
+      beside.problems.some((p) => p.includes(planted) && p.includes('no link of')),
+      beside.problems.join('\n') || 'the enumeration drift was hidden by an unrelated refusal',
+    );
+    // A refusal IN the derivation is the other case: the set the diff would run
+    // against was never produced, so the drift stands on nothing and is gone.
+    const refusedDerivation = auditTree(
+      (f) => (f === planted ? makeAdapterSource(LIVE_MEMBER_SHAPES) : REAL(f)),
+      [...files, `${ADAPTER_TREE}/ghost/src/adapter-web.view.js`],
+    );
+    assert.ok(
+      refusedDerivation.problems.some((p) => p.includes('platform token')),
+      refusedDerivation.problems.join('\n') || 'the derivation refusal is missing',
+    );
+    assert.ok(
+      !refusedDerivation.problems.some((p) => p.includes('no link of')),
+      refusedDerivation.problems.join('\n'),
+    );
+  });
+
+  it('a link the document still states that the tree no longer carries reds the other way', () => {
+    const gone = `${ADAPTER_TREE}/ghost/src/adapter-ghost.js`;
+    const up = '../'.repeat(SEAM_DOC_PATH.split('/').length - 1);
+    const drifted = REAL(SEAM_DOC_PATH).replace(
+      '## The adapter seam',
+      `## The adapter seam\n\n[\`adapter-ghost.js\`](${up}${gone})`,
+    );
+    const { problems } = auditTree((f) => (f === SEAM_DOC_PATH ? drifted : REAL(f)));
+    assert.ok(
+      problems.some((p) => p.includes(gone) && p.includes('no such concrete adapter')),
+      problems.join('\n') || 'a stale enumeration entry passed',
+    );
+  });
+});
+
 describe('the command-line wrapper', () => {
   it('exits 0 on the committed tree and reports the contract it held', () => {
     const out = execFileSync(process.execPath, [SCRIPT], { cwd: ROOT, encoding: 'utf8' });
     assert.match(out, /adapter surface consistent/);
     assert.match(out, new RegExp(`${TYPEDEF_NAME} members`));
+    for (const { path } of ADAPTERS) assert.ok(out.includes(path), out);
+  });
+
+  it('the wrapper takes the derived adapters, never a list of its own (source lock)', () => {
+    // `run()` is outside the coverage the pure core carries, so what holds its
+    // wiring is its own source: it calls auditTree with the reader alone, which
+    // is what makes the derivation the wrapper's answer, and it renders the
+    // adapters that call hands back rather than any list written beside it.
+    const source = readFileSync(SCRIPT, 'utf8');
+    assert.ok(source.includes('auditTree(readFile)'), 'the wrapper stopped calling auditTree with the reader alone'); // prettier-ignore
+    assert.ok(
+      /const \{ problems, memberCount, adapters \} = auditTree\(readFile\);/.test(source),
+      'the wrapper stopped taking its adapters from the audit it runs',
+    );
   });
 
   it('exits 1 on a drifted tree, naming the member and the routes that close it', () => {
     // The red output itself — exit code, the missing member, and the trailer's
     // fix routes — observed by running the wrapper against a tree where one
-    // adapter lacks a declared member.
-    const dir = mkdtempSync(join(tmpdir(), 'adapter-surface-'));
-    try {
-      const write = (path, content) => {
-        mkdirSync(dirname(join(dir, path)), { recursive: true });
-        writeFileSync(join(dir, path), content);
-      };
+    // adapter lacks a declared member. The scratch tree is a real git
+    // repository, because the wrapper DERIVES its adapters from the tracked
+    // files of the directory it is invoked in: the case that proves the command
+    // line observes drift has to give that derivation something to read, and a
+    // bare temporary directory gives it nothing.
+    const dir = makeScratchRepo((write) => {
       write(TYPEDEF_PATH, makeTypedefSource(['{() => Promise<string>} loadTheme']));
+      write(SEAM_DOC_PATH, makeSeamDoc([ADAPTERS[0].path, ADAPTERS[1].path]));
       write(ADAPTERS[0].path, makeAdapterSource(["async loadTheme() { return 'auto'; },"]));
       write(ADAPTERS[1].path, makeAdapterSource(['send(message) { return post(message); },']));
-
+    });
+    try {
       let failure = null;
       try {
         execFileSync(process.execPath, [SCRIPT], { cwd: dir, encoding: 'utf8' });

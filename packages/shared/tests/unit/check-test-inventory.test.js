@@ -23,11 +23,26 @@
  * literal — including a requested property whose value is an expression, which
  * it once recorded as that expression's leading string — rather than reading
  * part of it; the kill-set readers refuse the same way, a joining call being the
- * one trailing expression they model because it leaves the set alone. The report
- * is proven to carry every class any of the audits can raise,
- * including one it has no wording for yet. Real-tree locks prove the shipped
+ * one trailing expression they model because it leaves the set alone.
+ *
+ * Beside that staleness closure runs the MEMBERSHIP one, which decides what a
+ * kill set ought to state rather than whether what it states is there, and it
+ * carries its own families: the specifier classification, each class of it and
+ * the refusal that makes it total; the walk over the followed class alone, with
+ * confinement holding against a terminated one; the dynamic literal edge and
+ * the computed non-edge beside it; the property arm's declared-class-first
+ * precedence, the mixed surface it admits and the residue it states; both
+ * directions of the test-surface leg on both engines; the in-module entry held
+ * present and held back from answering for the module leg; the integration
+ * classifier read as an import, with a comment-only mention admitted; the
+ * module leg and the empty expansion it refuses; the `pub use` that makes the
+ * Rust module mapping unsound; and the allowlist held from both sides. The
+ * report is proven to carry every class any of the audits can raise, including
+ * one it has no wording for yet, with the block count read from the shape it
+ * was handed. Real-tree locks prove the shipped
  * inventories hold, that the shipped registration closes, that the shipped kill
- * sets name files that are there over one stated mutate scope, and that each
+ * sets name files that are there over one stated mutate scope, that each of
+ * them states exactly what the criterion places in it, and that each
  * suite's membership rule still matches the discovery it mirrors.
  */
 
@@ -41,14 +56,29 @@ import { execFileSync } from 'node:child_process';
 import {
   DOC_INVENTORIES,
   JS_KILL_SETS,
+  JS_MEMBERSHIP,
+  MEMBERSHIP_ALLOWLIST,
   MUTATE_SCOPE,
   RUNNERS,
   RUST_KILL_SET,
+  RUST_MEMBERSHIP,
+  SPECIFIER_CLASSES,
   TRACKED_LISTS,
   admittedManifests,
   auditInventories,
+  auditKillSetMembership,
   auditMutationKillSets,
   auditRegistrationClosure,
+  classifySpecifier,
+  classifyTestSurface,
+  crateLibraryName,
+  importSpecifiers,
+  pathGlobToRegExp,
+  reachableFiles,
+  resolveUsePath,
+  rustUseTargets,
+  stripRustComments,
+  useTargets,
   backtickedName,
   backtickedTokens,
   basenameGlobToRegExp,
@@ -2933,34 +2963,713 @@ describe('auditMutationKillSets — staleness, agreement, and the refusals', () 
   });
 
   it('formats every populated problem class this audit reports', () => {
-    const blocks = formatProblems({
+    // The shape states the classes, and the block count is read from it: a class
+    // added to the audit without a wording here reds as a count, rather than
+    // sliding past positional matches written against yesterday's list.
+    const shape = {
       staleKillSetEntry: ['an entry'],
       mutateScopeDrift: ['a module'],
       deadScopeModule: ['a module'],
       unreadableKillSet: ['a source'],
-    });
-    assert.equal(blocks.length, 4);
+    };
+    const blocks = formatProblems(shape);
+    assert.equal(blocks.length, Object.keys(shape).length);
+    const block = (name) => blocks[Object.keys(shape).indexOf(name)];
     // One heading over both entry kinds: a dead literal names a file that is
     // not there, and a glob names a set with nothing in it.
-    assert.match(blocks[0], /name no test file that is there[\s\S]*Fix: repoint each entry/);
+    assert.match(block('staleKillSetEntry'), /name no test file that is there[\s\S]*Fix: repoint each entry/); // prettier-ignore
     // One heading over both kinds this class aggregates: a disagreement
     // between the surfaces, and a module one surface states twice.
     assert.match(
-      blocks[1],
+      block('mutateScopeDrift'),
       /stated by one surface and not the other, or stated twice by one[\s\S]*Fix: state the scope/,
     );
-    assert.match(blocks[2], /name no source the tree carries[\s\S]*Fix: repoint each entry/);
+    assert.match(block('deadScopeModule'), /name no source the tree carries[\s\S]*Fix: repoint each entry/); // prettier-ignore
     // The refusal block carries both surfaces, so its heading names both: a
     // scope-table refusal routed under a kill-set headline would send a reader
     // to the wrong file.
     assert.match(
-      blocks[3],
+      block('unreadableKillSet'),
       /mutation kill-set or mutate-scope source\(s\) could not be read as what they state[\s\S]*Fix: restore the shape/,
     );
   });
 });
 
+describe('pathGlobToRegExp — the mutate patterns’ own glob dialect', () => {
+  const matches = (pattern, path) => {
+    const compiled = pathGlobToRegExp(pattern);
+    assert.equal(compiled.error, undefined, compiled.error);
+    return compiled.regex.test(path);
+  };
+
+  it('crosses directories on a whole `**` segment and stays inside one on `*`', () => {
+    assert.ok(matches('packages/shared/lib/**/*.js', 'packages/shared/lib/session.js'));
+    assert.ok(matches('packages/shared/lib/**/*.js', 'packages/shared/lib/deep/session.js'));
+    assert.ok(!matches('packages/shared/lib/*.js', 'packages/shared/lib/deep/session.js'));
+    assert.ok(matches('packages/shared/sync-client.js', 'packages/shared/sync-client.js'));
+  });
+
+  it('answers with a refusal rather than throwing on syntax it does not model', () => {
+    // The one difference from the area map's own compiler: a pattern this
+    // reader cannot take has to red in the middle of a run, not abort it.
+    for (const pattern of ['packages/**.js', 'packages/{a,b}/x.js', 'packages/?.js']) {
+      const compiled = pathGlobToRegExp(pattern);
+      assert.equal(compiled.regex, undefined, pattern);
+      assert.ok(compiled.error, pattern);
+    }
+  });
+});
+
+describe('importSpecifiers — literal edges, and the one silence beside them', () => {
+  it('reads the re-exporting `export … from` form as an edge, and a local export as none', () => {
+    // A barrel is a real edge: a surface reaching a mutated module through one
+    // classifies as reaching it, where a walk blind to the form would place the
+    // surface outside every kill set with nothing red anywhere.
+    const read = importSpecifiers(
+      [
+        "export { a } from './named.js';",
+        "export * from './star.js';",
+        "export * as ns from './namespace.js';",
+        'export const local = 1;',
+        'export { local };',
+        'export default local;',
+      ].join('\n'),
+    );
+    assert.deepEqual(read.literal, ['./named.js', './star.js', './namespace.js']);
+    assert.equal(read.computed, 0);
+  });
+
+  it('reads static and dynamic literal specifiers alike', () => {
+    const read = importSpecifiers(
+      [
+        "import assert from 'node:assert/strict';",
+        "import { a, b as c } from './a.js';",
+        "import './side-effect.js';",
+        "const m = await import('./dynamic.js');",
+      ].join('\n'),
+    );
+    assert.deepEqual(read.literal, [
+      'node:assert/strict',
+      './a.js',
+      './side-effect.js',
+      './dynamic.js',
+    ]);
+    assert.equal(read.computed, 0);
+  });
+
+  it('counts a computed dynamic import as a non-edge rather than reading past it', () => {
+    const read = importSpecifiers('const m = await import(pathToFileURL(file).href);\n');
+    assert.deepEqual(read.literal, []);
+    assert.equal(read.computed, 1);
+  });
+
+  it('never reads a JSDoc `import()` annotation as an edge, and passes over `import.meta`', () => {
+    const read = importSpecifiers(
+      [
+        '/**',
+        " * @typedef {import('./types.js').Thing} Thing",
+        ' */',
+        "import { real } from './real.js';",
+        'const here = import.meta.dirname;',
+      ].join('\n'),
+    );
+    assert.deepEqual(read.literal, ['./real.js']);
+    assert.equal(read.computed, 0);
+  });
+});
+
+describe('stripRustComments — the Rust view, in the shared-primitive home', () => {
+  it('blanks line and nested block comments while keeping every offset', () => {
+    const source = 'use a::b; // use commented::out;\n/* outer /* inner */ still */ use c::d;\n';
+    const view = stripRustComments(source);
+    assert.equal(view.length, source.length);
+    assert.ok(view.includes('use a::b;') && view.includes('use c::d;'));
+    assert.ok(!view.includes('commented') && !view.includes('inner'));
+  });
+
+  it('leaves a comment marker inside a string literal standing', () => {
+    assert.ok(stripRustComments('let s = "not // a comment";\n').includes('not // a comment'));
+  });
+});
+
+describe('reachableFiles — the walk, breadth-first over the followed class', () => {
+  it('collects the transitive in-package reach and reports each refusal by name', () => {
+    const tracked = new Set([
+      'packages/pkg/tests/unit/a.test.js',
+      'packages/pkg/src/a.js',
+      'packages/pkg/src/deep.js',
+      'scripts/tool.js',
+    ]);
+    const stated = {
+      'packages/pkg/tests/unit/a.test.js': {
+        literal: ['../../src/a.js', '../../../../scripts/tool.js', 'node:assert/strict'],
+        computed: 0,
+      },
+      'packages/pkg/src/a.js': { literal: ['./deep.js', './gone.js'], computed: 0 },
+      'packages/pkg/src/deep.js': { literal: [], computed: 0 },
+    };
+    const walk = reachableFiles('packages/pkg/tests/unit/a.test.js', {
+      tracked,
+      specifiers: (f) => stated[f] ?? null,
+    });
+    assert.deepEqual([...walk.reached].sort(), [
+      'packages/pkg/src/a.js',
+      'packages/pkg/src/deep.js',
+      'packages/pkg/tests/unit/a.test.js',
+    ]);
+    // The out-of-package file was terminated, not followed — confinement has
+    // precedence over the terminated classes.
+    assert.ok(!walk.reached.has('scripts/tool.js'));
+    assert.equal(walk.refusals.length, 1);
+    assert.match(walk.refusals[0], /packages\/pkg\/src\/gone\.js/);
+  });
+});
+
+describe('classifySpecifier — the classification is total by construction', () => {
+  const FROM = 'packages/pkg/tests/unit/a.test.js';
+  const tracked = new Set([FROM, 'packages/pkg/src/a.js', 'scripts/tool.js']);
+  const classOf = (specifier) => classifySpecifier(specifier, FROM, tracked).class;
+
+  it('reads a bare specifier as the dependency class, terminated by definition', () => {
+    assert.equal(classOf('node:assert/strict'), SPECIFIER_CLASSES.dependency);
+    assert.equal(classOf('fast-check'), SPECIFIER_CLASSES.dependency);
+  });
+
+  it('follows a tracked file of the surface’s own package, and only that class', () => {
+    assert.equal(classOf('../../src/a.js'), SPECIFIER_CLASSES.followed);
+  });
+
+  it('terminates a tracked file outside the package, the synced copy, and the generated validator', () => {
+    assert.equal(classOf('../../../../scripts/tool.js'), SPECIFIER_CLASSES.outOfPackage);
+    assert.equal(classOf('../../shared/lib/session.js'), SPECIFIER_CLASSES.syncedShared);
+    assert.equal(classOf('../../shared/generated/validate.js'), SPECIFIER_CLASSES.generated);
+    assert.equal(
+      classifySpecifier('../../shared/generated/validate.js', 'packages/pkg/src/a.js', tracked)
+        .class,
+      SPECIFIER_CLASSES.generated,
+    );
+  });
+
+  it('refuses a relative specifier that falls into no class, naming where it resolved', () => {
+    const read = classifySpecifier('../../src/gone.js', FROM, tracked);
+    assert.equal(read.class, SPECIFIER_CLASSES.unresolved);
+    assert.equal(read.path, 'packages/pkg/src/gone.js');
+  });
+
+  it('resolves by path shape, never by disk state — the same answer in every checkout', () => {
+    // The tracked set decides only the followed/out-of-package split; the
+    // terminated shapes answer without consulting it at all.
+    const empty = new Set();
+    assert.equal(
+      classifySpecifier('../../shared/lib/session.js', FROM, empty).class,
+      SPECIFIER_CLASSES.syncedShared,
+    );
+  });
+});
+
+describe('classifyTestSurface — declared class first, then content', () => {
+  const CASE = (body) => `it('a case', () => { ${body} });`;
+  const runner = `import fc from '${JS_MEMBERSHIP.propertyRunner}';\n`;
+
+  it('takes a `*.property.test.js` file by its own declaration, plain cases and all', () => {
+    const read = classifyTestSurface(
+      'packages/pkg/tests/unit/thing.property.test.js',
+      `${runner}${CASE('assert.ok(true);')}`,
+    );
+    assert.equal(read.kind, 'declared');
+  });
+
+  it('excludes a file outside the class whose every case drives the unseeded runner', () => {
+    const read = classifyTestSurface(
+      'packages/pkg/tests/unit/thing.test.js',
+      `${runner}${CASE('fc.assert(fc.property(fc.integer(), (n) => n === n));')}`,
+    );
+    assert.equal(read.kind, 'all-property');
+    assert.equal(read.cases, read.property);
+  });
+
+  it('admits a mixed file on its plain cases, and states the residue it accepts', () => {
+    const read = classifyTestSurface(
+      'packages/pkg/tests/unit/thing.test.js',
+      `${runner}${CASE('fc.assert(fc.property(fc.integer(), (n) => n === n));')}\n${CASE('assert.ok(true);')}`,
+    );
+    assert.equal(read.kind, 'mixed');
+    assert.equal(read.property, 1);
+    assert.equal(read.cases, 2);
+  });
+
+  it('reads a member call as declaring no case, the way the registry’s reader does', () => {
+    const read = classifyTestSurface(
+      'packages/pkg/tests/unit/thing.test.js',
+      `it.skip('skipped', () => {});\nother.it('foreign', () => {});\n${CASE('assert.ok(true);')}`,
+    );
+    assert.equal(read.kind, 'plain');
+    assert.equal(read.cases, 1);
+  });
+
+  it('refuses a surface stating no case, and one importing the runner it cannot bind', () => {
+    assert.ok(classifyTestSurface('packages/pkg/tests/unit/a.test.js', 'const x = 1;\n').error);
+    const unbound = classifyTestSurface(
+      'packages/pkg/tests/unit/a.test.js',
+      `import { assert as check } from '${JS_MEMBERSHIP.propertyRunner}';\n${CASE('check();')}`,
+    );
+    assert.ok(unbound.error?.includes('cannot bind'), unbound.error);
+  });
+});
+
+describe('the Rust reading — use edges, containment, and the crate root', () => {
+  it('reads each `use` declaration on a comment-stripped view and counts re-exports', () => {
+    const read = rustUseTargets(
+      [
+        '//! doc: unlike the enigo suite next door',
+        '// use commented::out;',
+        'use lib::capture::scroll::{a, b};',
+        'pub use lib::capture::timing;',
+      ].join('\n'),
+    );
+    assert.deepEqual(read.targets, [
+      'lib::capture::scroll',
+      'lib::capture::scroll::a',
+      'lib::capture::scroll::b',
+    ]);
+    assert.equal(read.reexports, 1);
+    assert.ok(!read.targets.some((t) => t.includes('commented')));
+  });
+
+  it('reads a `use` written inside a string literal as the text it is', () => {
+    // The view is comment-stripped AND string-blanked: a declaration a source
+    // merely quotes is neither an edge nor the re-export that refuses the
+    // whole Rust relation.
+    const read = rustUseTargets(
+      [
+        'use fixture_lib::a::a;',
+        'const FIXTURE: &str = "',
+        'use fixture_lib::quoted::thing;',
+        'pub use crate::quoted::thing;',
+        '";',
+        'const RAW: &str = r#" use fixture_lib::raw::thing; "#;',
+      ].join('\n'),
+    );
+    assert.deepEqual(read.targets, ['fixture_lib::a::a']);
+    assert.equal(read.reexports, 0);
+  });
+
+  it('takes a brace group’s prefix and each item, dropping a rename and a glob', () => {
+    assert.deepEqual(useTargets('super::x as y'), ['super::x']);
+    assert.deepEqual(useTargets('super::*'), ['super']);
+    assert.deepEqual(useTargets('a::{b, c::d}'), ['a', 'a::b', 'a::c::d']);
+  });
+
+  const modules = new Map([
+    ['', 'crate/src/lib.rs'],
+    ['capture', 'crate/src/capture/mod.rs'],
+    ['capture::scroll', 'crate/src/capture/scroll.rs'],
+    ['commands', 'crate/src/commands.rs'],
+  ]);
+  const how = { roots: ['crate', 'fixture_lib'], modules };
+
+  it('resolves a crate-rooted path by the longest prefix the tree carries a module for', () => {
+    assert.equal(resolveUsePath('fixture_lib::capture::scroll::Acc', null, how), 'crate/src/capture/scroll.rs'); // prettier-ignore
+    assert.equal(resolveUsePath('fixture_lib::capture::Event', null, how), 'crate/src/capture/mod.rs'); // prettier-ignore
+    assert.equal(resolveUsePath('fixture_lib::Thing', null, how), 'crate/src/lib.rs');
+  });
+
+  it('resolves `super` and `self` against the module stating them', () => {
+    const from = ['capture', 'scroll'];
+    assert.equal(resolveUsePath('super::timing', from, how), 'crate/src/capture/mod.rs');
+    assert.equal(resolveUsePath('self::inner', from, how), 'crate/src/capture/scroll.rs');
+    assert.equal(resolveUsePath('super::super::commands', from, how), 'crate/src/commands.rs');
+  });
+
+  it('reads a uniform path only where its first segment names a crate module', () => {
+    // Every external crate's path has the same shape, so resolving one down to
+    // the crate root would claim them all.
+    assert.equal(resolveUsePath('commands::AppState', [], how), 'crate/src/commands.rs');
+    assert.equal(resolveUsePath('windows::Win32::Foundation::HWND', [], how), null);
+    assert.equal(resolveUsePath('std::sync::mpsc', ['capture'], how), null);
+  });
+
+  it('reaches nothing of the crate from a test binary except through the library name', () => {
+    assert.equal(resolveUsePath('super::*', null, how), null);
+    assert.equal(resolveUsePath('crate::capture', null, how), 'crate/src/capture/mod.rs');
+  });
+
+  it('reads the crate library name, and derives it from the package name otherwise', () => {
+    assert.deepEqual(crateLibraryName('[package]\nname = "a-b"\n\n[lib]\nname = "c_d"\n'), { name: 'c_d' }); // prettier-ignore
+    assert.deepEqual(crateLibraryName('[package]\nname = "a-b"\n'), { name: 'a_b' });
+    assert.ok(crateLibraryName('[dependencies]\nserde = "1"\n').error);
+  });
+});
+
+describe('auditKillSetMembership — the criterion, both legs and both engines', () => {
+  const SETS = {
+    js: { glob: 'mutate.*.mjs', property: 'command' },
+    rust: {
+      config: 'crate/.cargo/mutants.toml',
+      key: 'test_args',
+      flag: '--test',
+      dir: 'crate/tests',
+      suffix: '.rs',
+      main: 'main.rs',
+    },
+    scope: { config: 'crate/.cargo/mutants.toml', key: 'examine_globs', root: 'crate' },
+    rustShape: { ...RUST_MEMBERSHIP, manifest: 'crate/Cargo.toml' },
+  };
+
+  const INVENTORIES = [
+    registered({
+      doc: 'docs/unit.md',
+      section: 'S',
+      header: ['Test file', 'Covers'],
+      dir: 'packages/pkg/tests/unit',
+      discovery: { runner: RUNNERS.node, pattern: '*.test.js' },
+    }),
+    registered({
+      doc: 'docs/rust.md',
+      section: 'S',
+      header: ['Test file', 'Covers'],
+      dir: 'crate/tests',
+      discovery: {
+        runner: RUNNERS.cargo,
+        workflow: '.github/workflows/w.yml',
+        step: 'Discover',
+        glob: 'tests/*.rs',
+        manifest: 'crate/Cargo.toml',
+      },
+    }),
+  ];
+
+  const jsConfig = ({ mutate = ['packages/pkg/src/**/*.js'], tests = ['a.test.js'] } = {}) =>
+    `export default {\n  mutate: [${mutate.map((m) => `'${m}'`).join(', ')}],\n  commandRunner: { command: ['node --test', ${tests
+      .map((t) => `'packages/pkg/tests/unit/${t}'`)
+      .join(', ')}].join(' ') },\n};`;
+
+  const testFile = (body) => `import { describe, it } from 'node:test';\n${body}\nit('a case', () => {});\n`; // prettier-ignore
+
+  const manifest = ({ globs = ['src/a.rs'], binaries = ['a_test'], lib = true } = {}) =>
+    [
+      'examine_globs = [',
+      ...globs.map((g) => `  "${g}",`),
+      ']',
+      '',
+      'test_args = [',
+      ...(lib ? ['  "--lib",'] : []),
+      ...binaries.map((b) => `  "--test", "${b}",`),
+      ']',
+    ].join('\n');
+
+  const BASE = {
+    'mutate.pkg.mjs': jsConfig(),
+    'packages/pkg/src/a.js': 'export const a = 1;\n',
+    'packages/pkg/tests/unit/a.test.js': testFile("import { a } from '../../src/a.js';"),
+    'crate/Cargo.toml': '[package]\nname = "fixture"\n\n[lib]\nname = "fixture_lib"\n',
+    'crate/src/lib.rs': 'pub mod a;\n',
+    'crate/src/a.rs': 'pub fn a() {}\n',
+    'crate/tests/a_test.rs': 'use fixture_lib::a::a;\n',
+    'crate/.cargo/mutants.toml': manifest(),
+  };
+
+  const membership = (over = {}, options = {}) => {
+    const source = { ...BASE, ...over };
+    for (const gone of options.remove ?? []) delete source[gone];
+    return auditKillSetMembership({
+      files: options.files ?? Object.keys(source),
+      readFile: (f) => (f in source ? source[f] : null),
+      jsKillSets: SETS.js,
+      rustKillSet: SETS.rust,
+      mutateScope: SETS.scope,
+      rustMembership: SETS.rustShape,
+      allowlist: options.allowlist ?? [],
+      inventories: INVENTORIES,
+    });
+  };
+
+  it('reports nothing when each list states exactly what the criterion places in it', () => {
+    assert.deepEqual(formatProblems(membership()), []);
+  });
+
+  it('reds an unlisted reaching JavaScript surface, naming the file and the configuration', () => {
+    const result = membership({
+      'packages/pkg/tests/unit/b.test.js': testFile("import { a } from '../../src/a.js';"),
+    });
+    assert.equal(result.unlistedMember.length, 1);
+    assert.match(result.unlistedMember[0], /packages\/pkg\/tests\/unit\/b\.test\.js/);
+    assert.match(result.unlistedMember[0], /mutate\.pkg\.mjs/);
+  });
+
+  it('reds a listed surface that reaches no mutated module, with the reason', () => {
+    const result = membership({
+      'mutate.pkg.mjs': jsConfig({ tests: ['a.test.js', 'b.test.js'] }),
+      'packages/pkg/tests/unit/b.test.js': testFile("import assert from 'node:assert/strict';"),
+    });
+    assert.equal(result.listedNonMember.length, 1);
+    assert.match(result.listedNonMember[0], /b\.test\.js, which reaches no module/);
+  });
+
+  it('reds a LISTED declared property suite in the same direction', () => {
+    const result = membership({
+      'mutate.pkg.mjs': jsConfig({ tests: ['a.test.js', 'b.property.test.js'] }),
+      'packages/pkg/tests/unit/b.property.test.js': testFile("import { a } from '../../src/a.js';"),
+    });
+    assert.equal(result.listedNonMember.length, 1);
+    assert.match(result.listedNonMember[0], /declares itself a property suite/);
+  });
+
+  it('the precedence pair: a declared property suite with plain cases stays out, a mixed file stays in', () => {
+    const runner = `import fc from '${JS_MEMBERSHIP.propertyRunner}';`;
+    const result = membership({
+      // Declared class, plain cases and all — never a member, so leaving it
+      // unlisted is silent.
+      'packages/pkg/tests/unit/declared.property.test.js': testFile(
+        `${runner}\nimport { a } from '../../src/a.js';`,
+      ),
+      // Outside the class, property cases beside plain ones — admitted, so its
+      // absence from the list reds.
+      'packages/pkg/tests/unit/mixed.test.js': [
+        `import fc from '${JS_MEMBERSHIP.propertyRunner}';`,
+        "import { a } from '../../src/a.js';",
+        "it('property', () => { fc.assert(fc.property(fc.integer(), (n) => n === n)); });",
+        "it('plain', () => {});",
+      ].join('\n'),
+    });
+    assert.deepEqual(
+      result.unlistedMember.map((p) => p.split(' ')[0]),
+      ['packages/pkg/tests/unit/mixed.test.js'],
+    );
+    assert.deepEqual(result.admittedMixed['mutate.pkg.mjs'], [
+      'packages/pkg/tests/unit/mixed.test.js',
+    ]);
+  });
+
+  it('follows a dynamic literal `import()` edge and stops at a computed one', () => {
+    const reaching = membership({
+      'packages/pkg/tests/unit/b.test.js': testFile("const m = await import('../../src/a.js');"),
+    });
+    assert.equal(reaching.unlistedMember.length, 1);
+    const computed = membership({
+      'mutate.pkg.mjs': jsConfig({ tests: ['a.test.js', 'b.test.js'] }),
+      'packages/pkg/tests/unit/b.test.js': testFile('const m = await import(url);'),
+    });
+    assert.match(computed.listedNonMember[0], /b\.test\.js, which reaches no module/);
+  });
+
+  it('walks transitively, and confines the walk to the surface’s own package', () => {
+    const result = membership({
+      'packages/pkg/src/a.js': "export * from './deep.js';\nimport './deep.js';\n",
+      'packages/pkg/src/deep.js': 'export const deep = 1;\n',
+      'mutate.pkg.mjs': jsConfig({ mutate: ['packages/pkg/src/deep.js'] }),
+    });
+    // a.test.js reaches src/a.js, which reaches src/deep.js — the mutated one.
+    assert.deepEqual(result.unlistedMember, []);
+    assert.deepEqual(result.listedNonMember, []);
+  });
+
+  it('refuses a relative specifier that resolves into no class the walk models', () => {
+    const result = membership({
+      'packages/pkg/tests/unit/a.test.js': testFile("import { x } from '../../src/gone.js';"),
+    });
+    assert.ok(
+      result.unreadableMembership.some((p) => p.includes('packages/pkg/src/gone.js')),
+      result.unreadableMembership.join('\n'),
+    );
+  });
+
+  it('reds a mutate-scope module no listed surface reaches, and refuses an empty expansion', () => {
+    const unreached = membership({
+      'packages/pkg/src/b.js': 'export const b = 1;\n',
+    });
+    assert.deepEqual(unreached.unreachableScopeModule.map((p) => p.split(' ')[0]), ['packages/pkg/src/b.js']); // prettier-ignore
+    const empty = membership({ 'mutate.pkg.mjs': jsConfig({ mutate: ['packages/pkg/gone/**/*.js'] }) }); // prettier-ignore
+    assert.ok(
+      empty.unreadableMembership.some((p) => p.includes('expands against the tree to no tracked file')), // prettier-ignore
+      empty.unreadableMembership.join('\n'),
+    );
+  });
+
+  it('reds an unlisted transitively-reaching Rust binary, and a listed non-reaching one', () => {
+    const unlisted = membership({
+      'crate/src/b.rs': 'use super::a;\n',
+      'crate/tests/b_test.rs': 'use fixture_lib::b::b;\n',
+      'crate/src/lib.rs': 'pub mod a;\npub mod b;\n',
+    });
+    assert.ok(
+      unlisted.unlistedMember.some((p) => p.includes('`b_test`')),
+      unlisted.unlistedMember.join('\n'),
+    );
+    const listed = membership({
+      'crate/tests/b_test.rs': 'use std::sync::mpsc;\n',
+      'crate/.cargo/mutants.toml': manifest({ binaries: ['a_test', 'b_test'] }),
+    });
+    assert.ok(
+      listed.listedNonMember.some((p) => p.includes('`--test b_test`') && p.includes('reaches no module')), // prettier-ignore
+      listed.listedNonMember.join('\n'),
+    );
+  });
+
+  it('reaches a mutated module through a re-exporting barrel', () => {
+    // The surface imports the barrel; the barrel re-exports the mutated module.
+    // Read without the `export … from` edge the surface reaches nothing, which
+    // is a silent pass in the unlisted direction and a false red in the module
+    // leg — so both are asserted absent here.
+    const result = membership({
+      'mutate.pkg.mjs': jsConfig({ mutate: ['packages/pkg/src/a.js'] }),
+      'packages/pkg/src/index.js': "export { a } from './a.js';\n",
+      'packages/pkg/tests/unit/a.test.js': testFile("import { a } from '../../src/index.js';"),
+    });
+    assert.deepEqual(result.listedNonMember, []);
+    assert.deepEqual(result.unreachableScopeModule, []);
+    assert.deepEqual(result.unlistedMember, []);
+  });
+
+  it('resolves a directory-form Rust binary through the routes Cargo builds from', () => {
+    // `tests/<name>/main.rs` is a target as much as `tests/<name>.rs` is, and
+    // the staleness leg already reads a listed target through both routes.
+    const unlisted = membership({ 'crate/tests/b_test/main.rs': 'use fixture_lib::a::a;\n' });
+    assert.ok(
+      unlisted.unlistedMember.some((p) => p.includes('`b_test`')),
+      unlisted.unlistedMember.join('\n'),
+    );
+    const listed = membership({
+      'crate/tests/b_test/main.rs': 'use fixture_lib::a::a;\n',
+      'crate/.cargo/mutants.toml': manifest({ binaries: ['a_test', 'b_test'] }),
+    });
+    assert.deepEqual(listed.unlistedMember, []);
+    assert.deepEqual(listed.listedNonMember, []);
+  });
+
+  it('expands the Rust mutate scope against the tree, glob entries included', () => {
+    // The cargo configuration's entries are globs as readily as literal paths.
+    // Left unexpanded, the pattern text is a scope module nothing can reach and
+    // reds as a gap in the suites rather than as the string it is.
+    const globbed = membership({
+      'crate/.cargo/mutants.toml': manifest({ globs: ['src/a*.rs'] }),
+    });
+    assert.deepEqual(globbed.unreachableScopeModule, []);
+    assert.deepEqual(globbed.unreadableMembership, []);
+  });
+
+  it('refuses a Rust mutate-scope entry that expands to nothing, as machinery', () => {
+    const empty = membership({
+      'crate/.cargo/mutants.toml': manifest({ globs: ['src/gone/**/*.rs'] }),
+    });
+    assert.ok(
+      empty.unreadableMembership.some((p) => p.includes('expands against the tree to no tracked file')), // prettier-ignore
+      empty.unreadableMembership.join('\n'),
+    );
+  });
+
+  it('asserts the in-module entry present, and never lets it satisfy the module leg', () => {
+    const gone = membership({ 'crate/.cargo/mutants.toml': manifest({ lib: false }) });
+    assert.ok(
+      gone.unlistedMember.some((p) => p.includes('fixed in-module entry')),
+      gone.unlistedMember.join('\n'),
+    );
+    // A scope module only the crate's own in-module blocks exercise: the list
+    // still carries `--lib`, and the module still reds.
+    const inModule = membership({
+      'crate/src/b.rs': 'pub fn b() {}\n',
+      'crate/.cargo/mutants.toml': manifest({ globs: ['src/a.rs', 'src/b.rs'] }),
+    });
+    assert.deepEqual(
+      inModule.unreachableScopeModule.map((p) => p.split(' ')[0]),
+      ['crate/src/b.rs'],
+    );
+  });
+
+  it('subtracts the integration class by IMPORT, and admits a comment-only mention', () => {
+    const imported = membership({
+      'crate/tests/b_test.rs': `use ${RUST_MEMBERSHIP.integrationImport}::Enigo;\nuse fixture_lib::a::a;\n`, // prettier-ignore
+    });
+    assert.ok(
+      !imported.unlistedMember.some((p) => p.includes('`b_test`')),
+      imported.unlistedMember.join('\n'),
+    );
+    const mentioned = membership({
+      'crate/tests/b_test.rs': `//! unlike the ${RUST_MEMBERSHIP.integrationImport} suite next door\nuse fixture_lib::a::a;\n`, // prettier-ignore
+    });
+    assert.ok(
+      mentioned.unlistedMember.some((p) => p.includes('`b_test`')),
+      mentioned.unlistedMember.join('\n'),
+    );
+  });
+
+  it('refuses a `pub use` under the crate’s source rather than mapping past it', () => {
+    const result = membership({ 'crate/src/a.rs': 'pub use crate::b::thing;\n' });
+    assert.ok(
+      result.unreadableMembership.some((p) => p.includes('pub use') && p.includes('crate/src/a.rs')), // prettier-ignore
+      result.unreadableMembership.join('\n'),
+    );
+  });
+
+  it('refuses a mutate scope spanning more than one package, and a suite it cannot find', () => {
+    const spanning = membership({
+      'mutate.pkg.mjs': jsConfig({ mutate: ['packages/pkg/src/**/*.js', 'packages/other/x.js'] }),
+      'packages/other/x.js': 'export const x = 1;\n',
+    });
+    assert.ok(
+      spanning.unreadableMembership.some((p) => p.includes('package tree(s)')),
+      spanning.unreadableMembership.join('\n'),
+    );
+    const homeless = membership(
+      { 'mutate.pkg.mjs': jsConfig({ mutate: ['packages/other/x.js'] }), 'packages/other/x.js': 'export const x = 1;\n' }, // prettier-ignore
+    );
+    assert.ok(
+      homeless.unreadableMembership.some((p) => p.includes('no registered node-test suite')),
+      homeless.unreadableMembership.join('\n'),
+    );
+  });
+
+  it('excuses what an allowlist entry names, and reds the entry that excuses nothing', () => {
+    const entry = {
+      surface: 'mutate.pkg.mjs',
+      leg: 'test-surface',
+      entry: 'packages/pkg/tests/unit/b.test.js',
+      reason: 'asserts wall-clock budgets',
+    };
+    const excused = membership(
+      { 'packages/pkg/tests/unit/b.test.js': testFile("import { a } from '../../src/a.js';") },
+      { allowlist: [entry] },
+    );
+    assert.deepEqual(excused.unlistedMember, []);
+    assert.deepEqual(excused.staleMembershipAllowlist, []);
+    // With nothing for it to rule on, the same entry is stale.
+    const stale = membership({}, { allowlist: [entry] });
+    assert.equal(stale.staleMembershipAllowlist.length, 1);
+    assert.match(stale.staleMembershipAllowlist[0], /excuses nothing|that nothing needs/);
+  });
+
+  it('formats every populated problem class this audit reports, and no residue as one', () => {
+    const shape = {
+      unlistedMember: ['a surface'],
+      listedNonMember: ['an entry'],
+      unreachableScopeModule: ['a module'],
+      staleMembershipAllowlist: ['an exclusion'],
+      unreadableMembership: ['a source'],
+    };
+    const blocks = formatProblems({ ...shape, admittedMixed: { 'a.mjs': ['b.test.js'] } });
+    assert.equal(blocks.length, Object.keys(shape).length);
+    const block = (name) => blocks[Object.keys(shape).indexOf(name)];
+    assert.match(block('unlistedMember'), /belong to a kill set that does not list them[\s\S]*Fix: list each one/); // prettier-ignore
+    assert.match(block('listedNonMember'), /name a test surface that does not belong[\s\S]*Fix: drop each entry/); // prettier-ignore
+    assert.match(block('unreachableScopeModule'), /reached by no listed test surface[\s\S]*Fix: list a test surface/); // prettier-ignore
+    assert.match(block('staleMembershipAllowlist'), /excuse nothing[\s\S]*Fix: remove each entry/); // prettier-ignore
+    assert.match(block('unreadableMembership'), /could not be read as what the criterion needs[\s\S]*Fix: restore the shape/); // prettier-ignore
+  });
+});
+
 describe('real-tree lock', () => {
+  it('the committed kill sets state exactly what the criterion places in them', () => {
+    const result = auditKillSetMembership({ files: trackedFiles(), readFile: readRepoFile });
+    assert.deepEqual(
+      formatProblems(result),
+      [],
+      'every kill set must list the surfaces the membership criterion derives',
+    );
+    // The residue the property arm accepts is stated, never left implicit.
+    assert.ok(Object.keys(result.admittedMixed).length > 0);
+    assert.ok(MEMBERSHIP_ALLOWLIST.length > 0);
+  });
+
   it('the committed inventories and coverage lists hold', () => {
     assert.deepEqual(
       formatProblems(auditInventories({ files: trackedFiles(), readFile: readRepoFile })),

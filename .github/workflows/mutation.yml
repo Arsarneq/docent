@@ -35,11 +35,19 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      # The shared kill-set includes suites that read gitignored build output a
-      # checkout does not carry: sync-client.test.js loads the generated platform
-      # validators from packages/shared/generated/, and schema-split.test.js
-      # reads the synced per-platform schema copies under packages/*/shared/.
-      # `npm run sync-shared` produces both.
+      # The shared kill set includes suites that read gitignored build output a
+      # checkout does not carry, and today that output is one directory:
+      # packages/shared/generated/, the platform import validators. Two listed
+      # suites need it — sync-client.test.js runs the real generated validators
+      # against its frozen fixtures, and generated-validators.test.js imports
+      # those artifacts as its whole subject. `npm run sync-shared` produces
+      # them, regeneration being its first step. Nothing else in the list reads
+      # build output at all: the remaining listed suites read tracked sources —
+      # the platform panel sources and shells, the extension manifest, and the
+      # repo's schema source layers under schemas/, which the two schema suites
+      # compose from by their own statement rather than reading schemas/dist/.
+      # So no listed suite depends on the synced packages/*/shared/ copies this
+      # step also writes.
       - name: Sync shared code
         run: npm run sync-shared
 
@@ -207,8 +215,11 @@ jobs:
       # tolerated outcome above. Sized above this step's own observed maximum,
       # and below the job bound so the steps after it — the run summary and the
       # artifact upload, which are what report the outcome — still have room.
-      # That maximum is the elapsed time of the module set the mutants
-      # configuration enumerates, so widening that set is the moment to re-check
+      # That maximum is the product of two factors the mutants configuration
+      # states: the module set it enumerates, which decides how many mutants are
+      # seeded, and the per-mutant test list, which decides what each seeded
+      # mutant costs. Widening either — a module joining examine_globs, or a
+      # binary joining additional_cargo_test_args — is the moment to re-check
       # this number.
       - name: Run cargo-mutants (scoped)
         working-directory: packages/desktop/src-tauri

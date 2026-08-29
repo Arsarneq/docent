@@ -5,11 +5,17 @@ export default {
   commandRunner: {
     command: [
       'node --test',
+      'packages/extension/tests/unit/adapter-chrome.test.js',
+      'packages/extension/tests/unit/auto-sync-host.test.js',
       'packages/extension/tests/unit/capture-timing.test.js',
+      'packages/extension/tests/unit/dispatch.test.js',
+      'packages/extension/tests/unit/frame-trust.test.js',
       'packages/extension/tests/unit/navigation-logic.test.js',
       'packages/extension/tests/unit/recorder-logic.test.js',
       'packages/extension/tests/unit/recording-mode.test.js',
+      'packages/extension/tests/unit/schema-validation.test.js',
       'packages/extension/tests/unit/service-worker.test.js',
+      'packages/extension/tests/unit/storage-quota.test.js',
     ].join(' '),
   },
   reporters: ['clear-text', 'html'],

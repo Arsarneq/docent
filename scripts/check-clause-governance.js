@@ -235,7 +235,7 @@ export const ALLOWLIST = new Map([
   ],
   [
     'SC-3\tscripts/check-test-inventory.js',
-    'the shared tokenizer scripts/check-adapter-surface.js reads each adapter through, cited for where that reading is stated; that check takes the tokenizer and the set-diff helpers alone, and the verification stays with it, held by the shared-core doc that governs it',
+    'the shared tokenizer scripts/check-adapter-surface.js reads each adapter through, cited for where that reading is stated; that check imports from it only shared readers — the tokenizer and the object-literal walk, the set-diff and surface guards and the report block, the fence model and the path normalizer its enumeration leg reads the seam document through, and the tracked-file population reader its adapter derivation runs over — so the verification stays with the adapter check, held by the shared-core doc that governs it',
   ],
   // Class 3 — format-authority echo surfaces. Each echoes the session-format
   // ordering clause and is held by the schema-echo check; what stays open is

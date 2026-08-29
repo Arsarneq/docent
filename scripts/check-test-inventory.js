@@ -64,8 +64,40 @@
  *       both its surfaces: the set that cargo configuration states and the
  *       module table the mutation-strategy document states name the same
  *       modules, in both directions and neither one twice, and each module the
- *       configuration states is a source the tree carries. Which files a kill
- *       set OUGHT to list is not held here — see the remainder below.
+ *       configuration states is a source the tree carries.
+ *   (f) kill-set MEMBERSHIP — which surfaces each list ought to state, derived
+ *       rather than curated, against the criterion the mutation-strategy
+ *       document states (docs/test/strategy/mutation.md §MUT-7). Two legs, both
+ *       engines, each diffed in both directions. The test-surface leg
+ *       classifies the population each engine's own registered RUNNER selects:
+ *       on the JavaScript side every member of the registered `node --test`
+ *       suites under that package — today exactly the unit suites those
+ *       documents enumerate — and on the Rust side every binary of the
+ *       registered cargo suite. Each engine then has a class of its own taken
+ *       out of that population by classification, the two standing in the same
+ *       place: the property suites on the JavaScript side, the binaries an
+ *       `enigo` import classifies as integration on the Rust side. What is left
+ *       to decide on either is reaching the configuration's mutate scope or not
+ *       reaching it, and the list is held to the reaching members: one that
+ *       belongs and is not listed reds, and a listed one that does not belong
+ *       reds carrying the reason it does not. The module leg
+ *       holds every module of a mutate scope, the globs expanded against the
+ *       tracked set, to being reached by at least one LISTED test surface; the
+ *       Rust in-module entry does not satisfy it, and its own presence is
+ *       asserted instead, since dropping it would take every `#[cfg(test)]`
+ *       block out of the run while the rest of the list still read complete.
+ *       Reachability is transitive import reach confined to the surface's own
+ *       package tree, read over a comment-stripped view and over literal
+ *       specifiers only, resolved BY PATH SHAPE so the answer is the same in
+ *       every checkout; on the Rust side it is `use` paths alone, read over a
+ *       view with comments stripped and string-literal contents blanked, so a
+ *       declaration a source merely QUOTES is the text it is rather than an edge
+ *       or a refusal, and a `mod` declaration states where a module LIVES rather
+ *       than what it needs.
+ *       What the criterion leaves to judgment
+ *       — whether a surface is fast, and whether it is deterministic outside
+ *       the property runner the clause names — is recorded per entry in
+ *       MEMBERSHIP_ALLOWLIST below, held live from both sides.
  *
  * Why the always-on `lint` job: the diff that stales a suite inventory is
  * frequently docs-only, and a docs-only PR skips every path-filtered test job.
@@ -106,11 +138,13 @@
  * an entry naming a tracked source the suites never load, which is well-formed
  * here and simply collects nothing; and a coverage list that exists but is
  * named in TRACKED_LISTS below by no entry is outside this gate until it is
- * registered there, which a new list's change has to do for itself. The same
- * holds one closure further on: WHICH test files a mutation kill set lists is a
- * curation nothing here decides — the lists are curated subsets of their
- * packages' suites, closure (e) holds only that what they name is there, and a
- * suite that never joins a kill set is invisible to every leg of this check.
+ * registered there, which a new list's change has to do for itself. One closure
+ * further on, what closure (f) leaves open is stated where it is decided rather
+ * than derived: which surfaces belong to a kill set is answered from the tree,
+ * but whether an entry the criterion places there is fast enough and
+ * deterministic enough to run once per mutant is a review judgment, recorded as
+ * a reasoned exclusion; and the property arm ADMITS surfaces whose property
+ * cases sit beside plain ones, which the check enumerates rather than hides.
  * Closure (c)
  * leaves a named remainder open too, because no admission test here states it:
  * which cargo-run and browser-driven suites must be registered (their
@@ -119,13 +153,14 @@
  * `node --test` invocations that reach the runner from somewhere other than an
  * admitted manifest script, namely the workflow's own inline steps and the
  * mutation configurations' per-file lists — those lists' ENTRIES are held for
- * staleness by closure (e), while the invocations carrying them stay
- * unregistered here, so the lists remain part of this remainder; and the
- * manifests the admission rule does not admit.
+ * staleness by closure (e) and their membership by closure (f), while the
+ * invocations carrying them stay unregistered here, so the lists remain part of
+ * this remainder; and the manifests the admission rule does not admit.
  *
  * This file is also the SHARED-PRIMITIVE HOME the sibling checks read through:
  * the Markdown table parser and its selectors, the whole-span and list-item
- * readers, the JavaScript tokenizer and the blanked views it renders, the
+ * readers, the JavaScript tokenizer and the blanked views it renders, the two
+ * Rust views beside them — comments stripped, and string contents blanked — the
  * object-literal walk and the switch-case collector, the set-diff and
  * duplicate reporters, the report block, and the one tracked-file population
  * read. Anything exported here is therefore load-bearing well beyond this
@@ -1242,6 +1277,187 @@ export function blankJsLiterals(source, { literals = true } = {}) {
 }
 
 /**
+ * Blank out Rust comments (line `//…` and nested block `/* … *\/`) while
+ * preserving every non-comment character's offset and every newline, so
+ * line numbers computed on the stripped text match the source. String
+ * literals — `"…"` with escapes and raw `r"…"` / `r#"…"#` forms — are
+ * honoured so comment markers inside them survive.
+ *
+ * The Rust counterpart of {@link blankJsLiterals}'s comment half, and the view
+ * every Rust-reading scan here shares: the kill-set membership legs read a
+ * binary's `use` statements through it, and the sibling checks that read the
+ * desktop crate reach it through
+ * [`check-command-surface.js`](./check-command-surface.js), which re-exports it
+ * for them. It sits in this module, its string-blanking twin
+ * {@link blankRustStrings} beside it, because this one carries node builtins and
+ * nothing else, so every check — this one included — can read through either
+ * without inheriting a sibling's closure.
+ *
+ * @param {string} source Rust source text
+ * @returns {string} the source with comment characters replaced by spaces
+ */
+export function stripRustComments(source) {
+  const out = source.split('');
+  const n = source.length;
+  let i = 0;
+  const blank = (from, to) => {
+    for (let k = from; k < to; k++) if (out[k] !== '\n') out[k] = ' ';
+  };
+  while (i < n) {
+    const c = source[i];
+    const next = source[i + 1];
+    if (c === "'") {
+      // A simple char literal ('x', '\n', '\'') is skipped wholesale so a
+      // quote inside one cannot open a phantom string; a lifetime tick ('a)
+      // falls through and is treated as an ordinary character.
+      const lit = /^'(?:\\.|[^\\'])'/.exec(source.slice(i, i + 4));
+      i += lit ? lit[0].length : 1;
+    } else if (c === '/' && next === '/') {
+      const end = source.indexOf('\n', i);
+      const stop = end === -1 ? n : end;
+      blank(i, stop);
+      i = stop;
+    } else if (c === '/' && next === '*') {
+      let depth = 1;
+      let j = i + 2;
+      while (j < n && depth > 0) {
+        if (source[j] === '/' && source[j + 1] === '*') {
+          depth++;
+          j += 2;
+        } else if (source[j] === '*' && source[j + 1] === '/') {
+          depth--;
+          j += 2;
+        } else {
+          j++;
+        }
+      }
+      blank(i, j);
+      i = j;
+    } else if (c === 'r' && (next === '"' || next === '#')) {
+      // Possible raw string: r"…" or r#"…"# with any number of hashes.
+      let hashes = 0;
+      let j = i + 1;
+      while (source[j] === '#') {
+        hashes++;
+        j++;
+      }
+      if (source[j] === '"') {
+        const closer = '"' + '#'.repeat(hashes);
+        const end = source.indexOf(closer, j + 1);
+        i = end === -1 ? n : end + closer.length;
+      } else {
+        i++;
+      }
+    } else if (c === '"') {
+      let j = i + 1;
+      while (j < n && source[j] !== '"') {
+        j += source[j] === '\\' ? 2 : 1;
+      }
+      i = Math.min(j + 1, n);
+    } else {
+      i++;
+    }
+  }
+  return out.join('');
+}
+
+/**
+ * Blank out the CONTENTS of Rust string literals — `"…"` with escapes, the raw
+ * forms `r"…"` and `r#"…"#`, and char literals — replacing every character
+ * they carry with a space while keeping the quotes themselves, every other
+ * character's offset, and every newline. An offset computed on this view
+ * therefore addresses the same character of the source it was made from.
+ *
+ * It stands BESIDE {@link stripRustComments} rather than inside it, because the
+ * two views answer different questions and one scan needs both. Comment
+ * stripping keeps string contents on purpose: a channel name is a string
+ * literal, and reading it is the point. What a scan looking for an ANCHOR wants
+ * is the opposite — the calls the source makes, with the text of what it says
+ * about them left out — which is this view. A scan that anchors here and then
+ * reads a literal reads it from the intact text at the same offset.
+ *
+ * It sits in this module for the same reason its twin does: the kill-set
+ * membership legs read a Rust binary's `use` declarations through both views —
+ * a `use` written inside a string literal is text, not an edge, and a `pub use`
+ * written there is not the re-export that refuses the mapping — and this module
+ * carries node builtins and nothing else, so every check can read through it
+ * without inheriting a sibling's closure.
+ * [`check-command-surface.js`](./check-command-surface.js) re-exports it for the
+ * readers that already ask it for this view.
+ * @param {string} source Rust source text
+ * @returns {string} the source with string-literal contents replaced by spaces
+ */
+export function blankRustStrings(source) {
+  const out = source.split('');
+  const n = source.length;
+  let i = 0;
+  const blank = (from, to) => {
+    for (let k = from; k < to; k++) if (out[k] !== '\n') out[k] = ' ';
+  };
+  while (i < n) {
+    const c = source[i];
+    const next = source[i + 1];
+    if (c === "'") {
+      // A char literal's own content is blanked; a lifetime tick ('a) matches
+      // no literal shape and falls through as an ordinary character.
+      const lit = /^'(?:\\.|[^\\'])'/.exec(source.slice(i, i + 4));
+      if (lit) {
+        blank(i + 1, i + lit[0].length - 1);
+        i += lit[0].length;
+      } else {
+        i++;
+      }
+    } else if (c === '/' && next === '/') {
+      // Comment text is not this view's subject, but a quote inside one would
+      // otherwise open a literal that never closes, so a comment is skipped
+      // whole and left exactly as it arrived.
+      const end = source.indexOf('\n', i);
+      i = end === -1 ? n : end;
+    } else if (c === '/' && next === '*') {
+      let depth = 1;
+      let j = i + 2;
+      while (j < n && depth > 0) {
+        if (source[j] === '/' && source[j + 1] === '*') {
+          depth++;
+          j += 2;
+        } else if (source[j] === '*' && source[j + 1] === '/') {
+          depth--;
+          j += 2;
+        } else {
+          j++;
+        }
+      }
+      i = j;
+    } else if (c === 'r' && (next === '"' || next === '#')) {
+      let hashes = 0;
+      let j = i + 1;
+      while (source[j] === '#') {
+        hashes++;
+        j++;
+      }
+      if (source[j] === '"') {
+        const closer = '"' + '#'.repeat(hashes);
+        const end = source.indexOf(closer, j + 1);
+        blank(j + 1, end === -1 ? n : end);
+        i = end === -1 ? n : end + closer.length;
+      } else {
+        i++;
+      }
+    } else if (c === '"') {
+      let j = i + 1;
+      while (j < n && source[j] !== '"') {
+        j += source[j] === '\\' ? 2 : 1;
+      }
+      blank(i + 1, Math.min(j, n));
+      i = Math.min(j + 1, n);
+    } else {
+      i++;
+    }
+  }
+  return out.join('');
+}
+
+/**
  * Read whether the token at `at` is a string literal standing alone as the
  * whole value — the question every scan asks at a value position, over one
  * token window: the literal itself, and then the punctuation that proves
@@ -2252,6 +2468,23 @@ export const RUST_KILL_SET = {
 };
 
 /**
+ * The two paths Cargo builds one test target from, in the order a diagnosis
+ * names them: the file `<dir>/<name><suffix>` and the directory form
+ * `<dir>/<name>/<main>`. ONE statement of that pair, because both legs over the
+ * cargo list stand on it — the staleness leg asking whether a listed target is
+ * still there, and the membership leg asking which binaries the tree carries to
+ * classify — and a leg reading only the file route would call a binary that
+ * moved into a directory of its own a target that is not there, or leave it out
+ * of the population entirely.
+ * @param {string} target the cargo target name
+ * @param {typeof RUST_KILL_SET} [killSet] the tree shape the routes are read by
+ * @returns {string[]} the candidate repo-relative paths, file route first
+ */
+export function cargoTargetRoutes(target, killSet = RUST_KILL_SET) {
+  return [`${killSet.dir}/${target}${killSet.suffix}`, `${killSet.dir}/${target}/${killSet.main}`];
+}
+
+/**
  * The mutate scope, stated twice: as `key` in the cargo-mutants configuration,
  * and as the table `header` heads inside `clause`'s scope in `doc`. The scope
  * is a curated enumeration — nothing derives it from a module's properties — so
@@ -2666,12 +2899,9 @@ export function auditMutationKillSets({
         );
         for (const target of selected.targets) {
           // Both routes Cargo builds a test binary from, because a target is
-          // live at either: holding only the file route would call a binary
-          // that moved into a directory of its own a target that is not there.
-          const routes = [
-            `${rustKillSet.dir}/${target}${rustKillSet.suffix}`,
-            `${rustKillSet.dir}/${target}/${rustKillSet.main}`,
-          ];
+          // live at either — the one statement of that pair, which the
+          // membership leg reads its own population through.
+          const routes = cargoTargetRoutes(target, rustKillSet);
           if (!routes.some((path) => tracked.has(path))) {
             result.staleKillSetEntry.push(
               `${rustKillSet.config}: \`${rustKillSet.key}\` names \`${rustKillSet.flag} ${target}\`, which is no tracked binary at ${routes.join(' or at ')} — cargo refuses a target that is not there, so the weekly run fails on it; this names it at lint time instead`,
@@ -2750,6 +2980,926 @@ export function auditMutationKillSets({
         `${mutateScope.config}: \`${mutateScope.key}\` names ${value}, which is no tracked source at ${path} — ${surfaces}`,
       );
     }
+  }
+
+  return result;
+}
+
+/* ── The kill-set membership criterion ───────────────────────────────────── */
+
+/**
+ * The membership criterion the mutation-strategy document states
+ * (docs/test/strategy/mutation.md §MUT-7) reads a package's own tree through
+ * these constants. `scopeProperty` is the array a JavaScript configuration
+ * states its mutate scope as — read through the SAME tokenizer surface the
+ * staleness half reads its command list through, never a second model of the
+ * same file. The rest describe the shapes the specifier walk resolves by:
+ * `packages` is the directory each platform package sits under, `syncedTree`
+ * the per-package copy of the shared source the build writes there, and
+ * `generatedRoot` the import validators that build generates. The property
+ * classifier's own constants sit beside them: `propertyClass` is the filename
+ * class a suite declares itself a property suite by, `propertyRunner` the
+ * package whose runner carries no regression-persistence mechanism, and
+ * `runnerAssertion` the member call through which that runner drives a case.
+ * `caseCalls` names the calls a test case is declared by — the same
+ * declaration model the clause-registry check resolves a row's named cases
+ * through.
+ */
+export const JS_MEMBERSHIP = {
+  scopeProperty: 'mutate',
+  packages: 'packages',
+  syncedTree: 'shared',
+  generatedRoot: 'packages/shared/generated',
+  generatedSegment: 'generated',
+  propertyClass: '*.property.test.js',
+  propertyRunner: 'fast-check',
+  runnerAssertion: 'assert',
+  caseCalls: ['it', 'test'],
+};
+
+/**
+ * The Rust side of the same criterion. `manifest` states the crate's library
+ * name, which is the root a test binary reaches the crate's modules through;
+ * `src` is the module tree those paths resolve into, `mod` the file a directory
+ * module is written in, and `suffix` the one a file module is. `lib` is the
+ * fixed in-module entry of the cargo kill set — a member that is not a test
+ * surface — and `integrationImport` the crate whose import classifies a binary
+ * as one that synthesises real OS input, which the strategy document states as
+ * the reason those binaries stay out of the per-mutant runs.
+ */
+export const RUST_MEMBERSHIP = {
+  manifest: 'packages/desktop/src-tauri/Cargo.toml',
+  src: 'src',
+  mod: 'mod.rs',
+  suffix: '.rs',
+  lib: '--lib',
+  integrationImport: 'enigo',
+};
+
+/**
+ * The membership allowlist: the entries the criterion places on one side and
+ * review has ruled onto the other, each with the ground that ruling stands on.
+ * `surface` is the configuration the entry answers for, `leg` which of the two
+ * legs it excuses, and `entry` the test surface or module it names.
+ *
+ * An entry is held from both sides: it excuses what it names, and it is itself
+ * held live — an entry no leg needs any more is reported as stale, so an
+ * exclusion outlives its reason no more quietly than the drift it was recorded
+ * against.
+ */
+export const MEMBERSHIP_ALLOWLIST = [
+  {
+    surface: 'stryker.config.mjs',
+    leg: 'test-surface',
+    entry: 'packages/shared/tests/unit/performance.test.js',
+    reason:
+      'asserts wall-clock budgets over the shared data layer, so what kills a mutant there is the machine the run happens to be on rather than the fault — fast, and for that reason not deterministic',
+  },
+  {
+    surface: 'stryker.config.mjs',
+    leg: 'module',
+    entry: 'packages/shared/views/adapter.js',
+    reason:
+      'the file declares the PlatformAdapter typedef and carries no runtime behaviour, so it states nothing a mutant can change and nothing a test could kill',
+  },
+  {
+    surface: 'packages/desktop/src-tauri/.cargo/mutants.toml',
+    leg: 'test-surface',
+    entry: 'capture_lifecycle_test',
+    reason:
+      'it drives the capture layer through process-global input hooks and runs serially against them, so it is not runnable once per mutant',
+  },
+];
+
+/** The two legs an allowlist entry can excuse, named where they are computed. */
+const MEMBERSHIP_LEGS = { surface: 'test-surface', module: 'module' };
+
+/**
+ * Compile a path glob to an anchored matcher: `*` stays inside one path
+ * segment, `**` as a WHOLE segment crosses any depth. It answers with an
+ * `error` rather than throwing, because a pattern this reader does not model
+ * has to red as machinery in the middle of a run rather than abort it — which
+ * is the one difference from the area map's own compiler, where the identical
+ * `*`/`**` semantics are stated for the map's patterns and a pattern outside
+ * that closed world is a shape error the map's read refuses outright
+ * ([`check-area-map.js`](./check-area-map.js)).
+ * @param {string} pattern a path glob, e.g. `packages/shared/lib/**\/*.js`
+ * @returns {{ regex: RegExp } | { error: string }}
+ */
+export function pathGlobToRegExp(pattern) {
+  if (/[?[\]{}!]/.test(pattern)) {
+    return { error: `carries syntax this reader does not model — it reads \`*\` inside one path segment and \`**\` as a whole segment` }; // prettier-ignore
+  }
+  const segments = pattern.split('/');
+  let source = '^';
+  for (let i = 0; i < segments.length; i++) {
+    const segment = segments[i];
+    const last = i === segments.length - 1;
+    if (segment === '**') {
+      source += last ? '(?:.*)?' : '(?:[^/]+/)*';
+      continue;
+    }
+    if (segment.includes('**')) {
+      return { error: `writes \`**\` inside the segment \`${segment}\`, and this reader models it only as a whole segment` }; // prettier-ignore
+    }
+    source += segment.split('*').map(escapeForRegExp).join('[^/]*');
+    if (!last) source += '/';
+  }
+  return { regex: new RegExp(`${source}$`) };
+}
+
+/** The package a repo-relative path belongs to, or null for one outside them all. */
+function packageOf(path, packages) {
+  const segments = path.split('/');
+  return segments[0] === packages && segments.length > 1 ? `${packages}/${segments[1]}` : null;
+}
+
+/**
+ * The LITERAL module specifiers a JavaScript source states — a static `import`,
+ * a dynamic `import()`, and the re-exporting `export … from '…'` — read off the
+ * token stream, which drops comments, so a JSDoc `import()` annotation is never
+ * an edge.
+ *
+ * A re-export is an edge like any other: a file reaches, through a barrel, every
+ * module the barrel re-exports, and a walk blind to that form would classify a
+ * surface that really does exercise a mutated module as reaching nothing. That
+ * is a SILENT PASS in the unlisted-members direction — the surface simply never
+ * belongs, so nothing reds — as well as a false red in the module-leg direction,
+ * which is why it is read rather than left as a limit. It is recognised by
+ * shape: `export` followed by `*` or by a clause in braces, whose specifier is
+ * the string literal a `from` stands immediately before, so `export { local }`
+ * and `export const …` — which name no module — contribute none.
+ *
+ * One named honest limit, a silence rather than a guess: a dynamic `import()`
+ * whose argument is not a string literal states no specifier this scan can read,
+ * so it is a NON-EDGE and is counted rather than refused — the module it loads
+ * is chosen at runtime and no static reader can name it.
+ * @param {string} source JavaScript source text
+ * @returns {{ literal: string[], computed: number }}
+ */
+export function importSpecifiers(source) {
+  const tokens = tokenizeJs(source);
+  const literal = [];
+  let computed = 0;
+  for (let i = 0; i < tokens.length; i++) {
+    if (tokens[i].type !== 'word') continue;
+    const next = tokens[i + 1];
+    if (next === undefined) continue;
+    if (tokens[i].value === 'export') {
+      // Only the two re-exporting shapes name a module; every other `export`
+      // states something the file itself declares.
+      if (next.type !== 'punct' || (next.value !== '*' && next.value !== '{')) continue;
+      for (let j = i + 2; j < tokens.length; j++) {
+        const token = tokens[j];
+        if (token.type === 'punct' && token.value === ';') break;
+        if (token.type === 'word' && (token.value === 'import' || token.value === 'export')) break;
+        if (token.type === 'string') {
+          // The `from` is what makes the literal a specifier rather than the
+          // next statement's own string, which a clause without one runs into.
+          if (tokens[j - 1]?.type === 'word' && tokens[j - 1].value === 'from') {
+            literal.push(token.value);
+          }
+          break;
+        }
+      }
+      continue;
+    }
+    if (tokens[i].value !== 'import') continue;
+    // `import.meta` is a property access, not an import declaration.
+    if (next.type === 'punct' && next.value === '.') continue;
+    if (next.type === 'punct' && next.value === '(') {
+      const argument = tokens[i + 2];
+      if (argument?.type === 'string') literal.push(argument.value);
+      else computed++;
+      continue;
+    }
+    // A static declaration's specifier is the first string literal standing
+    // before the declaration ends — the clause list between them is bindings.
+    for (let j = i + 1; j < tokens.length; j++) {
+      const token = tokens[j];
+      if (token.type === 'string') {
+        literal.push(token.value);
+        break;
+      }
+      if (token.type === 'punct' && token.value === ';') break;
+      if (token.type === 'word' && (token.value === 'import' || token.value === 'export')) break;
+    }
+  }
+  return { literal, computed };
+}
+
+/** The classes a specifier resolves into — total by construction, one of these always. */
+export const SPECIFIER_CLASSES = {
+  dependency: 'dependency',
+  followed: 'followed',
+  outOfPackage: 'out-of-package',
+  syncedShared: 'synced-shared',
+  generated: 'generated',
+  unresolved: 'unresolved',
+};
+
+/**
+ * Classify one import specifier, by PATH SHAPE rather than by disk state, so
+ * the answer is the same in every checkout:
+ *
+ *   - a BARE specifier — one opening on neither `./` nor `../` — is the
+ *     dependency class (a node builtin, an installed package), terminated by
+ *     definition, since only a relative specifier resolves into this tree;
+ *   - a relative specifier resolving to a GENERATED validator, in the shared
+ *     tree or in a synced copy of it, is terminated-known: a build product
+ *     whose source is the schema layers;
+ *   - one resolving into a package's SYNCED `shared/` copy is terminated-known,
+ *     resolved by the sync doctrine to its tracked source and then terminated
+ *     as that other package's file;
+ *   - one resolving to a tracked file in the importer's OWN package is
+ *     followed — the only class that extends reachability;
+ *   - one resolving to a tracked file in another package or outside them all is
+ *     terminated-known;
+ *   - anything left is UNRESOLVED, which the walk refuses as machinery.
+ *
+ * Confinement has precedence over the terminated classes: they exist to keep a
+ * known specifier out of the refusal, never to extend reach. A kill set is
+ * per-package, so a file in another package's tree reaches nothing in this
+ * one's scope, whichever of the terminated classes named it.
+ * @param {string} specifier the specifier as written
+ * @param {string} from the repo-relative path of the file stating it
+ * @param {Set<string>} tracked every tracked repo-relative path
+ * @param {typeof JS_MEMBERSHIP} shape the tree shapes the classes are read by
+ * @returns {{ class: string, path?: string }}
+ */
+export function classifySpecifier(specifier, from, tracked, shape = JS_MEMBERSHIP) {
+  if (!specifier.startsWith('./') && !specifier.startsWith('../')) {
+    return { class: SPECIFIER_CLASSES.dependency };
+  }
+  const path = normalizePath(`${dirname(from)}/${specifier}`);
+  const segments = path.split('/');
+  const synced =
+    segments[0] === shape.packages && segments.length > 3 && segments[2] === shape.syncedTree;
+  if (
+    path.startsWith(`${shape.generatedRoot}/`) ||
+    (synced && segments[3] === shape.generatedSegment)
+  ) {
+    // prettier-ignore
+    return { class: SPECIFIER_CLASSES.generated, path };
+  }
+  if (synced) return { class: SPECIFIER_CLASSES.syncedShared, path };
+  if (!tracked.has(path)) return { class: SPECIFIER_CLASSES.unresolved, path };
+  const home = packageOf(path, shape.packages);
+  return home !== null && home === packageOf(from, shape.packages)
+    ? { class: SPECIFIER_CLASSES.followed, path }
+    : { class: SPECIFIER_CLASSES.outOfPackage, path };
+}
+
+/**
+ * The files one JavaScript entry point reaches: transitive import reachability
+ * confined to the entry's own package tree, walked breadth-first over the
+ * followed class alone. The entry itself is in the answer, which costs nothing
+ * — a test file is never a mutated module — and keeps the walk's own bookkeeping
+ * the set it returns.
+ * @param {string} entry the repo-relative path to walk from
+ * @param {object} how the walk's inputs
+ * @param {Set<string>} how.tracked every tracked repo-relative path
+ * @param {(f: string) => ({ literal: string[], computed: number } | null)} how.specifiers
+ *   one file's specifiers, or null where it could not be read
+ * @param {typeof JS_MEMBERSHIP} [how.shape]
+ * @returns {{ reached: Set<string>, refusals: string[] }}
+ */
+export function reachableFiles(entry, { tracked, specifiers, shape = JS_MEMBERSHIP }) {
+  const reached = new Set([entry]);
+  const refusals = [];
+  const queue = [entry];
+  while (queue.length > 0) {
+    const file = queue.shift();
+    const stated = specifiers(file);
+    if (stated === null) {
+      refusals.push(`${file}: reached by the import walk but could not be read, so what it reaches is unknown`); // prettier-ignore
+      continue;
+    }
+    for (const specifier of stated.literal) {
+      const read = classifySpecifier(specifier, file, tracked, shape);
+      if (read.class === SPECIFIER_CLASSES.unresolved) {
+        refusals.push(`${file}: states \`${specifier}\`, which resolves by path shape to ${read.path} — no tracked file, no synced \`${shape.syncedTree}/\` copy, and no generated validator, so it falls into no class this walk reads`); // prettier-ignore
+        continue;
+      }
+      if (read.class !== SPECIFIER_CLASSES.followed) continue;
+      if (reached.has(read.path)) continue;
+      reached.add(read.path);
+      queue.push(read.path);
+    }
+  }
+  return { reached, refusals };
+}
+
+/**
+ * Classify a JavaScript test surface against the property runner, with
+ * DECLARED CLASS FIRST: a file in the `*.property.test.js` class is a property
+ * suite by its own declaration, whatever plain cases it also carries, and its
+ * plain cases are that suite's scaffolding. Outside the class the file is
+ * judged by content — every case driving the unseeded runner makes the file
+ * one too; a MIXED file, whose property cases sit beside plain ones, is
+ * admitted on its plain cases, and the residual property cases are the named,
+ * accepted residue the leg enumerates rather than hides.
+ *
+ * What "unseeded" names is the runner's own mechanism, never a file's state: a
+ * property runner that carries no regression-persistence mechanism replays no
+ * failure it once found, so a case it drives answers differently from run to
+ * run by construction.
+ * @param {string} file the repo-relative path (its name declares the class)
+ * @param {string} source the file's text
+ * @param {typeof JS_MEMBERSHIP} [shape]
+ * @returns {{ kind: 'declared'|'all-property'|'mixed'|'plain', property: number,
+ *   cases: number } | { error: string }}
+ */
+export function classifyTestSurface(file, source, shape = JS_MEMBERSHIP) {
+  if (basenameGlobToRegExp(shape.propertyClass).test(basename(file))) {
+    return { kind: 'declared', property: 0, cases: 0 };
+  }
+  const tokens = tokenizeJs(source);
+  let binding = null;
+  let importsRunner = false;
+  for (let i = 0; i + 3 < tokens.length; i++) {
+    if (tokens[i].type !== 'word' || tokens[i].value !== 'import') continue;
+    const specifier = tokens[i + 3];
+    if (specifier?.type !== 'string' || specifier.value !== shape.propertyRunner) continue;
+    importsRunner = true;
+    if (tokens[i + 1].type === 'word' && tokens[i + 2].value === 'from') binding = tokens[i + 1].value; // prettier-ignore
+  }
+  if (!importsRunner) {
+    for (const specifier of importSpecifiers(source).literal) {
+      if (specifier === shape.propertyRunner) importsRunner = true;
+    }
+  }
+  if (importsRunner && binding === null) {
+    return { error: `imports \`${shape.propertyRunner}\` in a form this reader cannot bind to a name — it reads the default import \`import <name> from '${shape.propertyRunner}'\`, and without the name it cannot tell a property case from a plain one` }; // prettier-ignore
+  }
+  let cases = 0;
+  let property = 0;
+  for (let i = 0; i < tokens.length; i++) {
+    const token = tokens[i];
+    if (token.type !== 'word' || !shape.caseCalls.includes(token.value)) continue;
+    // A bare call declares a case; a member call — `it.skip`, `it.only`,
+    // another object's own `it` — declares none, which is the declaration model
+    // the registry's own case reader states.
+    if (tokens[i + 1]?.type !== 'punct' || tokens[i + 1].value !== '(') continue;
+    if (tokens[i - 1]?.type === 'punct' && tokens[i - 1].value === '.') continue;
+    cases++;
+    let depth = 0;
+    let drivesRunner = false;
+    for (let j = i + 1; j < tokens.length; j++) {
+      const inner = tokens[j];
+      if (inner.type === 'punct' && OPENERS.includes(inner.value)) depth++;
+      else if (inner.type === 'punct' && CLOSERS.includes(inner.value)) {
+        depth--;
+        if (depth === 0) break;
+      } else if (
+        binding !== null &&
+        inner.type === 'word' &&
+        inner.value === binding &&
+        tokens[j + 1]?.value === '.' &&
+        tokens[j + 2]?.value === shape.runnerAssertion
+      ) {
+        drivesRunner = true;
+      }
+    }
+    if (drivesRunner) property++;
+  }
+  if (cases === 0) {
+    return { error: `states no test case this reader can see — a case is a bare \`${shape.caseCalls.join('`/`')}\` call, and a surface stating none cannot be classified against the property runner` }; // prettier-ignore
+  }
+  if (property === cases) return { kind: 'all-property', property, cases };
+  return { kind: property > 0 ? 'mixed' : 'plain', property, cases };
+}
+
+/** A `use` declaration as the module walk reads one, on a comment-stripped view. */
+const RUST_USE_RE = /(^|[\s{};])(pub(?:\s*\([^)]*\))?\s+)?use\s+([^;]+);/g;
+
+/**
+ * The module paths one `use` declaration's path text names: the path itself,
+ * and — where it opens a brace group — each item inside it joined to the prefix,
+ * since a group can name modules as readily as items. A trailing `as` rename
+ * and a trailing glob are dropped, both naming the same module either way.
+ * @param {string} text one declaration's path text, without `use` and `;`
+ * @returns {string[]} candidate `::`-joined paths
+ */
+export function useTargets(text) {
+  const flat = flattenWhitespace(text);
+  const open = flat.indexOf('{');
+  const strip = (path) => path.replace(/\s+as\s+\w+$/, '').replace(/::\s*\*$/, '').trim(); // prettier-ignore
+  if (open === -1) return flat === '' ? [] : [strip(flat)];
+  const prefix = flat.slice(0, open).trim();
+  // The prefix names a module in its own right — `use super::{A, B}` reaches
+  // the parent whatever the braces then take from it — so it is emitted
+  // without the separator that introduces the group.
+  const head = prefix.replace(/::$/, '').trim();
+  const targets = head === '' ? [] : [strip(head)];
+  let depth = 0;
+  let item = '';
+  for (let i = open; i < flat.length; i++) {
+    const ch = flat[i];
+    if (ch === '{') {
+      depth++;
+      if (depth === 1) continue;
+    } else if (ch === '}') {
+      depth--;
+      if (depth === 0) {
+        if (item.trim() !== '') targets.push(...useTargets(`${prefix}${item.trim()}`));
+        break;
+      }
+    } else if (ch === ',' && depth === 1) {
+      if (item.trim() !== '') targets.push(...useTargets(`${prefix}${item.trim()}`));
+      item = '';
+      continue;
+    }
+    item += ch;
+  }
+  return [...new Set(targets.filter((t) => t !== '' && !t.endsWith('::')))];
+}
+
+/**
+ * The `use` declarations a Rust source states, read on a view with comments
+ * stripped AND string-literal contents blanked, so neither a doc comment naming
+ * a crate nor a `use` line quoted inside a string is read as a declaration this
+ * file makes. Both views are needed and neither answers for the other: a
+ * declaration is what the source DOES, and the text it merely quotes about one —
+ * a fixture source a test carries, an error message spelling a `use` line — is
+ * not that. `reexports` counts the `pub use` declarations, which the module
+ * mapping's soundness premise forbids: a re-export lets a `use` path name an
+ * item some other module defines, and the mapping from a path to the module file
+ * that answers it would then be wrong rather than merely incomplete — so a
+ * quoted `pub use` refusing the whole Rust relation would be a refusal standing
+ * on text.
+ * @param {string} source Rust source text
+ * @returns {{ targets: string[], reexports: number }}
+ */
+export function rustUseTargets(source) {
+  const view = blankRustStrings(stripRustComments(source));
+  const targets = [];
+  let reexports = 0;
+  for (const match of view.matchAll(RUST_USE_RE)) {
+    if (match[2] !== undefined) {
+      reexports++;
+      continue;
+    }
+    targets.push(...useTargets(match[3]));
+  }
+  return { targets: [...new Set(targets)], reexports };
+}
+
+/**
+ * Resolve one `use` path to the crate module file that answers it, by the
+ * longest prefix the tree carries a module for. A `mod` declaration states
+ * where a module LIVES rather than what it needs, so it is not an edge:
+ * following one would let any path into a parent module reach every child, and
+ * the reaching arm would be near-total.
+ *
+ * A path rooted at `crate`, at the crate's library name, at `self`, or at
+ * `super` is resolved from the crate root down, the root itself included — a
+ * path naming an item the root module states resolves to that module. A UNIFORM
+ * path — the form that names a crate-root module without a `crate::` prefix —
+ * is resolved only where its FIRST segment names a module of this crate, since
+ * every external crate's path is written the same way and resolving down to the
+ * root would otherwise claim them all as crate edges.
+ * @param {string} path a `::`-joined use path
+ * @param {string[] | null} from the module path of the file stating it, or null
+ *   for a test binary, which reaches the crate only through its library name
+ * @param {object} how the crate's shape
+ * @param {string[]} how.roots the path roots that enter the crate (`crate`, the library name)
+ * @param {Map<string, string>} how.modules module path (`::`-joined) → repo-relative file
+ * @returns {string | null} the module file, or null for a path outside the crate
+ */
+export function resolveUsePath(path, from, { roots, modules }) {
+  const segments = path.split('::').map((s) => s.trim()).filter(Boolean); // prettier-ignore
+  if (segments.length === 0) return null;
+  let base = [];
+  let rest = segments;
+  let floor = 0;
+  if (roots.includes(segments[0])) rest = segments.slice(1);
+  else if (from === null) return null;
+  else if (segments[0] === 'self') {
+    base = from;
+    rest = segments.slice(1);
+  } else if (segments[0] === 'super') {
+    base = from;
+    rest = segments;
+    while (rest[0] === 'super' && base.length > 0) {
+      base = base.slice(0, -1);
+      rest = rest.slice(1);
+    }
+    if (rest[0] === 'super') return null; // past the crate root
+  } else {
+    floor = 1; // a uniform path, held to naming a crate module outright
+  }
+  const candidate = [...base, ...rest];
+  for (let k = candidate.length; k >= floor; k--) {
+    const file = modules.get(candidate.slice(0, k).join('::'));
+    if (file !== undefined) return file;
+  }
+  return null;
+}
+
+/**
+ * The crate's library name, which is the root a test binary reaches its modules
+ * through: the `[lib]` table's `name` where the manifest states one, and
+ * otherwise the package name with `-` read as `_`, which is what Cargo derives.
+ * @param {string} manifest the crate manifest's text
+ * @returns {{ name: string } | { error: string }}
+ */
+export function crateLibraryName(manifest) {
+  const lines = manifest.split(/\r?\n/).map(stripTomlComment);
+  const named = { lib: null, package: null };
+  let table = '';
+  for (const line of lines) {
+    const read = readTomlLine(line);
+    if (read === null) continue;
+    if (read.header !== undefined) {
+      table = read.header;
+      continue;
+    }
+    const at = read.within ? `${table ? `${table}.` : ''}${read.within}` : table;
+    if (read.key !== 'name' || !(at in named) || named[at] !== null) continue;
+    const value = /^\s*['"]([^'"]*)['"]/.exec(line.slice(line.indexOf('=') + 1));
+    if (value !== null) named[at] = value[1];
+  }
+  if (named.lib !== null) return { name: named.lib };
+  if (named.package !== null) return { name: named.package.replace(/-/g, '_') };
+  return { error: `states no \`name\` in its \`[lib]\` or \`[package]\` table, so the root a test binary reaches this crate's modules through cannot be read` }; // prettier-ignore
+}
+
+/**
+ * Pure core: audit the kill-set MEMBERSHIP the staleness half deliberately
+ * leaves open. Two legs, both engines, each diffed in both directions:
+ *
+ *   - the TEST-SURFACE leg classifies the population each engine's own
+ *     registered RUNNER selects — on JavaScript every member of the registered
+ *     `node --test` suites under that package, on Rust every binary of the
+ *     registered cargo suite — each with a class of its own taken out by
+ *     classification, the two standing in the same place: the property suites
+ *     there, the `enigo`-classified integration binaries here. What is left to
+ *     decide on either is reaching or not-reaching, and the configuration's list
+ *     is held to the reaching members: one that belongs and is not listed reds,
+ *     and a listed one that does not belong reds with the reason it does not;
+ *   - the MODULE leg holds every module of a configuration's mutate scope to
+ *     being reached by at least one LISTED test surface, so a module nothing in
+ *     the kill set exercises cannot sit in the scope silently. On the Rust side
+ *     the in-module entry does not satisfy it: a module's own `#[cfg(test)]`
+ *     block would make that leg green by construction, and a module only its own
+ *     in-module tests exercise is a decision to take rather than one to hide.
+ *
+ * Both legs are excused only through {@link MEMBERSHIP_ALLOWLIST}, whose
+ * entries are themselves held live.
+ * @param {object} opts
+ * @param {string[]} opts.files all git-tracked repo-relative paths
+ * @param {(f: string) => (string | null)} opts.readFile content reader (null if unreadable)
+ * @param {typeof JS_KILL_SETS} [opts.jsKillSets]
+ * @param {typeof RUST_KILL_SET} [opts.rustKillSet]
+ * @param {typeof MUTATE_SCOPE} [opts.mutateScope]
+ * @param {typeof JS_MEMBERSHIP} [opts.jsMembership]
+ * @param {typeof RUST_MEMBERSHIP} [opts.rustMembership]
+ * @param {typeof MEMBERSHIP_ALLOWLIST} [opts.allowlist]
+ * @param {typeof DOC_INVENTORIES} [opts.inventories]
+ * @returns {{ unlistedMember: string[], listedNonMember: string[],
+ *             unreachableScopeModule: string[], staleMembershipAllowlist: string[],
+ *             unreadableMembership: string[] }}
+ */
+export function auditKillSetMembership({
+  files,
+  readFile,
+  jsKillSets = JS_KILL_SETS,
+  rustKillSet = RUST_KILL_SET,
+  mutateScope = MUTATE_SCOPE,
+  jsMembership = JS_MEMBERSHIP,
+  rustMembership = RUST_MEMBERSHIP,
+  allowlist = MEMBERSHIP_ALLOWLIST,
+  inventories = DOC_INVENTORIES,
+}) {
+  const result = {
+    unlistedMember: [],
+    listedNonMember: [],
+    unreachableScopeModule: [],
+    staleMembershipAllowlist: [],
+    unreadableMembership: [],
+    // The accepted, named residue, stated rather than hidden: the mixed
+    // surfaces the property arm admits on their plain cases, whose remaining
+    // property cases answer differently from run to run. It is an object, not a
+    // list, so the report driver — which renders every list field as a problem
+    // class — passes over it and the caller states it as the residue it is.
+    admittedMixed: {},
+  };
+  const tracked = new Set(files);
+  const sources = new Map();
+  const readSource = (path) => {
+    if (!sources.has(path)) sources.set(path, readFile(path));
+    return sources.get(path);
+  };
+  const specifierCache = new Map();
+  const specifiers = (path) => {
+    if (!specifierCache.has(path)) {
+      const source = readSource(path);
+      specifierCache.set(path, source == null ? null : importSpecifiers(source));
+    }
+    return specifierCache.get(path);
+  };
+  const used = new Set();
+  /** The recorded exclusion for one entry, marked live by the asking. */
+  const excuse = (surface, leg, entry) => {
+    const found = allowlist.find(
+      (a) => a.surface === surface && a.leg === leg && a.entry === entry,
+    );
+    if (found === undefined) return null;
+    used.add(found);
+    return found;
+  };
+  /** Expand one glob-or-literal scope entry against the tree, or refuse it. */
+  const expand = (pattern, where) => {
+    const compiled = pathGlobToRegExp(pattern);
+    if (compiled.error) {
+      result.unreadableMembership.push(`${where}: the pattern ${pattern} ${compiled.error}`);
+      return [];
+    }
+    const selected = files.filter((f) => compiled.regex.test(f));
+    if (selected.length === 0) {
+      result.unreadableMembership.push(`${where}: the pattern ${pattern} expands against the tree to no tracked file, so the scope this leg holds is empty where it reads it`); // prettier-ignore
+    }
+    return selected;
+  };
+
+  /* ── JavaScript: one configuration at a time ───────────────────────────── */
+  const configPattern = basenameGlobToRegExp(jsKillSets.glob);
+  for (const config of files.filter((f) => configPattern.test(f))) {
+    const source = readSource(config);
+    if (source == null) continue; // the staleness leg reports the unreadable file
+    const scope = readPropertyStringArray(source, jsMembership.scopeProperty);
+    if (scope.error) {
+      result.unreadableMembership.push(`${config}: ${scope.error}, so the mutate scope both legs are measured against is not where they read it`); // prettier-ignore
+      continue;
+    }
+    const scopeFiles = new Set(scope.entries.flatMap((p) => expand(p, config)));
+    if (scopeFiles.size === 0) continue;
+    const homes = new Set([...scopeFiles].map((f) => packageOf(f, jsMembership.packages)));
+    if (homes.size !== 1 || homes.has(null)) {
+      result.unreadableMembership.push(`${config}: its \`${jsMembership.scopeProperty}\` scope spans ${homes.size} package tree(s) (${[...homes].join(', ')}), and a kill set is per-package, so which package's suite this configuration answers for cannot be read`); // prettier-ignore
+      continue;
+    }
+    const home = [...homes][0];
+    const suites = inventories.filter(
+      (i) => i.discovery?.runner === RUNNERS.node && i.dir.startsWith(`${home}/`),
+    );
+    if (suites.length === 0) {
+      result.unreadableMembership.push(`${config}: no registered node-test suite lives under ${home}/, so the population of test surfaces this configuration's list is held against is not where this leg reads it`); // prettier-ignore
+      continue;
+    }
+    const candidates = [];
+    for (const suite of suites) {
+      for (const file of files) {
+        if (dirname(file) === suite.dir && suite.selects(basename(file))) candidates.push(file);
+      }
+    }
+    if (candidates.length === 0) {
+      result.unreadableMembership.push(`${config}: the registered suite(s) under ${home}/ select no tracked file, so this leg would hold the list against nothing`); // prettier-ignore
+      continue;
+    }
+
+    const belongs = new Set();
+    const reason = new Map();
+    const reachedBy = new Map();
+    for (const candidate of candidates) {
+      const text = readSource(candidate);
+      if (text == null) {
+        result.unreadableMembership.push(`${candidate}: a member of a registered suite this configuration's kill set is held against, which could not be read`); // prettier-ignore
+        continue;
+      }
+      const classified = classifyTestSurface(candidate, text, jsMembership);
+      if (classified.error) {
+        result.unreadableMembership.push(`${candidate}: ${classified.error}`);
+        continue;
+      }
+      if (classified.kind === 'declared' || classified.kind === 'all-property') {
+        reason.set(candidate, classified.kind === 'declared'
+          ? `is a \`${jsMembership.propertyClass}\` file, so it declares itself a property suite driven by an unseeded runner`
+          : `states only cases driving the unseeded \`${jsMembership.propertyRunner}\` runner, so nothing in it answers the same way twice`); // prettier-ignore
+        continue;
+      }
+      const walk = reachableFiles(candidate, { tracked, specifiers, shape: jsMembership });
+      result.unreadableMembership.push(...walk.refusals);
+      const reaches = [...walk.reached].some((f) => scopeFiles.has(f));
+      reachedBy.set(candidate, walk.reached);
+      if (!reaches) {
+        reason.set(candidate, `reaches no module of this configuration's \`${jsMembership.scopeProperty}\` scope, so no mutant it seeds can fail it`); // prettier-ignore
+        continue;
+      }
+      // A recorded exclusion is consulted HERE, where the criterion would place
+      // the surface in — which is what makes the entry live while the ruling it
+      // records still has something to rule on, and stale the moment it does not.
+      const ruled = excuse(config, MEMBERSHIP_LEGS.surface, candidate);
+      if (ruled !== null) {
+        reason.set(candidate, ruled.reason);
+        continue;
+      }
+      if (classified.kind === 'mixed') (result.admittedMixed[config] ??= []).push(candidate);
+      belongs.add(candidate);
+    }
+
+    const command = readPropertyStringArray(source, jsKillSets.property);
+    if (command.error) continue; // the staleness leg reports an unreadable list
+    const invocation = nodeTestArguments(command.entries.join(' '));
+    if (invocation.error || (invocation.args ?? []).length === 0) continue; // reported there too
+    const listed = new Set();
+    for (const argument of invocation.args) {
+      const path = normalizePath(argument);
+      const read = classifyArgument(path);
+      if (read.error) continue; // the staleness leg reports it
+      if (read.kind === 'glob') {
+        const selects = basenameGlobToRegExp(read.pattern);
+        for (const file of files) {
+          if (dirname(file) === read.dir && selects.test(basename(file))) listed.add(file);
+        }
+        continue;
+      }
+      listed.add(path);
+    }
+
+    for (const member of candidates) {
+      if (!belongs.has(member) || listed.has(member)) continue;
+      result.unlistedMember.push(`${member} reaches this configuration's \`${jsMembership.scopeProperty}\` scope and is a fast, deterministic member of a registered suite, but ${config}'s \`${jsKillSets.property}\` does not list it — so the weekly run seeds mutants no test of it can kill`); // prettier-ignore
+    }
+    for (const entry of listed) {
+      if (belongs.has(entry)) continue;
+      const why = reason.get(entry) ?? `is not a member of any registered suite under ${home}/, so this leg cannot classify it against the criterion`; // prettier-ignore
+      result.listedNonMember.push(`${config}'s \`${jsKillSets.property}\` lists ${entry}, which ${why}`); // prettier-ignore
+    }
+
+    for (const module of scopeFiles) {
+      const reached = [...listed].some((entry) => reachedBy.get(entry)?.has(module));
+      if (reached) continue;
+      if (excuse(config, MEMBERSHIP_LEGS.module, module) !== null) continue;
+      result.unreachableScopeModule.push(`${module} is in ${config}'s \`${jsMembership.scopeProperty}\` scope, and no test surface its \`${jsKillSets.property}\` lists reaches it — every mutant seeded there survives by construction`); // prettier-ignore
+    }
+  }
+
+  /* ── Rust: the crate's binaries against the same criterion ─────────────── */
+  const cargo = inventories.find((i) => i.discovery?.runner === RUNNERS.cargo);
+  const manifestSource = readSource(rustMembership.manifest);
+  const scopeSource = readSource(mutateScope.config);
+  const killSetSource = readSource(rustKillSet.config);
+  if (cargo === undefined) {
+    result.unreadableMembership.push(`${SELF_PATH}: no registered cargo suite states the tree the Rust kill set's members live in, so this leg has no population to classify`); // prettier-ignore
+  } else if (manifestSource == null) {
+    result.unreadableMembership.push(`${rustMembership.manifest}: the crate manifest this leg reads the library name from could not be read`); // prettier-ignore
+  } else if (scopeSource != null && killSetSource != null) {
+    const library = crateLibraryName(manifestSource);
+    const scope = readTomlStringArray(scopeSource, mutateScope.key);
+    const list = readTomlStringArray(killSetSource, rustKillSet.key);
+    if (library.error)
+      result.unreadableMembership.push(`${rustMembership.manifest}: ${library.error}`); // prettier-ignore
+    else if (scope.error || list.error) {
+      // The staleness leg reports an unreadable list; this leg simply has none.
+    } else {
+      const crateRoot = `${mutateScope.root}/${rustMembership.src}`;
+      const modules = new Map();
+      for (const file of files) {
+        if (!file.startsWith(`${crateRoot}/`) || !file.endsWith(rustMembership.suffix)) continue;
+        const relative = file.slice(crateRoot.length + 1);
+        const segments = relative.split('/');
+        const last = segments[segments.length - 1];
+        const path =
+          last === rustMembership.mod
+            ? segments.slice(0, -1)
+            : [...segments.slice(0, -1), last.slice(0, -rustMembership.suffix.length)];
+        modules.set(path.join('::'), file);
+      }
+      const roots = ['crate', library.name];
+      const usesCache = new Map();
+      const uses = (file) => {
+        if (!usesCache.has(file)) {
+          const text = readSource(file);
+          usesCache.set(file, text == null ? null : rustUseTargets(text));
+        }
+        return usesCache.get(file);
+      };
+      for (const [path, file] of modules) {
+        const read = uses(file);
+        if (read === null) {
+          result.unreadableMembership.push(`${file}: a crate module this leg walks, which could not be read`); // prettier-ignore
+        } else if (read.reexports > 0) {
+          result.unreadableMembership.push(`${file}: states ${read.reexports} \`pub use\` declaration(s) under ${crateRoot}/, and this leg maps a \`use\` path to the module that DEFINES what it names — a re-export makes that mapping wrong rather than incomplete, so the reaching relation cannot be read while one stands${path === '' ? '' : ` (module \`${path}\`)`}`); // prettier-ignore
+        }
+      }
+      // The module path each module file states, so the walk carries the `super`
+      // and `self` frame of the file it is standing in without searching for it.
+      const modulePathOf = new Map([...modules].map(([path, file]) => [file, path]));
+      /** Every crate module a Rust file reaches, over use edges only. */
+      const reachFrom = (entry, from) => {
+        const reached = new Set();
+        const queue = [[entry, from]];
+        while (queue.length > 0) {
+          const [file, module] = queue.shift();
+          const read = uses(file);
+          if (read === null) continue;
+          for (const target of read.targets) {
+            const resolved = resolveUsePath(target, module, { roots, modules });
+            if (resolved === null || reached.has(resolved)) continue;
+            reached.add(resolved);
+            const key = modulePathOf.get(resolved) ?? '';
+            queue.push([resolved, key === '' ? [] : key.split('::')]);
+          }
+        }
+        return reached;
+      };
+      // Expanded against the tracked set through the SAME reader the JavaScript
+      // side uses, an empty expansion refused as machinery there too: the cargo
+      // configuration's entries are globs as readily as literal paths — the
+      // staleness leg already models both — and a pattern left unexpanded would
+      // be a scope module nothing can ever reach, reported as a gap in the
+      // suites when it is really a string the leg never resolved.
+      const scopeModules = [
+        ...new Set(
+          scope.values.flatMap((v) => expand(`${mutateScope.root}/${v}`, mutateScope.config)),
+        ),
+      ];
+      // The population is the TARGETS the crate's test tree carries, resolved
+      // through the same two routes the staleness leg reads a listed target by
+      // ({@link cargoTargetRoutes}) rather than through the file route alone: a
+      // candidate name is taken off the tree's shape — a file directly in the
+      // suite's directory, or a directory sitting there — and the shared
+      // resolution decides which of those names Cargo actually builds a binary
+      // for and which file answers for it. Reading only the file form would
+      // leave a binary that moved into a directory of its own outside the
+      // classified population while the list still named it, and the leg would
+      // then red it as no binary of the suite at all.
+      const candidateTargets = new Set();
+      for (const file of files) {
+        const home = dirname(file);
+        if (home === cargo.dir && cargo.selects(basename(file))) {
+          candidateTargets.add(basename(file).slice(0, -rustMembership.suffix.length));
+        } else if (dirname(home) === cargo.dir) {
+          candidateTargets.add(basename(home));
+        }
+      }
+      // The routes are read against the registered suite's own directory, which
+      // is the tree this population comes off; the shape is otherwise the kill
+      // set's, so the two legs resolve a target the same way.
+      const routeShape = { ...rustKillSet, dir: cargo.dir };
+      const binaries = [];
+      for (const name of [...candidateTargets].sort()) {
+        const route = cargoTargetRoutes(name, routeShape).find((path) => tracked.has(path));
+        if (route !== undefined) binaries.push([name, route]);
+      }
+      const belongs = new Set();
+      const reason = new Map();
+      const reachedBy = new Map();
+      for (const [target, binary] of binaries) {
+        const read = uses(binary);
+        if (read === null) {
+          result.unreadableMembership.push(`${binary}: a member of the registered cargo suite this leg classifies, which could not be read`); // prettier-ignore
+          continue;
+        }
+        if (read.targets.some((t) => t.split('::')[0] === rustMembership.integrationImport)) {
+          reason.set(target, `imports \`${rustMembership.integrationImport}\` and so synthesises real OS input, which the strategy document states as the class kept out of the per-mutant runs`); // prettier-ignore
+          continue;
+        }
+        const reached = reachFrom(binary, null);
+        reachedBy.set(target, reached);
+        if (!scopeModules.some((m) => reached.has(m))) {
+          reason.set(target, `reaches no module of \`${mutateScope.key}\` over \`use\` edges, so no mutant seeded in the scope can fail it`); // prettier-ignore
+          continue;
+        }
+        // Consulted where the criterion would place the binary in, on the same
+        // terms as the JavaScript leg: an entry is live while it still rules.
+        const ruled = excuse(rustKillSet.config, MEMBERSHIP_LEGS.surface, target);
+        if (ruled !== null) reason.set(target, ruled.reason);
+        else belongs.add(target);
+      }
+      const selected = killSetTargets(list.values, rustKillSet.flag);
+      if (!selected.error) {
+        const listed = new Set(selected.targets);
+        if (!list.values.includes(rustMembership.lib)) {
+          result.unlistedMember.push(`${rustKillSet.config}'s \`${rustKillSet.key}\` states no \`${rustMembership.lib}\`, which is the kill set's fixed in-module entry — dropping it takes every \`#[cfg(test)]\` block out of the per-mutant runs while the \`${rustKillSet.flag}\` list still reads complete`); // prettier-ignore
+        }
+        for (const target of belongs) {
+          if (listed.has(target)) continue;
+          result.unlistedMember.push(`\`${target}\` reaches \`${mutateScope.key}\` over \`use\` edges and is a fast, deterministic binary of the registered cargo suite, but ${rustKillSet.config}'s \`${rustKillSet.key}\` does not list it — so the weekly run seeds mutants no test of it can kill`); // prettier-ignore
+        }
+        for (const target of listed) {
+          if (belongs.has(target)) continue;
+          const why = reason.get(target) ?? `is no binary of the registered cargo suite in ${cargo.dir}/, so this leg cannot classify it against the criterion`; // prettier-ignore
+          result.listedNonMember.push(`${rustKillSet.config}'s \`${rustKillSet.key}\` lists \`${rustKillSet.flag} ${target}\`, which ${why}`); // prettier-ignore
+        }
+        for (const module of scopeModules) {
+          // The in-module entry deliberately does not satisfy this leg: a
+          // module's own `#[cfg(test)]` block would answer for it by
+          // construction, and what the leg asks is which TEST SURFACE exercises
+          // it.
+          if ([...listed].some((target) => reachedBy.get(target)?.has(module))) continue;
+          if (excuse(rustKillSet.config, MEMBERSHIP_LEGS.module, module) !== null) continue;
+          result.unreachableScopeModule.push(`${module} is in \`${mutateScope.key}\` in ${mutateScope.config}, and no test binary ${rustKillSet.config}'s \`${rustKillSet.key}\` lists reaches it over \`use\` edges — every mutant seeded there survives unless an in-module block happens to catch it`); // prettier-ignore
+        }
+      }
+    }
+  }
+
+  for (const entry of allowlist) {
+    if (used.has(entry)) continue;
+    result.staleMembershipAllowlist.push(`${entry.surface}'s ${entry.leg} leg carries an allowlist entry for \`${entry.entry}\` that nothing needs — the criterion already places it where the entry puts it, or the entry names something the leg no longer sees`); // prettier-ignore
   }
 
   return result;
@@ -2895,6 +4045,47 @@ const PROBLEM_BLOCKS = {
       `  the registered property's array of strings, a cargo-mutants manifest stating its lists\n` +
       `  as root-table arrays of strings, and the mutate-scope table under its registered heading\n` +
       `  inside its clause — or update ${SELF_PATH} to the new shape.`,
+  },
+  unlistedMember: {
+    heading: (n) => `${n} test surface(s) belong to a kill set that does not list them`,
+    fix:
+      `list each one in the configuration named beside it, or — where it is fast but not\n` +
+      `  deterministic, or not runnable once per mutant — record it in MEMBERSHIP_ALLOWLIST in\n` +
+      `  ${SELF_PATH} with the ground that ruling stands on. Membership is\n` +
+      `  the criterion the mutation-strategy document states, not a list's own opinion of itself.`,
+  },
+  listedNonMember: {
+    heading: (n) => `${n} kill-set entr(ies) name a test surface that does not belong`,
+    fix:
+      `drop each entry, or make it belong — a surface that reaches no mutated module runs\n` +
+      `  against every mutant and kills none of them, and one driving an unseeded property runner\n` +
+      `  answers differently from run to run, so a mutant it "kills" is not evidence. Where the\n` +
+      `  entry is deliberate, record it in MEMBERSHIP_ALLOWLIST in ${SELF_PATH}.`,
+  },
+  unreachableScopeModule: {
+    heading: (n) => `${n} mutate-scope module(s) are reached by no listed test surface`,
+    fix:
+      `list a test surface that exercises the module, or narrow the scope so it stops naming a\n` +
+      `  module the kill set cannot answer for — every mutant seeded in one nothing reaches\n` +
+      `  survives by construction and reports as a gap in the suites rather than in the scope.\n` +
+      `  Where the module carries nothing a mutant can change, record it in\n` +
+      `  MEMBERSHIP_ALLOWLIST in ${SELF_PATH} with that reason.`,
+  },
+  staleMembershipAllowlist: {
+    heading: (n) => `${n} membership allowlist entr(ies) excuse nothing`,
+    fix:
+      `remove each entry from MEMBERSHIP_ALLOWLIST in ${SELF_PATH} — an\n` +
+      `  exclusion whose reason has expired is a ruling nobody made, and the criterion already\n` +
+      `  places what it names where the entry was putting it.`,
+  },
+  unreadableMembership: {
+    heading: (n) => `${n} membership source(s) could not be read as what the criterion needs`,
+    fix:
+      `restore the shape the membership legs read — a JavaScript configuration stating its\n` +
+      `  mutate scope as an array of patterns over one package's tree, a crate manifest stating\n` +
+      `  its library name, a specifier resolving into a class the walk models, a test surface\n` +
+      `  declaring its cases as bare calls, and no \`pub use\` under the crate's source — or\n` +
+      `  update ${SELF_PATH} to the new shape.`,
   },
 };
 
@@ -3045,10 +4236,12 @@ function run() {
     }
   };
 
+  const membership = auditKillSetMembership({ files, readFile });
   const problems = [
     ...formatProblems(auditInventories({ files, readFile })),
     ...formatProblems(auditRegistrationClosure({ files, readFile })),
     ...formatProblems(auditMutationKillSets({ files, readFile })),
+    ...formatProblems(membership),
   ];
   if (problems.length) {
     console.error(problems.join('\n\n'));
@@ -3069,8 +4262,19 @@ function run() {
       `their tree or their crate manifest, and the kill sets of ${jsConfigs} discovered ` +
       `JavaScript configuration(s) and the cargo-mutants list name test files that are there, ` +
       `over a mutate scope its configuration and the strategy document state alike and the ` +
-      `tree carries module for module.`,
+      `tree carries module for module — and each of those kill sets lists exactly the surfaces ` +
+      `the membership criterion places in it, over a scope every module of which a listed ` +
+      `surface reaches, with ${MEMBERSHIP_ALLOWLIST.length} recorded exclusion(s).`,
   );
+  // The accepted residue, stated rather than left implicit: each admitted
+  // surface whose property cases sit beside the plain ones its membership
+  // stands on.
+  for (const [config, admittedMixed] of Object.entries(membership.admittedMixed)) {
+    console.log(
+      `  residue — ${config} admits on their plain cases, with unseeded property cases beside them: ` +
+        admittedMixed.join(', '),
+    );
+  }
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
