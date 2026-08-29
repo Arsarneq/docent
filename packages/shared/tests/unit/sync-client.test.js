@@ -366,7 +366,12 @@ describe('buildPayloadForProject', () => {
     // Trap enumeration is inherently open — it can only cover the ways of asking
     // someone thought of, which is why the output-side assertion below backs it
     // up and why deriving both literals from one shared constant would retire
-    // this machinery altogether.
+    // this machinery altogether. The composed-schema-authority form of that
+    // derivation was deliberately not taken: churn against benefit — the schema
+    // would need threading through pullProjects from the caller that already
+    // computes the local stamp from it — with the coverage judged sufficient:
+    // these traps, the output-side assertion below, and the composed-schema
+    // case holding every root property through the projection.
     const projectionKeys = new Set();
     const keyRecorder = new Proxy(
       {},
@@ -408,7 +413,9 @@ describe('buildPayloadForProject', () => {
     // drops; a name only the PROJECTION knows is never offered to it, so the
     // recorder above remains the sole guard for that direction and is bounded by
     // the idioms it traps. Deriving both literals from one shared constant is
-    // what would retire the split.
+    // what would retire the split — its composed-schema form was deliberately
+    // not taken; the record sits at the recorder's trap-enumeration comment
+    // above.
     const superset = {
       ...pushBody,
       future_top_level_field: { added_by: 'a later protocol version' },
@@ -418,6 +425,40 @@ describe('buildPayloadForProject', () => {
       Object.keys(envelopeProjection(superset)).sort(),
       Object.keys(pushBody).sort(),
       'the projection of a superset payload carries exactly the fields a push body carries (SP-5)',
+    );
+  });
+
+  // Every composed-schema root property survives the projection: this welds
+  // the drop direction to that authority per platform, so a root property the
+  // composed schema declares cannot be silently dropped on pull (the root
+  // envelope comes from the layer carrying `type` — today the shared base
+  // layer). A name the
+  // projection alone carries is never offered to it here — the recorder case
+  // above stays the sole guard for that direction, and the two compose:
+  // schema properties survive the projection, whose names the recorder holds
+  // to the push body's. On a red, the projection is only half the fix — the
+  // sync protocol doc's payload table and its projection sentence state the
+  // same field set and must move with it (SP-5).
+  it('the pull projection keeps every composed schema top-level property', () => {
+    const kept = {};
+    const expected = {};
+    for (const platform of Object.keys(PLATFORMS)) {
+      const properties = Object.keys(composePlatform(platform).properties).sort();
+      const full = Object.fromEntries(properties.map((key) => [key, {}]));
+      kept[platform] = Object.keys(envelopeProjection(full)).sort();
+      expected[platform] = properties;
+    }
+    assert.ok(
+      Object.keys(expected).length > 0 &&
+        Object.values(expected).every((names) => names.length > 0),
+      'every platform must contribute a non-empty root property set (and there must be at least one platform)',
+    );
+    assert.deepEqual(
+      kept,
+      expected,
+      'a drifted platform dropped a composed-schema top-level property on pull — ' +
+        'extend the projection AND the sync protocol doc: its payload table and ' +
+        'projection sentence state this same field set (SP-5)',
     );
   });
 });
