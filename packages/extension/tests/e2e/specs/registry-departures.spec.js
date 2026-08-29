@@ -12,13 +12,13 @@
  * append/stream pair, the subframe navigate-away drop, is pinned that way
  * instead (recorder-coverage.spec.js). The set's behaviours do reach the
  * stream, and the handle is what plants and wipes the membership they turn
- * on. Each case reaches these structures through the introspection handle the
- * worker exposes on its own globalThis (extension runtime ERT-1), and the
- * group a case belongs to is the handle verb its observation rests on —
- * reading, planting, or wiping. The handle's reachability is stated beside
- * the principle it observes (extension runtime ERT-1); here it means
- * Playwright's serviceWorker.evaluate, so these observations leak nothing to
- * page-adjacent contexts.
+ * on. Each case that observes those structures reaches them through the
+ * introspection handle the worker exposes on its own globalThis (extension
+ * runtime ERT-1), and the group such a case belongs to is the handle verb its
+ * observation rests on — reading, planting, or wiping. The handle's
+ * reachability is stated beside the principle it observes (extension runtime
+ * ERT-1); here it means Playwright's serviceWorker.evaluate, so these
+ * observations leak nothing to page-adjacent contexts.
  *
  * READING pins what production alone drives in and out of the registry: a
  * closed tab's frames leaving the registry with the tab.
@@ -41,8 +41,10 @@
  * leading clear on the `RECORDING_START` and `RECORDING_CREATE` handlers, and
  * the stop chokepoint — so the watch never runs and that call-site clear is
  * the only one. A planted programmatic-tab entry serves the same purpose on
- * the set: planted membership suppresses the close proxy for a tab closed
- * after a user action.
+ * the set, and it carries both sides of the close suppression: planted
+ * membership suppresses the close proxy for a tab closed after a user action
+ * while the close lands inside the recent-action window, and past that window
+ * the same planted membership leaves the proxy appended.
  *
  * WIPING simulates the in-memory loss an MV3 idle suspension causes, which
  * Playwright cannot force — a distinct limitation from the reload-reconnect
@@ -53,6 +55,16 @@
  * letting a scripted close append a context_close the user never performed,
  * the degradation the correlation-marker class already admits (extension
  * runtime ERT-1).
+ *
+ * One case belongs to none of those groups, because it reaches neither
+ * structure the handle observes: the platform premise the same-value routes
+ * above rest on. Those routes attribute a clear to a call site because the
+ * flag write they drive changes nothing, and expectFlagAlreadyHolds asserts
+ * that per-route precondition — the flag already holds the value the route is
+ * about to write. The rule beneath it is the platform's, stated at the
+ * worker's recording-flag watch: a write of the value a key already holds
+ * fires no change event. That case holds the platform to it, on a key the
+ * extension does not own.
  */
 
 import {
@@ -70,12 +82,15 @@ import {
 // Waits derived from the production timing windows, so a window change moves
 // them with it instead of silently shifting the scenarios' semantics: the
 // scripted close must land INSIDE the recent-action window (a quarter of it,
-// capped at 300 ms — at today's window the cap is what holds), and the lapse
-// wait must EXCEED the creation window so a tab opened after it cannot be
-// classified programmatic. These two stay durations because they are the
-// windows under test; every other wait keys on an observable signal.
+// capped at 300 ms — at today's window the cap is what holds); the
+// creation-window lapse must EXCEED the creation window, so a tab opened after
+// it cannot be classified programmatic; and the closed-window lapse must
+// EXCEED the close window, so a close landing after it falls outside the close
+// suppression's timing conjunct. Each of these stays a duration because it is
+// a window under test; every other wait keys on an observable signal.
 const CLOSE_AFTER_ACTION_DELAY = Math.min(300, TAB_CLOSED_USER_ACTION_WINDOW / 4);
 const CREATION_WINDOW_LAPSE = TAB_CREATED_USER_ACTION_WINDOW + 100;
+const CLOSE_WINDOW_LAPSE = TAB_CLOSED_USER_ACTION_WINDOW + 100;
 
 // A tab id no live tab owns, planted so a clear whose effect is otherwise
 // invisible has something to destroy. One constant serves every case: the
@@ -197,6 +212,19 @@ const readLastUserActionTimestamp = (serviceWorker) =>
   serviceWorker.evaluate(async () => {
     const { lastUserActionTimestamp } = await chrome.storage.local.get('lastUserActionTimestamp');
     return lastUserActionTimestamp ?? null;
+  });
+
+/**
+ * How old the recent-action marker is, measured the way the suppression
+ * measures it: on the worker's own clock, against the marker the recorder
+ * persisted. A marker the storage does not hold reads as null, which fails an
+ * age assertion rather than satisfying one — the direction a case varying the
+ * window needs, since a missing marker lapses every window vacuously.
+ */
+const readRecentActionAge = (serviceWorker) =>
+  serviceWorker.evaluate(async () => {
+    const { lastUserActionTimestamp } = await chrome.storage.local.get('lastUserActionTimestamp');
+    return lastUserActionTimestamp == null ? null : Date.now() - lastUserActionTimestamp;
   });
 
 /**
@@ -727,6 +755,63 @@ test.describe('worker capture bookkeeping through the introspection handle', () 
     );
   });
 
+  test('a programmatic tab closed after the recent-action window lapses still appends the close proxy', async ({
+    testPage,
+    serviceWorker,
+    context,
+  }) => {
+    // The paired control is the planted-suppression case above: that one holds
+    // the close inside the recent-action window and varies the membership,
+    // this one holds the membership planted and varies the window. Between
+    // them each conjunct of the suppression is what decides an outcome.
+    await setTestContent(testPage, '<button id="btn">go</button>');
+    const base = await waitForRegistry(serviceWorker, (r) => Object.keys(r).length >= 1);
+    const baseTabs = new Set(Object.keys(base));
+
+    // A tab created with no recent user action is not tracked as programmatic.
+    const page2 = await context.newPage();
+    await setTestContent(page2, '<h1>tab two</h1>');
+    const withP2 = await waitForRegistry(
+      serviceWorker,
+      (r) => Object.keys(r).length === baseTabs.size + 1,
+    );
+    const page2Id = Number(Object.keys(withP2).find((k) => !baseTabs.has(k)));
+    expect(await readProgrammaticTabs(serviceWorker)).toEqual([]);
+
+    // Plant the membership this case holds, and read it back: the conjunct
+    // this case does not vary is present from here on.
+    await plantProgrammaticTab(serviceWorker, page2Id);
+    expect(await readProgrammaticTabs(serviceWorker)).toEqual([page2Id]);
+
+    // Stamp the marker on the click's own signal, then let the close window
+    // lapse.
+    await clickAwaitingRecentAction(serviceWorker, testPage, '#btn');
+    await testPage.waitForTimeout(CLOSE_WINDOW_LAPSE);
+
+    // Both conjuncts are asserted immediately before the close, membership
+    // FIRST: the close handler deletes the entry before it reads the window,
+    // so nothing after the close can observe the membership it decided on. The
+    // marker age is read LAST, so it abuts page2.close() — a stray stamp
+    // between the click and the close would reset it and fail here by name,
+    // which is what makes the lapse an asserted precondition rather than a
+    // clock bet. The age only grows between this read and the close, so what
+    // is asserted here holds there too.
+    expect(await readProgrammaticTabs(serviceWorker)).toEqual([page2Id]);
+    expect(
+      await readRecentActionAge(serviceWorker),
+      'the close must land outside the recent-action window this case varies',
+    ).toBeGreaterThanOrEqual(TAB_CLOSED_USER_ACTION_WINDOW);
+
+    // Membership present and the window lapsed: the proxy the same membership
+    // suppresses inside the window is appended here, once for this tab.
+    await page2.close();
+    await waitForActions(
+      serviceWorker,
+      (actions) =>
+        actions.filter((a) => a.type === 'context_close' && a.context_id === page2Id).length === 1,
+    );
+  });
+
   test('a simulated suspension loss is healed for the appending tab by the lazy reseed', async ({
     testPage,
     serviceWorker,
@@ -816,5 +901,100 @@ test.describe('worker capture bookkeeping through the introspection handle', () 
       (actions) =>
         actions.filter((a) => a.type === 'context_close' && a.context_id === popup2Id).length === 1,
     );
+  });
+});
+
+// ─── The platform premise beneath the same-value routes ──────────────────────
+
+// A storage key the extension does not own, held before use against every key
+// its surfaces store — the worker's own writes, the panel adapter's settings
+// keys, and the recorder's marker — so this case observes its own writes and
+// nothing else observes them. The case pre-asserts the key reads back unset
+// besides, so a key introduced under this name later cannot decide it
+// silently.
+const PREMISE_KEY = 'docentSameValueWriteProbe';
+
+/** Read the premise key straight from extension storage. */
+const readPremiseKey = (serviceWorker) =>
+  serviceWorker.evaluate(async (k) => (await chrome.storage.local.get(k))[k], PREMISE_KEY);
+
+/** Write a value to the premise key. */
+const writePremiseKey = (serviceWorker, value) =>
+  serviceWorker.evaluate(
+    async ([k, v]) => {
+      await chrome.storage.local.set({ [k]: v });
+    },
+    [PREMISE_KEY, value],
+  );
+
+/**
+ * Record the new value of every change event the premise key reports, in the
+ * order they arrive. The listener is an observer installed beside the
+ * production ones — Chrome dispatches a change to every listener — the shape
+ * the readiness probe uses (helpers/frame-ready.js).
+ */
+const installPremiseProbe = (serviceWorker) =>
+  serviceWorker.evaluate((k) => {
+    globalThis.__premiseProbeEvents = [];
+    globalThis.__premiseProbeListener = (changes, area) => {
+      if (area === 'local' && k in changes)
+        globalThis.__premiseProbeEvents.push(changes[k].newValue);
+    };
+    chrome.storage.onChanged.addListener(globalThis.__premiseProbeListener);
+  }, PREMISE_KEY);
+
+const readPremiseProbeEvents = (serviceWorker) =>
+  serviceWorker.evaluate(() => globalThis.__premiseProbeEvents);
+
+/** Retire the observer and the key it watched. */
+const removePremiseProbe = (serviceWorker) =>
+  serviceWorker.evaluate(async (k) => {
+    chrome.storage.onChanged.removeListener(globalThis.__premiseProbeListener);
+    delete globalThis.__premiseProbeListener;
+    delete globalThis.__premiseProbeEvents;
+    await chrome.storage.local.remove(k);
+  }, PREMISE_KEY);
+
+const waitForPremiseEvents = (serviceWorker, predicate) =>
+  waitForState(() => readPremiseProbeEvents(serviceWorker), predicate, 'premise-key change events');
+
+test.describe('the storage premise the same-value routes rest on', () => {
+  test('a write of the value a key already holds fires no change event', async ({
+    serviceWorker,
+  }) => {
+    // The premise the same-value cases above attribute their clears to, whose
+    // prose home is the worker's recording-flag watch: storage.onChanged fires
+    // only when a stored value actually changes. The rule is the platform's,
+    // so it is pinned here on a key the extension does not own rather than on
+    // the recording flag, which production writers also watch.
+    expect(
+      await readPremiseKey(serviceWorker),
+      'the premise key must start unset, or a value left by something else would decide this case',
+    ).toBeUndefined();
+    await installPremiseProbe(serviceWorker);
+
+    // Establish a value and observe its event. This entry is the structural
+    // control: an observer that sees nothing at all cannot reach the equality
+    // assertion below, because the list it holds is never empty there.
+    await writePremiseKey(serviceWorker, 'established');
+    await waitForPremiseEvents(serviceWorker, (events) => events.length >= 1);
+
+    // The write under test, then a write of a DIFFERENT value, each awaited
+    // before the next. storage.onChanged dispatches in write order, so once
+    // the different-value event is observed, a same-value event would already
+    // have landed were it ever coming — the ordering barrier that replaces a
+    // duration wait here. The different-value write is also what exercises the
+    // barrier: making the same-value write carry a different value puts a
+    // third entry between these two and reds the assertion below.
+    await writePremiseKey(serviceWorker, 'established');
+    await writePremiseKey(serviceWorker, 'different');
+    const observed = await waitForPremiseEvents(serviceWorker, (events) =>
+      events.includes('different'),
+    );
+
+    // Exactly the two writes that changed the value, in the order they ran.
+    expect(observed).toEqual(['established', 'different']);
+
+    await removePremiseProbe(serviceWorker);
   });
 });
