@@ -1,6 +1,6 @@
 /**
- * check-extension-surface.js — admission test for the extension's two
- * committed surface contracts:
+ * check-extension-surface.js — admission test for the extension's committed
+ * surface contracts:
  *
  *   - the permission surface
  *     (docs/architecture/application/extension/permissions.md §EPM-1): the
@@ -16,7 +16,16 @@
  *     collected across that whole scanned set and diffed back to the table
  *     from it, diffed forward from the table to the service worker's own
  *     guards — all read through a comment-safe tokenizer, with the two doc
- *     enumerations disjoint.
+ *     enumerations disjoint;
+ *   - the worker-state introspection handle's member surface
+ *     (docs/architecture/application/extension/runtime.md §ERT-5): the members
+ *     the worker freezes onto its own global equal, in both directions, the
+ *     backticked names in that clause's member table; every worker
+ *     module-scope name a member's body reaches sits in the reach set below
+ *     ({@link HANDLE_REACH_SET}); and the handle's own name stands exactly
+ *     once in the extension package's production JavaScript — the assignment
+ *     itself, so no production module carries a route into the plants and
+ *     wipes ERT-5 states run from no production event.
  *
  * The dispatcher legs run over a POPULATION, derived rather than listed: the
  * tracked JavaScript modules under `packages/extension/background`, which is
@@ -26,6 +35,35 @@
  * service worker, whose own guards the forward capture-path diff stands on;
  * exactly one dispatcher switch stands anywhere in it, and that one switch
  * stands in the worker.
+ *
+ * The handle's no-production-caller leg runs over a SECOND population, derived
+ * the same way and IMPORTED rather than re-derived: the extension package's
+ * tracked production JavaScript — the tracked `.js`, `.mjs`, and `.cjs` modules
+ * under {@link POPULATION_ROOT} outside {@link POPULATION_TEST_TREE} — which is
+ * the set [`check-capture-surface.js`](./check-capture-surface.js) already derives
+ * for its own registration closure. One population, one exclusion: the tests
+ * tree, which is where the handle's observers live. The content tree is INSIDE
+ * it, so a handle mention written there reds; that each extension surface runs
+ * in a global scope of its own, which is what makes such a mention a defect
+ * rather than a use, is doctrine the runtime doc states (§ERT-6) and never a
+ * carve-out in this scan.
+ *
+ * The handle itself is read from one ANCHOR, tokenized whole:
+ * `globalThis.__docentCaptureBookkeeping = Object.freeze({`. The assignment
+ * head alone — the same target assigned an unfrozen literal — is refused by
+ * name rather than read as the surface, and a second head anywhere in the
+ * worker is refused too, so the members this check diffs come from one
+ * statement. From the literal's opening brace the top-level property names are
+ * the members, read through the shared object-literal walk: a property the key
+ * reader does not read is named as the shape it is, and a literal that never
+ * closes is refused rather than half-read. The reach leg is a MEMBERSHIP test
+ * over each member's body: the identifiers the body names are intersected with
+ * the worker's own module-scope bindings and import names, and everything in
+ * that intersection is a name {@link HANDLE_REACH_SET} states. Locals,
+ * parameters, and built-ins bind nothing at module scope, so they sit outside
+ * the test by construction and the leg cannot red on them; what the binding
+ * collector reads is stated at {@link collectModuleBindings}, with the one
+ * declaration shape it refuses rather than reads past.
  *
  * The clause's own sender statement is held present beside those sets: ERT-4's
  * scope carries the existence claim the send leg enforces
@@ -136,6 +174,36 @@
  * manifest's resource-exposure facts (CSP absence, empty
  * `web_accessible_resources`) stay judgment-held with their doc bullets.
  *
+ * The handle legs carry residues of their own, each named here. The member
+ * table's Reaches and What-it-does prose stays review-held: the reach set this
+ * check tests against is its own constant, never that column, so a row whose
+ * Reaches cell disagrees with the code reds nowhere here. The identifier scan
+ * over a member's body reads every word token in it, property names included,
+ * so a property called after a module-scope binding — `x.activeFrames` — is
+ * read as a reach; that direction is a false red, never a false green, and it
+ * is what keeps the leg from having to model what a name is used AS. The
+ * false-GREEN side is the membership test's own bound: what the leg tests is
+ * the worker's MODULE-SCOPE names, so a reach that passes through no such name
+ * is outside it — a member body calling a platform API directly reaches
+ * whatever that call reaches, with nothing here to see. That bound is why the
+ * member table's Reaches column stays review-held beside this leg rather than
+ * being answered by it. The anchor's own head is tokenized as `globalThis`, the
+ * handle name, and `=`, which a COMPARISON on that name satisfies as well:
+ * written `===` or `==` it is counted as a head, so beside the real assignment
+ * it reds as a second assignment, and standing alone it reds for the shape that
+ * follows — each diagnosis naming an assignment the source never made. Both
+ * readings are reds rather than greens, with the members unread and the
+ * empty-surface guard answering beside them, and they are named here so the
+ * diagnosis is read as the shape it is. The mention count reads word and
+ * string token positions, so a computed access (`globalThis['…']`) is counted
+ * while a name written as a template literal's own text is not. The anchor
+ * models the dot-assignment form alone: a handle installed through a computed
+ * target reds as an absent anchor, and its string occurrence reds again at the
+ * mention leg. And the `globalThis` binding stays writable however the object
+ * is frozen, so a rebound handle installs a different surface with no edit to
+ * the anchor — the property the freeze pin holds is that the enumerated
+ * literal cannot be extended in place.
+ *
  * Usage:
  *   node scripts/check-extension-surface.js  # or: npm run lint:extension-surface
  */
@@ -159,6 +227,12 @@ import {
   trackedFilesUnder,
   walkObjectLiteral,
 } from './check-test-inventory.js';
+import {
+  POPULATION_EXTENSIONS,
+  POPULATION_ROOT,
+  POPULATION_TEST_TREE,
+  derivePopulation as deriveProductionPopulation,
+} from './check-capture-surface.js';
 
 /** Repo-relative path of the extension manifest. */
 export const MANIFEST_PATH = 'packages/extension/manifest.json';
@@ -193,6 +267,30 @@ export const BACKGROUND_EXTENSIONS = ['.js', '.mjs', '.cjs'];
 export const EPM_CLAUSE_ID = 'EPM-1';
 /** The message-surface clause the dispatcher legs verify. */
 export const ERT_CLAUSE_ID = 'ERT-4';
+/** The handle-surface clause the introspection-handle legs verify. */
+export const HANDLE_CLAUSE_ID = 'ERT-5';
+/** The name the worker assigns its introspection handle to on its own global. */
+export const HANDLE_NAME = '__docentCaptureBookkeeping';
+/**
+ * The handle's member table, by its whole header — selected inside the clause's
+ * own scope, so the enumeration this check diffs is the one the clause states.
+ */
+export const HANDLE_TABLE_HEADER = ['Member', 'Reaches', 'What it does'];
+/**
+ * The worker module-scope names the handle's members reach: the structures the
+ * clause places it over and the functions it runs to reach them — the frame
+ * registry and the programmatic-tab set, the production registration a plant
+ * goes through, and the record-start seed's own tab query the target-set read
+ * answers from. A member reaching a module-scope name outside this set
+ * reaches a structure the clause does not place it over, which is the surface
+ * change ERT-5 and this constant state together.
+ */
+export const HANDLE_REACH_SET = [
+  'activeFrames',
+  'programmaticTabs',
+  'registerFrame',
+  'queryCaptureTargetTabs',
+];
 /** The `##` section of the runtime doc carrying both protocol tables. */
 export const PROTOCOL_SECTION = 'Message protocol';
 /** The capture-path table's whole header in that section. */
@@ -229,9 +327,12 @@ export const PERMISSION_TABLES = [
  * path carrying a non-ASCII byte arrives as itself rather than quoted and
  * escaped, which the extension filter would drop in silence.
  *
- * This is the one derivation: the CLI runs the dispatcher legs over what it
- * returns, and the suite's real-tree locks hold that same set, so a change here
- * cannot leave those locks holding a population the check no longer scans.
+ * This is the one derivation of the dispatcher legs' population: the CLI runs
+ * them over what it returns, and the suite's real-tree locks hold that same set,
+ * so a change here cannot leave those locks holding a population the check no
+ * longer scans. The handle's mention leg reads a second population, and reads it
+ * from the sibling check that already derives it rather than from a copy made
+ * here — two populations, two derivations, neither of them restated.
  * @param {string} [cwd] the directory to enumerate from — the repository root,
  *   which is where the CLI runs and where the suite points it
  * @returns {string[]} repo-relative paths, in `git ls-files` order
@@ -370,6 +471,28 @@ export function extractProtocolTables(runtimeText) {
     }
   }
   return { captureTypes: capture.names, panelTypes, unreadable };
+}
+
+/**
+ * Read the handle's member enumeration from the runtime doc: the first-column
+ * backticked names of the member table, taken from inside
+ * {@link HANDLE_CLAUSE_ID}'s own scope (the shared clause slice, fence-aware
+ * and bounded at the next marker or heading), so a table that drifts out of the
+ * clause states nothing here.
+ *
+ * The posture comes back beside the names, counted over the WHOLE document: the
+ * surface is stated as one table, so a second one carrying the same header —
+ * anywhere in the doc, in the clause or outside it — is drift the caller reds
+ * on rather than a set this reader silently merges.
+ * @param {string} runtimeText the runtime doc's text
+ * @returns {{ members: string[], unreadable: string[], matches: number }}
+ */
+export function extractHandleTable(runtimeText) {
+  const scope = extractClauseSection(runtimeText, HANDLE_CLAUSE_ID);
+  const { tables } = selectTablesByHeader(scope, { header: HANDLE_TABLE_HEADER });
+  const { names, unreadable } = readTableColumn(tables, { empty: '(empty Member cell)' });
+  const { matches } = selectTablesByHeader(runtimeText, { header: HANDLE_TABLE_HEADER });
+  return { members: names, unreadable, matches };
 }
 
 /**
@@ -674,6 +797,230 @@ function sendLabel(site) {
 }
 
 /**
+ * Collect the MODULE-SCOPE names a source binds: the population the handle's
+ * reach leg tests each member's identifiers against. Binding at module scope is
+ * the whole criterion — a name bound anywhere else is a local or a parameter,
+ * which the handle reaches nothing through.
+ *
+ * The shapes read, all at brace depth zero: a `const`/`let`/`var` declarator
+ * list (each name in it, the ones after a comma included), a `function` or
+ * `class` declaration, and an import's default binding, its named list — where
+ * `a as b` binds `b`, the specifier's last name being the local one either way
+ * — and its namespace alias, in either position that alias can stand in: alone
+ * after `import`, or after a default binding and its comma. A side-effect
+ * import and a dynamic `import(` bind nothing and are passed over as such.
+ *
+ * One shape is REFUSED rather than read past: a destructuring pattern standing
+ * where a declarator name belongs. Its names are bindings the reach leg would
+ * then be testing against an incomplete list — a member could reach one and red
+ * nowhere — so the refusal keeps the leg's population honest instead of letting
+ * it quietly shrink.
+ *
+ * A declarator list stays open until its `;` or the next declaration keyword,
+ * which is what carries the reader across an initializer's own words. Where a
+ * source ends a statement by line break alone, that flag can outlive it and a
+ * later top-level comma then contributes a name nothing declares — collecting a
+ * name too many, which reds a member that reaches it. The conservative
+ * direction is the deliberate one here: this set exists to make reaches
+ * testable, and a name it holds spuriously costs a false red, where a name it
+ * misses costs a reach nothing tests.
+ * @param {{ type: string, value: string }[]} tokens the tokenized source
+ * @returns {{ bindings: Set<string>, problems: string[] }}
+ */
+export function collectModuleBindings(tokens) {
+  const bindings = new Set();
+  const problems = [];
+  let depth = 0;
+  /** Whether a `const`/`let`/`var` declarator list is still open at depth zero. */
+  let declarators = false;
+  for (let i = 0; i < tokens.length; i++) {
+    const t = tokens[i];
+    if (t.type === 'punct' && '([{'.includes(t.value)) {
+      depth++;
+      continue;
+    }
+    if (t.type === 'punct' && ')]}'.includes(t.value)) {
+      depth = Math.max(0, depth - 1);
+      continue;
+    }
+    if (depth !== 0) continue;
+    if (t.type === 'punct' && t.value === ';') {
+      declarators = false;
+      continue;
+    }
+    if (t.type === 'punct' && t.value === ',' && declarators) {
+      // The declarator list continues: `const a = 1, b = 2` binds both.
+      if (tokens[i + 1]?.type === 'word') bindings.add(tokens[i + 1].value);
+      continue;
+    }
+    if (t.type !== 'word') continue;
+    if (t.value === 'const' || t.value === 'let' || t.value === 'var') {
+      const next = tokens[i + 1];
+      if (next?.type === 'word') {
+        bindings.add(next.value);
+        declarators = true;
+      } else {
+        declarators = false;
+        problems.push(`${WORKER_PATH} declares a module-scope binding through ${namedLiteral(next?.type, next?.value ?? 'end of source')} where the collector reads a name — the handle's reach leg tests each member's identifiers against the worker's module-scope names, and a name it cannot see is a reach it cannot test`); // prettier-ignore
+      }
+      continue;
+    }
+    if (t.value === 'function' || t.value === 'class') {
+      declarators = false;
+      // A generator's `*` stands between the keyword and the name.
+      const at = tokens[i + 1]?.type === 'punct' && tokens[i + 1].value === '*' ? i + 2 : i + 1;
+      if (tokens[at]?.type === 'word') bindings.add(tokens[at].value);
+      continue;
+    }
+    if (t.value !== 'import') continue;
+    declarators = false;
+    let j = i + 1;
+    // A side-effect import binds nothing; a dynamic import is an expression.
+    if (tokens[j]?.type === 'string') continue;
+    if (tokens[j]?.type === 'punct' && tokens[j].value === '(') continue;
+    if (tokens[j]?.type === 'word') {
+      bindings.add(tokens[j].value);
+      j += 1;
+      if (tokens[j]?.type === 'punct' && tokens[j].value === ',') j += 1;
+    }
+    // The namespace alias is read HERE, past the default arm, so it is bound in
+    // both positions it can stand in: alone after `import`, and after a default
+    // binding and its comma. Read before that arm it would answer for the first
+    // shape only, and the alias of the combined form would bind nothing at all.
+    if (tokens[j]?.type === 'punct' && tokens[j].value === '*') {
+      if (tokens[j + 2]?.type === 'word') bindings.add(tokens[j + 2].value);
+      continue;
+    }
+    if (!(tokens[j]?.type === 'punct' && tokens[j].value === '{')) continue;
+    let specifier = [];
+    for (let k = j + 1; k < tokens.length; k++) {
+      const inner = tokens[k];
+      const ends = inner.type === 'punct' && (inner.value === ',' || inner.value === '}');
+      if (!ends) {
+        specifier.push(inner);
+        continue;
+      }
+      // `a as b` binds `b`, `a` binds `a`: the specifier's last name is local.
+      const local = specifier.filter((x) => x.type === 'word').pop();
+      if (local) bindings.add(local.value);
+      specifier = [];
+      if (inner.value === '}') break;
+    }
+  }
+  return { bindings, problems };
+}
+
+/**
+ * Read the worker's introspection handle: its members, and the module-scope
+ * names each member's body reaches.
+ *
+ * The anchor is the whole assignment — `globalThis`, the handle name, `=`,
+ * `Object.freeze(`, the literal's `{` — so the surface is read from one
+ * statement or from none. An assignment head with anything else after it is
+ * named as what stands there (the unfrozen literal among them), a second head
+ * anywhere in the file is refused with both counted, and a literal that never
+ * closes is refused rather than half-read.
+ *
+ * Each member's body runs from its value token to the next top-level property
+ * (its separating comma excluded) or to the literal's own closing brace, and
+ * every word token in it is an identifier the member NAMES. What that body
+ * REACHES is the intersection of those identifiers with the module-scope
+ * bindings above; both come back, the named list so the suite can hold the
+ * identifiers a healthy tree leaves outside the reach test.
+ * @param {string} workerSource the service worker's source
+ * @returns {{ members: string[], named: { member: string, identifiers: string[] }[],
+ *   reaches: { member: string, name: string }[], problems: string[] }}
+ */
+export function extractHandleSurface(workerSource) {
+  const problems = [];
+  const members = [];
+  const named = [];
+  const reaches = [];
+  const tokens = tokenizeJs(workerSource);
+  const surface = () => ({ members, named, reaches, problems });
+  const { bindings, problems: bindingProblems } = collectModuleBindings(tokens);
+  problems.push(...bindingProblems);
+
+  const at = (i, type, value) => tokens[i] && tokens[i].type === type && tokens[i].value === value;
+  const heads = [];
+  for (let i = 0; i + 3 < tokens.length; i++) {
+    if (at(i, 'word', 'globalThis') && at(i + 1, 'punct', '.') && at(i + 2, 'word', HANDLE_NAME) && at(i + 3, 'punct', '=')) heads.push(i); // prettier-ignore
+  }
+  if (heads.length !== 1) {
+    problems.push(heads.length === 0
+      ? `${WORKER_PATH} assigns no \`globalThis.${HANDLE_NAME}\` — the member surface ${HANDLE_CLAUSE_ID} states is read from that one assignment`
+      : `${WORKER_PATH} carries ${heads.length} \`globalThis.${HANDLE_NAME}\` assignments — the scan models exactly one, since the members diffed against the table come from one statement`); // prettier-ignore
+    return surface();
+  }
+
+  const head = heads[0];
+  const frozen =
+    at(head + 4, 'word', 'Object') &&
+    at(head + 5, 'punct', '.') &&
+    at(head + 6, 'word', 'freeze') &&
+    at(head + 7, 'punct', '(') &&
+    at(head + 8, 'punct', '{');
+  if (!frozen) {
+    const stood = tokens[head + 4];
+    problems.push(`${WORKER_PATH} assigns \`globalThis.${HANDLE_NAME}\` from ${stood ? namedLiteral(stood.type, stood.value) : '(end of source)'} — the scan reads \`Object.freeze({\`, the shape that keeps the enumerated members from being replaced or extended in place`); // prettier-ignore
+    return surface();
+  }
+
+  const starts = [];
+  const { closed, end } = walkObjectLiteral(tokens, head + 8, (i, t) => starts.push({ i, t }));
+  if (!closed) {
+    problems.push(`${WORKER_PATH}'s handle literal never closes — the member scan cannot run`);
+    return surface();
+  }
+  for (let k = 0; k < starts.length; k++) {
+    const { i, t } = starts[k];
+    const isKey =
+      (t.type === 'word' || t.type === 'string') &&
+      tokens[i + 1]?.type === 'punct' &&
+      tokens[i + 1].value === ':';
+    if (!isKey) {
+      problems.push(`${WORKER_PATH}'s handle literal carries a member the scan cannot read — ${describeKeyPosition(t)} — a member is a bare or quoted name carrying its value, so the enumeration stays diffable`); // prettier-ignore
+      continue;
+    }
+    members.push(t.value);
+    const identifiers = [];
+    const bodyEnd = k + 1 < starts.length ? starts[k + 1].i - 1 : end;
+    for (let j = i + 2; j < bodyEnd; j++) {
+      if (tokens[j].type === 'word' && !identifiers.includes(tokens[j].value)) {
+        identifiers.push(tokens[j].value);
+      }
+    }
+    named.push({ member: t.value, identifiers });
+    for (const name of identifiers) {
+      if (bindings.has(name)) reaches.push({ member: t.value, name });
+    }
+  }
+  return surface();
+}
+
+/**
+ * Count the handle's name across a population, per file. A word token equal to
+ * the name and a string token containing it both count — the second is what
+ * makes a computed access (`globalThis['…']`) a mention rather than an invisible
+ * one — while comments are already out of the stream the shared tokenizer emits,
+ * so a name a comment mentions is no mention at all.
+ * @param {Map<string, string>} sourceByPath path → module source
+ * @returns {{ path: string, count: number }[]} one entry per file that names it
+ */
+export function countHandleMentions(sourceByPath) {
+  const counts = [];
+  for (const [path, source] of sourceByPath) {
+    let count = 0;
+    for (const token of tokenizeJs(source)) {
+      if (token.type === 'word' && token.value === HANDLE_NAME) count += 1;
+      else if (token.type === 'string' && token.value.includes(HANDLE_NAME)) count += 1;
+    }
+    if (count > 0) counts.push({ path, count });
+  }
+  return counts;
+}
+
+/**
  * The non-empty guard's legs: every parsed surface, with its empty-parse
  * diagnosis. Exported so the unit suite's family is generated from this
  * list — a leg added here is exercised automatically, and the suite holds
@@ -702,6 +1049,8 @@ export const EMPTY_SURFACES = [
   ['equalityTypes', `no message-type equality literals found in the tracked ${BACKGROUND_ROOT} JavaScript`], // prettier-ignore
   ['workerEqualityTypes', `no message-type equality literals found in ${WORKER_PATH}`],
   ['sendTypes', `no object-literal send( call site naming a type found in the tracked ${PANEL_DIR} JavaScript`], // prettier-ignore
+  ['handleMembers', `no members found on the introspection handle in ${WORKER_PATH}`],
+  ['docHandleMembers', `no handle members found in the ${HANDLE_CLAUSE_ID} member table in ${RUNTIME_DOC_PATH}`], // prettier-ignore
 ];
 
 /**
@@ -722,10 +1071,12 @@ export const DUPLICATE_SURFACES = [
   ['docCaptureTypes', `the capture-path table`],
   ['docPanelTypes', `the panel-protocol enumeration`],
   ['caseLabels', `the dispatcher's case labels`],
+  ['handleMembers', `the introspection handle's own members`],
+  ['docHandleMembers', `the ${HANDLE_CLAUSE_ID} member table`],
 ];
 
 /**
- * Pure core: evaluate both extension surface contracts.
+ * Pure core: evaluate every extension surface contract.
  * @param {object} s the extracted surfaces
  * @param {string[]} s.manifestPermissions manifest `permissions` entries
  * @param {string[]} s.manifestHostPermissions manifest `host_permissions` entries
@@ -745,7 +1096,17 @@ export const DUPLICATE_SURFACES = [
  * @param {string[]} s.sendTypes the panel's literal send types, deduplicated
  * @param {{ path: string, ordinal: number, type: string | null, found: string | null }[]} s.sendSites every object-literal send site, readable or not
  * @param {number} s.senderStatements times the clause's scope states its sender statement
- * @returns {string[]} problems; empty when both contracts hold (the
+ * @param {string[]} s.handleMembers the members the worker's handle literal carries
+ * @param {string[]} s.docHandleMembers the member table's names
+ * @param {string[]} s.handleUnreadable unreadable member-table cells
+ * @param {number} s.handleTableMatches tables in the doc carrying the member header
+ * @param {{ member: string, name: string }[]} s.handleReaches each module-scope
+ *   name a member's body reaches, with the member that reaches it
+ * @param {string[]} s.productionFiles the extension package's production
+ *   JavaScript, in the order it was read
+ * @param {{ path: string, count: number }[]} s.handleMentions the files naming
+ *   the handle, with each file's occurrence count
+ * @returns {string[]} problems; empty when every contract holds (the
  *   dispatcher anchor guards — switch count, the switch's home, the default
  *   arm, nesting — are the extractor's own problems and are reported beside
  *   these)
@@ -762,6 +1123,9 @@ export function evaluateExtensionSurface(s) {
   for (const cell of s.protocolUnreadable) {
     problems.push(`${RUNTIME_DOC_PATH} carries a protocol cell the scan cannot read — ${cell} — types are lone backticked names`); // prettier-ignore
   }
+  for (const cell of s.handleUnreadable) {
+    problems.push(`${RUNTIME_DOC_PATH} carries a ${HANDLE_CLAUSE_ID} member cell the scan cannot read — ${cell} — members are lone backticked names`); // prettier-ignore
+  }
   for (const site of s.sendSites.filter((x) => x.type === null)) {
     problems.push(`${sendLabel(site)} states no readable message type — the scan found ${site.found} — an object-literal send carries its type as a string literal in a top-level \`type\` property, in any position, so the sender side stays readable`); // prettier-ignore
   }
@@ -776,6 +1140,21 @@ export function evaluateExtensionSurface(s) {
     problems.push(`${RUNTIME_DOC_PATH} §${ERT_CLAUSE_ID} states no sender statement — nothing in the clause's scope carries "${SENDER_STATEMENT_ANCHOR}" — the panel-side closure this check's send leg holds (every panel-protocol type carrying at least one object-literal send( that names it) is doctrine the clause states, and the leg cannot hold a rule the document no longer makes`); // prettier-ignore
   } else if (s.senderStatements > 1) {
     problems.push(`${RUNTIME_DOC_PATH} §${ERT_CLAUSE_ID} makes the "${SENDER_STATEMENT_ANCHOR}" claim ${s.senderStatements} times — the clause states it once, so an update cannot land on one copy and leave another standing, wherever in the clause that copy was written`); // prettier-ignore
+  }
+
+  // The handle is assigned once and read from no production module, which is
+  // what the mention count holds: the observers that do reach it live under the
+  // package's tests tree, outside this population. Read ahead of the vacuous
+  // return, because a production route into the plants and wipes is a fact
+  // about the shipped extension whatever the doc's tables parse to.
+  for (const { path, count } of s.handleMentions) {
+    if (path === WORKER_PATH) {
+      if (count > 1) {
+        problems.push(`${WORKER_PATH} names \`${HANDLE_NAME}\` ${count} times — the assignment is its one occurrence, so a further one is a production route into the plants and wipes ${HANDLE_CLAUSE_ID} states run from no production event`); // prettier-ignore
+      }
+      continue;
+    }
+    problems.push(`${path} names \`${HANDLE_NAME}\` (${count}) — no module of the extension's production JavaScript names the handle beside the assignment in ${WORKER_PATH}: ${HANDLE_CLAUSE_ID} states its plants and wipes run from no production event, and the observers that do reach it sit under ${POPULATION_TEST_TREE}, outside this population`); // prettier-ignore
   }
 
   // The population is the dispatcher legs' own subject. An empty one, or one
@@ -795,7 +1174,24 @@ export function evaluateExtensionSurface(s) {
     // actually sits. Two facts, two lines.
     machinery.push(`${WORKER_PATH} is outside the scanned population — the forward capture-path diff reads that file's own guards by construction, so a population without it is a population this check cannot stand on`); // prettier-ignore
   }
+  // The handle's own population, held the same way and for the same reason: its
+  // one legitimate occurrence stands in the worker, so a set that has lost that
+  // file cannot tell a handle nothing reads from a handle nothing scanned.
+  if (s.productionFiles.length === 0) {
+    machinery.push(`no tracked JavaScript module found under ${POPULATION_ROOT} outside ${POPULATION_TEST_TREE} — the handle's no-production-caller leg has no population to hold`); // prettier-ignore
+  }
+  if (!s.productionFiles.includes(WORKER_PATH)) {
+    machinery.push(`${WORKER_PATH} is outside the production population — the handle's one legitimate occurrence stands in that file, so a population without it reads a mention count that proves nothing`); // prettier-ignore
+  }
   if (machinery.length) return [...problems, ...machinery];
+
+  // The surface is stated as one table, counted over the whole document: a
+  // second one carrying the same header would state the enumeration twice, and
+  // an update could then land on one copy. Fail-closed on the `!== 1` form — a
+  // surface stating no count at all reds here rather than passing.
+  if (s.handleTableMatches !== 1) {
+    problems.push(`${RUNTIME_DOC_PATH} carries ${s.handleTableMatches} tables headed ${HANDLE_TABLE_HEADER.join(' | ')} — the handle's member surface is stated as exactly one table, and ${HANDLE_CLAUSE_ID}'s own scope is where this check reads it`); // prettier-ignore
+  }
 
   const empty = emptySurfaceProblems(s, EMPTY_SURFACES);
   if (empty.length > 0) {
@@ -824,6 +1220,20 @@ export function evaluateExtensionSurface(s) {
     ...missingFrom(s.docPanelTypes, s.sendTypes, `is in the panel-protocol enumeration but no object-literal send( in the tracked ${PANEL_DIR} JavaScript sends it (${ERT_CLAUSE_ID}) — a type sent only through a payload assembled beforehand is invisible to this leg and reds here too, which this direction cannot tell from a type nothing sends: moving a send outside the object-literal shape is a change that updates the runtime doc's sender statement and this check together`), // prettier-ignore
   );
 
+  problems.push(
+    ...missingFrom(s.handleMembers, s.docHandleMembers, `is a member of the introspection handle in ${WORKER_PATH} but the ${HANDLE_CLAUSE_ID} member table does not state it (${HANDLE_CLAUSE_ID})`), // prettier-ignore
+    ...missingFrom(s.docHandleMembers, s.handleMembers, `is in the ${HANDLE_CLAUSE_ID} member table but the introspection handle in ${WORKER_PATH} does not carry it`), // prettier-ignore
+  );
+
+  // The reach leg, a membership test: a member reaching a worker module-scope
+  // name outside the stated set reaches a structure the clause does not place
+  // the handle over — the change the table alone cannot show, since a member
+  // can grow a reach without its name or its row changing at all.
+  for (const { member, name } of s.handleReaches) {
+    if (HANDLE_REACH_SET.includes(name)) continue;
+    problems.push(`\`${member}\` reaches \`${name}\`, a module-scope name of ${WORKER_PATH} outside the set ${HANDLE_CLAUSE_ID} places the handle over (${HANDLE_REACH_SET.map((n) => `\`${n}\``).join(', ')}) — a member reaching further is a surface change the clause and this check state together`); // prettier-ignore
+  }
+
   const overlap = s.docCaptureTypes.filter((t) => s.docPanelTypes.includes(t));
   for (const t of overlap) {
     problems.push(`\`${t}\` appears in both the capture-path table and the panel-protocol enumeration — the two are disjoint by ${ERT_CLAUSE_ID}`); // prettier-ignore
@@ -833,23 +1243,30 @@ export function evaluateExtensionSurface(s) {
 }
 
 /**
- * Read every surface from the working tree and evaluate both contracts.
+ * Read every surface from the working tree and evaluate every contract.
  *
- * Both file lists are passed in rather than derived here, so the suite can hold
- * this closure over a population it states — the shape the sibling capture
- * check's file-list leg already has. Over the real tree both callers pass the
- * one derivation, {@link derivePopulation}.
+ * Every file list is passed in rather than derived here, so the suite can hold
+ * this closure over populations it states — the shape the sibling capture
+ * check's file-list leg already has. Over the real tree the callers pass the
+ * two derivations these legs stand on: {@link derivePopulation} for the
+ * background modules the dispatcher legs read, and the production set this file
+ * imports from [`check-capture-surface.js`](./check-capture-surface.js) for the
+ * handle's mention count. Neither is re-derived here or anywhere else in this
+ * file.
  * @param {(f: string) => string} readFile repo-relative content reader
  * @param {string[]} panelFiles the tracked panel JavaScript paths the send
  *   scan reads
  * @param {string[]} backgroundFiles the tracked background JavaScript the
  *   dispatcher legs scan
- * @returns {{ problems: string[], permissionCount: number, typeCount: number, panelTypeCount: number }}
+ * @param {string[]} productionFiles the extension package's tracked production
+ *   JavaScript, which the handle's no-production-caller leg counts over
+ * @returns {{ problems: string[], permissionCount: number, typeCount: number, panelTypeCount: number, memberCount: number }}
  *   `typeCount` is the doc's whole message-type union — the surface the
- *   dispatcher legs cover — and `panelTypeCount` the panel-protocol subset the
- *   sender leg covers
+ *   dispatcher legs cover — `panelTypeCount` the panel-protocol subset the
+ *   sender leg covers, and `memberCount` the handle members the third contract
+ *   holds
  */
-export function auditTree(readFile, panelFiles, backgroundFiles) {
+export function auditTree(readFile, panelFiles, backgroundFiles, productionFiles) {
   const manifest = extractManifestSurface(readFile(MANIFEST_PATH));
   const permDoc = readFile(PERMISSIONS_DOC_PATH);
   const [permissions, hostPermissions] = PERMISSION_TABLES.map(([section, header]) =>
@@ -859,6 +1276,9 @@ export function auditTree(readFile, panelFiles, backgroundFiles) {
   const protocol = extractProtocolTables(runtimeDoc);
   const dispatcher = extractDispatcherSurface(new Map(backgroundFiles.map((p) => [p, readFile(p)]))); // prettier-ignore
   const sendSites = extractSendSites(new Map(panelFiles.map((p) => [p, readFile(p)])));
+  const handle = extractHandleSurface(readFile(WORKER_PATH));
+  const handleTable = extractHandleTable(runtimeDoc);
+  const handleMentions = countHandleMentions(new Map(productionFiles.map((p) => [p, readFile(p)]))); // prettier-ignore
 
   const s = {
     manifestPermissions: manifest.permissions,
@@ -876,12 +1296,25 @@ export function auditTree(readFile, panelFiles, backgroundFiles) {
     sendTypes: [...new Set(sendSites.filter((x) => x.type !== null).map((x) => x.type))],
     sendSites,
     senderStatements: countSenderStatements(runtimeDoc),
+    handleMembers: handle.members,
+    docHandleMembers: handleTable.members,
+    handleUnreadable: handleTable.unreadable,
+    handleTableMatches: handleTable.matches,
+    handleReaches: handle.reaches,
+    productionFiles,
+    handleMentions,
   };
   return {
-    problems: [...manifest.problems, ...dispatcher.problems, ...evaluateExtensionSurface(s)],
+    problems: [
+      ...manifest.problems,
+      ...dispatcher.problems,
+      ...handle.problems,
+      ...evaluateExtensionSurface(s),
+    ],
     permissionCount: new Set([...s.manifestPermissions, ...s.manifestHostPermissions]).size,
     typeCount: new Set([...s.docCaptureTypes, ...s.docPanelTypes]).size,
     panelTypeCount: new Set(s.docPanelTypes).size,
+    memberCount: new Set(s.docHandleMembers).size,
   };
 }
 
@@ -896,10 +1329,11 @@ function run() {
     }
   };
   const panelFiles = trackedFilesUnder(PANEL_DIR, { extensions: ['.js'] });
-  const { problems, permissionCount, typeCount, panelTypeCount } = auditTree(
+  const { problems, permissionCount, typeCount, panelTypeCount, memberCount } = auditTree(
     readFile,
     panelFiles,
     derivePopulation(),
+    deriveProductionPopulation(),
   );
 
   if (problems.length) {
@@ -917,6 +1351,10 @@ function run() {
           `  in ${WORKER_PATH}, whose own guards the\n` +
           `  capture-path table is held to, while a guard anywhere in the set is held\n` +
           `  back to that table.\n` +
+          `  The introspection handle the worker freezes onto its own global must state the\n` +
+          `  same members as the §${HANDLE_CLAUSE_ID} table, reach only the worker structures that\n` +
+          `  clause places it over, and be named nowhere else in the tracked\n` +
+          `  ${POPULATION_EXTENSIONS.join('/')} modules ${POPULATION_ROOT} carries outside ${POPULATION_TEST_TREE}.\n` +
           `  Update the drifted surfaces together in the same change.\n`,
       ),
     );
@@ -927,7 +1365,11 @@ function run() {
       `${typeCount} message types agree between the runtime doc and the dispatcher surface ` +
       `read from the tracked ${BACKGROUND_ROOT} JavaScript, ` +
       `and its ${panelTypeCount} panel-protocol types agree with the panel's literal sends, ` +
-      `whose closure the clause's own scope states once.`,
+      `whose closure the clause's own scope states once; ` +
+      `${memberCount} introspection-handle members match the §${HANDLE_CLAUSE_ID} table, ` +
+      `reaching only the worker structures that clause places the handle over, ` +
+      `and named in no other of the tracked ${POPULATION_EXTENSIONS.join('/')} modules ` +
+      `${POPULATION_ROOT} carries outside ${POPULATION_TEST_TREE}.`,
   );
 }
 

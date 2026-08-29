@@ -107,7 +107,7 @@ const activeFrames = new Map();
  * entries no capture decision acts on while stopped, since an append is refused
  * whatever the registry holds and every start clears ahead of its seed. The
  * introspection handle's plant runs from no production event (extension runtime
- * ERT-1), so it lands at the moment a case plants it, outside that account.
+ * ERT-5), so it lands at the moment a case plants it, outside that account.
  */
 function registerFrame(tabId, frameId) {
   if (tabId == null || frameId == null) return;
@@ -171,16 +171,14 @@ function clearActiveFrames() {
  * consumers below — and over the tab set a record-start would target, which is
  * no worker structure at all: it is answered by running the seed's own query
  * above, so an observer of what a clear spared never restates that set. The
- * full surface statement, and why the handle is not a page-visible surface,
- * live beside the in-memory principle it observes (extension runtime ERT-1);
- * member mechanics: the two structure reads snapshot, the target-set read runs
- * the seed's query, the plants insert the way production registration does,
- * and the wipes empty each structure directly, outside any production trigger,
- * to simulate suspension loss. The object is frozen, so no member can be
- * replaced or added in place. The freeze does not hold the surface, though — the
- * globalThis binding is writable like every worker global, so rebinding it
- * installs a different handle with no edit here; the surface the runtime doc
- * describes is review-held. No capture decision reads the handle.
+ * member surface — what each member reaches and what it does — and why the
+ * handle is not a page-visible surface are stated with the surface they
+ * belong to (extension runtime ERT-5), which is also where a member
+ * added, removed, or renamed here is stated in the same change. The object is
+ * frozen, so no member can be replaced or added in place. The freeze does not
+ * hold the surface, though — the globalThis binding is writable like every
+ * worker global, so rebinding it installs a different handle with no edit here;
+ * that direction is review-held. No capture decision reads the handle.
  */
 globalThis.__docentCaptureBookkeeping = Object.freeze({
   /** Snapshot of the active-frame registry as { [tabId]: frameId[] }. */

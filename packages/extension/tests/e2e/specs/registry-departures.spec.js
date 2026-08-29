@@ -14,10 +14,10 @@
  * stream, and the handle is what plants and wipes the membership they turn
  * on. Each case that observes those structures reaches them through the
  * introspection handle the worker exposes on its own globalThis (extension
- * runtime ERT-1), and the group such a case belongs to is the handle verb its
+ * runtime ERT-5), and the group such a case belongs to is the handle verb its
  * observation rests on — reading, planting, or wiping. The handle's
- * reachability is stated beside the principle it observes (extension runtime
- * ERT-1); here it means Playwright's serviceWorker.evaluate, so these
+ * reachability is stated with the surface it belongs to (extension runtime
+ * ERT-5); here it means Playwright's serviceWorker.evaluate, so these
  * observations leak nothing to page-adjacent contexts.
  *
  * READING pins what production alone drives in and out of the registry: a
