@@ -174,26 +174,34 @@ jobs:
         timeout-minutes: 15
         run: cargo install cargo-mutants --version 27.1.0 --locked
 
-      # The key pins the entry to the current lockfile; `restore-keys` adds the
-      # fallback the run takes when that key is new. A fallback match is confined
-      # to entries saved under this same path list, so what the prefix can reach
-      # is the other cargo registry-and-build entries this platform holds, never
-      # the single-file tool caches beside them — those are stored as distinct
-      # caches. On a lockfile bump the fallback buys a warm registry; a warm
-      # build tree is what it may buy, since the newest matching entry was not
-      # necessarily built by this job's own command. A save always writes the
-      # exact key, so each lockfile still gets its own entry beside the ones
-      # already resident — and the entry this job writes is the one every job
-      # sharing this key restores.
-      - name: Cache cargo registry and build
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      # The `mutation` family. Its key shape, its split, and its save's gate are
+      # the desktop-rust-tests cargo block's in test.yml, which carries the
+      # reasoning for all four families; two things are this family's own.
+      #
+      # It caches the REGISTRY ONLY — no `target` directory. `cargo mutants
+      # --in-place` mutates and builds in the real tree, so the tree this job
+      # ends with holds fingerprints for mutated sources; seeding a later run
+      # from it has produced stale-fingerprint builds. The registry and the git
+      # checkouts carry no such state, so they are what this family stores.
+      #
+      # That path list is this family's alone, and a restore candidate — exact
+      # or by prefix — comes only from entries saved under the SAME path list.
+      # So nothing else can reach this family's entries and it can reach
+      # nothing else's: its `restore-keys` names its own prefix and stops
+      # there, because any wider prefix would be dead weight. The honest cost:
+      # this job runs weekly and cache entries are evicted after seven days of
+      # inactivity, so a missed week starts fully cold — a registry refetch on
+      # top of the baseline build this job performs anyway. That steady state
+      # is accepted design, not a defect to watch.
+      - name: Restore cargo registry
+        id: cargo-cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
-            packages/desktop/src-tauri/target
-          key: ${{ runner.os }}-cargo-${{ hashFiles('packages/desktop/src-tauri/Cargo.lock') }}
-          restore-keys: ${{ runner.os }}-cargo-
+          key: ${{ runner.os }}-cargo-mutation-${{ hashFiles('packages/desktop/src-tauri/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-mutation-
 
       # The Tauri build script only needs the frontend dist directory to exist.
       - name: Create frontend dist directory
@@ -213,14 +221,22 @@ jobs:
       # is an outer wall around the whole run, distinct from the per-mutant
       # timeout the tool applies itself — the one whose expiry reports as the
       # tolerated outcome above. Sized above this step's own observed maximum,
-      # and below the job bound so the steps after it — the run summary and the
-      # artifact upload, which are what report the outcome — still have room.
-      # That maximum is the product of two factors the mutants configuration
-      # states: the module set it enumerates, which decides how many mutants are
-      # seeded, and the per-mutant test list, which decides what each seeded
-      # mutant costs. Widening either — a module joining examine_globs, or a
-      # binary joining additional_cargo_test_args — is the moment to re-check
-      # this number.
+      # and below the job bound so the steps after it still have room: the cache
+      # save below — the half of the split this step's work populates — and then
+      # the run summary and the artifact upload, which are what report the
+      # outcome. This STEP's bound is the one the sizing is measured against,
+      # and it fires before the job's own.
+      #
+      # That maximum is the product of three factors. Two the mutants
+      # configuration states: the module set it enumerates, which decides how
+      # many mutants are seeded, and the per-mutant test list, which decides
+      # what each seeded mutant costs. Widening either — a module joining
+      # examine_globs, or a binary joining additional_cargo_test_args — is the
+      # moment to re-check this number. The third is the cache above: it stores
+      # the registry only, and this job's weekly cadence sits at the platform's
+      # inactivity-eviction window, so what this bound has to cover is the cold
+      # run — a registry refetch and the whole baseline build ahead of the first
+      # mutant — not the warm one alone.
       - name: Run cargo-mutants (scoped)
         working-directory: packages/desktop/src-tauri
         timeout-minutes: 150
@@ -230,6 +246,18 @@ jobs:
           cargo mutants --in-place
           code=$?
           if [ "$code" -ne 0 ] && [ "$code" -ne 2 ] && [ "$code" -ne 3 ]; then exit "$code"; fi
+
+      # The save half of the split above, after the step that populates the
+      # registry it stores. Its gate and its reasoning are the
+      # desktop-rust-tests cargo block's in test.yml.
+      - name: Save cargo registry
+        if: github.ref == 'refs/heads/main' && steps.cargo-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: ${{ runner.os }}-cargo-mutation-${{ hashFiles('packages/desktop/src-tauri/Cargo.lock') }}
 
       - name: Report outcomes to the run summary
         if: always()
