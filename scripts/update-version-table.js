@@ -45,6 +45,7 @@
 
 import { readFileSync, writeFileSync } from 'node:fs';
 import { resolve, join } from 'node:path';
+import { PLATFORM_SURFACES } from './build-schemas.js';
 
 const ROOT = resolve(import.meta.dirname, '..');
 
@@ -58,8 +59,19 @@ function readVersion(deltaPath) {
   return delta.version;
 }
 
-const extVersion = readVersion('schemas/extension.delta.json');
-const deskVersion = readVersion('schemas/desktop-windows.delta.json');
+// One row per published surface, read from the roster scripts/build-schemas.js
+// states: the display name and the schema file the tables print, plus the
+// version read from that surface's leaf delta.
+const platformRows = PLATFORM_SURFACES.map((surface) => ({
+  ...surface,
+  version: readVersion(surface.delta),
+}));
+
+/** One surface's schema version, by the platform key the roster states it under. */
+const version = (platform) => platformRows.find((row) => row.platform === platform).version;
+
+const extVersion = version('extension');
+const deskVersion = version('desktop-windows');
 
 // ─── Update a file between markers ───────────────────────────────────────────
 
@@ -88,19 +100,8 @@ function updateBetweenMarkers(filePath, startMarker, endMarker, newContent) {
 // layout) repeated the unchanged platform's values on every single-platform
 // bump and implied a cross-platform relationship that doesn't exist. A
 // per-platform row changes only when that platform changes, and adding a new
-// surface (e.g. Linux, #84) is just another entry in this list.
-const platformRows = [
-  {
-    name: 'Chrome Extension',
-    schemaFile: 'schemas/dist/extension.schema.json',
-    version: extVersion,
-  },
-  {
-    name: 'Desktop (Windows)',
-    schemaFile: 'schemas/dist/desktop-windows.schema.json',
-    version: deskVersion,
-  },
-];
+// surface (e.g. Linux, #84) is another entry in the roster the rows above are
+// read from.
 
 // ─── README table ─────────────────────────────────────────────────────────────
 //

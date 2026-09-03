@@ -1160,6 +1160,14 @@ describe('extractWorkflowGating', () => {
     assert.ok(read.jobs[2].condition.includes('needs.changes.outputs.ci'));
   });
 
+  it('locates the filter step by the shared `uses:` substring, not by the action owner', () => {
+    const read = extractWorkflowGating(
+      wf.replace('dorny/paths-filter@abc123', 'acme/paths-filter-fork@v1'),
+    );
+    assert.deepEqual(read.problems, []);
+    assert.deepEqual(read.filterFlags, ['desktop', 'ci']);
+  });
+
   it('refuses unparseable YAML and a file with no jobs mapping', () => {
     assert.ok(extractWorkflowGating('a: [1,').problems[0].includes('does not parse as YAML'));
     assert.ok(extractWorkflowGating('name: test\n').problems[0].includes('no `jobs:` mapping'));

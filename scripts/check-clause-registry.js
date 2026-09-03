@@ -183,14 +183,18 @@
  */
 
 import { readFileSync } from 'node:fs';
-import { basename } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { unified } from 'unified';
 import remarkParse from 'remark-parse';
 import { visit } from 'unist-util-visit';
 import { MAP_PATH, expandBraces, globToRegExp } from './check-area-map.js';
 import { blankRustStrings, stripRustComments } from './check-command-surface.js';
-import { readLoneStringLiteral, tokenizeJs, trackedFilesUnder } from './check-test-inventory.js';
+import {
+  readLoneStringLiteral,
+  selfPath,
+  tokenizeJs,
+  trackedFilesUnder,
+} from './check-test-inventory.js';
 import {
   REGISTRY_PATH,
   loadRegistry,
@@ -215,14 +219,7 @@ import {
  */
 export const AREA_MAP_ENTRY_LISTS = ['declared-governance', 'unassigned', 'governance-partitions'];
 
-/**
- * This check's own path, DERIVED from the file it is written in rather than
- * written out: the path a verdict names is then the file that printed it, and a
- * rename carries the value with the file instead of leaving a literal behind.
- * The `node scripts/<name>.js` usage line in the header above is a comment and
- * stays hand-written — that is the stated boundary of this derivation.
- */
-const SELF_PATH = `scripts/${basename(import.meta.filename)}`;
+const SELF_PATH = selfPath(import.meta.filename);
 
 /** Repo-relative path of the fixture file whose description cites lock ordinals. */
 export const VECTOR_FIXTURES_PATH = 'corpus/vector-fixtures.json';

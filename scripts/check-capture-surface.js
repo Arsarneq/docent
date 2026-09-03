@@ -127,7 +127,6 @@
  */
 
 import { readFileSync } from 'node:fs';
-import { basename } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import {
   backtickedName,
@@ -141,20 +140,14 @@ import {
   readLoneStringLiteral,
   readTableColumn,
   selectTablesByHeader,
+  selfPath,
   stripFences,
   tokenizeJs,
   trackedFilesUnder,
 } from './check-test-inventory.js';
 import { blankRustStrings, stripRustComments } from './check-command-surface.js';
 
-/**
- * This check's own path, DERIVED from the file it is written in rather than
- * written out: the path a verdict names is then the file that printed it, and a
- * rename carries the value with the file instead of leaving a literal behind.
- * The `node scripts/<name>.js` usage line in the header above is a comment and
- * stays hand-written — that is the stated boundary of this derivation.
- */
-const SELF_PATH = `scripts/${basename(import.meta.filename)}`;
+const SELF_PATH = selfPath(import.meta.filename);
 
 /** Repo-relative path of the content-script recorder. */
 export const RECORDER_PATH = 'packages/extension/content/recorder.js';

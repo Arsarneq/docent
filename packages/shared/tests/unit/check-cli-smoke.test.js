@@ -5,26 +5,49 @@
  * exit code 0, the success line prints) — the red paths are proven by each
  * script's own unit tests on synthetic input. Under coverage runs the child
  * processes inherit instrumentation, keeping the wrappers inside the measured
- * set. Environment-sensitive scripts get their env pinned so the same path
- * runs on a laptop, a pull-request runner, and a release tag build alike.
- * Adding a smoke here? Pin EVERY env var the target script reads (check its
- * process.env read-set, including modules it imports) — an unpinned var is a
- * path that changes under someone else's environment.
+ * set. The environment a smoke's child runs under has ONE home: `runScript`.
+ * It reaches past the variables a script reads itself — a check that shells out
+ * to `git` answers to git's environment too, and `GIT_INDEX_FILE` alone turns
+ * most of the cases below red — so the child gets the ambient environment with
+ * every `GIT_*` variable dropped, plus whatever the case pins. The same path
+ * then runs on a laptop, a pull-request runner, and a release tag build alike.
+ * Adding a smoke here? Pin EVERY variable that can steer the target's answer,
+ * not just the ones it names: its own process.env read-set (including the
+ * modules it imports) goes in the case's `env` argument, git's `GIT_*`
+ * environment is already dropped for you, and a target that spawns anything
+ * else pins that program's environment in `runScript` too — an unpinned
+ * variable is a path that changes under someone else's environment.
  */
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
+import { tmpdir } from 'node:os';
 import path from 'node:path';
 
 const ROOT = path.resolve(import.meta.dirname, '../../../..');
+
+/**
+ * The one home for the environment a smoke's child runs under: the ambient
+ * environment with every `GIT_*` variable dropped, then the case's own pins on
+ * top. A case pins the target's own process.env read-set; no case pins git's
+ * environment, because it is scrubbed here for all of them.
+ * @param {Record<string, string>} pins the case's own environment
+ * @returns {Record<string, string>} the child's environment
+ */
+function childEnv(pins) {
+  const ambient = Object.fromEntries(
+    Object.entries(process.env).filter(([name]) => !name.startsWith('GIT_')),
+  );
+  return { ...ambient, ...pins };
+}
 
 /** Run a check script; throws (failing the test) on a non-zero exit. */
 function runScript(script, { args = [], env = {} } = {}) {
   return execFileSync(process.execPath, [path.join(ROOT, 'scripts', script), ...args], {
     cwd: ROOT,
     encoding: 'utf8',
-    env: { ...process.env, ...env },
+    env: childEnv(env),
   });
 }
 
@@ -136,12 +159,9 @@ describe('check-script CLI smoke (deterministic green paths)', () => {
   it('check-ci-filter: the committed path-filter split satisfies its contract', () => {
     // No env pinned: the script reads no process.env — its inputs are
     // repository files (the workflow, the root manifest, the clause registry,
-    // and the scripts the build closure walks) and git's tracked-file listing —
-    // so no var can switch the path this runs. The listing shells out to
-    // `git ls-files`, which answers to git's own environment — that sits
-    // outside the rule rather than under it, as the clippy case below notes,
-    // and nothing here pins it. It is measured with the rest of the family,
-    // and this is what exercises its wrapper.
+    // and the scripts the build closure walks) and git's tracked-file listing,
+    // which the harness pins. It is measured with the rest of the family, and
+    // this is what exercises its wrapper.
     const out = runScript('check-ci-filter.js');
     assert.match(out, /path-filter contract holds/);
   });
@@ -149,10 +169,7 @@ describe('check-script CLI smoke (deterministic green paths)', () => {
   it('check-clippy-invocation: the committed guides state the invocation CI runs', () => {
     // No env pinned: this check and its import closure (the doc-closure gate's
     // table and step readers, the path-filter's job reader, and the
-    // test-inventory tokenizer) read no process.env, which is the read-set this
-    // suite's rule is about. Its tracked-file reader shells out to
-    // `git ls-files`, which answers to git's own environment — that sits outside
-    // the rule rather than under it, and nothing here pins it.
+    // test-inventory tokenizer) read no process.env.
     const out = runScript('check-clippy-invocation.js');
     assert.match(out, /clippy invocation single-sourced/);
   });
@@ -185,10 +202,44 @@ describe('check-script CLI smoke (deterministic green paths)', () => {
     // No env pinned: this check and its import closure (the doc-closure
     // boundary it reads the workflow set through, the path-filter's job reader
     // that boundary imports, the test-inventory population reader, and the YAML
-    // parser) read no process.env. Its tracked-file reader
-    // shells out to `git ls-files`, which answers to git's own environment —
-    // that sits outside the rule rather than under it, and nothing here pins it.
+    // parser) read no process.env.
     const out = runScript('check-workflow-bounds.js');
     assert.match(out, /workflow bounds hold across/);
+  });
+});
+
+describe('the harness locks — the child environment every smoke above runs under', () => {
+  it('a poisoned git environment does not reach the child', () => {
+    // GIT_INDEX_FILE pointed at a file that does not exist reads as an empty
+    // index, so every `git ls-files` listing comes back empty and the checks
+    // that read the tracked tree red. The scrub in childEnv is what keeps this
+    // green; delete it and this case fails on the first smoke it protects.
+    const poison = path.join(tmpdir(), `docent-no-such-index-${process.pid}`);
+    const restore = process.env.GIT_INDEX_FILE;
+    process.env.GIT_INDEX_FILE = poison;
+    try {
+      assert.match(runScript('check-ci-filter.js'), /path-filter contract holds/);
+    } finally {
+      if (restore === undefined) delete process.env.GIT_INDEX_FILE;
+      else process.env.GIT_INDEX_FILE = restore;
+    }
+  });
+
+  it('childEnv drops a GIT_ variable the ambient environment carries', () => {
+    const restore = process.env.GIT_INDEX_FILE;
+    process.env.GIT_INDEX_FILE = '/nowhere/index';
+    try {
+      assert.equal('GIT_INDEX_FILE' in childEnv({}), false);
+    } finally {
+      if (restore === undefined) delete process.env.GIT_INDEX_FILE;
+      else process.env.GIT_INDEX_FILE = restore;
+    }
+  });
+
+  it("a case's own pin survives the scrub", () => {
+    // Scrub first, pin second: a case that deliberately sets a GIT_ variable
+    // still wins, and a case's ordinary pin is untouched by the scrub.
+    assert.equal(childEnv({ GIT_INDEX_FILE: '/pinned/index' }).GIT_INDEX_FILE, '/pinned/index');
+    assert.equal(childEnv({ DOCENT_RELEASE: '1' }).DOCENT_RELEASE, '1');
   });
 });

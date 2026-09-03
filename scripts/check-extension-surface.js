@@ -256,13 +256,6 @@ export const PANEL_DIR = 'packages/extension/sidepanel';
  * dispatcher in.
  */
 export const BACKGROUND_ROOT = 'packages/extension/background';
-/**
- * The extensions a JavaScript module the extension ships can carry — the
- * classic one and the two the module system defines for an explicit module
- * kind. A file is a background module by its extension, so a module written in
- * any of them enters the closure on the day it lands.
- */
-export const BACKGROUND_EXTENSIONS = ['.js', '.mjs', '.cjs'];
 /** The permission-surface clause the manifest legs verify. */
 export const EPM_CLAUSE_ID = 'EPM-1';
 /** The message-surface clause the dispatcher legs verify. */
@@ -305,7 +298,7 @@ export const PERMISSION_TABLES = [
 
 /**
  * Derive the scanned population: the tracked JavaScript modules under
- * {@link BACKGROUND_ROOT}, filtered to {@link BACKGROUND_EXTENSIONS}. Deriving
+ * {@link BACKGROUND_ROOT}, filtered to {@link POPULATION_EXTENSIONS}. Deriving
  * from the directory rather than naming its files is what makes the set
  * maintain itself — a background module the extension grows is scanned the day
  * it lands, with nothing to update here.
@@ -338,7 +331,7 @@ export const PERMISSION_TABLES = [
  * @returns {string[]} repo-relative paths, in `git ls-files` order
  */
 export function derivePopulation(cwd = process.cwd()) {
-  return trackedFilesUnder(BACKGROUND_ROOT, { extensions: BACKGROUND_EXTENSIONS, cwd });
+  return trackedFilesUnder(BACKGROUND_ROOT, { extensions: POPULATION_EXTENSIONS, cwd });
 }
 
 /**
@@ -593,12 +586,12 @@ export function extractDispatcherSurface(sourceByPath) {
     // surface, and feeding an ambiguous label set to the diffs would report
     // drift the population does not have.
     if (switchHeads.length === 0) {
-      problems.push(`no dispatcher switch over the message type found in the tracked ${BACKGROUND_EXTENSIONS.join('/')} modules under ${BACKGROUND_ROOT} — the scan models exactly one`); // prettier-ignore
+      problems.push(`no dispatcher switch over the message type found in the tracked ${POPULATION_EXTENSIONS.join('/')} modules under ${BACKGROUND_ROOT} — the scan models exactly one`); // prettier-ignore
     } else {
       const perFile = [...new Set(switchHeads.map((head) => head.path))]
         .map((path) => `${path} (${switchHeads.filter((head) => head.path === path).length})`)
         .join(', ');
-      problems.push(`the tracked ${BACKGROUND_EXTENSIONS.join('/')} modules under ${BACKGROUND_ROOT} carry ${switchHeads.length} dispatcher switches over the message type — ${perFile} — the scan models exactly one`); // prettier-ignore
+      problems.push(`the tracked ${POPULATION_EXTENSIONS.join('/')} modules under ${BACKGROUND_ROOT} carry ${switchHeads.length} dispatcher switches over the message type — ${perFile} — the scan models exactly one`); // prettier-ignore
     }
     return surface();
   }
@@ -1346,7 +1339,7 @@ function run() {
           `  serviced message types, the panel's literal sends, and the runtime doc's\n` +
           `  capture-path and panel-protocol enumerations must state the same sets\n` +
           `  (${RUNTIME_DOC_PATH} §${ERT_CLAUSE_ID}).\n` +
-          `  The dispatcher legs read the tracked ${BACKGROUND_EXTENSIONS.join('/')} modules under\n` +
+          `  The dispatcher legs read the tracked ${POPULATION_EXTENSIONS.join('/')} modules under\n` +
           `  ${BACKGROUND_ROOT}: one dispatcher switch stands in that set,\n` +
           `  in ${WORKER_PATH}, whose own guards the\n` +
           `  capture-path table is held to, while a guard anywhere in the set is held\n` +

@@ -38,6 +38,7 @@ import {
   FILE_SAMPLE,
   MAP_PATH,
 } from '../../../../scripts/check-area-map.js';
+import { pathGlobToRegExp } from '../../../../scripts/check-test-inventory.js';
 
 /** A minimal well-formed map two areas wide, for overriding per test. */
 function makeMap(overrides = {}) {
@@ -114,6 +115,52 @@ describe('globToRegExp — pattern semantics', () => {
   it('rejects ** embedded inside a segment (** is whole-segment only)', () => {
     assert.throws(() => globToRegExp('packages/**.js'));
     assert.throws(() => globToRegExp('a/b**/c.js'));
+  });
+});
+
+describe('globToRegExp — one segment compiler, two admission gates', () => {
+  // The segment semantics (`*` inside a segment, `**` as a whole segment) have
+  // ONE home: the path-glob compiler in check-test-inventory.js. This wrapper
+  // adds the map's own closed-world admission and the throwing posture, and
+  // nothing else — so a re-forked loop here, or a change to the semantics
+  // there, is a red rather than a silent divergence between two compilers.
+  const DIALECT = [
+    'packages/alpha/**',
+    'scripts/check-*.js',
+    '**/playwright*.config.js',
+    '.*',
+    'packages/shared/lib/**/*.js',
+    'packages/shared/lib/*.js',
+    'packages/shared/sync-client.js',
+    'a/**/b/**/c.js',
+    '**',
+    'docs/**/*.md',
+    'corpus/sessions/*/vectors/**',
+    'packages/desktop/src-tauri/*',
+  ];
+
+  it('compiles every pattern of the shared dialect to the same matcher', () => {
+    for (const pattern of DIALECT) {
+      const primitive = pathGlobToRegExp(pattern);
+      assert.equal(primitive.error, undefined, pattern);
+      assert.equal(globToRegExp(pattern).source, primitive.regex.source, pattern);
+    }
+  });
+
+  it('holds the admission gap one-way: what the map refuses, it refuses here', () => {
+    // The map's pattern language is a closed world; the primitive models a
+    // wider one. Everything the primitive refuses the map refuses too, and the
+    // extra refusals are the map's own — pinned so the gap cannot drift shut.
+    const REFUSED_BY_BOTH = ['scripts/[ab].js', 'scripts/?.js', 'packages/**.js', 'a/b**/c.js'];
+    for (const pattern of REFUSED_BY_BOTH) {
+      assert.ok(pathGlobToRegExp(pattern).error, pattern);
+      assert.throws(() => globToRegExp(pattern), /unsupported pattern syntax/, pattern);
+    }
+    const MAP_ONLY_REFUSALS = ['pkg/@scope/x.js', 'a b.js', 'a+b.js', 'a|b.js', ''];
+    for (const pattern of MAP_ONLY_REFUSALS) {
+      assert.equal(pathGlobToRegExp(pattern).error, undefined, pattern);
+      assert.throws(() => globToRegExp(pattern), /unsupported pattern syntax/, pattern);
+    }
   });
 });
 

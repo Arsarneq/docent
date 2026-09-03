@@ -58,17 +58,14 @@
  */
 
 import { execFileSync } from 'node:child_process';
-import { basename } from 'node:path';
 import { pathToFileURL } from 'node:url';
+// A shared reader only — that module imports node builtins and nothing else,
+// so this command line still carries no parser or heavy module it does not
+// use: importing a builtins-only module is within the lean-closure principle
+// scripts/governance-data.js states.
+import { selfPath } from './check-test-inventory.js';
 
-/**
- * This check's own path, DERIVED from the file it is written in rather than
- * written out: the path a verdict names is then the file that printed it, and a
- * rename carries the value with the file instead of leaving a literal behind.
- * The `node scripts/<name>.js` usage line in the header above is a comment and
- * stays hand-written — that is the stated boundary of this derivation.
- */
-export const SELF_PATH = `scripts/${basename(import.meta.filename)}`;
+export const SELF_PATH = selfPath(import.meta.filename);
 
 /** The git invocation that answers the ignore question, kept in one place. */
 export const GIT_ARGS = ['ls-files', '-z', '-i', '-c', '--exclude-per-directory=.gitignore'];

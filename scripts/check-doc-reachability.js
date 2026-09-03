@@ -28,21 +28,14 @@
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { trackedFilesUnder } from './check-test-inventory.js';
+import { selfPath, trackedFilesUnder } from './check-test-inventory.js';
 import { unified } from 'unified';
 import remarkParse from 'remark-parse';
 import { visit } from 'unist-util-visit';
 
 const posix = path.posix;
 
-/**
- * This check's own path, DERIVED from the file it is written in rather than
- * written out: the path a verdict names is then the file that printed it, and a
- * rename carries the value with the file instead of leaving a literal behind.
- * The `node scripts/<name>.js` usage line in the header above is a comment and
- * stays hand-written — that is the stated boundary of this derivation.
- */
-const SELF_PATH = `scripts/${path.basename(import.meta.filename)}`;
+const SELF_PATH = selfPath(import.meta.filename);
 
 /** The file every doc must be reachable from. */
 export const START = 'README.md';

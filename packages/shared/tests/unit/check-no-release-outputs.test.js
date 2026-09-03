@@ -36,6 +36,12 @@ import {
 /** versionAt stub from a { 'ref:file': version } table (missing key = absent file). */
 const versionTable = (entries) => (ref, file) => entries[`${ref}:${file}`] ?? null;
 
+/** This repository's root, resolved once for every case below that reads a committed file. */
+const REPO_ROOT = path.resolve(import.meta.dirname, '../../../..');
+
+/** Escape a literal for embedding in a RegExp source. */
+const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
 describe('featureBranchViolations — the guard has teeth', () => {
   it('flags any change under schemas/dist/', () => {
     const violations = featureBranchViolations({
@@ -246,16 +252,12 @@ describe('the guard steps forward what the derivation reads', () => {
   // the step that runs the script, which is what makes moving them to a
   // neighbouring step a red rather than a rename the file-wide count would miss.
   // The whole-file count runs beside it, refusing a second, drifted copy.
-  const REPO = path.resolve(import.meta.dirname, '../../../..');
 
   /** The event fields a guard step forwards, spelled as the workflows state them. */
   const FORWARDED = {
     PR_HEAD_REF: '${{ github.head_ref }}',
     PR_HEAD_REPO: '${{ github.event.pull_request.head.repo.full_name }}',
   };
-
-  /** Escape a literal for embedding in a RegExp source. */
-  const esc = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
   /**
    * A workflow parsed into steps, refusing readably where YAML cannot read it
@@ -304,7 +306,7 @@ describe('the guard steps forward what the derivation reads', () => {
     ['.github/workflows/docs-disposition.yml', 'scripts/check-docs-disposition.js'],
   ]) {
     it(`${workflowFile} hands ${script} the head branch and the head repository`, () => {
-      const text = readFileSync(path.join(REPO, workflowFile), 'utf8');
+      const text = readFileSync(path.join(REPO_ROOT, workflowFile), 'utf8');
       const step = guardStep(parseWorkflow(text, workflowFile), workflowFile, script);
 
       for (const [key, expression] of Object.entries(FORWARDED)) {
@@ -317,7 +319,7 @@ describe('the guard steps forward what the derivation reads', () => {
             `arrive, so a ${key} dropped, rewritten, or moved to another step silently ` +
             `selects no mode (found ${step.env[key] === undefined ? 'no such key there' : `"${step.env[key]}"`})`,
         );
-        const copies = [...text.matchAll(new RegExp(String.raw`^\s*${esc(key)}:`, 'gm'))];
+        const copies = [...text.matchAll(new RegExp(String.raw`^\s*${escapeRe(key)}:`, 'gm'))];
         assert.equal(
           copies.length,
           1,
@@ -343,10 +345,6 @@ describe('the automation branch name — welded to the prose that spells it out'
   // contributor-facing documents that spell the name out. The name's echoes
   // inside code comments and workflow comments are a different class,
   // cite-the-owner territory, and stay outside this weld.
-  const REPO_ROOT = path.resolve(import.meta.dirname, '../../../..');
-
-  /** Escape a literal for embedding in a RegExp source. */
-  const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
   /**
    * The branch's own namespace — the segment the name opens with, derived from
