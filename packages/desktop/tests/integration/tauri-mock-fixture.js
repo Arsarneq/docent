@@ -29,15 +29,18 @@
  *
  * ── What the mock services ───────────────────────────────────────────────────
  * The canonical table answers every command the crate registers, and every
- * invoke — serviced or not — is recorded, so a spec can read the panel's
- * command traffic through `_getInvokeCalls()` / `_clearInvokeCalls()`, the
- * invokes no command services through `_getUnknownInvokes()`, and the persisted
- * blob itself through `_getSavedState()` — what `load_state` would answer, read
- * without adding an invoke to the record. The two recorded-invoke accessors each
- * hand out a copy of their list, so a caller reading one inside `page.evaluate`
- * — where the value is the live object rather than a structured clone — can
- * sort, reverse, or splice what it was given without reaching the record the
- * mock keeps.
+ * invoke — serviced or not — is recorded, so a spec reads the panel's command
+ * traffic through the fixture's readers below (`invokedCommands`, `invokesOf`,
+ * `clearInvokes`), the invokes no command services through
+ * `_getUnknownInvokes()`, and the persisted blob itself through
+ * `_getSavedState()` — what `load_state` would answer, read without adding an
+ * invoke to the record. The page-side getters over the record and over the
+ * unknown-invoke list each hand out a copy of what they hold (the reset hands
+ * out nothing), so the one spec-side read of the record — the settle probe in
+ * the panel spec, which needs the invoke count and the saved blob from one page
+ * turn and which the integration-suite locks name as the allowance — can sort,
+ * reverse, or splice what it was given without reaching the record the mock
+ * keeps.
  *
  * Spec-controlled behaviour rides named hooks on `window.__TAURI__`:
  * `_setWindows()` supplies the `list_windows` result, `_setImportResult()` the
@@ -54,7 +57,7 @@
  * test page starts from the empty state (the generated script below states the
  * mechanics).
  *
- * ── Two helpers specs share ──────────────────────────────────────────────────
+ * ── The helpers specs share ──────────────────────────────────────────────────
  * `openPanel(page, server)` is the panel-open preamble: navigate to the served
  * frontend, then wait for the panel to have loaded — its startup `load_state`
  * invoke recorded, and the projects view visible. Both halves are needed: that
@@ -62,7 +65,19 @@
  * document parses, while the invoke on its own says a call was made and not
  * that the panel got as far as showing what it loaded. An exception thrown
  * during startup surfaces as its own message, distinct from the one naming a
- * bundle that never ran.
+ * bundle that never ran; the watch itself stays armed for the test's whole
+ * run, so an error after the gate fails the test in the shared afterEach.
+ *
+ * `createProject(page, name)` walks the new-project form and lands on the
+ * project's detail view, holding that view to the name it typed — so a spec
+ * whose subject is what happens once a project exists fails at the walk rather
+ * than downstream, against a view that never took the name. Its precondition is
+ * the projects view as the panel RENDERED it, a state the shipped markup cannot
+ * produce and one no invoke-record reset erases, so the failure names each
+ * state it can mean: a page that never ran the panel, and one left standing
+ * inside a project. It opens no panel: the server handle belongs to the spec,
+ * and the mock's invoke record is per document, so a re-open would drop the
+ * invokes the spec goes on to read.
  *
  * `fireCaptureActions(page, payloads)` delivers captured actions through the
  * registered `capture:action` listener, and throws naming the absent listener
@@ -72,6 +87,22 @@
  * first, for a spec placing an action after a gap; the listener is checked
  * before the wait begins, and the call resolves once the actions have been
  * delivered.
+ *
+ * `seedRecordedStep(page, { project, recording, actions, narration })` is the
+ * run-up to a committed step: the project — through `createProject`, so that
+ * walk keeps its one home — a recording inside it, the captured actions
+ * delivered, then the narration and the commit. Every key is stated by the
+ * caller as a value or `null`, a missing one throwing naming it, and `null`
+ * skips its leg, so a caller stops where its own subject begins. The commit
+ * is held to the step the panel rendered, so a commit that produced no step
+ * fails here rather than in whatever the caller asserts next.
+ *
+ * `invokedCommands(page)`, `invokesOf(page, command)` and `clearInvokes(page)`
+ * read the mock's invoke record, the read itself being what a spec must not
+ * re-implement: the command names in order; one command's records, arguments
+ * included — the records themselves, never the arguments alone, so whether a
+ * command was invoked and what it was passed stay separate questions; and the
+ * reset that drops the record while the unknown-invoke list stands.
  *
  * ── Unknown invokes fail loudly ──────────────────────────────────────────────
  * An invoke of a command the mock does not service is recorded AND rejects (an
@@ -145,6 +176,27 @@ const DIST_PATH = path.resolve(__dirname, '../../dist');
 
 /** The page event an uncaught frontend error arrives on. */
 const PAGE_ERROR_EVENT = 'pageerror';
+
+/**
+ * The uncaught page errors each page has reported — exceptions and unhandled
+ * rejections alike — from the moment the watch was armed on it. Armed once per
+ * page: the installer's per-test hook arms the test's page, and openPanel arms
+ * whatever page it is handed, so a page opened outside those hooks keeps its
+ * startup verdict.
+ */
+const pageErrors = new WeakMap();
+/** Arm the watch on a page once and hand back its live record. */
+function armPageErrorWatch(page) {
+  let errors = pageErrors.get(page);
+  if (!errors) {
+    errors = [];
+    pageErrors.set(page, errors);
+    page.on(PAGE_ERROR_EVENT, (error) => {
+      errors.push(error);
+    });
+  }
+  return errors;
+}
 
 /** Same-origin path the mock script is served from and injected by. */
 const MOCK_SCRIPT_PATH = '/__tauri-mock.js';
@@ -437,6 +489,16 @@ export function installTauriMockServer(options = {}) {
     server = null;
   });
 
+  // The page-error watch lives as long as the test, not as long as the
+  // readiness gate: every uncaught exception the panel throws — during
+  // startup, during a click, inside a listener the test fired — and every
+  // unhandled rejection lands on the page's record, and the afterEach below
+  // fails the test on any of them. openPanel reads the same record for its
+  // startup verdict.
+  test.beforeEach(({ page }) => {
+    armPageErrorWatch(page);
+  });
+
   test.afterEach(async ({ page }) => {
     const probe = await page.evaluate((mockPath) => {
       const injected = !!document.querySelector(`script[src="${mockPath}"]`);
@@ -447,6 +509,13 @@ export function installTauriMockServer(options = {}) {
       };
     }, MOCK_SCRIPT_PATH);
 
+    const pageErrorMessages = armPageErrorWatch(page).map(
+      (error) => error?.message ?? String(error),
+    );
+    const reported = pageErrorMessages.length
+      ? ` Page errors reported meanwhile: ${JSON.stringify(pageErrorMessages)}`
+      : '';
+
     // Keyed on the injected tag, so this covers exactly the documents the server
     // injected into — and catches a mock that was injected but did not install,
     // the way an override resolving in the test process and then throwing in the
@@ -456,7 +525,8 @@ export function installTauriMockServer(options = {}) {
     if (probe.injected) {
       expect(
         probe.installed,
-        'this fixture injected its mock script into the page, but no window.__TAURI__ mock installed — the unknown-invoke guard cannot speak',
+        'this fixture injected its mock script into the page, but no window.__TAURI__ mock installed — the unknown-invoke guard cannot speak' +
+          reported,
       ).toBe(true);
     }
 
@@ -467,7 +537,13 @@ export function installTauriMockServer(options = {}) {
         `The command-surface admission test holds this mock's serviced set equal to the ` +
         `crate's registered commands, so either stop invoking it or add the command to ` +
         `the crate (the admission test then requires the canonical entries here); an ` +
-        `override cannot introduce a command the table does not already service.`,
+        `override cannot introduce a command the table does not already service.` +
+        reported,
+    ).toEqual([]);
+
+    expect(
+      pageErrorMessages,
+      'the panel threw uncaught while this test ran — an exception or unhandled rejection the page reported on `pageerror`; the messages are listed',
     ).toEqual([]);
   });
 
@@ -485,7 +561,8 @@ export function installTauriMockServer(options = {}) {
  * visible. The view alone would not do: it is the one the markup ships
  * un-hidden, so it matches the moment the document parses. An exception thrown
  * during startup surfaces as its own message, distinct from the one naming a
- * bundle that never ran.
+ * bundle that never ran; the watch itself stays armed for the test's whole run,
+ * so an error after the gate fails the test in the shared afterEach.
  *
  * @param {import('@playwright/test').Page} page
  * @param {{ url: (pathname?: string) => string }} server the value
@@ -498,17 +575,22 @@ export async function openPanel(page, server, options = {}) {
   const { timeout = 10000 } = options;
   // A panel that throws part-way through startup can still satisfy the gate
   // below — its first invoke is already recorded and the projects view is
-  // already up — so watch for an uncaught page error across the whole open and
+  // already up — so read the page's error record across the whole open and
   // report that as its own failure, distinct from a bundle that never ran.
-  let startupError = null;
-  const onPageError = (error) => {
-    startupError ??= error;
-  };
-  const startupThrew = () =>
-    new Error(`[tauri-mock] the panel threw while starting up: ${startupError.message}`, {
+  // Only what the page reported since THIS open counts, so an error an earlier
+  // part of the test already reported is never re-read as a startup failure;
+  // and the one this reports comes out of the record, so the shared afterEach
+  // never names it a second time while anything else the open provoked stays
+  // for that hook to list.
+  const errors = armPageErrorWatch(page);
+  const seen = errors.length;
+  const startupThrew = () => {
+    const startupError = errors[seen];
+    errors.splice(seen, 1);
+    return new Error(`[tauri-mock] the panel threw while starting up: ${startupError.message}`, {
       cause: startupError,
     });
-  page.on(PAGE_ERROR_EVENT, onPageError);
+  };
   try {
     await page.goto(server.url());
     // Readiness has to be something the panel did, not something the markup
@@ -528,7 +610,7 @@ export async function openPanel(page, server, options = {}) {
       { timeout },
     );
   } catch (cause) {
-    if (startupError) throw startupThrew();
+    if (errors[seen]) throw startupThrew();
     throw new Error(
       `[tauri-mock] the panel did not load and reach the projects view within ${timeout}ms. ` +
         'This server serves packages/desktop/dist, the built frontend bundle, and a missing or ' +
@@ -536,10 +618,65 @@ export async function openPanel(page, server, options = {}) {
         'with `npm run sync-shared && npm run build:desktop-dist`.',
       { cause },
     );
-  } finally {
-    page.off(PAGE_ERROR_EVENT, onPageError);
   }
-  if (startupError) throw startupThrew();
+  if (errors[seen]) throw startupThrew();
+}
+
+/**
+ * The projects view as the panel renders it, not as the markup ships it: the
+ * view visible AND either its empty-state element un-hidden or its list filled
+ * (`renderProjectsList` does one or the other; the markup ships the element
+ * hidden and the list empty). A panel that never ran cannot satisfy it, and a
+ * panel standing inside a project does not show it. Evaluated in the page.
+ */
+const PROJECTS_VIEW_RENDERED = () => {
+  const view = document.querySelector('#view-projects');
+  if (!view || view.classList.contains('hidden')) return false;
+  const empty = document.querySelector('#projects-empty');
+  const list = document.querySelector('#project-list');
+  return (!!empty && !empty.classList.contains('hidden')) || (!!list && list.children.length > 0);
+};
+
+/**
+ * Create a project from the panel's projects view and land on its detail view.
+ *
+ * The wait for `#view-project` says the view switched; the title assertion says
+ * the panel got as far as showing the project it was asked for — a spec whose
+ * real subject is what happens after a project exists would otherwise carry on
+ * against a view that never took the name and fail downstream, naming the wrong
+ * thing. A whitespace-only name is held to what the panel renders it as,
+ * "Untitled Project".
+ *
+ * The panel has to be open on its projects view: `openPanel` is its own call,
+ * named at the call site, because the server handle is the spec's and the mock's
+ * invoke record is per document — a re-open would drop the invokes a spec then
+ * reads. The precondition is that view as the panel rendered it, so a page that
+ * was merely navigated, served a bundle that never ran, or left standing inside
+ * a project fails here by name rather than on a later selector — and a spec that
+ * cleared the invoke record first is unaffected.
+ *
+ * @param {import('@playwright/test').Page} page
+ * @param {string} [name] the project name typed into the form
+ * @param {{ timeout?: number }} [options] how long to give each step
+ * @returns {Promise<void>} resolves once the project detail view shows the name
+ */
+export async function createProject(page, name = 'Test Project', options = {}) {
+  const { timeout = 5000 } = options;
+  await page.waitForFunction(PROJECTS_VIEW_RENDERED, undefined, { timeout }).catch((cause) => {
+    throw new Error(
+      'createProject needs the panel on its rendered projects view — ' +
+        'call openPanel(page, server) first, or return to the projects view',
+      { cause },
+    );
+  });
+  await page.click('#btn-new-project');
+  await page.waitForSelector('#view-new-project:not(.hidden)', { timeout });
+  await page.fill('#new-project-name', name);
+  await page.click('#btn-new-project-create');
+  await page.waitForSelector('#view-project:not(.hidden)', { timeout });
+  await expect(page.locator('#project-title')).toHaveText(name.trim() || 'Untitled Project', {
+    timeout,
+  });
 }
 
 /**
@@ -577,4 +714,112 @@ export async function fireCaptureActions(page, payloads, options = {}) {
     },
     { actions: payloads, delay: delayMs },
   );
+}
+
+/**
+ * Walk the open panel to a committed step: create a project (through
+ * `createProject`, so the walk and its postcondition have one home), create a
+ * recording inside it, deliver captured actions, then narrate and commit. Every
+ * key is stated by the caller as a value or `null` — a missing or undefined one
+ * throws naming it — and `null` skips its leg: `project: null` when the panel
+ * already stands inside the project, `recording: null` to stop after the
+ * project, `actions: null` to deliver nothing, `narration: null` to leave the
+ * delivered actions uncommitted. The commit leg holds the step list to one more
+ * `.step-item` than before the click, so a commit the panel did not render
+ * fails here rather than in whatever the caller asserts next. The waits are the
+ * ones the panel's view transitions, delivery and commit take.
+ *
+ * @param {import('@playwright/test').Page} page an open panel (`openPanel` first)
+ * @param {object} legs
+ * @param {string | null} legs.project
+ * @param {string | null} legs.recording
+ * @param {object[] | null} legs.actions `capture:action` payloads; each is
+ *   stamped with the current time unless it carries a `timestamp`
+ * @param {string | null} legs.narration
+ * @returns {Promise<void>}
+ */
+export async function seedRecordedStep(page, legs) {
+  for (const key of ['project', 'recording', 'actions', 'narration']) {
+    if (legs?.[key] === undefined)
+      throw new Error(`seedRecordedStep: state "${key}" (a value, or null to skip that leg)`);
+  }
+  const { project, recording, actions, narration } = legs;
+  const timeout = 5000;
+  if (project !== null) await createProject(page, project, { timeout });
+  if (recording !== null) {
+    await page.click('#btn-new-recording');
+    await page.waitForSelector('#view-new-recording:not(.hidden)', { timeout });
+    await page.fill('#new-recording-name', recording);
+    await page.click('#btn-new-recording-create');
+    await page.waitForSelector('#view-recording:not(.hidden)', { timeout });
+  }
+  if (actions !== null) {
+    await fireCaptureActions(
+      page,
+      actions.map((action) =>
+        'timestamp' in action ? action : { ...action, timestamp: Date.now() },
+      ),
+    );
+    await page.waitForTimeout(300);
+  }
+  if (narration !== null) {
+    const steps = page.locator('.step-item');
+    const before = await steps.count();
+    await page.fill('#narration-input', narration);
+    await page.click('#btn-commit-step');
+    await expect(steps).toHaveCount(before + 1, { timeout });
+    await page.waitForTimeout(500);
+  }
+}
+
+/**
+ * The command names the page has invoked, in the order the mock recorded them.
+ *
+ * The ordered names are what an assertion about the panel's command traffic
+ * reads — that a commit ran through `stop_capture` and not a separate
+ * `commit_barrier`, say. A site that needs one command's arguments reads
+ * {@link invokesOf} instead.
+ *
+ * @param {import('@playwright/test').Page} page
+ * @returns {Promise<string[]>} every recorded invoke's command name, in order
+ */
+export async function invokedCommands(page) {
+  return page.evaluate(() => window.__TAURI__._getInvokeCalls().map((call) => call.cmd));
+}
+
+/**
+ * The invokes of one command the page has recorded, in order.
+ *
+ * Each entry is the mock's own `{ cmd, args }` record, so a site reads
+ * `entry.args` for what the panel passed and the entry itself answers whether
+ * the command was invoked at all. Handing back the arguments alone would make
+ * those two questions one: a command invoked with no arguments records
+ * `undefined` there, which an existence check cannot tell from never having
+ * been invoked.
+ *
+ * @param {import('@playwright/test').Page} page
+ * @param {string} command the command name to select
+ * @returns {Promise<{ cmd: string, args: unknown }[]>} the matching records, in
+ *   the order the mock recorded them; empty where the page invoked no such
+ *   command
+ */
+export async function invokesOf(page, command) {
+  return page.evaluate(
+    (cmd) => window.__TAURI__._getInvokeCalls().filter((call) => call.cmd === cmd),
+    command,
+  );
+}
+
+/**
+ * Drop the recorded invokes, so what a spec reads afterwards is the traffic of
+ * the step it is about to take and nothing before it.
+ *
+ * The unknown-invoke list is deliberately left standing — a spec resetting its
+ * own assertion window never resets the suite's drift signal.
+ *
+ * @param {import('@playwright/test').Page} page
+ * @returns {Promise<void>}
+ */
+export async function clearInvokes(page) {
+  await page.evaluate(() => window.__TAURI__._clearInvokeCalls());
 }

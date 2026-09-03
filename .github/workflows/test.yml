@@ -172,13 +172,15 @@ jobs:
             # disposition suite's bullet literal), the clause registry (the
             # disposition suite's example-anchor row and the schema-echo suite's
             # check-ref literal), the top-level README (the version-sync step's
-            # table), and the e2e suite document (the test-inventory suite holds
-            # its inventory as several tables). Where a suite instead re-runs
-            # one of the always-on lint job's gates over the committed tree,
-            # that job reds the same drift on every PR, so such files carry no
-            # flag here. Narrow on purpose — it gates unit-tests alone. Same
-            # per-holding-job rule as the flags above; every entry is a literal
-            # path, held to a tracked file by scripts/check-ci-filter.js.
+            # table), the e2e suite document (the test-inventory suite holds its
+            # inventory as several tables), and the desktop integration-suite
+            # document (the integration-suite locks' shared-helpers paragraph).
+            # Where a suite instead re-runs one of the always-on lint job's
+            # gates over the committed tree, that job reds the same drift on
+            # every PR, so such files carry no flag here. Narrow on purpose — it
+            # gates unit-tests alone. Same per-holding-job rule as the flags
+            # above; every entry is a literal path, held to a tracked file by
+            # scripts/check-ci-filter.js.
             suiteHeld:
               - '.github/PUBLISHING.md'
               - '.github/workflows/docs-disposition-audit.yml'
@@ -201,6 +203,7 @@ jobs:
               - 'docs/technical/session-format.md'
               - 'docs/test/README.md'
               - 'docs/test/e2e.md'
+              - 'docs/test/integration/desktop.md'
               - 'docs/test/strategy/coverage.md'
               - 'docs/test/strategy/mutation.md'
               - 'docs/verification/scripted-truth-corpus.md'

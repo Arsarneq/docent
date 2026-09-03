@@ -7,42 +7,21 @@
  */
 
 import { test, expect } from './coverage-fixture.js';
-import { installTauriMockServer, fireCaptureActions, openPanel } from './tauri-mock-fixture.js';
+import {
+  fireCaptureActions,
+  installTauriMockServer,
+  openPanel,
+  seedRecordedStep,
+} from './tauri-mock-fixture.js';
 
 const server = installTauriMockServer();
 
-// Helper: create a project with a committed step
-async function setupProjectWithStep(page) {
-  await openPanel(page, server);
-
-  await page.click('#btn-new-project');
-  await page.waitForSelector('#view-new-project:not(.hidden)', { timeout: 5000 });
-  await page.fill('#new-project-name', 'Dispatch Test');
-  await page.click('#btn-new-project-create');
-  await page.waitForSelector('#view-project:not(.hidden)', { timeout: 5000 });
-
-  await page.click('#btn-new-recording');
-  await page.waitForSelector('#view-new-recording:not(.hidden)', { timeout: 5000 });
-  await page.fill('#new-recording-name', 'Flow');
-  await page.click('#btn-new-recording-create');
-  await page.waitForSelector('#view-recording:not(.hidden)', { timeout: 5000 });
-
-  // Simulate capture event
-  await fireCaptureActions(page, [
-    {
-      type: 'click',
-      timestamp: Date.now(),
-      capture_mode: 'accessibility',
-      context_id: 1,
-      element: { text: 'Submit', tag: 'Button', selector: '#btn' },
-    },
-  ]);
-  await page.waitForTimeout(300);
-
-  await page.fill('#narration-input', 'Click submit');
-  await page.click('#btn-commit-step');
-  await page.waitForTimeout(500);
-}
+const SUBMIT_CLICK = {
+  type: 'click',
+  capture_mode: 'accessibility',
+  context_id: 1,
+  element: { text: 'Submit', tag: 'Button', selector: '#btn' },
+};
 
 test.describe('Desktop Panel — Dispatch Settings', () => {
   test('saving dispatch settings persists endpoint URL', async ({ page }) => {
@@ -118,7 +97,13 @@ test.describe('Desktop Panel — Sync Settings', () => {
 
 test.describe('Desktop Panel — Dispatch Flow', () => {
   test('dispatch button disabled without endpoint configured', async ({ page }) => {
-    await setupProjectWithStep(page);
+    await openPanel(page, server);
+    await seedRecordedStep(page, {
+      project: 'Dispatch Test',
+      recording: 'Flow',
+      actions: [SUBMIT_CLICK],
+      narration: 'Click submit',
+    });
 
     // Go back to project view
     await page.click('#bc-project');

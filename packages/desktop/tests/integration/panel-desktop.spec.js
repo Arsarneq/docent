@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Desktop Panel UI Tests
  *
  * Tests the desktop panel by serving the built frontend against the suite's
@@ -8,18 +8,24 @@
  */
 
 import { test, expect } from './coverage-fixture.js';
-import { installTauriMockServer, fireCaptureActions, openPanel } from './tauri-mock-fixture.js';
+import {
+  clearInvokes,
+  fireCaptureActions,
+  installTauriMockServer,
+  invokesOf,
+  openPanel,
+} from './tauri-mock-fixture.js';
 import assert from 'node:assert/strict';
 
 const server = installTauriMockServer();
 
-test.describe('Desktop Panel â€” Smoke', () => {
+test.describe('Desktop Panel — Smoke', () => {
   test('panel loads and shows projects view', async ({ page }) => {
     await openPanel(page, server);
     await expect(page.locator('#view-projects')).toBeVisible();
   });
 
-  test('create project â†’ project detail view', async ({ page }) => {
+  test('create project → project detail view', async ({ page }) => {
     await openPanel(page, server);
 
     await page.click('#btn-new-project');
@@ -31,7 +37,7 @@ test.describe('Desktop Panel â€” Smoke', () => {
     await expect(page.locator('#project-title')).toHaveText('Desktop Test');
   });
 
-  test('create recording â†’ recording view', async ({ page }) => {
+  test('create recording → recording view', async ({ page }) => {
     await openPanel(page, server);
 
     await page.click('#btn-new-project');
@@ -50,7 +56,7 @@ test.describe('Desktop Panel â€” Smoke', () => {
   });
 });
 
-test.describe('Desktop Panel â€” Simple Mode', () => {
+test.describe('Desktop Panel — Simple Mode', () => {
   test('switching to simple mode shows simple mode box', async ({ page }) => {
     await openPanel(page, server);
 
@@ -81,7 +87,7 @@ test.describe('Desktop Panel â€” Simple Mode', () => {
   });
 });
 
-test.describe('Desktop Panel â€” Metadata', () => {
+test.describe('Desktop Panel — Metadata', () => {
   test('project metadata section exists and add button works', async ({ page }) => {
     await openPanel(page, server);
 
@@ -138,7 +144,7 @@ test.describe('Desktop Panel â€” Metadata', () => {
   });
 });
 
-test.describe('Desktop Panel â€” Commit with Simulated Capture', () => {
+test.describe('Desktop Panel — Commit with Simulated Capture', () => {
   test('simulated capture event enables commit in simple mode', async ({ page }) => {
     await openPanel(page, server);
 
@@ -188,7 +194,7 @@ test.describe('Desktop Panel â€” Commit with Simulated Capture', () => {
   });
 });
 
-test.describe('Desktop Panel â€” Theme', () => {
+test.describe('Desktop Panel — Theme', () => {
   test('theme switch updates data-theme attribute', async ({ page }) => {
     await openPanel(page, server);
 
@@ -204,8 +210,8 @@ test.describe('Desktop Panel â€” Theme', () => {
   });
 });
 
-test.describe('Desktop Panel â€” Narration Commit Flow', () => {
-  test('type narration + simulated capture â†’ commit â†’ step appears', async ({ page }) => {
+test.describe('Desktop Panel — Narration Commit Flow', () => {
+  test('type narration + simulated capture → commit → step appears', async ({ page }) => {
     await openPanel(page, server);
 
     // Create project + recording
@@ -374,7 +380,7 @@ test.describe('Desktop Panel â€” Narration Commit Flow', () => {
   });
 });
 
-test.describe('Desktop Panel â€” Clear Button', () => {
+test.describe('Desktop Panel — Clear Button', () => {
   test('clear resets pending actions and disables commit', async ({ page }) => {
     await openPanel(page, server);
 
@@ -411,7 +417,7 @@ test.describe('Desktop Panel â€” Clear Button', () => {
   });
 });
 
-test.describe('Desktop Panel â€” Step Detail View', () => {
+test.describe('Desktop Panel — Step Detail View', () => {
   test('clicking step narration opens detail view', async ({ page }) => {
     await openPanel(page, server);
 
@@ -454,7 +460,7 @@ test.describe('Desktop Panel â€” Step Detail View', () => {
   });
 });
 
-test.describe('Desktop Panel â€” Delete Step', () => {
+test.describe('Desktop Panel — Delete Step', () => {
   test('delete removes step from list', async ({ page }) => {
     await openPanel(page, server);
 
@@ -510,7 +516,7 @@ test.describe('Desktop Panel â€” Delete Step', () => {
   });
 });
 
-test.describe('Desktop Panel â€” History View', () => {
+test.describe('Desktop Panel — History View', () => {
   test('history button shows step versions', async ({ page }) => {
     await openPanel(page, server);
 
@@ -552,7 +558,7 @@ test.describe('Desktop Panel â€” History View', () => {
   });
 });
 
-test.describe('Desktop Panel â€” Projects View UI Elements', () => {
+test.describe('Desktop Panel — Projects View UI Elements', () => {
   test('file input is hidden', async ({ page }) => {
     await openPanel(page, server);
     await expect(page.locator('#import-file-input')).toBeHidden();
@@ -575,7 +581,7 @@ test.describe('Desktop Panel â€” Projects View UI Elements', () => {
   });
 });
 
-test.describe('Desktop Panel â€” Project Detail UI', () => {
+test.describe('Desktop Panel — Project Detail UI', () => {
   test('export button is visible', async ({ page }) => {
     await openPanel(page, server);
 
@@ -609,7 +615,7 @@ test.describe('Desktop Panel â€” Project Detail UI', () => {
   });
 });
 
-test.describe('Desktop Panel â€” Recording View UI State', () => {
+test.describe('Desktop Panel — Recording View UI State', () => {
   test('pending actions section is hidden initially', async ({ page }) => {
     await openPanel(page, server);
 
@@ -645,7 +651,7 @@ test.describe('Desktop Panel â€” Recording View UI State', () => {
   });
 });
 
-test.describe('Desktop Panel â€” Breadcrumb Navigation', () => {
+test.describe('Desktop Panel — Breadcrumb Navigation', () => {
   test('breadcrumb navigates back to projects list', async ({ page }) => {
     await openPanel(page, server);
 
@@ -685,7 +691,7 @@ test.describe('Desktop Panel â€” Breadcrumb Navigation', () => {
   });
 });
 
-test.describe('Desktop Panel â€” Settings Additional', () => {
+test.describe('Desktop Panel — Settings Additional', () => {
   test('settings back button returns to previous view', async ({ page }) => {
     await openPanel(page, server);
 
@@ -707,7 +713,7 @@ test.describe('Desktop Panel â€” Settings Additional', () => {
   });
 });
 
-test.describe('Desktop Panel â€” Delete Project', () => {
+test.describe('Desktop Panel — Delete Project', () => {
   test('delete removes project from list', async ({ page }) => {
     await openPanel(page, server);
 
@@ -824,6 +830,10 @@ const SETTLE_POLL_MS = 100;
  * @returns {Promise<void>}
  */
 async function waitForSavedSettings(page, expected, timeout = SETTLE_TIMEOUT_MS) {
+  // Read in one page turn on purpose: the save_state count and the saved blob
+  // must come from the same instant, and a function serialised into the page
+  // cannot call the fixture's readers — this is the one spec-side read of the
+  // mock's invoke record, and the integration-suite locks name it.
   const probeBlob = () => {
     const writes = window.__TAURI__
       ._getInvokeCalls()
@@ -1020,9 +1030,7 @@ test.describe('Desktop Panel - Sync Settings', () => {
 
     // Starting the host arms the webview keep-alive through the backend, so the
     // background cycle survives a closed window.
-    const keepAliveCalls = await page.evaluate(() =>
-      window.__TAURI__._getInvokeCalls().filter((c) => c.cmd === 'set_auto_sync_keepalive'),
-    );
+    const keepAliveCalls = await invokesOf(page, 'set_auto_sync_keepalive');
     expect(keepAliveCalls.length).toBeGreaterThan(0);
     expect(keepAliveCalls.at(-1).args.enabled).toBe(true);
   });
@@ -1163,7 +1171,7 @@ test.describe('Desktop Panel — Adapter Capture Lifecycle', () => {
     // The recording-create path starts capture by a direct invoke, so clear the
     // record first: what this test reads afterwards is the seam route's own
     // start_capture and nothing else.
-    await page.evaluate(() => window.__TAURI__._clearInvokeCalls());
+    await clearInvokes(page);
 
     // A parked sentinel is the observable this route has: the adapter holds a
     // sentinel that arrives with no waiter in its seen set, which is exactly what
@@ -1207,12 +1215,7 @@ test.describe('Desktop Panel — Adapter Capture Lifecycle', () => {
       });
 
       // (1) The send reached the backend command it maps.
-      const startCalls = await page.evaluate(() =>
-        window.__TAURI__
-          ._getInvokeCalls()
-          .filter((call) => call.cmd === 'start_capture')
-          .map((call) => call.args),
-      );
+      const startCalls = (await invokesOf(page, 'start_capture')).map((call) => call.args);
       assert.deepEqual(sent.result, { ok: true });
       assert.equal(
         startCalls.length,

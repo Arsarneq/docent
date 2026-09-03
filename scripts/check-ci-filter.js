@@ -47,7 +47,8 @@
  *      of them with further holdings, beside the local-CI guide, the
  *      release-process document, the mutation workflow, the scorecard and
  *      docs-disposition-audit workflows, the test-suite index, the clause
- *      registry, the top-level README, and the e2e suite document).
+ *      registry, the top-level README, the e2e suite document, and the desktop
+ *      integration-suite document).
  *   4. `.github/actions/**` is in ciCore (composite actions are used by nearly
  *      every job).
  *   5. Each needs-chained produce/diff pair co-fires — identical trigger flags —

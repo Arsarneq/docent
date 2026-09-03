@@ -9,7 +9,12 @@
  */
 
 import { test, expect } from './coverage-fixture.js';
-import { installTauriMockServer, fireCaptureActions, openPanel } from './tauri-mock-fixture.js';
+import {
+  fireCaptureActions,
+  installTauriMockServer,
+  openPanel,
+  seedRecordedStep,
+} from './tauri-mock-fixture.js';
 import { composePlatform } from '../../../../scripts/build-schemas.js';
 import { stampFromSchema } from '../../../../packages/shared/lib/format-stamp.js';
 
@@ -23,33 +28,19 @@ const server = installTauriMockServer();
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-async function createProjectWithStep(page) {
-  await page.click('#btn-new-project');
-  await page.waitForSelector('#view-new-project:not(.hidden)', { timeout: 5000 });
-  await page.fill('#new-project-name', 'Export Test');
-  await page.click('#btn-new-project-create');
-  await page.waitForSelector('#view-project:not(.hidden)', { timeout: 5000 });
-  await page.click('#btn-new-recording');
-  await page.waitForSelector('#view-new-recording:not(.hidden)', { timeout: 5000 });
-  await page.fill('#new-recording-name', 'Flow A');
-  await page.click('#btn-new-recording-create');
-  await page.waitForSelector('#view-recording:not(.hidden)', { timeout: 5000 });
+const LOGIN_CLICK = {
+  type: 'click',
+  capture_mode: 'accessibility',
+  context_id: 1,
+  element: { text: 'Login', tag: 'Button', selector: '#btn' },
+};
 
-  // Simulate a capture event and commit
-  await fireCaptureActions(page, [
-    {
-      type: 'click',
-      timestamp: Date.now(),
-      capture_mode: 'accessibility',
-      context_id: 1,
-      element: { text: 'Login', tag: 'Button', selector: '#btn' },
-    },
-  ]);
-  await page.waitForTimeout(300);
-  await page.fill('#narration-input', 'Click the login button');
-  await page.click('#btn-commit-step');
-  await page.waitForTimeout(500);
-}
+const EXPORT_SEED = {
+  project: 'Export Test',
+  recording: 'Flow A',
+  actions: [LOGIN_CLICK],
+  narration: 'Click the login button',
+};
 
 // ─── Import Flow ──────────────────────────────────────────────────────────────
 
@@ -123,7 +114,7 @@ test.describe('Desktop Import Flow', () => {
 test.describe('Desktop Export Flow', () => {
   test('export calls invoke with valid JSON', async ({ page }) => {
     await openPanel(page, server);
-    await createProjectWithStep(page);
+    await seedRecordedStep(page, EXPORT_SEED);
 
     // Go to project view
     await page.click('#bc-project');
@@ -155,7 +146,7 @@ test.describe('Desktop Export Flow', () => {
 test.describe('Desktop Re-record Flow', () => {
   test('edit step → new actions → commit → narration updated', async ({ page }) => {
     await openPanel(page, server);
-    await createProjectWithStep(page);
+    await seedRecordedStep(page, EXPORT_SEED);
 
     // Verify initial step
     await expect(page.locator('.step-narration')).toContainText('Click the login button');

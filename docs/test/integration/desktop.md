@@ -38,19 +38,37 @@ Chromium, rewritten on the way out so the mock can stand in for the backend:
   and `event.listen` records each handler so a spec can fire `capture:action`
   events directly, simulating captured input arriving from the backend.
 
-Because the mock is suite-wide, so are its affordances: every spec can read the
-recorded invoke traffic (`_getInvokeCalls` / `_clearInvokeCalls`), read the
-persisted blob itself (`_getSavedState`, what `load_state` would answer, without
-adding an invoke to the record), and drive the spec-controlled hooks
-(`_setWindows`, `_setImportResult`, `_getLastExport`) on `window.__TAURI__`. Two
-helpers beside them carry the shapes every spec repeats: `openPanel` is the
+Because the mock is suite-wide, so are its affordances: a spec reads the
+recorded invoke traffic through the fixture's readers — `invokedCommands` (the
+command names in order), `invokesOf` (one command's records, arguments included)
+and `clearInvokes` (the record dropped, the unknown-invoke list kept) — reads
+the persisted blob itself (`_getSavedState`, what `load_state` would answer,
+without adding an invoke to the record), and drives the spec-controlled hooks
+(`_setWindows`, `_setImportResult`, `_getLastExport`) on `window.__TAURI__`. The
+one spec-side read of the record itself is the settle probe in the panel spec,
+which needs the invoke count and the saved blob from one page turn; the
+integration-suite locks name it as the allowance.
+
+**The helpers specs share.** Each carries the property a spec must not
+re-implement, so a wrong-reason pass fails at the helper: `openPanel` is the
 panel-open preamble (navigate, then wait for the panel's startup `load_state`
 invoke beside a visible projects view — that view alone matches the moment the
-document parses), and `fireCaptureActions` delivers captured actions through the
-registered `capture:action` listener — throwing, and naming the absent listener,
-where the
+document parses); `createProject` walks the new-project form to the project view
+from a panel standing on its rendered projects view, and holds the view to the
+name it typed; `seedRecordedStep` walks an open panel to a committed step —
+project, recording, delivered actions, narration and commit, each leg skipped by
+`null` — and holds the step list to the step it committed; and
+`fireCaptureActions` delivers captured actions through the registered
+`capture:action` listener — throwing, and naming the absent listener, where the
 page has none, so a delivery that would have reached nothing fails there instead
-of leaving an assertion to hold for the wrong reason.
+of leaving an assertion to hold for the wrong reason. The readers over the
+mock's invoke record are shared the same way, the read itself being what a spec
+must not re-implement: `invokedCommands` hands back the command names in order,
+`invokesOf` one command's records with their arguments, and `clearInvokes` drops
+the record while the unknown-invoke list stands. The fixture keeps a page-error
+watch armed on the test's page for the test's whole run, so an uncaught
+exception or unhandled rejection in the panel fails the test that provoked it,
+after the unknown-invoke guard has had its say.
 
 **Unknown invokes fail loudly.** An invoke of a command the mock does not
 service is recorded and rejects, and after every test the fixture asserts the
