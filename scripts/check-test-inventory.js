@@ -187,13 +187,23 @@ import { pathToFileURL } from 'node:url';
 const PLAYWRIGHT_TEST_FILE = /(^|\/)[^/]+\.(?:spec|test)\.[cm]?[jt]sx?$/;
 
 /**
- * This check's own path, DERIVED from the file it is written in rather than
- * written out: the path a verdict names is then the file that printed it, and a
- * rename carries the value with the file instead of leaving a literal behind.
- * The `node scripts/<name>.js` usage line in the header above is a comment and
- * stays hand-written — that is the stated boundary of this derivation.
+ * The repo-relative path of the calling check, DERIVED from the file it is
+ * written in rather than written out: the path a verdict names is then the file
+ * that printed it, and a rename carries the value with the file instead of
+ * leaving a literal behind. Called as `selfPath(import.meta.filename)`, so the
+ * file the value names is the caller's, not this module's.
+ *
+ * The `node scripts/<name>.js` usage line in each check's header is a comment
+ * and stays hand-written — that is the stated boundary of this derivation.
+ *
+ * @param {string} metaFilename the caller's own `import.meta.filename`
+ * @returns {string} `scripts/<basename>`, POSIX-separated on every platform
  */
-const SELF_PATH = `scripts/${fileBasename(import.meta.filename)}`;
+export function selfPath(metaFilename) {
+  return `scripts/${fileBasename(metaFilename)}`;
+}
+
+const SELF_PATH = selfPath(import.meta.filename);
 
 /** The runner each discovery descriptor names, one constant per selecting form. */
 export const RUNNERS = {
@@ -3080,9 +3090,9 @@ const MEMBERSHIP_LEGS = { surface: 'test-surface', module: 'module' };
  * segment, `**` as a WHOLE segment crosses any depth. It answers with an
  * `error` rather than throwing, because a pattern this reader does not model
  * has to red as machinery in the middle of a run rather than abort it — which
- * is the one difference from the area map's own compiler, where the identical
- * `*`/`**` semantics are stated for the map's patterns and a pattern outside
- * that closed world is a shape error the map's read refuses outright
+ * is the one difference from the area map's own compiler, which takes these
+ * `*`/`**` semantics from here for the map's patterns and refuses a pattern
+ * outside that closed world outright, as a shape error
  * ([`check-area-map.js`](./check-area-map.js)).
  * @param {string} pattern a path glob, e.g. `packages/shared/lib/**\/*.js`
  * @returns {{ regex: RegExp } | { error: string }}

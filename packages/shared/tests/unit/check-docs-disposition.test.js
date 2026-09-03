@@ -50,6 +50,7 @@ import {
   RELEASE_AUTOMATION_CLASS,
   GOVERNANCE_MARKER,
   GOVERNANCE_LINE_TEMPLATE,
+  CHANGE_RECORD_HEADING,
   CHANGE_RECORD_MARKERS,
   UPDATED_LINE_TEMPLATE,
   UNAFFECTED_LINE_TEMPLATE,
@@ -72,13 +73,25 @@ import {
   auditBody,
 } from '../../../../scripts/check-docs-disposition.js';
 import { MAP_PATH } from '../../../../scripts/check-area-map.js';
-import { WORKFLOW_FILE_RE } from '../../../../scripts/check-doc-closure.js';
-import { extractClauseSection } from '../../../../scripts/check-test-inventory.js';
+import {
+  WORKFLOW_FILE_RE,
+  WORKFLOW_HEADER,
+  WORKFLOW_SECTION,
+} from '../../../../scripts/check-doc-closure.js';
+import {
+  extractClauseSection,
+  parseTables,
+  stripFences,
+} from '../../../../scripts/check-test-inventory.js';
 import { AUTOMATED_BRANCH } from '../../../../scripts/check-no-release-outputs.js';
 
 /** A committed file of this repository, read as the shipped surface it is. */
 const repoFile = (rel) =>
   readFileSync(path.resolve(import.meta.dirname, '../../../..', rel), 'utf8');
+
+/** The `text`-fenced blocks of a markdown file, fence markers stripped. */
+const fencedBlocks = (rel) =>
+  [...repoFile(rel).matchAll(/```text\n([\s\S]*?)```/g)].map((m) => m[1]);
 
 const MAP = {
   description: 'test map',
@@ -449,10 +462,7 @@ describe('the exemption declaration — welded to its doctrine home', () => {
    * elsewhere in the file.
    */
   const exemptionParagraph = () => {
-    const contributing = readFileSync(
-      path.resolve(import.meta.dirname, '../../../../.github/CONTRIBUTING.md'),
-      'utf8',
-    );
+    const contributing = repoFile('.github/CONTRIBUTING.md');
     const anchor = 'Dependency-only PRs skip both sections';
     const start = contributing.indexOf(anchor);
     assert.notEqual(start, -1, `CONTRIBUTING.md must carry the "${anchor}" exemption paragraph`);
@@ -499,10 +509,9 @@ describe('the governance-data-only line — its template welded to the surfaces 
     // that drifts teaches a judgment the check's own red output does not ask
     // for. Exactly one fenced block opens with the marker, so a second one
     // added later cannot quietly satisfy this off a stale copy.
-    const fenced = [...repoFile('.github/CONTRIBUTING.md').matchAll(/```text\n([\s\S]*?)```/g)].map(
-      (m) => m[1],
+    const shown = fencedBlocks('.github/CONTRIBUTING.md').filter((block) =>
+      block.trimStart().startsWith(GOVERNANCE_MARKER),
     );
-    const shown = fenced.filter((block) => block.trimStart().startsWith(GOVERNANCE_MARKER));
     assert.equal(
       shown.length,
       1,
@@ -544,10 +553,6 @@ describe('the governance-data-only line — its template welded to the surfaces 
 });
 
 describe('the per-doc grammar — its forms welded to the surfaces that show them', () => {
-  /** The `text`-fenced blocks of a markdown file, fence markers stripped. */
-  const fencedBlocks = (rel) =>
-    [...repoFile(rel).matchAll(/```text\n([\s\S]*?)```/g)].map((m) => m[1]);
-
   it('CONTRIBUTING.md shows the updated/unaffected pair verbatim in its fenced example', () => {
     // Contributors type the lines exactly as the example spells them, and the
     // check's own red output offers exactly one spelling of each — so an
@@ -782,11 +787,13 @@ const DAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Frid
  */
 const CADENCE_VOCABULARY = ['weekly', 'daily', 'nightly', 'monthly', 'hourly', 'fortnightly'];
 
-const mutationTriggers = () => yaml.load(repoFile(MUTATION_WORKFLOW)).on;
+/** One workflow's trigger block, as YAML reads it. */
+const workflowTriggers = (wf) => yaml.load(repoFile(wf)).on;
+const mutationTriggers = () => workflowTriggers(MUTATION_WORKFLOW);
 
 /** The single schedule entry's cron fields, by name. */
-const cronFields = () => {
-  const entries = mutationTriggers().schedule;
+const cronFields = (wf = MUTATION_WORKFLOW) => {
+  const entries = workflowTriggers(wf).schedule;
   const [minute, hour, dom, month, dow] = entries[0].cron.trim().split(/\s+/);
   return { minute, hour, dom, month, dow };
 };
@@ -798,15 +805,145 @@ const cronFields = () => {
  * has to stay a single fixed number in cron's 0-6 range for a day name to be
  * derivable from it at all.
  */
-const scheduledDay = () => {
-  const { dow } = cronFields();
+const scheduledDay = (wf = MUTATION_WORKFLOW) => {
+  const { dow } = cronFields(wf);
   const day = DAY_NAMES[Number(dow)];
   assert.ok(
     day,
-    `${MUTATION_WORKFLOW}: day-of-week "${dow}" is not the single fixed number in cron's 0-6 ` +
+    `${wf}: day-of-week "${dow}" is not the single fixed number in cron's 0-6 ` +
       `range these welds derive a day name from`,
   );
   return day;
+};
+
+/** The guides and the doctrine document these welds read. */
+const CI_GUIDE = 'docs/guides/ci.md';
+const LOCAL_CI_GUIDE = 'docs/guides/local-ci.md';
+const MUTATION_DOC = 'docs/test/strategy/mutation.md';
+
+/** The other workflows the CI guide states a scheduled cadence for. */
+const SCORECARD_WORKFLOW = '.github/workflows/scorecard.yml';
+const AUDIT_WORKFLOW = '.github/workflows/docs-disposition-audit.yml';
+
+/** The workflow inventory's trigger column, read by name rather than position. */
+const RUNS_ON_HEADER = 'Runs on';
+
+/** The cadence word as a sentence or a table cell opens with it. */
+const Cadence = MUTATION_CADENCE[0].toUpperCase() + MUTATION_CADENCE.slice(1);
+
+/**
+ * The cadence a cron shape denotes, capitalised as a guide cell opens with it:
+ * one fixed day-of-week with day-of-month and month unrestricted runs once a
+ * week. A shape this reader does not model has no word here — the field cases
+ * beside it are what red on such a schedule, and this stays null.
+ */
+const cadenceOf = ({ dom, month, dow }) =>
+  /^[0-6]$/.test(dow) && dom === '*' && month === '*' ? 'Weekly' : null;
+
+/**
+ * A `#`-headed section's body: the lines between its heading and the next
+ * heading — the extent a weld anchors in, so a word elsewhere in the document
+ * cannot answer for the site under test. Both boundaries are found on a
+ * fence-stripped view (the one fence model, which blanks fenced lines and keeps
+ * the line count), so a `#` line inside a fenced example neither opens a section
+ * nor ends one; the body itself comes back from the raw text, fences intact,
+ * because a line index found on the view addresses the raw text too. The
+ * shipped `extractSection` cannot serve here: it reads `##` headings only, and
+ * by a title without its markers, while every site below anchors on an `###`
+ * heading written out in full.
+ */
+const headingSection = (text, heading) => {
+  const view = stripFences(text);
+  const start = view.indexOf(`\n${heading}\n`);
+  assert.notEqual(start, -1, `expected the heading "${heading}"`);
+  // The match is the newline BEFORE the heading, so the heading sits on the
+  // line after the one that newline ends.
+  const headingLine = view.slice(0, start).split('\n').length;
+  const viewLines = view.split('\n');
+  let end = viewLines.length;
+  for (let i = headingLine + 1; i < viewLines.length; i++) {
+    if (/^#{1,6}\s/.test(viewLines[i])) {
+      end = i;
+      break;
+    }
+  }
+  return text
+    .split('\n')
+    .slice(headingLine + 1, end)
+    .join('\n');
+};
+
+/**
+ * The trigger cell the CI guide's workflow inventory states for one workflow,
+ * read through the shared table reader and selected by the section and header
+ * the doc-closure gate names — so a fenced example, an indented row or an
+ * escaped pipe cannot answer for the cell under test, and the trigger column is
+ * found by its name rather than by where it currently sits.
+ */
+const triggerCell = (wf) => {
+  const tables = parseTables(repoFile(CI_GUIDE)).filter(
+    (t) => t.section === WORKFLOW_SECTION && t.header[0] === WORKFLOW_HEADER,
+  );
+  assert.equal(
+    tables.length,
+    1,
+    `${CI_GUIDE} must carry exactly one "${WORKFLOW_SECTION}" table (found ${tables.length})`,
+  );
+  const [table] = tables;
+  const column = table.header.indexOf(RUNS_ON_HEADER);
+  assert.notEqual(
+    column,
+    -1,
+    `${CI_GUIDE}'s workflow table must carry a "${RUNS_ON_HEADER}" column`,
+  );
+  const rows = table.rows.filter((row) => row[0].includes(wf));
+  assert.equal(
+    rows.length,
+    1,
+    `${CI_GUIDE}'s workflow table must carry exactly one row for ${wf} (found ${rows.length})`,
+  );
+  return rows[0][column];
+};
+
+/** The cron line of a workflow that states exactly one, with its comment. */
+const cronLine = (wf) => {
+  const lines = repoFile(wf)
+    .split('\n')
+    .filter((line) => /^\s*-\s*cron:/.test(line));
+  assert.equal(lines.length, 1, `${wf} must carry exactly one cron line`);
+  return lines[0];
+};
+
+/**
+ * Every workflow the CI guide states a scheduled cadence for: the workflow
+ * itself, the guide section that describes it — the mutation section's heading
+ * derived from the shipped cadence word, so a rename carries the lookup with it
+ * — and the parenthetical trigger phrase that section states, which is what
+ * holds the section to its own schedule.
+ */
+const SCHEDULED_WORKFLOWS = [
+  {
+    file: MUTATION_WORKFLOW,
+    guideHeading: `### ${Cadence} mutation run`,
+    triggerPhrase: '(Mondays, plus manual dispatch)',
+  },
+  {
+    file: SCORECARD_WORKFLOW,
+    guideHeading: '### Scorecard',
+    triggerPhrase: '(Mondays, plus push to `main`, branch-protection changes, and manual dispatch)',
+  },
+  {
+    file: AUDIT_WORKFLOW,
+    guideHeading: '### Weekly docs-disposition audit',
+    triggerPhrase: '(Tuesdays, plus manual dispatch)',
+  },
+];
+
+/** One workflow's row in the table above, refusing readably when it has none. */
+const scheduled = (wf) => {
+  const row = SCHEDULED_WORKFLOWS.find((entry) => entry.file === wf);
+  assert.ok(row, `${wf} must be one of the scheduled workflows these welds read`);
+  return row;
 };
 
 describe('the mutation cadence — the schedule that is the fact', () => {
@@ -922,15 +1059,9 @@ describe('the mutation cadence — the schedule that is the fact', () => {
     // The comment is what a reader of the workflow believes; nothing else holds
     // it to the fields beside it, so a schedule moved without its comment leaves
     // the file stating two different runs.
-    const cronLines = repoFile(MUTATION_WORKFLOW)
-      .split('\n')
-      .filter((line) => /^\s*-\s*cron:/.test(line));
-    assert.equal(cronLines.length, 1, `${MUTATION_WORKFLOW} must carry exactly one cron line`);
-    assert.ok(
-      cronLines[0].includes('#'),
-      `${MUTATION_WORKFLOW}: the cron line must carry its comment`,
-    );
-    const comment = cronLines[0].slice(cronLines[0].indexOf('#'));
+    const line = cronLine(MUTATION_WORKFLOW);
+    assert.ok(line.includes('#'), `${MUTATION_WORKFLOW}: the cron line must carry its comment`);
+    const comment = line.slice(line.indexOf('#'));
     const { minute, hour } = cronFields();
     const day = scheduledDay();
     const time = `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`;
@@ -951,26 +1082,6 @@ describe('the mutation cadence — the prose surfaces welded to it', () => {
   // run as an event inside explanatory rationale describes no schedule and stays
   // outside. Every weld is anchored at its own site — a file-wide search for the
   // word would pass off a mention somewhere else in the same document.
-  const CI_GUIDE = 'docs/guides/ci.md';
-  const LOCAL_CI_GUIDE = 'docs/guides/local-ci.md';
-  const MUTATION_DOC = 'docs/test/strategy/mutation.md';
-
-  /** The cadence word as a sentence or a table cell opens with it. */
-  const Cadence = MUTATION_CADENCE[0].toUpperCase() + MUTATION_CADENCE.slice(1);
-
-  /**
-   * A `#`-headed section's body, from its heading through the line before the
-   * next heading — the extent a weld anchors in, so a word elsewhere in the
-   * document cannot answer for the site under test.
-   */
-  const headingSection = (text, heading) => {
-    const start = text.indexOf(`\n${heading}\n`);
-    assert.notEqual(start, -1, `expected the heading "${heading}"`);
-    const rest = text.slice(start + heading.length + 2);
-    const next = rest.search(/^#{1,6}\s/m);
-    return next === -1 ? rest : rest.slice(0, next);
-  };
-
   it('CONTRIBUTING.md spells the standing mutation sentence verbatim', () => {
     // The doctrine home prescribes the exact text a contributor pastes, and the
     // check's red offers that same text as the fix — so the two are one string.
@@ -1038,15 +1149,7 @@ describe('the mutation cadence — the prose surfaces welded to it', () => {
   });
 
   it('the CI guide’s workflow table states the cadence and the scheduled day', () => {
-    const rows = repoFile(CI_GUIDE)
-      .split('\n')
-      .filter((line) => line.startsWith('|') && line.includes(MUTATION_WORKFLOW));
-    assert.equal(
-      rows.length,
-      1,
-      `${CI_GUIDE}'s workflow table must carry exactly one row for ${MUTATION_WORKFLOW} (found ${rows.length})`,
-    );
-    const when = rows[0].split('|')[2].trim();
+    const when = triggerCell(MUTATION_WORKFLOW);
     assert.ok(
       when.startsWith(`${Cadence} (${scheduledDay()}s)`),
       `${CI_GUIDE}: the ${MUTATION_WORKFLOW} row's trigger cell must open "${Cadence} (${scheduledDay()}s)" (found "${when}")`,
@@ -1058,7 +1161,7 @@ describe('the mutation cadence — the prose surfaces welded to it', () => {
     // on, so a reworded heading is two breakages at once: a cadence claim and a
     // pair of links. Deriving the slug from the heading holds both.
     const ci = repoFile(CI_GUIDE);
-    const heading = `### ${Cadence} mutation run`;
+    const { guideHeading: heading } = scheduled(MUTATION_WORKFLOW);
     const headings = ci.split('\n').filter((line) => line === heading);
     assert.equal(
       headings.length,
@@ -1076,15 +1179,6 @@ describe('the mutation cadence — the prose surfaces welded to it', () => {
     assert.ok(
       repoFile(LOCAL_CI_GUIDE).includes(`ci.md#${slug}`),
       `${LOCAL_CI_GUIDE} must link that section as ci.md#${slug}`,
-    );
-  });
-
-  it('the CI guide’s scheduled-run section names the scheduled day', () => {
-    const section = headingSection(repoFile(CI_GUIDE), `### ${Cadence} mutation run`);
-    const day = scheduledDay();
-    assert.ok(
-      section.replace(/\s+/g, ' ').includes(`(${day}s, plus manual dispatch)`),
-      `${CI_GUIDE}'s scheduled-run section must say "(${day}s, plus manual dispatch)"`,
     );
   });
 
@@ -1110,6 +1204,120 @@ describe('the mutation cadence — the prose surfaces welded to it', () => {
       `docs/test/README.md's mutation bullet must describe the ${MUTATION_CADENCE} signal (found "${bullets[0].trim()}")`,
     );
   });
+});
+
+describe('headingSection — the extent a weld anchors in, fences and all', () => {
+  it('a fenced heading line neither ends the section nor drops out of it', () => {
+    // A recipe block inside a section is ordinary in these guides, and a `#`
+    // line inside one is a shell comment, not a heading. Reading the boundaries
+    // off the defenced view keeps the section whole; slicing the raw text keeps
+    // the recipe's own lines in it.
+    const doc = [
+      '# Doc',
+      '',
+      '### Guides',
+      '',
+      'before',
+      '',
+      '```text',
+      '# not a heading',
+      '```',
+      '',
+      'after',
+      '',
+      '### Next',
+      '',
+      'outside',
+      '',
+    ].join('\n');
+    const section = headingSection(doc, '### Guides');
+    assert.match(section, /before/);
+    assert.match(section, /after/, 'a fenced `#` line must not end the section');
+    assert.match(section, /# not a heading/, "the section's fenced lines come back intact");
+    assert.doesNotMatch(section, /outside/);
+  });
+});
+
+describe('the scheduled cadences — every guide cell welded to its own cron', () => {
+  // Each workflow below runs on a schedule the CI guide describes twice — as a
+  // table cell and in the section that explains it — and the cron field is the
+  // fact both describe. Every day name here is derived from that field, so a
+  // schedule moved without its prose reds at the site now saying something else.
+
+  it('the cron-derived cadence word and the shipped one are the same word', () => {
+    // The mutation row's cell and heading cases read the word the check exports;
+    // the rows beside it read the word their own cron denotes. This is where the
+    // two homes meet, so neither can move without the other.
+    assert.equal(
+      cadenceOf(cronFields(MUTATION_WORKFLOW)),
+      Cadence,
+      `the cadence ${MUTATION_WORKFLOW}'s cron denotes must be the word the check exports`,
+    );
+  });
+
+  for (const { file, guideHeading, triggerPhrase } of SCHEDULED_WORKFLOWS) {
+    it(`${file} states exactly one schedule entry`, () => {
+      const entries = workflowTriggers(file).schedule;
+      assert.equal(
+        entries.length,
+        1,
+        `${file} must state exactly one schedule entry — a second one adds runs the guide's cell does not account for (found ${entries.length})`,
+      );
+    });
+
+    it(`${file}'s cron names one day a week`, () => {
+      const { dow, dom, month } = cronFields(file);
+      assert.match(dow, /^[0-6]$/, `${file}: the day-of-week must name one day`);
+      assert.equal(
+        dom,
+        '*',
+        `${file}: a restricted day-of-month makes the run monthly, not weekly`,
+      );
+      assert.equal(month, '*', `${file}: a restricted month makes the run yearly, not weekly`);
+    });
+
+    it(`the CI guide's table row for ${file} opens with the cadence and day its cron sets`, () => {
+      const opening = `${cadenceOf(cronFields(file))} (${scheduledDay(file)}s)`;
+      const when = triggerCell(file);
+      assert.ok(
+        when.startsWith(opening),
+        `${CI_GUIDE}: the ${file} row's trigger cell must open "${opening}" (found "${when}")`,
+      );
+    });
+
+    it(`the CI guide's section for ${file} states the trigger phrase its cron denotes`, () => {
+      // The phrase is pinned verbatim, so a reworded trigger sentence reds here
+      // rather than passing on the day alone; whitespace runs collapse on both
+      // sides, since the guide may wrap a phrase across lines.
+      const day = scheduledDay(file);
+      assert.ok(
+        triggerPhrase.startsWith(`(${day}s, `),
+        `the trigger phrase for ${file} must open with ${day}s, the day its cron sets (phrase: "${triggerPhrase}")`,
+      );
+      const section = headingSection(repoFile(CI_GUIDE), guideHeading).replace(/\s+/g, ' ');
+      assert.ok(
+        section.includes(triggerPhrase.replace(/\s+/g, ' ')),
+        `${CI_GUIDE}'s "${guideHeading}" section must state "${triggerPhrase}"`,
+      );
+    });
+
+    it(`${file}'s cron comment states the day and time its own fields set`, () => {
+      const line = cronLine(file);
+      assert.ok(line.includes('#'), `${file}: the cron line must carry its comment`);
+      const comment = line.slice(line.indexOf('#'));
+      const { minute, hour } = cronFields(file);
+      const day = scheduledDay(file);
+      const time = `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`;
+      assert.ok(
+        comment.includes(day),
+        `${file}: the cron comment must name ${day}, the day its own day-of-week field sets (comment: "${comment.trim()}")`,
+      );
+      assert.ok(
+        comment.includes(time),
+        `${file}: the cron comment must state ${time}, the time its own fields set (comment: "${comment.trim()}")`,
+      );
+    });
+  }
 });
 
 describe('isDependencyOnlyCargoTomlDiff', () => {
@@ -1222,10 +1430,7 @@ describe('isExemptDiff — the declared classes that skip the sections', () => {
     // to the command line that runs on every pull request — so the two are held
     // equal as TEXT instead. Read from the script's own source, since the check
     // never imports it.
-    const source = readFileSync(
-      path.resolve(import.meta.dirname, '../../../..', 'scripts/check-docs-disposition.js'),
-      'utf8',
-    );
+    const source = repoFile('scripts/check-docs-disposition.js');
     const written = source.match(/if \((\/\^\\\.github[^)]*?\/)\.test\(f\)\)/);
     assert.ok(written, 'the workflow-file literal moved — re-anchor this weld');
     assert.equal(
@@ -1427,8 +1632,6 @@ describe('run() manifest exemption — full-file context so the block opener is 
 });
 
 describe('run() release-automation class — which runs it admits, and the publish workflows it is welded to', () => {
-  const REPO = path.resolve(import.meta.dirname, '../../../..');
-
   /**
    * The values a publish workflow states for one input key, read through YAML
    * so each is the value the action receives rather than the spelling the
@@ -1450,7 +1653,7 @@ describe('run() release-automation class — which runs it admits, and the publi
       }
       return found;
     };
-    return walk(yaml.load(readFileSync(path.join(REPO, workflowFile), 'utf8')), []);
+    return walk(yaml.load(repoFile(workflowFile)), []);
   };
 
   /**
@@ -1857,9 +2060,7 @@ describe('auditBody — the governance-data-only record', () => {
     // governed by no doc, so a registry-only diff owes no per-doc lines — and
     // being outside the class, it owes no marker either. Its section is empty
     // and both required sections are present, which is a pass.
-    const realMap = JSON.parse(
-      readFileSync(path.resolve(import.meta.dirname, '../../../..', MAP_PATH), 'utf8'),
-    );
+    const realMap = JSON.parse(repoFile(MAP_PATH));
     assert.equal(isGovernanceDataDiff([REGISTRY_PATH]), false);
     assert.deepEqual(
       docsInScope({ files: [REGISTRY_PATH], map: realMap, readFile: noContent }),
@@ -2146,6 +2347,68 @@ describe('extractSection', () => {
   it('returns null for an absent section', () => {
     assert.equal(extractSection(body, 'Motivation'), null);
   });
+
+  it('a fenced ## line does not end the section — a heading inside a fence is not a heading', () => {
+    // Contributors paste examples into a PR body. Before the fence model, the
+    // `## ` inside one cut the section short and the check blamed the author for
+    // the lines it had dropped.
+    const fenced = [
+      '## Docs disposition',
+      '',
+      '```text',
+      '## Change record',
+      '```',
+      '',
+      'unaffected: docs/alpha.md — no capture change',
+      '',
+      '## Change record',
+      '',
+      'Intent: x',
+    ].join('\n');
+    const section = extractSection(fenced, 'Docs disposition');
+    assert.match(section, /unaffected: docs\/alpha\.md/);
+    assert.doesNotMatch(section, /Intent:/);
+  });
+
+  it('a fence left open runs to the end of the body, so a heading below it is inside it', () => {
+    // Under the one fence model an unclosed fence is a code block to the end of
+    // the text, and the verdict says so rather than asking for a heading the
+    // author can see a few lines down.
+    const open = [
+      '## Docs disposition',
+      '',
+      '```text',
+      'an example left open',
+      '',
+      '## Change record',
+      '',
+      'Intent: x',
+    ].join('\n');
+    assert.equal(extractSection(open, 'Change record'), null);
+    assert.deepEqual(auditBody({ body: open, expected: [] }).missingSections, [
+      CHANGE_RECORD_HEADING,
+    ]);
+  });
+
+  it("a section's own fenced lines come back in it", () => {
+    // The boundaries are read off the defenced view; the body is sliced from the
+    // raw text, so what the author fenced is still there to be read.
+    const fenced = [
+      '## Docs disposition',
+      '',
+      '```text',
+      'unaffected: docs/alpha.md — pasted inside a fence',
+      '```',
+      '',
+      '## Change record',
+      '',
+      'Intent: x',
+    ].join('\n');
+    assert.match(
+      extractSection(fenced, 'Docs disposition'),
+      /unaffected: docs\/alpha\.md — pasted inside a fence/,
+    );
+  });
 });
 
 describe('auditBody', () => {
@@ -2170,6 +2433,24 @@ describe('auditBody', () => {
     assert.deepEqual(Object.values(auditBody({ body: goodBody, expected })).flat(), []);
     const crlf = goodBody.replace(/\n/g, '\r\n');
     assert.deepEqual(Object.values(auditBody({ body: crlf, expected })).flat(), []);
+  });
+
+  it('counts the expected lines a body fenced — a fence is formatting, not absence', () => {
+    const fencedBody = [
+      '## Docs disposition',
+      '',
+      '```text',
+      'unaffected: docs/alpha.md — no capture change',
+      'unaffected: docs/alpha.md §AL-1 — comment-only',
+      '```',
+      '',
+      '## Change record',
+      '',
+      'Intent: test.',
+      'Outside knowledge: none.',
+      MUTATION_LINE,
+    ].join('\n');
+    assert.deepEqual(Object.values(auditBody({ body: fencedBody, expected })).flat(), []);
   });
 
   it('reports a missing expected line by its exact anchor', () => {
@@ -2234,10 +2515,7 @@ describe('auditBody', () => {
   });
 
   it('rejects the shipped PR template as-is (comments are inert, sections are empty)', () => {
-    const template = readFileSync(
-      path.resolve(import.meta.dirname, '../../../../.github/PULL_REQUEST_TEMPLATE.md'),
-      'utf8',
-    );
+    const template = repoFile('.github/PULL_REQUEST_TEMPLATE.md');
     const r = auditBody({ body: template, expected });
     assert.deepEqual(r.unexpected, []); // nothing inside comments leaks in
     assert.deepEqual(r.missing, ['docs/alpha.md', 'docs/alpha.md §AL-1']);

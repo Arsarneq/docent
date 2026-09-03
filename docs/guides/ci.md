@@ -199,12 +199,14 @@ only the jobs that can observe it:
   cadence cross-reference and heading, and the release-output suite's
   automation-branch tokens), the release-process document (the same tokens), the
   mutation workflow (the disposition suite's schedule welds and the
-  workflow-bounds suite's cargo-mutants version pin), the test-suite index (the
-  disposition suite's bullet literal), the clause registry (the disposition
-  suite's example-anchor row and the schema-echo suite's check-ref literal), the
-  top-level README (the version-sync step's table), and the e2e suite document
-  (the test-inventory suite holds its inventory as several tables). Every entry
-  is a literal path the check holds to a tracked file.
+  workflow-bounds suite's cargo-mutants version pin), the scorecard and
+  docs-disposition-audit workflows (the disposition suite's schedule welds — the
+  cron field, its comment, and the guide's row and section), the test-suite
+  index (the disposition suite's bullet literal), the clause registry (the
+  disposition suite's example-anchor row and the schema-echo suite's check-ref
+  literal), the top-level README (the version-sync step's table), and the e2e
+  suite document (the test-inventory suite holds its inventory as several
+  tables). Every entry is a literal path the check holds to a tracked file.
 
 The narrow flags above are deliberately so: each names files only
 `unit-tests`' suites hold, so an edit reaches the job holding them and no heavy

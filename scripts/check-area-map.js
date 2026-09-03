@@ -110,23 +110,15 @@
  */
 
 import { readFileSync } from 'node:fs';
-import { basename } from 'node:path';
 import { pathToFileURL } from 'node:url';
-// The shared population reader only — that module imports node builtins and
-// nothing else, so a command line loading the map through this check still
-// inherits no parser or heavy module it does not use. Importing a builtins-only
-// module is within the lean-closure principle scripts/governance-data.js
-// states: what the principle bounds is what a closure CARRIES.
-import { trackedFilesUnder } from './check-test-inventory.js';
+// Shared readers only — that module imports node builtins and nothing else, so
+// a command line loading the map through this check still inherits no parser or
+// heavy module it does not use. Importing a builtins-only module is within the
+// lean-closure principle scripts/governance-data.js states: what the principle
+// bounds is what a closure CARRIES.
+import { pathGlobToRegExp, selfPath, trackedFilesUnder } from './check-test-inventory.js';
 
-/**
- * This check's own path, DERIVED from the file it is written in rather than
- * written out: the path a verdict names is then the file that printed it, and a
- * rename carries the value with the file instead of leaving a literal behind.
- * The `node scripts/<name>.js` usage line in the header above is a comment and
- * stays hand-written — that is the stated boundary of this derivation.
- */
-const SELF_PATH = `scripts/${basename(import.meta.filename)}`;
+const SELF_PATH = selfPath(import.meta.filename);
 
 /** Repo-relative path of the map this check guards. */
 export const MAP_PATH = 'scripts/area-map.json';
@@ -281,35 +273,28 @@ export function expandBraces(pattern) {
   throw new Error(`unbalanced braces in pattern: ${pattern}`);
 }
 
-const escapeRegExp = (s) => s.replace(/[.+^$()|\\]/g, '\\$&');
-
 /**
- * Compile one brace-free pattern to an anchored RegExp. `**` (whole segment
- * only) crosses segment boundaries; `*` stays within one segment. Dotfiles
- * match — ownership here is by location, not by filename shape.
- * @param {string} pattern brace-free pattern
+ * Compile one of the map's patterns to an anchored RegExp. The map admits a
+ * closed world — a pattern written over the `PATTERN_ALLOWED` alphabet,
+ * brace-free (expansion has already run by here), with `**` only as a whole
+ * segment — and a pattern outside it is a shape error the map's read refuses
+ * outright, which is why this throws where the shared primitive answers with an
+ * error. The segment semantics themselves are that primitive's
+ * ({@link pathGlobToRegExp} in [`check-test-inventory.js`](./check-test-inventory.js)):
+ * `**` as a whole segment crosses segment boundaries, `*` stays within one, and
+ * dotfiles match — ownership here is by location, not by filename shape.
+ * @param {string} pattern one of the map's brace-free patterns
  * @returns {RegExp}
  */
 export function globToRegExp(pattern) {
   if (!PATTERN_ALLOWED.test(pattern) || pattern.includes('{') || pattern.includes('}')) {
     throw new Error(`unsupported pattern syntax: ${pattern}`);
   }
-  const segments = pattern.split('/');
-  let re = '^';
-  for (let i = 0; i < segments.length; i++) {
-    const seg = segments[i];
-    const last = i === segments.length - 1;
-    if (seg === '**') {
-      re += last ? '(?:.*)?' : '(?:[^/]+/)*';
-    } else {
-      if (seg.includes('**')) {
-        throw new Error(`unsupported pattern syntax: "**" must be a whole segment in ${pattern}`);
-      }
-      re += seg.split('*').map(escapeRegExp).join('[^/]*');
-      if (!last) re += '/';
-    }
+  const compiled = pathGlobToRegExp(pattern);
+  if (compiled.error) {
+    throw new Error(`unsupported pattern syntax: ${pattern} — it ${compiled.error}`);
   }
-  return new RegExp(re + '$');
+  return compiled.regex;
 }
 
 /**

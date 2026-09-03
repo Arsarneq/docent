@@ -96,6 +96,7 @@ import {
   effectiveHeadRef,
   isAllowedReleaseOutput,
 } from './check-no-release-outputs.js';
+import { stripFences } from './check-test-inventory.js';
 
 /**
  * Repo-relative path of the clause registry — the shared governance-data
@@ -607,19 +608,39 @@ export function parseGovernanceSection(section) {
 }
 
 /**
- * Extract a `## `-headed section's body from a PR description.
+ * Extract a `## `-headed section's body from a PR description: the text between
+ * this heading and the next UNFENCED `## ` heading. Both boundaries are found on
+ * a fence-stripped view (the one fence model, {@link stripFences}, which blanks
+ * fenced lines and keeps the line count), so a `##` line inside a fenced example
+ * neither ends a section nor opens one — a heading inside a fence is not a
+ * heading, and a body whose only section heading sits inside one carries no such
+ * section. A fence left open runs to the end of the body, so every heading below
+ * it is inside it. The body itself is sliced from the raw text by line, so
+ * everything the author fenced comes back with it.
  * @param {string} body
  * @param {string} title the section title without the `## ` prefix
- * @returns {string | null} the text between this heading and the next `## `, or null
+ * @returns {string | null} the text between this heading and the next unfenced `## `, or null
  */
 export function extractSection(body, title) {
   const escaped = title.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  const m = body.match(new RegExp(`^##\\s+${escaped}\\s*$`, 'mi'));
+  const view = stripFences(body);
+  const m = view.match(new RegExp(`^##\\s+${escaped}\\s*$`, 'mi'));
   if (!m) return null;
-  const start = m.index + m[0].length;
-  const rest = body.slice(start);
-  const next = rest.search(/^##\s+/m);
-  return next === -1 ? rest : rest.slice(0, next);
+  // The match INDEX is the heading's own line; its end is not, because the
+  // trailing `\s*$` runs past the lines stripFences blanked below it.
+  const headingLine = view.slice(0, m.index).split('\n').length - 1;
+  const viewLines = view.split('\n');
+  let end = viewLines.length;
+  for (let i = headingLine + 1; i < viewLines.length; i++) {
+    if (/^##\s+/.test(viewLines[i])) {
+      end = i;
+      break;
+    }
+  }
+  return body
+    .split('\n')
+    .slice(headingLine + 1, end)
+    .join('\n');
 }
 
 const key = ({ doc, clause }) => `${doc}§${clause ?? ''}`;
@@ -781,7 +802,7 @@ function run() {
   const problems = [];
   if (r.missingSections.length) {
     problems.push(
-      `✗ missing PR-body section(s): ${r.missingSections.join(', ')} — add each as its own "## " heading.`,
+      `✗ missing PR-body section(s): ${r.missingSections.join(', ')} — add each as its own "## " heading; a heading inside a code fence is not one, and a fence left open runs to the end of the body.`,
     );
   }
   if (r.missing.length) {

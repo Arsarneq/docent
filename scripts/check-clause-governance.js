@@ -36,9 +36,8 @@
  *   node scripts/check-clause-governance.js    # or: npm run lint:clause-governance
  */
 
-import { basename } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { trackedFilesUnder } from './check-test-inventory.js';
+import { selfPath, trackedFilesUnder } from './check-test-inventory.js';
 import {
   MAP_PATH,
   compileMap,
@@ -56,14 +55,7 @@ import {
   refuseOnRegistryError,
 } from './governance-data.js';
 
-/**
- * This check's own path, DERIVED from the file it is written in rather than
- * written out: the path a verdict names is then the file that printed it, and a
- * rename carries the value with the file instead of leaving a literal behind.
- * The `node scripts/<name>.js` usage line in the header above is a comment and
- * stays hand-written — that is the stated boundary of this derivation.
- */
-const SELF_PATH = `scripts/${basename(import.meta.filename)}`;
+const SELF_PATH = selfPath(import.meta.filename);
 
 /**
  * Repo-relative path of the map whose resolution this check reads — the map's

@@ -31,6 +31,7 @@
 import { readFileSync } from 'node:fs';
 import { resolve, join } from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { PLATFORM_SURFACES } from './build-schemas.js';
 import { parseTables } from './check-test-inventory.js';
 
 const ROOT = resolve(import.meta.dirname, '..');
@@ -40,13 +41,11 @@ const END_MARKER = '<!-- VERSION_TABLE_END -->';
 
 /**
  * The platforms whose schema version the tables state, each with the leaf delta
- * that version is read from and the NAME its row is keyed by. The names are the
- * writer's own, so the two surfaces state one platform list between them.
+ * that version is read from and the NAME its row is keyed by — the roster the
+ * schema builder states, re-exported rather than restated so this check and the
+ * version-table writer read one platform list between them.
  */
-export const PLATFORMS = [
-  { name: 'Chrome Extension', delta: 'schemas/extension.delta.json' },
-  { name: 'Desktop (Windows)', delta: 'schemas/desktop-windows.delta.json' },
-];
+export const PLATFORMS = PLATFORM_SURFACES;
 
 /**
  * The docs whose version tables must match the schema versions, each with the

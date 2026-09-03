@@ -21,11 +21,13 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import {
   CI_CORE_GLOBS,
+  GLOB_CHARS,
   jobFlags,
   heavyJobs,
   entryFilesFromCommand,
   computeBuildClosure,
   evaluateContract,
+  pathsFilterStep,
   loadWorkflow,
 } from '../../../../scripts/check-ci-filter.js';
 import { trackedFilesUnder } from '../../../../scripts/check-test-inventory.js';
@@ -71,7 +73,7 @@ function defaultFilters() {
 const FIXTURE_FILES = new Set(
   Object.values(defaultFilters())
     .flat()
-    .filter((entry) => !/[*?[\]{}!]/.test(entry)),
+    .filter((entry) => !GLOB_CHARS.test(entry)),
 );
 
 /** A minimal well-formed workflow + filter map that satisfies every invariant. */
@@ -563,6 +565,13 @@ describe('evaluateContract — invariant 8 (literal entries git tracks)', () => 
     );
   });
 
+  it("the literal/glob split is the filter action's glob alphabet, character by character", () => {
+    for (const char of ['*', '?', '[', ']', '{', '}', '!'])
+      assert.ok(GLOB_CHARS.test(`docs/a${char}.md`), char);
+    assert.ok(!GLOB_CHARS.test('docs/guides/ci.md'));
+    assert.ok(!GLOB_CHARS.test('.github/workflows/test.yml'));
+  });
+
   it('leaves glob entries alone — the predicate is never asked about one', () => {
     const asked = [];
     const problems = evaluate({
@@ -573,7 +582,23 @@ describe('evaluateContract — invariant 8 (literal entries git tracks)', () => 
     });
     assert.deepEqual(problems, []);
     assert.ok(asked.includes('.github/CONTRIBUTING.md'), asked.join(', '));
-    assert.ok(!asked.some((path) => /[*?[\]{}!]/.test(path)), asked.join(', '));
+    assert.ok(!asked.some((path) => GLOB_CHARS.test(path)), asked.join(', '));
+  });
+});
+
+describe('pathsFilterStep — the one locator both filter-map readers use', () => {
+  const step = (uses) => ({ uses });
+
+  it('finds the filter step by its `uses:` substring, whatever the owner', () => {
+    const job = { steps: [step('actions/checkout@abc'), step('acme/paths-filter-fork@v1')] };
+    assert.equal(pathsFilterStep(job).uses, 'acme/paths-filter-fork@v1');
+  });
+
+  it('answers undefined for a job that is absent, runs no steps, or runs no filter step', () => {
+    assert.equal(pathsFilterStep(undefined), undefined);
+    assert.equal(pathsFilterStep({}), undefined);
+    assert.equal(pathsFilterStep({ steps: 'not a list' }), undefined);
+    assert.equal(pathsFilterStep({ steps: [{ uses: 42 }, { run: 'echo' }] }), undefined);
   });
 });
 
@@ -707,7 +732,7 @@ describe('real-tree lock', () => {
     const inputs = realInputs();
     const literals = Object.values(inputs.filters)
       .flat()
-      .filter((entry) => !/[*?[\]{}!]/.test(entry));
+      .filter((entry) => !GLOB_CHARS.test(entry));
     assert.ok(literals.length, 'the committed filter map states literal entries');
     const problems = evaluateContract({
       ...inputs,

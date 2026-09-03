@@ -40,6 +40,7 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { tokenizeJs, trackedFilesUnder } from '../../../../scripts/check-test-inventory.js';
 import {
+  POPULATION_EXTENSIONS,
   POPULATION_TEST_TREE,
   derivePopulation as deriveProductionPopulation,
 } from '../../../../scripts/check-capture-surface.js';
@@ -50,7 +51,6 @@ import {
   WORKER_PATH,
   PANEL_DIR,
   BACKGROUND_ROOT,
-  BACKGROUND_EXTENSIONS,
   EMPTY_SURFACES,
   DUPLICATE_SURFACES,
   SENDER_STATEMENT_ANCHOR,
@@ -944,15 +944,6 @@ describe('extractDispatcherSurface — the derived population, read as one set',
       problems: [],
     });
   });
-
-  it('states the module extensions as a set, so a module kind cannot escape by name', () => {
-    // The escape this closes: a background module written with an explicit
-    // module extension would sit outside the closure entirely while the filter
-    // named one extension.
-    assert.deepEqual(BACKGROUND_EXTENSIONS, ['.js', '.mjs', '.cjs']);
-    assert.equal(new Set(BACKGROUND_EXTENSIONS).size, BACKGROUND_EXTENSIONS.length);
-    for (const ext of BACKGROUND_EXTENSIONS) assert.match(ext, /^\.[a-z]+$/);
-  });
 });
 
 describe('evaluateExtensionSurface — the population machinery guards', () => {
@@ -1701,7 +1692,7 @@ describe('real-tree lock', () => {
     for (const file of population) {
       assert.ok(file.startsWith(`${BACKGROUND_ROOT}/`), `${file} is inside the background tree`);
       assert.ok(
-        BACKGROUND_EXTENSIONS.some((ext) => file.endsWith(ext)),
+        POPULATION_EXTENSIONS.some((ext) => file.endsWith(ext)),
         `${file} carries a JavaScript module extension`,
       );
     }
@@ -1791,5 +1782,17 @@ describe('real-tree lock', () => {
       script,
       /derivePopulation as deriveProductionPopulation,?\s*\n\}\s*from '\.\/check-capture-surface\.js'/,
     );
+    // The module extensions are one fact about the package the extension
+    // ships, and both closures filter on it. It arrives from the same sibling
+    // import, so a module kind widened in one home cannot enter that closure
+    // and miss this one.
+    assert.match(script, /POPULATION_EXTENSIONS,[^}]*\}\s*from '\.\/check-capture-surface\.js'/);
+    // The panel derivation states its own `['.js']` filter, which is a
+    // narrower set on purpose, so what is held is the MODULE-KIND half: the
+    // extensions the module system defines beyond `.js` appear in no literal
+    // here.
+    for (const ext of POPULATION_EXTENSIONS.filter((e) => e !== '.js')) {
+      assert.equal(script.split(`'${ext}'`).length - 1, 0, `${ext} is imported, never restated here`); // prettier-ignore
+    }
   });
 });

@@ -114,7 +114,7 @@
  */
 
 import { readFileSync } from 'node:fs';
-import { basename, join } from 'node:path';
+import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import yaml from 'js-yaml';
 import {
@@ -124,19 +124,13 @@ import {
   flattenWhitespace,
   missingFrom,
   parseTables,
+  selfPath,
   stripFences,
   trackedFilesUnder,
 } from './check-test-inventory.js';
-import { jobFlags } from './check-ci-filter.js';
+import { CHANGES_JOB_ID, PATHS_FILTER_USES, jobFlags, pathsFilterStep } from './check-ci-filter.js';
 
-/**
- * This check's own path, DERIVED from the file it is written in rather than
- * written out: the path a verdict names is then the file that printed it, and a
- * rename carries the value with the file instead of leaving a literal behind.
- * The `node scripts/<name>.js` usage line in the header above is a comment and
- * stays hand-written — that is the stated boundary of this derivation.
- */
-export const SELF_PATH = `scripts/${basename(import.meta.filename)}`;
+export const SELF_PATH = selfPath(import.meta.filename);
 export const CI_DOC_PATH = 'docs/guides/ci.md';
 export const LOCAL_CI_DOC_PATH = 'docs/guides/local-ci.md';
 export const WORKFLOWS_DIR = '.github/workflows';
@@ -155,8 +149,6 @@ export const ALWAYS_RUN_HEADING = 'Jobs that always run';
 export const LINT_JOB_ID = 'lint';
 export const LINT_CHAIN_KEY = 'lint';
 export const LINT_FAMILY_PREFIX = 'lint:';
-export const CHANGES_JOB_ID = 'changes';
-export const PATHS_FILTER_USES = 'paths-filter';
 
 const NPM_RUN_TOKEN_RE = /npm run ([A-Za-z0-9:_-]+)/g;
 const NPM_RUN_COMMAND_RE = /^npm run ([A-Za-z0-9:_-]+)/;
@@ -693,9 +685,7 @@ export function extractWorkflowGating(yamlText) {
     usesSecret: SECRET_REFERENCE_RE.test(JSON.stringify(job ?? null)),
   }));
   const changes = jobsMap[CHANGES_JOB_ID];
-  const filterStep = stepsOf(changes).find(
-    (step) => typeof step?.uses === 'string' && step.uses.includes(PATHS_FILTER_USES),
-  );
+  const filterStep = pathsFilterStep(changes);
   let filterFlags = [];
   if (changes === undefined) {
     problems.push(`${TEST_WORKFLOW_PATH} has no \`${CHANGES_JOB_ID}\` job — the filter-map scan cannot anchor`); // prettier-ignore

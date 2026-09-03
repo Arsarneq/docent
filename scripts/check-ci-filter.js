@@ -42,11 +42,12 @@
  *      `dispositionWorkflow` (the guard-step env block in
  *      .github/workflows/docs-disposition.yml),
  *      and `suiteHeld` (the documents and workflow files whose content a suite
- *      or a step of that job asserts over — the clause registry's carriers as a
- *      class, each held by the preamble suite's raw registry link, several of
- *      them with further holdings, beside the local-CI guide, the
- *      release-process document, the mutation workflow, the test-suite index,
- *      the clause registry, the top-level README, and the e2e suite document).
+ *      or a step of that job asserts over — the clause registry's carriers as
+ *      a class, each held by the preamble suite's raw registry link, several
+ *      of them with further holdings, beside the local-CI guide, the
+ *      release-process document, the mutation workflow, the scorecard and
+ *      docs-disposition-audit workflows, the test-suite index, the clause
+ *      registry, the top-level README, and the e2e suite document).
  *   4. `.github/actions/**` is in ciCore (composite actions are used by nearly
  *      every job).
  *   5. Each needs-chained produce/diff pair co-fires — identical trigger flags —
@@ -91,22 +92,15 @@
  */
 
 import { readFileSync, existsSync } from 'node:fs';
-import { basename, dirname, join, resolve, sep } from 'node:path';
+import { dirname, join, resolve, sep } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import yaml from 'js-yaml';
-// The shared population reader only — that module imports node builtins and
-// nothing else, so this command line inherits no parser or heavy module it does
-// not use (the lean-closure principle scripts/governance-data.js states).
-import { trackedFilesUnder } from './check-test-inventory.js';
+// Shared readers only — that module imports node builtins and nothing else, so
+// this command line inherits no parser or heavy module it does not use (the
+// lean-closure principle scripts/governance-data.js states).
+import { selfPath, trackedFilesUnder } from './check-test-inventory.js';
 
-/**
- * This check's own path, DERIVED from the file it is written in rather than
- * written out: the path a verdict names is then the file that printed it, and a
- * rename carries the value with the file instead of leaving a literal behind.
- * The `node scripts/<name>.js` usage line in the header above is a comment and
- * stays hand-written — that is the stated boundary of this derivation.
- */
-const SELF_PATH = `scripts/${basename(import.meta.filename)}`;
+const SELF_PATH = selfPath(import.meta.filename);
 
 const ROOT = resolve(import.meta.dirname, '..');
 const WORKFLOW = join(ROOT, '.github', 'workflows', 'test.yml');
@@ -115,6 +109,11 @@ const CLAUSE_REGISTRY = join(ROOT, 'docs', 'clause-registry.json');
 // The design contract, encoded once. These job ids ARE the point of the guard;
 // a rename that leaves one dangling is itself a failure (checked below).
 const UNIT_JOB = 'unit-tests';
+// The workflow's own filter anchor, named once: the job that runs the filter,
+// and the `uses:` substring its step is located by. Exported because the doc
+// closure check reaches the same step to read the same map.
+const CHANGES_JOB_ID = 'changes';
+const PATHS_FILTER_USES = 'paths-filter';
 const CI_CORE_GLOBS = [
   '.github/workflows/test.yml',
   '.github/actions/**',
@@ -164,6 +163,25 @@ const PRODUCE_DIFF_PAIRS = [
   ['desktop-rust-tests', 'desktop-corpus-diff'],
   ['desktop-vectors-produce', 'desktop-vectors-diff'],
 ];
+/**
+ * The `needs.<filter job>.outputs.<flag>` reference every gate is written as.
+ * Global for `matchAll`, which clones the regex, so this module-scope
+ * `lastIndex` never advances — a reader switching to `.test()` or `.exec()`
+ * would inherit that state.
+ */
+const JOB_FLAG_RE = new RegExp(String.raw`needs\.${CHANGES_JOB_ID}\.outputs\.(\w+)`, 'g');
+
+/**
+ * The filter job's paths-filter step, or undefined when the job is absent, runs
+ * no steps, or runs no step whose `uses:` names the filter action. One locator,
+ * so every reader of the filter map reaches the same step.
+ * @param {object | undefined} job the parsed job
+ * @returns {object | undefined} the filter step
+ */
+function pathsFilterStep(job) {
+  const steps = Array.isArray(job?.steps) ? job.steps : [];
+  return steps.find((s) => typeof s?.uses === 'string' && s.uses.includes(PATHS_FILTER_USES));
+}
 
 /** Normalise an absolute path to a repo-relative, forward-slash path. */
 function rel(abs) {
@@ -173,10 +191,7 @@ function rel(abs) {
 /** Parse test.yml and the nested dorny filter block into structured data. */
 function loadWorkflow() {
   const wf = yaml.load(readFileSync(WORKFLOW, 'utf8'));
-  const changes = wf.jobs?.changes;
-  const filterStep = (changes?.steps || []).find(
-    (s) => typeof s.uses === 'string' && s.uses.includes('paths-filter'),
-  );
+  const filterStep = pathsFilterStep(wf.jobs?.[CHANGES_JOB_ID]);
   // The filter definitions are a YAML literal block inside `with.filters`.
   const filters = filterStep?.with?.filters ? yaml.load(filterStep.with.filters) : {};
   // Normalise each filter's globs to a string[] (dorny allows a bare string).
@@ -186,10 +201,10 @@ function loadWorkflow() {
   return { wf, filters };
 }
 
-/** The change-flags a job's `if:` gates on (needs.changes.outputs.<flag>). */
+/** The change-flags a job's `if:` gates on, read through {@link JOB_FLAG_RE}. */
 function jobFlags(job) {
   const cond = typeof job?.if === 'string' ? job.if : '';
-  return new Set([...cond.matchAll(/needs\.changes\.outputs\.(\w+)/g)].map((m) => m[1]));
+  return new Set([...cond.matchAll(JOB_FLAG_RE)].map((m) => m[1]));
 }
 
 /**
@@ -313,7 +328,7 @@ function evaluateContract({ wf, filters, closure, isTracked, registryDocs }) {
 
   // Invariant 1: buildScripts set-equality with the heavy jobs' script closure.
   if (!has('buildScripts')) {
-    problems.push('the `changes` job defines no `buildScripts` filter');
+    problems.push(`the \`${CHANGES_JOB_ID}\` job defines no \`buildScripts\` filter`);
   } else {
     const declared = new Set(globs('buildScripts'));
     if (!sameSet(closure, declared)) {
@@ -333,7 +348,7 @@ function evaluateContract({ wf, filters, closure, isTracked, registryDocs }) {
       problems.push(`heavy job \`${id}\` gates on the broad \`ci\` flag (scripts/**)`);
   }
   if (!has('ciCore')) {
-    problems.push('the `changes` job defines no `ciCore` filter');
+    problems.push(`the \`${CHANGES_JOB_ID}\` job defines no \`ciCore\` filter`);
   } else if (!sameSet(new Set(globs('ciCore')), new Set(CI_CORE_GLOBS))) {
     problems.push(
       `ciCore globs must be exactly [${CI_CORE_GLOBS.join(', ')}]; found [${globs('ciCore').join(', ')}]`,
@@ -386,7 +401,7 @@ function evaluateContract({ wf, filters, closure, isTracked, registryDocs }) {
   for (const [id, job] of Object.entries(jobs)) {
     for (const flag of jobFlags(job)) {
       if (!has(flag))
-        problems.push(`job \`${id}\` gates on \`${flag}\`, which the \`changes\` block does not define`); // prettier-ignore
+        problems.push(`job \`${id}\` gates on \`${flag}\`, which the \`${CHANGES_JOB_ID}\` block does not define`); // prettier-ignore
     }
   }
 
@@ -395,36 +410,36 @@ function evaluateContract({ wf, filters, closure, isTracked, registryDocs }) {
   // output binds its own filter through the filter step's own id, and no filter
   // sits inert. A hop that breaks reads as a correct workflow: the gate is
   // well-formed and simply watches the wrong paths, or nothing at all.
-  const changes = jobs.changes;
+  const changes = jobs[CHANGES_JOB_ID];
   if (!changes) {
-    problems.push('the workflow defines no `changes` job, so no flag has an output to bind');
+    problems.push(
+      `the workflow defines no \`${CHANGES_JOB_ID}\` job, so no flag has an output to bind`,
+    );
   } else {
     const outputs = changes.outputs || {};
-    const filterStep = (changes.steps || []).find(
-      (s) => typeof s.uses === 'string' && s.uses.includes('paths-filter'),
-    );
+    const filterStep = pathsFilterStep(changes);
     if (!filterStep) {
-      problems.push('the `changes` job runs no paths-filter step');
+      problems.push(`the \`${CHANGES_JOB_ID}\` job runs no ${PATHS_FILTER_USES} step`);
     } else if (typeof filterStep.id !== 'string' || filterStep.id === '') {
-      problems.push('the `changes` job\'s paths-filter step declares no `id`, so no output can bind it'); // prettier-ignore
+      problems.push(`the \`${CHANGES_JOB_ID}\` job's ${PATHS_FILTER_USES} step declares no \`id\`, so no output can bind it`); // prettier-ignore
     } else {
       const stepId = filterStep.id;
       for (const flag of Object.keys(filters)) {
         if (!Object.prototype.hasOwnProperty.call(outputs, flag))
-          problems.push(`filter \`${flag}\` has no output on the \`changes\` job, so no job can gate on it`); // prettier-ignore
+          problems.push(`filter \`${flag}\` has no output on the \`${CHANGES_JOB_ID}\` job, so no job can gate on it`); // prettier-ignore
       }
       for (const [name, value] of Object.entries(outputs)) {
         if (!has(name)) {
-          problems.push(`output \`${name}\` of the \`changes\` job names no filter`);
+          problems.push(`output \`${name}\` of the \`${CHANGES_JOB_ID}\` job names no filter`);
           continue;
         }
         const bound = /^\$\{\{\s*steps\.([\w-]+)\.outputs\.(\w+)\s*\}\}$/.exec(String(value));
         if (!bound) {
-          problems.push(`output \`${name}\` of the \`changes\` job is not a step-output expression: \`${value}\``); // prettier-ignore
+          problems.push(`output \`${name}\` of the \`${CHANGES_JOB_ID}\` job is not a step-output expression: \`${value}\``); // prettier-ignore
         } else if (bound[1] !== stepId) {
-          problems.push(`output \`${name}\` of the \`changes\` job reads step \`${bound[1]}\`, not the paths-filter step \`${stepId}\``); // prettier-ignore
+          problems.push(`output \`${name}\` of the \`${CHANGES_JOB_ID}\` job reads step \`${bound[1]}\`, not the ${PATHS_FILTER_USES} step \`${stepId}\``); // prettier-ignore
         } else if (bound[2] !== name) {
-          problems.push(`output \`${name}\` of the \`changes\` job binds the \`${bound[2]}\` filter, not its own`); // prettier-ignore
+          problems.push(`output \`${name}\` of the \`${CHANGES_JOB_ID}\` job binds the \`${bound[2]}\` filter, not its own`); // prettier-ignore
         }
       }
       const gated = new Set();
@@ -493,7 +508,11 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
 
 export {
   CI_CORE_GLOBS,
+  CHANGES_JOB_ID,
+  PATHS_FILTER_USES,
+  GLOB_CHARS,
   loadWorkflow,
+  pathsFilterStep,
   jobFlags,
   heavyJobs,
   entryFilesFromCommand,

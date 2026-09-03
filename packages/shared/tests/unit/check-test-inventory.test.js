@@ -107,6 +107,7 @@ import {
   registered,
   selectTablesByHeader,
   selectsFor,
+  selfPath,
   splitRow,
   stripFences,
   stripTomlComment,
@@ -3933,5 +3934,62 @@ describe('the shared surface guards — one loop, one projector contract', () =>
     assert.match(problems[0], /the duplicate-surface guard reads `nmaes`/);
     assert.match(problems[0], /states that key on nothing/);
     assert.doesNotMatch(problems[0], /appears more than once/);
+  });
+});
+
+describe('selfPath — the one home of the derivation every check names itself by', () => {
+  // The value is derived, not written out, so a rename carries it with the
+  // file. What THIS holds is the second half: the derivation itself has one
+  // home, so a further check cannot quietly hand-copy the expression and start
+  // a second reading of what a check's own path is.
+  const scripts = trackedFilesUnder('scripts', { cwd: ROOT, extensions: ['.js'] });
+  const sources = new Map(scripts.map((p) => [p, readFileSync(resolve(ROOT, p), 'utf8')]));
+
+  // The expression in the spellings a hand-copy reaches for: the `scripts/`
+  // prefix, as a template or a concatenation, joined to a basename taken off
+  // this module's own file through any member chain (`basename`,
+  // `path.basename`, `path.posix.basename`), with or without `fileURLToPath`,
+  // bare or through a member chain, in between. A copy that first binds
+  // `import.meta.filename` to a local name and derives from that is outside
+  // this scan — the guard holds the shapes a hand-copy reproduces, not every
+  // program that computes the value.
+  const WRITTEN_OUT =
+    /(?:`scripts\/\$\{\s*|['"]scripts\/['"]\s*\+\s*)(?:[A-Za-z_$][\w$]*\.)*[A-Za-z_$][\w$]*\(\s*(?:(?:[A-Za-z_$][\w$]*\.)*fileURLToPath\(\s*)?import\.meta\.(?:filename|url)/;
+
+  it('no check spells the derivation out in a shape a hand-copy reaches for', () => {
+    const copies = [...sources].filter(([, text]) => WRITTEN_OUT.test(text)).map(([p]) => p);
+    assert.deepEqual(
+      copies,
+      [],
+      `these checks spell the self-path derivation out instead of calling selfPath(import.meta.filename) ` +
+        `from scripts/check-test-inventory.js — a second copy drifts one rename at a time: ${copies.join(', ')}`,
+    );
+  });
+
+  it('every check that names itself takes the value from that home', () => {
+    const binders = [...sources].filter(([, t]) => /\bSELF_PATH\s*=/.test(t));
+    assert.ok(binders.length > 1, 'the scan found no self-naming check — re-anchor it');
+    for (const [p, text] of binders) {
+      assert.match(
+        text,
+        /SELF_PATH = selfPath\(import\.meta\.filename\);/,
+        `${p}: binds SELF_PATH by hand`,
+      );
+      if (p !== 'scripts/check-test-inventory.js') {
+        const lists = [...text.matchAll(/import \{([^}]*)\} from '\.\/check-test-inventory\.js'/g)];
+        assert.ok(
+          lists.some(([, names]) => /\bselfPath\b/.test(names)),
+          `${p}: does not import the helper from scripts/check-test-inventory.js`,
+        );
+      }
+    }
+  });
+
+  it('the derived value has the shape the verdicts print', () => {
+    assert.equal(selfPath('/anywhere/scripts/check-thing.js'), 'scripts/check-thing.js');
+    assert.match(
+      selfPath(resolve(ROOT, 'scripts/check-test-inventory.js')),
+      /^scripts\/check-[a-z-]+\.js$/,
+    );
   });
 });

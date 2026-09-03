@@ -14,6 +14,9 @@
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+import { PLATFORM_SURFACES } from '../../../../scripts/build-schemas.js';
 import {
   readVersionFrom,
   checkVersionTable,
@@ -196,6 +199,10 @@ describe('checkVersionTable', () => {
 });
 
 describe('the registers the two surfaces share', () => {
+  /** The version-table writer's source: it has no suite of its own and writes on import. */
+  const WRITER = 'scripts/update-version-table.js';
+  const writerSource = readFileSync(resolve(import.meta.dirname, '../../../..', WRITER), 'utf8');
+
   it('CHECKED_FILES covers the README and the session-format doc, each with its own shape', () => {
     assert.deepEqual(
       CHECKED_FILES.map((doc) => doc.path),
@@ -206,6 +213,25 @@ describe('the registers the two surfaces share', () => {
     // The key is never column 0 in the session-format shape, whose first cell
     // is a backticked file path rather than a platform.
     assert.equal(SPEC.platformColumn, 1);
+  });
+
+  it('the writer reads the same roster rather than restating it', () => {
+    // The check's own register IS the roster — not a copy that happens to agree.
+    assert.equal(PLATFORMS, PLATFORM_SURFACES);
+    // And the writer takes its rows from that roster.
+    assert.match(
+      writerSource,
+      /import \{[^}]*PLATFORM_SURFACES[^}]*\} from '\.\/build-schemas\.js'/,
+    );
+    // A second copy would have to restate one of these; none may appear as a literal.
+    for (const surface of PLATFORM_SURFACES) {
+      for (const restated of [surface.name, surface.delta, surface.schemaFile]) {
+        assert.ok(
+          !writerSource.includes(restated),
+          `${WRITER} states "${restated}" itself — the roster in build-schemas.js is its one home`,
+        );
+      }
+    }
   });
 
   it('PLATFORMS names each platform once and points at a leaf delta apiece', () => {

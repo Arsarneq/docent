@@ -86,6 +86,27 @@ export const PLATFORMS = {
   ],
 };
 
+/**
+ * The published surfaces, in the order the version tables state them: each
+ * platform's key in {@link PLATFORMS}, the NAME its row is keyed by in those
+ * tables, and the paths the key already determines — the leaf delta the version
+ * is read from (the chain's last layer) and the composed schema the
+ * session-format table cites. The display name is the one datum the key does
+ * not determine, and the leaf's own `title` carries it for one row only
+ * ("Docent Extension Schema" does not state "Chrome Extension"), so it is
+ * stated here once, beside the roster it names, and the version-table writer
+ * and its check both read the surfaces from here.
+ */
+export const PLATFORM_SURFACES = [
+  { platform: 'extension', name: 'Chrome Extension' },
+  { platform: 'desktop-windows', name: 'Desktop (Windows)' },
+].map(({ platform, name }) => ({
+  platform,
+  name,
+  delta: `schemas/${PLATFORMS[platform].at(-1)}`,
+  schemaFile: `schemas/dist/${platform}.schema.json`,
+}));
+
 function readJson(path) {
   return JSON.parse(readFileSync(path, 'utf8'));
 }
