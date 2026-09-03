@@ -134,10 +134,14 @@ describe('check-script CLI smoke (deterministic green paths)', () => {
   });
 
   it('check-ci-filter: the committed path-filter split satisfies its contract', () => {
-    // No env pinned: the script reads no process.env — its whole closure is the
-    // workflow read, the root manifest read, and the YAML parser — so no var can
-    // switch the path this runs. It is measured with the rest of the family, and
-    // this is what exercises its wrapper.
+    // No env pinned: the script reads no process.env — its inputs are
+    // repository files (the workflow, the root manifest, the clause registry,
+    // and the scripts the build closure walks) and git's tracked-file listing —
+    // so no var can switch the path this runs. The listing shells out to
+    // `git ls-files`, which answers to git's own environment — that sits
+    // outside the rule rather than under it, as the clippy case below notes,
+    // and nothing here pins it. It is measured with the rest of the family,
+    // and this is what exercises its wrapper.
     const out = runScript('check-ci-filter.js');
     assert.match(out, /path-filter contract holds/);
   });

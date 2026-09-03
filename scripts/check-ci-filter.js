@@ -21,24 +21,32 @@
  *
  *   1. buildScripts set-equality — the committed buildScripts globs equal the
  *      transitive scripts/-local closure of the scripts the heavy jobs run.
- *   2. No broad `ci` (scripts/**), no sibling workflow, and no inert root
- *      config gates any heavy job — ciCore carries only test.yml, the composite
- *      actions, and the root npm manifests.
+ *   2. No heavy job gates on the broad `ci` bucket (scripts/**), and ciCore
+ *      carries exactly test.yml, the composite actions, and the root npm
+ *      manifests.
  *   3. Each job gates on the flags it must because it exercises an input the
  *      buildScripts closure can't model: `schema` on desktop-rust-tests and
  *      desktop-corpus-diff (they validate the desktop corpus against the schema
  *      composed from schemas/**), `releasePipeline` on each job whose suite
  *      reads the release-pipeline sources as files — reference-server-tests
  *      (release-exclusion) and unit-tests (the disposition suite's weld between
- *      the publish workflows and the automation branch) — and, on unit-tests
- *      alone, the narrow flags for the files only its suites read:
+ *      the publish workflows and the automation branch) — `referenceServer` on
+ *      unit-tests as well (its shared suite walks reference-implementations/
+ *      for the resolution-procedure tokens no shipped file may carry) — and, on
+ *      unit-tests alone, the narrow flags for the files only its suites hold:
  *      `contractDocs` (the surfaces that suite welds itself to in each
  *      contributor contract file — the governance line both show, the per-doc
  *      grammar forms both show, the standing mutation sentence both spell,
  *      CONTRIBUTING's exemption paragraph, and the shipped template's inert
- *      guidance comments)
- *      and `dispositionWorkflow` (the guard-step env block in
- *      .github/workflows/docs-disposition.yml).
+ *      guidance comments),
+ *      `dispositionWorkflow` (the guard-step env block in
+ *      .github/workflows/docs-disposition.yml),
+ *      and `suiteHeld` (the documents and workflow files whose content a suite
+ *      or a step of that job asserts over — the clause registry's carriers as a
+ *      class, each held by the preamble suite's raw registry link, several of
+ *      them with further holdings, beside the local-CI guide, the
+ *      release-process document, the mutation workflow, the test-suite index,
+ *      the clause registry, the top-level README, and the e2e suite document).
  *   4. `.github/actions/**` is in ciCore (composite actions are used by nearly
  *      every job).
  *   5. Each needs-chained produce/diff pair co-fires — identical trigger flags —
@@ -51,6 +59,33 @@
  *      where the parsed workflow and the filter map meet. (The other half —
  *      the flags docs/guides/ci.md states per job — is held by
  *      scripts/check-doc-closure.js, against the same filter map.)
+ *   7. The hops a flag passes through inside the `changes` job: the
+ *      paths-filter step's filter map and that job's `outputs:` block name the
+ *      same set both ways, each output binds exactly `${{ steps.<the filter
+ *      step's id>.outputs.<its own name> }}`, and every filter is gated on by
+ *      some job's `if:`. Its legs run once the paths-filter step is located; a
+ *      workflow without the `changes` job, the step, or its id gets one problem
+ *      from this invariant — and, since the filter map is read from that same
+ *      job, the other invariants red beside it. (The converse — every gated
+ *      flag is a filter the block defines — is invariant 6 above.) Gates are
+ *      read at job level, the only level this workflow uses. Which gate holds
+ *      which hop: a flag a job gates on that the `outputs:` block does not
+ *      declare reds twice over — as a type error in the always-on actionlint
+ *      job, and here through invariants 6 and 7 together, since it is either no
+ *      filter or a filter with no output, and in both a well-formed condition
+ *      that is never true. The cases this invariant alone holds are an output
+ *      bound to another filter's result — a well-formed condition that follows
+ *      the other filter's paths, so the job stops firing for the files the flag
+ *      exists to watch, and may fire for files it should not — and a filter no
+ *      job gates on, inert with or without an output: a flag nothing reads.
+ *   8. Every glob-free filter entry names a file git tracks. A literal entry is
+ *      one rename away from matching nothing, silently — and an existing
+ *      directory, a trailing-slash path, or an untracked file present on disk
+ *      matches nothing in the paths filter either, so only a tracked file
+ *      passes.
+ *   9. Every document the clause registry's prefix map names is a `suiteHeld`
+ *      entry. The preamble suite holds each carrier's registry link as raw
+ *      text, so a carrier the flag omits reds unit-tests on `main` alone.
  *
  * Usage: node scripts/check-ci-filter.js   # or: npm run lint:ci-filter
  */
@@ -59,6 +94,10 @@ import { readFileSync, existsSync } from 'node:fs';
 import { basename, dirname, join, resolve, sep } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import yaml from 'js-yaml';
+// The shared population reader only — that module imports node builtins and
+// nothing else, so this command line inherits no parser or heavy module it does
+// not use (the lean-closure principle scripts/governance-data.js states).
+import { trackedFilesUnder } from './check-test-inventory.js';
 
 /**
  * This check's own path, DERIVED from the file it is written in rather than
@@ -71,6 +110,7 @@ const SELF_PATH = `scripts/${basename(import.meta.filename)}`;
 
 const ROOT = resolve(import.meta.dirname, '..');
 const WORKFLOW = join(ROOT, '.github', 'workflows', 'test.yml');
+const CLAUSE_REGISTRY = join(ROOT, 'docs', 'clause-registry.json');
 
 // The design contract, encoded once. These job ids ARE the point of the guard;
 // a rename that leaves one dangling is itself a failure (checked below).
@@ -91,20 +131,35 @@ const CI_CORE_GLOBS = [
 //   unit-tests — its disposition suite readFileSyncs both publish workflows to
 //     hold them to the automation branch the release guards key on, so a PR
 //     touching only a publish workflow must still run it (same flag). It also
-//     readFileSyncs files no other job's suite reads: the contributor contract
-//     files, welded surface by surface — this file's header enumerates those
-//     surfaces where it states the `contractDocs` gate, which is the one place
-//     they are listed — and docs-disposition.yml, whose guard step's env block
-//     is held to the inputs the head-ref derivation is written against. Each takes a narrow flag of
-//     its own (`contractDocs`, `dispositionWorkflow`) gating this job alone, so
-//     an edit to those files reaches the suite that reads them and no heavy job
-//     beyond it.
+//     gates on `referenceServer`: its shared suite walks
+//     reference-implementations/ for the resolution-procedure tokens no shipped
+//     file may carry — a holding the heavy jobs that flag reaches do not carry,
+//     so an edit there must run this job too. It also holds files no other
+//     job's suite holds: the contributor contract files, welded surface by
+//     surface — this file's header enumerates those surfaces where it states
+//     the `contractDocs` gate, which is the one place they are listed;
+//     docs-disposition.yml, whose guard step's env block is held to the inputs
+//     the head-ref derivation is written against; and the documents and
+//     workflow files a suite or a step of this job asserts over, the clause
+//     registry's carriers among them as a class. Each takes a narrow flag of
+//     its own (`contractDocs`, `dispositionWorkflow`, `suiteHeld`) gating this
+//     job alone, so an edit to those files reaches the suite that holds them
+//     and no heavy job beyond it.
 const REQUIRED_JOB_FLAGS = {
   'desktop-rust-tests': ['schema'],
   'desktop-corpus-diff': ['schema'],
   'reference-server-tests': ['releasePipeline'],
-  'unit-tests': ['releasePipeline', 'contractDocs', 'dispositionWorkflow'],
+  'unit-tests': [
+    'releasePipeline',
+    'referenceServer',
+    'contractDocs',
+    'dispositionWorkflow',
+    'suiteHeld',
+  ],
 };
+// A filter entry is a literal path exactly when it carries none of dorny's glob
+// alphabet; those are the entries invariant 8 holds to the tree.
+const GLOB_CHARS = /[*?[\]{}!]/;
 const PRODUCE_DIFF_PAIRS = [
   ['desktop-rust-tests', 'desktop-corpus-diff'],
   ['desktop-vectors-produce', 'desktop-vectors-diff'],
@@ -233,12 +288,21 @@ function computeBuildClosure(wf, scripts) {
 }
 
 /**
- * Pure contract check: given the parsed workflow, its filter map, and the
- * computed buildScripts `closure` (a Set of repo-relative script paths), return
- * the list of violations — empty means the contract holds. No IO, so the unit
- * test drives every invariant with synthetic inputs.
+ * Pure contract check: given the parsed workflow, its filter map, the computed
+ * buildScripts `closure` (a Set of repo-relative script paths), an `isTracked`
+ * predicate that answers true only for a path git tracks as a file, and
+ * `registryDocs` (the documents the clause registry's prefix map names), return
+ * the list of violations — empty means the contract holds. The two inputs that
+ * stand for state outside the workflow — the tracked-file predicate and the
+ * registry's document list — are required rather than defaulted, so a caller
+ * that forgets one throws instead of skipping the invariant it feeds. No IO of
+ * its own, so the unit test drives every invariant with synthetic inputs.
  */
-function evaluateContract({ wf, filters, closure }) {
+function evaluateContract({ wf, filters, closure, isTracked, registryDocs }) {
+  if (typeof isTracked !== 'function')
+    throw new TypeError('evaluateContract: isTracked is required');
+  if (!Array.isArray(registryDocs))
+    throw new TypeError('evaluateContract: registryDocs is required');
   const problems = [];
   const jobs = wf.jobs || {};
   const heavy = heavyJobs(wf);
@@ -262,8 +326,8 @@ function evaluateContract({ wf, filters, closure }) {
     }
   }
 
-  // Invariant 2: no heavy job gates on broad `ci`; ciCore is exactly the four
-  // environment-wide globs (no sibling workflow, no inert config).
+  // Invariant 2: no heavy job gates on broad `ci`; ciCore is exactly the
+  // environment-wide globs `CI_CORE_GLOBS` states.
   for (const [id, job] of Object.entries(heavy)) {
     if (jobFlags(job).has('ci'))
       problems.push(`heavy job \`${id}\` gates on the broad \`ci\` flag (scripts/**)`);
@@ -326,6 +390,73 @@ function evaluateContract({ wf, filters, closure }) {
     }
   }
 
+  // Invariant 7: the hops a flag passes through inside the `changes` job — the
+  // filter map and the job's `outputs:` block name the same set both ways, each
+  // output binds its own filter through the filter step's own id, and no filter
+  // sits inert. A hop that breaks reads as a correct workflow: the gate is
+  // well-formed and simply watches the wrong paths, or nothing at all.
+  const changes = jobs.changes;
+  if (!changes) {
+    problems.push('the workflow defines no `changes` job, so no flag has an output to bind');
+  } else {
+    const outputs = changes.outputs || {};
+    const filterStep = (changes.steps || []).find(
+      (s) => typeof s.uses === 'string' && s.uses.includes('paths-filter'),
+    );
+    if (!filterStep) {
+      problems.push('the `changes` job runs no paths-filter step');
+    } else if (typeof filterStep.id !== 'string' || filterStep.id === '') {
+      problems.push('the `changes` job\'s paths-filter step declares no `id`, so no output can bind it'); // prettier-ignore
+    } else {
+      const stepId = filterStep.id;
+      for (const flag of Object.keys(filters)) {
+        if (!Object.prototype.hasOwnProperty.call(outputs, flag))
+          problems.push(`filter \`${flag}\` has no output on the \`changes\` job, so no job can gate on it`); // prettier-ignore
+      }
+      for (const [name, value] of Object.entries(outputs)) {
+        if (!has(name)) {
+          problems.push(`output \`${name}\` of the \`changes\` job names no filter`);
+          continue;
+        }
+        const bound = /^\$\{\{\s*steps\.([\w-]+)\.outputs\.(\w+)\s*\}\}$/.exec(String(value));
+        if (!bound) {
+          problems.push(`output \`${name}\` of the \`changes\` job is not a step-output expression: \`${value}\``); // prettier-ignore
+        } else if (bound[1] !== stepId) {
+          problems.push(`output \`${name}\` of the \`changes\` job reads step \`${bound[1]}\`, not the paths-filter step \`${stepId}\``); // prettier-ignore
+        } else if (bound[2] !== name) {
+          problems.push(`output \`${name}\` of the \`changes\` job binds the \`${bound[2]}\` filter, not its own`); // prettier-ignore
+        }
+      }
+      const gated = new Set();
+      for (const job of Object.values(jobs)) for (const flag of jobFlags(job)) gated.add(flag);
+      for (const flag of Object.keys(filters)) {
+        if (!gated.has(flag)) problems.push(`filter \`${flag}\` is defined but no job gates on it`);
+      }
+    }
+  }
+
+  // Invariant 8: every glob-free filter entry names a file git tracks. A
+  // literal entry is one rename away from matching nothing, silently — and an
+  // existing directory, a trailing-slash path, or an untracked file present on
+  // disk matches nothing in the paths filter either, so only a tracked file
+  // passes.
+  for (const [flag, entries] of Object.entries(filters)) {
+    for (const entry of entries) {
+      if (GLOB_CHARS.test(entry)) continue;
+      if (!isTracked(entry))
+        problems.push(`filter \`${flag}\` lists \`${entry}\`, which is not a tracked file`);
+    }
+  }
+
+  // Invariant 9: every document the clause registry's prefix map names is a
+  // `suiteHeld` entry — the preamble suite holds each carrier's registry link
+  // as raw text, so a carrier the flag omits reds unit-tests on `main` alone.
+  const held = new Set(globs('suiteHeld'));
+  for (const doc of registryDocs) {
+    if (!held.has(doc))
+      problems.push(`the clause registry names \`${doc}\`, which the \`suiteHeld\` filter does not list; the preamble suite holds its registry link`); // prettier-ignore
+  }
+
   return problems;
 }
 
@@ -333,7 +464,16 @@ function run() {
   const { wf, filters } = loadWorkflow();
   const scripts = JSON.parse(readFileSync(join(ROOT, 'package.json'), 'utf8')).scripts || {};
   const closure = computeBuildClosure(wf, scripts);
-  const problems = evaluateContract({ wf, filters, closure });
+  const registryDocs = Object.values(JSON.parse(readFileSync(CLAUSE_REGISTRY, 'utf8')).prefixes);
+  // Git's own listing, read once: what invariant 8 asks about each literal.
+  const tracked = new Set(trackedFilesUnder('.', { cwd: ROOT }));
+  const problems = evaluateContract({
+    wf,
+    filters,
+    closure,
+    isTracked: (p) => tracked.has(p),
+    registryDocs,
+  });
 
   if (problems.length) {
     console.error('✗ test.yml path-filter contract violated:\n');
