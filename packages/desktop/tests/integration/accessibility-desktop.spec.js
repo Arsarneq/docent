@@ -12,7 +12,12 @@
  */
 
 import { test, expect } from './coverage-fixture.js';
-import { installTauriMockServer, fireCaptureActions, openPanel } from './tauri-mock-fixture.js';
+import {
+  createProject,
+  installTauriMockServer,
+  openPanel,
+  seedRecordedStep,
+} from './tauri-mock-fixture.js';
 import AxeBuilder from '@axe-core/playwright';
 
 const server = installTauriMockServer();
@@ -35,34 +40,12 @@ function formatViolations(violations) {
     .join('\n\n');
 }
 
-async function createProject(page, name = 'A11y Test') {
-  await page.click('#btn-new-project');
-  await page.waitForSelector('#view-new-project:not(.hidden)', { timeout: 5000 });
-  await page.fill('#new-project-name', name);
-  await page.click('#btn-new-project-create');
-  await page.waitForSelector('#view-project:not(.hidden)', { timeout: 5000 });
-}
-
-async function createRecording(page, name = 'Flow') {
-  await page.click('#btn-new-recording');
-  await page.waitForSelector('#view-new-recording:not(.hidden)', { timeout: 5000 });
-  await page.fill('#new-recording-name', name);
-  await page.click('#btn-new-recording-create');
-  await page.waitForSelector('#view-recording:not(.hidden)', { timeout: 5000 });
-}
-
-async function simulateCapture(page) {
-  await fireCaptureActions(page, [
-    {
-      type: 'click',
-      timestamp: Date.now(),
-      capture_mode: 'accessibility',
-      context_id: 1,
-      element: { text: 'OK', tag: 'Button' },
-    },
-  ]);
-  await page.waitForTimeout(300);
-}
+const OK_CLICK = {
+  type: 'click',
+  capture_mode: 'accessibility',
+  context_id: 1,
+  element: { text: 'OK', tag: 'Button' },
+};
 
 // ─── Tests ────────────────────────────────────────────────────────────────────
 
@@ -100,13 +83,12 @@ test.describe('Desktop Accessibility — WCAG 2.1 AA', () => {
   test('recording view (narration mode) has no violations', async ({ page }) => {
     await openPanel(page, server);
     await createProject(page);
-    await createRecording(page);
-
-    // Simulate a capture and commit a step so the view has content
-    await simulateCapture(page);
-    await page.fill('#narration-input', 'Click OK');
-    await page.click('#btn-commit-step');
-    await page.waitForTimeout(500);
+    await seedRecordedStep(page, {
+      project: null,
+      recording: 'Flow',
+      actions: [OK_CLICK],
+      narration: 'Click OK',
+    });
 
     const violations = await runAxe(page);
     expect(violations, formatViolations(violations)).toHaveLength(0);
@@ -126,7 +108,13 @@ test.describe('Desktop Accessibility — WCAG 2.1 AA', () => {
     await page.waitForSelector('#view-projects:not(.hidden)', { timeout: 5000 });
 
     await createProject(page, 'Simple A11y');
-    await createRecording(page);
+    // The recording view alone: nothing delivered, nothing committed.
+    await seedRecordedStep(page, {
+      project: null,
+      recording: 'Flow',
+      actions: null,
+      narration: null,
+    });
 
     const violations = await runAxe(page);
     expect(violations, formatViolations(violations)).toHaveLength(0);
@@ -135,11 +123,12 @@ test.describe('Desktop Accessibility — WCAG 2.1 AA', () => {
   test('step detail view has no violations', async ({ page }) => {
     await openPanel(page, server);
     await createProject(page);
-    await createRecording(page);
-    await simulateCapture(page);
-    await page.fill('#narration-input', 'Click OK');
-    await page.click('#btn-commit-step');
-    await page.waitForTimeout(500);
+    await seedRecordedStep(page, {
+      project: null,
+      recording: 'Flow',
+      actions: [OK_CLICK],
+      narration: 'Click OK',
+    });
 
     await page.click('.step-narration');
     await page.waitForSelector('#view-step-detail:not(.hidden)', { timeout: 5000 });
@@ -160,11 +149,12 @@ test.describe('Desktop Accessibility — WCAG 2.1 AA', () => {
   test('step history view has no violations', async ({ page }) => {
     await openPanel(page, server);
     await createProject(page);
-    await createRecording(page);
-    await simulateCapture(page);
-    await page.fill('#narration-input', 'Click OK');
-    await page.click('#btn-commit-step');
-    await page.waitForTimeout(500);
+    await seedRecordedStep(page, {
+      project: null,
+      recording: 'Flow',
+      actions: [OK_CLICK],
+      narration: 'Click OK',
+    });
 
     await page.locator('[data-action="history"]').first().click();
     await page.waitForSelector('#view-history:not(.hidden)', { timeout: 5000 });

@@ -7,9 +7,21 @@
  */
 
 import { test, expect } from './coverage-fixture.js';
-import { installTauriMockServer, fireCaptureActions, openPanel } from './tauri-mock-fixture.js';
+import {
+  fireCaptureActions,
+  installTauriMockServer,
+  openPanel,
+  seedRecordedStep,
+} from './tauri-mock-fixture.js';
 
 const server = installTauriMockServer();
+
+const SUBMIT_CLICK = {
+  type: 'click',
+  capture_mode: 'accessibility',
+  context_id: 1,
+  element: { text: 'Submit', tag: 'Button', selector: '#btn' },
+};
 
 // Helper: set up a project with endpoint configured and a committed step
 async function setupDispatchReady(page) {
@@ -25,31 +37,12 @@ async function setupDispatchReady(page) {
   await page.click('#btn-settings-back');
   await page.waitForSelector('#view-projects:not(.hidden)', { timeout: 5000 });
 
-  // Create project + recording + commit step
-  await page.click('#btn-new-project');
-  await page.waitForSelector('#view-new-project:not(.hidden)', { timeout: 5000 });
-  await page.fill('#new-project-name', 'Dispatch Project');
-  await page.click('#btn-new-project-create');
-  await page.waitForSelector('#view-project:not(.hidden)', { timeout: 5000 });
-  await page.click('#btn-new-recording');
-  await page.waitForSelector('#view-new-recording:not(.hidden)', { timeout: 5000 });
-  await page.fill('#new-recording-name', 'Flow A');
-  await page.click('#btn-new-recording-create');
-  await page.waitForSelector('#view-recording:not(.hidden)', { timeout: 5000 });
-
-  await fireCaptureActions(page, [
-    {
-      type: 'click',
-      timestamp: Date.now(),
-      capture_mode: 'accessibility',
-      context_id: 1,
-      element: { text: 'Submit', tag: 'Button', selector: '#btn' },
-    },
-  ]);
-  await page.waitForTimeout(300);
-  await page.fill('#narration-input', 'Click submit');
-  await page.click('#btn-commit-step');
-  await page.waitForTimeout(500);
+  await seedRecordedStep(page, {
+    project: 'Dispatch Project',
+    recording: 'Flow A',
+    actions: [SUBMIT_CLICK],
+    narration: 'Click submit',
+  });
 }
 
 test.describe('Desktop Panel — Dispatch Send', () => {

@@ -711,6 +711,42 @@ describe('commitWithCompleteness()', () => {
     const actions = adapter.getPendingActions();
     assert.equal(actions.length, 0, 'a duplicate sentinel never enters the pending list');
   });
+
+  // The reset's waiter half (`_resetReorderState` at `adapter-tauri.js:157-160`,
+  // run on RECORDING_START): a reset tears the reorder state down, so a commit
+  // still in flight must lose its waiter — the next session's sentinel may not
+  // be consumed by the previous session's wait. Both halves of that are
+  // observable here: the post-reset sentinel finds NO waiter and parks, and the
+  // abandoned commit finishes through its bounded-wait arm, surfaced, never
+  // silently as a confirmed delivery.
+  it('drops the in-flight waiter on reset, so a later sentinel parks instead of being consumed', async () => {
+    mockInvoke.mock.mockImplementation(async (cmd) => {
+      if (cmd === 'commit_barrier') return { barrier_id: 21, wedged_workers: 0 };
+      return undefined;
+    });
+    const previousTimeout = _testOnly.setBarrierWaitTimeout(25);
+    let warnings;
+    try {
+      warnings = await captureWarnings(async () => {
+        const commit = commitWithCompleteness(); // registers the waiter for 21
+        await tick();
+        _testOnly.resetReorderState(); // what RECORDING_START runs
+        _testOnly.handleCaptureAction({ type: 'barrier_complete', barrier_id: 21 });
+        assert.deepStrictEqual(
+          _testOnly.seenBarrierIds(),
+          [21],
+          'the dropped waiter must not claim the sentinel — it parks for whoever waits next',
+        );
+        await commit; // must still settle, through the bounded wait
+      });
+    } finally {
+      _testOnly.setBarrierWaitTimeout(previousTimeout);
+    }
+    assert.ok(
+      warnings.some((w) => w.includes('sentinel') && w.includes('21')),
+      `the abandoned wait must expire visibly, got: ${JSON.stringify(warnings)}`,
+    );
+  });
 });
 
 // ─── stopWithCompleteness() ───────────────────────────────────────────────────

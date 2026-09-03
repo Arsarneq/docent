@@ -17,7 +17,15 @@
  */
 
 import { test, expect } from './coverage-fixture.js';
-import { installTauriMockServer, fireCaptureActions, openPanel } from './tauri-mock-fixture.js';
+import {
+  clearInvokes,
+  createProject,
+  fireCaptureActions,
+  installTauriMockServer,
+  invokesOf,
+  openPanel,
+  seedRecordedStep,
+} from './tauri-mock-fixture.js';
 import { composePlatform } from '../../../../scripts/build-schemas.js';
 import { stampFromSchema } from '../../../../packages/shared/lib/format-stamp.js';
 
@@ -31,40 +39,16 @@ const DESKTOP_STAMP = stampFromSchema(composePlatform('desktop-windows'));
 
 const server = installTauriMockServer();
 
-// Helper: create a project and navigate to project detail
-async function createProject(page, name = 'Test Project') {
-  await openPanel(page, server);
-  await page.click('#btn-new-project');
-  await page.waitForSelector('#view-new-project:not(.hidden)', { timeout: 5000 });
-  await page.fill('#new-project-name', name);
-  await page.click('#btn-new-project-create');
-  await page.waitForSelector('#view-project:not(.hidden)', { timeout: 5000 });
-}
-
-// Helper: create a recording with a committed step
-async function createRecordingWithStep(page) {
-  await page.click('#btn-new-recording');
-  await page.waitForSelector('#view-new-recording:not(.hidden)', { timeout: 5000 });
-  await page.fill('#new-recording-name', 'Rec');
-  await page.click('#btn-new-recording-create');
-  await page.waitForSelector('#view-recording:not(.hidden)', { timeout: 5000 });
-  await fireCaptureActions(page, [
-    {
-      type: 'click',
-      timestamp: Date.now(),
-      capture_mode: 'accessibility',
-      context_id: 1,
-      element: { text: 'Button', tag: 'Button', selector: '#btn' },
-    },
-  ]);
-  await page.waitForTimeout(300);
-  await page.fill('#narration-input', 'Click button');
-  await page.click('#btn-commit-step');
-  await page.waitForTimeout(500);
-}
+const BUTTON_CLICK = {
+  type: 'click',
+  capture_mode: 'accessibility',
+  context_id: 1,
+  element: { text: 'Button', tag: 'Button', selector: '#btn' },
+};
 
 test.describe('Desktop Panel — Metadata CRUD', () => {
   test('add metadata row, fill key/value, persists after navigation', async ({ page }) => {
+    await openPanel(page, server);
     await createProject(page);
 
     // Open metadata section and add a row
@@ -95,6 +79,7 @@ test.describe('Desktop Panel — Metadata CRUD', () => {
   });
 
   test('remove metadata row', async ({ page }) => {
+    await openPanel(page, server);
     await createProject(page);
 
     await page.click('#project-metadata-section summary');
@@ -113,6 +98,7 @@ test.describe('Desktop Panel — Metadata CRUD', () => {
   });
 
   test('comma-separated value stored as array', async ({ page }) => {
+    await openPanel(page, server);
     await createProject(page);
 
     await page.click('#project-metadata-section summary');
@@ -232,21 +218,26 @@ test.describe('Desktop Panel — Import Project', () => {
 
 test.describe('Desktop Panel — Export Project', () => {
   test('export calls invoke with valid project JSON', async ({ page }) => {
+    await openPanel(page, server);
     await createProject(page, 'Export Test');
-    await createRecordingWithStep(page);
+    await seedRecordedStep(page, {
+      project: null,
+      recording: 'Rec',
+      actions: [BUTTON_CLICK],
+      narration: 'Click button',
+    });
 
     // Go to project view
     await page.click('#bc-project');
     await page.waitForSelector('#view-project:not(.hidden)', { timeout: 5000 });
 
     // Clear invoke calls and click export
-    await page.evaluate(() => window.__TAURI__._clearInvokeCalls());
+    await clearInvokes(page);
     await page.click('#btn-export-project');
     await page.waitForTimeout(500);
 
     // Verify export_file was called
-    const calls = await page.evaluate(() => window.__TAURI__._getInvokeCalls());
-    const exportCall = calls.find((c) => c.cmd === 'export_file');
+    const [exportCall] = await invokesOf(page, 'export_file');
     expect(exportCall).toBeTruthy();
     const exportData = JSON.parse(exportCall.args.data);
     expect(exportData.project.name).toBe('Export Test');
@@ -409,7 +400,7 @@ test.describe('Desktop Panel — Self-Capture Toggle', () => {
     await page.waitForSelector('#view-settings:not(.hidden)', { timeout: 5000 });
 
     // Clear calls and toggle
-    await page.evaluate(() => window.__TAURI__._clearInvokeCalls());
+    await clearInvokes(page);
 
     // The toggle sits in the shell's static target-app controls — a block
     // rendered unconditionally, outside the sections the view switcher
@@ -424,8 +415,7 @@ test.describe('Desktop Panel — Self-Capture Toggle', () => {
     await toggle.uncheck();
     await page.waitForTimeout(300);
 
-    const calls = await page.evaluate(() => window.__TAURI__._getInvokeCalls());
-    const exclusionCall = calls.find((c) => c.cmd === 'set_self_capture_exclusion');
+    const [exclusionCall] = await invokesOf(page, 'set_self_capture_exclusion');
     expect(exclusionCall).toBeTruthy();
     expect(exclusionCall.args.enabled).toBe(false);
   });
@@ -510,6 +500,7 @@ test.describe('Desktop Panel — Recording Selector Send All', () => {
 
 test.describe('Desktop Panel — Drag Reorder Steps', () => {
   test('drag step changes order and persists', async ({ page }) => {
+    await openPanel(page, server);
     await createProject(page, 'Drag Test');
 
     // Create recording and commit 2 steps

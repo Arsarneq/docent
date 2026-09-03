@@ -30,7 +30,13 @@
  */
 
 import { test, expect } from './coverage-fixture.js';
-import { installTauriMockServer, fireCaptureActions, openPanel } from './tauri-mock-fixture.js';
+import {
+  clearInvokes,
+  fireCaptureActions,
+  installTauriMockServer,
+  invokedCommands,
+  openPanel,
+} from './tauri-mock-fixture.js';
 
 // The barrier id the fused stop path reports; the commit must wait for the
 // matching `barrier_complete` sentinel on the capture:action stream.
@@ -41,16 +47,6 @@ const server = installTauriMockServer({
     stop_capture: `() => ({ barrier_id: ${STOP_BARRIER_ID}, wedged_workers: 0, completion: 'marker_ordered' })`,
   },
 });
-
-/** The command names the page has invoked, in order. */
-async function invokedCommands(page) {
-  return page.evaluate(() => window.__TAURI__._getInvokeCalls().map((call) => call.cmd));
-}
-
-/** Fire one capture:action payload through the recorded backend listener. */
-async function fireCaptureAction(page, payload) {
-  await fireCaptureActions(page, [payload]);
-}
 
 const clickAction = (text) => ({
   type: 'click',
@@ -87,12 +83,12 @@ test.describe('Desktop Panel — commit completeness barrier', () => {
     await page.waitForSelector('#view-recording:not(.hidden)', { timeout: 5000 });
 
     // An action captured during the step.
-    await fireCaptureAction(page, clickAction('First'));
+    await fireCaptureActions(page, [clickAction('First')]);
     await page.waitForTimeout(200);
     await expect(page.locator('#btn-commit-step-simple')).toBeEnabled();
 
     // Snapshot only the commit's invoke order.
-    await page.evaluate(() => window.__TAURI__._clearInvokeCalls());
+    await clearInvokes(page);
 
     // Commit. The sentinel has NOT been fired yet.
     await page.click('#btn-commit-step-simple');
@@ -110,10 +106,10 @@ test.describe('Desktop Panel — commit completeness barrier', () => {
 
     // A held action drains after the click but before the sentinel — it must
     // still land in the committed step (completeness).
-    await fireCaptureAction(page, clickAction('Second'));
+    await fireCaptureActions(page, [clickAction('Second')]);
 
     // Deliver the barrier sentinel for the id the stop path reported.
-    await fireCaptureAction(page, { type: 'barrier_complete', barrier_id: STOP_BARRIER_ID });
+    await fireCaptureActions(page, [{ type: 'barrier_complete', barrier_id: STOP_BARRIER_ID }]);
 
     // (3) The step now finalizes, carrying both actions.
     await expect(page.locator('.step-item')).toHaveCount(1);
