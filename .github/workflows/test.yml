@@ -57,6 +57,7 @@ jobs:
       releasePipeline: ${{ steps.filter.outputs.releasePipeline }}
       contractDocs: ${{ steps.filter.outputs.contractDocs }}
       dispositionWorkflow: ${{ steps.filter.outputs.dispositionWorkflow }}
+      suiteHeld: ${{ steps.filter.outputs.suiteHeld }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -80,10 +81,12 @@ jobs:
             # Environment-wide inputs every job's build/run depends on: this
             # workflow, the composite actions it loads, and the root npm
             # manifests. Fires the full matrix (fixes the `.github/actions/**`
-            # under-trigger). Sibling workflows and inert configs
-            # (.editorconfig/.prettierrc/eslint.config.js/codecov.yml) are
-            # deliberately absent — the always-on lint/zizmor/actionlint/
-            # coverage-upload jobs already cover them.
+            # under-trigger). Sibling workflows and root configs set a flag only
+            # where a path-filtered job's run depends on them (this list, and
+            # .c8rc.json on the ci bucket) or a test suite holds them
+            # (releasePipeline for the publish workflows, and the narrow flags
+            # below); the always-on lint/zizmor/actionlint/coverage-upload jobs
+            # cover the rest.
             ciCore:
               - '.github/workflows/test.yml'
               - '.github/actions/**'
@@ -110,8 +113,9 @@ jobs:
             # unit-tests' disposition suite, holding both publish workflows to
             # the automation branch the release guards key on. A source-read
             # coupling the buildScripts closure can't model, so it gets its own
-            # flag. The rule is per reading job: a file belongs here when some
-            # job whose suite reads it gates on no other flag already matching
+            # flag. The rule is per holding job: a file belongs here when some
+            # job whose suite holds it — asserts over its content in a way no
+            # always-on gate holds — gates on no other flag already matching
             # that file. That is what keeps the guard script listed — unit-tests
             # reaches it through the broad ci bucket, but reference-server-tests
             # is a heavy job and never gates on ci.
@@ -128,7 +132,7 @@ jobs:
             # and the shipped template itself, audited as-is so its guidance
             # comments stay inert. An edit to either file must run that suite.
             # Narrow on purpose — it gates unit-tests alone, the only job whose
-            # suite reads them. Same per-reading-job rule as the flag above.
+            # suite holds them. Same per-holding-job rule as the flag above.
             contractDocs:
               - '.github/CONTRIBUTING.md'
               - '.github/PULL_REQUEST_TEMPLATE.md'
@@ -137,10 +141,66 @@ jobs:
             # step env block to the event fields the head-ref derivation is
             # written against, so an edit there must run that suite. Narrow on
             # purpose — it gates unit-tests alone, so the heavy jobs never fire
-            # for a workflow only that suite reads. Same per-reading-job rule as
+            # for a workflow only that suite holds. Same per-holding-job rule as
             # the flags above.
             dispositionWorkflow:
               - '.github/workflows/docs-disposition.yml'
+            # Files a unit-tests suite or step holds — asserts over their
+            # content in a way no always-on gate holds — so an edit reaches that
+            # job at PR time instead of redding main on the push run. The
+            # clause-carrying documents the clause registry names join as a
+            # class: the preamble suite holds each one's registry link as raw
+            # text, and scripts/check-ci-filter.js holds this list to the
+            # registry. Several carry further holdings — the CI guide (the
+            # disposition suite's cadence welds and the workflow-bounds suite's
+            # cargo-mutants version cell), the dispatch document (the preamble
+            # suite's clause-text anchors), the desktop shell document (the
+            # command-surface suite's sentence anchor and single-problem pin),
+            # the shared-core document (the adapter-surface suite's seam-link
+            # enumeration and heading coupling), the session-format document
+            # (the version-sync step's table), the mutation-strategy document
+            # (the disposition suite's cadence clause), and the verification
+            # documents (the inventory suite's literal anchors). Outside the
+            # registry: the local-CI guide (the disposition suite's cadence
+            # cross-reference and heading, and the release-output suite's
+            # automation-branch tokens), the release-process document (the same
+            # tokens), the mutation workflow (the disposition suite's schedule
+            # welds and the workflow-bounds suite's cargo-mutants version pin),
+            # the test-suite index (the disposition suite's bullet literal), the
+            # clause registry (the disposition suite's example-anchor row and
+            # the schema-echo suite's check-ref literal), the top-level README
+            # (the version-sync step's table), and the e2e suite document (the
+            # test-inventory suite holds its inventory as several tables). Where
+            # a suite instead re-runs one of the always-on lint job's gates over
+            # the committed tree, that job reds the same drift on every PR, so
+            # such files carry no flag here. Narrow on purpose — it gates
+            # unit-tests alone. Same per-holding-job rule as the flags above;
+            # every entry is a literal path, held to a tracked file by
+            # scripts/check-ci-filter.js.
+            suiteHeld:
+              - '.github/PUBLISHING.md'
+              - '.github/workflows/mutation.yml'
+              - 'README.md'
+              - 'docs/api/dispatch.md'
+              - 'docs/api/sync-protocol.md'
+              - 'docs/architecture/application/desktop/windows/application-shell.md'
+              - 'docs/architecture/application/desktop/windows/capture-principles.md'
+              - 'docs/architecture/application/extension/capture-principles.md'
+              - 'docs/architecture/application/extension/permissions.md'
+              - 'docs/architecture/application/extension/runtime.md'
+              - 'docs/architecture/system/capture-principles.md'
+              - 'docs/architecture/system/shared-core.md'
+              - 'docs/clause-registry.json'
+              - 'docs/guides/ci.md'
+              - 'docs/guides/local-ci.md'
+              - 'docs/technical/locator-resolution.md'
+              - 'docs/technical/session-format.md'
+              - 'docs/test/README.md'
+              - 'docs/test/e2e.md'
+              - 'docs/test/strategy/coverage.md'
+              - 'docs/test/strategy/mutation.md'
+              - 'docs/verification/scripted-truth-corpus.md'
+              - 'docs/verification/sufficiency-lint.md'
             # The broad script bucket — gates unit-tests only (its shared unit
             # suite imports most scripts via packages/shared/tests/unit/check-*.test.js);
             # .c8rc.json configures that job's JS coverage.
@@ -229,8 +289,9 @@ jobs:
       # clause-bearing documents to the convention the preamble states: a
       # lowercase must/should/may inside a clause scope is red unless the
       # allowlist records why that sentence states no requirement. It runs here
-      # for the reason the other doc gates do — the diff that breaks it is
-      # often docs-only, and a docs-only PR skips every path-filtered test job.
+      # for the reason the other doc gates do — the diff that breaks it is often
+      # docs-only, and a PR that sets none of the workflow's change flags — the
+      # usual docs-only PR — skips every path-filtered test job.
       - name: Validate clause preambles and keyword placement
         run: npm run lint:clause-preamble
 
@@ -242,7 +303,8 @@ jobs:
       # identifies one tracked source, and an inventory the check can no longer
       # read where it looks is red rather than skipped. It runs here, in the
       # always-on job, because the diff that stales an inventory is often
-      # docs-only — and a docs-only PR skips every path-filtered test job.
+      # docs-only — and a PR that sets none of the workflow's change flags — the
+      # usual docs-only PR — skips every path-filtered test job.
       - name: Validate test-suite inventories
         run: npm run lint:test-inventory
 
@@ -258,7 +320,8 @@ jobs:
       # are held one-way — every cite must name a job of this workflow, and a
       # job owes no cite. It runs here for the same reason the test-inventory
       # gate does — the diff that stales a doc inventory is often docs-only,
-      # and a docs-only PR skips every path-filtered test job.
+      # and a PR that sets none of the workflow's change flags — the usual
+      # docs-only PR — skips every path-filtered test job.
       - name: Validate verification-document inventories
         run: npm run lint:verification-inventory
 
@@ -354,10 +417,11 @@ jobs:
       # and each pinned tool's key version segment against the version its
       # install pins and against the version docs/guides/local-ci.md states
       # beside the tool's own name. It runs here, in the always-on job, because
-      # most workflow files set no path-filter flag: an edit to one fires no
-      # path-filtered test job. scripts/check-workflow-bounds.js is the home of
-      # the complete red set, and of the refusals it reports on its own exit
-      # code instead of passing vacuously.
+      # a workflow file sets a path-filter flag only where a path-filtered job's
+      # run depends on it or a test suite holds it, and an edit to any other
+      # fires no path-filtered test job. scripts/check-workflow-bounds.js is the
+      # home of the complete red set, and of the refusals it reports on its own
+      # exit code instead of passing vacuously.
       - name: Validate workflow bounds
         run: npm run lint:workflow-bounds
 
@@ -480,12 +544,14 @@ jobs:
       needs.changes.outputs.desktop == 'true' ||
       needs.changes.outputs.shared == 'true' ||
       needs.changes.outputs.schema == 'true' ||
+      needs.changes.outputs.referenceServer == 'true' ||
       needs.changes.outputs.corpus == 'true' ||
       needs.changes.outputs.ci == 'true' ||
       needs.changes.outputs.ciCore == 'true' ||
       needs.changes.outputs.releasePipeline == 'true' ||
       needs.changes.outputs.contractDocs == 'true' ||
       needs.changes.outputs.dispositionWorkflow == 'true' ||
+      needs.changes.outputs.suiteHeld == 'true' ||
       github.event_name == 'release' ||
       github.event_name == 'push' ||
       github.event_name == 'workflow_dispatch'

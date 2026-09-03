@@ -206,7 +206,8 @@ and would only mask staleness), and the committed copies MUST match what
 on any diff (the `Verify sync-shared output is fresh` step in
 [`test.yml`](../../../.github/workflows/test.yml), part of the paths-filtered
 unit-tests job: it runs on every push to `main` and on every PR that touches
-an input able to stale the outputs; a docs-only PR skips it).
+an input able to stale the outputs; a PR that sets none of the workflow's
+change flags skips it).
 
 The freshness rule in practice: after editing anything under
 `packages/shared/` or a shell, re-run `npm run sync-shared` before loading

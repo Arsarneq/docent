@@ -5,9 +5,14 @@
  * each red path fires on synthetic input (missing/extraneous buildScripts, a
  * heavy job on the broad `ci` bucket, wrong ciCore globs, a missing schema gate,
  * a broken produce/diff co-fire, a gate on a filter the `changes` block never
- * defines) and that the closure resolver follows the npm-run and
- * compound-command forms. A real-tree lock proves the shipped test.yml
- * satisfies the contract.
+ * defines, a broken hop between the filter map and the `changes` job's outputs,
+ * a literal filter entry naming no tracked file, a clause-registry document the
+ * `suiteHeld` filter omits) and that the closure resolver follows the npm-run
+ * and compound-command forms. The two inputs standing for state outside the
+ * workflow — the tracked-file predicate and the registry's document list — are
+ * proven required rather than defaulted. A real-tree lock proves the shipped
+ * test.yml satisfies the contract, over the shipped tree and the shipped
+ * registry, with each of those inputs observed on its own.
  */
 
 import { describe, it } from 'node:test';
@@ -23,6 +28,7 @@ import {
   evaluateContract,
   loadWorkflow,
 } from '../../../../scripts/check-ci-filter.js';
+import { trackedFilesUnder } from '../../../../scripts/check-test-inventory.js';
 
 const ROOT = resolve(import.meta.dirname, '..', '..', '..', '..');
 
@@ -34,25 +40,13 @@ function ifFrom(flags) {
   ].join(' ||\n');
 }
 
-/** A minimal well-formed workflow + filter map that satisfies every invariant. */
-function makeWorkflow(overrides = {}) {
-  const jobFlagsMap = {
-    'unit-tests': ['extension', 'desktop', 'shared', 'schema', 'corpus', 'ci', 'ciCore', 'releasePipeline', 'contractDocs', 'dispositionWorkflow'], // prettier-ignore
-    'extension-e2e-tests': ['extension', 'shared', 'schema', 'referenceServer', 'corpus', 'ciCore', 'buildScripts'], // prettier-ignore
-    'desktop-rust-tests': ['desktop', 'shared', 'corpus', 'schema', 'ciCore', 'buildScripts'],
-    'desktop-corpus-diff': ['desktop', 'shared', 'corpus', 'schema', 'ciCore', 'buildScripts'],
-    'desktop-vectors-produce': ['desktop', 'shared', 'corpus', 'ciCore', 'buildScripts'],
-    'desktop-vectors-diff': ['desktop', 'shared', 'corpus', 'ciCore', 'buildScripts'],
-    'desktop-cross-compile': ['desktop', 'shared', 'ciCore'],
-    'desktop-integration-tests': ['desktop', 'shared', 'schema', 'referenceServer', 'ciCore', 'buildScripts'], // prettier-ignore
-    'reference-server-tests': ['referenceServer', 'schema', 'shared', 'ciCore', 'buildScripts', 'releasePipeline'], // prettier-ignore
-  };
-  const jobs = { changes: { steps: [] }, lint: { needs: ['changes'] } };
-  for (const [id, flags] of Object.entries(jobFlagsMap)) jobs[id] = { if: ifFrom(flags) };
-  const wf = { jobs, ...(overrides.wf || {}) };
-  // Every flag the baseline jobs gate on is defined here: a gate on a filter
-  // the `changes` block never defines is itself a violation (invariant 6).
-  const filters = {
+/**
+ * The filter map the compliant baseline states. Every flag the baseline jobs
+ * gate on is defined here: a gate on a filter the `changes` block never defines
+ * is itself a violation (invariant 6).
+ */
+function defaultFilters() {
+  return {
     extension: ['packages/extension/**'],
     desktop: ['packages/desktop/**'],
     shared: ['packages/shared/**'],
@@ -62,13 +56,67 @@ function makeWorkflow(overrides = {}) {
     releasePipeline: ['.github/workflows/publish.yml'],
     contractDocs: ['.github/CONTRIBUTING.md'],
     dispositionWorkflow: ['.github/workflows/docs-disposition.yml'],
+    suiteHeld: ['docs/a.md', 'docs/b.md'],
     ciCore: [...CI_CORE_GLOBS],
     buildScripts: ['scripts/a.js', 'scripts/b.js'],
     ci: ['scripts/**', '.c8rc.json'],
-    ...(overrides.filters || {}),
   };
+}
+
+/**
+ * The files git tracks in the fixture's tree: every glob-free entry the
+ * baseline filters state. A filter override that adds a literal beyond this set
+ * names no tracked file, which is how invariant 8's red path is driven.
+ */
+const FIXTURE_FILES = new Set(
+  Object.values(defaultFilters())
+    .flat()
+    .filter((entry) => !/[*?[\]{}!]/.test(entry)),
+);
+
+/** A minimal well-formed workflow + filter map that satisfies every invariant. */
+function makeWorkflow(overrides = {}) {
+  const jobFlagsMap = {
+    'unit-tests': ['extension', 'desktop', 'shared', 'schema', 'referenceServer', 'corpus', 'ci', 'ciCore', 'releasePipeline', 'contractDocs', 'dispositionWorkflow', 'suiteHeld'], // prettier-ignore
+    'extension-e2e-tests': ['extension', 'shared', 'schema', 'referenceServer', 'corpus', 'ciCore', 'buildScripts'], // prettier-ignore
+    'desktop-rust-tests': ['desktop', 'shared', 'corpus', 'schema', 'ciCore', 'buildScripts'],
+    'desktop-corpus-diff': ['desktop', 'shared', 'corpus', 'schema', 'ciCore', 'buildScripts'],
+    'desktop-vectors-produce': ['desktop', 'shared', 'corpus', 'ciCore', 'buildScripts'],
+    'desktop-vectors-diff': ['desktop', 'shared', 'corpus', 'ciCore', 'buildScripts'],
+    'desktop-cross-compile': ['desktop', 'shared', 'ciCore'],
+    'desktop-integration-tests': ['desktop', 'shared', 'schema', 'referenceServer', 'ciCore', 'buildScripts'], // prettier-ignore
+    'reference-server-tests': ['referenceServer', 'schema', 'shared', 'ciCore', 'buildScripts', 'releasePipeline'], // prettier-ignore
+  };
+  const filters = { ...defaultFilters(), ...(overrides.filters || {}) };
+  const jobs = {
+    changes: {
+      // One output per filter, each binding its own name through the filter
+      // step's own id — the hop invariant 7 walks.
+      outputs: Object.fromEntries(
+        Object.keys(filters).map((f) => [f, `\${{ steps.filter.outputs.${f} }}`]),
+      ),
+      steps: [
+        { uses: 'actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1' },
+        { id: 'filter', uses: 'dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d' },
+      ],
+    },
+    lint: { needs: ['changes'] },
+  };
+  for (const [id, flags] of Object.entries(jobFlagsMap)) jobs[id] = { if: ifFrom(flags) };
+  const wf = { jobs, ...(overrides.wf || {}) };
   const closure = overrides.closure || new Set(['scripts/a.js', 'scripts/b.js']);
-  return { wf, filters, closure };
+  const isTracked = overrides.isTracked || ((p) => FIXTURE_FILES.has(p));
+  // Derived from the MERGED filters: a case that wants the registry to outrun
+  // the flag deletes `filters.suiteHeld` after construction; an override of
+  // `{ suiteHeld: undefined }` reaches invariant 8 first and throws there
+  // instead of exercising invariant 9.
+  const registryDocs = overrides.registryDocs || [...(filters.suiteHeld || [])];
+  return { wf, filters, closure, isTracked, registryDocs };
+}
+
+/** Evaluate the fixture with the overrides applied — the short form of a case. */
+function evaluate(overrides = {}) {
+  return evaluateContract(makeWorkflow(overrides));
 }
 
 /** Replace one job's `if:` flag list in a fresh workflow. */
@@ -186,9 +234,11 @@ describe('evaluateContract — invariant 3 (required per-job flags)', () => {
       'desktop',
       'shared',
       'schema',
+      'referenceServer',
       'corpus',
       'ci',
       'ciCore',
+      'suiteHeld',
     ]);
     const problems = evaluateContract(base);
     assert.ok(problems.some((p) => p.includes('unit-tests') && p.includes('`releasePipeline`')));
@@ -204,11 +254,13 @@ describe('evaluateContract — invariant 3 (required per-job flags)', () => {
       'desktop',
       'shared',
       'schema',
+      'referenceServer',
       'corpus',
       'ci',
       'ciCore',
       'releasePipeline',
       'dispositionWorkflow',
+      'suiteHeld',
     ]);
     const problems = evaluateContract(base);
     assert.ok(problems.some((p) => p.includes('unit-tests') && p.includes('`contractDocs`')));
@@ -224,16 +276,60 @@ describe('evaluateContract — invariant 3 (required per-job flags)', () => {
       'desktop',
       'shared',
       'schema',
+      'referenceServer',
       'corpus',
       'ci',
       'ciCore',
       'releasePipeline',
       'contractDocs',
+      'suiteHeld',
     ]);
     const problems = evaluateContract(base);
     assert.ok(
       problems.some((p) => p.includes('unit-tests') && p.includes('`dispositionWorkflow`')),
     );
+  });
+
+  it('fires when unit-tests does not gate on suiteHeld', () => {
+    // The files that flag names are ones a suite or a step of this job asserts
+    // over, in a way no always-on gate holds; without the flag an edit to one
+    // reds this job on the push run to `main` instead of on the PR.
+    const base = withJobFlags(makeWorkflow(), 'unit-tests', [
+      'extension',
+      'desktop',
+      'shared',
+      'schema',
+      'referenceServer',
+      'corpus',
+      'ci',
+      'ciCore',
+      'releasePipeline',
+      'contractDocs',
+      'dispositionWorkflow',
+    ]);
+    const problems = evaluateContract(base);
+    assert.ok(problems.some((p) => p.includes('unit-tests') && p.includes('`suiteHeld`')));
+  });
+
+  it('fires when unit-tests does not gate on referenceServer', () => {
+    // Its shared suite walks reference-implementations/ for the
+    // resolution-procedure tokens no shipped file may carry — a holding the
+    // heavy jobs that flag reaches do not carry.
+    const base = withJobFlags(makeWorkflow(), 'unit-tests', [
+      'extension',
+      'desktop',
+      'shared',
+      'schema',
+      'corpus',
+      'ci',
+      'ciCore',
+      'releasePipeline',
+      'contractDocs',
+      'dispositionWorkflow',
+      'suiteHeld',
+    ]);
+    const problems = evaluateContract(base);
+    assert.ok(problems.some((p) => p.includes('unit-tests') && p.includes('`referenceServer`')));
   });
 
   it('fires when a required job is missing from the workflow', () => {
@@ -333,6 +429,196 @@ describe('evaluateContract — invariant 6 (every gated flag is a defined filter
   });
 });
 
+describe('evaluateContract — invariant 7 (the flag hops through the changes job)', () => {
+  it('fires when a defined filter has no output', () => {
+    // Nothing can gate on a filter the `changes` job never exports.
+    const base = makeWorkflow();
+    delete base.wf.jobs.changes.outputs.corpus;
+    const problems = evaluateContract(base);
+    assert.ok(
+      problems.some((p) => p.includes('`corpus`') && p.includes('no output')),
+      problems.join('\n'),
+    );
+  });
+
+  it('fires when an output names no filter', () => {
+    const base = makeWorkflow();
+    base.wf.jobs.changes.outputs.ghostFlag = '${{ steps.filter.outputs.ghostFlag }}';
+    const problems = evaluateContract(base);
+    assert.ok(
+      problems.some((p) => p.includes('`ghostFlag`') && p.includes('names no filter')),
+      problems.join('\n'),
+    );
+  });
+
+  it('fires when an output binds another step', () => {
+    const base = makeWorkflow();
+    base.wf.jobs.changes.outputs.corpus = '${{ steps.other.outputs.corpus }}';
+    const problems = evaluateContract(base);
+    assert.ok(
+      problems.some((p) => p.includes('`corpus`') && p.includes('`other`')),
+      problems.join('\n'),
+    );
+  });
+
+  it('fires when an output binds another filter of the same step', () => {
+    // The gate stays well-formed and follows the other filter's paths: the job
+    // stops firing for the files the flag exists to watch.
+    const base = makeWorkflow();
+    base.wf.jobs.changes.outputs.corpus = '${{ steps.filter.outputs.ci }}';
+    const problems = evaluateContract(base);
+    assert.ok(
+      problems.some((p) => p.includes('`corpus`') && p.includes('binds the `ci` filter')),
+      problems.join('\n'),
+    );
+  });
+
+  it('fires when an output is not a step-output expression', () => {
+    const base = makeWorkflow();
+    base.wf.jobs.changes.outputs.corpus = 'true';
+    const problems = evaluateContract(base);
+    assert.ok(
+      problems.some((p) => p.includes('`corpus`') && p.includes('not a step-output expression')),
+      problems.join('\n'),
+    );
+  });
+
+  it('fires when a filter no job gates on is defined', () => {
+    // Exported and inert: a flag nothing reads.
+    const problems = evaluate({ filters: { ghostFlag: ['docs/a.md'] } });
+    assert.ok(
+      problems.some((p) => p.includes('`ghostFlag`') && p.includes('no job gates on it')),
+      problems.join('\n'),
+    );
+  });
+
+  it('fires when the workflow defines no changes job', () => {
+    const base = makeWorkflow();
+    delete base.wf.jobs.changes;
+    const problems = evaluateContract(base);
+    assert.ok(problems.some((p) => p.includes('no `changes` job')), problems.join('\n')); // prettier-ignore
+    assert.equal(problems.length, 1, problems.join('\n'));
+  });
+
+  it('fires when the changes job runs no paths-filter step', () => {
+    const base = makeWorkflow();
+    base.wf.jobs.changes.steps = [{ uses: 'actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1' }]; // prettier-ignore
+    const problems = evaluateContract(base);
+    assert.ok(problems.some((p) => p.includes('no paths-filter step')), problems.join('\n')); // prettier-ignore
+    assert.equal(problems.length, 1, problems.join('\n'));
+  });
+
+  it('fires when the paths-filter step declares no id', () => {
+    const base = makeWorkflow();
+    delete base.wf.jobs.changes.steps[1].id;
+    const problems = evaluateContract(base);
+    assert.ok(problems.some((p) => p.includes('declares no `id`')), problems.join('\n')); // prettier-ignore
+    assert.equal(problems.length, 1, problems.join('\n'));
+  });
+});
+
+describe('evaluateContract — invariant 8 (literal entries git tracks)', () => {
+  it('fires when a literal filter entry names no tracked file', () => {
+    // A literal entry is one rename away from matching nothing, silently.
+    const problems = evaluate({
+      filters: { contractDocs: ['.github/CONTRIBUTING.md', '.github/CONTRIBUTING_GONE.md'] },
+    });
+    assert.ok(
+      problems.some(
+        (p) => p.includes('`contractDocs`') && p.includes('.github/CONTRIBUTING_GONE.md'),
+      ),
+      problems.join('\n'),
+    );
+  });
+
+  it('fires when a literal entry names a directory rather than a file', () => {
+    // A directory can exist on disk and still match nothing in the paths
+    // filter, so what the entry is held to is trackedness as a FILE.
+    const problems = evaluate({
+      filters: { contractDocs: ['.github/CONTRIBUTING.md', 'docs'] },
+    });
+    assert.ok(
+      problems.some(
+        (p) =>
+          p.includes('`contractDocs`') && p.includes('`docs`') && p.includes('not a tracked file'),
+      ),
+      problems.join('\n'),
+    );
+  });
+
+  it('fires when a literal entry carries a trailing slash', () => {
+    // `docs/a.md/` names no tracked file: what git tracks is the path without
+    // the slash, and the paths filter matches nothing on the slashed form.
+    const problems = evaluate({
+      filters: { contractDocs: ['.github/CONTRIBUTING.md', 'docs/a.md/'] },
+    });
+    assert.ok(
+      problems.some(
+        (p) =>
+          p.includes('`contractDocs`') &&
+          p.includes('`docs/a.md/`') &&
+          p.includes('not a tracked file'),
+      ),
+      problems.join('\n'),
+    );
+  });
+
+  it('leaves glob entries alone — the predicate is never asked about one', () => {
+    const asked = [];
+    const problems = evaluate({
+      isTracked: (path) => {
+        asked.push(path);
+        return FIXTURE_FILES.has(path);
+      },
+    });
+    assert.deepEqual(problems, []);
+    assert.ok(asked.includes('.github/CONTRIBUTING.md'), asked.join(', '));
+    assert.ok(!asked.some((path) => /[*?[\]{}!]/.test(path)), asked.join(', '));
+  });
+});
+
+describe('evaluateContract — invariant 9 (the clause registry is a suiteHeld subset)', () => {
+  it('fires when a document the registry names is absent from suiteHeld', () => {
+    // The preamble suite holds that carrier's registry link as raw text, so a
+    // carrier the flag omits reds unit-tests on `main` alone.
+    const problems = evaluate({ registryDocs: ['docs/a.md', 'docs/b.md', 'docs/c.md'] });
+    assert.ok(
+      problems.some((p) => p.includes('docs/c.md') && p.includes('`suiteHeld`')),
+      problems.join('\n'),
+    );
+  });
+
+  it('fires for every registry document when suiteHeld is not defined at all', () => {
+    const base = makeWorkflow();
+    delete base.filters.suiteHeld;
+    const problems = evaluateContract(base);
+    for (const doc of base.registryDocs) {
+      assert.ok(
+        problems.some((p) => p.includes(doc) && p.includes('`suiteHeld`')),
+        `${doc}: ${problems.join('\n')}`,
+      );
+    }
+  });
+});
+
+describe('evaluateContract — the inputs it refuses to default', () => {
+  it('throws when isTracked is missing', () => {
+    const { wf, filters, closure, registryDocs } = makeWorkflow();
+    assert.throws(() => evaluateContract({ wf, filters, closure, registryDocs }), {
+      name: 'TypeError',
+      message: 'evaluateContract: isTracked is required',
+    });
+  });
+
+  it('throws when registryDocs is missing', () => {
+    const { wf, filters, closure, isTracked } = makeWorkflow();
+    assert.throws(() => evaluateContract({ wf, filters, closure, isTracked }), {
+      name: 'TypeError',
+      message: 'evaluateContract: registryDocs is required',
+    });
+  });
+});
+
 describe('jobFlags / heavyJobs', () => {
   it('extracts the change flags a job gates on', () => {
     const flags = jobFlags({ if: ifFrom(['desktop', 'schema', 'ciCore']) });
@@ -373,19 +659,79 @@ describe('entryFilesFromCommand', () => {
   });
 });
 
+/**
+ * The shipped tree as git tracks it, built the way `run()` builds the same
+ * predicate: the shared population reader, read once over the repository root.
+ */
+const REAL_TRACKED = new Set(trackedFilesUnder('.', { cwd: ROOT }));
+const REAL_IS_TRACKED = (path) => REAL_TRACKED.has(path);
+
+/** The documents the shipped clause registry's prefix map names. */
+const REAL_REGISTRY_DOCS = Object.values(
+  JSON.parse(readFileSync(resolve(ROOT, 'docs/clause-registry.json'), 'utf8')).prefixes,
+);
+
+/** The committed workflow, its filter map, and its computed script closure. */
+function realInputs() {
+  const { wf, filters } = loadWorkflow();
+  const scripts = JSON.parse(readFileSync(resolve(ROOT, 'package.json'), 'utf8')).scripts || {};
+  return { wf, filters, closure: computeBuildClosure(wf, scripts) };
+}
+
 describe('real-tree lock', () => {
   it('the shipped test.yml satisfies the path-filter contract', () => {
-    const { wf, filters } = loadWorkflow();
-    const scripts = JSON.parse(readFileSync(resolve(ROOT, 'package.json'), 'utf8')).scripts || {};
-    const closure = computeBuildClosure(wf, scripts);
     assert.deepEqual(
-      evaluateContract({ wf, filters, closure }),
+      evaluateContract({
+        ...realInputs(),
+        isTracked: REAL_IS_TRACKED,
+        registryDocs: REAL_REGISTRY_DOCS,
+      }),
       [],
       'scripts/check-ci-filter.js must pass on the committed test.yml',
     );
   });
 
-  it('the buildScripts closure is exactly the nine build-affecting scripts', () => {
+  it('the predicate the lock passes answers for the shipped tree', () => {
+    assert.equal(REAL_IS_TRACKED('docs/ghost.md'), false);
+    // A directory that exists on disk, and is no tracked file.
+    assert.equal(REAL_IS_TRACKED('docs'), false);
+    assert.equal(REAL_IS_TRACKED('README.md'), true);
+  });
+
+  it("the registry list the lock passes is the shipped registry's own documents", () => {
+    assert.ok(REAL_REGISTRY_DOCS.includes('docs/api/dispatch.md'), REAL_REGISTRY_DOCS.join(', '));
+    for (const doc of REAL_REGISTRY_DOCS) assert.ok(REAL_IS_TRACKED(doc), doc);
+  });
+
+  it('reds on the committed workflow when no literal entry resolves', () => {
+    const inputs = realInputs();
+    const literals = Object.values(inputs.filters)
+      .flat()
+      .filter((entry) => !/[*?[\]{}!]/.test(entry));
+    assert.ok(literals.length, 'the committed filter map states literal entries');
+    const problems = evaluateContract({
+      ...inputs,
+      isTracked: () => false,
+      registryDocs: REAL_REGISTRY_DOCS,
+    });
+    for (const entry of literals) {
+      assert.ok(problems.some((p) => p.includes(entry)), `${entry}: ${problems.join('\n')}`); // prettier-ignore
+    }
+  });
+
+  it('reds on the committed workflow when the registry names one more document', () => {
+    const problems = evaluateContract({
+      ...realInputs(),
+      isTracked: REAL_IS_TRACKED,
+      registryDocs: [...REAL_REGISTRY_DOCS, 'docs/ghost.md'],
+    });
+    assert.ok(
+      problems.some((p) => p.includes('docs/ghost.md') && p.includes('`suiteHeld`')),
+      problems.join('\n'),
+    );
+  });
+
+  it('the buildScripts closure is exactly the scripts the heavy jobs run', () => {
     const { wf } = loadWorkflow();
     const scripts = JSON.parse(readFileSync(resolve(ROOT, 'package.json'), 'utf8')).scripts || {};
     assert.deepEqual([...computeBuildClosure(wf, scripts)].sort(), [

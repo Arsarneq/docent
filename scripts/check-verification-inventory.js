@@ -77,11 +77,12 @@
  * refused as an input rather than reported beside the drift findings.
  *
  * Why the always-on `lint` job: the diff that stales a doc inventory is
- * frequently docs-only, and a docs-only pull request skips every
- * path-filtered test job — the same placement rationale the test-inventory
- * lint records. The behavioural half of these contracts (that the comparator
- * and the lint act on exactly these constants) is the unit suites' work, and
- * a code diff reaches them through the workflow's script filter.
+ * frequently docs-only, and a pull request that sets none of the workflow's
+ * change flags — the usual docs-only pull request — skips every path-filtered
+ * test job: the same placement rationale the test-inventory lint records. The
+ * behavioural half of these contracts (that the comparator and the lint act
+ * on exactly these constants) is the unit suites' work, and a code diff
+ * reaches them through the workflow's script filter.
  *
  * Honest limits: this check compares names and tokens, never prose — whether
  * a table row's Rule or Requires column still describes what the code does is
