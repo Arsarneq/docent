@@ -235,6 +235,20 @@ const PRODUCE_DIFF_PAIRS = [
 const JOB_FLAG_RE = new RegExp(String.raw`needs\.${CHANGES_JOB_ID}\.outputs\.(\w+)`, 'g');
 
 /**
+ * A job's steps as a list: the steps it states, or the empty list when the job
+ * is absent or states `steps` as anything but a list. Its readers: this file's
+ * own legs — the filter-step locator and the build-closure walk — and
+ * [`check-doc-closure.js`](./check-doc-closure.js), which imports it for its
+ * step reads. Those readers take an absent or malformed block the same way, as
+ * no steps.
+ * @param {object | undefined} job the parsed job
+ * @returns {object[]} the job's steps
+ */
+function jobSteps(job) {
+  return Array.isArray(job?.steps) ? job.steps : [];
+}
+
+/**
  * The filter job's paths-filter step, or undefined when the job is absent, runs
  * no steps, or runs no step whose `uses:` names the filter action. One locator,
  * so every reader of the filter map reaches the same step.
@@ -242,8 +256,9 @@ const JOB_FLAG_RE = new RegExp(String.raw`needs\.${CHANGES_JOB_ID}\.outputs\.(\w
  * @returns {object | undefined} the filter step
  */
 function pathsFilterStep(job) {
-  const steps = Array.isArray(job?.steps) ? job.steps : [];
-  return steps.find((s) => typeof s?.uses === 'string' && s.uses.includes(PATHS_FILTER_USES));
+  return jobSteps(job).find(
+    (s) => typeof s?.uses === 'string' && s.uses.includes(PATHS_FILTER_USES),
+  );
 }
 
 /** Normalise an absolute path to a repo-relative, forward-slash path. */
@@ -357,7 +372,7 @@ function scriptsClosure(entryFiles) {
 function computeBuildClosure(wf, scripts) {
   const entries = new Set();
   for (const job of Object.values(heavyJobs(wf))) {
-    for (const step of job.steps || []) {
+    for (const step of jobSteps(job)) {
       if (typeof step.run === 'string')
         for (const e of entryFilesFromCommand(step.run, scripts)) entries.add(e);
     }
@@ -618,6 +633,7 @@ export {
   SUITE_HELD_HOLDINGS,
   loadWorkflow,
   loadInputs,
+  jobSteps,
   pathsFilterStep,
   jobFlags,
   heavyJobs,

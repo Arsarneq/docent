@@ -87,10 +87,11 @@ import {
   configValues,
   duplicateSurfaceProblems,
   emptySurfaceProblems,
+  escapeForRegExp,
   extractClauseSection,
   extractLoopGlobs,
-  flattenWhitespace,
   extractStepBody,
+  flattenWhitespace,
   formatProblems,
   identifiesSameFile,
   killSetTargets,
@@ -3937,27 +3938,44 @@ describe('the shared surface guards — one loop, one projector contract', () =>
   });
 });
 
+/**
+ * The one population read the source-scanning guards share: the tracked
+ * scripts, the tracked shared unit suites, and the raw text of every file in
+ * either listing. Read once, at module scope, so a guard states which listing
+ * it iterates instead of re-enumerating the tree.
+ */
+const SCRIPT_PATHS = trackedFilesUnder('scripts', { cwd: ROOT, extensions: ['.js'] });
+const SHARED_SUITE_PATHS = trackedFilesUnder('packages/shared/tests/unit', {
+  cwd: ROOT,
+  extensions: ['.js'],
+});
+/** Raw file text, keyed by repo-relative path, over the union of those listings. */
+const sources = new Map(
+  [...SCRIPT_PATHS, ...SHARED_SUITE_PATHS].map((p) => [p, readFileSync(resolve(ROOT, p), 'utf8')]),
+);
+
 describe('selfPath — the one home of the derivation every check names itself by', () => {
   // The value is derived, not written out, so a rename carries it with the
   // file. What THIS holds is the second half: the derivation itself has one
   // home, so a further check cannot quietly hand-copy the expression and start
-  // a second reading of what a check's own path is.
-  const scripts = trackedFilesUnder('scripts', { cwd: ROOT, extensions: ['.js'] });
-  const sources = new Map(scripts.map((p) => [p, readFileSync(resolve(ROOT, p), 'utf8')]));
+  // a second reading of what a check's own path is. The population is
+  // `SCRIPT_PATHS`, read from `sources`.
 
+  // MATCH FORM:
   // The expression in the spellings a hand-copy reaches for: the `scripts/`
   // prefix, as a template or a concatenation, joined to a basename taken off
   // this module's own file through any member chain (`basename`,
   // `path.basename`, `path.posix.basename`), with or without `fileURLToPath`,
-  // bare or through a member chain, in between. A copy that first binds
-  // `import.meta.filename` to a local name and derives from that is outside
-  // this scan — the guard holds the shapes a hand-copy reproduces, not every
-  // program that computes the value.
+  // bare or through a member chain, in between.
+  // LIMIT:
+  // A copy that first binds `import.meta.filename` to a local name and derives
+  // from that is outside this scan — the guard holds the shapes a hand-copy
+  // reproduces, not every program that computes the value.
   const WRITTEN_OUT =
     /(?:`scripts\/\$\{\s*|['"]scripts\/['"]\s*\+\s*)(?:[A-Za-z_$][\w$]*\.)*[A-Za-z_$][\w$]*\(\s*(?:(?:[A-Za-z_$][\w$]*\.)*fileURLToPath\(\s*)?import\.meta\.(?:filename|url)/;
 
   it('no check spells the derivation out in a shape a hand-copy reaches for', () => {
-    const copies = [...sources].filter(([, text]) => WRITTEN_OUT.test(text)).map(([p]) => p);
+    const copies = SCRIPT_PATHS.filter((p) => WRITTEN_OUT.test(sources.get(p)));
     assert.deepEqual(
       copies,
       [],
@@ -3967,9 +3985,10 @@ describe('selfPath — the one home of the derivation every check names itself b
   });
 
   it('every check that names itself takes the value from that home', () => {
-    const binders = [...sources].filter(([, t]) => /\bSELF_PATH\s*=/.test(t));
+    const binders = SCRIPT_PATHS.filter((p) => /\bSELF_PATH\s*=/.test(sources.get(p)));
     assert.ok(binders.length > 1, 'the scan found no self-naming check — re-anchor it');
-    for (const [p, text] of binders) {
+    for (const p of binders) {
+      const text = sources.get(p);
       assert.match(
         text,
         /SELF_PATH = selfPath\(import\.meta\.filename\);/,
@@ -3990,6 +4009,145 @@ describe('selfPath — the one home of the derivation every check names itself b
     assert.match(
       selfPath(resolve(ROOT, 'scripts/check-test-inventory.js')),
       /^scripts\/check-[a-z-]+\.js$/,
+    );
+  });
+});
+
+describe('escapeForRegExp — the one home of the literal-to-pattern escape', () => {
+  // What this holds: the literal-to-pattern escape has one home, and a file
+  // that calls it takes it from there. The value is computed, not written out,
+  // so a caller escaping a name, a path, a title or a marker takes the
+  // character class from `escapeForRegExp` instead of restating it — a
+  // hand-copied class drifts one character at a time, and both directions of
+  // that drift are silent: a metacharacter left out makes a pattern that
+  // matches text nobody meant, and one over-escaped makes a pattern that
+  // matches nothing while looking well-formed.
+  // The population is the union of `SCRIPT_PATHS` and `SHARED_SUITE_PATHS`,
+  // read from `sources`, less the home itself: the home spells the class, which
+  // is what it is for.
+  const scanned = [...SCRIPT_PATHS, ...SHARED_SUITE_PATHS].filter(
+    (p) => p !== 'scripts/check-test-inventory.js',
+  );
+  // Two readings of `blankJsLiterals` from scripts/check-test-inventory.js,
+  // whose docblock states what each one blanks: `code` is the default reading
+  // and `uncommented` the `literals: false` one. The
+  // `no check and no shared unit suite spells the character class out` case
+  // reads `code` alone. The
+  // `every file that calls the primitive takes it from that home` case selects
+  // its population from `code` — the files whose live text calls the primitive
+  // — and checks the import on `uncommented`, because a module specifier is
+  // literal text.
+  const code = new Map(scanned.map((p) => [p, blankJsLiterals(sources.get(p))]));
+  const uncommented = new Map(
+    scanned.map((p) => [p, blankJsLiterals(sources.get(p), { literals: false })]),
+  );
+
+  // MATCH FORM: a regular-expression LITERAL whose whole body is one character
+  // class built from the metacharacters this escape names — the shapes a
+  // hand-copy reaches for, the member order and any subset of the set included,
+  // so a copy that drops or reorders a character is caught with the verbatim
+  // one. The floor keeps a small ordinary class (`/[.*]/`) out of the net.
+  // LIMIT: the reading is `code`, where string and template contents are
+  // blanked, so a class inside either — the class assembled as text and handed
+  // to `new RegExp('[.*+?…]')` — is outside this scan, while a
+  // regular-expression pattern spelling the class is a hit, which is the point.
+  // A class carrying any character from outside the metacharacter set is
+  // outside the match form. The guard holds the spellings a hand-copy
+  // reproduces; a program that escapes a literal some other way is review's to
+  // catch.
+  const WRITTEN_OUT = /\/\[(?:\\[\]\\]|[.*+?^${}()|[]){8,}\]/;
+
+  it('no check and no shared unit suite spells the character class out', () => {
+    const copies = [...code].filter(([, view]) => WRITTEN_OUT.test(view)).map(([p]) => p);
+    assert.deepEqual(
+      copies,
+      [],
+      `these files spell the regular-expression escape out instead of calling escapeForRegExp ` +
+        `from scripts/check-test-inventory.js — a second copy drifts one character at a time: ${copies.join(', ')}`,
+    );
+  });
+
+  it('every file that calls the primitive takes it from that home', () => {
+    const callers = [...code].filter(([, view]) => /\bescapeForRegExp\(/.test(view));
+    assert.ok(callers.length > 1, 'the scan found no caller of the escape — re-anchor it');
+    for (const [p] of callers) {
+      const lists = [
+        ...uncommented.get(p).matchAll(/import \{([^}]*)\} from '[^']*check-test-inventory\.js'/g),
+      ];
+      assert.ok(
+        lists.some(([, names]) => /\bescapeForRegExp\b/.test(names)),
+        `${p}: calls the escape without importing it from scripts/check-test-inventory.js`,
+      );
+    }
+  });
+
+  it('escapes every metacharacter, and a pattern built around a literal matches only it', () => {
+    assert.equal(escapeForRegExp('a.b'), 'a\\.b');
+    assert.equal(escapeForRegExp('x+y?'), 'x\\+y\\?');
+    const literal = 'v1.0(beta)[x]|$^*+?{}\\';
+    assert.match(literal, new RegExp(`^${escapeForRegExp(literal)}$`));
+    assert.doesNotMatch('vAA0(beta)[x]|$^*+?{}\\', new RegExp(`^${escapeForRegExp(literal)}$`));
+  });
+});
+
+describe('quotepath policy — one home, no second copy', () => {
+  // The population and the read are the
+  // `selfPath — the one home of the derivation every check names itself by`
+  // describe's: `SCRIPT_PATHS`, read from `sources`.
+  const HOME = 'scripts/check-test-inventory.js';
+
+  // The subject is a COMMENT, so one reading of `blankJsLiterals` from
+  // scripts/check-test-inventory.js — the `literals: false` one, `uncommented`,
+  // whose docblock states what it blanks — is read as a MASK rather than as the
+  // text to search: the positions it blanked and the source did not are exactly
+  // the comment spans, and the source supplies their text. Line markers go, and
+  // `flattenWhitespace` collapses the wrapping, so a phrase is found whatever
+  // line a comment wraps on.
+  const commentText = (source) => {
+    const uncommented = blankJsLiterals(source, { literals: false });
+    const comments = [...source]
+      .map((ch, i) => (ch === '\n' ? '\n' : uncommented[i] === ' ' && ch !== ' ' ? ch : ' '))
+      .join('');
+    return flattenWhitespace(
+      comments.replace(/^[ \t]*(?:\/\/|\/\*+|\*+)/gm, ' ').replace(/\*+\/[ \t]*$/gm, ' '),
+    );
+  };
+
+  // MATCH FORM: the policy clause as a CASE-FOLDED plain substring of that
+  // comment text — the clause every copy of the policy in this family
+  // reproduced word for word, read with the case ignored so a copy that opens a
+  // sentence with a capital is a hit. The fold is `toLowerCase()`, which is
+  // locale-independent.
+  // LIMIT: the scan holds the clause's characters, case-folded. Any change
+  // inside the clause but its case — a comma or a dash inserted, or a wrap
+  // landing inside `non-ASCII` — reads past it, as does a copy that rewords the
+  // clause; those are review's to catch. Live text, a string literal included,
+  // is outside the mask, which reads a file's comments alone.
+  const POLICY_CLAUSE = 'a path carrying a non-ASCII byte arrives as itself rather than quoted';
+  const FOLDED_CLAUSE = POLICY_CLAUSE.toLowerCase();
+  const foldedComments = (source) => commentText(source).toLowerCase();
+
+  it('the home states the policy, once', () => {
+    const home = foldedComments(sources.get(HOME));
+    assert.equal(
+      home.split(FOLDED_CLAUSE).length - 1,
+      1,
+      `${HOME} is where the quotepath policy is stated — \`trackedFilesUnder\`'s docblock — ` +
+        `and it must state it exactly once: a second copy here starts the same drift as a copy ` +
+        `elsewhere, and no copy at all leaves this scan searching for a phrase nothing states`,
+    );
+  });
+
+  it('no other check carries a second copy', () => {
+    const copies = SCRIPT_PATHS.filter(
+      (path) => path !== HOME && foldedComments(sources.get(path)).includes(FOLDED_CLAUSE),
+    );
+    assert.deepEqual(
+      copies,
+      [],
+      `these scripts carry a second copy of the quotepath policy clause; its one home is ` +
+        `\`trackedFilesUnder\`'s docblock in ${HOME}, and a second copy drifts one edit at a ` +
+        `time: ${copies.join(', ')}`,
     );
   });
 });

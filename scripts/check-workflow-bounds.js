@@ -105,6 +105,7 @@ import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import yaml from 'js-yaml';
 import {
+  escapeForRegExp,
   flattenWhitespace,
   selectTablesByHeader,
   selfPath,
@@ -333,9 +334,6 @@ function readWorkflowPaths(listWorkflows) {
   return paths;
 }
 
-/** A literal for a regular expression built around a name. */
-const escapeRe = (text) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-
 /** A key's trailing `${{ hashFiles(...) }}` expression, and the family before it. */
 const FAMILY_KEY_RE = /^(.*?)(\$\{\{\s*hashFiles\([^)]*\)\s*\}\})$/;
 
@@ -343,7 +341,8 @@ const FAMILY_KEY_RE = /^(.*?)(\$\{\{\s*hashFiles\([^)]*\)\s*\}\})$/;
 const PATH_SUFFIX_EXPRESSION_RE = /\$\{\{[^}]*\}\}$/;
 
 /** A `cargo install <tool> --version <v>`, as the install steps spell one. */
-const installPinRe = (tool) => new RegExp(`cargo install ${escapeRe(tool)} --version (\\S+)`, 'g');
+const installPinRe = (tool) =>
+  new RegExp(`cargo install ${escapeForRegExp(tool)} --version (\\S+)`, 'g');
 
 /** A version a guide sentence or a key segment states. */
 const VERSION_RE = /^\d+(?:\.\d+)+$/;
@@ -655,7 +654,7 @@ export function guideVersionFor(tool, text) {
     .filter((match) => VERSION_RE.test(match[1]))
     .map((match) => ({ token: match[1], at: match.index }));
   for (const occurrence of flat.matchAll(
-    new RegExp(`(?<![-\\w])${escapeRe(tool)}(?![-\\w])`, 'g'),
+    new RegExp(`(?<![-\\w])${escapeForRegExp(tool)}(?![-\\w])`, 'g'),
   )) {
     const after = occurrence.index + tool.length;
     const next = versions.find((version) => version.at >= after);
@@ -846,8 +845,8 @@ export function auditCaches(readFile, listWorkflows) {
  * @throws {InputError} naming the input that is in a shape it does not read
  */
 export function auditTreeAt(root) {
-  // Through the shared population reader, so this listing states the same
-  // quotepath policy every other tree scan does.
+  // Through the shared population reader, whose docblock in
+  // scripts/check-test-inventory.js states the quotepath policy.
   const listWorkflows = () => {
     try {
       return trackedFilesUnder(WORKFLOW_PATHSPEC, { cwd: root });

@@ -137,7 +137,7 @@ import {
   stripFences,
   topLevelListItems,
 } from './check-test-inventory.js';
-import { TEST_WORKFLOW_PATH, extractJobIds } from './check-doc-closure.js';
+import { TEST_WORKFLOW_PATH, extractJobIds, isJobAnchorProblem } from './check-doc-closure.js';
 import {
   MATCH_STAT_FIELDS,
   NORMALIZED_FIELD_CLASSES,
@@ -246,15 +246,6 @@ export const SESSION_ID_TOKEN_RE = /^d-[a-z-]+$/;
 export const SESSION_ID_PREFIX_RE = /^d-/i;
 /** A job citation as a scanned verification document writes one. */
 const JOB_CITE_RE = /`([a-z0-9-]+)` job/g;
-
-/**
- * What the shared job-id extractor says when the workflow carries no anchor to
- * read job ids under. Matched on those words rather than on "the extractor
- * reported something", so a problem that extractor grows later keeps the route
- * it has today instead of being swept into this check's machinery verdict by a
- * wildcard.
- */
-export const JOB_ANCHOR_PROBLEM = 'carries no top-level `jobs:` key';
 
 /**
  * The documents whose job citations this leg holds — the check's own declared
@@ -1069,13 +1060,13 @@ export function auditTree(readFile, listActive) {
   const predicates = extractPredicateTables(lintDoc);
   const perActionClass = extractPerActionClass(lintDoc);
   const jobs = extractJobIds(readFile(TEST_WORKFLOW_PATH));
-  // The anchor condition alone, matched by the words the shared extractor
-  // states it in rather than by "any problem it reported": a workflow the job
-  // scan cannot anchor in is a file this check could not use — the machinery
-  // verdict every other unusable input already takes — while a problem that
-  // extractor grows later keeps the route it has today until this check has
-  // learned what it means.
-  const anchorProblem = jobs.problems.find((problem) => problem.includes(JOB_ANCHOR_PROBLEM));
+  // The anchor condition alone, asked of the extractor that reports it rather
+  // than answered by "any problem it reported": a workflow the job scan cannot
+  // anchor in is a file this check could not use — the machinery verdict every
+  // other unusable input already takes — while a problem that extractor grows
+  // later keeps the route it has today until this check has learned what it
+  // means.
+  const anchorProblem = jobs.problems.find(isJobAnchorProblem);
   if (anchorProblem !== undefined) throw new InputError(anchorProblem);
 
   // The strict-flip watch's inputs. Active discovery runs once per platform and

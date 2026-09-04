@@ -187,9 +187,10 @@ import { pathToFileURL } from 'node:url';
 import { unified } from 'unified';
 import remarkParse from 'remark-parse';
 import { visit } from 'unist-util-visit';
-import { MAP_PATH, expandBraces, globToRegExp } from './check-area-map.js';
+import { MAP_PATH, compileAlternatives } from './check-area-map.js';
 import { blankRustStrings, stripRustComments } from './check-command-surface.js';
 import {
+  escapeForRegExp,
   readLoneStringLiteral,
   selfPath,
   tokenizeJs,
@@ -514,10 +515,13 @@ export function extractCitedTargets(text) {
 
 /**
  * Whether a pattern citation names a tracked file. Expansion and compilation
- * are the map's own ([`check-area-map.js`](./check-area-map.js)), so a citation
- * is read exactly as an ownership pattern is; a pattern the compiler refuses is
- * an outcome of its own rather than a throw, so a mistyped pattern names itself
- * instead of ending the run in a stack trace.
+ * are the map's own — one call to {@link compileAlternatives}
+ * ([`check-area-map.js`](./check-area-map.js)), the idiom every pattern-bearing
+ * entry the map states compiles through — so a citation is read exactly as an
+ * ownership pattern is, and only the matchers are kept because a citation asks
+ * whether ANY alternative lands, never which one. A pattern the compiler
+ * refuses is an outcome of its own rather than a throw, so a mistyped pattern
+ * names itself instead of ending the run in a stack trace.
  * @param {string} pattern a separator-carrying pattern token in file form
  * @param {string[]} files all git-tracked repo-relative paths
  * @returns {'matches' | 'no-match' | 'uncompilable'}
@@ -525,7 +529,7 @@ export function extractCitedTargets(text) {
 export function resolvePatternCitation(pattern, files) {
   let compiled;
   try {
-    compiled = expandBraces(pattern).map((expanded) => globToRegExp(expanded));
+    compiled = compileAlternatives(pattern).map((m) => m.regex);
   } catch {
     return 'uncompilable';
   }
@@ -747,9 +751,6 @@ export function jsDeclaredCases(source) {
   return { titles, refused };
 }
 
-/** Every regular-expression metacharacter, so a name matches only itself. */
-const REGEXP_META_RE = /[.*+?^${}()|[\]\\]/g;
-
 /**
  * Whether a Rust source DECLARES `name` as a function — `fn <name>(`, read over
  * the comment-stripped, string-blanked view ({@link stripRustComments},
@@ -767,7 +768,7 @@ const REGEXP_META_RE = /[.*+?^${}()|[\]\\]/g;
  */
 export function rustDeclaresCase(source, name) {
   const anchors = blankRustStrings(stripRustComments(source));
-  const escaped = name.replace(REGEXP_META_RE, '\\$&');
+  const escaped = escapeForRegExp(name);
   return new RegExp(`(?<![A-Za-z0-9_])fn\\s+${escaped}\\s*\\(`).test(anchors);
 }
 
@@ -1464,10 +1465,8 @@ export function fixBlock() {
    report's section model, and the fix block above are unit-tested, and what
    remains here is thin plumbing. */
 function run() {
-  // Through the shared population reader, so this listing states the same
-  // quotepath policy every other tree scan does: a path carrying a non-ASCII
-  // byte arrives as itself rather than quoted, and a citation naming such a
-  // file resolves rather than reading as a path no tracked file matches.
+  // Through the shared population reader, whose docblock in
+  // scripts/check-test-inventory.js states the quotepath policy.
   const files = trackedFilesUnder('.');
   let registry;
   try {

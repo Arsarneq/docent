@@ -183,9 +183,9 @@ export const POPULATION_EXTENSIONS = ['.js', '.mjs', '.cjs'];
  * the set maintain itself — a production directory the package grows is
  * scanned the day it lands, with nothing to update here.
  *
- * Paths come back verbatim: `core.quotepath` is turned off for the call, so a
- * path carrying a non-ASCII byte arrives as itself rather than quoted and
- * escaped, which the extension filter would drop in silence.
+ * Paths come back verbatim: `trackedFilesUnder` in
+ * [`check-test-inventory.js`](./check-test-inventory.js) states the quotepath
+ * policy.
  *
  * This is the one derivation: the CLI runs the closure over what it returns,
  * and the suite's real-tree locks hold that same set, so a change to the

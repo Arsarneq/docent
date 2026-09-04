@@ -80,7 +80,6 @@ import {
   INVENTORY_LEGS,
   legList,
   NAMED_CAUSE_CAP,
-  JOB_ANCHOR_PROBLEM,
   readFieldTokens,
   extractRelaxationCoverage,
   extractStatedKinds,
@@ -116,7 +115,11 @@ import {
   trackedFilesUnder,
 } from '../../../../scripts/check-test-inventory.js';
 import { RELAX_KINDS } from '../../../../scripts/corpus-compare.js';
-import { TEST_WORKFLOW_PATH, extractJobIds } from '../../../../scripts/check-doc-closure.js';
+import {
+  TEST_WORKFLOW_PATH,
+  extractJobIds,
+  isJobAnchorProblem,
+} from '../../../../scripts/check-doc-closure.js';
 
 const ROOT = resolve(import.meta.dirname, '..', '..', '..', '..');
 
@@ -1983,17 +1986,19 @@ describe('strict-watch readers — a broken input is never a flipped trigger', (
 
 // The job ids come from a file this check reads, so a workflow the shared scan
 // cannot anchor in is that file failing, not an inventory drifting. The
-// classification sits on this check's side of the shared call, which is why the
-// vocabulary it keys on is pinned here.
+// classification sits on this check's side of the shared call, and the
+// condition it routes on is the extractor's own to recognize — so what is held
+// here is the ROUTE: the shared scan reports the anchor condition, and this
+// check turns it into the machinery verdict rather than an inventory finding.
 describe('the workflow anchor is an input this check reads', () => {
   const deAnchor = (yaml) => yaml.replace(/^jobs:/m, '# jobs:');
 
-  it('the shared extractor states the anchor problem in the words this check matches', () => {
+  it('the shared extractor reports the anchor condition, and recognizes it as one', () => {
     const workflow = readFileSync(join(ROOT, TEST_WORKFLOW_PATH), 'utf8');
     const read = extractJobIds(deAnchor(workflow));
     assert.deepEqual(read.ids, []);
     assert.equal(read.problems.length, 1, read.problems.join('\n'));
-    assert.ok(read.problems[0].includes(JOB_ANCHOR_PROBLEM), read.problems[0]);
+    assert.ok(isJobAnchorProblem(read.problems[0]), read.problems[0]);
     assert.ok(read.problems[0].includes(TEST_WORKFLOW_PATH), read.problems[0]);
 
     // An anchored workflow with no job keys is a different fact: the extractor
@@ -2010,7 +2015,7 @@ describe('the workflow anchor is an input this check reads', () => {
       () => auditTree(readFile, (platform) => listActiveSessions(platform, join(ROOT, MANIFEST_PATH))), // prettier-ignore
       (error) => {
         assert.ok(error instanceof InputError, `not an InputError: ${error}`);
-        assert.ok(error.message.includes(JOB_ANCHOR_PROBLEM), error.message);
+        assert.ok(isJobAnchorProblem(error.message), error.message);
         // The duplicate the reclassification dissolves: the same fact reported
         // again as an inventory that came back empty.
         assert.doesNotMatch(error.message, /no job ids found/);

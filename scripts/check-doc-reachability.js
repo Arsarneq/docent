@@ -153,10 +153,8 @@ export function refuseEmptyListing(files) {
 }
 
 function run() {
-  // Through the shared population reader, so this listing states the same
-  // quotepath policy every other tree scan does: a path carrying a non-ASCII
-  // byte arrives as itself rather than quoted, and a link naming such a file
-  // can match the listing instead of reading as an orphan.
+  // Through the shared population reader, whose docblock in
+  // scripts/check-test-inventory.js states the quotepath policy.
   const files = trackedFilesUnder('*.md');
   const emptyListing = refuseEmptyListing(files);
   if (emptyListing !== null) {

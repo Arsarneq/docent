@@ -26,6 +26,7 @@ import {
   GLOB_CHARS,
   SUITE_HELD_HOLDINGS,
   jobFlags,
+  jobSteps,
   heavyJobs,
   entryFilesFromCommand,
   evaluateContract,
@@ -594,6 +595,26 @@ describe('evaluateContract — invariant 8 (literal entries git tracks)', () => 
     assert.deepEqual(problems, []);
     assert.ok(asked.includes('.github/CONTRIBUTING.md'), asked.join(', '));
     assert.ok(!asked.some((path) => GLOB_CHARS.test(path)), asked.join(', '));
+  });
+});
+
+describe('jobSteps — the step reader this check and check-doc-closure.js share', () => {
+  it('answers the job’s own steps, whole and in order', () => {
+    const steps = [{ uses: 'actions/checkout@abc' }, { run: 'npm ci' }, { run: 'npm test' }];
+    assert.deepEqual(jobSteps({ steps }), steps);
+  });
+
+  it('answers an empty list for a job that is absent, runs no steps, or states `steps:` as a non-list', () => {
+    assert.deepEqual(jobSteps(undefined), []);
+    assert.deepEqual(jobSteps({}), []);
+    assert.deepEqual(jobSteps({ steps: 'not a list' }), []);
+  });
+
+  it('answers an empty list for a `steps:` block written as a mapping', () => {
+    // A mapping parses to a plain object, which is not iterable — a walk
+    // reading `job.steps ?? []` ends its run in a type error on this input;
+    // reading through the accessor is what survives it.
+    assert.deepEqual(jobSteps({ steps: { setup: { run: 'npm ci' } } }), []);
   });
 });
 

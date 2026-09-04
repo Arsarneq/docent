@@ -38,7 +38,11 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { tokenizeJs, trackedFilesUnder } from '../../../../scripts/check-test-inventory.js';
+import {
+  blankJsLiterals,
+  tokenizeJs,
+  trackedFilesUnder,
+} from '../../../../scripts/check-test-inventory.js';
 import {
   POPULATION_EXTENSIONS,
   POPULATION_TEST_TREE,
@@ -1794,5 +1798,49 @@ describe('real-tree lock', () => {
     for (const ext of POPULATION_EXTENSIONS.filter((e) => e !== '.js')) {
       assert.equal(script.split(`'${ext}'`).length - 1, 0, `${ext} is imported, never restated here`); // prettier-ignore
     }
+  });
+});
+
+describe('startsKeyedProperty — the one key test both object scans read', () => {
+  // What this holds: what counts as a keyed property is one decision in
+  // scripts/check-extension-surface.js, and the object scans reach it by
+  // calling the predicate rather than re-spelling the colon test.
+  const SCRIPT = 'scripts/check-extension-surface.js';
+  // One reading of `blankJsLiterals` from scripts/check-test-inventory.js,
+  // whose docblock states what it blanks: `uncommented` is the
+  // `literals: false` one — comments blanked, literal text standing — because
+  // the colon the test compares against is written as a string literal.
+  const uncommented = blankJsLiterals(readFileSync(resolve(ROOT, SCRIPT), 'utf8'), {
+    literals: false,
+  });
+
+  // MATCH FORM: the property-colon test as this file spells it, read on the
+  // `uncommented` view: a string or template literal spelling it is a hit, as
+  // is a regular-expression pattern spelling it; a comment carrying it is
+  // blanked and outside.
+  // LIMIT: the match-form assertion and the call-count assertion hold together,
+  // and what they hold is a re-inlining at an existing scan: a re-spelled test
+  // replaces a call, so the match form is found a second time and the call
+  // count drops. A NEW scan that spells its own key test some other way is
+  // outside both, and is review's to catch.
+  const COLON_TEST = ".value === ':'";
+
+  it('spells the property-colon test once, where the predicate is defined', () => {
+    const found = uncommented.split(COLON_TEST).length - 1;
+    assert.equal(
+      found,
+      1,
+      `${SCRIPT} spells ${COLON_TEST} ${found} time(s); the key test's one home is ` +
+        `startsKeyedProperty, and a second copy drifts one scan at a time`,
+    );
+  });
+
+  it('the object scans read that predicate by calling it', () => {
+    const sites = [...uncommented.matchAll(/\bstartsKeyedProperty\(/g)].length - 1;
+    assert.ok(
+      sites > 1,
+      `${SCRIPT} calls startsKeyedProperty at ${sites} site(s) outside its definition; the ` +
+        `object scans read the key test through it`,
+    );
   });
 });

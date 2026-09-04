@@ -66,6 +66,9 @@ import { testConnection, settingsFingerprint } from '../../connection-test.js';
 import { createSyncScheduler, createSyncTrigger } from '../../sync-scheduler.js';
 import { STUB_SCHEMA } from '../fixtures/stub-schema.js';
 
+// ── The repository's one home for the literal-to-pattern escape ──────────────
+import { escapeForRegExp } from '../../../../scripts/check-test-inventory.js';
+
 // ── Paths (resolved from this test file, so they survive a move) ─────────────
 const SHARED_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../');
 const EXTENSION_PANEL = path.resolve(SHARED_DIR, '../extension/sidepanel/panel.js');
@@ -131,7 +134,7 @@ describe('Placement: conflict-handling logic lives in packages/shared', () => {
  * @returns {string|null} the matched clause text, or null
  */
 function importClauseFor(source, moduleSuffix) {
-  const escaped = moduleSuffix.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const escaped = escapeForRegExp(moduleSuffix);
   const re = new RegExp(
     `import\\s*(\\{[^}]*\\}|[A-Za-z_$][\\w$]*)\\s*from\\s*['"][^'"]*${escaped}['"]`,
   );
@@ -364,9 +367,7 @@ describe('Protocol contract: sync() uses only /projects + /projects/:id, no serv
 
     // The ONLY allowed shapes: exactly `${SERVER_URL}/projects` or a single
     // `/projects/<segment>` (no extra path, no query string carrying state).
-    const allowed = new RegExp(
-      `^${SERVER_URL.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}/projects(/[^/?#]+)?$`,
-    );
+    const allowed = new RegExp(`^${escapeForRegExp(SERVER_URL)}/projects(/[^/?#]+)?$`);
     for (const { url, method } of calls) {
       assert.match(url, allowed, `off-contract endpoint requested: ${method} ${url}`);
       assert.ok(['GET', 'PUT'].includes(method), `off-contract method used: ${method} ${url}`);
@@ -521,7 +522,7 @@ describe('Connection_Test contract: testConnection uses only GET /projects, no t
 
     // The exact same endpoint shape the pull path uses; no `/connection-test`,
     // `/ping`, `/health`, or query-string-carrying variant.
-    const allowed = new RegExp(`^${SERVER_URL.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}/projects$`);
+    const allowed = new RegExp(`^${escapeForRegExp(SERVER_URL)}/projects$`);
     for (const { url, method } of calls) {
       assert.match(url, allowed, `Connection_Test hit an off-contract endpoint: ${method} ${url}`);
       assert.equal(method, 'GET', 'the Connection_Test must only read');
@@ -684,9 +685,7 @@ describe('Sync_Trigger contract: the scheduler/trigger adds no server-side state
     trigger.stop();
 
     assert.ok(calls.length >= 3, 'the triggered cycle ran the full pull+push');
-    const allowed = new RegExp(
-      `^${SERVER_URL.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}/projects(/[^/?#]+)?$`,
-    );
+    const allowed = new RegExp(`^${escapeForRegExp(SERVER_URL)}/projects(/[^/?#]+)?$`);
     for (const { url, method } of calls) {
       assert.match(url, allowed, `triggered cycle hit an off-contract endpoint: ${method} ${url}`);
       assert.ok(['GET', 'PUT'].includes(method), `off-contract method from trigger: ${method}`);

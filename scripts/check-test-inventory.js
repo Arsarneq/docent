@@ -162,12 +162,13 @@
  * the Markdown table parser and its selectors, the whole-span and list-item
  * readers, the JavaScript tokenizer and the blanked views it renders, the two
  * Rust views beside them — comments stripped, and string contents blanked — the
- * object-literal walk and the switch-case collector, the set-diff and
- * duplicate reporters, the report block, and the one tracked-file population
- * read. Anything exported here is therefore load-bearing well beyond this
- * check — the sibling check scripts and the suites import from it — so a
- * change to an exported reader's behaviour or wording is a change to every
- * leg that reads through it, and the blast radius is the offer's price.
+ * object-literal walk and the switch-case collector, the literal-to-pattern
+ * escape, the set-diff and duplicate reporters, the report block, and the one
+ * tracked-file population read. Anything exported here is therefore
+ * load-bearing well beyond this check — the sibling check scripts and the
+ * suites import from it — so a change to an exported reader's behaviour or
+ * wording is a change to every leg that reads through it, and the blast radius
+ * is the offer's price.
  *
  * Usage:
  *   node scripts/check-test-inventory.js      # or: npm run lint:test-inventory
@@ -224,8 +225,23 @@ function dirname(path) {
   return cut === -1 ? '' : path.slice(0, cut);
 }
 
-/** A literal string as a regular-expression source, every metacharacter escaped. */
-const escapeForRegExp = (text) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+/**
+ * A literal string as a regular-expression source, every metacharacter escaped,
+ * so a pattern built around it matches that text and nothing else.
+ *
+ * The one home of the escape: a check building a pattern around a name, a path,
+ * a title or a marker calls this rather than writing the character class out a
+ * second time. A hand-copied class drifts one character at a time, and the
+ * failure is silent in both directions — a metacharacter left unescaped makes a
+ * pattern that matches text the caller never meant, and an over-escaped one
+ * makes a pattern that matches nothing while looking well-formed. This export
+ * is that one home, which the
+ * `escapeForRegExp — the one home of the literal-to-pattern escape` describe in
+ * `packages/shared/tests/unit/check-test-inventory.test.js` holds.
+ * @param {string} text the literal to embed
+ * @returns {string} that literal as regular-expression source
+ */
+export const escapeForRegExp = (text) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
 /**
  * Collapse a joined path's `.` and `..` segments into the repo-relative form
@@ -573,7 +589,11 @@ export function topLevelListItems(text) {
  * `core.quotepath` is off, so a path carrying a non-ASCII byte arrives as
  * itself rather than quoted and escaped, which every filter a caller applies
  * would otherwise drop in silence — a file present in the tree and absent from
- * the scan. Stating that policy once, here, is the point of this reader.
+ * the scan. This paragraph is the policy's one home: no other script under
+ * `scripts/` carries a second copy of this clause, which the
+ * `quotepath policy — one home, no second copy` describe in
+ * `packages/shared/tests/unit/check-test-inventory.test.js` holds; the checks
+ * that cite it do so instead of copying it.
  *
  * Both filters are the caller's to state and both are optional: `extensions`
  * keeps the files whose name ends in one of them, and `exclude` drops the ones
@@ -4234,10 +4254,8 @@ export function duplicateSurfaceProblems(surfaces, entries) {
  * delegates to (parseTables, readListEntries, auditInventories,
  * auditRegistrationClosure, formatProblems) is unit-tested. */
 function run() {
-  // Through this module's own population reader, so this listing states the
-  // same quotepath policy every other tree scan does: a path carrying a
-  // non-ASCII byte arrives as itself rather than quoted, and a file named that
-  // way is read by the scans below rather than silently absent from them.
+  // Through this module's own population reader, whose docblock states the
+  // quotepath policy.
   const files = trackedFilesUnder('.');
   const readFile = (f) => {
     try {

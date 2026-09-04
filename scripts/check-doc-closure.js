@@ -121,6 +121,7 @@ import {
   backtickedName,
   duplicateSurfaceProblems,
   emptySurfaceProblems,
+  escapeForRegExp,
   flattenWhitespace,
   missingFrom,
   parseTables,
@@ -128,7 +129,13 @@ import {
   stripFences,
   trackedFilesUnder,
 } from './check-test-inventory.js';
-import { CHANGES_JOB_ID, PATHS_FILTER_USES, jobFlags, pathsFilterStep } from './check-ci-filter.js';
+import {
+  CHANGES_JOB_ID,
+  PATHS_FILTER_USES,
+  jobFlags,
+  jobSteps,
+  pathsFilterStep,
+} from './check-ci-filter.js';
 
 export const SELF_PATH = selfPath(import.meta.filename);
 export const CI_DOC_PATH = 'docs/guides/ci.md';
@@ -371,9 +378,33 @@ export function extractAlwaysRunIds(docText) {
 }
 
 /**
- * The one `jobs:` anchor both workflow scans share: the index of the
- * top-level `jobs:` line, or -1 with a diagnosis naming the failing scan.
- * A change to what counts as the anchor lands in both scans structurally.
+ * What the line-based job scan says when the workflow carries no anchor to
+ * read job ids under. Stated once and matched through
+ * {@link isJobAnchorProblem}, so the words live in one place among the checks
+ * and a reader routing this condition never restates them.
+ */
+const JOB_ANCHOR_PROBLEM = 'carries no top-level `jobs:` key';
+
+/**
+ * Whether a problem {@link extractJobIds} reported is that anchor condition —
+ * the workflow carrying no top-level `jobs:` key at all — rather than any
+ * other problem this extractor may grow later. A caller routing the anchor
+ * condition to a verdict of its own asks here instead of matching on the
+ * diagnosis's words, so rewording the diagnosis moves both sides at once and
+ * a problem grown later keeps the route it has today.
+ * @param {string} problem one problem string as this module reported it
+ * @returns {boolean}
+ */
+export function isJobAnchorProblem(problem) {
+  return problem.includes(JOB_ANCHOR_PROBLEM);
+}
+
+/**
+ * The `jobs:` anchor read: the index of the top-level `jobs:` line, or -1
+ * with a diagnosis naming the failing scan. Its caller is
+ * {@link extractJobIds}, which passes its own scan name, so a change to what
+ * counts as the anchor is one edit here and the diagnosis keeps naming the
+ * scan that asked.
  * @param {string[]} lines
  * @param {string} scan the calling scan's name, for the diagnosis
  * @returns {{ start: number, problem: string | null }}
@@ -381,7 +412,7 @@ export function extractAlwaysRunIds(docText) {
 function findJobsBlock(lines, scan) {
   const start = lines.findIndex((line) => /^jobs:\s*(#.*)?$/.test(line));
   if (start === -1) {
-    return { start, problem: `${TEST_WORKFLOW_PATH} carries no top-level \`jobs:\` key — the ${scan} cannot anchor` }; // prettier-ignore
+    return { start, problem: `${TEST_WORKFLOW_PATH} ${JOB_ANCHOR_PROBLEM} — the ${scan} cannot anchor` }; // prettier-ignore
   }
   return { start, problem: null };
 }
@@ -670,18 +701,17 @@ export function extractWorkflowGating(yamlText) {
     return { jobs: [], filterFlags: [], problems: [`${TEST_WORKFLOW_PATH} carries no \`jobs:\` mapping — the gating scan cannot anchor`] }; // prettier-ignore
   }
   const problems = [];
-  const stepsOf = (job) => (Array.isArray(job?.steps) ? job.steps : []);
   const jobs = Object.entries(jobsMap).map(([id, job]) => ({
     id,
     flags: [...jobFlags(job)],
     condition: job?.if === undefined ? null : String(job.if),
-    stepLines: stepsOf(job)
+    stepLines: jobSteps(job)
       .filter((step) => typeof step?.run === 'string')
       .flatMap((step) => step.run.split(/\r?\n/))
       .filter((line) => line.trim() !== ''),
     runners: runnersOf(job),
-    uploads: artifactNames(stepsOf(job), UPLOAD_ARTIFACT_USES),
-    downloads: artifactNames(stepsOf(job), DOWNLOAD_ARTIFACT_USES),
+    uploads: artifactNames(jobSteps(job), UPLOAD_ARTIFACT_USES),
+    downloads: artifactNames(jobSteps(job), DOWNLOAD_ARTIFACT_USES),
     usesSecret: SECRET_REFERENCE_RE.test(JSON.stringify(job ?? null)),
   }));
   const changes = jobsMap[CHANGES_JOB_ID];
@@ -999,9 +1029,7 @@ export function commandSegments(text) {
  */
 function runsGate(job, token, command) {
   if (job === undefined) return false;
-  const invocation = new RegExp(
-    `^npm run ${token.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?![A-Za-z0-9:_-])`,
-  );
+  const invocation = new RegExp(`^npm run ${escapeForRegExp(token)}(?![A-Za-z0-9:_-])`);
   const runsCommand =
     typeof command === 'string' && command !== ''
       ? (segment) =>
@@ -1389,10 +1417,8 @@ export function auditTree(readFile, listWorkflows, listMarkdown, listManifests) 
  */
 export function treeSurfaces(root) {
   const resolvePath = (p) => join(root, p);
-  // Through the shared population reader, so this listing states the same
-  // quotepath policy every other tree scan does: a path carrying a non-ASCII
-  // byte arrives as itself rather than quoted, and a citation in such a file
-  // is read rather than silently absent.
+  // Through the shared population reader, whose docblock in
+  // scripts/check-test-inventory.js states the quotepath policy.
   const gitList = (pathspec) => trackedFilesUnder(pathspec, { cwd: root });
   return auditTree(
     (path) => {

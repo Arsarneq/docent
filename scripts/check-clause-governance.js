@@ -40,9 +40,8 @@ import { pathToFileURL } from 'node:url';
 import { selfPath, trackedFilesUnder } from './check-test-inventory.js';
 import {
   MAP_PATH,
+  compileAlternatives,
   compileMap,
-  expandBraces,
-  globToRegExp,
   loadMap,
   refuseOnShapeError,
   resolveFile,
@@ -252,9 +251,11 @@ export const ALLOWLIST = new Map([
 
 /**
  * The tracked files a pattern token names, expanded and compiled through the
- * map's own helpers so a citation is read exactly as an ownership pattern is.
- * A pattern the compiler refuses names nothing — the citation gate is where an
- * unusable pattern reds; here it simply contributes no edge.
+ * map's own {@link compileAlternatives} so a citation is read exactly as an
+ * ownership pattern is; only the matchers are kept, because naming files asks
+ * whether ANY alternative lands, never which one. A pattern the compiler
+ * refuses names nothing — the citation gate is where an unusable pattern reds;
+ * here it simply contributes no edge.
  * @param {string} token a separator-carrying pattern token
  * @param {string[]} files git-tracked repo-relative paths
  * @returns {string[]} the tracked files it names, in tracked order
@@ -262,7 +263,7 @@ export const ALLOWLIST = new Map([
 function expandPattern(token, files) {
   let compiled;
   try {
-    compiled = expandBraces(token).map((expanded) => globToRegExp(expanded));
+    compiled = compileAlternatives(token).map((m) => m.regex);
   } catch {
     return [];
   }
@@ -387,10 +388,8 @@ export function auditClauseGovernance({ registry, map, files, readFile, allowlis
 /* c8 ignore start — the CLI wrapper reads the registry, map, and git file list
    and formats the pass/fail output; the pure audit core above is unit-tested. */
 function run() {
-  // Through the shared population reader, so this listing states the same
-  // quotepath policy every other tree scan does: a path carrying a non-ASCII
-  // byte arrives as itself rather than quoted, and a pattern citation expands
-  // over such a file rather than passing over it.
+  // Through the shared population reader, whose docblock in
+  // scripts/check-test-inventory.js states the quotepath policy.
   const files = trackedFilesUnder('.');
   // The map is read through its own check's loader and the registry through the
   // shared governance-data home, so a file that cannot be read as its own data
