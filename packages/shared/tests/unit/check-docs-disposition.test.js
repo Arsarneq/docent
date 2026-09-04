@@ -79,9 +79,10 @@ import {
   WORKFLOW_SECTION,
 } from '../../../../scripts/check-doc-closure.js';
 import {
+  escapeForRegExp,
   extractClauseSection,
+  extractHeadingSection,
   parseTables,
-  stripFences,
 } from '../../../../scripts/check-test-inventory.js';
 import { AUTOMATED_BRANCH } from '../../../../scripts/check-no-release-outputs.js';
 
@@ -843,34 +844,22 @@ const cadenceOf = ({ dom, month, dow }) =>
 /**
  * A `#`-headed section's body: the lines between its heading and the next
  * heading — the extent a weld anchors in, so a word elsewhere in the document
- * cannot answer for the site under test. Both boundaries are found on a
- * fence-stripped view (the one fence model, which blanks fenced lines and keeps
- * the line count), so a `#` line inside a fenced example neither opens a section
- * nor ends one; the body itself comes back from the raw text, fences intact,
- * because a line index found on the view addresses the raw text too. The
- * shipped `extractSection` cannot serve here: it reads `##` headings only, and
- * by a title without its markers, while every site below anchors on an `###`
- * heading written out in full.
+ * cannot answer for the site under test. The slice is the shared
+ * {@link extractHeadingSection}, the one the shipped `extractSection` cuts
+ * pull-request bodies with, so a `#` line inside a fenced example neither opens
+ * a section nor ends one and the section's own fenced lines come back in it.
+ * What this reading states of its own is the two patterns: every call site
+ * anchors on a heading written out in full, markers and all, and any heading
+ * ends the section.
  */
 const headingSection = (text, heading) => {
-  const view = stripFences(text);
-  const start = view.indexOf(`\n${heading}\n`);
-  assert.notEqual(start, -1, `expected the heading "${heading}"`);
-  // The match is the newline BEFORE the heading, so the heading sits on the
-  // line after the one that newline ends.
-  const headingLine = view.slice(0, start).split('\n').length;
-  const viewLines = view.split('\n');
-  let end = viewLines.length;
-  for (let i = headingLine + 1; i < viewLines.length; i++) {
-    if (/^#{1,6}\s/.test(viewLines[i])) {
-      end = i;
-      break;
-    }
-  }
-  return text
-    .split('\n')
-    .slice(headingLine + 1, end)
-    .join('\n');
+  const section = extractHeadingSection(
+    text,
+    new RegExp(`^${escapeForRegExp(heading)}$`),
+    /^#{1,6}\s/,
+  );
+  assert.notEqual(section, null, `expected the heading "${heading}"`);
+  return section;
 };
 
 /**
@@ -2408,6 +2397,30 @@ describe('extractSection', () => {
       extractSection(fenced, 'Docs disposition'),
       /unaffected: docs\/alpha\.md — pasted inside a fence/,
     );
+  });
+
+  it('keeps a disposition line written directly under the heading', () => {
+    // The line under the heading is a line of the section: a body that skips
+    // the blank line still has its first disposition line read.
+    const tight = [
+      '## Docs disposition',
+      'unaffected: docs/alpha.md — no capture change',
+      '',
+      '## Change record',
+      '',
+      'Intent: x',
+    ].join('\n');
+    const section = extractSection(tight, 'Docs disposition');
+    assert.equal(section.split('\n')[0], 'unaffected: docs/alpha.md — no capture change');
+  });
+
+  it('does not read a bare `## ` marker with its title on the next line as the heading', () => {
+    // A heading is one line: a marker whose title sits on the line below it
+    // states no section, and the body carries none by that title.
+    const split = ['## ', 'Docs disposition', 'unaffected: docs/alpha.md — no capture change'].join(
+      '\n',
+    );
+    assert.equal(extractSection(split, 'Docs disposition'), null);
   });
 });
 
