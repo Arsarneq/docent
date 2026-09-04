@@ -77,6 +77,8 @@ import {
   OUTCOME_FIELD,
   OUTCOME_CLAUSE_ID,
   CITED_JOB_DOCUMENTS,
+  INVENTORY_LEGS,
+  legList,
   NAMED_CAUSE_CAP,
   JOB_ANCHOR_PROBLEM,
   readFieldTokens,
@@ -108,7 +110,11 @@ import {
   readTreeFile,
   listActiveSessions,
 } from '../../../../scripts/check-verification-inventory.js';
-import { topLevelListItems, trackedFilesUnder } from '../../../../scripts/check-test-inventory.js';
+import {
+  blankJsLiterals,
+  topLevelListItems,
+  trackedFilesUnder,
+} from '../../../../scripts/check-test-inventory.js';
 import { RELAX_KINDS } from '../../../../scripts/corpus-compare.js';
 import { TEST_WORKFLOW_PATH, extractJobIds } from '../../../../scripts/check-doc-closure.js';
 
@@ -1673,6 +1679,84 @@ describe('the citation leg’s scanned set is declared', () => {
   });
 });
 
+// The legs' names live in `INVENTORY_LEGS`. This family holds the check's header
+// docblock to that constant both ways, and holds the success line's rendering to it —
+// the source lock reads the line's own template segment. What the rendered line says is
+// held beside it by the spawned-CLI case, which observes the printed line naming every
+// leg. The guide's lint-table row for the gate states its drift classes in the guide's
+// own words, which nothing holds to the constant.
+describe('the leg set is declared, and the header docblock states it', () => {
+  const SOURCE = readFileSync(join(ROOT, 'scripts', 'check-verification-inventory.js'), 'utf8');
+
+  /**
+   * The header docblock's bullet list, flattened to one line per bullet.
+   *
+   * Match form: the header docblock is the source text ahead of the first
+   * block-comment terminator. Inside it, a line whose comment body — the line
+   * with its leading whitespace and one `*` removed, then trimmed — starts
+   * with `- ` opens a bullet; a non-empty body that opens no bullet continues
+   * the one above it; the first empty body after the list has started ends the
+   * list, which is how the paragraphs below the bullets stay out. Each
+   * bullet's text is then whitespace-flattened, and a leg is matched to it by
+   * a plain, case-sensitive `startsWith` — no regular expression over the
+   * prose, no normalisation of the words themselves.
+   *
+   * Limit: this proves which legs the bullet list names, and that it names
+   * each exactly once. Whether a bullet's remaining sentence still describes
+   * what its leg does is prose, and stays review-held — the same limit the
+   * check's own header records for the table cells it reads.
+   */
+  function docblockBullets() {
+    const header = SOURCE.slice(0, SOURCE.indexOf('*/'));
+    const bullets = [];
+    for (const line of header.split('\n')) {
+      const body = line.replace(/^\s*\*/, '').trim();
+      if (body.startsWith('- ')) bullets.push(body.slice(2));
+      else if (bullets.length === 0) continue;
+      else if (body === '') break;
+      else bullets[bullets.length - 1] += ` ${body}`;
+    }
+    return bullets.map((b) => b.replace(/\s+/g, ' ').trim());
+  }
+
+  it('every leg opens exactly one docblock bullet', () => {
+    const bullets = docblockBullets();
+    assert.ok(bullets.length > 0, 'the docblock bullet scan read nothing');
+    for (const leg of INVENTORY_LEGS) {
+      const opened = bullets.filter((b) => b.startsWith(leg.bullet));
+      assert.equal(opened.length, 1, `${leg.label}: ${opened.length} bullet(s) open with "${leg.bullet}"`); // prettier-ignore
+    }
+  });
+
+  it('every docblock bullet is opened by a leg', () => {
+    for (const bullet of docblockBullets()) {
+      const legs = INVENTORY_LEGS.filter((leg) => bullet.startsWith(leg.bullet));
+      assert.equal(legs.length, 1, `no single leg opens the bullet "${bullet.slice(0, 60)}…"`);
+    }
+  });
+
+  it('the success line is rendered from the constant', () => {
+    // Match form: the check's source read through `blankJsLiterals` with
+    // literal contents kept (`{ literals: false }`) — comments blanked,
+    // template text standing — searched for the success line's own template
+    // segment, so a bare `legList()` interpolation elsewhere in the file does
+    // not satisfy it. Limit: the text alone; a second template carrying the
+    // line's own words would satisfy it, and the CLI case beside it observes
+    // the rendered line.
+    const view = blankJsLiterals(SOURCE, { literals: false });
+    assert.ok(
+      view.includes('across the ${legList()} legs match their subjects'),
+      'the success line must interpolate legList()',
+    );
+  });
+
+  it('the rendered list joins the labels the way the success sentence reads', () => {
+    assert.equal(legList([{ label: 'a' }]), 'a');
+    assert.equal(legList([{ label: 'a' }, { label: 'b' }]), 'a and b');
+    assert.equal(legList([{ label: 'a' }, { label: 'b' }, { label: 'c' }]), 'a, b, and c');
+  });
+});
+
 describe('unreadable backticked tokens are refused, never dropped', () => {
   it('a camelCase token in a scanned Class cell reds instead of shrinking the scan', () => {
     const doc = normalizationDoc().replace('`recording_id`', '`matchCount`');
@@ -2104,6 +2188,11 @@ describe('check-verification-inventory: CLI exit codes at the process boundary',
     const { status, stdout } = run(tree());
     assert.equal(status, 0, stdout);
     assert.match(stdout, /verification inventories current/);
+    // The success line names every leg, read at the process boundary: a leg
+    // the line stops naming reds here. That it is rendered from the constant
+    // is held by the source lock beside this family.
+    for (const leg of INVENTORY_LEGS)
+      assert.ok(stdout.includes(leg.label), `${leg.label} unnamed: ${stdout}`);
   });
 
   it('exit 1 with the drift verdict when a documented covered field is dropped', () => {

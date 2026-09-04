@@ -101,7 +101,7 @@
  *
  * Why the always-on `lint` job: the diff that stales a suite inventory is
  * frequently docs-only, and a PR that sets none of the workflow's change
- * flags — the usual docs-only PR — skips every path-filtered test job.
+ * flags — usually a docs-only one — skips every path-filtered test job.
  * A guard living in one of those jobs would be skipped by exactly the change it
  * exists to catch, so this one runs on every pull request.
  *
