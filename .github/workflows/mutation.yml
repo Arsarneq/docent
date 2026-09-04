@@ -176,7 +176,8 @@ jobs:
 
       # The `mutation` family. Its key shape, its split, and its save's gate are
       # the desktop-rust-tests cargo block's in test.yml, which carries the
-      # reasoning for all four families; two things are this family's own.
+      # reasoning every family shares; what this family stores, and how far its
+      # restore reaches, are its own.
       #
       # It caches the REGISTRY ONLY — no `target` directory. `cargo mutants
       # --in-place` mutates and builds in the real tree, so the tree this job

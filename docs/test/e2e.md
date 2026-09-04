@@ -229,8 +229,8 @@ two in agreement.
   (open `sidepanel/index.html` by extension id) or `evaluate` against the
   `serviceWorker` fixture directly.
 - A new spec or test file under `specs/` is discovered by the rule
-  [What the suite covers](#what-the-suite-covers) states; this document's
-  coverage tables are the listing to update here. What a new file, and the
+  [What the suite covers](#what-the-suite-covers) states; the suite tables
+  under that heading are the listing to update here. What a new file, and the
   clause rows that pin it, must additionally satisfy is stated in
   [CONTRIBUTING § Extending the Docs Governance](../../.github/CONTRIBUTING.md#extending-the-docs-governance).
 - Write for four attempts: fresh context per attempt, no reliance on prior

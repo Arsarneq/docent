@@ -4,15 +4,17 @@
  * committed contract, so every way it can rot must fail loud: these tests prove
  * each red path fires on synthetic input (missing/extraneous buildScripts, a
  * heavy job on the broad `ci` bucket, wrong ciCore globs, a missing schema gate,
- * a broken produce/diff co-fire, a gate on a filter the `changes` block never
- * defines, a broken hop between the filter map and the `changes` job's outputs,
+ * a broken produce/diff co-fire, a gate on a filter the `changes` job's
+ * paths-filter step never defines, a broken hop between the filter map and the
+ * `changes` job's outputs,
  * a literal filter entry naming no tracked file, a clause-registry document the
- * `suiteHeld` filter omits) and that the closure resolver follows the npm-run
- * and compound-command forms. The two inputs standing for state outside the
- * workflow — the tracked-file predicate and the registry's document list — are
- * proven required rather than defaulted. A real-tree lock proves the shipped
- * test.yml satisfies the contract, over the shipped tree and the shipped
- * registry, with each of those inputs observed on its own.
+ * `suiteHeld` filter omits, a `suiteHeld` entry parted from the holdings map,
+ * a filter entry stated more than once) and that the closure resolver follows
+ * the npm-run and compound-command forms. The inputs that stand for state
+ * outside the workflow — the tracked-file predicate and the registry's document
+ * list — are proven required rather than defaulted. A real-tree lock proves the
+ * shipped test.yml satisfies the contract over the inputs the command line
+ * itself reads, with each of those inputs observed on its own.
  */
 
 import { describe, it } from 'node:test';
@@ -22,18 +24,21 @@ import { resolve } from 'node:path';
 import {
   CI_CORE_GLOBS,
   GLOB_CHARS,
+  SUITE_HELD_HOLDINGS,
   jobFlags,
   jobSteps,
   heavyJobs,
   entryFilesFromCommand,
-  computeBuildClosure,
   evaluateContract,
   pathsFilterStep,
-  loadWorkflow,
+  loadInputs,
 } from '../../../../scripts/check-ci-filter.js';
-import { trackedFilesUnder } from '../../../../scripts/check-test-inventory.js';
+import { blankJsLiterals } from '../../../../scripts/check-test-inventory.js';
 
 const ROOT = resolve(import.meta.dirname, '..', '..', '..', '..');
+
+/** The files the holdings map states a holding for — the `suiteHeld` set. */
+const HELD_FILES = Object.keys(SUITE_HELD_HOLDINGS);
 
 /** Build a job `if:` string from a flag list (+ the usual event OR-terms). */
 function ifFrom(flags) {
@@ -45,8 +50,8 @@ function ifFrom(flags) {
 
 /**
  * The filter map the compliant baseline states. Every flag the baseline jobs
- * gate on is defined here: a gate on a filter the `changes` block never defines
- * is itself a violation (invariant 6).
+ * gate on is defined here: a gate on a filter the `changes` job's paths-filter
+ * step never defines is itself a violation (invariant 6).
  */
 function defaultFilters() {
   return {
@@ -59,7 +64,13 @@ function defaultFilters() {
     releasePipeline: ['.github/workflows/publish.yml'],
     contractDocs: ['.github/CONTRIBUTING.md'],
     dispositionWorkflow: ['.github/workflows/docs-disposition.yml'],
-    suiteHeld: ['docs/a.md', 'docs/b.md'],
+    // The shipped holdings map, which invariant 10 holds the filter to: it
+    // reads the shipped map, so a fixture stating any other list reds every
+    // case that asserts the whole problem list — the compliant baseline, the
+    // holdings-direction case that keeps this list, and the duplicate cases
+    // among them — while a case stating its own `suiteHeld`, or asserting only
+    // that a problem is present, stays green.
+    suiteHeld: [...HELD_FILES],
     ciCore: [...CI_CORE_GLOBS],
     buildScripts: ['scripts/a.js', 'scripts/b.js'],
     ci: ['scripts/**', '.c8rc.json'],
@@ -401,7 +412,7 @@ describe('evaluateContract — invariant 5 (produce/diff co-fire, both direction
 });
 
 describe('evaluateContract — invariant 6 (every gated flag is a defined filter)', () => {
-  it('fires when a job gates on a flag the `changes` block does not define', () => {
+  it("fires when a job gates on a flag the `changes` job's paths-filter step does not define", () => {
     // A gate on an undefined filter reads as a well-formed condition and is
     // always false: the job silently never fires for the input it watches.
     const base = withJobFlags(makeWorkflow(), 'desktop-cross-compile', [
@@ -627,11 +638,10 @@ describe('evaluateContract — invariant 9 (the clause registry is a suiteHeld s
   it('fires when a document the registry names is absent from suiteHeld', () => {
     // The preamble suite holds that carrier's registry link as raw text, so a
     // carrier the flag omits reds unit-tests on `main` alone.
-    const problems = evaluate({ registryDocs: ['docs/a.md', 'docs/b.md', 'docs/c.md'] });
-    assert.ok(
-      problems.some((p) => p.includes('docs/c.md') && p.includes('`suiteHeld`')),
-      problems.join('\n'),
-    );
+    const problems = evaluate({ registryDocs: [...HELD_FILES, 'docs/ghost.md'] });
+    assert.deepEqual(problems, [
+      'the clause registry names `docs/ghost.md`, which the `suiteHeld` filter does not list; the preamble suite holds its registry link',
+    ]);
   });
 
   it('fires for every registry document when suiteHeld is not defined at all', () => {
@@ -644,6 +654,54 @@ describe('evaluateContract — invariant 9 (the clause registry is a suiteHeld s
         `${doc}: ${problems.join('\n')}`,
       );
     }
+  });
+});
+
+describe('evaluateContract — invariant 10 (the suiteHeld filter and its holdings)', () => {
+  it('fires when the filter lists a file the holdings map states no holding for', () => {
+    // Tracked, so invariant 8 is satisfied and the entry reaches this leg
+    // alone: what it lacks is the holding that earns it the flag.
+    const problems = evaluate({
+      filters: { suiteHeld: [...HELD_FILES, 'docs/ghost.md'] },
+      isTracked: (path) => FIXTURE_FILES.has(path) || path === 'docs/ghost.md',
+    });
+    assert.deepEqual(problems, [
+      'the `suiteHeld` filter lists `docs/ghost.md`, which SUITE_HELD_HOLDINGS states no holding for',
+    ]);
+  });
+
+  it('fires when a file the holdings map states a holding for is not in the filter', () => {
+    const [dropped, ...rest] = HELD_FILES;
+    const problems = evaluate({ filters: { suiteHeld: rest } });
+    assert.deepEqual(problems, [
+      `SUITE_HELD_HOLDINGS states a holding for \`${dropped}\`, which the \`suiteHeld\` filter does not list`,
+    ]);
+  });
+});
+
+describe('evaluateContract — invariant 11 (no filter lists an entry more than once)', () => {
+  it('fires when a suiteHeld entry is stated more than once', () => {
+    // The doubled list is the fixture's own set plus one repeat, so every leg
+    // reading a filter as a set still holds and this one problem stands alone.
+    const problems = evaluate({ filters: { suiteHeld: [...HELD_FILES, HELD_FILES[0]] } });
+    assert.deepEqual(problems, [`filter \`suiteHeld\` lists \`${HELD_FILES[0]}\` more than once`]);
+  });
+
+  it('fires when a ciCore glob is stated more than once', () => {
+    // The set comparison invariant 2 makes reads both lists as sets, so a
+    // doubled glob passes it and this leg is what catches the duplicate.
+    const problems = evaluate({ filters: { ciCore: [...CI_CORE_GLOBS, CI_CORE_GLOBS[0]] } });
+    assert.deepEqual(problems, [`filter \`ciCore\` lists \`${CI_CORE_GLOBS[0]}\` more than once`]);
+  });
+
+  it('fires once when an entry is stated three times', () => {
+    // One problem per repeated entry, however many times it is repeated: the
+    // finding is that the list stopped being an enumeration, which a third
+    // statement of the same entry does not make twice over.
+    const problems = evaluate({
+      filters: { suiteHeld: [...HELD_FILES, HELD_FILES[0], HELD_FILES[0]] },
+    });
+    assert.deepEqual(problems, [`filter \`suiteHeld\` lists \`${HELD_FILES[0]}\` more than once`]);
   });
 });
 
@@ -706,60 +764,93 @@ describe('entryFilesFromCommand', () => {
 });
 
 /**
- * The shipped tree as git tracks it, built the way `run()` builds the same
- * predicate: the shared population reader, read once over the repository root.
+ * The inputs the command line evaluates, read once through the check's own
+ * reader — so these cases observe what `run()` hands the contract rather than a
+ * rebuild of it.
  */
-const REAL_TRACKED = new Set(trackedFilesUnder('.', { cwd: ROOT }));
-const REAL_IS_TRACKED = (path) => REAL_TRACKED.has(path);
+const REAL = loadInputs();
 
-/** The documents the shipped clause registry's prefix map names. */
-const REAL_REGISTRY_DOCS = Object.values(
-  JSON.parse(readFileSync(resolve(ROOT, 'docs/clause-registry.json'), 'utf8')).prefixes,
+/**
+ * The check's own source read through the `blankJsLiterals` view: comments
+ * blanked, string and template contents blanked, and a regular-expression
+ * literal's flag run blanked while its pattern text stands — the view's own
+ * rules, stated in `blankJsLiterals`'s docblock in
+ * scripts/check-test-inventory.js. This is what the input-reader lock is
+ * matched against, and the pattern text standing is that lock's limit: a copy
+ * of a locked call written inside a pattern would satisfy it.
+ */
+const CHECK_SOURCE = blankJsLiterals(
+  readFileSync(resolve(ROOT, 'scripts/check-ci-filter.js'), 'utf8'),
 );
 
-/** The committed workflow, its filter map, and its computed script closure. */
-function realInputs() {
-  const { wf, filters } = loadWorkflow();
-  const scripts = JSON.parse(readFileSync(resolve(ROOT, 'package.json'), 'utf8')).scripts || {};
-  return { wf, filters, closure: computeBuildClosure(wf, scripts) };
+/**
+ * The CI guide's `suiteHeld` bullet, from its opening marker to the blank line
+ * that ends it, with its wrapping collapsed so a phrase the guide breaks across
+ * lines reads as one string.
+ */
+const CI_GUIDE_SUITE_HELD_BULLET = (() => {
+  const guide = readFileSync(resolve(ROOT, 'docs/guides/ci.md'), 'utf8');
+  const start = guide.indexOf('- `suiteHeld` —');
+  return guide.slice(start, guide.indexOf('\n\n', start)).replace(/\s+/g, ' ');
+})();
+
+/**
+ * The CI guide's flag-exception sentence, located on the whole guide with its
+ * wrapping collapsed: from its lead-in to the first `. ` after it, or to the
+ * end of the text.
+ */
+const CI_GUIDE_FLAG_EXCEPTION_SENTENCE = (() => {
+  const guide = readFileSync(resolve(ROOT, 'docs/guides/ci.md'), 'utf8').replace(/\s+/g, ' ');
+  const start = guide.indexOf('sets no flag, because that gate reds the same drift on every PR');
+  const end = guide.indexOf('. ', start);
+  return end === -1 ? guide.slice(start) : guide.slice(start, end + 1);
+})();
+
+/**
+ * The backticked tokens that sentence states, and the ones a filter map lists:
+ * a token equal to a filter entry, or to an entry's basename, is a file the
+ * sentence names that the split gives a flag to.
+ * @param {Record<string, string[]>} filters the filter map to compare against
+ * @returns {{ tokens: string[], named: string[] }} the tokens and the hits
+ */
+function exceptionTokensAgainstFilters(filters) {
+  const tokens = [...CI_GUIDE_FLAG_EXCEPTION_SENTENCE.matchAll(/`([^`]+)`/g)].map((m) => m[1]);
+  const named = [];
+  for (const [flag, entries] of Object.entries(filters))
+    for (const entry of entries)
+      for (const token of tokens)
+        if (token === entry || token === entry.split('/').pop())
+          named.push(`${flag} lists \`${entry}\`, which the sentence names as \`${token}\``);
+  return { tokens, named };
 }
 
 describe('real-tree lock', () => {
   it('the shipped test.yml satisfies the path-filter contract', () => {
     assert.deepEqual(
-      evaluateContract({
-        ...realInputs(),
-        isTracked: REAL_IS_TRACKED,
-        registryDocs: REAL_REGISTRY_DOCS,
-      }),
+      evaluateContract(REAL),
       [],
       'scripts/check-ci-filter.js must pass on the committed test.yml',
     );
   });
 
   it('the predicate the lock passes answers for the shipped tree', () => {
-    assert.equal(REAL_IS_TRACKED('docs/ghost.md'), false);
+    assert.equal(REAL.isTracked('docs/ghost.md'), false);
     // A directory that exists on disk, and is no tracked file.
-    assert.equal(REAL_IS_TRACKED('docs'), false);
-    assert.equal(REAL_IS_TRACKED('README.md'), true);
+    assert.equal(REAL.isTracked('docs'), false);
+    assert.equal(REAL.isTracked('README.md'), true);
   });
 
   it("the registry list the lock passes is the shipped registry's own documents", () => {
-    assert.ok(REAL_REGISTRY_DOCS.includes('docs/api/dispatch.md'), REAL_REGISTRY_DOCS.join(', '));
-    for (const doc of REAL_REGISTRY_DOCS) assert.ok(REAL_IS_TRACKED(doc), doc);
+    assert.ok(REAL.registryDocs.includes('docs/api/dispatch.md'), REAL.registryDocs.join(', '));
+    for (const doc of REAL.registryDocs) assert.ok(REAL.isTracked(doc), doc);
   });
 
   it('reds on the committed workflow when no literal entry resolves', () => {
-    const inputs = realInputs();
-    const literals = Object.values(inputs.filters)
+    const literals = Object.values(REAL.filters)
       .flat()
       .filter((entry) => !GLOB_CHARS.test(entry));
     assert.ok(literals.length, 'the committed filter map states literal entries');
-    const problems = evaluateContract({
-      ...inputs,
-      isTracked: () => false,
-      registryDocs: REAL_REGISTRY_DOCS,
-    });
+    const problems = evaluateContract({ ...REAL, isTracked: () => false });
     for (const entry of literals) {
       assert.ok(problems.some((p) => p.includes(entry)), `${entry}: ${problems.join('\n')}`); // prettier-ignore
     }
@@ -767,9 +858,8 @@ describe('real-tree lock', () => {
 
   it('reds on the committed workflow when the registry names one more document', () => {
     const problems = evaluateContract({
-      ...realInputs(),
-      isTracked: REAL_IS_TRACKED,
-      registryDocs: [...REAL_REGISTRY_DOCS, 'docs/ghost.md'],
+      ...REAL,
+      registryDocs: [...REAL.registryDocs, 'docs/ghost.md'],
     });
     assert.ok(
       problems.some((p) => p.includes('docs/ghost.md') && p.includes('`suiteHeld`')),
@@ -777,10 +867,35 @@ describe('real-tree lock', () => {
     );
   });
 
-  it('the buildScripts closure is exactly the scripts the heavy jobs run', () => {
-    const { wf } = loadWorkflow();
-    const scripts = JSON.parse(readFileSync(resolve(ROOT, 'package.json'), 'utf8')).scripts || {};
-    assert.deepEqual([...computeBuildClosure(wf, scripts)].sort(), [
+  it('reds when the committed filter carries a file no holding is stated for', () => {
+    // A tracked file outside the holdings map: every other leg holds, so the
+    // missing holding is the whole of what reds.
+    const problems = evaluateContract({
+      ...REAL,
+      filters: {
+        ...REAL.filters,
+        suiteHeld: [...REAL.filters.suiteHeld, '.github/dependabot.yml'],
+      },
+    });
+    assert.deepEqual(problems, [
+      'the `suiteHeld` filter lists `.github/dependabot.yml`, which SUITE_HELD_HOLDINGS states no holding for',
+    ]);
+  });
+
+  it('reds when the committed filter drops a file a holding is stated for', () => {
+    const [dropped, ...rest] = REAL.filters.suiteHeld;
+    const problems = evaluateContract({
+      ...REAL,
+      filters: { ...REAL.filters, suiteHeld: rest },
+      registryDocs: REAL.registryDocs.filter((doc) => doc !== dropped),
+    });
+    assert.deepEqual(problems, [
+      `SUITE_HELD_HOLDINGS states a holding for \`${dropped}\`, which the \`suiteHeld\` filter does not list`,
+    ]);
+  });
+
+  it('the buildScripts closure the reader hands over is exactly the scripts the heavy jobs run', () => {
+    assert.deepEqual([...REAL.closure].sort(), [
       'scripts/build-desktop-dist.js',
       'scripts/build-schemas.js',
       'scripts/build-validators.js',
@@ -791,5 +906,50 @@ describe('real-tree lock', () => {
       'scripts/sufficiency-lint.js',
       'scripts/sync-shared.js',
     ]);
+  });
+});
+
+describe('loadInputs — the reader the command line and this suite share', () => {
+  it('run() evaluates the contract over the reader, which computes the closure', () => {
+    // Match form: plain substrings over the check's text read through
+    // `blankJsLiterals`, so a quoted, templated, or commented-out copy of the
+    // call cannot satisfy the lock. Its limit is the text alone: it cannot see
+    // what a call is given, which is why each input's value is observed above —
+    // and a closure the reader took from the filter map would satisfy invariant
+    // 1 by construction, leaving the text as what holds it.
+    assert.ok(CHECK_SOURCE.includes('evaluateContract(loadInputs())'), 'run() reads no input of its own'); // prettier-ignore
+    assert.ok(CHECK_SOURCE.includes('closure: computeBuildClosure('), 'the closure is computed, not read off the filter map'); // prettier-ignore
+  });
+});
+
+describe("the CI guide's flag-exception sentence names no file a filter lists", () => {
+  it('every backticked name the sentence states is outside every filter', () => {
+    // Match form: the guide with its wrapping collapsed, the sentence located
+    // by its lead-in, and its backticked tokens compared as plain strings.
+    // Limits: literal entries and their basenames only, so a file a glob
+    // covers passes; and the sentence's own names only, never the paragraph's
+    // meaning.
+    const { tokens, named } = exceptionTokensAgainstFilters(REAL.filters);
+    assert.ok(tokens.length, CI_GUIDE_FLAG_EXCEPTION_SENTENCE);
+    assert.ok(tokens.includes('cla.yml'), tokens.join(', '));
+    assert.deepEqual(named, [], named.join('\n'));
+  });
+});
+
+describe('the CI guide names the flag; the check states the holdings', () => {
+  it('the guide bullet cites the holdings map and restates no holding itself', () => {
+    // Match form: plain substrings over the bullet with its wrapping
+    // collapsed, so a holding the guide breaks across lines is caught too. It
+    // holds the `SUITE_HELD_HOLDINGS` token present and every map string
+    // absent. Its limit is the map's strings verbatim: a holding restated in
+    // other words, and the bullet's own class sentence about the registry
+    // carriers, are outside what it matches; the bullet's own text ends at the
+    // blank line after it.
+    assert.ok(
+      CI_GUIDE_SUITE_HELD_BULLET.includes('SUITE_HELD_HOLDINGS'),
+      CI_GUIDE_SUITE_HELD_BULLET,
+    );
+    for (const [file, holding] of Object.entries(SUITE_HELD_HOLDINGS))
+      assert.ok(!CI_GUIDE_SUITE_HELD_BULLET.includes(holding), `${file}: ${holding}`);
   });
 });
