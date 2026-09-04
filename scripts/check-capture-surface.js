@@ -78,9 +78,12 @@
  * genuinely invisible is a registration SITE that lands outside the scanned
  * population: a helper defined elsewhere and merely called here registers
  * nothing these files show, and the extension's test tree is outside the
- * population by the derivation's own filter, a listener a test registers on a
- * page it drives being that test's fixture rather than a surface the extension
- * ships.
+ * population by the derivation's own filter, what that tree registers being the
+ * test's own for the length of a run — a handler on an element of the page it
+ * drives, installed so the side effect it fires is there to be captured or not,
+ * and a `chrome.*` listener it evaluates into the service worker it drives,
+ * standing beside the shipped registrations to watch what they do — rather than
+ * a surface the extension ships.
  *
  * The JavaScript is read through the shared comment-safe tokenizer, which
  * models template literals as a type of their own and tokenizes each `${…}`
@@ -161,9 +164,12 @@ export const PANEL_ADAPTER_PATH = 'packages/extension/sidepanel/adapter-chrome.j
  */
 export const POPULATION_ROOT = 'packages/extension';
 /**
- * The package's test tree. What it holds is a test's own fixture — a listener
- * a test registers on a page it drives — rather than a surface the extension
- * ships, so the population is the package's production JavaScript: everything
+ * The package's test tree. What it holds is the test's own, for the length of a
+ * run — a handler on an element of the page it drives, installed so the side
+ * effect it fires is there to be captured or not, and a `chrome.*` listener it
+ * evaluates into the service worker it drives, standing beside the shipped
+ * registrations to watch what they do — rather than a surface the extension
+ * ships. So the population is the package's production JavaScript: everything
  * the package tracks outside this tree.
  */
 export const POPULATION_TEST_TREE = 'packages/extension/tests';
@@ -187,10 +193,13 @@ export const POPULATION_EXTENSIONS = ['.js', '.mjs', '.cjs'];
  * [`check-test-inventory.js`](./check-test-inventory.js) states the quotepath
  * policy.
  *
- * This is the one derivation: the CLI runs the closure over what it returns,
- * and the suite's real-tree locks hold that same set, so a change to the
- * derivation cannot leave the locks holding a population the check no longer
- * scans.
+ * This is the one derivation of the production population, and both of the
+ * consumers it has read that set from here rather than deriving it again: this
+ * file's CLI runs the registration closure over what it returns, and
+ * [`check-extension-surface.js`](./check-extension-surface.js) imports it for
+ * the bookkeeping handle's no-production-caller leg. The suite's real-tree
+ * locks hold that same set, on both sides, so a change to the derivation cannot
+ * leave a lock holding a population the check it stands behind no longer scans.
  * @param {string} [cwd] the directory to enumerate from — the repository root,
  *   which is where the CLI runs and where the suite points it
  * @returns {string[]} repo-relative paths, in `git ls-files` order
@@ -975,7 +984,7 @@ export function evaluateCaptureSurface(s) {
 }
 
 /**
- * Read every surface from the working tree and evaluate both contracts.
+ * Read every surface from the working tree and evaluate every contract.
  *
  * The population is passed in rather than derived here, so the suite can hold
  * this closure over a population it states — the shape the two sibling checks'
