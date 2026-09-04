@@ -96,7 +96,7 @@ import {
   effectiveHeadRef,
   isAllowedReleaseOutput,
 } from './check-no-release-outputs.js';
-import { stripFences } from './check-test-inventory.js';
+import { escapeForRegExp, stripFences } from './check-test-inventory.js';
 
 /**
  * Repo-relative path of the clause registry — the shared governance-data
@@ -622,7 +622,7 @@ export function parseGovernanceSection(section) {
  * @returns {string | null} the text between this heading and the next unfenced `## `, or null
  */
 export function extractSection(body, title) {
-  const escaped = title.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const escaped = escapeForRegExp(title);
   const view = stripFences(body);
   const m = view.match(new RegExp(`^##\\s+${escaped}\\s*$`, 'mi'));
   if (!m) return null;
@@ -716,7 +716,7 @@ export function auditBody({ body, expected, governanceData = false }) {
     result.missingSections.push(CHANGE_RECORD_HEADING);
   } else {
     for (const marker of CHANGE_RECORD_MARKERS) {
-      const escaped = marker.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const escaped = escapeForRegExp(marker);
       if (!new RegExp(`^\\s*${escaped}`, 'm').test(record)) {
         result.changeRecordProblems.push(`change record has no "${marker}" line`);
       }

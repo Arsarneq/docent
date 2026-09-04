@@ -22,7 +22,7 @@
  * Usage:
  *   node scripts/bump-schema.js <platform> <level>
  *
- *   platform: extension | desktop-windows
+ *   platform: a key of the PLATFORMS roster in build-schemas.js
  *   level:    patch | minor | major
  *
  * Examples:
@@ -37,6 +37,7 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import { resolve, join } from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { assertReleaseContext } from './release-context.js';
+import { PLATFORMS } from './build-schemas.js';
 
 const ROOT = resolve(import.meta.dirname, '..');
 
@@ -44,7 +45,16 @@ const ROOT = resolve(import.meta.dirname, '..');
 
 const [platform, level] = process.argv.slice(2);
 
-const VALID_PLATFORMS = ['extension', 'desktop-windows'];
+// The platforms this script accepts are derived from PLATFORMS in
+// build-schemas.js, which this script already runs to recompose. Read from
+// there rather than restated, so a surface added to that roster is bumpable
+// here in the same change instead of being refused by a second list that has
+// not heard of it. PLATFORM_SURFACES in that same module states the published
+// surface list itself, under those same keys; update-version-table.js asks that
+// roster for each surface by its key, so a key it stops stating is refused
+// there by name. Importing build-schemas.js has no side effect; its own header
+// states when its build runs.
+const VALID_PLATFORMS = Object.keys(PLATFORMS);
 const VALID_LEVELS = ['patch', 'minor', 'major'];
 
 if (!VALID_PLATFORMS.includes(platform)) {

@@ -1223,10 +1223,8 @@ export function auditMap({ files, map, readFile }) {
  * (validateShape, compileMap, resolveFile, auditMap, explainFile, loadMap,
  * refuseOnShapeError) are unit-tested above. */
 function run() {
-  // Through the shared population reader, so this listing states the same
-  // quotepath policy every other tree scan does: a path carrying a non-ASCII
-  // byte arrives as itself rather than quoted, so the doc-coverage leg sees the
-  // real name instead of dropping it on its `.md` test.
+  // Through the shared population reader, whose docblock in
+  // scripts/check-test-inventory.js states the quotepath policy.
   const files = trackedFilesUnder('.');
   let map;
   try {

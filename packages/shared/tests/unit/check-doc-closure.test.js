@@ -22,6 +22,7 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
+import { blankJsLiterals, trackedFilesUnder } from '../../../../scripts/check-test-inventory.js';
 import {
   CI_DOC_PATH,
   LOCAL_CI_DOC_PATH,
@@ -43,6 +44,7 @@ import {
   extractJobsTableRows,
   extractAlwaysRunIds,
   extractJobIds,
+  isJobAnchorProblem,
   ACT_PARTIAL_PHRASE,
   RUNNER_TABLES,
   completeRunnerLabel,
@@ -1067,6 +1069,24 @@ describe('extractJobIds / jobNpmRunTokens', () => {
     assert.ok(read.problems[0].includes('the job scan'));
   });
 
+  // Among the checks, the pinned words — no top-level `jobs:` key — have one
+  // home: the JOB_ANCHOR_PROBLEM constant in scripts/check-doc-closure.js, held
+  // over the tracked scripts under `scripts/` by the
+  // `the anchor phrase — one home among the checks, one predicate that routes it` describe.
+  // Text outside that population is outside the lock: this suite quotes the
+  // words to pin the message, and docs/guides/ci.md states them as the gate's
+  // documented machinery verdict. A reader that ROUTES the anchor condition
+  // asks `isJobAnchorProblem` rather than matching those words itself, so the
+  // diagnosis and the route move together.
+  it('recognizes its own anchor problem, and only that one', () => {
+    const anchor = extractJobIds('name: test\non: push\n').problems[0];
+    assert.ok(isJobAnchorProblem(anchor), anchor);
+    // A problem this extractor may grow later is not the anchor condition, so
+    // a caller routing on it keeps its own verdict rather than sweeping the
+    // new problem into the anchor's.
+    assert.equal(isJobAnchorProblem('.github/workflows/test.yml lists a job twice'), false);
+  });
+
   it('collects one job’s npm-run tokens from the parsed step commands', () => {
     // Parsed, so the fixture is the workflow shape the parse reads — the line
     // scan's raw-text fixture above is what the retired reader needed.
@@ -1601,6 +1621,49 @@ describe('real-tree lock', () => {
     // the check that printed it depends on.
     assert.match(SELF_PATH, /^scripts\/check-[a-z-]+\.js$/);
     assert.ok(readFileSync(resolve(ROOT, SELF_PATH), 'utf8').length > 0);
+  });
+});
+
+describe('the anchor phrase — one home among the checks, one predicate that routes it', () => {
+  // What this holds: the words the anchor diagnosis is spelled with live in
+  // this check's own constant, and a check routing that condition asks
+  // `isJobAnchorProblem` instead of carrying a second copy of the words.
+  const HOME = 'scripts/check-doc-closure.js';
+  const scripts = trackedFilesUnder('scripts', { cwd: ROOT, extensions: ['.js'] });
+  // One reading of `blankJsLiterals` from scripts/check-test-inventory.js,
+  // whose docblock states what it blanks: `uncommented` is the
+  // `literals: false` one — comments blanked, literal text standing — because
+  // a second copy of the phrase would be written as a literal.
+  const uncommented = new Map(
+    scripts
+      .filter((p) => p !== HOME)
+      .map((p) => [
+        p,
+        blankJsLiterals(readFileSync(resolve(ROOT, p), 'utf8'), { literals: false }),
+      ]),
+  );
+
+  // MATCH FORM: the phrase `PHRASE` holds — no top-level `jobs:` key — as ONE
+  // literal, read on the `uncommented` view: a string or template literal
+  // spelling it is a hit, as is a regular-expression pattern spelling it; a
+  // comment carrying the words is blanked and outside.
+  // LIMIT: the lock holds those words as one literal in live text. A
+  // paraphrase, and the words assembled from parts or spaced differently, read
+  // past it — `isJobAnchorProblem` is what holds the classification, so a
+  // second spelling routes nothing. The home is excluded because it carries the
+  // constant itself, live text under this reading, while the prose beside the
+  // constant is blanked.
+  const PHRASE = 'no top-level `jobs:` key';
+
+  it('no other check spells the anchor phrase', () => {
+    const copies = [...uncommented].filter(([, view]) => view.includes(PHRASE)).map(([p]) => p);
+    assert.deepEqual(
+      copies,
+      [],
+      `these checks spell the anchor phrase instead of routing the condition through ` +
+        `isJobAnchorProblem from ${HOME}, which states it — a second copy drifts one edit at a ` +
+        `time: ${copies.join(', ')}`,
+    );
   });
 });
 

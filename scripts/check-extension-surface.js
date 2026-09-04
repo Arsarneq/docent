@@ -39,9 +39,10 @@
  * The handle's no-production-caller leg runs over a SECOND population, derived
  * the same way and IMPORTED rather than re-derived: the extension package's
  * tracked production JavaScript — the tracked `.js`, `.mjs`, and `.cjs` modules
- * under {@link POPULATION_ROOT} outside {@link POPULATION_TEST_TREE} — which is
- * the set [`check-capture-surface.js`](./check-capture-surface.js) already derives
- * for its own registration closure. One population, one exclusion: the tests
+ * under {@link PRODUCTION_POPULATION_ROOT} outside
+ * {@link PRODUCTION_POPULATION_TEST_TREE} — which is the set
+ * [`check-capture-surface.js`](./check-capture-surface.js) already derives for its
+ * own registration closure. One population, one exclusion: the tests
  * tree, which is where the handle's observers live. The content tree is INSIDE
  * it, so a handle mention written there reds; that each extension surface runs
  * in a global scope of its own, which is what makes such a mention a defect
@@ -229,8 +230,8 @@ import {
 } from './check-test-inventory.js';
 import {
   POPULATION_EXTENSIONS,
-  POPULATION_ROOT,
-  POPULATION_TEST_TREE,
+  POPULATION_ROOT as PRODUCTION_POPULATION_ROOT,
+  POPULATION_TEST_TREE as PRODUCTION_POPULATION_TEST_TREE,
   derivePopulation as deriveProductionPopulation,
 } from './check-capture-surface.js';
 
@@ -316,9 +317,9 @@ export const PERMISSION_TABLES = [
  * surface rather than about a fixture, and one carrying neither contributes
  * nothing at all. Neither outcome is a property this closure holds.
  *
- * Paths come back verbatim: `core.quotepath` is turned off for the call, so a
- * path carrying a non-ASCII byte arrives as itself rather than quoted and
- * escaped, which the extension filter would drop in silence.
+ * Paths come back verbatim: `trackedFilesUnder` in
+ * [`check-test-inventory.js`](./check-test-inventory.js) states the quotepath
+ * policy.
  *
  * This is the one derivation of the dispatcher legs' population: the CLI runs
  * them over what it returns, and the suite's real-tree locks hold that same set,
@@ -655,6 +656,25 @@ export function extractDispatcherSurface(sourceByPath) {
 }
 
 /**
+ * Whether the token at `at` opens a KEYED property: a bare or quoted name the
+ * property's own colon follows. Both object scans here read a member the same
+ * way — the dispatcher's send literals and the introspection handle's member
+ * literal — so what counts as a key is one decision, and the position this
+ * refuses is exactly the one {@link describeKeyPosition} then names.
+ * @param {{ type: string, value: string }[]} tokens the file's tokens
+ * @param {number} at index of the token standing at the property start
+ * @returns {boolean}
+ */
+function startsKeyedProperty(tokens, at) {
+  const token = tokens[at];
+  return (
+    (token.type === 'word' || token.type === 'string') &&
+    tokens[at + 1]?.type === 'punct' &&
+    tokens[at + 1].value === ':'
+  );
+}
+
+/**
  * How a token standing where a top-level key belongs is named when the key
  * reader does not read it: by the property shape it opens, so the diagnosis
  * states the send's actual shape rather than a missing property. A bare or
@@ -705,11 +725,7 @@ function readSendType(tokens, open) {
   // policy, which reads a key name where the shape states one and names the
   // position otherwise.
   const { closed } = walkObjectLiteral(tokens, open, (i, t) => {
-    const isKey =
-      (t.type === 'word' || t.type === 'string') &&
-      tokens[i + 1]?.type === 'punct' &&
-      tokens[i + 1].value === ':';
-    if (!isKey) {
+    if (!startsKeyedProperty(tokens, i)) {
       properties.push(describeKeyPosition(t));
       return;
     }
@@ -967,11 +983,7 @@ export function extractHandleSurface(workerSource) {
   }
   for (let k = 0; k < starts.length; k++) {
     const { i, t } = starts[k];
-    const isKey =
-      (t.type === 'word' || t.type === 'string') &&
-      tokens[i + 1]?.type === 'punct' &&
-      tokens[i + 1].value === ':';
-    if (!isKey) {
+    if (!startsKeyedProperty(tokens, i)) {
       problems.push(`${WORKER_PATH}'s handle literal carries a member the scan cannot read — ${describeKeyPosition(t)} — a member is a bare or quoted name carrying its value, so the enumeration stays diffable`); // prettier-ignore
       continue;
     }
@@ -1147,7 +1159,7 @@ export function evaluateExtensionSurface(s) {
       }
       continue;
     }
-    problems.push(`${path} names \`${HANDLE_NAME}\` (${count}) — no module of the extension's production JavaScript names the handle beside the assignment in ${WORKER_PATH}: ${HANDLE_CLAUSE_ID} states its plants and wipes run from no production event, and the observers that do reach it sit under ${POPULATION_TEST_TREE}, outside this population`); // prettier-ignore
+    problems.push(`${path} names \`${HANDLE_NAME}\` (${count}) — no module of the extension's production JavaScript names the handle beside the assignment in ${WORKER_PATH}: ${HANDLE_CLAUSE_ID} states its plants and wipes run from no production event, and the observers that do reach it sit under ${PRODUCTION_POPULATION_TEST_TREE}, outside this population`); // prettier-ignore
   }
 
   // The population is the dispatcher legs' own subject. An empty one, or one
@@ -1171,7 +1183,7 @@ export function evaluateExtensionSurface(s) {
   // one legitimate occurrence stands in the worker, so a set that has lost that
   // file cannot tell a handle nothing reads from a handle nothing scanned.
   if (s.productionFiles.length === 0) {
-    machinery.push(`no tracked JavaScript module found under ${POPULATION_ROOT} outside ${POPULATION_TEST_TREE} — the handle's no-production-caller leg has no population to hold`); // prettier-ignore
+    machinery.push(`no tracked JavaScript module found under ${PRODUCTION_POPULATION_ROOT} outside ${PRODUCTION_POPULATION_TEST_TREE} — the handle's no-production-caller leg has no population to hold`); // prettier-ignore
   }
   if (!s.productionFiles.includes(WORKER_PATH)) {
     machinery.push(`${WORKER_PATH} is outside the production population — the handle's one legitimate occurrence stands in that file, so a population without it reads a mention count that proves nothing`); // prettier-ignore
@@ -1347,7 +1359,7 @@ function run() {
           `  The introspection handle the worker freezes onto its own global must state the\n` +
           `  same members as the §${HANDLE_CLAUSE_ID} table, reach only the worker structures that\n` +
           `  clause places it over, and be named nowhere else in the tracked\n` +
-          `  ${POPULATION_EXTENSIONS.join('/')} modules ${POPULATION_ROOT} carries outside ${POPULATION_TEST_TREE}.\n` +
+          `  ${POPULATION_EXTENSIONS.join('/')} modules ${PRODUCTION_POPULATION_ROOT} carries outside ${PRODUCTION_POPULATION_TEST_TREE}.\n` +
           `  Update the drifted surfaces together in the same change.\n`,
       ),
     );
@@ -1362,7 +1374,7 @@ function run() {
       `${memberCount} introspection-handle members match the §${HANDLE_CLAUSE_ID} table, ` +
       `reaching only the worker structures that clause places the handle over, ` +
       `and named in no other of the tracked ${POPULATION_EXTENSIONS.join('/')} modules ` +
-      `${POPULATION_ROOT} carries outside ${POPULATION_TEST_TREE}.`,
+      `${PRODUCTION_POPULATION_ROOT} carries outside ${PRODUCTION_POPULATION_TEST_TREE}.`,
   );
 }
 

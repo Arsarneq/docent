@@ -67,8 +67,22 @@ const platformRows = PLATFORM_SURFACES.map((surface) => ({
   version: readVersion(surface.delta),
 }));
 
-/** One surface's schema version, by the platform key the roster states it under. */
-const version = (platform) => platformRows.find((row) => row.platform === platform).version;
+/**
+ * One surface's schema version, by the platform key the roster states it under.
+ * A key the roster no longer states is refused BY NAME here: read as a bare
+ * lookup it would come back undefined and fail as a dereference several lines
+ * later, naming nothing a reader could act on.
+ * @param {string} platform a platform key of the roster
+ * @returns {string} that surface's schema version
+ */
+const version = (platform) => {
+  const row = platformRows.find((r) => r.platform === platform);
+  if (!row) {
+    const stated = platformRows.map((r) => r.platform).join(', ');
+    throw new Error(`No "${platform}" row in the roster build-schemas.js states (${stated})`);
+  }
+  return row.version;
+};
 
 const extVersion = version('extension');
 const deskVersion = version('desktop-windows');

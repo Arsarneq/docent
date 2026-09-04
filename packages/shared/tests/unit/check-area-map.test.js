@@ -15,7 +15,7 @@
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, readFileSync, writeFileSync, rmSync } from 'node:fs';
 import { execFileSync, spawnSync } from 'node:child_process';
 import os from 'node:os';
 import path from 'node:path';
@@ -38,7 +38,13 @@ import {
   FILE_SAMPLE,
   MAP_PATH,
 } from '../../../../scripts/check-area-map.js';
-import { pathGlobToRegExp } from '../../../../scripts/check-test-inventory.js';
+import {
+  blankJsLiterals,
+  pathGlobToRegExp,
+  trackedFilesUnder,
+} from '../../../../scripts/check-test-inventory.js';
+
+const ROOT = path.resolve(import.meta.dirname, '..', '..', '..', '..');
 
 /** A minimal well-formed map two areas wide, for overriding per test. */
 function makeMap(overrides = {}) {
@@ -79,6 +85,22 @@ function audit({ map = makeMap(), files = BASE_FILES, contents = {} } = {}) {
 
 const flatten = (r) => Object.values(r).flat();
 
+/**
+ * The patterns both pattern compilers refuse, grouped by the reason each is
+ * outside the shared dialect. ONE home: a pattern added to `unsupportedSyntax`
+ * is refused by `globToRegExp` in the
+ * `rejects unsupported pattern syntax instead of guessing` case, one added to
+ * `starStarInsideSegment` in the
+ * `rejects ** embedded inside a segment (** is whole-segment only)` case, and
+ * either way it stands in the admission gap the
+ * `holds the admission gap one-way: what the map refuses, it refuses here`
+ * case pins — neither can drift away from the other.
+ */
+const REFUSED_BY_BOTH = {
+  unsupportedSyntax: ['scripts/[ab].js', 'scripts/?.js'],
+  starStarInsideSegment: ['packages/**.js', 'a/b**/c.js'],
+};
+
 describe('globToRegExp — pattern semantics', () => {
   it('matches dotfiles under ** (ownership is by location, not filename shape)', () => {
     const re = globToRegExp('packages/alpha/**');
@@ -108,13 +130,15 @@ describe('globToRegExp — pattern semantics', () => {
   });
 
   it('rejects unsupported pattern syntax instead of guessing', () => {
-    assert.throws(() => globToRegExp('scripts/[ab].js'));
-    assert.throws(() => globToRegExp('scripts/?.js'));
+    for (const pattern of REFUSED_BY_BOTH.unsupportedSyntax) {
+      assert.throws(() => globToRegExp(pattern), /unsupported pattern syntax/, pattern);
+    }
   });
 
   it('rejects ** embedded inside a segment (** is whole-segment only)', () => {
-    assert.throws(() => globToRegExp('packages/**.js'));
-    assert.throws(() => globToRegExp('a/b**/c.js'));
+    for (const pattern of REFUSED_BY_BOTH.starStarInsideSegment) {
+      assert.throws(() => globToRegExp(pattern), /unsupported pattern syntax/, pattern);
+    }
   });
 });
 
@@ -151,8 +175,7 @@ describe('globToRegExp — one segment compiler, two admission gates', () => {
     // The map's pattern language is a closed world; the primitive models a
     // wider one. Everything the primitive refuses the map refuses too, and the
     // extra refusals are the map's own — pinned so the gap cannot drift shut.
-    const REFUSED_BY_BOTH = ['scripts/[ab].js', 'scripts/?.js', 'packages/**.js', 'a/b**/c.js'];
-    for (const pattern of REFUSED_BY_BOTH) {
+    for (const pattern of Object.values(REFUSED_BY_BOTH).flat()) {
       assert.ok(pathGlobToRegExp(pattern).error, pattern);
       assert.throws(() => globToRegExp(pattern), /unsupported pattern syntax/, pattern);
     }
@@ -194,6 +217,43 @@ describe('compileAlternatives — the one compile idiom', () => {
   it('refuses an unsupported pattern instead of compiling something else', () => {
     assert.throws(() => compileAlternatives('scripts/[ab].js'));
     assert.throws(() => compileAlternatives('a/{x,y.js'));
+  });
+});
+
+describe('the brace expansion — one home, reached through compileAlternatives', () => {
+  // What this holds: the alternation projection has one home. A check that
+  // needs a matcher per alternative calls `compileAlternatives` from
+  // scripts/check-area-map.js instead of expanding the braces itself and
+  // compiling the pieces.
+  const HOME = 'scripts/check-area-map.js';
+  const scripts = trackedFilesUnder('scripts', { cwd: ROOT, extensions: ['.js'] });
+  // One reading of `blankJsLiterals` from scripts/check-test-inventory.js,
+  // whose docblock states what it blanks: `code` is the default reading —
+  // comments and literal contents blanked — so what is searched is live code.
+  const code = new Map(
+    scripts
+      .filter((p) => p !== HOME)
+      .map((p) => [p, blankJsLiterals(readFileSync(path.resolve(ROOT, p), 'utf8'))]),
+  );
+
+  // MATCH FORM: the NAME, on the `code` view — an import, an alias binding, a
+  // call and an optional call are each a hit, which is the point; a name inside
+  // a string or a template is blanked and outside, as is one in a comment.
+  // LIMIT: a brace expansion re-implemented without naming it reads past this
+  // scan, and is review's to catch; a bare `globToRegExp` over a brace-free
+  // list — the lockfile globs in scripts/check-docs-disposition.js — is not the
+  // projection and stays outside.
+  const NAME = /\bexpandBraces\b/;
+
+  it('no other check names the brace expansion', () => {
+    const namers = [...code].filter(([, view]) => NAME.test(view)).map(([p]) => p);
+    assert.deepEqual(
+      namers,
+      [],
+      `these checks name expandBraces instead of taking the projection from ` +
+        `compileAlternatives in ${HOME} — a second expansion drifts one pattern at a time: ` +
+        `${namers.join(', ')}`,
+    );
   });
 });
 

@@ -10,13 +10,30 @@
  * two versions swapped between their rows, a duplicated row, a missing row
  * whose number another row still carries, and a version that is only a
  * substring of the one stated.
+ *
+ * The `the registers the two surfaces share` describe covers those shared
+ * registers: the surfaces its title names are the documentation surfaces this
+ * check reads — README.md and docs/technical/session-format.md — and what they
+ * share is `CHECKED_FILES`, which states each one's table shape, together with
+ * the platform roster both tables are read against. The same suite holds the
+ * release-time scripts that have no suite of their own: `PLATFORMS` in
+ * scripts/build-schemas.js is where the manual bumper, which parses argv on
+ * import, derives its accepted platforms from; `PLATFORM_SURFACES` in that same
+ * module states the surface list itself, under those same platform keys; and the
+ * version-table writer, which writes on import, asks that roster for each surface
+ * by its key, so a key the roster stops stating is refused by name.
  */
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
 import { resolve } from 'node:path';
-import { PLATFORM_SURFACES } from '../../../../scripts/build-schemas.js';
+import {
+  PLATFORM_SURFACES,
+  PLATFORMS as SCHEMA_PLATFORMS,
+} from '../../../../scripts/build-schemas.js';
+import { blankJsLiterals } from '../../../../scripts/check-test-inventory.js';
 import {
   readVersionFrom,
   checkVersionTable,
@@ -199,9 +216,27 @@ describe('checkVersionTable', () => {
 });
 
 describe('the registers the two surfaces share', () => {
+  const ROOT = resolve(import.meta.dirname, '../../../..');
   /** The version-table writer's source: it has no suite of its own and writes on import. */
   const WRITER = 'scripts/update-version-table.js';
-  const writerSource = readFileSync(resolve(import.meta.dirname, '../../../..', WRITER), 'utf8');
+  const writerSource = readFileSync(resolve(ROOT, WRITER), 'utf8');
+  /** The manual bumper's source: no suite of its own either, and it parses argv on import. */
+  const BUMPER = 'scripts/bump-schema.js';
+  const bumperSource = readFileSync(resolve(ROOT, BUMPER), 'utf8');
+  /**
+   * A script's CODE: the default reading of {@link blankJsLiterals} in
+   * scripts/check-test-inventory.js, whose docblock states what that reading
+   * blanks. A scan for what a source DOES reads it, so a docblock example or a
+   * message's text can never stand in for the code.
+   */
+  const codeOf = (source) => blankJsLiterals(source);
+  /**
+   * A script's UNCOMMENTED text: the `{ literals: false }` reading of
+   * {@link blankJsLiterals} in scripts/check-test-inventory.js, whose docblock
+   * states what that reading blanks. Comments go and literal text stands, so a
+   * note naming a roster value cannot stand in for the code stating one.
+   */
+  const uncommentedOf = (source) => blankJsLiterals(source, { literals: false });
 
   it('CHECKED_FILES covers the README and the session-format doc, each with its own shape', () => {
     assert.deepEqual(
@@ -218,16 +253,23 @@ describe('the registers the two surfaces share', () => {
   it('the writer reads the same roster rather than restating it', () => {
     // The check's own register IS the roster — not a copy that happens to agree.
     assert.equal(PLATFORMS, PLATFORM_SURFACES);
-    // And the writer takes its rows from that roster.
+    // MATCH FORM: the import of the roster, and each roster value as a plain
+    // substring, both over the writer's UNCOMMENTED view — comments blanked,
+    // literal text standing — so a value spelled in a string or a template is a
+    // hit while a comment naming one is not.
+    // LIMIT: it holds the values the roster states today; a restatement that
+    // spells one some other way, or assembles it from parts, reads past this
+    // scan and is review's to catch.
+    const uncommented = uncommentedOf(writerSource);
     assert.match(
-      writerSource,
+      uncommented,
       /import \{[^}]*PLATFORM_SURFACES[^}]*\} from '\.\/build-schemas\.js'/,
     );
     // A second copy would have to restate one of these; none may appear as a literal.
     for (const surface of PLATFORM_SURFACES) {
       for (const restated of [surface.name, surface.delta, surface.schemaFile]) {
         assert.ok(
-          !writerSource.includes(restated),
+          !uncommented.includes(restated),
           `${WRITER} states "${restated}" itself — the roster in build-schemas.js is its one home`,
         );
       }
@@ -239,5 +281,67 @@ describe('the registers the two surfaces share', () => {
     assert.deepEqual(names, ['Chrome Extension', 'Desktop (Windows)']);
     assert.equal(new Set(PLATFORMS.map((p) => p.delta)).size, PLATFORMS.length);
     for (const p of PLATFORMS) assert.match(p.delta, /^schemas\/.+\.delta\.json$/);
+  });
+
+  it('the writer refuses a key the roster no longer states instead of dereferencing it', () => {
+    // MATCH FORM: a regular expression over the writer's CODE view, anchored on
+    // the roster accessor's own declaration and reaching to the first `throw`
+    // inside it.
+    // LIMIT: it holds that the accessor refuses, not what the refusal says — an
+    // accessor that returns the row's version unchecked fails several lines on
+    // as a read of undefined, naming no key.
+    const refuses = /const version = \(platform\) => \{[^}]*throw new Error\(/;
+    assert.ok(
+      refuses.test(codeOf(writerSource)),
+      `${WRITER}'s roster accessor reads a row without refusing an absent one`,
+    );
+  });
+
+  it('the bumper derives its accepted platforms from the roster', () => {
+    // MATCH FORM: two regular expressions over the bumper's CODE view — the
+    // import of the roster, and the derivation that reads its keys.
+    // LIMIT: `codeOf` blanks literal contents, so this holds the SHAPE only; the
+    // `the bumper refuses an unknown platform, naming exactly the roster it reads`
+    // case runs the script to hold what the derivation actually accepts.
+    const code = codeOf(bumperSource);
+    for (const [what, pattern] of [
+      ['import the roster', /import \{[^}]*PLATFORMS[^}]*\} from '[^']*'/],
+      ['read its keys', /const VALID_PLATFORMS = Object\.keys\(PLATFORMS\)/],
+    ]) {
+      assert.ok(pattern.test(code), `${BUMPER} does not ${what} — it states a list of its own`);
+    }
+  });
+
+  it('the bumper refuses an unknown platform, naming exactly the roster it reads', () => {
+    // Run for real: the refusal path exits before the release-context guard and
+    // before any write, so the invocation changes nothing.
+    let stderr = '';
+    assert.throws(
+      () =>
+        execFileSync(process.execPath, [resolve(ROOT, BUMPER), 'no-such-surface', 'patch'], {
+          cwd: ROOT,
+          encoding: 'utf8',
+          stdio: ['ignore', 'pipe', 'pipe'],
+        }),
+      (error) => {
+        stderr = error.stderr;
+        return error.status === 1;
+      },
+    );
+    const stated = Object.keys(SCHEMA_PLATFORMS).join(', ');
+    assert.equal(stderr, `Error: platform must be one of: ${stated}\nGot: no-such-surface\n`);
+  });
+
+  it('the builder’s chain roster and its surface roster state the same platform keys', () => {
+    // The bumper accepts any key `PLATFORMS` in scripts/build-schemas.js states;
+    // the version tables list what `PLATFORM_SURFACES` in that same module
+    // states. A platform stated in one of them and not the other is the
+    // half-added state this case refuses: a chain added to `PLATFORMS` alone is
+    // bumpable and publishable with no table row to check it against, and a
+    // surface listed without a chain throws at import.
+    assert.deepEqual(
+      Object.keys(SCHEMA_PLATFORMS).sort(),
+      PLATFORM_SURFACES.map((surface) => surface.platform).sort(),
+    );
   });
 });

@@ -42,6 +42,27 @@ function childEnv(pins) {
   return { ...ambient, ...pins };
 }
 
+/**
+ * Run `fn` with `pins` set on THIS process's environment, restoring every
+ * pinned name to the value it had — including its absence — however `fn` ends.
+ * The one home for a lock that has to poison the ambient environment the child
+ * inherits from, so no case leaves a variable behind for the cases after it.
+ * @param {Record<string, string>} pins the names to pin, and their values
+ * @param {() => void} fn the body to run under them
+ */
+function withEnv(pins, fn) {
+  const restore = Object.keys(pins).map((name) => [name, process.env[name]]);
+  Object.assign(process.env, pins);
+  try {
+    fn();
+  } finally {
+    for (const [name, value] of restore) {
+      if (value === undefined) delete process.env[name];
+      else process.env[name] = value;
+    }
+  }
+}
+
 /** Run a check script; throws (failing the test) on a non-zero exit. */
 function runScript(script, { args = [], env = {} } = {}) {
   return execFileSync(process.execPath, [path.join(ROOT, 'scripts', script), ...args], {
@@ -180,11 +201,13 @@ describe('check-script CLI smoke (deterministic green paths)', () => {
   });
 
   it('check-verification-inventory: the committed verification documents satisfy every pin', () => {
-    // No env pinned: the script's whole import closure (this check plus
-    // check-test-inventory, check-doc-closure, corpus-compare, sufficiency-lint,
-    // build-schemas, sync-digest, field-sensitivity) reads no process.env, and
-    // its only externals are the schema validator packages — so there is no
-    // var whose value could switch the path this smoke runs.
+    // No env pinned: the script's import closure inside this repository (this
+    // check plus check-test-inventory, check-doc-closure, check-ci-filter,
+    // corpus-compare, sufficiency-lint, build-schemas, sync-digest,
+    // field-sensitivity) reads no process.env, so nothing in it reads a var
+    // whose value could switch the path this smoke runs. It reads its subjects
+    // as files rather than through git, so the harness's `GIT_*` scrub is not
+    // what makes it deterministic.
     const out = runScript('check-verification-inventory.js');
     assert.match(out, /verification inventories current/);
   });
@@ -215,25 +238,37 @@ describe('the harness locks — the child environment every smoke above runs und
     // that read the tracked tree red. The scrub in childEnv is what keeps this
     // green; delete it and this case fails on the first smoke it protects.
     const poison = path.join(tmpdir(), `docent-no-such-index-${process.pid}`);
-    const restore = process.env.GIT_INDEX_FILE;
-    process.env.GIT_INDEX_FILE = poison;
-    try {
+    withEnv({ GIT_INDEX_FILE: poison }, () => {
       assert.match(runScript('check-ci-filter.js'), /path-filter contract holds/);
-    } finally {
-      if (restore === undefined) delete process.env.GIT_INDEX_FILE;
-      else process.env.GIT_INDEX_FILE = restore;
-    }
+    });
   });
 
   it('childEnv drops a GIT_ variable the ambient environment carries', () => {
-    const restore = process.env.GIT_INDEX_FILE;
-    process.env.GIT_INDEX_FILE = '/nowhere/index';
-    try {
+    withEnv({ GIT_INDEX_FILE: '/nowhere/index' }, () => {
       assert.equal('GIT_INDEX_FILE' in childEnv({}), false);
-    } finally {
-      if (restore === undefined) delete process.env.GIT_INDEX_FILE;
-      else process.env.GIT_INDEX_FILE = restore;
-    }
+    });
+  });
+
+  it('withEnv puts back what it pinned, whether or not the name carried a value', () => {
+    // The `a poisoned git environment does not reach the child` and
+    // `childEnv drops a GIT_ variable the ambient environment carries` cases
+    // poison the environment this process hands its children; a pin left behind
+    // would follow every case that runs after them, so the restore is held on a
+    // name that had a value, on one that did not, and on the path where the
+    // body throws.
+    const unset = 'DOCENT_SMOKE_UNSET';
+    const held = 'DOCENT_SMOKE_HELD';
+    withEnv({ [held]: 'kept' }, () => {
+      withEnv({ [unset]: 'x', [held]: 'y' }, () => {
+        assert.equal(process.env[unset], 'x');
+        assert.equal(process.env[held], 'y');
+      });
+      assert.equal(unset in process.env, false);
+      assert.equal(process.env[held], 'kept');
+      assert.throws(() => withEnv({ [held]: 'y' }, () => { throw new Error('boom'); }), /boom/); // prettier-ignore
+      assert.equal(process.env[held], 'kept');
+    });
+    assert.equal(held in process.env, false);
   });
 
   it("a case's own pin survives the scrub", () => {

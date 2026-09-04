@@ -32,15 +32,13 @@ import {
   AUTOMATED_BRANCH,
   DELTA_RE,
 } from '../../../../scripts/check-no-release-outputs.js';
+import { escapeForRegExp } from '../../../../scripts/check-test-inventory.js';
 
 /** versionAt stub from a { 'ref:file': version } table (missing key = absent file). */
 const versionTable = (entries) => (ref, file) => entries[`${ref}:${file}`] ?? null;
 
 /** This repository's root, resolved once for every case below that reads a committed file. */
 const REPO_ROOT = path.resolve(import.meta.dirname, '../../../..');
-
-/** Escape a literal for embedding in a RegExp source. */
-const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
 describe('featureBranchViolations — the guard has teeth', () => {
   it('flags any change under schemas/dist/', () => {
@@ -319,7 +317,9 @@ describe('the guard steps forward what the derivation reads', () => {
             `arrive, so a ${key} dropped, rewritten, or moved to another step silently ` +
             `selects no mode (found ${step.env[key] === undefined ? 'no such key there' : `"${step.env[key]}"`})`,
         );
-        const copies = [...text.matchAll(new RegExp(String.raw`^\s*${escapeRe(key)}:`, 'gm'))];
+        const copies = [
+          ...text.matchAll(new RegExp(String.raw`^\s*${escapeForRegExp(key)}:`, 'gm')),
+        ];
         assert.equal(
           copies.length,
           1,
@@ -353,7 +353,7 @@ describe('the automation branch name — welded to the prose that spells it out'
    * renamed copy nowhere and pass on silence.
    */
   const BRANCH_NAMESPACE = `${AUTOMATED_BRANCH.split('/')[0]}/`;
-  const TOKEN_RE = new RegExp(`${escapeRe(BRANCH_NAMESPACE)}\\S+`, 'g');
+  const TOKEN_RE = new RegExp(`${escapeForRegExp(BRANCH_NAMESPACE)}\\S+`, 'g');
 
   /**
    * What a prose mention can put after the name and still be naming it: the
