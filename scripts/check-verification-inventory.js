@@ -78,8 +78,8 @@
  *
  * Why the always-on `lint` job: the diff that stales a doc inventory is
  * frequently docs-only, and a pull request that sets none of the workflow's
- * change flags — the usual docs-only pull request — skips every path-filtered
- * test job: the same placement rationale the test-inventory lint records. The
+ * change flags — usually a docs-only one — skips every path-filtered test
+ * job: the same placement rationale the test-inventory lint records. The
  * behavioural half of these contracts (that the comparator and the lint act
  * on exactly these constants) is the unit suites' work, and a code diff
  * reaches them through the workflow's script filter.
@@ -265,6 +265,57 @@ export const JOB_ANCHOR_PROBLEM = 'carries no top-level `jobs:` key';
  * than landing silently outside the leg.
  */
 export const CITED_JOB_DOCUMENTS = [CORPUS_DOC_PATH, LINT_DOC_PATH];
+
+/**
+ * The legs this check runs, and the home of their names. Each entry carries
+ * the `label` the success line prints for it and the `bullet` its
+ * header-docblock entry opens with. The success line is rendered from
+ * `label`, and the unit suite holds `bullet` to the docblock's bullet list
+ * both ways, so a leg gained or retired is one edit here plus the bullet that
+ * edit is red without — rather than a sentence, a comment, and a map entry
+ * each restating the set by hand. The CI guide's lint-table row for this gate
+ * states the gate's drift classes in the guide's own words and is held to
+ * this constant by nothing.
+ *
+ * The cut is the docblock's: one entry per bullet, each naming the surface it
+ * holds and citing what that entry is read against — a clause of the corpus
+ * doctrine for most, the sufficiency-lint document whose tables the predicate
+ * catalogue is read against, and the workflow for the job citations, which
+ * this file's header records as the one leg with no registered clause behind
+ * it. Sub-holds ride with their leg — the per-action class heading with the
+ * predicate catalogue, the meta-schema's `required` membership with the
+ * vector outcome, and the gate commands' own `--platform` and `--baseline`
+ * arguments plus the watched-platform population with the gate watch —
+ * because each is that leg's own surface read a second way, not a subject of
+ * its own. The session catalogue's manifest side is the watched desktop
+ * platform's active sessions, so that leg reads through the watch's platform
+ * list.
+ */
+export const INVENTORY_LEGS = [
+  { label: 'relaxation-coverage', bullet: 'the relaxation coverage lists' },
+  { label: 'relaxation-kind-set', bullet: 'the closed kind set' },
+  { label: 'normalization', bullet: 'the normalization classes' },
+  { label: 'session', bullet: 'the desktop session catalogue' },
+  { label: 'predicate', bullet: 'the predicate catalogue' },
+  { label: 'vector-outcome', bullet: 'the shipping outcome' },
+  { label: 'gate-watch', bullet: 'the strict-flip watch' },
+  { label: 'job-citation', bullet: 'the job citations' },
+];
+
+/**
+ * The leg labels as the success line lists them: the last joined by `and`,
+ * with the serial comma from three labels on and none at two — `a and b`,
+ * `a, b, and c`. A single leg renders as its own label alone, so the sentence
+ * stays grammatical however far the set is ever narrowed.
+ * @param {{ label: string }[]} [legs] the legs to list
+ * @returns {string} the rendered list
+ */
+export function legList(legs = INVENTORY_LEGS) {
+  const labels = legs.map((leg) => leg.label);
+  if (labels.length < 2) return labels.join('');
+  if (labels.length === 2) return `${labels[0]} and ${labels[1]}`;
+  return `${labels.slice(0, -1).join(', ')}, and ${labels.at(-1)}`;
+}
 
 /**
  * How many causes a diagnosis names before it counts the rest. A watch verdict
@@ -1516,8 +1567,7 @@ function run() {
   }
   console.log(
     `✓ verification inventories current: ${pinCount} held entr(ies) — the documented inventory ` +
-      `entries plus the watched platforms — across the relaxation, normalization, session, ` +
-      `vector-outcome, predicate, gate-watch, and job-citation legs match their subjects.`,
+      `entries plus the watched platforms — across the ${legList()} legs match their subjects.`,
   );
 }
 

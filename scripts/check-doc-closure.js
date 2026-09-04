@@ -64,9 +64,9 @@
  *
  * Check boundary: this check holds the GUIDES' claims about the workflow.
  * The workflow's own internal contract — including that every flag a job
- * gates on is one the `changes` block defines — belongs to
- * check-ci-filter.js, which already receives the workflow and the filter map
- * together.
+ * gates on is one the `changes` job's paths-filter step defines — belongs
+ * to check-ci-filter.js, which already receives the workflow and the filter
+ * map together.
  *
  * Honest limits: the guides' prose paragraphs stay review-held — this check
  * reads tables, the always-run subsection's backticked job ids, and cited

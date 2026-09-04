@@ -151,30 +151,9 @@ jobs:
             # clause-carrying documents the clause registry names join as a
             # class: the preamble suite holds each one's registry link as raw
             # text, and scripts/check-ci-filter.js holds this list to the
-            # registry. Several carry further holdings — the CI guide (the
-            # disposition suite's cadence welds and the workflow-bounds suite's
-            # cargo-mutants version cell), the dispatch document (the preamble
-            # suite's clause-text anchors), the desktop shell document (the
-            # command-surface suite's sentence anchor and single-problem pin),
-            # the shared-core document (the adapter-surface suite's seam-link
-            # enumeration and heading coupling), the session-format document
-            # (the version-sync step's table), the mutation-strategy document
-            # (the disposition suite's cadence clause), and the verification
-            # documents (the inventory suite's literal anchors). Outside the
-            # registry: the local-CI guide (the disposition suite's cadence
-            # cross-reference and heading, and the release-output suite's
-            # automation-branch tokens), the release-process document (the same
-            # tokens), the mutation workflow (the disposition suite's schedule
-            # welds and the workflow-bounds suite's cargo-mutants version pin),
-            # the scorecard and docs-disposition-audit workflows (the
-            # disposition suite's schedule welds — the cron field, its comment,
-            # and the guide's row and section), the test-suite index (the
-            # disposition suite's bullet literal), the clause registry (the
-            # disposition suite's example-anchor row and the schema-echo suite's
-            # check-ref literal), the top-level README (the version-sync step's
-            # table), the e2e suite document (the test-inventory suite holds its
-            # inventory as several tables), and the desktop integration-suite
-            # document (the integration-suite locks' shared-helpers paragraph).
+            # registry; its SUITE_HELD_HOLDINGS map is the home of what holds
+            # each entry, and the same check holds that map and this list to
+            # one set both ways.
             # Where a suite instead re-runs one of the always-on lint job's
             # gates over the committed tree, that job reds the same drift on
             # every PR, so such files carry no flag here. Narrow on purpose — it
@@ -297,38 +276,33 @@ jobs:
       # lowercase must/should/may inside a clause scope is red unless the
       # allowlist records why that sentence states no requirement. It runs here
       # for the reason the other doc gates do — the diff that breaks it is often
-      # docs-only, and a PR that sets none of the workflow's change flags — the
-      # usual docs-only PR — skips every path-filtered test job.
+      # docs-only, and a PR that sets none of the workflow's change flags —
+      # usually a docs-only one — skips every path-filtered test job.
       - name: Validate clause preambles and keyword placement
         run: npm run lint:clause-preamble
 
-      # The suite documents the check registers enumerate their suites: in each
-      # one's inventory section, the suite tables' first column and the test
-      # files that are members of the suite it documents (the check registers
-      # the rule that decides that) stand in one-to-one agreement, every entry
-      # of the registered hand-maintained coverage lists (TRACKED_FILES)
-      # identifies one tracked source, and an inventory the check can no longer
-      # read where it looks is red rather than skipped. It runs here, in the
-      # always-on job, because the diff that stales an inventory is often
-      # docs-only — and a PR that sets none of the workflow's change flags — the
-      # usual docs-only PR — skips every path-filtered test job.
-      - name: Validate test-suite inventories
+      # The committed data that goes stale around the test suites, held to the
+      # tree: what each suite document enumerates, the coverage plumbing's
+      # hand-maintained file lists, how a suite is registered and where its
+      # test binaries may live, and the mutation kill sets with the scope they
+      # run over — and an input the check can no longer read where it looks is
+      # refused rather than passed over. scripts/check-test-inventory.js's
+      # header is the home of the closures it holds. It runs here, in the
+      # always-on job, because the diff that stales one of them is often
+      # docs-only, and a PR that sets none of the workflow's change flags —
+      # usually a docs-only one — skips every path-filtered test job.
+      - name: Validate test-suite inventories, registration and kill sets
         run: npm run lint:test-inventory
 
       # The verification documents state inventories of things that live
-      # elsewhere: the relaxation kinds — stated twice, as a closed set and as
-      # the per-kind coverage list — and their covered fields, the normalized
-      # field classes, the desktop session catalogue, the predicate catalogue
-      # and the class its own heading states of the per-action half, the
-      # outcome every committed conformance vector ships with, the corpus
-      # gate commands the strict-flip watch reads, and the CI jobs the
-      # documents cite. Each inventory is held to the code constant, the
-      # manifest, or the meta-schema it describes, both ways; the job cites
-      # are held one-way — every cite must name a job of this workflow, and a
-      # job owes no cite. It runs here for the same reason the test-inventory
-      # gate does — the diff that stales a doc inventory is often docs-only,
-      # and a PR that sets none of the workflow's change flags — the usual
-      # docs-only PR — skips every path-filtered test job.
+      # elsewhere, each held to the code constant, the manifest, the
+      # meta-schema, or the workflow it describes.
+      # scripts/check-verification-inventory.js states the legs it holds and
+      # the direction each one is held in, and its exported INVENTORY_LEGS is
+      # the home of their names. It runs here for the same reason the
+      # test-inventory gate does — the diff that stales a doc inventory is
+      # often docs-only, and a PR that sets none of the workflow's change
+      # flags — usually a docs-only one — skips every path-filtered test job.
       - name: Validate verification-document inventories
         run: npm run lint:verification-inventory
 
@@ -815,15 +789,16 @@ jobs:
       # desktop-vectors-produce and desktop-cross-compile jobs below, and
       # mutation.yml's — cite this one rather than restating it.
       #
-      # Each writing job owns a KEY FAMILY of its own: `rust-tests` here,
-      # `vectors`, `xcompile`, and `mutation` at the other three. A key is
-      # `<runner.os>-cargo-<family>-<lockfile hash>`, so the runner's OS
-      # separates the platforms a family spans (only `xcompile` spans two) and
-      # the family segment separates the jobs sharing one platform, each of
-      # which builds a differently-shaped target tree. Nothing in the key names
-      # the runner IMAGE: an entry written under one Windows image is
-      # restorable by a later run on a newer one — a standing residue, stated
-      # here rather than keyed around.
+      # Each writing job owns a KEY FAMILY of its own: `rust-tests` here, and
+      # `vectors`, `xcompile` and `mutation` at the writing jobs the guide's
+      # key-families table names beside it (docs/guides/ci.md §What the caches
+      # key on). A key is `<runner.os>-cargo-<family>-<lockfile hash>`, so the
+      # runner's OS separates the platforms a family spans (only `xcompile`
+      # spans more than one) and the family segment separates the jobs sharing
+      # one platform, each of which builds a differently-shaped target tree.
+      # Nothing in the key names the runner IMAGE: an entry written under one
+      # Windows image is restorable by a later run on a newer one — a standing
+      # residue, stated here rather than keyed around.
       #
       # `restore-keys` names the fallback a run takes when its exact key is
       # new. Candidates come only from entries saved under the SAME path list,
