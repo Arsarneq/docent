@@ -1,48 +1,50 @@
 /**
  * check-extension-surface.test.js — Unit tests for the extension-surface
  * admission test (scripts/check-extension-surface.js). Its surface contracts
- * are committed (permissions.md §EPM-1, runtime.md §ERT-4 and §ERT-5), so every
- * red-path
- * family must fail loud: these tests prove the pairwise set inequalities in
- * each direction on every leg, the sender side's readable shape and its
- * refusal, the unreadable-cell and unknown-shape refusals, the dispatcher
- * anchor guards over the scanned population (one switch, standing in the
- * service worker, with a default arm and no nesting), the population
- * machinery guards beside them (an empty file list, one that has lost the
- * worker), the asymmetry of the capture-path pair (forward from the table to
- * the worker's own guards, back to it from every guard the population makes),
- * the presence of the
- * clause's own sender statement in the clause's scope — the doctrine the send
- * leg holds, read for its words and for the single occurrence of them,
- * wherever in the clause a second copy would sit, with the fail-closed form
- * pinned — the disjointness
- * rule, duplicates, and empty parses — that the comment-safe tokenizer keeps
- * commented labels out of the scans — the introspection handle's own legs: the
- * anchored freeze its members are read from and every refusal around it, the
- * member diff in both directions, the reach test against the worker's own
- * module-scope bindings, and the mention count that keeps the handle out of
- * every production module but the one that assigns it — and, as real-tree locks
- * over the shipped
- * tree, that the contracts hold on it, that the derived population carries
- * the properties the dispatcher legs stand on and is the one the CLI scans,
- * that the shipped handle's members, reaches, and identifiers are the ones the
- * clause states, and that an unreadable worker fails loudly rather than passing
- * vacuously.
- * One case is a demonstration rather
- * than a guard: the reverse send direction's documented limit, exercised so
- * the misleading red it produces is observed behaviour, never an assertion in
- * prose alone.
+ * are committed (permissions.md §EPM-1, runtime.md §ERT-4 and §ERT-5), so
+ * every red-path family must fail loud: these tests prove the pairwise set
+ * inequalities in each direction on every leg, the sender side's readable
+ * shape and its refusal, the unreadable-cell and unknown-shape refusals, the
+ * dispatcher anchor guards over the scanned population (one switch, standing
+ * in the service worker, with a default arm and no nesting), the population
+ * machinery guards beside them — a file list that names nothing, refused for
+ * the background population the dispatcher legs read, for the panel population
+ * the send leg reads, and for the production population the mention count runs
+ * over, with the loss of the service worker refused beside it wherever a leg
+ * stands on that file — the asymmetry of the capture-path pair (forward from
+ * the table to the worker's own guards, back to it from every guard the
+ * population makes), the presence of the clause's own sender statement in the
+ * clause's scope — the doctrine the send leg holds, read for its words and for
+ * the single occurrence of them, wherever in the clause a second copy would
+ * sit, with the fail-closed form pinned — the disjointness rule, duplicates,
+ * and empty parses — that the comment-safe tokenizer keeps commented labels
+ * out of the scans — the introspection handle's own legs: the anchored freeze
+ * its members are read from and every refusal around it, the member diff in
+ * both directions, the reach test against the worker's own module-scope
+ * bindings, the per-member weld holding each row and its member's body to one
+ * another in both directions, the cell grammar the Reaches column is read by
+ * and each near miss it refuses, the grammar sentence held present in the
+ * clause's scope exactly once, and the mention count that keeps the handle out
+ * of every production module but the one that assigns it — and, as real-tree
+ * locks over the shipped tree, that the contracts hold on it, that each
+ * population this check derives carries the properties the leg reading it
+ * stands on, that the wrapper's population arguments — the panel and
+ * background derivations and the production set imported from the sibling
+ * check — are each held to the derivation they are assigned from rather than
+ * to a spelling, so the CLI scans the sets these locks hold, that the shipped
+ * handle's members, its reaches read member by member against the clause's own
+ * rows, and its identifiers are the ones the clause states, and that an
+ * unreadable worker fails loudly rather than passing vacuously. One case is a
+ * demonstration rather than a guard: the reverse send direction's documented
+ * limit, exercised so the misleading red it produces is observed behaviour,
+ * never an assertion in prose alone.
  */
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import {
-  blankJsLiterals,
-  tokenizeJs,
-  trackedFilesUnder,
-} from '../../../../scripts/check-test-inventory.js';
+import { blankJsLiterals, tokenizeJs } from '../../../../scripts/check-test-inventory.js';
 import {
   POPULATION_EXTENSIONS,
   POPULATION_TEST_TREE,
@@ -61,9 +63,13 @@ import {
   HANDLE_CLAUSE_ID,
   HANDLE_NAME,
   HANDLE_REACH_SET,
+  HANDLE_NO_REACH_MARKER,
   HANDLE_TABLE_HEADER,
   derivePopulation,
+  derivePanelPopulation,
   countSenderStatements,
+  countReachGrammarStatements,
+  REACH_GRAMMAR_ANCHOR,
   collectModuleBindings,
   countHandleMentions,
   extractManifestSurface,
@@ -72,6 +78,7 @@ import {
   extractDispatcherSurface,
   extractHandleSurface,
   extractHandleTable,
+  readReachCell,
   extractSendSites,
   evaluateExtensionSurface,
   auditTree,
@@ -99,6 +106,14 @@ const handleSource = (body, head = `globalThis.${HANDLE_NAME} = Object.freeze({`
 const shippedPopulation = () => derivePopulation(ROOT);
 
 /**
+ * The tracked panel JavaScript the shipped send leg runs over — the check's
+ * own derivation, for the reason {@link shippedPopulation} is: a real-tree
+ * lock reading a copy of it could stay green over a set the check no longer
+ * scans.
+ */
+const shippedPanelPopulation = () => derivePanelPopulation(ROOT);
+
+/**
  * The dispatcher extractor over ONE file, keyed as the service worker. The key
  * is what makes these fixtures the worker's own: the location leg holds the
  * dispatcher to {@link WORKER_PATH}, so a one-file fixture keyed anywhere else
@@ -110,7 +125,7 @@ const workerOnly = (source) => extractDispatcherSurface(new Map([[WORKER_PATH, s
 
 /** A consistent synthetic surface every contract accepts. */
 function makeSurface(overrides = {}) {
-  return {
+  const surface = {
     manifestPermissions: ['storage', 'tabs'],
     manifestHostPermissions: ['<all_urls>'],
     docPermissions: ['storage', 'tabs'],
@@ -123,6 +138,7 @@ function makeSurface(overrides = {}) {
     caseLabels: ['PROJECTS_LIST', 'STEP_COMMIT'],
     equalityTypes: ['FRAME_READY'],
     workerEqualityTypes: ['FRAME_READY'],
+    panelFiles: [PANEL_PATH],
     sendTypes: ['PROJECTS_LIST', 'STEP_COMMIT'],
     sendSites: [
       { path: PANEL_PATH, ordinal: 1, type: 'PROJECTS_LIST', found: null },
@@ -133,9 +149,11 @@ function makeSurface(overrides = {}) {
     // no-opping, which is what keeps a later scalar leg from being added to
     // this evaluator and silently passing on every hand-written surface.
     senderStatements: 1,
+    reachGrammarStatements: 1,
     handleMembers: ['frameRegistry', 'wipeFrameRegistry'],
     docHandleMembers: ['frameRegistry', 'wipeFrameRegistry'],
     handleUnreadable: [],
+    handleReachUnreadable: [],
     // The same fail-closed reason as the sender count: a scalar the fixture
     // omits reds rather than no-opping.
     handleTableMatches: 1,
@@ -143,10 +161,25 @@ function makeSurface(overrides = {}) {
       { member: 'frameRegistry', name: 'activeFrames' },
       { member: 'wipeFrameRegistry', name: 'activeFrames' },
     ],
+    // The per-member weld's doc side: each member's row states exactly what the
+    // fixture's body above reaches, so the baseline is welded rather than merely
+    // inside the union.
+    docHandleReaches: [
+      { member: 'frameRegistry', names: ['activeFrames'] },
+      { member: 'wipeFrameRegistry', names: ['activeFrames'] },
+    ],
     productionFiles: [WORKER_PATH, LIB_PATH],
     handleMentions: [{ path: WORKER_PATH, count: 1 }],
     ...overrides,
   };
+  // The sites carry the same types the fixture states, homed in the worker —
+  // which is where a one-file background population puts them — unless a case
+  // states its own. Derived rather than written out so a case overriding the
+  // types alone cannot leave the reverse refusal naming a stale file.
+  if (!('equalitySites' in overrides)) {
+    surface.equalitySites = surface.equalityTypes.map((type) => ({ path: WORKER_PATH, type }));
+  }
+  return surface;
 }
 
 describe('evaluateExtensionSurface — compliant baseline', () => {
@@ -215,17 +248,28 @@ describe('evaluateExtensionSurface — message legs (both ways)', () => {
       makeSurface({ docCaptureTypes: ['FRAME_READY', 'GET_TAB_ID'] }),
     );
     assert.ok(
-      problems.some((p) => p.includes('GET_TAB_ID') && p.includes('no equality guard in the worker module services it')), // prettier-ignore
+      problems.some((p) => p.includes('GET_TAB_ID') && p.includes(`no equality guard in ${WORKER_PATH} services it`)), // prettier-ignore
     );
   });
 
-  it('fires when an equality guard services a type the table does not state', () => {
+  it('fires when an equality guard services a type the table does not state, naming the module', () => {
+    // The refusal locates itself: the reader is told which file carries the
+    // guard, not which tree it is somewhere inside.
     const problems = evaluateExtensionSurface(
-      makeSurface({ equalityTypes: ['FRAME_READY', 'SIDE_CHANNEL'] }),
+      makeSurface({
+        equalityTypes: ['FRAME_READY', 'SIDE_CHANNEL'],
+        equalitySites: [
+          { path: WORKER_PATH, type: 'FRAME_READY' },
+          { path: SECOND_BACKGROUND_PATH, type: 'SIDE_CHANNEL' },
+        ],
+        backgroundFiles: [WORKER_PATH, SECOND_BACKGROUND_PATH],
+      }),
     );
-    assert.ok(
-      problems.some((p) => p.includes('SIDE_CHANNEL') && p.includes('capture-path table does not state it')), // prettier-ignore
-    );
+    const red = problems.find((p) => p.includes('SIDE_CHANNEL'));
+    assert.ok(red, problems.join('\n') || 'no reverse capture-path diagnostic');
+    assert.ok(red.includes('capture-path table does not state it'), red);
+    assert.ok(red.includes(SECOND_BACKGROUND_PATH), red);
+    assert.ok(!red.includes(WORKER_PATH), red);
   });
 
   it('fires when a type appears in both doc enumerations', () => {
@@ -348,6 +392,93 @@ describe('evaluateExtensionSurface — the clause states the doctrine the send l
     );
     assert.ok(problems.some((p) => p.includes('states no sender statement')));
     assert.ok(problems.some((p) => p.includes(`no panel-protocol types found in ${RUNTIME_DOC_PATH}`))); // prettier-ignore
+  });
+});
+
+describe('evaluateExtensionSurface — the clause states the grammar the Reaches leg reads by', () => {
+  it('fires when the clause states no reach-cell grammar — the reader cannot hold an unstated rule', () => {
+    assert.deepEqual(evaluateExtensionSurface(makeSurface({ reachGrammarStatements: 0 })), [
+      `${RUNTIME_DOC_PATH} §ERT-5 states no reach-cell grammar — nothing in the clause's scope carries "${REACH_GRAMMAR_ANCHOR}" — the Reaches column is read as names rather than prose, and the marker for a member that reaches no worker binding is doctrine the clause states, which this check's cell reader cannot hold once the document stops stating it`,
+    ]);
+  });
+
+  it('fires when the claim is made a second time — an update would land on one copy', () => {
+    assert.deepEqual(evaluateExtensionSurface(makeSurface({ reachGrammarStatements: 2 })), [
+      `${RUNTIME_DOC_PATH} §ERT-5 makes the "${REACH_GRAMMAR_ANCHOR}" claim 2 times — the clause states it once, so an update cannot land on one copy and leave another standing, wherever in the clause that copy was written`,
+    ]);
+  });
+
+  it('is fail-closed: a surface stating no count reds rather than passing silently', () => {
+    const surface = makeSurface();
+    delete surface.reachGrammarStatements;
+    assert.ok(
+      evaluateExtensionSurface(surface).some((p) => p.includes('states no reach-cell grammar')),
+      'a surface without the key must red',
+    );
+  });
+
+  it('names the marker the cell reader accepts — the two have one home', () => {
+    // The anchor is BUILT from the marker constant, so a rename moves the
+    // sentence the clause must state along with the cell reader: this is what
+    // makes a clause left naming the old marker red rather than stand beside a
+    // reader that no longer reads it.
+    assert.ok(REACH_GRAMMAR_ANCHOR.includes(`\`${HANDLE_NO_REACH_MARKER}\``));
+  });
+});
+
+describe('countReachGrammarStatements — the clause scope the grammar sentence must sit in', () => {
+  /** The handle clause, with `body` standing where its grammar sentence does. */
+  const doc = (body) =>
+    [
+      '## Lifecycle',
+      '',
+      '**ERT-5.** The worker assigns an introspection handle.',
+      '',
+      body,
+      '',
+      '**ERT-6.** The handle ships in release builds.',
+      '',
+      `A trailing sentence past the clause: ${REACH_GRAMMAR_ANCHOR}.`,
+      '',
+    ].join('\n');
+
+  const WRAP = REACH_GRAMMAR_ANCHOR.indexOf(' ', 20);
+  const sentence = [
+    `A row states what its member reaches by the worker's own binding names, ${REACH_GRAMMAR_ANCHOR.slice(0, WRAP)}`,
+    `${REACH_GRAMMAR_ANCHOR.slice(WRAP + 1)} and stands on a platform call alone.`,
+  ].join('\n');
+
+  it('counts the hand-wrapped sentence — the anchor is found whatever line it wraps on', () => {
+    assert.ok(
+      !sentence.includes(REACH_GRAMMAR_ANCHOR),
+      'the fixture must split the anchor across a line boundary',
+    );
+    assert.equal(countReachGrammarStatements(doc(sentence)), 1);
+  });
+
+  it('counts a duplicated sentence twice — the drift a presence-only read cannot see', () => {
+    assert.equal(countReachGrammarStatements(doc(`${sentence}\n\n${sentence}`)), 2);
+  });
+
+  it('does not count a sentence moved out of the clause scope', () => {
+    assert.ok(doc('A row states its reaches.').includes(REACH_GRAMMAR_ANCHOR));
+    assert.equal(countReachGrammarStatements(doc('A row states its reaches.')), 0);
+  });
+
+  it('does not count a fenced illustration — a code sample is not the doctrine', () => {
+    assert.equal(countReachGrammarStatements(doc(['```text', sentence, '```'].join('\n'))), 0);
+  });
+
+  it('does not count the sentence when the clause marker is renumbered away', () => {
+    assert.equal(countReachGrammarStatements(doc(sentence).replace('**ERT-5.**', '**ERT-9.**')), 0);
+  });
+
+  it('the shipped runtime doc states it exactly once', () => {
+    assert.equal(
+      countReachGrammarStatements(readFileSync(resolve(ROOT, RUNTIME_DOC_PATH), 'utf8')),
+      1,
+      'the clause must carry the grammar its Reaches column is read by',
+    );
   });
 });
 
@@ -944,6 +1075,7 @@ describe('extractDispatcherSurface — the derived population, read as one set',
     assert.deepEqual(extractDispatcherSurface(new Map()), {
       caseLabels: [],
       equalityTypes: [],
+      equalitySites: [],
       workerEqualityTypes: [],
       problems: [],
     });
@@ -1030,6 +1162,7 @@ describe('the capture-path pair is asymmetric — read through the extractor', (
       makeSurface({
         docCaptureTypes: DOC_CAPTURE_TYPES,
         equalityTypes: dispatcher.equalityTypes,
+        equalitySites: dispatcher.equalitySites,
         workerEqualityTypes: dispatcher.workerEqualityTypes,
         backgroundFiles: [WORKER_PATH, SECOND_BACKGROUND_PATH],
       }),
@@ -1053,7 +1186,7 @@ describe('the capture-path pair is asymmetric — read through the extractor', (
     assert.deepEqual(dispatcher.workerEqualityTypes, ['FRAME_READY']);
     assert.deepEqual(dispatcher.equalityTypes.sort(), ['FRAME_READY', 'GET_TAB_ID']);
     assert.ok(
-      evaluate(dispatcher).some((p) => p.includes('GET_TAB_ID') && p.includes('no equality guard in the worker module services it')), // prettier-ignore
+      evaluate(dispatcher).some((p) => p.includes('GET_TAB_ID') && p.includes(`no equality guard in ${WORKER_PATH} services it`)), // prettier-ignore
       evaluate(dispatcher).join('\n') || 'no forward capture-path diagnostic',
     );
   });
@@ -1459,6 +1592,45 @@ describe('extractHandleSurface — one anchor, read whole', () => {
   });
 });
 
+describe('readReachCell — the Reaches cell grammar, total and fail-closed', () => {
+  it('reads a lone name, and a comma-separated run of them', () => {
+    assert.deepEqual(readReachCell('`activeFrames`'), ['activeFrames']);
+    assert.deepEqual(readReachCell('`activeFrames`, `registerFrame`'), [
+      'activeFrames',
+      'registerFrame',
+    ]);
+  });
+
+  it('reads the marker as the empty reach set — the OTHER whole form', () => {
+    assert.deepEqual(readReachCell(`\`${HANDLE_NO_REACH_MARKER}\``), []);
+  });
+
+  it('refuses prose, an empty cell, and a name outside backticks', () => {
+    // The false-green this grammar exists to close: a cell that says something
+    // true about the member in words says nothing a diff can hold, so it is
+    // unreadable rather than an empty allowance.
+    for (const cell of [
+      'The active-frame registry',
+      '',
+      '   ',
+      'activeFrames',
+      'the `activeFrames` map',
+    ]) {
+      assert.equal(readReachCell(cell), null, cell);
+    }
+  });
+
+  it('refuses the marker beside a name, and a name stated twice', () => {
+    assert.equal(readReachCell(`\`${HANDLE_NO_REACH_MARKER}\`, \`activeFrames\``), null);
+    assert.equal(readReachCell('`activeFrames`, `activeFrames`'), null);
+  });
+
+  it('refuses a dangling separator rather than reading the names beside it', () => {
+    assert.equal(readReachCell('`activeFrames`,'), null);
+    assert.equal(readReachCell('`activeFrames`, , `registerFrame`'), null);
+  });
+});
+
 describe("extractHandleTable — the enumeration read from the clause's own scope", () => {
   const doc = (rows, tail = '') =>
     [
@@ -1479,6 +1651,40 @@ describe("extractHandleTable — the enumeration read from the clause's own scop
     assert.deepEqual(read.members, ['frameRegistry']);
     assert.deepEqual(read.unreadable, ['plantFrame']);
     assert.equal(read.matches, 1);
+  });
+
+  it('pairs each member with the reach set its own row states', () => {
+    const read = extractHandleTable(
+      doc([
+        '| `frameRegistry` | `activeFrames` | a |',
+        '| `plantFrame` | `registerFrame`, `activeFrames` | b |',
+        `| \`openWindow\` | \`${HANDLE_NO_REACH_MARKER}\` | c |`,
+      ]),
+    );
+    assert.deepEqual(read.reaches, [
+      { member: 'frameRegistry', names: ['activeFrames'] },
+      { member: 'plantFrame', names: ['registerFrame', 'activeFrames'] },
+      { member: 'openWindow', names: [] },
+    ]);
+    assert.deepEqual(read.reachUnreadable, []);
+  });
+
+  it('names the member whose Reaches cell it cannot read, and pairs no row for it', () => {
+    const read = extractHandleTable(
+      doc(['| `frameRegistry` | The active-frame registry | a |', '| `plantFrame` | `registerFrame` | b |']), // prettier-ignore
+    );
+    assert.deepEqual(read.reaches, [{ member: 'plantFrame', names: ['registerFrame'] }]);
+    assert.deepEqual(read.reachUnreadable, ['`frameRegistry`: The active-frame registry']);
+    // The member column is unaffected: the row's member still stands, so the
+    // member diff and the cell refusal are two facts rather than one.
+    assert.deepEqual(read.members, ['frameRegistry', 'plantFrame']);
+  });
+
+  it('leaves a row whose member cell is unreadable to the member read alone', () => {
+    const read = extractHandleTable(doc(['| plantFrame | `registerFrame` | b |']));
+    assert.deepEqual(read.reaches, []);
+    assert.deepEqual(read.reachUnreadable, []);
+    assert.deepEqual(read.unreadable, ['plantFrame']);
   });
 
   it('reads nothing from a table that has left the clause scope, and counts it', () => {
@@ -1555,6 +1761,55 @@ describe('evaluateExtensionSurface — the handle legs', () => {
     );
   });
 
+  it('names a row the handle carries no member for once, where the cell stays inside the placement set', () => {
+    // The row for a member the handle has stopped carrying is a real defect the
+    // member diff names; the BODY comparisons hold a row to its member's body,
+    // and there is no body here, so they stay silent rather than reporting one
+    // defect as two — the way an unreadable member cell is left to the member
+    // column's own refusal. The row-side placement leg does run on this row;
+    // `registerFrame` is a name the constant states, so it finds nothing to
+    // refuse and the member diff stands alone.
+    const problems = evaluateExtensionSurface(
+      makeSurface({
+        docHandleMembers: ['frameRegistry', 'wipeFrameRegistry', 'plantFrame'],
+        docHandleReaches: [
+          { member: 'frameRegistry', names: ['activeFrames'] },
+          { member: 'wipeFrameRegistry', names: ['activeFrames'] },
+          { member: 'plantFrame', names: ['registerFrame'] },
+        ],
+      }),
+    );
+    assert.deepEqual(
+      problems.filter((p) => p.includes('plantFrame')),
+      [`\`plantFrame\` is in the ${HANDLE_CLAUSE_ID} member table but the introspection handle in ${WORKER_PATH} does not carry it`], // prettier-ignore
+    );
+  });
+
+  it('refuses a cell outside the placement set on a row the handle carries no member for', () => {
+    // The placement leg reads the row against the constant and needs no body,
+    // so it runs whatever the member diff says: this row is refused for the
+    // name it states as well as named for the member it has lost, and an
+    // author fixing the member half learns of the illegal cell in the same run
+    // rather than the next one.
+    const problems = evaluateExtensionSurface(
+      makeSurface({
+        docHandleMembers: ['frameRegistry', 'wipeFrameRegistry', 'plantFrame'],
+        docHandleReaches: [
+          { member: 'frameRegistry', names: ['activeFrames'] },
+          { member: 'wipeFrameRegistry', names: ['activeFrames'] },
+          { member: 'plantFrame', names: ['pendingQueue'] },
+        ],
+      }),
+    );
+    assert.deepEqual(
+      problems.filter((p) => p.includes('plantFrame')),
+      [
+        `\`plantFrame\` is in the ${HANDLE_CLAUSE_ID} member table but the introspection handle in ${WORKER_PATH} does not carry it`, // prettier-ignore
+        `the ${HANDLE_CLAUSE_ID} row for \`plantFrame\` states a reach to \`pendingQueue\`, a name outside the set that clause places the handle over (${HANDLE_REACH_SET.map((n) => `\`${n}\``).join(', ')}) — a row states which of those bindings its member reaches, never which bindings the handle may reach at all`, // prettier-ignore
+      ],
+    );
+  });
+
   it('fires on a reach outside the stated set, naming the member and the name', () => {
     const problems = evaluateExtensionSurface(
       makeSurface({ handleReaches: [{ member: 'frameRegistry', name: 'pendingQueue' }] }),
@@ -1565,12 +1820,128 @@ describe('evaluateExtensionSurface — the handle legs', () => {
     for (const name of HANDLE_REACH_SET) assert.ok(refusal.includes(name), refusal);
   });
 
-  it('accepts every name the reach set states', () => {
+  it('accepts every name the reach set states, where the member’s own row states them', () => {
+    // The union leg's own acceptance, kept honest under the weld: one member
+    // reaching the whole set passes only while its row says so.
     assert.deepEqual(
       evaluateExtensionSurface(
-        makeSurface({ handleReaches: HANDLE_REACH_SET.map((name) => ({ member: 'frameRegistry', name })) }), // prettier-ignore
+        makeSurface({
+          handleReaches: HANDLE_REACH_SET.map((name) => ({ member: 'frameRegistry', name })),
+          docHandleReaches: [{ member: 'frameRegistry', names: [...HANDLE_REACH_SET] }],
+          handleMembers: ['frameRegistry'],
+          docHandleMembers: ['frameRegistry'],
+        }),
       ),
       [],
+    );
+  });
+
+  it('fires on a cross-wiring the whole-handle membership test passes', () => {
+    // The leg the union alone cannot hold: each member reaches a structure the
+    // clause DOES place the handle over, so every name is inside the set — and
+    // it is the other member's. Both rows are left saying the opposite, and the
+    // weld reds four times: two rows unmet, two reaches unstated.
+    const problems = evaluateExtensionSurface(
+      makeSurface({
+        handleMembers: ['frameRegistry', 'programmaticTabs'],
+        docHandleMembers: ['frameRegistry', 'programmaticTabs'],
+        handleReaches: [
+          { member: 'frameRegistry', name: 'programmaticTabs' },
+          { member: 'programmaticTabs', name: 'activeFrames' },
+        ],
+        docHandleReaches: [
+          { member: 'frameRegistry', names: ['activeFrames'] },
+          { member: 'programmaticTabs', names: ['programmaticTabs'] },
+        ],
+      }),
+    );
+    assert.ok(
+      problems.some((x) => x.includes('`frameRegistry` reaches `programmaticTabs`') && x.includes('the row states `activeFrames`')), // prettier-ignore
+      problems.join('\n') || 'no cross-wiring diagnostic',
+    );
+    assert.ok(
+      problems.some((x) => x.includes('row for `programmaticTabs` states it reaches `programmaticTabs`') && x.includes('does not name')), // prettier-ignore
+      problems.join('\n') || 'no unmet-row diagnostic',
+    );
+    // The union leg stays silent on it, which is the whole point of the weld:
+    // every name here is one the clause places the handle over.
+    assert.ok(!problems.some((x) => x.includes('outside the set')), problems.join('\n'));
+  });
+
+  it('fires on a read member that calls the production registration', () => {
+    const problems = evaluateExtensionSurface(
+      makeSurface({
+        handleReaches: [
+          { member: 'frameRegistry', name: 'activeFrames' },
+          { member: 'frameRegistry', name: 'registerFrame' },
+          { member: 'wipeFrameRegistry', name: 'activeFrames' },
+        ],
+      }),
+    );
+    assert.ok(
+      problems.some((x) => x.includes('`frameRegistry` reaches `registerFrame`')),
+      problems.join('\n') || 'no unstated-reach diagnostic',
+    );
+  });
+
+  it('refuses a row that states a reach the clause does not place the handle over', () => {
+    // The derived set cannot become an escape hatch: a row naming a binding
+    // outside the constant reds on the row itself, through this ROW-SIDE leg.
+    // The row's names serve as its member's allowed set unfiltered, so the same
+    // name still meets the body comparison in the same run.
+    const problems = evaluateExtensionSurface(
+      makeSurface({
+        docHandleReaches: [
+          { member: 'frameRegistry', names: ['pendingQueue'] },
+          { member: 'wipeFrameRegistry', names: ['activeFrames'] },
+        ],
+      }),
+    );
+    assert.ok(
+      problems.some((x) => x.includes('row for `frameRegistry` states a reach to `pendingQueue`') && x.includes('outside the set')), // prettier-ignore
+      problems.join('\n') || 'no row-bound diagnostic',
+    );
+  });
+
+  it('accepts the no-reach marker on a member whose body reaches nothing', () => {
+    assert.deepEqual(
+      evaluateExtensionSurface(
+        makeSurface({
+          handleMembers: ['frameRegistry', 'wipeFrameRegistry', 'openWindow'],
+          docHandleMembers: ['frameRegistry', 'wipeFrameRegistry', 'openWindow'],
+          docHandleReaches: [
+            { member: 'frameRegistry', names: ['activeFrames'] },
+            { member: 'wipeFrameRegistry', names: ['activeFrames'] },
+            { member: 'openWindow', names: [] },
+          ],
+        }),
+      ),
+      [],
+    );
+  });
+
+  it('fires when a member the row marks as reaching nothing reaches a structure', () => {
+    const problems = evaluateExtensionSurface(
+      makeSurface({
+        docHandleReaches: [
+          { member: 'frameRegistry', names: [] },
+          { member: 'wipeFrameRegistry', names: ['activeFrames'] },
+        ],
+      }),
+    );
+    assert.ok(
+      problems.some((x) => x.includes('`frameRegistry` reaches `activeFrames`') && x.includes(`the row states \`${HANDLE_NO_REACH_MARKER}\``)), // prettier-ignore
+      problems.join('\n') || 'no marker diagnostic',
+    );
+  });
+
+  it('names an unreadable Reaches cell and the grammar that would have parsed', () => {
+    const problems = evaluateExtensionSurface(
+      makeSurface({ handleReachUnreadable: ['`frameRegistry`: The active-frame registry'] }),
+    );
+    assert.ok(
+      problems.some((x) => x.includes('Reaches cell the scan cannot read') && x.includes('The active-frame registry') && x.includes(HANDLE_NO_REACH_MARKER)), // prettier-ignore
+      problems.join('\n') || 'no unreadable-cell diagnostic',
     );
   });
 
@@ -1641,6 +2012,23 @@ describe('evaluateExtensionSurface — the handle legs', () => {
     assert.ok(problems.some((p) => p.includes('no handle members found')));
   });
 
+  it('diagnoses a panel population that names no file, in place of the quiet-send line', () => {
+    // The asymmetry this closes: a panel file list that names nothing used to
+    // read as a panel that sends nothing, which is a different defect with a
+    // different fix. The machinery verdict names the file list, and stands in
+    // place of the send leg's empty-parse line.
+    const problems = evaluateExtensionSurface(
+      makeSurface({ panelFiles: [], sendTypes: [], sendSites: [] }),
+    );
+    assert.ok(
+      problems.some((p) => p.includes(PANEL_DIR) && p.includes('has no population to read')),
+      problems.join('\n') || 'no empty-panel-population diagnostic',
+    );
+    for (const [, message] of EMPTY_SURFACES) {
+      assert.ok(!problems.some((p) => p.includes(message)), message);
+    }
+  });
+
   it('diagnoses a production population that names no file, or has lost the worker', () => {
     const empty = evaluateExtensionSurface(makeSurface({ productionFiles: [] }));
     assert.ok(
@@ -1659,14 +2047,11 @@ describe('real-tree lock', () => {
   const readFile = (f) => readFileSync(resolve(ROOT, f), 'utf8');
 
   it('the shipped tree satisfies its contracts', () => {
-    // The recursive enumeration the CLI wrapper passes, filtered the same way,
-    // beside the check's own background derivation and the production set it
-    // imports — the three sets the CLI scans.
-    const panelFiles = trackedFilesUnder(PANEL_DIR, { cwd: ROOT, extensions: ['.js'] });
-    assert.ok(panelFiles.length >= 1, 'the panel tree must carry tracked JavaScript');
+    // The derivations the CLI passes — the panel tree's, the background
+    // tree's, and the production set's — read here rather than copied.
     const { problems, permissionCount, typeCount, panelTypeCount, memberCount } = auditTree(
       readFile,
-      panelFiles,
+      shippedPanelPopulation(),
       shippedPopulation(),
       deriveProductionPopulation(ROOT),
     );
@@ -1703,11 +2088,20 @@ describe('real-tree lock', () => {
     assert.equal(new Set(population).size, population.length, 'each file is stated once');
   });
 
+  it('derives a panel population with the properties the send leg stands on', () => {
+    const population = shippedPanelPopulation();
+    assert.ok(population.length > 0, 'the panel tree carries tracked JavaScript');
+    for (const file of population) {
+      assert.ok(file.startsWith(`${PANEL_DIR}/`), `${file} is inside the panel tree`);
+      assert.ok(file.endsWith('.js'), `${file} is a panel script`);
+    }
+    assert.equal(new Set(population).size, population.length, 'each file is stated once');
+  });
+
   it('an unreadable worker fails loudly rather than passing vacuously', () => {
-    const panelFiles = trackedFilesUnder(PANEL_DIR, { cwd: ROOT, extensions: ['.js'] });
     const { problems } = auditTree(
       (f) => (f === WORKER_PATH ? '' : readFile(f)),
-      panelFiles,
+      shippedPanelPopulation(),
       shippedPopulation(),
       deriveProductionPopulation(ROOT),
     );
@@ -1725,11 +2119,13 @@ describe('real-tree lock', () => {
   });
 
   it('the shipped handle states the members its clause does, reaching only what the clause places it over', () => {
-    // The three shipped facts, read from the tree rather than restated: the
-    // members agree with the table, every reach is a name the set states, and
-    // the identifiers a healthy tree leaves OUTSIDE the reach test are pinned —
-    // the false-red direction, so a collector that started reading locals or
-    // built-ins as bindings reds here instead of reddening the whole check.
+    // The shipped facts, read from the tree rather than restated: the members
+    // agree with the table, every reach is a name the set states, each row's
+    // names equal its own member's module-scope reaches, no Reaches cell is
+    // unreadable, and the identifiers a healthy tree leaves OUTSIDE the reach
+    // test are pinned — the false-red direction, so a collector that started
+    // reading locals or built-ins as bindings reds here instead of reddening
+    // the whole check.
     const handle = extractHandleSurface(readFile(WORKER_PATH));
     const table = extractHandleTable(readFile(RUNTIME_DOC_PATH));
     assert.deepEqual(handle.problems, [], handle.problems.join('\n'));
@@ -1737,6 +2133,16 @@ describe('real-tree lock', () => {
     assert.equal(table.matches, 1);
     const reached = [...new Set(handle.reaches.map((r) => r.name))].sort();
     assert.deepEqual(reached, HANDLE_REACH_SET.slice().sort());
+    // The weld over the real tree: each shipped member's row states exactly the
+    // names that member's own body reaches — the lock a cross-wiring inside the
+    // set above would break while every assertion before it still passed.
+    const reachedByMember = new Map(handle.members.map((m) => [m, []]));
+    for (const { member, name } of handle.reaches) reachedByMember.get(member).push(name);
+    assert.deepEqual(
+      table.reaches.map(({ member, names }) => [member, names.slice().sort()]).sort(),
+      [...reachedByMember].map(([member, names]) => [member, [...new Set(names)].sort()]).sort(),
+    );
+    assert.deepEqual(table.reachUnreadable, []);
     const identifiers = [...new Set(handle.named.flatMap((n) => n.identifiers))];
     const outside = identifiers.filter((name) => !reached.includes(name)).sort();
     // Sorted on both sides, like the reach assertion above: what is held is the
@@ -1765,15 +2171,43 @@ describe('real-tree lock', () => {
     // derivations, so the CLI must consume them too — a private copy in the
     // wrapper could drift while every case here stayed green.
     const script = readFile('scripts/check-extension-surface.js');
-    assert.match(
-      script,
-      /auditTree\(\s*readFile,\s*panelFiles,\s*derivePopulation\(\),\s*deriveProductionPopulation\(\),?\s*\)/,
+    // MATCH FORM: the four-argument call, its reader held only to being one
+    // identifier and each population argument to being one call or one name.
+    // What is held is that the CLI CONSUMES the derivations: each population
+    // argument is either that derivation's own call standing inline, or a
+    // local the wrapper assigns from that same derivation. Both spellings are
+    // the same fact, so the wrapper is free to name its arguments for
+    // readability, while a private copy cannot hide behind a name.
+    const call =
+      /=\s*auditTree\(\s*[A-Za-z_$][\w$]*,\s*([\w$]+(?:\(\))?),\s*([\w$]+(?:\(\))?),\s*([\w$]+(?:\(\))?),?\s*\)/.exec(script); // prettier-ignore
+    assert.ok(
+      call,
+      'the wrapper calls auditTree with a reader and the panel, background and production population arguments',
     );
+    // ORDER: the derivations stand in the order auditTree's parameters name
+    // them, and this half is load-bearing. A swapped panel/background pair the
+    // machinery legs refuse on their own; a swapped background/production pair
+    // runs green at the command line — both sets are tracked extension
+    // JavaScript carrying the worker — and this assertion is what refuses it.
+    for (const [i, derivation] of [
+      'derivePanelPopulation',
+      'derivePopulation',
+      'deriveProductionPopulation',
+    ].entries()) {
+      const arg = call[i + 1];
+      if (arg === `${derivation}()`) continue;
+      assert.ok(!arg.endsWith('()'), `argument ${i + 2} calls \`${arg}\`, not \`${derivation}()\``);
+      assert.match(
+        script,
+        new RegExp(`const\\s+${arg}\\s*=\\s*${derivation}\\(\\)\\s*;`),
+        `argument ${i + 2} is \`${arg}\`, which the wrapper does not assign from \`${derivation}()\``,
+      );
+    }
     // The enumeration itself is the shared population reader's, so this file
     // states no `ls-files` invocation of its own…
     assert.equal(script.split("'ls-files'").length - 1, 0, 'no private enumeration here');
     // …and reaches that reader from exactly the two places it is entitled to:
-    // the panel derivation in the CLI wrapper, and the background derivation
+    // the panel derivation and the background derivation, each a named export
     // these cases hold. The production population is a third set and no third
     // derivation: it arrives imported from the check that already derives it,
     // so a private copy of it cannot land green either.

@@ -110,20 +110,24 @@ same page-visibility test as the readiness beacon
 ([ECP-3](capture-principles.md#frame-trust-and-readiness)).
 
 The handle's member surface is the table below, stated closed: each member
-reaches exactly the structures its row names, and the handle assigns no member
-the table does not carry. A change that adds, removes, or renames a member, or
-gives one a reach the table does not state, MUST update the table in the same
-change.
+reaches exactly the worker bindings its row names — a structure the clause
+places the handle over, a function it runs to reach one, or a query of its
+own that touches no placed structure, and the handle assigns no member the
+table does not carry. A change that adds, removes, or renames a member, or
+gives one a reach the table does not state, MUST update the table in the
+same change. A row states what its member reaches by the worker's own
+binding names, backticked, separated by commas — or `none`, where the member
+reaches no worker binding at all and stands on a platform call alone.
 
-| Member                 | Reaches                                                     | What it does                                                                               |
-| ---------------------- | ----------------------------------------------------------- | ------------------------------------------------------------------------------------------ |
-| `frameRegistry`        | The active-frame registry                                   | Answers a snapshot of the registry, as frame ids per tab.                                  |
-| `programmaticTabs`     | The programmatic-tab set                                    | Answers a snapshot of the set, as tab ids.                                                 |
-| `captureTargetTabIds`  | No worker structure — the record-start seed's own tab query | Answers the tab ids a record-start would target, by running that query.                    |
-| `plantFrame`           | The active-frame registry                                   | Adds a (tab, frame) entry the way a production registration does.                          |
-| `plantProgrammaticTab` | The programmatic-tab set                                    | Adds a tab id to the set.                                                                  |
-| `wipeFrameRegistry`    | The active-frame registry                                   | Empties the registry directly, outside any production trigger, simulating suspension loss. |
-| `wipeProgrammaticTabs` | The programmatic-tab set                                    | Empties the set the same way, for the same purpose.                                        |
+| Member                 | Reaches                  | What it does                                                                                                                     |
+| ---------------------- | ------------------------ | -------------------------------------------------------------------------------------------------------------------------------- |
+| `frameRegistry`        | `activeFrames`           | Answers a snapshot of the registry, as frame ids per tab.                                                                        |
+| `programmaticTabs`     | `programmaticTabs`       | Answers a snapshot of the set, as tab ids.                                                                                       |
+| `captureTargetTabIds`  | `queryCaptureTargetTabs` | Answers the tab ids a record-start would target, by running the record-start seed's own query, reaching no structure of its own. |
+| `plantFrame`           | `registerFrame`          | Adds a (tab, frame) entry the way a production registration does.                                                                |
+| `plantProgrammaticTab` | `programmaticTabs`       | Adds a tab id to the set.                                                                                                        |
+| `wipeFrameRegistry`    | `activeFrames`           | Empties the registry directly, outside any production trigger, simulating suspension loss.                                       |
+| `wipeProgrammaticTabs` | `programmaticTabs`       | Empties the set the same way, for the same purpose.                                                                              |
 
 **ERT-6.** The handle ships in release builds: the packaged extension carries
 the worker as written, so a released build assigns the members the table
