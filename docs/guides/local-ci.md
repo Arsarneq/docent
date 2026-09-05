@@ -171,6 +171,13 @@ cargo mutants --in-place
 the cargo tree; the mutation scope comes from
 [`mutants.toml`](../../packages/desktop/src-tauri/.cargo/mutants.toml).)
 
+The version above is read, not just written: the Job bounds and caches gate
+takes the first backticked version token after `cargo-mutants` in this
+subsection as that tool's Doc mention cell
+([CI gates § What the caches key on](ci.md#what-the-caches-key-on)) and holds it
+to the pin the workflow states, so changing it here alone — or un-backticking it
+— reds that gate.
+
 ### Workflows that act on GitHub state
 
 Three workflows read or write state that exists only on GitHub, so their

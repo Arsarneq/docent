@@ -11,9 +11,9 @@
  * stating no bound stays outside the sum), and the workflow-file boundary this
  * check reads through.
  *
- * The cache legs, over the workflows' cache steps and the two tables the CI
- * guide states about them: a family entry or a tool cache no row describes, a
- * row describing neither, a row whose identity cell is not one backticked name,
+ * The cache legs, over the workflows' cache steps and the tables the CI guide
+ * states about them: a family entry or a tool cache no row describes, a row
+ * describing neither, a row whose identity cell is not one backticked name,
  * and every cell held against the surface that answers for it — the step for
  * most, the local-CI guide's own subsection for the doc-mention column, so
  * un-backticking a version there reds against a cell still stating it. Beside
@@ -22,8 +22,11 @@
  * groups left alone, where no prefix reaches another list, and overlapping lists
  * still two groups), one stem stated twice in a group over one hash input (with
  * the same stem over different inputs — the shipped Playwright pair's shape —
- * left alone), a key's version segment parting from the version its install
- * pins, and a guide's version parting from that pin.
+ * left alone), a family whose first restore key is not its own prefix — held of
+ * an entry alone in its group as of one sharing it — a fallback reaching
+ * another writer's entry under a stem the two share (with one reaching a
+ * different stem left alone), a key's version segment parting from the version
+ * its install pins, and a guide's version parting from that pin.
  *
  * And every input shape the check refuses on its own exit code rather than
  * passing vacuously — a workflow it cannot read, one that reads empty, one that
@@ -37,14 +40,18 @@
  * `hashFiles` expression, a tool key not naming its tool and a version, a job
  * stating other than one matching `cargo install` for a tool it caches, two
  * entries claiming one row identity, a guide it cannot read or that reads
- * empty, a table its header selects other than once or that states no row, a
- * missing doc-mention subsection, and either cache class yielding no entry at
- * all.
+ * empty, a table its header selects other than once or that states no row, one
+ * stating no column a claim names, one stating a column no claim answers for,
+ * one whose header states a column name more than once, a missing doc-mention
+ * subsection, and either cache class yielding no entry at all.
  *
- * The refusal ordering is pinned too: step shapes are read whether or not the
- * job states a bound, so a refusal never waits on drift being fixed first. The
+ * The refusal ordering is pinned too, both of the orderings a run has: step
+ * shapes are read whether or not the job states a bound, so a refusal never
+ * waits on drift being fixed first; and the population is read lazily, so the
+ * refusal a run raises is the first one its legs reach — in leg order, and in
+ * listing order within a leg. The
  * CLI's own verdicts are pinned at the process boundary over copies of the
- * committed workflows AND the two committed guides, with each defect planted in
+ * committed workflows AND the committed guides, with each defect planted in
  * the copy; the tree itself is never broken to produce one. A real-tree lock
  * closes the set: the shipped workflows and guides satisfy every leg.
  */
@@ -66,16 +73,24 @@ import {
   LOCAL_CI_DOC_PATH,
   MUTATION_RUNS_SUBSECTION,
   SELF_PATH,
+  SPLIT_GATE,
   TOOLS_HEADER,
   WORKFLOW_PATHSPEC,
   auditCaches,
+  auditCachesOver,
   auditTree,
   auditTreeAt,
+  auditTreeOver,
+  COMBINED_GATE,
   cacheEntries,
   cacheSteps,
+  compareRows,
   evaluateJob,
   guideVersionFor,
+  fallbackReachProblems,
+  jobsReader,
   prefixFreeProblems,
+  readCacheClasses,
   readJobs,
   stepBounds,
   subsectionText,
@@ -196,7 +211,7 @@ describe('composition leg', () => {
 
   it('leaves a step stating no bound outside the sum', () => {
     // Two unbounded steps beside one bounded step: only the bounded one is
-    // summed, so the job passes on a bound the three together could exceed.
+    // summed, so the job passes on a bound its steps together could exceed.
     assert.deepEqual(
       auditOver({ [WORKFLOW]: workflow(job('tests', 10, [null, 9, null])) }).problems,
       [],
@@ -369,6 +384,83 @@ describe('refusals do not depend on drift state', () => {
   });
 });
 
+describe('jobsReader — the one read a run gives each workflow', () => {
+  it('answers a repeat ask without reading the file again', () => {
+    let reads = 0;
+    const jobsAt = jobsReader((path) => {
+      reads += 1;
+      assert.equal(path, WORKFLOW);
+      return workflow(job('lint', 15));
+    });
+    const first = jobsAt(WORKFLOW);
+    assert.equal(jobsAt(WORKFLOW), first, 'the second ask answers with the first read');
+    assert.equal(reads, 1);
+  });
+
+  it('reads each path it is asked about on its own', () => {
+    const other = '.github/workflows/other.yml';
+    const read = [];
+    const jobsAt = jobsReader((path) => {
+      read.push(path);
+      return workflow(job('lint', 15));
+    });
+    jobsAt(WORKFLOW);
+    jobsAt(other);
+    jobsAt(WORKFLOW);
+    assert.deepEqual(read, [WORKFLOW, other]);
+  });
+
+  it('gives both sets of legs one read per workflow rather than one each', () => {
+    const files = cacheFiles();
+    const reads = new Map();
+    const reader = readerOver(files);
+    const counting = (path) => {
+      reads.set(path, (reads.get(path) ?? 0) + 1);
+      return reader(path);
+    };
+    const listWorkflows = () => Object.keys(files);
+    const jobsAt = jobsReader(counting);
+    auditTreeOver(jobsAt, listWorkflows);
+    auditCachesOver(jobsAt, counting, listWorkflows);
+    assert.equal(reads.get(WORKFLOW), 1, 'the workflow is read once for both sets of legs');
+  });
+
+  it('leaves each leg reading its own reader where a run hands it none', () => {
+    // The wrappers keep their own reader, so a caller of one set alone is
+    // unchanged — and pays the read it always paid.
+    const files = cacheFiles();
+    const reads = new Map();
+    const reader = readerOver(files);
+    const counting = (path) => {
+      reads.set(path, (reads.get(path) ?? 0) + 1);
+      return reader(path);
+    };
+    const listWorkflows = () => Object.keys(files);
+    auditTree(counting, listWorkflows);
+    auditCaches(counting, listWorkflows);
+    assert.equal(reads.get(WORKFLOW), 2);
+  });
+
+  it('leaves the first refusal where an unshared read raises it: the earlier file wins', () => {
+    // Reading every workflow up front would answer with the LATER file's parse
+    // refusal instead, because it reads that file before the bounds legs reach
+    // the earlier one. Read lazily, the order the legs read in is the order the
+    // refusals come in.
+    const early = '.github/workflows/aaa.yml';
+    const late = '.github/workflows/zzz.yml';
+    const files = {
+      [early]: workflow(
+        `  lint:\n    ${BOUND_KEY}: "\${{ env.T }}"\n    steps:\n      - run: echo hi\n`,
+      ),
+      [late]: 'jobs:\n  lint:\n   - [unclosed\n',
+    };
+    assert.throws(
+      () => auditTreeOver(jobsReader(readerOver(files)), () => Object.keys(files)),
+      (error) => error instanceof InputError && /aaa\.yml job `lint` states/.test(error.message),
+    );
+  });
+});
+
 describe('readJobs, stepBounds, evaluateJob — the pieces the audit composes', () => {
   it('readJobs returns the jobs map as parsed', () => {
     const jobs = readJobs(() => workflow(job('lint', 15)), WORKFLOW);
@@ -456,7 +548,7 @@ const SAMPLE_CACHE_WORKFLOW = [
   '',
 ].join('\n');
 
-/** The CI guide's two tables, as the fixture workflow makes them true. */
+/** The CI guide's cache tables, as the fixture workflow makes them true. */
 const SAMPLE_CI_DOC = [
   '# Guide',
   '',
@@ -488,7 +580,7 @@ const SAMPLE_LOCAL_DOC = [
   '',
 ].join('\n');
 
-/** The three fixture files, with one mutation applied to the map. */
+/** The fixture files, with one mutation applied to the map. */
 const cacheFiles = (mutate) => {
   const files = {
     [WORKFLOW]: SAMPLE_CACHE_WORKFLOW,
@@ -553,13 +645,26 @@ const familyWorkflow = (job, family, paths = BUILDER_PATHS, hash = 'Cargo.lock')
     '',
   ].join('\n');
 
-/** A family entry as the leg reads one, for the grouping cases. */
-const familyEntry = (job, family, paths, hash = 'Cargo.lock') => ({
-  job,
-  family,
-  paths,
-  suffix: `\${{ hashFiles('${hash}') }}`,
-});
+/**
+ * A family entry as the leg reads one, for the grouping cases — every field a
+ * real entry carries, the literal `key` and the save posture included, so a
+ * case here exercises what `readCacheClasses` produces rather than a subset of
+ * it.
+ */
+const familyEntry = (job, family, paths, hash = 'Cargo.lock', restoreKeys = []) => {
+  const suffix = `\${{ hashFiles('${hash}') }}`;
+  return {
+    workflow: WORKFLOW,
+    job,
+    family,
+    paths,
+    restoreKeys,
+    suffix,
+    key: `${family}${suffix}`,
+    gate: SPLIT_GATE,
+    pathDrift: null,
+  };
+};
 
 describe('the cache legs — the shipped fixture agrees with itself', () => {
   it('passes a workflow and guides that state the same caches', () => {
@@ -691,6 +796,190 @@ describe('key families leg', () => {
     assert.match(collided[0], /one stem hashing one input \(`'e2e\/package-lock\.json'`\)/);
     assert.match(collided[0], /state one key and share one entry/);
   });
+
+  it('reads a split whose save states no gate at all as unconditional', () => {
+    // Not the split posture and not an expression either: the save states no
+    // `if:`, so it writes on every run and the cell that claims otherwise reds.
+    const { problems } = cacheAudit(
+      (files) =>
+      edit(files, WORKFLOW, "        if: github.ref == 'refs/heads/main' && steps.cargo-cache.outputs.cache-hit != 'true'\n", ''), // prettier-ignore
+    );
+    assert.equal(problems.length, 1);
+    assert.match(problems[0], /states `Save` as "main ref \+ exact miss"/);
+    assert.match(problems[0], /states "unconditional"/);
+  });
+
+  it('reds a row whose cells run out before its identity column', () => {
+    // A row too short to state a `Writer job` cell at all: the identity read
+    // finds nothing there, which is the unreadable-cell red — and the entry
+    // that row was describing is then a cache no row describes.
+    const { problems } = cacheAudit(
+      (files) =>
+      edit(files, CI_DOC_PATH, ' | `builder` | ' + '`${{ runner.os }}-cargo-builder-`, `${{ runner.os }}-cargo-` | main ref + exact miss |', ' |'), // prettier-ignore
+    );
+    assert.equal(problems.length, 2);
+    assert.match(problems[0], /row whose `Writer job` cell is not one backticked name: an empty cell/); // prettier-ignore
+    assert.match(problems[1], /states a key families cache for `builder` that no key families row describes/); // prettier-ignore
+  });
+
+  it('reds each cell a row runs out before, naming the column it never states', () => {
+    // The identity cell is there, so the row is matched to its entry — and the
+    // columns after it that the row never states read as empty cells rather
+    // than as agreement.
+    const { problems } = cacheAudit(
+      (files) =>
+      edit(files, CI_DOC_PATH, ' | `${{ runner.os }}-cargo-builder-`, `${{ runner.os }}-cargo-` | main ref + exact miss |', ' |'), // prettier-ignore
+    );
+    assert.equal(problems.length, 2);
+    assert.match(problems[0], /row `builder` states `Fallback` as an empty cell/);
+    assert.match(problems[1], /row `builder` states `Save` as an empty cell/);
+  });
+
+  it('hashes the whole suffix where a caller hands over one stating no hashFiles', () => {
+    // `readFamilyEntry` admits no such key, so this is the shape only a direct
+    // caller can hand this leg: the whole suffix stands in as what the key is
+    // computed from, and two stems over it are still one entry.
+    const paths = ['~/.cargo/registry'];
+    const problems = prefixFreeProblems([
+      { job: 'one', family: 'Linux-cargo-', paths, suffix: 'v1' },
+      { job: 'two', family: 'Linux-cargo-', paths, suffix: 'v1' },
+    ]);
+    assert.equal(problems.length, 1);
+    assert.match(problems[0], /one stem hashing one input \(`v1`\)/);
+  });
+
+  it('reds a wider prefix stated ahead of the family\u2019s own', () => {
+    // The list is tried in order, so the bare `-cargo-` first would serve a
+    // sibling's newer entry before this family's. The Fallback cell is moved
+    // with it, so the row diff is silent and the ordering leg is what reds.
+    const { problems } = cacheAudit((files) => {
+      edit(
+        files,
+        WORKFLOW,
+        '            ${{ runner.os }}-cargo-builder-\n            ${{ runner.os }}-cargo-',
+        '            ${{ runner.os }}-cargo-\n            ${{ runner.os }}-cargo-builder-',
+      );
+      edit(
+        files,
+        CI_DOC_PATH,
+        '`${{ runner.os }}-cargo-builder-`, `${{ runner.os }}-cargo-` | main ref',
+        '`${{ runner.os }}-cargo-`, `${{ runner.os }}-cargo-builder-` | main ref',
+      );
+    });
+    assert.equal(problems.length, 1);
+    assert.match(problems[0], /states `\$\{\{ runner\.os \}\}-cargo-` as its first restore key/);
+    assert.match(problems[0], /its family is `\$\{\{ runner\.os \}\}-cargo-builder-`/);
+  });
+
+  it('reds a fallback reaching an entry under a SHARED stem', () => {
+    // The shipped Playwright pair's shape with a prefix added: the two keys
+    // differ only in the hash, so a prefix on the stem drops the one thing
+    // telling the entries apart and serves the other writer's artifact.
+    const PLAYWRIGHT = ['~/.cache/ms-playwright'];
+    const stem = 'Linux-playwright-';
+    const reaching = fallbackReachProblems([
+      familyEntry('e2e', stem, PLAYWRIGHT, 'e2e/package-lock.json', [stem]),
+      familyEntry('integration', stem, PLAYWRIGHT, 'integration/package-lock.json'),
+    ]);
+    assert.equal(reaching.length, 1);
+    assert.match(reaching[0], /job `e2e` states the restore key `Linux-playwright-`/);
+    assert.match(reaching[0], /reaches job `integration`'s entry under the shared stem/);
+    // With no fallback stated, the shared stem is the admitted shape it is.
+    assert.deepEqual(
+      fallbackReachProblems([
+        familyEntry('e2e', stem, PLAYWRIGHT, 'e2e/package-lock.json'),
+        familyEntry('integration', stem, PLAYWRIGHT, 'integration/package-lock.json'),
+      ]),
+      [],
+    );
+  });
+
+  it('leaves a fallback on a shared stem that reaches no entry of it to the ordering leg', () => {
+    // A key narrower than the stem: not the family's own prefix, so the ordering
+    // property reds on it \u2014 while the other writer's key does not open with it,
+    // so the reach property has nothing to say. One problem, not a pair.
+    const PLAYWRIGHT = ['~/.cache/ms-playwright'];
+    const stem = 'Linux-playwright-';
+    const problems = fallbackReachProblems([
+      familyEntry('e2e', stem, PLAYWRIGHT, 'e2e/package-lock.json', [`${stem}deadbeef`]),
+      familyEntry('integration', stem, PLAYWRIGHT, 'integration/package-lock.json'),
+    ]);
+    assert.equal(problems.length, 1);
+    assert.match(problems[0], /states `Linux-playwright-deadbeef` as its first restore key/);
+  });
+
+  it('leaves a fallback reaching a DIFFERENT stem alone \u2014 the shipped cargo shape', () => {
+    const paths = ['~/.cargo/registry', '~/.cargo/git'];
+    assert.deepEqual(
+      fallbackReachProblems([
+        familyEntry('one', 'Linux-cargo-rust-tests-', paths, 'Cargo.lock', [
+          'Linux-cargo-rust-tests-',
+          'Linux-cargo-',
+        ]),
+        familyEntry('two', 'Linux-cargo-vectors-', paths, 'Cargo.lock', [
+          'Linux-cargo-vectors-',
+          'Linux-cargo-',
+        ]),
+      ]),
+      [],
+    );
+    // And across path-list groups the reach property has nothing to say: one
+    // stem, but each entry saved under a list of its own, so neither fallback
+    // reaches the other's entry.
+    assert.deepEqual(
+      fallbackReachProblems([
+        familyEntry('one', 'Linux-playwright-', ['~/.cache/ms-playwright'], 'a.json', [
+          'Linux-playwright-',
+        ]),
+        familyEntry('two', 'Linux-playwright-', ['~/.cache/other'], 'b.json'),
+      ]),
+      [],
+    );
+    // The ordering property is not group-scoped the way the reach property is:
+    // an entry alone in its own group is held to it too.
+    const lone = fallbackReachProblems([
+      familyEntry('one', 'Linux-playwright-', ['~/.cache/ms-playwright'], 'a.json', ['Linux-']),
+      familyEntry('two', 'Linux-playwright-', ['~/.cache/other'], 'b.json'),
+    ]);
+    assert.equal(lone.length, 1);
+    assert.match(lone[0], /job `one` states `Linux-` as its first restore key/);
+    assert.match(lone[0], /its family is `Linux-playwright-`/);
+  });
+
+  it('carries the COMBINED save posture into the Save cell', () => {
+    // A family cache written as one combined step rather than a split: what
+    // writes it is the action's own post-job save, on every run. The posture
+    // exists in the check and this is the cell that states it.
+    const combine = (files) => {
+      edit(files, WORKFLOW, 'uses: actions/cache/restore', 'uses: actions/cache');
+      edit(
+        files,
+        WORKFLOW,
+        [
+          '      - name: Save cargo registry',
+          "        if: github.ref == 'refs/heads/main' && steps.cargo-cache.outputs.cache-hit != 'true'",
+          `        uses: actions/cache/save${SHA}`,
+          '        with:',
+          '          path: |',
+          '            ~/.cargo/registry',
+          '            ~/.cargo/git',
+          "          key: ${{ runner.os }}-cargo-builder-${{ hashFiles('Cargo.lock') }}",
+          '',
+        ].join('\n'),
+        '',
+      );
+    };
+    const drifted = cacheAudit(combine);
+    assert.equal(drifted.problems.length, 1);
+    assert.match(drifted.problems[0], /states `Save` as "main ref \+ exact miss"/);
+    assert.match(drifted.problems[0], /states "every run \(post-job save\)"/);
+    // The cell moved with it, and the posture round-trips.
+    const agreed = cacheAudit((files) => {
+      combine(files);
+      edit(files, CI_DOC_PATH, '| main ref + exact miss |', `| ${COMBINED_GATE} |`);
+    });
+    assert.deepEqual(agreed.problems, []);
+  });
 });
 
 describe('pinned tools leg', () => {
@@ -733,6 +1022,106 @@ describe('pinned tools leg', () => {
     const { problems } = cacheAudit((files) => edit(files, CI_DOC_PATH, '| `widget` |', '| `gadget` |')); // prettier-ignore
     assert.equal(problems.length, 2);
     assert.ok(problems.some((p) => /pinned tools cache for `widget` that no pinned tools row describes/.test(p))); // prettier-ignore
+  });
+});
+
+describe('compareRows — every cell addressed by the column that names it', () => {
+  /** One family entry, and the claims a caller states per column over it. */
+  const ENTRY = {
+    job: 'builder',
+    workflow: WORKFLOW,
+    family: 'stem-',
+    gate: 'main ref + exact miss',
+  };
+  const claims = (entry) => [
+    ['Family', `\`${entry.family}\``, 'the step'],
+    ['Writer job', `\`${entry.job}\``, 'the step'],
+    ['Save', entry.gate, 'the step'],
+  ];
+
+  /** The comparison over one hand-built table: a header, and one body row. */
+  const over = (header, cells, expected = claims) =>
+    compareRows({
+      table: { header, rows: [cells] },
+      docPath: CI_DOC_PATH,
+      entries: [ENTRY],
+      identity: 'Writer job',
+      key: 'job',
+      expected,
+      what: 'key families',
+    });
+
+  const refuses = (call, pattern) =>
+    assert.throws(call, (error) => {
+      assert.ok(error instanceof InputError, `refused with ${error.constructor.name}`);
+      assert.match(error.message, pattern);
+      return true;
+    });
+
+  it('reads each cell by name, whatever order the header states the columns in', () => {
+    assert.deepEqual(
+      over(['Family', 'Writer job', 'Save'], ['`stem-`', '`builder`', 'main ref + exact miss']),
+      [],
+    );
+    assert.deepEqual(
+      over(['Save', 'Writer job', 'Family'], ['main ref + exact miss', '`builder`', '`stem-`']),
+      [],
+    );
+  });
+
+  it('names the column a cell disagrees on, not the one sitting at its index', () => {
+    const problems = over(['Save', 'Writer job', 'Family'], ['always', '`builder`', '`stem-`']);
+    assert.equal(problems.length, 1);
+    assert.match(problems[0], /key families row `builder` states `Save` as "always"/);
+  });
+
+  it('names the identity column on a cell that is not one backticked name', () => {
+    const problems = over(['Save', 'Writer job', 'Family'], ['main ref + exact miss', '', '`stem-`']); // prettier-ignore
+    assert.ok(problems.some((problem) => /row whose `Writer job` cell is not one backticked name: an empty cell/.test(problem))); // prettier-ignore
+  });
+
+  it('refuses a table stating no column a claim names', () => {
+    refuses(() => over(['Family', 'Writer job'], ['`stem-`', '`builder`']), /no `Save` column/);
+  });
+
+  it('refuses a claim naming a column the table does not state, whatever the rows name', () => {
+    // The row names no entry, so no cell of it is ever read — and the claim
+    // naming a column this header does not state is refused all the same,
+    // rather than passing as the drift a row naming nothing would otherwise be.
+    refuses(() => over(['Family', 'Writer job'], ['`stem-`', '`other-job`']), /no `Save` column/);
+  });
+
+  it('refuses a header stating one column name more than once', () => {
+    // A cell is read by the column that names it, so the later `Save` would
+    // stand for the name and the earlier one would be recomputed by nothing —
+    // the unheld cell the coverage refusal beside it exists to rule out.
+    refuses(
+      () =>
+        over(
+          ['Family', 'Writer job', 'Save', 'Save'],
+          ['`stem-`', '`builder`', 'not the posture', 'main ref + exact miss'],
+        ),
+      /with a repeated `Save` column/,
+    );
+  });
+
+  it('refuses a table stating no column the row identity is read from', () => {
+    const without = (entry) => claims(entry).filter(([column]) => column !== 'Writer job');
+    refuses(
+      () => over(['Family', 'Save'], ['`stem-`', 'main ref + exact miss'], without),
+      /no `Writer job` column/,
+    );
+  });
+
+  it('refuses a table stating a column no claim answers for', () => {
+    refuses(
+      () =>
+        over(
+          ['Family', 'Writer job', 'Save', 'Notes'],
+          ['`stem-`', '`builder`', 'main ref + exact miss', 'free text'],
+        ),
+      /states a `Notes` column in the key families table that this leg reads no claim for/,
+    );
   });
 });
 
@@ -812,6 +1201,13 @@ describe('cache shapes this check does not read — its own exit code', () => {
     refuses(
       (files) => edit(files, WORKFLOW, 'cargo install widget --version 2.3.4 --locked', 'echo skipped'), // prettier-ignore
       /states 0 `cargo install widget --version` command\(s\)/,
+    );
+  });
+
+  it('refuses a single-file cache under ~/.cargo/bin that names no tool', () => {
+    refuses(
+      (files) => edit(files, WORKFLOW, '          path: ~/.cargo/bin/widget\n', '          path: ~/.cargo/bin/\n'), // prettier-ignore
+      /caches `~\/\.cargo\/bin\/`, which names no tool this leg can read/,
     );
   });
 
@@ -906,6 +1302,40 @@ describe('subsectionText, guideVersionFor, cacheSteps — the pieces the cache l
     assert.doesNotMatch(text, /also not/);
   });
 
+  it('subsectionText answers with nothing where either heading is absent', () => {
+    const section = 'Running one gate directly';
+    const at = (markdown) => subsectionText(markdown, { section, subsection: MUTATION_RUNS_SUBSECTION }); // prettier-ignore
+    // No such `##` section: there is nothing to cut the deeper heading out of.
+    assert.equal(at(`## Elsewhere\n\n### ${MUTATION_RUNS_SUBSECTION}\nbody\n`), '');
+    // The section is there and states no such deeper heading inside it.
+    assert.equal(at(`## ${section}\n\nbody\n`), '');
+  });
+
+  it('subsectionText answers with the FIRST run of a heading stated more than once', () => {
+    // Each cut opens at the first line matching its own pattern, so a repeated
+    // heading is text after the boundary rather than more of the slice. The
+    // reader this replaced joined the runs, which is what this case reds
+    // against.
+    const section = 'Running one gate directly';
+    const doc = [
+      `## ${section}`,
+      '',
+      `### ${MUTATION_RUNS_SUBSECTION}`,
+      'the first run',
+      '',
+      '### Between',
+      'neither run',
+      '',
+      `### ${MUTATION_RUNS_SUBSECTION}`,
+      'the later run',
+      '',
+    ].join('\n');
+    const text = subsectionText(doc, { section, subsection: MUTATION_RUNS_SUBSECTION });
+    assert.match(text, /the first run/);
+    assert.doesNotMatch(text, /the later run/);
+    assert.doesNotMatch(text, /neither run/);
+  });
+
   it('guideVersionFor takes the first version token after a WHOLE-WORD name', () => {
     assert.equal(guideVersionFor('widget', 'the `1.2` job `widget` pins `3.4.5` today'), '3.4.5');
     // A name inside a longer token is not the tool being named.
@@ -939,6 +1369,93 @@ describe('subsectionText, guideVersionFor, cacheSteps — the pieces the cache l
     assert.equal(entries.length, 1);
     assert.deepEqual(entries[0].paths, ['~/.cargo/bin/widget']);
     assert.deepEqual(entries[0].restoreKeys, []);
+    assert.equal(entries[0].gate, COMBINED_GATE);
+  });
+
+  it('every walk over a job’s steps refuses a block that is not a list, by name', () => {
+    // Two readings take a job's `steps` through the one reader: the bounds
+    // walk, and the cache leg's single read — which serves that leg's cache
+    // walk and the install-pin walk inside a tool entry, so the install-pin
+    // walk reads no block of its own. A block in a shape neither reading admits
+    // is this check's own exit code at each of them, and each refusal names
+    // what its own reading reads there; the clause the cache leg's whole-tree
+    // read carries is pinned by the case below.
+    const mapping = { 'cache widget': { uses: 'actions/cache' } };
+    assert.throws(
+      () => stepBounds(WORKFLOW, 'tooling', mapping),
+      (error) =>
+        error instanceof InputError &&
+        error.message ===
+          `${WORKFLOW} job \`tooling\` states \`steps\` as something other than a list — this check reads each step's bound there`, // prettier-ignore
+    );
+    assert.throws(
+      () => cacheSteps(WORKFLOW, 'tooling', { steps: mapping }),
+      (error) =>
+        error instanceof InputError &&
+        error.message ===
+          `${WORKFLOW} job \`tooling\` states \`steps\` as something other than a list — this leg reads its cache steps there`, // prettier-ignore
+    );
+    // And a job stating none is an empty walk at each of them, never a refusal.
+    assert.deepEqual(stepBounds(WORKFLOW, 'tooling', undefined), []);
+    assert.deepEqual(cacheSteps(WORKFLOW, 'tooling', { 'runs-on': 'ubuntu-latest' }), []);
+  });
+
+  it('cacheSteps refuses a job that is not a mapping, and a step that is not one', () => {
+    assert.throws(
+      () => cacheSteps(WORKFLOW, 'tooling', 5),
+      (error) =>
+        error instanceof InputError &&
+        /job `tooling` is not a mapping — this leg reads its cache steps there/.test(error.message), // prettier-ignore
+    );
+    assert.throws(
+      () => cacheSteps(WORKFLOW, 'tooling', { steps: [{ run: 'ok' }, 5] }),
+      (error) =>
+        error instanceof InputError &&
+        /job `tooling` step 2 is not a mapping — this leg reads its cache steps there/.test(error.message), // prettier-ignore
+    );
+  });
+
+  it('the cache leg refuses a job it cannot read the block from, through each seam it is reached by', () => {
+    // From the CLI the bounds walk refuses these shapes first, so the seams the
+    // cache leg is reached through — `readCacheClasses` and `auditCaches` — are
+    // what a case has to drive. The leg reads a job's steps ONCE, behind the
+    // job-shape guard, and its clause names what that read serves, so the
+    // job-shape refusal and the steps-shape refusal carry the same words.
+    const clause = 'this leg reads its cache steps and install pins there';
+    const jobShaped = (block) => `name: Sample\n\njobs:\n  tooling:${block}`;
+    const refusals = [
+      ['a null job', '\n', `job \`tooling\` is not a mapping — ${clause}`],
+      ['a scalar job', ' 5\n', `job \`tooling\` is not a mapping — ${clause}`],
+      ['a string job', ' steps\n', `job \`tooling\` is not a mapping — ${clause}`],
+      ['a list-shaped job', '\n    - run: ok\n', `job \`tooling\` is not a mapping — ${clause}`],
+      [
+        'a mapping-shaped steps block',
+        '\n    steps:\n      build: true\n',
+        `job \`tooling\` states \`steps\` as something other than a list — ${clause}`,
+      ],
+    ];
+    for (const [what, block, tail] of refusals) {
+      const files = { [WORKFLOW]: jobShaped(block) };
+      const refuses = (call) =>
+        assert.throws(call, (error) => {
+          assert.ok(error instanceof InputError, `${what} refused with ${error.constructor.name}`);
+          assert.equal(error.message, `${WORKFLOW} ${tail}`, what);
+          return true;
+        });
+      refuses(() => readCacheClasses(jobsReader(readerOver(files)), [WORKFLOW]));
+      refuses(() => auditCaches(readerOver(files), () => Object.keys(files)));
+    }
+  });
+
+  it('takes a tool’s install pin from the same steps block the cache walk read', () => {
+    // The install-pin walk reads the block through the one reader too, so the
+    // pin comes from exactly the list that was admitted: there is no second,
+    // unvalidated read of `steps` left for that walk to end in a type error on.
+    const files = cacheFiles();
+    const { tools } = readCacheClasses(jobsReader(readerOver(files)), [WORKFLOW]);
+    assert.equal(tools.length, 1);
+    assert.equal(tools[0].tool, 'widget');
+    assert.equal(tools[0].pin, '2.3.4');
   });
 });
 
@@ -949,8 +1466,8 @@ describe('real-tree lock', () => {
     assert.ok(audit.workflowCount > 0);
     assert.ok(audit.boundedJobs > 0);
     assert.ok(audit.callerJobs > 0, 'the tree carries the shape the platform bounds elsewhere');
-    assert.ok(audit.familyCount > 0, 'the tree carries key families for the first table to hold');
-    assert.ok(audit.toolCount > 0, 'the tree carries pinned tool caches for the second to hold');
+    assert.ok(audit.familyCount > 0, 'the tree carries key families for their table to hold');
+    assert.ok(audit.toolCount > 0, 'the tree carries pinned tool caches for their table to hold');
   });
 
   it('a root with no tracked workflows is refused, never passed vacuously', () => {
@@ -978,7 +1495,7 @@ describe('real-tree lock', () => {
 describe('the CLI’s verdicts, over copies of the committed workflows', () => {
   const SCRIPT = join(ROOT, 'scripts', 'check-workflow-bounds.js');
   // The same tracked listing the check itself takes, so the copies are exactly
-  // the population CI reads — plus the two guides the cache legs read the
+  // the population CI reads — plus the guides the cache legs read the
   // committed cache claims from, which the same copies have to carry.
   const TRACKED = [...trackedFilesUnder(WORKFLOW_PATHSPEC, { cwd: ROOT }), CI_DOC_PATH, LOCAL_CI_DOC_PATH]; // prettier-ignore
   let root = null;
@@ -1051,6 +1568,10 @@ describe('the CLI’s verdicts, over copies of the committed workflows', () => {
     const { status, stdout } = run(tree());
     assert.equal(status, 0, stdout);
     assert.match(stdout, /workflow bounds hold/);
+    // The cache verdict is asserted beside the bounds one: without it the
+    // success line could lose the cache sentence and leave this lock green over
+    // a check running half its legs.
+    assert.match(stdout, /cache claims hold with them/);
   });
 
   it('exit 0 with an unbounded job in a nested YAML the boundary leaves outside', () => {
@@ -1067,6 +1588,7 @@ describe('the CLI’s verdicts, over copies of the committed workflows', () => {
     );
     assert.equal(status, 0, stdout);
     assert.match(stdout, /workflow bounds hold/);
+    assert.match(stdout, /cache claims hold with them/);
   });
 
   it('exit 1 naming the workflow and the job when a job bound is dropped', () => {
@@ -1104,7 +1626,9 @@ describe('the CLI’s verdicts, over copies of the committed workflows', () => {
     );
     assert.equal(status, 2);
     assert.match(stderr, /shape it does not read/);
-    assert.match(stderr, /does not parse as YAML/);
+    // Named by its file: the epilogue every exit-2 prints states the phrase
+    // "does not parse as YAML" on its own, so only the path discriminates.
+    assert.match(stderr, /test\.yml does not parse as YAML/);
     // The verdict it must never be mistaken for.
     assert.doesNotMatch(stderr, /bounds its steps/);
   });
@@ -1144,5 +1668,35 @@ describe('the CLI’s verdicts, over copies of the committed workflows', () => {
     assert.match(stderr, /states 0 table\(s\) headed/);
     // The verdict it must never be mistaken for.
     assert.doesNotMatch(stderr, /bounds its steps/);
+  });
+
+  it('exit 2 naming the earlier file’s bound, not the later file’s parse failure', () => {
+    // The refusal a run raises is the FIRST one its legs reach, in the order
+    // the listing yields. Reading every workflow before the legs run — the
+    // shape a "parse each file once" rewrite reaches for first — replaces this
+    // refusal with the later file's, so this case pins the reading order the
+    // one-read-per-file seam has to keep.
+    const EARLY = '.github/workflows/cla.yml';
+    const LATE = '.github/workflows/test.yml';
+    const listed = trackedFilesUnder(WORKFLOW_PATHSPEC, { cwd: ROOT });
+    const at = (path) => {
+      const index = listed.indexOf(path);
+      assert.notEqual(index, -1, `${path} is no longer a tracked workflow this case can plant in`);
+      return index;
+    };
+    assert.ok(at(EARLY) < at(LATE), `${EARLY} no longer precedes ${LATE}`);
+    const { status, stderr } = run(
+      tree((files) => {
+        files.set(EARLY, raiseBound(files.get(EARLY), 'cla_assistant', 10, '"${{ env.T }}"'));
+        files.set(LATE, 'jobs:\n  lint:\n   - [unclosed\n');
+      }),
+    );
+    assert.equal(status, 2);
+    assert.match(stderr, /shape it does not read/);
+    assert.match(stderr, /cla\.yml job `cla_assistant` states `timeout-minutes: "\$\{\{ env\.T \}\}"`/); // prettier-ignore
+    // The refusal reading the whole population up front would raise instead.
+    // Named by its file: the epilogue every exit-2 prints states the phrase
+    // "does not parse as YAML" on its own, so only the path discriminates.
+    assert.doesNotMatch(stderr, /\.github\/workflows\/test\.yml/);
   });
 });

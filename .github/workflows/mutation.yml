@@ -176,8 +176,9 @@ jobs:
 
       # The `mutation` family. Its key shape, its split, and its save's gate are
       # the desktop-rust-tests cargo block's in test.yml, which carries the
-      # reasoning every family shares; what this family stores, and how far its
-      # restore reaches, are its own.
+      # reasoning the cargo families share (`rust-tests`, `vectors` and this one
+      # beside it); what this family stores, and how far its restore reaches,
+      # are its own.
       #
       # It caches the REGISTRY ONLY — no `target` directory. `cargo mutants
       # --in-place` mutates and builds in the real tree, so the tree this job
@@ -194,6 +195,20 @@ jobs:
       # inactivity, so a missed week starts fully cold — a registry refetch on
       # top of the baseline build this job performs anyway. That steady state
       # is accepted design, not a defect to watch.
+      #
+      # The window is an ACCESS window, which is what makes the weekly cadence
+      # survivable at all: GitHub "will remove any cache entries that have not
+      # been accessed in over 7 days", and evicts for space "in order of last
+      # access date" — so the RESTORE above is itself the access that keeps
+      # this entry alive. The save below never refreshes it: it is gated on a
+      # miss, so a live entry is read and never rewritten. A missed week is two
+      # of those windows' silence, and that — not the save gate — is what ages
+      # the entry out.
+      #
+      # The margin that leaves is thin, and knowingly so: a Monday-to-Monday gap
+      # plus the queue delay a scheduled run takes puts each restore at the edge
+      # of the window it refreshes rather than comfortably inside it. Accepted as
+      # written — the cost of landing outside it is the cold start above.
       - name: Restore cargo registry
         id: cargo-cache
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0

@@ -904,11 +904,25 @@ const cronLine = (wf) => {
 };
 
 /**
+ * The part of the audit section's heading that names the section. The word the
+ * heading opens with is its cadence, and that word is derived from the cron
+ * below rather than spelled here — stating the stem alone is what lets the
+ * lookup follow a schedule that moves, and what lets the case below say which
+ * of the two drifted.
+ */
+const AUDIT_HEADING_STEM = 'docs-disposition audit';
+
+/** The CI guide section whose closing sentence names the non-blocking checks. */
+const INFORMATIONAL_SECTION = '## Required vs informational';
+
+/**
  * Every workflow the CI guide states a scheduled cadence for: the workflow
- * itself, the guide section that describes it — the mutation section's heading
- * derived from the shipped cadence word, so a rename carries the lookup with it
- * — and the parenthetical trigger phrase that section states, which is what
- * holds the section to its own schedule.
+ * itself, the guide section that describes it — as a whole heading where the
+ * words are settled here (the mutation one from the shipped cadence word), and
+ * as the stem alone where the cadence word is that workflow's own cron's, so
+ * the word is derived inside the case that already reads the cron rather than
+ * while this table is built — and the parenthetical trigger phrase that section
+ * states, which is what holds the section to its own schedule.
  */
 const SCHEDULED_WORKFLOWS = [
   {
@@ -923,10 +937,19 @@ const SCHEDULED_WORKFLOWS = [
   },
   {
     file: AUDIT_WORKFLOW,
-    guideHeading: '### Weekly docs-disposition audit',
+    headingStem: AUDIT_HEADING_STEM,
     triggerPhrase: '(Tuesdays, plus manual dispatch)',
   },
 ];
+
+/**
+ * One entry's guide heading: the whole heading where the table states one, and
+ * where it states a stem, that stem behind the cadence word its own cron
+ * denotes. Derived here rather than in the table, so a workflow that lost its
+ * schedule reds in the cases that read it instead of while the table is built.
+ */
+const guideHeadingOf = ({ file, guideHeading, headingStem }) =>
+  guideHeading ?? `### ${cadenceOf(cronFields(file))} ${headingStem}`;
 
 /** One workflow's row in the table above, refusing readably when it has none. */
 const scheduled = (wf) => {
@@ -1244,7 +1267,7 @@ describe('the scheduled cadences — every guide cell welded to its own cron', (
     );
   });
 
-  for (const { file, guideHeading, triggerPhrase } of SCHEDULED_WORKFLOWS) {
+  for (const { file, guideHeading, headingStem, triggerPhrase } of SCHEDULED_WORKFLOWS) {
     it(`${file} states exactly one schedule entry`, () => {
       const entries = workflowTriggers(file).schedule;
       assert.equal(
@@ -1283,12 +1306,71 @@ describe('the scheduled cadences — every guide cell welded to its own cron', (
         triggerPhrase.startsWith(`(${day}s, `),
         `the trigger phrase for ${file} must open with ${day}s, the day its cron sets (phrase: "${triggerPhrase}")`,
       );
-      const section = headingSection(repoFile(CI_GUIDE), guideHeading).replace(/\s+/g, ' ');
+      const heading = guideHeadingOf({ file, guideHeading, headingStem });
+      const section = headingSection(repoFile(CI_GUIDE), heading).replace(/\s+/g, ' ');
       assert.ok(
         section.includes(triggerPhrase.replace(/\s+/g, ' ')),
-        `${CI_GUIDE}'s "${guideHeading}" section must state "${triggerPhrase}"`,
+        `${CI_GUIDE}'s "${heading}" section must state "${triggerPhrase}"`,
       );
     });
+
+    // The entries stating a heading stem carry this weld and the prose one
+    // after it, each owed for its own reason. The heading weld: the stem is
+    // what finds a heading whose cadence word has moved, and an entry stating
+    // none is not owed it — the Scorecard heading states no cadence at all, and
+    // the mutation heading is derived in full from the shipped cadence word, so
+    // the lookup that must find it is itself the weld. The prose weld: the
+    // informational-checks sentence names Scorecard and the `cargo-mutants` job
+    // with no cadence word at all, so those entries state no prose claim to
+    // hold — one whose sentence gained a cadence would owe a stem.
+    if (headingStem)
+      it(`the CI guide's ${file} heading opens with the cadence its own cron denotes`, () => {
+        // The heading is a cadence claim in its own right, and the anchor every
+        // inbound link is cut from. Finding it by its stem rather than in full
+        // keeps two failures apart that a whole-heading lookup reports as one:
+        // a section renamed away from the stem, and a cadence word a moved
+        // schedule left standing. A changed word and a deleted one both red.
+        const opening = new RegExp(`^###\\s+(\\S*)\\s*${escapeForRegExp(headingStem)}$`, 'i');
+        const found = repoFile(CI_GUIDE)
+          .split('\n')
+          .map((line) => opening.exec(line))
+          .filter(Boolean);
+        assert.equal(
+          found.length,
+          1,
+          `${CI_GUIDE} must carry exactly one "${headingStem}" heading (found ${found.length})`,
+        );
+        const cadence = cadenceOf(cronFields(file));
+        assert.equal(
+          found[0][1],
+          cadence,
+          `${CI_GUIDE}: the "${headingStem}" heading must open with "${cadence}", the cadence ${file}'s cron denotes (found "${found[0][0].trim()}")`,
+        );
+      });
+
+    // The same cadence claim restated in prose: the informational-checks
+    // sentence names this workflow by its cadence too. The read is scoped to
+    // that section, so the heading above cannot answer for it, and the word is
+    // lower-cased because a sentence spells it as a sentence does. A word
+    // changed reds on the comparison; one deleted reds on the count, there
+    // being no such mention left to find.
+    if (headingStem)
+      it(`the CI guide's informational-checks sentence names ${file} by its own cron's cadence`, () => {
+        const section = headingSection(repoFile(CI_GUIDE), INFORMATIONAL_SECTION).replace(/\s+/g, ' '); // prettier-ignore
+        const mention = new RegExp(`the (\\S+) ${escapeForRegExp(headingStem)}`, 'g');
+        const found = [...section.matchAll(mention)];
+        assert.equal(
+          found.length,
+          1,
+          `${CI_GUIDE}'s "${INFORMATIONAL_SECTION}" section must name the "${headingStem}" with a cadence before it (found ${found.length})`,
+        );
+        const cadence = cadenceOf(cronFields(file)).toLowerCase();
+        assert.equal(
+          found[0][1],
+          cadence,
+          `${CI_GUIDE}: the "${headingStem}" mention in "${INFORMATIONAL_SECTION}" must state "${cadence}", the cadence ${file}'s cron denotes (found "${found[0][1]}")`,
+        );
+      });
 
     it(`${file}'s cron comment states the day and time its own fields set`, () => {
       const line = cronLine(file);

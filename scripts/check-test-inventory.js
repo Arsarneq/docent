@@ -877,11 +877,14 @@ export function stripFences(markdown) {
  * the view addresses the raw text too — so everything the author fenced comes
  * back in it.
  *
- * The two readings that take this primitive differ only in those two patterns,
- * and each states its own: a pull-request body's `## `-headed section is found
- * by a title without its markers and ends at the next `## ` line
- * (`extractSection` in `check-docs-disposition.js`), while a guide section is
- * found by a heading written out in full and ends at a heading of any level.
+ * The readings that take this primitive differ only in those two patterns, and
+ * each states its own: the pull-request body's section reader (`extractSection`
+ * in `check-docs-disposition.js`) finds a `## `-headed section by a title
+ * without its markers and ends it at the next `## ` line, while the guide
+ * subsection reader (`subsectionText` in `check-workflow-bounds.js`) takes this
+ * primitive twice — a section found by a heading written out in full and ended
+ * at a heading of level one or two, then the deeper heading inside it, found by
+ * any level below `##` and ended at a heading of any level.
  * Each pattern is matched a line at a time, and is rebuilt without the global
  * and sticky flags on entry, so a pattern carrying either answers the same on
  * every call.
