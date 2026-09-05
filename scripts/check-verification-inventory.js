@@ -71,10 +71,11 @@
  * baseline, the vector meta-schema, or the package manifest) — is a third
  * verdict, not a drift finding: they refuse loudly, naming the file and which
  * failure mode it was, and the wrapper exits 2 so machinery breakage never
- * reads as an inventory that went stale. A workflow whose top-level `jobs:`
+ * reads as a pin that stopped holding. A workflow whose top-level `jobs:`
  * anchor the shared extractor cannot find takes that same verdict here: no
- * inventory drifted, the file the job ids are read from moved, so it is
- * refused as an input rather than reported beside the drift findings.
+ * pin stopped holding, the file the job ids are read from moved, so it is
+ * refused as an input rather than reported beside the pins a drift verdict
+ * names.
  *
  * Why the always-on `lint` job: the diff that stales a doc inventory is
  * frequently docs-only, and a pull request that sets none of the workflow's
@@ -144,7 +145,7 @@ import {
   PATH_FIELDS,
   RELAX_KINDS,
   SCROLL_AMOUNT_FIELDS,
-  discoverSessions,
+  sessionsIn,
 } from './corpus-compare.js';
 import { PREDICATES, RECORDING_PREDICATES } from './sufficiency-lint.js';
 
@@ -494,9 +495,16 @@ export function extractStatedKinds(docText) {
  * so a sibling sentence naming the same field or outcome again is a sentence,
  * not a second entry — the carve-out the citation leg takes, for the reason it
  * takes it.
+ *
+ * `fields` is therefore never a population: every entry it can take is this
+ * check's own constant and the token stream is deduplicated, so it comes back
+ * carrying that one token or nothing. It is a list because the emptiness guard
+ * that reads it takes lists, and the guard's question of it is the only one
+ * asked — whether the clause still names the field at all.
  * @param {string} docText the corpus doctrine's text
  * @returns {{ fields: string[], outcomes: string[],
  *             unreadableTokens: { where: string, token: string, expected: string }[] }}
+ *   `fields` holding that one token or nothing
  */
 export function extractStatedOutcome(docText) {
   const clause = extractClauseSection(docText, OUTCOME_CLAUSE_ID);
@@ -779,7 +787,10 @@ export const DUPLICATE_SURFACES = [
  * @param {string[]} s[activeSessionsKey(platform)] one list per watched platform:
  *   that platform's active manifest session ids. The desktop platform's list is
  *   also §STC-22's diff partner; each is its own vacuity leg.
- * @param {string[]} s.docOutcomeFields the tokens §STC-23 names the outcome field with
+ * @param {string[]} s.docOutcomeFields §STC-23's own token for the outcome
+ *   field, which is this check's constant or nothing: the scan matches against
+ *   that constant and deduplicates, so this surface states the field's presence
+ *   rather than a population
  * @param {string[]} s.docOutcomes the outcome §STC-23 states committed vectors carry
  * @param {string[]} s.schemaOutcomes what the vector meta-schema states under that field
  * @param {boolean} s.schemaRequiresOutcome whether the meta-schema requires the field
@@ -867,6 +878,11 @@ export function evaluateVerificationInventory(s) {
   // empty surface hid it. The strict-flip watch stays behind the return for
   // the opposite reason: `failFree` over an empty active set is vacuously
   // true, so it would read a retired corpus as a flip trigger.
+  //
+  // A survey stating no watch at all hands this `undefined`, the way one
+  // stating no table count hands the scalar guards theirs: the `?? []` lets the
+  // emptiness guard below own that state and name the surface, rather than this
+  // leg taking a type error on a state that already has words for it.
   problems.push(...gateArgumentProblems(s.strictWatch ?? [], s.sufficiencyBaselineArg));
 
   // The vacuous seed above the shared guard: a scanned document that cites no
@@ -1327,6 +1343,64 @@ export function readSufficiencyBaseline(readFile, path, requiredIds) {
 }
 
 /**
+ * The session catalogue, read through the injected reader and validated to the
+ * depth this check reads it. The catalogue's shape is stated HERE and only
+ * here: both surfaces below — the platform population and the active-session
+ * lister — come through this one reader, so a catalogue that is not a
+ * catalogue fails as itself in the same words whichever of the two reaches it
+ * first, and a guard cannot be deepened on one of them alone.
+ *
+ * A broken manifest is not an empty catalogue — diagnosing it as one would
+ * send the reader to §STC-22's clause, which is not the file at fault — so
+ * each way the file can fail gets its own words: unreadable, unparseable, or
+ * parseable but not shaped like a session catalogue. The shape check runs to
+ * the depth the comparator's session walk relies on: string `id` and
+ * `platform` always, and — mirroring exactly the values that walk would
+ * path-join — `truth` whenever it is non-nullish and `overrides` whenever it
+ * is truthy. A present-but-nullish `truth` or a falsy `overrides` is
+ * deliberately not flagged: the walk substitutes its default or skips the
+ * join, so nothing reaches `join` to fail on.
+ *
+ * The guards run over every entry, not only one platform's, and that is
+ * deliberate: an entry of another platform with a mistyped key is joined by
+ * that platform's own comparator runs, so a malformed catalogue is refused
+ * wholesale. Whatever route a malformation would otherwise take — a raw type
+ * error out of a path-joined field on a discovered entry, or a silently
+ * dropped entry when `platform` is non-string, leaving the catalogue no longer
+ * reflecting the manifest — the shape verdict takes it first, because a
+ * malformed catalogue must fail as itself and never as a drift verdict — a
+ * pin that no longer holds.
+ * @param {(path: string) => string} readFile repo-relative content reader
+ * @param {string} path the catalogue's repo-relative path
+ * @returns {{ sessions: object[] }} the parsed, shape-checked catalogue
+ * @throws {InputError} naming the catalogue and which way it failed
+ */
+export function readSessionCatalogue(readFile, path) {
+  const shapeProblem = (what) => shapeError(path, 'the session catalogue', what);
+  const parsed = parseJsonInput(readFile, path);
+  if (!Array.isArray(parsed?.sessions)) {
+    throw shapeProblem('carries no `sessions` array');
+  }
+  parsed.sessions.forEach((session, i) => {
+    for (const field of ['id', 'platform']) {
+      if (typeof session?.[field] !== 'string') {
+        throw shapeProblem(`its \`sessions[${i}]\` entry carries no string \`${field}\``);
+      }
+    }
+    // The optional keys the session walk path-joins, each guarded exactly as
+    // that walk consumes it: `truth` falls back when nullish, `overrides` is
+    // skipped when falsy — so only the values it would really join are checked.
+    if (session.truth != null && typeof session.truth !== 'string') {
+      throw shapeProblem(`its \`sessions[${i}]\` entry carries a non-string \`truth\``);
+    }
+    if (session.overrides && typeof session.overrides !== 'string') {
+      throw shapeProblem(`its \`sessions[${i}]\` entry carries a non-string \`overrides\``);
+    }
+  });
+  return parsed;
+}
+
+/**
  * Every platform the session catalogue carries a session for, distinct and in
  * file order. The population is the WHOLE catalogue, not its active slice —
  * and a platform whose sessions have all been retired has no green
@@ -1336,32 +1410,16 @@ export function readSufficiencyBaseline(readFile, path, requiredIds) {
  * resolves when the maintainer either reactivates a session for the platform
  * or retires the platform's watch entry, gate command, and baseline together.
  * Editing this check is the deliberate act there, exactly as extending it is.
- *
- * Validated to the depth it reads, like the sibling readers above — a
- * catalogue that is not a catalogue must fail as itself, never as a platform
- * the watch has not learned.
  * @param {(path: string) => string} readFile repo-relative content reader
  * @param {string} path the catalogue's repo-relative path
  * @returns {string[]}
  * @throws {InputError} naming the catalogue and which way it failed
  */
 export function readManifestPlatforms(readFile, path) {
-  const subject = 'the session catalogue';
-  const parsed = parseJsonInput(readFile, path);
-  if (!Array.isArray(parsed?.sessions)) {
-    throw shapeError(path, subject, 'carries no `sessions` array');
-  }
   const platforms = [];
-  parsed.sessions.forEach((session, i) => {
-    if (typeof session?.platform !== 'string') {
-      throw shapeError(
-        path,
-        subject,
-        `its \`sessions[${i}]\` entry carries no string \`platform\``,
-      );
-    }
+  for (const session of readSessionCatalogue(readFile, path).sessions) {
     if (!platforms.includes(session.platform)) platforms.push(session.platform);
-  });
+  }
   return platforms;
 }
 
@@ -1403,9 +1461,20 @@ export function corpusFailKeys(baseline, activeIds) {
  * meta-schema that states no outcome under that property is a machinery
  * verdict naming the file, never an outcome the clause can be found to
  * disagree with.
+ *
+ * The outcome is held to {@link OUTCOME_TOKEN_RE} — the grammar the clause
+ * side is read by — exactly as the meta-schema writes it, never trimmed
+ * first. Padding is a disagreement rather than a formatting artifact: the
+ * const as written is what every committed vector is validated against, so a
+ * padded one has to surface here as this file's shape failing instead of
+ * reading as the token it resembles. The verdict it takes is the one the
+ * blank const already takes, and the outcome set diff in
+ * {@link evaluateVerificationInventory} stays a diff between two tokens the
+ * grammar admits.
  * @param {(path: string) => string} readFile repo-relative content reader
  * @param {string} path the meta-schema's repo-relative path
- * @returns {{ outcome: string, required: boolean }}
+ * @returns {{ outcome: string, required: boolean }} the outcome as one
+ *   token-shaped word, and whether the meta-schema requires its field
  * @throws {InputError} naming the meta-schema and which way it failed
  */
 export function readVectorOutcome(readFile, path) {
@@ -1418,15 +1487,16 @@ export function readVectorOutcome(readFile, path) {
   if (!isRecord(property)) {
     throw shapeError(path, subject, `carries no \`properties.${OUTCOME_FIELD}\` object`);
   }
-  if (typeof property.const !== 'string' || property.const.trim() === '') {
+  const outcome = typeof property.const === 'string' ? property.const : '';
+  if (!OUTCOME_TOKEN_RE.test(outcome)) {
     throw shapeError(
       path,
       subject,
-      `its \`${OUTCOME_FIELD}\` property states no \`const\` outcome`,
+      `its \`${OUTCOME_FIELD}\` property states no \`const\` outcome this check can read — the const is held to the token grammar §${OUTCOME_CLAUSE_ID}'s own side is read by: ${OUTCOME_TOKEN_EXPECTATION}`,
     );
   }
   return {
-    outcome: property.const,
+    outcome,
     required: Array.isArray(parsed.required) && parsed.required.includes(OUTCOME_FIELD),
   };
 }
@@ -1436,6 +1506,12 @@ export function readVectorOutcome(readFile, path) {
  * its `scripts` map. A named script that is missing or is not a command string
  * is a machinery verdict: the watch cannot say whether a gate carries its flag
  * when it cannot find the gate.
+ *
+ * Each command comes back trimmed: the blank test below already trims, so
+ * returning the untrimmed string would test one form of the command and hand
+ * back another. Every consumer tokenizes on whitespace, so the trim moves no
+ * verdict — which is what parts this from the outcome reader above, where the
+ * padding a trim would drop is a disagreement the grammar has to refuse.
  * @param {(path: string) => string} readFile repo-relative content reader
  * @param {string} path the manifest's repo-relative path
  * @param {string[]} scriptKeys the script names the watch reads
@@ -1454,71 +1530,35 @@ export function readGateCommands(readFile, path, scriptKeys) {
     if (typeof command !== 'string' || command.trim() === '') {
       throw shapeError(path, subject, `its \`scripts\` map defines no \`${key}\` command`);
     }
-    commands.set(key, command);
+    commands.set(key, command.trim());
   }
   return commands;
 }
 
 /**
- * One platform's active session ids from the manifest. A broken manifest is not
- * an empty catalogue — diagnosing it as one would send the reader to §STC-22's
- * clause, which is not the file at fault — so each way the file can fail this
- * check gets its own words: unreadable, unparseable, or parseable but not
- * shaped like a session catalogue. The shape check runs to the depth `discoverSessions`
- * relies on: string `id` and `platform` always, and — mirroring exactly the
- * values that walk would path-join — `truth` whenever it is non-nullish and
- * `overrides` whenever it is truthy. A present-but-nullish `truth` or a falsy
- * `overrides` is deliberately not flagged: the walk substitutes its default or
- * skips the join, so nothing reaches `join` to fail on.
+ * One platform's active session ids from the session catalogue, read through
+ * the same injected reader every sibling surface takes — so the lister is one
+ * more reader of the tree rather than a second, hidden route to disk, and a
+ * caller (the suite included) that hands this check a tree hands it the whole
+ * tree.
  *
- * The guards run over every entry, not only the discovered platform's, and that
- * is deliberate: an entry of another platform with a mistyped key is joined by
- * that platform's own comparator runs, so a malformed catalogue is refused
- * wholesale. Whatever route a malformation would otherwise take — a raw type
- * error out of a path-joined field on a discovered entry, or a silently dropped
- * entry when `platform` is non-string, leaving the catalogue no longer
- * reflecting the manifest — the shape verdict takes it first, because a
- * malformed catalogue must fail as itself and never as inventory drift.
- *
- * The manifest is read here and again by `discoverSessions`. That is deliberate:
- * validating the shape needs the parsed document, and session discovery stays
- * the comparator's single implementation rather than being reimplemented here.
- * Nothing wraps the `discoverSessions` call — on a manifest this function has
- * already found well-formed, a break in ITS contract is a code defect that must
- * surface as itself, never be relabelled a bad input file.
+ * The catalogue's shape verdict is {@link readSessionCatalogue}'s, stated
+ * once; the walk over the validated document is the comparator's own
+ * `sessionsIn`, so session discovery stays that one implementation rather than
+ * being reimplemented here. Nothing wraps the walk — on a catalogue the reader
+ * has already found well-formed, a break in ITS contract is a code defect that
+ * must surface as itself, never be relabelled a bad input file.
  *
  * The platform is a parameter rather than a bound constant so this stays the
- * one guarded entry point for every platform the check discovers sessions for:
- * the fused shape validation below serves them all, and `discoverSessions` is
- * still called exactly once, in one place.
+ * one guarded entry point for every platform the check discovers sessions for.
+ * @param {(path: string) => string} readFile repo-relative content reader
  * @param {string} platform the manifest platform whose sessions to list
  * @param {string} [manifestPath] repo-relative path to the session catalogue
  * @returns {string[]}
  * @throws {InputError} naming the manifest and which way it failed
  */
-export function listActiveSessions(platform, manifestPath = MANIFEST_PATH) {
-  const manifest = parseJsonInput(readTreeFile, manifestPath);
-  const shapeProblem = (what) => shapeError(manifestPath, 'the session catalogue', what);
-  if (!Array.isArray(manifest?.sessions)) {
-    throw shapeProblem('carries no `sessions` array');
-  }
-  manifest.sessions.forEach((session, i) => {
-    for (const field of ['id', 'platform']) {
-      if (typeof session?.[field] !== 'string') {
-        throw shapeProblem(`its \`sessions[${i}]\` entry carries no string \`${field}\``);
-      }
-    }
-    // The optional keys `discoverSessions` path-joins, each guarded exactly as
-    // that walk consumes it: `truth` falls back when nullish, `overrides` is
-    // skipped when falsy — so only the values it would really join are checked.
-    if (session.truth != null && typeof session.truth !== 'string') {
-      throw shapeProblem(`its \`sessions[${i}]\` entry carries a non-string \`truth\``);
-    }
-    if (session.overrides && typeof session.overrides !== 'string') {
-      throw shapeProblem(`its \`sessions[${i}]\` entry carries a non-string \`overrides\``);
-    }
-  });
-  return discoverSessions(manifestPath, platform)
+export function listActiveSessions(readFile, platform, manifestPath = MANIFEST_PATH) {
+  return sessionsIn(readSessionCatalogue(readFile, manifestPath), manifestPath, platform)
     .filter((session) => session.status === 'active')
     .map((session) => session.id);
 }
@@ -1530,13 +1570,13 @@ export function listActiveSessions(platform, manifestPath = MANIFEST_PATH) {
 function run() {
   let audit;
   try {
-    audit = auditTree(readTreeFile, (platform) => listActiveSessions(platform));
+    audit = auditTree(readTreeFile, (platform) => listActiveSessions(readTreeFile, platform));
   } catch (error) {
     if (!(error instanceof InputError)) throw error;
     console.error(
       `✗ an input this check reads could not be used:\n` +
         `    ${error.message}\n\n` +
-        `  This is machinery breakage, not an inventory that drifted — fix the file named\n` +
+        `  This is machinery breakage, not a pin that stopped holding — fix the file named\n` +
         `  above. Exit 2 keeps it distinct from the drift verdict (exit 1).\n`,
     );
     process.exit(2);
@@ -1545,14 +1585,18 @@ function run() {
 
   if (problems.length) {
     console.error(
-      `✗ a verification document's inventory drifted from what it describes:\n` +
+      `✗ a verification pin no longer holds:\n` +
         problems.map((p) => `    ${p}`).join('\n') +
         `\n\n  A finding naming two surfaces — a document, a code constant, the manifest, the\n` +
         `  vector meta-schema, the workflow, or a gate command's own arguments — is telling you\n` +
         `  the two no longer state the same thing: update both sides in the same change, and\n` +
         `  read the finding for which side moved. A gate-watch FLAG finding names no second\n` +
         `  statement, so its remedy is the gate itself: flip the command's flag, or regenerate\n` +
-        `  the baseline whose state it disagrees with.\n`,
+        `  the baseline whose state it disagrees with. A finding that a statement could not be\n` +
+        `  read as one — a list item, a cell, a token, a heading, or a table the header tuple\n` +
+        `  no longer selects exactly once — names no second statement either: the inventory is\n` +
+        `  no longer where this check reads it, so put the statement back in the form the\n` +
+        `  reader takes, or move the reader to where it now stands.\n`,
     );
     process.exit(1);
   }

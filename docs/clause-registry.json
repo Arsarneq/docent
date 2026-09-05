@@ -918,7 +918,7 @@
       "doc": "docs/verification/scripted-truth-corpus.md",
       "clause": "STC-23",
       "tag": "check-exists",
-      "check-ref": "The vector meta-schema corpus/vector.schema.json makes expected_outcome a required property with the const \"resolved\", and packages/shared/tests/unit/conformance-vectors.test.js validates every committed vector against that meta-schema (npm run test:shared), so a vector stating any other outcome cannot be committed green. The produce-stage oracle in packages/extension/tests/e2e/corpus/corpus.spec.js and the desktop assembler hold produced vectors to their committed counterparts, so the same const governs what a producer may emit into the shipped set. This clause's own words are held to that meta-schema by scripts/check-verification-inventory.js (npm run lint:verification-inventory, a step in CI's lint job): it reads the clause section whole, takes the field name from its own constant rather than from the document, and diffs the outcome the clause states against the const the meta-schema states under that field in both directions, so neither surface can restate the shipped outcome alone — and it reds when the meta-schema stops listing that field as required, which is the meta-schema's half of the every-committed-vector demand. A meta-schema that states no const under the field is refused as a machinery verdict naming the file, never reported as a clause that drifted."
+      "check-ref": "The vector meta-schema corpus/vector.schema.json makes expected_outcome a required property with the const \"resolved\", and packages/shared/tests/unit/conformance-vectors.test.js validates every committed vector against that meta-schema (npm run test:shared), so a vector stating any other outcome cannot be committed green. The produce-stage oracle in packages/extension/tests/e2e/corpus/corpus.spec.js and the desktop assembler hold produced vectors to their committed counterparts, so the same const governs what a producer may emit into the shipped set. This clause's own words are held to that meta-schema by scripts/check-verification-inventory.js (npm run lint:verification-inventory, a step in CI's lint job): it reads the clause section whole, takes the field name from its own constant rather than from the document, and diffs the outcome the clause states against the const the meta-schema states under that field in both directions, so neither surface can restate the shipped outcome alone — and it reds when the meta-schema stops listing that field as required, which is the meta-schema's half of the every-committed-vector demand. A meta-schema that states no const under the field is refused as a machinery verdict naming the file, never reported as a clause that drifted, and so is a const the token grammar cannot read — one padded or mis-cased, outside the lower-case hyphenated token this clause's own side is read by — because a const the check cannot read as an outcome is the meta-schema's shape failing rather than a clause stating something else."
     },
     {
       "doc": "docs/verification/scripted-truth-corpus.md",
@@ -936,19 +936,28 @@
       "doc": "docs/api/dispatch.md",
       "clause": "DI-2",
       "tag": "check-exists",
-      "check-ref": "The Bearer header presence/omission is pinned by the 'includes Authorization header when apiKey provided' and 'omits Authorization header when apiKey is null' cases in packages/shared/tests/unit/dispatch-core.test.js (npm run test:shared) and by the API-key describe in packages/extension/tests/unit/dispatch.test.js (npm run test:extension). Named gap: no test pins the POST method or the Content-Type header; a request-shape pin is the intended closure."
+      "check-ref": "The Bearer header presence/omission is pinned by the 'includes Authorization header when apiKey provided' and 'omits Authorization header when apiKey is null' cases in packages/shared/tests/unit/dispatch-core.test.js (npm run test:shared) and by the API-key describe in packages/extension/tests/unit/dispatch.test.js (npm run test:extension). Named gap: no test pins the POST method or the Content-Type header; a request-shape pin is the intended closure.",
+      "test-cases": [
+        "includes Authorization header when apiKey provided",
+        "omits Authorization header when apiKey is null"
+      ]
     },
     {
       "doc": "docs/api/dispatch.md",
       "clause": "DI-3",
       "tag": "check-exists",
-      "check-ref": "The exact five-field wrapper is asserted by packages/shared/tests/unit/contract.test.js ('has exactly five top-level keys') and packages/extension/tests/unit/dispatch.test.js (npm run test:shared / test:extension); the three-field export contrast is pinned by the desktop export suite validating buildExport output against the closed schema root (packages/desktop/tests/unit/export.test.js; npm run test:desktop); the stamp-or-fail sourcing by the stampFromSchema throw path (packages/shared/lib/format-stamp.js, exercised by the composition suites; npm run test:shared)."
+      "check-ref": "The exact five-field wrapper is asserted by packages/shared/tests/unit/contract.test.js ('has exactly five top-level keys') and packages/extension/tests/unit/dispatch.test.js (npm run test:shared / test:extension); the three-field export contrast is pinned by the desktop export suite validating buildExport output against the closed schema root (packages/desktop/tests/unit/export.test.js; npm run test:desktop); the stamp-or-fail sourcing by the stampFromSchema throw path (packages/shared/lib/format-stamp.js, exercised by the composition suites; npm run test:shared).",
+      "test-cases": ["has exactly five top-level keys"]
     },
     {
       "doc": "docs/api/dispatch.md",
       "clause": "DI-4",
       "tag": "check-exists",
-      "check-ref": "Field-for-field payload fidelity is pinned by 'buildPayload preserves all project, recording, and step fields' in packages/extension/tests/unit/dispatch.test.js (npm run test:extension) and the metadata/step-mode projections by packages/shared/tests/unit/dispatch-payload.test.js; tombstone retention by 'preserves deleted flag on steps' in packages/shared/tests/unit/dispatch-core.test.js (npm run test:shared). That pending actions live outside recording.steps is the shared session model's structure, review-held here."
+      "check-ref": "Field-for-field payload fidelity is pinned by 'buildPayload preserves all project, recording, and step fields' in packages/extension/tests/unit/dispatch.test.js (npm run test:extension) and the metadata/step-mode projections by packages/shared/tests/unit/dispatch-payload.test.js; tombstone retention by 'preserves deleted flag on steps' in packages/shared/tests/unit/dispatch-core.test.js (npm run test:shared). That pending actions live outside recording.steps is the shared session model's structure, review-held here.",
+      "test-cases": [
+        "buildPayload preserves all project, recording, and step fields",
+        "preserves deleted flag on steps"
+      ]
     },
     {
       "doc": "docs/api/dispatch.md",
@@ -960,7 +969,8 @@
       "doc": "docs/api/dispatch.md",
       "clause": "DI-6",
       "tag": "check-exists",
-      "check-ref": "2xx-with-unparseable-body success ('returns empty object when response is not valid JSON'), per-status DispatchError surfacing (400/401/403/404/500/502), and adversarial response tolerance are pinned by packages/shared/tests/unit/dispatch-core.test.js and packages/shared/tests/unit/security.test.js (npm run test:shared)."
+      "check-ref": "2xx-with-unparseable-body success ('returns empty object when response is not valid JSON'), per-status DispatchError surfacing (400/401/403/404/500/502), and adversarial response tolerance are pinned by packages/shared/tests/unit/dispatch-core.test.js and packages/shared/tests/unit/security.test.js (npm run test:shared).",
+      "test-cases": ["returns empty object when response is not valid JSON"]
     },
     {
       "doc": "docs/api/dispatch.md",
@@ -978,7 +988,11 @@
       "doc": "docs/api/dispatch.md",
       "clause": "DI-9",
       "tag": "check-exists",
-      "check-ref": "Both bounds are pinned by packages/shared/tests/unit/dispatch-core.test.js: 'throws DispatchError with null status for payload > 50MB' (before any request) and 'throws DispatchError for response > 10MB' (declared Content-Length); npm run test:shared."
+      "check-ref": "Both bounds are pinned by packages/shared/tests/unit/dispatch-core.test.js: 'throws DispatchError with null status for payload > 50MB' (before any request) and 'throws DispatchError for response > 10MB' (declared Content-Length); npm run test:shared.",
+      "test-cases": [
+        "throws DispatchError with null status for payload > 50MB",
+        "throws DispatchError for response > 10MB"
+      ]
     },
     {
       "doc": "docs/api/dispatch.md",
@@ -1002,7 +1016,11 @@
       "doc": "docs/api/dispatch.md",
       "clause": "DI-13",
       "tag": "check-exists",
-      "check-ref": "'dispatch button disabled without endpoint configured' and 'dispatch flow shows confirmation with step count' in packages/desktop/tests/integration/panel-dispatch-sync.spec.js pin the endpoint gate and the confirmation surface (npm run test:integration). Named gaps: the active-steps eligibility filter and the extension panel's mirrored gating have no dedicated pins and are review-held."
+      "check-ref": "'dispatch button disabled without endpoint configured' and 'dispatch flow shows confirmation with step count' in packages/desktop/tests/integration/panel-dispatch-sync.spec.js pin the endpoint gate and the confirmation surface (npm run test:integration). Named gaps: the active-steps eligibility filter and the extension panel's mirrored gating have no dedicated pins and are review-held.",
+      "test-cases": [
+        "dispatch button disabled without endpoint configured",
+        "dispatch flow shows confirmation with step count"
+      ]
     },
     {
       "doc": "docs/api/dispatch.md",

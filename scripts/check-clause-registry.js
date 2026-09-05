@@ -191,7 +191,7 @@ import { MAP_PATH, compileAlternatives } from './check-area-map.js';
 import { blankRustStrings, stripRustComments } from './check-command-surface.js';
 import {
   escapeForRegExp,
-  readLoneStringLiteral,
+  readCaseDeclarations,
   selfPath,
   tokenizeJs,
   trackedFilesUnder,
@@ -317,9 +317,6 @@ const JS_ANCHOR_RE = /\.m?js$/;
 
 /** A Rust source, where a test case is declared by its function name. */
 const RUST_ANCHOR_RE = /\.rs$/;
-
-/** The call words a JavaScript suite declares a case with. */
-const CASE_DECLARATORS = ['it', 'test'];
 
 /**
  * A token carrying at least one directory separator. The pattern characters
@@ -709,43 +706,29 @@ export function isCaseAnchorFile(path) {
 }
 
 /**
- * The test-case titles a JavaScript source DECLARES: the string literal
- * standing alone as the first argument of an `it(`/`test(` call, read off the
- * shared token stream ({@link tokenizeJs}) so a title in a comment, in an
+ * The test-case titles a JavaScript source DECLARES, read off the shared token
+ * stream ({@link tokenizeJs}) through the one home of that reading
+ * ({@link readCaseDeclarations}, which states the declarator shape and the
+ * member calls it refuses): the string literal standing alone as the first
+ * argument of a free `it(`/`test(` call, so a title in a comment, in an
  * assertion message, or in any other string is not one of them.
  *
- * Read as a token SEQUENCE — the call word standing FREE, its `(`, and the
- * literal the following punctuation proves whole — so a title a member call
- * states declares nothing here: a `.` on either side of the word breaks that
- * shape. That is what makes `it.skip('…')` and `it.only('…')` declare no case,
- * a skipped or focused title pinning nothing, and what keeps `suite.it('…')`
- * or `RE.test('…')` from crediting a case to a file that declares none.
- * A title built around a value is not a literal standing
- * alone; a TEMPLATE one is refused by name rather than passed over, because a
- * template is how a computed title is written and its author is owed the
- * reason their citation cannot resolve there.
+ * What this adds is the rendering the CITE needs. A TEMPLATE title is refused
+ * by name rather than passed over, because a template is how a computed title
+ * is written and its author is owed the reason their citation cannot resolve
+ * there.
  * @param {string} source the suite's text
  * @returns {{ titles: Set<string>, refused: string[] }} `refused` names each
  *   template title, by the run of literal text it opens with — the empty string
  *   where the title opens with an interpolation instead
  */
 export function jsDeclaredCases(source) {
-  const tokens = tokenizeJs(source);
   const titles = new Set();
   const refused = [];
-  for (let i = 0; i < tokens.length; i++) {
-    if (tokens[i].type !== 'word' || !CASE_DECLARATORS.includes(tokens[i].value)) continue;
-    // The word stands free or it declares nothing: a preceding `.` makes this a
-    // member call on some other object, whose argument is that object's
-    // business rather than a case this file states.
-    const before = tokens[i - 1];
-    if (before?.type === 'punct' && before.value === '.') continue;
-    const open = tokens[i + 1];
-    if (open?.type !== 'punct' || open.value !== '(') continue;
-    const read = readLoneStringLiteral(tokens, i + 2, ',)');
+  for (const { title, read } of readCaseDeclarations(tokenizeJs(source))) {
     // A template's own flat value is what a refusal names, and the reader
     // answers with the candidate token wherever the kind says there is one.
-    if (read.lone) titles.add(read.value);
+    if (title !== null) titles.add(title);
     else if (read.kind === 'template') refused.push(read.token);
   }
   return { titles, refused };

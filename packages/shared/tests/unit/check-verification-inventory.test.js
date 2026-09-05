@@ -39,8 +39,8 @@
  *
  * The exit-code contract is pinned where it lives, at the process boundary: a
  * spawned-CLI family runs the real command over a temporary tree holding copies
- * of the files it reads, and holds 0 / 1 / 2 to their meanings — green, an
- * inventory that drifted, and machinery breakage that must never read as a
+ * of the files it reads, and holds 0 / 1 / 2 to their meanings — green, a pin
+ * that no longer holds, and machinery breakage that must never read as a
  * drift verdict.
  */
 
@@ -103,6 +103,7 @@ import {
   corpusFailKeys,
   readGateCommands,
   readManifestPlatforms,
+  readSessionCatalogue,
   evaluateVerificationInventory,
   auditTree,
   InputError,
@@ -807,7 +808,7 @@ describe('evaluateVerificationInventory — watched platforms vs the catalogue (
   it('reads the catalogue’s platforms distinctly, and refuses one it cannot read', () => {
     const at = (text) => () => text;
     assert.deepEqual(
-      readManifestPlatforms(at('{"sessions":[{"platform":"a"},{"platform":"b"},{"platform":"a"}]}'), MANIFEST_PATH), // prettier-ignore
+      readManifestPlatforms(at('{"sessions":[{"id":"p","platform":"a"},{"id":"q","platform":"b"},{"id":"r","platform":"a"}]}'), MANIFEST_PATH), // prettier-ignore
       ['a', 'b'],
     );
     assert.throws(
@@ -1233,6 +1234,19 @@ describe('extractStatedOutcome — §STC-23’s shipping outcome', () => {
     assert.deepEqual(read.outcomes, []);
   });
 
+  // The prose sentence under STC-23 records the weld this family holds.
+  // Held whitespace-flat so rewrapping the paragraph never reds it.
+  const OUTCOME_WELD_SENTENCE =
+    'held to each other by the verification-inventory lint: it reds when either states an outcome the other does not, and when the meta-schema stops requiring the field this clause states that outcome under.';
+
+  it('the shipped clause states in prose that the outcome is machine-held', () => {
+    const flat = readFileSync(join(ROOT, CORPUS_DOC_PATH), 'utf8').replace(/\s+/g, ' ');
+    assert.ok(
+      flat.includes(OUTCOME_WELD_SENTENCE),
+      `${CORPUS_DOC_PATH} no longer states the outcome weld in prose`,
+    );
+  });
+
   it('the shipped clause and the shipped meta-schema state the same outcome', () => {
     const read = extractStatedOutcome(readFileSync(join(ROOT, CORPUS_DOC_PATH), 'utf8'));
     const schema = readVectorOutcome(
@@ -1338,6 +1352,8 @@ describe('readVectorOutcome — the meta-schema side, keyed by this check’s co
     ['no such property', '{"properties": {"vector_id": {}}}', /carries no `properties\.expected_outcome` object/], // prettier-ignore
     ['no const', '{"properties": {"expected_outcome": {"type": "string"}}}', /states no `const` outcome/], // prettier-ignore
     ['a blank const', '{"properties": {"expected_outcome": {"const": "  "}}}', /states no `const` outcome/], // prettier-ignore
+    ['a padded const', '{"properties": {"expected_outcome": {"const": " resolved "}}}', /states no `const` outcome/], // prettier-ignore
+    ['a const the outcome grammar cannot read', '{"properties": {"expected_outcome": {"const": "Resolved OK"}}}', /states no `const` outcome/], // prettier-ignore
   ]) {
     it(`refuses ${label} as machinery, naming the meta-schema`, () => {
       assert.throws(
@@ -1619,6 +1635,19 @@ describe('extractPerActionClass — the class the lint document’s heading stat
     assert.ok(
       !evaluateVerificationInventory(surface).some((p) => p.includes('undefined')),
       'the class finding must not render an absent read',
+    );
+  });
+
+  // The prose sentence under the heading records the weld this family holds.
+  // Held whitespace-flat so rewrapping the paragraph never reds it.
+  const WELD_SENTENCE =
+    'held to each other by the verification-inventory lint: it reds when the two name different classes, and when this document states that class in no heading or in more than one, since either leaves the attribution a guess.';
+
+  it('the shipped document states in prose that the heading is machine-held', () => {
+    const flat = readFileSync(join(ROOT, LINT_DOC_PATH), 'utf8').replace(/\s+/g, ' ');
+    assert.ok(
+      flat.includes(WELD_SENTENCE),
+      `${LINT_DOC_PATH} no longer states the per-action heading weld in prose`,
     );
   });
 
@@ -2012,7 +2041,7 @@ describe('the workflow anchor is an input this check reads', () => {
         ? deAnchor(readFileSync(join(ROOT, path), 'utf8'))
         : readTreeFile(join(ROOT, path));
     assert.throws(
-      () => auditTree(readFile, (platform) => listActiveSessions(platform, join(ROOT, MANIFEST_PATH))), // prettier-ignore
+      () => auditTree(readFile, (platform) => listActiveSessions(readFile, platform)),
       (error) => {
         assert.ok(error instanceof InputError, `not an InputError: ${error}`);
         assert.ok(isJobAnchorProblem(error.message), error.message);
@@ -2026,49 +2055,45 @@ describe('the workflow anchor is an input this check reads', () => {
 });
 
 describe('command-line readers — an unreadable input is never an empty inventory', () => {
+  // The lister takes the reader every sibling surface takes, so the catalogue
+  // it reads is an in-memory one here exactly as the baselines and the package
+  // manifest are above — no temporary tree, and the fake really is the file the
+  // listing path reads.
+  /** The catalogue as an in-memory tree; any other path reads as unreadable. */
+  const at = (text) => (path) => {
+    if (path !== MANIFEST_PATH) throw new InputError(`${path} could not be read — no such entry`);
+    return text;
+  };
+
   it('a malformed manifest fails loudly naming the file, not as an empty session catalogue', () => {
-    const dir = mkdtempSync(join(tmpdir(), 'docent-inventory-'));
-    const manifest = join(dir, 'manifest.json');
-    writeFileSync(manifest, '{ "sessions": [ ');
-    try {
-      assert.throws(
-        () => listActiveSessions('desktop-windows', manifest),
-        (error) => {
-          assert.ok(error instanceof InputError, `not an InputError: ${error}`);
-          assert.ok(error.message.includes(manifest), error.message);
-          // The drift diagnosis this must never be mistaken for.
-          assert.ok(!error.message.includes('no active'), error.message);
-          return true;
-        },
-      );
-    } finally {
-      rmSync(dir, { recursive: true, force: true });
-    }
+    assert.throws(
+      () => listActiveSessions(at('{ "sessions": [ '), 'desktop-windows'),
+      (error) => {
+        assert.ok(error instanceof InputError, `not an InputError: ${error}`);
+        assert.ok(error.message.includes(MANIFEST_PATH), error.message);
+        // The drift diagnosis this must never be mistaken for.
+        assert.ok(!error.message.includes('no active'), error.message);
+        return true;
+      },
+    );
   });
 
   it('a manifest that parses but carries no sessions array gets its own words', () => {
-    const dir = mkdtempSync(join(tmpdir(), 'docent-inventory-'));
-    const manifest = join(dir, 'manifest.json');
-    writeFileSync(manifest, '{ "sessions": {} }');
-    try {
-      assert.throws(
-        () => listActiveSessions('desktop-windows', manifest),
-        (error) => {
-          assert.ok(error instanceof InputError, `not an InputError: ${error}`);
-          assert.match(error.message, /carries no `sessions` array/);
-          // Shape, not readability — the file read and parsed perfectly well.
-          assert.doesNotMatch(error.message, /could not be read|not parseable/);
-          return true;
-        },
-      );
-    } finally {
-      rmSync(dir, { recursive: true, force: true });
-    }
+    assert.throws(
+      () => listActiveSessions(at('{ "sessions": {} }'), 'desktop-windows'),
+      (error) => {
+        assert.ok(error instanceof InputError, `not an InputError: ${error}`);
+        assert.match(error.message, /carries no `sessions` array/);
+        // Shape, not readability — the file read and parsed perfectly well.
+        assert.doesNotMatch(error.message, /could not be read|not parseable/);
+        return true;
+      },
+    );
   });
 
   it('a malformed session entry takes the shape verdict, whichever way it would escape', () => {
-    // Two routes, one verdict. A missing `id` fell through to the discovery
-    // walk and left as a TypeError — the drift exit code, and a stack instead
+    // Two routes, one verdict. A missing `id` fell through to the session walk
+    // and left as a TypeError — the drift exit code, and a stack instead
     // of a diagnosis. A missing `platform` never raised at all: the walk
     // filters on it, so the entry silently dropped, and with one entry in the
     // manifest the catalogue came back EMPTY — routing to the vacuity
@@ -2078,51 +2103,89 @@ describe('command-line readers — an unreadable input is never an empty invento
       ['id', { platform: 'desktop-windows' }],
       ['platform', { id: 'd-click' }],
     ]) {
-      const dir = mkdtempSync(join(tmpdir(), 'docent-inventory-'));
-      const manifest = join(dir, 'manifest.json');
-      writeFileSync(manifest, JSON.stringify({ sessions: [entry] }));
-      try {
-        assert.throws(
-          () => listActiveSessions('desktop-windows', manifest),
-          (error) => {
-            assert.ok(error instanceof InputError, `not an InputError for ${missing}: ${error}`);
-            assert.match(error.message, /shape is what failed here/);
-            assert.match(error.message, new RegExp(`sessions\\[0\\]\` entry carries no string \`${missing}\``)); // prettier-ignore
-            assert.doesNotMatch(error.message, /could not be read|not parseable/);
-            return true;
-          },
-        );
-      } finally {
-        rmSync(dir, { recursive: true, force: true });
-      }
+      assert.throws(
+        () => listActiveSessions(at(JSON.stringify({ sessions: [entry] })), 'desktop-windows'),
+        (error) => {
+          assert.ok(error instanceof InputError, `not an InputError for ${missing}: ${error}`);
+          assert.match(error.message, /shape is what failed here/);
+          assert.match(error.message, new RegExp(`sessions\\[0\\]\` entry carries no string \`${missing}\``)); // prettier-ignore
+          assert.doesNotMatch(error.message, /could not be read|not parseable/);
+          return true;
+        },
+      );
     }
   });
 
   it('a non-string truth or overrides takes the shape verdict too', () => {
-    // The other keys the discovery walk path-joins. No spawned leg here: the
+    // The other keys the session walk path-joins. No spawned leg here: the
     // malformed-entry case below already pins that these reach the CLI as the
     // machinery verdict — what is new is only which keys are covered.
     for (const [key, entry] of [
       ['truth', { id: 'd-click', platform: 'desktop-windows', truth: 5 }],
       ['overrides', { id: 'd-click', platform: 'desktop-windows', overrides: 5 }],
     ]) {
-      const dir = mkdtempSync(join(tmpdir(), 'docent-inventory-'));
-      const manifest = join(dir, 'manifest.json');
-      writeFileSync(manifest, JSON.stringify({ sessions: [entry] }));
-      try {
-        assert.throws(
-          () => listActiveSessions('desktop-windows', manifest),
-          (error) => {
-            assert.ok(error instanceof InputError, `not an InputError for ${key}: ${error}`);
-            assert.match(error.message, /shape is what failed here/);
-            assert.match(error.message, new RegExp(`sessions\\[0\\]\` entry carries a non-string \`${key}\``)); // prettier-ignore
-            assert.doesNotMatch(error.message, /could not be read|not parseable/);
-            return true;
-          },
-        );
-      } finally {
-        rmSync(dir, { recursive: true, force: true });
-      }
+      assert.throws(
+        () => listActiveSessions(at(JSON.stringify({ sessions: [entry] })), 'desktop-windows'),
+        (error) => {
+          assert.ok(error instanceof InputError, `not an InputError for ${key}: ${error}`);
+          assert.match(error.message, /shape is what failed here/);
+          assert.match(error.message, new RegExp(`sessions\\[0\\]\` entry carries a non-string \`${key}\``)); // prettier-ignore
+          assert.doesNotMatch(error.message, /could not be read|not parseable/);
+          return true;
+        },
+      );
+    }
+  });
+
+  it('the lister reads the catalogue through the reader it is handed, never off disk', () => {
+    // The seam this family stands on: hand the lister a tree that exists
+    // nowhere on disk and it must answer from that tree. A lister that read
+    // the file itself would answer with the shipped catalogue's sessions
+    // instead, and every refusal above would be testing a temporary file
+    // rather than the injected surface.
+    const catalogue = JSON.stringify({
+      sessions: [
+        { id: 'invented-a', platform: 'desktop-windows' },
+        { id: 'invented-b', platform: 'desktop-windows', status: 'retired' },
+        { id: 'invented-c', platform: 'extension' },
+      ],
+    });
+    assert.deepEqual(listActiveSessions(at(catalogue), 'desktop-windows'), ['invented-a']);
+    assert.deepEqual(listActiveSessions(at(catalogue), 'extension'), ['invented-c']);
+    // Nothing else was read: the reader refuses every other path, and a lister
+    // reaching past it for the manifest would have thrown that refusal.
+    assert.deepEqual(listActiveSessions(at(catalogue), 'no-such-platform'), []);
+  });
+
+  it('the platform population and the lister refuse a catalogue in the same words', () => {
+    // One shape-guard helper, two callers: the words a malformed catalogue is
+    // refused in cannot drift between them, because there is only one
+    // statement of them left to drift.
+    for (const [text, expected] of [
+      ['{ "sessions": {} }', /carries no `sessions` array/],
+      ['{"sessions":[{"platform":"desktop-windows"}]}', /entry carries no string `id`/],
+      ['{"sessions":[{"id":"d-a"}]}', /entry carries no string `platform`/],
+      ['{"sessions":[{"id":"d-a","platform":"desktop-windows","truth":5}]}', /entry carries a non-string `truth`/], // prettier-ignore
+      ['{"sessions":[{"id":"d-a","platform":"desktop-windows","overrides":5}]}', /entry carries a non-string `overrides`/], // prettier-ignore
+    ]) {
+      const words = (call) => {
+        try {
+          call();
+        } catch (error) {
+          assert.ok(error instanceof InputError, `not an InputError: ${error}`);
+          assert.match(error.message, expected);
+          return error.message;
+        }
+        assert.fail(`no refusal for ${text}`);
+      };
+      assert.equal(
+        words(() => listActiveSessions(at(text), 'desktop-windows')),
+        words(() => readSessionCatalogue(at(text), MANIFEST_PATH)),
+      );
+      assert.equal(
+        words(() => readManifestPlatforms(at(text), MANIFEST_PATH)),
+        words(() => readSessionCatalogue(at(text), MANIFEST_PATH)),
+      );
     }
   });
 
@@ -2210,7 +2273,7 @@ describe('check-verification-inventory: CLI exit codes at the process boundary',
       }),
     );
     assert.equal(status, 1);
-    assert.match(stderr, /inventory drifted/);
+    assert.match(stderr, /pin no longer holds/);
     assert.match(stderr, /delta_x/);
   });
 
@@ -2220,7 +2283,7 @@ describe('check-verification-inventory: CLI exit codes at the process boundary',
     assert.match(stderr, /could not be used/);
     assert.match(stderr, /is not parseable JSON/);
     // The verdict it must never be mistaken for.
-    assert.doesNotMatch(stderr, /inventory drifted/);
+    assert.doesNotMatch(stderr, /pin no longer holds/);
   });
 
   it('exit 2 when a session entry is malformed, not exit 1 with a type error', () => {
@@ -2234,7 +2297,7 @@ describe('check-verification-inventory: CLI exit codes at the process boundary',
     assert.equal(status, 2, stderr);
     assert.match(stderr, /could not be used/);
     assert.match(stderr, /shape is what failed here/);
-    assert.doesNotMatch(stderr, /inventory drifted/);
+    assert.doesNotMatch(stderr, /pin no longer holds/);
     assert.doesNotMatch(stderr, /TypeError/);
   });
 
@@ -2247,7 +2310,7 @@ describe('check-verification-inventory: CLI exit codes at the process boundary',
       }),
     );
     assert.equal(status, 1, stderr);
-    assert.match(stderr, /inventory drifted/);
+    assert.match(stderr, /pin no longer holds/);
     assert.match(stderr, /carries no known diff/);
     assert.match(stderr, /--strict/);
     assert.match(stderr, /npm run corpus:check/);
@@ -2266,6 +2329,32 @@ describe('check-verification-inventory: CLI exit codes at the process boundary',
     assert.match(stderr, /still carries a known diff/);
   });
 
+  it('the drift headline holds over a finding that names no verification document', () => {
+    // The over-claim this headline was reworded out of: a gate-argument
+    // finding names a manifest command and this check's own constant, and no
+    // verification document at all — so a headline saying a verification
+    // document's inventory drifted described a document the list never named.
+    const { status, stderr } = run(
+      tree((files) => {
+        const manifest = JSON.parse(files.get(PACKAGE_JSON_PATH));
+        manifest.scripts[SUFFICIENCY_SCRIPT] = manifest.scripts[SUFFICIENCY_SCRIPT].replace(
+          SUFFICIENCY_BASELINE_PATH,
+          SUFFICIENCY_BASELINE_PATH.replace('.json', '-moved.json'),
+        );
+        files.set(PACKAGE_JSON_PATH, JSON.stringify(manifest, null, 2));
+      }),
+    );
+    assert.equal(status, 1, stderr);
+    assert.match(stderr, /pin no longer holds/);
+    assert.match(stderr, /-moved\.json` for `--baseline`/);
+    // The finding beneath the headline names no document under docs/.
+    const findings = stderr.split('\n').filter((line) => line.startsWith('    `npm run'));
+    assert.equal(findings.length, 1, stderr);
+    assert.doesNotMatch(findings[0], /docs\//);
+    // The headline this reworded away from, which that finding does not bear out.
+    assert.doesNotMatch(stderr, /verification document's inventory drifted/);
+  });
+
   it('exit 2 when a known-diffs baseline is emptied of its keys, not exit 1 demanding the flip', () => {
     // The false green this guard exists for: `{}` satisfies "every present
     // array is empty" vacuously, so without the guard a truncated file would
@@ -2274,14 +2363,17 @@ describe('check-verification-inventory: CLI exit codes at the process boundary',
     assert.equal(status, 2, stderr);
     assert.match(stderr, /could not be used/);
     assert.match(stderr, /carries no session keys at all/);
-    assert.doesNotMatch(stderr, /inventory drifted/);
+    assert.doesNotMatch(stderr, /pin no longer holds/);
     assert.doesNotMatch(stderr, /carries no known diff/);
   });
 
   it('exit 2 when the workflow carries no anchor, and the fact is stated once', () => {
     // Before the reclassification this exited 1 under the drift headline, and
     // twice over: once as the extractor's problem and again as an inventory
-    // that came back empty.
+    // that came back empty. No drift fixture is spawned beside it: this case
+    // reads the anchor verdict's own code, and the separation from the drift
+    // verdict is pinned by the exit-code case at the end of this family, which
+    // holds the two to the absolute 1 and 2 rather than to being unequal.
     const anchor = run(
       tree((files) =>
         files.set(TEST_WORKFLOW_PATH, files.get(TEST_WORKFLOW_PATH).replace(/^jobs:/m, '# jobs:')),
@@ -2290,15 +2382,8 @@ describe('check-verification-inventory: CLI exit codes at the process boundary',
     assert.equal(anchor.status, 2, anchor.stderr);
     assert.match(anchor.stderr, /could not be used/);
     assert.match(anchor.stderr, /carries no top-level/);
-    assert.doesNotMatch(anchor.stderr, /inventory drifted/);
+    assert.doesNotMatch(anchor.stderr, /pin no longer holds/);
     assert.doesNotMatch(anchor.stderr, /no job ids found/);
-
-    const drift = run(
-      tree((files) =>
-        files.set(CORPUS_DOC_PATH, files.get(CORPUS_DOC_PATH).replace(', and `delta_x` (', ' (')),
-      ),
-    );
-    assert.notEqual(anchor.status, drift.status);
   });
 
   it('exit 2 when the vector meta-schema states no outcome under the field it is read by', () => {
@@ -2312,7 +2397,7 @@ describe('check-verification-inventory: CLI exit codes at the process boundary',
     assert.equal(status, 2, stderr);
     assert.match(stderr, /could not be used/);
     assert.match(stderr, /states no `const` outcome/);
-    assert.doesNotMatch(stderr, /inventory drifted/);
+    assert.doesNotMatch(stderr, /pin no longer holds/);
   });
 
   it('exit 1 when the clause states an outcome the meta-schema does not', () => {
@@ -2325,7 +2410,7 @@ describe('check-verification-inventory: CLI exit codes at the process boundary',
       }),
     );
     assert.equal(status, 1, stderr);
-    assert.match(stderr, /inventory drifted/);
+    assert.match(stderr, /pin no longer holds/);
     assert.match(stderr, /matched/);
     assert.doesNotMatch(stderr, /could not be used/);
   });
@@ -2350,48 +2435,42 @@ describe('real-tree lock', () => {
     // empty. Only the root anchoring is this lock's own (the suite runs from
     // anywhere; the CLI runs from the repository root).
     const readFile = (path) => readTreeFile(join(ROOT, path));
-    const listSessions = (platform) => listActiveSessions(platform, join(ROOT, MANIFEST_PATH));
+    const listSessions = (platform) => listActiveSessions(readFile, platform);
     const { problems, pinCount } = auditTree(readFile, listSessions);
     assert.deepEqual(problems, [], problems.join('\n'));
     assert.ok(pinCount > 0, 'the audit read no documented entries at all');
   });
 
   it('the manifest shape guard serves every platform the check discovers', () => {
-    // The desktop view is exercised throughout; this drives the SAME fused
-    // guard through the extension view, so a platform-specific escape cannot
-    // hide behind the one view the rest of the suite uses.
-    const dir = mkdtempSync(join(tmpdir(), 'docent-inventory-'));
-    const manifest = join(dir, 'manifest.json');
-    writeFileSync(manifest, JSON.stringify({ sessions: [{ id: 'ext-a', truth: 5 }] }));
-    try {
-      assert.throws(
-        () => listActiveSessions('extension', manifest),
-        (error) => {
-          assert.ok(error instanceof InputError, `not an InputError: ${error}`);
-          assert.match(error.message, /carries no string `platform`/);
-          return true;
-        },
-      );
-      writeFileSync(
-        manifest,
-        JSON.stringify({
-          sessions: [
-            { id: 'ext-a', platform: 'extension' },
-            { id: 'ext-b', platform: 'extension', status: 'retired' },
-            { id: 'd-a', platform: 'desktop-windows' },
-          ],
-        }),
-      );
-      assert.deepEqual(listActiveSessions('extension', manifest), ['ext-a']);
-      assert.deepEqual(listActiveSessions('desktop-windows', manifest), ['d-a']);
-    } finally {
-      rmSync(dir, { recursive: true, force: true });
-    }
+    // The desktop view is exercised throughout; this drives the same shape
+    // guard, `readSessionCatalogue`, through the extension view, so a
+    // platform-specific escape cannot hide behind the one view the rest of the
+    // suite uses.
+    const at = (text) => () => text;
+    assert.throws(
+      () => listActiveSessions(at(JSON.stringify({ sessions: [{ id: 'ext-a', truth: 5 }] })), 'extension'), // prettier-ignore
+      (error) => {
+        assert.ok(error instanceof InputError, `not an InputError: ${error}`);
+        assert.match(error.message, /carries no string `platform`/);
+        return true;
+      },
+    );
+    const catalogue = at(
+      JSON.stringify({
+        sessions: [
+          { id: 'ext-a', platform: 'extension' },
+          { id: 'ext-b', platform: 'extension', status: 'retired' },
+          { id: 'd-a', platform: 'desktop-windows' },
+        ],
+      }),
+    );
+    assert.deepEqual(listActiveSessions(catalogue, 'extension'), ['ext-a']);
+    assert.deepEqual(listActiveSessions(catalogue, 'desktop-windows'), ['d-a']);
   });
 
   it('the shipped tree carries an active session list for every watched platform', () => {
     for (const { platform } of STRICT_WATCH_PLATFORMS) {
-      const ids = listActiveSessions(platform, join(ROOT, MANIFEST_PATH));
+      const ids = listActiveSessions((path) => readTreeFile(join(ROOT, path)), platform);
       assert.ok(ids.length > 0, `no active ${platform} sessions discovered`);
     }
   });

@@ -123,8 +123,9 @@ artifacts are produced by five jobs:
 
 The structural hygiene locks (STC-11) additionally run over the committed
 vectors with the shared unit suite, with no producer involved — locally via
-`npm run test:shared`, and in CI's `unit-tests` job, which runs the same
-suite under coverage (`npm run test:coverage`).
+`npm run test:shared`, and in CI's `unit-tests` job, which runs on every push
+to `main` and on each pull request whose change filters fire, taking the same
+suite under coverage (`npm run test:coverage`, which includes its files).
 
 ## Comparator and relaxations
 
