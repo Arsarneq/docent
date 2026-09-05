@@ -42,8 +42,10 @@
  * was handed. Real-tree locks prove the shipped
  * inventories hold, that the shipped registration closes, that the shipped kill
  * sets name files that are there over one stated mutate scope, that each of
- * them states exactly what the criterion places in it, and that each
- * suite's membership rule still matches the discovery it mirrors.
+ * them states exactly what the criterion places in it, that each
+ * suite's membership rule still matches the discovery it mirrors, and that
+ * no two specs of the desktop integration suite declare the same full
+ * `describe > test` path.
  */
 
 import { describe, it } from 'node:test';
@@ -86,6 +88,7 @@ import {
   classifyArgument,
   configValues,
   duplicateSurfaceProblems,
+  duplicatesIn,
   emptySurfaceProblems,
   escapeForRegExp,
   extractClauseSection,
@@ -99,6 +102,7 @@ import {
   nodeTestArguments,
   normalizePath,
   parseTables,
+  readCaseDeclarations,
   readListEntries,
   readLoneStringLiteral,
   readPropertyStringArray,
@@ -132,6 +136,83 @@ const readRepoFile = (f) => {
   } catch {
     return null;
   }
+};
+
+/**
+ * The joined `describe > test` path each case a Playwright spec DECLARES sits
+ * at. No check resolves a citation by this path: a registry row's cited case
+ * resolves by BARE TITLE within the anchor-bearing files that row's `check-ref`
+ * names (`scripts/check-clause-registry.js`). What this computes is the spec's
+ * own naming of its cases, which is what the duplicate lock over the
+ * integration directory reads. The case half is read at its one home
+ * ({@link readCaseDeclarations}), which states the declarator shape and the
+ * member calls it refuses; what this adds is the suite-scope join.
+ *
+ * A suite opens with `test` `.` `describe` and its `(`, or with a modifier
+ * between the two — `test.describe.serial(`, `test.describe.only(`, and the
+ * rest of that family: `.` `<word>` `(`. `describe` must follow the dot, which
+ * is what keeps `test.skip(` and `test.only(` from opening one. A suite's scope
+ * runs to the end of its own call: where the callback opens a `{` block, that
+ * block's own `}` is what pops it, and a nested describe therefore contributes
+ * its title to the paths beneath it and to no others; where the callback is a
+ * concise arrow and opens no block, the call's `)` pops it, so such a describe
+ * carries its own cases and contributes nothing to the ones after it.
+ *
+ * Honest limits of the join, each named. A suite whose opener this reader does
+ * not take — a title built around a value, a second modifier behind the first
+ * (`test.describe.serial.only(`), a details object standing between the title
+ * and the callback, or an opener written as a helper or an alias — is passed
+ * over rather than named, so the cases under it join to the scopes that
+ * remain: a path this reader states that the spec does not. The join is not
+ * escaped, either: a describe title carrying ` > ` renders the same path a
+ * real nesting of the two titles either side of it renders. How the shared
+ * tokenizer reads the stream underneath both halves is stated at its own home
+ * ({@link tokenizeJs}).
+ */
+const specCasePaths = (source) => {
+  const tokens = tokenizeJs(source);
+  const titleAt = new Map();
+  for (const { index, title } of readCaseDeclarations(tokens)) {
+    if (title !== null) titleAt.set(index, title);
+  }
+  const paths = [];
+  const scopes = [];
+  let depth = 0;
+  let parens = 0;
+  for (let i = 0; i < tokens.length; i++) {
+    const token = tokens[i];
+    if (token.type === 'punct') {
+      if (token.value === '{') depth++;
+      else if (token.value === '}') {
+        depth--;
+        while (scopes.length > 0 && scopes.at(-1).depth >= depth) scopes.pop();
+      } else if (token.value === '(') parens++;
+      else if (token.value === ')') {
+        parens--;
+        while (scopes.length > 0 && scopes.at(-1).parens > parens) scopes.pop();
+      }
+    }
+    if (titleAt.has(i)) {
+      paths.push([...scopes.map((s) => s.title), titleAt.get(i)].join(' > '));
+      continue;
+    }
+    if (token.type !== 'word' || token.value !== 'test') continue;
+    if (tokens[i - 1]?.type === 'punct' && tokens[i - 1].value === '.') continue;
+    if (tokens[i + 1]?.type !== 'punct' || tokens[i + 1].value !== '.') continue;
+    if (tokens[i + 2]?.type !== 'word' || tokens[i + 2].value !== 'describe') continue;
+    // The modifier, where one stands between `describe` and its call: one word
+    // behind one dot (`serial`, `parallel`, `only`, `skip`, `fixme`).
+    let at = i + 3;
+    if (tokens[at]?.type === 'punct' && tokens[at].value === '.' && tokens[at + 1]?.type === 'word')
+      at += 2;
+    if (tokens[at]?.type !== 'punct' || tokens[at].value !== '(') continue;
+    const read = readLoneStringLiteral(tokens, at + 1, ',)');
+    // The two closers, recorded together: the brace depth this call stands at,
+    // which its callback's block returns to, and the paren depth inside the
+    // call, which a concise body leaves as the only way out.
+    if (read.lone) scopes.push({ title: read.value, depth, parens: parens + 1 });
+  }
+  return paths;
 };
 
 /**
@@ -3872,7 +3953,87 @@ describe('auditKillSetMembership — the criterion, both legs and both engines',
   });
 });
 
+describe('specCasePaths — the joined describe > test path a spec declares', () => {
+  it('joins each case to the describes whose braces hold it, and to no others', () => {
+    const paths = specCasePaths(
+      [
+        "test.describe('Outer', () => {",
+        "  test('first', async () => {});",
+        "  test.describe('Inner', () => {",
+        "    test('second', async () => {});",
+        '  });',
+        "  test('third', async () => {});",
+        '});',
+        "test('top level', async () => {});",
+      ].join('\n'),
+    );
+    assert.deepEqual(paths, [
+      'Outer > first',
+      'Outer > Inner > second',
+      'Outer > third',
+      'top level',
+    ]);
+  });
+
+  it('reads a declaration and nothing that only looks like one', () => {
+    const paths = specCasePaths(
+      [
+        "// test('a comment states no case', async () => {});",
+        'const message = "test(\'a string states no case\')";',
+        "test.describe('Suite', () => {",
+        "  test.skip('a skipped case pins nothing', async () => {});",
+        "  suite.test('another object owns this one', async () => {});",
+        '  test(`a computed title`, async () => {});',
+        "  test('declared', async () => {});",
+        '});',
+      ].join('\n'),
+    );
+    assert.deepEqual(paths, ['Suite > declared']);
+  });
+
+  it('reads a suite opened with a modifier, and the cases it holds', () => {
+    // Playwright opens a suite with a modifier behind the word — `serial`,
+    // `only`, and the rest of that family — and either declarator word states
+    // a case under it.
+    const paths = specCasePaths(
+      [
+        "test.describe.serial('Serial', () => {",
+        "  test('first', async () => {});",
+        '});',
+        "test.describe.only('Focused', () => {",
+        "  it('second', async () => {});",
+        '});',
+      ].join('\n'),
+    );
+    assert.deepEqual(paths, ['Serial > first', 'Focused > second']);
+  });
+
+  it('takes a concise-body describe for its own cases and for no later ones', () => {
+    // A concise arrow body opens no block, so the call's own `)` is what ends
+    // the scope; left to the brace rule alone it would run on over the file.
+    const paths = specCasePaths(
+      [
+        "test.describe('A', () => test('x', fn));",
+        "test.describe('B', () => { test('x', fn); });",
+      ].join('\n'),
+    );
+    assert.deepEqual(paths, ['A > x', 'B > x']);
+  });
+});
+
 describe('real-tree lock', () => {
+  /**
+   * One suite directory's registration, refused BY NAME when the registry no
+   * longer carries it: these locks read the shipped registration rather than a
+   * glob written here, so a registration that moved has to say so instead of
+   * dying on `undefined` several lines later.
+   */
+  const inventoryFor = (dir) => {
+    const entry = DOC_INVENTORIES.find((inventory) => inventory.dir === dir);
+    assert.ok(entry, `${dir} is registered in DOC_INVENTORIES (scripts/check-test-inventory.js)`);
+    return entry;
+  };
+
   it('the committed kill sets state exactly what the criterion places in them', () => {
     const result = auditKillSetMembership({ files: trackedFiles(), readFile: readRepoFile });
     assert.deepEqual(
@@ -4056,7 +4217,7 @@ describe('real-tree lock', () => {
     // so they are pinned against it: a rule that drifts lets a file that gets
     // picked up sit with no row, and the check would stay green on the drift it
     // exists to catch.
-    const ruleFor = (dir) => DOC_INVENTORIES.find((inv) => inv.dir === dir).selects;
+    const ruleFor = (dir) => inventoryFor(dir).selects;
 
     // The node-test trees: the runner expands `*.test.js` at the top of each
     // directory, so a helper beside the tests and a file one level deeper are
@@ -4117,6 +4278,23 @@ describe('real-tree lock', () => {
       }
     }
     assert.deepEqual(divergent, []);
+  });
+
+  it('no two integration specs declare the same describe > test path', () => {
+    // What this holds is the full path, across the directory: no two specs of
+    // it declare the same `describe > test` path. The population is the suite's
+    // own membership rule rather than a glob written here, so a spec added to
+    // the directory is under this lock the day Playwright starts running it.
+    const { dir, selects } = inventoryFor('packages/desktop/tests/integration');
+    const paths = [];
+    for (const file of trackedFiles()) {
+      if (!file.startsWith(`${dir}/`) || !selects(file.slice(dir.length + 1))) continue;
+      const source = readRepoFile(file);
+      assert.notEqual(source, null, `${file} is readable`);
+      paths.push(...specCasePaths(source));
+    }
+    assert.ok(paths.length > 0, `${dir} declares cases for this lock to read`);
+    assert.deepEqual(duplicatesIn(paths, dir), []);
   });
 });
 

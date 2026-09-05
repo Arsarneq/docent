@@ -736,8 +736,10 @@ test.describe('Desktop Panel — Delete Project', () => {
   });
 });
 
-test.describe('Desktop Panel - Dispatch Flow', () => {
-  test('dispatch button disabled without endpoint configured', async ({ page }) => {
+test.describe('Desktop Panel — Dispatch Flow', () => {
+  test('dispatch button disabled on a new project with no steps and no endpoint', async ({
+    page,
+  }) => {
     await openPanel(page, server);
 
     await page.click('#btn-new-project');
@@ -872,7 +874,7 @@ async function waitForSavedSettings(page, expected, timeout = SETTLE_TIMEOUT_MS)
   );
 }
 
-test.describe('Desktop Panel - Sync Settings', () => {
+test.describe('Desktop Panel — Sync Settings', () => {
   test('sync URL persists after save and navigate', async ({ page }) => {
     await openPanel(page, server);
 
@@ -1036,7 +1038,7 @@ test.describe('Desktop Panel - Sync Settings', () => {
   });
 });
 
-test.describe('Desktop Panel - Re-record Flow', () => {
+test.describe('Desktop Panel — Re-record Flow', () => {
   test('re-record opens recording view with banner', async ({ page }) => {
     await openPanel(page, server);
 
@@ -1074,7 +1076,7 @@ test.describe('Desktop Panel - Re-record Flow', () => {
   });
 });
 
-test.describe('Desktop Panel - Recording Delete', () => {
+test.describe('Desktop Panel — Recording Delete', () => {
   test('delete recording removes it from project view', async ({ page }) => {
     await openPanel(page, server);
 
@@ -1110,7 +1112,7 @@ test.describe('Desktop Panel - Recording Delete', () => {
   });
 });
 
-test.describe('Desktop Panel - Endpoint Settings', () => {
+test.describe('Desktop Panel — Endpoint Settings', () => {
   test('endpoint URL and API key persist after save', async ({ page }) => {
     await openPanel(page, server);
 
@@ -1133,7 +1135,7 @@ test.describe('Desktop Panel - Endpoint Settings', () => {
   });
 });
 
-test.describe('Desktop Panel - Window Target Selector', () => {
+test.describe('Desktop Panel — Window Target Selector', () => {
   test('target app dropdown is visible in recording view', async ({ page }) => {
     await openPanel(page, server);
 

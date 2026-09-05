@@ -1649,6 +1649,46 @@ export function readLoneStringLiteral(tokens, at, followers) {
   };
 }
 
+/** The call words a JavaScript suite declares a test case with. */
+const CASE_DECLARATORS = ['it', 'test'];
+
+/**
+ * Where a JavaScript token stream DECLARES a test case, and the title each one
+ * states: the call word standing FREE, its `(`, and the literal the following
+ * punctuation proves whole ({@link readLoneStringLiteral}). This is the one
+ * home of that reading — the clause registry resolves a row's cited cases
+ * through it, and the integration suite's duplicate-path lock reads the same
+ * calls before joining them to their describes — so a deepening here is
+ * learned by both rather than by one of them.
+ *
+ * A title a member call states declares nothing: a `.` on either side of the
+ * word breaks that shape. That is what makes `it.skip('…')` and `it.only('…')`
+ * declare no case, a skipped or focused title pinning nothing, and what keeps
+ * `suite.it('…')` or `RE.test('…')` from crediting a case to a file that
+ * declares none. A title built around a value is not a literal standing alone
+ * and declares nothing either — the candidate's own facts travel back with
+ * every call, so a caller naming a template AS a template reads it from the
+ * answer rather than reaching back into the stream beside this one.
+ * @param {{ type: string, value: string }[]} tokens the token stream
+ * @returns {{ index: number, title: string | null, read: object }[]} one entry
+ *   per declarator call, in stream order: `index` is the call word's own token
+ *   index, `title` the literal it states or `null` where it states none, and
+ *   `read` that candidate's facts as {@link readLoneStringLiteral} answers them
+ */
+export function readCaseDeclarations(tokens) {
+  const calls = [];
+  for (let i = 0; i < tokens.length; i++) {
+    if (tokens[i].type !== 'word' || !CASE_DECLARATORS.includes(tokens[i].value)) continue;
+    const before = tokens[i - 1];
+    if (before?.type === 'punct' && before.value === '.') continue;
+    const open = tokens[i + 1];
+    if (open?.type !== 'punct' || open.value !== '(') continue;
+    const read = readLoneStringLiteral(tokens, i + 2, ',)');
+    calls.push({ index: i, title: read.lone ? read.value : null, read });
+  }
+  return calls;
+}
+
 /**
  * The literal kinds a reader of quoted strings does not read. {@link tokenizeJs}
  * emits `word`, `string`, `template`, `regex`, and `punct`; of those, the two

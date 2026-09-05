@@ -24,6 +24,7 @@ import {
   normalizeEnvelope,
   diffEnvelopes,
   discoverSessions,
+  sessionsIn,
   serializeFinding,
   toBaseline,
   MachineryError,
@@ -563,6 +564,69 @@ describe('corpus-compare: baseline mechanics', () => {
     assert.ok(diffBaselines(baseline, regressed).some((l) => l.startsWith('NEW')));
     const fixed = toBaseline([{ sessionId: 's1', findings: [] }]);
     assert.ok(diffBaselines(baseline, fixed).some((l) => l.startsWith('VANISHED')));
+  });
+});
+
+describe('corpus-compare: the session walk over an already-parsed catalogue', () => {
+  it("sessionsIn returns the requested platform's sessions, in manifest order", () => {
+    // Nothing is read from disk here: the catalogue is already parsed, and the
+    // manifest path is only what the entry files resolve against.
+    const manifest = {
+      sessions: [
+        { id: 'ext-second', platform: 'extension' },
+        { id: 'win-only', platform: 'desktop-windows' },
+        { id: 'ext-first', platform: 'extension', status: 'retired', overrides: 'o.json' },
+        { id: 'ext-named', platform: 'extension', truth: 'named.docent.json' },
+      ],
+    };
+    const walked = sessionsIn(manifest, join(CORPUS_DIR, 'manifest.json'), 'extension');
+    assert.deepEqual(
+      walked.map((s) => s.id),
+      ['ext-second', 'ext-first', 'ext-named'],
+    );
+    assert.deepEqual(
+      walked.map((s) => s.status),
+      ['active', 'retired', 'active'],
+    );
+    assert.equal(
+      walked[0].truthPath,
+      join(CORPUS_DIR, 'sessions', 'ext-second', 'truth.docent.json'),
+    );
+    // Both sides of the truth fallback: the default where the entry states no
+    // filename, the entry's own where it states one.
+    assert.equal(
+      walked[2].truthPath,
+      join(CORPUS_DIR, 'sessions', 'ext-named', 'named.docent.json'),
+    );
+    assert.equal(walked[0].overridesPath, null);
+    assert.equal(walked[1].overridesPath, join(CORPUS_DIR, 'sessions', 'ext-first', 'o.json'));
+  });
+
+  it('catches an unconditional path join grown over a field the guard does not read', () => {
+    // The catalogue guard in scripts/check-verification-inventory.js validates
+    // the entry values this walk path-joins, to the depth it joins them, and
+    // states that mirroring in its own docblock. What this holds is the
+    // UNCONDITIONAL half of that pairing: a join grown here straight over an
+    // unguarded field meets `notes`'s non-string value and throws out of
+    // `join` — machinery breakage where the catalogue's shape verdict belongs
+    // — so it reds here. A conditional join, the shape `overrides` already
+    // uses, reads the field as absent, skips, and passes: that half is not
+    // held by this case.
+    const manifest = {
+      sessions: [{ id: 'ext-extra', platform: 'extension', notes: 5, extra: null }],
+    };
+    let walked;
+    assert.doesNotThrow(() => {
+      walked = sessionsIn(manifest, join(CORPUS_DIR, 'manifest.json'), 'extension');
+    });
+    assert.deepEqual(
+      walked.map((s) => s.id),
+      ['ext-extra'],
+    );
+    assert.equal(
+      walked[0].truthPath,
+      join(CORPUS_DIR, 'sessions', 'ext-extra', 'truth.docent.json'),
+    );
   });
 });
 

@@ -434,12 +434,23 @@ class MachineryError extends Error {}
 export { MachineryError };
 
 /**
- * Read the manifest and return the sessions for one platform. Sessions with
- * `status: "retired"` are listed but never compared (removal stays loud — the
- * manifest entry and its reason remain).
+ * One platform's sessions from an already-parsed manifest, each entry's truth
+ * and overrides paths resolved against the manifest's own directory. The walk
+ * is split from the disk read below so a caller that has already parsed the
+ * catalogue — to validate its shape before believing it — runs this one
+ * implementation over the document it validated, rather than reading the file
+ * a second time and walking a copy nothing checked.
+ *
+ * The entry contract is applied here, where the entries are made: an entry
+ * stating no `status` walks as `active`, and one stating `status: "retired"`
+ * is listed but never compared (removal stays loud — the manifest entry and
+ * its reason remain).
+ * @param {{ sessions: object[] }} manifest a parsed session catalogue
+ * @param {string} manifestPath the path its entry files resolve against
+ * @param {string} platform the platform whose sessions to return
+ * @returns {object[]} that platform's sessions, in manifest order
  */
-export function discoverSessions(manifestPath, platform) {
-  const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
+export function sessionsIn(manifest, manifestPath, platform) {
   const base = dirname(manifestPath);
   return manifest.sessions
     .filter((s) => s.platform === platform)
@@ -449,6 +460,15 @@ export function discoverSessions(manifestPath, platform) {
       truthPath: join(base, 'sessions', s.id, s.truth ?? 'truth.docent.json'),
       overridesPath: s.overrides ? join(base, 'sessions', s.id, s.overrides) : null,
     }));
+}
+
+/**
+ * Read the manifest from disk and return the sessions for one platform. The
+ * file read is the whole of what this adds; the walk and the entry contract it
+ * applies are {@link sessionsIn}'s.
+ */
+export function discoverSessions(manifestPath, platform) {
+  return sessionsIn(JSON.parse(readFileSync(manifestPath, 'utf8')), manifestPath, platform);
 }
 
 function loadValidated(path, expectedPlatform, what) {
