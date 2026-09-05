@@ -221,13 +221,17 @@ describe('check-script CLI smoke (deterministic green paths)', () => {
     assert.match(out, /no tracked entry is a symbolic link/);
   });
 
-  it('check-workflow-bounds: every tracked workflow job states a bound it stands above', () => {
+  it('check-workflow-bounds: every job states a bound it stands above, and every cache step takes a guide row', () => {
     // No env pinned: this check and its import closure (the doc-closure
     // boundary it reads the workflow set through, the path-filter's job reader
     // that boundary imports, the test-inventory population reader, and the YAML
     // parser) read no process.env.
+    // Both verdicts are asserted because the wrapper prints both: with only the
+    // bounds sentence matched, the cache sentence could drop out of the success
+    // line and leave this smoke green over half the check.
     const out = runScript('check-workflow-bounds.js');
     assert.match(out, /workflow bounds hold across/);
+    assert.match(out, /cache claims hold with them/);
   });
 });
 

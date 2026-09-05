@@ -390,20 +390,20 @@ jobs:
       # which does not admit the key — and where a job's steps state bounds of
       # their own they add up to less than the job's, so each step bound is
       # what ends its own step. The same check reads the workflows' CACHE steps
-      # beside their bounds, holding the two cache tables in docs/guides/ci.md
-      # (§What the caches key on) to them in both directions: each key family's
-      # key, paths, writer job, fallback and save gating, with the family names
-      # held pairwise prefix-free within each exact-path-list group and one name
-      # shared there only where the two keys hash different inputs;
-      # and each pinned tool's key version segment against the version its
-      # install pins and against the version docs/guides/local-ci.md states
+      # beside their bounds, holding the key-families and pinned-tools tables in
+      # docs/guides/ci.md (§What the caches key on) to them in both directions:
+      # each key family's key, paths, writer job, fallback and save gating, with
+      # the family names held pairwise prefix-free within each exact-path-list
+      # group and one name shared there only where the two keys hash different
+      # inputs; and each pinned tool's key version segment against the version
+      # its install pins and against the version docs/guides/local-ci.md states
       # beside the tool's own name. It runs here, in the always-on job, because
       # a workflow file sets a path-filter flag only where a path-filtered job's
       # run depends on it or a test suite holds it, and an edit to any other
       # fires no path-filtered test job. scripts/check-workflow-bounds.js is the
       # home of the complete red set, and of the refusals it reports on its own
       # exit code instead of passing vacuously.
-      - name: Validate workflow bounds
+      - name: Validate job bounds and caches
         run: npm run lint:workflow-bounds
 
       # The Clippy gate's invocation has one home (docs/guides/ci.md §CI-1), which
@@ -767,7 +767,7 @@ jobs:
       # what keeps the segment truthful — the binary a hit serves is the one
       # the segment claims — and moving to a new release is then one deliberate
       # edit to both, with the changed key making that release refetch. The
-      # tool-caches table in docs/guides/ci.md (§What the caches key on) states
+      # pinned-tools table in docs/guides/ci.md (§What the caches key on) states
       # that pairing for every pinned tool, and scripts/check-workflow-bounds.js
       # recomputes it from this step and the install below.
       - name: Cache cargo-llvm-cov
@@ -1224,12 +1224,15 @@ jobs:
           toolchain: stable
           components: clippy
 
-      # The `xcompile` family — one of the TWO whose fallback stays inside its
-      # own family: this one by the isolation argued below, and the `mutation`
-      # family on its own ground, where a path list no other family shares
-      # makes any wider prefix dead weight. Its key shape, its split, and its
-      # save's gate are the desktop-rust-tests block's, which carries the
-      # reasoning for all four.
+      # The `xcompile` family keeps its fallback inside its own family, as
+      # `mutation` does: this one by the isolation argued below, and `mutation`
+      # on its own ground, where a path list no other family shares makes any
+      # wider prefix dead weight. Its key shape, its
+      # split, and its save's gate are the desktop-rust-tests block's, which
+      # carries the reasoning the cargo families share (`rust-tests`, `vectors`
+      # and `mutation` beside this one); the key-families table naming every
+      # family the tracked workflows write is in docs/guides/ci.md §What the
+      # caches key on.
       - name: Restore cargo registry and build
         id: cargo-cache
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
