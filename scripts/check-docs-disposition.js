@@ -96,7 +96,7 @@ import {
   effectiveHeadRef,
   isAllowedReleaseOutput,
 } from './check-no-release-outputs.js';
-import { escapeForRegExp, stripFences } from './check-test-inventory.js';
+import { escapeForRegExp, extractHeadingSection } from './check-test-inventory.js';
 
 /**
  * Repo-relative path of the clause registry — the shared governance-data
@@ -609,38 +609,29 @@ export function parseGovernanceSection(section) {
 
 /**
  * Extract a `## `-headed section's body from a PR description: the text between
- * this heading and the next UNFENCED `## ` heading. Both boundaries are found on
- * a fence-stripped view (the one fence model, {@link stripFences}, which blanks
- * fenced lines and keeps the line count), so a `##` line inside a fenced example
- * neither ends a section nor opens one — a heading inside a fence is not a
- * heading, and a body whose only section heading sits inside one carries no such
- * section. A fence left open runs to the end of the body, so every heading below
- * it is inside it. The body itself is sliced from the raw text by line, so
- * everything the author fenced comes back with it.
+ * this heading and the next UNFENCED `## ` heading. The slice itself is the
+ * shared {@link extractHeadingSection}, which finds both boundaries on a
+ * fence-stripped view (the one fence model, `stripFences` in
+ * `check-test-inventory.js`, which blanks fenced lines and keeps the line
+ * count) and returns the raw lines between
+ * them, so a `##` line inside a fenced example neither ends a section nor opens
+ * one — a heading inside a fence is not a heading, and a body whose only
+ * section heading sits inside one carries no such section. A fence left open
+ * runs to the end of the body, so every heading below it is inside it, and
+ * everything the author fenced comes back in the section it sits in. What this
+ * reading states of its own is the two patterns: the heading is `## ` and the
+ * title, case-insensitively and with nothing but whitespace after it, and only
+ * another `## ` line ends the section — a `### ` subheading is inside it.
  * @param {string} body
  * @param {string} title the section title without the `## ` prefix
  * @returns {string | null} the text between this heading and the next unfenced `## `, or null
  */
 export function extractSection(body, title) {
-  const escaped = escapeForRegExp(title);
-  const view = stripFences(body);
-  const m = view.match(new RegExp(`^##\\s+${escaped}\\s*$`, 'mi'));
-  if (!m) return null;
-  // The match INDEX is the heading's own line; its end is not, because the
-  // trailing `\s*$` runs past the lines stripFences blanked below it.
-  const headingLine = view.slice(0, m.index).split('\n').length - 1;
-  const viewLines = view.split('\n');
-  let end = viewLines.length;
-  for (let i = headingLine + 1; i < viewLines.length; i++) {
-    if (/^##\s+/.test(viewLines[i])) {
-      end = i;
-      break;
-    }
-  }
-  return body
-    .split('\n')
-    .slice(headingLine + 1, end)
-    .join('\n');
+  return extractHeadingSection(
+    body,
+    new RegExp(`^##\\s+${escapeForRegExp(title)}\\s*$`, 'i'),
+    /^##\s+/,
+  );
 }
 
 const key = ({ doc, clause }) => `${doc}§${clause ?? ''}`;

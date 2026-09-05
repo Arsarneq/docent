@@ -93,7 +93,14 @@
  *       view with comments stripped and string-literal contents blanked, so a
  *       declaration a source merely QUOTES is the text it is rather than an edge
  *       or a refusal, and a `mod` declaration states where a module LIVES rather
- *       than what it needs.
+ *       than what it needs. A crate module under `src/` is read as the compiled
+ *       crate carries it — without `--cfg test`, so the items a bare
+ *       `cfg(test)` attribute gates state no edges — the attribute written
+ *       `#[cfg(test)]` before an item or block, or `#![cfg(test)]` inside a
+ *       block or at the top of a file, with a narrower predicate such as
+ *       `#[cfg(all(test, …))]` still stating them — while an integration
+ *       target under `tests/` is read whole, since it IS compiled with it;
+ *       the `pub use` refusal reads the whole source either way.
  *       What the criterion leaves to judgment
  *       — whether a surface is fast, and whether it is deterministic outside
  *       the property runner the clause names — is recorded per entry in
@@ -406,7 +413,31 @@ export const TRACKED_LISTS = [
 
 /* ── Markdown tables ─────────────────────────────────────────────────────── */
 
-const FENCE_RE = /^\s*(```|~~~)/;
+const FENCE_RE = /^(\s*)(`{3,}|~{3,})(.*)$/;
+
+/**
+ * How far past its opener's own indent a closing fence marker may sit. Markdown
+ * measures a closer's indent from the block the fence is written in, not from
+ * the left margin; reading line by line, the opener's indent is the only stand-
+ * in for that block, so a closer is admitted up to this far past it — enough
+ * for a fence written inside a list item, and not enough for a marker buried in
+ * the fenced text.
+ */
+const CLOSER_INDENT_SLACK = 3;
+
+/**
+ * A fence marker's indent in columns. Markdown measures indentation in columns
+ * and a tab advances to the next four-column stop, so counting the indent's
+ * characters would read a tab-indented marker three columns further left than
+ * it sits — and `CLOSER_INDENT_SLACK` is a column count.
+ * @param {string} indent the whitespace run before a fence marker
+ * @returns {number} how many columns it occupies
+ */
+const indentColumns = (indent) => {
+  let columns = 0;
+  for (const character of indent) columns += character === '\t' ? 4 - (columns % 4) : 1;
+  return columns;
+};
 const HEADING_RE = /^(#{1,6})\s+(.*?)\s*$/;
 const DELIMITER_CELL_RE = /^:?-+:?$/;
 const BACKTICKED_NAME_RE = /^`([^`]+)`$/;
@@ -782,11 +813,32 @@ export function duplicatesIn(names, what) {
 }
 
 /**
- * Blank out fenced code blocks (``` or ~~~, each closed by its own marker),
- * preserving newlines, so a marker, heading, table, or token inside an
- * illustrative fence is never read as live doc text. This is the same fence
- * model `parseTables` applies internally — exported so every doc-scanning
- * check agrees on what a fence is.
+ * Blank out fenced code blocks (``` or ~~~), preserving newlines, so a marker,
+ * heading, table, or token inside an illustrative fence is never read as live
+ * doc text. This is the same fence model `parseTables` applies internally —
+ * exported so every doc-scanning check agrees on what a fence is.
+ *
+ * A fence closes on the closing rule Markdown itself states: a marker line of
+ * the SAME character, at least as long as the opener's run, carrying nothing
+ * after it, and indented no further past the opener's own indent than a
+ * Markdown closer may sit. So a shorter marker line inside a longer fence is
+ * content — a three-backtick example nested inside a four-backtick fence keeps
+ * its headings, tables, and clause markers fenced — while an opener's own
+ * indent still travels with it, so a fence written inside a list item closes
+ * where it is written. A fence never closed runs to the end of the text, as it
+ * always has.
+ *
+ * The model's known limits: at the top level a marker indented four columns or
+ * more opens a fence here, where CommonMark reads a line indented that far as
+ * an indented code block instead; a backtick opener whose trailing text carries
+ * a backtick opens one here too, where CommonMark reads that line as text
+ * rather than as a fence at all; a fence written inside a block quote, and one
+ * opened on a list-marker line, are not seen as fences here, so what they hold
+ * reads as live doc text; and the closer's window is measured from the opener's
+ * own column, which stands in for the indent of the block the fence sits in, so
+ * a closer written inside that window closes the fence here, while CommonMark,
+ * measuring from the margin at top level, may read that marker as content and
+ * keep reading.
  * @param {string} markdown
  * @returns {string} the text with fence lines and fenced content blanked
  */
@@ -795,14 +847,67 @@ export function stripFences(markdown) {
   let fence = null;
   return lines
     .map((line) => {
-      const open = FENCE_RE.exec(line);
-      if (open) {
-        if (fence === null) fence = open[1];
-        else if (line.trim().startsWith(fence)) fence = null;
+      const marker = FENCE_RE.exec(line);
+      if (marker) {
+        const [, indent, run, after] = marker;
+        const columns = indentColumns(indent);
+        if (fence === null) fence = { char: run[0], length: run.length, indent: columns };
+        else if (
+          run[0] === fence.char &&
+          run.length >= fence.length &&
+          columns <= fence.indent + CLOSER_INDENT_SLACK &&
+          after.trim() === ''
+        )
+          fence = null;
         return '';
       }
       return fence !== null ? '' : line;
     })
+    .join('\n');
+}
+
+/**
+ * A heading's section body: the lines between the heading line `heading`
+ * matches and the next line `boundary` matches, or the end of the text. Both
+ * patterns are applied to the fence-stripped view (via {@link stripFences},
+ * which blanks fenced lines and keeps the line count), so a `#` line inside an
+ * illustrative fence neither opens a section nor ends one, and a fence left
+ * open runs to the end of the text, putting every heading below it inside it.
+ * The body itself is sliced from the RAW text by line — a line index found on
+ * the view addresses the raw text too — so everything the author fenced comes
+ * back in it.
+ *
+ * The two readings that take this primitive differ only in those two patterns,
+ * and each states its own: a pull-request body's `## `-headed section is found
+ * by a title without its markers and ends at the next `## ` line
+ * (`extractSection` in `check-docs-disposition.js`), while a guide section is
+ * found by a heading written out in full and ends at a heading of any level.
+ * Each pattern is matched a line at a time, and is rebuilt without the global
+ * and sticky flags on entry, so a pattern carrying either answers the same on
+ * every call.
+ * @param {string} markdown
+ * @param {RegExp} heading the heading line, matched one line at a time
+ * @param {RegExp} boundary the heading shape that ends the section
+ * @returns {string | null} the raw lines between, or null when no line matches
+ *   `heading`
+ */
+export function extractHeadingSection(markdown, heading, boundary) {
+  const perLine = (pattern) => new RegExp(pattern.source, pattern.flags.replace(/[gy]/g, ''));
+  const headingLine = perLine(heading);
+  const boundaryLine = perLine(boundary);
+  const view = stripFences(markdown).split('\n');
+  const start = view.findIndex((line) => headingLine.test(line));
+  if (start === -1) return null;
+  let end = view.length;
+  for (let i = start + 1; i < view.length; i++) {
+    if (boundaryLine.test(view[i])) {
+      end = i;
+      break;
+    }
+  }
+  return markdown
+    .split('\n')
+    .slice(start + 1, end)
     .join('\n');
 }
 
@@ -3401,6 +3506,126 @@ export function classifyTestSurface(file, source, shape = JS_MEMBERSHIP) {
   return { kind: property > 0 ? 'mixed' : 'plain', property, cases };
 }
 
+/**
+ * A `cfg(test)` attribute applied to the bare predicate `test`, with the
+ * whitespace Rust allows around each token, in both spellings the attribute is
+ * written in: the outer `#[cfg(test)]`, which gates the item written after it,
+ * and the inner `#![cfg(test)]`, which gates what it is written INSIDE — the
+ * enclosing block, where one is open at that point, and the rest of the file
+ * where none is. `#[cfg(all(test, …))]` is left out even though it is test-only
+ * too, and `#[cfg(any(…, test))]`, `#[cfg(not(test))]` and `#[cfg_attr(test, …)]`
+ * are left out because they are NOT: the `any`, `not` and `cfg_attr` forms gate
+ * an item INTO a non-test build (or, for `cfg_attr`, gate no item at all — only
+ * an attribute on one that always compiles), so blanking them would take a real
+ * edge out of the view. The two directions fail differently, which is what
+ * fixes the width of this match: reading one edge too many credits a binary
+ * with reach the compiled crate does not give it and hides a gap, while reading
+ * one edge too few reds a scope module the kill set really does exercise. `cfg(all(test, …))`
+ * has a ground of its own for standing outside the match: the compound forms are
+ * absent from the crate today, and a predicate reader for a shape that has not
+ * appeared would be an untested surface of this check, so the match is held to
+ * the bare predicate until the shape is written.
+ */
+const RUST_CFG_TEST_RE = /#\s*!?\s*\[\s*cfg\s*\(\s*test\s*\)\s*\]/g;
+
+/**
+ * What an inner `#![cfg(test)]` at `index` gates, as a half-open character
+ * range: the block still open around it — from its `{` through the `}` that
+ * closes it, or to the end of a view that never closes it — and, where no block
+ * is open there, the attribute's own file from the attribute onward.
+ * @param {string} view a comment-stripped, string-blanked Rust view
+ * @param {number} index where the attribute starts in it
+ * @returns {[number, number]} the range to blank, start inclusive, end exclusive
+ */
+function innerAttributeExtent(view, index) {
+  const open = [];
+  for (let i = 0; i < index; i++) {
+    if (view[i] === '{') open.push(i);
+    else if (view[i] === '}') open.pop();
+  }
+  if (open.length === 0) return [index, view.length];
+  const start = open[open.length - 1];
+  let depth = 0;
+  for (let i = start; i < view.length; i++) {
+    if (view[i] === '{') depth++;
+    else if (view[i] === '}') {
+      depth--;
+      if (depth === 0) return [start, i + 1];
+    }
+  }
+  return [start, view.length];
+}
+
+/**
+ * Blank what a `cfg(test)` attribute gates — the item an outer `#[cfg(test)]`
+ * is written before, and what an inner `#![cfg(test)]` is written inside — on
+ * the comment-stripped, string-blanked view, keeping every other character's
+ * offset and every newline the way the views this runs on do.
+ *
+ * The reach walk asks what a TEST BINARY reaches through the crate, and the
+ * crate is compiled as that binary's dependency — without `--cfg test` — so an
+ * item inside a `#[cfg(test)]` block is not in the binary it links. A `use` read
+ * there is an edge the compiled binary does not have, and crediting it both
+ * places a listed binary in the kill set on reach it lacks and calls a
+ * mutate-scope module reached when nothing the kill set runs exercises it —
+ * a gap reported as covered, which is the failure this view exists to avoid.
+ *
+ * What an OUTER attribute gates is found by shape rather than parsed: from the
+ * end of the attribute the scan runs to the first `;` outside every bracket —
+ * the item form that ends in one, `use …;` and `mod …;` among them — or to the
+ * `}` that closes the first `{` it opens, which is the block form,
+ * `mod tests { … }` among them. Stacked attributes need no case of their own:
+ * `#[allow(…)]` between the gate and its item opens and closes its own bracket
+ * and the scan runs on through it. An item that never closes blanks to the end
+ * of the file, which is the conservative direction for a source no compiler
+ * would take.
+ *
+ * An INNER attribute is read from the other side, since what it gates is
+ * written around it: where a `{` is still open at that point, its block is
+ * blanked from that brace through the `}` that closes it, and where none is —
+ * the attribute at the top of a file — the blanking runs from the attribute to
+ * the end of the view, which is the whole of what a file-level gate takes.
+ * @param {string} view a comment-stripped, string-blanked Rust view
+ * @returns {string} the same view with what each `cfg(test)` attribute gates
+ *   blanked
+ */
+function stripRustCfgTest(view) {
+  const out = view.split('');
+  const n = view.length;
+  const blank = (from, to) => {
+    for (let k = from; k < Math.min(to, n); k++) if (out[k] !== '\n') out[k] = ' ';
+  };
+  for (const match of view.matchAll(RUST_CFG_TEST_RE)) {
+    if (match[0].includes('!')) {
+      blank(...innerAttributeExtent(view, match.index));
+      continue;
+    }
+    let depth = 0;
+    let opened = false;
+    let i = match.index + match[0].length;
+    for (; i < n; i++) {
+      const c = view[i];
+      if (c === '(' || c === '[') depth++;
+      else if (c === ')' || c === ']') depth--;
+      else if (c === '{') {
+        depth++;
+        opened = true;
+      } else if (c === '}') {
+        depth--;
+        if (depth === 0 && opened) {
+          i++;
+          break;
+        }
+      } else if (c === ';' && depth === 0) {
+        i++;
+        break;
+      }
+    }
+    blank(match.index, i);
+  }
+  return out.join('');
+}
+
 /** A `use` declaration as the module walk reads one, on a comment-stripped view. */
 const RUST_USE_RE = /(^|[\s{};])(pub(?:\s*\([^)]*\))?\s+)?use\s+([^;]+);/g;
 
@@ -3459,19 +3684,39 @@ export function useTargets(text) {
  * that answers it would then be wrong rather than merely incomplete — so a
  * quoted `pub use` refusing the whole Rust relation would be a refusal standing
  * on text.
+ *
+ * `skipCfgTest` takes what a `cfg(test)` attribute gates out of the view the
+ * EDGE walk reads ({@link stripRustCfgTest}), which is what a source compiled
+ * WITHOUT `--cfg test` states — the crate as a test binary links it. It is off
+ * by default and asked for per file, because the same reader answers for both
+ * sides of the walk and they are compiled differently: an integration binary IS
+ * built with `--cfg test`, so a block inside one is code it really carries.
+ * One scan over the blanked source answers both readings: a `pub use` counts
+ * toward the re-export total wherever it is written — the rule is stated on the
+ * source text, so a test-only re-export is refused with the rest rather than
+ * modelled — while every other declaration states an edge only where the
+ * declaration's own text still stands at its offset in the gated reading. That
+ * comparison runs from `use`, past the separator character the pattern took
+ * ahead of it, since the blanking can consume that separator while the
+ * declaration after it still stands; {@link stripRustCfgTest} blanks in place,
+ * so one offset addresses both views.
  * @param {string} source Rust source text
+ * @param {object} [how] how the source is read
+ * @param {boolean} [how.skipCfgTest] read its edges as compiled without `--cfg test`
  * @returns {{ targets: string[], reexports: number }}
  */
-export function rustUseTargets(source) {
-  const view = blankRustStrings(stripRustComments(source));
+export function rustUseTargets(source, { skipCfgTest = false } = {}) {
+  const blanked = blankRustStrings(stripRustComments(source));
+  const view = skipCfgTest ? stripRustCfgTest(blanked) : blanked;
   const targets = [];
   let reexports = 0;
-  for (const match of view.matchAll(RUST_USE_RE)) {
+  for (const match of blanked.matchAll(RUST_USE_RE)) {
     if (match[2] !== undefined) {
       reexports++;
       continue;
     }
-    targets.push(...useTargets(match[3]));
+    if (view.startsWith(match[0].slice(match[1].length), match.index + match[1].length))
+      targets.push(...useTargets(match[3]));
   }
   return { targets: [...new Set(targets)], reexports };
 }
@@ -3590,7 +3835,7 @@ export function crateLibraryName(manifest) {
  * @param {typeof DOC_INVENTORIES} [opts.inventories]
  * @returns {{ unlistedMember: string[], listedNonMember: string[],
  *             unreachableScopeModule: string[], staleMembershipAllowlist: string[],
- *             unreadableMembership: string[] }}
+ *             unreadableMembership: string[], admittedMixed: Record<string, string[]> }}
  */
 export function auditKillSetMembership({
   files,
@@ -3800,10 +4045,17 @@ export function auditKillSetMembership({
       }
       const roots = ['crate', library.name];
       const usesCache = new Map();
+      // A crate module is read as the compiled crate states it — a test binary
+      // links the library built WITHOUT `--cfg test`, so what a `#[cfg(test)]`
+      // block there declares is not an edge that binary has. The binary's own
+      // file is read whole: an integration target IS built with `--cfg test`,
+      // and the kill set's fixed `--lib` entry, which runs the crate's in-module
+      // blocks, deliberately answers for no module of this leg either way.
       const uses = (file) => {
         if (!usesCache.has(file)) {
           const text = readSource(file);
-          usesCache.set(file, text == null ? null : rustUseTargets(text));
+          const skipCfgTest = file.startsWith(`${crateRoot}/`);
+          usesCache.set(file, text == null ? null : rustUseTargets(text, { skipCfgTest }));
         }
         return usesCache.get(file);
       };
@@ -3812,7 +4064,7 @@ export function auditKillSetMembership({
         if (read === null) {
           result.unreadableMembership.push(`${file}: a crate module this leg walks, which could not be read`); // prettier-ignore
         } else if (read.reexports > 0) {
-          result.unreadableMembership.push(`${file}: states ${read.reexports} \`pub use\` declaration(s) under ${crateRoot}/, and this leg maps a \`use\` path to the module that DEFINES what it names — a re-export makes that mapping wrong rather than incomplete, so the reaching relation cannot be read while one stands${path === '' ? '' : ` (module \`${path}\`)`}`); // prettier-ignore
+          result.unreadableMembership.push(`${file}: states ${read.reexports} \`pub use\` declaration(s) under ${crateRoot}/, and this leg maps a \`use\` path to the module that DEFINES what it names — a re-export makes that mapping wrong rather than incomplete, and the rule is stated on the source text, so a test-only re-export is refused with the rest rather than modelled and the reaching relation cannot be read while one stands${path === '' ? '' : ` (module \`${path}\`)`}`); // prettier-ignore
         }
       }
       // The module path each module file states, so the walk carries the `super`
@@ -3932,6 +4184,16 @@ export function auditKillSetMembership({
     if (used.has(entry)) continue;
     result.staleMembershipAllowlist.push(`${entry.surface}'s ${entry.leg} leg carries an allowlist entry for \`${entry.entry}\` that nothing needs — the criterion already places it where the entry puts it, or the entry names something the leg no longer sees`); // prettier-ignore
   }
+
+  // A refusal is a fact about a membership source read for one criterion, so a
+  // file that many surfaces reach states it once however many walks met it. The
+  // refusal text carries what distinguishes one refusal from another — the file
+  // it is about, and the specifier where one is involved — so the set is keyed
+  // by that text and taken here, where the result is complete and the writers of
+  // the field are behind it, in the order they were found. What the report
+  // counts is the distinct refusals to fix, never how many walks met them, and
+  // one source can state more than one refusal.
+  result.unreadableMembership = [...new Set(result.unreadableMembership)];
 
   return result;
 }
@@ -4110,7 +4372,8 @@ const PROBLEM_BLOCKS = {
       `  places what it names where the entry was putting it.`,
   },
   unreadableMembership: {
-    heading: (n) => `${n} membership source(s) could not be read as what the criterion needs`,
+    heading: (n) =>
+      `${n} membership refusal(s): a source could not be read as what the criterion needs`,
     fix:
       `restore the shape the membership legs read — a JavaScript configuration stating its\n` +
       `  mutate scope as an array of patterns over one package's tree, a crate manifest stating\n` +

@@ -117,7 +117,13 @@ validator each terminate it. The Rust side runs the same relation over `use`
 paths, read over a view with comments stripped and string-literal contents
 blanked — so a declaration a source merely quotes is the text it is rather than
 an edge or a refusal — and where a `mod` declaration is containment rather than
-a dependency edge.
+a dependency edge, over a crate module under the source root read as the
+compiled crate carries it, without `--cfg test`, so the items a bare
+`cfg(test)` attribute gates state no edges — the attribute written
+`#[cfg(test)]` before an item or block, or `#![cfg(test)]` inside a block or at
+the top of a file, with a narrower predicate such as `#[cfg(all(test, …))]`
+still stating them — while an integration target under the crate's tests tree,
+compiled with it, is read whole.
 _Deterministic_ turns on the property runner a case drives: a runner carrying a
 regression-persistence mechanism — [`proptest`](https://docs.rs/proptest),
 which commits the inputs that once falsified a property and replays them — is

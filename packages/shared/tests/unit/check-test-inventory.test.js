@@ -89,6 +89,7 @@ import {
   emptySurfaceProblems,
   escapeForRegExp,
   extractClauseSection,
+  extractHeadingSection,
   extractLoopGlobs,
   extractStepBody,
   flattenWhitespace,
@@ -550,6 +551,20 @@ describe('parseTables / splitRow / backtickedName', () => {
 
   it('does NOT read a table inside a fenced code block', () => {
     const md = ['```markdown', '| Spec | Covers |', '| --- | --- |', '| `x.spec.js` | e |', '```', ''].join('\n'); // prettier-ignore
+    assert.deepEqual(parseTables(md), []);
+  });
+
+  it('does not read a table nested inside a longer fence', () => {
+    const md = [
+      '````markdown',
+      '```',
+      '| Spec | Covers |',
+      '| --- | --- |',
+      '| `x.spec.js` | e |',
+      '```',
+      '````',
+      '',
+    ].join('\n');
     assert.deepEqual(parseTables(md), []);
   });
 
@@ -3256,6 +3271,150 @@ describe('the Rust reading — use edges, containment, and the crate root', () =
     assert.equal(read.reexports, 0);
   });
 
+  it('drops what a `#[cfg(test)]` gates where the source is read as compiled without it', () => {
+    // A crate module is linked into a test binary WITHOUT `--cfg test`, so a
+    // `use` its `#[cfg(test)]` items state is not an edge that binary has —
+    // and the narrower gates are read either way, since `cfg(all(test, …))`,
+    // `cfg(any(…, test))`, `cfg(not(test))` and `cfg_attr(test, …)` are not
+    // this predicate in either spelling. Each of those gates stands before a
+    // `use` declaration here, so a match widened to reach one of them would
+    // drop that declaration's edge from the gated reading and red this case.
+    const source = [
+      'use fixture_lib::live::thing;',
+      '#[cfg(test)]',
+      'mod tests {',
+      '    use crate::gated::block;',
+      '    const N: [u8; 2] = [0; 2];',
+      '}',
+      '#[cfg(test)]',
+      'use crate::gated::item;',
+      '#[cfg(test)]',
+      '#[allow(dead_code)]',
+      "fn only_under_test() { let brace = '{'; }",
+      '#[cfg(all(test, unix))]',
+      'use crate::narrower::gate;',
+      '#[cfg_attr(test, allow(unused_imports))]',
+      'use crate::attr::always;',
+      '#[cfg(any(unix, test))]',
+      'use crate::either::way;',
+      '#[cfg(not(test))]',
+      'use crate::without::test;',
+      'use fixture_lib::after::thing;',
+    ].join('\n');
+    assert.deepEqual(rustUseTargets(source).targets, [
+      'fixture_lib::live::thing',
+      'crate::gated::block',
+      'crate::gated::item',
+      'crate::narrower::gate',
+      'crate::attr::always',
+      'crate::either::way',
+      'crate::without::test',
+      'fixture_lib::after::thing',
+    ]);
+    assert.deepEqual(rustUseTargets(source, { skipCfgTest: true }).targets, [
+      'fixture_lib::live::thing',
+      'crate::narrower::gate',
+      'crate::attr::always',
+      'crate::either::way',
+      'crate::without::test',
+      'fixture_lib::after::thing',
+    ]);
+  });
+
+  it('reads a file-level `#![cfg(test)]` as gating the rest of the file', () => {
+    // An inner attribute at the top of a file gates what it is written inside,
+    // which there is the whole file.
+    const source = ['#![cfg(test)]', 'use crate::gated::one;', 'use crate::gated::two;'].join('\n');
+    assert.deepEqual(rustUseTargets(source).targets, ['crate::gated::one', 'crate::gated::two']);
+    assert.deepEqual(rustUseTargets(source, { skipCfgTest: true }).targets, []);
+  });
+
+  it('reads an inner `#![cfg(test)]` inside a block as gating that block', () => {
+    // Written inside a block, the same attribute gates that block and leaves
+    // what the file states after it alone.
+    // Two items inside the block, so the case answers for the inner-attribute
+    // dispatch as well as for the enclosing-block branch: read as an outer
+    // attribute the scan stops at the first `;`, and the second declaration
+    // survives.
+    const source = [
+      'mod tests {',
+      '    #![cfg(test)]',
+      '    use crate::gated::block;',
+      '    use crate::gated::other;',
+      '}',
+      'use crate::live::thing;',
+    ].join('\n');
+    assert.deepEqual(rustUseTargets(source).targets, [
+      'crate::gated::block',
+      'crate::gated::other',
+      'crate::live::thing',
+    ]);
+    assert.deepEqual(rustUseTargets(source, { skipCfgTest: true }).targets, ['crate::live::thing']);
+  });
+
+  it('blanks a gated block that never closes to the end of the source', () => {
+    // An item that never closes blanks to the end of the file, which is the
+    // conservative direction for a source no compiler would take: the other
+    // reading credits a binary with edges the compiled crate does not carry.
+    const source = [
+      '#[cfg(test)]',
+      'mod tests {',
+      '    use crate::gated::block;',
+      '    use crate::gated::other;',
+    ].join('\n');
+    assert.deepEqual(rustUseTargets(source).targets, [
+      'crate::gated::block',
+      'crate::gated::other',
+    ]);
+    assert.deepEqual(rustUseTargets(source, { skipCfgTest: true }).targets, []);
+  });
+
+  it('blanks an inner `#![cfg(test)]` whose block never closes to the end of the view', () => {
+    // The same direction from the other side: where the block an inner
+    // attribute is written in never closes, what it gates runs to the end of
+    // the view, and what the file states ahead of that block is untouched.
+    const source = [
+      'use crate::live::thing;',
+      'mod tests {',
+      '    #![cfg(test)]',
+      '    use crate::gated::block;',
+    ].join('\n');
+    assert.deepEqual(rustUseTargets(source).targets, ['crate::live::thing', 'crate::gated::block']);
+    assert.deepEqual(rustUseTargets(source, { skipCfgTest: true }).targets, ['crate::live::thing']);
+  });
+
+  it('states the ungated edge of a declaration written against a gated item', () => {
+    // The declaration pattern takes the separator character ahead of a `use`,
+    // and the gated blanking can consume that separator — here the `;` ending
+    // the gated item — while the declaration written against it still stands.
+    // The guard compares the declaration's own text at its own offset, so the
+    // live edge survives the skip.
+    const source = ['#[cfg(test)]', 'static GATED: u8 = 0;use crate::live::thing;'].join('\n');
+    assert.deepEqual(rustUseTargets(source).targets, ['crate::live::thing']);
+    assert.deepEqual(rustUseTargets(source, { skipCfgTest: true }).targets, ['crate::live::thing']);
+  });
+
+  it('counts a gated `pub use` as a re-export however the edges are read', () => {
+    // The re-export rule is stated on the source text, not modelled per build:
+    // the count is taken over the ungated view, so a `pub use` a gate keeps out
+    // of the compiled crate is refused with the rest — the whole source is read
+    // either way.
+    const source = ['#[cfg(test)]', 'mod t {', '    pub use crate::x;', '}'].join('\n');
+    assert.equal(rustUseTargets(source).reexports, 1);
+    assert.equal(rustUseTargets(source, { skipCfgTest: true }).reexports, 1);
+  });
+
+  it('reads a `#[cfg(test)]` written inside a comment or a string as the text it is', () => {
+    const quoted = [
+      '// #[cfg(test)] mod tests { use crate::commented::out; }',
+      'const FIXTURE: &str = "#[cfg(test)] mod tests {";',
+      'use fixture_lib::live::thing;',
+    ].join('\n');
+    assert.deepEqual(rustUseTargets(quoted, { skipCfgTest: true }).targets, [
+      'fixture_lib::live::thing',
+    ]);
+  });
+
   it('takes a brace group’s prefix and each item, dropping a rename and a glob', () => {
     assert.deepEqual(useTargets('super::x as y'), ['super::x']);
     assert.deepEqual(useTargets('super::*'), ['super']);
@@ -3476,6 +3635,31 @@ describe('auditKillSetMembership — the criterion, both legs and both engines',
     );
   });
 
+  it('states one refusal for a specifier many surfaces’ walks reach, not one per walk', () => {
+    const result = membership({
+      'packages/pkg/src/a.js': "import './gone.js';\nexport const a = 1;\n",
+      'mutate.pkg.mjs': jsConfig({ tests: ['a.test.js', 'b.test.js'] }),
+      'packages/pkg/tests/unit/b.test.js': testFile("import { a } from '../../src/a.js';"),
+    });
+    const refusals = result.unreadableMembership.filter((p) => p.includes('packages/pkg/src/gone.js')); // prettier-ignore
+    assert.deepEqual(refusals.length, 1, result.unreadableMembership.join('\n'));
+  });
+
+  it('states one refusal for a surface two configurations sharing a package home both read', () => {
+    const result = membership(
+      { 'mutate.pkg2.mjs': jsConfig() },
+      {
+        files: [
+          ...Object.keys(BASE),
+          'mutate.pkg2.mjs',
+          'packages/pkg/tests/unit/unreadable.test.js',
+        ],
+      },
+    );
+    const refusals = result.unreadableMembership.filter((p) => p.includes('packages/pkg/tests/unit/unreadable.test.js')); // prettier-ignore
+    assert.deepEqual(refusals.length, 1, result.unreadableMembership.join('\n'));
+  });
+
   it('reds a mutate-scope module no listed surface reaches, and refuses an empty expansion', () => {
     const unreached = membership({
       'packages/pkg/src/b.js': 'export const b = 1;\n',
@@ -3575,6 +3759,35 @@ describe('auditKillSetMembership — the criterion, both legs and both engines',
     assert.deepEqual(
       inModule.unreachableScopeModule.map((p) => p.split(' ')[0]),
       ['crate/src/b.rs'],
+    );
+  });
+
+  it('reads a crate module as a binary links it, and a binary as `--test` builds it', () => {
+    // The crate is a DEPENDENCY of the test binary, compiled without
+    // `--cfg test`: a `use` inside a module's own `#[cfg(test)]` block is an
+    // edge no listed binary has, and crediting it would place `b_test` in the
+    // kill set on reach the compiled binary lacks — and, through the same
+    // walk, call a scope module reached that nothing the kill set runs
+    // exercises.
+    const gated = membership({
+      'crate/src/b.rs': '#[cfg(test)]\nmod tests {\n    use crate::a::a;\n}\n',
+      'crate/src/lib.rs': 'pub mod a;\npub mod b;\n',
+      'crate/tests/b_test.rs': 'use fixture_lib::b::b;\n',
+      'crate/.cargo/mutants.toml': manifest({ binaries: ['a_test', 'b_test'] }),
+    });
+    assert.ok(
+      gated.listedNonMember.some((p) => p.includes('`--test b_test`') && p.includes('reaches no module')), // prettier-ignore
+      gated.listedNonMember.join('\n'),
+    );
+    assert.deepEqual(gated.unlistedMember, []);
+    // The binary's own file is the other case: an integration target IS built
+    // with `--cfg test`, so a block inside one states edges it really carries.
+    const inBinary = membership({
+      'crate/tests/b_test.rs': '#[cfg(test)]\nmod tests {\n    use fixture_lib::a::a;\n}\n',
+    });
+    assert.ok(
+      inBinary.unlistedMember.some((p) => p.includes('`b_test`')),
+      inBinary.unlistedMember.join('\n'),
     );
   });
 
@@ -3711,6 +3924,111 @@ describe('real-tree lock', () => {
     assert.deepEqual(result.deadScopeModule, []);
   });
 
+  it("states each audit's return shape in its @returns tag", () => {
+    // A field added to an audit's result and not to the tag it documents is
+    // drift a reader of the tag cannot see. The tag is read from the shipped
+    // source and diffed against the result the audit really returns, over the
+    // audits the tracked tree drives.
+    const source = readRepoFile('scripts/check-test-inventory.js');
+    const audits = {
+      auditInventories,
+      auditRegistrationClosure,
+      auditMutationKillSets,
+      auditKillSetMembership,
+    };
+    const COVERS = `this guard covers ${Object.keys(audits).join(', ')}`;
+
+    /** One exported function's docblock, its comment decoration off. */
+    const docblockOf = (name) => {
+      const at = source.indexOf(`\nexport function ${name}(`);
+      assert.notEqual(at, -1, `${name} is exported by the check — ${COVERS}`);
+      // The block nearest above the declaration answers for it only where
+      // nothing but whitespace separates the two; a function written without
+      // one would otherwise be checked against its predecessor's tag.
+      const opens = source.lastIndexOf('/**', at);
+      const closes = source.indexOf('*/', opens);
+      assert.ok(
+        opens !== -1 && closes !== -1 && closes < at && source.slice(closes + 2, at).trim() === '',
+        `${name}'s docblock stands directly above its declaration — ${COVERS}`,
+      );
+      return source
+        .slice(opens, at)
+        .split('\n')
+        .map((line) => line.replace(/^\s*(\/\*\*|\*\/|\*)/, ''))
+        .join(' ');
+    };
+
+    /** The `{`-balanced run of `text` starting at `start`. */
+    const balancedFrom = (text, start) => {
+      let depth = 0;
+      for (let i = start; i < text.length; i++) {
+        if (text[i] === '{') depth++;
+        else if (text[i] === '}' && --depth === 0) return text.slice(start, i + 1);
+      }
+      return null;
+    };
+
+    /** The field names an object type states, commas at depth 0 separating. */
+    const topLevelFields = (body) => {
+      const names = [];
+      let depth = 0;
+      let field = '';
+      const take = () => {
+        // A `?` marks the field optional in the tag and is not part of its name.
+        const name = field.split(':')[0].trim().replace(/\?$/, '');
+        if (name !== '') names.push(name);
+        field = '';
+      };
+      // `<` and `>` count with the brackets so a generic argument list is
+      // inside its field rather than ending it — `Record<string, string[]>` is
+      // one field, not two. A `>` written after `=` closes nothing: it is the
+      // arrow of a function type, and decrementing there would drop every
+      // field after a documented callback.
+      for (let i = 0; i < body.length; i++) {
+        const ch = body[i];
+        if ('{([<'.includes(ch)) depth++;
+        else if ('})]'.includes(ch) || (ch === '>' && body[i - 1] !== '=')) depth--;
+        if (ch === ',' && depth === 0) take();
+        else field += ch;
+      }
+      take();
+      return names;
+    };
+
+    /** The fields a function's `@returns` object states, null for an array type. */
+    const documentedFields = (name) => {
+      const doc = docblockOf(name);
+      const tag = doc.indexOf('@returns');
+      assert.notEqual(tag, -1, `${name} states a @returns tag — ${COVERS}`);
+      const balanced = balancedFrom(doc, doc.indexOf('{', tag));
+      assert.notEqual(balanced, null, `${name}'s @returns type closes its brace`);
+      const type = balanced.slice(1, -1).trim();
+      if (type.endsWith('[]')) return null;
+      if (!(type.startsWith('{') && type.endsWith('}'))) return null;
+      return topLevelFields(type.slice(1, -1));
+    };
+
+    const files = trackedFiles();
+    const covered = [];
+    for (const [name, audit] of Object.entries(audits)) {
+      const documented = documentedFields(name);
+      if (documented === null) continue;
+      covered.push(name);
+      const result = audit({ files, readFile: readRepoFile });
+      assert.deepEqual(
+        new Set(documented),
+        new Set(Object.keys(result)),
+        `${name}'s @returns tag states the fields its result carries — ${COVERS}`,
+      );
+    }
+    assert.deepEqual(covered, Object.keys(audits), `each audit states an object shape — ${COVERS}`);
+    assert.deepEqual(
+      [...source.matchAll(/^export function (audit\w+)\(/gm)].map((m) => m[1]).sort(),
+      [...Object.keys(audits)].sort(),
+      `the guard's population is the audits the check exports, in any order — ${COVERS}`,
+    );
+  });
+
   it('every configured document, suite, coverage list, and kill set is in the tree', () => {
     const files = trackedFiles();
     const tracked = new Set(files);
@@ -3822,11 +4140,171 @@ describe('stripFences — the one fence model, exported', () => {
     assert.ok(!stripped.includes('tilde'));
   });
 
+  it('a marker of the other fence character cannot close a fence, in either direction', () => {
+    // The closing rule reads the marker's character as well as its length, so a
+    // tilde line inside a backtick fence is content, and a backtick line inside
+    // a tilde fence is too.
+    const backticks = ['live', '```', '~~~', '## inner heading', '```', 'after'].join('\n');
+    const inBackticks = stripFences(backticks);
+    assert.ok(inBackticks.includes('live'));
+    assert.ok(inBackticks.includes('after'));
+    assert.ok(!inBackticks.includes('inner heading'));
+    const tildes = ['live', '~~~', '```', '## inner heading', '~~~', 'after'].join('\n');
+    const inTildes = stripFences(tildes);
+    assert.ok(inTildes.includes('live'));
+    assert.ok(inTildes.includes('after'));
+    assert.ok(!inTildes.includes('inner heading'));
+  });
+
   it('normalizes CRLF input so consumers need no pre-normalization', () => {
     const stripped = stripFences('live\r\n```\r\nfenced\r\n```\r\nafter');
     assert.ok(!stripped.includes('\r'));
     assert.ok(!stripped.includes('fenced'));
     assert.ok(stripped.includes('after'));
+  });
+
+  it('a shorter marker line cannot close a longer fence, so a nested example stays fenced', () => {
+    const text = ['live', '````markdown', '```', '## inner heading', '```', '````', 'after'].join(
+      '\n',
+    );
+    const stripped = stripFences(text);
+    assert.equal(stripped.split('\n').length, text.split('\n').length);
+    assert.ok(stripped.includes('live'));
+    assert.ok(stripped.includes('after'));
+    assert.ok(!stripped.includes('inner heading'));
+  });
+
+  it('a marker indented past its opener cannot close the fence', () => {
+    const text = ['live', '```text', '    ```', '## inner heading', '```', 'after'].join('\n');
+    const stripped = stripFences(text);
+    assert.ok(stripped.includes('live'));
+    assert.ok(stripped.includes('after'));
+    assert.ok(!stripped.includes('inner heading'));
+  });
+
+  it('a tab-indented marker sits four columns in, so it cannot close a fence at the left margin', () => {
+    const text = ['live', '```', 'fenced', '\t```', '## inner heading', '```', 'after'].join('\n');
+    const stripped = stripFences(text);
+    assert.ok(stripped.includes('live'));
+    assert.ok(stripped.includes('after'));
+    assert.ok(!stripped.includes('inner heading'));
+  });
+
+  it('a tab-indented opener carries its own column, so a space-indented closer still closes it', () => {
+    const text = [
+      'live',
+      '10. step',
+      '',
+      '\t```',
+      '\t## inner heading',
+      '       ```',
+      '',
+      'after',
+    ].join('\n');
+    const stripped = stripFences(text);
+    assert.ok(stripped.includes('live'));
+    assert.ok(stripped.includes('after'));
+    assert.ok(!stripped.includes('inner heading'));
+  });
+
+  it('a marker carrying an info string cannot close a fence', () => {
+    const text = ['live', '```', '```js', '## inner heading', '```', 'after'].join('\n');
+    const stripped = stripFences(text);
+    assert.ok(stripped.includes('live'));
+    assert.ok(stripped.includes('after'));
+    assert.ok(!stripped.includes('inner heading'));
+  });
+
+  it('a fence written inside a list item closes where it is written', () => {
+    const text = [
+      'live',
+      '1. step',
+      '',
+      '    ```',
+      '    ## inner heading',
+      '    ```',
+      '',
+      'after',
+    ].join('\n');
+    const stripped = stripFences(text);
+    assert.ok(stripped.includes('live'));
+    assert.ok(stripped.includes('after'));
+    assert.ok(!stripped.includes('inner heading'));
+  });
+
+  it('the same length rule holds for tilde fences', () => {
+    const text = ['live', '~~~~', '~~~', '## inner heading', '~~~', '~~~~', 'after'].join('\n');
+    const stripped = stripFences(text);
+    assert.ok(stripped.includes('live'));
+    assert.ok(stripped.includes('after'));
+    assert.ok(!stripped.includes('inner heading'));
+  });
+
+  it('a longer marker line still closes a shorter fence', () => {
+    const stripped = stripFences(['live', '```', 'fenced', '````', 'after'].join('\n'));
+    assert.ok(stripped.includes('live'));
+    assert.ok(stripped.includes('after'));
+    assert.ok(!stripped.includes('fenced'));
+  });
+
+  it('a fence left open runs to the end of the document', () => {
+    const stripped = stripFences(['live', '```', 'fenced', 'still fenced'].join('\n'));
+    assert.ok(stripped.includes('live'));
+    assert.ok(!stripped.includes('fenced'));
+  });
+});
+
+describe('extractHeadingSection — the one heading slice, exported', () => {
+  const heading = (title) => new RegExp(`^##\\s+${title}\\s*$`, 'i');
+  const BOUNDARY = /^##\s+/;
+
+  it('finds a heading written on the first line', () => {
+    const md = ['## Docs disposition', 'first line', '## Change record'].join('\n');
+    assert.equal(extractHeadingSection(md, heading('Docs disposition'), BOUNDARY), 'first line');
+  });
+
+  it('finds a heading on the last line of a body with no trailing newline', () => {
+    const md = ['intro', '## Change record'].join('\n');
+    const section = extractHeadingSection(md, heading('Change record'), BOUNDARY);
+    assert.notEqual(section, null, 'a heading with nothing under it is still found');
+    assert.equal(section, '');
+  });
+
+  it('keeps the first content line directly under the heading', () => {
+    const md = ['## Docs disposition', 'updated: docs/x.md — why', '', '## Change record'].join(
+      '\n',
+    );
+    const section = extractHeadingSection(md, heading('Docs disposition'), BOUNDARY);
+    assert.equal(section.split('\n')[0], 'updated: docs/x.md — why');
+  });
+
+  it('does not match a heading inside a fence, and matches the same title outside one', () => {
+    const fenced = ['```', '## Docs disposition', 'fenced body', '```'].join('\n');
+    assert.equal(extractHeadingSection(fenced, heading('Docs disposition'), BOUNDARY), null);
+    const md = [fenced, '## Docs disposition', 'real body'].join('\n');
+    assert.equal(extractHeadingSection(md, heading('Docs disposition'), BOUNDARY), 'real body');
+  });
+
+  it('does not read a bare `## ` marker with its title on the next line as the heading', () => {
+    const md = ['## ', 'Docs disposition', 'body'].join('\n');
+    assert.equal(extractHeadingSection(md, heading('Docs disposition'), BOUNDARY), null);
+  });
+
+  it('answers the same on consecutive calls when the heading pattern is global', () => {
+    // `.test()` on a `/g` pattern advances its `lastIndex`, so a pattern a
+    // caller keeps would answer differently each call; the patterns are
+    // rebuilt without the flag on entry, and the reading is per line.
+    const md = ['## Docs disposition', 'first line', '## Change record'].join('\n');
+    const global = /^##\s+Docs disposition\s*$/gi;
+    const first = extractHeadingSection(md, global, BOUNDARY);
+    assert.equal(first, 'first line');
+    assert.equal(extractHeadingSection(md, global, BOUNDARY), first);
+    assert.equal(extractHeadingSection(md, global, BOUNDARY), first);
+  });
+
+  it('finds a heading in a CRLF body and returns its section', () => {
+    const md = '## Docs disposition\r\nfirst line\r\n## Change record';
+    assert.equal(extractHeadingSection(md, heading('Docs disposition'), BOUNDARY), 'first line\r');
   });
 });
 
