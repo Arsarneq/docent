@@ -14,7 +14,9 @@
  *   - the normalization classes (§STC-19): the class table's field tokens
  *     equal the comparator's exported class map, flattened;
  *   - the desktop session catalogue (§STC-22): the clause's session ids equal
- *     the active `desktop-windows` sessions of corpus/manifest.json;
+ *     the active `desktop-windows` sessions of corpus/manifest.json, for as long
+ *     as the strict-flip watch still mints that platform's surface — that platform
+ *     leaving the watch is named as the mover there instead;
  *   - the predicate catalogue
  *     (docs/verification/sufficiency-lint.md): the per-action table's names
  *     equal the lint's `PREDICATES` ids, the class that table's own heading
@@ -92,19 +94,21 @@
  * `RELAX_KINDS` too: a kind added to the comparator that this check has not
  * learned reds here rather than passing unexamined. Which platforms the
  * strict-flip watch covers is this check's own list on the same footing, so
- * the session catalogue's platform population is diffed against it both ways:
- * a platform the corpus grows sessions for that the watch has not learned reds
- * here rather than going unwatched, and a watched platform the catalogue no
- * longer carries reds equally. Which documents the citation leg scans is this
- * check's own declared decision too, stated once in `CITED_JOB_DOCUMENTS`
- * below and held to the tracked verification documents by the unit suite; a
- * document outside that list is outside the leg — docs/requirements/replay-sufficiency.md
- * cites no job and is deliberately unscanned, so an empty extraction there
- * could never distinguish a doc with no cites from a broken scan. The job
- * citations are the one leg with no registered clause behind it: both
- * documents state their cites as ordinary prose, so this leg keeps a
- * documentation surface honest rather than guarding a clause, and it
- * deliberately takes no clause-registry row.
+ * the session catalogue's platform population is diffed against it: a platform
+ * the corpus grows sessions for that the watch has not learned reds here
+ * rather than going unwatched, while a watched platform the catalogue no
+ * longer carries reds on that platform's derived active-session vacuity leg
+ * first, so the diff's watch side never prints from a tree state (the
+ * population diff's own comment says what holds that end). Which documents the
+ * citation leg scans is this check's own declared decision too, stated once in
+ * `CITED_JOB_DOCUMENTS` below and held to the tracked verification documents
+ * by the unit suite; a document outside that list is outside the leg —
+ * docs/requirements/replay-sufficiency.md cites no job and is deliberately
+ * unscanned, so an empty extraction there could never distinguish a doc with
+ * no cites from a broken scan. The job citations are the one leg with no
+ * registered clause behind it: both documents state their cites as ordinary
+ * prose, so this leg keeps a documentation surface honest rather than guarding
+ * a clause, and it deliberately takes no clause-registry row.
  *
  * What the strict-flip watch deliberately does NOT watch: the whole-file
  * `npm run sufficiency:check` surface. Two independent grounds, both recorded
@@ -276,12 +280,12 @@ export const CITED_JOB_DOCUMENTS = [CORPUS_DOC_PATH, LINT_DOC_PATH];
  * this file's header records as the one leg with no registered clause behind
  * it. Sub-holds ride with their leg — the per-action class heading with the
  * predicate catalogue, the meta-schema's `required` membership with the
- * vector outcome, and the gate commands' own `--platform` and `--baseline`
- * arguments plus the watched-platform population with the gate watch —
- * because each is that leg's own surface read a second way, not a subject of
- * its own. The session catalogue's manifest side is the watched desktop
- * platform's active sessions, so that leg reads through the watch's platform
- * list.
+ * vector outcome, and the gate-argument cross-check over each command's own
+ * `--platform` and `--baseline` plus the watched-platform population diff
+ * with the strict-flip watch — because each is that leg's own surface read a
+ * second way, not a subject of its own. The session catalogue's manifest side
+ * is the watched desktop platform's active sessions, so that leg reads through
+ * the watch's platform list.
  */
 export const INVENTORY_LEGS = [
   { label: 'relaxation-coverage', bullet: 'the relaxation coverage lists' },
@@ -728,11 +732,17 @@ export function documentCitations(paths, readDoc) {
 }
 
 /**
- * The non-empty guard's legs: every parsed surface, with its empty-parse
- * diagnosis. Exported so the unit suite's family is generated from this
- * list — a leg added here is exercised automatically, and the suite holds the
- * list non-empty and its diagnoses distinct. The per-document citation
- * extractions are guarded separately (one leg per scanned document).
+ * The non-empty guard's legs: every parsed surface the guard speaks for, with
+ * its empty-parse diagnosis. Exported so the unit suite's family is generated
+ * from this list — a leg added here is exercised automatically, and the suite
+ * holds the list non-empty and its diagnoses distinct. The per-document
+ * citation extractions are guarded separately (one leg per scanned document).
+ *
+ * The outcome the vector meta-schema states is guarded by its reader instead:
+ * {@link readVectorOutcome} holds that `const` to the outcome grammar and
+ * refuses a meta-schema stating none as this check's machinery verdict, so the
+ * surface reaches this guard stating an outcome, and a meta-schema that states
+ * none stops the run before this guard is reached.
  */
 export const EMPTY_SURFACES = [
   ['docKinds', `no relaxation kinds found in ${CORPUS_DOC_PATH} §${RELAXATION_CLAUSE_ID}`],
@@ -743,7 +753,6 @@ export const EMPTY_SURFACES = [
   ['docSessionIds', `no session ids found in ${CORPUS_DOC_PATH} §${SESSION_CLAUSE_ID}`],
   ['docOutcomeFields', `no \`${OUTCOME_FIELD}\` field token found in ${CORPUS_DOC_PATH} §${OUTCOME_CLAUSE_ID}, which is the property ${VECTOR_SCHEMA_PATH} states a committed vector's outcome under`], // prettier-ignore
   ['docOutcomes', `no shipping outcome found in ${CORPUS_DOC_PATH} §${OUTCOME_CLAUSE_ID}`],
-  ['schemaOutcomes', `no outcome found in ${VECTOR_SCHEMA_PATH}'s \`${OUTCOME_FIELD}\` property`],
   // One leg per watched platform, derived so a platform added to the watch
   // gains its vacuity guard in the same edit that adds it.
   ...STRICT_WATCH_PLATFORMS.map((w) => [
@@ -822,9 +831,11 @@ export const DUPLICATE_SURFACES = [
  * @param {string[]} s.watchedPlatforms the platforms the strict-flip watch covers
  * @param {string | null} s.sufficiencyBaselineArg the baseline `sufficiency:check` names
  * @param {string[]} s.workflowJobIds test.yml's job ids
+ * @param {[string, string][]} emptySurfaces the non-empty guard's legs, defaulting
+ *   to {@link EMPTY_SURFACES}
  * @returns {string[]} problems; empty when every inventory holds
  */
-export function evaluateVerificationInventory(s) {
+export function evaluateVerificationInventory(s, emptySurfaces = EMPTY_SURFACES) {
   const problems = [];
 
   // Unreadable input is reported ahead of the vacuous guards: the likeliest
@@ -885,11 +896,24 @@ export function evaluateVerificationInventory(s) {
   // leg taking a type error on a state that already has words for it.
   problems.push(...gateArgumentProblems(s.strictWatch ?? [], s.sufficiencyBaselineArg));
 
+  // The session catalogue's diff partner is one WATCHED platform's surface, minted
+  // by `activeSessionsKey` from STRICT_WATCH_PLATFORMS and given its emptiness leg
+  // from the same list — so a platform leaving the watch takes the surface and the
+  // guard that would have spoken for it away in one edit, and the catalogue diff
+  // would then read a surface that is gone as a catalogue that states nothing and
+  // report every enumerated session as retired. This leg reads only this check's
+  // own list, never a parsed document, so it is sound on a vacuous tree and runs
+  // beside the gate-argument cross-check for the same reason.
+  const desktopSessions = s[activeSessionsKey(DESKTOP_PLATFORM)];
+  if (desktopSessions === undefined) {
+    problems.push(`${CORPUS_DOC_PATH} §${SESSION_CLAUSE_ID}'s session catalogue has no surface to diff against — \`${DESKTOP_PLATFORM}\` is not in STRICT_WATCH_PLATFORMS in ${SELF_PATH}, and that list is where both the platform's active-session surface and its own emptiness guard come from, so the diff would read a surface that is gone as a catalogue that is empty; put the platform back on the watch, or move the clause's diff to a platform the watch covers`); // prettier-ignore
+  }
+
   // The vacuous seed above the shared guard: a scanned document that cites no
   // job is already reported, and it stops the run for the same reason an empty
   // surface does, so the early return has to survive an all-non-empty pass.
   const vacuousCites = s.docCites.some((d) => d.cites.length === 0);
-  const empty = emptySurfaceProblems(s, EMPTY_SURFACES);
+  const empty = emptySurfaceProblems(s, emptySurfaces);
   problems.push(...empty);
   if (empty.length > 0 || vacuousCites) return problems; // empty parses make the set diffs meaningless
 
@@ -904,12 +928,29 @@ export function evaluateVerificationInventory(s) {
     ...missingFrom(s.codeKinds, s.docStatedKinds, `is a relaxation kind the comparator carries but ${CORPUS_DOC_PATH} §${RELAXATION_KINDS_CLAUSE_ID}'s kind sentence does not state`), // prettier-ignore
     ...missingFrom(s.codeKinds, [...codeFields.keys()], `is in the comparator's RELAX_KINDS but ${SELF_PATH} knows no field list for it — extend CODE_RELAXATION_FIELDS in the same change`), // prettier-ignore
     ...missingFrom([...codeFields.keys()], s.codeKinds, `has a field list in ${SELF_PATH} but is not a comparator relaxation kind`), // prettier-ignore
+    // The watched-platform population, diffed both ways. The catalogue side
+    // reds from a tree state: a platform the corpus grows that the watch has
+    // not learned. The watch side states the same demand from the other end,
+    // and no tree state prints it — a watched platform the catalogue carries no
+    // session for has no active session for it either, so that platform's
+    // derived vacuity leg in `EMPTY_SURFACES` names the manifest and returns
+    // first. What holds that end is the unit suite: the case that hands this
+    // diff the surface directly, and the case pinning the shipped catalogue and
+    // the shipped watch to the same platforms.
     ...missingFrom(s.manifestPlatforms, s.watchedPlatforms, `has sessions in ${MANIFEST_PATH} but is a platform the ${STRICT_CLAUSE_ID} strict-flip watch has not learned — extend STRICT_WATCH_PLATFORMS in ${SELF_PATH} in the same change, so the platform's gate is watched from the moment its sessions land`), // prettier-ignore
     ...missingFrom(s.watchedPlatforms, s.manifestPlatforms, `is a platform the ${STRICT_CLAUSE_ID} strict-flip watch covers but ${MANIFEST_PATH} carries no session for`), // prettier-ignore
     ...missingFrom(s.docNormalizationTokens, s.codeNormalizationTokens, `is a field token ${CORPUS_DOC_PATH} §${NORMALIZATION_CLAUSE_ID} normalizes but the comparator's class map does not carry`), // prettier-ignore
     ...missingFrom(s.codeNormalizationTokens, s.docNormalizationTokens, `is a field token the comparator's class map normalizes but ${CORPUS_DOC_PATH} §${NORMALIZATION_CLAUSE_ID}'s table does not state`), // prettier-ignore
-    ...missingFrom(s.docSessionIds, s[activeSessionsKey(DESKTOP_PLATFORM)], `is a session ${CORPUS_DOC_PATH} §${SESSION_CLAUSE_ID} enumerates but ${MANIFEST_PATH} carries no active ${DESKTOP_PLATFORM} session for`), // prettier-ignore
-    ...missingFrom(s[activeSessionsKey(DESKTOP_PLATFORM)], s.docSessionIds, `is an active ${DESKTOP_PLATFORM} session in ${MANIFEST_PATH} but ${CORPUS_DOC_PATH} §${SESSION_CLAUSE_ID} does not enumerate it`), // prettier-ignore
+    // The catalogue's diff legs run only while the strict-flip watch still mints
+    // their partner surface; a platform the watch no longer covers is named as the
+    // mover by the refusal ahead of the vacuity return, so these stay silent
+    // instead of reading a gone surface as an empty catalogue.
+    ...(desktopSessions === undefined
+      ? []
+      : [
+          ...missingFrom(s.docSessionIds, desktopSessions, `is a session ${CORPUS_DOC_PATH} §${SESSION_CLAUSE_ID} enumerates but ${MANIFEST_PATH} carries no active ${DESKTOP_PLATFORM} session for`), // prettier-ignore
+          ...missingFrom(desktopSessions, s.docSessionIds, `is an active ${DESKTOP_PLATFORM} session in ${MANIFEST_PATH} but ${CORPUS_DOC_PATH} §${SESSION_CLAUSE_ID} does not enumerate it`), // prettier-ignore
+        ]),
     ...missingFrom(s.docOutcomes, s.schemaOutcomes, `is an outcome ${CORPUS_DOC_PATH} §${OUTCOME_CLAUSE_ID} states every committed vector carries but ${VECTOR_SCHEMA_PATH} does not state under \`${OUTCOME_FIELD}\``), // prettier-ignore
     ...missingFrom(s.schemaOutcomes, s.docOutcomes, `is the outcome ${VECTOR_SCHEMA_PATH} states under \`${OUTCOME_FIELD}\` but ${CORPUS_DOC_PATH} §${OUTCOME_CLAUSE_ID} does not state`), // prettier-ignore
     ...missingFrom(s.docPerAction, s.codePerAction, `is a per-action predicate ${LINT_DOC_PATH} tabulates but the lint's PREDICATES does not define`), // prettier-ignore
@@ -1590,13 +1631,18 @@ function run() {
         `\n\n  A finding naming two surfaces — a document, a code constant, the manifest, the\n` +
         `  vector meta-schema, the workflow, or a gate command's own arguments — is telling you\n` +
         `  the two no longer state the same thing: update both sides in the same change, and\n` +
-        `  read the finding for which side moved. A gate-watch FLAG finding names no second\n` +
-        `  statement, so its remedy is the gate itself: flip the command's flag, or regenerate\n` +
-        `  the baseline whose state it disagrees with. A finding that a statement could not be\n` +
-        `  read as one — a list item, a cell, a token, a heading, or a table the header tuple\n` +
-        `  no longer selects exactly once — names no second statement either: the inventory is\n` +
-        `  no longer where this check reads it, so put the statement back in the form the\n` +
-        `  reader takes, or move the reader to where it now stands.\n`,
+        `  read the finding for which side moved. A finding that a diff has no surface to diff\n` +
+        `  against names a document and one of this check's own lists, but not two statements\n` +
+        `  that disagree: that list is where the missing side was minted, so the remedy is the\n` +
+        `  list alone — put the subject back on it, or move the diff to a subject the list\n` +
+        `  still carries. A gate-flag finding — a gate command's own flag against the trigger\n` +
+        `  that wires it — names no second statement, so its remedy is the gate itself: flip\n` +
+        `  the command's flag, or regenerate the baseline whose state it disagrees with. A\n` +
+        `  finding that a statement could not be read as one — a list item, a cell, a token, a\n` +
+        `  heading, or a table the header tuple no longer selects exactly once — names no\n` +
+        `  second statement either: the inventory is no longer where this check reads it, so\n` +
+        `  put the statement back in the form the reader takes, or move the reader to where it\n` +
+        `  now stands.\n`,
     );
     process.exit(1);
   }
