@@ -32,10 +32,14 @@
  * it reads can be truncated, emptied, or malformed — because each of
  * those, believed, would read as a trigger that came true. Two further families
  * hold the watch to the tree it claims to watch: the catalogue's platform
- * population diffed against the watched set both ways, and each gate command's
- * own `--platform` and `--baseline` argument values against what this check
- * reads for it — a gate pointed elsewhere is watched against a state it does
- * not gate on.
+ * population diffed against the watched set in each direction on a direct
+ * surface (from a tree state only the corpus side prints), and each gate
+ * command's own `--platform` and `--baseline` argument values against what this
+ * check reads for it — a gate pointed elsewhere is watched against a state it
+ * does not gate on. Beyond the legs, the suite pins the guard's own shape: the
+ * §STC-22 session diff is refused by name when the watch stops minting its
+ * partner, and the outcome the vector meta-schema states carries no vacuity
+ * leg, because its reader refuses ahead of the guard.
  *
  * The exit-code contract is pinned where it lives, at the process boundary: a
  * spawned-CLI family runs the real command over a temporary tree holding copies
@@ -76,6 +80,7 @@ import {
   PER_ACTION_CLASS,
   OUTCOME_FIELD,
   OUTCOME_CLAUSE_ID,
+  SESSION_CLAUSE_ID,
   CITED_JOB_DOCUMENTS,
   INVENTORY_LEGS,
   legList,
@@ -173,6 +178,12 @@ const FIXTURE_SESSIONS = {
   'desktop-windows': ['d-click', 'd-redaction'],
   extension: ['ext-click-basic', 'ext-key'],
 };
+
+/**
+ * A vector meta-schema stating the outcome field but no `const` under it — the
+ * text the reader's refusal row and the vacuity-leg pin below both read.
+ */
+const SCHEMA_WITHOUT_CONST = '{"properties": {"expected_outcome": {"type": "string"}}}';
 
 /** A consistent synthetic surface every leg accepts. */
 function makeSurface(overrides = {}) {
@@ -408,6 +419,87 @@ describe('evaluateVerificationInventory — session catalogue (both ways)', () =
     );
     assert.ok(
       problems.some((p) => p.includes('d-new-behaviour') && p.includes('does not enumerate it')),
+    );
+  });
+
+  // The partner surface is minted per WATCHED platform, and the emptiness leg
+  // that would speak for it is derived from the same list — so one edit, dropping
+  // a platform from STRICT_WATCH_PLATFORMS, takes both away together (covering a
+  // platform whose sessions have all been retired reds on its active-session
+  // vacuity leg; dropping it from the watch reds here). Every fixture here
+  // supplies the key, which is what leaves this state unpinned until a case omits
+  // it. In a fixture the two still arrive together: omitting the key trips the
+  // shared guard's key-absent arm, so these cases stop at the vacuity return, and
+  // their negative assertion — no session reported retired — rides that return
+  // rather than the catalogue legs' own silence. What holds the silence itself,
+  // and the refusal's falling through so the population finding still prints
+  // beside it, is the case that hands the evaluator the state the tree would
+  // produce — the platform gone from the watched set and from the guard list, its
+  // key absent — alone; that the legs run when the surface is present is held by
+  // the cases that fire on a session the manifest does not run and on an active
+  // session the clause omits.
+  it('refuses the diff, naming the watch, when the watch no longer mints its partner', () => {
+    const surface = makeSurface();
+    delete surface[activeSessionsKey('desktop-windows')];
+    const problems = evaluateVerificationInventory(surface);
+    assert.ok(
+      problems.some(
+        (p) => p.includes('no surface to diff against') && p.includes('STRICT_WATCH_PLATFORMS'),
+      ),
+      problems.join('\n'),
+    );
+    // …and none of the clause's sessions is reported retired on the way past.
+    assert.ok(
+      !problems.some((p) => p.includes('carries no active desktop-windows session for')),
+      problems.join('\n'),
+    );
+  });
+
+  it('names the watch on a tree whose parses came back empty too', () => {
+    // The refusal reads this check's own list and no parsed document, so it is
+    // sound on a vacuous tree and states itself there rather than waiting
+    // behind the early return, where any one empty surface would hide it.
+    const surface = makeSurface({ docKinds: [] });
+    delete surface[activeSessionsKey('desktop-windows')];
+    const problems = evaluateVerificationInventory(surface);
+    assert.ok(problems.some((p) => p.includes('no relaxation kinds found')), problems.join('\n')); // prettier-ignore
+    assert.ok(problems.some((p) => p.includes('no surface to diff against')), problems.join('\n')); // prettier-ignore
+  });
+
+  it('states the clause, the list that moved, and where the remedy is — the watch, or the diff', () => {
+    const surface = makeSurface();
+    delete surface[activeSessionsKey('desktop-windows')];
+    const refusal = evaluateVerificationInventory(surface).find((p) =>
+      p.includes('no surface to diff against'),
+    );
+    assert.ok(refusal, 'no refusal to read');
+    assert.ok(refusal.includes(`§${SESSION_CLAUSE_ID}`), refusal);
+    assert.ok(refusal.includes('scripts/check-verification-inventory.js'), refusal);
+    assert.ok(refusal.includes('STRICT_WATCH_PLATFORMS'), refusal);
+    assert.ok(refusal.includes('put the platform back on the watch'), refusal);
+    assert.ok(refusal.includes("move the clause's diff to a platform the watch covers"), refusal);
+  });
+
+  it('runs the catalogue diff legs silent when the watch has really dropped the platform', () => {
+    // The state `auditTree` builds when the platform leaves the watch: gone from
+    // the watched set and from the watch entries, its active-session key never
+    // minted, and its derived leg gone from the guard list — while the manifest
+    // still carries its sessions.
+    const surface = makeSurface({ watchedPlatforms: ['extension'], strictWatch: [watchEntry()] });
+    delete surface[activeSessionsKey('desktop-windows')];
+    const legs = EMPTY_SURFACES.filter(([k]) => k !== activeSessionsKey('desktop-windows'));
+    const problems = evaluateVerificationInventory(surface, legs);
+    assert.ok(
+      problems.some((p) => p.includes('no surface to diff against')),
+      problems.join('\n'),
+    );
+    assert.ok(
+      problems.some((p) => p.includes('desktop-windows') && p.includes('has not learned')),
+      problems.join('\n'),
+    );
+    assert.ok(
+      !problems.some((p) => p.includes('carries no active desktop-windows session for')),
+      problems.join('\n'),
     );
   });
 });
@@ -994,6 +1086,21 @@ describe('evaluateVerificationInventory — duplicates, every leg of the duplica
 });
 
 describe('evaluateVerificationInventory — empty parses are structural failures', () => {
+  it('the vector meta-schema’s outcome is guarded by its reader, so the guard’s list states no leg for it', () => {
+    // The surface the check builds for that field is whatever its reader
+    // handed back, and the reader refuses a meta-schema that states no outcome
+    // this check can read — so a vacuity leg here would carry a diagnosis the
+    // tree cannot produce, and the machinery verdict is what a reader meets.
+    assert.ok(
+      !EMPTY_SURFACES.some(([key]) => key === 'schemaOutcomes'),
+      'EMPTY_SURFACES carries a schemaOutcomes leg — the reader guards that surface instead',
+    );
+    assert.throws(
+      () => readVectorOutcome(() => SCHEMA_WITHOUT_CONST, VECTOR_SCHEMA_PATH),
+      InputError,
+    );
+  });
+
   it('the export is non-empty and its diagnoses pairwise distinct', () => {
     assert.ok(EMPTY_SURFACES.length > 0);
     const messages = EMPTY_SURFACES.map(([, message]) => message);
@@ -1350,7 +1457,7 @@ describe('readVectorOutcome — the meta-schema side, keyed by this check’s co
     ['unparseable', '{ "properties": ', /is not parseable JSON/],
     ['no properties object', '{"properties": []}', /carries no `properties` object/],
     ['no such property', '{"properties": {"vector_id": {}}}', /carries no `properties\.expected_outcome` object/], // prettier-ignore
-    ['no const', '{"properties": {"expected_outcome": {"type": "string"}}}', /states no `const` outcome/], // prettier-ignore
+    ['no const', SCHEMA_WITHOUT_CONST, /states no `const` outcome/],
     ['a blank const', '{"properties": {"expected_outcome": {"const": "  "}}}', /states no `const` outcome/], // prettier-ignore
     ['a padded const', '{"properties": {"expected_outcome": {"const": " resolved "}}}', /states no `const` outcome/], // prettier-ignore
     ['a const the outcome grammar cannot read', '{"properties": {"expected_outcome": {"const": "Resolved OK"}}}', /states no `const` outcome/], // prettier-ignore
