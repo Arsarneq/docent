@@ -2010,6 +2010,77 @@ describe('parseDispositionSection', () => {
     assert.deepEqual(lines, []);
     assert.deepEqual(malformed, ['updated docs/alpha.md missing colon']);
   });
+
+  it('reads a line inside an illustrative fence as illustration, and the line beside it as a disposition', () => {
+    // Contributors paste the grammar into a body to show what they are about
+    // to write. The pasted line names a doc it is not judging, so reading it as
+    // a judgment credits a doc nobody attended to.
+    const { lines, malformed } = parseDispositionSection(
+      [
+        'Each line is written like this:',
+        '',
+        '```text',
+        'updated: docs/<path> — <what changed>',
+        'unaffected: docs/beta.md — an illustration, not a judgment',
+        '```',
+        '',
+        'unaffected: docs/alpha.md — no capture change',
+      ].join('\n'),
+    );
+    assert.deepEqual(
+      lines.map((l) => [l.verb, l.doc]),
+      [['unaffected', 'docs/alpha.md']],
+    );
+    assert.deepEqual(malformed, []);
+  });
+
+  it('a fenced line reaching for the grammar is not a malformed line either', () => {
+    // The model blanks a fenced line, and a blank line is nothing to parse — so
+    // an illustration of what does NOT parse is not reported as an author's
+    // failed attempt.
+    const { lines, malformed } = parseDispositionSection(
+      ['```text', 'updated docs/alpha.md missing colon', '```'].join('\n'),
+    );
+    assert.deepEqual(lines, []);
+    assert.deepEqual(malformed, []);
+  });
+
+  it("takes the fence model the section's boundaries are found on — a tilde fence and a longer one hide a line alike", () => {
+    // The reading is the shared model rather than a backtick pattern of its
+    // own, so every fence a contributor may write reaches it.
+    for (const [open, close] of [
+      ['~~~', '~~~'],
+      ['````', '````'],
+      ['  ```', '  ```'],
+    ]) {
+      const { lines } = parseDispositionSection(
+        [open, 'unaffected: docs/beta.md — an illustration', close].join('\n'),
+      );
+      assert.deepEqual(lines, [], `expected the fence ${open.trim()} to hide the line it holds`);
+    }
+  });
+
+  it('reads a CRLF section the same way — the fenced line is illustration, the one beside it a disposition', () => {
+    // GitHub delivers a PR body with CRLF endings. The fence model settles the
+    // view it hands back to LF, so a carriage return neither leaves a fence
+    // unrecognised nor rides along on the doc a real line names.
+    const { lines, malformed } = parseDispositionSection(
+      [
+        'Each line is written like this:',
+        '',
+        '```text',
+        'updated: docs/beta.md — an illustration, not a judgment',
+        '```',
+        '',
+        'updated: docs/alpha.md — the doc gained a section',
+      ].join('\r\n') + '\r\n',
+    );
+    assert.deepEqual(
+      lines.map((l) => [l.verb, l.doc, l.text]),
+      [['updated', 'docs/alpha.md', 'the doc gained a section']],
+    );
+    assert.deepEqual(malformed, []);
+  });
 });
 
 describe('isGovernanceDataDiff — the class the single recorded line belongs to', () => {
@@ -2049,6 +2120,23 @@ describe('parseGovernanceSection', () => {
     );
     assert.deepEqual(reasons, []);
     assert.equal(malformed.length, 3);
+  });
+
+  it('reads the marker line inside an illustrative fence as illustration — neither the recorded line nor a reach for it', () => {
+    // The marker is earned by a class of diff. A body showing the line it would
+    // write, or the near-miss it must avoid, records neither.
+    const { reasons, malformed } = parseGovernanceSection(
+      [
+        'The line that class writes:',
+        '',
+        '```text',
+        `${GOVERNANCE_MARKER} an illustration, not the record`,
+        'governance-data: a near miss, also an illustration',
+        '```',
+      ].join('\n'),
+    );
+    assert.deepEqual(reasons, []);
+    assert.deepEqual(malformed, []);
   });
 
   it('tolerates prose that opens with the word "Governance" — it is not an attempt', () => {
@@ -2244,6 +2332,201 @@ describe('run() governance-data-only class — the recorded line end to end', ()
         `stdout: ${r.stdout}\nstderr: ${r.stderr}`,
     );
     assert.match(r.stderr, /outside the governance-data-only class/);
+  });
+
+  it('exits 1 when the only marker line sits inside a fence', () => {
+    // A contributor who shows the recorded line before writing it has shown the
+    // form, not made the record: the class still owes its one judgment.
+    const r = runCheckOnChange(
+      before,
+      { [MAP_PATH]: fixtureMap('fixture map, edited') },
+      {
+        PR_BODY: body([
+          'The recorded line is written like this:',
+          '',
+          '```text',
+          markerLine,
+          '```',
+        ]),
+      },
+    );
+    assert.equal(
+      r.status,
+      1,
+      `expected the shown marker line to leave the record owed (exit 1), got exit ${r.status}.\n` +
+        `stdout: ${r.stdout}\nstderr: ${r.stderr}`,
+    );
+    assert.match(r.stderr, new RegExp(`no "${GOVERNANCE_MARKER}" line`));
+  });
+
+  it('exits 0 when a written marker line stands beside that same illustration', () => {
+    // The illustration stays in the body and is not counted, so the one line
+    // written outside the fence is the record — and the only one.
+    const r = runCheckOnChange(
+      before,
+      { [MAP_PATH]: fixtureMap('fixture map, edited') },
+      {
+        PR_BODY: body([
+          'The recorded line is written like this:',
+          '',
+          '```text',
+          markerLine,
+          '```',
+          '',
+          markerLine,
+        ]),
+      },
+    );
+    assert.equal(
+      r.status,
+      0,
+      `expected the written marker line to satisfy the check (exit 0), got exit ${r.status}.\n` +
+        `stdout: ${r.stdout}\nstderr: ${r.stderr}`,
+    );
+    assert.match(r.stdout, /governance-data-only/);
+  });
+});
+
+describe('run() — the grammar shown in the body, end to end', () => {
+  // A contributor who pastes the grammar into the body before writing their own
+  // lines meets the check with both in front of it. The shown one names a doc
+  // the author has not judged; the written one is the judgment.
+  const fixtureMap = JSON.stringify({
+    description: 'fixture map',
+    'repo-wide': { description: 'x', docs: ['README.md'] },
+    areas: { unrelated: { code: ['packages/unrelated/**'], docs: ['docs/unrelated.md'] } },
+    unassigned: [],
+    'declared-governance': [],
+    'governance-partitions': [],
+  });
+
+  const before = {
+    'README.md': 'a repo-wide doc\n',
+    [MAP_PATH]: fixtureMap,
+    [REGISTRY_PATH]: JSON.stringify({
+      description: 'fixture registry',
+      prefixes: {},
+      retired: {},
+      clauses: [],
+    }),
+  };
+  const after = { 'README.md': 'an edited repo-wide doc\n' };
+
+  const body = (dispositionLines) =>
+    [
+      '## Docs disposition',
+      '',
+      ...dispositionLines,
+      '',
+      '## Change record',
+      '',
+      'Intent: test.',
+      'Outside knowledge: none.',
+      MUTATION_LINE,
+    ].join('\n');
+
+  const judgment = 'updated: README.md — the repo-wide doc gained a line';
+
+  it('exits 1 when the only line for a governing doc sits inside a fence', () => {
+    const r = runCheckOnChange(before, after, {
+      PR_BODY: body(['Each line is written like this:', '', '```text', judgment, '```']),
+    });
+    assert.equal(
+      r.status,
+      1,
+      `expected the shown line to leave the judgment owed (exit 1), got exit ${r.status}.\n` +
+        `stdout: ${r.stdout}\nstderr: ${r.stderr}`,
+    );
+    assert.match(r.stderr, /README\.md/);
+  });
+
+  it('exits 0 when that same line stands outside the fence', () => {
+    const r = runCheckOnChange(before, after, {
+      PR_BODY: body([
+        'Each line is written like this:',
+        '',
+        '```text',
+        judgment,
+        '```',
+        '',
+        judgment,
+      ]),
+    });
+    assert.equal(
+      r.status,
+      0,
+      `expected the written line to satisfy the check (exit 0), got exit ${r.status}.\n` +
+        `stdout: ${r.stdout}\nstderr: ${r.stderr}`,
+    );
+  });
+});
+
+describe('run() over a changed file whose name carries a non-ASCII byte', () => {
+  // The scope the sections are demanded for is derived from the changed files,
+  // so a name the check cannot read as itself is a file it resolves no
+  // governing doc for — and a PR carrying that file is admitted with nothing
+  // asked of it. The case drives the CLI over a repository whose one change is
+  // such a file, with a body that states exactly the disposition the map calls
+  // for.
+  const FIXTURE_MAP = JSON.stringify({
+    description: 'fixture map',
+    'repo-wide': { description: 'x', docs: ['README.md'] },
+    areas: { unrelated: { code: ['packages/unrelated/**'], docs: ['docs/unrelated.md'] } },
+    unassigned: [],
+    'declared-governance': [],
+    'governance-partitions': [],
+  });
+
+  const REGISTRY_FIXTURE = JSON.stringify({
+    description: 'fixture registry',
+    prefixes: {},
+    retired: {},
+    clauses: [],
+  });
+
+  const BODY = [
+    '## Docs disposition',
+    '',
+    'unaffected: docs/unrelated.md — the change adds a file and states nothing',
+    '',
+    '## Change record',
+    '',
+    'Intent: test.',
+    'Outside knowledge: none.',
+    MUTATION_LINE,
+  ].join('\n');
+
+  const before = {
+    'README.md': 'a repo-wide doc\n',
+    [MAP_PATH]: FIXTURE_MAP,
+    [REGISTRY_PATH]: REGISTRY_FIXTURE,
+  };
+
+  it('resolves the governing doc the map states for it, so the body’s line is the right one', () => {
+    const r = runCheckOnChange(before, { 'packages/unrelated/café.js': '// probe\n' }, {
+      PR_BODY: BODY,
+    }); // prettier-ignore
+    assert.equal(
+      r.status,
+      0,
+      `expected the disposition for the mapped area to be accepted (exit 0), got exit ${r.status}.\n` +
+        `stdout: ${r.stdout}\nstderr: ${r.stderr}`,
+    );
+  });
+
+  it('holds that reading beside the ASCII sibling it must answer alike', () => {
+    // The control: the same change under a name of plain ASCII. Both must reach
+    // the same governing doc, which is what makes the non-ASCII case a claim
+    // about the reading and not about the map.
+    const r = runCheckOnChange(before, { 'packages/unrelated/plain.js': '// probe\n' }, {
+      PR_BODY: BODY,
+    }); // prettier-ignore
+    assert.equal(
+      r.status,
+      0,
+      `expected the ASCII control to be accepted (exit 0), got exit ${r.status}.\n` +
+        `stdout: ${r.stdout}\nstderr: ${r.stderr}`,
+    );
   });
 });
 
@@ -2530,7 +2813,10 @@ describe('auditBody', () => {
     assert.deepEqual(Object.values(auditBody({ body: crlf, expected })).flat(), []);
   });
 
-  it('counts the expected lines a body fenced — a fence is formatting, not absence', () => {
+  it('reports the expected lines a body left inside a fence as missing — the section is there, its lines are illustration', () => {
+    // The heading is outside the fence, so the section is present and the
+    // verdict names the lines it wants rather than the section: what the fence
+    // holds is an illustration of the grammar, and the judgments are still owed.
     const fencedBody = [
       '## Docs disposition',
       '',
@@ -2545,7 +2831,41 @@ describe('auditBody', () => {
       'Outside knowledge: none.',
       MUTATION_LINE,
     ].join('\n');
-    assert.deepEqual(Object.values(auditBody({ body: fencedBody, expected })).flat(), []);
+    const r = auditBody({ body: fencedBody, expected });
+    assert.deepEqual(r.missingSections, []);
+    assert.deepEqual(r.missing, ['docs/alpha.md', 'docs/alpha.md §AL-1']);
+    assert.deepEqual(r.malformed, []);
+    assert.deepEqual(r.unexpected, []);
+    assert.deepEqual(r.changeRecordProblems, []);
+  });
+
+  it('holds the change record to markers of its own — the ones inside an illustrative fence are illustration', () => {
+    // A body that shows the record's shape before writing it has shown the
+    // shape, not made the record.
+    const shownRecord = [
+      '## Docs disposition',
+      '',
+      'unaffected: docs/alpha.md — no capture change',
+      'unaffected: docs/alpha.md §AL-1 — comment-only',
+      '',
+      '## Change record',
+      '',
+      'Written like this:',
+      '',
+      '```text',
+      'Intent: an illustration.',
+      'Outside knowledge: an illustration.',
+      MUTATION_LINE,
+      '```',
+    ].join('\n');
+    const r = auditBody({ body: shownRecord, expected });
+    assert.deepEqual(r.missingSections, []);
+    assert.deepEqual(r.missing, []);
+    assert.deepEqual(r.changeRecordProblems, [
+      'change record has no "Intent:" line',
+      'change record has no "Outside knowledge:" line',
+      'change record has no "mutation:" line',
+    ]);
   });
 
   it('reports a missing expected line by its exact anchor', () => {

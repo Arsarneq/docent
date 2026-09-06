@@ -14,7 +14,15 @@
  * themselves guard those.) The `## Change record` section must be present and
  * carry its structural markers (`Intent:`, `Outside knowledge:`, `mutation:`)
  * each at the start of a line. HTML comments are stripped before any parsing,
- * so the PR template's guidance comments neither satisfy nor break the check.
+ * so the PR template's guidance comments neither satisfy nor break the check;
+ * and every reading of a section runs on the fence-stripped view — where its
+ * boundaries are found, where its per-doc lines and its governance line are
+ * read, and where the change record is searched for its markers — so a line a
+ * contributor pastes inside an illustrative fence stays an illustration. Each
+ * of those readings takes the view's own line endings, which the model settles
+ * to LF, so a body delivered with CRLF reads as one written with LF; the
+ * section text `extractSection` hands back is the body's own, line endings
+ * included.
  *
  * This checks FORM ONLY — that every expected line exists, anchors a doc or
  * clause actually in scope, and picks exactly one of updated/unaffected. It
@@ -96,7 +104,12 @@ import {
   effectiveHeadRef,
   isAllowedReleaseOutput,
 } from './check-no-release-outputs.js';
-import { escapeForRegExp, extractHeadingSection } from './check-test-inventory.js';
+import {
+  escapeForRegExp,
+  extractHeadingSection,
+  gitEntries,
+  stripFences,
+} from './check-test-inventory.js';
 
 /**
  * Repo-relative path of the clause registry — the shared governance-data
@@ -554,7 +567,14 @@ const GOVERNANCE_ATTEMPT_RE = /^governance-data/i;
 
 /**
  * Pure core: parse the disposition section's lines (assumes comments are
- * already stripped).
+ * already stripped). The section is read on the fence-stripped view — the one
+ * fence model, {@link stripFences}, the same one {@link extractSection} finds
+ * the section's boundaries on — so a line a contributor pastes inside an
+ * illustrative fence is an illustration: neither a disposition line nor an
+ * attempted one, since the model blanks a fenced line and a blank line is
+ * nothing to parse. The reading sits in this core rather than in the reader
+ * that cuts the section out, so it answers the same to every caller, however
+ * the section reached it.
  * @param {string} section the section text (without the heading)
  * @returns {{ lines: { verb: string, doc: string, clause: string | null, text: string }[],
  *             malformed: string[] }}
@@ -562,7 +582,7 @@ const GOVERNANCE_ATTEMPT_RE = /^governance-data/i;
 export function parseDispositionSection(section) {
   const lines = [];
   const malformed = [];
-  for (const raw of section.split('\n')) {
+  for (const raw of stripFences(section).split('\n')) {
     const line = raw
       .trim()
       .replace(PREFIX_RE, '')
@@ -586,14 +606,17 @@ export function parseDispositionSection(section) {
  * Pure core: parse the disposition section's governance-data-only lines —
  * recognized beside the per-doc grammar, not through it, so the per-doc
  * parser's shape stays exactly what its other reader consumes. Assumes
- * comments are already stripped.
+ * comments are already stripped, and reads the section on the fence-stripped
+ * view for the reason {@link parseDispositionSection} states: the marker line
+ * a contributor pastes inside an illustrative fence is neither the earned line
+ * nor a reach for it.
  * @param {string} section the section text (without the heading)
  * @returns {{ reasons: string[], malformed: string[] }}
  */
 export function parseGovernanceSection(section) {
   const reasons = [];
   const malformed = [];
-  for (const raw of section.split('\n')) {
+  for (const raw of stripFences(section).split('\n')) {
     const line = raw
       .trim()
       .replace(PREFIX_RE, '')
@@ -608,20 +631,25 @@ export function parseGovernanceSection(section) {
 }
 
 /**
- * Extract a `## `-headed section's body from a PR description: the text between
- * this heading and the next UNFENCED `## ` heading. The slice itself is the
- * shared {@link extractHeadingSection}, which finds both boundaries on a
- * fence-stripped view (the one fence model, `stripFences` in
+ * Extract a `## `-headed section's body from a PR description: the text
+ * between this heading and the next UNFENCED `## ` heading. The slice itself
+ * is the shared {@link extractHeadingSection}, which finds both boundaries on
+ * a fence-stripped view (the one fence model, `stripFences` in
  * `check-test-inventory.js`, which blanks fenced lines and keeps the line
- * count) and returns the raw lines between
- * them, so a `##` line inside a fenced example neither ends a section nor opens
- * one — a heading inside a fence is not a heading, and a body whose only
- * section heading sits inside one carries no such section. A fence left open
- * runs to the end of the body, so every heading below it is inside it, and
- * everything the author fenced comes back in the section it sits in. What this
- * reading states of its own is the two patterns: the heading is `## ` and the
- * title, case-insensitively and with nothing but whitespace after it, and only
- * another `## ` line ends the section — a `### ` subheading is inside it.
+ * count) and returns the raw lines between them, so a `##` line inside a
+ * fenced example neither ends a section nor opens one — a heading inside a
+ * fence is not a heading, and a body whose only section heading sits inside
+ * one carries no such section. A fence left open runs to the end of the body,
+ * so every heading after it in the body is inside it, and everything the
+ * author fenced comes back in the section it sits in. What this reading states
+ * of its own is the heading pattern and the boundary pattern: the heading is
+ * `## ` and the title, case-insensitively and with nothing but whitespace
+ * after it, and only another `## ` line ends the section — a `### ` subheading
+ * is inside it. The body comes back raw, and each reading that takes it
+ * applies that same model to the interior — the per-doc lines and the
+ * governance line in the parsers named beside them, the change record's
+ * markers where they are searched for — so what the author fenced is present
+ * to be read and is read as fenced.
  * @param {string} body
  * @param {string} title the section title without the `## ` prefix
  * @returns {string | null} the text between this heading and the next unfenced `## `, or null
@@ -642,7 +670,9 @@ function describeExpected({ doc, clause }) {
 
 /**
  * Pure core: audit a PR body against the expected lines. HTML comments are
- * stripped first, so template scaffolding is inert in both directions.
+ * stripped first, so template scaffolding is inert in both directions, and the
+ * change record is searched for its markers on the fence-stripped view, so a
+ * marker shown inside a fence is illustration.
  * @param {object} opts
  * @param {string} opts.body the PR description
  * @param {{ doc: string, clause: string | null }[]} opts.expected
@@ -706,9 +736,13 @@ export function auditBody({ body, expected, governanceData = false }) {
   if (record === null) {
     result.missingSections.push(CHANGE_RECORD_HEADING);
   } else {
+    // Searched on the fence-stripped view, as the disposition section's lines
+    // are read: a marker inside an illustrative fence is an illustration, and
+    // the record still owes the marker itself.
+    const written = stripFences(record);
     for (const marker of CHANGE_RECORD_MARKERS) {
       const escaped = escapeForRegExp(marker);
-      if (!new RegExp(`^\\s*${escaped}`, 'm').test(record)) {
+      if (!new RegExp(`^\\s*${escaped}`, 'm').test(written)) {
         result.changeRecordProblems.push(`change record has no "${marker}" line`);
       }
     }
@@ -719,7 +753,8 @@ export function auditBody({ body, expected, governanceData = false }) {
 
 /* c8 ignore start — the CLI wrapper reads the PR body from env and the diff
  * from git; the scope resolution, exemption rules, expected-line computation,
- * and body parsing it delegates to are unit-tested above. */
+ * and body parsing it delegates to are held by
+ * packages/shared/tests/unit/check-docs-disposition.test.js. */
 function run() {
   const baseRef = process.argv[2] || 'origin/main';
   const body = process.env.PR_BODY || '';
@@ -731,10 +766,10 @@ function run() {
   const headRef = effectiveHeadRef();
 
   const git = (args) => execFileSync('git', args, { encoding: 'utf8' });
-  const files = git(['diff', '--name-only', `${baseRef}...HEAD`])
-    .split('\n')
-    .map((s) => s.trim())
-    .filter(Boolean);
+  // Three-dot: changes on HEAD since it diverged from the base (merge base).
+  // Through the reading of a list git wrote, whose docblock in
+  // scripts/check-test-inventory.js cites the quotepath policy.
+  const files = gitEntries('diff', ['--name-only', `${baseRef}...HEAD`]);
 
   // Full-file context so the manifest exemption checks always see the enclosing
   // dependency block's opener/header (see MANIFEST_DIFF_CONTEXT).
@@ -799,7 +834,8 @@ function run() {
   if (r.missing.length) {
     problems.push(
       `✗ ${r.missing.length} expected disposition line(s) are missing. The PR body's\n` +
-        `"${DISPOSITION_HEADING}" section needs exactly one line for each of:\n` +
+        `"${DISPOSITION_HEADING}" section needs exactly one line — written as a plain line of the\n` +
+        `section, since a line inside a code fence is an example — for each of:\n` +
         r.missing
           .map((d) =>
             d.includes('§')
@@ -827,7 +863,9 @@ function run() {
         r.governanceProblems.map((d) => `    ${d}`).join('\n') +
         (governanceData
           ? `\n  Every changed file here is ${MAP_PATH} or ${REGISTRY_PATH}, with the map among\n` +
-            `  them, so the "${DISPOSITION_HEADING}" section carries exactly this one line:\n` +
+            `  them, so the "${DISPOSITION_HEADING}" section carries exactly this one line —\n` +
+            `  written as a plain line of the section, since a line inside a code fence is an\n` +
+            `  example:\n` +
             `    ${GOVERNANCE_LINE_TEMPLATE}\n` +
             `  and no per-doc lines. "${CHANGE_RECORD_HEADING}" is unchanged.`
           : `\n  That line is earned only by a diff whose every changed file is ${MAP_PATH} or\n` +
@@ -857,7 +895,8 @@ function run() {
         r.changeRecordProblems.map((d) => `    ${d}`).join('\n') +
         `\n  Every PR carries a "${CHANGE_RECORD_HEADING}" section with at least "Intent:",\n` +
         `  "Outside knowledge:" (say "none" explicitly if so), and a "mutation:" statement,\n` +
-        `  each starting its own line — the "mutation:" line's standing sentence to paste:\n` +
+        `  each starting its own line and outside any code fence — what a fence holds is\n` +
+        `  an example — the "mutation:" line's standing sentence to paste:\n` +
         `    ${MUTATION_LINE}`,
     );
   }

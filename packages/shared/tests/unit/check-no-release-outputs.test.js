@@ -19,13 +19,17 @@
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { readFileSync, mkdtempSync, writeFileSync, mkdirSync, rmSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
+import os from 'node:os';
 import path from 'node:path';
 import yaml from 'js-yaml';
 import {
   isAllowedReleaseOutput,
   featureBranchViolations,
   automatedBranchViolations,
+  changedFiles,
+  driftedDistPaths,
   parsePorcelainPaths,
   effectiveHeadRef,
   isAutomatedBranchRun,
@@ -410,16 +414,154 @@ describe('the automation branch name — welded to the prose that spells it out'
 });
 
 describe('parsePorcelainPaths', () => {
-  it('strips the 2-char status and keeps untracked (??) entries', () => {
-    const out = ' M schemas/dist/extension.schema.json\n?? schemas/dist/new-platform.schema.json\n';
-    assert.deepEqual(parsePorcelainPaths(out), [
+  it('strips the 2-char status and keeps untracked (`??`) records', () => {
+    const records = [
+      ' M schemas/dist/extension.schema.json',
+      '?? schemas/dist/new-platform.schema.json',
+    ];
+    assert.deepEqual(parsePorcelainPaths(records), [
       'schemas/dist/extension.schema.json',
       'schemas/dist/new-platform.schema.json',
     ]);
   });
 
-  it('returns nothing for empty output', () => {
-    assert.deepEqual(parsePorcelainPaths(''), []);
-    assert.deepEqual(parsePorcelainPaths('\n'), []);
+  it('takes a name a path carries, spaces and all, as the name', () => {
+    // The records arrive already separated, so what a path holds is the path's:
+    // the name a status record ends on is the file, whatever bytes fill it. A
+    // name whose first and last characters are spaces holds the reader to that:
+    // a trim would rewrite it.
+    assert.deepEqual(parsePorcelainPaths(['?? schemas/dist/café schema .json']), [
+      'schemas/dist/café schema .json',
+    ]);
+    assert.deepEqual(parsePorcelainPaths(['??  padded .json ']), [' padded .json ']);
+  });
+
+  it('reads a rename record’s trailing entry as the name the file had', () => {
+    // git spends a second entry on the former name; it belongs to the record
+    // that opened it, so both names are reported and the former one is never
+    // read as a status record — which would eat its first three characters.
+    const records = [
+      'R  schemas/dist/desktop.schema.json',
+      'schemas/dist/desktop-windows.schema.json',
+      '?? schemas/dist/extension.schema.json',
+    ];
+    assert.deepEqual(parsePorcelainPaths(records), [
+      'schemas/dist/desktop.schema.json',
+      'schemas/dist/desktop-windows.schema.json',
+      'schemas/dist/extension.schema.json',
+    ]);
+  });
+
+  it('reports a rename record standing last under the name it carries', () => {
+    // git writes the former name after every rename record; this holds the
+    // reader for a listing cut short mid-record. The record still names a file,
+    // so that name is reported — rather than the entry past the end of the
+    // listing.
+    assert.deepEqual(parsePorcelainPaths(['R  schemas/dist/a.json']), ['schemas/dist/a.json']);
+  });
+
+  it('returns nothing where git recorded nothing', () => {
+    assert.deepEqual(parsePorcelainPaths([]), []);
+  });
+});
+
+describe('changedFiles — the guard reads a name as the name', () => {
+  /**
+   * A throwaway repository whose second commit adds `names`, run through the
+   * guard's own changed-file reading and, beside it, through the reading git
+   * gives a caller that asks for none of this.
+   * @param {string[]} names files to add on the second commit
+   * @returns {{ read: string[], unpinned: string[], base: string }}
+   */
+  const changeIn = (names) => {
+    const dir = mkdtempSync(path.join(os.tmpdir(), 'norel-'));
+    try {
+      const g = (args) => execFileSync('git', args, { cwd: dir, encoding: 'utf8' });
+      g(['init', '-q', '-b', 'main']);
+      g(['config', 'user.email', 't@example.com']);
+      g(['config', 'user.name', 'Test']);
+      // The contrast against git's own quoting is what the cases here hold, so
+      // the repository states it rather than inheriting whoever's global answer.
+      g(['config', 'core.quotepath', 'true']);
+      writeFileSync(path.join(dir, 'README.md'), 'base\n');
+      g(['add', '.']);
+      g(['commit', '-qm', 'base']);
+      const base = g(['rev-parse', 'HEAD']).trim();
+      for (const name of names) {
+        const file = path.join(dir, name);
+        mkdirSync(path.dirname(file), { recursive: true });
+        writeFileSync(file, '{}\n');
+      }
+      g(['add', '.']);
+      g(['commit', '-qm', 'change']);
+      const unpinned = execFileSync('git', ['diff', '--name-only', `${base}...HEAD`], {
+        cwd: dir,
+        encoding: 'utf8',
+      })
+        .split('\n')
+        .map((line) => line.trim())
+        .filter(Boolean);
+      return { read: changedFiles(base, { cwd: dir }), unpinned, base };
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  };
+
+  it('keeps the guard’s teeth on a composed schema whose name carries a non-ASCII byte', () => {
+    // A branch that touches the composed schemas is what NEGATIVE mode exists to
+    // stop. git's own line-oriented output writes such a name back escaped
+    // inside quotes, and the rule then matches no forbidden prefix — the guard
+    // waves the release artifact through.
+    const { read, unpinned, base } = changeIn(['schemas/dist/café.schema.json']);
+    const violationsFor = (files) => featureBranchViolations({ files, baseRef: base, versionAt: () => null }); // prettier-ignore
+
+    assert.deepEqual(read, ['schemas/dist/café.schema.json']);
+    assert.deepEqual(violationsFor(read), [
+      'schemas/dist/café.schema.json (composed schema is a release artifact)',
+    ]);
+
+    assert.deepEqual(unpinned, ['"schemas/dist/caf\\303\\251.schema.json"']);
+    assert.deepEqual(violationsFor(unpinned), [], 'the reading git gives without the guard’s');
+  });
+
+  it('keeps POSITIVE mode’s ride-along rule off a release output it already admits', () => {
+    // The same name read the other way is a false red: the automation branch's
+    // rule asks whether every changed file is a release output, and the escaped
+    // spelling is inside no enumerated prefix.
+    const { read, unpinned } = changeIn(['schemas/dist/café.schema.json']);
+    assert.deepEqual(automatedBranchViolations({ files: read }), []);
+    assert.equal(automatedBranchViolations({ files: unpinned }).length, 1);
+  });
+});
+
+describe('driftedDistPaths — the drift reading over the records git writes', () => {
+  it('reports a renamed composed schema under the name it has and the name it had', () => {
+    const dir = mkdtempSync(path.join(os.tmpdir(), 'norel-'));
+    try {
+      const g = (args) => execFileSync('git', args, { cwd: dir, encoding: 'utf8' });
+      g(['init', '-q', '-b', 'main']);
+      g(['config', 'user.email', 't@example.com']);
+      g(['config', 'user.name', 'Test']);
+      // The rename record is what this case is about, so the repository asks
+      // for rename detection rather than inheriting whoever's global answer.
+      g(['config', 'status.renames', 'true']);
+      mkdirSync(path.join(dir, 'schemas', 'dist'), { recursive: true });
+      writeFileSync(path.join(dir, 'schemas', 'dist', 'desktop.schema.json'), '{}\n');
+      g(['add', '.']);
+      g(['commit', '-qm', 'base']);
+      g(['mv', 'schemas/dist/desktop.schema.json', 'schemas/dist/desktop-windows.schema.json']);
+
+      // git writes a rename as a status record naming the file as it now
+      // stands, then an entry carrying the name it had. The reading takes that
+      // entry with the record that opened it, so the former name reaches the
+      // report whole rather than shorn of the two status characters and the
+      // separator, and no name here is anything but a path.
+      assert.deepEqual(driftedDistPaths({ cwd: dir }), [
+        'schemas/dist/desktop-windows.schema.json',
+        'schemas/dist/desktop.schema.json',
+      ]);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });
