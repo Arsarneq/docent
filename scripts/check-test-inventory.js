@@ -613,18 +613,57 @@ export function topLevelListItems(text) {
 }
 
 /**
+ * What one git subcommand wrote, entry by entry — the reading the checks that
+ * take it share. `subcommand` is the git subcommand, and `args` the rest of
+ * its arguments; `-z` is placed with the subcommand rather than left to the
+ * caller, so the machine-readable output is a property of this reader and not
+ * something a call site has to remember.
+ *
+ * The flags it passes are the ones `trackedFilesUnder`'s docblock states as the
+ * policy every name arrives under. git ends the last entry with a separator
+ * too, so the split leaves a trailing empty string; it is dropped, so what a
+ * caller gets holds no empty entry — which is what lets a reading that pairs
+ * one entry with the next stop at the end of a listing.
+ *
+ * What an entry IS is the subcommand's own contract, which the caller reads:
+ * `ls-files` and `diff --name-only` write one path per entry, while
+ * `status --porcelain` writes a status record whose rename form spends a second
+ * entry on the name the file had (parsePorcelainPaths in
+ * check-no-release-outputs.js reads those records).
+ * @param {string} subcommand the git subcommand to run
+ * @param {string[]} [args] the subcommand's remaining arguments
+ * @param {object} [how] where to run
+ * @param {string} [how.cwd] the directory to run in (default: the process's)
+ * @returns {string[]} the entries git wrote, each exactly as git wrote it, the
+ *   separator's trailing empty entry dropped
+ */
+export function gitEntries(subcommand, args = [], { cwd } = {}) {
+  return execFileSync('git', ['-c', 'core.quotepath=false', subcommand, '-z', ...args], {
+    encoding: 'utf8',
+    ...(cwd === undefined ? {} : { cwd }),
+  })
+    .split('\0')
+    .filter((entry) => entry !== '');
+}
+
+/**
  * The tracked files a pathspec names, as `git ls-files` lists them — the one
  * population read the checks that scan a tree share. The argument is a
  * PATHSPEC, so a directory, a glob, or a bare name all reach the same reader.
  *
- * `core.quotepath` is off, so a path carrying a non-ASCII byte arrives as
- * itself rather than quoted and escaped, which every filter a caller applies
- * would otherwise drop in silence — a file present in the tree and absent from
- * the scan. This paragraph is the policy's one home: no other script under
- * `scripts/` carries a second copy of this clause, which the
- * `quotepath policy — one home, no second copy` describe in
- * `packages/shared/tests/unit/check-test-inventory.test.js` holds; the checks
- * that cite it do so instead of copying it.
+ * Every name is read as git wrote it: the entries come back NUL-separated
+ * (`-z`), so a path carrying a non-ASCII byte arrives as itself rather than
+ * quoted and escaped — which every filter a caller applies would otherwise drop
+ * in silence, a file present in the tree and absent from the scan — and a name
+ * holding a newline or a quote is one entry rather than an escape sequence,
+ * with the spaces it begins or ends with kept as the name's; nothing here trims
+ * for that reason. `core.quotepath` is off beside it, the belt for a reading
+ * that takes git's lines rather than its entries. This paragraph is the
+ * policy's one home: no other script under `scripts/` carries a second copy of
+ * this clause, which the `quotepath policy — one home, no second copy` describe
+ * in `packages/shared/tests/unit/check-test-inventory.test.js` holds; the
+ * checks that cite it do so instead of copying it. The reading itself is
+ * {@link gitEntries}, which passes the flags this paragraph names.
  *
  * Both filters are the caller's to state and both are optional: `extensions`
  * keeps the files whose name ends in one of them, and `exclude` drops the ones
@@ -637,13 +676,7 @@ export function topLevelListItems(text) {
  * @returns {string[]} repo-relative paths, in `git ls-files` order
  */
 export function trackedFilesUnder(pathspec, { extensions, exclude, cwd } = {}) {
-  return execFileSync('git', ['-c', 'core.quotepath=false', 'ls-files', pathspec], {
-    encoding: 'utf8',
-    ...(cwd === undefined ? {} : { cwd }),
-  })
-    .split('\n')
-    .map((line) => line.trim())
-    .filter(Boolean)
+  return gitEntries('ls-files', [pathspec], { cwd })
     .filter((file) => extensions === undefined || extensions.some((ext) => file.endsWith(ext)))
     .filter((file) => exclude === undefined || !file.startsWith(`${exclude}/`));
 }
@@ -834,11 +867,15 @@ export function duplicatesIn(names, what) {
  * a backtick opens one here too, where CommonMark reads that line as text
  * rather than as a fence at all; a fence written inside a block quote, and one
  * opened on a list-marker line, are not seen as fences here, so what they hold
- * reads as live doc text; and the closer's window is measured from the opener's
- * own column, which stands in for the indent of the block the fence sits in, so
- * a closer written inside that window closes the fence here, while CommonMark,
- * measuring from the margin at top level, may read that marker as content and
- * keep reading.
+ * reads as live doc text; a backtick or tilde run written at the start of a
+ * line inside a raw HTML block — the block CommonMark opens on a tag such as
+ * `<details>` and runs to the next blank line, or, for a `<pre>`, `<script>` or
+ * `<style>` block, to the block's own closing tag — opens or closes a fence
+ * here, where CommonMark reads the run as the block's literal text; and the
+ * closer's window is measured from the opener's own column, which stands in for
+ * the indent of the block the fence sits in, so a closer written inside that
+ * window closes the fence here, while CommonMark, measuring from the margin at
+ * top level, may read that marker as content and keep reading.
  * @param {string} markdown
  * @returns {string} the text with fence lines and fenced content blanked
  */

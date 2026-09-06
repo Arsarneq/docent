@@ -97,6 +97,7 @@ import {
   extractStepBody,
   flattenWhitespace,
   formatProblems,
+  gitEntries,
   identifiesSameFile,
   killSetTargets,
   nodeTestArguments,
@@ -676,12 +677,88 @@ describe('parseTables / splitRow / backtickedName', () => {
   });
 });
 
+describe('gitEntries — the one reading of a list git wrote', () => {
+  /**
+   * A throwaway repository carrying `names`, committed, with a second commit
+   * over it so a three-dot diff has something to report.
+   * @param {string[]} names file names to create and commit
+   * @param {(dir: string) => void} body what to run against the repository
+   */
+  const inRepo = (names, body) => {
+    const dir = mkdtempSync(join(tmpdir(), 'docent-git-entries-'));
+    try {
+      const g = (args) => execFileSync('git', args, { cwd: dir, encoding: 'utf8' });
+      g(['init', '-q', '-b', 'main']);
+      g(['config', 'user.email', 't@example.com']);
+      g(['config', 'user.name', 'Test']);
+      // The contrast against git's own quoting is what the cases here hold, so
+      // the repository states it rather than inheriting whoever's global answer.
+      g(['config', 'core.quotepath', 'true']);
+      writeFileSync(join(dir, 'base.txt'), 'base\n');
+      g(['add', '.']);
+      g(['commit', '-qm', 'base']);
+      for (const name of names) writeFileSync(join(dir, name), 'x\n');
+      g(['add', '.']);
+      g(['commit', '-qm', 'change']);
+      body(dir);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  };
+
+  // The names git's line-oriented output cannot carry intact: the non-ASCII one
+  // comes back C-quoted unless the pin is on, the newline one comes back quoted
+  // even with the pin, and the padded one survives the quoting but not a trim.
+  const AWKWARD = [
+    'café.js',
+    // The newline name is held where the platform can write it: Windows cannot.
+    ...(process.platform !== 'win32' ? ['new\nline.js'] : []),
+    ' padded .js',
+  ];
+
+  it('hands back every name as git holds it, whatever bytes the name carries', () => {
+    inRepo(AWKWARD, (dir) => {
+      assert.deepEqual(gitEntries('ls-files', ['.'], { cwd: dir }).sort(), [...AWKWARD, 'base.txt'].sort()); // prettier-ignore
+      assert.deepEqual(
+        gitEntries('diff', ['--name-only', 'main~1...HEAD'], { cwd: dir }).sort(),
+        [...AWKWARD].sort(),
+      );
+    });
+  });
+
+  it('the reading git gives without it loses each of those names', () => {
+    // The contrast, run the way a caller would read git's default output: the
+    // non-ASCII and newline names arrive escaped inside quotes, and the padded
+    // name arrives whole but a trim rewrites it — so every name the case set
+    // out with is absent from what the caller got back.
+    inRepo(AWKWARD, (dir) => {
+      const lines = execFileSync('git', ['diff', '--name-only', 'main~1...HEAD'], {
+        cwd: dir,
+        encoding: 'utf8',
+      })
+        .split('\n')
+        .map((line) => line.trim())
+        .filter(Boolean);
+      for (const name of AWKWARD) {
+        assert.ok(!lines.includes(name), `git's default reading kept ${JSON.stringify(name)}`);
+      }
+    });
+  });
+
+  it('reads the repository it is pointed at, and lists nothing where git lists nothing', () => {
+    assert.deepEqual(gitEntries('ls-files', ['scripts/check-test-inventory.js'], { cwd: ROOT }), ['scripts/check-test-inventory.js']); // prettier-ignore
+    assert.deepEqual(gitEntries('ls-files', ['no-such-path-anywhere'], { cwd: ROOT }), []);
+  });
+});
+
 describe('trackedFilesUnder — the one population read', () => {
   it('states the quotepath policy: a non-ASCII path arrives as itself', () => {
     // The policy this reader exists to state, held behaviourally: git's
     // default quotes such a path (`"caf\303\251.js"`), and every filter a
     // caller applies then drops the file — present in the tree, absent from
-    // the scan. Deleting the policy reds here, in its own name.
+    // the scan. Deleting the `-z` reading reds here, in its own name; the
+    // `core.quotepath` pin beside it is the belt for a reading that takes
+    // git's lines, so its absence alone shows nothing this case can see.
     const dir = mkdtempSync(join(tmpdir(), 'docent-quotepath-'));
     try {
       const name = 'café.js';
@@ -4429,6 +4506,40 @@ describe('stripFences — the one fence model, exported', () => {
     const stripped = stripFences(['live', '```', 'fenced', 'still fenced'].join('\n'));
     assert.ok(stripped.includes('live'));
     assert.ok(!stripped.includes('fenced'));
+  });
+
+  it('a marker run inside a raw HTML block opens a fence here — the declared reading, not CommonMark’s', () => {
+    // CommonMark opens an HTML block on a tag such as `<details>` and runs it
+    // to the next blank line — or, for a `<pre>`, `<script>` or `<style>`
+    // block, to the block's own closing tag — reading the run inside it as the
+    // block's literal text. This model has no HTML block, so the run opens a
+    // fence and, never closed, blanks every line after it.
+    const text = [
+      '<details><summary>log</summary>',
+      '```',
+      'error: something',
+      '</details>',
+      '',
+      'live after',
+    ].join('\n');
+    const stripped = stripFences(text);
+    assert.ok(stripped.includes('<details>'));
+    assert.ok(!stripped.includes('error: something'));
+    assert.ok(!stripped.includes('</details>'));
+    assert.ok(!stripped.includes('live after'));
+  });
+
+  it('a marker run inside a <pre> block opens and closes a fence here — the declared reading, not CommonMark’s', () => {
+    // CommonMark keeps a `<pre>` block literal to its own closing tag, the
+    // blank line after the opener notwithstanding. Here the run opens a fence
+    // and the matching run closes it, so only what they hold is blanked and the
+    // text past the closing tag stays live.
+    const text = ['<pre>', '', '```', 'inside', '```', '</pre>', '', 'live after'].join('\n');
+    const stripped = stripFences(text);
+    assert.ok(stripped.includes('<pre>'));
+    assert.ok(!stripped.includes('inside'));
+    assert.ok(stripped.includes('</pre>'));
+    assert.ok(stripped.includes('live after'));
   });
 });
 

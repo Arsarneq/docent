@@ -285,7 +285,20 @@ locally.
 
 Every PR body carries two further sections; the template scaffolds them, and the
 `Docs disposition format` check verifies their form (form only — what you write in
-them is read by reviewers, never judged by CI).
+them is read by reviewers, never judged by CI). It reads each section through one
+fence model that stays close to the rendered body's: what a code fence holds is an
+example, so a line copied with the fence around it records nothing. Write the
+lines of each section as plain lines of the body. Write an example's fence markers
+— the opening one and the closing one — at the start of a line, with nothing but
+the language after the opener, outside any block quote, and outside any raw HTML
+block — leave a blank line after an HTML opener such as `<details>` before a
+fenced example, and keep one out of a `<pre>`, `<script>` or `<style>` element,
+which runs to its closing tag. A fence written otherwise can part from the
+rendered body in either direction: read as ordinary text, so a line you meant as
+an example is read as a judgment, or opened where the body shows none, so the
+lines you meant as judgments are read as an example. A fence left open runs to the
+end of the body and takes the headings after it with it, so the sections after it
+are no longer sections the check can find.
 
 **`## Docs disposition`** — one line for each doc that governs the code you
 changed. The check derives that set from [`scripts/area-map.json`](../scripts/area-map.json)

@@ -1074,8 +1074,9 @@ describe('extractJobIds / jobNpmRunTokens', () => {
   // over the tracked scripts under `scripts/` by the
   // `the anchor phrase — one home among the checks, one predicate that routes it` describe.
   // Text outside that population is outside the lock: this suite quotes the
-  // words to pin the message, and docs/guides/ci.md states them as the gate's
-  // documented machinery verdict. A reader that ROUTES the anchor condition
+  // words to pin the message, while docs/guides/ci.md names the condition and
+  // cites scripts/check-doc-closure.js as the home of the words rather than
+  // stating them. A reader that ROUTES the anchor condition
   // asks `isJobAnchorProblem` rather than matching those words itself, so the
   // diagnosis and the route move together.
   it('recognizes its own anchor problem, and only that one', () => {

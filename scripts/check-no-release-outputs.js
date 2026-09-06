@@ -47,6 +47,7 @@ import { execFileSync } from 'node:child_process';
 import { resolve, join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { isReleaseContext } from './release-context.js';
+import { gitEntries } from './check-test-inventory.js';
 
 const ROOT = resolve(import.meta.dirname, '..');
 
@@ -190,30 +191,76 @@ export function automatedBranchViolations({ files }) {
 }
 
 /**
- * Parse `git status --porcelain` output into paths: strip the 2-char status +
- * separating space. Used with `--porcelain` (not `diff`) so a NEVER-COMMITTED
- * file surfaces as untracked (`??`) and is still caught.
- * @param {string} output raw porcelain output
- * @returns {string[]}
+ * The paths the records of `git status --porcelain` name: each record is two
+ * status characters, a space, then the path.
+ *
+ * A rename or copy record names the file as it now stands, and spends the
+ * entry that follows on the name it had; that trailing entry belongs to its
+ * record and is taken with it, so both names are reported and neither is read
+ * as a status record of its own. A rename record with no entry after it — a
+ * listing cut short mid-record, since git writes the former name after every
+ * rename record — is reported under the name it carries. The records arrive
+ * from the reader that runs git for this check, so a record's path is the
+ * path — the argument is the entry list that reader hands back, not raw text
+ * to be split again.
+ * @param {string[]} records the entries git wrote — one status record each,
+ *   save a rename's, which spends the entry after it on the name the file had
+ * @returns {string[]} the paths those records name
  */
-export function parsePorcelainPaths(output) {
-  return output
-    .split('\n')
-    .map((s) => s.slice(3).trim())
-    .filter(Boolean);
+export function parsePorcelainPaths(records) {
+  const paths = [];
+  for (let i = 0; i < records.length; i++) {
+    const record = records[i];
+    paths.push(record.slice(3));
+    const renamed =
+      record[0] === 'R' || record[0] === 'C' || record[1] === 'R' || record[1] === 'C';
+    if (renamed && i + 1 < records.length) {
+      i += 1;
+      paths.push(records[i]);
+    }
+  }
+  return paths;
 }
 
 function git(args) {
   return execFileSync('git', args, { cwd: ROOT, encoding: 'utf8' });
 }
 
-function changedFiles(base) {
-  // Three-dot: changes on HEAD since it diverged from base (merge base).
-  const out = git(['diff', '--name-only', `${base}...HEAD`]);
-  return out
-    .split('\n')
-    .map((s) => s.trim())
-    .filter(Boolean);
+/**
+ * The files a branch changed since it diverged from `base` — the one
+ * changed-file reading each of this guard's modes decides on. Three-dot:
+ * changes on HEAD since it diverged from base (merge base). The repository is
+ * a parameter so the reading can be driven over a throwaway one, the way
+ * `versionAt` is injected into the rule it feeds.
+ *
+ * Through the reading of a list git wrote, whose docblock in
+ * scripts/check-test-inventory.js cites the quotepath policy.
+ * @param {string} base the base ref to diff against
+ * @param {object} [where] which repository to read
+ * @param {string} [where.cwd] the repository directory (default: this one)
+ * @returns {string[]} the changed paths
+ */
+export function changedFiles(base, { cwd = ROOT } = {}) {
+  return gitEntries('diff', ['--name-only', `${base}...HEAD`], { cwd });
+}
+
+/**
+ * The composed-schema paths git reports as changed — the drift reading the
+ * automation branch's check decides on, once the source layers have been
+ * recomposed over the committed tree. `status --porcelain` rather than `diff`,
+ * so a NEVER-COMMITTED composed schema — a new platform's that the PR forgot to
+ * stage — surfaces as untracked (`??`) and is still caught rather than silently
+ * passing. The repository is a parameter so the reading can be driven over a
+ * throwaway one, the way `changedFiles` is.
+ *
+ * Through the reading of a list git wrote, whose docblock in
+ * scripts/check-test-inventory.js cites the quotepath policy.
+ * @param {object} [where] which repository to read
+ * @param {string} [where.cwd] the repository directory (default: this one)
+ * @returns {string[]} the paths the status records name
+ */
+export function driftedDistPaths({ cwd = ROOT } = {}) {
+  return parsePorcelainPaths(gitEntries('status', ['--porcelain', '--', 'schemas/dist/'], { cwd }));
 }
 
 function versionAt(ref, file) {
@@ -257,23 +304,22 @@ function guardFeatureBranch(baseRef) {
 // ── POSITIVE mode: the automated/version-table-update PR must be EXACTLY the ───
 //    mechanical regeneration — only release outputs, and a dist/ that faithfully
 //    composes from the source layers.
-/* c8 ignore start — this wrapper rebuilds the schemas and inspects the working
- * tree, so it cannot run deterministically in a unit test; its decision rules
- * (automatedBranchViolations, parsePorcelainPaths) are unit-tested above, and
- * the wrapper itself runs for real on every release automation PR. */
+/* c8 ignore start — this wrapper rebuilds the schemas over the working tree it
+ * is checking, so it cannot run deterministically in a unit test; the readings
+ * and rules it decides on — changedFiles, automatedBranchViolations,
+ * driftedDistPaths — are each held by
+ * packages/shared/tests/unit/check-no-release-outputs.test.js, and the wrapper
+ * itself runs for real on every release automation PR. */
 function validateAutomatedBranch(baseRef) {
   // 1. Nothing unrelated may ride along on the automation branch.
   const violations = automatedBranchViolations({ files: changedFiles(baseRef) });
 
   // 2. Committed dist/ must be the faithful composition of the source layers:
-  //    recompose and assert no drift against what the PR committed. Use
-  //    `git status --porcelain` (not `git diff`) so a NEVER-COMMITTED dist file —
-  //    e.g. a new platform's composed schema the PR forgot to stage — surfaces as
-  //    untracked (`??`) and is still caught, rather than silently passing.
+  //    recompose, then read the drift against what the PR committed.
   execFileSync(process.execPath, [join(ROOT, 'scripts', 'build-schemas.js')], {
     stdio: 'inherit',
   });
-  const drifted = parsePorcelainPaths(git(['status', '--porcelain', '--', 'schemas/dist/']));
+  const drifted = driftedDistPaths();
   for (const f of drifted) {
     violations.push(`${f} (committed dist/ does not match the composed source layers)`);
   }
