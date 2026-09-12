@@ -95,8 +95,10 @@
  *
  * The sender side reads one shape: a call — written `(` or the optional `?.(` —
  * whose callee's own path stands whole before it and whose first argument OPENS an
- * object literal. The panel's callee is the word `send` and the capture path's is
- * the platform path `chrome.runtime.sendMessage`, read token by token. That literal's TOP-LEVEL
+ * object literal. The panel's callee is the word `send` — standing bare,
+ * qualified by a receiver of its own, or named by a quoted computed access to it —
+ * and the capture path's is the platform path `chrome.runtime.sendMessage`, read
+ * token by token. That literal's TOP-LEVEL
  * properties are then read for a `type` key — bare or quoted, in any position,
  * since property order is not meaning — carrying a lone string literal; a send
  * with no such property is refused by name, naming what the scan found in its
@@ -550,11 +552,13 @@ function sendCallee(path, qualifiers = null) {
 /**
  * The panel's own callee: the word its sender is called by, read wherever that
  * word stands before a call whose first argument opens an object literal — bare
- * (`send({ … })`) or qualified by a receiver of its own
- * (`adapter.send({ … })`), since the panel's sender is a binding of the panel's
- * making rather than a platform global. What the panel leg does NOT read is
- * decided by the argument alone: a send-shaped site whose first argument is
- * anything but an opening object literal.
+ * (`send({ … })`), qualified by a receiver of its own (`adapter.send({ … })`), or
+ * named by a quoted computed access (`adapter['send']({ … })`), since the panel's
+ * sender is a binding of the panel's making rather than a platform global. What
+ * the panel leg does NOT read follows from those callee shapes and the argument
+ * rule together: a call whose callee is none of them — a name built at run time,
+ * or a sender reached through a variable holding it — and a send-shaped site whose
+ * first argument is anything but an opening object literal.
  */
 export const PANEL_SEND_CALLEE = sendCallee(['send']);
 /**
@@ -564,8 +568,8 @@ export const PANEL_SEND_CALLEE = sendCallee(['send']);
  * `chrome`, written bare or qualified by one global-object name
  * ({@link GLOBAL_QUALIFIERS}), each following name reached by a step written
  * plain, optional, computed, or optional computed, and the call plain or
- * optional. Naming the whole path is what holds the scan to the capture path
- * itself, and it keeps the declaration shapes out of a scan whose callee is a
+ * optional. Naming the whole path is what holds the scan to that path's own
+ * spelling, and it keeps the declaration shapes out of a scan whose callee is a
  * plausible parameter name: a function or method cannot be DECLARED with a
  * receiver before its name, so the declaration shapes whose third token is an
  * opening brace — the function declaration `function sendMessage({ type }) {}`
@@ -1453,11 +1457,9 @@ function readSendType(tokens, open) {
 }
 
 /**
- * The tokens a name standing on its own may not follow: a member-access dot —
- * which is also the second token of an optional-chaining pair, so `?.` is this
- * same dot — a `]` closing a computed member access, and the `#` a private name is
- * marked with. Each of them says the name is a property of something else's
- * object, which is a path this scan does not read.
+ * The token shapes a name standing on its own may not follow: a member-access dot
+ * — which is also the second token of an optional-chaining pair, so `?.` ends in
+ * this same dot — a closing bracket, and the `#` a private name is marked with.
  */
 const NAME_PRECEDED_BY = ['.', ']', '#'];
 
@@ -1485,7 +1487,7 @@ const NAME_PRECEDED_BY = ['.', ']', '#'];
  *   path and first-name rule the walk reads
  * @returns {boolean}
  */
-function standsAtCallee(tokens, at, { path, qualifiers }) {
+function standsAtCallee(tokens, at, { path, qualifiers = null }) {
   /** Whether a name may stand after this token at all. */
   const opensName = (token) => !(token?.type === 'punct' && NAME_PRECEDED_BY.includes(token.value));
   let i = at;
@@ -1557,20 +1559,20 @@ function opensLiteralCall(tokens, at) {
  * Read the literal send sites a callee's own path states, through the shared
  * comment-safe tokenizer. The scan reads ONE shape — the callee's path, token
  * by token ({@link sendCallee}), followed by a call written `(` or the optional
- * `?.(` whose first argument opens an object literal — and reads that literal's top-level properties for the
- * `type` the message states, refusing by name the send that states none,
- * so a restructured payload cannot pass as a partially-read send. Property
- * order carries no meaning and the scan reads none into it. A send-shaped site
- * whose first argument is not an opening brace is outside the shape the scan
- * reads and contributes nothing: the declaration forms, the receiver-qualified
- * forward, and the call passing a variable assembled beforehand all sit there,
- * and the reverse-direction diff's limit is exactly that residue. A call the
- * callee's path does not stand whole before is outside the shape the same way —
- * for the capture path, a send made through an alias of the receiver, through an
- * unqualified or destructured `sendMessage(`, or through a platform object
- * reached by way of another object or a global alias; a `sendMessage` called on
- * another receiver is not the platform send at all
- * ({@link CAPTURE_SEND_CALLEE} states that residue in full).
+ * `?.(` whose first argument opens an object literal — and reads that literal's
+ * top-level properties for the `type` the message states, refusing by name the
+ * send that states none, so a restructured payload cannot pass as a
+ * partially-read send. Property order carries no meaning and the scan reads
+ * none into it. A send-shaped site whose first argument is not an opening brace
+ * is outside the shape the scan reads and contributes nothing: the declaration
+ * forms, the receiver-qualified forward, and the call passing a variable
+ * assembled beforehand all sit there, and the reverse-direction diff's limit is
+ * exactly that residue. A call the callee's path does not stand whole before is
+ * outside the shape the same way — for the capture path, a send made through an
+ * alias of the receiver, through an unqualified or destructured `sendMessage(`,
+ * or through a platform object reached by way of another object; a
+ * `sendMessage` called on another receiver is not the platform send at all
+ * ({@link CAPTURE_SEND_CALLEE} names the forms observed outside the shape).
  * Beside the type each site carries the top-level key NAMES its literal states,
  * the message's own `type` property excluded — the payload surface a table
  * stating one can be welded to. The panel's table states no payload column
@@ -1578,8 +1580,8 @@ function opensLiteralCall(tokens, at) {
  * does, and the two legs differ in which columns answer rather than in how a
  * send is read.
  * @param {Map<string, string>} sourceByPath path → JavaScript source
- * @param {{ path: string[], name: string }} [callee] the callee whose path the
- *   scan reads
+ * @param {{ path: string[], qualifiers: string[] | null, name: string }} [callee]
+ *   the callee whose path and first-name rule the scan reads
  * @returns {{ path: string, ordinal: number, type: string | null, found: string | null, keys: string[] | null, keysFound: string | null }[]}
  *   one entry per object-literal send, numbered per file in source order
  */
