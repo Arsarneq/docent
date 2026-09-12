@@ -45,16 +45,16 @@
  *
  * The handle's no-production-caller leg runs over the PRODUCTION population,
  * derived the same way and IMPORTED rather than re-derived: the extension
- * package's tracked production JavaScript — the tracked `.js`, `.mjs`, and `.cjs` modules
- * under {@link PRODUCTION_POPULATION_ROOT} outside
+ * package's tracked production JavaScript — the tracked `.js`, `.mjs`, and
+ * `.cjs` modules under {@link PRODUCTION_POPULATION_ROOT} outside
  * {@link PRODUCTION_POPULATION_TEST_TREE} — which is the set
- * [`check-capture-surface.js`](./check-capture-surface.js) already derives for its
- * own registration closure. One population, one exclusion: the tests
- * tree, which is where the handle's observers live. The content tree is INSIDE
- * it, so a handle mention written there reds; that each extension surface runs
- * in a global scope of its own, which is what makes such a mention a defect
- * rather than a use, is doctrine the runtime doc states (§ERT-6) and never a
- * carve-out in this scan.
+ * [`check-capture-surface.js`](./check-capture-surface.js) already derives for
+ * its own registration closure. One population, one exclusion: the tests tree,
+ * which is where the handle's observers live. The content tree is INSIDE it, so
+ * a handle mention written there reds; that each extension surface runs in a
+ * global scope of its own, which is what makes such a mention a defect rather
+ * than a use, is doctrine the runtime doc states (§ERT-6) and never a carve-out
+ * in this scan.
  *
  * The handle itself is read from one ANCHOR, tokenized whole:
  * `globalThis.__docentCaptureBookkeeping = Object.freeze({`. The assignment
@@ -89,7 +89,9 @@
  * ({@link SENDER_STATEMENT_ANCHOR}) exactly once, so the leg can never go on
  * enforcing a rule the document has stopped making, and an update can never
  * land on one copy of it while another stands — anywhere in the clause, a
- * paragraph of its own or the one the claim already sits in.
+ * paragraph of its own or the one the claim already sits in. The recorder's half
+ * of that claim ({@link RECORDER_STATEMENT_ANCHOR}), which the forward
+ * capture-path type diff holds, is held present in the same scope the same way.
  *
  * The sender side reads one shape: a call whose callee's own path stands whole
  * before it and whose first argument OPENS an object literal. The panel's callee
@@ -115,11 +117,12 @@
  * array — so a broken read fails loudly instead of passing vacuously.
  *
  * The type reads — the dispatcher's case labels, the population's equality
- * guards, and the panel's sends — each take a quoted string literal that its
- * own end follows: the label's colon, the punctuation that ends the equality's
- * operand, and the send property's separator or closing brace. A
- * literal any other token follows is refused by name, so a type built around
- * one is never credited with its leading piece; a template literal is refused
+ * guards, and the sends the panel and the recorder make, read alike under each
+ * leg's own callee — each take a quoted string literal that its own end follows:
+ * the label's colon, the punctuation that ends the equality's operand, and the
+ * send property's separator or closing brace. A literal any other token follows
+ * is refused by name, so a type built around one is never credited with its
+ * leading piece; a template literal is refused
  * the same way, the shared tokenizer giving it a type of its own, and that
  * type is also what keeps a template out of the `type` key position — which a
  * template reaches only through the computed form, that being the one way any
@@ -352,18 +355,23 @@ export const PROTOCOL_SECTION = 'Message protocol';
 /** The capture-path table's whole header in that section. */
 export const CAPTURE_TABLE_HEADER = ['Type', 'Payload', 'Response'];
 /**
- * The capture-path table's payload column, by its header name — taken from the
- * header constant itself, which is this file's one spelling of the table's column
- * names. The column is resolved from each admitted table's own header by that
- * word, through the shared reader's named form ({@link resolveColumn}), the way
- * the member table's first column and every other named read in this check are.
+ * The capture-path table's payload column, by its header NAME, spelled as the
+ * word the document carries. The column is resolved from each admitted table's
+ * own header by that word, through the shared reader's named form
+ * ({@link resolveColumn}), the way the member table's first column and every
+ * other named read in this check are. The suite holds this name to be a member of
+ * {@link CAPTURE_TABLE_HEADER}, so a header renamed without this constant refuses
+ * loudly at the read rather than standing: taking the name from the header by
+ * INDEX instead would read whichever column that position now holds and blame the
+ * document for what it found there.
+ *
  * Admission is the WHOLE header in its stated order
  * ({@link CAPTURE_TABLE_HEADER}), so a document stating the column under another
  * name or at another position admits no table here and answers the empty surface
  * this leg's own guard reds on, and a named column absent from an admitted table
  * is a defect in this check, refused loudly where it is resolved.
  */
-export const CAPTURE_PAYLOAD_COLUMN = CAPTURE_TABLE_HEADER[1];
+export const CAPTURE_PAYLOAD_COLUMN = 'Payload';
 /**
  * The Payload cell's marker for a message that carries no payload at all: an em
  * dash, written in the cell BACKTICKED, the cell's other whole form beside a
@@ -514,15 +522,25 @@ function sendCallee(path) {
 export const PANEL_SEND_CALLEE = sendCallee(['send']);
 /**
  * The capture path's own callee: the whole platform path the content scripts
- * send through, read token by token — `chrome` `.` `runtime` `.` `sendMessage`
- * standing before the call's `(` and its opening `{`. Naming the path is what
- * holds the scan to the capture path itself: a `sendMessage` on another
- * receiver — a port, a wrapper of the platform call — is NOT read, being a call
- * of that name rather than the platform send the capture-path table states. It
- * is also what keeps the declaration forms out of a scan whose callee is a
- * plausible parameter name: a function or method cannot be DECLARED with a
- * receiver before its name, so `function sendMessage({ type }) {}` — the one
- * declaration shape whose third token is an opening brace — states no site.
+ * send through, read token by token before the call's `(` and its opening `{`.
+ * The SPELLINGS the walk accepts between the path's names are a closed list —
+ * a `.`, an optional-chaining `?.`, and a computed string naming the step
+ * (`chrome.runtime.sendMessage`, `chrome?.runtime.sendMessage`,
+ * `chrome.runtime?.sendMessage`, `chrome['runtime'].sendMessage`) — with the
+ * last name standing as the word the `(` follows. Reading the platform call in
+ * its spellings costs nothing on the reverse direction: every one of them IS the
+ * platform send, so the type it carries must stand in the capture-path table
+ * either way, and a spelling left unread would have been a false GREEN there.
+ *
+ * Naming the path is what holds the scan to the capture path itself: a
+ * `sendMessage` on another receiver — a port, a wrapper of the platform call —
+ * is NOT read, being a call of that name rather than the platform send the
+ * capture-path table states. It is also what keeps the declaration shapes out of
+ * a scan whose callee is a plausible parameter name: a function or method cannot
+ * be DECLARED with a receiver before its name, so the declaration shapes whose
+ * third token is an opening brace — the function declaration
+ * `function sendMessage({ type }) {}` and the method shorthand
+ * `{ sendMessage({ type }) {} }` — state no site.
  *
  * The shape's residue: a send written through an ALIAS of the receiver
  * (`const rt = chrome.runtime; rt.sendMessage({ … })`), and one written
@@ -614,6 +632,33 @@ export const REACH_GRAMMAR_ANCHOR = `backticked, separated by commas \u2014 or \
 export function countReachGrammarStatements(runtimeText) {
   const scope = flattenWhitespace(extractClauseSection(runtimeText, HANDLE_CLAUSE_ID));
   return scope.split(REACH_GRAMMAR_ANCHOR).length - 1;
+}
+
+/**
+ * The words the message clause's capture-path statement makes its EXISTENCE claim
+ * in — the recorder's half of the sender statement, which the forward type diff
+ * holds: every type the capture-path table states is sent. Quoted from the clause
+ * rather than paraphrased, the way {@link SENDER_STATEMENT_ANCHOR} is, so the
+ * phrase has one home and the suite reads it from here.
+ */
+export const RECORDER_STATEMENT_ANCHOR = 'is sent at least once from an object literal';
+
+/**
+ * Count how many times the message clause's own scope states that claim. Read
+ * exactly the way the sender statement and the payload grammar beside it are: the
+ * clause section is code-block-aware, bounded at the clause's marker, and
+ * whitespace-flattened before the anchor is sought, so the claim is found
+ * whatever line the prose wraps on and a copy that drifts out of the clause
+ * counts as gone.
+ *
+ * Occurrences, not paragraphs: a second copy is a second copy an update can land
+ * beside whether or not a blank line separates the two.
+ * @param {string} runtimeText the runtime doc's text
+ * @returns {number} occurrences of the anchor in the message clause's scope
+ */
+export function countRecorderStatements(runtimeText) {
+  const scope = flattenWhitespace(extractClauseSection(runtimeText, ERT_CLAUSE_ID));
+  return scope.split(RECORDER_STATEMENT_ANCHOR).length - 1;
 }
 
 /**
@@ -910,7 +955,7 @@ export function extractHandleTable(runtimeText) {
       const cell = (row[1] ?? '').trim();
       const stated = readReachCell(cell);
       if (stated === null) {
-        reachUnreadable.push(`\`${member}\`: ${cell === '' ? '(empty Reaches cell)' : quotedCell(cell)}`); // prettier-ignore
+        reachUnreadable.push(`\`${member}\`: ${cell === '' ? `(empty ${HANDLE_TABLE_HEADER[1]} cell)` : quotedCell(cell)}`); // prettier-ignore
         continue;
       }
       reaches.push({ member, names: stated });
@@ -1175,11 +1220,13 @@ function describeKeyPosition(token) {
 
 /**
  * The one name the payload read gives every property shape that DECLARES a name
- * of its own instead of stating one. The list is closed: a name the call's `(`
- * follows (a method), `get`, `set`, or `async` before another name, a computed
- * name, or a generator's `*` (an accessor, an async method), and a `*` standing
- * first (a generator). Each keeps its name inside a declaration this read does
- * not enter, so the site refuses rather than carrying the word that opened it.
+ * of its own instead of stating one. The shapes it names are exactly these, and
+ * it claims no others: a name the call's `(` follows — written bare, quoted, or
+ * as a number — which is a method; `get`, `set`, or `async` before another name,
+ * a computed name, or a generator's `*`, which is an accessor or an async method;
+ * and a `*` standing first, which is a generator. Each keeps its name inside a
+ * declaration this read does not enter, so the site refuses rather than carrying
+ * the word that opened it.
  */
 const HIDDEN_METHOD_SHAPE = 'a method or accessor';
 /** The words an accessor or an async method stands behind. */
@@ -1211,11 +1258,16 @@ const UNSTATABLE_KEY_SHAPE = 'a key outside the identifier shape a Payload cell 
 function hiddenNameShape(tokens, at) {
   const token = tokens[at];
   const next = tokens[at + 1];
-  if (token.type === 'punct' && token.value === '*') return HIDDEN_METHOD_SHAPE;
-  if (token.type !== 'word') return describeKeyPosition(token);
   const follower = next?.type === 'punct' ? next.value : null;
+  if (token.type === 'punct' && token.value === '*') return HIDDEN_METHOD_SHAPE;
+  // A METHOD is named the same way however its own name is written — bare,
+  // quoted, or as a number — the call punctuation after it being what makes it
+  // one.
+  if ((token.type === 'word' || token.type === 'string') && follower === '(') {
+    return HIDDEN_METHOD_SHAPE;
+  }
+  if (token.type !== 'word') return describeKeyPosition(token);
   if (follower === ',' || follower === '}') return null;
-  if (follower === '(') return HIDDEN_METHOD_SHAPE;
   const declares = next?.type === 'word' || follower === '*' || follower === '[';
   if (ACCESSOR_WORDS.includes(token.value) && declares) return HIDDEN_METHOD_SHAPE;
   return describeKeyPosition(token);
@@ -1339,21 +1391,40 @@ function readSendType(tokens, open) {
 
 /**
  * Whether a callee's whole path stands at `at`: the path's last name there, and
- * each earlier name before it with a `.` of its own between the two — the
- * sequence a source writes the path in, matched token by token. A path of one
- * name is that name alone, wherever it stands.
+ * each earlier name before it, matched token by token over the steps a source
+ * may write the path with — a `.`, an optional-chaining `?.`, or a computed
+ * string (`['runtime']`) naming the step's own name. A path of one name is that
+ * name alone, wherever it stands.
  * @param {{ type: string, value: string }[]} tokens the file's tokens
  * @param {number} at index of the word standing before the call's `(`
  * @param {string[]} path the callee's names, receiver first
  * @returns {boolean}
  */
 function standsAtCallee(tokens, at, path) {
-  for (let step = 0; step < path.length; step++) {
-    const word = tokens[at - 2 * step];
-    if (!(word?.type === 'word' && word.value === path[path.length - 1 - step])) return false;
-    if (step + 1 === path.length) break;
-    const dot = tokens[at - 2 * step - 1];
-    if (!(dot?.type === 'punct' && dot.value === '.')) return false;
+  let i = at;
+  for (let k = path.length - 1; k >= 0; k--) {
+    // A name written as a COMPUTED string carries its own brackets and reaches
+    // its receiver without a step of its own, so the walk takes the bracketed
+    // name whole and moves straight on to the receiver. The callee's last name is
+    // never read this way: it is the word the call's `(` follows.
+    const computed = k < path.length - 1 && tokens[i]?.type === 'punct' && tokens[i].value === ']';
+    if (computed) {
+      const named = tokens[i - 1];
+      if (!(named?.type === 'string' && named.value === path[k])) return false;
+      if (!(tokens[i - 2]?.type === 'punct' && tokens[i - 2].value === '[')) return false;
+      i -= 3;
+      continue;
+    }
+    const word = tokens[i];
+    if (!(word?.type === 'word' && word.value === path[k])) return false;
+    i -= 1;
+    if (k === 0) break;
+    // The step that reached this name from its receiver: a `.`, which an
+    // optional-chaining `?` may stand before (the tokenizer emits `?.` as the
+    // two punctuation tokens it is written with).
+    if (!(tokens[i]?.type === 'punct' && tokens[i].value === '.')) return false;
+    i -= 1;
+    if (tokens[i]?.type === 'punct' && tokens[i].value === '?') i -= 1;
   }
   return true;
 }
@@ -1734,6 +1805,7 @@ export const DUPLICATE_SURFACES = [
  * @param {{ path: string, ordinal: number, type: string | null, found: string | null, keys: string[] | null, keysFound: string | null }[]} s.sendSites every object-literal send site, readable or not
  * @param {number} s.capturePayloadGrammarStatements times the clause's scope states its capture-path payload grammar
  * @param {number} s.senderStatements times the clause's scope states its sender statement
+ * @param {number} s.recorderStatements times the clause's scope states its capture-path sender statement
  * @param {number} s.reachGrammarStatements times the handle clause's scope states its reach-cell grammar
  * @param {number} s.closureStatements times the handle clause's scope states its closure sentence
  * @param {string[]} s.handleMembers the members the worker's handle literal carries
@@ -1795,6 +1867,18 @@ export function evaluateExtensionSurface(s) {
     problems.push(`${RUNTIME_DOC_PATH} §${ERT_CLAUSE_ID} states no sender statement — nothing in the clause's scope carries "${SENDER_STATEMENT_ANCHOR}" — the panel-side closure this check's send leg holds (every panel-protocol type carrying at least one object-literal ${PANEL_SEND_CALLEE.name}( that names it) is doctrine the clause states, and the leg cannot hold a rule the document no longer makes`); // prettier-ignore
   } else if (s.senderStatements > 1) {
     problems.push(`${RUNTIME_DOC_PATH} §${ERT_CLAUSE_ID} makes the "${SENDER_STATEMENT_ANCHOR}" claim ${s.senderStatements} times — the clause states it once, so an update cannot land on one copy and leave another standing, wherever in the clause that copy was written`); // prettier-ignore
+  }
+
+  // The recorder's own existence claim is the doctrine the FORWARD type diff
+  // holds — every type the capture-path table states is sent — and it is held
+  // present beside the payload grammar it shares a paragraph with, for the reason
+  // the panel's statement is: the diff cannot go on holding a claim the document
+  // has stopped making, and an update cannot land on one copy of it while another
+  // stands. Written fail-closed on the `!(n >= 1)` form.
+  if (!(s.recorderStatements >= 1)) {
+    problems.push(`${RUNTIME_DOC_PATH} §${ERT_CLAUSE_ID} states no capture-path sender statement — nothing in the clause's scope carries "${RECORDER_STATEMENT_ANCHOR}" — the capture-path closure this check's weld holds (every type the table states carrying at least one object-literal ${CAPTURE_SEND_CALLEE.name}( that names it) is doctrine the clause states, and the leg cannot hold a rule the document no longer makes`); // prettier-ignore
+  } else if (s.recorderStatements > 1) {
+    problems.push(`${RUNTIME_DOC_PATH} §${ERT_CLAUSE_ID} makes the "${RECORDER_STATEMENT_ANCHOR}" claim ${s.recorderStatements} times — the clause states it once, so an update cannot land on one copy and leave another standing, wherever in the clause that copy was written`); // prettier-ignore
   }
 
   // The capture-path grammar is the doctrine the payload weld reads cells by,
@@ -1934,7 +2018,7 @@ export function evaluateExtensionSurface(s) {
     problems.push(`\`${type}\` is serviced by an equality guard in ${homes.join(', ')} but the capture-path table does not state it`); // prettier-ignore
   }
 
-  // The capture path's SENDER side, welded per type. The pair above holds the
+  // The capture path's SENDER side, welded per send site. The pair above holds the
   // table against the worker's guards — who services a message; this holds it
   // against the content scripts that send one: every type the table states is
   // sent, every type sent is stated, and a type's Payload cell states exactly
@@ -2116,6 +2200,7 @@ export function auditTree(readFile, panelFiles, backgroundFiles, productionFiles
     captureSendTypes: [...new Set(captureSendSites.filter((x) => x.type !== null).map((x) => x.type))], // prettier-ignore
     captureSendSites,
     senderStatements: countSenderStatements(runtimeDoc),
+    recorderStatements: countRecorderStatements(runtimeDoc),
     capturePayloadGrammarStatements: countCapturePayloadGrammarStatements(runtimeDoc),
     reachGrammarStatements: countReachGrammarStatements(runtimeDoc),
     closureStatements: countClosureStatements(runtimeDoc),

@@ -238,9 +238,10 @@ literal whose top-level `type` property carries the type name as a string
 literal, and that type's Payload cell states the message's remaining top-level
 keys — each a bare name, backticked together as one object shape, or the lone
 marker `—`, itself one backticked span, where the message carries none. The
-Response column states in prose what the worker answers the sender. A change that leaves a stated type without
-such a send, or that moves a key on one side alone, MUST update this statement
-and the check that holds it in the same change.
+Response column states in prose what the worker answers the sender. A change
+that leaves a stated type without such a send, or that moves a key on one side
+alone, MUST update this statement and the check that holds it in the same
+change.
 
 ### Capture path
 
