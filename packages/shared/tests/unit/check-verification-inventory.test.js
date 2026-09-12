@@ -102,7 +102,7 @@ import {
   suiteGlob,
   jobSuiteArguments,
   jobSuiteProblems,
-  commandOperators,
+  plainCommandShape,
   npmRunScript,
   commandTokens,
   passesFlag,
@@ -825,14 +825,20 @@ describe('the suite the named job runs', () => {
     });
 
     it('a `cd` AFTER the command does not unread it', () => {
-      // The relocation bounds what follows it, not what precedes it.
+      // The relocation bounds what follows it, not what precedes it: the reader
+      // resolves the command standing before the `cd` and carries its globs.
       const read = jobSuiteArguments(
         jobs(['npm run test:coverage && cd packages/extension && npm ci']),
         commands,
         UNIT_SUITE_JOB_ID,
       );
       assert.ok(read.globs.some(isSuite), JSON.stringify(read));
-      assert.deepEqual(jobSuiteProblems(SUITE, read), []);
+      assert.deepEqual(read.refusals, []);
+      // What refuses the step is the admission the verdict holds, not the `cd`:
+      // the carrying command does not stand alone on its line.
+      const problems = jobSuiteProblems(SUITE, read);
+      assert.ok(problems[0].includes('the operator `&&`'), problems[0]);
+      assert.ok(!problems[0].includes('`cd`'), problems[0]);
     });
   });
 
@@ -946,17 +952,23 @@ describe('the suite the named job runs', () => {
       assert.deepEqual(npmRunScript('npm --silent run test:coverage'), { token: 'test:coverage' });
       assert.deepEqual(npmRunScript('npm run test:coverage)'), { unreadable: true });
       assert.deepEqual(npmRunScript('npm run'), { unreadable: true });
-      // A flag that answers the key from another manifest, on either side of it.
+      // npm's own aliases of the run verb resolve the key the same way.
+      for (const verb of ['run', 'run-script', 'rum', 'urn']) {
+        assert.deepEqual(npmRunScript(`npm ${verb} test:coverage`), { token: 'test:coverage' }, verb); // prettier-ignore
+      }
+      // A flag that answers the key from another manifest, on either side of it,
+      // in npm's long spelling and its short one.
       assert.deepEqual(npmRunScript('npm run --prefix packages/extension test:coverage'), { relocated: '--prefix' }); // prettier-ignore
+      assert.deepEqual(npmRunScript('npm run -C packages/extension test:coverage'), { relocated: '-C' }); // prettier-ignore
       assert.deepEqual(npmRunScript('npm run test:coverage -w packages/extension'), { relocated: '-w' }); // prettier-ignore
+      assert.deepEqual(npmRunScript('npm run test:coverage -ws'), { relocated: '-ws' });
       // The flag is named as the segment states it, its `=` value included.
       assert.deepEqual(npmRunScript('npm run test:coverage --workspace=packages/extension'), { relocated: '--workspace=packages/extension' }); // prettier-ignore
       assert.deepEqual(npmRunScript('npm --prefix packages/extension run test:coverage'), { relocated: '--prefix' }); // prettier-ignore
-      // A spelling that runs a manifest script without naming `npm run`.
-      assert.deepEqual(npmRunScript('npm test'), { verb: 'test' });
-      assert.deepEqual(npmRunScript('npm t'), { verb: 't' });
-      assert.deepEqual(npmRunScript('npm run-script build:schemas'), { verb: 'run-script' });
-      assert.deepEqual(npmRunScript('npm exec tsc'), { verb: 'exec' });
+      // A verb that runs a manifest script without naming a run verb.
+      for (const verb of ['test', 't', 'tst', 'start', 'stop', 'restart', 'exec', 'x']) {
+        assert.deepEqual(npmRunScript(`npm ${verb}`), { verb }, verb);
+      }
       // A verb that runs no manifest script is read as naming none, and the
       // relocation scan does not reach past it.
       assert.equal(npmRunScript('npm ci --prefix packages/extension'), undefined);
@@ -986,10 +998,12 @@ describe('the suite the named job runs', () => {
   describe('spellings this reading refuses rather than passes over', () => {
     for (const [shape, run, named] of [
       ['an `npm run` whose key another manifest would answer', 'npm run --prefix packages/extension test:coverage', '`--prefix`'], // prettier-ignore
+      ['npm’s short spelling of that flag', 'npm run -C packages/extension test:coverage', '`-C`'], // prettier-ignore
       ['that same flag after the key', 'npm run test:coverage -w packages/extension', '`-w`'],
-      ['a spelling that runs a script without naming `npm run`', 'npm test', '`npm test`'],
+      ['a verb that runs a script without naming a run verb', 'npm test', '`npm test`'],
+      ['one of npm’s lifecycle verbs', 'npm start', '`npm start`'],
       ['an argument list whose quoted text the grammar passed over', `node --test "${suiteGlob(SUITE)}"`, 'could not be read whole'], // prettier-ignore
-      ['a command the line below it continues', 'npm run test:coverage \\\nnpm run sync-shared', 'could not be read whole'], // prettier-ignore
+      ['a continuation with no line left to join it to', 'npm run test:coverage \\', 'could not be read whole'], // prettier-ignore
     ]) {
       it(`${shape} is refused by name`, () => {
         const read = jobSuiteArguments(resolving([run]), RESOLVING_COMMANDS, UNIT_SUITE_JOB_ID);
@@ -1012,16 +1026,51 @@ describe('the suite the named job runs', () => {
       assert.deepEqual(jobSuiteProblems(SUITE, read), []);
     });
 
-    it('a quoted argument on a segment whose list this reading never read is no refusal', () => {
-      // The grammar passes over quoted text everywhere; the refusal is for a
-      // segment whose ARGUMENTS it handed over short, which this one has none of.
+    it('a quoted argument the reader passed over is the carrying step’s own shape', () => {
+      // The grammar passes over quoted text everywhere, so the reader refuses
+      // nothing here — it read no argument list of its own. What refuses is the
+      // admission the verdict holds: the carrying command does not stand alone.
       const read = jobSuiteArguments(
         jobs([`npm run test:coverage -- --grep 'a|b'`]),
         RESOLVING_COMMANDS,
         UNIT_SUITE_JOB_ID,
       );
       assert.deepEqual(read.refusals, []);
-      assert.deepEqual(jobSuiteProblems(SUITE, read), []);
+      const problems = jobSuiteProblems(SUITE, read);
+      assert.equal(problems.length, 2, problems.join('\n'));
+      assert.ok(problems[0].includes('a quoted argument'), problems[0]);
+    });
+
+    it('a continuation is joined before the split, so what it joins is read', () => {
+      // The shell removes a backslash-newline before it parses, so `echo \` and
+      // the line below it are ONE command — an invocation standing off its head.
+      const read = jobSuiteArguments(
+        resolving([`echo staging \\\nnode --test ${suiteGlob(SUITE)}`]),
+        RESOLVING_COMMANDS,
+        UNIT_SUITE_JOB_ID,
+      );
+      assert.equal(read.refusals.length, 1, JSON.stringify(read.refusals));
+      assert.ok(read.refusals[0].includes('other than the head'), read.refusals[0]);
+      assert.ok(!read.globs.some(isSuite), JSON.stringify(read.globs));
+    });
+
+    it('a relocation stated at the workflow’s own root is refused by name', () => {
+      // It applies to every job of the workflow, so it leaves this job's steps
+      // unread the way the job's own default does.
+      const read = jobSuiteArguments(
+        { [UNIT_SUITE_JOB_ID]: { steps: [{ run: 'npm run test:coverage' }] } },
+        RESOLVING_COMMANDS,
+        UNIT_SUITE_JOB_ID,
+        'packages/extension',
+      );
+      assert.deepEqual(read.refusals, []);
+      assert.equal(read.jobRefusals.length, 1, JSON.stringify(read.jobRefusals));
+      assert.ok(read.jobRefusals[0].includes("the workflow's own root"), read.jobRefusals[0]);
+      assert.deepEqual(read.steps, []);
+      const problems = jobSuiteProblems(SUITE, read);
+      // One line: the refusal already says why nothing was read.
+      assert.equal(problems.length, 1, problems.join('\n'));
+      assert.ok(problems[0].includes('what its steps run cannot be resolved'), problems[0]);
     });
 
     it('a job stating its own default working directory is refused by name', () => {
@@ -1030,12 +1079,55 @@ describe('the suite the named job runs', () => {
         RESOLVING_COMMANDS,
         UNIT_SUITE_JOB_ID,
       );
-      assert.equal(read.refusals.length, 1, JSON.stringify(read.refusals));
-      assert.ok(read.refusals[0].includes('defaults.run.working-directory: packages/extension'), read.refusals[0]); // prettier-ignore
+      assert.deepEqual(read.refusals, []);
+      assert.equal(read.jobRefusals.length, 1, JSON.stringify(read.jobRefusals));
+      assert.ok(read.jobRefusals[0].includes('defaults.run.working-directory: packages/extension'), read.jobRefusals[0]); // prettier-ignore
       // It moves every step, so none of their commands is resolved against the root.
       assert.deepEqual(read.steps, []);
       assert.deepEqual(read.globs, []);
-      assert.ok(jobSuiteProblems(SUITE, read).some((p) => p.includes('cannot be resolved')));
+      // ONE line: the refusal's own sentence, with no step to point at, and no
+      // second line claiming the job states no command this reader could resolve.
+      const problems = jobSuiteProblems(SUITE, read);
+      assert.equal(problems.length, 1, problems.join('\n'));
+      assert.ok(problems[0].includes('what its steps run cannot be resolved'), problems[0]);
+      assert.ok(!problems[0].includes('that step runs'), problems[0]);
+    });
+
+    it('a job stating a tolerance of its own is refused as the job’s, not a step’s', () => {
+      const problems = jobSuiteProblems(
+        SUITE,
+        jobSuiteArguments(
+          { [UNIT_SUITE_JOB_ID]: { 'continue-on-error': true, steps: [{ name: 'Tests', run: 'npm run test:coverage' }] } }, // prettier-ignore
+          RESOLVING_COMMANDS,
+          UNIT_SUITE_JOB_ID,
+        ),
+      );
+      assert.equal(problems.length, 2, problems.join('\n'));
+      assert.ok(problems[0].includes('the tolerance `continue-on-error: true` of its own'), problems[0]); // prettier-ignore
+      assert.ok(!problems[0].includes('the step named'), problems[0]);
+      assert.ok(problems[0].includes('teach the reader'), problems[0]);
+      assert.ok(problems[1].includes(suiteGlob(SUITE)), problems[1]);
+    });
+
+    it('a step read only as far as a `cd` over an install is not named', () => {
+      // The note points at a step that could have carried the suite. A dependency
+      // install behind a `cd` resolves nothing, so naming it would be noise.
+      const read = jobSuiteArguments(
+        {
+          [UNIT_SUITE_JOB_ID]: {
+            steps: [
+              { name: 'Sync shared code', run: 'npm run sync-shared' },
+              { name: 'Install', run: 'cd packages/extension && npm ci' },
+            ],
+          },
+        },
+        RESOLVING_COMMANDS,
+        UNIT_SUITE_JOB_ID,
+      );
+      assert.equal(read.steps[1].truncated, false, JSON.stringify(read.steps[1]));
+      const problems = jobSuiteProblems(SUITE, read);
+      assert.equal(problems.length, 1, problems.join('\n'));
+      assert.ok(!problems[0].includes('read only as far as'), problems[0]);
     });
 
     it('a step read only as far as its `cd` is named beside the suite-absent finding', () => {
@@ -1061,7 +1153,7 @@ describe('the suite the named job runs', () => {
 
   // The resolved script's own verdict: what the step delegates to is a manifest
   // command, and an operator inside it stops the failure there.
-  describe('the resolved script’s own verdict is read too', () => {
+  describe('the resolved script’s own command stands alone too', () => {
     const spelled = `c8 --reporter=text --reporter=lcov node --test ${suiteGlob(SUITE)} packages/desktop/tests/unit/*.test.js`; // prettier-ignore
     const answer = (command) =>
       jobSuiteProblems(
@@ -1069,27 +1161,65 @@ describe('the suite the named job runs', () => {
         jobSuiteArguments(jobs(['npm run test:coverage']), { 'test:coverage': command }, UNIT_SUITE_JOB_ID), // prettier-ignore
       );
 
-    it('an operator absorbing the script’s failure is refused by name, beside the suite-absent finding', () => {
-      const problems = answer(`${spelled} || true`);
-      assert.equal(problems.length, 2, problems.join('\n'));
-      assert.ok(problems[0].includes('`npm run test:coverage`'), problems[0]);
-      assert.ok(problems[0].includes('`||`'), problems[0]);
-      assert.ok(problems[0].includes(PACKAGE_JSON_PATH), problems[0]);
-      // Never through the reader-refusal wrapper: the script DID resolve.
-      assert.ok(!problems[0].includes('cannot be resolved'), problems[0]);
-      assert.ok(problems[0].includes('teach the reader'), problems[0]);
-      assert.ok(problems[1].includes(suiteGlob(SUITE)), problems[1]);
+    // The script runs under npm's own `sh -c`, which sets no errexit, so whatever
+    // stands beside the invocation on its line can take its verdict or drop it.
+    for (const [shape, command, named] of [
+      ['an operator absorbing its failure', `${spelled} || true`, 'the operator `||`'],
+      ['a `;` handing the verdict to a later command', `${spelled}; echo staged`, 'the operator `;`'], // prettier-ignore
+      ['an `&&` after it', `${spelled} && echo ok`, 'the operator `&&`'],
+      ['a background `&`', `${spelled} &`, 'the operator `&`'],
+      ['a pipeline taking its verdict', `${spelled} | tee out.log`, 'the operator `|`'],
+      ['an `&&` before its invocation', `echo staging && ${spelled}`, 'the operator `&&`'],
+      ['a quoted argument', `c8 --reporter='text' node --test ${suiteGlob(SUITE)}`, 'a quoted argument'], // prettier-ignore
+      ['a command substitution', `c8 --reporter=$(echo text) node --test ${suiteGlob(SUITE)}`, 'a command substitution'], // prettier-ignore
+      ['a trailing comment', `${spelled} # staged`, 'a comment'],
+    ]) {
+      it(`${shape} in the script is refused by name, beside the suite-absent finding`, () => {
+        const problems = answer(command);
+        assert.equal(problems.length, 2, problems.join('\n'));
+        assert.ok(problems[0].includes('`npm run test:coverage`'), problems[0]);
+        assert.ok(problems[0].includes(named), problems[0]);
+        assert.ok(problems[0].includes(PACKAGE_JSON_PATH), problems[0]);
+        // Never through the reader-refusal wrapper: the script DID resolve.
+        assert.ok(!problems[0].includes('cannot be resolved'), problems[0]);
+        assert.ok(problems[0].includes("put the suite's command alone there"), problems[0]);
+        assert.ok(problems[1].includes(suiteGlob(SUITE)), problems[1]);
+      });
+    }
+
+    it('the command standing alone is admitted, however it is spelled', () => {
+      assert.deepEqual(answer(spelled), []);
+      assert.deepEqual(
+        answer(`npx c8 --reporter=lcov --reporter=text node --test ${suiteGlob(SUITE)} packages/desktop/tests/unit/*.test.js`), // prettier-ignore
+        [],
+      );
     });
 
-    it('an `&&` before the script’s invocation is refused by name', () => {
-      const problems = answer(`echo staging && ${spelled}`);
-      assert.equal(problems.length, 2, problems.join('\n'));
-      assert.ok(problems[0].includes('`&&`'), problems[0]);
-      assert.ok(problems[0].includes('`npm run test:coverage`'), problems[0]);
-    });
-
-    it('an `&&` after it is admitted — the command is its line’s last list', () => {
-      assert.deepEqual(answer(`${spelled} && echo ok`), []);
+    it('a script the job names for something else is not this leg’s subject', () => {
+      // The shape is asked of the command that CARRIES the suite. An advisory
+      // script beside it may state whatever it likes; this leg answers for the
+      // suite, not for every script the job runs.
+      const problems = jobSuiteProblems(
+        SUITE,
+        jobSuiteArguments(
+          {
+            [UNIT_SUITE_JOB_ID]: {
+              steps: [
+                { name: 'Tests', run: 'npm run test:coverage' },
+                { name: 'Advisory', run: 'npm run schema:impact' },
+                { name: 'Stage', run: 'npm run stage:coverage' },
+              ],
+            },
+          },
+          {
+            'test:coverage': spelled,
+            'schema:impact': 'node scripts/auto-version-schemas.js --check || true',
+            'stage:coverage': 'cat coverage/lcov.info | tee staged.lcov',
+          },
+          UNIT_SUITE_JOB_ID,
+        ),
+      );
+      assert.deepEqual(problems, []);
     });
   });
 
@@ -1108,23 +1238,14 @@ describe('the suite the named job runs', () => {
         jobSuiteArguments(job(step, jobKeys), RESOLVING_COMMANDS, UNIT_SUITE_JOB_ID),
       );
 
-    for (const [shape, step, named, jobKeys] of [
+    for (const [shape, step, named] of [
       ['a condition', { run: 'npm run test:coverage', if: 'false' }, 'if: false'],
       ['an expression condition', { run: 'npm run test:coverage', if: 'always()' }, 'if: always()'],
       ['a truthy tolerance', { run: 'npm run test:coverage', 'continue-on-error': true }, 'continue-on-error: true'], // prettier-ignore
       ['a tolerance written as an expression', { run: 'npm run test:coverage', 'continue-on-error': '${{ github.event_name == \'push\' }}' }, 'continue-on-error: ${{'], // prettier-ignore
-      ['an operator absorbing its failure', { run: 'npm run test:coverage || echo advisory' }, '`||`'], // prettier-ignore
-      ['an operator that may never reach it', { run: 'echo probe || npm run test:coverage' }, '`||`'], // prettier-ignore
-      ['a pipeline taking its verdict', { run: 'npm run test:coverage | tee out.log' }, '`|`'],
-      ['an `&&` before it', { run: 'echo x && npm run test:coverage' }, '`&&`'],
-      ['an `&&` after it on a line that is not the block’s last', { run: 'npm run test:coverage && echo done\necho after' }, '`&&`'], // prettier-ignore
-      ['an `||` on its own line of a block', { run: 'npm run test:coverage || true\necho after' }, '`||`'], // prettier-ignore
-      ['an operator the line above it leaves open', { run: 'echo probe ||\nnpm run test:coverage' }, '`||`'], // prettier-ignore
-      ['an `&&` it leaves open, on a list that does not end the block', { run: 'npm run test:coverage &&\necho done\necho after' }, '`&&`'], // prettier-ignore
-      ['the job’s own tolerance', { run: 'npm run test:coverage' }, 'continue-on-error: true', { 'continue-on-error': true }], // prettier-ignore
     ]) {
       it(`${shape} is refused by name, beside the suite-absent finding`, () => {
-        const problems = answer(step, jobKeys);
+        const problems = answer(step);
         assert.equal(problems.length, 2, problems.join('\n'));
         assert.ok(problems[0].includes('the step named `Tests`'), problems[0]);
         assert.ok(problems[0].includes(named), problems[0]);
@@ -1135,17 +1256,67 @@ describe('the suite the named job runs', () => {
       });
     }
 
+    // ONE PLAIN COMMAND: what the carrying step's own `run` text may not state
+    // beside its command, each shape named as the refusal names it. The step
+    // runs under the workflow's default shell, and anything standing beside the
+    // invocation there can take its verdict or drop it.
+    for (const [shape, run, named] of [
+      ['an operator absorbing its failure', 'npm run test:coverage || echo advisory', 'the operator `||`'], // prettier-ignore
+      ['an operator that may never reach it', 'echo probe || npm run test:coverage', 'the operator `||`'], // prettier-ignore
+      ['a pipeline taking its verdict', 'npm run test:coverage | tee out.log', 'the operator `|`'],
+      ['an `&&` before it', 'echo x && npm run test:coverage', 'the operator `&&`'],
+      ['an `&&` after it', 'npm run test:coverage && echo done', 'the operator `&&`'],
+      ['a `;` after it', 'npm run test:coverage; echo staged', 'the operator `;`'],
+      ['a background `&`', 'npm run test:coverage &', 'the operator `&`'],
+      ['a quoted argument', "npm run test:coverage -- --grep 'a|b'", 'a quoted argument'],
+      ['a command substitution', 'npm run test:coverage -- --grep $(cat pattern)', 'a command substitution'], // prettier-ignore
+      ['a heredoc', 'npm run test:coverage <<EOF', 'a heredoc'],
+      ['a trailing comment', 'npm run test:coverage # advisory', 'a comment'],
+      ['a second command line', 'npm run test:coverage\necho staged', 'a second command line'],
+      ['a swallowing operator on another line of the block', 'npm run test:coverage\nrm -rf tmp || true', 'a second command line'], // prettier-ignore
+      ['a line continuation', 'npm run test:coverage \\\necho staged', 'a line continuation'],
+    ]) {
+      it(`${shape} on the carrying step is refused by name, beside the suite-absent finding`, () => {
+        const problems = answer({ run });
+        assert.equal(problems.length, 2, problems.join('\n'));
+        assert.ok(problems[0].includes('the step named `Tests`'), problems[0]);
+        assert.ok(problems[0].includes(named), problems[0]);
+        assert.ok(problems[0].includes('standing alone on its step'), problems[0]);
+        assert.ok(problems[0].includes("put the suite's command alone there"), problems[0]);
+        // Never through the reader-refusal wrapper: the command DID resolve.
+        assert.ok(!problems[0].includes('cannot be resolved'), problems[0]);
+        assert.ok(problems[1].includes(suiteGlob(SUITE)), problems[1]);
+      });
+    }
+
     for (const [shape, step] of [
       ['a tolerance that tolerates nothing', { run: 'npm run test:coverage', 'continue-on-error': false }], // prettier-ignore
-      ['an `&&` after it on the block’s only line', { run: 'npm run test:coverage && echo done' }],
-      ['a quoted pipe in its own arguments', { run: "npm run test:coverage -- --grep 'a|b'" }],
-      ['a swallowing operator on another line of the block', { run: 'npm run test:coverage\nrm -rf tmp || true' }], // prettier-ignore
-      ['an `&&` it leaves open, on the list that ends the block', { run: 'npm run test:coverage &&\necho done' }], // prettier-ignore
+      ['a comment-only line beside it', { run: 'npm run test:coverage\n# the shared and desktop suites' }], // prettier-ignore
+      ['a blank line after it', { run: 'npm run test:coverage\n\n' }],
     ]) {
       it(`${shape} is admitted`, () => {
         assert.deepEqual(answer(step), []);
       });
     }
+
+    it('the rule reads one command text, whatever states it', () => {
+      // One home for the admitted shape, so the step side and the script side
+      // cannot drift apart: each asks this of its own text.
+      assert.equal(plainCommandShape('npm run test:coverage'), null);
+      assert.equal(plainCommandShape('npm run test:coverage\n# a note\n'), null);
+      assert.equal(plainCommandShape('npm run test:coverage || true'), 'the operator `||`');
+      assert.equal(plainCommandShape('npm run test:coverage && echo ok'), 'the operator `&&`');
+      assert.equal(plainCommandShape('npm run test:coverage; echo ok'), 'the operator `;`');
+      assert.equal(plainCommandShape('npm run test:coverage | tee log'), 'the operator `|`');
+      assert.equal(plainCommandShape('npm run test:coverage &'), 'the operator `&`');
+      assert.equal(plainCommandShape("npm run test:coverage 'x'"), 'a quoted argument');
+      assert.equal(plainCommandShape('npm run test:coverage $(x)'), 'a command substitution');
+      assert.equal(plainCommandShape('npm run test:coverage `x`'), 'a command substitution');
+      assert.equal(plainCommandShape('npm run test:coverage <<EOF'), 'a heredoc');
+      assert.equal(plainCommandShape('npm run test:coverage # note'), 'a comment');
+      assert.equal(plainCommandShape('npm run test:coverage\necho x'), 'a second command line');
+      assert.equal(plainCommandShape('npm run test:coverage \\\necho x'), 'a line continuation');
+    });
 
     it('a step resolving to no suite states what it likes', () => {
       assert.deepEqual(
@@ -1207,70 +1378,6 @@ describe('the suite the named job runs', () => {
     });
   });
 
-  // The operator lexer, held to the segment splitter it stands beside.
-  describe('the operator lexer answers the segments the splitter answers', () => {
-    for (const [shape, text] of [
-      ['a quoted pipe', "npm run test:coverage -- --grep 'a|b'"],
-      [
-        'a `#` comment carrying operators',
-        'echo a # npm run b | c\nnpm run test:coverage && echo x',
-      ],
-      ['a parenthesised command behind an `||`', 'git diff --exit-code a || (echo "no" && exit 1)'],
-      ['a trailing comment-only line', 'npm ci\nnpm run test:coverage\n\n# done\n'],
-      ['a `cd` ahead of the rest of the block', 'cd x && npm ci\nnpm run test:coverage'],
-      ['an operator left open at a line’s end', 'echo probe ||\nnpm run test:coverage'],
-    ]) {
-      it(`${shape} splits the same way`, () => {
-        assert.deepEqual(
-          commandOperators(text).map((segment) => segment.command),
-          commandSegments(text),
-        );
-      });
-    }
-
-    it('the state each segment stands in is what the verdict reads', () => {
-      const read = commandOperators('npm run test:coverage && echo done\necho after');
-      assert.deepEqual(
-        read.map((s) => [s.command, s.before, s.after, s.last]),
-        [
-          ['npm run test:coverage', null, '&&', false],
-          ['echo done', '&&', null, false],
-          ['echo after', null, null, true],
-        ],
-      );
-      // A trailing blank or comment-only line states no command, so it does not
-      // move which line is the block's last.
-      const padded = commandOperators('npm run test:coverage\n\n# nothing here\n');
-      assert.deepEqual(
-        padded.map((s) => [s.command, s.last]),
-        [['npm run test:coverage', true]],
-      );
-      // A quoted operator is data, so the line states none.
-      assert.deepEqual(commandOperators("echo 'a|b'")[0].operators, []);
-    });
-
-    it('an operator at a line’s end carries its list on to the line below', () => {
-      const joined = commandOperators('echo probe ||\nnpm run test:coverage\necho after');
-      assert.deepEqual(
-        joined.map((s) => [s.command, s.before, s.after, s.operators, s.last]),
-        [
-          ['echo probe', null, '||', ['||'], false],
-          ['npm run test:coverage', '||', null, ['||'], false],
-          ['echo after', null, null, [], true],
-        ],
-      );
-      // The list a trailing operator opens ends on the line its last command
-      // stands on, which is what decides whether the block ends there.
-      assert.deepEqual(
-        commandOperators('npm run test:coverage &&\necho done').map((s) => [s.command, s.last]),
-        [
-          ['npm run test:coverage', true],
-          ['echo done', true],
-        ],
-      );
-    });
-  });
-
   it('the leg reaches the evaluator, beside the surfaces it does not depend on', () => {
     const problems = evaluateVerificationInventory(
       makeSurface({
@@ -1301,20 +1408,22 @@ describe('the suite the named job runs', () => {
     it('the shipped carrying step is one this reading admits', () => {
       // The real-tree lock on the verdict the refusals above are about: the
       // step that carries the suite today states no condition, no tolerance,
-      // and no operator that would keep its verdict from the job — while the
-      // job DOES carry a tolerated step elsewhere, which is why a refusal
-      // keyed on the job rather than on the carrying step would red what ships.
+      // and nothing beside its command — on its own line or in the manifest
+      // command it resolves through — while the job DOES carry a tolerated step
+      // elsewhere, which is why a refusal keyed on the job rather than on the
+      // carrying step would red what ships.
       const answer = jobSuiteArguments(shippedJobs(), shippedCommands(), UNIT_SUITE_JOB_ID);
       assert.equal(answer.jobContinueOnError, null);
+      assert.deepEqual(answer.jobRefusals, []);
       const carrying = answer.steps.filter((step) =>
         step.segments.some((segment) => segment.globs.some(isSuite)),
       );
       assert.equal(carrying.length, 1, JSON.stringify(answer.steps.map((s) => s.name)));
       assert.equal(carrying[0].condition, null);
       assert.equal(carrying[0].continueOnError, null);
+      assert.equal(carrying[0].shape, null, JSON.stringify(carrying[0]));
       for (const segment of carrying[0].segments) {
-        assert.deepEqual(segment.operators, [], segment.command);
-        assert.equal(segment.before, null, segment.command);
+        assert.equal(segment.script?.shape ?? null, null, segment.command);
       }
       assert.ok(
         answer.steps.some((step) => step.continueOnError !== null),

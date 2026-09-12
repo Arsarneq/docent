@@ -204,9 +204,10 @@ describe('check-script CLI smoke (deterministic green paths)', () => {
     // No env pinned: the script's import closure inside this repository (this
     // check plus check-test-inventory, check-doc-closure, check-ci-filter,
     // check-workflow-bounds — whose jobs reader this check takes the workflow's
-    // `jobs` map from, and which brings the YAML parser with it — corpus-compare,
-    // sufficiency-lint, build-schemas, sync-digest,
-    // field-sensitivity) reads no process.env, so nothing in it reads a var
+    // `jobs` map from — corpus-compare, sufficiency-lint, build-schemas,
+    // sync-digest, field-sensitivity), and the YAML parser this check loads
+    // itself to read the workflow root's own defaults, read no process.env, so
+    // nothing in it reads a var
     // whose value could switch the path this smoke runs. It reads its subjects
     // as files rather than through git, so the harness's `GIT_*` scrub is not
     // what makes it deterministic.

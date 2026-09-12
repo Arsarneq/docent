@@ -918,7 +918,7 @@
       "doc": "docs/verification/scripted-truth-corpus.md",
       "clause": "STC-23",
       "tag": "check-exists",
-      "check-ref": "The vector meta-schema is corpus/vector.schema.json, and packages/shared/tests/unit/conformance-vectors.test.js validates every committed vector against it (npm run test:shared). The produce-stage oracle in packages/extension/tests/e2e/corpus/corpus.spec.js and the desktop assembler hold produced vectors to their committed counterparts. This clause's own words are held to that meta-schema by scripts/check-verification-inventory.js (npm run lint:verification-inventory, a step in CI's lint job); the clause states that weld in its own prose, and the legs, token grammar and machinery refusals behind it are recorded in that script's header."
+      "check-ref": "The vector meta-schema is corpus/vector.schema.json, and packages/shared/tests/unit/conformance-vectors.test.js validates every committed vector against it (npm run test:shared). The produce-stage oracle in packages/extension/tests/e2e/corpus/corpus.spec.js and the desktop assembler hold produced vectors to their committed counterparts. This clause's own words are held to that meta-schema by scripts/check-verification-inventory.js (npm run lint:verification-inventory, a step in CI's lint job); the clause states that weld in its own prose, and the legs, token grammar and machinery refusals behind it are recorded in that script."
     },
     {
       "doc": "docs/verification/scripted-truth-corpus.md",
