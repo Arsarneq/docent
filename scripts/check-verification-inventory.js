@@ -42,7 +42,7 @@
  *     gate on;
  *   - the job citations: every `` `<job>` job `` either verification document
  *     cites names a job of .github/workflows/test.yml;
- *   - the suite the cited job runs: READ — the steps of
+ *   - the suite the named job runs: READ — the steps of
  *     .github/workflows/test.yml's `unit-tests` job, taken through the
  *     workflow's own `jobs` map. HOW — each step's `run` text split into the
  *     command segments a shell would run and stopped at the first `cd`, then
@@ -50,25 +50,39 @@
  *     step's own command and through the root manifest's script for every
  *     `npm run` token it states. Each reading goes to the test-inventory
  *     check's own `nodeTestArguments` and its `classifyArgument`, so the
- *     arguments this leg compares are the ones that gate itself would select.
- *     HELD — the shared unit suite's registered `dir` and `pattern` are among
- *     those classified answers: the ARGUMENT SET, never a command string, so
- *     the step stays free to be respelled and the job free to grow further
- *     suites. REFUSED, each by name — a step stating its own
- *     `working-directory`; a segment stating a modelled invocation off its own
- *     head; a segment whose `npm run` script token this reader cannot read; an
- *     `npm run` the root manifest defines no script for; a command the argument
- *     reader will not model; a step carrying the suite under a condition, a
- *     truthy or expression-valued tolerance, or an operator that keeps its
- *     verdict from reaching the job; a job whose commands this reading resolves
- *     none of; and the job itself being gone. LIMITS — the verification
+ *     arguments this leg compares are the ones that gate itself would select,
+ *     and each resolved manifest command is read for the operators standing
+ *     between its own commands as well. HELD — the shared unit suite's
+ *     registered `dir` and `pattern` are among those classified answers: the
+ *     ARGUMENT SET, never a command string, so the step stays free to be
+ *     respelled in the spellings this reading models and the job free to grow
+ *     further suites. REFUSED, each by name — a step stating its own
+ *     `working-directory`; a job stating `defaults.run.working-directory` for
+ *     the steps it runs; a segment stating a modelled invocation off its own
+ *     head; a segment whose `npm run` script token this reader cannot read; a
+ *     segment stating an `npm run` flag that answers the script key from
+ *     another package's manifest; a segment stating a script-running npm verb
+ *     other than
+ *     `npm run`; a segment whose argument list could not be read whole, because
+ *     the segment grammar passed over its quoted text or the line below it
+ *     continues the command; an `npm run` the root manifest defines no script
+ *     for; a command the argument reader will not model; a resolved manifest
+ *     command stating an operator that keeps its own verdict from the step that
+ *     runs it; a step carrying the suite under a condition, a truthy or
+ *     expression-valued tolerance, or an operator that keeps its verdict from
+ *     reaching the job; a job whose commands this reading resolves none of; the
+ *     job itself being gone; and a suite directory this check names that the
+ *     registered discoveries no longer carry. LIMITS — the verification
  *     documents' own CI-reach sentences are prose, so whether each still says the job runs
  *     the suite is review-held, as is whether the CI guide row's flag list for
  *     the job is the right set; the job's desktop and extension trees are
  *     review-held beside them; the shell's own settings are not read, so a
- *     `shell:` key or a `set +e` inside a `run:` block states nothing here;
- *     text inside a heredoc body or a command substitution is read as the
- *     line's own, the segment grammar's limit inherited; and the premise is
+ *     `shell:` key or a `set +e` inside a `run:` block states nothing here; the
+ *     segment grammar's own limits are inherited — text inside a heredoc body
+ *     or a command substitution is read as the line's own, and a segment's
+ *     quoted text is passed over, which is why a modelled invocation whose
+ *     arguments carried quoted text, or whose command the line below it
+ *     continues, is refused rather than read; and the premise is
  *     scoped — the shapes that keep writing a coverage report pass every
  *     tracked check, while a deleted step or a swap to a non-coverage script
  *     reds the job's own coverage-staging copy two steps later, naming no
@@ -86,29 +100,32 @@
  * meta-schema stops requiring the field and says nothing about a clause that
  * stopped demanding it.
  *
- * The suite the cited job runs is held one-way as well, and at the grain the
+ * The suite the named job runs is held one-way as well, and at the grain the
  * runner reads rather than the grain the command is spelled at: the job's own
  * steps are resolved to the `node --test` arguments their commands state —
  * through the root manifest's scripts for an `npm run` token, and from the
  * step's own command text where the step spells the invocation itself — and the
  * registered glob must be among them. The job stays free to run further suites
- * and the command free to be
- * respelled or renamed — what it cannot do is stop running the suite the
+ * and the command free to be respelled, in the spellings this reading models,
+ * or renamed — what it cannot do is stop running the suite the
  * documents say it runs, which is why the ARGUMENT SET is what this leg pins
  * and the command string is not: a pin on the string would hold the step
  * stricter than the reader that resolves it. Nothing is held from the other
  * end: a registered suite CI runs nowhere is the test-inventory lint's
  * registration closure to speak for — it holds every registered suite to
  * some admitted manifest script — and this leg adds the one thing that
- * closure cannot see, which job's own steps run it. A `run:` line any segment
- * of which is a `cd` is refused whole rather than read against a working
- * directory this reading does not follow: that same job runs a second script
- * of the same NAME from another package's manifest behind exactly such a
- * `cd`, so reading a segment without the relocation ahead of it would let that
- * step's token answer for the root script. A step stating its own
- * `working-directory` is refused the same way and for the same reason, named
- * rather than skipped — the leg cannot answer green over commands it declined
- * to read.
+ * closure cannot see, which job's own steps run it. A `cd` segment ends the
+ * step it stands in: the segments before it on its line stay read, and
+ * everything after it — on that line and on the lines of the same block below
+ * it — goes unread, a reading rule rather than a refusal, and the answer
+ * carries which steps the reading stopped in so the verdict can name them.
+ * That same job runs a second script of the same NAME from another package's
+ * manifest behind exactly such a `cd`, so reading a segment without the
+ * relocation ahead of it would let that step's token answer for the root
+ * script. A step stating its own `working-directory`, and a job stating one
+ * for the steps it runs, are refused by name for that same reason — named
+ * rather than skipped, because the leg cannot answer green over commands it
+ * declined to read.
  *
  * A repeat is legitimate wherever a claim is read from running prose rather
  * than from an enumeration: an enumeration states each entry once, so a repeat
@@ -125,7 +142,8 @@
  * none of it, would pass forever. An input file the readers refuse —
  * unreadable, unparseable, or parseable but not shaped like the surface it is
  * read as (the session catalogue, a known-diffs baseline, the sufficiency
- * baseline, the vector meta-schema, or the package manifest) — is a third
+ * baseline, the vector meta-schema, the package manifest, or the workflow's own
+ * `jobs` map) — is a third
  * verdict, not a drift finding: they refuse loudly, naming the file and which
  * failure mode it was, and the wrapper exits 2 so machinery breakage never
  * reads as a pin that stopped holding. A workflow whose top-level `jobs:`
@@ -173,7 +191,10 @@
  * registers that directory under, so the suite this leg demands of the job is
  * the suite that registration demands a documented row for. Inside the job,
  * each step's own condition and tolerance come back through the reader, beside
- * the operators its `run:` lines state: a step that carries the suite under any
+ * the operators its `run:` text states between commands — the command lists a
+ * trailing operator carries on to the next line included — and beside the
+ * operators the manifest script it resolves states between its own: a step that
+ * carries the suite under any
  * of them is REFUSED by name rather than counted, because this reader evaluates
  * neither a condition nor the shell state an operator leaves behind — so what
  * the leg holds is that the job states the invocation in a step whose verdict
@@ -364,12 +385,43 @@ export const UNIT_SUITE_JOB_ID = 'unit-tests';
  */
 export const UNIT_SUITE_DIR = 'packages/shared/tests/unit';
 
-/** An `npm run` as one of a step's command segments opens with it. */
-const NPM_RUN_SEGMENT_RE = /^npm\s+run(?:\s|$)/;
+/**
+ * An `npm run` as one of a step's command segments opens with it, with npm's
+ * own `-`-prefixed flags admitted between the two words, where npm itself
+ * takes them.
+ */
+const NPM_RUN_SEGMENT_RE = /^npm(?:\s+-\S*)*\s+run(?:\s|$)/;
 /** A script key as `npm run` states one, once npm's own flags are behind it. */
 const SCRIPT_TOKEN_RE = /^[A-Za-z0-9:_-]+$/;
 /** A `cd` as one of a step's command segments states it. */
 const CD_SEGMENT_RE = /^cd(?:\s|$)/;
+
+/**
+ * The npm verbs that run a manifest script by a spelling other than `npm run`.
+ * This reading resolves the one spelling, so a segment stating any of these is
+ * refused by name rather than passed over as a segment naming no script: the
+ * step does run something the root manifest defines, and a reading that said
+ * nothing about it would answer green over a command it never resolved. Every
+ * other npm verb — `ci`, `install` — runs no manifest script, and is simply
+ * not read.
+ */
+const UNMODELLED_SCRIPT_VERBS = new Set(['run-script', 'test', 't', 'exec']);
+
+/**
+ * The `npm run` flags that take the script lookup to another package's
+ * manifest. A segment stating one is refused for the reason a
+ * `working-directory` step is: the key would be answered by a manifest this
+ * reading never opened, so a script of the same NAME elsewhere in the
+ * repository could stand in for the root one. The flag's own `=` form is read
+ * as the flag.
+ */
+const RELOCATION_FLAGS = new Set(['--prefix', '-w', '--workspace', '--workspaces']);
+
+/** A command segment the line below it continues. */
+const CONTINUED_SEGMENT_RE = /\\$/;
+
+/** A quote delimiter, which the segment grammar keeps while passing over what it encloses. */
+const QUOTE_DELIMITER_RE = /['"]/;
 
 /**
  * The invocations this reading models, as the head of a command segment. A
@@ -388,22 +440,26 @@ const SWALLOWING_OPERATORS = ['||', '|'];
 const CONDITIONAL_OPERATOR = '&&';
 
 /**
- * One step's `run:` text, split the way {@link commandSegments} splits it and
- * answered with the operator state each segment stands in. A LOCAL positional
+ * One step's `run:` text, split the way {@link commandSegments} splits it — in
+ * [`check-doc-closure.js`](./check-doc-closure.js) — and answered with the
+ * operator state each segment stands in. A LOCAL positional
  * lexer, because `commandSegments` consumes the operators and exports no
  * stripper: the rules it applies are that function's own — a `#` preceded by
  * whitespace opens a comment that runs to the end of its line, quoted text is
  * data rather than command text, a segment is trimmed and loses an opening
  * `(` — and the unit suite holds the two to the same answers over the same
- * text. What this lexer adds is position: for each segment, the operator
- * immediately before it, the operator immediately after it, every operator its
- * own line states, and whether that line is the last line of the block to
- * state a command at all (a trailing blank or comment-only line states none,
- * so it does not move the last one).
+ * text. What this lexer adds is position, read off the COMMAND LIST each
+ * segment stands in: the commands an operator joins are one list, and an
+ * operator standing at a line's end carries its list on to the line below, the
+ * way the shell reads it. Per segment: the operator immediately before it, the
+ * operator immediately after it, every operator its list states, and whether
+ * its list ENDS on the last line of the block to state a command at all (a
+ * trailing blank or comment-only line states none, so it does not move the
+ * last one).
  *
  * Inherited limit, the segment grammar's own: text inside a heredoc body or a
  * command substitution is read as the line's own, so an operator written there
- * counts as the line's.
+ * counts as its list's.
  * @param {string} text one step's `run:` block
  * @returns {{ command: string, before: string | null, after: string | null,
  *             operators: string[], line: number, last: boolean }[]}
@@ -458,11 +514,33 @@ export function commandOperators(text) {
   }
   flush(line);
 
+  // The command lists: a run of commands the operators between them join, which
+  // a line break does not end while an operator is still open — that is how a
+  // trailing `&&` carries its list on to the line below. A break alone starts
+  // the next list.
+  const listOf = new Map();
+  let open = null;
+  let joining = false;
+  for (const item of items) {
+    if (item.kind === 'break') continue;
+    if (item.kind === 'operator') {
+      if (open === null) open = { commands: [], operators: [] };
+      open.operators.push(item.text);
+      joining = true;
+      continue;
+    }
+    if (!joining || open === null) open = { commands: [], operators: [] };
+    open.commands.push(item);
+    listOf.set(item, open);
+    joining = false;
+  }
+
   const commandLines = new Set(items.filter((i) => i.kind === 'command').map((i) => i.line));
   const lastLine = Math.max(-1, ...commandLines);
+  const endsOn = (list) => list?.commands[list.commands.length - 1]?.line ?? -1;
   const neighbour = (from, step) => {
     for (let at = from + step; at >= 0 && at < items.length; at += step) {
-      if (items[at].kind === 'break') return null;
+      if (items[at].kind === 'command') return null;
       if (items[at].kind === 'operator') return items[at].text;
     }
     return null;
@@ -474,27 +552,45 @@ export function commandOperators(text) {
       command: item.text,
       before: neighbour(at, -1),
       after: neighbour(at, +1),
-      operators: items.filter((i) => i.kind === 'operator' && i.line === item.line).map((i) => i.text), // prettier-ignore
+      operators: [...(listOf.get(item)?.operators ?? [])],
       line: item.line,
-      last: item.line === lastLine,
+      last: endsOn(listOf.get(item)) === lastLine,
     }));
 }
 
 /**
  * The script key one command segment states through `npm run`, with npm's own
- * `-`-prefixed flags stepped over so a flagged invocation resolves rather than
- * taking the flag for the key. Undefined where the segment states no `npm run`
- * at all; `{ unreadable: true }` where it states one whose key this reader
- * cannot read — a key carrying a character the grammar does not admit, a
- * closing paren riding it among them — which the leg refuses by name rather
- * than passing over as a segment stating nothing.
+ * `-`-prefixed flags stepped over — on either side of `run`, where npm itself
+ * takes them — so a flagged invocation resolves rather than taking the flag for
+ * the key. Undefined where the segment states no npm verb this reading models
+ * and names no script: `npm ci` and `npm install` run none. Otherwise a refusal
+ * the leg states by name rather than passing over as a segment that says
+ * nothing:
+ *
+ *   - `{ verb }` where the segment runs a script by a spelling other than
+ *     `npm run` (`npm test`, `npm run-script <key>`, `npm exec`) — the step
+ *     does run something the manifest defines, and this reading resolves only
+ *     the one spelling;
+ *   - `{ relocated }` where it states a flag that answers the key from another
+ *     package's manifest, which this reading does not follow;
+ *   - `{ unreadable: true }` where the key itself cannot be read — a key
+ *     carrying a character the grammar does not admit, a closing paren riding
+ *     it among them.
  * @param {string} segment one command segment
- * @returns {{ token: string } | { unreadable: true } | undefined}
+ * @returns {{ token: string } | { verb: string } | { relocated: string }
+ *           | { unreadable: true } | undefined}
  */
 export function npmRunScript(segment) {
+  const words = segment.split(/\s+/).filter(Boolean);
+  if (words[0] !== 'npm') return undefined;
+  const verb = words.slice(1).find((word) => !word.startsWith('-'));
+  if (verb !== undefined && UNMODELLED_SCRIPT_VERBS.has(verb)) return { verb };
+  const at = words.indexOf('run');
+  if (at < 1) return undefined; // states no `run` verb at all: `npm ci`, `npm install`
+  const relocated = words.slice(1).find((word) => RELOCATION_FLAGS.has(word.split('=')[0]));
+  if (relocated !== undefined) return { relocated };
   if (!NPM_RUN_SEGMENT_RE.test(segment)) return undefined;
-  const words = segment.split(/\s+/).filter(Boolean).slice(2);
-  const token = words.find((word) => !word.startsWith('-'));
+  const token = words.slice(at + 1).find((word) => !word.startsWith('-'));
   if (token === undefined || !SCRIPT_TOKEN_RE.test(token)) return { unreadable: true };
   return { token };
 }
@@ -544,16 +640,49 @@ function classifiedArguments(text) {
 
 /**
  * How a refusal names the step it is about: the step's own `name` where it
- * states one, and its position in the job's `steps` list where it does not.
- * @param {Record<string, unknown>} step one step of the job
- * @param {number} index that step's position in the job's `steps` list
+ * states one, and its position in the job's `steps` list where it does not —
+ * an empty `name` reading as the position, because a step named `` names
+ * nothing. The one namer for the reader's refusals and the verdict's alike, so
+ * the two lines of a sole-carrying-step verdict cannot name the same step two
+ * ways.
+ * @param {{ name?: unknown, index: number }} step that step's name and position
  * @returns {string}
  */
-function stepSubject(step, index) {
-  const name = step?.name;
+function stepSubject({ name, index }) {
   return typeof name === 'string' && name !== ''
     ? `the step named \`${name}\``
     : `the step at index ${index} of its \`steps\` list`;
+}
+
+/**
+ * What one resolved manifest command states between its own commands that keeps
+ * its verdict from the step that runs it, named as the refusal names it. Read
+ * with the same lexer a step's `run:` text gets, because the script is where the
+ * invocation the step delegates to actually stands: a `|| true` appended to the
+ * script leaves the suite running and reporting while the step exits 0.
+ *
+ * A manifest script command is one line, so the operators that swallow here are
+ * the ones that swallow on a block's last command line: `||` and `|` standing
+ * between the commands of that line, and `&&` standing BEFORE the invocation
+ * whose arguments this reading took. `&&` after it is admitted — the command's
+ * list is the line's last, so its failure reaches the caller.
+ * @param {string} command one manifest script command
+ * @returns {string[]} the offenders, each as the refusal names it; empty admits
+ */
+function scriptVerdictOffenders(command) {
+  const offenders = new Set();
+  for (const lexed of commandOperators(command)) {
+    for (const operator of SWALLOWING_OPERATORS) {
+      if (lexed.operators.includes(operator)) {
+        offenders.add(`the \`${operator}\` between its own commands`);
+      }
+    }
+    const head = lexed.command.split(/\s+/).filter(Boolean)[0];
+    if (MODELLED_INVOCATIONS.has(head) && lexed.before === CONDITIONAL_OPERATOR) {
+      offenders.add(`the \`${CONDITIONAL_OPERATOR}\` before its invocation`);
+    }
+  }
+  return [...offenders];
 }
 
 /**
@@ -569,9 +698,11 @@ function stepSubject(step, index) {
  * resolves to the script it names.
  *
  * The answer carries flat fields across the whole job — every script key read,
- * every classified glob, and the refusals — beside a `steps` array answering
+ * every classified glob, the refusals, and the resolved manifest commands whose
+ * own verdict this reading cannot answer for — beside a `steps` array answering
  * per step: its name, its position, the condition and the tolerance it states,
- * and one entry per resolving segment carrying that segment's command, its
+ * whether the reading stopped at a `cd` inside it, and one entry per resolving
+ * segment carrying that segment's command, its
  * classified globs, and the operator state it stands in. The verdict function
  * is where the registered suite is known, so it is what decides which of those
  * states refuses a step; this reader stays a reader of its arguments.
@@ -584,23 +715,34 @@ function stepSubject(step, index) {
  * this leg reads carries exactly such a step, invoking a script of the same
  * NAME from another package's manifest, so a reading that took that segment on
  * its own would resolve the name against the root manifest and report the root
- * suite as still run after the root step is gone. A step stating its own
- * `working-directory` is refused by name for the same reason, and named rather
+ * suite as still run after the root step is gone. Nothing is refused for it —
+ * the step is recorded as read only that far, so the verdict can say where the
+ * reading stopped. A step stating its own `working-directory`, and a job
+ * stating one for every step it runs, are refused by name for that same
+ * relocation reason, and named rather
  * than skipped so the leg cannot answer green over a job whose commands it
- * declined to read. A segment stating a modelled invocation somewhere other
+ * declined to read; a job-level default leaves the steps unread, since it moves
+ * all of them. A segment stating a modelled invocation somewhere other
  * than its own head is refused by name: the argument reader would find the
  * invocation in a position no shell runs it from, so `echo node --test <glob>`
  * would otherwise read as a step carrying the suite and `time npm run <script>`
  * as a step stating no command at all. A segment whose `npm run` script key
- * this reader cannot read is refused the same way, for the same reason.
+ * this reader cannot read is refused the same way, for the same reason, as is
+ * one whose `npm run` states a flag that answers the key from another package's
+ * manifest and one that runs a script by a spelling this reading does not model.
+ * A segment whose argument list the grammar could not hand over whole is
+ * refused too — quoted text is passed over, and a command the line below it
+ * continues stops at the line break — because the arguments it would otherwise
+ * be credited with are not the arguments it states.
  * @param {Record<string, unknown>} jobsMap the workflow's `jobs` map
  * @param {Record<string, string>} commands the root manifest's script commands
  * @param {string} jobId the job whose steps to read
  * @returns {{ absent: boolean, tokens: string[],
  *             globs: { dir: string, pattern: string }[], refusals: string[],
- *             jobContinueOnError: string | null,
+ *             scriptRefusals: string[], jobContinueOnError: string | null,
  *             steps: { name: string | undefined, index: number,
  *                      condition: string | null, continueOnError: string | null,
+ *                      truncated: boolean,
  *                      segments: { command: string, classified: number,
  *                                  globs: { dir: string, pattern: string }[],
  *                                  before: string | null, after: string | null,
@@ -609,34 +751,61 @@ function stepSubject(step, index) {
 export function jobSuiteArguments(jobsMap, commands, jobId) {
   const job = jobsMap[jobId];
   if (job === undefined) {
-    return { absent: true, tokens: [], globs: [], refusals: [], jobContinueOnError: null, steps: [] }; // prettier-ignore
+    return { absent: true, tokens: [], globs: [], refusals: [], scriptRefusals: [], jobContinueOnError: null, steps: [] }; // prettier-ignore
   }
   const tokens = [];
   const globs = [];
   const refusals = [];
+  const scriptRefusals = [];
   const steps = [];
-  const jobSteps = Array.isArray(job?.steps) ? job.steps : [];
+  // The job object's own keys, read in the one place it is in hand: the working
+  // directory it defaults every step to, and the tolerance it states for its own
+  // verdict (read into the answer below). A job-level relocation moves every
+  // step, so it leaves the steps unread rather than resolving their keys against
+  // a manifest this reading never opened.
+  const jobDirectory = job?.defaults?.run?.['working-directory'];
+  if (jobDirectory !== undefined) {
+    refusals.push(`runs each step under \`defaults.run.working-directory: ${jobDirectory}\`, the job's own default, a relocation this reading does not follow`); // prettier-ignore
+  }
+  const jobSteps = jobDirectory === undefined && Array.isArray(job?.steps) ? job.steps : [];
   for (const [index, step] of jobSteps.entries()) {
     if (typeof step?.run !== 'string') continue;
+    const subject = stepSubject({ name: step?.name, index });
     const directory = step?.['working-directory'];
     if (directory !== undefined) {
-      refusals.push(`runs a step under \`working-directory: ${directory}\`, a relocation this reading does not follow`); // prettier-ignore
+      refusals.push(`runs ${subject} under \`working-directory: ${directory}\`, a relocation this reading does not follow`); // prettier-ignore
       continue;
     }
     const segments = [];
+    let truncated = false;
     for (const lexed of commandOperators(step.run)) {
-      if (CD_SEGMENT_RE.test(lexed.command)) break; // a `cd` moves the rest of the step
+      if (CD_SEGMENT_RE.test(lexed.command)) {
+        truncated = true; // a `cd` moves the rest of the step
+        break;
+      }
       const words = lexed.command.split(/\s+/).filter(Boolean);
       if (!MODELLED_INVOCATIONS.has(words[0])) {
         const offHead = words.find((word) => MODELLED_INVOCATIONS.has(word));
         if (offHead !== undefined) {
-          refusals.push(`states \`${offHead}\` somewhere other than the head of the command segment \`${lexed.command}\`, a position this reading does not resolve`); // prettier-ignore
+          refusals.push(`states \`${offHead}\` somewhere other than the head of the command segment \`${lexed.command}\` in ${subject}, a position this reading does not resolve`); // prettier-ignore
         }
         continue;
       }
+      if (CONTINUED_SEGMENT_RE.test(lexed.command)) {
+        refusals.push(`states \`${lexed.command}\` in ${subject}, a command the line below it continues, leaving an argument list that could not be read whole`); // prettier-ignore
+        continue;
+      }
       const script = npmRunScript(lexed.command);
+      if (script?.verb !== undefined) {
+        refusals.push(`states \`npm ${script.verb}\` in ${subject}, a spelling that runs a manifest script through a verb this reading does not model — \`npm run <script>\` is the one it resolves`); // prettier-ignore
+        continue;
+      }
+      if (script?.relocated !== undefined) {
+        refusals.push(`states \`${script.relocated}\` on the \`npm run\` in ${subject}, a flag that answers the script key from another package's manifest and this reading does not follow`); // prettier-ignore
+        continue;
+      }
       if (script?.unreadable === true) {
-        refusals.push(`states \`npm run\` in the command segment \`${lexed.command}\`, whose script key this reader cannot read — the key is what the root manifest is asked for`); // prettier-ignore
+        refusals.push(`states \`npm run\` in the command segment \`${lexed.command}\` in ${subject}, whose script key this reader cannot read — the key is what the root manifest is asked for`); // prettier-ignore
         continue;
       }
       // The step's own command first: a step that spells the invocation out
@@ -644,7 +813,14 @@ export function jobSuiteArguments(jobsMap, commands, jobId) {
       // script key's.
       const own = classifiedArguments(lexed.command);
       if (own.error !== undefined) {
-        refusals.push(`states \`${lexed.command}\` in ${stepSubject(step, index)}, a command that ${own.error}`); // prettier-ignore
+        refusals.push(`states \`${lexed.command}\` in ${subject}, a command that ${own.error}`); // prettier-ignore
+        continue;
+      }
+      // Quoted text the grammar passed over, on a segment whose arguments it DID
+      // read: the reader would be credited with the delimiters and not what they
+      // enclose, so the argument list is refused rather than compared.
+      if (own.classified > 0 && QUOTE_DELIMITER_RE.test(lexed.command)) {
+        refusals.push(`states \`${lexed.command}\` in ${subject}, whose quoted text the segment grammar passes over, leaving an argument list that could not be read whole`); // prettier-ignore
         continue;
       }
       let viaScript = { globs: [], classified: 0 };
@@ -652,12 +828,17 @@ export function jobSuiteArguments(jobsMap, commands, jobId) {
         tokens.push(script.token);
         const command = commands[script.token];
         if (typeof command !== 'string') {
-          refusals.push(`states \`npm run ${script.token}\`, which ${PACKAGE_JSON_PATH} defines no script for`); // prettier-ignore
+          refusals.push(`states \`npm run ${script.token}\` in ${subject}, which ${PACKAGE_JSON_PATH} defines no script for`); // prettier-ignore
           continue;
         }
         viaScript = classifiedArguments(command);
         if (viaScript.error !== undefined) {
-          refusals.push(`states \`npm run ${script.token}\`, whose command ${viaScript.error}`);
+          refusals.push(`states \`npm run ${script.token}\` in ${subject}, whose command ${viaScript.error}`); // prettier-ignore
+          continue;
+        }
+        const swallowed = scriptVerdictOffenders(command);
+        if (swallowed.length > 0) {
+          scriptRefusals.push(`states \`npm run ${script.token}\` in ${subject}, whose command in ${PACKAGE_JSON_PATH} states ${swallowed.join(' and ')}`); // prettier-ignore
           continue;
         }
       }
@@ -678,6 +859,7 @@ export function jobSuiteArguments(jobsMap, commands, jobId) {
       index,
       condition: step?.if === undefined ? null : String(step.if),
       continueOnError: step?.['continue-on-error'] ? String(step['continue-on-error']) : null,
+      truncated,
       segments,
     });
   }
@@ -686,6 +868,7 @@ export function jobSuiteArguments(jobsMap, commands, jobId) {
     tokens: [...new Set(tokens)],
     globs,
     refusals,
+    scriptRefusals,
     jobContinueOnError: job?.['continue-on-error'] ? String(job['continue-on-error']) : null,
     steps,
   };
@@ -697,16 +880,22 @@ export function jobSuiteArguments(jobsMap, commands, jobId) {
  * carry the registered suite is not asked: it may state whatever it likes.
  *
  * The operator rules follow the shell the workflow runs a `run:` block under —
- * `bash -e`, with no pipefail. `||` anywhere on the carrying command's line
+ * `bash -e`, with no pipefail — and are read off the COMMAND LIST the carrying
+ * command stands in, so an operator a line break did not end counts as that
+ * list's. `||` anywhere on that list
  * swallows the verdict whichever side of the command it stands on: before it,
  * the command may never run at all; after it, its failure is absorbed. `|`
- * hands the verdict to the last command of the pipeline instead. `&&` BEFORE
- * the command is the same absorption, because a failed left side of `&&` is not
- * fatal under errexit and the block runs on — which is also why `&&` AFTER the
- * command swallows only while its line is not the block's last command line:
- * there the step's verdict is the last line's, so an earlier line's absorbed
- * failure never reaches the job. Admitted, therefore: `;`, which errexit aborts
- * at, and `&&` after the command on the block's last line.
+ * hands the verdict to the last command of the pipeline instead. `&&` AFTER the
+ * command swallows only while its list does not END on the block's last command
+ * line: there the step's verdict is that list's, so an earlier list's absorbed
+ * failure never reaches the job. `&&` BEFORE the command is refused whatever
+ * line it stands on, because the shell swallows there on the same condition —
+ * a failed left side of `&&` is not fatal under errexit, so the commands after
+ * the list run and the step's verdict is a later list's — while on the block's
+ * last list the step reds anyway. One rule is what this reader keeps: the
+ * distinction would change no verdict, and the refusal is the conservative side
+ * of it. Admitted, therefore: `;`, which errexit aborts
+ * at, and `&&` after the command on a list that ends the block.
  * @param {{ condition: string | null, continueOnError: string | null,
  *           segments: { globs: { dir: string, pattern: string }[],
  *                       before: string | null, after: string | null,
@@ -731,16 +920,18 @@ function carryingStepOffenders(step, suite, jobTolerance) {
   const operators = new Set();
   for (const segment of carrying) {
     for (const operator of SWALLOWING_OPERATORS) {
-      if (segment.operators.includes(operator)) operators.add(operator);
+      if (segment.operators.includes(operator)) {
+        operators.add(`the \`${operator}\` on its command list`);
+      }
     }
-    if (segment.before === CONDITIONAL_OPERATOR) operators.add(CONDITIONAL_OPERATOR);
+    if (segment.before === CONDITIONAL_OPERATOR) {
+      operators.add(`the \`${CONDITIONAL_OPERATOR}\` before it`);
+    }
     if (segment.after === CONDITIONAL_OPERATOR && !segment.last) {
-      operators.add(CONDITIONAL_OPERATOR);
+      operators.add(`the \`${CONDITIONAL_OPERATOR}\` after it, on a line that is not the block's last command line`); // prettier-ignore
     }
   }
-  for (const operator of operators) {
-    offenders.push(`the \`${operator}\` its own line states between commands`);
-  }
+  offenders.push(...operators);
   return offenders;
 }
 
@@ -762,18 +953,26 @@ function carryingStepOffenders(step, suite, jobTolerance) {
  * does not count as carrying it, so a refused SOLE carrying step prints that
  * refusal and the suite-absent finding together — the two lines are the
  * verdict — while a refused second carrying step beside an admitted one prints
- * the refusal alone, the membership test being satisfied without it. Those
+ * the refusal alone, the membership test being satisfied without it. A resolved
+ * manifest command whose own operators keep its verdict from the step that runs
+ * it is named the same way, and its globs are not counted either, so it reaches
+ * the same pairing. Those
  * refusals print their own line rather than going through the reader-refusal
  * wrapper below, whose "cannot be resolved" clause is false of them: the
- * command resolved, and what the step does with its verdict is the finding.
+ * command resolved, and what is done with its verdict is the finding. Where the
+ * reading stopped at a `cd` inside a step, the suite-absent finding names that
+ * step too — the remedy for a command this reading does not follow is not the
+ * remedy for a suite the job dropped.
  *
  * An answer carrying no `steps` array reads as one stating no steps, and the
  * membership test then falls back to the flat glob field — the shape a caller
- * that hands this function a glob set directly states.
+ * that hands this function a glob set directly states; an answer carrying no
+ * script-side refusals reads as one stating none, the same way.
  * @param {{ doc: string, section: string, dir: string, pattern: string } | undefined} suite
  *   the registered discovery, or undefined where the registration states none
  * @param {{ absent: boolean, tokens: string[],
  *           globs: { dir: string, pattern: string }[], refusals: string[],
+ *           scriptRefusals?: string[],
  *           jobContinueOnError?: string | null, steps?: object[] }} read
  *   what {@link jobSuiteArguments} answered for the job
  * @returns {string[]} problems; empty when the job states the registered glob
@@ -788,6 +987,12 @@ export function jobSuiteProblems(suite, read) {
   const problems = read.refusals.map(
     (refusal) => `${TEST_WORKFLOW_PATH}'s \`${UNIT_SUITE_JOB_ID}\` job ${refusal}, so what that step runs cannot be resolved — the suite this leg holds the job to is then neither found nor ruled out`, // prettier-ignore
   );
+  // The script side's own verdict, on its own line: the command RESOLVED, so the
+  // wrapper above would say the wrong thing about it. What the step delegates to
+  // is a script whose failure stops at an operator inside it.
+  for (const refusal of Array.isArray(read.scriptRefusals) ? read.scriptRefusals : []) {
+    problems.push(`${TEST_WORKFLOW_PATH}'s \`${UNIT_SUITE_JOB_ID}\` job ${refusal} — which this reader does not evaluate, so it cannot answer that running the job runs what that script resolves to: state the suite in a script whose verdict reaches the step that runs it, or teach the reader to read it`); // prettier-ignore
+  }
   const steps = Array.isArray(read.steps) ? read.steps : undefined;
   // The vacuity guard counts what the reading resolved, by either route: a
   // script key it looked up, or a `node --test` argument it classified off a
@@ -805,9 +1010,9 @@ export function jobSuiteProblems(suite, read) {
   const admitted = [];
   for (const step of steps ?? []) {
     const offenders = carryingStepOffenders(step, suite, read.jobContinueOnError ?? null);
-    const subject = step.name === undefined ? `the step at index ${step.index} of its \`steps\` list` : `the step named \`${step.name}\``; // prettier-ignore
+    const subject = stepSubject(step);
     for (const offender of offenders) {
-      problems.push(`${TEST_WORKFLOW_PATH}'s \`${UNIT_SUITE_JOB_ID}\` job states ${suiteGlob(suite)} in ${subject}, under ${offender} — which this reader does not evaluate, so it cannot answer that running the job runs the suite: state the suite in a step this reading admits, carrying no condition, no tolerance, and no operator that keeps its verdict from the job, or teach the reader to read ${offender}`); // prettier-ignore
+      problems.push(`${TEST_WORKFLOW_PATH}'s \`${UNIT_SUITE_JOB_ID}\` job states ${suiteGlob(suite)} in ${subject}, under ${offender} — which this reader does not evaluate, so it cannot answer that running the job runs the suite: state the suite in a step this reading admits, carrying no condition, no tolerance, and no operator that keeps its verdict from the job, or teach the reader to read it`); // prettier-ignore
     }
     if (offenders.length > 0) continue; // refused: this step does not carry the suite
     admitted.push(...step.segments.flatMap((segment) => segment.globs));
@@ -815,7 +1020,14 @@ export function jobSuiteProblems(suite, read) {
   const carried = steps === undefined ? read.globs : admitted;
   if (!carried.some((g) => g.dir === suite.dir && g.pattern === suite.pattern)) {
     const reading = carried.length === 0 ? 'no `node --test` suite at all' : carried.map(suiteGlob).join(', '); // prettier-ignore
-    problems.push(`${TEST_WORKFLOW_PATH}'s \`${UNIT_SUITE_JOB_ID}\` job states no command resolving to ${suiteGlob(suite)}, the discovery ${suite.doc} ("${suite.section}") registers — the commands this reading admits resolve to ${reading} — while both verification documents state that job runs that suite in CI: put the suite back in that job's command, or stop the documents claiming it`); // prettier-ignore
+    // Where the reading stopped, named beside the finding: a step ended at a
+    // `cd` states its command somewhere this reading does not follow, and the
+    // remedy for that is not the remedy for a suite the job dropped.
+    const stopped = (steps ?? [])
+      .filter((step) => step.truncated === true)
+      .map((step) => `, and ${stepSubject(step)} was read only as far as its \`cd\``)
+      .join('');
+    problems.push(`${TEST_WORKFLOW_PATH}'s \`${UNIT_SUITE_JOB_ID}\` job states no command resolving to ${suiteGlob(suite)}, the discovery ${suite.doc} ("${suite.section}") registers — the commands this reading admits resolve to ${reading}${stopped}: put the suite this check names for that job back in that job's command, or stop the documents claiming it`); // prettier-ignore
   }
   return problems;
 }
@@ -854,7 +1066,7 @@ export const INVENTORY_LEGS = [
   { label: 'vector-outcome', bullet: 'the shipping outcome' },
   { label: 'gate-watch', bullet: 'the strict-flip watch' },
   { label: 'job-citation', bullet: 'the job citations' },
-  { label: 'job-suite', bullet: 'the suite the cited job runs' },
+  { label: 'job-suite', bullet: 'the suite the named job runs' },
 ];
 
 /**
@@ -1455,7 +1667,7 @@ export function evaluateVerificationInventory(s, emptySurfaces = EMPTY_SURFACES)
   // leg taking a type error on a state that already has words for it.
   problems.push(...gateArgumentProblems(s.strictWatch ?? [], s.sufficiencyBaselineArg));
 
-  // The suite the cited job runs stands beside that cross-check, and for the
+  // The suite the named job runs stands beside that cross-check, and for the
   // same reason: every input it reads is the workflow's own job graph, the root
   // manifest's scripts, or one of this check's constants — not one of them
   // comes from a parsed document surface — so it is sound on a tree whose
@@ -2244,7 +2456,8 @@ function run() {
   }
   console.log(
     `✓ verification inventories current: ${pinCount} held entr(ies) — the documented inventory ` +
-      `entries plus the watched platforms — across the ${legList()} legs match their subjects.`,
+      `entries, the watched platforms, and the registered suite the named job is held to — ` +
+      `across the ${legList()} legs match their subjects.`,
   );
 }
 
