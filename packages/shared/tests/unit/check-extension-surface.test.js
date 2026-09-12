@@ -84,6 +84,8 @@ import {
   HANDLE_REACH_SET,
   HANDLE_NO_REACH_MARKER,
   HANDLE_TABLE_HEADER,
+  HANDLE_MEMBER_COLUMN,
+  HANDLE_REACHES_COLUMN,
   derivePopulation,
   derivePanelPopulation,
   deriveContentPopulation,
@@ -510,7 +512,7 @@ describe('evaluateExtensionSurface — the clause states the closure the capture
   it('fires when the clause states no capture-path sender statement', () => {
     assert.deepEqual(evaluateExtensionSurface(makeSurface({ recorderStatements: 0 })), [
       // prettier-ignore
-      `${RUNTIME_DOC_PATH} §ERT-4 states no capture-path sender statement — nothing in the clause's scope carries "${RECORDER_STATEMENT_ANCHOR}" — the capture-path closure this check's weld holds (every type the table states carrying at least one object-literal ${CAPTURE_SEND_CALLEE.name}( that names it) is doctrine the clause states, and the leg cannot hold a rule the document no longer makes`,
+      `${RUNTIME_DOC_PATH} §ERT-4 states no capture-path sender statement — nothing in the clause's scope carries "${RECORDER_STATEMENT_ANCHOR}" — the capture-path closure this check's FORWARD type diff holds (every type the table states carrying at least one object-literal ${CAPTURE_SEND_CALLEE.name}( that names it) is doctrine the clause states, and the leg cannot hold a rule the document no longer makes`,
     ]);
   });
 
@@ -1628,6 +1630,15 @@ describe('extractSendSites — the one shape the sender scan reads', () => {
     );
   });
 
+  it('reads the optional call — the call punctuation both callees share', () => {
+    assert.deepEqual(
+      extractSendSites(new Map([[PANEL_PATH, "await send?.({ type: 'RECORDING_STOP' });"]])).map(
+        (s) => s.type,
+      ),
+      ['RECORDING_STOP'],
+    );
+  });
+
   it('the residue shapes contribute no sites at all', () => {
     const residue = [
       'function send(message) { return adapter.send(message); }',
@@ -2038,6 +2049,11 @@ describe('readReachCell — the Reaches cell grammar, total and fail-closed', ()
 });
 
 describe("extractHandleTable — the enumeration read from the clause's own scope", () => {
+  it('reads columns its own header names — each spelled, neither taken by position', () => {
+    assert.ok(HANDLE_TABLE_HEADER.includes(HANDLE_MEMBER_COLUMN));
+    assert.ok(HANDLE_TABLE_HEADER.includes(HANDLE_REACHES_COLUMN));
+  });
+
   const doc = (rows, tail = '') =>
     [
       '## Lifecycle and the persisted-state model',
@@ -2616,43 +2632,43 @@ describe('extractSendSites — the capture path reads its own callee', () => {
     }
   });
 
-  it('reads the platform path itself — another receiver and an alias of one contribute none', () => {
-    // The callee is the whole path, matched token by token, so a `sendMessage`
-    // called on something else is not the capture path and is not read; an alias
-    // of the receiver is the residue the constant names, invisible here and
-    // reported on the type diff instead.
-    assert.deepEqual(content("port.sendMessage({ type: 'PING', why: 1 });"), []);
-    assert.deepEqual(
-      content("const rt = chrome.runtime;\nrt.sendMessage({ type: 'FRAME_READY', readyAt: 1 });"),
-      [],
-    );
-    assert.deepEqual(content("chrome.runtime.sendMessage({ type: 'FRAME_READY', readyAt: 1 });"), [
-      captureSite(1, 'FRAME_READY', ['readyAt']),
-    ]);
+  it('reads the platform send in every spelling the grammar states', () => {
+    // One call, written the ways a member access can be: a plain step, an optional
+    // step at either position, a computed name at either position in either quote
+    // style, an optional computed step, and the optional call — each reaches
+    // `chrome.runtime.sendMessage`, so each states a site carrying its own payload.
+    for (const source of [
+      "chrome.runtime.sendMessage({ type: 'FRAME_READY', readyAt: 1 });",
+      "chrome?.runtime.sendMessage({ type: 'FRAME_READY', readyAt: 1 });",
+      "chrome.runtime?.sendMessage({ type: 'FRAME_READY', readyAt: 1 });",
+      "chrome['runtime'].sendMessage({ type: 'FRAME_READY', readyAt: 1 });",
+      'chrome["runtime"].sendMessage({ type: \'FRAME_READY\', readyAt: 1 });',
+      "chrome.runtime['sendMessage']({ type: 'FRAME_READY', readyAt: 1 });",
+      "chrome?.['runtime'].sendMessage({ type: 'FRAME_READY', readyAt: 1 });",
+      "chrome.runtime?.['sendMessage']({ type: 'FRAME_READY', readyAt: 1 });",
+      "chrome.runtime.sendMessage?.({ type: 'FRAME_READY', readyAt: 1 });",
+      "chrome?.['runtime']?.['sendMessage']?.({ type: 'FRAME_READY', readyAt: 1 });",
+    ]) {
+      assert.deepEqual(content(source), [captureSite(1, 'FRAME_READY', ['readyAt'])], source);
+    }
   });
 
-  it('reads the path with an optional-chaining step on the receiver', () => {
-    // One platform call, one spelling of it: the step the source writes as `?.`
-    // reaches the same name, so the site is read and its type is held to the
-    // table like any other.
-    assert.deepEqual(content("chrome?.runtime.sendMessage({ type: 'FRAME_READY', readyAt: 1 });"), [
-      captureSite(1, 'FRAME_READY', ['readyAt']),
-    ]);
-  });
-
-  it('reads the path with an optional-chaining step before the callee', () => {
-    assert.deepEqual(content("chrome.runtime?.sendMessage({ type: 'FRAME_READY', readyAt: 1 });"), [
-      captureSite(1, 'FRAME_READY', ['readyAt']),
-    ]);
-  });
-
-  it('reads the path with a computed string naming a step', () => {
-    // The name a computed string states is the name the path states, so this
-    // reaches `chrome.runtime.sendMessage` too.
-    assert.deepEqual(
-      content("chrome['runtime'].sendMessage({ type: 'FRAME_READY', readyAt: 1 });"),
-      [captureSite(1, 'FRAME_READY', ['readyAt'])],
-    );
+  it('reads no call the grammar does not state — each form contributing none', () => {
+    // The receiver is the bare global, so a platform object reached through
+    // another object or a global alias states a different path; an alias of the
+    // receiver, an unqualified or destructured callee, and a `sendMessage` on
+    // another receiver each stand outside the shape the same way.
+    for (const source of [
+      "const rt = chrome.runtime;\nrt.sendMessage({ type: 'FRAME_READY', readyAt: 1 });",
+      "sendMessage({ type: 'FRAME_READY', readyAt: 1 });",
+      "const { sendMessage } = chrome.runtime;\nsendMessage({ type: 'FRAME_READY' });",
+      "wrapper.chrome.runtime.sendMessage({ type: 'FRAME_READY' });",
+      "bag['chrome'].runtime.sendMessage({ type: 'FRAME_READY' });",
+      "globalThis.chrome.runtime.sendMessage({ type: 'FRAME_READY' });",
+      "port.sendMessage({ type: 'PING', why: 1 });",
+    ]) {
+      assert.deepEqual(content(source), [], source);
+    }
   });
 
   it('the bare callee and the declaration forms contribute no site at all', () => {
@@ -2687,6 +2703,20 @@ describe('extractSendSites — the capture path reads its own callee', () => {
       assert.equal(site.type, 'FRAME_READY', `${found} leaves the type readable`);
       assert.equal(site.keys, null, `${found} is refused, not read`);
       assert.equal(site.keysFound, found);
+    }
+  });
+
+  it('names a quoted name after get, set or async as the accessor shape it declares', () => {
+    // A name standing after one of those words declares one whether it is written
+    // bare or quoted, so each refuses the site as the shape it is.
+    for (const source of [
+      "chrome.runtime.sendMessage({ type: 'FRAME_READY', get 'foo'() { return 1; } });",
+      "chrome.runtime.sendMessage({ type: 'FRAME_READY', set 'foo'(v) {} });",
+      "chrome.runtime.sendMessage({ type: 'FRAME_READY', async 'foo'() { return 1; } });",
+    ]) {
+      const [site] = content(source);
+      assert.equal(site.keys, null, source);
+      assert.equal(site.keysFound, 'a method or accessor', source);
     }
   });
 

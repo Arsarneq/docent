@@ -321,6 +321,16 @@ export const HANDLE_NAME = '__docentCaptureBookkeeping';
  */
 export const HANDLE_TABLE_HEADER = ['Member', 'Reaches', 'What it does'];
 /**
+ * The member table's READ columns, each spelled as the header word the
+ * document carries — the name each read states and each empty-cell placeholder
+ * names. The suite holds both to be members of {@link HANDLE_TABLE_HEADER}, so a
+ * header renamed without these constants refuses loudly at the read rather than
+ * standing.
+ */
+export const HANDLE_MEMBER_COLUMN = 'Member';
+/** The column whose cells state what a member reaches ({@link readReachCell}). */
+export const HANDLE_REACHES_COLUMN = 'Reaches';
+/**
  * The worker module-scope names the handle's members reach — a structure the
  * clause places the handle over, a function it runs to reach one, or a query of
  * its own that touches no placed structure: the frame registry and the
@@ -358,8 +368,9 @@ export const CAPTURE_TABLE_HEADER = ['Type', 'Payload', 'Response'];
  * The capture-path table's payload column, by its header NAME, spelled as the
  * word the document carries. The column is resolved from each admitted table's
  * own header by that word, through the shared reader's named form
- * ({@link resolveColumn}), the way the member table's first column and every
- * other named read in this check are. The suite holds this name to be a member of
+ * ({@link resolveColumn}), the way the member table's own columns are spelled and
+ * read ({@link HANDLE_MEMBER_COLUMN}, {@link HANDLE_REACHES_COLUMN}). The suite
+ * holds this name to be a member of
  * {@link CAPTURE_TABLE_HEADER}, so a header renamed without this constant refuses
  * loudly at the read rather than standing: taking the name from the header by
  * INDEX instead would read whichever column that position now holds and blame the
@@ -500,14 +511,18 @@ const EQUALITY_OPERAND_END = ')]};,?:&|';
 const CASE_LABEL_END = ':';
 
 /**
- * The callee a send scan reads, as the TOKEN SEQUENCE a source writes it in:
- * the path's names in order, a `.` standing between each pair, the last of them
- * immediately before the call's `(`. The panel writes its sends through a name
- * of its own and the capture path through the platform's own path, so the two
- * legs part on this one decision and share everything else the scan does.
+ * The callee a send scan reads, as a PATH with one grammar
+ * ({@link standsAtCallee} walks it): the first name is a bare binding — a word
+ * token no member access stands before — and each name after it is reached by a
+ * step written plain (`.name`), optional (`?.name`), computed (`['name']`, either
+ * quote), or optional computed (`?.['name']`); the call itself is `(` or the
+ * optional `?.(`, and its first argument opens an object literal. The panel
+ * writes its sends through a name of its own and the capture path through the
+ * platform's own path, so the two legs part on the path alone and share that
+ * grammar and everything else the scan does.
  *
- * `name` is the path's last segment — the callee a diagnosis names — derived
- * here rather than written beside the path, so the callee has one spelling.
+ * `name` is the path's last name — the callee a diagnosis names — derived here
+ * rather than written beside the path, so the callee has one spelling.
  * @param {string[]} path the callee's names, receiver first
  * @returns {{ path: string[], name: string }}
  */
@@ -516,39 +531,35 @@ function sendCallee(path) {
 }
 
 /**
- * The panel's own callee: the bare word its sender is called by. A path of one
- * name states no receiver, so the scan reads that word wherever it stands.
+ * The panel's own callee: the bare word its sender is called by, standing as a
+ * binding of its own rather than as a member of another object — the path
+ * grammar's first name, with no name after it.
  */
 export const PANEL_SEND_CALLEE = sendCallee(['send']);
 /**
- * The capture path's own callee: the whole platform path the content scripts
- * send through, read token by token before the call's `(` and its opening `{`.
- * The SPELLINGS the walk accepts between the path's names are a closed list —
- * a `.`, an optional-chaining `?.`, and a computed string naming the step
- * (`chrome.runtime.sendMessage`, `chrome?.runtime.sendMessage`,
- * `chrome.runtime?.sendMessage`, `chrome['runtime'].sendMessage`) — with the
- * last name standing as the word the `(` follows. Reading the platform call in
- * its spellings costs nothing on the reverse direction: every one of them IS the
- * platform send, so the type it carries must stand in the capture-path table
- * either way, and a spelling left unread would have been a false GREEN there.
- *
- * Naming the path is what holds the scan to the capture path itself: a
- * `sendMessage` on another receiver — a port, a wrapper of the platform call —
- * is NOT read, being a call of that name rather than the platform send the
- * capture-path table states. It is also what keeps the declaration shapes out of
- * a scan whose callee is a plausible parameter name: a function or method cannot
- * be DECLARED with a receiver before its name, so the declaration shapes whose
- * third token is an opening brace — the function declaration
+ * The capture path's own callee: the platform send, the path
+ * `chrome.runtime.sendMessage` in any spelling the grammar
+ * {@link standsAtCallee} walks states — the receiver the bare global `chrome`,
+ * each following name reached by a step written plain, optional, computed, or
+ * optional computed, and the call plain or optional. Naming the whole path is
+ * what holds the scan to the capture path itself, and it keeps the declaration
+ * shapes out of a scan whose callee is a plausible parameter name: a function or
+ * method cannot be DECLARED with a receiver before its name, so the declaration
+ * shapes whose third token is an opening brace — the function declaration
  * `function sendMessage({ type }) {}` and the method shorthand
  * `{ sendMessage({ type }) {} }` — state no site.
  *
- * The shape's residue: a send written through an ALIAS of the receiver
- * (`const rt = chrome.runtime; rt.sendMessage({ … })`), and one written
- * unqualified or through a destructured `sendMessage({ … })`, each stand
- * outside the path and are invisible to both directions of the closure — the
- * type such a send states reds on the forward diff as a type nothing sends, and
- * the payload it carries is held to no row. Moving a send onto either form is a
- * change that updates the capture-path table and this check together.
+ * The shape's residue, in full: a send written through an ALIAS of the receiver
+ * (`const rt = chrome.runtime; rt.sendMessage({ … })`), one written unqualified
+ * or through a destructured `sendMessage({ … })`, and one reaching the platform
+ * object through another object or a global alias (`wrapper.chrome…`,
+ * `bag['chrome']…`, `globalThis.chrome…`) each stand outside the shape and are
+ * invisible to both directions of the closure — the type such a send states reds
+ * on the forward diff as a type nothing sends, and the payload it carries is held
+ * to no row. Moving a send onto any of those forms is a change that updates the
+ * capture-path table and this check together. A `sendMessage` on another receiver
+ * — a port, a wrapper of the platform call — is not read at all, being a call of
+ * that name rather than the platform send the capture-path table states.
  */
 export const CAPTURE_SEND_CALLEE = sendCallee(['chrome', 'runtime', 'sendMessage']);
 
@@ -776,6 +787,13 @@ function statesNames(names, marker) {
  * the closed set by sharing a column name. A body row whose first cell is not
  * a lone backticked name is returned as unreadable, so no row is skipped
  * silently, each rendered by {@link quotedCell}.
+ *
+ * The column read is the selected header's FIRST one, by construction: every
+ * table this reader serves states its enumeration there, and the header it was
+ * selected by is where that column's name comes from — so the name is never
+ * spelled a second time here, and a caller reading any other column spells that
+ * column itself, the way the member table's reads do
+ * ({@link HANDLE_MEMBER_COLUMN}).
  * @param {string} docText the doc's text
  * @param {string} section the `##` section title the table lives under
  * @param {string[]} header the table's whole header
@@ -941,10 +959,10 @@ export function extractCapturePayloads(runtimeText) {
 export function extractHandleTable(runtimeText) {
   const scope = extractClauseSection(runtimeText, HANDLE_CLAUSE_ID);
   const { tables } = selectTablesByHeader(scope, { header: HANDLE_TABLE_HEADER });
-  const emptyMember = `(empty ${HANDLE_TABLE_HEADER[0]} cell)`;
+  const emptyMember = `(empty ${HANDLE_MEMBER_COLUMN} cell)`;
   const { names, unreadable } = readTableColumn(tables, {
     empty: emptyMember,
-    column: HANDLE_TABLE_HEADER[0],
+    column: HANDLE_MEMBER_COLUMN,
   });
   const reaches = [];
   const reachUnreadable = [];
@@ -955,7 +973,7 @@ export function extractHandleTable(runtimeText) {
       const cell = (row[1] ?? '').trim();
       const stated = readReachCell(cell);
       if (stated === null) {
-        reachUnreadable.push(`\`${member}\`: ${cell === '' ? `(empty ${HANDLE_TABLE_HEADER[1]} cell)` : quotedCell(cell)}`); // prettier-ignore
+        reachUnreadable.push(`\`${member}\`: ${cell === '' ? `(empty ${HANDLE_REACHES_COLUMN} cell)` : quotedCell(cell)}`); // prettier-ignore
         continue;
       }
       reaches.push({ member, names: stated });
@@ -1268,7 +1286,11 @@ function hiddenNameShape(tokens, at) {
   }
   if (token.type !== 'word') return describeKeyPosition(token);
   if (follower === ',' || follower === '}') return null;
-  const declares = next?.type === 'word' || follower === '*' || follower === '[';
+  // A name standing after `get`, `set` or `async` declares one whether it is
+  // written bare or quoted, and a computed name or a generator's `*` does the
+  // same.
+  const declares =
+    next?.type === 'word' || next?.type === 'string' || follower === '*' || follower === '[';
   if (ACCESSOR_WORDS.includes(token.value) && declares) return HIDDEN_METHOD_SHAPE;
   return describeKeyPosition(token);
 }
@@ -1390,43 +1412,81 @@ function readSendType(tokens, open) {
 }
 
 /**
- * Whether a callee's whole path stands at `at`: the path's last name there, and
- * each earlier name before it, matched token by token over the steps a source
- * may write the path with — a `.`, an optional-chaining `?.`, or a computed
- * string (`['runtime']`) naming the step's own name. A path of one name is that
- * name alone, wherever it stands.
+ * Whether the callee path ENDS at `at`, walked backwards over the one grammar the
+ * scan reads:
+ *
+ *   - the path's FIRST name is a bare binding — a word token with no member
+ *     access standing before it (no `.`, so neither a plain nor an optional step,
+ *     and no `]`), which is what makes the capture path's receiver the global
+ *     `chrome` itself rather than a `chrome` reached through another object or a
+ *     global alias;
+ *   - each name AFTER it is reached by one step, written plain (`.name`), optional
+ *     (`?.name`), computed (`['name']`, either quote style), or optional computed
+ *     (`?.['name']`) — the spellings the shared tokenizer distinguishes, the last
+ *     name included;
+ *   - the call punctuation and the opening literal are the caller's to read
+ *     ({@link opensLiteralCall}).
+ *
+ * A path of one name is that bare binding alone.
  * @param {{ type: string, value: string }[]} tokens the file's tokens
- * @param {number} at index of the word standing before the call's `(`
+ * @param {number} at index of the path's last token — the final name's word, or
+ *   the `]` closing it where that name is written computed
  * @param {string[]} path the callee's names, receiver first
  * @returns {boolean}
  */
 function standsAtCallee(tokens, at, path) {
   let i = at;
   for (let k = path.length - 1; k >= 0; k--) {
-    // A name written as a COMPUTED string carries its own brackets and reaches
-    // its receiver without a step of its own, so the walk takes the bracketed
-    // name whole and moves straight on to the receiver. The callee's last name is
-    // never read this way: it is the word the call's `(` follows.
-    const computed = k < path.length - 1 && tokens[i]?.type === 'punct' && tokens[i].value === ']';
-    if (computed) {
+    // A name written COMPUTED carries its own brackets, which are the step that
+    // reached it — so only an optional computed step adds punctuation before
+    // them. The path's first name is never written this way: a bare binding has
+    // no brackets to be read through.
+    if (tokens[i]?.type === 'punct' && tokens[i].value === ']') {
+      if (k === 0) return false;
       const named = tokens[i - 1];
       if (!(named?.type === 'string' && named.value === path[k])) return false;
       if (!(tokens[i - 2]?.type === 'punct' && tokens[i - 2].value === '[')) return false;
       i -= 3;
+      if (tokens[i]?.type === 'punct' && tokens[i].value === '.') {
+        if (!(tokens[i - 1]?.type === 'punct' && tokens[i - 1].value === '?')) return false;
+        i -= 2;
+      }
       continue;
     }
     const word = tokens[i];
     if (!(word?.type === 'word' && word.value === path[k])) return false;
     i -= 1;
     if (k === 0) break;
-    // The step that reached this name from its receiver: a `.`, which an
-    // optional-chaining `?` may stand before (the tokenizer emits `?.` as the
-    // two punctuation tokens it is written with).
+    // The step that reached this name: a `.`, which an optional-chaining `?` may
+    // stand before (the tokenizer emits `?.` as the two punctuation tokens it is
+    // written with).
     if (!(tokens[i]?.type === 'punct' && tokens[i].value === '.')) return false;
     i -= 1;
     if (tokens[i]?.type === 'punct' && tokens[i].value === '?') i -= 1;
   }
-  return true;
+  // The first name stands as a binding of its own: a member access before it
+  // names something else's property, which is a path the scan does not read.
+  const before = tokens[i];
+  return !(before?.type === 'punct' && (before.value === '.' || before.value === ']'));
+}
+
+/**
+ * Where the object literal a call at `at` opens stands, or -1 where the tokens
+ * after the callee are not that shape: the call punctuation is `(` or the
+ * optional call `?.(`, and its first argument opens an object literal.
+ * @param {{ type: string, value: string }[]} tokens the file's tokens
+ * @param {number} at index of the callee path's last token
+ * @returns {number} index of the literal's `{`, or -1
+ */
+function opensLiteralCall(tokens, at) {
+  let i = at + 1;
+  if (tokens[i]?.type === 'punct' && tokens[i].value === '?') {
+    if (!(tokens[i + 1]?.type === 'punct' && tokens[i + 1].value === '.')) return -1;
+    i += 2;
+  }
+  if (!(tokens[i]?.type === 'punct' && tokens[i].value === '(')) return -1;
+  if (!(tokens[i + 1]?.type === 'punct' && tokens[i + 1].value === '{')) return -1;
+  return i + 1;
 }
 
 /**
@@ -1442,10 +1502,11 @@ function standsAtCallee(tokens, at, path) {
  * forward, and the call passing a variable assembled beforehand all sit there,
  * and the reverse-direction diff's limit is exactly that residue. A call the
  * callee's path does not stand whole before is outside the shape the same way —
- * for the capture path, a send made through an alias of the receiver or through
- * an unqualified `sendMessage(`, and a `sendMessage` called on another receiver,
- * which is not the platform send at all ({@link CAPTURE_SEND_CALLEE} states
- * that residue).
+ * for the capture path, a send made through an alias of the receiver, through an
+ * unqualified or destructured `sendMessage(`, or through a platform object
+ * reached by way of another object or a global alias; a `sendMessage` called on
+ * another receiver is not the platform send at all
+ * ({@link CAPTURE_SEND_CALLEE} states that residue in full).
  * Beside the type each site carries the top-level key NAMES its literal states,
  * the message's own `type` property excluded — the payload surface a table
  * stating one can be welded to. The panel's table states no payload column
@@ -1463,12 +1524,12 @@ export function extractSendSites(sourceByPath, callee = PANEL_SEND_CALLEE) {
   for (const [path, source] of sourceByPath) {
     const tokens = tokenizeJs(source);
     let ordinal = 0;
-    for (let i = 0; i + 2 < tokens.length; i++) {
+    for (let i = 0; i < tokens.length; i++) {
       if (!standsAtCallee(tokens, i, callee.path)) continue;
-      if (tokens[i + 1].type !== 'punct' || tokens[i + 1].value !== '(') continue;
-      if (tokens[i + 2].type !== 'punct' || tokens[i + 2].value !== '{') continue;
+      const open = opensLiteralCall(tokens, i);
+      if (open === -1) continue;
       ordinal += 1;
-      sites.push({ path, ordinal, ...readSendType(tokens, i + 2) });
+      sites.push({ path, ordinal, ...readSendType(tokens, open) });
     }
   }
   return sites;
@@ -1876,7 +1937,7 @@ export function evaluateExtensionSurface(s) {
   // has stopped making, and an update cannot land on one copy of it while another
   // stands. Written fail-closed on the `!(n >= 1)` form.
   if (!(s.recorderStatements >= 1)) {
-    problems.push(`${RUNTIME_DOC_PATH} §${ERT_CLAUSE_ID} states no capture-path sender statement — nothing in the clause's scope carries "${RECORDER_STATEMENT_ANCHOR}" — the capture-path closure this check's weld holds (every type the table states carrying at least one object-literal ${CAPTURE_SEND_CALLEE.name}( that names it) is doctrine the clause states, and the leg cannot hold a rule the document no longer makes`); // prettier-ignore
+    problems.push(`${RUNTIME_DOC_PATH} §${ERT_CLAUSE_ID} states no capture-path sender statement — nothing in the clause's scope carries "${RECORDER_STATEMENT_ANCHOR}" — the capture-path closure this check's FORWARD type diff holds (every type the table states carrying at least one object-literal ${CAPTURE_SEND_CALLEE.name}( that names it) is doctrine the clause states, and the leg cannot hold a rule the document no longer makes`); // prettier-ignore
   } else if (s.recorderStatements > 1) {
     problems.push(`${RUNTIME_DOC_PATH} §${ERT_CLAUSE_ID} makes the "${RECORDER_STATEMENT_ANCHOR}" claim ${s.recorderStatements} times — the clause states it once, so an update cannot land on one copy and leave another standing, wherever in the clause that copy was written`); // prettier-ignore
   }

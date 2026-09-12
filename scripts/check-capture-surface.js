@@ -239,6 +239,13 @@ export const SOURCE_HEADER = 'Event source';
 export const CORRELATION_SECTION = 'Input Correlation';
 /** That table's whole header — selection by the whole header, not one cell. */
 export const CORRELATION_HEADER = ['WinEvent', 'Correlation source', 'Additional filter'];
+/**
+ * That table's READ column, spelled as the header word the document carries — the
+ * name the read states and the empty-cell placeholder names. The suite holds it to
+ * be a member of {@link CORRELATION_HEADER}, so a header renamed without this
+ * constant refuses loudly at the read rather than standing.
+ */
+export const CORRELATION_CLASS_COLUMN = 'WinEvent';
 
 /**
  * The admission list is keyed by file AND API path, joined by a character
@@ -702,8 +709,8 @@ export function extractCorrelationClasses(docText) {
     header: CORRELATION_HEADER,
   });
   const read = readTableColumn(tables, {
-    empty: `(empty ${CORRELATION_HEADER[0]} cell)`,
-    column: CORRELATION_HEADER[0],
+    empty: `(empty ${CORRELATION_CLASS_COLUMN} cell)`,
+    column: CORRELATION_CLASS_COLUMN,
     read: (cell) => {
       const name = backtickedName(cell);
       return name !== null && WIN_EVENT_RE.test(name) ? name : null;
