@@ -697,9 +697,10 @@ export function extractClauseNames(docText, clauseId, shape) {
 }
 
 /**
- * Read the WinEvent classes the Input Correlation table names — the
- * first-column backticked name of each body row. A row whose first cell is not
- * a lone backticked name is returned as unreadable.
+ * Read the WinEvent classes the Input Correlation table names — the backticked
+ * name each body row states in the column {@link CORRELATION_CLASS_COLUMN}
+ * spells, resolved from the table's own header by that name. A row whose cell
+ * there is not a lone backticked name is returned as unreadable.
  * @param {string} docText the desktop capture doc's text
  * @returns {{ classes: string[], unreadable: string[] }}
  */

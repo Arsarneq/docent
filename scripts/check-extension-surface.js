@@ -93,10 +93,10 @@
  * of that claim ({@link RECORDER_STATEMENT_ANCHOR}), which the forward
  * capture-path type diff holds, is held present in the same scope the same way.
  *
- * The sender side reads one shape: a call whose callee's own path stands whole
- * before it and whose first argument OPENS an object literal. The panel's callee
- * is the bare word `send` and the capture path's is the platform path
- * `chrome.runtime.sendMessage`, read token by token. That literal's TOP-LEVEL
+ * The sender side reads one shape: a call — written `(` or the optional `?.(` —
+ * whose callee's own path stands whole before it and whose first argument OPENS an
+ * object literal. The panel's callee is the word `send` and the capture path's is
+ * the platform path `chrome.runtime.sendMessage`, read token by token. That literal's TOP-LEVEL
  * properties are then read for a `type` key — bare or quoted, in any position,
  * since property order is not meaning — carrying a lone string literal; a send
  * with no such property is refused by name, naming what the scan found in its
@@ -404,6 +404,13 @@ export const CAPTURE_PAYLOAD_NONE_MARKER = '\u2014';
 const PAYLOAD_KEY_RE = /^[A-Za-z_$][A-Za-z0-9_$]*$/;
 /** The panel-protocol table's whole header in that section. */
 export const PANEL_TABLE_HEADER = ['Group', 'Types'];
+/**
+ * That table's READ column, spelled as the header word the document carries — the
+ * name the read states and the empty-piece placeholder names. The suite holds it
+ * to be a member of {@link PANEL_TABLE_HEADER}, so a header renamed without this
+ * constant refuses loudly at the read rather than standing.
+ */
+export const PANEL_TYPES_COLUMN = 'Types';
 /** The permission tables' whole headers, each with the `##` section it sits in. */
 export const PERMISSION_TABLES = [
   ['Permissions', ['Permission', 'What Docent does with it']],
@@ -511,57 +518,82 @@ const EQUALITY_OPERAND_END = ')]};,?:&|';
 const CASE_LABEL_END = ':';
 
 /**
+ * The global-object names a platform global may be qualified by: a receiver
+ * written `globalThis.chrome`, `self.chrome` or `window.chrome` names the same
+ * object the bare `chrome` names, so the grammar admits one such qualifier
+ * before the path's first name.
+ */
+export const GLOBAL_QUALIFIERS = ['globalThis', 'self', 'window'];
+
+/**
  * The callee a send scan reads, as a PATH with one grammar
- * ({@link standsAtCallee} walks it): the first name is a bare binding — a word
- * token no member access stands before — and each name after it is reached by a
+ * ({@link standsAtCallee} walks it): each name after the first is reached by a
  * step written plain (`.name`), optional (`?.name`), computed (`['name']`, either
  * quote), or optional computed (`?.['name']`); the call itself is `(` or the
- * optional `?.(`, and its first argument opens an object literal. The panel
- * writes its sends through a name of its own and the capture path through the
- * platform's own path, so the two legs part on the path alone and share that
- * grammar and everything else the scan does.
+ * optional `?.(`, and its first argument opens an object literal.
  *
- * `name` is the path's last name — the callee a diagnosis names — derived here
- * rather than written beside the path, so the callee has one spelling.
+ * `qualifiers` is what a path whose first name is a platform GLOBAL carries: the
+ * global-object names that first name may be qualified by, which is also the
+ * statement that it is a global at all — a path without them reads its first name
+ * wherever it stands, the way the panel's own sender is called. `name` is the
+ * path's last name — the callee a diagnosis names — derived here rather than
+ * written beside the path, so the callee has one spelling.
  * @param {string[]} path the callee's names, receiver first
- * @returns {{ path: string[], name: string }}
+ * @param {string[] | null} [qualifiers] the global-object names the first name
+ *   may be qualified by, where that name is a platform global
+ * @returns {{ path: string[], qualifiers: string[] | null, name: string }}
  */
-function sendCallee(path) {
-  return { path, name: path[path.length - 1] };
+function sendCallee(path, qualifiers = null) {
+  return { path, qualifiers, name: path[path.length - 1] };
 }
 
 /**
- * The panel's own callee: the bare word its sender is called by, standing as a
- * binding of its own rather than as a member of another object — the path
- * grammar's first name, with no name after it.
+ * The panel's own callee: the word its sender is called by, read wherever that
+ * word stands before a call whose first argument opens an object literal — bare
+ * (`send({ … })`) or qualified by a receiver of its own
+ * (`adapter.send({ … })`), since the panel's sender is a binding of the panel's
+ * making rather than a platform global. What the panel leg does NOT read is
+ * decided by the argument alone: a send-shaped site whose first argument is
+ * anything but an opening object literal.
  */
 export const PANEL_SEND_CALLEE = sendCallee(['send']);
 /**
  * The capture path's own callee: the platform send, the path
  * `chrome.runtime.sendMessage` in any spelling the grammar
- * {@link standsAtCallee} walks states — the receiver the bare global `chrome`,
- * each following name reached by a step written plain, optional, computed, or
- * optional computed, and the call plain or optional. Naming the whole path is
- * what holds the scan to the capture path itself, and it keeps the declaration
- * shapes out of a scan whose callee is a plausible parameter name: a function or
- * method cannot be DECLARED with a receiver before its name, so the declaration
- * shapes whose third token is an opening brace — the function declaration
- * `function sendMessage({ type }) {}` and the method shorthand
- * `{ sendMessage({ type }) {} }` — state no site.
+ * {@link standsAtCallee} walks states — the receiver the platform global
+ * `chrome`, written bare or qualified by one global-object name
+ * ({@link GLOBAL_QUALIFIERS}), each following name reached by a step written
+ * plain, optional, computed, or optional computed, and the call plain or
+ * optional. Naming the whole path is what holds the scan to the capture path
+ * itself, and it keeps the declaration shapes out of a scan whose callee is a
+ * plausible parameter name: a function or method cannot be DECLARED with a
+ * receiver before its name, so the declaration shapes whose third token is an
+ * opening brace — the function declaration `function sendMessage({ type }) {}`
+ * and the method shorthand `{ sendMessage({ type }) {} }` — state no site.
  *
- * The shape's residue, in full: a send written through an ALIAS of the receiver
- * (`const rt = chrome.runtime; rt.sendMessage({ … })`), one written unqualified
- * or through a destructured `sendMessage({ … })`, and one reaching the platform
- * object through another object or a global alias (`wrapper.chrome…`,
- * `bag['chrome']…`, `globalThis.chrome…`) each stand outside the shape and are
- * invisible to both directions of the closure — the type such a send states reds
- * on the forward diff as a type nothing sends, and the payload it carries is held
- * to no row. Moving a send onto any of those forms is a change that updates the
- * capture-path table and this check together. A `sendMessage` on another receiver
- * — a port, a wrapper of the platform call — is not read at all, being a call of
- * that name rather than the platform send the capture-path table states.
+ * A binding spelled `chrome` is read BY ITS SPELLING: the scan cannot tell a
+ * local of that name from the platform global, so a send written through one is
+ * credited to the capture path — a false-red direction, since the type it states
+ * must then stand in the capture-path table.
+ *
+ * Forms outside the shape, as observed so far: a send written through an ALIAS of
+ * the receiver (`const rt = chrome.runtime; rt.sendMessage({ … })`), one written
+ * unqualified or through a destructured `sendMessage({ … })`, one reaching the
+ * platform object through another object or a private field (`wrapper.chrome…`,
+ * `bag['chrome']…`, `this.#chrome…`), one whose receiver or path is written
+ * parenthesized, and a computed step written as anything but a quoted string.
+ * Each stands outside the shape and is invisible to both directions of the
+ * closure — the type such a send states reds on the forward diff as a type
+ * nothing sends, and the payload it carries is held to no row. Moving a send onto
+ * one of those forms is a change that updates the capture-path table and this
+ * check together. A `sendMessage` on another receiver — a port, a wrapper of the
+ * platform call — is not read at all, being a call of that name rather than the
+ * platform send the capture-path table states.
  */
-export const CAPTURE_SEND_CALLEE = sendCallee(['chrome', 'runtime', 'sendMessage']);
+export const CAPTURE_SEND_CALLEE = sendCallee(
+  ['chrome', 'runtime', 'sendMessage'],
+  GLOBAL_QUALIFIERS,
+);
 
 /**
  * The words the clause's sender statement makes its existence claim in — the
@@ -825,12 +857,13 @@ export function extractProtocolTables(runtimeText) {
     header: PANEL_TABLE_HEADER,
   });
   for (const table of panel.tables) {
+    const typesIndex = resolveColumn(table, PANEL_TYPES_COLUMN);
     for (const row of table.rows) {
-      for (const piece of (row[1] ?? '').split(',')) {
+      for (const piece of (row[typesIndex] ?? '').split(',')) {
         const token = piece.trim();
         const name = backtickedName(token);
         if (name !== null) panelTypes.push(name);
-        else unreadable.push(token === '' ? '(empty Types piece)' : quotedCell(token));
+        else unreadable.push(token === '' ? `(empty ${PANEL_TYPES_COLUMN} piece)` : quotedCell(token)); // prettier-ignore
       }
     }
   }
@@ -887,7 +920,8 @@ export function readPayloadCell(cell) {
  *
  * The column is resolved from each admitted table's own header BY NAME, through
  * the shared reader's named form ({@link resolveColumn} over
- * {@link CAPTURE_PAYLOAD_COLUMN}), the way the member table's first column is.
+ * {@link CAPTURE_PAYLOAD_COLUMN}), the way the member table's own columns are
+ * spelled and read ({@link HANDLE_MEMBER_COLUMN}, {@link HANDLE_REACHES_COLUMN}).
  * What the named form buys is legibility at the read itself: the column this
  * check reads is the header word the document carries, so the leg states which
  * column it is about rather than a number a reader has to count out against the
@@ -939,8 +973,10 @@ export function extractCapturePayloads(runtimeText) {
  * code-block-aware and bounded at the next marker or heading), so a table that
  * drifts out of the clause states nothing here.
  *
- * The two read columns come back together. The first column's backticked names
- * are the members. Each row's Reaches cell is read by {@link readReachCell} and
+ * The read columns come back together, each resolved from the table's own header
+ * by the name its constant spells ({@link HANDLE_MEMBER_COLUMN},
+ * {@link HANDLE_REACHES_COLUMN}). The member column's backticked names are the
+ * members. Each row's Reaches cell is read by {@link readReachCell} and
  * comes back PAIRED with the member whose row it is, which is what lets the
  * caller hold a row and its own member's body to one another; a row whose
  * member cell is itself unreadable is left to the member column's own refusal,
@@ -967,10 +1003,15 @@ export function extractHandleTable(runtimeText) {
   const reaches = [];
   const reachUnreadable = [];
   for (const table of tables) {
+    // Both columns by NAME, through the shared reader's own resolution, so this
+    // loop reads the columns its constants spell rather than the positions they
+    // happen to stand at.
+    const memberIndex = resolveColumn(table, HANDLE_MEMBER_COLUMN);
+    const reachIndex = resolveColumn(table, HANDLE_REACHES_COLUMN);
     for (const row of table.rows) {
-      const member = backtickedName((row[0] ?? '').trim());
+      const member = backtickedName((row[memberIndex] ?? '').trim());
       if (member === null) continue; // the member read above already named it
-      const cell = (row[1] ?? '').trim();
+      const cell = (row[reachIndex] ?? '').trim();
       const stated = readReachCell(cell);
       if (stated === null) {
         reachUnreadable.push(`\`${member}\`: ${cell === '' ? `(empty ${HANDLE_REACHES_COLUMN} cell)` : quotedCell(cell)}`); // prettier-ignore
@@ -1412,37 +1453,50 @@ function readSendType(tokens, open) {
 }
 
 /**
+ * The tokens a name standing on its own may not follow: a member-access dot —
+ * which is also the second token of an optional-chaining pair, so `?.` is this
+ * same dot — a `]` closing a computed member access, and the `#` a private name is
+ * marked with. Each of them says the name is a property of something else's
+ * object, which is a path this scan does not read.
+ */
+const NAME_PRECEDED_BY = ['.', ']', '#'];
+
+/**
  * Whether the callee path ENDS at `at`, walked backwards over the one grammar the
  * scan reads:
  *
- *   - the path's FIRST name is a bare binding — a word token with no member
- *     access standing before it (no `.`, so neither a plain nor an optional step,
- *     and no `]`), which is what makes the capture path's receiver the global
- *     `chrome` itself rather than a `chrome` reached through another object or a
- *     global alias;
- *   - each name AFTER it is reached by one step, written plain (`.name`), optional
- *     (`?.name`), computed (`['name']`, either quote style), or optional computed
- *     (`?.['name']`) — the spellings the shared tokenizer distinguishes, the last
- *     name included;
+ *   - each name AFTER the first is reached by one step, written plain (`.name`),
+ *     optional (`?.name`), computed (`['name']`, either quote style), or optional
+ *     computed (`?.['name']`) — the spellings the shared tokenizer distinguishes,
+ *     the last name included;
+ *   - the path's FIRST name, where the callee states its global-object qualifiers,
+ *     is that global: the name standing on its own — no token of
+ *     {@link NAME_PRECEDED_BY} before it — or reached by one step of its own from
+ *     one of those qualifiers, itself standing on its own. A callee that states no
+ *     qualifiers makes no claim about its first name, which is then read wherever
+ *     it stands;
  *   - the call punctuation and the opening literal are the caller's to read
  *     ({@link opensLiteralCall}).
  *
- * A path of one name is that bare binding alone.
  * @param {{ type: string, value: string }[]} tokens the file's tokens
  * @param {number} at index of the path's last token — the final name's word, or
  *   the `]` closing it where that name is written computed
- * @param {string[]} path the callee's names, receiver first
+ * @param {{ path: string[], qualifiers: string[] | null }} callee the callee whose
+ *   path and first-name rule the walk reads
  * @returns {boolean}
  */
-function standsAtCallee(tokens, at, path) {
+function standsAtCallee(tokens, at, { path, qualifiers }) {
+  /** Whether a name may stand after this token at all. */
+  const opensName = (token) => !(token?.type === 'punct' && NAME_PRECEDED_BY.includes(token.value));
   let i = at;
+  // Whether the path's first name was written computed, which carries its own
+  // step: `globalThis['chrome']` reaches the global through the brackets, so no
+  // further step stands before it.
+  let computedFirst = false;
   for (let k = path.length - 1; k >= 0; k--) {
     // A name written COMPUTED carries its own brackets, which are the step that
-    // reached it — so only an optional computed step adds punctuation before
-    // them. The path's first name is never written this way: a bare binding has
-    // no brackets to be read through.
+    // reached it — so only an optional computed step adds punctuation before them.
     if (tokens[i]?.type === 'punct' && tokens[i].value === ']') {
-      if (k === 0) return false;
       const named = tokens[i - 1];
       if (!(named?.type === 'string' && named.value === path[k])) return false;
       if (!(tokens[i - 2]?.type === 'punct' && tokens[i - 2].value === '[')) return false;
@@ -1451,6 +1505,7 @@ function standsAtCallee(tokens, at, path) {
         if (!(tokens[i - 1]?.type === 'punct' && tokens[i - 1].value === '?')) return false;
         i -= 2;
       }
+      if (k === 0) computedFirst = true;
       continue;
     }
     const word = tokens[i];
@@ -1464,10 +1519,19 @@ function standsAtCallee(tokens, at, path) {
     i -= 1;
     if (tokens[i]?.type === 'punct' && tokens[i].value === '?') i -= 1;
   }
-  // The first name stands as a binding of its own: a member access before it
-  // names something else's property, which is a path the scan does not read.
-  const before = tokens[i];
-  return !(before?.type === 'punct' && (before.value === '.' || before.value === ']'));
+  if (qualifiers === null) return true;
+  // The first name is the platform global: standing on its own, or reached by one
+  // step from a global-object name that stands on its own.
+  if (!computedFirst && opensName(tokens[i])) return true;
+  let j = i;
+  if (!computedFirst) {
+    if (!(tokens[j]?.type === 'punct' && tokens[j].value === '.')) return false;
+    j -= 1;
+    if (tokens[j]?.type === 'punct' && tokens[j].value === '?') j -= 1;
+  }
+  const qualifier = tokens[j];
+  if (!(qualifier?.type === 'word' && qualifiers.includes(qualifier.value))) return false;
+  return opensName(tokens[j - 1]);
 }
 
 /**
@@ -1492,8 +1556,8 @@ function opensLiteralCall(tokens, at) {
 /**
  * Read the literal send sites a callee's own path states, through the shared
  * comment-safe tokenizer. The scan reads ONE shape — the callee's path, token
- * by token ({@link sendCallee}), followed by a call whose first argument opens
- * an object literal — and reads that literal's top-level properties for the
+ * by token ({@link sendCallee}), followed by a call written `(` or the optional
+ * `?.(` whose first argument opens an object literal — and reads that literal's top-level properties for the
  * `type` the message states, refusing by name the send that states none,
  * so a restructured payload cannot pass as a partially-read send. Property
  * order carries no meaning and the scan reads none into it. A send-shaped site
@@ -1525,7 +1589,7 @@ export function extractSendSites(sourceByPath, callee = PANEL_SEND_CALLEE) {
     const tokens = tokenizeJs(source);
     let ordinal = 0;
     for (let i = 0; i < tokens.length; i++) {
-      if (!standsAtCallee(tokens, i, callee.path)) continue;
+      if (!standsAtCallee(tokens, i, callee)) continue;
       const open = opensLiteralCall(tokens, i);
       if (open === -1) continue;
       ordinal += 1;
@@ -1937,7 +2001,7 @@ export function evaluateExtensionSurface(s) {
   // has stopped making, and an update cannot land on one copy of it while another
   // stands. Written fail-closed on the `!(n >= 1)` form.
   if (!(s.recorderStatements >= 1)) {
-    problems.push(`${RUNTIME_DOC_PATH} §${ERT_CLAUSE_ID} states no capture-path sender statement — nothing in the clause's scope carries "${RECORDER_STATEMENT_ANCHOR}" — the capture-path closure this check's FORWARD type diff holds (every type the table states carrying at least one object-literal ${CAPTURE_SEND_CALLEE.name}( that names it) is doctrine the clause states, and the leg cannot hold a rule the document no longer makes`); // prettier-ignore
+    problems.push(`${RUNTIME_DOC_PATH} §${ERT_CLAUSE_ID} states no capture-path sender statement — nothing in the clause's scope carries "${RECORDER_STATEMENT_ANCHOR}" — the capture-path closure this check's forward type diff holds (every type the table states carrying at least one object-literal ${CAPTURE_SEND_CALLEE.name}( that names it) is doctrine the clause states, and the leg cannot hold a rule the document no longer makes`); // prettier-ignore
   } else if (s.recorderStatements > 1) {
     problems.push(`${RUNTIME_DOC_PATH} §${ERT_CLAUSE_ID} makes the "${RECORDER_STATEMENT_ANCHOR}" claim ${s.recorderStatements} times — the clause states it once, so an update cannot land on one copy and leave another standing, wherever in the clause that copy was written`); // prettier-ignore
   }

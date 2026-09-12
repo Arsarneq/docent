@@ -71,6 +71,8 @@ import {
   PANEL_DIR,
   CONTENT_DIR,
   CAPTURE_TABLE_HEADER,
+  PANEL_TABLE_HEADER,
+  PANEL_TYPES_COLUMN,
   CAPTURE_PAYLOAD_COLUMN,
   CAPTURE_PAYLOAD_NONE_MARKER,
   CAPTURE_SEND_CALLEE,
@@ -512,7 +514,7 @@ describe('evaluateExtensionSurface — the clause states the closure the capture
   it('fires when the clause states no capture-path sender statement', () => {
     assert.deepEqual(evaluateExtensionSurface(makeSurface({ recorderStatements: 0 })), [
       // prettier-ignore
-      `${RUNTIME_DOC_PATH} §ERT-4 states no capture-path sender statement — nothing in the clause's scope carries "${RECORDER_STATEMENT_ANCHOR}" — the capture-path closure this check's FORWARD type diff holds (every type the table states carrying at least one object-literal ${CAPTURE_SEND_CALLEE.name}( that names it) is doctrine the clause states, and the leg cannot hold a rule the document no longer makes`,
+      `${RUNTIME_DOC_PATH} §ERT-4 states no capture-path sender statement — nothing in the clause's scope carries "${RECORDER_STATEMENT_ANCHOR}" — the capture-path closure this check's forward type diff holds (every type the table states carrying at least one object-literal ${CAPTURE_SEND_CALLEE.name}( that names it) is doctrine the clause states, and the leg cannot hold a rule the document no longer makes`,
     ]);
   });
 
@@ -1085,6 +1087,10 @@ describe('extractManifestSurface', () => {
 });
 
 describe('extractSectionTableNames / extractProtocolTables', () => {
+  it('reads the Types column its own header names — spelled, not taken by position', () => {
+    assert.ok(PANEL_TABLE_HEADER.includes(PANEL_TYPES_COLUMN));
+  });
+
   const doc = [
     '# Doc',
     '',
@@ -1627,6 +1633,18 @@ describe('extractSendSites — the one shape the sender scan reads', () => {
         [1, 'RECORDING_STOP'],
         [2, 'RECORDING_RENAME'],
       ],
+    );
+  });
+
+  it('reads a receiver-qualified send, the reading the shipped check has always had', () => {
+    // The panel's sender is a binding of the panel's own making rather than a
+    // platform global, so the word is read wherever it stands: what the leg does
+    // not read is decided by the argument alone.
+    assert.deepEqual(
+      extractSendSites(
+        new Map([[PANEL_PATH, "await adapter.send({ type: 'RECORDING_STOP' });"]]),
+      ).map((x) => x.type),
+      ['RECORDING_STOP'],
     );
   });
 
@@ -2653,18 +2671,33 @@ describe('extractSendSites — the capture path reads its own callee', () => {
     }
   });
 
+  it('reads the platform global qualified by a global-object name', () => {
+    // The qualified receiver names the same object the bare one does, so each
+    // qualifier the grammar admits states a site — one spelling apiece here, the
+    // step forms themselves being covered above.
+    for (const source of [
+      "globalThis.chrome.runtime.sendMessage({ type: 'FRAME_READY', readyAt: 1 });",
+      "self['chrome'].runtime.sendMessage({ type: 'FRAME_READY', readyAt: 1 });",
+      "window?.chrome.runtime.sendMessage({ type: 'FRAME_READY', readyAt: 1 });",
+    ]) {
+      assert.deepEqual(content(source), [captureSite(1, 'FRAME_READY', ['readyAt'])], source);
+    }
+  });
+
   it('reads no call the grammar does not state — each form contributing none', () => {
-    // The receiver is the bare global, so a platform object reached through
-    // another object or a global alias states a different path; an alias of the
-    // receiver, an unqualified or destructured callee, and a `sendMessage` on
-    // another receiver each stand outside the shape the same way.
+    // A platform object reached through another object or a private field states a
+    // different path, and so does a qualifier that is itself a property of
+    // something else; an alias of the receiver, an unqualified or destructured
+    // callee, and a `sendMessage` on another receiver each stand outside the shape
+    // the same way.
     for (const source of [
       "const rt = chrome.runtime;\nrt.sendMessage({ type: 'FRAME_READY', readyAt: 1 });",
       "sendMessage({ type: 'FRAME_READY', readyAt: 1 });",
       "const { sendMessage } = chrome.runtime;\nsendMessage({ type: 'FRAME_READY' });",
       "wrapper.chrome.runtime.sendMessage({ type: 'FRAME_READY' });",
       "bag['chrome'].runtime.sendMessage({ type: 'FRAME_READY' });",
-      "globalThis.chrome.runtime.sendMessage({ type: 'FRAME_READY' });",
+      "class Holder { #chrome = chrome; ping() { this.#chrome.runtime.sendMessage({ type: 'FRAME_READY' }); } }",
+      "x.globalThis.chrome.runtime.sendMessage({ type: 'FRAME_READY' });",
       "port.sendMessage({ type: 'PING', why: 1 });",
     ]) {
       assert.deepEqual(content(source), [], source);
