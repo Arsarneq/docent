@@ -20,9 +20,12 @@
  * it: the content population's own derivation and the machinery guard that
  * answers a file list naming nothing, the send scan run under its own callee and
  * each shape it refuses where a key belongs, the Payload cell grammar and every
- * near miss it refuses, the per-type hold in both key directions with the marker
- * standing where a row states no key, the union a type sent from more than one
- * site reads as, the forward and reverse type diffs, and the silence on a row
+ * near miss it refuses, the per-SITE hold in both key directions with the marker
+ * standing where a row states no key, two identical copies of one send meeting
+ * one row and two sites that differ each named beside it, the shapes a key
+ * position can stand in that no cell could state, the callee path a send is read
+ * through and the receivers it leaves unread, the forward and reverse type diffs,
+ * and the silence on a row
  * whose type no readable send states, with the clause's own payload grammar
  * sentence held present in its scope exactly once — the disjointness rule,
  * duplicates, and empty parses — that the comment-safe tokenizer keeps commented labels
@@ -2354,11 +2357,12 @@ describe('evaluateExtensionSurface — the handle legs', () => {
 });
 
 describe('readPayloadCell — the grammar the Payload column is read by', () => {
-  it('reads a backticked object shape as its sorted key set', () => {
-    // Sorted, so a cell that states the same names in another order reads as the
-    // same set: what the column states is a set, and order is not meaning.
+  it('reads a backticked object shape as the key names it writes, in the cell’s own order', () => {
+    // The names come back as the cell states them, so a red quotes the cell the
+    // way its author wrote it; what the column states is a set, and the weld is
+    // what compares the two sides order-free.
     assert.deepEqual(readPayloadCell('`{ readyAt, url }`'), ['readyAt', 'url']);
-    assert.deepEqual(readPayloadCell('`{ url, readyAt }`'), ['readyAt', 'url']);
+    assert.deepEqual(readPayloadCell('`{ url, readyAt }`'), ['url', 'readyAt']);
   });
 
   it('reads the lone marker as the empty set — a message that carries no payload', () => {
@@ -2519,6 +2523,21 @@ describe('extractSendSites — the capture path reads its own callee', () => {
     }
   });
 
+  it('reads the platform path itself — another receiver and an alias of one contribute none', () => {
+    // The callee is the whole path, matched token by token, so a `sendMessage`
+    // called on something else is not the capture path and is not read; an alias
+    // of the receiver is the residue the constant names, invisible here and
+    // reported on the type diff instead.
+    assert.deepEqual(content("port.sendMessage({ type: 'PING', why: 1 });"), []);
+    assert.deepEqual(
+      content("const rt = chrome.runtime;\nrt.sendMessage({ type: 'FRAME_READY', readyAt: 1 });"),
+      [],
+    );
+    assert.deepEqual(content("chrome.runtime.sendMessage({ type: 'FRAME_READY', readyAt: 1 });"), [
+      captureSite(1, 'FRAME_READY', ['readyAt']),
+    ]);
+  });
+
   it('the bare callee and the declaration forms contribute no site at all', () => {
     // `dotted` is what refuses the one declaration shape whose third token is an
     // opening brace: a destructured parameter list.
@@ -2529,6 +2548,27 @@ describe('extractSendSites — the capture path reads its own callee', () => {
       'chrome.runtime.sendMessage(beacon);',
     ]) {
       assert.deepEqual(content(source), [], `${source} is outside the shape the scan reads`);
+    }
+  });
+
+  it('refuses the property shapes a Payload cell cannot state, naming each', () => {
+    // The key read admits the names a cell states — a bare key and the shorthand
+    // stating one — and refuses the rest by name. A method, an accessor, an async
+    // method, and a generator each keep their name inside a declaration the read
+    // does not enter; a quoted key and a numeric key name a property the cell's
+    // grammar has no form for, so a row could never be written true over them.
+    for (const [source, found] of [
+      ["chrome.runtime.sendMessage({ type: 'FRAME_READY', get readyAt() { return 1; } });", 'a method or accessor'], // prettier-ignore
+      ["chrome.runtime.sendMessage({ type: 'FRAME_READY', async load() { return 1; } });", 'a method or accessor'], // prettier-ignore
+      ["chrome.runtime.sendMessage({ type: 'FRAME_READY', stamp() { return 1; } });", 'a method or accessor'], // prettier-ignore
+      ["chrome.runtime.sendMessage({ type: 'FRAME_READY', *ids() { yield 1; } });", 'a method or accessor'], // prettier-ignore
+      ["chrome.runtime.sendMessage({ type: 'FRAME_READY', 'ready-at': 1 });", 'a key outside the identifier shape a Payload cell states'], // prettier-ignore
+      ["chrome.runtime.sendMessage({ type: 'FRAME_READY', 0: 1 });", 'a key outside the identifier shape a Payload cell states'], // prettier-ignore
+    ]) {
+      const [site] = content(source);
+      assert.equal(site.type, 'FRAME_READY', `${found} leaves the type readable`);
+      assert.equal(site.keys, null, `${found} is refused, not read`);
+      assert.equal(site.keysFound, found);
     }
   });
 
@@ -2576,7 +2616,7 @@ describe('evaluateExtensionSurface — the capture path welded per type', () => 
       weld({ docCapturePayloads: [{ type: 'FRAME_READY', keys: ['readyAt', 'url'] }] }),
       [
         // prettier-ignore
-        `the capture-path row for \`FRAME_READY\` states a payload key \`url\` that no object-literal ${CAPTURE_SEND_CALLEE.name}( of that type in the tracked ${CONTENT_DIR} JavaScript carries (they carry \`readyAt\`) — a row states the message's whole top-level key set, so a row and its senders that disagree are one change left half-made`,
+        `the capture-path row for \`FRAME_READY\` states a payload key \`url\` that ${CONTENT_PATH} (object-literal ${CAPTURE_SEND_CALLEE.name}( call site 1) does not carry (it carries \`readyAt\`) — a row states the message's whole top-level key set, so a row and a send that disagree are one change left half-made`,
       ],
     );
   });
@@ -2585,7 +2625,7 @@ describe('evaluateExtensionSurface — the capture path welded per type', () => 
     assert.deepEqual(
       weld({ captureSendSites: [captureSite(1, 'FRAME_READY', ['readyAt', 'extra'])] }),
       [
-        `\`FRAME_READY\` is sent carrying a top-level \`extra\` that its capture-path ${CAPTURE_PAYLOAD_COLUMN} cell does not state (the cell states \`readyAt\`) — a row states the message's whole top-level key set, so a key added to the send is added to the row in the same change`,
+        `\`FRAME_READY\` is sent by ${CONTENT_PATH} (object-literal ${CAPTURE_SEND_CALLEE.name}( call site 1) carrying a top-level \`extra\` that its capture-path ${CAPTURE_PAYLOAD_COLUMN} cell does not state (the cell states \`readyAt\`) — a row states the message's whole top-level key set, so a key added to the send is added to the row in the same change`,
       ],
     );
   });
@@ -2600,22 +2640,42 @@ describe('evaluateExtensionSurface — the capture path welded per type', () => 
         captureSendSites: [captureSite(1, 'FRAME_READY', ['readyAt'])],
       }),
       [
-        `\`FRAME_READY\` is sent carrying a top-level \`readyAt\` that its capture-path ${CAPTURE_PAYLOAD_COLUMN} cell does not state (the cell states \`${CAPTURE_PAYLOAD_NONE_MARKER}\`) — a row states the message's whole top-level key set, so a key added to the send is added to the row in the same change`,
+        `\`FRAME_READY\` is sent by ${CONTENT_PATH} (object-literal ${CAPTURE_SEND_CALLEE.name}( call site 1) carrying a top-level \`readyAt\` that its capture-path ${CAPTURE_PAYLOAD_COLUMN} cell does not state (the cell states \`${CAPTURE_PAYLOAD_NONE_MARKER}\`) — a row states the message's whole top-level key set, so a key added to the send is added to the row in the same change`,
       ],
     );
   });
 
-  it('reads the keys of a type sent twice as their UNION — one message, one payload', () => {
-    // A send the two-copy content block carries stands twice, and a type sent
-    // from two modules states one payload: the union is what makes the
-    // duplication cost nothing, and what makes a key added to one copy alone
-    // red.
+  it('holds each send site to the whole row — two sites that differ are both named', () => {
+    // The hold is per site, so a row stating what the two sites carry BETWEEN
+    // them is welded to neither: each is named with the key it does not carry,
+    // and a key added to one copy of a shared send cannot hide behind its twin.
     assert.deepEqual(
       weld({
         docCapturePayloads: [{ type: 'FRAME_READY', keys: ['readyAt', 'url'] }],
         captureSendSites: [
           captureSite(1, 'FRAME_READY', ['readyAt']),
           captureSite(2, 'FRAME_READY', ['url']),
+        ],
+      }),
+      [
+        // prettier-ignore
+        `the capture-path row for \`FRAME_READY\` states a payload key \`url\` that ${CONTENT_PATH} (object-literal ${CAPTURE_SEND_CALLEE.name}( call site 1) does not carry (it carries \`readyAt\`) — a row states the message's whole top-level key set, so a row and a send that disagree are one change left half-made`,
+        // prettier-ignore
+        `the capture-path row for \`FRAME_READY\` states a payload key \`readyAt\` that ${CONTENT_PATH} (object-literal ${CAPTURE_SEND_CALLEE.name}( call site 2) does not carry (it carries \`url\`) — a row states the message's whole top-level key set, so a row and a send that disagree are one change left half-made`,
+      ],
+    );
+  });
+
+  it('passes two identical copies of one send — the shared block costs the weld nothing', () => {
+    // The block two content modules share stands twice in the population, so one
+    // send reads as two sites carrying the same key set: each meets the same row,
+    // and both are green by construction.
+    assert.deepEqual(
+      weld({
+        docCapturePayloads: [{ type: 'FRAME_READY', keys: ['readyAt', 'url'] }],
+        captureSendSites: [
+          captureSite(1, 'FRAME_READY', ['readyAt', 'url']),
+          captureSite(2, 'FRAME_READY', ['readyAt', 'url']),
         ],
       }),
       [],

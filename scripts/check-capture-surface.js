@@ -702,7 +702,7 @@ export function extractCorrelationClasses(docText) {
     header: CORRELATION_HEADER,
   });
   const read = readTableColumn(tables, {
-    empty: '(empty WinEvent cell)',
+    empty: `(empty ${CORRELATION_HEADER[0]} cell)`,
     column: CORRELATION_HEADER[0],
     read: (cell) => {
       const name = backtickedName(cell);
