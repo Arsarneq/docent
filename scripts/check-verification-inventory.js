@@ -41,7 +41,38 @@
  *     pointed at another file is being watched against a state it does not
  *     gate on;
  *   - the job citations: every `` `<job>` job `` either verification document
- *     cites names a job of .github/workflows/test.yml.
+ *     cites names a job of .github/workflows/test.yml;
+ *   - the suite the cited job runs: READ — the steps of
+ *     .github/workflows/test.yml's `unit-tests` job, taken through the
+ *     workflow's own `jobs` map. HOW — each step's `run` text split into the
+ *     command segments a shell would run and stopped at the first `cd`, then
+ *     each remaining segment that opens with a modelled invocation read as the
+ *     step's own command and through the root manifest's script for every
+ *     `npm run` token it states. Each reading goes to the test-inventory
+ *     check's own `nodeTestArguments` and its `classifyArgument`, so the
+ *     arguments this leg compares are the ones that gate itself would select.
+ *     HELD — the shared unit suite's registered `dir` and `pattern` are among
+ *     those classified answers: the ARGUMENT SET, never a command string, so
+ *     the step stays free to be respelled and the job free to grow further
+ *     suites. REFUSED, each by name — a step stating its own
+ *     `working-directory`; a segment stating a modelled invocation off its own
+ *     head; a segment whose `npm run` script token this reader cannot read; an
+ *     `npm run` the root manifest defines no script for; a command the argument
+ *     reader will not model; a step carrying the suite under a condition, a
+ *     truthy or expression-valued tolerance, or an operator that keeps its
+ *     verdict from reaching the job; a job whose commands this reading resolves
+ *     none of; and the job itself being gone. LIMITS — the verification
+ *     documents' own CI-reach sentences are prose, so whether each still says the job runs
+ *     the suite is review-held, as is whether the CI guide row's flag list for
+ *     the job is the right set; the job's desktop and extension trees are
+ *     review-held beside them; the shell's own settings are not read, so a
+ *     `shell:` key or a `set +e` inside a `run:` block states nothing here;
+ *     text inside a heredoc body or a command substitution is read as the
+ *     line's own, the segment grammar's limit inherited; and the premise is
+ *     scoped — the shapes that keep writing a coverage report pass every
+ *     tracked check, while a deleted step or a swap to a non-coverage script
+ *     reds the job's own coverage-staging copy two steps later, naming no
+ *     drift.
  *
  * Every set inventory is diffed BOTH ways — a doc entry the code does not have
  * is as red as a code entry the doc does not state. A leg held one-way states
@@ -54,6 +85,30 @@
  * demand is running prose this check never reads, so that leg reds when the
  * meta-schema stops requiring the field and says nothing about a clause that
  * stopped demanding it.
+ *
+ * The suite the cited job runs is held one-way as well, and at the grain the
+ * runner reads rather than the grain the command is spelled at: the job's own
+ * steps are resolved to the `node --test` arguments their commands state —
+ * through the root manifest's scripts for an `npm run` token, and from the
+ * step's own command text where the step spells the invocation itself — and the
+ * registered glob must be among them. The job stays free to run further suites
+ * and the command free to be
+ * respelled or renamed — what it cannot do is stop running the suite the
+ * documents say it runs, which is why the ARGUMENT SET is what this leg pins
+ * and the command string is not: a pin on the string would hold the step
+ * stricter than the reader that resolves it. Nothing is held from the other
+ * end: a registered suite CI runs nowhere is the test-inventory lint's
+ * registration closure to speak for — it holds every registered suite to
+ * some admitted manifest script — and this leg adds the one thing that
+ * closure cannot see, which job's own steps run it. A `run:` line any segment
+ * of which is a `cd` is refused whole rather than read against a working
+ * directory this reading does not follow: that same job runs a second script
+ * of the same NAME from another package's manifest behind exactly such a
+ * `cd`, so reading a segment without the relocation ahead of it would let that
+ * step's token answer for the root script. A step stating its own
+ * `working-directory` is refused the same way and for the same reason, named
+ * rather than skipped — the leg cannot answer green over commands it declined
+ * to read.
  *
  * A repeat is legitimate wherever a claim is read from running prose rather
  * than from an enumeration: an enumeration states each entry once, so a repeat
@@ -110,6 +165,23 @@
  * prose, so this leg keeps a documentation surface honest rather than guarding
  * a clause, and it deliberately takes no clause-registry row.
  *
+ * Which job the job-suite leg reads, and which registered suite it demands of
+ * that job, are this check's own constants too (`UNIT_SUITE_JOB_ID`
+ * and `UNIT_SUITE_DIR` below): a second job either document claims a suite
+ * for is outside the leg until it is named there, and the glob itself is
+ * never spelled here — it comes off the discovery descriptor `DOC_INVENTORIES`
+ * registers that directory under, so the suite this leg demands of the job is
+ * the suite that registration demands a documented row for. Inside the job,
+ * each step's own condition and tolerance come back through the reader, beside
+ * the operators its `run:` lines state: a step that carries the suite under any
+ * of them is REFUSED by name rather than counted, because this reader evaluates
+ * neither a condition nor the shell state an operator leaves behind — so what
+ * the leg holds is that the job states the invocation in a step whose verdict
+ * reaches the job, and a legitimate condition reds with a message saying to
+ * teach the reader. And the documents' sentences are prose
+ * like every other: that each still says the job runs the suite is
+ * review-held — what this leg makes machine-held is the fact they state.
+ *
  * What the strict-flip watch deliberately does NOT watch: the whole-file
  * `npm run sufficiency:check` surface. Two independent grounds, both recorded
  * so neither has to be rediscovered. First, the frozen historical fixtures
@@ -129,20 +201,30 @@
 import { readFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 import {
+  DOC_INVENTORIES,
+  RUNNERS,
   backtickedName,
   backtickedTokens,
+  classifyArgument,
   duplicateSurfaceProblems,
   duplicatesIn,
   emptySurfaceProblems,
   extractClauseSection,
   flattenWhitespace,
   missingFrom,
+  nodeTestArguments,
   selectTablesByHeader,
   selfPath,
   stripFences,
   topLevelListItems,
 } from './check-test-inventory.js';
-import { TEST_WORKFLOW_PATH, extractJobIds, isJobAnchorProblem } from './check-doc-closure.js';
+import {
+  TEST_WORKFLOW_PATH,
+  extractJobIds,
+  extractLintSurface,
+  isJobAnchorProblem,
+} from './check-doc-closure.js';
+import { InputError as WorkflowJobsError, readJobs } from './check-workflow-bounds.js';
 import {
   MATCH_STAT_FIELDS,
   NORMALIZED_FIELD_CLASSES,
@@ -263,6 +345,482 @@ const JOB_CITE_RE = /`([a-z0-9-]+)` job/g;
 export const CITED_JOB_DOCUMENTS = [CORPUS_DOC_PATH, LINT_DOC_PATH];
 
 /**
+ * The workflow job whose own steps the job-suite leg reads — the job both
+ * verification documents name as the one that runs the shared unit suite in
+ * CI. This check's own constant, on the same footing as the scanned-document
+ * list above: a job neither document claims a suite for has nothing to be
+ * held to here, and a second job that one of them does claim is outside the
+ * leg until it is named here.
+ */
+export const UNIT_SUITE_JOB_ID = 'unit-tests';
+
+/**
+ * The registered suite directory that job is held to running: the shared unit
+ * tree, where both documents' own locks live. The GLOB is not stated here —
+ * {@link registeredNodeSuite} takes it off the discovery descriptor
+ * `DOC_INVENTORIES` registers this directory under, so the suite this leg
+ * demands of the job and the suite the test-inventory lint demands a
+ * documented row for are one statement rather than two.
+ */
+export const UNIT_SUITE_DIR = 'packages/shared/tests/unit';
+
+/** An `npm run` as one of a step's command segments opens with it. */
+const NPM_RUN_SEGMENT_RE = /^npm\s+run(?:\s|$)/;
+/** A script key as `npm run` states one, once npm's own flags are behind it. */
+const SCRIPT_TOKEN_RE = /^[A-Za-z0-9:_-]+$/;
+/** A `cd` as one of a step's command segments states it. */
+const CD_SEGMENT_RE = /^cd(?:\s|$)/;
+
+/**
+ * The invocations this reading models, as the head of a command segment. A
+ * segment opening with one of them is handed to the argument reader as the
+ * step's own command; a segment stating one anywhere else is refused by name,
+ * because the argument reader would find the invocation in a position no shell
+ * runs it from and credit the segment with arguments the step never states.
+ */
+const MODELLED_INVOCATIONS = new Set(['node', 'npx', 'c8', 'npm']);
+
+/** The operators a step's `run:` text states between its commands. */
+const SEGMENT_OPERATORS = ['&&', '||', ';', '|'];
+/** The operators that keep a command's verdict from reaching the job. */
+const SWALLOWING_OPERATORS = ['||', '|'];
+/** The operator whose swallowing depends on where on the line it stands. */
+const CONDITIONAL_OPERATOR = '&&';
+
+/**
+ * One step's `run:` text, split the way {@link commandSegments} splits it and
+ * answered with the operator state each segment stands in. A LOCAL positional
+ * lexer, because `commandSegments` consumes the operators and exports no
+ * stripper: the rules it applies are that function's own — a `#` preceded by
+ * whitespace opens a comment that runs to the end of its line, quoted text is
+ * data rather than command text, a segment is trimmed and loses an opening
+ * `(` — and the unit suite holds the two to the same answers over the same
+ * text. What this lexer adds is position: for each segment, the operator
+ * immediately before it, the operator immediately after it, every operator its
+ * own line states, and whether that line is the last line of the block to
+ * state a command at all (a trailing blank or comment-only line states none,
+ * so it does not move the last one).
+ *
+ * Inherited limit, the segment grammar's own: text inside a heredoc body or a
+ * command substitution is read as the line's own, so an operator written there
+ * counts as the line's.
+ * @param {string} text one step's `run:` block
+ * @returns {{ command: string, before: string | null, after: string | null,
+ *             operators: string[], line: number, last: boolean }[]}
+ */
+export function commandOperators(text) {
+  const items = []; // { kind: 'command' | 'operator' | 'break', text, line }
+  let current = '';
+  let line = 0;
+  let quote = null;
+  let comment = false;
+  const flush = (line_) => {
+    const command = current.trim().replace(/^\(\s*/, '');
+    if (command !== '') items.push({ kind: 'command', text: command, line: line_ });
+    current = '';
+  };
+  for (let at = 0; at < text.length; at++) {
+    const char = text[at];
+    if (comment) {
+      if (char !== '\n') continue;
+      comment = false;
+      flush(line);
+      items.push({ kind: 'break', line });
+      line++;
+      continue;
+    }
+    if (quote !== null) {
+      if (char === quote) {
+        current += char;
+        quote = null;
+      }
+      continue; // quoted text is data the shell passes on, never a command
+    }
+    if (char === '#' && (at === 0 || /\s/.test(text[at - 1]))) {
+      comment = true;
+      continue;
+    }
+    if (char === '\n') {
+      flush(line);
+      items.push({ kind: 'break', line });
+      line++;
+      continue;
+    }
+    const operator = SEGMENT_OPERATORS.find((op) => text.startsWith(op, at));
+    if (operator !== undefined) {
+      flush(line);
+      items.push({ kind: 'operator', text: operator, line });
+      at += operator.length - 1;
+      continue;
+    }
+    if (char === "'" || char === '"') quote = char;
+    current += char;
+  }
+  flush(line);
+
+  const commandLines = new Set(items.filter((i) => i.kind === 'command').map((i) => i.line));
+  const lastLine = Math.max(-1, ...commandLines);
+  const neighbour = (from, step) => {
+    for (let at = from + step; at >= 0 && at < items.length; at += step) {
+      if (items[at].kind === 'break') return null;
+      if (items[at].kind === 'operator') return items[at].text;
+    }
+    return null;
+  };
+  return items
+    .map((item, at) => ({ item, at }))
+    .filter(({ item }) => item.kind === 'command')
+    .map(({ item, at }) => ({
+      command: item.text,
+      before: neighbour(at, -1),
+      after: neighbour(at, +1),
+      operators: items.filter((i) => i.kind === 'operator' && i.line === item.line).map((i) => i.text), // prettier-ignore
+      line: item.line,
+      last: item.line === lastLine,
+    }));
+}
+
+/**
+ * The script key one command segment states through `npm run`, with npm's own
+ * `-`-prefixed flags stepped over so a flagged invocation resolves rather than
+ * taking the flag for the key. Undefined where the segment states no `npm run`
+ * at all; `{ unreadable: true }` where it states one whose key this reader
+ * cannot read — a key carrying a character the grammar does not admit, a
+ * closing paren riding it among them — which the leg refuses by name rather
+ * than passing over as a segment stating nothing.
+ * @param {string} segment one command segment
+ * @returns {{ token: string } | { unreadable: true } | undefined}
+ */
+export function npmRunScript(segment) {
+  if (!NPM_RUN_SEGMENT_RE.test(segment)) return undefined;
+  const words = segment.split(/\s+/).filter(Boolean).slice(2);
+  const token = words.find((word) => !word.startsWith('-'));
+  if (token === undefined || !SCRIPT_TOKEN_RE.test(token)) return { unreadable: true };
+  return { token };
+}
+
+/**
+ * One suite directory's registered `node --test` discovery, read off the
+ * registration rather than restated: the `DOC_INVENTORIES` entry for that
+ * directory, where a `node --test` glob is how it is discovered. Undefined
+ * where no entry registers it that way — this check's {@link UNIT_SUITE_DIR}
+ * and the registration it reads disagreeing, which the leg names as such
+ * instead of reporting a job that runs nothing.
+ * @param {string} dir the suite directory, repo-relative
+ * @returns {{ doc: string, section: string, dir: string, pattern: string } | undefined}
+ */
+export function registeredNodeSuite(dir) {
+  const entry = DOC_INVENTORIES.find((e) => e.dir === dir && e.discovery?.runner === RUNNERS.node);
+  if (entry === undefined) return undefined;
+  return { doc: entry.doc, section: entry.section, dir: entry.dir, pattern: entry.discovery.pattern }; // prettier-ignore
+}
+
+/** One registered node discovery as a reader of a command states its argument. */
+export const suiteGlob = (suite) => `${suite.dir}/${suite.pattern}`;
+
+/**
+ * The `node --test` arguments one command text states, classified: the
+ * test-inventory lint's own argument reader, then its own classifier, so the
+ * answers this leg compares are the ones that gate itself would select. The
+ * first refusal either reader states is the answer — reading past it would
+ * credit the command with arguments it does not state.
+ * @param {string} text one command line
+ * @returns {{ globs: { dir: string, pattern: string }[], classified: number }
+ *           | { error: string }}
+ */
+function classifiedArguments(text) {
+  const read = nodeTestArguments(text);
+  if (read.error !== undefined) return { error: read.error };
+  const globs = [];
+  let classified = 0;
+  for (const argument of read.args) {
+    const answer = classifyArgument(argument);
+    if (answer.error !== undefined) return { error: answer.error };
+    classified++;
+    if (answer.kind === 'glob') globs.push({ dir: answer.dir, pattern: answer.pattern });
+  }
+  return { globs, classified };
+}
+
+/**
+ * How a refusal names the step it is about: the step's own `name` where it
+ * states one, and its position in the job's `steps` list where it does not.
+ * @param {Record<string, unknown>} step one step of the job
+ * @param {number} index that step's position in the job's `steps` list
+ * @returns {string}
+ */
+function stepSubject(step, index) {
+  const name = step?.name;
+  return typeof name === 'string' && name !== ''
+    ? `the step named \`${name}\``
+    : `the step at index ${index} of its \`steps\` list`;
+}
+
+/**
+ * What one workflow job's own steps state they run `node --test` over, read
+ * the way the runner resolves it: each step's `run:` block split into the
+ * command segments a shell would run, and each segment that OPENS with a
+ * modelled invocation read both as the step's own command and — where it states
+ * `npm run <script>` — through that script's command in the root manifest. Both
+ * readings go to the test-inventory lint's own argument reader, so what this leg
+ * compares is what that gate itself would select. A step spelling the
+ * invocation out rather than naming a script is therefore read as what it is,
+ * and npm's own `-`-prefixed flags are stepped over so a flagged `npm run`
+ * resolves to the script it names.
+ *
+ * The answer carries flat fields across the whole job — every script key read,
+ * every classified glob, and the refusals — beside a `steps` array answering
+ * per step: its name, its position, the condition and the tolerance it states,
+ * and one entry per resolving segment carrying that segment's command, its
+ * classified globs, and the operator state it stands in. The verdict function
+ * is where the registered suite is known, so it is what decides which of those
+ * states refuses a step; this reader stays a reader of its arguments.
+ *
+ * Shapes refused rather than read, each for the same reason — the command they
+ * state does not resolve against the root of the repository, or does not resolve
+ * at all, and this reading guesses at neither. A `cd` segment ends the STEP it
+ * stands in — not merely its line — because everything after it, on that line
+ * and on the lines of the same block below it, runs somewhere else; the job
+ * this leg reads carries exactly such a step, invoking a script of the same
+ * NAME from another package's manifest, so a reading that took that segment on
+ * its own would resolve the name against the root manifest and report the root
+ * suite as still run after the root step is gone. A step stating its own
+ * `working-directory` is refused by name for the same reason, and named rather
+ * than skipped so the leg cannot answer green over a job whose commands it
+ * declined to read. A segment stating a modelled invocation somewhere other
+ * than its own head is refused by name: the argument reader would find the
+ * invocation in a position no shell runs it from, so `echo node --test <glob>`
+ * would otherwise read as a step carrying the suite and `time npm run <script>`
+ * as a step stating no command at all. A segment whose `npm run` script key
+ * this reader cannot read is refused the same way, for the same reason.
+ * @param {Record<string, unknown>} jobsMap the workflow's `jobs` map
+ * @param {Record<string, string>} commands the root manifest's script commands
+ * @param {string} jobId the job whose steps to read
+ * @returns {{ absent: boolean, tokens: string[],
+ *             globs: { dir: string, pattern: string }[], refusals: string[],
+ *             jobContinueOnError: string | null,
+ *             steps: { name: string | undefined, index: number,
+ *                      condition: string | null, continueOnError: string | null,
+ *                      segments: { command: string, classified: number,
+ *                                  globs: { dir: string, pattern: string }[],
+ *                                  before: string | null, after: string | null,
+ *                                  operators: string[], last: boolean }[] }[] }}
+ */
+export function jobSuiteArguments(jobsMap, commands, jobId) {
+  const job = jobsMap[jobId];
+  if (job === undefined) {
+    return { absent: true, tokens: [], globs: [], refusals: [], jobContinueOnError: null, steps: [] }; // prettier-ignore
+  }
+  const tokens = [];
+  const globs = [];
+  const refusals = [];
+  const steps = [];
+  const jobSteps = Array.isArray(job?.steps) ? job.steps : [];
+  for (const [index, step] of jobSteps.entries()) {
+    if (typeof step?.run !== 'string') continue;
+    const directory = step?.['working-directory'];
+    if (directory !== undefined) {
+      refusals.push(`runs a step under \`working-directory: ${directory}\`, a relocation this reading does not follow`); // prettier-ignore
+      continue;
+    }
+    const segments = [];
+    for (const lexed of commandOperators(step.run)) {
+      if (CD_SEGMENT_RE.test(lexed.command)) break; // a `cd` moves the rest of the step
+      const words = lexed.command.split(/\s+/).filter(Boolean);
+      if (!MODELLED_INVOCATIONS.has(words[0])) {
+        const offHead = words.find((word) => MODELLED_INVOCATIONS.has(word));
+        if (offHead !== undefined) {
+          refusals.push(`states \`${offHead}\` somewhere other than the head of the command segment \`${lexed.command}\`, a position this reading does not resolve`); // prettier-ignore
+        }
+        continue;
+      }
+      const script = npmRunScript(lexed.command);
+      if (script?.unreadable === true) {
+        refusals.push(`states \`npm run\` in the command segment \`${lexed.command}\`, whose script key this reader cannot read — the key is what the root manifest is asked for`); // prettier-ignore
+        continue;
+      }
+      // The step's own command first: a step that spells the invocation out
+      // states its suite here, and a reader error on it is the step's, not a
+      // script key's.
+      const own = classifiedArguments(lexed.command);
+      if (own.error !== undefined) {
+        refusals.push(`states \`${lexed.command}\` in ${stepSubject(step, index)}, a command that ${own.error}`); // prettier-ignore
+        continue;
+      }
+      let viaScript = { globs: [], classified: 0 };
+      if (script !== undefined) {
+        tokens.push(script.token);
+        const command = commands[script.token];
+        if (typeof command !== 'string') {
+          refusals.push(`states \`npm run ${script.token}\`, which ${PACKAGE_JSON_PATH} defines no script for`); // prettier-ignore
+          continue;
+        }
+        viaScript = classifiedArguments(command);
+        if (viaScript.error !== undefined) {
+          refusals.push(`states \`npm run ${script.token}\`, whose command ${viaScript.error}`);
+          continue;
+        }
+      }
+      const merged = [...own.globs, ...viaScript.globs];
+      globs.push(...merged);
+      segments.push({
+        command: lexed.command,
+        classified: own.classified + viaScript.classified,
+        globs: merged,
+        before: lexed.before,
+        after: lexed.after,
+        operators: lexed.operators,
+        last: lexed.last,
+      });
+    }
+    steps.push({
+      name: typeof step?.name === 'string' ? step.name : undefined,
+      index,
+      condition: step?.if === undefined ? null : String(step.if),
+      continueOnError: step?.['continue-on-error'] ? String(step['continue-on-error']) : null,
+      segments,
+    });
+  }
+  return {
+    absent: false,
+    tokens: [...new Set(tokens)],
+    globs,
+    refusals,
+    jobContinueOnError: job?.['continue-on-error'] ? String(job['continue-on-error']) : null,
+    steps,
+  };
+}
+
+/**
+ * What a carrying step states that keeps this reader from answering for its
+ * verdict, named as the refusal names it. A step whose resolution does NOT
+ * carry the registered suite is not asked: it may state whatever it likes.
+ *
+ * The operator rules follow the shell the workflow runs a `run:` block under —
+ * `bash -e`, with no pipefail. `||` anywhere on the carrying command's line
+ * swallows the verdict whichever side of the command it stands on: before it,
+ * the command may never run at all; after it, its failure is absorbed. `|`
+ * hands the verdict to the last command of the pipeline instead. `&&` BEFORE
+ * the command is the same absorption, because a failed left side of `&&` is not
+ * fatal under errexit and the block runs on — which is also why `&&` AFTER the
+ * command swallows only while its line is not the block's last command line:
+ * there the step's verdict is the last line's, so an earlier line's absorbed
+ * failure never reaches the job. Admitted, therefore: `;`, which errexit aborts
+ * at, and `&&` after the command on the block's last line.
+ * @param {{ condition: string | null, continueOnError: string | null,
+ *           segments: { globs: { dir: string, pattern: string }[],
+ *                       before: string | null, after: string | null,
+ *                       operators: string[], last: boolean }[] }} step
+ * @param {{ dir: string, pattern: string }} suite the registered discovery
+ * @param {string | null} jobTolerance the job's own recorded `continue-on-error`
+ * @returns {string[]} the offenders, each as a refusal names it; empty admits
+ */
+function carryingStepOffenders(step, suite, jobTolerance) {
+  const carrying = (step.segments ?? []).filter((segment) =>
+    segment.globs.some((g) => g.dir === suite.dir && g.pattern === suite.pattern),
+  );
+  if (carrying.length === 0) return [];
+  const offenders = [];
+  if (step.condition !== null) offenders.push(`the condition \`if: ${step.condition}\``);
+  if (step.continueOnError !== null) {
+    offenders.push(`the tolerance \`continue-on-error: ${step.continueOnError}\``);
+  }
+  if (jobTolerance !== null) {
+    offenders.push(`the job's own tolerance \`continue-on-error: ${jobTolerance}\``);
+  }
+  const operators = new Set();
+  for (const segment of carrying) {
+    for (const operator of SWALLOWING_OPERATORS) {
+      if (segment.operators.includes(operator)) operators.add(operator);
+    }
+    if (segment.before === CONDITIONAL_OPERATOR) operators.add(CONDITIONAL_OPERATOR);
+    if (segment.after === CONDITIONAL_OPERATOR && !segment.last) {
+      operators.add(CONDITIONAL_OPERATOR);
+    }
+  }
+  for (const operator of operators) {
+    offenders.push(`the \`${operator}\` its own line states between commands`);
+  }
+  return offenders;
+}
+
+/**
+ * The job-suite leg's verdict: the registered suite this check names, against
+ * what the named job's own steps resolve to. The registered suite is known
+ * here and nowhere upstream, so this is also where a carrying step's condition,
+ * tolerance, and operator state are judged.
+ *
+ * The states are named apart, because the remedies differ. A registration
+ * this check's directory constant no longer matches names that constant and
+ * the registration — the leg has nothing left to hold the job to. A job the
+ * workflow no longer carries names the workflow, beside the citation leg,
+ * which reds on every document cite of that same id. A job none of whose
+ * commands this reading resolves, by either route, names the job and stops
+ * there: a scan that read nothing would answer green forever, so it is refused
+ * rather than reported as a suite the job dropped. A step that carries the
+ * suite under something this reader does not evaluate is refused by name and
+ * does not count as carrying it, so a refused SOLE carrying step prints that
+ * refusal and the suite-absent finding together — the two lines are the
+ * verdict — while a refused second carrying step beside an admitted one prints
+ * the refusal alone, the membership test being satisfied without it. Those
+ * refusals print their own line rather than going through the reader-refusal
+ * wrapper below, whose "cannot be resolved" clause is false of them: the
+ * command resolved, and what the step does with its verdict is the finding.
+ *
+ * An answer carrying no `steps` array reads as one stating no steps, and the
+ * membership test then falls back to the flat glob field — the shape a caller
+ * that hands this function a glob set directly states.
+ * @param {{ doc: string, section: string, dir: string, pattern: string } | undefined} suite
+ *   the registered discovery, or undefined where the registration states none
+ * @param {{ absent: boolean, tokens: string[],
+ *           globs: { dir: string, pattern: string }[], refusals: string[],
+ *           jobContinueOnError?: string | null, steps?: object[] }} read
+ *   what {@link jobSuiteArguments} answered for the job
+ * @returns {string[]} problems; empty when the job states the registered glob
+ */
+export function jobSuiteProblems(suite, read) {
+  if (suite === undefined) {
+    return [`${SELF_PATH} holds CI's \`${UNIT_SUITE_JOB_ID}\` job to running \`${UNIT_SUITE_DIR}\`, which DOC_INVENTORIES registers no \`node --test\` discovery for — that descriptor is where the glob this leg demands of the job comes from, so the leg has nothing left to hold it to: point UNIT_SUITE_DIR at a registered node suite directory, or retire the leg in the same change`]; // prettier-ignore
+  }
+  if (read.absent) {
+    return [`${TEST_WORKFLOW_PATH} has no \`${UNIT_SUITE_JOB_ID}\` job, so nothing there states that ${suiteGlob(suite)} — the suite ${suite.doc} ("${suite.section}") registers — is run in CI: restore the job, or move UNIT_SUITE_JOB_ID in ${SELF_PATH} to the job that runs it, in the change that renames it`]; // prettier-ignore
+  }
+  const problems = read.refusals.map(
+    (refusal) => `${TEST_WORKFLOW_PATH}'s \`${UNIT_SUITE_JOB_ID}\` job ${refusal}, so what that step runs cannot be resolved — the suite this leg holds the job to is then neither found nor ruled out`, // prettier-ignore
+  );
+  const steps = Array.isArray(read.steps) ? read.steps : undefined;
+  // The vacuity guard counts what the reading resolved, by either route: a
+  // script key it looked up, or a `node --test` argument it classified off a
+  // step's own command. A step refused for what it does with its verdict still
+  // resolved its command, so it is counted here — this guard answers for a scan
+  // that read nothing, never for a step whose verdict was declined.
+  const resolved =
+    steps === undefined
+      ? read.globs.length
+      : steps.reduce((n, s) => n + s.segments.reduce((m, g) => m + g.classified, 0), 0);
+  if (read.tokens.length === 0 && resolved === 0) {
+    problems.push(`${TEST_WORKFLOW_PATH}'s \`${UNIT_SUITE_JOB_ID}\` job states no \`npm run\` this reader could resolve and no \`node --test\` invocation it could read, in any \`run:\` line a \`cd\` does not move, so this leg read none of that job's commands — a scan that reads nothing would pass forever, so it reds here rather than reporting the suite as one the job dropped`); // prettier-ignore
+    return problems;
+  }
+  const admitted = [];
+  for (const step of steps ?? []) {
+    const offenders = carryingStepOffenders(step, suite, read.jobContinueOnError ?? null);
+    const subject = step.name === undefined ? `the step at index ${step.index} of its \`steps\` list` : `the step named \`${step.name}\``; // prettier-ignore
+    for (const offender of offenders) {
+      problems.push(`${TEST_WORKFLOW_PATH}'s \`${UNIT_SUITE_JOB_ID}\` job states ${suiteGlob(suite)} in ${subject}, under ${offender} — which this reader does not evaluate, so it cannot answer that running the job runs the suite: state the suite in a step this reading admits, carrying no condition, no tolerance, and no operator that keeps its verdict from the job, or teach the reader to read ${offender}`); // prettier-ignore
+    }
+    if (offenders.length > 0) continue; // refused: this step does not carry the suite
+    admitted.push(...step.segments.flatMap((segment) => segment.globs));
+  }
+  const carried = steps === undefined ? read.globs : admitted;
+  if (!carried.some((g) => g.dir === suite.dir && g.pattern === suite.pattern)) {
+    const reading = carried.length === 0 ? 'no `node --test` suite at all' : carried.map(suiteGlob).join(', '); // prettier-ignore
+    problems.push(`${TEST_WORKFLOW_PATH}'s \`${UNIT_SUITE_JOB_ID}\` job states no command resolving to ${suiteGlob(suite)}, the discovery ${suite.doc} ("${suite.section}") registers — the commands this reading admits resolve to ${reading} — while both verification documents state that job runs that suite in CI: put the suite back in that job's command, or stop the documents claiming it`); // prettier-ignore
+  }
+  return problems;
+}
+
+/**
  * The legs this check runs, and the home of their names. Each entry carries
  * the `label` the success line prints for it and the `bullet` its
  * header-docblock entry opens with. The success line is rendered from
@@ -296,6 +854,7 @@ export const INVENTORY_LEGS = [
   { label: 'vector-outcome', bullet: 'the shipping outcome' },
   { label: 'gate-watch', bullet: 'the strict-flip watch' },
   { label: 'job-citation', bullet: 'the job citations' },
+  { label: 'job-suite', bullet: 'the suite the cited job runs' },
 ];
 
 /**
@@ -896,6 +1455,14 @@ export function evaluateVerificationInventory(s, emptySurfaces = EMPTY_SURFACES)
   // leg taking a type error on a state that already has words for it.
   problems.push(...gateArgumentProblems(s.strictWatch ?? [], s.sufficiencyBaselineArg));
 
+  // The suite the cited job runs stands beside that cross-check, and for the
+  // same reason: every input it reads is the workflow's own job graph, the root
+  // manifest's scripts, or one of this check's constants — not one of them
+  // comes from a parsed document surface — so it is sound on a tree whose
+  // document extractions came back empty, and behind the early return any one
+  // of those empty surfaces would have hidden it.
+  problems.push(...jobSuiteProblems(s.registeredSuite, s.jobSuite));
+
   // The session catalogue's diff partner is one WATCHED platform's surface, minted
   // by `activeSessionsKey` from STRICT_WATCH_PLATFORMS and given its emptiness leg
   // from the same list — so a platform leaving the watch takes the surface and the
@@ -1116,7 +1683,11 @@ export function auditTree(readFile, listActive) {
   const vector = readVectorOutcome(readFile, VECTOR_SCHEMA_PATH);
   const predicates = extractPredicateTables(lintDoc);
   const perActionClass = extractPerActionClass(lintDoc);
-  const jobs = extractJobIds(readFile(TEST_WORKFLOW_PATH));
+  // One read of the workflow for both readings of it: the raw-text job-id scan
+  // the citation leg diffs against, and the structural parse the job-suite leg
+  // takes the named job's own step commands from.
+  const workflowText = readFile(TEST_WORKFLOW_PATH);
+  const jobs = extractJobIds(workflowText);
   // The anchor condition alone, asked of the extractor that reports it rather
   // than answered by "any problem it reported": a workflow the job scan cannot
   // anchor in is a file this check could not use — the machinery verdict every
@@ -1125,6 +1696,19 @@ export function auditTree(readFile, listActive) {
   // means.
   const anchorProblem = jobs.problems.find(isJobAnchorProblem);
   if (anchorProblem !== undefined) throw new InputError(anchorProblem);
+
+  // The structural half of the same read: the `jobs` map, through the reader
+  // the workflow-bounds check exports for it, handed the text this run already
+  // read rather than opening the file a second time. Its refusals are that
+  // reader's own words, re-raised as this check's machinery verdict — the
+  // route the job-id anchor condition already takes, one file over.
+  let jobsMap;
+  try {
+    jobsMap = readJobs(() => workflowText, TEST_WORKFLOW_PATH);
+  } catch (error) {
+    if (!(error instanceof WorkflowJobsError)) throw error;
+    throw new InputError(error.message);
+  }
 
   // The strict-flip watch's inputs. Active discovery runs once per platform and
   // feeds both the required-key guards on the two baselines and the
@@ -1138,6 +1722,12 @@ export function auditTree(readFile, listActive) {
     ...STRICT_WATCH_PLATFORMS.map((w) => w.script),
     SUFFICIENCY_SCRIPT,
   ]);
+  // The root manifest's script commands, read after the gate commands above so
+  // an unparseable manifest takes that reader's machinery verdict, which names
+  // the manifest and which way it failed.
+  const lintSurface = extractLintSurface(readFile(PACKAGE_JSON_PATH));
+  const registeredSuite = registeredNodeSuite(UNIT_SUITE_DIR);
+  const jobSuite = jobSuiteArguments(jobsMap, lintSurface.commands, UNIT_SUITE_JOB_ID);
   const strictWatch = STRICT_WATCH_PLATFORMS.map((w) => {
     const active = activeByPlatform.get(w.platform);
     const command = gateCommands.get(w.script);
@@ -1217,6 +1807,8 @@ export function auditTree(readFile, listActive) {
     watchedPlatforms: STRICT_WATCH_PLATFORMS.map((w) => w.platform),
     sufficiencyBaselineArg: argumentValue(gateCommands.get(SUFFICIENCY_SCRIPT), BASELINE_ARG),
     workflowJobIds: jobs.ids,
+    registeredSuite,
+    jobSuite,
   };
   return {
     problems: [...jobs.problems, ...evaluateVerificationInventory(s)],
@@ -1233,7 +1825,11 @@ export function auditTree(readFile, listActive) {
       (s.docPerActionClass === null ? 0 : 1) +
       s.docRecording.length +
       s.strictWatch.length +
-      s.docCites.reduce((n, d) => n + new Set(d.cites).size, 0),
+      s.docCites.reduce((n, d) => n + new Set(d.cites).size, 0) +
+      // The job-suite leg holds one entry: the registered glob the named job's
+      // own commands must resolve to. A registration this check's directory
+      // constant no longer matches holds none, and says so.
+      (s.registeredSuite === undefined ? 0 : 1),
   };
 }
 

@@ -197,7 +197,9 @@ annotation contract (SL-4) — never a baselineable finding.
 
 Where it runs — each row names the CI job that runs it, where one does, and
 the verification-inventory lint reds on a cited job the test workflow does
-not have:
+not have, and on the `unit-tests` job stating no unconditioned, unrelocated
+command whose verdict reaches the job and that resolves to the shared suite's
+registered glob:
 
 | Entry point                                                                                         | What it runs                                                                                       | Posture                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
 | --------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |

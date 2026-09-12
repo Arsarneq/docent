@@ -82,6 +82,8 @@ import {
   OUTCOME_CLAUSE_ID,
   SESSION_CLAUSE_ID,
   CITED_JOB_DOCUMENTS,
+  UNIT_SUITE_JOB_ID,
+  UNIT_SUITE_DIR,
   INVENTORY_LEGS,
   legList,
   NAMED_CAUSE_CAP,
@@ -96,6 +98,12 @@ import {
   extractPerActionClass,
   extractJobCites,
   documentCitations,
+  registeredNodeSuite,
+  suiteGlob,
+  jobSuiteArguments,
+  jobSuiteProblems,
+  commandOperators,
+  npmRunScript,
   commandTokens,
   passesFlag,
   argumentValue,
@@ -123,9 +131,12 @@ import {
 import { RELAX_KINDS } from '../../../../scripts/corpus-compare.js';
 import {
   TEST_WORKFLOW_PATH,
+  commandSegments,
   extractJobIds,
+  extractLintSurface,
   isJobAnchorProblem,
 } from '../../../../scripts/check-doc-closure.js';
+import { readJobs } from '../../../../scripts/check-workflow-bounds.js';
 
 const ROOT = resolve(import.meta.dirname, '..', '..', '..', '..');
 
@@ -243,6 +254,13 @@ function makeSurface(overrides = {}) {
     watchedPlatforms: ['extension', 'desktop-windows'],
     sufficiencyBaselineArg: SUFFICIENCY_BASELINE_PATH,
     workflowJobIds: ['lint', 'unit-tests'],
+    registeredSuite: registeredNodeSuite(UNIT_SUITE_DIR),
+    jobSuite: {
+      absent: false,
+      tokens: ['test:coverage'],
+      globs: [{ dir: UNIT_SUITE_DIR, pattern: registeredNodeSuite(UNIT_SUITE_DIR)?.pattern }],
+      refusals: [],
+    },
     ...overrides,
   };
 }
@@ -672,6 +690,513 @@ for (const { platform, script, baselinePath } of STRICT_WATCH_PLATFORMS) {
     });
   });
 }
+
+// The job-suite leg: the job both verification documents name runs the suite
+// they name, read the way the runner resolves it. The cases below are the
+// leg's own readers over synthetic jobs, then the shipped workflow and
+// manifest, then the readings a shallower one would get wrong.
+describe('the suite the cited job runs', () => {
+  /** The shipped registration, read once — the fixtures below key off it. */
+  const SUITE = registeredNodeSuite(UNIT_SUITE_DIR);
+  /** Whether one resolved argument is that suite's registered glob. */
+  const isSuite = (g) => g.dir === SUITE.dir && g.pattern === SUITE.pattern;
+  /** A `jobs` map carrying one job whose steps run the given commands. */
+  const jobs = (runs, id = UNIT_SUITE_JOB_ID) => ({
+    [id]: { steps: runs.map((run) => ({ run })) },
+  });
+  /**
+   * The manifest scripts the fixtures below resolve through: the shipped shape,
+   * where the job states a script of its own beside the one carrying the suite.
+   */
+  const RESOLVING_COMMANDS = {
+    'sync-shared': 'node scripts/sync-shared.js',
+    'test:coverage': `c8 node --test ${suiteGlob(SUITE)} packages/desktop/tests/unit/*.test.js`,
+    'test:desktop:coverage': 'c8 node --test packages/desktop/tests/unit/*.test.js',
+  };
+  /**
+   * A job whose first step resolves a script key whatever the step under test
+   * does, so the vacuity refusal — which answers for a scan that read nothing —
+   * never stands in for the finding a case is about.
+   */
+  const resolving = (runs) => jobs(['npm run sync-shared', ...runs]);
+
+  it('the registration is where the glob comes from, not this check', () => {
+    assert.notEqual(SUITE, undefined, `DOC_INVENTORIES registers ${UNIT_SUITE_DIR}`);
+    assert.equal(SUITE.dir, UNIT_SUITE_DIR);
+    assert.equal(suiteGlob(SUITE), `${UNIT_SUITE_DIR}/${SUITE.pattern}`);
+    // A directory no entry registers a node discovery for answers nothing,
+    // rather than a half-built descriptor the leg would read as a suite.
+    assert.equal(registeredNodeSuite('packages/shared/tests/fixtures'), undefined);
+    // The cargo suite IS registered — but not by a `node --test` glob, so this
+    // reader passes it over rather than demanding a node invocation for it.
+    assert.equal(registeredNodeSuite('packages/desktop/src-tauri/tests'), undefined);
+  });
+
+  it('a job stating the glob through its script satisfies the leg', () => {
+    const read = jobSuiteArguments(
+      jobs(['npm run sync-shared', 'npm run test:coverage']),
+      { 'sync-shared': 'node scripts/sync-shared.js', 'test:coverage': `c8 node --test ${suiteGlob(SUITE)} packages/desktop/tests/unit/*.test.js` }, // prettier-ignore
+      UNIT_SUITE_JOB_ID,
+    );
+    assert.deepEqual(read.refusals, []);
+    assert.deepEqual(read.tokens, ['sync-shared', 'test:coverage']);
+    assert.deepEqual(jobSuiteProblems(SUITE, read), []);
+  });
+
+  it('a job stating further suites beside it still satisfies the leg', () => {
+    // The pin is membership, not equality: the job is free to grow a tree.
+    const read = jobSuiteArguments(
+      jobs(['npm run everything']),
+      { everything: `node --test ${suiteGlob(SUITE)} packages/extension/tests/unit/*.test.js` },
+      UNIT_SUITE_JOB_ID,
+    );
+    assert.deepEqual(jobSuiteProblems(SUITE, read), []);
+  });
+
+  it('the glob dropped from the script it resolves through reds, naming what is left', () => {
+    const read = jobSuiteArguments(
+      jobs(['npm run test:coverage']),
+      { 'test:coverage': 'c8 node --test packages/desktop/tests/unit/*.test.js' },
+      UNIT_SUITE_JOB_ID,
+    );
+    const problems = jobSuiteProblems(SUITE, read);
+    assert.equal(problems.length, 1);
+    assert.ok(problems[0].includes(suiteGlob(SUITE)), problems[0]);
+    assert.ok(problems[0].includes('packages/desktop/tests/unit/*.test.js'), problems[0]);
+    assert.ok(problems[0].includes(SUITE.doc), problems[0]);
+  });
+
+  it('the command swapped for another real script reds the same way', () => {
+    // The ARGUMENT SET is the pin: a step free to be respelled is not free to
+    // stop running the suite. Nothing here reads the command string.
+    const read = jobSuiteArguments(
+      jobs(['npm run build:schemas']),
+      { 'build:schemas': 'node scripts/build-schemas.js', 'test:coverage': `node --test ${suiteGlob(SUITE)}` }, // prettier-ignore
+      UNIT_SUITE_JOB_ID,
+    );
+    const problems = jobSuiteProblems(SUITE, read);
+    assert.equal(problems.length, 1);
+    assert.ok(problems[0].includes('resolve to no `node --test` suite at all'), problems[0]);
+  });
+
+  it('a literal member of the suite is not the suite', () => {
+    const read = jobSuiteArguments(
+      jobs(['npm run one']),
+      { one: `node --test ${UNIT_SUITE_DIR}/conformance-vectors.test.js` },
+      UNIT_SUITE_JOB_ID,
+    );
+    assert.deepEqual(read.globs, []);
+    assert.equal(jobSuiteProblems(SUITE, read).length, 1);
+  });
+
+  describe('a relocated command is not read against the root', () => {
+    // The readings a shallower one gets wrong. In each, the step's `npm run`
+    // token is spelled exactly like the root script's and the root manifest
+    // defines that name — so resolving the token without its relocation would
+    // report the ROOT suite run by a step that runs another package's.
+    const commands = { 'test:coverage': `c8 node --test ${suiteGlob(SUITE)}` };
+
+    for (const [shape, run] of [
+      ['a `cd` ahead of it on the same line', 'cd packages/extension && npm run test:coverage'],
+      ['a `cd` on an earlier line of the same block', 'cd packages/extension\nnpm run test:coverage'], // prettier-ignore
+      ['a `cd` earlier still, with the command two lines down', 'cd packages/extension\nnpm ci\nnpm run test:coverage'], // prettier-ignore
+    ]) {
+      it(`${shape} leaves the command unread, and says so`, () => {
+        const read = jobSuiteArguments(jobs([run]), commands, UNIT_SUITE_JOB_ID);
+        assert.deepEqual(read.globs, []);
+        assert.deepEqual(read.tokens, []);
+        // The verdict is the scan's own refusal, not a suite reported dropped.
+        const problems = jobSuiteProblems(SUITE, read);
+        assert.equal(problems.length, 1);
+        assert.ok(problems[0].includes('read none of that job'), problems[0]);
+      });
+    }
+
+    it('a step stating its own working directory is refused by name', () => {
+      const read = jobSuiteArguments(
+        { [UNIT_SUITE_JOB_ID]: { steps: [{ 'working-directory': 'packages/extension', run: 'npm run test:coverage' }] } }, // prettier-ignore
+        commands,
+        UNIT_SUITE_JOB_ID,
+      );
+      assert.equal(read.refusals.length, 1);
+      assert.ok(read.refusals[0].includes('working-directory: packages/extension'), read.refusals[0]); // prettier-ignore
+      assert.deepEqual(read.globs, []);
+      assert.ok(jobSuiteProblems(SUITE, read).some((p) => p.includes('cannot be resolved')));
+    });
+
+    it('a `cd` AFTER the command does not unread it', () => {
+      // The relocation bounds what follows it, not what precedes it.
+      const read = jobSuiteArguments(
+        jobs(['npm run test:coverage && cd packages/extension && npm ci']),
+        commands,
+        UNIT_SUITE_JOB_ID,
+      );
+      assert.ok(read.globs.some(isSuite), JSON.stringify(read));
+      assert.deepEqual(jobSuiteProblems(SUITE, read), []);
+    });
+  });
+
+  it('a job the workflow does not carry is named as that, not as a dropped suite', () => {
+    const read = jobSuiteArguments(jobs(['npm run test:coverage'], 'other-job'), {}, UNIT_SUITE_JOB_ID); // prettier-ignore
+    assert.equal(read.absent, true);
+    const problems = jobSuiteProblems(SUITE, read);
+    assert.equal(problems.length, 1);
+    assert.ok(problems[0].includes(`has no \`${UNIT_SUITE_JOB_ID}\` job`), problems[0]);
+  });
+
+  it('a registration this check’s directory no longer matches names both', () => {
+    const problems = jobSuiteProblems(undefined, { absent: false, tokens: [], globs: [], refusals: [] }); // prettier-ignore
+    assert.equal(problems.length, 1);
+    assert.ok(problems[0].includes('UNIT_SUITE_DIR'), problems[0]);
+    assert.ok(problems[0].includes('DOC_INVENTORIES'), problems[0]);
+  });
+
+  it('a script the root manifest does not define is refused by name', () => {
+    const read = jobSuiteArguments(jobs(['npm run test:coverage']), {}, UNIT_SUITE_JOB_ID);
+    assert.equal(read.refusals.length, 1);
+    assert.ok(read.refusals[0].includes(PACKAGE_JSON_PATH), read.refusals[0]);
+    assert.ok(jobSuiteProblems(SUITE, read).some((p) => p.includes('cannot be resolved')));
+  });
+
+  it('a command the argument reader will not model is refused, never read as empty', () => {
+    for (const command of [
+      'cd packages/desktop && node --test tests/unit/*.test.js',
+      'node --test packages/*/tests/unit/*.test.js',
+    ]) {
+      const read = jobSuiteArguments(jobs(['npm run odd']), { odd: command }, UNIT_SUITE_JOB_ID);
+      assert.equal(read.refusals.length, 1, command);
+      const problems = jobSuiteProblems(SUITE, read);
+      assert.ok(problems.some((p) => p.includes('cannot be resolved')), command); // prettier-ignore
+      assert.ok(
+        problems.some((p) => p.includes('does not model')),
+        command,
+      );
+    }
+  });
+
+  // The step's own command, and the one anchoring rule both routes take.
+  describe('the step’s own command is read by the same reader', () => {
+    const inlined = `npx c8 --reporter=text --reporter=lcov node --test ${suiteGlob(SUITE)} packages/desktop/tests/unit/*.test.js`; // prettier-ignore
+
+    it('a step spelling the invocation out carries the suite', () => {
+      // Named no script at all: read today as a job that dropped the suite.
+      const read = jobSuiteArguments(jobs([inlined]), {}, UNIT_SUITE_JOB_ID);
+      assert.deepEqual(read.refusals, []);
+      assert.ok(read.globs.some(isSuite), JSON.stringify(read.globs));
+      assert.deepEqual(jobSuiteProblems(SUITE, read), []);
+    });
+
+    it('npm’s own flags are stepped over, so a flagged invocation resolves', () => {
+      const read = jobSuiteArguments(
+        jobs(['npm run --silent test:coverage']),
+        { 'test:coverage': `c8 node --test ${suiteGlob(SUITE)}` },
+        UNIT_SUITE_JOB_ID,
+      );
+      assert.deepEqual(read.tokens, ['test:coverage']);
+      assert.deepEqual(jobSuiteProblems(SUITE, read), []);
+    });
+
+    it('a step stating the invocation after a `cd` is still stopped at the `cd`', () => {
+      const read = jobSuiteArguments(
+        resolving([`cd packages/extension && node --test ${suiteGlob(SUITE)}`]),
+        RESOLVING_COMMANDS,
+        UNIT_SUITE_JOB_ID,
+      );
+      assert.deepEqual(read.globs, []);
+      const problems = jobSuiteProblems(SUITE, read);
+      assert.equal(problems.length, 1, problems.join('\n'));
+      assert.ok(problems[0].includes(suiteGlob(SUITE)), problems[0]);
+    });
+
+    for (const [shape, run, named] of [
+      ['an invocation quoted into another command', `echo node --test ${suiteGlob(SUITE)}`, 'node'],
+      ['an invocation behind a shell keyword', `if true; then node --test ${suiteGlob(SUITE)}; fi`, 'node'], // prettier-ignore
+      ['a script invocation behind a timer', 'time npm run test:coverage', 'npm'],
+      ['a script invocation behind a shell keyword', 'if true; then npm run test:coverage; fi', 'npm'], // prettier-ignore
+    ]) {
+      it(`${shape} is refused by name rather than read`, () => {
+        const read = jobSuiteArguments(resolving([run]), RESOLVING_COMMANDS, UNIT_SUITE_JOB_ID);
+        assert.equal(read.refusals.length, 1, JSON.stringify(read.refusals));
+        assert.ok(read.refusals[0].includes(`\`${named}\``), read.refusals[0]);
+        assert.ok(read.refusals[0].includes('other than the head'), read.refusals[0]);
+        const problems = jobSuiteProblems(SUITE, read);
+        assert.equal(problems.length, 2, problems.join('\n'));
+        assert.ok(problems[1].includes(suiteGlob(SUITE)), problems[1]);
+      });
+    }
+
+    it('a script key this reader cannot read is refused by name', () => {
+      // The closing paren rides the key, so the root manifest would be asked
+      // for a key no manifest defines.
+      const read = jobSuiteArguments(
+        resolving(['(npm run test:coverage)']),
+        RESOLVING_COMMANDS,
+        UNIT_SUITE_JOB_ID,
+      );
+      assert.equal(read.refusals.length, 1, JSON.stringify(read.refusals));
+      assert.ok(read.refusals[0].includes('script key this reader cannot read'), read.refusals[0]);
+      assert.equal(jobSuiteProblems(SUITE, read).length, 2);
+    });
+
+    it('the key reader names the key it reads and refuses the one it cannot', () => {
+      assert.equal(npmRunScript('npm ci'), undefined);
+      assert.deepEqual(npmRunScript('npm run test:coverage'), { token: 'test:coverage' });
+      assert.deepEqual(npmRunScript('npm run --silent test:coverage'), { token: 'test:coverage' });
+      assert.deepEqual(npmRunScript('npm run test:coverage)'), { unreadable: true });
+      assert.deepEqual(npmRunScript('npm run'), { unreadable: true });
+    });
+
+    it('the vacuity refusal names both routes and stays silent once either resolved', () => {
+      const unread = jobSuiteArguments(
+        jobs(['cd packages/extension && npm run test:coverage']),
+        RESOLVING_COMMANDS,
+        UNIT_SUITE_JOB_ID,
+      );
+      const refusal = jobSuiteProblems(SUITE, unread);
+      assert.equal(refusal.length, 1, refusal.join('\n'));
+      assert.ok(refusal[0].includes('no `npm run` this reader could resolve'), refusal[0]);
+      assert.ok(refusal[0].includes('no `node --test` invocation it could read'), refusal[0]);
+      // The step's own command resolved, so the guard has read something even
+      // though no script key was looked up.
+      const viaStep = jobSuiteArguments(jobs([inlined]), {}, UNIT_SUITE_JOB_ID);
+      assert.deepEqual(viaStep.tokens, []);
+      assert.deepEqual(jobSuiteProblems(SUITE, viaStep), []);
+    });
+  });
+
+  // The carrying step's own verdict: the states this reader declines to
+  // evaluate, each refused by name, and the shapes it admits.
+  describe('a carrying step whose verdict this reader cannot answer for', () => {
+    /** The benign step every fixture below carries, so the reading is never vacuous. */
+    const benign = { name: 'Sync shared code', run: 'npm run sync-shared' };
+    /** The carrying step under test, beside that benign one. */
+    const job = (step, jobKeys = {}) => ({
+      [UNIT_SUITE_JOB_ID]: { ...jobKeys, steps: [benign, { name: 'Tests', ...step }] },
+    });
+    const answer = (step, jobKeys) =>
+      jobSuiteProblems(
+        SUITE,
+        jobSuiteArguments(job(step, jobKeys), RESOLVING_COMMANDS, UNIT_SUITE_JOB_ID),
+      );
+
+    for (const [shape, step, named, jobKeys] of [
+      ['a condition', { run: 'npm run test:coverage', if: 'false' }, 'if: false'],
+      ['an expression condition', { run: 'npm run test:coverage', if: 'always()' }, 'if: always()'],
+      ['a truthy tolerance', { run: 'npm run test:coverage', 'continue-on-error': true }, 'continue-on-error: true'], // prettier-ignore
+      ['a tolerance written as an expression', { run: 'npm run test:coverage', 'continue-on-error': '${{ github.event_name == \'push\' }}' }, 'continue-on-error: ${{'], // prettier-ignore
+      ['an operator absorbing its failure', { run: 'npm run test:coverage || echo advisory' }, '`||`'], // prettier-ignore
+      ['an operator that may never reach it', { run: 'echo probe || npm run test:coverage' }, '`||`'], // prettier-ignore
+      ['a pipeline taking its verdict', { run: 'npm run test:coverage | tee out.log' }, '`|`'],
+      ['an `&&` before it', { run: 'echo x && npm run test:coverage' }, '`&&`'],
+      ['an `&&` after it on a line that is not the block’s last', { run: 'npm run test:coverage && echo done\necho after' }, '`&&`'], // prettier-ignore
+      ['an `||` on its own line of a block', { run: 'npm run test:coverage || true\necho after' }, '`||`'], // prettier-ignore
+      ['the job’s own tolerance', { run: 'npm run test:coverage' }, 'continue-on-error: true', { 'continue-on-error': true }], // prettier-ignore
+    ]) {
+      it(`${shape} is refused by name, beside the suite-absent finding`, () => {
+        const problems = answer(step, jobKeys);
+        assert.equal(problems.length, 2, problems.join('\n'));
+        assert.ok(problems[0].includes('the step named `Tests`'), problems[0]);
+        assert.ok(problems[0].includes(named), problems[0]);
+        assert.ok(problems[0].includes('teach the reader'), problems[0]);
+        // Never through the reader-refusal wrapper: the command DID resolve.
+        assert.ok(!problems[0].includes('cannot be resolved'), problems[0]);
+        assert.ok(problems[1].includes(suiteGlob(SUITE)), problems[1]);
+      });
+    }
+
+    for (const [shape, step] of [
+      ['a tolerance that tolerates nothing', { run: 'npm run test:coverage', 'continue-on-error': false }], // prettier-ignore
+      ['an `&&` after it on the block’s only line', { run: 'npm run test:coverage && echo done' }],
+      ['a quoted pipe in its own arguments', { run: "npm run test:coverage -- --grep 'a|b'" }],
+      ['a swallowing operator on another line of the block', { run: 'npm run test:coverage\nrm -rf tmp || true' }], // prettier-ignore
+    ]) {
+      it(`${shape} is admitted`, () => {
+        assert.deepEqual(answer(step), []);
+      });
+    }
+
+    it('a step resolving to no suite states what it likes', () => {
+      assert.deepEqual(
+        answer({ run: 'npm run test:coverage' }),
+        [],
+        'the carrying step is clean, so the conditioned one below is the subject',
+      );
+      const problems = jobSuiteProblems(
+        SUITE,
+        jobSuiteArguments(
+          {
+            [UNIT_SUITE_JOB_ID]: {
+              steps: [
+                { name: 'Tests', run: 'npm run test:coverage' },
+                { name: 'Probe', run: 'node scripts/sync-shared.js', if: 'always()' },
+                { name: 'Desktop', run: 'npm run test:desktop:coverage', if: 'always()' },
+              ],
+            },
+          },
+          RESOLVING_COMMANDS,
+          UNIT_SUITE_JOB_ID,
+        ),
+      );
+      assert.deepEqual(problems, []);
+    });
+
+    it('a second carrying step under a condition is refused, the first still carrying', () => {
+      const problems = jobSuiteProblems(
+        SUITE,
+        jobSuiteArguments(
+          {
+            [UNIT_SUITE_JOB_ID]: {
+              steps: [
+                { name: 'Tests', run: 'npm run test:coverage' },
+                { name: 'Again', run: 'npm run test:coverage', if: 'always()' },
+              ],
+            },
+          },
+          RESOLVING_COMMANDS,
+          UNIT_SUITE_JOB_ID,
+        ),
+      );
+      assert.equal(problems.length, 1, problems.join('\n'));
+      assert.ok(problems[0].includes('the step named `Again`'), problems[0]);
+    });
+
+    it('a refused step with no name of its own is named by its position', () => {
+      const problems = jobSuiteProblems(
+        SUITE,
+        jobSuiteArguments(
+          {
+            [UNIT_SUITE_JOB_ID]: { steps: [benign, { run: 'npm run test:coverage', if: 'false' }] },
+          },
+          RESOLVING_COMMANDS,
+          UNIT_SUITE_JOB_ID,
+        ),
+      );
+      assert.ok(problems[0].includes('the step at index 1'), problems[0]);
+    });
+  });
+
+  // The operator lexer, held to the segment splitter it stands beside.
+  describe('the operator lexer answers the segments the splitter answers', () => {
+    for (const [shape, text] of [
+      ['a quoted pipe', "npm run test:coverage -- --grep 'a|b'"],
+      [
+        'a `#` comment carrying operators',
+        'echo a # npm run b | c\nnpm run test:coverage && echo x',
+      ],
+      ['a parenthesised command behind an `||`', 'git diff --exit-code a || (echo "no" && exit 1)'],
+      ['a trailing comment-only line', 'npm ci\nnpm run test:coverage\n\n# done\n'],
+      ['a `cd` ahead of the rest of the block', 'cd x && npm ci\nnpm run test:coverage'],
+    ]) {
+      it(`${shape} splits the same way`, () => {
+        assert.deepEqual(
+          commandOperators(text).map((segment) => segment.command),
+          commandSegments(text),
+        );
+      });
+    }
+
+    it('the state each segment stands in is what the verdict reads', () => {
+      const read = commandOperators('npm run test:coverage && echo done\necho after');
+      assert.deepEqual(
+        read.map((s) => [s.command, s.before, s.after, s.last]),
+        [
+          ['npm run test:coverage', null, '&&', false],
+          ['echo done', '&&', null, false],
+          ['echo after', null, null, true],
+        ],
+      );
+      // A trailing blank or comment-only line states no command, so it does not
+      // move which line is the block's last.
+      const padded = commandOperators('npm run test:coverage\n\n# nothing here\n');
+      assert.deepEqual(
+        padded.map((s) => [s.command, s.last]),
+        [['npm run test:coverage', true]],
+      );
+      // A quoted operator is data, so the line states none.
+      assert.deepEqual(commandOperators("echo 'a|b'")[0].operators, []);
+    });
+  });
+
+  it('the leg reaches the evaluator, beside the surfaces it does not depend on', () => {
+    const problems = evaluateVerificationInventory(
+      makeSurface({
+        jobSuite: { absent: false, tokens: ['test:coverage'], globs: [], refusals: [] },
+        // Every document surface empty: the leg still prints, the way the
+        // gate-argument cross-check does, because it reads none of them.
+        docKinds: [],
+      }),
+    );
+    assert.ok(problems.some((p) => p.includes(suiteGlob(SUITE))), problems.join('\n')); // prettier-ignore
+  });
+
+  describe('over the shipped tree', () => {
+    const read = (path) => readFileSync(join(ROOT, path), 'utf8');
+    const shippedJobs = () => readJobs(read, TEST_WORKFLOW_PATH);
+    const shippedCommands = () => extractLintSurface(read(PACKAGE_JSON_PATH)).commands;
+
+    it('the shipped job states the shared suite’s registered glob', () => {
+      const answer = jobSuiteArguments(shippedJobs(), shippedCommands(), UNIT_SUITE_JOB_ID);
+      assert.deepEqual(jobSuiteProblems(SUITE, answer), []);
+      assert.deepEqual(answer.refusals, []);
+      assert.ok(
+        answer.globs.some(isSuite),
+        `${UNIT_SUITE_JOB_ID} resolves to: ${answer.globs.map(suiteGlob).join(', ')}`,
+      );
+    });
+
+    it('the shipped carrying step is one this reading admits', () => {
+      // The real-tree lock on the verdict the refusals above are about: the
+      // step that carries the suite today states no condition, no tolerance,
+      // and no operator that would keep its verdict from the job — while the
+      // job DOES carry a tolerated step elsewhere, which is why a refusal
+      // keyed on the job rather than on the carrying step would red what ships.
+      const answer = jobSuiteArguments(shippedJobs(), shippedCommands(), UNIT_SUITE_JOB_ID);
+      assert.equal(answer.jobContinueOnError, null);
+      const carrying = answer.steps.filter((step) =>
+        step.segments.some((segment) => segment.globs.some(isSuite)),
+      );
+      assert.equal(carrying.length, 1, JSON.stringify(answer.steps.map((s) => s.name)));
+      assert.equal(carrying[0].condition, null);
+      assert.equal(carrying[0].continueOnError, null);
+      for (const segment of carrying[0].segments) {
+        assert.deepEqual(segment.operators, [], segment.command);
+        assert.equal(segment.before, null, segment.command);
+      }
+      assert.ok(
+        answer.steps.some((step) => step.continueOnError !== null),
+        'the shipped job states a tolerated step of its own',
+      );
+    });
+
+    it('the step gone, the one behind its `cd` does not stand in for it', () => {
+      // The mutation the leg exists for, over the real job — and the step it
+      // removes is FOUND rather than spelled: the one whose resolved arguments
+      // carry the suite. Spelling it would pin the command string this leg
+      // deliberately leaves free, and this case would then red on the very
+      // respelling the leg permits.
+      const commands = shippedCommands();
+      const steps = shippedJobs()[UNIT_SUITE_JOB_ID].steps;
+      const answer = (subset) =>
+        jobSuiteArguments({ [UNIT_SUITE_JOB_ID]: { steps: subset } }, commands, UNIT_SUITE_JOB_ID);
+      const carrying = steps.filter((step) => answer([step]).globs.some(isSuite));
+      assert.equal(carrying.length, 1, `one step of \`${UNIT_SUITE_JOB_ID}\` resolves to ${suiteGlob(SUITE)}`); // prettier-ignore
+      const rest = steps.filter((step) => !carrying.includes(step));
+      // What remains still states a relocated command — the shape a reading
+      // without the relocation guard would resolve against the root manifest.
+      assert.ok(
+        rest.some(
+          (step) =>
+            typeof step?.run === 'string' &&
+            commandSegments(step.run).some((segment) => /^cd(\s|$)/.test(segment)),
+        ),
+        `\`${UNIT_SUITE_JOB_ID}\` still states a \`cd\`-moved command`,
+      );
+      const problems = jobSuiteProblems(SUITE, answer(rest));
+      assert.equal(problems.length, 1, problems.join('\n'));
+      assert.ok(problems[0].includes(suiteGlob(SUITE)), problems[0]);
+    });
+  });
+});
 
 describe('the strict-flip watch reaches the evaluator', () => {
   it('a demanded flag surfaces through evaluateVerificationInventory', () => {
@@ -2140,6 +2665,27 @@ describe('the workflow anchor is an input this check reads', () => {
     // An anchored workflow with no job keys is a different fact: the extractor
     // reports no problem at all, so that emptiness stays the vacuity leg's.
     assert.deepEqual(extractJobIds(['jobs:', '', 'name: t'].join('\n')), { ids: [], problems: [] });
+  });
+
+  it('a workflow the structural read refuses is that same verdict, in its words', () => {
+    // The job-suite leg reads the `jobs` MAP, through the workflow-bounds
+    // check's own reader, where the citation leg reads the ids from the text.
+    // A file the text scan still anchors in but the map read refuses — an
+    // `jobs:` block stating nothing — is machinery breakage too, and it reaches the
+    // wrapper as this check's InputError rather than as a pin that stopped
+    // holding or a type error out of the leg.
+    const readFile = (path) =>
+      path === TEST_WORKFLOW_PATH ? 'jobs:\n' : readTreeFile(join(ROOT, path));
+    assert.deepEqual(extractJobIds('jobs:\n'), { ids: [], problems: [] });
+    assert.throws(
+      () => auditTree(readFile, (platform) => listActiveSessions(readFile, platform)),
+      (error) => {
+        assert.ok(error instanceof InputError, `not an InputError: ${error}`);
+        assert.ok(error.message.includes(TEST_WORKFLOW_PATH), error.message);
+        assert.match(error.message, /`jobs` map/);
+        return true;
+      },
+    );
   });
 
   it('auditTree refuses a de-anchored workflow as an input, once, naming it', () => {
