@@ -34,6 +34,8 @@ import {
   PROXY_CLAUSE_ID,
   DESKTOP_CLAUSE_ID,
   CORRELATION_CLAUSE_ID,
+  CORRELATION_HEADER,
+  CORRELATION_CLASS_COLUMN,
   EMPTY_SURFACES,
   DUPLICATE_SURFACES,
   ADMITTED_REGISTRATIONS,
@@ -902,6 +904,10 @@ describe('extractDesktopRegistrations', () => {
 });
 
 describe('extractClauseNames and extractCorrelationClasses', () => {
+  it('reads a column its own header names — spelled, not taken by position', () => {
+    assert.ok(CORRELATION_HEADER.includes(CORRELATION_CLASS_COLUMN));
+  });
+
   const doc = [
     '## Capture Surface',
     '',
