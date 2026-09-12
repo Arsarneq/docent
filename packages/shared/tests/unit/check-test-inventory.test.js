@@ -865,6 +865,27 @@ describe('the shared doc-scan primitives', () => {
     assert.deepEqual(read.unreadable, []);
   });
 
+  it('reads the column a named header cell addresses, wherever that cell sits', () => {
+    const table = { header: ['Type', 'Payload', 'Response'], rows: [['`T`', '`{ a }`', '`{}`']] };
+    const read = readTableColumn([table], { empty: '(empty)', column: 'Payload' });
+    assert.deepEqual(read.names, ['{ a }']);
+    assert.deepEqual(read.unreadable, []);
+  });
+
+  it('matches a named column against the trimmed header cell, padding and all', () => {
+    const table = { header: ['Type', '  Payload  '], rows: [['`T`', '`{ a }`']] };
+    const read = readTableColumn([table], { empty: '(empty)', column: 'Payload' });
+    assert.deepEqual(read.names, ['{ a }']);
+  });
+
+  it('refuses a named column no header cell carries, stating the header it read', () => {
+    const table = { header: ['Type', 'Payload'], rows: [['`T`', '`{}`']] };
+    assert.throws(() => readTableColumn([table], { empty: '(empty)', column: 'Reaches' }), {
+      name: 'TypeError',
+      message: 'resolveColumn: no column named `Reaches` in a table headed Type | Payload',
+    });
+  });
+
   it('collects WHOLE backticked spans only, in document order, dedup at the caller', () => {
     const text = 'takes `alpha`, then `alpha` again, and `emit("alpha") beside beta` in one span';
     assert.deepEqual(backtickedTokens(text), ['alpha', 'alpha', 'emit("alpha") beside beta']);

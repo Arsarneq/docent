@@ -54,13 +54,13 @@
  *
  * Each surface this check knows is there must be non-empty — the two capture
  * files' own registrations among them — every enumeration entry must be
- * readable (fence-aware, refusing unreadable list items and table cells rather
- * than skipping them), and a registration shape outside the scan's model — a
- * computed event name, a listener on a receiver the scan does not model in the
- * capture pair, a hook-installation site the extractor cannot anchor — is
- * refused loudly instead of passing vacuously. A population file that registers
- * nothing either enumeration describes is the ordinary case there, and
- * contributes nothing.
+ * readable (code-block-aware, refusing unreadable list items and table cells
+ * rather than skipping them), and a registration shape outside the scan's
+ * model — a computed event name, a listener on a receiver the scan does not
+ * model in the capture pair, a hook-installation site the extractor cannot
+ * anchor — is refused loudly instead of passing vacuously. A population file
+ * that registers nothing either enumeration describes is the ordinary case
+ * there, and contributes nothing.
  *
  * Honest limits. In the CAPTURE PAIR every shape outside the model is REFUSED,
  * never skipped: an event name that is not a lone quoted string literal (so a
@@ -703,6 +703,7 @@ export function extractCorrelationClasses(docText) {
   });
   const read = readTableColumn(tables, {
     empty: '(empty WinEvent cell)',
+    column: CORRELATION_HEADER[0],
     read: (cell) => {
       const name = backtickedName(cell);
       return name !== null && WIN_EVENT_RE.test(name) ? name : null;

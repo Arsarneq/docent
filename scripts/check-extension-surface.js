@@ -64,10 +64,10 @@
  * the worker's own module-scope bindings and import names, and everything in
  * that intersection is a name {@link HANDLE_REACH_SET} states — and, member by
  * member, a name that member's own Reaches cell states, the WELD the clause's
- * "each member reaches exactly the worker bindings its row names" asks for:
- * read both ways, so a member reaching a binding ANOTHER member's row names
- * reds although the whole-handle membership test passes it, and a row stating a
- * reach its member's body does not name reds beside it. The rows' own names are
+ * own closure sentence ({@link HANDLE_CLOSURE_ANCHOR}) asks for: read both
+ * ways, so a member reaching a binding ANOTHER member's row names reds although
+ * the whole-handle membership test passes it, and a row stating a reach its
+ * member's body does not name reds beside it. The rows' own names are
  * held to the same constant, so a row can never legalize a reach the clause
  * does not place the handle over: a row's names serve as its member's allowed
  * set unfiltered, and the ROW-SIDE placement leg is what refuses a name a row
@@ -95,7 +95,7 @@
  * (`git ls-files` over that directory, recursive, filtered to `.js`).
  *
  * Every parsed set must be non-empty, every table cell must be readable
- * (fence-aware, refusing unreadable rows rather than skipping them), the
+ * (code-block-aware, refusing unreadable rows rather than skipping them), the
  * scanned population must carry exactly one `switch (msg.type)`, standing in
  * the service worker and carrying a `default:` arm, and the manifest read
  * refuses every shape outside its model — a document that is not a JSON
@@ -184,7 +184,9 @@
  * sentence keeping them while the prose around them turns into something else
  * passes — what the statement means stays review-held, the same way the
  * tables' prose does. The
- * tables' rationale, payload, and response prose stays review-held; and the
+ * tables' rationale and response prose stays review-held, their Payload column
+ * no longer among it — a cell is read as key names, and a row that disagrees
+ * with its senders reds; and the
  * manifest's resource-exposure facts (CSP absence, empty
  * `web_accessible_resources`) stay judgment-held with their doc bullets.
  *
@@ -200,6 +202,10 @@
  * does: a faithful rewording that drops them reds although the doctrine still
  * stands, and a sentence keeping them while the prose around them turns into
  * something else passes — what the grammar sentence means stays review-held.
+ * The clause's closure sentence ({@link HANDLE_CLOSURE_ANCHOR}) — the one the
+ * weld below is the enforcement of — is held present the same way, and the
+ * weld's own diagnostics are built from that constant, so the sentence the
+ * clause must state and the sentence those reds quote have one home.
  * The identifier scan
  * over a member's body reads every word token in it, property names included,
  * so a property called after a module-scope binding — `x.activeFrames` — is
@@ -246,6 +252,7 @@ import {
   namedLiteral,
   readLoneStringLiteral,
   readTableColumn,
+  resolveColumn,
   selectTablesByHeader,
   tokenizeJs,
   trackedFilesUnder,
@@ -274,6 +281,12 @@ export const RUNTIME_DOC_PATH = 'docs/architecture/application/extension/runtime
 export const WORKER_PATH = 'packages/extension/background/service-worker.js';
 /** Repo-relative directory of the panel JavaScript the send scan reads. */
 export const PANEL_DIR = 'packages/extension/sidepanel';
+/**
+ * Repo-relative directory of the content-script JavaScript the capture-path
+ * send scan reads. It is the tree the runtime doc's Components table homes the
+ * recorder in, and the recorder is the sender the capture-path table names.
+ */
+export const CONTENT_DIR = 'packages/extension/content';
 /**
  * The directory whose tracked JavaScript the dispatcher legs scan: the
  * worker's own module tree, which is the tree the Components table homes the
@@ -327,6 +340,37 @@ export const HANDLE_NO_REACH_MARKER = 'none';
 export const PROTOCOL_SECTION = 'Message protocol';
 /** The capture-path table's whole header in that section. */
 export const CAPTURE_TABLE_HEADER = ['Type', 'Payload', 'Response'];
+/**
+ * The capture-path table's payload column, by its header name: the column is
+ * resolved from each admitted table's own header through the shared reader's
+ * named form ({@link resolveColumn}), the way the member table's first column
+ * and every other named read in this check are. Admission is the WHOLE header in
+ * its stated order ({@link CAPTURE_TABLE_HEADER}), so a document stating the
+ * column under another name or at another position admits no table here and
+ * answers the empty surface this leg's own guard reds on, and a named column
+ * absent from an admitted table is a defect in this check, refused loudly where
+ * it is resolved.
+ */
+export const CAPTURE_PAYLOAD_COLUMN = 'Payload';
+/**
+ * The Payload cell's marker for a message that carries no payload at all: an em
+ * dash, written in the cell BACKTICKED, the cell's other whole form beside a
+ * backticked object shape. Every cell this check parses is one backticked span,
+ * and this constant is the marker's own text inside that span, so the cell's
+ * backticks belong to the span rather than to the marker. It is what keeps an
+ * empty cell unreadable rather than readable as this: a row states the key names
+ * its message carries or, explicitly, that it carries none. A message whose
+ * payload key is actually called after the marker could not be stated in a cell,
+ * which is the reserved form's one cost.
+ */
+export const CAPTURE_PAYLOAD_NONE_MARKER = '\u2014';
+/**
+ * The shape of a top-level payload key, on both sides of the weld: a bare
+ * JavaScript identifier. It is what refuses a nested shape, a quoted piece, and
+ * a prose fragment inside the braces, rather than reading a shorter set out of
+ * one.
+ */
+const PAYLOAD_KEY_RE = /^[A-Za-z_$][A-Za-z0-9_$]*$/;
 /** The panel-protocol table's whole header in that section. */
 export const PANEL_TABLE_HEADER = ['Group', 'Types'];
 /** The permission tables' whole headers, each with the `##` section it sits in. */
@@ -363,10 +407,10 @@ export const PERMISSION_TABLES = [
  * them over what it returns, and the suite's real-tree locks hold that same set,
  * so a change here cannot leave those locks holding a population the check no
  * longer scans. The panel tree's population is derived beside it
- * ({@link derivePanelPopulation}), and the production set the handle's mention
- * leg reads comes from the sibling check that already derives it rather than
- * from a copy made here — the background tree's, the panel tree's, and the
- * production set's: one derivation apiece, none of them restated.
+ * ({@link derivePanelPopulation}), the content tree's beside that
+ * ({@link deriveContentPopulation}), and the production set the handle's
+ * mention leg reads comes from the sibling check that already derives it rather
+ * than from a copy made here: one derivation apiece, none of them restated.
  * @param {string} [cwd] the directory to enumerate from — the repository root,
  *   which is where the CLI runs and where the suite points it
  * @returns {string[]} repo-relative paths, in `git ls-files` order
@@ -396,6 +440,33 @@ export function derivePanelPopulation(cwd = process.cwd()) {
 }
 
 /**
+ * The capture path's own extension of that same rule: the tracked JavaScript
+ * under {@link CONTENT_DIR}, which is the population the capture-path send scan
+ * reads. Derived, not listed, for the reason the others are — a content module
+ * the extension grows is scanned the day it lands.
+ *
+ * The filter is `.js` alone, the panel derivation's and for its reason: the
+ * content tree ships plain scripts, and widening this set is a change to what
+ * the capture-path send closure covers rather than a detail of how it is
+ * spelled.
+ *
+ * The tree carries a block two of its modules share, kept in step by a parity
+ * test, and this population reads both copies. A send written inside that block
+ * therefore stands twice, which the weld reads as two sites of one type: the
+ * keys a type carries are the UNION over its sites, so two copies of one send
+ * state one set and the leg is unmoved by the duplication.
+ *
+ * This is the one derivation of the capture-path send leg's population: the CLI
+ * runs the leg over what it returns, and the suite's real-tree locks hold that
+ * same set.
+ * @param {string} [cwd] the directory to enumerate from
+ * @returns {string[]} repo-relative paths, in `git ls-files` order
+ */
+export function deriveContentPopulation(cwd = process.cwd()) {
+  return trackedFilesUnder(CONTENT_DIR, { extensions: ['.js'], cwd });
+}
+
+/**
  * The punctuation that ends an equality's right-hand operand, which is the
  * proof that the type literal was the whole of it: a closing bracket of any
  * kind, a statement or argument separator, a conditional's own punctuation, or
@@ -408,6 +479,31 @@ const EQUALITY_OPERAND_END = ')]};,?:&|';
 const CASE_LABEL_END = ':';
 
 /**
+ * The callee shape a send scan reads: the word token standing immediately
+ * before the call's `(`, and whether a `.` must stand before that word. The
+ * panel writes its sends through a name of its own and the capture path through
+ * the platform's receiver-qualified call, so the two legs part on this one
+ * decision and share everything else the scan does.
+ *
+ * `dotted` is the refusal that keeps the declaration forms out of a scan whose
+ * callee is also a plausible parameter name: a function or method cannot be
+ * DECLARED with a `.` before its name, so `function sendMessage({ type }) {}` —
+ * the one declaration shape whose third token is an opening brace — is never
+ * read as a send.
+ */
+export const PANEL_SEND_CALLEE = { name: 'send', dotted: false };
+/**
+ * The capture path's own callee: the platform call the content scripts make.
+ * Read as the last word before the `(` with a `.` before it, which is the
+ * receiver-qualified form and not the whole platform path — so a send moved
+ * onto a wrapper of the same name is still read, and a call of that name on
+ * another receiver is read too. The looser read costs a false RED (its type
+ * must stand in the table), where pinning the whole path would cost a false
+ * green on the reverse direction.
+ */
+export const CAPTURE_SEND_CALLEE = { name: 'sendMessage', dotted: true };
+
+/**
  * The words the clause's sender statement makes its existence claim in — the
  * doctrine the send leg holds, quoted from the clause rather than paraphrased,
  * so the phrase has one home and the suite reads it from here.
@@ -416,11 +512,11 @@ export const SENDER_STATEMENT_ANCHOR = 'has at least one send written as an obje
 
 /**
  * Count how many times the clause's own scope states the sender statement.
- * The clause section is fence-aware (so a fenced illustration cannot stand in
- * for the doctrine) and bounded at the clause's marker, so a statement that
- * drifts out of the clause counts as gone; the whole scope is
- * whitespace-flattened before the anchor is sought, so the anchor is found
- * whatever line the prose wraps on.
+ * The clause section is code-block-aware (so an illustration inside a code
+ * block cannot stand in for the doctrine) and bounded at the clause's marker,
+ * so a statement that drifts out of the clause counts as gone; the whole
+ * scope is whitespace-flattened before the anchor is sought, so the anchor is
+ * found whatever line the prose wraps on.
  *
  * Occurrences, not paragraphs: a second copy of the claim is a second copy an
  * update can land beside whether or not a blank line separates the two, so
@@ -432,6 +528,36 @@ export const SENDER_STATEMENT_ANCHOR = 'has at least one send written as an obje
 export function countSenderStatements(runtimeText) {
   const scope = flattenWhitespace(extractClauseSection(runtimeText, ERT_CLAUSE_ID));
   return scope.split(SENDER_STATEMENT_ANCHOR).length - 1;
+}
+
+/**
+ * The words the handle clause states its member surface's closure in — the
+ * sentence the per-member weld is the enforcement of, a row standing as the
+ * allowed set for its own member and read against that member's body both
+ * ways. Quoted from the clause rather than paraphrased, and spelled once: the
+ * weld's own diagnostics are built from it and the suite reads it from here, so
+ * the sentence the clause must state and the sentence those reds quote have one
+ * home.
+ */
+export const HANDLE_CLOSURE_ANCHOR =
+  'each member reaches exactly the worker bindings its row names';
+
+/**
+ * Count how many times the handle clause's own scope states that closure.
+ * Read exactly the way the sender statement is: the clause section is
+ * code-block-aware, bounded at the clause's marker, and whitespace-flattened
+ * before the anchor is sought, so the sentence is found whatever line the prose
+ * wraps on and a copy that drifts out of the clause counts as gone.
+ *
+ * Occurrences, not paragraphs, for the sibling's reason: a second copy is a
+ * second copy an update can land beside whether or not a blank line separates
+ * the two.
+ * @param {string} runtimeText the runtime doc's text
+ * @returns {number} occurrences of the anchor in the handle clause's scope
+ */
+export function countClosureStatements(runtimeText) {
+  const scope = flattenWhitespace(extractClauseSection(runtimeText, HANDLE_CLAUSE_ID));
+  return scope.split(HANDLE_CLOSURE_ANCHOR).length - 1;
 }
 
 /**
@@ -448,15 +574,41 @@ export const REACH_GRAMMAR_ANCHOR = `backticked, separated by commas \u2014 or \
 /**
  * Count how many times the handle clause's own scope states that grammar.
  * Read exactly the way the sender statement is: the clause section is
- * fence-aware, bounded at the clause's marker, and whitespace-flattened before
- * the anchor is sought, so the sentence is found whatever line the prose wraps
- * on and a copy that drifts out of the clause counts as gone.
+ * code-block-aware, bounded at the clause's marker, and whitespace-flattened
+ * before the anchor is sought, so the sentence is found whatever line the
+ * prose wraps on and a copy that drifts out of the clause counts as gone.
  * @param {string} runtimeText the runtime doc's text
  * @returns {number} occurrences of the anchor in the handle clause's scope
  */
 export function countReachGrammarStatements(runtimeText) {
   const scope = flattenWhitespace(extractClauseSection(runtimeText, HANDLE_CLAUSE_ID));
   return scope.split(REACH_GRAMMAR_ANCHOR).length - 1;
+}
+
+/**
+ * The words the message clause's capture-path statement makes its payload claim
+ * in — the doctrine the weld holds, quoted from the clause rather than
+ * paraphrased. It is BUILT from {@link CAPTURE_PAYLOAD_NONE_MARKER} the way
+ * {@link REACH_GRAMMAR_ANCHOR} is built from its own marker, so the marker the
+ * cell reader accepts and the marker the clause names have one home: respelling
+ * it moves both, and a clause left naming the old one reds here rather than
+ * standing beside a reader that no longer reads it.
+ */
+export const CAPTURE_PAYLOAD_GRAMMAR_ANCHOR = `states the message's remaining top-level keys \u2014 each a bare name, backticked together as one object shape, or the lone marker \`${CAPTURE_PAYLOAD_NONE_MARKER}\` where the message carries none`;
+
+/**
+ * Count how many times the message clause's own scope states that grammar. Read
+ * exactly the way the sender statement and the reach grammar are: the clause
+ * section is code-block-aware, bounded at the clause's marker, and
+ * whitespace-flattened before the anchor is sought, so the sentence is found
+ * whatever line the prose wraps on and a copy that drifts out of the clause
+ * counts as gone.
+ * @param {string} runtimeText the runtime doc's text
+ * @returns {number} occurrences of the anchor in the message clause's scope
+ */
+export function countCapturePayloadGrammarStatements(runtimeText) {
+  const scope = flattenWhitespace(extractClauseSection(runtimeText, ERT_CLAUSE_ID));
+  return scope.split(CAPTURE_PAYLOAD_GRAMMAR_ANCHOR).length - 1;
 }
 
 /**
@@ -505,12 +657,30 @@ export function extractManifestSurface(manifestJson) {
 }
 
 /**
+ * An unreadable cell as every red in this check renders it: the cell's own text
+ * wrapped in double quotation marks. The marks are the cell's bounds — a red
+ * states its reason around em-dash separators, so a cell whose whole text is
+ * punctuation, the payload marker's own character included, is otherwise
+ * indistinguishable from them. A placeholder a reader writes in place of an
+ * empty cell names a shape rather than a text and stands as it is, which is what
+ * `empty` identifies; a reader that decides the emptiness itself passes the
+ * text alone.
+ * @param {string} cell the cell's text, or the placeholder for an empty cell
+ * @param {string|null} [empty] that placeholder, where the caller holds one
+ * @returns {string} the cell as a red renders it
+ */
+function quotedCell(cell, empty = null) {
+  return cell === empty ? cell : `"${cell}"`;
+}
+
+/**
  * Read the first-column backticked names of every table in a named `##`
- * section of a doc carrying an exact header (fence-aware through the shared
- * table parser). A table is selected by its section AND its WHOLE header, so a
- * sibling table under the same heading is never conscripted into the closed
- * set by sharing a column name. A body row whose first cell is not a lone
- * backticked name is returned as unreadable, so no row is skipped silently.
+ * section of a doc carrying an exact header (code-block-aware through the
+ * shared table parser). A table is selected by its section AND its WHOLE
+ * header, so a sibling table under the same heading is never conscripted into
+ * the closed set by sharing a column name. A body row whose first cell is not
+ * a lone backticked name is returned as unreadable, so no row is skipped
+ * silently, each rendered by {@link quotedCell}.
  * @param {string} docText the doc's text
  * @param {string} section the `##` section title the table lives under
  * @param {string[]} header the table's whole header
@@ -518,7 +688,9 @@ export function extractManifestSurface(manifestJson) {
  */
 export function extractSectionTableNames(docText, section, header) {
   const { tables } = selectTablesByHeader(docText, { section, header });
-  return readTableColumn(tables, { empty: '(empty first cell)' });
+  const empty = '(empty first cell)';
+  const { names, unreadable } = readTableColumn(tables, { empty, column: header[0] });
+  return { names, unreadable: unreadable.map((cell) => quotedCell(cell, empty)) };
 }
 
 /**
@@ -545,7 +717,7 @@ export function extractProtocolTables(runtimeText) {
         const token = piece.trim();
         const name = backtickedName(token);
         if (name !== null) panelTypes.push(name);
-        else unreadable.push(token === '' ? '(empty Types piece)' : token);
+        else unreadable.push(token === '' ? '(empty Types piece)' : quotedCell(token));
       }
     }
   }
@@ -553,9 +725,100 @@ export function extractProtocolTables(runtimeText) {
 }
 
 /**
+ * Read one Payload cell as the top-level key names its message carries.
+ *
+ * The grammar is TOTAL and fail-closed, the shape {@link readReachCell} has: a
+ * cell is ONE whole backticked span, and that span is either an object shape
+ * whose contents are comma-separated bare names — `{ readyAt, url }` — or the
+ * lone marker {@link CAPTURE_PAYLOAD_NONE_MARKER}, standing for a message that
+ * carries no payload at all. Reading the span first is the uniformity every cell
+ * this check parses carries, so the marker counts where the cell writes it
+ * backticked, and a bare dash is text like any other. Everything else is
+ * unreadable, and the caller reds on it rather than reading a shorter set out of
+ * it: prose, an empty cell, a shape or a marker written outside backticks, empty
+ * braces, a nested shape, a quoted piece, a name stated twice. Empty braces are
+ * refused rather than read as the empty set for the marker's sake — one form
+ * per meaning is what makes a cell's silence impossible, so a payload set is
+ * always something the document said.
+ *
+ * The names come back SORTED: a cell states a set and a send states a set,
+ * neither side's order is meaning, and sorting is what keeps a reordered cell or
+ * a reordered send from reading as a change.
+ * @param {string} cell the cell text
+ * @returns {string[] | null} the sorted key names (empty for the marker), or
+ *   null when the cell is not the grammar
+ */
+export function readPayloadCell(cell) {
+  const inner = backtickedName(cell);
+  if (inner === null) return null;
+  if (inner === CAPTURE_PAYLOAD_NONE_MARKER) return [];
+  const shape = /^\{(.+)\}$/.exec(inner.trim());
+  if (shape === null) return null;
+  const names = [];
+  for (const piece of shape[1].split(',')) {
+    const name = piece.trim();
+    if (!PAYLOAD_KEY_RE.test(name)) return null;
+    names.push(name);
+  }
+  return new Set(names).size === names.length ? names.slice().sort() : null;
+}
+
+/**
+ * Read the capture-path table's payload surface: each row's type PAIRED with
+ * the top-level key names its Payload cell states. A cell is the one backticked
+ * span {@link readPayloadCell} reads — an object shape, or the marker a message
+ * carrying its type alone states.
+ *
+ * The column is resolved from each admitted table's own header BY NAME, through
+ * the shared reader's named form ({@link resolveColumn} over
+ * {@link CAPTURE_PAYLOAD_COLUMN}), the way the member table's first column is,
+ * so the cell is found wherever in the row it stands. Admission is the WHOLE
+ * header in its stated order ({@link CAPTURE_TABLE_HEADER}), so a document
+ * stating the column under another name or at another position admits no table
+ * here and answers the empty surface this leg's own guard reds on. A named
+ * column absent from an admitted table is a defect in this check, and the
+ * resolver refuses it loudly — the posture every named read in this check
+ * takes.
+ *
+ * The PAIR is why the rows are walked here rather than read through that shared
+ * column reader: the reader answers with a column's names and its unreadable
+ * cells, and a weld needs each cell beside the type whose row it is. The pattern
+ * is {@link extractHandleTable}'s, including its one silence — a row whose type
+ * cell is itself unreadable is left to the type column's own refusal, since
+ * naming it twice would report one defect as two.
+ * @param {string} runtimeText the runtime doc's text
+ * @returns {{ payloads: { type: string, keys: string[] }[], unreadable: string[] }}
+ */
+export function extractCapturePayloads(runtimeText) {
+  const { tables } = selectTablesByHeader(runtimeText, {
+    section: PROTOCOL_SECTION,
+    header: CAPTURE_TABLE_HEADER,
+  });
+  const payloads = [];
+  const unreadable = [];
+  for (const table of tables) {
+    // The shared reader's own resolution, taken directly because the weld needs
+    // each cell beside its own row's type rather than one column's names.
+    const index = resolveColumn(table, CAPTURE_PAYLOAD_COLUMN);
+    for (const row of table.rows) {
+      const type = backtickedName((row[0] ?? '').trim());
+      if (type === null) continue; // the type column's own read already named it
+      const cell = (row[index] ?? '').trim();
+      const keys = readPayloadCell(cell);
+      if (keys === null) {
+        unreadable.push(`\`${type}\`: ${cell === '' ? `(empty ${CAPTURE_PAYLOAD_COLUMN} cell)` : quotedCell(cell)}`); // prettier-ignore
+        continue;
+      }
+      payloads.push({ type, keys });
+    }
+  }
+  return { payloads, unreadable };
+}
+
+/**
  * Read the handle's member surface from the runtime doc's member table, taken
  * from inside {@link HANDLE_CLAUSE_ID}'s own scope (the shared clause slice,
- * fence-aware and bounded at the next marker or heading), so a table that
+ * code-block-aware and bounded at the next marker or heading), so a table that
  * drifts out of the clause states nothing here.
  *
  * The two read columns come back together. The first column's backticked names
@@ -578,7 +841,11 @@ export function extractProtocolTables(runtimeText) {
 export function extractHandleTable(runtimeText) {
   const scope = extractClauseSection(runtimeText, HANDLE_CLAUSE_ID);
   const { tables } = selectTablesByHeader(scope, { header: HANDLE_TABLE_HEADER });
-  const { names, unreadable } = readTableColumn(tables, { empty: '(empty Member cell)' });
+  const emptyMember = '(empty Member cell)';
+  const { names, unreadable } = readTableColumn(tables, {
+    empty: emptyMember,
+    column: HANDLE_TABLE_HEADER[0],
+  });
   const reaches = [];
   const reachUnreadable = [];
   for (const table of tables) {
@@ -588,14 +855,20 @@ export function extractHandleTable(runtimeText) {
       const cell = (row[1] ?? '').trim();
       const stated = readReachCell(cell);
       if (stated === null) {
-        reachUnreadable.push(`\`${member}\`: ${cell === '' ? '(empty Reaches cell)' : cell}`);
+        reachUnreadable.push(`\`${member}\`: ${cell === '' ? '(empty Reaches cell)' : quotedCell(cell)}`); // prettier-ignore
         continue;
       }
       reaches.push({ member, names: stated });
     }
   }
   const { matches } = selectTablesByHeader(runtimeText, { header: HANDLE_TABLE_HEADER });
-  return { members: names, reaches, unreadable, reachUnreadable, matches };
+  return {
+    members: names,
+    reaches,
+    unreadable: unreadable.map((cell) => quotedCell(cell, emptyMember)),
+    reachUnreadable,
+    matches,
+  };
 }
 
 /**
@@ -867,6 +1140,8 @@ function describeKeyPosition(token) {
  */
 function readSendType(tokens, open) {
   const properties = [];
+  const keys = [];
+  let hidden = null;
   let typeAt = -1;
   // The walk is the shared skeleton; what a property IS is this check's own
   // policy, which reads a key name where the shape states one and names the
@@ -874,15 +1149,36 @@ function readSendType(tokens, open) {
   const { closed } = walkObjectLiteral(tokens, open, (i, t) => {
     if (!startsKeyedProperty(tokens, i)) {
       properties.push(describeKeyPosition(t));
+      // A SHORTHAND property states a key and no value, and the key read takes
+      // its name: `{ type: 'X', action }` carries a top-level `action` exactly
+      // as `action: stamped` does, and names are the whole of what a payload
+      // surface states. Every other shape standing here HIDES a name — a
+      // spread's own properties, a computed key's resolved name — so the key
+      // read refuses the site rather than reading a shorter set out of it. The
+      // type read refuses the shorthand beside them for a different reason: it
+      // carries no string literal to read a type from.
+      if (t.type === 'word') keys.push(t.value);
+      else if (hidden === null) hidden = describeKeyPosition(t);
       return;
     }
     properties.push(`\`${t.value}\``);
+    keys.push(t.value);
     if (t.value === 'type') typeAt = i;
   });
+  // The payload the literal states, read once for every return below: the
+  // top-level key names other than the one naming the message, deduplicated (a
+  // literal may legally state a key twice) and sorted, because a key set's order
+  // is not meaning. Unreadable when a shape hid a name, or when the literal
+  // never closed and the names past the end are unknown.
+  const payload =
+    closed && hidden === null
+      ? { keys: [...new Set(keys.filter((k) => k !== 'type'))].sort(), keysFound: null }
+      : { keys: null, keysFound: hidden ?? '(end of source)' };
   if (typeAt === -1) {
-    if (!closed) return { type: null, found: '(end of source)' };
+    if (!closed) return { type: null, found: '(end of source)', ...payload };
     return {
       type: null,
+      ...payload,
       // The list holds read key names and named shapes alike, so it is
       // bracketed: `properties a computed key` would read as a garden path
       // where `properties (a computed key)` reads as the list it is.
@@ -893,7 +1189,7 @@ function readSendType(tokens, open) {
   }
   const read = readLoneStringLiteral(tokens, typeAt + 2, ',}');
   if (read.token === null || read.follower === null)
-    return { type: null, found: '(end of source)' };
+    return { type: null, found: '(end of source)', ...payload };
   // A template literal is named by its kind: its token value is a run of its
   // literal text, so naming the token alone would state a type the send never
   // writes — and an interpolated one, a type no enumeration can ever carry.
@@ -901,13 +1197,13 @@ function readSendType(tokens, open) {
   // below, which names the token as written — and a regex's token value IS its
   // literal text, so that is the reading its own shape asks for.
   if (read.kind === 'template') {
-    return { type: null, found: `a \`type\` key set from ${namedLiteral(read.kind, read.token)}` };
+    return { type: null, found: `a \`type\` key set from ${namedLiteral(read.kind, read.token)}`, ...payload }; // prettier-ignore
   }
-  if (!read.isString) return { type: null, found: `a \`type\` key set from \`${read.token}\`` };
+  if (!read.isString) return { type: null, found: `a \`type\` key set from \`${read.token}\``, ...payload }; // prettier-ignore
   if (!read.lone) {
-    return { type: null, found: `a \`type\` key set from \`${read.token}\` followed by \`${read.follower}\`` }; // prettier-ignore
+    return { type: null, found: `a \`type\` key set from \`${read.token}\` followed by \`${read.follower}\``, ...payload }; // prettier-ignore
   }
-  return { type: read.value, found: null };
+  return { type: read.value, found: null, ...payload };
 }
 
 /**
@@ -921,17 +1217,25 @@ function readSendType(tokens, open) {
  * reads and contributes nothing: the declaration forms, the receiver-qualified
  * forward, and the call passing a variable assembled beforehand all sit there,
  * and the reverse-direction diff's limit is exactly that residue.
- * @param {Map<string, string>} sourceByPath path → panel JavaScript source
- * @returns {{ path: string, ordinal: number, type: string | null, found: string | null }[]}
+ * Beside the type each site carries the top-level key NAMES its literal states,
+ * the message's own `type` property excluded — the payload surface a table
+ * stating one can be welded to. The panel's table states no payload column
+ * today, so its sites carry a read nothing holds them to; the capture path's
+ * does, and the two legs differ in which columns answer rather than in how a
+ * send is read.
+ * @param {Map<string, string>} sourceByPath path → JavaScript source
+ * @param {{ name: string, dotted: boolean }} [callee] the call shape to read
+ * @returns {{ path: string, ordinal: number, type: string | null, found: string | null, keys: string[] | null, keysFound: string | null }[]}
  *   one entry per object-literal send, numbered per file in source order
  */
-export function extractSendSites(sourceByPath) {
+export function extractSendSites(sourceByPath, callee = PANEL_SEND_CALLEE) {
   const sites = [];
   for (const [path, source] of sourceByPath) {
     const tokens = tokenizeJs(source);
     let ordinal = 0;
     for (let i = 0; i + 2 < tokens.length; i++) {
-      if (tokens[i].type !== 'word' || tokens[i].value !== 'send') continue;
+      if (tokens[i].type !== 'word' || tokens[i].value !== callee.name) continue;
+      if (callee.dotted && !(tokens[i - 1]?.type === 'punct' && tokens[i - 1].value === '.')) continue; // prettier-ignore
       if (tokens[i + 1].type !== 'punct' || tokens[i + 1].value !== '(') continue;
       if (tokens[i + 2].type !== 'punct' || tokens[i + 2].value !== '{') continue;
       ordinal += 1;
@@ -944,12 +1248,14 @@ export function extractSendSites(sourceByPath) {
 /**
  * How a send site is named in the check's output: its file and its position
  * among that file's object-literal sends — the only sends the ordinal counts —
- * comments excluded.
+ * comments excluded. The callee is named with it, so a reader of either leg's
+ * refusal can find the site by the call the scan actually read.
  * @param {{ path: string, ordinal: number }} site
+ * @param {string} [callee] the callee name that leg's scan reads
  * @returns {string}
  */
-function sendLabel(site) {
-  return `${site.path} (object-literal send( call site ${site.ordinal})`;
+function sendLabel(site, callee = PANEL_SEND_CALLEE.name) {
+  return `${site.path} (object-literal ${callee}( call site ${site.ordinal})`;
 }
 
 /**
@@ -1201,6 +1507,12 @@ export const EMPTY_SURFACES = [
   ['equalityTypes', `no message-type equality literals found in the tracked ${BACKGROUND_ROOT} JavaScript`], // prettier-ignore
   ['workerEqualityTypes', `no message-type equality literals found in ${WORKER_PATH}`],
   ['sendTypes', `no object-literal send( call site naming a type found in the tracked ${PANEL_DIR} JavaScript`], // prettier-ignore
+  // A capture-path header the document renames states neither column here, so
+  // this entry's line and the type column's stand together: one header, both
+  // lines, which is what each guard answering for its own read costs and what
+  // keeps either of them from standing on the other.
+  ['docCapturePayloads', `no readable ${CAPTURE_PAYLOAD_COLUMN} cell found in the capture-path table in ${RUNTIME_DOC_PATH}`], // prettier-ignore
+  ['captureSendTypes', `no object-literal ${CAPTURE_SEND_CALLEE.name}( call site naming a type found in the tracked ${CONTENT_DIR} JavaScript`], // prettier-ignore
   ['handleMembers', `no members found on the introspection handle in ${WORKER_PATH}`],
   ['docHandleMembers', `no handle members found in the ${HANDLE_CLAUSE_ID} member table in ${RUNTIME_DOC_PATH}`], // prettier-ignore
   ['docHandleReaches', `no readable Reaches cells found in the ${HANDLE_CLAUSE_ID} member table in ${RUNTIME_DOC_PATH}`], // prettier-ignore
@@ -1251,10 +1563,21 @@ export const DUPLICATE_SURFACES = [
  *   stating the capture-path types are serviced by the listener's own guards
  * @param {string[]} s.panelFiles the panel population the send scan read, in
  *   the order it was read
+ * @param {{ type: string, keys: string[] }[]} s.docCapturePayloads each
+ *   capture-path row's type with the top-level key names its Payload cell
+ *   states, empty where the row states the no-payload marker
+ * @param {string[]} s.capturePayloadUnreadable Payload cells the grammar refuses
+ * @param {string[]} s.contentFiles the content population the capture-path send
+ *   scan read, in the order it was read
+ * @param {string[]} s.captureSendTypes the content scripts' literal send types,
+ *   deduplicated
+ * @param {{ path: string, ordinal: number, type: string | null, found: string | null, keys: string[] | null, keysFound: string | null }[]} s.captureSendSites every object-literal capture-path send site, readable or not
  * @param {string[]} s.sendTypes the panel's literal send types, deduplicated
  * @param {{ path: string, ordinal: number, type: string | null, found: string | null }[]} s.sendSites every object-literal send site, readable or not
+ * @param {number} s.capturePayloadGrammarStatements times the clause's scope states its capture-path payload grammar
  * @param {number} s.senderStatements times the clause's scope states its sender statement
  * @param {number} s.reachGrammarStatements times the handle clause's scope states its reach-cell grammar
+ * @param {number} s.closureStatements times the handle clause's scope states its closure sentence
  * @param {string[]} s.handleMembers the members the worker's handle literal carries
  * @param {string[]} s.docHandleMembers the member table's names
  * @param {string[]} s.handleUnreadable unreadable member-table cells
@@ -1291,8 +1614,17 @@ export function evaluateExtensionSurface(s) {
   for (const cell of s.handleReachUnreadable) {
     problems.push(`${RUNTIME_DOC_PATH} carries a ${HANDLE_CLAUSE_ID} Reaches cell the scan cannot read — ${cell} — a cell states the worker binding names its member reaches, backticked and comma-separated, or the lone marker \`${HANDLE_NO_REACH_MARKER}\``); // prettier-ignore
   }
+  for (const cell of s.capturePayloadUnreadable) {
+    problems.push(`${RUNTIME_DOC_PATH} carries a capture-path ${CAPTURE_PAYLOAD_COLUMN} cell the scan cannot read — ${cell} — a cell states the message's top-level key names as one backticked object shape (\`{ a, b }\`), or the lone marker \`${CAPTURE_PAYLOAD_NONE_MARKER}\` where the message carries no payload at all`); // prettier-ignore
+  }
   for (const site of s.sendSites.filter((x) => x.type === null)) {
     problems.push(`${sendLabel(site)} states no readable message type — the scan found ${site.found} — an object-literal send carries its type as a string literal in a top-level \`type\` property, in any position, so the sender side stays readable`); // prettier-ignore
+  }
+  for (const site of s.captureSendSites.filter((x) => x.type === null)) {
+    problems.push(`${sendLabel(site, CAPTURE_SEND_CALLEE.name)} states no readable message type — the scan found ${site.found} — an object-literal send carries its type as a string literal in a top-level \`type\` property, in any position, so the sender side stays readable`); // prettier-ignore
+  }
+  for (const site of s.captureSendSites.filter((x) => x.type !== null && x.keys === null)) {
+    problems.push(`${sendLabel(site, CAPTURE_SEND_CALLEE.name)} states a payload the scan cannot read — the scan found ${site.keysFound} — a send states its payload as top-level keys, which is what the capture-path table's ${CAPTURE_PAYLOAD_COLUMN} cell is held to, so a shape that hides a name is refused rather than read as a shorter set`); // prettier-ignore
   }
 
   // The sender statement is the doctrine the send leg holds, so it is read
@@ -1307,6 +1639,18 @@ export function evaluateExtensionSurface(s) {
     problems.push(`${RUNTIME_DOC_PATH} §${ERT_CLAUSE_ID} makes the "${SENDER_STATEMENT_ANCHOR}" claim ${s.senderStatements} times — the clause states it once, so an update cannot land on one copy and leave another standing, wherever in the clause that copy was written`); // prettier-ignore
   }
 
+  // The capture-path grammar is the doctrine the payload weld reads cells by,
+  // and it names the marker this check accepts. Held the way the two statements
+  // beside it are, and for their reason: the weld refuses every cell outside that
+  // grammar, so a clause that stops stating it — or that states it twice, where
+  // an update can land on one copy — leaves the reader enforcing a rule the
+  // document no longer makes. Written fail-closed on the `!(n >= 1)` form.
+  if (!(s.capturePayloadGrammarStatements >= 1)) {
+    problems.push(`${RUNTIME_DOC_PATH} §${ERT_CLAUSE_ID} states no capture-path payload grammar — nothing in the clause's scope carries "${CAPTURE_PAYLOAD_GRAMMAR_ANCHOR}" — the capture-path table's ${CAPTURE_PAYLOAD_COLUMN} column is read as key names rather than prose, and the marker for a message that carries no payload is doctrine the clause states, which this check's cell reader cannot hold once the document stops stating it`); // prettier-ignore
+  } else if (s.capturePayloadGrammarStatements > 1) {
+    problems.push(`${RUNTIME_DOC_PATH} §${ERT_CLAUSE_ID} makes the "${CAPTURE_PAYLOAD_GRAMMAR_ANCHOR}" claim ${s.capturePayloadGrammarStatements} times — the clause states it once, so an update cannot land on one copy and leave another standing, wherever in the clause that copy was written`); // prettier-ignore
+  }
+
   // The reach-cell grammar is the doctrine the Reaches leg reads cells by, and
   // it names the marker this check accepts. Held the same way and for the same
   // reason: the leg refuses every cell outside that grammar, so a clause that
@@ -1316,6 +1660,18 @@ export function evaluateExtensionSurface(s) {
     problems.push(`${RUNTIME_DOC_PATH} §${HANDLE_CLAUSE_ID} states no reach-cell grammar — nothing in the clause's scope carries "${REACH_GRAMMAR_ANCHOR}" — the Reaches column is read as names rather than prose, and the marker for a member that reaches no worker binding is doctrine the clause states, which this check's cell reader cannot hold once the document stops stating it`); // prettier-ignore
   } else if (s.reachGrammarStatements > 1) {
     problems.push(`${RUNTIME_DOC_PATH} §${HANDLE_CLAUSE_ID} makes the "${REACH_GRAMMAR_ANCHOR}" claim ${s.reachGrammarStatements} times — the clause states it once, so an update cannot land on one copy and leave another standing, wherever in the clause that copy was written`); // prettier-ignore
+  }
+
+  // The closure sentence is the doctrine the per-member weld is the enforcement
+  // of: it is what makes a row the allowed set for its own member rather than a
+  // note beside the handle. Held the same way and for the same reason — the weld
+  // reds a row and a body that disagree in either direction, which a clause that
+  // has stopped stating the closure no longer asks for — and the reds themselves
+  // quote this constant, so a clause reworded past it cannot leave them standing.
+  if (!(s.closureStatements >= 1)) {
+    problems.push(`${RUNTIME_DOC_PATH} §${HANDLE_CLAUSE_ID} states no closure sentence — nothing in the clause's scope carries "${HANDLE_CLOSURE_ANCHOR}" — the per-member weld this check holds (each row read against its member's body in both directions, the row standing as that member's allowed set) is doctrine the clause states, and the leg cannot hold a rule the document no longer makes`); // prettier-ignore
+  } else if (s.closureStatements > 1) {
+    problems.push(`${RUNTIME_DOC_PATH} §${HANDLE_CLAUSE_ID} makes the "${HANDLE_CLOSURE_ANCHOR}" claim ${s.closureStatements} times — the clause states it once, so an update cannot land on one copy and leave another standing, wherever in the clause that copy was written`); // prettier-ignore
   }
 
   // The handle is assigned once and read from no production module, which is
@@ -1350,6 +1706,14 @@ export function evaluateExtensionSurface(s) {
   // capture-path diff stands on the worker — so emptiness is the whole guard.
   if (s.panelFiles.length === 0) {
     machinery.push(`no tracked JavaScript module found under ${PANEL_DIR} — the panel's send closure has no population to read`); // prettier-ignore
+  }
+  // The capture path's own population, held the same way and for the same
+  // reason: an empty one means the content file list stopped naming what the
+  // weld exists to read, which is a broken read rather than a recorder that
+  // sends nothing. No member is required of it — the weld stands on no single
+  // content module — so emptiness is the whole guard.
+  if (s.contentFiles.length === 0) {
+    machinery.push(`no tracked JavaScript module found under ${CONTENT_DIR} — the content-side capture-path read has no population to scan`); // prettier-ignore
   }
   if (!s.backgroundFiles.includes(WORKER_PATH)) {
     // Deliberately beside the extractor's location refusal, which a tree can
@@ -1412,6 +1776,51 @@ export function evaluateExtensionSurface(s) {
     problems.push(`\`${type}\` is serviced by an equality guard in ${homes.join(', ')} but the capture-path table does not state it`); // prettier-ignore
   }
 
+  // The capture path's SENDER side, welded per type. The pair above holds the
+  // table against the worker's guards — who services a message; this holds it
+  // against the content scripts that send one: every type the table states is
+  // sent, every type sent is stated, and a type's Payload cell states exactly
+  // the top-level keys its sends carry.
+  problems.push(
+    ...missingFrom(s.docCaptureTypes, s.captureSendTypes, `is in the capture-path table but no object-literal ${CAPTURE_SEND_CALLEE.name}( in the tracked ${CONTENT_DIR} JavaScript sends it (${ERT_CLAUSE_ID}) — a type sent only through a payload assembled beforehand is invisible to this leg and reds here too, which this direction cannot tell from a type nothing sends: moving a send outside the object-literal shape is a change that updates the capture-path table and this check together`), // prettier-ignore
+    ...missingFrom(s.captureSendTypes, s.docCaptureTypes, `is sent by an object-literal ${CAPTURE_SEND_CALLEE.name}( in the tracked ${CONTENT_DIR} JavaScript but the capture-path table does not state it (${ERT_CLAUSE_ID})`), // prettier-ignore
+  );
+
+  // The keys a type carries are the UNION over its readable sites: the same
+  // message sent from two modules states one payload, and a site whose payload
+  // the scan refused is named above rather than folded into a shorter union.
+  const carriedKeys = new Map();
+  for (const site of s.captureSendSites) {
+    if (site.type === null || site.keys === null) continue;
+    if (!carriedKeys.has(site.type)) carriedKeys.set(site.type, new Set());
+    for (const key of site.keys) carriedKeys.get(site.type).add(key);
+  }
+  const statesKeys = (names) =>
+    names.length === 0 ? `\`${CAPTURE_PAYLOAD_NONE_MARKER}\`` : names.map((n) => `\`${n}\``).join(', '); // prettier-ignore
+  // The rows are walked as the table states them, one hold per row, so a type
+  // two rows state is held to its senders twice: the repeat's own guard line
+  // names the duplication, and each of the two rows names its own disagreement
+  // with the senders. That is the residue of holding every row the table
+  // states — a second row's statement stands on its own rather than standing
+  // behind the first — and it is why this weld adds no duplicate-surface entry
+  // and the duplicate guard needs no early return ahead of it.
+  for (const { type, keys } of s.docCapturePayloads) {
+    // A row for a type no readable site sends is already named by the diff
+    // above, and there is no send to hold it to, so the key comparisons stay
+    // silent rather than asserting a payload no site states — the same silence
+    // the handle's weld keeps for a row whose member the handle does not carry.
+    if (!carriedKeys.has(type)) continue;
+    const carried = [...carriedKeys.get(type)].sort();
+    for (const name of keys) {
+      if (carried.includes(name)) continue;
+      problems.push(`the capture-path row for \`${type}\` states a payload key \`${name}\` that no object-literal ${CAPTURE_SEND_CALLEE.name}( of that type in the tracked ${CONTENT_DIR} JavaScript carries (they carry ${statesKeys(carried)}) — a row states the message's whole top-level key set, so a row and its senders that disagree are one change left half-made`); // prettier-ignore
+    }
+    for (const name of carried) {
+      if (keys.includes(name)) continue;
+      problems.push(`\`${type}\` is sent carrying a top-level \`${name}\` that its capture-path ${CAPTURE_PAYLOAD_COLUMN} cell does not state (the cell states ${statesKeys(keys)}) — a row states the message's whole top-level key set, so a key added to the send is added to the row in the same change`); // prettier-ignore
+    }
+  }
+
   problems.push(
     ...missingFrom(s.handleMembers, s.docHandleMembers, `is a member of the introspection handle in ${WORKER_PATH} but the ${HANDLE_CLAUSE_ID} member table does not state it (${HANDLE_CLAUSE_ID})`), // prettier-ignore
     ...missingFrom(s.docHandleMembers, s.handleMembers, `is in the ${HANDLE_CLAUSE_ID} member table but the introspection handle in ${WORKER_PATH} does not carry it`), // prettier-ignore
@@ -1428,9 +1837,8 @@ export function evaluateExtensionSurface(s) {
     problems.push(`\`${member}\` reaches \`${name}\`, a module-scope name of ${WORKER_PATH} outside the set ${HANDLE_CLAUSE_ID} places the handle over (${HANDLE_REACH_SET.map((n) => `\`${n}\``).join(', ')}) — a member reaching further is a surface change the clause and this check state together`); // prettier-ignore
   }
 
-  // The WELD, per member and both ways: the clause states each member reaches
-  // exactly the worker bindings its own row names, so the row is the allowed
-  // set for that member alone. What the union above cannot see is a member
+  // The WELD, per member and both ways: the clause's closure sentence, held
+  // present above, states the row is the allowed set for that member alone. What the union above cannot see is a member
   // reaching a binding another member's row names — a cross-wiring the
   // whole-handle membership test passes, with both rows left saying the
   // opposite.
@@ -1464,13 +1872,13 @@ export function evaluateExtensionSurface(s) {
         problems.push(`the ${HANDLE_CLAUSE_ID} row for \`${member}\` states a reach to \`${name}\`, a name outside the set that clause places the handle over (${HANDLE_REACH_SET.map((n) => `\`${n}\``).join(', ')}) — a row states which of those bindings its member reaches, never which bindings the handle may reach at all`); // prettier-ignore
       }
       if (carried && !reached.includes(name)) {
-        problems.push(`the ${HANDLE_CLAUSE_ID} row for \`${member}\` states it reaches \`${name}\`, which its body in ${WORKER_PATH} does not name — each member reaches exactly the worker bindings its row names, so a row and a body that disagree are one change left half-made`); // prettier-ignore
+        problems.push(`the ${HANDLE_CLAUSE_ID} row for \`${member}\` states it reaches \`${name}\`, which its body in ${WORKER_PATH} does not name — ${HANDLE_CLOSURE_ANCHOR}, so a row and a body that disagree are one change left half-made`); // prettier-ignore
       }
     }
     if (!carried) continue;
     for (const name of new Set(reached)) {
       if (names.includes(name)) continue;
-      problems.push(`\`${member}\` reaches \`${name}\` in ${WORKER_PATH}, which its ${HANDLE_CLAUSE_ID} row does not state (the row states ${statesWhat(names)}) — each member reaches exactly the worker bindings its row names, and a reach the handle already places elsewhere is no exception`); // prettier-ignore
+      problems.push(`\`${member}\` reaches \`${name}\` in ${WORKER_PATH}, which its ${HANDLE_CLAUSE_ID} row does not state (the row states ${statesWhat(names)}) — ${HANDLE_CLOSURE_ANCHOR}, and a reach the handle already places elsewhere is no exception`); // prettier-ignore
     }
   }
 
@@ -1501,13 +1909,15 @@ export function evaluateExtensionSurface(s) {
  *   dispatcher legs scan
  * @param {string[]} productionFiles the extension package's tracked production
  *   JavaScript, which the handle's no-production-caller leg counts over
- * @returns {{ problems: string[], permissionCount: number, typeCount: number, panelTypeCount: number, memberCount: number }}
+ * @param {string[]} contentFiles the tracked content JavaScript the capture-path
+ *   send scan reads
+ * @returns {{ problems: string[], permissionCount: number, typeCount: number, panelTypeCount: number, captureTypeCount: number, memberCount: number }}
  *   `typeCount` is the doc's whole message-type union — the surface the
  *   dispatcher legs cover — `panelTypeCount` the panel-protocol subset the
  *   sender leg covers, and `memberCount` the handle members the third contract
  *   holds
  */
-export function auditTree(readFile, panelFiles, backgroundFiles, productionFiles) {
+export function auditTree(readFile, panelFiles, backgroundFiles, productionFiles, contentFiles) {
   const manifest = extractManifestSurface(readFile(MANIFEST_PATH));
   const permDoc = readFile(PERMISSIONS_DOC_PATH);
   const [permissions, hostPermissions] = PERMISSION_TABLES.map(([section, header]) =>
@@ -1517,6 +1927,8 @@ export function auditTree(readFile, panelFiles, backgroundFiles, productionFiles
   const protocol = extractProtocolTables(runtimeDoc);
   const dispatcher = extractDispatcherSurface(new Map(backgroundFiles.map((p) => [p, readFile(p)]))); // prettier-ignore
   const sendSites = extractSendSites(new Map(panelFiles.map((p) => [p, readFile(p)])));
+  const captureSendSites = extractSendSites(new Map(contentFiles.map((p) => [p, readFile(p)])), CAPTURE_SEND_CALLEE); // prettier-ignore
+  const capturePayloads = extractCapturePayloads(runtimeDoc);
   const handle = extractHandleSurface(readFile(WORKER_PATH));
   const handleTable = extractHandleTable(runtimeDoc);
   const handleMentions = countHandleMentions(new Map(productionFiles.map((p) => [p, readFile(p)]))); // prettier-ignore
@@ -1538,8 +1950,15 @@ export function auditTree(readFile, panelFiles, backgroundFiles, productionFiles
     panelFiles,
     sendTypes: [...new Set(sendSites.filter((x) => x.type !== null).map((x) => x.type))],
     sendSites,
+    docCapturePayloads: capturePayloads.payloads,
+    capturePayloadUnreadable: capturePayloads.unreadable,
+    contentFiles,
+    captureSendTypes: [...new Set(captureSendSites.filter((x) => x.type !== null).map((x) => x.type))], // prettier-ignore
+    captureSendSites,
     senderStatements: countSenderStatements(runtimeDoc),
+    capturePayloadGrammarStatements: countCapturePayloadGrammarStatements(runtimeDoc),
     reachGrammarStatements: countReachGrammarStatements(runtimeDoc),
+    closureStatements: countClosureStatements(runtimeDoc),
     handleMembers: handle.members,
     docHandleMembers: handleTable.members,
     handleUnreadable: handleTable.unreadable,
@@ -1560,6 +1979,7 @@ export function auditTree(readFile, panelFiles, backgroundFiles, productionFiles
     permissionCount: new Set([...s.manifestPermissions, ...s.manifestHostPermissions]).size,
     typeCount: new Set([...s.docCaptureTypes, ...s.docPanelTypes]).size,
     panelTypeCount: new Set(s.docPanelTypes).size,
+    captureTypeCount: new Set(s.docCaptureTypes).size,
     memberCount: new Set(s.docHandleMembers).size,
   };
 }
@@ -1577,12 +1997,9 @@ function run() {
   const panelFiles = derivePanelPopulation();
   const backgroundFiles = derivePopulation();
   const productionFiles = deriveProductionPopulation();
-  const { problems, permissionCount, typeCount, panelTypeCount, memberCount } = auditTree(
-    readFile,
-    panelFiles,
-    backgroundFiles,
-    productionFiles,
-  );
+  const contentFiles = deriveContentPopulation();
+  const { problems, permissionCount, typeCount, panelTypeCount, captureTypeCount, memberCount } =
+    auditTree(readFile, panelFiles, backgroundFiles, productionFiles, contentFiles);
 
   if (problems.length) {
     console.error(
@@ -1593,6 +2010,9 @@ function run() {
           `  must state the same sets (${PERMISSIONS_DOC_PATH} §${EPM_CLAUSE_ID}); the dispatcher's\n` +
           `  serviced message types, the panel's literal sends, and the runtime doc's\n` +
           `  capture-path and panel-protocol enumerations must state the same sets\n` +
+          `  (${RUNTIME_DOC_PATH} §${ERT_CLAUSE_ID}); and the capture-path table's types and\n` +
+          `  ${CAPTURE_PAYLOAD_COLUMN} key sets must state what the literal sends the tracked\n` +
+          `  ${CONTENT_DIR} JavaScript makes carry\n` +
           `  (${RUNTIME_DOC_PATH} §${ERT_CLAUSE_ID}).\n` +
           `  The dispatcher legs read the tracked ${POPULATION_EXTENSIONS.join('/')} modules under\n` +
           `  ${BACKGROUND_ROOT}: one dispatcher switch stands in that set,\n` +
@@ -1616,6 +2036,8 @@ function run() {
       `read from the tracked ${BACKGROUND_ROOT} JavaScript, ` +
       `and its ${panelTypeCount} panel-protocol types agree with the panel's literal sends, ` +
       `whose closure the clause's own scope states once; ` +
+      `its ${captureTypeCount} capture-path types agree with the literal sends the tracked ` +
+      `${CONTENT_DIR} JavaScript makes, each carrying the top-level payload keys its own row states; ` +
       `${memberCount} introspection-handle members match the §${HANDLE_CLAUSE_ID} table, ` +
       `reaching only the worker bindings that clause places the handle over, ` +
       `each member's module-scope reaches — the worker bindings its own body names — ` +

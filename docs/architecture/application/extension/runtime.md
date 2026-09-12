@@ -232,13 +232,23 @@ an object literal whose top-level `type` property carries the type name as a
 string literal. A change that leaves an enumerated type without one MUST update
 this statement and the check that holds it in the same change.
 
+The recorder states its half the same way, payload included: each type of the
+[capture path](#capture-path)'s table is sent at least once from an object
+literal whose top-level `type` property carries the type name as a string
+literal, and that type's Payload cell states the message's remaining top-level
+keys — each a bare name, backticked together as one object shape, or the lone
+marker `—` where the message carries none. The Response column states in prose
+what the worker answers the sender. A change that leaves a stated type without
+such a send, or that moves a key on one side alone, MUST update this statement
+and the check that holds it in the same change.
+
 ### Capture path
 
 Sent by the recorder to the worker:
 
 | Type            | Payload            | Response                                                                                                           |
 | --------------- | ------------------ | ------------------------------------------------------------------------------------------------------------------ |
-| `GET_TAB_ID`    | —                  | `{ tabId }`, answered synchronously — the sender's tab identity exists only on the dispatcher's `sender` argument. |
+| `GET_TAB_ID`    | `—`                | `{ tabId }`, answered synchronously — the sender's tab identity exists only on the dispatcher's `sender` argument. |
 | `FRAME_READY`   | `{ readyAt, url }` | None — a one-way readiness beacon ([ECP-3](capture-principles.md#frame-trust-and-readiness)).                      |
 | `APPEND_ACTION` | `{ action }`       | The [response envelope](#response-contract) below.                                                                 |
 

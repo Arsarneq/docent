@@ -509,14 +509,45 @@ export function selectTablesByHeader(docText, { header, section, subsection }) {
 }
 
 /**
+ * The index a selected table is read at, from the column form its caller
+ * stated: {@link readTableColumn}'s own resolution, and the one a caller that
+ * walks a table's rows beside its cells states by calling this directly — which
+ * is why the refusal below names this resolver rather than any one of its
+ * callers. An index addresses the position. A function computes the index
+ * from the table, and may answer -1 for a table the caller means to pass over.
+ * A string names a header cell, matched against the table's own trimmed header:
+ * the form for tables selected by their WHOLE header, where the caller already
+ * holds the header it named, so a name no cell carries is a defect in the
+ * calling check rather than a state a document can reach — it refuses by name
+ * instead of reading a quietly empty set.
+ * @param {{ header: string[] }} table the table being read
+ * @param {number|string|((table: { header: string[] }) => number)} column the stated form
+ * @returns {number} the column index, or -1 to pass the table over
+ * @throws {TypeError} when a named column is in no cell of the table's header
+ */
+export function resolveColumn(table, column) {
+  if (typeof column === 'function') return column(table);
+  if (typeof column !== 'string') return column;
+  const index = table.header.findIndex((cell) => cell.trim() === column);
+  if (index === -1)
+    throw new TypeError(`resolveColumn: no column named \`${column}\` in a table headed ${table.header.map((cell) => cell.trim()).join(' | ')}`); // prettier-ignore
+  return index;
+}
+
+/**
  * Read one column of selected tables as names, collecting the cells that do
  * not read as one rather than skipping them — the pairing every table
  * inventory needs: a renamed or re-shaped cell must red loudly instead of
  * leaving the scanned set quietly smaller.
+ *
+ * The column is stated per table by {@link resolveColumn}: an index, the name
+ * of a header cell, or a function of the table. Naming the cell is the form a
+ * caller that selected its tables by their whole header states — the column it
+ * reads is then legible as the header word the document itself carries.
  * @param {{ header: string[], rows: string[][] }[]} tables the selected tables
  * @param {object} how the column and its grammar
  * @param {string} how.empty what an empty cell is called in the report
- * @param {number|((table: { header: string[] }) => number)} [how.column] the column, per table
+ * @param {number|string|((table: { header: string[] }) => number)} [how.column] the column, per table
  * @param {(cell: string) => (string | null)} [how.read] the cell grammar; null = unreadable
  * @returns {{ names: string[], unreadable: string[] }}
  */
@@ -524,7 +555,7 @@ export function readTableColumn(tables, { empty, column = 0, read = backtickedNa
   const names = [];
   const unreadable = [];
   for (const table of tables) {
-    const index = typeof column === 'function' ? column(table) : column;
+    const index = resolveColumn(table, column);
     if (index === -1) continue;
     for (const row of table.rows) {
       const cell = (row[index] ?? '').trim();
