@@ -81,7 +81,8 @@
     "qs": "^6.15.2",
     "unified-engine": {
       "minimatch": "^10.0.3"
-    }
+    },
+    "smol-toml": "^1.8.0"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
