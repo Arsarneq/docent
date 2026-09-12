@@ -1150,6 +1150,51 @@ describe('the suite the named job runs', () => {
       });
     }
 
+    for (const [where, jobs_, rootEnv, names] of [
+      [
+        'the carrying step',
+        { [UNIT_SUITE_JOB_ID]: { steps: [{ name: 'Tests', run: 'npm run test:coverage', env: { NODE_OPTIONS: '--test-name-pattern=zzz' } }] } }, // prettier-ignore
+        undefined,
+        'the step named `Tests`',
+      ],
+      [
+        'its job',
+        { [UNIT_SUITE_JOB_ID]: { env: { NODE_OPTIONS: '--test-only' }, steps: [{ name: 'Tests', run: 'npm run test:coverage' }] } }, // prettier-ignore
+        undefined,
+        'of its own',
+      ],
+      [
+        'the workflow root',
+        { [UNIT_SUITE_JOB_ID]: { steps: [{ name: 'Tests', run: 'npm run test:coverage' }] } },
+        { NODE_OPTIONS: '--test-only' },
+        "at the workflow's own root",
+      ],
+    ]) {
+      it(`an environment key this reading cannot evaluate, stated at ${where}, is refused by name`, () => {
+        // The runner reads its value as though it stood on the command line, so a
+        // value selecting no test runs none of the suite while the command this
+        // reading compares is unchanged.
+        const problems = jobSuiteProblems(
+          SUITE,
+          jobSuiteArguments(jobs_, RESOLVING_COMMANDS, UNIT_SUITE_JOB_ID, undefined, rootEnv),
+        );
+        assert.equal(problems.length, 2, problems.join('\n'));
+        assert.ok(problems[0].includes('NODE_OPTIONS'), problems[0]);
+        assert.ok(problems[0].includes(names), problems[0]);
+        assert.ok(problems[0].includes('teach the reader'), problems[0]);
+        assert.ok(problems[1].includes(suiteGlob(SUITE)), problems[1]);
+      });
+    }
+
+    it('an environment key beside that one states nothing here', () => {
+      const read = jobSuiteArguments(
+        { [UNIT_SUITE_JOB_ID]: { env: { CI: 'true' }, steps: [{ name: 'Tests', run: 'npm run test:coverage', env: { FORCE_COLOR: '1' } }] } }, // prettier-ignore
+        RESOLVING_COMMANDS,
+        UNIT_SUITE_JOB_ID,
+      );
+      assert.deepEqual(jobSuiteProblems(SUITE, read), []);
+    });
+
     it('a job stating a tolerance of its own is refused as the job’s, not a step’s', () => {
       const problems = jobSuiteProblems(
         SUITE,
@@ -1209,7 +1254,8 @@ describe('the suite the named job runs', () => {
   });
 
   // The resolved script's own verdict: what the step delegates to is a manifest
-  // command, and an operator inside it stops the failure there.
+  // command, and anything standing beside the invocation there can take its
+  // verdict or drop it, or take the suite's arguments from it.
   describe('the resolved script’s own command stands alone too', () => {
     const spelled = `c8 --reporter=text --reporter=lcov node --test ${suiteGlob(SUITE)} packages/desktop/tests/unit/*.test.js`; // prettier-ignore
     const answer = (command) =>
@@ -1249,28 +1295,50 @@ describe('the suite the named job runs', () => {
       });
     }
 
-    it('an `&&` before its invocation is refused as the operator and as the handler', () => {
+    it('an `&&` before its invocation is refused as the operator and as the word ahead', () => {
       // The operator stands beside the command, and `echo` stands where this
       // reading takes the suite's arguments from — each its own refusal.
       const problems = answer(`echo staging && ${spelled}`);
       assert.equal(problems.length, 3, problems.join('\n'));
       assert.ok(problems[0].includes('the operator `&&`'), problems[0]);
-      assert.ok(problems[1].includes('`echo`'), problems[1]);
-      assert.ok(problems[1].includes('a program this reader does not model'), problems[1]);
+      assert.ok(problems[1].includes('`echo` ahead of the invocation'), problems[1]);
+      assert.ok(problems[1].includes('neither one of the invocations it models'), problems[1]);
       assert.ok(problems[2].includes(suiteGlob(SUITE)), problems[2]);
     });
 
-    it('a command handing the suite’s arguments on is refused by name', () => {
+    it('a word this reading cannot read ahead of the invocation is refused by name', () => {
       // The anchoring rule closes this at a segment's head; the argument reader
       // takes the arguments after the `node --test` it finds anywhere, so the
       // question is asked of the whole carrying command too.
       const problems = answer(`c8 --reporter=text --reporter=lcov echo node --test ${suiteGlob(SUITE)}`); // prettier-ignore
       assert.equal(problems.length, 2, problems.join('\n'));
       assert.ok(problems[0].includes('`npm run test:coverage`'), problems[0]);
-      assert.ok(problems[0].includes('hands those arguments to `echo`'), problems[0]);
-      assert.ok(problems[0].includes('a program this reader does not model'), problems[0]);
+      assert.ok(problems[0].includes('states `echo` ahead of the invocation'), problems[0]);
+      assert.ok(problems[0].includes('nor a flag carrying its own value'), problems[0]);
       assert.ok(problems[0].includes(PACKAGE_JSON_PATH), problems[0]);
       assert.ok(problems[1].includes(suiteGlob(SUITE)), problems[1]);
+    });
+
+    it('a flag whose value stands apart from it is named for what it is', () => {
+      // The same reading, named for the word it found rather than for a program:
+      // the remedy is to attach the value, not to state another invocation.
+      const problems = answer(`c8 --reporter text --reporter=lcov node --test ${suiteGlob(SUITE)}`); // prettier-ignore
+      assert.equal(problems.length, 2, problems.join('\n'));
+      assert.ok(problems[0].includes('states `text` ahead of the invocation'), problems[0]);
+      assert.ok(problems[0].includes("attach a flag's value to it"), problems[0]);
+      assert.ok(problems[1].includes(suiteGlob(SUITE)), problems[1]);
+    });
+
+    it('a flag on the `node` it carries the arguments with is refused by name', () => {
+      // The shared argument reader steps over these, so the argument list it
+      // answers is unchanged while the suite runs none of its tests.
+      for (const flag of ['--test-only', '--test-name-pattern=zzz', '-v']) {
+        const problems = answer(`c8 --reporter=lcov node ${flag} --test ${suiteGlob(SUITE)}`);
+        assert.equal(problems.length, 2, problems.join('\n'));
+        assert.ok(problems[0].includes(`states \`${flag}\` on the \`node\``), problems[0]);
+        assert.ok(problems[0].includes('a flag this reading does not evaluate'), problems[0]);
+        assert.ok(problems[1].includes(suiteGlob(SUITE)), problems[1]);
+      }
     });
 
     it('the command standing alone is admitted, however it is spelled', () => {
@@ -1390,18 +1458,39 @@ describe('the suite the named job runs', () => {
       });
     }
 
-    it('a step handing the suite’s arguments on is refused by name', () => {
+    it('a word this reading cannot read ahead of the step’s invocation is refused by name', () => {
       // A modelled invocation stands at the head, so the anchoring rule admits the
-      // segment; the program that would receive the arguments stands one word later.
+      // segment; the word that would receive the arguments stands one later.
       const problems = answer({
         run: `npx c8 --reporter=text --reporter=lcov echo node --test ${suiteGlob(SUITE)}`,
       });
       assert.equal(problems.length, 2, problems.join('\n'));
       assert.ok(problems[0].includes('the step named `Tests`'), problems[0]);
-      assert.ok(problems[0].includes('hands those arguments to `echo`'), problems[0]);
-      assert.ok(problems[0].includes('a program this reader does not model'), problems[0]);
+      assert.ok(problems[0].includes('states `echo` ahead of the invocation'), problems[0]);
+      assert.ok(problems[0].includes('nor a flag carrying its own value'), problems[0]);
       assert.ok(problems[0].includes('teach the reader'), problems[0]);
       assert.ok(problems[1].includes(suiteGlob(SUITE)), problems[1]);
+    });
+
+    it('a flag on the step’s own `node` is refused by name', () => {
+      const problems = answer({
+        run: `npx c8 --reporter=lcov node --test-only --test ${suiteGlob(SUITE)}`,
+      });
+      assert.equal(problems.length, 2, problems.join('\n'));
+      assert.ok(problems[0].includes('states `--test-only` on the `node`'), problems[0]);
+      assert.ok(problems[0].includes('a flag this reading does not evaluate'), problems[0]);
+      assert.ok(problems[1].includes(suiteGlob(SUITE)), problems[1]);
+    });
+
+    it('a comment line above the carrying command is admitted, as its shape is', () => {
+      // The question is asked of the carrying SEGMENT's own text, which the split
+      // has already stripped of comment-only lines.
+      assert.deepEqual(
+        answer({
+          run: `# the shared and desktop trees run here\nnpx c8 --reporter=lcov node --test ${suiteGlob(SUITE)}`, // prettier-ignore
+        }),
+        [],
+      );
     });
 
     it('the invocations this reading models may stand ahead of it, with their flags', () => {
@@ -1526,6 +1615,39 @@ describe('the suite the named job runs', () => {
         answer.globs.some(isSuite),
         `${UNIT_SUITE_JOB_ID} resolves to: ${answer.globs.map(suiteGlob).join(', ')}`,
       );
+    });
+
+    it('a refusal about another step ends on what the verdict answered', () => {
+      // The suite IS found here, by the step that ships it, so the refusal about
+      // the unrelated step says only that this leg cannot answer for that step.
+      const steps = [...shippedJobs()[UNIT_SUITE_JOB_ID].steps, { name: 'Probe', run: 'which node' }]; // prettier-ignore
+      const problems = jobSuiteProblems(
+        SUITE,
+        jobSuiteArguments({ [UNIT_SUITE_JOB_ID]: { steps } }, shippedCommands(), UNIT_SUITE_JOB_ID), // prettier-ignore
+      );
+      assert.equal(problems.length, 1, problems.join('\n'));
+      assert.ok(problems[0].includes('the step named `Probe`'), problems[0]);
+      assert.ok(problems[0].includes('this leg cannot answer for that step'), problems[0]);
+      assert.ok(!problems[0].includes('neither found nor ruled out'), problems[0]);
+    });
+
+    it('the same refusal ends on the suite where the verdict did not find it', () => {
+      // The carrying step gone, the refusal about the unrelated step is about a
+      // step the suite might have been in, and the tail says so.
+      const steps = shippedJobs()[UNIT_SUITE_JOB_ID].steps.filter(
+        (step) => typeof step?.run !== 'string' || !step.run.includes('npm run test:coverage'),
+      );
+      const problems = jobSuiteProblems(
+        SUITE,
+        jobSuiteArguments(
+          { [UNIT_SUITE_JOB_ID]: { steps: [...steps, { name: 'Probe', run: 'which node' }] } },
+          shippedCommands(),
+          UNIT_SUITE_JOB_ID,
+        ),
+      );
+      assert.ok(problems[0].includes('neither found nor ruled out'), problems[0]);
+      assert.ok(!problems[0].includes('cannot answer for that step'), problems[0]);
+      assert.ok(problems[problems.length - 1].includes(suiteGlob(SUITE)), problems.join('\n'));
     });
 
     it('the shipped carrying step is one this reading admits', () => {

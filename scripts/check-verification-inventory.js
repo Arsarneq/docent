@@ -57,9 +57,13 @@
  *     step stays free to be respelled in the spellings this reading models and
  *     the job free to grow further suites. And the carrying command stands ALONE:
  *     the step's own `run` text, and the manifest command whose classified globs
- *     carry the suite, each state ONE PLAIN COMMAND on their only command line.
- *     REFUSED, each by name — a step stating its own `working-directory`; a
- *     `defaults.run.working-directory` stated for the job or at the workflow's
+ *     carry the suite, each state ONE PLAIN COMMAND on the only command line it
+ *     states, with every word ahead of the invocation one this reading reads —
+ *     an invocation it models, or a flag carrying its own value — and that
+ *     invocation stating `--test` and nothing else.
+ *     REFUSED, each by name — a step stating a `working-directory` of its own
+ *     that moves the command; a `defaults.run.working-directory` that moves it,
+ *     stated for the job or at the workflow's
  *     own root; a segment stating a modelled invocation somewhere other than its
  *     own head; a segment whose script key this reader cannot read; a segment
  *     stating a run-verb flag that answers the script key from another package's
@@ -73,9 +77,13 @@
  *     evaluate: a workflow expression, a quoted argument, a command
  *     substitution, a heredoc, an operator, a redirection, a comment on the
  *     command's own line, a second command line, or a line continuation; a
- *     carrying command handing the suite's arguments to a program this reading
- *     does not model; a step carrying the suite under a condition or a truthy or
- *     expression-valued tolerance, the step's own or the job's; a job whose
+ *     carrying command stating a word ahead of its invocation that this reading
+ *     can read as neither an invocation it models nor a flag carrying its own
+ *     value, or a flag on the `node` it carries the suite's arguments with; a
+ *     step carrying the suite under a condition or a truthy or
+ *     expression-valued tolerance, the step's own or the job's, or under an
+ *     environment key this reading cannot evaluate — `NODE_OPTIONS`, stated for
+ *     the step, the job or the workflow root; a job whose
  *     commands this reading resolved none of; the job itself being gone; and a
  *     suite directory this check names that the registered discoveries no longer
  *     carry. LIMITS — the verification documents' own CI-reach sentences are
@@ -85,10 +93,12 @@
  *     shells a carrying command runs under — the workflow's default one and npm's
  *     own `sh -c` — are read no further than the admitted shape, whose ground
  *     {@link plainCommandShape} states, so neither a `shell:` key nor a `set +e`
- *     inside a block states anything here; a wrapper this reading does not model
- *     standing before the invocation — `cross-env`, `timeout` — is refused by
- *     name rather than read, which is what admitting only the invocations it
- *     models costs; the segment grammar's own
+ *     inside a block states anything here, and no environment key beside
+ *     `NODE_OPTIONS` is read; a wrapper this reading does not model, or a flag
+ *     whose value stands apart from it, standing before the invocation is refused
+ *     by name rather than read, as is a flagged runner invocation — which is what
+ *     admitting only the invocations it models, their attached flags and a plain
+ *     `--test` costs; the segment grammar's own
  *     limits are inherited — text inside a heredoc body or a command
  *     substitution is read as the line's own, and a segment's quoted text is
  *     passed over, which is why a carrying command stating a quote is refused
@@ -131,10 +141,11 @@
  * suite, so the verdict can name them. That same job runs a second script of the
  * same NAME from another package's manifest behind exactly such a `cd`, so
  * reading a segment without the relocation ahead of it would let that step's
- * token answer for the root script. A step stating its own `working-directory`, and a
- * `defaults.run.working-directory` stated for the job or at the workflow's own
- * root, are refused by name for that same reason — named rather than skipped,
- * because the leg cannot answer green over commands it declined to read. A
+ * token answer for the root script. A step stating a `working-directory` of its
+ * own that moves the command, and a `defaults.run.working-directory` that moves
+ * it, stated for the job or at the workflow's own root, are refused by name for
+ * that same reason — named rather than skipped, because the leg cannot answer
+ * green over commands it declined to read. A
  * refusal whose subject is the job says so as the job's, with no step to point
  * at.
  *
@@ -454,9 +465,10 @@ const QUOTE_DELIMITER_RE = /['"]/;
  * inside a quoted argument is named for the quote rather than for an operator it
  * does not state; the longer spelling of an operator stands ahead of the shorter
  * one, so a line stating `&&` is named for the `&&` rather than for the `&`
- * inside it; and a redirection stands ahead of the `&`, so `2>&1` and `&>all.log`
+ * inside it; a redirection stands ahead of the `&`, so `2>&1` and `&>all.log`
  * are named for the redirection they are rather than for a background operator
- * they are not.
+ * they are not; and the heredoc stands ahead of the redirections, because its own
+ * spelling carries one.
  */
 const PLAIN_COMMAND_SHAPES = [
   ['${{', 'a workflow expression'],
@@ -492,39 +504,82 @@ const MODELLED_INVOCATIONS = new Set(['node', 'npx', 'c8', 'npm']);
  */
 const INVOCATION_WRAPPERS = new Set(['node', 'npx', 'c8']);
 
+/** The environment key whose value the runner reads as though it stood on the command line. */
+const RUNNER_OPTIONS_KEY = 'NODE_OPTIONS';
+
 /**
- * The program one carrying command hands the suite's arguments to, where that is
- * a program this reading does not model — or null where every word ahead of the
- * `node` it reads them from is one it does.
+ * The word one carrying command states ahead of the `node` this reading takes the
+ * suite's arguments from that it can read as neither an invocation it models nor a
+ * flag carrying its own value — or null where it can read every word standing
+ * there.
  *
  * The anchoring rule at a segment's HEAD closes this hazard only while the other
- * program stands first. The argument reader takes the arguments after the
+ * word stands first. The argument reader takes the arguments after the
  * `node --test` it finds anywhere in the text, so `c8 … echo node --test <glob>`
  * would otherwise be credited with a suite that `echo` only prints. The question
- * is therefore asked of the whole carrying command — the step's own text and the
- * manifest command it resolves through alike — beside the shape question, and only
- * of a command that carries the suite.
+ * is therefore asked of the whole carrying command — the carrying segment's own
+ * text and the manifest command it resolves through alike — beside the shape
+ * question, and only of a command that carries the suite.
  *
- * A flag here is a `-`-prefixed word with its value attached: a flag whose value
- * is a separate word states that value where a program would stand, and is named
- * as one. That is the fail-closed side, the side the shape rule takes as well,
- * and its cost is stated as a limit — a wrapper this reading does not model
- * standing before the invocation is refused rather than read.
+ * What it reads there is an invocation it models, or a `-`-prefixed word, taken as
+ * a flag without knowing whose. A flag whose value stands apart from it therefore
+ * states that value where this reading expects neither, and is named for what the
+ * reading found rather than called a program: the remedy is to attach the value.
+ * That is the fail-closed side, the side the shape rule takes as well, and its
+ * cost is stated as a limit.
  *
  * The caller asks this of the text with its continuations JOINED, which is the
- * text a shell parses: a backslash at a line's end is not a program standing
+ * text a shell parses: a backslash at a line's end is not a word standing
  * between the wrapper and the invocation. The SHAPE question is asked of the text
  * as written, where that continuation is itself a refused shape.
  * @param {string} text one carrying command's text
- * @returns {string | null} the program named, or null where this reading models every word ahead
+ * @returns {string | null} the word named, or null where it reads every word ahead
  */
-function unmodelledArgumentHandler(text) {
+function unreadableWordAhead(text) {
   const words = text.split(/\s+/).filter(Boolean);
   const at = words.indexOf('node');
-  if (at < 0) return null; // states no `node`: it hands those arguments to nothing
-  const handler = words.slice(0, at).find((word) => !INVOCATION_WRAPPERS.has(word) && !word.startsWith('-')); // prettier-ignore
-  return handler ?? null;
+  if (at < 0) return null; // states no `node`: nothing stands ahead of one
+  const ahead = words.slice(0, at).find((word) => !INVOCATION_WRAPPERS.has(word) && !word.startsWith('-')); // prettier-ignore
+  return ahead ?? null;
 }
+
+/**
+ * The word one carrying command states between the `node` this reading takes the
+ * suite's arguments from and that invocation's own `--test` — or null where it
+ * states none.
+ *
+ * The shared argument reader steps over every `-`-prefixed word there, so the
+ * argument list it answers is the same whether the invocation states
+ * `--test-only`, `--test-name-pattern=<no match>` or `-v` beside its `--test`, and
+ * each of those runs none of the suite while writing the coverage report the job
+ * goes on to stage. This reading evaluates no runner flag, so a carrying command
+ * stating one is refused by name: the invocation itself must be plain. The shipped
+ * command states none, and the cost is stated as a limit beside the wrapper's.
+ * @param {string} text one carrying command's text
+ * @returns {string | null} the flag named, or null where the invocation is plain
+ */
+function runnerFlagBeforeTest(text) {
+  const words = text.split(/\s+/).filter(Boolean);
+  const at = words.indexOf('node');
+  if (at < 0) return null;
+  const test = words.indexOf('--test', at + 1);
+  if (test < 0) return null; // states no `--test`: this reading takes no arguments from it
+  return words[at + 1] === undefined || at + 1 === test ? null : words[at + 1];
+}
+
+/**
+ * The environment key one step, job or workflow root states that this reading
+ * cannot evaluate: `NODE_OPTIONS`, which the runner reads as though its value
+ * stood on the command line, so a value selecting no test runs none of the suite
+ * while the command this reading compares is unchanged. Other environment keys are
+ * not read, a limit stated with the rest.
+ * @param {unknown} env one `env:` mapping, or undefined where none is stated
+ * @returns {string | null} the value stated, or null where that key is not stated
+ */
+const unevaluatedOptions = (env) => {
+  const value = isRecord(env) ? env[RUNNER_OPTIONS_KEY] : undefined;
+  return value === undefined ? null : String(value);
+};
 
 /**
  * Whether one `working-directory` value moves the commands under it. `.` and `./`
@@ -729,14 +784,18 @@ function stepSubject({ name, index }) {
  * resolves to the script it names.
  *
  * The answer carries flat fields across the whole job — every script key read,
- * every classified glob, the refusals, and the refusals whose subject is the job
- * itself — beside a `steps` array answering
- * per step: its name, its position, the condition and the tolerance it states,
+ * every classified glob, the refusals, the refusals whose subject is the job
+ * itself, and the keys the job or the workflow root states that this reading
+ * cannot evaluate — beside a `steps` array answering
+ * per step: its name, its position, the condition, the tolerance and the
+ * unevaluated environment key it states,
  * the shape its own `run` text states beside its command, whether the reading
  * stopped at a `cd` inside it over a remainder that could have carried a suite,
  * and one entry per resolving segment carrying that segment's command, its
- * classified globs, and — where it names one — the script it resolves through
- * with that script's own shape. The verdict function
+ * classified globs, the word ahead of its invocation this reading could not read
+ * and the flag that invocation states beside its `--test`, and — where it names
+ * one — the script it resolves through with that script's own shape and the same
+ * answers over its text. The verdict function
  * is where the registered suite is known, so it is what decides which of those
  * states refuses a step; this reader stays a reader of its arguments.
  *
@@ -750,9 +809,11 @@ function stepSubject({ name, index }) {
  * its own would resolve the name against the root manifest and report the root
  * suite as still run after the root step is gone. Nothing is refused for it —
  * the step is recorded as read only that far, over a remainder that could have
- * carried a suite, so the verdict can say where the reading stopped. A step stating its own `working-directory`, and a
- * `defaults.run.working-directory` stated for the job or at the workflow's own
- * root, are refused by name for that same relocation reason, and named rather
+ * carried a suite, so the verdict can say where the reading stopped. A step
+ * stating a `working-directory` of its own that moves the command, and a
+ * `defaults.run.working-directory` that moves it, stated for the job or at the
+ * workflow's own root, are refused by name for that same relocation reason, and
+ * named rather
  * than skipped so the leg cannot answer green over a job whose commands it
  * declined to read; a relocation stated above the steps leaves them unread,
  * since it moves all of them. A segment stating a modelled invocation somewhere
@@ -772,21 +833,28 @@ function stepSubject({ name, index }) {
  * @param {string} jobId the job whose steps to read
  * @param {string | undefined} [rootDirectory] the workflow root's own
  *   `defaults.run.working-directory`, which every job of it runs under
+ * @param {Record<string, unknown> | undefined} [rootEnv] the workflow root's own
+ *   `env` mapping, which every step of every job of it runs under
  * @returns {{ absent: boolean, tokens: string[],
  *             globs: { dir: string, pattern: string }[], refusals: string[],
  *             jobRefusals: string[], jobContinueOnError: string | null,
+ *             jobNodeOptions: string | null, rootNodeOptions: string | null,
  *             steps: { name: string | undefined, index: number,
  *                      condition: string | null, continueOnError: string | null,
+ *                      nodeOptions: string | null,
  *                      truncated: boolean, shape: string | null,
  *                      segments: { command: string, classified: number,
  *                                  globs: { dir: string, pattern: string }[],
- *                                  script: { token: string, shape: string | null } | null
+ *                                  ahead: string | null, runnerFlag: string | null,
+ *                                  script: { token: string, shape: string | null,
+ *                                            ahead: string | null,
+ *                                            runnerFlag: string | null } | null
  *                                }[] }[] }}
  */
-export function jobSuiteArguments(jobsMap, commands, jobId, rootDirectory) {
+export function jobSuiteArguments(jobsMap, commands, jobId, rootDirectory, rootEnv) {
   const job = jobsMap[jobId];
   if (job === undefined) {
-    return { absent: true, tokens: [], globs: [], refusals: [], jobRefusals: [], jobContinueOnError: null, steps: [] }; // prettier-ignore
+    return { absent: true, tokens: [], globs: [], refusals: [], jobRefusals: [], jobContinueOnError: null, jobNodeOptions: null, rootNodeOptions: null, steps: [] }; // prettier-ignore
   }
   const tokens = [];
   const globs = [];
@@ -870,7 +938,8 @@ export function jobSuiteArguments(jobsMap, commands, jobId, rootDirectory) {
       }
       let viaScript = { globs: [], classified: 0 };
       let scriptShape = null;
-      let scriptHandler = null;
+      let scriptAhead = null;
+      let scriptRunnerFlag = null;
       if (script !== undefined) {
         tokens.push(script.token);
         const command = commands[script.token];
@@ -884,7 +953,8 @@ export function jobSuiteArguments(jobsMap, commands, jobId, rootDirectory) {
           continue;
         }
         scriptShape = plainCommandShape(command);
-        scriptHandler = unmodelledArgumentHandler(joinContinuations(command));
+        scriptAhead = unreadableWordAhead(joinContinuations(command));
+        scriptRunnerFlag = runnerFlagBeforeTest(joinContinuations(command));
       }
       const merged = [...own.globs, ...viaScript.globs];
       globs.push(...merged);
@@ -892,7 +962,12 @@ export function jobSuiteArguments(jobsMap, commands, jobId, rootDirectory) {
         command: text,
         classified: own.classified + viaScript.classified,
         globs: merged,
-        script: script === undefined ? null : { token: script.token, shape: scriptShape, handler: scriptHandler }, // prettier-ignore
+        // The words ahead of the invocation, and the invocation's own flags, read
+        // off THIS segment's text: the split has already dropped the comment-only
+        // lines a step may state above its command, which the shape rule admits.
+        ahead: unreadableWordAhead(text),
+        runnerFlag: runnerFlagBeforeTest(text),
+        script: script === undefined ? null : { token: script.token, shape: scriptShape, ahead: scriptAhead, runnerFlag: scriptRunnerFlag }, // prettier-ignore
       });
     }
     steps.push({
@@ -900,9 +975,9 @@ export function jobSuiteArguments(jobsMap, commands, jobId, rootDirectory) {
       index,
       condition: step?.if === undefined ? null : String(step.if),
       continueOnError: step?.['continue-on-error'] ? String(step['continue-on-error']) : null,
+      nodeOptions: unevaluatedOptions(step?.env),
       truncated,
       shape: plainCommandShape(step.run),
-      handler: unmodelledArgumentHandler(joinContinuations(step.run)),
       segments,
     });
   }
@@ -913,6 +988,8 @@ export function jobSuiteArguments(jobsMap, commands, jobId, rootDirectory) {
     refusals,
     jobRefusals,
     jobContinueOnError: job?.['continue-on-error'] ? String(job['continue-on-error']) : null,
+    jobNodeOptions: unevaluatedOptions(job?.env),
+    rootNodeOptions: unevaluatedOptions(rootEnv),
     steps,
   };
 }
@@ -925,12 +1002,16 @@ const carryingSegments = (step, suite) =>
 
 /**
  * What a carrying step states around its command that this reader declines to
- * evaluate, named as the refusal names it: the condition it stands under, and
- * the tolerance it states for its own verdict. A step whose resolution does NOT
+ * evaluate, named as the refusal names it: the condition it stands under, the
+ * tolerance it states for its own verdict, and the environment key whose value
+ * the runner reads as though it stood on the command line. A step whose
+ * resolution does NOT
  * carry the registered suite is not asked — it may state whatever it likes — and
- * the step's own command SHAPE is judged beside these, on its own sentence,
- * because its remedy is a respelling rather than a key to drop.
- * @param {{ condition: string | null, continueOnError: string | null }} step
+ * the step's own command SHAPE, the words ahead of its invocation and that
+ * invocation's own flags are judged beside these, each on its own sentence,
+ * because each remedy is a respelling rather than a key to drop.
+ * @param {{ condition: string | null, continueOnError: string | null,
+ *           nodeOptions?: string | null }} step
  * @returns {string[]} the offenders, each as a refusal names it; empty admits
  */
 function carryingStepOffenders(step) {
@@ -939,6 +1020,9 @@ function carryingStepOffenders(step) {
   if (step.continueOnError !== null) {
     offenders.push(`the tolerance \`continue-on-error: ${step.continueOnError}\``);
   }
+  if ((step.nodeOptions ?? null) !== null) {
+    offenders.push(`the environment key \`env.${RUNNER_OPTIONS_KEY}: ${step.nodeOptions}\``);
+  }
   return offenders;
 }
 
@@ -946,8 +1030,10 @@ function carryingStepOffenders(step) {
  * The job-suite leg's verdict: the registered suite this check names, against
  * what the named job's own steps resolve to. The registered suite is known
  * here and nowhere upstream, so this is also where a carrying step's condition,
- * tolerance and command shape are judged, and where the shape of the manifest
- * command that carries the suite is.
+ * tolerance, unevaluated environment key and command shape are judged, beside the
+ * word it states ahead of its invocation and the flag that invocation states of
+ * its own — and where the same shape, word and flag are judged over the manifest
+ * command that carries the suite.
  *
  * The states are named apart, because the remedies differ. A registration
  * this check's directory constant no longer matches names that constant and
@@ -1017,9 +1103,10 @@ export function jobSuiteProblems(suite, read) {
       (refusal) => `${TEST_WORKFLOW_PATH}'s \`${UNIT_SUITE_JOB_ID}\` job ${refusal}, so what that step runs cannot be resolved — ${found ? 'this leg cannot answer for that step' : 'the suite this leg holds the job to is then neither found nor ruled out'}`, // prettier-ignore
     ),
     // A refusal whose subject is the job takes the job's own tail: the relocations
-    // stated for it or above it move every step, so there is no one step to point at.
+    // stated for it or above it move EVERY step, so there is no one step to point
+    // at and no run in which the suite was found beside one.
     ...(read.jobRefusals ?? []).map(
-      (refusal) => `${TEST_WORKFLOW_PATH}'s \`${UNIT_SUITE_JOB_ID}\` job ${refusal}, so what its steps run cannot be resolved — ${found ? 'this leg cannot answer for those steps' : 'the suite this leg holds the job to is then neither found nor ruled out'}`, // prettier-ignore
+      (refusal) => `${TEST_WORKFLOW_PATH}'s \`${UNIT_SUITE_JOB_ID}\` job ${refusal}, so what its steps run cannot be resolved — the suite this leg holds the job to is then neither found nor ruled out`, // prettier-ignore
     ),
   ];
   if (read.tokens.length === 0 && resolved === 0) {
@@ -1034,6 +1121,11 @@ export function jobSuiteProblems(suite, read) {
     return problems;
   }
   const jobTolerance = read.jobContinueOnError ?? null;
+  // The environment this reading cannot evaluate, stated above the steps: the job's
+  // own key and the workflow root's, each declining every step the way the job's
+  // tolerance does, because each reaches every step the job runs.
+  const jobOptions = read.jobNodeOptions ?? read.rootNodeOptions ?? null;
+  const optionsWhere = read.jobNodeOptions != null ? 'of its own' : "at the workflow's own root";
   const verdicts = [];
   const admitted = [];
   let carriedSomewhere = false;
@@ -1047,7 +1139,7 @@ export function jobSuiteProblems(suite, read) {
     const subject = stepSubject(step);
     const offenders = carryingStepOffenders(step);
     for (const offender of offenders) {
-      verdicts.push(`${TEST_WORKFLOW_PATH}'s \`${UNIT_SUITE_JOB_ID}\` job states ${suiteGlob(suite)} in ${subject}, under ${offender} — which this reader does not evaluate, so it cannot answer that running the job runs the suite: state the suite in a step this reading admits, carrying no condition, no tolerance, and nothing beside its command, or teach the reader to read it`); // prettier-ignore
+      verdicts.push(`${TEST_WORKFLOW_PATH}'s \`${UNIT_SUITE_JOB_ID}\` job states ${suiteGlob(suite)} in ${subject}, under ${offender} — which this reader does not evaluate, so it cannot answer that running the job runs the suite: state the suite in a step this reading admits, carrying no condition, no tolerance, no environment this reading does not evaluate, and nothing beside its command, or teach the reader to read it`); // prettier-ignore
     }
     if (step.shape != null) {
       verdicts.push(`${TEST_WORKFLOW_PATH}'s \`${UNIT_SUITE_JOB_ID}\` job states ${suiteGlob(suite)} in ${subject}, whose \`run\` text states ${step.shape} — this reader admits a carrying command standing alone on its step's only command line, and evaluates nothing beside it: put the suite's command alone there, or teach the reader to read it`); // prettier-ignore
@@ -1056,21 +1148,40 @@ export function jobSuiteProblems(suite, read) {
       verdicts.push(`${TEST_WORKFLOW_PATH}'s \`${UNIT_SUITE_JOB_ID}\` job states ${suiteGlob(suite)} in ${subject}, whose \`run\` text hands those arguments to \`${step.handler}\`, a program this reader does not model — it reads a \`node --test\` argument list only from an invocation standing behind the invocations it models and their flags: state the invocation this reading models, or teach the reader to read that one`); // prettier-ignore
     }
     for (const segment of carrying) {
+      if (segment.ahead != null) {
+        verdicts.push(`${TEST_WORKFLOW_PATH}'s \`${UNIT_SUITE_JOB_ID}\` job states ${suiteGlob(suite)} in ${subject}, whose command states \`${segment.ahead}\` ahead of the invocation — a word this reading can read as neither one of the invocations it models nor a flag carrying its own value, and it takes a \`node --test\` argument list only from an invocation standing behind those: attach a flag's value to it, state an invocation this reading models, or teach the reader to read that word`); // prettier-ignore
+      }
+      if (segment.runnerFlag != null) {
+        verdicts.push(`${TEST_WORKFLOW_PATH}'s \`${UNIT_SUITE_JOB_ID}\` job states ${suiteGlob(suite)} in ${subject}, whose command states \`${segment.runnerFlag}\` on the \`node\` it carries them with, a flag this reading does not evaluate — the invocation it takes that argument list from states \`--test\` and nothing else: put the flag where this reading admits one, or teach the reader to read it`); // prettier-ignore
+      }
       if (segment.script?.shape != null) {
         verdicts.push(`${TEST_WORKFLOW_PATH}'s \`${UNIT_SUITE_JOB_ID}\` job states ${suiteGlob(suite)} through \`npm run ${segment.script.token}\` in ${subject}, whose command in ${PACKAGE_JSON_PATH} states ${segment.script.shape} — this reader admits a carrying command standing alone on the only command line that command states, and evaluates nothing beside it: put the suite's command alone there, or teach the reader to read it`); // prettier-ignore
       }
-      if (segment.script?.handler != null) {
-        verdicts.push(`${TEST_WORKFLOW_PATH}'s \`${UNIT_SUITE_JOB_ID}\` job states ${suiteGlob(suite)} through \`npm run ${segment.script.token}\` in ${subject}, whose command in ${PACKAGE_JSON_PATH} hands those arguments to \`${segment.script.handler}\`, a program this reader does not model — it reads a \`node --test\` argument list only from an invocation standing behind the invocations it models and their flags: state the invocation this reading models, or teach the reader to read that one`); // prettier-ignore
+      if (segment.script?.ahead != null) {
+        verdicts.push(`${TEST_WORKFLOW_PATH}'s \`${UNIT_SUITE_JOB_ID}\` job states ${suiteGlob(suite)} through \`npm run ${segment.script.token}\` in ${subject}, whose command in ${PACKAGE_JSON_PATH} states \`${segment.script.ahead}\` ahead of the invocation — a word this reading can read as neither one of the invocations it models nor a flag carrying its own value, and it takes a \`node --test\` argument list only from an invocation standing behind those: attach a flag's value to it, state an invocation this reading models, or teach the reader to read that word`); // prettier-ignore
+      }
+      if (segment.script?.runnerFlag != null) {
+        verdicts.push(`${TEST_WORKFLOW_PATH}'s \`${UNIT_SUITE_JOB_ID}\` job states ${suiteGlob(suite)} through \`npm run ${segment.script.token}\` in ${subject}, whose command in ${PACKAGE_JSON_PATH} states \`${segment.script.runnerFlag}\` on the \`node\` it carries them with, a flag this reading does not evaluate — the invocation it takes that argument list from states \`--test\` and nothing else: put the flag where this reading admits one, or teach the reader to read it`); // prettier-ignore
       }
     }
     const declined =
-      offenders.length > 0 || step.shape != null || step.handler != null || jobTolerance !== null;
+      offenders.length > 0 ||
+      step.shape != null ||
+      jobTolerance !== null ||
+      jobOptions !== null ||
+      carrying.some((segment) => segment.ahead != null || segment.runnerFlag != null);
     if (declined) continue;
     for (const segment of step.segments) {
-      const refusedScript = segment.script?.shape != null || segment.script?.handler != null;
+      const refusedScript =
+        segment.script?.shape != null ||
+        segment.script?.ahead != null ||
+        segment.script?.runnerFlag != null;
       if (refusedScript && carrying.includes(segment)) continue;
       admitted.push(...segment.globs);
     }
+  }
+  if (jobOptions !== null && carriedSomewhere) {
+    verdicts.push(`${TEST_WORKFLOW_PATH}'s \`${UNIT_SUITE_JOB_ID}\` job states \`env.${RUNNER_OPTIONS_KEY}: ${jobOptions}\` ${optionsWhere}, which this reader does not evaluate — the runner reads it as though it stood on the command line, so it cannot answer that running the job runs ${suiteGlob(suite)}: drop that key, or teach the reader to read it`); // prettier-ignore
   }
   if (jobTolerance !== null && carriedSomewhere) {
     verdicts.push(`${TEST_WORKFLOW_PATH}'s \`${UNIT_SUITE_JOB_ID}\` job states the tolerance \`continue-on-error: ${jobTolerance}\` of its own, which this reader does not evaluate, so it cannot answer that running the job runs ${suiteGlob(suite)}: drop the job's tolerance, or teach the reader to read it`); // prettier-ignore
@@ -2008,8 +2119,8 @@ export function auditTree(readFile, listActive) {
   // second structural load of the SAME text — not a second read of the file, and
   // not a second parse that could disagree: the load above has already refused a
   // workflow this one could not parse.
-  const rootDirectory = yaml.load(workflowText)?.defaults?.run?.['working-directory'];
-  const jobSuite = jobSuiteArguments(jobsMap, lintSurface.commands, UNIT_SUITE_JOB_ID, rootDirectory); // prettier-ignore
+  const workflowRoot = yaml.load(workflowText);
+  const jobSuite = jobSuiteArguments(jobsMap, lintSurface.commands, UNIT_SUITE_JOB_ID, workflowRoot?.defaults?.run?.['working-directory'], workflowRoot?.env); // prettier-ignore
   const strictWatch = STRICT_WATCH_PLATFORMS.map((w) => {
     const active = activeByPlatform.get(w.platform);
     const command = gateCommands.get(w.script);
