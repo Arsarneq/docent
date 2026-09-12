@@ -116,28 +116,27 @@
  * read from parsed table rows in the document section that makes the
  * enumeration claim, so prose elsewhere — `e2e.md` names `corpus/corpus.spec.js`,
  * which lives outside the documented directory — is never mistaken for an
- * inventory entry, and a name inside a fenced code block is never read as a
- * row. The `TRACKED_FILES` entries are read from a tokenized scan of the array
- * literal, so reformatting a list cannot change what this check sees. The
- * registration closure reads manifest scripts, the workflow step that discovers
- * the Rust binaries, and the browser-driven suites' default configurations the
- * same way. The discovery admission reads the tracked-file list for its path
- * route, and the crate manifest for its declaration route through a scan that
- * drops commented text first and tracks the table each line sits in, so a
- * declaration a comment holds is never read as a live one and a `test` key in
- * `[features]` is the feature it is. The kill sets are read the same way on
- * both sides: the JavaScript list through the tokenizer, as the property array
- * its configuration states, and the command it joins to through the one reader
- * that already models a `node --test` invocation; the Rust list through the
- * same comment-dropping, table-aware manifest scan, paired flag to target in
- * either spelling Cargo accepts for the pairing.
- * Every way any of it can fail to reach its
- * whole subject — a renamed section or column, a relocated or renamed list, an
- * element form or a surrounding expression this reader does not model, a
- * manifest that will not parse or will not read at all, a renamed workflow
- * step, a configuration whose directory this reader cannot resolve — is itself
- * red: a check that silently reads part of a surface, or none of it, would
- * pass forever.
+ * inventory entry, and a name inside a code block, fenced or indented, is never
+ * read as a row. The `TRACKED_FILES` entries are read from a tokenized scan of
+ * the array literal, so reformatting a list cannot change what this check sees.
+ * The registration closure reads manifest scripts, the workflow step that
+ * discovers the Rust binaries, and the browser-driven suites' default
+ * configurations the same way. The discovery admission reads the tracked-file
+ * list for its path route, and the crate manifest for its declaration route
+ * through a scan that drops commented text first and tracks the table each line
+ * sits in, so a declaration a comment holds is never read as a live one and a
+ * `test` key in `[features]` is the feature it is. The kill sets are read the
+ * same way on both sides: the JavaScript list through the tokenizer, as the
+ * property array its configuration states, and the command it joins to through
+ * the one reader that already models a `node --test` invocation; the Rust list
+ * through the same comment-dropping, table-aware manifest scan, paired flag to
+ * target in either spelling Cargo accepts for the pairing. Every way any of it
+ * can fail to reach its whole subject — a renamed section or column, a
+ * relocated or renamed list, an element form or a surrounding expression this
+ * reader does not model, a manifest that will not parse or will not read at
+ * all, a renamed workflow step, a configuration whose directory this reader
+ * cannot resolve — is itself red: a check that silently reads part of a
+ * surface, or none of it, would pass forever.
  *
  * What this check deliberately cannot see: whether a row's DESCRIPTION is still
  * true (it compares names, never prose); the two directions of the coverage
@@ -187,6 +186,9 @@ import { readFileSync } from 'node:fs';
 // reads a posix path, while this one reads the platform's own file path.
 import { basename as fileBasename } from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { unified } from 'unified';
+import remarkParse from 'remark-parse';
+import { visit } from 'unist-util-visit';
 
 /**
  * Playwright's default `testMatch` — the files it collects under its `testDir`,
@@ -413,31 +415,6 @@ export const TRACKED_LISTS = [
 
 /* ── Markdown tables ─────────────────────────────────────────────────────── */
 
-const FENCE_RE = /^(\s*)(`{3,}|~{3,})(.*)$/;
-
-/**
- * How far past its opener's own indent a closing fence marker may sit. Markdown
- * measures a closer's indent from the block the fence is written in, not from
- * the left margin; reading line by line, the opener's indent is the only stand-
- * in for that block, so a closer is admitted up to this far past it — enough
- * for a fence written inside a list item, and not enough for a marker buried in
- * the fenced text.
- */
-const CLOSER_INDENT_SLACK = 3;
-
-/**
- * A fence marker's indent in columns. Markdown measures indentation in columns
- * and a tab advances to the next four-column stop, so counting the indent's
- * characters would read a tab-indented marker three columns further left than
- * it sits — and `CLOSER_INDENT_SLACK` is a column count.
- * @param {string} indent the whitespace run before a fence marker
- * @returns {number} how many columns it occupies
- */
-const indentColumns = (indent) => {
-  let columns = 0;
-  for (const character of indent) columns += character === '\t' ? 4 - (columns % 4) : 1;
-  return columns;
-};
 const HEADING_RE = /^(#{1,6})\s+(.*?)\s*$/;
 const DELIMITER_CELL_RE = /^:?-+:?$/;
 const BACKTICKED_NAME_RE = /^`([^`]+)`$/;
@@ -469,9 +446,9 @@ const isDelimiterRow = (line) => {
  * The subsection is what makes same-header tables of one section
  * addressable: without it a selector can only take them all or none, however
  * exactly it states the header. A table is a header row followed by a
- * delimiter row and the body rows after it; fenced content is blanked first
+ * delimiter row and the body rows after it; code-block content is blanked first
  * (via {@link stripFences} — the one fence model), so a table-shaped example
- * inside a fence is never read as one.
+ * inside a code block, fenced or indented, is never read as one.
  * @param {string} markdown
  * @returns {{ section: string | null, subsection: string | null, header: string[], rows: string[][] }[]}
  */
@@ -846,70 +823,84 @@ export function duplicatesIn(names, what) {
 }
 
 /**
- * Blank out fenced code blocks (``` or ~~~), preserving newlines, so a marker,
- * heading, table, or token inside an illustrative fence is never read as live
- * doc text. This is the same fence model `parseTables` applies internally —
- * exported so every doc-scanning check agrees on what a fence is.
+ * The views this reading has already rendered, keyed by the text they were
+ * rendered from — `parseTables` and the section readers each take one document
+ * through {@link stripFences}, several times over on the same text. A hit is
+ * never stale: the key is the whole text and the reading takes nothing else —
+ * no options, no file identity, no state a caller can move — so a hit answers
+ * exactly as a fresh parse would, and a miss only costs the parse. What
+ * `FENCE_VIEW_CAP` bounds is how many views are held, not how large they are:
+ * the entry written first goes when the map is full — a hit does not move an
+ * entry — so a run holds that many texts with their views and no more. A
+ * check's run reads fewer distinct texts than the cap — the widest, the
+ * clippy-invocation check, takes every tracked document once — so a shipped run
+ * evicts nothing; the unit suite reads more and pays re-parses, never a wrong
+ * answer.
+ */
+const FENCE_VIEWS = new Map();
+const FENCE_VIEW_CAP = 64;
+
+/**
+ * Blank out the code blocks a Markdown document holds, preserving the line
+ * count, so a marker, heading, table, or token an example carries is never read
+ * as live doc text. This is the same fence model `parseTables` applies
+ * internally — exported so every doc-scanning check agrees on what an example
+ * is.
  *
- * A fence closes on the closing rule Markdown itself states: a marker line of
- * the SAME character, at least as long as the opener's run, carrying nothing
- * after it, and indented no further past the opener's own indent than a
- * Markdown closer may sit. So a shorter marker line inside a longer fence is
- * content — a three-backtick example nested inside a four-backtick fence keeps
- * its headings, tables, and clause markers fenced — while an opener's own
- * indent still travels with it, so a fence written inside a list item closes
- * where it is written. A fence never closed runs to the end of the text, as it
- * always has.
+ * The reading is the CommonMark parser's own, taken from the document's parse
+ * tree (with the one departure the last paragraph names): every line of every
+ * code block is blanked. A fenced block is one the parser opens — at the
+ * margin, or at any indent the container it sits in allows, inside a block
+ * quote, inside a list item, on a list-marker line — and it holds everything to
+ * the closer its own container admits, or, left open, to the end of the block
+ * holding it: a fence left open at the top level takes the rest of the
+ * document, one left open inside a list item ends with the item. An indented
+ * code block — the lines CommonMark reads as code because they start a block
+ * four columns past their container's content — is blanked the same way; an
+ * indent cannot interrupt a paragraph, so an indented line carried on from the
+ * line above stays live.
  *
- * The model's known limits: at the top level a marker indented four columns or
- * more opens a fence here, where CommonMark reads a line indented that far as
- * an indented code block instead; a backtick opener whose trailing text carries
- * a backtick opens one here too, where CommonMark reads that line as text
- * rather than as a fence at all; a fence written inside a block quote, and one
- * opened on a list-marker line, are not seen as fences here, so what they hold
- * reads as live doc text; a backtick or tilde run written at the start of a
- * line inside a raw HTML block — the block CommonMark opens on a tag such as
- * `<details>` and runs to the next blank line, or, for a `<pre>`, `<script>` or
- * `<style>` block, to the block's own closing tag — opens or closes a fence
- * here, where CommonMark reads the run as the block's literal text; and the
- * closer's window is measured from the opener's own column, which stands in for
- * the indent of the block the fence sits in, so a closer written inside that
- * window closes the fence here, while CommonMark, measuring from the margin at
- * top level, may read that marker as content and keep reading.
+ * What the parser reads as text stays live, so a raw HTML block's lines are live
+ * text — the block CommonMark opens on a tag such as `<details>` and runs to the
+ * next blank line, or, for an element such as `<pre>` or `<script>`, to that
+ * element's closing tag — and so is an inline code span, which sits inside a
+ * line the reading still takes.
+ *
+ * The view is line-for-line — each line of the input stands as itself or blank —
+ * so a line index found on the view addresses the input too. Lines are taken on
+ * CRLF or LF and the view is written with LF. The one place the reading is not
+ * the parser's is a lone carriage return inside a line: CommonMark would end the
+ * line there, and this reading removes it before the parse and keeps it in the
+ * view, so the parser's lines and the view's stay the same lines — the text
+ * either side of it is read as one line, so a marker run it splits is read as
+ * one run.
  * @param {string} markdown
- * @returns {string} the text with fence lines and fenced content blanked
+ * @returns {string} the text with every code block's lines blanked
  */
 export function stripFences(markdown) {
+  const remembered = FENCE_VIEWS.get(markdown);
+  if (remembered !== undefined) return remembered;
   const lines = markdown.split(/\r?\n/);
-  let fence = null;
-  return lines
-    .map((line) => {
-      const marker = FENCE_RE.exec(line);
-      if (marker) {
-        const [, indent, run, after] = marker;
-        const columns = indentColumns(indent);
-        if (fence === null) fence = { char: run[0], length: run.length, indent: columns };
-        else if (
-          run[0] === fence.char &&
-          run.length >= fence.length &&
-          columns <= fence.indent + CLOSER_INDENT_SLACK &&
-          after.trim() === ''
-        )
-          fence = null;
-        return '';
-      }
-      return fence !== null ? '' : line;
-    })
-    .join('\n');
+  const tree = unified().use(remarkParse).parse(lines.join('\n').replace(/\r/g, ''));
+  visit(tree, 'code', (node) => {
+    for (let line = node.position.start.line; line <= node.position.end.line; line++)
+      lines[line - 1] = '';
+  });
+  const view = lines.join('\n');
+  if (FENCE_VIEWS.size >= FENCE_VIEW_CAP) FENCE_VIEWS.delete(FENCE_VIEWS.keys().next().value);
+  FENCE_VIEWS.set(markdown, view);
+  return view;
 }
 
 /**
  * A heading's section body: the lines between the heading line `heading`
  * matches and the next line `boundary` matches, or the end of the text. Both
  * patterns are applied to the fence-stripped view (via {@link stripFences},
- * which blanks fenced lines and keeps the line count), so a `#` line inside an
- * illustrative fence neither opens a section nor ends one, and a fence left
- * open runs to the end of the text, putting every heading below it inside it.
+ * which blanks every code block's lines, fenced or indented, and keeps the
+ * line count), so a `#` line inside an illustrative code block neither opens
+ * a section nor ends one, and a fence left open runs to the end of the block
+ * that holds it — at the top level, the end of the text, putting every
+ * heading below it inside it.
  * The body itself is sliced from the RAW text by line — a line index found on
  * the view addresses the raw text too — so everything the author fenced comes
  * back in it.
@@ -954,9 +945,9 @@ export function extractHeadingSection(markdown, heading, boundary) {
 /**
  * Slice a doc's text to one clause's scope: from its bolded marker
  * (`**ID.**`) to the next clause marker or heading — the scope rule the
- * clause-bearing docs state. Fences are stripped first (via
- * {@link stripFences}), so fenced examples can neither anchor nor truncate
- * the slice.
+ * clause-bearing docs state. Code blocks are blanked first (via
+ * {@link stripFences}), so an example inside a code block can neither anchor
+ * nor truncate the slice.
  * @param {string} markdown the doc's text
  * @param {string} clauseId a clause id, e.g. 'DSH-1'
  * @returns {string} the clause's text, or '' when the marker is absent
@@ -3237,16 +3228,18 @@ export const JS_MEMBERSHIP = {
  * The Rust side of the same criterion. `manifest` states the crate's library
  * name, which is the root a test binary reaches the crate's modules through;
  * `src` is the module tree those paths resolve into, `mod` the file a directory
- * module is written in, and `suffix` the one a file module is. `lib` is the
- * fixed in-module entry of the cargo kill set — a member that is not a test
- * surface — and `integrationImport` the crate whose import classifies a binary
- * as one that synthesises real OS input, which the strategy document states as
- * the reason those binaries stay out of the per-mutant runs.
+ * module is written in, `rootFile` the file the crate root module itself is
+ * written in, and `suffix` the one a file module is. `lib` is the fixed
+ * in-module entry of the cargo kill set — a member that is not a test surface —
+ * and `integrationImport` the crate whose import classifies a binary as one
+ * that synthesises real OS input, which the strategy document states as the
+ * reason those binaries stay out of the per-mutant runs.
  */
 export const RUST_MEMBERSHIP = {
   manifest: 'packages/desktop/src-tauri/Cargo.toml',
   src: 'src',
   mod: 'mod.rs',
+  rootFile: 'lib.rs',
   suffix: '.rs',
   lib: '--lib',
   integrationImport: 'enigo',
@@ -4117,8 +4110,20 @@ export function auditKillSetMembership({
         const relative = file.slice(crateRoot.length + 1);
         const segments = relative.split('/');
         const last = segments[segments.length - 1];
+        // The crate root module is the one module whose path is the empty one
+        // (`src/lib.rs` is `''`, reached as `crate::Item`): the file naming it
+        // sits directly in the module tree. Every other file is named by its own
+        // path — a directory module by the directory holding it (`a/mod.rs` is
+        // `a`), a file module by its stem (`a/b.rs` is `a::b`) — so keying the
+        // root off its stem like the rest would put it at `lib`, a path no `use`
+        // can name, and the search {@link resolveUsePath} runs down to the root
+        // would find nothing there. A `lib.rs` deeper in the tree is an ordinary
+        // file module of the directory holding it, so only the top-level one
+        // answers. `main.rs`, the binary crate's root, keeps its stem key — no
+        // `use` of this crate names it, and taking `main.rs` out of the map
+        // would change the population the re-export refusal walks.
         const path =
-          last === rustMembership.mod
+          last === rustMembership.mod || (segments.length === 1 && last === rustMembership.rootFile)
             ? segments.slice(0, -1)
             : [...segments.slice(0, -1), last.slice(0, -rustMembership.suffix.length)];
         modules.set(path.join('::'), file);
@@ -4519,6 +4524,16 @@ export function formatProblemBlock(heading, problems, closing) {
  * told a document went empty. It is this guard's own table disagreeing with its
  * extraction, never a verdict about a file the check read.
  *
+ * That arm is FAIL-CLOSED defence for a caller whose guard table or whose
+ * surface keys are DERIVED — a table built per adapter or per watched platform,
+ * where the row and the key it reads come from readings of that list that can
+ * drift apart. A caller writing its table and its surface keys out literally in
+ * one place reaches the arm only through a key its own extraction never states
+ * — the arm doing its job — and the arm still runs for that caller: the edit
+ * that starts deriving either side is held from the moment the two disagree,
+ * rather than the guard reading a key the extraction stopped stating as a
+ * document that went empty.
+ *
  * ## What a surface key carries, and how each shape is guarded
  *
  * This block is the family's one home for that rule; each guard elsewhere
@@ -4574,7 +4589,11 @@ export function emptySurfaceProblems(surfaces, entries) {
  * what the extraction stated. Without it the guard reads `undefined` as an
  * empty list and answers "no duplicates" for a key the extraction stopped
  * stating at all — the one shape a duplicate loop cannot otherwise see, since a
- * surface that is really free of repeats answers the same way.
+ * surface that is really free of repeats answers the same way. Whom the arm
+ * fires for is stated with its twin {@link emptySurfaceProblems}: the caller
+ * whose table or whose surface keys are derived, where the two can drift
+ * apart — and it runs for every caller, so a table that starts deriving either
+ * side is held from that edit on.
  * @param {object} surfaces the extracted surfaces
  * @param {[string, string, ((s: object) => unknown[])?][]} entries the guard's tuples
  * @returns {string[]} one message per repeated entry, in entry order
