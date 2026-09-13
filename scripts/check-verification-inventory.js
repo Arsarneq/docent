@@ -58,9 +58,8 @@
  *     the job free to grow further suites. And the carrying command stands ALONE:
  *     the step's own `run` text, and the manifest command whose classified globs
  *     carry the suite, each state ONE PLAIN COMMAND on the only command line it
- *     states, with every word ahead of the invocation one this reading reads —
- *     an invocation it models, or a flag carrying its own value — and that
- *     invocation stating `--test` and nothing else.
+ *     states: an invocation it models with the flags of that invocation this
+ *     reading admits — named in the check — and a plain `--test`.
  *     REFUSED, each by name — a step stating a `working-directory` of its own
  *     that moves the command; a `defaults.run.working-directory` that moves it,
  *     stated for the job or at the workflow's
@@ -96,8 +95,9 @@
  *     inside a block states anything here, and no environment key beside
  *     `NODE_OPTIONS` is read; a wrapper this reading does not model, or a flag
  *     whose value stands apart from it, standing before the invocation is refused
- *     by name rather than read, as is a flagged runner invocation — which is what
- *     admitting only the invocations it models, their attached flags and a plain
+ *     by name rather than read, as is a flagged runner invocation and a flag
+ *     outside the sets this check names — which is what admitting only the
+ *     invocations it models, the flags of each that it admits and a plain
  *     `--test` costs; the segment grammar's own
  *     limits are inherited — text inside a heredoc body or a command
  *     substitution is read as the line's own, and a segment's quoted text is
@@ -213,7 +213,9 @@
  * registers that directory under, so the suite this leg demands of the job is
  * the suite that registration demands a documented row for. Inside the job, each
  * step's own condition and tolerance come back through the reader, the job's own
- * keys beside them — its tolerance, and the relocation it defaults its steps to —
+ * keys beside them — its tolerance, the relocation it defaults its steps to, and
+ * the environment key this reading cannot evaluate, which the workflow's own root
+ * may state as well —
  * and so does the SHAPE each carrying command's own text states beside the
  * command: a step that carries the suite under any of them is REFUSED by name
  * rather than counted, because this reader evaluates neither a condition nor
@@ -504,8 +506,30 @@ const MODELLED_INVOCATIONS = new Set(['node', 'npx', 'c8', 'npm']);
  */
 const INVOCATION_WRAPPERS = new Set(['node', 'npx', 'c8']);
 
+/** The coverage wrapper of that set, whose own admitted flags are named below. */
+const COVERAGE_INVOCATION = 'c8';
+
 /** The environment key whose value the runner reads as though it stood on the command line. */
 const RUNNER_OPTIONS_KEY = 'NODE_OPTIONS';
+
+/**
+ * The flags this reading admits on a carrying command, one set per wrapper — the
+ * one home of the admitted grammar, which every surface that states the hold
+ * points at rather than restating.
+ *
+ * They are the flags that change what a run PRINTS and nothing else. A flag
+ * outside these sets is refused by name rather than stepped over, because a flag
+ * of a wrapper this reading does not evaluate can change what the run DOES:
+ * npm's and npx's own `--node-options` carries the runner option the `env:`
+ * refusal guards, and a runner that selects no test writes the same coverage
+ * report while running none of the suite. The cost of the finite set is stated as
+ * a limit: a legitimate flag outside it is refused, not read.
+ */
+const ADMITTED_NPM_FLAGS = new Set(['--silent', '-s', '--quiet', '-q', '--no-color']);
+/** The npm flags this reading admits with their value attached by `=`. */
+const ADMITTED_NPM_VALUE_FLAGS = new Set(['--loglevel']);
+/** The coverage wrapper's flags this reading admits, value attached by `=`. */
+const ADMITTED_COVERAGE_VALUE_FLAGS = new Set(['--reporter']);
 
 /**
  * The word one carrying command states ahead of the `node` this reading takes the
@@ -521,8 +545,9 @@ const RUNNER_OPTIONS_KEY = 'NODE_OPTIONS';
  * text and the manifest command it resolves through alike — beside the shape
  * question, and only of a command that carries the suite.
  *
- * What it reads there is an invocation it models, or a `-`-prefixed word, taken as
- * a flag without knowing whose. A flag whose value stands apart from it therefore
+ * What it reads there is an invocation it models with the flags of that invocation
+ * this reading admits — named in the check, beside {@link unadmittedWord}, which
+ * refuses a flag outside them. A flag whose value stands apart from it therefore
  * states that value where this reading expects neither, and is named for what the
  * reading found rather than called a program: the remedy is to attach the value.
  * That is the fail-closed side, the side the shape rule takes as well, and its
@@ -568,6 +593,87 @@ function runnerFlagBeforeTest(text) {
 }
 
 /**
+ * Whether one flag word stands in an admitted set, given the sets its wrapper
+ * admits. A relocation flag answers as admitted HERE and is named by its own
+ * refusal instead, so one spelling is not reported under a second name as well.
+ * @param {string} word one `-`-prefixed word
+ * @param {Set<string>} bare the flags admitted as they stand
+ * @param {Set<string>} valued the flags admitted with their value attached by `=`
+ * @returns {boolean}
+ */
+function admittedFlag(word, bare, valued) {
+  const name = word.split('=')[0];
+  if (RELOCATION_FLAGS.has(name)) return true;
+  if (bare.has(word)) return true;
+  return valued.has(name) && word.includes('=');
+}
+
+/**
+ * The word one carrying command states that this reading's admitted grammar does
+ * not — named as the refusal names it — or null where every word it states is one
+ * of the two admitted forms:
+ *
+ *   - the script form: `npm`, the flags {@link ADMITTED_NPM_FLAGS} and
+ *     {@link ADMITTED_NPM_VALUE_FLAGS} admit in either position, a run verb, the
+ *     script key, and nothing after it;
+ *   - the invocation form: `npx` bare, the coverage wrapper with the flags
+ *     {@link ADMITTED_COVERAGE_VALUE_FLAGS} admits, then `node`, whose own
+ *     `--test` and argument list the readers beside this one answer for.
+ *
+ * A finite grammar is the point: every flag family this reading steps over is one
+ * it would have to evaluate to answer that running the job runs the suite, and
+ * each member found one at a time was a green over a job that ran no test of it.
+ * A word this grammar does not admit is therefore refused by name, and the cost —
+ * a legitimate flag outside the sets is refused rather than read — is stated with
+ * the rest of the limits.
+ * @param {string} text one carrying command's text
+ * @returns {string | null} the word named, or null where the grammar admits them all
+ */
+function unadmittedWord(text) {
+  const words = text.split(/\s+/).filter(Boolean);
+  if (words.length === 0) return null;
+  if (words[0] === 'npm') {
+    let at = 1;
+    while (at < words.length && words[at].startsWith('-')) {
+      if (!admittedFlag(words[at], ADMITTED_NPM_FLAGS, ADMITTED_NPM_VALUE_FLAGS)) {
+        return `\`${words[at]}\`, a flag this reading does not admit`;
+      }
+      at++;
+    }
+    if (!RUN_VERBS.has(words[at])) return null; // states no verb this grammar reads
+    at++;
+    while (at < words.length && words[at].startsWith('-')) {
+      if (!admittedFlag(words[at], ADMITTED_NPM_FLAGS, ADMITTED_NPM_VALUE_FLAGS)) {
+        return `\`${words[at]}\`, a flag this reading does not admit`;
+      }
+      at++;
+    }
+    if (at >= words.length) return null; // states no key: the key reader answers
+    at++;
+    return at < words.length
+      ? `\`${words[at]}\` after the script key, where this reading admits nothing`
+      : null;
+  }
+  let at = 0;
+  if (words[at] === 'npx') {
+    at++;
+    if (at < words.length && words[at].startsWith('-')) {
+      return `\`${words[at]}\` on \`npx\`, a flag this reading does not admit`;
+    }
+  }
+  if (words[at] === COVERAGE_INVOCATION) {
+    at++;
+    while (at < words.length && words[at].startsWith('-')) {
+      if (!admittedFlag(words[at], new Set(), ADMITTED_COVERAGE_VALUE_FLAGS)) {
+        return `\`${words[at]}\` on \`${COVERAGE_INVOCATION}\`, a flag this reading does not admit`;
+      }
+      at++;
+    }
+  }
+  return null;
+}
+
+/**
  * The environment key one step, job or workflow root states that this reading
  * cannot evaluate: `NODE_OPTIONS`, which the runner reads as though its value
  * stood on the command line, so a value selecting no test runs none of the suite
@@ -578,7 +684,12 @@ function runnerFlagBeforeTest(text) {
  */
 const unevaluatedOptions = (env) => {
   const value = isRecord(env) ? env[RUNNER_OPTIONS_KEY] : undefined;
-  return value === undefined ? null : String(value);
+  if (value === undefined) return null;
+  // The no-op admission its sibling keys have: a key whose value states no option
+  // — empty, or whitespace only — hands the runner nothing to read, the way `.`
+  // relocates nothing and `continue-on-error: false` tolerates nothing.
+  const stated = String(value).trim();
+  return stated === '' ? null : String(value);
 };
 
 /**
@@ -940,6 +1051,7 @@ export function jobSuiteArguments(jobsMap, commands, jobId, rootDirectory, rootE
       let scriptShape = null;
       let scriptAhead = null;
       let scriptRunnerFlag = null;
+      let scriptUnadmitted = null;
       if (script !== undefined) {
         tokens.push(script.token);
         const command = commands[script.token];
@@ -955,6 +1067,7 @@ export function jobSuiteArguments(jobsMap, commands, jobId, rootDirectory, rootE
         scriptShape = plainCommandShape(command);
         scriptAhead = unreadableWordAhead(joinContinuations(command));
         scriptRunnerFlag = runnerFlagBeforeTest(joinContinuations(command));
+        scriptUnadmitted = unadmittedWord(joinContinuations(command));
       }
       const merged = [...own.globs, ...viaScript.globs];
       globs.push(...merged);
@@ -967,7 +1080,8 @@ export function jobSuiteArguments(jobsMap, commands, jobId, rootDirectory, rootE
         // lines a step may state above its command, which the shape rule admits.
         ahead: unreadableWordAhead(text),
         runnerFlag: runnerFlagBeforeTest(text),
-        script: script === undefined ? null : { token: script.token, shape: scriptShape, ahead: scriptAhead, runnerFlag: scriptRunnerFlag }, // prettier-ignore
+        unadmitted: unadmittedWord(text),
+        script: script === undefined ? null : { token: script.token, shape: scriptShape, ahead: scriptAhead, runnerFlag: scriptRunnerFlag, unadmitted: scriptUnadmitted }, // prettier-ignore
       });
     }
     steps.push({
@@ -1071,7 +1185,8 @@ function carryingStepOffenders(step) {
  * @param {{ absent: boolean, tokens: string[],
  *           globs: { dir: string, pattern: string }[], refusals: string[],
  *           jobRefusals?: string[],
- *           jobContinueOnError?: string | null, steps?: object[] }} read
+ *           jobContinueOnError?: string | null, jobNodeOptions?: string | null,
+ *           rootNodeOptions?: string | null, steps?: object[] }} read
  *   what {@link jobSuiteArguments} answered for the job
  * @returns {string[]} problems; empty when the job states the registered glob
  */
@@ -1144,12 +1259,12 @@ export function jobSuiteProblems(suite, read) {
     if (step.shape != null) {
       verdicts.push(`${TEST_WORKFLOW_PATH}'s \`${UNIT_SUITE_JOB_ID}\` job states ${suiteGlob(suite)} in ${subject}, whose \`run\` text states ${step.shape} — this reader admits a carrying command standing alone on its step's only command line, and evaluates nothing beside it: put the suite's command alone there, or teach the reader to read it`); // prettier-ignore
     }
-    if (step.handler != null) {
-      verdicts.push(`${TEST_WORKFLOW_PATH}'s \`${UNIT_SUITE_JOB_ID}\` job states ${suiteGlob(suite)} in ${subject}, whose \`run\` text hands those arguments to \`${step.handler}\`, a program this reader does not model — it reads a \`node --test\` argument list only from an invocation standing behind the invocations it models and their flags: state the invocation this reading models, or teach the reader to read that one`); // prettier-ignore
-    }
     for (const segment of carrying) {
       if (segment.ahead != null) {
         verdicts.push(`${TEST_WORKFLOW_PATH}'s \`${UNIT_SUITE_JOB_ID}\` job states ${suiteGlob(suite)} in ${subject}, whose command states \`${segment.ahead}\` ahead of the invocation — a word this reading can read as neither one of the invocations it models nor a flag carrying its own value, and it takes a \`node --test\` argument list only from an invocation standing behind those: attach a flag's value to it, state an invocation this reading models, or teach the reader to read that word`); // prettier-ignore
+      }
+      if (segment.unadmitted != null) {
+        verdicts.push(`${TEST_WORKFLOW_PATH}'s \`${UNIT_SUITE_JOB_ID}\` job states ${suiteGlob(suite)} in ${subject}, whose command states ${segment.unadmitted} — this reading admits the invocations it models with the flags of each that it names, and nothing else, because a flag it steps over can change what the run does rather than only what it prints: state a command this reading admits, or teach the reader to read that word`); // prettier-ignore
       }
       if (segment.runnerFlag != null) {
         verdicts.push(`${TEST_WORKFLOW_PATH}'s \`${UNIT_SUITE_JOB_ID}\` job states ${suiteGlob(suite)} in ${subject}, whose command states \`${segment.runnerFlag}\` on the \`node\` it carries them with, a flag this reading does not evaluate — the invocation it takes that argument list from states \`--test\` and nothing else: put the flag where this reading admits one, or teach the reader to read it`); // prettier-ignore
@@ -1160,6 +1275,9 @@ export function jobSuiteProblems(suite, read) {
       if (segment.script?.ahead != null) {
         verdicts.push(`${TEST_WORKFLOW_PATH}'s \`${UNIT_SUITE_JOB_ID}\` job states ${suiteGlob(suite)} through \`npm run ${segment.script.token}\` in ${subject}, whose command in ${PACKAGE_JSON_PATH} states \`${segment.script.ahead}\` ahead of the invocation — a word this reading can read as neither one of the invocations it models nor a flag carrying its own value, and it takes a \`node --test\` argument list only from an invocation standing behind those: attach a flag's value to it, state an invocation this reading models, or teach the reader to read that word`); // prettier-ignore
       }
+      if (segment.script?.unadmitted != null) {
+        verdicts.push(`${TEST_WORKFLOW_PATH}'s \`${UNIT_SUITE_JOB_ID}\` job states ${suiteGlob(suite)} through \`npm run ${segment.script.token}\` in ${subject}, whose command in ${PACKAGE_JSON_PATH} states ${segment.script.unadmitted} — this reading admits the invocations it models with the flags of each that it names, and nothing else, because a flag it steps over can change what the run does rather than only what it prints: state a command this reading admits, or teach the reader to read that word`); // prettier-ignore
+      }
       if (segment.script?.runnerFlag != null) {
         verdicts.push(`${TEST_WORKFLOW_PATH}'s \`${UNIT_SUITE_JOB_ID}\` job states ${suiteGlob(suite)} through \`npm run ${segment.script.token}\` in ${subject}, whose command in ${PACKAGE_JSON_PATH} states \`${segment.script.runnerFlag}\` on the \`node\` it carries them with, a flag this reading does not evaluate — the invocation it takes that argument list from states \`--test\` and nothing else: put the flag where this reading admits one, or teach the reader to read it`); // prettier-ignore
       }
@@ -1169,13 +1287,17 @@ export function jobSuiteProblems(suite, read) {
       step.shape != null ||
       jobTolerance !== null ||
       jobOptions !== null ||
-      carrying.some((segment) => segment.ahead != null || segment.runnerFlag != null);
+      carrying.some(
+        (segment) =>
+          segment.ahead != null || segment.runnerFlag != null || segment.unadmitted != null,
+      );
     if (declined) continue;
     for (const segment of step.segments) {
       const refusedScript =
         segment.script?.shape != null ||
         segment.script?.ahead != null ||
-        segment.script?.runnerFlag != null;
+        segment.script?.runnerFlag != null ||
+        segment.script?.unadmitted != null;
       if (refusedScript && carrying.includes(segment)) continue;
       admitted.push(...segment.globs);
     }

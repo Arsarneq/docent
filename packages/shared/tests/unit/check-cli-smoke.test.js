@@ -206,7 +206,7 @@ describe('check-script CLI smoke (deterministic green paths)', () => {
     // check-workflow-bounds — whose jobs reader this check takes the workflow's
     // `jobs` map from — corpus-compare, sufficiency-lint, build-schemas,
     // sync-digest, field-sensitivity) nor the YAML parser this check loads to
-    // read the workflow root's own defaults reads `process.env`, so nothing in
+    // read the workflow root's own defaults and its own `env` reads `process.env`, so nothing in
     // that closure reads a var whose value could switch the path this smoke runs.
     // It reads its subjects as files rather than through git, so the harness's
     // `GIT_*` scrub is not what makes it deterministic.

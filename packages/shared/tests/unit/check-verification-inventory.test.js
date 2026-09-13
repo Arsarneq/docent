@@ -1066,8 +1066,16 @@ describe('the suite the named job runs', () => {
       );
       assert.deepEqual(read.refusals, []);
       const problems = jobSuiteProblems(SUITE, read);
-      assert.equal(problems.length, 2, problems.join('\n'));
-      assert.ok(problems[0].includes('a quoted argument'), problems[0]);
+      assert.ok(
+        problems.some((problem) => problem.includes('a quoted argument')),
+        problems.join('\n'),
+      );
+      // `--` stands after the script key, which the admitted grammar refuses too.
+      assert.ok(
+        problems.some((problem) => problem.includes('after the script key')),
+        problems.join('\n'),
+      );
+      assert.ok(problems[problems.length - 1].includes(suiteGlob(SUITE)), problems.join('\n'));
     });
 
     it('a continuation is joined before the split, so what it joins is read', () => {
@@ -1186,6 +1194,20 @@ describe('the suite the named job runs', () => {
       });
     }
 
+    it('an environment key stating no option states nothing here', () => {
+      // The no-op admission its sibling keys have: an empty value hands the runner
+      // nothing to read, the way `.` relocates nothing.
+      for (const value of ['', '   ', '\t']) {
+        const read = jobSuiteArguments(
+          { [UNIT_SUITE_JOB_ID]: { steps: [{ name: 'Tests', run: 'npm run test:coverage', env: { NODE_OPTIONS: value } }] } }, // prettier-ignore
+          RESOLVING_COMMANDS,
+          UNIT_SUITE_JOB_ID,
+        );
+        assert.equal(read.steps[0].nodeOptions, null, JSON.stringify(value));
+        assert.deepEqual(jobSuiteProblems(SUITE, read), [], JSON.stringify(value));
+      }
+    });
+
     it('an environment key beside that one states nothing here', () => {
       const read = jobSuiteArguments(
         { [UNIT_SUITE_JOB_ID]: { env: { CI: 'true' }, steps: [{ name: 'Tests', run: 'npm run test:coverage', env: { FORCE_COLOR: '1' } }] } }, // prettier-ignore
@@ -1256,6 +1278,70 @@ describe('the suite the named job runs', () => {
   // The resolved script's own verdict: what the step delegates to is a manifest
   // command, and anything standing beside the invocation there can take its
   // verdict or drop it, or take the suite's arguments from it.
+  // The admitted grammar: finite, one home in the check, asked of the carrying
+  // command on either side of the `npm run`.
+  describe('the admitted grammar is finite', () => {
+    const spelled = `c8 --reporter=text --reporter=lcov node --test ${suiteGlob(SUITE)} packages/desktop/tests/unit/*.test.js`; // prettier-ignore
+    const viaStep = (run) =>
+      jobSuiteProblems(
+        SUITE,
+        jobSuiteArguments(jobs([run]), { 'test:coverage': spelled }, UNIT_SUITE_JOB_ID),
+      );
+    const viaScript = (command) =>
+      jobSuiteProblems(
+        SUITE,
+        jobSuiteArguments(jobs(['npm run test:coverage']), { 'test:coverage': command }, UNIT_SUITE_JOB_ID), // prettier-ignore
+      );
+
+    for (const [shape, run, named] of [
+      ['npm’s own runner-option flag after the key', 'npm run test:coverage --node-options=--test-name-pattern=zzz', '`--node-options=--test-name-pattern=zzz` after the script key'], // prettier-ignore
+      ['the same flag ahead of the verb', 'npm --node-options=--test-name-pattern=zzz run test:coverage', '`--node-options=--test-name-pattern=zzz`, a flag this reading does not admit'], // prettier-ignore
+      ['that flag with its value apart from it', 'npm run test:coverage --node-options --test-name-pattern=zzz', '`--node-options` after the script key'], // prettier-ignore
+      [
+        'anything at all after the key',
+        'npm run test:coverage -- --grep x',
+        '`--` after the script key',
+      ],
+      ['a flag on `npx`', `npx --node-options=--test-name-pattern=zzz c8 --reporter=lcov node --test ${suiteGlob(SUITE)}`, '`--node-options=--test-name-pattern=zzz` on `npx`'], // prettier-ignore
+    ]) {
+      it(`${shape} is refused by name, beside the suite-absent finding`, () => {
+        const problems = viaStep(run);
+        const line = problems.find((problem) => problem.includes(named));
+        assert.ok(line !== undefined, problems.join('\n'));
+        assert.ok(line.includes('this reading admits the invocations it models'), line);
+        assert.ok(line.includes('teach the reader'), line);
+        assert.ok(!line.includes('cannot be resolved'), line);
+        assert.ok(problems[problems.length - 1].includes(suiteGlob(SUITE)), problems.join('\n'));
+      });
+    }
+
+    it('a flag the coverage wrapper’s own set does not carry is refused by name', () => {
+      const problems = viaScript(`c8 --reporter=text --node-options=x node --test ${suiteGlob(SUITE)}`); // prettier-ignore
+      const line = problems.find((problem) => problem.includes('`--node-options=x` on `c8`'));
+      assert.ok(line !== undefined, problems.join('\n'));
+      assert.ok(line.includes(PACKAGE_JSON_PATH), line);
+      assert.ok(problems[problems.length - 1].includes(suiteGlob(SUITE)), problems.join('\n'));
+    });
+
+    for (const [shape, run] of [
+      ['npm’s output-only flag ahead of the verb', 'npm --silent run test:coverage'],
+      ['the same between the verb and the key', 'npm run --silent test:coverage'],
+      ['its value-carrying output flag, attached', 'npm --loglevel=silent run test:coverage'],
+      ['the invocation form, inlined', `npx c8 --reporter=lcov node --test ${suiteGlob(SUITE)} packages/desktop/tests/unit/*.test.js`], // prettier-ignore
+    ]) {
+      it(`${shape} is admitted`, () => {
+        assert.deepEqual(viaStep(run), []);
+      });
+    }
+
+    it('the manifest command respelled inside the admitted grammar is admitted', () => {
+      assert.deepEqual(
+        viaScript(`npx c8 --reporter=lcov --reporter=text node --test ${suiteGlob(SUITE)} packages/desktop/tests/unit/*.test.js`), // prettier-ignore
+        [],
+      );
+    });
+  });
+
   describe('the resolved script’s own command stands alone too', () => {
     const spelled = `c8 --reporter=text --reporter=lcov node --test ${suiteGlob(SUITE)} packages/desktop/tests/unit/*.test.js`; // prettier-ignore
     const answer = (command) =>
@@ -1323,10 +1409,16 @@ describe('the suite the named job runs', () => {
       // The same reading, named for the word it found rather than for a program:
       // the remedy is to attach the value, not to state another invocation.
       const problems = answer(`c8 --reporter text --reporter=lcov node --test ${suiteGlob(SUITE)}`); // prettier-ignore
-      assert.equal(problems.length, 2, problems.join('\n'));
-      assert.ok(problems[0].includes('states `text` ahead of the invocation'), problems[0]);
-      assert.ok(problems[0].includes("attach a flag's value to it"), problems[0]);
-      assert.ok(problems[1].includes(suiteGlob(SUITE)), problems[1]);
+      const line = problems.find((problem) => problem.includes('ahead of the invocation'));
+      assert.ok(line !== undefined, problems.join('\n'));
+      assert.ok(line.includes('states `text` ahead of the invocation'), line);
+      assert.ok(line.includes("attach a flag's value to it"), line);
+      // The flag it belongs to is not one the admitted grammar carries either.
+      assert.ok(
+        problems.some((problem) => problem.includes('a flag this reading does not admit')),
+        problems.join('\n'),
+      );
+      assert.ok(problems[problems.length - 1].includes(suiteGlob(SUITE)), problems.join('\n'));
     });
 
     it('a flag on the `node` it carries the arguments with is refused by name', () => {
@@ -1436,15 +1528,19 @@ describe('the suite the named job runs', () => {
       ['a line continuation', 'npm run test:coverage \\\necho staged', 'a line continuation'],
     ]) {
       it(`${shape} on the carrying step is refused by name, beside the suite-absent finding`, () => {
+        // A fixture may state a word the finite admitted grammar refuses as well —
+        // `--`, a redirection, an expression standing after the script key — so the
+        // shape's own line is found by what it names, and the suite-absent finding
+        // is the verdict's last line.
         const problems = answer({ run });
-        assert.equal(problems.length, 2, problems.join('\n'));
-        assert.ok(problems[0].includes('the step named `Tests`'), problems[0]);
-        assert.ok(problems[0].includes(named), problems[0]);
-        assert.ok(problems[0].includes('standing alone on its step'), problems[0]);
-        assert.ok(problems[0].includes("put the suite's command alone there"), problems[0]);
+        const line = problems.find((problem) => problem.includes(named));
+        assert.ok(line !== undefined, problems.join('\n'));
+        assert.ok(line.includes('the step named `Tests`'), line);
+        assert.ok(line.includes('standing alone on its step'), line);
+        assert.ok(line.includes("put the suite's command alone there"), line);
         // Never through the reader-refusal wrapper: the command DID resolve.
-        assert.ok(!problems[0].includes('cannot be resolved'), problems[0]);
-        assert.ok(problems[1].includes(suiteGlob(SUITE)), problems[1]);
+        assert.ok(!line.includes('cannot be resolved'), line);
+        assert.ok(problems[problems.length - 1].includes(suiteGlob(SUITE)), problems.join('\n'));
       });
     }
 
