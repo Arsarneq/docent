@@ -94,7 +94,7 @@
     "esbuild": "^0.28.2",
     "eslint": "^10.9.1",
     "eslint-config-prettier": "^10.1.8",
-    "fast-check": "^4.9.0",
+    "fast-check": "^4.10.0",
     "js-yaml": "^4.2.0",
     "lefthook": "^2.1.12",
     "license-checker-rseidelsohn": "5.0.1",
