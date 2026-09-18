@@ -865,6 +865,27 @@ describe('the shared doc-scan primitives', () => {
     assert.deepEqual(read.unreadable, []);
   });
 
+  it('reads the column a named header cell addresses, wherever that cell sits', () => {
+    const table = { header: ['Type', 'Payload', 'Response'], rows: [['`T`', '`{ a }`', '`{}`']] };
+    const read = readTableColumn([table], { empty: '(empty)', column: 'Payload' });
+    assert.deepEqual(read.names, ['{ a }']);
+    assert.deepEqual(read.unreadable, []);
+  });
+
+  it('matches a named column against the trimmed header cell, padding and all', () => {
+    const table = { header: ['Type', '  Payload  '], rows: [['`T`', '`{ a }`']] };
+    const read = readTableColumn([table], { empty: '(empty)', column: 'Payload' });
+    assert.deepEqual(read.names, ['{ a }']);
+  });
+
+  it('refuses a named column no header cell carries, stating the header it read', () => {
+    const table = { header: ['Type', 'Payload'], rows: [['`T`', '`{}`']] };
+    assert.throws(() => readTableColumn([table], { empty: '(empty)', column: 'Reaches' }), {
+      name: 'TypeError',
+      message: 'resolveColumn: no column named `Reaches` in a table headed Type | Payload',
+    });
+  });
+
   it('collects WHOLE backticked spans only, in document order, dedup at the caller', () => {
     const text = 'takes `alpha`, then `alpha` again, and `emit("alpha") beside beta` in one span';
     assert.deepEqual(backtickedTokens(text), ['alpha', 'alpha', 'emit("alpha") beside beta']);
@@ -3892,6 +3913,44 @@ describe('auditKillSetMembership — the criterion, both legs and both engines',
     assert.deepEqual(globbed.unreadableMembership, []);
   });
 
+  it('reaches the crate root, and walks on from it, by the path a `use` can name', () => {
+    // The crate root is the one module whose path is the empty one: what the
+    // root file declares is reached as `crate::Item`, never through the file's
+    // own stem. Keyed off that stem like every other file, the root sits at a
+    // path no `use` names — a binary naming a root item reaches nothing, and the
+    // module leg reds the root file — and the frame the walk carries out of the
+    // root is wrong the same way, taking `self::a` back to the root instead of
+    // down to the module it names. Both scope modules here are reached only
+    // through the root, so the module leg answers for the key and the frame at
+    // once.
+    const result = membership({
+      'crate/src/lib.rs': 'pub mod a;\npub struct Root;\nuse self::a::a;\n',
+      'crate/src/a.rs': 'pub fn a() {}\n',
+      'crate/tests/a_test.rs': 'use fixture_lib::Root;\n',
+      'crate/.cargo/mutants.toml': manifest({ globs: ['src/lib.rs', 'src/a.rs'] }),
+    });
+    assert.deepEqual(result.unreachableScopeModule, []);
+    assert.deepEqual(result.unlistedMember, []);
+    assert.deepEqual(result.listedNonMember, []);
+    assert.deepEqual(result.unreadableMembership, []);
+  });
+
+  it('keys a `lib.rs` deeper in the tree by its own path, not as a crate root', () => {
+    // Only the top-level `lib.rs` is the root. One deeper is an ordinary file
+    // module of the directory holding it — `src/a/lib.rs` is `a::lib` — so it
+    // keeps its own key beside the directory's other module rather than taking
+    // that module's place, and each is reached by the path a `use` names it by.
+    const result = membership({
+      'crate/src/a/lib.rs': 'pub fn nested() {}\n',
+      'crate/tests/a_test.rs': 'use fixture_lib::a::a;\nuse fixture_lib::a::lib::nested;\n',
+      'crate/.cargo/mutants.toml': manifest({ globs: ['src/a.rs', 'src/a/lib.rs'] }),
+    });
+    assert.deepEqual(result.unreachableScopeModule, []);
+    assert.deepEqual(result.unlistedMember, []);
+    assert.deepEqual(result.listedNonMember, []);
+    assert.deepEqual(result.unreadableMembership, []);
+  });
+
   it('refuses a Rust mutate-scope entry that expands to nothing, as machinery', () => {
     const empty = membership({
       'crate/.cargo/mutants.toml': manifest({ globs: ['src/gone/**/*.rs'] }),
@@ -4362,6 +4421,16 @@ describe('real-tree lock', () => {
     // it declare the same `describe > test` path. The population is the suite's
     // own membership rule rather than a glob written here, so a spec added to
     // the directory is under this lock the day Playwright starts running it.
+    //
+    // The directory is the whole of the lock, deliberately. Where a full path
+    // is stated by more than one file elsewhere in the tree, the repetition is
+    // what the tree means: the platform adapters' suites hold each adapter to
+    // the same behaviour under the same titles, a dispatch suite states payload
+    // cases another states beside it, and check suites pin their own constants
+    // under real-tree locks carrying the same name. A bare title repeats wider
+    // again, across suites sharing nothing but a phrase. No path this directory
+    // states is stated anywhere else in the tree, so distinctness is a rule it
+    // can carry, where a rule over the tree would red on what the tree means.
     const { dir, selects } = inventoryFor('packages/desktop/tests/integration');
     const paths = [];
     for (const file of trackedFiles()) {
@@ -4418,6 +4487,23 @@ describe('stripFences — the one fence model, exported', () => {
     assert.ok(stripped.includes('after'));
   });
 
+  it('a carriage return inside a line is a character of that line, not a break', () => {
+    // The view is line-for-line with the input, so a line index found on it
+    // addresses the input too. A stray carriage return the parser would read as
+    // a line ending would shift every position after it by one line, and the
+    // fence below would blank the wrong lines; here it stays content.
+    const text = ['head\rtail', '', '```', '## inner heading', '```', '', 'after'].join('\n');
+    const stripped = stripFences(text);
+    assert.equal(stripped.split('\n').length, text.split('\n').length);
+    assert.ok(stripped.includes('head\rtail'));
+    assert.ok(!stripped.includes('inner heading'));
+    assert.ok(
+      !stripped.includes('```'),
+      'every line of the fence is blanked, marker lines and all',
+    );
+    assert.ok(stripped.includes('after'));
+  });
+
   it('a shorter marker line cannot close a longer fence, so a nested example stays fenced', () => {
     const text = ['live', '````markdown', '```', '## inner heading', '```', '````', 'after'].join(
       '\n',
@@ -4429,7 +4515,10 @@ describe('stripFences — the one fence model, exported', () => {
     assert.ok(!stripped.includes('inner heading'));
   });
 
-  it('a marker indented past its opener cannot close the fence', () => {
+  it('a marker four columns past its container is content, not a closer', () => {
+    // A closer sits at most three columns past the content column of the block
+    // the fence is written in — at the top level, the margin — so a marker
+    // written further in is the fenced text's own.
     const text = ['live', '```text', '    ```', '## inner heading', '```', 'after'].join('\n');
     const stripped = stripFences(text);
     assert.ok(stripped.includes('live'));
@@ -4437,7 +4526,22 @@ describe('stripFences — the one fence model, exported', () => {
     assert.ok(!stripped.includes('inner heading'));
   });
 
-  it('a tab-indented marker sits four columns in, so it cannot close a fence at the left margin', () => {
+  it('an opener’s own indent does not widen the window its closer may sit in', () => {
+    // The window is measured from the container's content column, so a fence
+    // written three columns in at the top level is closed by a marker no
+    // further in than that same column plus three — and a marker written past
+    // it is content, leaving the fence open to the end.
+    const text = ['live', '  ```', '     ```', 'hidden', 'also hidden'].join('\n');
+    const stripped = stripFences(text);
+    assert.equal(stripped.split('\n').length, text.split('\n').length);
+    assert.ok(stripped.includes('live'));
+    assert.ok(!stripped.includes('hidden'));
+  });
+
+  it('a tab-indented marker sits four columns in, so it cannot close a fence at the margin', () => {
+    // Indentation is measured in columns and a tab advances to the next
+    // four-column stop, so a tab-indented marker sits outside the window a
+    // closer may occupy.
     const text = ['live', '```', 'fenced', '\t```', '## inner heading', '```', 'after'].join('\n');
     const stripped = stripFences(text);
     assert.ok(stripped.includes('live'));
@@ -4445,7 +4549,10 @@ describe('stripFences — the one fence model, exported', () => {
     assert.ok(!stripped.includes('inner heading'));
   });
 
-  it('a tab-indented opener carries its own column, so a space-indented closer still closes it', () => {
+  it('a tab-indented opener in a list item is closed by a space-indented marker at the same column', () => {
+    // Inside a list item the window is measured from the item's own content
+    // column, so an opener written at a tab stop is closed by a space-indented
+    // marker sitting at that column.
     const text = [
       'live',
       '10. step',
@@ -4470,6 +4577,16 @@ describe('stripFences — the one fence model, exported', () => {
     assert.ok(!stripped.includes('inner heading'));
   });
 
+  it('a backtick in an opener’s info string opens no fence, so its lines stay live', () => {
+    // A backtick fence's info string carries no backtick, so the line is a
+    // paragraph and the text under it is the document's own.
+    const text = ['live', '', '``` js `x`', '## inner heading', 'after'].join('\n');
+    const stripped = stripFences(text);
+    assert.ok(stripped.includes('live'));
+    assert.ok(stripped.includes('``` js `x`'));
+    assert.ok(stripped.includes('inner heading'));
+  });
+
   it('a fence written inside a list item closes where it is written', () => {
     const text = [
       'live',
@@ -4481,6 +4598,27 @@ describe('stripFences — the one fence model, exported', () => {
       '',
       'after',
     ].join('\n');
+    const stripped = stripFences(text);
+    assert.ok(stripped.includes('live'));
+    assert.ok(stripped.includes('after'));
+    assert.ok(!stripped.includes('inner heading'));
+  });
+
+  it('a fence written inside a block quote is blanked with the quote’s markers', () => {
+    const text = ['live', '', '> ```', '> ## inner heading', '> ```', '', 'after'].join('\n');
+    const stripped = stripFences(text);
+    assert.equal(stripped.split('\n').length, text.split('\n').length);
+    assert.ok(stripped.includes('live'));
+    assert.ok(stripped.includes('after'));
+    assert.ok(!stripped.includes('inner heading'));
+    // The quote's own markers go with the lines they were written on: the three
+    // quoted lines come back blank, rather than a `>` standing where the fence
+    // was.
+    assert.deepEqual(stripped.split('\n').slice(2, 5), ['', '', '']);
+  });
+
+  it('a fence opened on a list-marker line is blanked, marker line and all', () => {
+    const text = ['live', '', '- ```', '  ## inner heading', '  ```', '', 'after'].join('\n');
     const stripped = stripFences(text);
     assert.ok(stripped.includes('live'));
     assert.ok(stripped.includes('after'));
@@ -4502,18 +4640,67 @@ describe('stripFences — the one fence model, exported', () => {
     assert.ok(!stripped.includes('fenced'));
   });
 
-  it('a fence left open runs to the end of the document', () => {
+  it('a fence left open at the top level runs to the end of the document', () => {
     const stripped = stripFences(['live', '```', 'fenced', 'still fenced'].join('\n'));
     assert.ok(stripped.includes('live'));
     assert.ok(!stripped.includes('fenced'));
   });
 
-  it('a marker run inside a raw HTML block opens a fence here — the declared reading, not CommonMark’s', () => {
+  it('a fence left open inside a list item ends with the item', () => {
+    // The block holding the fence is the item, so the text after the item is
+    // the document's own.
+    const text = ['live', '', '1. step', '', '    ```', '    fenced', '', 'after'].join('\n');
+    const stripped = stripFences(text);
+    assert.equal(stripped.split('\n').length, text.split('\n').length);
+    assert.ok(stripped.includes('live'));
+    assert.ok(!stripped.includes('fenced'));
+    assert.ok(stripped.includes('after'));
+  });
+
+  it('an opener indented four columns opens no fence, so the lines under it stay live', () => {
+    // At the top level a line indented four columns is code by its indent, and
+    // it carries only itself: the unindented lines after it are the document's
+    // own text, live to every reading that takes this view.
+    const text = ['live', '', '    ```', '## inner heading', 'after'].join('\n');
+    const stripped = stripFences(text);
+    assert.equal(stripped.split('\n').length, text.split('\n').length);
+    assert.ok(stripped.includes('live'));
+    assert.ok(stripped.includes('inner heading'));
+    assert.ok(stripped.includes('after'));
+  });
+
+  it("four columns past the container's content column is a code block, so what is written there is an example", () => {
+    // Four columns past its container's content column, where a block can
+    // start, is a code block of its own, so a heading, table, or marker written
+    // there is an example.
+    const text = ['live', '', '    ## inner heading', '    | a | b |', '', 'after'].join('\n');
+    const stripped = stripFences(text);
+    assert.equal(stripped.split('\n').length, text.split('\n').length);
+    assert.ok(stripped.includes('live'));
+    assert.ok(stripped.includes('after'));
+    assert.ok(!stripped.includes('inner heading'));
+    assert.ok(!stripped.includes('| a | b |'));
+  });
+
+  it('an indented line continuing a paragraph stays live', () => {
+    // An indented block starts only where a block can start, and an indent
+    // cannot interrupt a paragraph: the four columns that would open a block of
+    // their own carry the paragraph above them on instead.
+    const text = ['live', '    ## carried on', '', 'after'].join('\n');
+    const stripped = stripFences(text);
+    assert.equal(stripped, text);
+  });
+
+  it('an inline code span stays live, so a backticked cell is still read', () => {
+    const text = ['live `token` inline', '', '| `name` | note |'].join('\n');
+    const stripped = stripFences(text);
+    assert.equal(stripped, text);
+  });
+
+  it('a marker run inside a raw HTML block is the block’s text, and stays live', () => {
     // CommonMark opens an HTML block on a tag such as `<details>` and runs it
-    // to the next blank line — or, for a `<pre>`, `<script>` or `<style>`
-    // block, to the block's own closing tag — reading the run inside it as the
-    // block's literal text. This model has no HTML block, so the run opens a
-    // fence and, never closed, blanks every line after it.
+    // to the next blank line, reading the run inside it as the block's literal
+    // text — so it opens nothing, and every line here is the document's own.
     const text = [
       '<details><summary>log</summary>',
       '```',
@@ -4523,23 +4710,15 @@ describe('stripFences — the one fence model, exported', () => {
       'live after',
     ].join('\n');
     const stripped = stripFences(text);
-    assert.ok(stripped.includes('<details>'));
-    assert.ok(!stripped.includes('error: something'));
-    assert.ok(!stripped.includes('</details>'));
-    assert.ok(!stripped.includes('live after'));
+    assert.equal(stripped, text);
   });
 
-  it('a marker run inside a <pre> block opens and closes a fence here — the declared reading, not CommonMark’s', () => {
-    // CommonMark keeps a `<pre>` block literal to its own closing tag, the
-    // blank line after the opener notwithstanding. Here the run opens a fence
-    // and the matching run closes it, so only what they hold is blanked and the
-    // text past the closing tag stays live.
+  it('a marker run inside a <pre> block is the block’s text, and stays live', () => {
+    // A `<pre>` block runs to its own closing tag, the blank line after the
+    // opener notwithstanding, so the runs inside it are its text.
     const text = ['<pre>', '', '```', 'inside', '```', '</pre>', '', 'live after'].join('\n');
     const stripped = stripFences(text);
-    assert.ok(stripped.includes('<pre>'));
-    assert.ok(!stripped.includes('inside'));
-    assert.ok(stripped.includes('</pre>'));
-    assert.ok(stripped.includes('live after'));
+    assert.equal(stripped, text);
   });
 });
 
@@ -4721,12 +4900,57 @@ const sources = new Map(
   [...SCRIPT_PATHS, ...SHARED_SUITE_PATHS].map((p) => [p, readFileSync(resolve(ROOT, p), 'utf8')]),
 );
 
+/** The module these guards call their home. */
+const HELPER_HOME = 'scripts/check-test-inventory.js';
+
+/**
+ * The specifier every spelling of that import writes, built from the home so a
+ * rename carries the pattern with it.
+ */
+const IMPORT_FROM_HOME = new RegExp(
+  `import \\{([^}]*)\\} from (['"])\\.\\.?/(?:[^'"]*/)?${escapeForRegExp(HELPER_HOME.slice(HELPER_HOME.lastIndexOf('/') + 1))}\\2`,
+  'g',
+);
+
+/**
+ * The names an import statement takes from the module these guards call their
+ * home, over every spelling of the specifier a file in either listing writes: a
+ * relative path whose last segment is that module's file name —
+ * `./check-test-inventory.js` from a check beside it,
+ * `../../../../scripts/check-test-inventory.js` from a shared suite — in
+ * either quote. One read, so a guard asking whether a file takes a helper from
+ * that home does not start a second reading of what taking it looks like, which
+ * is the drift each of these guards exists to hold.
+ *
+ * A module specifier is literal text, so the view to hand this is the one whose
+ * comments are blanked and whose literal text stands —
+ * `blankJsLiterals(source, { literals: false })`, whose docblock states what
+ * each reading blanks — so that a commented-out import states nothing.
+ *
+ * LIMIT: the read holds a BRACED NAMED import written as one `import … from …`
+ * statement, which is the shape every file in either listing writes. A file
+ * reaching the home another way — a namespace import, a dynamic `import()`, a
+ * re-export — states no names here, and is review's to catch. A specifier the
+ * formatter would not write is outside the read too — one carrying a query or
+ * a fragment, an absolute or a subpath one, or a statement spaced some other
+ * way. Every one of those fails closed: the guard reports the file as not
+ * importing the home rather than passing it.
+ * @param {string} view the file's comment-blanked view
+ * @returns {string[]} the text between the braces, one entry per such statement
+ */
+const namesImportedFromHome = (view) =>
+  [...view.matchAll(IMPORT_FROM_HOME)].map(([, names]) => names);
+
 describe('selfPath — the one home of the derivation every check names itself by', () => {
   // The value is derived, not written out, so a rename carries it with the
   // file. What THIS holds is the second half: the derivation itself has one
   // home, so a further check cannot quietly hand-copy the expression and start
-  // a second reading of what a check's own path is. The population is
-  // `SCRIPT_PATHS`, read from `sources`.
+  // a second reading of what a check's own path is. The populations are read
+  // from `sources` and stated per case: the written-out scan holds a shape only
+  // a check writes, so it reads `SCRIPT_PATHS`; the binding scan holds every
+  // file that names a check, so it reads the union of `SCRIPT_PATHS` and
+  // `SHARED_SUITE_PATHS` — a suite writing a check's own path out starts the
+  // same second reading, one tree over.
 
   // MATCH FORM:
   // The expression in the spellings a hand-copy reaches for: the `scripts/`
@@ -4747,28 +4971,57 @@ describe('selfPath — the one home of the derivation every check names itself b
       copies,
       [],
       `these checks spell the self-path derivation out instead of calling selfPath(import.meta.filename) ` +
-        `from scripts/check-test-inventory.js — a second copy drifts one rename at a time: ${copies.join(', ')}`,
+        `from ${HELPER_HOME} — a second copy drifts one rename at a time: ${copies.join(', ')}`,
     );
   });
 
-  it('every check that names itself takes the value from that home', () => {
-    const binders = SCRIPT_PATHS.filter((p) => /\bSELF_PATH\s*=/.test(sources.get(p)));
+  // The files this scan cannot read as a hand-copy. The helper's own module
+  // binds the value and needs no import of it, so it stands outside the import
+  // leg. THIS suite stands outside the scan itself: its match patterns spell
+  // the binding out as the text they search for, and `blankJsLiterals` keeps a
+  // regular expression's pattern text standing (its docblock states why), so
+  // no view of this file hides its own patterns from the scan. The exclusion
+  // is therefore by path, as the escapeForRegExp guard excludes the home whose
+  // character class it quotes.
+  const GUARD_SUITE = 'packages/shared/tests/unit/check-test-inventory.test.js';
+
+  it('every file that names a check takes the value from that home', () => {
+    const binders = [...SCRIPT_PATHS, ...SHARED_SUITE_PATHS].filter(
+      (p) => p !== GUARD_SUITE && /\bSELF_PATH\s*=/.test(sources.get(p)),
+    );
     assert.ok(binders.length > 1, 'the scan found no self-naming check — re-anchor it');
     for (const p of binders) {
       const text = sources.get(p);
       assert.match(
         text,
         /SELF_PATH = selfPath\(import\.meta\.filename\);/,
-        `${p}: binds SELF_PATH by hand`,
+        `${p}: binds SELF_PATH by hand — a check derives the value by calling ` +
+          `selfPath(import.meta.filename), and a file reading a check's own name imports that ` +
+          `check's SELF_PATH rather than writing the path out`,
       );
-      if (p !== 'scripts/check-test-inventory.js') {
-        const lists = [...text.matchAll(/import \{([^}]*)\} from '\.\/check-test-inventory\.js'/g)];
+      if (p !== HELPER_HOME) {
+        const lists = namesImportedFromHome(blankJsLiterals(text, { literals: false }));
         assert.ok(
-          lists.some(([, names]) => /\bselfPath\b/.test(names)),
-          `${p}: does not import the helper from scripts/check-test-inventory.js`,
+          lists.some((names) => /\bselfPath\b/.test(names)),
+          `${p}: does not import the helper from ${HELPER_HOME}`,
         );
       }
     }
+  });
+
+  it('the paths these guards exclude are still in the listings they read', () => {
+    // The two names carry more than the exclusions: `IMPORT_FROM_HOME` builds
+    // the read's pattern from `HELPER_HOME`, and the quotepath describe reads
+    // `sources.get(HELPER_HOME)`. Both answer nothing the moment the home
+    // leaves the scripts listing, so they ride this same membership.
+    assert.ok(
+      SHARED_SUITE_PATHS.includes(GUARD_SUITE),
+      `${GUARD_SUITE} is not in the shared suite listing — the exclusion names nothing, re-anchor it`,
+    );
+    assert.ok(
+      SCRIPT_PATHS.includes(HELPER_HOME),
+      `${HELPER_HOME} is not in the scripts listing — the exclusion names nothing, re-anchor it`,
+    );
   });
 
   it('the derived value has the shape the verdicts print', () => {
@@ -4792,9 +5045,7 @@ describe('escapeForRegExp — the one home of the literal-to-pattern escape', ()
   // The population is the union of `SCRIPT_PATHS` and `SHARED_SUITE_PATHS`,
   // read from `sources`, less the home itself: the home spells the class, which
   // is what it is for.
-  const scanned = [...SCRIPT_PATHS, ...SHARED_SUITE_PATHS].filter(
-    (p) => p !== 'scripts/check-test-inventory.js',
-  );
+  const scanned = [...SCRIPT_PATHS, ...SHARED_SUITE_PATHS].filter((p) => p !== HELPER_HOME);
   // Two readings of `blankJsLiterals` from scripts/check-test-inventory.js,
   // whose docblock states what each one blanks: `code` is the default reading
   // and `uncommented` the `literals: false` one. The
@@ -4802,8 +5053,8 @@ describe('escapeForRegExp — the one home of the literal-to-pattern escape', ()
   // reads `code` alone. The
   // `every file that calls the primitive takes it from that home` case selects
   // its population from `code` — the files whose live text calls the primitive
-  // — and checks the import on `uncommented`, because a module specifier is
-  // literal text.
+  // — and reads the import off `uncommented` through `namesImportedFromHome`,
+  // which states why a specifier is read there.
   const code = new Map(scanned.map((p) => [p, blankJsLiterals(sources.get(p))]));
   const uncommented = new Map(
     scanned.map((p) => [p, blankJsLiterals(sources.get(p), { literals: false })]),
@@ -4830,7 +5081,7 @@ describe('escapeForRegExp — the one home of the literal-to-pattern escape', ()
       copies,
       [],
       `these files spell the regular-expression escape out instead of calling escapeForRegExp ` +
-        `from scripts/check-test-inventory.js — a second copy drifts one character at a time: ${copies.join(', ')}`,
+        `from ${HELPER_HOME} — a second copy drifts one character at a time: ${copies.join(', ')}`,
     );
   });
 
@@ -4838,12 +5089,10 @@ describe('escapeForRegExp — the one home of the literal-to-pattern escape', ()
     const callers = [...code].filter(([, view]) => /\bescapeForRegExp\(/.test(view));
     assert.ok(callers.length > 1, 'the scan found no caller of the escape — re-anchor it');
     for (const [p] of callers) {
-      const lists = [
-        ...uncommented.get(p).matchAll(/import \{([^}]*)\} from '[^']*check-test-inventory\.js'/g),
-      ];
+      const lists = namesImportedFromHome(uncommented.get(p));
       assert.ok(
-        lists.some(([, names]) => /\bescapeForRegExp\b/.test(names)),
-        `${p}: calls the escape without importing it from scripts/check-test-inventory.js`,
+        lists.some((names) => /\bescapeForRegExp\b/.test(names)),
+        `${p}: calls the escape without importing it from ${HELPER_HOME}`,
       );
     }
   });
@@ -4858,11 +5107,8 @@ describe('escapeForRegExp — the one home of the literal-to-pattern escape', ()
 });
 
 describe('quotepath policy — one home, no second copy', () => {
-  // The population and the read are the
-  // `selfPath — the one home of the derivation every check names itself by`
-  // describe's: `SCRIPT_PATHS`, read from `sources`.
-  const HOME = 'scripts/check-test-inventory.js';
-
+  // The population is `SCRIPT_PATHS`, read from `sources`: the policy is
+  // written in a check's own docblock, so the checks are what this scan holds.
   // The subject is a COMMENT, so one reading of `blankJsLiterals` from
   // scripts/check-test-inventory.js — the `literals: false` one, `uncommented`,
   // whose docblock states what it blanks — is read as a MASK rather than as the
@@ -4895,11 +5141,11 @@ describe('quotepath policy — one home, no second copy', () => {
   const foldedComments = (source) => commentText(source).toLowerCase();
 
   it('the home states the policy, once', () => {
-    const home = foldedComments(sources.get(HOME));
+    const home = foldedComments(sources.get(HELPER_HOME));
     assert.equal(
       home.split(FOLDED_CLAUSE).length - 1,
       1,
-      `${HOME} is where the quotepath policy is stated — \`trackedFilesUnder\`'s docblock — ` +
+      `${HELPER_HOME} is where the quotepath policy is stated — \`trackedFilesUnder\`'s docblock — ` +
         `and it must state it exactly once: a second copy here starts the same drift as a copy ` +
         `elsewhere, and no copy at all leaves this scan searching for a phrase nothing states`,
     );
@@ -4907,13 +5153,13 @@ describe('quotepath policy — one home, no second copy', () => {
 
   it('no other check carries a second copy', () => {
     const copies = SCRIPT_PATHS.filter(
-      (path) => path !== HOME && foldedComments(sources.get(path)).includes(FOLDED_CLAUSE),
+      (path) => path !== HELPER_HOME && foldedComments(sources.get(path)).includes(FOLDED_CLAUSE),
     );
     assert.deepEqual(
       copies,
       [],
       `these scripts carry a second copy of the quotepath policy clause; its one home is ` +
-        `\`trackedFilesUnder\`'s docblock in ${HOME}, and a second copy drifts one edit at a ` +
+        `\`trackedFilesUnder\`'s docblock in ${HELPER_HOME}, and a second copy drifts one edit at a ` +
         `time: ${copies.join(', ')}`,
     );
   });

@@ -285,20 +285,20 @@ locally.
 
 Every PR body carries two further sections; the template scaffolds them, and the
 `Docs disposition format` check verifies their form (form only — what you write in
-them is read by reviewers, never judged by CI). It reads each section through one
-fence model that stays close to the rendered body's: what a code fence holds is an
-example, so a line copied with the fence around it records nothing. Write the
-lines of each section as plain lines of the body. Write an example's fence markers
-— the opening one and the closing one — at the start of a line, with nothing but
-the language after the opener, outside any block quote, and outside any raw HTML
-block — leave a blank line after an HTML opener such as `<details>` before a
-fenced example, and keep one out of a `<pre>`, `<script>` or `<style>` element,
-which runs to its closing tag. A fence written otherwise can part from the
-rendered body in either direction: read as ordinary text, so a line you meant as
-an example is read as a judgment, or opened where the body shows none, so the
-lines you meant as judgments are read as an example. A fence left open runs to the
-end of the body and takes the headings after it with it, so the sections after it
-are no longer sections the check can find.
+them is read by reviewers, never judged by CI). It reads each section the way
+CommonMark parses your body: a Markdown code block is an example — a line copied
+with its fence around it, or one indented four spaces where a block starts,
+records nothing — while every other line the section shows is a line the check
+reads, one inside a `<details>` block written without a blank line after its
+opener, or inside a `<pre>` element, included, since those are HTML the body
+carries rather than code blocks. So write each section's lines flush left. Nothing
+from an `<!--` to its `-->` reaches the check — a comment opener hides everything
+to its closer even when it is shown inside an example — which is why the
+template's own notes are inert; write your lines below them. Close what you open,
+too: an unclosed fence runs on to the end of whatever holds it — at a body's top
+level, the rest of the body, headings included — and an unclosed comment swallows
+the rest of the body outright, so the sections below are no longer sections the
+check can find.
 
 **`## Docs disposition`** — one line for each doc that governs the code you
 changed. The check derives that set from [`scripts/area-map.json`](../scripts/area-map.json)

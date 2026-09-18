@@ -16,15 +16,28 @@
  * population makes), the presence of the clause's own sender statement in the
  * clause's scope — the doctrine the send leg holds, read for its words and for
  * the single occurrence of them, wherever in the clause a second copy would
- * sit, with the fail-closed form pinned — the disjointness rule, duplicates,
- * and empty parses — that the comment-safe tokenizer keeps commented labels
+ * sit, with the fail-closed form pinned — the capture-path payload weld beside
+ * it: the content population's own derivation and the machinery guard that
+ * answers a file list naming nothing, the send scan run under its own callee and
+ * each shape it refuses where a key belongs, the Payload cell grammar and every
+ * near miss it refuses, the per-SITE hold in both key directions with the marker
+ * standing where a row states no key, two identical copies of one send meeting
+ * one row and two sites that differ each named beside it, the shapes a key
+ * position can stand in that no cell could state, the callee path a send is read
+ * through and the receivers it leaves unread, the forward and reverse type diffs,
+ * and the silence on a row
+ * whose type no readable send states, with the clause's own payload grammar
+ * sentence and the recorder's own existence claim beside it each held present in
+ * its scope exactly once — the disjointness rule,
+ * duplicates, and empty parses — that the comment-safe tokenizer keeps commented labels
  * out of the scans — the introspection handle's own legs: the anchored freeze
  * its members are read from and every refusal around it, the member diff in
  * both directions, the reach test against the worker's own module-scope
  * bindings, the per-member weld holding each row and its member's body to one
  * another in both directions, the cell grammar the Reaches column is read by
  * and each near miss it refuses, the grammar sentence held present in the
- * clause's scope exactly once, and the mention count that keeps the handle out
+ * clause's scope exactly once, the closure sentence that weld is the
+ * enforcement of held present the same way and quoted by the weld's own reds, and the mention count that keeps the handle out
  * of every production module but the one that assigns it — and, as real-tree
  * locks over the shipped tree, that the contracts hold on it, that each
  * population this check derives carries the properties the leg reading it
@@ -56,6 +69,14 @@ import {
   RUNTIME_DOC_PATH,
   WORKER_PATH,
   PANEL_DIR,
+  CONTENT_DIR,
+  CAPTURE_TABLE_HEADER,
+  PANEL_TABLE_HEADER,
+  PANEL_TYPES_COLUMN,
+  CAPTURE_PAYLOAD_COLUMN,
+  CAPTURE_PAYLOAD_NONE_MARKER,
+  CAPTURE_SEND_CALLEE,
+  PANEL_SEND_CALLEE,
   BACKGROUND_ROOT,
   EMPTY_SURFACES,
   DUPLICATE_SURFACES,
@@ -65,11 +86,22 @@ import {
   HANDLE_REACH_SET,
   HANDLE_NO_REACH_MARKER,
   HANDLE_TABLE_HEADER,
+  HANDLE_MEMBER_COLUMN,
+  HANDLE_REACHES_COLUMN,
   derivePopulation,
   derivePanelPopulation,
+  deriveContentPopulation,
+  readPayloadCell,
+  extractCapturePayloads,
   countSenderStatements,
+  RECORDER_STATEMENT_ANCHOR,
+  countRecorderStatements,
   countReachGrammarStatements,
+  countCapturePayloadGrammarStatements,
+  CAPTURE_PAYLOAD_GRAMMAR_ANCHOR,
   REACH_GRAMMAR_ANCHOR,
+  countClosureStatements,
+  HANDLE_CLOSURE_ANCHOR,
   collectModuleBindings,
   countHandleMentions,
   extractManifestSurface,
@@ -87,6 +119,8 @@ import {
 const ROOT = resolve(import.meta.dirname, '..', '..', '..', '..');
 /** A panel path inside the scanned surface. */
 const PANEL_PATH = `${PANEL_DIR}/panel.js`;
+/** A content path inside the capture path's own scanned surface. */
+const CONTENT_PATH = `${CONTENT_DIR}/recorder.js`;
 /** A second background module, inside the derived population beside the worker. */
 const SECOND_BACKGROUND_PATH = `${BACKGROUND_ROOT}/router.js`;
 /** A production module outside the background tree — the widened population's own. */
@@ -114,6 +148,12 @@ const shippedPopulation = () => derivePopulation(ROOT);
 const shippedPanelPopulation = () => derivePanelPopulation(ROOT);
 
 /**
+ * The tracked content JavaScript the shipped capture-path weld runs over, read
+ * the same way and for the same reason.
+ */
+const shippedContentPopulation = () => deriveContentPopulation(ROOT);
+
+/**
  * The dispatcher extractor over ONE file, keyed as the service worker. The key
  * is what makes these fixtures the worker's own: the location leg holds the
  * dispatcher to {@link WORKER_PATH}, so a one-file fixture keyed anywhere else
@@ -122,6 +162,38 @@ const shippedPanelPopulation = () => derivePanelPopulation(ROOT);
  * @param {string} source the module source to read
  */
 const workerOnly = (source) => extractDispatcherSurface(new Map([[WORKER_PATH, source]]));
+
+/**
+ * A readable panel send site, as the scan returns one: the payload keys come
+ * back beside the type, and the panel's own table states no payload column to
+ * hold them to, so a case that states none states the empty set.
+ * @param {number} ordinal the site's position among its file's sends
+ * @param {string} type the message type it names
+ * @param {string[]} [keys] its top-level payload key names
+ */
+const panelSite = (ordinal, type, keys = []) => ({
+  path: PANEL_PATH,
+  ordinal,
+  type,
+  found: null,
+  keys,
+  keysFound: null,
+});
+
+/**
+ * A readable capture-path send site, the same shape read over the content tree.
+ * @param {number} ordinal the site's position among its file's sends
+ * @param {string} type the message type it names
+ * @param {string[]} keys its top-level payload key names
+ */
+const captureSite = (ordinal, type, keys) => ({
+  path: CONTENT_PATH,
+  ordinal,
+  type,
+  found: null,
+  keys,
+  keysFound: null,
+});
 
 /** A consistent synthetic surface every contract accepts. */
 function makeSurface(overrides = {}) {
@@ -140,16 +212,28 @@ function makeSurface(overrides = {}) {
     workerEqualityTypes: ['FRAME_READY'],
     panelFiles: [PANEL_PATH],
     sendTypes: ['PROJECTS_LIST', 'STEP_COMMIT'],
-    sendSites: [
-      { path: PANEL_PATH, ordinal: 1, type: 'PROJECTS_LIST', found: null },
-      { path: PANEL_PATH, ordinal: 2, type: 'STEP_COMMIT', found: null },
-    ],
+    sendSites: [panelSite(1, 'PROJECTS_LIST'), panelSite(2, 'STEP_COMMIT')],
+    // The capture path's own sender side: one content module, one send of the
+    // fixture's single capture-path type, and a row stating exactly the keys
+    // that send carries — so the baseline is WELDED rather than merely agreeing
+    // on the type names.
+    contentFiles: [CONTENT_PATH],
+    docCapturePayloads: [{ type: 'FRAME_READY', keys: ['readyAt'] }],
+    capturePayloadUnreadable: [],
+    captureSendTypes: ['FRAME_READY'],
+    captureSendSites: [captureSite(1, 'FRAME_READY', ['readyAt'])],
     // The clause states its sender statement once. The key is stated here
     // because the guard is fail-closed: a fixture omitting it reds rather than
     // no-opping, which is what keeps a later scalar leg from being added to
     // this evaluator and silently passing on every hand-written surface.
     senderStatements: 1,
+    // The recorder's own half of that claim, and the capture-path payload
+    // grammar beside it, each held the same fail-closed way: a fixture omitting
+    // the key reds rather than no-opping.
+    recorderStatements: 1,
+    capturePayloadGrammarStatements: 1,
     reachGrammarStatements: 1,
+    closureStatements: 1,
     handleMembers: ['frameRegistry', 'wipeFrameRegistry'],
     docHandleMembers: ['frameRegistry', 'wipeFrameRegistry'],
     handleUnreadable: [],
@@ -220,7 +304,7 @@ describe('evaluateExtensionSurface — permission legs (both ways)', () => {
 
   it('fires on an unreadable permission-table cell', () => {
     const problems = evaluateExtensionSurface(
-      makeSurface({ permissionsUnreadable: ['storage (optional)'] }),
+      makeSurface({ permissionsUnreadable: ['"storage (optional)"'] }),
     );
     assert.ok(problems.some((p) => p.includes('storage (optional)') && p.includes('cannot read')));
   });
@@ -285,7 +369,7 @@ describe('evaluateExtensionSurface — message legs (both ways)', () => {
 
   it('fires on an unreadable protocol cell', () => {
     const problems = evaluateExtensionSurface(
-      makeSurface({ protocolUnreadable: ['PROJECTS_LIST and friends'] }),
+      makeSurface({ protocolUnreadable: ['"PROJECTS_LIST and friends"'] }),
     );
     assert.ok(
       problems.some((p) => p.includes('PROJECTS_LIST and friends') && p.includes('cannot read')),
@@ -426,6 +510,234 @@ describe('evaluateExtensionSurface — the clause states the grammar the Reaches
   });
 });
 
+describe('evaluateExtensionSurface — the clause states the closure the capture path holds', () => {
+  it('fires when the clause states no capture-path sender statement', () => {
+    assert.deepEqual(evaluateExtensionSurface(makeSurface({ recorderStatements: 0 })), [
+      // prettier-ignore
+      `${RUNTIME_DOC_PATH} §ERT-4 states no capture-path sender statement — nothing in the clause's scope carries "${RECORDER_STATEMENT_ANCHOR}" — the capture-path closure this check's forward type diff holds (every type the table states carrying at least one object-literal ${CAPTURE_SEND_CALLEE.name}( that names it) is doctrine the clause states, and the leg cannot hold a rule the document no longer makes`,
+    ]);
+  });
+
+  it('fires when the claim is made a second time — an update would land on one copy', () => {
+    assert.deepEqual(evaluateExtensionSurface(makeSurface({ recorderStatements: 2 })), [
+      // prettier-ignore
+      `${RUNTIME_DOC_PATH} §ERT-4 makes the "${RECORDER_STATEMENT_ANCHOR}" claim 2 times — the clause states it once, so an update cannot land on one copy and leave another standing, wherever in the clause that copy was written`,
+    ]);
+  });
+
+  it('is fail-closed: a surface stating no count reds rather than passing silently', () => {
+    const surface = makeSurface();
+    delete surface.recorderStatements;
+    assert.ok(
+      evaluateExtensionSurface(surface).some((p) => p.includes('states no capture-path sender statement')), // prettier-ignore
+      'a surface without the key must red',
+    );
+  });
+});
+
+describe('countRecorderStatements — the clause scope that claim must sit in', () => {
+  /** The message clause, with `body` standing where its recorder paragraph does. */
+  const doc = (body) =>
+    [
+      '## Message protocol',
+      '',
+      '**ERT-4.** The dispatcher’s serviced surface is exactly the two enumerations.',
+      '',
+      body,
+      '',
+      '### Capture path',
+      '',
+      `A later section, outside the clause: each type ${RECORDER_STATEMENT_ANCHOR} of its own.`,
+    ].join('\n');
+  /**
+   * Where the live clause's line break falls inside the anchor — before
+   * `literal`. Derived from the anchor rather than spelled, so the fixture keeps
+   * wrapping mid-phrase if the anchor is ever reworded.
+   */
+  const WRAP_AT = RECORDER_STATEMENT_ANCHOR.lastIndexOf(' ');
+  const paragraph = [
+    'The recorder states its half the same way, payload included: each type of the',
+    `table ${RECORDER_STATEMENT_ANCHOR.slice(0, WRAP_AT)}`,
+    `${RECORDER_STATEMENT_ANCHOR.slice(WRAP_AT + 1)} whose top-level \`type\` property`,
+    'carries the type name as a string literal.',
+  ].join('\n');
+
+  it('counts the hand-wrapped claim — the anchor is found whatever line it wraps on', () => {
+    assert.ok(
+      !paragraph.includes(RECORDER_STATEMENT_ANCHOR),
+      'the fixture must split the anchor across a line boundary',
+    );
+    assert.equal(countRecorderStatements(doc(paragraph)), 1);
+  });
+
+  it('counts a duplicated paragraph twice — the drift a presence-only read cannot see', () => {
+    assert.equal(countRecorderStatements(doc(`${paragraph}\n\n${paragraph}`)), 2);
+  });
+
+  it('counts a copy pasted into the same paragraph — occurrences, not paragraphs', () => {
+    assert.equal(countRecorderStatements(doc(`${paragraph} ${paragraph}`)), 2);
+  });
+
+  it('does not count a paragraph moved out of the clause scope', () => {
+    // The trailing sentence past `### Capture path` carries the anchor, so this
+    // proves the scope bound, not the anchor's absence from the file.
+    assert.ok(doc('The recorder sends what it sends.').includes(RECORDER_STATEMENT_ANCHOR));
+    assert.equal(countRecorderStatements(doc('The recorder sends what it sends.')), 0);
+  });
+
+  it('does not count a fenced illustration — a code sample is not the doctrine', () => {
+    assert.equal(countRecorderStatements(doc(['```text', paragraph, '```'].join('\n'))), 0);
+  });
+
+  it('the shipped runtime doc states it exactly once', () => {
+    assert.equal(
+      countRecorderStatements(readFileSync(resolve(ROOT, RUNTIME_DOC_PATH), 'utf8')),
+      1,
+      'the clause must carry the claim the forward capture-path diff holds',
+    );
+  });
+});
+
+describe('evaluateExtensionSurface — the clause states the grammar the payload weld reads by', () => {
+  it('fires when the clause states no capture-path payload grammar', () => {
+    assert.deepEqual(
+      evaluateExtensionSurface(makeSurface({ capturePayloadGrammarStatements: 0 })),
+      [
+        `${RUNTIME_DOC_PATH} §ERT-4 states no capture-path payload grammar — nothing in the clause's scope carries "${CAPTURE_PAYLOAD_GRAMMAR_ANCHOR}" — the capture-path table's ${CAPTURE_PAYLOAD_COLUMN} column is read as key names rather than prose, and the marker for a message that carries no payload is doctrine the clause states, which this check's cell reader cannot hold once the document stops stating it`,
+      ],
+    );
+  });
+
+  it('fires when the claim is made a second time — an update would land on one copy', () => {
+    assert.deepEqual(
+      evaluateExtensionSurface(makeSurface({ capturePayloadGrammarStatements: 2 })),
+      [
+        `${RUNTIME_DOC_PATH} §ERT-4 makes the "${CAPTURE_PAYLOAD_GRAMMAR_ANCHOR}" claim 2 times — the clause states it once, so an update cannot land on one copy and leave another standing, wherever in the clause that copy was written`,
+      ],
+    );
+  });
+
+  it('is fail-closed: a surface stating no count reds rather than passing silently', () => {
+    const surface = makeSurface();
+    delete surface.capturePayloadGrammarStatements;
+    assert.ok(
+      evaluateExtensionSurface(surface).some((p) => p.includes('states no capture-path payload grammar')), // prettier-ignore
+      'a surface without the key must red',
+    );
+  });
+
+  it('names the marker the cell reader accepts — the two have one home', () => {
+    assert.ok(CAPTURE_PAYLOAD_GRAMMAR_ANCHOR.includes(`\`${CAPTURE_PAYLOAD_NONE_MARKER}\``));
+  });
+});
+
+describe('countCapturePayloadGrammarStatements — the clause scope that sentence must sit in', () => {
+  /** The message clause, with `body` standing where its payload sentence does. */
+  const doc = (body) =>
+    [
+      '## Message protocol',
+      '',
+      '**ERT-4.** The dispatcher’s serviced surface is exactly the two enumerations.',
+      '',
+      body,
+      '',
+      '### Capture path',
+      '',
+      `A later section, outside the clause: the table ${CAPTURE_PAYLOAD_GRAMMAR_ANCHOR}.`,
+    ].join('\n');
+
+  const WRAP = CAPTURE_PAYLOAD_GRAMMAR_ANCHOR.indexOf(' ', 20);
+  const sentence = [
+    `The recorder states its half the same way: each type's Payload cell ${CAPTURE_PAYLOAD_GRAMMAR_ANCHOR.slice(0, WRAP)}`,
+    `${CAPTURE_PAYLOAD_GRAMMAR_ANCHOR.slice(WRAP + 1)}.`,
+  ].join('\n');
+
+  it('counts the hand-wrapped sentence — the anchor is found whatever line it wraps on', () => {
+    assert.ok(
+      !sentence.includes(CAPTURE_PAYLOAD_GRAMMAR_ANCHOR),
+      'the fixture must split the anchor across a line boundary',
+    );
+    assert.equal(countCapturePayloadGrammarStatements(doc(sentence)), 1);
+  });
+
+  it('counts a duplicated sentence twice — the drift a presence-only read cannot see', () => {
+    assert.equal(countCapturePayloadGrammarStatements(doc(`${sentence}\n\n${sentence}`)), 2);
+  });
+
+  it('does not count a sentence moved out of the clause scope', () => {
+    assert.ok(doc('The cells say what they say.').includes(CAPTURE_PAYLOAD_GRAMMAR_ANCHOR));
+    assert.equal(countCapturePayloadGrammarStatements(doc('The cells say what they say.')), 0);
+  });
+
+  it('does not count a fenced illustration — a code sample is not the doctrine', () => {
+    assert.equal(
+      countCapturePayloadGrammarStatements(doc(['```text', sentence, '```'].join('\n'))),
+      0,
+    );
+  });
+
+  it('does not count the sentence when the clause marker is renumbered away', () => {
+    assert.equal(
+      countCapturePayloadGrammarStatements(doc(sentence).replace('**ERT-4.**', '**ERT-9.**')),
+      0,
+    );
+  });
+
+  it('the shipped runtime doc states it exactly once', () => {
+    assert.equal(
+      countCapturePayloadGrammarStatements(readFileSync(resolve(ROOT, RUNTIME_DOC_PATH), 'utf8')),
+      1,
+      'the clause must carry the grammar its Payload column is read by',
+    );
+  });
+});
+
+describe('evaluateExtensionSurface — the clause states the closure the weld enforces', () => {
+  it('fires when the clause states no closure sentence — the weld cannot hold an unstated rule', () => {
+    assert.deepEqual(evaluateExtensionSurface(makeSurface({ closureStatements: 0 })), [
+      `${RUNTIME_DOC_PATH} §ERT-5 states no closure sentence — nothing in the clause's scope carries "${HANDLE_CLOSURE_ANCHOR}" — the per-member weld this check holds (each row read against its member's body in both directions, the row standing as that member's allowed set) is doctrine the clause states, and the leg cannot hold a rule the document no longer makes`,
+    ]);
+  });
+
+  it('fires when the claim is made a second time — an update would land on one copy', () => {
+    assert.deepEqual(evaluateExtensionSurface(makeSurface({ closureStatements: 2 })), [
+      `${RUNTIME_DOC_PATH} §ERT-5 makes the "${HANDLE_CLOSURE_ANCHOR}" claim 2 times — the clause states it once, so an update cannot land on one copy and leave another standing, wherever in the clause that copy was written`,
+    ]);
+  });
+
+  it('is fail-closed: a surface stating no count reds rather than passing silently', () => {
+    const surface = makeSurface();
+    delete surface.closureStatements;
+    assert.ok(
+      evaluateExtensionSurface(surface).some((p) => p.includes('states no closure sentence')),
+      'a surface without the key must red',
+    );
+  });
+
+  it('is the sentence the weld’s own reds quote — the two have one home', () => {
+    // The diagnostics are BUILT from the constant rather than spelling the
+    // sentence again, so a reworded clause moves the presence guard and those
+    // reds in one edit instead of leaving a red quoting doctrine the document
+    // has stopped stating. Proven on the cross-wiring that reds both ways.
+    const problems = evaluateExtensionSurface(
+      makeSurface({
+        handleMembers: ['frameRegistry', 'programmaticTabs'],
+        docHandleMembers: ['frameRegistry', 'programmaticTabs'],
+        handleReaches: [
+          { member: 'frameRegistry', name: 'programmaticTabs' },
+          { member: 'programmaticTabs', name: 'activeFrames' },
+        ],
+        docHandleReaches: [
+          { member: 'frameRegistry', names: ['activeFrames'] },
+          { member: 'programmaticTabs', names: ['programmaticTabs'] },
+        ],
+      }),
+    );
+    assert.ok(problems.length > 0, 'the cross-wiring must red');
+    for (const problem of problems) assert.ok(problem.includes(HANDLE_CLOSURE_ANCHOR), problem);
+  });
+});
+
 describe('countReachGrammarStatements — the clause scope the grammar sentence must sit in', () => {
   /** The handle clause, with `body` standing where its grammar sentence does. */
   const doc = (body) =>
@@ -478,6 +790,81 @@ describe('countReachGrammarStatements — the clause scope the grammar sentence 
       countReachGrammarStatements(readFileSync(resolve(ROOT, RUNTIME_DOC_PATH), 'utf8')),
       1,
       'the clause must carry the grammar its Reaches column is read by',
+    );
+  });
+});
+
+describe('countClosureStatements — the clause scope the closure sentence must sit in', () => {
+  /** The handle clause, with `body` standing where its closure sentence does. */
+  const doc = (body) =>
+    [
+      '## Lifecycle',
+      '',
+      '**ERT-5.** The worker assigns an introspection handle.',
+      '',
+      body,
+      '',
+      '**ERT-6.** The handle ships in release builds.',
+      '',
+      `A trailing sentence past the clause: ${HANDLE_CLOSURE_ANCHOR}.`,
+      '',
+    ].join('\n');
+
+  /**
+   * Where the live clause's line break falls inside the anchor — before
+   * `reaches`. Derived from the anchor rather than spelled, so the fixture keeps
+   * wrapping mid-sentence if the anchor is ever reworded.
+   */
+  const WRAP_AT = HANDLE_CLOSURE_ANCHOR.indexOf(' reaches');
+  /**
+   * The clause's closure paragraph, wrapped where the live document wraps it:
+   * the anchor is split ACROSS a line boundary, so no line of this fixture
+   * carries it whole and a read over the raw text finds nothing.
+   */
+  const paragraph = [
+    `The handle's member surface is the table below, stated closed: ${HANDLE_CLOSURE_ANCHOR.slice(0, WRAP_AT)}`,
+    `${HANDLE_CLOSURE_ANCHOR.slice(WRAP_AT + 1)} — a structure the clause places the`,
+    'handle over, and the handle assigns no member the table does not carry.',
+  ].join('\n');
+
+  it('counts the hand-wrapped sentence — the anchor is found whatever line it wraps on', () => {
+    assert.ok(
+      !paragraph.includes(HANDLE_CLOSURE_ANCHOR),
+      'the fixture must split the anchor across a line boundary',
+    );
+    assert.equal(countClosureStatements(doc(paragraph)), 1);
+  });
+
+  it('counts a duplicated paragraph twice — the drift a presence-only read cannot see', () => {
+    assert.equal(countClosureStatements(doc(`${paragraph}\n\n${paragraph}`)), 2);
+  });
+
+  it('counts a copy pasted into the same paragraph — occurrences, not paragraphs', () => {
+    // Where the second copy sits decides nothing: it is a second copy an update
+    // can land beside either way.
+    assert.equal(countClosureStatements(doc(`${paragraph} ${paragraph}`)), 2);
+  });
+
+  it('does not count a sentence moved out of the clause scope', () => {
+    // The trailing sentence past **ERT-6.** carries the anchor, so this proves
+    // the scope bound, not the anchor's absence from the file.
+    assert.ok(doc('The table below states the member surface.').includes(HANDLE_CLOSURE_ANCHOR));
+    assert.equal(countClosureStatements(doc('The table below states the member surface.')), 0);
+  });
+
+  it('does not count a fenced illustration — a code sample is not the doctrine', () => {
+    assert.equal(countClosureStatements(doc(['```text', paragraph, '```'].join('\n'))), 0);
+  });
+
+  it('does not count the sentence when the clause marker is renumbered away', () => {
+    assert.equal(countClosureStatements(doc(paragraph).replace('**ERT-5.**', '**ERT-9.**')), 0);
+  });
+
+  it('the shipped runtime doc states it exactly once', () => {
+    assert.equal(
+      countClosureStatements(readFileSync(resolve(ROOT, RUNTIME_DOC_PATH), 'utf8')),
+      1,
+      'the clause must carry the closure its per-member weld enforces',
     );
   });
 });
@@ -700,6 +1087,10 @@ describe('extractManifestSurface', () => {
 });
 
 describe('extractSectionTableNames / extractProtocolTables', () => {
+  it('reads the Types column its own header names — spelled, not taken by position', () => {
+    assert.ok(PANEL_TABLE_HEADER.includes(PANEL_TYPES_COLUMN));
+  });
+
   const doc = [
     '# Doc',
     '',
@@ -721,10 +1112,10 @@ describe('extractSectionTableNames / extractProtocolTables', () => {
     '```',
   ].join('\n');
 
-  it('reads names per section and whole header, fence-aware, refusing unreadable cells', () => {
+  it('reads names per section and whole header, code-block-aware, refusing unreadable cells', () => {
     const perms = extractSectionTableNames(doc, 'Permissions', ['Permission', 'Why']);
     assert.deepEqual(perms.names, ['storage']);
-    assert.deepEqual(perms.unreadable, ['un-backticked']);
+    assert.deepEqual(perms.unreadable, ['"un-backticked"']);
     const hosts = extractSectionTableNames(doc, 'Host permissions', ['Host permission', 'Why']);
     assert.deepEqual(hosts.names, ['<all_urls>']);
     assert.deepEqual(hosts.unreadable, []);
@@ -739,7 +1130,7 @@ describe('extractSectionTableNames / extractProtocolTables', () => {
     );
     const perms = extractSectionTableNames(withSibling, 'Permissions', ['Permission', 'Why']);
     assert.deepEqual(perms.names, ['storage']);
-    assert.deepEqual(perms.unreadable, ['un-backticked']);
+    assert.deepEqual(perms.unreadable, ['"un-backticked"']);
   });
 
   const runtime = [
@@ -763,7 +1154,7 @@ describe('extractSectionTableNames / extractProtocolTables', () => {
     const read = extractProtocolTables(runtime);
     assert.deepEqual(read.captureTypes, ['FRAME_READY']);
     assert.deepEqual(read.panelTypes, ['PROJECTS_LIST', 'PROJECT_CREATE', 'STEP_COMMIT']);
-    assert.deepEqual(read.unreadable, ['STEP_RAW']);
+    assert.deepEqual(read.unreadable, ['"STEP_RAW"']);
   });
 
   it('refuses an unreadable capture-path first cell', () => {
@@ -773,12 +1164,12 @@ describe('extractSectionTableNames / extractProtocolTables', () => {
     );
     const read = extractProtocolTables(bad);
     assert.deepEqual(read.captureTypes, []);
-    assert.ok(read.unreadable.includes('FRAME_READY'));
+    assert.ok(read.unreadable.includes('"FRAME_READY"'));
   });
 
   it('unreadable-cell context survives the vacuous early return', () => {
     const problems = evaluateExtensionSurface(
-      makeSurface({ docCaptureTypes: [], protocolUnreadable: ['FRAME_READY'] }),
+      makeSurface({ docCaptureTypes: [], protocolUnreadable: ['"FRAME_READY"'] }),
     );
     assert.ok(problems.some((p) => p.includes('FRAME_READY') && p.includes('cannot read')));
     assert.ok(problems.some((p) => p.includes('no capture-path types')));
@@ -1113,11 +1504,22 @@ describe('evaluateExtensionSurface — the population machinery guards', () => {
 
   it('keeps the unreadable-cell and sender-statement reads ahead of the machinery return', () => {
     const problems = evaluateExtensionSurface(
-      makeSurface({ backgroundFiles: [], protocolUnreadable: ['FRAME_READY'], senderStatements: 0 }), // prettier-ignore
+      makeSurface({ backgroundFiles: [], protocolUnreadable: ['"FRAME_READY"'], senderStatements: 0 }), // prettier-ignore
     );
     assert.ok(problems.some((p) => p.includes('FRAME_READY') && p.includes('cannot read')));
     assert.ok(problems.some((p) => p.includes('states no sender statement')));
     assert.ok(problems.some((p) => p.includes('has no population to hold')));
+  });
+
+  it('diagnoses an empty content population on its own line', () => {
+    // Each population answers for itself: the content file list naming nothing
+    // is a broken read of the tree the capture-path send read runs over, and it
+    // says so in words the panel and background lines do not carry.
+    const problems = evaluateExtensionSurface(makeSurface({ contentFiles: [] }));
+    assert.ok(
+      problems.some((p) => p.includes(CONTENT_DIR) && p.includes('has no population to scan')),
+      problems.join('\n') || 'no empty-content-population diagnostic',
+    );
   });
 
   it('reds when the population has lost the service worker', () => {
@@ -1165,6 +1567,12 @@ describe('the capture-path pair is asymmetric — read through the extractor', (
         equalitySites: dispatcher.equalitySites,
         workerEqualityTypes: dispatcher.workerEqualityTypes,
         backgroundFiles: [WORKER_PATH, SECOND_BACKGROUND_PATH],
+        // The capture path's sender side follows the types this fixture states,
+        // so the weld stays green and what these cases observe is the
+        // dispatcher pair and nothing beside it.
+        docCapturePayloads: DOC_CAPTURE_TYPES.map((type) => ({ type, keys: [] })),
+        captureSendTypes: DOC_CAPTURE_TYPES,
+        captureSendSites: DOC_CAPTURE_TYPES.map((type, i) => captureSite(i + 1, type, [])),
       }),
     );
 
@@ -1228,6 +1636,27 @@ describe('extractSendSites — the one shape the sender scan reads', () => {
     );
   });
 
+  it('reads a receiver-qualified send, the reading the shipped check has always had', () => {
+    // The panel's sender is a binding of the panel's own making rather than a
+    // platform global, so the word is read wherever it stands: what the leg does
+    // not read is decided by the argument alone.
+    assert.deepEqual(
+      extractSendSites(
+        new Map([[PANEL_PATH, "await adapter.send({ type: 'RECORDING_STOP' });"]]),
+      ).map((x) => x.type),
+      ['RECORDING_STOP'],
+    );
+  });
+
+  it('reads the optional call — the call punctuation both callees share', () => {
+    assert.deepEqual(
+      extractSendSites(new Map([[PANEL_PATH, "await send?.({ type: 'RECORDING_STOP' });"]])).map(
+        (s) => s.type,
+      ),
+      ['RECORDING_STOP'],
+    );
+  });
+
   it('the residue shapes contribute no sites at all', () => {
     const residue = [
       'function send(message) { return adapter.send(message); }',
@@ -1242,12 +1671,16 @@ describe('extractSendSites — the one shape the sender scan reads', () => {
     const sites = extractSendSites(
       new Map([['a.js', "await send({ recording_id: id, type: 'RECORDING_OPEN' });"]]),
     );
-    assert.deepEqual(sites, [{ path: 'a.js', ordinal: 1, type: 'RECORDING_OPEN', found: null }]);
+    assert.deepEqual(sites, [
+      { path: 'a.js', ordinal: 1, type: 'RECORDING_OPEN', found: null, keys: ['recording_id'], keysFound: null }, // prettier-ignore
+    ]);
   });
 
   it('reads a quoted type key the same as a bare one', () => {
     const sites = extractSendSites(new Map([['a.js', "await send({ 'type': 'RECORDING_OPEN' });"]])); // prettier-ignore
-    assert.deepEqual(sites, [{ path: 'a.js', ordinal: 1, type: 'RECORDING_OPEN', found: null }]);
+    assert.deepEqual(sites, [
+      { path: 'a.js', ordinal: 1, type: 'RECORDING_OPEN', found: null, keys: [], keysFound: null },
+    ]);
   });
 
   it('refuses a send whose top-level properties carry no type key, naming the keys it read', () => {
@@ -1256,7 +1689,7 @@ describe('extractSendSites — the one shape the sender scan reads', () => {
     // readable send.
     const sites = extractSendSites(new Map([['a.js', "await send({ label: 'x' });"]]));
     assert.deepEqual(sites, [
-      { path: 'a.js', ordinal: 1, type: null, found: 'no `type` key among the top-level properties (`label`)' }, // prettier-ignore
+      { path: 'a.js', ordinal: 1, type: null, found: 'no `type` key among the top-level properties (`label`)', keys: ['label'], keysFound: null }, // prettier-ignore
     ]);
     const problems = evaluateExtensionSurface(makeSurface({ sendSites: sites }));
     assert.ok(
@@ -1372,7 +1805,9 @@ describe('extractSendSites — the one shape the sender scan reads', () => {
     const sites = extractSendSites(
       new Map([['a.js', "const t = `x${send({ type: 'RECORDING_OPEN' })}y`;"]]),
     );
-    assert.deepEqual(sites, [{ path: 'a.js', ordinal: 1, type: 'RECORDING_OPEN', found: null }]);
+    assert.deepEqual(sites, [
+      { path: 'a.js', ordinal: 1, type: 'RECORDING_OPEN', found: null, keys: [], keysFound: null },
+    ]);
   });
 
   it('a source that ends mid-send records the end-of-source stand-in', () => {
@@ -1632,6 +2067,11 @@ describe('readReachCell — the Reaches cell grammar, total and fail-closed', ()
 });
 
 describe("extractHandleTable — the enumeration read from the clause's own scope", () => {
+  it('reads columns its own header names — each spelled, neither taken by position', () => {
+    assert.ok(HANDLE_TABLE_HEADER.includes(HANDLE_MEMBER_COLUMN));
+    assert.ok(HANDLE_TABLE_HEADER.includes(HANDLE_REACHES_COLUMN));
+  });
+
   const doc = (rows, tail = '') =>
     [
       '## Lifecycle and the persisted-state model',
@@ -1649,7 +2089,7 @@ describe("extractHandleTable — the enumeration read from the clause's own scop
   it('reads the member column, refusing a cell that is not a lone backticked name', () => {
     const read = extractHandleTable(doc(['| `frameRegistry` | a | b |', '| plantFrame | a | b |']));
     assert.deepEqual(read.members, ['frameRegistry']);
-    assert.deepEqual(read.unreadable, ['plantFrame']);
+    assert.deepEqual(read.unreadable, ['"plantFrame"']);
     assert.equal(read.matches, 1);
   });
 
@@ -1674,7 +2114,7 @@ describe("extractHandleTable — the enumeration read from the clause's own scop
       doc(['| `frameRegistry` | The active-frame registry | a |', '| `plantFrame` | `registerFrame` | b |']), // prettier-ignore
     );
     assert.deepEqual(read.reaches, [{ member: 'plantFrame', names: ['registerFrame'] }]);
-    assert.deepEqual(read.reachUnreadable, ['`frameRegistry`: The active-frame registry']);
+    assert.deepEqual(read.reachUnreadable, ['`frameRegistry`: "The active-frame registry"']);
     // The member column is unaffected: the row's member still stands, so the
     // member diff and the cell refusal are two facts rather than one.
     assert.deepEqual(read.members, ['frameRegistry', 'plantFrame']);
@@ -1684,7 +2124,7 @@ describe("extractHandleTable — the enumeration read from the clause's own scop
     const read = extractHandleTable(doc(['| plantFrame | `registerFrame` | b |']));
     assert.deepEqual(read.reaches, []);
     assert.deepEqual(read.reachUnreadable, []);
-    assert.deepEqual(read.unreadable, ['plantFrame']);
+    assert.deepEqual(read.unreadable, ['"plantFrame"']);
   });
 
   it('reads nothing from a table that has left the clause scope, and counts it', () => {
@@ -1937,7 +2377,7 @@ describe('evaluateExtensionSurface — the handle legs', () => {
 
   it('names an unreadable Reaches cell and the grammar that would have parsed', () => {
     const problems = evaluateExtensionSurface(
-      makeSurface({ handleReachUnreadable: ['`frameRegistry`: The active-frame registry'] }),
+      makeSurface({ handleReachUnreadable: ['`frameRegistry`: "The active-frame registry"'] }),
     );
     assert.ok(
       problems.some((x) => x.includes('Reaches cell the scan cannot read') && x.includes('The active-frame registry') && x.includes(HANDLE_NO_REACH_MARKER)), // prettier-ignore
@@ -2006,7 +2446,7 @@ describe('evaluateExtensionSurface — the handle legs', () => {
 
   it('fires on an unreadable member cell, ahead of the vacuous return', () => {
     const problems = evaluateExtensionSurface(
-      makeSurface({ docHandleMembers: [], handleUnreadable: ['plantFrame'] }),
+      makeSurface({ docHandleMembers: [], handleUnreadable: ['"plantFrame"'] }),
     );
     assert.ok(problems.some((p) => p.includes('plantFrame') && p.includes('cannot read')));
     assert.ok(problems.some((p) => p.includes('no handle members found')));
@@ -2043,18 +2483,506 @@ describe('evaluateExtensionSurface — the handle legs', () => {
   });
 });
 
+describe('readPayloadCell — the grammar the Payload column is read by', () => {
+  it('reads a backticked object shape as the key names it writes, in the cell’s own order', () => {
+    // The names come back as the cell states them, so a red quotes the cell the
+    // way its author wrote it; what the column states is a set, and the weld is
+    // what compares the two sides order-free.
+    assert.deepEqual(readPayloadCell('`{ readyAt, url }`'), ['readyAt', 'url']);
+    assert.deepEqual(readPayloadCell('`{ url, readyAt }`'), ['url', 'readyAt']);
+  });
+
+  it('reads the lone marker as the empty set — a message that carries no payload', () => {
+    assert.deepEqual(readPayloadCell(`\`${CAPTURE_PAYLOAD_NONE_MARKER}\``), []);
+  });
+
+  it('reads a one-key shape', () => {
+    assert.deepEqual(readPayloadCell('`{ action }`'), ['action']);
+  });
+
+  it('refuses every near miss rather than reading a shorter set', () => {
+    for (const cell of [
+      '',
+      'whatever',
+      '{ readyAt, url }',
+      '`{}`',
+      '`{ }`',
+      '`{ action: { x } }`',
+      "`{ 'readyAt' }`",
+      '`{ readyAt, readyAt }`',
+      '`{ readyAt, url }` and a tab id',
+      `\`{ readyAt }\` ${CAPTURE_PAYLOAD_NONE_MARKER}`,
+      CAPTURE_PAYLOAD_NONE_MARKER,
+      '`readyAt, url`',
+      '-',
+    ]) {
+      assert.equal(readPayloadCell(cell), null, `${cell || '(empty)'} is not the grammar`);
+    }
+  });
+});
+
+describe('extractCapturePayloads — the capture-path table read by column name', () => {
+  /** A capture-path table, `rows` standing where its body does. */
+  const doc = (rows, header = '| Type | Payload | Response |') =>
+    ['## Message protocol', '', '### Capture path', '', header, '| --- | --- | --- |', ...rows, ''].join('\n'); // prettier-ignore
+
+  it('pairs each type with the key set its Payload cell states', () => {
+    const { payloads, unreadable } = extractCapturePayloads(
+      doc([
+        `| \`GET_TAB_ID\` | \`${CAPTURE_PAYLOAD_NONE_MARKER}\` | \`{ tabId }\` |`,
+        '| `FRAME_READY` | `{ readyAt, url }` | None |',
+      ]),
+    );
+    assert.deepEqual(unreadable, []);
+    assert.deepEqual(payloads, [
+      { type: 'GET_TAB_ID', keys: [] },
+      { type: 'FRAME_READY', keys: ['readyAt', 'url'] },
+    ]);
+  });
+
+  it('spells a name the table header carries, and reads no table whose header is reordered', () => {
+    // What the by-name read buys and what it does NOT: the index comes from the
+    // table's own header, so this leg never carries a number of its own — but a
+    // table whose header states the columns in another order is not selected at
+    // all, the whole-header selection being what pins that order. The robustness
+    // goes live the day that selection stops pinning it, and until then this
+    // case holds the resolution itself: the name the reader seeks stands in the
+    // header constant, at the position the shipped table states.
+    assert.ok(CAPTURE_TABLE_HEADER.includes(CAPTURE_PAYLOAD_COLUMN));
+    const reordered = doc(['| `FRAME_READY` | None | `{ readyAt, url }` |'], '| Type | Response | Payload |'); // prettier-ignore
+    assert.deepEqual(
+      extractCapturePayloads(reordered).payloads,
+      [],
+      'a reordered header states another table, which the whole-header selection refuses',
+    );
+  });
+
+  it('names an unreadable cell beside the type whose row it is', () => {
+    const { payloads, unreadable } = extractCapturePayloads(
+      doc(['| `FRAME_READY` | whatever | None |', '| `APPEND_ACTION` | `{ action }` | Envelope |']),
+    );
+    assert.deepEqual(unreadable, ['`FRAME_READY`: "whatever"']);
+    assert.deepEqual(payloads, [{ type: 'APPEND_ACTION', keys: ['action'] }]);
+  });
+
+  it('names a bare marker as what stood in the cell — the span is the cell form', () => {
+    // The marker counts where the cell writes it inside backticks, so a dash
+    // standing bare is text like any other: unreadable, and named in the quoted
+    // form that keeps it apart from the red's own separators.
+    const { payloads, unreadable } = extractCapturePayloads(
+      doc([`| \`GET_TAB_ID\` | ${CAPTURE_PAYLOAD_NONE_MARKER} | \`{ tabId }\` |`]),
+    );
+    assert.deepEqual(payloads, []);
+    assert.deepEqual(unreadable, [`\`GET_TAB_ID\`: "${CAPTURE_PAYLOAD_NONE_MARKER}"`]);
+  });
+
+  it('names an empty cell as the shape it is', () => {
+    assert.deepEqual(extractCapturePayloads(doc(['| `FRAME_READY` |  | None |'])).unreadable, [
+      `\`FRAME_READY\`: (empty ${CAPTURE_PAYLOAD_COLUMN} cell)`,
+    ]);
+  });
+
+  it('leaves a row whose type cell is unreadable to the type column — one defect, one line', () => {
+    const { payloads, unreadable } = extractCapturePayloads(doc(['| FRAME_READY | whatever | None |'])); // prettier-ignore
+    assert.deepEqual(payloads, []);
+    assert.deepEqual(unreadable, []);
+  });
+
+  it('yields nothing when the column is renamed away — the emptiness its own guard answers for', () => {
+    const renamed = doc(['| `FRAME_READY` | `{ readyAt }` | None |'], '| Type | Body | Response |');
+    assert.deepEqual(extractCapturePayloads(renamed).payloads, []);
+    assert.ok(
+      evaluateExtensionSurface(makeSurface({ docCapturePayloads: [] })).some((p) =>
+        p.includes(`no readable ${CAPTURE_PAYLOAD_COLUMN} cell found in the capture-path table`),
+      ),
+      'the empty read reds on its own guard',
+    );
+  });
+
+  it('reads the shipped table: each capture-path row and its key set', () => {
+    const { payloads, unreadable } = extractCapturePayloads(
+      readFileSync(resolve(ROOT, RUNTIME_DOC_PATH), 'utf8'),
+    );
+    assert.deepEqual(unreadable, []);
+    assert.deepEqual(payloads, [
+      { type: 'GET_TAB_ID', keys: [] },
+      { type: 'FRAME_READY', keys: ['readyAt', 'url'] },
+      { type: 'APPEND_ACTION', keys: ['action'] },
+    ]);
+  });
+});
+
+describe('extractSendSites — the capture path reads its own callee', () => {
+  const content = (source) => extractSendSites(new Map([[CONTENT_PATH, source]]), CAPTURE_SEND_CALLEE); // prettier-ignore
+
+  it('reads the receiver-qualified platform call, with its payload keys', () => {
+    const sites = content(
+      "chrome.runtime.sendMessage({ type: 'FRAME_READY', readyAt: Date.now(), url: location.href });", // prettier-ignore
+    );
+    assert.deepEqual(sites, [captureSite(1, 'FRAME_READY', ['readyAt', 'url'])]);
+  });
+
+  it('reads a payload of no keys at all as the empty set — the marker the cell states', () => {
+    assert.deepEqual(content("chrome.runtime.sendMessage({ type: 'GET_TAB_ID' }, reply);"), [
+      captureSite(1, 'GET_TAB_ID', []),
+    ]);
+  });
+
+  it('reads a shorthand property as the key it names', () => {
+    // A shorthand states a key and no value, and names are the whole of what a
+    // Payload cell states — so `{ type: 'X', action }` carries `action` exactly
+    // as `action: stamped` does. The type read refuses the shape beside this,
+    // for its own reason: a shorthand carries no string literal.
+    assert.deepEqual(content("chrome.runtime.sendMessage({ type: 'APPEND_ACTION', action });"), [
+      captureSite(1, 'APPEND_ACTION', ['action']),
+    ]);
+  });
+
+  it('refuses a payload whose shape hides a name, naming the shape', () => {
+    for (const [source, found] of [
+      ["chrome.runtime.sendMessage({ type: 'FRAME_READY', ...beacon });", 'a spread'],
+      ["chrome.runtime.sendMessage({ type: 'FRAME_READY', [key]: 1 });", 'a computed key'],
+      ["chrome.runtime.sendMessage({ type: 'FRAME_READY', readyAt: 1", '(end of source)'],
+    ]) {
+      const [site] = content(source);
+      assert.equal(site.keys, null, `${found} is refused, not read`);
+      assert.equal(site.keysFound, found);
+    }
+  });
+
+  it('reads the platform send in every spelling the grammar states', () => {
+    // One call, written the ways a member access can be: a plain step, an optional
+    // step at either position, a computed name at either position in either quote
+    // style, an optional computed step, and the optional call — each reaches
+    // `chrome.runtime.sendMessage`, so each states a site carrying its own payload.
+    for (const source of [
+      "chrome.runtime.sendMessage({ type: 'FRAME_READY', readyAt: 1 });",
+      "chrome?.runtime.sendMessage({ type: 'FRAME_READY', readyAt: 1 });",
+      "chrome.runtime?.sendMessage({ type: 'FRAME_READY', readyAt: 1 });",
+      "chrome['runtime'].sendMessage({ type: 'FRAME_READY', readyAt: 1 });",
+      'chrome["runtime"].sendMessage({ type: \'FRAME_READY\', readyAt: 1 });',
+      "chrome.runtime['sendMessage']({ type: 'FRAME_READY', readyAt: 1 });",
+      "chrome?.['runtime'].sendMessage({ type: 'FRAME_READY', readyAt: 1 });",
+      "chrome.runtime?.['sendMessage']({ type: 'FRAME_READY', readyAt: 1 });",
+      "chrome.runtime.sendMessage?.({ type: 'FRAME_READY', readyAt: 1 });",
+      "chrome?.['runtime']?.['sendMessage']?.({ type: 'FRAME_READY', readyAt: 1 });",
+    ]) {
+      assert.deepEqual(content(source), [captureSite(1, 'FRAME_READY', ['readyAt'])], source);
+    }
+  });
+
+  it('reads the platform global qualified by a global-object name', () => {
+    // The qualified receiver names the same object the bare one does, so each
+    // qualifier the grammar admits states a site — one spelling apiece here, the
+    // step forms themselves being covered above.
+    for (const source of [
+      "globalThis.chrome.runtime.sendMessage({ type: 'FRAME_READY', readyAt: 1 });",
+      "self['chrome'].runtime.sendMessage({ type: 'FRAME_READY', readyAt: 1 });",
+      "window?.chrome.runtime.sendMessage({ type: 'FRAME_READY', readyAt: 1 });",
+    ]) {
+      assert.deepEqual(content(source), [captureSite(1, 'FRAME_READY', ['readyAt'])], source);
+    }
+  });
+
+  it('reads no call the grammar does not state — each form contributing none', () => {
+    // A platform object reached through another object or a private field states a
+    // different path, and so does a qualifier that is itself a property of
+    // something else; an alias of the receiver, an unqualified or destructured
+    // callee, and a `sendMessage` on another receiver each stand outside the shape
+    // the same way.
+    for (const source of [
+      "const rt = chrome.runtime;\nrt.sendMessage({ type: 'FRAME_READY', readyAt: 1 });",
+      "sendMessage({ type: 'FRAME_READY', readyAt: 1 });",
+      "const { sendMessage } = chrome.runtime;\nsendMessage({ type: 'FRAME_READY' });",
+      "wrapper.chrome.runtime.sendMessage({ type: 'FRAME_READY' });",
+      "bag['chrome'].runtime.sendMessage({ type: 'FRAME_READY' });",
+      "class Holder { #chrome = chrome; ping() { this.#chrome.runtime.sendMessage({ type: 'FRAME_READY' }); } }",
+      "x.globalThis.chrome.runtime.sendMessage({ type: 'FRAME_READY' });",
+      "port.sendMessage({ type: 'PING', why: 1 });",
+    ]) {
+      assert.deepEqual(content(source), [], source);
+    }
+  });
+
+  it('the bare callee and the declaration forms contribute no site at all', () => {
+    // The path is what refuses the declaration shapes whose third token is an
+    // opening brace: a destructured parameter list carries no receiver before the
+    // name.
+    for (const source of [
+      "sendMessage({ type: 'FRAME_READY' });",
+      'function sendMessage({ type }) { return type; }',
+      'const api = { sendMessage({ type }) { return type; } };',
+      'chrome.runtime.sendMessage(beacon);',
+    ]) {
+      assert.deepEqual(content(source), [], `${source} is outside the shape the scan reads`);
+    }
+  });
+
+  it('refuses the property shapes a Payload cell cannot state, naming each', () => {
+    // The key read admits the names a cell states — a bare key and the shorthand
+    // stating one — and refuses the rest by name. A method, an accessor, an async
+    // method, and a generator each keep their name inside a declaration the read
+    // does not enter; a quoted key and a numeric key name a property the cell's
+    // grammar has no form for, so a row could never be written true over them.
+    for (const [source, found] of [
+      ["chrome.runtime.sendMessage({ type: 'FRAME_READY', get readyAt() { return 1; } });", 'a method or accessor'], // prettier-ignore
+      ["chrome.runtime.sendMessage({ type: 'FRAME_READY', async load() { return 1; } });", 'a method or accessor'], // prettier-ignore
+      ["chrome.runtime.sendMessage({ type: 'FRAME_READY', stamp() { return 1; } });", 'a method or accessor'], // prettier-ignore
+      ["chrome.runtime.sendMessage({ type: 'FRAME_READY', *ids() { yield 1; } });", 'a method or accessor'], // prettier-ignore
+      ["chrome.runtime.sendMessage({ type: 'FRAME_READY', 'ready-at': 1 });", 'a key outside the identifier shape a Payload cell states'], // prettier-ignore
+      ["chrome.runtime.sendMessage({ type: 'FRAME_READY', 0: 1 });", 'a key outside the identifier shape a Payload cell states'], // prettier-ignore
+    ]) {
+      const [site] = content(source);
+      assert.equal(site.type, 'FRAME_READY', `${found} leaves the type readable`);
+      assert.equal(site.keys, null, `${found} is refused, not read`);
+      assert.equal(site.keysFound, found);
+    }
+  });
+
+  it('names a quoted name after get, set or async as the accessor shape it declares', () => {
+    // A name standing after one of those words declares one whether it is written
+    // bare or quoted, so each refuses the site as the shape it is.
+    for (const source of [
+      "chrome.runtime.sendMessage({ type: 'FRAME_READY', get 'foo'() { return 1; } });",
+      "chrome.runtime.sendMessage({ type: 'FRAME_READY', set 'foo'(v) {} });",
+      "chrome.runtime.sendMessage({ type: 'FRAME_READY', async 'foo'() { return 1; } });",
+    ]) {
+      const [site] = content(source);
+      assert.equal(site.keys, null, source);
+      assert.equal(site.keysFound, 'a method or accessor', source);
+    }
+  });
+
+  it('names a method under a quoted name as the method shape it is', () => {
+    // How a method's own name is written decides nothing: the call punctuation
+    // after it is what makes it a declaration, so the diagnosis is the method
+    // shape rather than the shorthand position's wording.
+    const [site] = content("chrome.runtime.sendMessage({ type: 'FRAME_READY', 'extra'() { return 1; } });"); // prettier-ignore
+    assert.equal(site.keys, null);
+    assert.equal(site.keysFound, 'a method or accessor');
+  });
+
+  it('names a method under a number name the same way', () => {
+    const [site] = content("chrome.runtime.sendMessage({ type: 'FRAME_READY', 0() { return 1; } });"); // prettier-ignore
+    assert.equal(site.keys, null);
+    assert.equal(site.keysFound, 'a method or accessor');
+  });
+
+  it('the panel callee reads none of those calls, and the capture callee reads no panel send', () => {
+    const dotted = "chrome.runtime.sendMessage({ type: 'FRAME_READY', readyAt: 1 });";
+    const bare = "await send({ type: 'PROJECTS_LIST' });";
+    assert.deepEqual(extractSendSites(new Map([['a.js', dotted]]), PANEL_SEND_CALLEE), []);
+    assert.deepEqual(extractSendSites(new Map([['a.js', bare]]), CAPTURE_SEND_CALLEE), []);
+    // The default is the panel's, so the panel leg's own call site states no
+    // callee and reads what it always read.
+    assert.deepEqual(
+      extractSendSites(new Map([['a.js', bare]])).map((x) => x.type),
+      ['PROJECTS_LIST'],
+    );
+  });
+
+  it('numbers the sites per file, comments excluded', () => {
+    const sites = content(
+      [
+        "// chrome.runtime.sendMessage({ type: 'COMMENTED_OUT' }) is never counted",
+        "chrome.runtime.sendMessage({ type: 'GET_TAB_ID' }, reply);",
+        "chrome.runtime.sendMessage({ type: 'FRAME_READY', readyAt: 1 });",
+      ].join('\n'),
+    );
+    assert.deepEqual(
+      sites.map((x) => [x.ordinal, x.type]),
+      [
+        [1, 'GET_TAB_ID'],
+        [2, 'FRAME_READY'],
+      ],
+    );
+  });
+});
+
+describe('evaluateExtensionSurface — the capture path welded per send site', () => {
+  /** The baseline weld, with `over` replacing its capture-path surfaces. */
+  const weld = (over) => evaluateExtensionSurface(makeSurface(over));
+
+  it('passes when a row and its senders state one key set', () => {
+    assert.deepEqual(weld({}), []);
+  });
+
+  it('fires when a row states a key no send of that type carries, naming the name', () => {
+    assert.deepEqual(
+      weld({ docCapturePayloads: [{ type: 'FRAME_READY', keys: ['readyAt', 'url'] }] }),
+      [
+        // prettier-ignore
+        `the capture-path row for \`FRAME_READY\` states a payload key \`url\` that ${CONTENT_PATH} (object-literal ${CAPTURE_SEND_CALLEE.name}( call site 1) does not carry (it carries \`readyAt\`) — a row states the message's whole top-level key set, so a row and a send that disagree are one change left half-made`,
+      ],
+    );
+  });
+
+  it('fires when a send carries a key the row does not state, naming the name', () => {
+    assert.deepEqual(
+      weld({ captureSendSites: [captureSite(1, 'FRAME_READY', ['readyAt', 'extra'])] }),
+      [
+        `\`FRAME_READY\` is sent by ${CONTENT_PATH} (object-literal ${CAPTURE_SEND_CALLEE.name}( call site 1) carrying a top-level \`extra\` that its capture-path ${CAPTURE_PAYLOAD_COLUMN} cell does not state (the cell states \`readyAt\`) — a row states the message's whole top-level key set, so a key added to the send is added to the row in the same change`,
+      ],
+    );
+  });
+
+  it('names the marker when a row states the empty set and a send carries a key', () => {
+    // The diagnosis has to be readable on a no-payload row: naming nothing
+    // where the cell states nothing would read as a cell the scan failed to
+    // quote, so the marker itself stands there.
+    assert.deepEqual(
+      weld({
+        docCapturePayloads: [{ type: 'FRAME_READY', keys: [] }],
+        captureSendSites: [captureSite(1, 'FRAME_READY', ['readyAt'])],
+      }),
+      [
+        `\`FRAME_READY\` is sent by ${CONTENT_PATH} (object-literal ${CAPTURE_SEND_CALLEE.name}( call site 1) carrying a top-level \`readyAt\` that its capture-path ${CAPTURE_PAYLOAD_COLUMN} cell does not state (the cell states \`${CAPTURE_PAYLOAD_NONE_MARKER}\`) — a row states the message's whole top-level key set, so a key added to the send is added to the row in the same change`,
+      ],
+    );
+  });
+
+  it('holds each send site to the whole row — two sites that differ are both named', () => {
+    // The hold is per site, so a row stating what the two sites carry BETWEEN
+    // them is welded to neither: each is named with the key it does not carry,
+    // and a key added to one copy of a shared send cannot hide behind its twin.
+    assert.deepEqual(
+      weld({
+        docCapturePayloads: [{ type: 'FRAME_READY', keys: ['readyAt', 'url'] }],
+        captureSendSites: [
+          captureSite(1, 'FRAME_READY', ['readyAt']),
+          captureSite(2, 'FRAME_READY', ['url']),
+        ],
+      }),
+      [
+        // prettier-ignore
+        `the capture-path row for \`FRAME_READY\` states a payload key \`url\` that ${CONTENT_PATH} (object-literal ${CAPTURE_SEND_CALLEE.name}( call site 1) does not carry (it carries \`readyAt\`) — a row states the message's whole top-level key set, so a row and a send that disagree are one change left half-made`,
+        // prettier-ignore
+        `the capture-path row for \`FRAME_READY\` states a payload key \`readyAt\` that ${CONTENT_PATH} (object-literal ${CAPTURE_SEND_CALLEE.name}( call site 2) does not carry (it carries \`url\`) — a row states the message's whole top-level key set, so a row and a send that disagree are one change left half-made`,
+      ],
+    );
+  });
+
+  it('passes two identical copies of one send — the shared block costs the weld nothing', () => {
+    // The block two content modules share stands twice in the population, so one
+    // send reads as two sites carrying the same key set: each meets the same row,
+    // and both are green by construction.
+    assert.deepEqual(
+      weld({
+        docCapturePayloads: [{ type: 'FRAME_READY', keys: ['readyAt', 'url'] }],
+        captureSendSites: [
+          captureSite(1, 'FRAME_READY', ['readyAt', 'url']),
+          captureSite(2, 'FRAME_READY', ['readyAt', 'url']),
+        ],
+      }),
+      [],
+    );
+  });
+
+  /**
+   * The two-type capture surface the forward direction needs: the table states
+   * both, the worker guards both, and only the first is sent through a shape the
+   * scan reads — so the sent set stays non-empty and the diff actually runs.
+   */
+  const unsent = {
+    docCaptureTypes: ['FRAME_READY', 'GET_TAB_ID'],
+    equalityTypes: ['FRAME_READY', 'GET_TAB_ID'],
+    workerEqualityTypes: ['FRAME_READY', 'GET_TAB_ID'],
+    docCapturePayloads: [
+      { type: 'FRAME_READY', keys: ['readyAt'] },
+      { type: 'GET_TAB_ID', keys: [] },
+    ],
+  };
+
+  it('fires when a capture-path type no content send states — the forward direction', () => {
+    const problems = weld(unsent);
+    assert.ok(
+      problems.some((p) => p.includes('GET_TAB_ID') && p.includes(`no object-literal ${CAPTURE_SEND_CALLEE.name}( in the tracked ${CONTENT_DIR} JavaScript sends it`)), // prettier-ignore
+      problems.join('\n') || 'no forward capture-path sender diagnostic',
+    );
+    // The residue is named in the red, the way the panel leg's is: a send moved
+    // outside the shape reds here and cannot be told from a type nothing sends.
+    assert.ok(
+      problems.some((p) => p.includes('assembled beforehand is invisible to this leg and reds here too')), // prettier-ignore
+      'the red states the limit that makes it misleading',
+    );
+  });
+
+  it('fires when a content send states a type the table does not — the reverse direction', () => {
+    const problems = weld({
+      captureSendTypes: ['FRAME_READY', 'PROBE_PING'],
+      captureSendSites: [captureSite(1, 'FRAME_READY', ['readyAt']), captureSite(2, 'PROBE_PING', [])], // prettier-ignore
+    });
+    assert.deepEqual(problems, [
+      `\`PROBE_PING\` is sent by an object-literal ${CAPTURE_SEND_CALLEE.name}( in the tracked ${CONTENT_DIR} JavaScript but the capture-path table does not state it (ERT-4)`,
+    ]);
+  });
+
+  it('refuses a content send that states no readable type, naming what it found', () => {
+    const site = { ...captureSite(1, null, []), found: 'no top-level properties at all' };
+    assert.deepEqual(
+      weld({
+        captureSendTypes: ['FRAME_READY'],
+        captureSendSites: [captureSite(1, 'FRAME_READY', ['readyAt']), site],
+      }),
+      [
+        // prettier-ignore
+        `${CONTENT_PATH} (object-literal ${CAPTURE_SEND_CALLEE.name}( call site 1) states no readable message type — the scan found no top-level properties at all — an object-literal send carries its type as a string literal in a top-level \`type\` property, in any position, so the sender side stays readable`,
+      ],
+    );
+  });
+
+  it('refuses a content send whose payload the scan cannot read, naming the shape', () => {
+    const hidden = { ...captureSite(1, 'FRAME_READY', null), keysFound: 'a spread' };
+    assert.deepEqual(weld({ captureSendSites: [hidden] }), [
+      `${CONTENT_PATH} (object-literal ${CAPTURE_SEND_CALLEE.name}( call site 1) states a payload the scan cannot read — the scan found a spread — a send states its payload as top-level keys, which is what the capture-path table's ${CAPTURE_PAYLOAD_COLUMN} cell is held to, so a shape that hides a name is refused rather than read as a shorter set`,
+    ]);
+  });
+
+  it('stays silent on a row whose type no readable send states — one defect, one line', () => {
+    // The type diff above names it; there is no send to hold the row to, so the
+    // key comparisons assert no payload of their own.
+    const problems = weld(unsent);
+    assert.equal(problems.length, 1, problems.join('\n'));
+  });
+
+  it("answers a content file list that names nothing with the population's own line", () => {
+    const problems = weld({ contentFiles: [] });
+    assert.ok(
+      problems.some((p) => p.includes(`no tracked JavaScript module found under ${CONTENT_DIR}`)),
+      problems.join('\n') || 'no content-population diagnostic',
+    );
+  });
+
+  it('names an unreadable Payload cell ahead of the vacuous return', () => {
+    const problems = weld({
+      capturePayloadUnreadable: ['`FRAME_READY`: "whatever"'],
+      docCapturePayloads: [],
+    });
+    assert.ok(
+      problems.some((p) => p.includes('carries a capture-path Payload cell the scan cannot read — `FRAME_READY`: "whatever"')), // prettier-ignore
+      problems.join('\n') || 'no unreadable-cell diagnostic',
+    );
+    assert.ok(
+      problems.some((p) => p.includes(`no readable ${CAPTURE_PAYLOAD_COLUMN} cell found`)),
+      'the empty read says its own thing beside it',
+    );
+  });
+});
+
 describe('real-tree lock', () => {
   const readFile = (f) => readFileSync(resolve(ROOT, f), 'utf8');
 
   it('the shipped tree satisfies its contracts', () => {
     // The derivations the CLI passes — the panel tree's, the background
     // tree's, and the production set's — read here rather than copied.
-    const { problems, permissionCount, typeCount, panelTypeCount, memberCount } = auditTree(
-      readFile,
-      shippedPanelPopulation(),
-      shippedPopulation(),
-      deriveProductionPopulation(ROOT),
-    );
+    const { problems, permissionCount, typeCount, panelTypeCount, captureTypeCount, memberCount } =
+      auditTree(
+        readFile,
+        shippedPanelPopulation(),
+        shippedPopulation(),
+        deriveProductionPopulation(ROOT),
+        shippedContentPopulation(),
+      );
     assert.deepEqual(problems, [], problems.join('\n'));
     assert.ok(permissionCount > 0);
     assert.ok(typeCount > 0);
@@ -2064,6 +2992,10 @@ describe('real-tree lock', () => {
     // covers.
     assert.ok(panelTypeCount > 0);
     assert.ok(panelTypeCount < typeCount, 'the capture-path types sit outside the panel protocol');
+    // The third count is the capture-path subset the weld covers, and the two
+    // subsets partition the union the dispatcher legs read.
+    assert.ok(captureTypeCount > 0);
+    assert.equal(panelTypeCount + captureTypeCount, typeCount);
     // The lock also proves the check reads the real surfaces it names.
     for (const p of [MANIFEST_PATH, PERMISSIONS_DOC_PATH, RUNTIME_DOC_PATH, WORKER_PATH]) {
       assert.doesNotThrow(() => readFileSync(resolve(ROOT, p)));
@@ -2098,12 +3030,50 @@ describe('real-tree lock', () => {
     assert.equal(new Set(population).size, population.length, 'each file is stated once');
   });
 
+  it('derives a content population with the properties the capture-path weld stands on', () => {
+    const population = shippedContentPopulation();
+    assert.ok(population.length > 0, 'the content tree carries tracked JavaScript');
+    for (const file of population) {
+      assert.ok(file.startsWith(`${CONTENT_DIR}/`), `${file} is inside the content tree`);
+      assert.ok(file.endsWith('.js'), `${file} is a content script`);
+    }
+    assert.equal(new Set(population).size, population.length, 'each file is stated once');
+  });
+
+  it('the shipped capture path sends what its table states, carrying the keys its rows state', () => {
+    // The shipped facts, read from the tree rather than restated: every row's
+    // type is sent, every sent type has a row, no site's payload is refused, and
+    // each row's key set equals the union its sends carry. The weld over the real
+    // tree, so a send or a cell edited alone reds here beside the CLI.
+    const sites = extractSendSites(
+      new Map(shippedContentPopulation().map((f) => [f, readFile(f)])),
+      CAPTURE_SEND_CALLEE,
+    );
+    assert.deepEqual(
+      sites.filter((x) => x.type === null || x.keys === null),
+      [],
+      'every shipped capture-path send states a readable type and a readable payload',
+    );
+    const carried = new Map();
+    for (const site of sites) {
+      if (!carried.has(site.type)) carried.set(site.type, new Set());
+      for (const key of site.keys) carried.get(site.type).add(key);
+    }
+    const { payloads, unreadable } = extractCapturePayloads(readFile(RUNTIME_DOC_PATH));
+    assert.deepEqual(unreadable, []);
+    assert.deepEqual(
+      payloads.map(({ type, keys }) => [type, keys]).sort(),
+      [...carried].map(([type, keys]) => [type, [...keys].sort()]).sort(),
+    );
+  });
+
   it('an unreadable worker fails loudly rather than passing vacuously', () => {
     const { problems } = auditTree(
       (f) => (f === WORKER_PATH ? '' : readFile(f)),
       shippedPanelPopulation(),
       shippedPopulation(),
       deriveProductionPopulation(ROOT),
+      shippedContentPopulation(),
     );
     assert.ok(problems.length > 0);
     assert.ok(
@@ -2171,7 +3141,7 @@ describe('real-tree lock', () => {
     // derivations, so the CLI must consume them too — a private copy in the
     // wrapper could drift while every case here stayed green.
     const script = readFile('scripts/check-extension-surface.js');
-    // MATCH FORM: the four-argument call, its reader held only to being one
+    // MATCH FORM: the whole call, its reader held only to being one
     // identifier and each population argument to being one call or one name.
     // What is held is that the CLI CONSUMES the derivations: each population
     // argument is either that derivation's own call standing inline, or a
@@ -2179,10 +3149,10 @@ describe('real-tree lock', () => {
     // the same fact, so the wrapper is free to name its arguments for
     // readability, while a private copy cannot hide behind a name.
     const call =
-      /=\s*auditTree\(\s*[A-Za-z_$][\w$]*,\s*([\w$]+(?:\(\))?),\s*([\w$]+(?:\(\))?),\s*([\w$]+(?:\(\))?),?\s*\)/.exec(script); // prettier-ignore
+      /=\s*auditTree\(\s*[A-Za-z_$][\w$]*,\s*([\w$]+(?:\(\))?),\s*([\w$]+(?:\(\))?),\s*([\w$]+(?:\(\))?),\s*([\w$]+(?:\(\))?),?\s*\)/.exec(script); // prettier-ignore
     assert.ok(
       call,
-      'the wrapper calls auditTree with a reader and the panel, background and production population arguments',
+      'the wrapper calls auditTree with a reader and the panel, background, production and content population arguments',
     );
     // ORDER: the derivations stand in the order auditTree's parameters name
     // them, and this half is load-bearing. A swapped panel/background pair the
@@ -2193,6 +3163,7 @@ describe('real-tree lock', () => {
       'derivePanelPopulation',
       'derivePopulation',
       'deriveProductionPopulation',
+      'deriveContentPopulation',
     ].entries()) {
       const arg = call[i + 1];
       if (arg === `${derivation}()`) continue;
@@ -2206,15 +3177,15 @@ describe('real-tree lock', () => {
     // The enumeration itself is the shared population reader's, so this file
     // states no `ls-files` invocation of its own…
     assert.equal(script.split("'ls-files'").length - 1, 0, 'no private enumeration here');
-    // …and reaches that reader from exactly the two places it is entitled to:
-    // the panel derivation and the background derivation, each a named export
-    // these cases hold. The production population is a third set and no third
-    // derivation: it arrives imported from the check that already derives it,
-    // so a private copy of it cannot land green either.
+    // …and reaches that reader only at the derivations it is entitled to: the
+    // panel one, the background one and the content one, each a named export
+    // these cases hold. The production population is a further set and no
+    // further derivation: it arrives imported from the check that already
+    // derives it, so a private copy of it cannot land green either.
     assert.equal(
       script.split('trackedFilesUnder(').length - 1,
-      2,
-      'the file reaches the shared population reader at the panel and background derivations, and nowhere else',
+      3,
+      'the file reaches the shared population reader at the panel, background and content derivations, and nowhere else',
     );
     assert.match(
       script,

@@ -653,6 +653,24 @@ describe('the per-doc grammar — its forms welded to the surfaces that show the
       `${doc} §${clause} must stay tagged judgment-only — the example teaches a line the check expects only for such a clause`,
     );
   });
+
+  it('the template writes every sample line it carries for pasting at the left margin', () => {
+    // A sample is copied with whatever indent it stands on, and four spaces
+    // where a block can start make the pasted line an example — the paste
+    // would record nothing. So every marker the template scaffolds, in either
+    // comment block, is read off the shipped file and held to the margin.
+    const PASTEABLE =
+      /^\s*(?:updated|unaffected|governance-data-only|Intent|Outside knowledge|mutation):/;
+    const indented = repoFile('.github/PULL_REQUEST_TEMPLATE.md')
+      .split('\n')
+      .filter((line) => PASTEABLE.test(line) && /^\s/.test(line));
+    assert.deepEqual(
+      indented,
+      [],
+      `every sample line the PR template carries for pasting must stand at the left margin; ` +
+        `indented: ${JSON.stringify(indented)}`,
+    );
+  });
 });
 
 describe('the per-doc grammar — the red output rendered from the same forms', () => {
@@ -757,8 +775,159 @@ describe('the per-doc grammar — the red output rendered from the same forms', 
     );
     assert.equal(r.status, 1, `expected a red, got exit ${r.status}.\nstderr: ${r.stderr}`);
     assert.ok(
-      r.stderr.includes(`the "mutation:" line's standing sentence to paste:\n    ${MUTATION_LINE}`),
+      r.stderr.includes(
+        `the "mutation:" line's standing\n  sentence to paste:\n\n${MUTATION_LINE}`,
+      ),
       `the change-record red must offer the standing sentence to paste.\nstderr: ${r.stderr}`,
+    );
+  });
+
+  it("the red output's lines paste back as live lines", () => {
+    // The red's promise is that what it prints can be pasted into the body.
+    // The per-doc lines are split on the "OR" first — each alternative is a
+    // whole line, and the first of them is taken here — while the standing
+    // sentence and the governance line are taken off stderr as they stand.
+    // Write them under the two headings, and the audit accepts the body. An
+    // indent on any of them would make it an example, and the paste would
+    // record nothing.
+    const indentedPasteables = (stderr) =>
+      stderr
+        .split('\n')
+        .filter((line) => /^\s*(?:updated|unaffected|governance-data-only|mutation):/.test(line))
+        .filter((line) => /^\s/.test(line));
+    const clauses = [
+      { doc: 'README.md', clause: 'AL-1', tag: 'judgment-only', justification: 'x' },
+    ];
+    const perDocRed = runCheckOnChange(
+      {
+        'README.md': 'a repo-wide doc\n',
+        [MAP_PATH]: MAP_FIXTURE,
+        [REGISTRY_PATH]: registryFixture(clauses),
+      },
+      { 'README.md': 'an edited repo-wide doc\n' },
+      { PR_BODY: ['## Docs disposition', '', '## Change record', ''].join('\n') },
+    );
+    assert.equal(
+      perDocRed.status,
+      1,
+      `expected a red, got exit ${perDocRed.status}.\nstderr: ${perDocRed.stderr}`,
+    );
+    assert.deepEqual(
+      indentedPasteables(perDocRed.stderr),
+      [],
+      `every line the red prints for pasting stands at column 0; indented: ` +
+        `${JSON.stringify(indentedPasteables(perDocRed.stderr))}\nstderr: ${perDocRed.stderr}`,
+    );
+    const perDocPrinted = perDocRed.stderr.split('\n');
+    const pasted = perDocPrinted
+      .filter((line) => line.includes('   OR   '))
+      .map((line) => line.split('   OR   ')[0]);
+    const mutation = perDocPrinted.find((line) => line.startsWith('mutation:'));
+    const expected = expectedDispositionLines({
+      docs: ['README.md'],
+      registry: JSON.parse(registryFixture(clauses)),
+    });
+    assert.equal(
+      pasted.length,
+      expected.length,
+      `the red must print one line per expected entry.\nstderr: ${perDocRed.stderr}`,
+    );
+    assert.ok(mutation, `the red must print the standing sentence.\nstderr: ${perDocRed.stderr}`);
+    const perDocResult = auditBody({
+      body: [
+        '## Docs disposition',
+        '',
+        ...pasted,
+        '',
+        '## Change record',
+        '',
+        'Intent: paste the red back.',
+        'Outside knowledge: none.',
+        mutation,
+      ].join('\n'),
+      expected,
+    });
+    assert.deepEqual(perDocResult.missingSections, [], 'the pasted body must carry both sections');
+    assert.deepEqual(perDocResult.missing, [], 'every pasted per-doc line must be read as a line');
+    assert.deepEqual(perDocResult.malformed, [], 'no pasted line may be read as a malformed one');
+    assert.deepEqual(
+      perDocResult.changeRecordProblems,
+      [],
+      'the pasted standing sentence must be read as the change record marker it is',
+    );
+
+    const governanceRed = runCheckOnChange(
+      {
+        'README.md': 'a repo-wide doc\n',
+        [MAP_PATH]: MAP_FIXTURE,
+        [REGISTRY_PATH]: registryFixture([]),
+      },
+      { [MAP_PATH]: MAP_FIXTURE.replace('fixture map', 'fixture map, edited') },
+      {
+        PR_BODY: [
+          '## Docs disposition',
+          '',
+          '## Change record',
+          '',
+          'Intent: paste the red back.',
+          'Outside knowledge: none.',
+          MUTATION_LINE,
+        ].join('\n'),
+      },
+    );
+    assert.equal(
+      governanceRed.status,
+      1,
+      `expected a red, got exit ${governanceRed.status}.\nstderr: ${governanceRed.stderr}`,
+    );
+    assert.deepEqual(
+      indentedPasteables(governanceRed.stderr),
+      [],
+      `every line the red prints for pasting stands at column 0; indented: ` +
+        `${JSON.stringify(indentedPasteables(governanceRed.stderr))}\nstderr: ${governanceRed.stderr}`,
+    );
+    const governanceLine = governanceRed.stderr
+      .split('\n')
+      .find((line) => line.startsWith(GOVERNANCE_MARKER));
+    assert.ok(
+      governanceLine,
+      `the governance red must print the line to paste.\nstderr: ${governanceRed.stderr}`,
+    );
+    const governanceResult = auditBody({
+      body: [
+        '## Docs disposition',
+        '',
+        governanceLine,
+        '',
+        '## Change record',
+        '',
+        'Intent: paste the red back.',
+        'Outside knowledge: none.',
+        MUTATION_LINE,
+      ].join('\n'),
+      expected: [],
+      governanceData: true,
+    });
+    assert.deepEqual(
+      governanceResult.missingSections,
+      [],
+      'the pasted governance body must carry both sections',
+    );
+    assert.deepEqual(governanceResult.missing, [], 'the governance body owes no per-doc line');
+    assert.deepEqual(
+      governanceResult.malformed,
+      [],
+      'the pasted line must not be read as malformed',
+    );
+    assert.deepEqual(
+      governanceResult.governanceProblems,
+      [],
+      'the pasted governance line must be read as the earned line it is',
+    );
+    assert.deepEqual(
+      governanceResult.changeRecordProblems,
+      [],
+      'the change record must be read as written',
     );
   });
 });
@@ -2724,7 +2893,7 @@ describe('extractSection', () => {
     assert.doesNotMatch(section, /Intent:/);
   });
 
-  it('a fence left open runs to the end of the body, so a heading below it is inside it', () => {
+  it('a fence left open at the top level runs to the end of the body, so a heading below it is inside it', () => {
     // Under the one fence model an unclosed fence is a code block to the end of
     // the text, and the verdict says so rather than asking for a heading the
     // author can see a few lines down.
@@ -2837,6 +3006,66 @@ describe('auditBody', () => {
     assert.deepEqual(r.malformed, []);
     assert.deepEqual(r.unexpected, []);
     assert.deepEqual(r.changeRecordProblems, []);
+  });
+
+  it('counts a line under a fence run inside a <details> block written with no blank line after its opener', () => {
+    // CommonMark opens the HTML block on the `<details>` tag and runs it to the
+    // next blank line, so the run inside it is the block's own literal text and
+    // opens no code block: the line under it is a line the body shows, and the
+    // judgment it records is made — which is what the contributor guide states.
+    const inDetails = [
+      '## Docs disposition',
+      '',
+      '<details><summary>the long reason</summary>',
+      '```text',
+      'updated: docs/alpha.md — written out under the summary',
+      '```',
+      '</details>',
+      '',
+      'unaffected: docs/alpha.md §AL-1 — comment-only',
+      '',
+      '## Change record',
+      '',
+      'Intent: test.',
+      'Outside knowledge: none.',
+      MUTATION_LINE,
+    ].join('\n');
+    const r = auditBody({ body: inDetails, expected });
+    assert.ok(
+      !r.missing.includes('docs/alpha.md'),
+      `the line the details block holds is a line of the body: ${r.missing.join(', ')}`,
+    );
+    assert.deepEqual(r.missing, []);
+    assert.deepEqual(r.malformed, []);
+    assert.deepEqual(r.unexpected, []);
+  });
+
+  it('reads a line indented four spaces under the heading as an example, and the same line at the margin as the judgment it is', () => {
+    // A heading leaves a block able to start, so four spaces under it open a
+    // code block: the line is an illustration and the doc it names is still
+    // owed. Written at the margin the same line is the judgment it looks like,
+    // which is the pair behind the guide's "write each section's lines flush
+    // left".
+    const body = (indent) =>
+      [
+        '## Docs disposition',
+        `${indent}updated: docs/alpha.md — the reason for the edit`,
+        '',
+        'unaffected: docs/alpha.md §AL-1 — comment-only',
+        '',
+        '## Change record',
+        '',
+        'Intent: test.',
+        'Outside knowledge: none.',
+        MUTATION_LINE,
+      ].join('\n');
+    const indented = auditBody({ body: body('    '), expected });
+    assert.ok(
+      indented.missing.includes('docs/alpha.md'),
+      `an indented line is an example, so the doc it names is still owed: ${JSON.stringify(indented.missing)}`,
+    );
+    assert.deepEqual(indented.malformed, []);
+    assert.deepEqual(auditBody({ body: body(''), expected }).missing, []);
   });
 
   it('holds the change record to markers of its own — the ones inside an illustrative fence are illustration', () => {
