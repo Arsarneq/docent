@@ -54,13 +54,13 @@
  *
  * Each surface this check knows is there must be non-empty — the two capture
  * files' own registrations among them — every enumeration entry must be
- * readable (fence-aware, refusing unreadable list items and table cells rather
- * than skipping them), and a registration shape outside the scan's model — a
- * computed event name, a listener on a receiver the scan does not model in the
- * capture pair, a hook-installation site the extractor cannot anchor — is
- * refused loudly instead of passing vacuously. A population file that registers
- * nothing either enumeration describes is the ordinary case there, and
- * contributes nothing.
+ * readable (code-block-aware, refusing unreadable list items and table cells
+ * rather than skipping them), and a registration shape outside the scan's
+ * model — a computed event name, a listener on a receiver the scan does not
+ * model in the capture pair, a hook-installation site the extractor cannot
+ * anchor — is refused loudly instead of passing vacuously. A population file
+ * that registers nothing either enumeration describes is the ordinary case
+ * there, and contributes nothing.
  *
  * Honest limits. In the CAPTURE PAIR every shape outside the model is REFUSED,
  * never skipped: an event name that is not a lone quoted string literal (so a
@@ -239,6 +239,13 @@ export const SOURCE_HEADER = 'Event source';
 export const CORRELATION_SECTION = 'Input Correlation';
 /** That table's whole header — selection by the whole header, not one cell. */
 export const CORRELATION_HEADER = ['WinEvent', 'Correlation source', 'Additional filter'];
+/**
+ * That table's READ column, spelled as the header word the document carries — the
+ * name the read states and the empty-cell placeholder names. The suite holds it to
+ * be a member of {@link CORRELATION_HEADER}, so a header renamed without this
+ * constant refuses loudly at the read rather than standing.
+ */
+export const CORRELATION_CLASS_COLUMN = 'WinEvent';
 
 /**
  * The admission list is keyed by file AND API path, joined by a character
@@ -690,9 +697,10 @@ export function extractClauseNames(docText, clauseId, shape) {
 }
 
 /**
- * Read the WinEvent classes the Input Correlation table names — the
- * first-column backticked name of each body row. A row whose first cell is not
- * a lone backticked name is returned as unreadable.
+ * Read the WinEvent classes the Input Correlation table names — the backticked
+ * name each body row states in the column {@link CORRELATION_CLASS_COLUMN}
+ * spells, resolved from the table's own header by that name. A row whose cell
+ * there is not a lone backticked name is returned as unreadable.
  * @param {string} docText the desktop capture doc's text
  * @returns {{ classes: string[], unreadable: string[] }}
  */
@@ -702,7 +710,8 @@ export function extractCorrelationClasses(docText) {
     header: CORRELATION_HEADER,
   });
   const read = readTableColumn(tables, {
-    empty: '(empty WinEvent cell)',
+    empty: `(empty ${CORRELATION_CLASS_COLUMN} cell)`,
+    column: CORRELATION_CLASS_COLUMN,
     read: (cell) => {
       const name = backtickedName(cell);
       return name !== null && WIN_EVENT_RE.test(name) ? name : null;
