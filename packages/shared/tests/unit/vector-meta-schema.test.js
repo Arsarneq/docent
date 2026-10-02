@@ -15,10 +15,11 @@
  *    naming its instance path;
  *  - the vector emitters, fed inputs rebuilt from each committed vector, stamp
  *    the shipped outcome and reproduce that vector exactly;
- *  - the desktop assembler's produce-stage gate: a produced vector that fails
- *    the meta-schema and has no committed file fails the run and is reported as
- *    not committable, while a valid dump alone assembles, matches its committed
- *    vector and exits 0.
+ *  - the desktop assembler's produce-stage gate, pinned by a produced-only
+ *    invalid vector (the run fails and the vector is reported as not
+ *    committable), a valid dump alone (it assembles, matches its committed
+ *    vector and exits 0), and an invalid vector that has a committed
+ *    counterpart (reported and still compared).
  */
 
 import { describe, it } from 'node:test';

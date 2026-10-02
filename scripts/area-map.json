@@ -364,7 +364,7 @@
     },
     {
       "path": "packages/shared/tests/unit/vector-meta-schema.test.js",
-      "reason": "The vector meta-schema module's pins — the shipped outcome the corpus doctrine states held to the meta-schema's const, the validator, metaSchemaErrors, that the extension corpus run and the desktop assembler share, the vector emitters reproducing the committed vectors with the per-strategy facts the locator procedure defines, and the desktop assembler's produce-stage gate, run over seeded dumps — and the unit-suite orientation lists it.",
+      "reason": "The vector meta-schema module's pins — the shipped outcome the corpus doctrine states held to the meta-schema's const, the validator, metaSchemaErrors, that the extension corpus run and the desktop assembler share, the vector emitters reproducing the committed vectors with the per-strategy facts the locator procedure defines, and the desktop assembler's produce-stage gate held over seeded dumps — and the unit-suite orientation lists it.",
       "governed-by": [
         "docs/verification/scripted-truth-corpus.md",
         "docs/technical/locator-resolution.md",
