@@ -108,8 +108,9 @@ artifacts are produced by five jobs:
 
 - **Extension corpus and vectors** — the `extension-e2e-tests` job produces
   both through the vectors config (one superset run: truth envelopes plus
-  produced vectors and the produce-stage vector oracle), then runs
-  `npm run corpus:check` in the same job.
+  produced vectors, each validated against the meta-schema, and the
+  produce-stage vector oracle), then runs `npm run corpus:check` in the same
+  job.
 - **Desktop corpus** — the `desktop-rust-tests` job (Windows) runs the
   producer in its auto-discovered integration tier and uploads the per-session
   event dumps as an artifact; the `desktop-corpus-diff` job (Linux) downloads
@@ -118,8 +119,9 @@ artifacts are produced by five jobs:
 - **Desktop vectors** — the `desktop-vectors-produce` job (the pinned Windows
   image — STC-18) runs the `v_vector_fixture` producer and uploads the vector
   source dump; the `desktop-vectors-diff` job (Linux) runs
-  `npm run vectors:assemble:desktop` (the normalized produced==committed
-  oracle) and the hygiene locks.
+  `npm run vectors:assemble:desktop` (meta-schema validation of each produced
+  vector, then the normalized produced==committed oracle) and the hygiene
+  locks.
 
 The structural hygiene locks (STC-11) additionally run over the committed
 vectors with the shared unit suite, with no producer involved — locally via
@@ -351,10 +353,15 @@ children in document order, node text in the trim-only `element.text` form, node
 ids in document order — so a produced snapshot is deterministic. After the run,
 `element_facts` and `locators` are taken from the real recorded action (correlated
 by element identity) and `matched_node_ids` are measured over the produced
-snapshot. Produced vectors land under the gitignored `corpus/out/extension-vectors/`;
-the run asserts each produced vector deep-equals its committed file — the
-produce-stage oracle. Bootstrap a new vector by producing it, reviewing it, and
-committing it (the truth doctrine above, applied to vectors).
+snapshot. Produced vectors land under the gitignored `corpus/out/extension-vectors/`.
+The run validates every produced vector against the meta-schema, including one
+that has no committed file yet, then asserts each produced vector that has a
+committed file deep-equals that file: the produce-stage oracle. A produced
+vector with no committed file is reported with a warning and never compared.
+This run's emitter and the desktop assembler take the shipped outcome (STC-23)
+from one module, `corpus/lib/vector-meta-schema.js`. Bootstrap a new vector by
+producing it, reviewing it, and committing it (the truth doctrine above,
+applied to vectors).
 
 ### Hygiene locks (structural; `packages/shared/tests/unit`)
 
@@ -508,9 +515,11 @@ evaluator. The differences are all data:
 
 ## Known caveats
 
-- **STC-13.** The corpus does not exercise the side-panel commit/export UI
-  (the envelope is assembled through the same shared production functions the
-  panels call); panel flows stay covered by the main e2e suite. The desktop
+- **STC-13.** The corpus does not exercise the panels' commit/export UI (the
+  envelope is assembled through the same shared production functions the
+  panels call); the extension panel's commit and export flows stay covered by
+  the [extension end-to-end suite](../test/e2e.md), and the desktop panel's by
+  the [desktop integration suite](../test/integration/desktop.md). The desktop
   assembler replays event **arrival order** through the real JS pipeline; it
   does not exercise the live Tauri emit-to-listen bridge, the panel commit UI,
   persistence, or arrival timing.

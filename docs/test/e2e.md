@@ -246,9 +246,10 @@ producer of the
 viewport, the fixed-port corpus page server, the truth-diff gate against the
 committed known-diffs baseline) and, in conformance-vector mode, by
 `npm run vectors:produce:extension` under `playwright.vectors.config.js` (the
-same run plus the produce-stage oracle over the vectors it emits). It follows
-the same harness contract — one worker, retries, the `FRAME_READY` discipline
-(the `Since` variant, because corpus URLs are stable across loads).
+same run plus, over the vectors it emits, meta-schema validation and the
+produce-stage oracle). It follows the same harness contract — one worker,
+retries, the `FRAME_READY` discipline (the `Since` variant, because corpus URLs
+are stable across loads).
 
 How the e2e layer sits within the wider suite is in
 [the test pyramid](strategy/test-pyramid.md); the retired manual scenarios and

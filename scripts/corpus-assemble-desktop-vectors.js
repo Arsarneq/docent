@@ -20,7 +20,8 @@
  * matched_node_ids by applying each candidate's stated query over the snapshot
  * with the SAME test-only evaluator the hygiene locks use (so the recorded
  * matches re-derive). It writes the produced vector to
- * corpus/out/desktop-windows-vectors/<fixture>/<key>.vector.json and, when a
+ * corpus/out/desktop-windows-vectors/<fixture>/<key>.vector.json, holds it to
+ * the vector meta-schema (corpus/lib/vector-meta-schema.js) and, when a
  * committed file exists, asserts they match.
  *
  * Nothing here executes the resolution procedure: it is per-candidate match
@@ -38,6 +39,11 @@ import { fileURLToPath } from 'node:url';
 import { isDeepStrictEqual } from 'node:util';
 import { measureDesktopStrategyMatches } from '../packages/shared/tests/unit/vector-measurement-desktop.js';
 import { normalizeDescribedAfterMs, normalizeCoordSelector } from './corpus-compare.js';
+import {
+  SHIPPED_OUTCOME,
+  metaSchemaErrors,
+  formatMetaSchemaErrors,
+} from '../corpus/lib/vector-meta-schema.js';
 
 const REPO_ROOT = resolve(fileURLToPath(new URL('.', import.meta.url)), '..');
 
@@ -148,7 +154,7 @@ export function buildDesktopVector(dump) {
     tree_snapshot: snapshot,
     ground_truth: { node_id: gt },
     matched_node_ids: matchedNodeIds,
-    expected_outcome: 'resolved',
+    expected_outcome: SHIPPED_OUTCOME,
   };
   return { key, vector };
 }
@@ -166,6 +172,7 @@ async function main(argv) {
   }
 
   let mismatch = false;
+  let invalid = false;
   for (const file of dumps.sort()) {
     const dump = JSON.parse(readFileSync(join(vectorsDir, file), 'utf8'));
     const { fixture } = dump;
@@ -174,7 +181,19 @@ async function main(argv) {
     const producedDir = join(vectorsDir, fixture);
     mkdirSync(producedDir, { recursive: true });
     const producedPath = join(producedDir, `${key}.vector.json`);
-    writeFileSync(producedPath, JSON.stringify(vector, null, 2) + '\n');
+    const serialized = JSON.stringify(vector, null, 2) + '\n';
+    writeFileSync(producedPath, serialized);
+
+    // Produce-stage meta-schema gate over the bytes just written: a produced
+    // vector that breaks the vector meta-schema is reported with every error;
+    // the committed comparison below still runs, the loop goes on to the next
+    // dump, and the run exits 1 at the end.
+    const errors = metaSchemaErrors(JSON.parse(serialized));
+    if (errors.length > 0) {
+      console.error(`${fixture}/${key}: violates the vector meta-schema`);
+      console.error(formatMetaSchemaErrors(errors));
+      invalid = true;
+    }
 
     const committedPath = join(REPO_ROOT, 'corpus', 'sessions', fixture, 'vectors', `${key}.vector.json`); // prettier-ignore
     if (existsSync(committedPath)) {
@@ -189,7 +208,7 @@ async function main(argv) {
       console.log(`${fixture}/${key}: produced (no committed vector yet — review then commit)`);
     }
   }
-  return mismatch ? 1 : 0;
+  return mismatch || invalid ? 1 : 0;
 }
 
 const isMain = process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url);

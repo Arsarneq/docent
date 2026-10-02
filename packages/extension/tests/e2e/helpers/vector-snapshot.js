@@ -18,6 +18,7 @@
  */
 
 import { serializeSnapshot } from '../../../../../corpus/lib/snapshot-walker.js';
+import { SHIPPED_OUTCOME } from '../../../../../corpus/lib/vector-meta-schema.js';
 import { measureStrategyMatches } from '../../../../shared/tests/unit/vector-measurement.js';
 
 // The walker is self-contained, so its source runs unchanged in the page.
@@ -102,7 +103,7 @@ export function buildVectors(sessionId, marks, actions) {
       tree_snapshot: snapshot,
       ground_truth: { node_id: groundTruthNodeId },
       matched_node_ids: matchedNodeIds,
-      expected_outcome: 'resolved',
+      expected_outcome: SHIPPED_OUTCOME,
     };
   });
 }

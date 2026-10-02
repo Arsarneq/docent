@@ -210,7 +210,7 @@
       "code": [
         "corpus/sessions/*/vectors/**",
         "corpus/{vector.schema,vectors-coverage,vector-fixtures}.json",
-        "corpus/lib/snapshot-walker.js",
+        "corpus/lib/{snapshot-walker,vector-meta-schema}.js",
         "scripts/corpus-assemble-desktop-vectors.js"
       ],
       "docs": ["docs/technical/locator-resolution.md"]
@@ -359,6 +359,15 @@
         "docs/technical/locator-resolution.md",
         "docs/verification/scripted-truth-corpus.md",
         "docs/technical/session-format.md",
+        "docs/test/unit.md"
+      ]
+    },
+    {
+      "path": "packages/shared/tests/unit/vector-meta-schema.test.js",
+      "reason": "The vector meta-schema module's pins — the shipped outcome the corpus doctrine states held to the meta-schema's const, the error reporter every vector producer shares, and the vector emitters reproducing the committed vectors with the per-strategy facts the locator procedure defines — and the unit-suite orientation lists it.",
+      "governed-by": [
+        "docs/verification/scripted-truth-corpus.md",
+        "docs/technical/locator-resolution.md",
         "docs/test/unit.md"
       ]
     },

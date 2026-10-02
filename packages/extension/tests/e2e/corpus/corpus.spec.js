@@ -54,6 +54,10 @@ import {
   serializeFinding,
 } from '../../../../../scripts/corpus-compare.js';
 import { CORPUS_ORIGIN } from '../../../../../corpus/serve.js';
+import {
+  metaSchemaErrors,
+  formatMetaSchemaErrors,
+} from '../../../../../corpus/lib/vector-meta-schema.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, '../../../../..');
@@ -151,10 +155,19 @@ for (const session of sessions) {
       const committedDir = path.join(repoRoot, 'corpus', 'sessions', session.id, 'vectors');
       for (const vector of produced) {
         const key = vector.vector_id.slice(session.id.length + 1);
-        fs.writeFileSync(
-          path.join(producedDir, `${key}.vector.json`),
-          JSON.stringify(vector, null, 2) + '\n',
-        );
+        const serialized = JSON.stringify(vector, null, 2) + '\n';
+        fs.writeFileSync(path.join(producedDir, `${key}.vector.json`), serialized);
+        // Produce-stage meta-schema gate over the bytes just written, ahead of the
+        // committed comparison. Soft, so a produced vector with no committed file
+        // does not stop the session's remaining vectors or its truth envelope;
+        // where a committed file exists, the comparison below still stops the loop.
+        const schemaErrors = metaSchemaErrors(JSON.parse(serialized));
+        expect
+          .soft(
+            schemaErrors,
+            `produced vector ${key} violates the vector meta-schema:\n${formatMetaSchemaErrors(schemaErrors)}`,
+          )
+          .toEqual([]);
         const committedPath = path.join(committedDir, `${key}.vector.json`);
         if (fs.existsSync(committedPath)) {
           const committed = JSON.parse(fs.readFileSync(committedPath, 'utf8'));
