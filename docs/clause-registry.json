@@ -918,8 +918,11 @@
       "doc": "docs/verification/scripted-truth-corpus.md",
       "clause": "STC-23",
       "tag": "check-exists",
-      "check-ref": "The vector meta-schema is corpus/vector.schema.json, and packages/shared/tests/unit/conformance-vectors.test.js validates every committed vector against it (npm run test:shared). The outcome both emitters write (packages/extension/tests/e2e/helpers/vector-snapshot.js; scripts/corpus-assemble-desktop-vectors.js) has one home, corpus/lib/vector-meta-schema.js, and packages/shared/tests/unit/vector-meta-schema.test.js holds that constant equal to the meta-schema's expected_outcome const (npm run test:shared); the same module's error reporter is what the produce stage runs over every produced vector, at packages/extension/tests/e2e/corpus/corpus.spec.js and in the desktop assembler, before either holds a produced vector to its committed counterpart. This clause's own words are held to that meta-schema by scripts/check-verification-inventory.js (npm run lint:verification-inventory, a step in CI's lint job); the clause states that weld in its own prose, and the legs, token grammar and machinery refusals behind it are recorded in that script.",
-      "test-cases": ["SHIPPED_OUTCOME equals the meta-schema expected_outcome const"]
+      "check-ref": "The vector meta-schema is corpus/vector.schema.json, and packages/shared/tests/unit/conformance-vectors.test.js validates every committed vector against it (npm run test:shared). The outcome both emitters write (packages/extension/tests/e2e/helpers/vector-snapshot.js; scripts/corpus-assemble-desktop-vectors.js) has one home, corpus/lib/vector-meta-schema.js, and packages/shared/tests/unit/vector-meta-schema.test.js holds that constant equal to the meta-schema's expected_outcome const (npm run test:shared); the same module's metaSchemaErrors is what the produce stage runs over every produced vector, at packages/extension/tests/e2e/corpus/corpus.spec.js and in the desktop assembler, before either holds a produced vector to its committed counterpart. This clause's own words are held to that meta-schema by scripts/check-verification-inventory.js (npm run lint:verification-inventory, a step in CI's lint job); the clause states that weld in its own prose, and the legs, token grammar and machinery refusals behind it are recorded in that script.",
+      "test-cases": [
+        "SHIPPED_OUTCOME equals the meta-schema expected_outcome const",
+        "validates against the vector meta-schema"
+      ]
     },
     {
       "doc": "docs/verification/scripted-truth-corpus.md",

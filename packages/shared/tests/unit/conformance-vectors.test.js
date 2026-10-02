@@ -20,6 +20,10 @@
  * no truth.docent.json, no baseline key); they use the desktop UIA snapshot +
  * desktop strategy evaluator.
  *
+ * Every committed vector is validated against the meta-schema through
+ * corpus/lib/vector-meta-schema.js, the module the extension corpus run and the
+ * desktop assembler also validate through.
+ *
  * Locks:
  *  (1) the vector names an active manifest session of its platform, OR an
  *      enumerated dedicated vector fixture of its platform;
@@ -163,7 +167,7 @@ describe('conformance vectors: committed tree', () => {
     describe(`${session} / ${vector.vector_id}`, () => {
       it('validates against the vector meta-schema', () => {
         const errors = metaSchemaErrors(vector);
-        assert.deepEqual(errors, [], formatMetaSchemaErrors(errors));
+        assert.ok(errors.length === 0, formatMetaSchemaErrors(errors));
       });
 
       it('lock (1): names an active manifest session OR an enumerated fixture of its platform', () => {

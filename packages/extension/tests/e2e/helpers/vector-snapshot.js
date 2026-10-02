@@ -14,7 +14,10 @@
  * test-only evaluator the hygiene locks use.
  *
  * This is test-harness code (under a package's tests tree, eslint-ignored),
- * never a shipped runtime.
+ * never a shipped runtime. `buildVectors` is also imported by the shared unit
+ * suite (packages/shared/tests/unit/vector-meta-schema.test.js), which runs
+ * where this tree's own dependencies are not installed, so this module stays
+ * free of e2e-only packages.
  */
 
 import { serializeSnapshot } from '../../../../../corpus/lib/snapshot-walker.js';

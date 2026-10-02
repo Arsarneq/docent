@@ -364,7 +364,7 @@
     },
     {
       "path": "packages/shared/tests/unit/vector-meta-schema.test.js",
-      "reason": "The vector meta-schema module's pins — the shipped outcome the corpus doctrine states held to the meta-schema's const, the error reporter every vector producer shares, and the vector emitters reproducing the committed vectors with the per-strategy facts the locator procedure defines — and the unit-suite orientation lists it.",
+      "reason": "The vector meta-schema module's pins — the shipped outcome the corpus doctrine states held to the meta-schema's const, the validator, metaSchemaErrors, that the extension corpus run and the desktop assembler share, and the vector emitters reproducing the committed vectors with the per-strategy facts the locator procedure defines — and the unit-suite orientation lists it.",
       "governed-by": [
         "docs/verification/scripted-truth-corpus.md",
         "docs/technical/locator-resolution.md",
@@ -762,7 +762,7 @@
     },
     {
       "path": "packages/extension/tests/e2e/corpus/corpus.spec.js",
-      "reason": "The extension leg of the scripted-truth corpus: one test per active catalogue session, driving committed input through a fresh persistent context and asserting the comparator's findings against the session's committed baseline. The corpus doctrine owns the sessions, the truth-diff gate, and the produce-stage vector oracle, and its rows name this runner (STC-10, STC-23, STC-24); the end-to-end suite document states the harness contract and the runs that share this tree.",
+      "reason": "The extension leg of the scripted-truth corpus: one test per active catalogue session, driving committed input through a fresh persistent context and asserting the comparator's findings against the session's committed baseline. The corpus doctrine owns the sessions, the truth-diff gate, and the produce-stage vector oracle and the meta-schema validation of each produced vector that precedes it, and its rows name this runner (STC-10, STC-23, STC-24); the end-to-end suite document states the harness contract and the runs that share this tree.",
       "governed-by": ["docs/verification/scripted-truth-corpus.md", "docs/test/e2e.md"]
     },
     {
@@ -780,7 +780,7 @@
     },
     {
       "path": "packages/extension/tests/e2e/playwright.{corpus,vectors}.config.js",
-      "reason": "The corpus determinism regime and its vector-producing variant: the fixed viewport, the fixed-port page server, the produce-stage retries around the truth-diff gate, and the flag that turns on vector production with its produced-equals-committed oracle. The corpus doctrine names both configs as the production sites, and the end-to-end suite document states the harness contract they share with the rest of this tree.",
+      "reason": "The corpus determinism regime and its vector-producing variant: the fixed viewport, the fixed-port page server, the produce-stage retries around the truth-diff gate, and the flag that turns on vector production with meta-schema validation of each produced vector and its produced-equals-committed oracle. The corpus doctrine names both configs as the production sites, and the end-to-end suite document states the harness contract they share with the rest of this tree.",
       "governed-by": ["docs/verification/scripted-truth-corpus.md", "docs/test/e2e.md"]
     },
     {

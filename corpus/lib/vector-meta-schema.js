@@ -18,8 +18,9 @@
  * valid — because an always-truthy array passes an existence check silently.
  *
  * Unlike snapshot-walker.js beside it, this module is never injected into a
- * page, so it imports freely. It is repo/CI machinery, excluded from every
- * release like the rest of corpus/.
+ * page, so it imports freely. It is repository and CI machinery, never shipped
+ * — the corpus doctrine (docs/verification/scripted-truth-corpus.md) states
+ * that posture for corpus/.
  *
  * This file is part of Docent.
  * Licensed under the GNU General Public License v3.0

@@ -1,21 +1,31 @@
 /**
  * vector-meta-schema.test.js — pins corpus/lib/vector-meta-schema.js, the one
  * home of the shipped conformance-vector outcome and of the meta-schema
- * validator every vector producer and the hygiene suite share.
+ * validator that the extension corpus run, the desktop assembler and the
+ * hygiene suite share.
  *
  * Pinned here:
  *  - the module's SHIPPED_OUTCOME equals the meta-schema's expected_outcome
- *    const (read from the committed file, not through the module);
- *  - the error reporter names each seeded violation — a wrong outcome, a
- *    missing required field, and a snapshot whose node shape is the other
- *    platform's;
- *  - the vector emitters, fed the inputs a committed vector was produced from,
- *    stamp the shipped outcome and reproduce that vector exactly.
+ *    const (read from the committed file, not through the module), and the
+ *    module's meta-schema path names that committed file;
+ *  - the validator, `metaSchemaErrors`, names each seeded violation — a wrong
+ *    outcome, a missing required field, and a snapshot whose node shape is the
+ *    other platform's;
+ *  - the formatter, `formatMetaSchemaErrors`, puts every error on its own line,
+ *    naming its instance path;
+ *  - the vector emitters, fed inputs rebuilt from each committed vector, stamp
+ *    the shipped outcome and reproduce that vector exactly;
+ *  - the desktop assembler's produce-stage gate: a produced vector that fails
+ *    the meta-schema and has no committed file fails the run and is reported as
+ *    not committable, while a valid dump alone assembles, matches its committed
+ *    vector and exits 0.
  */
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync, readFileSync, readdirSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { resolve, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
@@ -28,7 +38,8 @@ import { buildDesktopVector } from '../../../../scripts/corpus-assemble-desktop-
 import { buildVectors } from '../../../extension/tests/e2e/helpers/vector-snapshot.js';
 
 const __dirname = fileURLToPath(new URL('.', import.meta.url));
-const CORPUS_DIR = resolve(__dirname, '../../../../corpus');
+const REPO_ROOT = resolve(__dirname, '../../../..');
+const CORPUS_DIR = join(REPO_ROOT, 'corpus');
 const SCHEMA_FILE = join(CORPUS_DIR, 'vector.schema.json');
 
 /** Every committed vector, with the session dir and file key it sits under. */
@@ -49,6 +60,32 @@ function committedVectors() {
 
 const vectors = committedVectors();
 const byPlatform = (platform) => vectors.find((v) => v.vector.platform === platform);
+
+/**
+ * The locators as the desktop producer emits them: the harness-measured
+ * strategies carry no match_count/match_index pair, which the assembler adds
+ * over the snapshot (scripted-truth-corpus STC-17).
+ */
+function withoutHarnessStats(locators) {
+  return locators.map((l) => {
+    if (l.strategy !== 'labeled_by' && l.strategy !== 'tree_path') return l;
+    const stripped = { ...l };
+    delete stripped.match_count;
+    delete stripped.match_index;
+    return stripped;
+  });
+}
+
+/** The producer dump a committed desktop vector is rebuilt from. */
+function desktopDump({ session, vector }) {
+  return {
+    fixture: session,
+    window_title: vector.scope.window,
+    element: { ...vector.element_facts, locators: withoutHarnessStats(vector.locators) },
+    tree_snapshot: vector.tree_snapshot,
+    ground_truth_node_id: vector.ground_truth.node_id,
+  };
+}
 
 describe('vector meta-schema module: the shipped outcome', () => {
   it('SHIPPED_OUTCOME equals the meta-schema expected_outcome const', () => {
@@ -90,16 +127,17 @@ describe('vector meta-schema module: the validator', () => {
     [ext.tree_snapshot, desk.tree_snapshot] = [desk.tree_snapshot, ext.tree_snapshot];
 
     // Ajv reports an error inside a $ref'd definition against that definition's
-    // own root (`#/required`), so the platform branch is identified by the
-    // failing `allOf` conditional and the node shape by its missing key.
-    const branchFailed = (errors, n, missing) =>
-      errors.some((e) => e.keyword === 'if' && e.schemaPath === `#/allOf/${n}/if`) &&
+    // own root (`#/required`), so the platform branch is identified by a failing
+    // `if` conditional and the node shape by its missing key — never by the
+    // conditional's position, so a reordered `allOf` still matches.
+    const branchFailed = (errors, missing) =>
+      errors.some((e) => e.keyword === 'if') &&
       errors.some((e) => e.instancePath === '/tree_snapshot' && e.params.missingProperty === missing); // prettier-ignore
 
     const extErrors = metaSchemaErrors(ext);
-    assert.ok(branchFailed(extErrors, 0, 'tag'), formatMetaSchemaErrors(extErrors));
+    assert.ok(branchFailed(extErrors, 'tag'), formatMetaSchemaErrors(extErrors));
     const deskErrors = metaSchemaErrors(desk);
-    assert.ok(branchFailed(deskErrors, 1, 'control_type'), formatMetaSchemaErrors(deskErrors));
+    assert.ok(branchFailed(deskErrors, 'control_type'), formatMetaSchemaErrors(deskErrors));
   });
 
   it('formats every error on its own line, naming its instance path', () => {
@@ -118,18 +156,13 @@ describe('vector emitters: the shipped outcome, reproduced from committed inputs
   it('the desktop assembler rebuilds every committed desktop vector exactly', () => {
     const desktop = vectors.filter((v) => v.vector.platform === 'desktop-windows');
     assert.ok(desktop.length >= 1);
-    for (const { session, key, vector: committed } of desktop) {
-      const built = buildDesktopVector({
-        fixture: session,
-        window_title: committed.scope.window,
-        element: { ...committed.element_facts, locators: committed.locators },
-        tree_snapshot: committed.tree_snapshot,
-        ground_truth_node_id: committed.ground_truth.node_id,
-      });
-      assert.equal(built.key, key);
+    for (const committed of desktop) {
+      const built = buildDesktopVector(desktopDump(committed));
+      assert.equal(built.key, committed.key);
       assert.equal(built.vector.expected_outcome, SHIPPED_OUTCOME);
-      assert.deepEqual(metaSchemaErrors(built.vector), []);
-      assert.deepEqual(built.vector, committed);
+      const errors = metaSchemaErrors(built.vector);
+      assert.ok(errors.length === 0, formatMetaSchemaErrors(errors));
+      assert.deepEqual(built.vector, committed.vector);
     }
   });
 
@@ -154,8 +187,84 @@ describe('vector emitters: the shipped outcome, reproduced from committed inputs
         ],
       );
       assert.equal(built.expected_outcome, SHIPPED_OUTCOME);
-      assert.deepEqual(metaSchemaErrors(built), []);
+      const errors = metaSchemaErrors(built);
+      assert.ok(errors.length === 0, formatMetaSchemaErrors(errors));
       assert.deepEqual(built, committed);
+    }
+  });
+});
+
+/**
+ * A temporary dumps directory holding the dump the committed desktop vector is
+ * rebuilt from, as `<fixture>.vecdump.json`, and, with `withUnknown`, a copy
+ * for a fixture that has no committed vectors and no window title, so the
+ * vector produced from it fails the meta-schema. That copy's file name sorts
+ * ahead of the valid dump's, so the run has to go on past it.
+ */
+function dumpsDir({ withUnknown }) {
+  const dir = mkdtempSync(join(tmpdir(), 'docent-vectors-'));
+  const dump = desktopDump(byPlatform('desktop-windows'));
+  writeFileSync(join(dir, `${dump.fixture}.vecdump.json`), JSON.stringify(dump));
+  if (withUnknown) {
+    const unknown = { ...structuredClone(dump), fixture: 'unknown-fixture' };
+    delete unknown.window_title;
+    writeFileSync(join(dir, 'aaa-unknown-fixture.vecdump.json'), JSON.stringify(unknown));
+  }
+  return { dir, fixture: dump.fixture, key: buildDesktopVector(dump).key };
+}
+
+/** Run the desktop assembler over a dumps directory, from the repository root. */
+function assemble(dir) {
+  return spawnSync(process.execPath, ['scripts/corpus-assemble-desktop-vectors.js', dir], {
+    cwd: REPO_ROOT,
+    encoding: 'utf8',
+  });
+}
+
+describe('the desktop assembler: produce-stage meta-schema gate', () => {
+  // Regression: an assembler run whose one invalid vector had no committed file
+  // exited 0 and reported that vector as ready for review; the gate fails the
+  // run and reports it as not committable.
+  it('regression_produced_only_vector_fails_the_meta_schema_before_commit', () => {
+    const { dir, fixture, key } = dumpsDir({ withUnknown: true });
+    try {
+      const run = assemble(dir);
+      const output = `${run.stdout}\n${run.stderr}`;
+      assert.equal(run.status, 1, output);
+      assert.ok(
+        run.stderr.includes(`unknown-fixture/${key}: violates the vector meta-schema`),
+        output,
+      );
+      assert.ok(run.stderr.includes(`/scope must have required property 'window'`), output);
+      assert.ok(
+        run.stderr.includes(
+          `unknown-fixture/${key}: produced (no committed vector yet) — fails the vector meta-schema; fix the producer before committing`,
+        ),
+        output,
+      );
+      assert.ok(run.stdout.includes(`${fixture}/${key}: matches committed (normalized)`), output);
+      assert.ok(
+        !run.stdout.includes(
+          `unknown-fixture/${key}: produced (no committed vector yet — review then commit)`,
+        ),
+        output,
+      );
+      assert.ok(existsSync(join(dir, fixture, `${key}.vector.json`)));
+      assert.ok(existsSync(join(dir, 'unknown-fixture', `${key}.vector.json`)));
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('a valid dump alone assembles, matches its committed vector and exits 0', () => {
+    const { dir, fixture, key } = dumpsDir({ withUnknown: false });
+    try {
+      const run = assemble(dir);
+      const output = `${run.stdout}\n${run.stderr}`;
+      assert.equal(run.status, 0, output);
+      assert.ok(run.stdout.includes(`${fixture}/${key}: matches committed (normalized)`), output);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
     }
   });
 });

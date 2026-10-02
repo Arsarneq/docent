@@ -186,8 +186,9 @@ async function main(argv) {
 
     // Produce-stage meta-schema gate over the bytes just written: a produced
     // vector that breaks the vector meta-schema is reported with every error;
-    // the committed comparison below still runs, the loop goes on to the next
-    // dump, and the run exits 1 at the end.
+    // the committed comparison below still runs, an invalid vector with no
+    // committed file is reported as not committable instead of as ready for
+    // review, the loop goes on to the next dump, and the run exits 1 at the end.
     const errors = metaSchemaErrors(JSON.parse(serialized));
     if (errors.length > 0) {
       console.error(`${fixture}/${key}: violates the vector meta-schema`);
@@ -204,6 +205,10 @@ async function main(argv) {
         console.error(`${fixture}/${key}: DOES NOT match committed vector`);
         mismatch = true;
       }
+    } else if (errors.length > 0) {
+      console.error(
+        `${fixture}/${key}: produced (no committed vector yet) — fails the vector meta-schema; fix the producer before committing`,
+      );
     } else {
       console.log(`${fixture}/${key}: produced (no committed vector yet — review then commit)`);
     }

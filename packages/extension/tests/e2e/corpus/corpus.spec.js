@@ -164,10 +164,10 @@ for (const session of sessions) {
         const schemaErrors = metaSchemaErrors(JSON.parse(serialized));
         expect
           .soft(
-            schemaErrors,
+            schemaErrors.length === 0,
             `produced vector ${key} violates the vector meta-schema:\n${formatMetaSchemaErrors(schemaErrors)}`,
           )
-          .toEqual([]);
+          .toBe(true);
         const committedPath = path.join(committedDir, `${key}.vector.json`);
         if (fs.existsSync(committedPath)) {
           const committed = JSON.parse(fs.readFileSync(committedPath, 'utf8'));
