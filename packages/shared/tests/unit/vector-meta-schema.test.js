@@ -139,7 +139,9 @@ describe('vector meta-schema module: the validator', () => {
     const deskErrors = metaSchemaErrors(desk);
     assert.ok(branchFailed(deskErrors, 'control_type'), formatMetaSchemaErrors(deskErrors));
   });
+});
 
+describe('vector meta-schema module: the formatter', () => {
   it('formats every error on its own line, naming its instance path', () => {
     const vector = structuredClone(byPlatform('extension').vector);
     vector.expected_outcome = 'bogus';
@@ -195,22 +197,24 @@ describe('vector emitters: the shipped outcome, reproduced from committed inputs
 });
 
 /**
- * A temporary dumps directory holding the dump the committed desktop vector is
- * rebuilt from, as `<fixture>.vecdump.json`, and, with `withUnknown`, a copy
- * for a fixture that has no committed vectors and no window title, so the
- * vector produced from it fails the meta-schema. That copy's file name sorts
- * ahead of the valid dump's, so the run has to go on past it.
+ * The dumps the gate cases seed, built before any directory exists: the dump
+ * the committed desktop vector is rebuilt from, with its fixture and key, and a
+ * copy for a fixture that has no committed vectors and no window title, so the
+ * vector produced from it fails the meta-schema. The copy is seeded as
+ * `aaa-unknown-fixture.vecdump.json`, a name that has to sort ahead of the valid
+ * dump's for the run to go on past it; the regression case asserts that order
+ * rather than assuming it.
  */
-function dumpsDir({ withUnknown }) {
-  const dir = mkdtempSync(join(tmpdir(), 'docent-vectors-'));
+function gateDumps() {
   const dump = desktopDump(byPlatform('desktop-windows'));
-  writeFileSync(join(dir, `${dump.fixture}.vecdump.json`), JSON.stringify(dump));
-  if (withUnknown) {
-    const unknown = { ...structuredClone(dump), fixture: 'unknown-fixture' };
-    delete unknown.window_title;
-    writeFileSync(join(dir, 'aaa-unknown-fixture.vecdump.json'), JSON.stringify(unknown));
-  }
-  return { dir, fixture: dump.fixture, key: buildDesktopVector(dump).key };
+  const unknown = { ...structuredClone(dump), fixture: 'unknown-fixture' };
+  delete unknown.window_title;
+  return { dump, unknown, fixture: dump.fixture, key: buildDesktopVector(dump).key };
+}
+
+/** Write one dump into a dumps directory under the given file name. */
+function writeDump(dir, name, dump) {
+  writeFileSync(join(dir, name), JSON.stringify(dump));
 }
 
 /** Run the desktop assembler over a dumps directory, from the repository root. */
@@ -224,10 +228,18 @@ function assemble(dir) {
 describe('the desktop assembler: produce-stage meta-schema gate', () => {
   // Regression: an assembler run whose one invalid vector had no committed file
   // exited 0 and reported that vector as ready for review; the gate fails the
-  // run and reports it as not committable.
-  it('regression_produced_only_vector_fails_the_meta_schema_before_commit', () => {
-    const { dir, fixture, key } = dumpsDir({ withUnknown: true });
+  // run and reports it as not committable. No issue tracks it.
+  it('regression_noissue_produced_only_vector_fails_the_meta_schema_before_commit', () => {
+    const { dump, unknown, fixture, key } = gateDumps();
+    assert.ok(
+      'aaa-unknown-fixture.vecdump.json' < `${fixture}.vecdump.json`,
+      'the invalid dump must sort first so the run-continues property is observed',
+    );
+    let dir;
     try {
+      dir = mkdtempSync(join(tmpdir(), 'docent-vectors-'));
+      writeDump(dir, `${fixture}.vecdump.json`, dump);
+      writeDump(dir, 'aaa-unknown-fixture.vecdump.json', unknown);
       const run = assemble(dir);
       const output = `${run.stdout}\n${run.stderr}`;
       assert.equal(run.status, 1, output);
@@ -252,19 +264,45 @@ describe('the desktop assembler: produce-stage meta-schema gate', () => {
       assert.ok(existsSync(join(dir, fixture, `${key}.vector.json`)));
       assert.ok(existsSync(join(dir, 'unknown-fixture', `${key}.vector.json`)));
     } finally {
-      rmSync(dir, { recursive: true, force: true });
+      if (dir) rmSync(dir, { recursive: true, force: true });
     }
   });
 
   it('a valid dump alone assembles, matches its committed vector and exits 0', () => {
-    const { dir, fixture, key } = dumpsDir({ withUnknown: false });
+    const { dump, fixture, key } = gateDumps();
+    let dir;
     try {
+      dir = mkdtempSync(join(tmpdir(), 'docent-vectors-'));
+      writeDump(dir, `${fixture}.vecdump.json`, dump);
       const run = assemble(dir);
       const output = `${run.stdout}\n${run.stderr}`;
       assert.equal(run.status, 0, output);
       assert.ok(run.stdout.includes(`${fixture}/${key}: matches committed (normalized)`), output);
     } finally {
-      rmSync(dir, { recursive: true, force: true });
+      if (dir) rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('an invalid vector that has a committed counterpart is reported and still compared', () => {
+    const { dump, fixture, key } = gateDumps();
+    const invalid = structuredClone(dump);
+    delete invalid.window_title;
+    let dir;
+    try {
+      dir = mkdtempSync(join(tmpdir(), 'docent-vectors-'));
+      writeDump(dir, `${fixture}.vecdump.json`, invalid);
+      const run = assemble(dir);
+      const output = `${run.stdout}\n${run.stderr}`;
+      assert.equal(run.status, 1, output);
+      assert.ok(run.stderr.includes(`${fixture}/${key}: violates the vector meta-schema`), output);
+      assert.ok(run.stderr.includes(`${fixture}/${key}: DOES NOT match committed vector`), output);
+      assert.ok(
+        !run.stdout.includes('no committed vector yet') &&
+          !run.stderr.includes('no committed vector yet'),
+        output,
+      );
+    } finally {
+      if (dir) rmSync(dir, { recursive: true, force: true });
     }
   });
 });

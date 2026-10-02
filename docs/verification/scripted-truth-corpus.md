@@ -9,7 +9,7 @@ nor any locator machinery can see.
 
 Nothing here replays a recording or resolves a locator. The corpus produces
 `.docent.json` envelopes from scripted input and compares them to committed
-truth files — Docent ships no consumer, and this directory is a repository and
+truth files — Docent ships no consumer, and the `corpus/` directory is a repository and
 CI artifact only (excluded from every release, like `reference-implementations/`).
 
 Each rule this document makes in its own right carries a stable identifier
