@@ -194,7 +194,7 @@ mod scroll_accumulator {
     }
 
     #[test]
-    fn exactly_200px_is_discarded() {
+    fn displacement_at_floor_is_discarded() {
         let mut acc = ScrollAccumulator::new();
         acc.push(RawScrollEvent {
             timestamp: 1000,
@@ -209,7 +209,7 @@ mod scroll_accumulator {
     }
 
     #[test]
-    fn just_over_200px_is_emitted() {
+    fn displacement_just_over_floor_is_emitted() {
         let mut acc = ScrollAccumulator::new();
         acc.push(RawScrollEvent {
             timestamp: 1000,

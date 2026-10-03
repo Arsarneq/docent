@@ -290,7 +290,7 @@ mod tests {
     }
 
     #[test]
-    fn exactly_200px_is_discarded() {
+    fn displacement_at_floor_is_discarded() {
         let events = vec![RawScrollEvent {
             timestamp: 1000,
             delta_x: 0.0,
@@ -304,7 +304,7 @@ mod tests {
     }
 
     #[test]
-    fn just_over_200px_is_emitted() {
+    fn displacement_just_over_floor_is_emitted() {
         let events = vec![RawScrollEvent {
             timestamp: 1000,
             delta_x: 0.0,
