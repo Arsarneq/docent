@@ -446,9 +446,10 @@ thread_local! {
     /// dialog that opens afterwards.
     static INPUT_LAST_KEYBOARD_WINDOW: std::cell::Cell<i64> = const { std::cell::Cell::new(0) };
 
-    /// Timestamp of the most recent completed click (WM_LBUTTONUP that was
-    /// classified as a click, not a drag). Used to suppress duplicate
-    /// EVENT_OBJECT_SELECTION that fires immediately after a click.
+    /// Timestamp of the most recent left click — stamped at WM_LBUTTONDOWN (a
+    /// selection can fire between down and up) and again when WM_LBUTTONUP
+    /// classifies a click. Focus and selection WinEvents within
+    /// `timing::CLICK_REDUNDANCY_MS` of it are suppressed as redundant (DCP-7).
     static INPUT_LAST_CLICK_TIMESTAMP: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
 }
 
@@ -1659,15 +1660,18 @@ unsafe extern "system" fn input_win_event_proc(
                 return; // Programmatic focus — suppress.
             }
 
-            // Suppress focus events that follow a mouse click (within 200ms).
-            // The click already captures the interaction — focus is redundant.
+            // Suppress focus events that follow a mouse click (within
+            // timing::CLICK_REDUNDANCY_MS). The click already captures the
+            // interaction — focus is redundant.
             // Focus is only meaningful when caused by Tab key (keyboard navigation).
             let mouse_down = INPUT_MOUSE_DOWN_POS.with(|p| p.get().is_some());
             if mouse_down {
                 return; // Click in progress — focus is redundant.
             }
             let last_click = INPUT_LAST_CLICK_TIMESTAMP.with(|t| t.get());
-            if last_click > 0 && timestamp.saturating_sub(last_click) < 200 {
+            if last_click > 0
+                && timing::is_correlated(timestamp, last_click, timing::CLICK_REDUNDANCY_MS)
+            {
                 return; // Recent click — focus is redundant.
             }
 
@@ -1779,13 +1783,15 @@ unsafe extern "system" fn input_win_event_proc(
             // The click already captures what was selected — the selection
             // event is redundant. We check:
             // 1. Mouse button is currently down (click in progress)
-            // 2. A click was recently completed (within 200ms)
+            // 2. A click was recent (within timing::CLICK_REDUNDANCY_MS)
             let mouse_down = INPUT_MOUSE_DOWN_POS.with(|p| p.get().is_some());
             if mouse_down {
                 return; // Click in progress — suppress.
             }
             let last_click = INPUT_LAST_CLICK_TIMESTAMP.with(|t| t.get());
-            if last_click > 0 && timestamp.saturating_sub(last_click) < 200 {
+            if last_click > 0
+                && timing::is_correlated(timestamp, last_click, timing::CLICK_REDUNDANCY_MS)
+            {
                 return; // Recent click — suppress.
             }
             input_dispatch_raw_event(RawEvent {

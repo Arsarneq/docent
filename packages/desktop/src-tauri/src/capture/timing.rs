@@ -1,8 +1,11 @@
-// Central timing configuration — single source of truth for all timing
-// constants used by the desktop capture layer.
+// Central timing configuration — single source of truth for the capture
+// layer's correlation windows, the click-redundancy window, debounce intervals
+// and worker tick (the pool's flush and shutdown bounds live in
+// `worker_pool.rs`; the capture-start bounds are `windows.rs`'s own module
+// constants).
 //
 // This is the desktop equivalent of the extension's `lib/capture-timing.js`.
-// All timing-related constants live here so they can be tuned in one place.
+// All of those live here so they can be tuned in one place.
 
 use std::time::Duration;
 
@@ -36,6 +39,16 @@ pub const VALUE_CHANGE_CORRELATION_MS: u64 = 1000;
 /// event is the application's own doing (timers, async loads, background
 /// refresh) and must not be recorded as a user action.
 pub const SELECTION_CORRELATION_MS: u64 = VALUE_CHANGE_CORRELATION_MS;
+
+// ─── Click Redundancy ───────────────────────────────────────────────────────
+
+/// Click-redundancy window. A focus or selection WinEvent arriving within this
+/// many ms of the most recent left click (stamped at left button-down and
+/// again when the release classifies as a click) is the click's own effect —
+/// the click action already records the interaction — so the Input_Thread
+/// suppresses it as redundant. The boundary is inclusive, through
+/// [`is_correlated`].
+pub const CLICK_REDUNDANCY_MS: u64 = 200;
 
 // ─── Scroll ─────────────────────────────────────────────────────────────────
 
@@ -75,8 +88,11 @@ pub const WORKER_RECV_TIMEOUT: Duration = Duration::from_millis(WORKER_RECV_TIME
 /// at `last_input_ms`, given a correlation `window_ms`.
 ///
 /// An event is **correlated** when it arrives within the window of the input:
-/// `event_ms - last_input_ms <= window_ms`. Events outside the window are
-/// treated as programmatic (not user-caused) and suppressed by the caller.
+/// `event_ms - last_input_ms <= window_ms`. What a caller does with the answer
+/// is its own: the correlation gates admit a correlated event to the arm's
+/// remaining filters and suppress an uncorrelated one as programmatic (DCP-7);
+/// the click-redundancy gate suppresses a correlated focus or selection event
+/// as redundant (`CLICK_REDUNDANCY_MS`).
 ///
 /// Saturating subtraction means an `event_ms` before `last_input_ms` (clock
 /// skew / out-of-order) yields a gap of 0 — i.e. correlated. Callers gate on a
@@ -131,6 +147,26 @@ mod tests {
     fn correlated_out_of_order_event_is_zero_gap() {
         // event before input (clock skew) saturates to gap 0 → correlated.
         assert!(is_correlated(50, 100, FOCUS_CORRELATION_MS));
+    }
+
+    // ─── click redundancy: suppressed iff gap <= CLICK_REDUNDANCY_MS ────────
+
+    #[test]
+    fn click_redundancy_inside_window_suppresses() {
+        // gap = 199 < 200 → redundant (suppressed)
+        assert!(is_correlated(10_199, 10_000, CLICK_REDUNDANCY_MS));
+    }
+
+    #[test]
+    fn click_redundancy_exactly_at_boundary_suppresses() {
+        // gap = 200 == window → redundant (boundary is inclusive)
+        assert!(is_correlated(10_200, 10_000, CLICK_REDUNDANCY_MS));
+    }
+
+    #[test]
+    fn click_redundancy_one_past_window_dispatches() {
+        // gap = 201 > 200 → not redundant (dispatched)
+        assert!(!is_correlated(10_201, 10_000, CLICK_REDUNDANCY_MS));
     }
 
     // ─── debounce_elapsed: elapsed iff gap >= window ────────────────────────

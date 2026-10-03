@@ -728,7 +728,8 @@ fn d_selection_gate() {
         enigo.move_mouse(win.cx, win.cy, Coordinate::Abs).unwrap();
         thread::sleep(Duration::from_millis(50));
         enigo.button(enigo::Button::Left, Direction::Click).unwrap();
-        // Past the 200ms click-redundancy suppression, still input-correlated.
+        // Past CLICK_REDUNDANCY_MS, still within SELECTION_CORRELATION_MS
+        // (both in src/capture/timing.rs).
         thread::sleep(Duration::from_millis(350));
         unsafe { fire_selection(win.hwnd) };
     });
