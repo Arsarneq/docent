@@ -354,10 +354,18 @@ name is today.
 
 ### Dependency and license audit
 
-The `dependency-audit` job runs on every PR and push. On the npm side:
-`npm audit --audit-level=high` over the root lockfile, then a default-deny
-license allowlist ([`check-licenses-npm.js`](../../scripts/check-licenses-npm.js),
-`npm run check:licenses`) scanned over every real install root. On the Rust
+The `dependency-audit` job runs on every PR and push. On the npm side, the
+advisory gate is [`check-npm-advisories.js`](../../scripts/check-npm-advisories.js)
+(`npm run check:npm-advisories`), which reads `npm audit` at level high over
+the root lockfile and holds every high or critical advisory to the check's
+in-file ignore list, the counterpart of `deny.toml`'s advisory ignore list on
+the Rust side. Every entry carries an advisory id, a package, a reason, and an
+`until` day — the last day the entry holds, the gate redding the day after; the
+script's header states the verdicts and the upkeep rule (how an entry is added
+or renewed, and when a stale, expired, fix-available or wrong-package entry is
+deleted, refreshed or corrected). Then a default-deny license
+allowlist ([`check-licenses-npm.js`](../../scripts/check-licenses-npm.js),
+`npm run check:licenses`) is scanned over every real install root. On the Rust
 side, `cargo deny check licenses` and `cargo deny check advisories` run as
 separate steps (so a red gate shows which failed), configured by
 [`deny.toml`](../../packages/desktop/src-tauri/deny.toml). All of it blocks.

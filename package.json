@@ -22,6 +22,7 @@
     "check:action-pins": "node scripts/check-action-pins.js",
     "check:clippy-invocation": "node scripts/check-clippy-invocation.js",
     "check:licenses": "node scripts/check-licenses-npm.js",
+    "check:npm-advisories": "node scripts/check-npm-advisories.js",
     "sync-shared": "node scripts/sync-shared.js",
     "build:desktop-dist": "node scripts/build-desktop-dist.js",
     "dev:desktop": "npm run sync-shared && npm run build:desktop-dist && echo 'Run cargo tauri dev from packages/desktop/src-tauri/'",
