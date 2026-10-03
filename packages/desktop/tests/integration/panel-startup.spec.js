@@ -7,7 +7,7 @@
  * either would return while startup is still waiting on `load_state` — before
  * the theme it loaded is applied, the empty state rendered, or the later
  * startup invokes made. This spec slows `load_state` so that gap is wide, and
- * reads the page once, without retrying, right after `openPanel` returns.
+ * reads the page without retrying, right after `openPanel` returns.
  */
 
 import { test, expect } from './coverage-fixture.js';

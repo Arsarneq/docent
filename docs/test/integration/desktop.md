@@ -53,7 +53,8 @@ the integration-suite locks name it as the allowance.
 re-implement, so a wrong-reason pass fails at the helper: `openPanel` is the
 panel-open preamble (navigate, then wait for the projects view as the panel
 rendered it, observable only once the startup invokes are recorded, so a spec's
-first action meets the started panel); `createProject` walks the new-project
+first action meets the started panel, with only what startup set running, such
+as an Auto-Sync cycle, still in flight); `createProject` walks the new-project
 form to the project view
 from a panel standing on its rendered projects view, and holds the view to the
 name it typed; `seedRecordedStep` walks an open panel to a committed step —
@@ -123,7 +124,7 @@ depth; a new one joins this table in the same change that adds it, and a CI lint
 holds the two in agreement. No two specs here — and no spec twice — declare the
 same `describe > test` path, which a real-tree lock in the shared unit suite
 holds; a describe title alone may repeat, so a case moved between specs takes
-its full path into the destination's set, where it must stay distinct.
+its full path into the directory's one set of paths, where it must stay distinct.
 
 | Spec                                        | Covers                                                                                                                                                                                                                                                                                                               |
 | ------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |

@@ -69,8 +69,9 @@
  * it un-hidden — and nor would the startup `load_state` invoke, which is
  * recorded when the call is made, before the panel has its answer. An exception
  * thrown during startup surfaces as its own message, distinct from the one
- * naming a bundle that never ran; the watch itself stays armed for the test's
- * whole run, so an error after the gate fails the test in the shared afterEach.
+ * naming a bundle that never ran; the page-error watch the fixture arms on the
+ * test's page stays armed for the test's whole run, so an error after the gate
+ * fails the test in the shared afterEach.
  *
  * `createProject(page, name)` walks the new-project form and lands on the
  * project's detail view, holding that view to the name it typed — so a spec
@@ -565,8 +566,9 @@ export function installTauriMockServer(options = {}) {
  * Open the panel: navigate to the served frontend, then wait for its projects
  * view as the panel rendered it ({@link PROJECTS_VIEW_RENDERED}) — observable
  * only once the startup invokes are recorded, so a spec's first action meets
- * the started panel. Why that view is the gate, and how a startup exception is
- * reported, is stated in the file header's `openPanel` paragraph.
+ * the started panel; only what startup set running, such as an Auto-Sync cycle,
+ * can still be in flight. Why that view is the gate, and how a startup
+ * exception is reported, is stated in the file header's `openPanel` paragraph.
  *
  * @param {import('@playwright/test').Page} page
  * @param {{ url: (pathname?: string) => string }} server the value

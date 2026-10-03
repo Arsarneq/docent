@@ -31,8 +31,9 @@
  * The adapter's sentinel wait is bounded: past it the commit finalizes with what
  * arrived (and warns), which inside this test's window would let (3) pass with
  * the sentinel withheld or keyed to another barrier. So the spec first lifts that
- * bound to twice the test's own timeout, read from `test.info()` so the bound
- * outlasts the test by construction, through the served adapter module's
+ * bound to twice the test's own timeout, read from `test.info()`, with a fixed
+ * floor for runs that disable the timeout, so the bound outlasts the test by
+ * construction, through the served adapter module's
  * `_testOnly.setBarrierWaitTimeout` — the same module instance the panel runs,
  * since the page imports it by the URL the panel's own import resolves to — and
  * from then on only the matching sentinel can finalize the step. The
@@ -72,9 +73,11 @@ const clickAction = (text) => ({
 
 test.describe('Desktop Panel — commit completeness barrier', () => {
   test('regression_noissue_commit_engages_stop_path_flush_barrier', async ({ page }) => {
-    // Twice this test's own timeout, so the adapter's bounded-wait fallback can
-    // never finalize the step inside the test: only the sentinel can.
-    const sentinelWaitPinMs = test.info().timeout * 2;
+    // Twice this test's own timeout, with a fixed floor for runs that disable
+    // the timeout, so the bound outlasts the test by construction: the
+    // adapter's bounded-wait fallback can never finalize the step inside the
+    // test, only the sentinel can.
+    const sentinelWaitPinMs = Math.max(test.info().timeout * 2, 60_000);
     await openPanel(page, server);
 
     // Simple mode so "Done this step" commits without a narration entry.
@@ -100,14 +103,14 @@ test.describe('Desktop Panel — commit completeness barrier', () => {
     await page.waitForTimeout(200);
     await expect(page.locator('#btn-commit-step-simple')).toBeEnabled();
 
-    // Pin the sentinel wait before the commit reads it, through an import
-    // proven to be the panel's own adapter instance. The order matters: a
-    // second instance would register its own `capture:action` listener when
-    // imported and take every LATER delivery (the mock keeps one handler per
-    // event), so only a sentinel for an unrelated barrier delivered BEFORE the
-    // import, and found parked in the imported module, tells the panel's
-    // instance from a copy; only then does the pin leave the matching sentinel
-    // as the one way the step can finalize.
+    // Pin the sentinel wait before the commit reads it, through an import this
+    // test proves below to be the panel's own adapter instance. The order
+    // matters: a second instance would register its own `capture:action`
+    // listener when imported and take every LATER delivery (the mock keeps one
+    // handler per event), so only a sentinel for an unrelated barrier delivered
+    // BEFORE the import, and found parked in the imported module, tells the
+    // panel's instance from a copy; only then does the pin leave the matching
+    // sentinel as the one way the step can finalize.
     await fireCaptureActions(page, [{ type: 'barrier_complete', barrier_id: 777 }]);
     const seen = await page.evaluate(
       (ms) =>

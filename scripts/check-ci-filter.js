@@ -261,7 +261,7 @@ const SUITE_HELD_HOLDINGS = {
   'docs/test/README.md': "the disposition suite's bullet literal",
   'docs/test/e2e.md': "the test-inventory suite's inventory tables",
   'docs/test/integration/desktop.md':
-    "the integration-suite locks' shared-helpers section and configuration sentence",
+    "the integration-suite locks' shared-helpers section and configuration sentence, and the test-inventory suite's coverage table",
   'docs/test/strategy/coverage.md': "the preamble suite's registry link",
   'docs/test/strategy/mutation.md':
     "the preamble suite's registry link and the disposition suite's cadence clause",
