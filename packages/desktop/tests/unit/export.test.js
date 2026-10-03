@@ -42,19 +42,6 @@ const validateDesktop = ajv.compile(desktopSchema);
 const UUIDV7_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 const ISO8601_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/;
 
-function validateElement(el) {
-  assert.strictEqual(typeof el.tag, 'string', 'element.tag must be a string');
-  assert.strictEqual(typeof el.selector, 'string', 'element.selector must be a string');
-  // Optional nullable fields
-  for (const field of ['id', 'name', 'role', 'type', 'text']) {
-    const val = el[field];
-    assert.ok(
-      val === null || typeof val === 'string',
-      `element.${field} must be string or null, got ${typeof val}`,
-    );
-  }
-}
-
 function validateAction(action) {
   assert.strictEqual(typeof action.timestamp, 'number', 'action.timestamp must be a number');
   assert.ok(Number.isInteger(action.timestamp), 'action.timestamp must be an integer');
