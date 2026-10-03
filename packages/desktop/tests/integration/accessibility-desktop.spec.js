@@ -82,9 +82,8 @@ test.describe('Desktop Accessibility — WCAG 2.1 AA', () => {
 
   test('recording view (narration mode) has no violations', async ({ page }) => {
     await openPanel(page, server);
-    await createProject(page);
     await seedRecordedStep(page, {
-      project: null,
+      project: 'Test Project',
       recording: 'Flow',
       actions: [OK_CLICK],
       narration: 'Click OK',
@@ -107,10 +106,9 @@ test.describe('Desktop Accessibility — WCAG 2.1 AA', () => {
     await page.click('#btn-settings-back');
     await page.waitForSelector('#view-projects:not(.hidden)', { timeout: 5000 });
 
-    await createProject(page, 'Simple A11y');
     // The recording view alone: nothing delivered, nothing committed.
     await seedRecordedStep(page, {
-      project: null,
+      project: 'Simple A11y',
       recording: 'Flow',
       actions: null,
       narration: null,
@@ -122,9 +120,8 @@ test.describe('Desktop Accessibility — WCAG 2.1 AA', () => {
 
   test('step detail view has no violations', async ({ page }) => {
     await openPanel(page, server);
-    await createProject(page);
     await seedRecordedStep(page, {
-      project: null,
+      project: 'Test Project',
       recording: 'Flow',
       actions: [OK_CLICK],
       narration: 'Click OK',
@@ -148,9 +145,8 @@ test.describe('Desktop Accessibility — WCAG 2.1 AA', () => {
 
   test('step history view has no violations', async ({ page }) => {
     await openPanel(page, server);
-    await createProject(page);
     await seedRecordedStep(page, {
-      project: null,
+      project: 'Test Project',
       recording: 'Flow',
       actions: [OK_CLICK],
       narration: 'Click OK',

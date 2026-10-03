@@ -20,7 +20,6 @@ import { test, expect } from './coverage-fixture.js';
 import {
   clearInvokes,
   createProject,
-  fireCaptureActions,
   installTauriMockServer,
   invokesOf,
   openPanel,
@@ -219,9 +218,8 @@ test.describe('Desktop Panel — Import Project', () => {
 test.describe('Desktop Panel — Export Project', () => {
   test('export calls invoke with valid project JSON', async ({ page }) => {
     await openPanel(page, server);
-    await createProject(page, 'Export Test');
     await seedRecordedStep(page, {
-      project: null,
+      project: 'Export Test',
       recording: 'Rec',
       actions: [BUTTON_CLICK],
       narration: 'Click button',
@@ -359,16 +357,12 @@ test.describe('Desktop Panel — Target App Selector', () => {
     });
 
     // Create project + recording to get to recording view
-    await page.click('#btn-new-project');
-    await page.waitForSelector('#view-new-project:not(.hidden)', { timeout: 5000 });
-    await page.fill('#new-project-name', 'App Test');
-    await page.click('#btn-new-project-create');
-    await page.waitForSelector('#view-project:not(.hidden)', { timeout: 5000 });
-    await page.click('#btn-new-recording');
-    await page.waitForSelector('#view-new-recording:not(.hidden)', { timeout: 5000 });
-    await page.fill('#new-recording-name', 'R');
-    await page.click('#btn-new-recording-create');
-    await page.waitForSelector('#view-recording:not(.hidden)', { timeout: 5000 });
+    await seedRecordedStep(page, {
+      project: 'App Test',
+      recording: 'R',
+      actions: null,
+      narration: null,
+    });
 
     // The refresh button sits in the shell's static target-app controls — a
     // block rendered unconditionally, outside the sections the view switcher
@@ -435,53 +429,27 @@ test.describe('Desktop Panel — Recording Selector Send All', () => {
     await page.waitForSelector('#view-projects:not(.hidden)', { timeout: 5000 });
 
     // Create project with 2 recordings, each with a step
-    await page.click('#btn-new-project');
-    await page.waitForSelector('#view-new-project:not(.hidden)', { timeout: 5000 });
-    await page.fill('#new-project-name', 'Multi');
-    await page.click('#btn-new-project-create');
-    await page.waitForSelector('#view-project:not(.hidden)', { timeout: 5000 });
-
     // Recording 1
-    await page.click('#btn-new-recording');
-    await page.waitForSelector('#view-new-recording:not(.hidden)', { timeout: 5000 });
-    await page.fill('#new-recording-name', 'R1');
-    await page.click('#btn-new-recording-create');
-    await page.waitForSelector('#view-recording:not(.hidden)', { timeout: 5000 });
-    await fireCaptureActions(page, [
-      {
-        type: 'click',
-        timestamp: Date.now(),
-        capture_mode: 'accessibility',
-        context_id: 1,
-        element: { text: 'A' },
-      },
-    ]);
-    await page.waitForTimeout(300);
-    await page.fill('#narration-input', 'Step A');
-    await page.click('#btn-commit-step');
-    await page.waitForTimeout(500);
+    await seedRecordedStep(page, {
+      project: 'Multi',
+      recording: 'R1',
+      actions: [
+        { type: 'click', capture_mode: 'accessibility', context_id: 1, element: { text: 'A' } },
+      ],
+      narration: 'Step A',
+    });
 
     // Recording 2
     await page.click('#bc-project');
     await page.waitForSelector('#view-project:not(.hidden)', { timeout: 5000 });
-    await page.click('#btn-new-recording');
-    await page.waitForSelector('#view-new-recording:not(.hidden)', { timeout: 5000 });
-    await page.fill('#new-recording-name', 'R2');
-    await page.click('#btn-new-recording-create');
-    await page.waitForSelector('#view-recording:not(.hidden)', { timeout: 5000 });
-    await fireCaptureActions(page, [
-      {
-        type: 'click',
-        timestamp: Date.now(),
-        capture_mode: 'accessibility',
-        context_id: 1,
-        element: { text: 'B' },
-      },
-    ]);
-    await page.waitForTimeout(300);
-    await page.fill('#narration-input', 'Step B');
-    await page.click('#btn-commit-step');
-    await page.waitForTimeout(500);
+    await seedRecordedStep(page, {
+      project: null,
+      recording: 'R2',
+      actions: [
+        { type: 'click', capture_mode: 'accessibility', context_id: 1, element: { text: 'B' } },
+      ],
+      narration: 'Step B',
+    });
 
     // Dispatch — should show selector
     await page.click('#bc-project');
@@ -501,44 +469,28 @@ test.describe('Desktop Panel — Recording Selector Send All', () => {
 test.describe('Desktop Panel — Drag Reorder Steps', () => {
   test('drag step changes order and persists', async ({ page }) => {
     await openPanel(page, server);
-    await createProject(page, 'Drag Test');
-
-    // Create recording and commit 2 steps
-    await page.click('#btn-new-recording');
-    await page.waitForSelector('#view-new-recording:not(.hidden)', { timeout: 5000 });
-    await page.fill('#new-recording-name', 'R');
-    await page.click('#btn-new-recording-create');
-    await page.waitForSelector('#view-recording:not(.hidden)', { timeout: 5000 });
-
-    // Step 1
-    await fireCaptureActions(page, [
-      {
-        type: 'click',
-        timestamp: Date.now(),
-        capture_mode: 'accessibility',
-        context_id: 1,
-        element: { text: 'First' },
-      },
-    ]);
-    await page.waitForTimeout(300);
-    await page.fill('#narration-input', 'First step');
-    await page.click('#btn-commit-step');
-    await page.waitForTimeout(500);
-
-    // Step 2
-    await fireCaptureActions(page, [
-      {
-        type: 'click',
-        timestamp: Date.now(),
-        capture_mode: 'accessibility',
-        context_id: 1,
-        element: { text: 'Second' },
-      },
-    ]);
-    await page.waitForTimeout(300);
-    await page.fill('#narration-input', 'Second step');
-    await page.click('#btn-commit-step');
-    await page.waitForTimeout(500);
+    // Create the recording and commit 2 steps
+    await seedRecordedStep(page, {
+      project: 'Drag Test',
+      recording: 'R',
+      actions: [
+        { type: 'click', capture_mode: 'accessibility', context_id: 1, element: { text: 'First' } },
+      ],
+      narration: 'First step',
+    });
+    await seedRecordedStep(page, {
+      project: null,
+      recording: null,
+      actions: [
+        {
+          type: 'click',
+          capture_mode: 'accessibility',
+          context_id: 1,
+          element: { text: 'Second' },
+        },
+      ],
+      narration: 'Second step',
+    });
 
     // Verify initial order
     const steps = page.locator('.step-item');

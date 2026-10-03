@@ -2,26 +2,22 @@
  * Desktop Panel — Advanced Flow Tests
  *
  * Tests dispatch send with mocked fetch, sync flow, inline rename,
- * recording selector (multi-recording dispatch), and re-record cancel.
+ * recording selector (multi-recording dispatch), re-record cancel, project and
+ * recording creation by the Enter key, and cancelling the new-project and
+ * new-recording forms.
  * These target the remaining uncovered paths in panel.js.
  */
 
 import { test, expect } from './coverage-fixture.js';
 import {
-  fireCaptureActions,
+  createProject,
   installTauriMockServer,
   openPanel,
   seedRecordedStep,
+  SUBMIT_CLICK,
 } from './tauri-mock-fixture.js';
 
 const server = installTauriMockServer();
-
-const SUBMIT_CLICK = {
-  type: 'click',
-  capture_mode: 'accessibility',
-  context_id: 1,
-  element: { text: 'Submit', tag: 'Button', selector: '#btn' },
-};
 
 // Helper: set up a project with endpoint configured and a committed step
 async function setupDispatchReady(page) {
@@ -154,11 +150,7 @@ test.describe('Desktop Panel — Inline Rename', () => {
   test('rename project via prompt dialog', async ({ page }) => {
     await openPanel(page, server);
 
-    await page.click('#btn-new-project');
-    await page.waitForSelector('#view-new-project:not(.hidden)', { timeout: 5000 });
-    await page.fill('#new-project-name', 'Original Name');
-    await page.click('#btn-new-project-create');
-    await page.waitForSelector('#view-project:not(.hidden)', { timeout: 5000 });
+    await createProject(page, 'Original Name');
 
     // Handle the prompt dialog
     page.on('dialog', async (dialog) => {
@@ -176,16 +168,12 @@ test.describe('Desktop Panel — Inline Rename', () => {
   test('rename recording via prompt dialog', async ({ page }) => {
     await openPanel(page, server);
 
-    await page.click('#btn-new-project');
-    await page.waitForSelector('#view-new-project:not(.hidden)', { timeout: 5000 });
-    await page.fill('#new-project-name', 'P');
-    await page.click('#btn-new-project-create');
-    await page.waitForSelector('#view-project:not(.hidden)', { timeout: 5000 });
-    await page.click('#btn-new-recording');
-    await page.waitForSelector('#view-new-recording:not(.hidden)', { timeout: 5000 });
-    await page.fill('#new-recording-name', 'Original Rec');
-    await page.click('#btn-new-recording-create');
-    await page.waitForSelector('#view-recording:not(.hidden)', { timeout: 5000 });
+    await seedRecordedStep(page, {
+      project: 'P',
+      recording: 'Original Rec',
+      actions: null,
+      narration: null,
+    });
 
     page.on('dialog', async (dialog) => {
       if (dialog.type() === 'prompt') {
@@ -214,53 +202,27 @@ test.describe('Desktop Panel — Recording Selector', () => {
     await page.waitForSelector('#view-projects:not(.hidden)', { timeout: 5000 });
 
     // Create project with 2 recordings, each with a step
-    await page.click('#btn-new-project');
-    await page.waitForSelector('#view-new-project:not(.hidden)', { timeout: 5000 });
-    await page.fill('#new-project-name', 'Multi');
-    await page.click('#btn-new-project-create');
-    await page.waitForSelector('#view-project:not(.hidden)', { timeout: 5000 });
-
     // Recording 1
-    await page.click('#btn-new-recording');
-    await page.waitForSelector('#view-new-recording:not(.hidden)', { timeout: 5000 });
-    await page.fill('#new-recording-name', 'Rec 1');
-    await page.click('#btn-new-recording-create');
-    await page.waitForSelector('#view-recording:not(.hidden)', { timeout: 5000 });
-    await fireCaptureActions(page, [
-      {
-        type: 'click',
-        timestamp: Date.now(),
-        capture_mode: 'accessibility',
-        context_id: 1,
-        element: { text: 'A' },
-      },
-    ]);
-    await page.waitForTimeout(300);
-    await page.fill('#narration-input', 'Step 1');
-    await page.click('#btn-commit-step');
-    await page.waitForTimeout(500);
+    await seedRecordedStep(page, {
+      project: 'Multi',
+      recording: 'Rec 1',
+      actions: [
+        { type: 'click', capture_mode: 'accessibility', context_id: 1, element: { text: 'A' } },
+      ],
+      narration: 'Step 1',
+    });
 
     // Go back and create Recording 2
     await page.click('#bc-project');
     await page.waitForSelector('#view-project:not(.hidden)', { timeout: 5000 });
-    await page.click('#btn-new-recording');
-    await page.waitForSelector('#view-new-recording:not(.hidden)', { timeout: 5000 });
-    await page.fill('#new-recording-name', 'Rec 2');
-    await page.click('#btn-new-recording-create');
-    await page.waitForSelector('#view-recording:not(.hidden)', { timeout: 5000 });
-    await fireCaptureActions(page, [
-      {
-        type: 'click',
-        timestamp: Date.now(),
-        capture_mode: 'accessibility',
-        context_id: 1,
-        element: { text: 'B' },
-      },
-    ]);
-    await page.waitForTimeout(300);
-    await page.fill('#narration-input', 'Step 2');
-    await page.click('#btn-commit-step');
-    await page.waitForTimeout(500);
+    await seedRecordedStep(page, {
+      project: null,
+      recording: 'Rec 2',
+      actions: [
+        { type: 'click', capture_mode: 'accessibility', context_id: 1, element: { text: 'B' } },
+      ],
+      narration: 'Step 2',
+    });
 
     // Go to project and dispatch — should show selector
     await page.click('#bc-project');
@@ -281,31 +243,12 @@ test.describe('Desktop Panel — Re-record Cancel', () => {
   test('cancel re-record hides banner and restores state', async ({ page }) => {
     await openPanel(page, server);
 
-    await page.click('#btn-new-project');
-    await page.waitForSelector('#view-new-project:not(.hidden)', { timeout: 5000 });
-    await page.fill('#new-project-name', 'P');
-    await page.click('#btn-new-project-create');
-    await page.waitForSelector('#view-project:not(.hidden)', { timeout: 5000 });
-    await page.click('#btn-new-recording');
-    await page.waitForSelector('#view-new-recording:not(.hidden)', { timeout: 5000 });
-    await page.fill('#new-recording-name', 'R');
-    await page.click('#btn-new-recording-create');
-    await page.waitForSelector('#view-recording:not(.hidden)', { timeout: 5000 });
-
-    // Commit a step
-    await fireCaptureActions(page, [
-      {
-        type: 'click',
-        timestamp: Date.now(),
-        capture_mode: 'accessibility',
-        context_id: 1,
-        element: { text: 'X' },
-      },
-    ]);
-    await page.waitForTimeout(300);
-    await page.fill('#narration-input', 'Original');
-    await page.click('#btn-commit-step');
-    await page.waitForTimeout(500);
+    await seedRecordedStep(page, {
+      project: 'P',
+      recording: 'R',
+      actions: [SUBMIT_CLICK],
+      narration: 'Original',
+    });
 
     // Click re-record
     const editBtn = page.locator('[data-action="edit"]').first();
@@ -342,11 +285,7 @@ test.describe('Desktop Panel — New Project via Enter Key', () => {
   test('pressing Enter in recording name field creates recording', async ({ page }) => {
     await openPanel(page, server);
 
-    await page.click('#btn-new-project');
-    await page.waitForSelector('#view-new-project:not(.hidden)', { timeout: 5000 });
-    await page.fill('#new-project-name', 'P');
-    await page.click('#btn-new-project-create');
-    await page.waitForSelector('#view-project:not(.hidden)', { timeout: 5000 });
+    await createProject(page, 'P');
     await page.click('#btn-new-recording');
     await page.waitForSelector('#view-new-recording:not(.hidden)', { timeout: 5000 });
     await page.fill('#new-recording-name', 'Enter Rec');
@@ -370,11 +309,7 @@ test.describe('Desktop Panel — Cancel New Project/Recording', () => {
   test('cancel new recording returns to project view', async ({ page }) => {
     await openPanel(page, server);
 
-    await page.click('#btn-new-project');
-    await page.waitForSelector('#view-new-project:not(.hidden)', { timeout: 5000 });
-    await page.fill('#new-project-name', 'P');
-    await page.click('#btn-new-project-create');
-    await page.waitForSelector('#view-project:not(.hidden)', { timeout: 5000 });
+    await createProject(page, 'P');
     await page.click('#btn-new-recording');
     await page.waitForSelector('#view-new-recording:not(.hidden)', { timeout: 5000 });
     await page.click('#btn-new-recording-cancel');

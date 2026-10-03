@@ -194,32 +194,28 @@ test.describe('Desktop Drag Reorder Flow', () => {
     await openPanel(page, server);
 
     // Create project with recording
-    await page.click('#btn-new-project');
-    await page.waitForSelector('#view-new-project:not(.hidden)', { timeout: 5000 });
-    await page.fill('#new-project-name', 'Reorder Test');
-    await page.click('#btn-new-project-create');
-    await page.waitForSelector('#view-project:not(.hidden)', { timeout: 5000 });
-    await page.click('#btn-new-recording');
-    await page.waitForSelector('#view-new-recording:not(.hidden)', { timeout: 5000 });
-    await page.fill('#new-recording-name', 'R');
-    await page.click('#btn-new-recording-create');
-    await page.waitForSelector('#view-recording:not(.hidden)', { timeout: 5000 });
+    await seedRecordedStep(page, {
+      project: 'Reorder Test',
+      recording: 'R',
+      actions: null,
+      narration: null,
+    });
 
     // Commit 3 steps
     for (const label of ['First', 'Second', 'Third']) {
-      await fireCaptureActions(page, [
-        {
-          type: 'click',
-          timestamp: Date.now(),
-          capture_mode: 'accessibility',
-          context_id: 1,
-          element: { text: label, tag: 'Button' },
-        },
-      ]);
-      await page.waitForTimeout(300);
-      await page.fill('#narration-input', label);
-      await page.click('#btn-commit-step');
-      await page.waitForTimeout(500);
+      await seedRecordedStep(page, {
+        project: null,
+        recording: null,
+        actions: [
+          {
+            type: 'click',
+            capture_mode: 'accessibility',
+            context_id: 1,
+            element: { text: label, tag: 'Button' },
+          },
+        ],
+        narration: label,
+      });
     }
 
     // Verify initial order
