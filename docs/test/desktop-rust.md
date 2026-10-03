@@ -16,16 +16,20 @@ Tests live in two places:
   plus `commands`, `secret_store`, and `sync_http`). These run under
   `cargo test --lib`.
 - **Test binaries** — the `packages/desktop/src-tauri/tests/` directory (Cargo
-  convention), one file per concern. The binaries are exactly the `.rs` files
-  directly in it — the set CI's discovery step reads — listed below; a new one
-  joins this table in the same change that adds it, and a CI lint holds the two
-  in agreement. That same lint refuses an undiscovered test binary — one Cargo
-  runs under local `cargo test` while CI's discovery never sees it — by either
-  route: the directory form `tests/<name>/main.rs`, or the crate manifest
-  stating the test targets itself (a `[[test]]` stanza, the same array written
-  as a root-table `test = [ … ]` value, or a `[package]` `autotests` key); a
-  nested module file (the `tests/common/mod.rs` convention) is shared code
-  rather than a binary, and stays green.
+  convention); the Covers column states what each binary covers (a new binary
+  takes the `<concern>_test.rs` form §Where a new test goes states), and a
+  subject two binaries reach from different angles — the PID base filter, by
+  example in `windows_capture_test.rs` and as a property in
+  `pid_filter_test.rs` — stands in both rows. The binaries are exactly the
+  `.rs` files directly in it — the set CI's discovery step reads — listed
+  below; a new one joins this table in the same change that adds it, and a CI
+  lint holds the two in agreement. That same lint refuses an undiscovered test
+  binary — one Cargo runs under local `cargo test` while CI's discovery never
+  sees it — by either route: the directory form `tests/<name>/main.rs`, or the
+  crate manifest stating the test targets itself (a `[[test]]` stanza, the same
+  array written as a root-table `test = [ … ]` value, or a `[package]`
+  `autotests` key); a nested module file (the `tests/common/mod.rs` convention)
+  is shared code rather than a binary, and stays green.
 
   **Top-level-only is the rule, and this paragraph is where it lives.**
   Widening the discovery to what Cargo itself can build is a deliberate
@@ -45,7 +49,7 @@ Tests live in two places:
 
 | Test file                   | Covers                                                                                                                                                                                                                                                   |
 | --------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `action_mapping_test.rs`    | Action-mapping invariants: valid timestamps, `frame_src` null, only schema-defined action types.                                                                                                                                                         |
+| `action_mapping_test.rs`    | Action-mapping invariants: valid timestamps, `frame_src` null, and every mapped type in `VALID_ACTION_TYPES`, the list [`rust-action-types-lock.test.js`](unit.md#desktop-application) holds equal to the composed desktop schema's action types.        |
 | `capture_integration.rs`    | The real-input integration suite: user actions captured, programmatic side effects filtered, deduplication suppressions, OS-chrome and taskbar proxies, selection correlation.                                                                           |
 | `capture_lifecycle_test.rs` | The `CaptureLayer` start/stop state machine — idempotent start, no-op stop, `is_active()` transitions, bounded restart — and the commit flush barrier's sentinel delivery on the action stream; no real input required.                                  |
 | `capture_mode_test.rs`      | `accessibility` vs `coordinate` capture-mode selection.                                                                                                                                                                                                  |

@@ -180,14 +180,19 @@ captured by proxy as follows:
 programmatic ones using **input correlation**: WinEvent callbacks MUST be
 dispatched only when correlated with a preceding low-level input event.
 
-| WinEvent                   | Correlation source  | Additional filter                                                          |
-| -------------------------- | ------------------- | -------------------------------------------------------------------------- |
-| `EVENT_SYSTEM_FOREGROUND`  | Any low-level input | —                                                                          |
-| `EVENT_OBJECT_FOCUS`       | Any low-level input | Suppressed after click (redundant)                                         |
-| `EVENT_OBJECT_CREATE`      | Any low-level input | —                                                                          |
-| `EVENT_OBJECT_DESTROY`     | Any low-level input | Only if previously opened                                                  |
-| `EVENT_OBJECT_VALUECHANGE` | Keyboard input only | Same root window as keyboard                                               |
-| `EVENT_OBJECT_SELECTION`   | Any low-level input | Same root window as the input; suppressed ≤200ms after a click (redundant) |
+| WinEvent                   | Correlation source  | Additional filter                                                                             |
+| -------------------------- | ------------------- | --------------------------------------------------------------------------------------------- |
+| `EVENT_SYSTEM_FOREGROUND`  | Any low-level input | —                                                                                             |
+| `EVENT_OBJECT_FOCUS`       | Any low-level input | Suppressed within `CLICK_REDUNDANCY_MS` of a click (redundant)                                |
+| `EVENT_OBJECT_CREATE`      | Any low-level input | —                                                                                             |
+| `EVENT_OBJECT_DESTROY`     | Any low-level input | Only if previously opened                                                                     |
+| `EVENT_OBJECT_VALUECHANGE` | Keyboard input only | Same root window as keyboard                                                                  |
+| `EVENT_OBJECT_SELECTION`   | Any low-level input | Same root window as the input; suppressed within `CLICK_REDUNDANCY_MS` of a click (redundant) |
+
+The click-redundancy window is measured from the most recent left click,
+stamped at left button-down and again when the release classifies as a click;
+its boundary is inclusive, so a focus or selection event arriving exactly
+`CLICK_REDUNDANCY_MS` after that stamp is suppressed.
 
 **DCP-8.** **Window-scoping:** Value changes and selections are only
 correlated with input from the same root window — value changes against the keyboard input's

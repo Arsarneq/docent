@@ -31,6 +31,7 @@ import addFormats from 'ajv-formats';
 import {
   PLATFORMS,
   composePlatform,
+  actionTypes,
   locatorStrategyDefs,
 } from '../../../../scripts/build-schemas.js';
 import { SENSITIVE_PARAMS } from '../../lib/field-sensitivity.js';
@@ -119,6 +120,28 @@ describe('Schema composition: desktop-family layer carries desktop-common defs',
       'locator_labeled_by',
       'locator_tree_path',
     ]);
+  });
+});
+
+describe('Schema composition: actionTypes enumerates each platform action union', () => {
+  for (const platform of ['desktop-windows', 'extension']) {
+    it(`${platform}: one type const per action_* def, every def in the union`, () => {
+      const schema = composePlatform(platform);
+      const types = actionTypes(schema);
+      const defConsts = Object.entries(schema.$defs)
+        .filter(([name]) => name.startsWith('action_'))
+        .map(([, def]) => def.properties.type.const);
+      assert.ok(
+        types.every((t) => typeof t === 'string'),
+        'every member resolves to a const',
+      );
+      assert.strictEqual(new Set(types).size, types.length, 'no duplicates');
+      assert.deepStrictEqual([...types].sort(), [...defConsts].sort());
+    });
+  }
+
+  it('returns [] for a layer that declares no action union', () => {
+    assert.deepStrictEqual(actionTypes(base), []);
   });
 });
 

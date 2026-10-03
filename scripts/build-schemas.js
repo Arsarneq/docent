@@ -230,22 +230,56 @@ export function composePlatform(platform) {
 }
 
 /**
+ * Enumerate the members of a schema's `<unionDefName>.oneOf` union,
+ * dereferenced into `$defs`, in declaration order (an inline member is
+ * returned as itself, with a null name). The one `#/$defs/` dereference behind
+ * `locatorStrategyDefs` and `actionTypes`, so their callers — the sufficiency
+ * lint, the composition tests, the per-platform redaction drift guards, and
+ * the action-type locks — resolve a union member the same way;
+ * `scripts/check-schema-echo.js` keeps its own reader of the action union for
+ * its echo legs. Returns [] when the schema declares no such union.
+ *
+ * @param {object} schema - a composed platform schema or a source layer
+ * @param {string} unionDefName - the `$defs` entry holding the `oneOf` union
+ * @returns {Array<{name: string|null, def: object}>}
+ */
+export function unionMemberDefs(schema, unionDefName) {
+  return (schema.$defs?.[unionDefName]?.oneOf ?? []).map((member) => {
+    const name = typeof member.$ref === 'string' ? member.$ref.replace('#/$defs/', '') : null;
+    return { name, def: name ? schema.$defs[name] : member };
+  });
+}
+
+/**
  * Enumerate a schema's locator strategy definitions: the members of
- * `locator.oneOf`, dereferenced into `$defs` (an inline member is returned as
- * itself, with a null name). The single home for the `#/$defs/` dereference
- * convention — the sufficiency lint, the composition tests, and the
- * per-platform redaction drift guards all enumerate strategies through this,
- * so they can never disagree on what "the platform's strategies" means.
+ * `locator.oneOf`, dereferenced into `$defs` through `unionMemberDefs` (an
+ * inline member is returned as itself, with a null name). The sufficiency
+ * lint, the composition tests, and the per-platform redaction drift guards all
+ * enumerate strategies through this, so they can never disagree on what "the
+ * platform's strategies" means.
  * Returns [] when the schema declares no locator def.
  *
  * @param {object} schema - a composed platform schema or a source layer
  * @returns {Array<{name: string|null, def: object}>}
  */
 export function locatorStrategyDefs(schema) {
-  return (schema.$defs?.locator?.oneOf ?? []).map((member) => {
-    const name = typeof member.$ref === 'string' ? member.$ref.replace('#/$defs/', '') : null;
-    return { name, def: name ? schema.$defs[name] : member };
-  });
+  return unionMemberDefs(schema, 'locator');
+}
+
+/**
+ * Enumerate a schema's action types: the `type.const` of each member of
+ * `action.oneOf`, dereferenced into `$defs` through `unionMemberDefs`, in
+ * declaration order. The single home for "the platform's action types", so
+ * every test that states that set derives it here instead of restating it —
+ * except the Rust action-mapping test's list, which the desktop unit lock
+ * `rust-action-types-lock.test.js` holds equal to this set. Returns [] when
+ * the schema declares no action union.
+ *
+ * @param {object} schema - a composed platform schema or a source layer
+ * @returns {string[]}
+ */
+export function actionTypes(schema) {
+  return unionMemberDefs(schema, 'action').map(({ def }) => def?.properties?.type?.const);
 }
 
 /**

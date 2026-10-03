@@ -9,9 +9,7 @@
 // (d) have a `type` field matching one of the defined schema action types.
 
 use docent_desktop_lib::capture::action_mapping::{map_event, NativeEvent};
-use docent_desktop_lib::capture::{
-    ActionPayload, CaptureMode, ElementDescription, Modifiers, WindowRect,
-};
+use docent_desktop_lib::capture::{CaptureMode, ElementDescription, Modifiers, WindowRect};
 use proptest::prelude::*;
 
 // ---------------------------------------------------------------------------
@@ -21,6 +19,8 @@ use proptest::prelude::*;
 /// The set of action types the desktop schema contract defines. The version
 /// that contract carries is stamped into each exported file's `docent_format`,
 /// never restated here.
+/// `packages/desktop/tests/unit/rust-action-types-lock.test.js` holds this list
+/// equal to the action types the composed desktop schema declares.
 const VALID_ACTION_TYPES: &[&str] = &[
     "click",
     "right_click",
@@ -36,33 +36,6 @@ const VALID_ACTION_TYPES: &[&str] = &[
     "context_close",
     "file_dialog",
 ];
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-/// Extract the action type string from an `ActionPayload`.
-///
-/// This mirrors the `#[serde(tag = "type", rename_all = "snake_case")]`
-/// attribute on `ActionPayload`.
-fn payload_type_name(payload: &ActionPayload) -> &'static str {
-    match payload {
-        ActionPayload::Click { .. } => "click",
-        ActionPayload::RightClick { .. } => "right_click",
-        ActionPayload::Type { .. } => "type",
-        ActionPayload::Select { .. } => "select",
-        ActionPayload::Key { .. } => "key",
-        ActionPayload::Focus { .. } => "focus",
-        ActionPayload::DragStart { .. } => "drag_start",
-        ActionPayload::Drop { .. } => "drop",
-        ActionPayload::Scroll { .. } => "scroll",
-        ActionPayload::ContextSwitch { .. } => "context_switch",
-        ActionPayload::ContextOpen { .. } => "context_open",
-        ActionPayload::ContextClose { .. } => "context_close",
-        ActionPayload::FileDialog { .. } => "file_dialog",
-        ActionPayload::BarrierComplete { .. } => "barrier_complete",
-    }
-}
 
 // ---------------------------------------------------------------------------
 // Generators
@@ -264,7 +237,13 @@ proptest! {
         );
 
         // (c) Action type is never "navigate"
-        let action_type = payload_type_name(&action.payload);
+        // The type is read from the serialized event — the `type` tag the
+        // wire carries — so no hand mirror of the serde attribute stands
+        // between the mapper and this check.
+        let serialized = serde_json::to_value(&action).expect("an ActionEvent serializes");
+        let action_type = serialized["type"]
+            .as_str()
+            .expect("a serialized action carries a string type");
         prop_assert_ne!(
             action_type, "navigate",
             "action type must never be \"navigate\""

@@ -180,8 +180,8 @@ the barrier already emptied:
   input thread is dead on arrival and whose every barrier could only complete
   by fallback.
 
-Timing constants — correlation windows, debounce intervals, the worker tick —
-live in `src/capture/timing.rs`; the flush and shutdown bounds live beside the
-pool in `src/capture/worker_pool.rs`. The pool, its routing, the flush
-barrier, and the shutdown drains are pinned by the worker-pool Rust tests
-(`packages/desktop/src-tauri/tests/worker_pool_test.rs`).
+Timing constants — correlation windows, the click-redundancy window, debounce
+intervals, the worker tick — live in `src/capture/timing.rs`; the flush and
+shutdown bounds live beside the pool in `src/capture/worker_pool.rs`. The
+pool, its routing, the flush barrier, and the shutdown drains are pinned by the
+worker-pool Rust tests (`packages/desktop/src-tauri/tests/worker_pool_test.rs`).

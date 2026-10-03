@@ -17,6 +17,7 @@
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import fc from 'fast-check';
+import { actionTypes, composePlatform } from '../../../../scripts/build-schemas.js';
 
 // ── Generators ─────────────────────────────────────────────────────────────
 
@@ -235,22 +236,9 @@ const extensionActionArb = fc.oneof(contentScriptActionArb, serviceWorkerActionA
 
 // ── Allowed action types and context lifecycle types ───────────────────────
 
-const VALID_ACTION_TYPES = new Set([
-  'click',
-  'right_click',
-  'type',
-  'select',
-  'key',
-  'focus',
-  'drag_start',
-  'drop',
-  'scroll',
-  'file_upload',
-  'navigate',
-  'context_switch',
-  'context_open',
-  'context_close',
-]);
+// The extension contract's action types, derived from the composed schema's
+// action union rather than restated here.
+const VALID_ACTION_TYPES = new Set(actionTypes(composePlatform('extension')));
 
 const CONTEXT_LIFECYCLE_TYPES = new Set(['context_switch', 'context_open', 'context_close']);
 

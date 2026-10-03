@@ -1,8 +1,11 @@
-// Central timing configuration — single source of truth for all timing
-// constants used by the desktop capture layer.
+// Central timing configuration — single source of truth for the capture
+// layer's correlation windows, the click-redundancy window, debounce intervals
+// and worker tick (the pool's flush and shutdown bounds live in
+// `worker_pool.rs`; the capture-start bounds are `windows.rs`'s own module
+// constants).
 //
 // This is the desktop equivalent of the extension's `lib/capture-timing.js`.
-// All timing-related constants live here so they can be tuned in one place.
+// All of those live here so they can be tuned in one place.
 
 use std::time::Duration;
 
@@ -36,6 +39,26 @@ pub const VALUE_CHANGE_CORRELATION_MS: u64 = 1000;
 /// event is the application's own doing (timers, async loads, background
 /// refresh) and must not be recorded as a user action.
 pub const SELECTION_CORRELATION_MS: u64 = VALUE_CHANGE_CORRELATION_MS;
+
+// ─── Click Redundancy ───────────────────────────────────────────────────────
+
+/// Click-redundancy window. A focus or selection WinEvent arriving within this
+/// many ms of the most recent left click (stamped at left button-down and
+/// again when the release classifies as a click) is the click's own effect —
+/// the click action already records the interaction — so the Input_Thread
+/// suppresses it as redundant. The boundary is inclusive; the gate is
+/// [`is_click_redundant`].
+pub const CLICK_REDUNDANCY_MS: u64 = 200;
+
+/// Whether a focus or selection WinEvent at `event_ms` is redundant with the
+/// left click stamped at `last_click_ms`: `true` when a click has been stamped
+/// and the event arrives within [`CLICK_REDUNDANCY_MS`] of it, the boundary
+/// inclusive (through [`is_correlated`]). A `last_click_ms` of 0 means no click
+/// has been stamped, and nothing is redundant with it.
+#[inline]
+pub fn is_click_redundant(event_ms: u64, last_click_ms: u64) -> bool {
+    last_click_ms > 0 && is_correlated(event_ms, last_click_ms, CLICK_REDUNDANCY_MS)
+}
 
 // ─── Scroll ─────────────────────────────────────────────────────────────────
 
@@ -75,8 +98,11 @@ pub const WORKER_RECV_TIMEOUT: Duration = Duration::from_millis(WORKER_RECV_TIME
 /// at `last_input_ms`, given a correlation `window_ms`.
 ///
 /// An event is **correlated** when it arrives within the window of the input:
-/// `event_ms - last_input_ms <= window_ms`. Events outside the window are
-/// treated as programmatic (not user-caused) and suppressed by the caller.
+/// `event_ms - last_input_ms <= window_ms`. What a caller does with the answer
+/// is its own: the correlation gates admit a correlated event to the arm's
+/// remaining filters and suppress an uncorrelated one as programmatic (DCP-7);
+/// the click-redundancy gate suppresses a correlated focus or selection event
+/// as redundant (`CLICK_REDUNDANCY_MS`).
 ///
 /// Saturating subtraction means an `event_ms` before `last_input_ms` (clock
 /// skew / out-of-order) yields a gap of 0 — i.e. correlated. Callers gate on a
@@ -131,6 +157,36 @@ mod tests {
     fn correlated_out_of_order_event_is_zero_gap() {
         // event before input (clock skew) saturates to gap 0 → correlated.
         assert!(is_correlated(50, 100, FOCUS_CORRELATION_MS));
+    }
+
+    // ─── click redundancy: suppressed iff a click is stamped and gap <= CLICK_REDUNDANCY_MS ───
+
+    #[test]
+    fn click_redundancy_inside_window_suppresses() {
+        // gap one short of the window → redundant (suppressed)
+        assert!(is_click_redundant(10_000 + CLICK_REDUNDANCY_MS - 1, 10_000));
+    }
+
+    // Regression: a focus or selection event exactly CLICK_REDUNDANCY_MS after a
+    // click was dispatched — the gates compared strictly. No GitHub issue —
+    // found reconciling DCP-7's window against the code.
+    #[test]
+    fn regression_noissue_click_redundancy_boundary_is_inclusive() {
+        assert!(is_click_redundant(10_000 + CLICK_REDUNDANCY_MS, 10_000));
+    }
+
+    #[test]
+    fn click_redundancy_one_past_window_dispatches() {
+        // gap = window + 1 → not redundant (dispatched)
+        assert!(!is_click_redundant(10_001 + CLICK_REDUNDANCY_MS, 10_000));
+    }
+
+    #[test]
+    fn click_redundancy_never_clicked_dispatches() {
+        // last click 0 = no click stamped → nothing is redundant with it
+        assert!(!is_click_redundant(0, 0));
+        assert!(!is_click_redundant(CLICK_REDUNDANCY_MS, 0));
+        assert!(!is_click_redundant(u64::MAX, 0));
     }
 
     // ─── debounce_elapsed: elapsed iff gap >= window ────────────────────────

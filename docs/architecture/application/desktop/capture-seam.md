@@ -45,8 +45,9 @@ backend implements observation, not delivery:
   The Windows backend runs its capture through this pool; a new platform can
   do the same and inherit the delivery guarantees wholesale.
 - **Shared classification logic** — scroll debounce/coalescing and the
-  process-filter base rule (`src/capture/scroll.rs`), timing constants and
-  predicates (`src/capture/timing.rs`), action/element mapping and the
+  process-filter base rule and the executable-name comparison
+  (`src/capture/scroll.rs`), timing constants and predicates
+  (`src/capture/timing.rs`), action/element mapping and the
   coordinate fallback (`src/capture/action_mapping.rs`,
   `src/capture/element_mapping.rs`, `src/capture/coordinate.rs`) — all free
   of platform API calls, so they compile on every target.

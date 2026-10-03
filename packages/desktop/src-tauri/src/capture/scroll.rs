@@ -1,16 +1,19 @@
-// Scroll debounce/threshold filtering and the platform-agnostic PID-exclusion
-// base rule — pure-Rust logic for capture noise reduction.
+// Scroll debounce/threshold filtering, the platform-agnostic PID-exclusion
+// base rule, and the executable-name ground of DCP-5's self-capture exclusion
+// (the whole-name comparison against the webview runtime's file name and
+// Docent's own binary name) — pure-Rust logic for capture noise reduction.
 //
 // This module contains NO platform API calls so it can be compiled and tested
 // on any target. Platform-specific concerns layer on top elsewhere: the actual
-// `WM_MOUSEWHEEL` monitoring and the WebView2 process-tree filtering live in
-// `windows.rs`.
+// `WM_MOUSEWHEEL` monitoring, the WebView2 process-tree filtering, and the
+// Windows wrapper that reads a process's executable name live in `windows.rs`.
 //
-// Requirements:
-// - Debounce scroll events — record only after scrolling stops for 300ms.
-// - Discard scroll events whose net displacement stays ≤ 200 in both axes,
-//   measured in the native wheel-delta units the deltas arrive in (not
-//   pixels; Windows feeds 120 per wheel detent, so the floor is ~1.7 detents).
+// Requirements (the shared debounce/coalesce rule, core CP-16; the window's
+// and the floor's values, and the floor's units, are `timing.rs`'s):
+// - Debounce scroll events — record only after scrolling stops for
+//   `SCROLL_DEBOUNCE_MS`.
+// - Discard scroll events whose net displacement stays within
+//   `SCROLL_MIN_DISTANCE_PX` on both axes.
 
 // ---------------------------------------------------------------------------
 // Constants (imported from timing.rs — single source of truth)
@@ -26,19 +29,21 @@ use super::timing::{
 // ---------------------------------------------------------------------------
 
 /// A single raw scroll event with a timestamp and per-axis deltas.
+///
+/// Both deltas are the values the platform's input layer feeds, unconverted:
+/// native wheel-delta units, not pixels, signed by the platform's wheel
+/// convention — the units and sign the exported scroll action's
+/// `delta_x`/`delta_y` carry (`schemas/shared.schema.json`, `action_scroll`).
+/// Windows feeds the raw `WM_MOUSEHWHEEL` delta to `delta_x` (positive = wheel
+/// tilted right) and the raw `WM_MOUSEWHEEL` delta to `delta_y` (positive =
+/// wheel rotated forward, away from the user, i.e. scrolling up).
 #[derive(Debug, Clone)]
 pub struct RawScrollEvent {
     /// Unix millisecond timestamp of this scroll event.
     pub timestamp: u64,
-    /// Horizontal scroll delta as fed by the platform's input layer — native
-    /// wheel-delta units, not pixels; the sign follows the platform's wheel
-    /// convention (Windows feeds the raw `WM_MOUSEHWHEEL` delta: positive =
-    /// wheel tilted right).
+    /// Horizontal scroll delta.
     pub delta_x: f64,
-    /// Vertical scroll delta as fed by the platform's input layer — native
-    /// wheel-delta units, not pixels; the sign follows the platform's wheel
-    /// convention (Windows feeds the raw `WM_MOUSEWHEEL` delta: positive =
-    /// wheel rotated forward / away from the user, i.e. scrolling up).
+    /// Vertical scroll delta.
     pub delta_y: f64,
 }
 
@@ -47,17 +52,15 @@ pub struct RawScrollEvent {
 // ---------------------------------------------------------------------------
 
 /// The result of processing a scroll sequence through debounce + threshold.
+///
+/// Each total is the signed sum of the sequence's [`RawScrollEvent`] deltas on
+/// that axis, summed unchanged — so in the units and sign that
+/// [`RawScrollEvent`] states.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ScrollResult {
-    /// Net horizontal displacement (signed sum of the sequence's `delta_x`
-    /// values) — carried through in the same native wheel-delta units, not
-    /// pixels, and with the same sign convention as `RawScrollEvent::delta_x`;
-    /// the events are summed unchanged.
+    /// Net horizontal displacement: the sequence's summed `delta_x`.
     pub total_delta_x: f64,
-    /// Net vertical displacement (signed sum of the sequence's `delta_y`
-    /// values) — carried through in the same native wheel-delta units, not
-    /// pixels, and with the same sign convention as `RawScrollEvent::delta_y`;
-    /// the events are summed unchanged.
+    /// Net vertical displacement: the sequence's summed `delta_y`.
     pub total_delta_y: f64,
 }
 
@@ -73,14 +76,15 @@ pub struct ScrollResult {
 /// 2. For each sequence, sum the deltas across all events.
 /// 3. Discard sequences where `|total_delta_x| ≤ MIN_SCROLL_DISTANCE_PX` AND
 ///    `|total_delta_y| ≤ MIN_SCROLL_DISTANCE_PX`.
-/// 4. Return the surviving sequences as `ScrollResult`s.
+/// 4. Return the surviving sequences as [`ScrollResult`]s.
+///
+/// `DEBOUNCE_MS` and `MIN_SCROLL_DISTANCE_PX` are this module's aliases of
+/// [`SCROLL_DEBOUNCE_MS`](super::timing::SCROLL_DEBOUNCE_MS) and
+/// [`SCROLL_MIN_DISTANCE_PX`](super::timing::SCROLL_MIN_DISTANCE_PX), whose
+/// docs own the values and the floor's units.
 ///
 /// The input events MUST be sorted by timestamp (ascending). If they are not,
 /// the behaviour is undefined (but will not panic).
-///
-/// # Requirements
-/// - Debounce at 300ms
-/// - Discard ≤ 200 in both axes (native wheel-delta units, not pixels)
 pub fn process_scroll_events(events: &[RawScrollEvent]) -> Vec<ScrollResult> {
     if events.is_empty() {
         return Vec::new();
@@ -230,6 +234,21 @@ pub fn should_keep_event(event_pid: u32, excluded_pid: Option<u32>) -> bool {
         Some(excl) => event_pid != excl,
         None => true,
     }
+}
+
+/// The webview runtime's executable file name (DCP-5's executable-name ground).
+pub const WEBVIEW_RUNTIME_EXE: &str = "msedgewebview2.exe";
+
+/// The executable-name ground of self-capture exclusion (DCP-5) as pure logic:
+/// `true` when `exe_name` is the webview runtime's file name or Docent's own
+/// binary name, `own_exe_name` — the running process's own executable file
+/// name, so the dev binary, the bundled binary and every test binary each
+/// recognize themselves without a hard-coded product name. Whole-name,
+/// case-insensitive comparison (Windows file names are case-insensitive); a
+/// name that merely contains either one is not recognized.
+pub fn is_recognized_exe_name(exe_name: &str, own_exe_name: Option<&str>) -> bool {
+    let lower = exe_name.to_lowercase();
+    lower == WEBVIEW_RUNTIME_EXE || own_exe_name.is_some_and(|own| lower == own.to_lowercase())
 }
 
 // ---------------------------------------------------------------------------
@@ -437,6 +456,54 @@ mod tests {
         acc.clear();
         assert!(!acc.has_pending());
         assert!(acc.try_flush(2000).is_none());
+    }
+
+    // -- is_recognized_exe_name (DCP-5 executable-name ground) ------------
+
+    #[test]
+    fn recognized_exe_name_matches_own_name_whole_and_case_insensitively() {
+        assert!(is_recognized_exe_name(
+            "Docent-Desktop.EXE",
+            Some("docent-desktop.exe")
+        ));
+        assert!(is_recognized_exe_name(
+            "Docent Desktop.exe",
+            Some("Docent Desktop.exe")
+        ));
+    }
+
+    #[test]
+    fn recognized_exe_name_matches_the_webview_runtime_whole_name() {
+        assert!(is_recognized_exe_name("MSEdgeWebView2.exe", None));
+        assert!(is_recognized_exe_name(
+            "msedgewebview2.exe",
+            Some("docent-desktop.exe")
+        ));
+    }
+
+    // Regression: a third-party binary whose name merely contains "docent" was
+    // excluded by the substring match. No GitHub issue — found reconciling
+    // DCP-5's "binary name" against the code.
+    #[test]
+    fn regression_noissue_exe_name_only_containing_docent_is_kept() {
+        assert!(!is_recognized_exe_name(
+            "docent-helper.exe",
+            Some("docent-desktop.exe")
+        ));
+        assert!(!is_recognized_exe_name("docentcloud.exe", None));
+        assert!(!is_recognized_exe_name(
+            "old-docent-desktop.exe",
+            Some("docent-desktop.exe")
+        ));
+    }
+
+    // Regression: a binary whose name merely contains "msedgewebview2" (an
+    // updater, say) was excluded by the substring match. No GitHub issue — the
+    // same reconcile.
+    #[test]
+    fn regression_noissue_exe_name_only_containing_the_runtime_name_is_kept() {
+        assert!(!is_recognized_exe_name("msedgewebview2_updater.exe", None));
+        assert!(!is_recognized_exe_name("x_msedgewebview2.exe", None));
     }
 
     // -- should_keep_event (PID filtering) ---------------------------------
