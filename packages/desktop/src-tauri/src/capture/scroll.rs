@@ -234,6 +234,21 @@ pub fn should_keep_event(event_pid: u32, excluded_pid: Option<u32>) -> bool {
     }
 }
 
+/// The webview runtime's executable file name (DCP-5's executable-name ground).
+pub const WEBVIEW_RUNTIME_EXE: &str = "msedgewebview2.exe";
+
+/// The executable-name ground of self-capture exclusion (DCP-5) as pure logic:
+/// `true` when `exe_name` is the webview runtime's file name or Docent's own
+/// binary name, `own_exe_name` — the running process's own executable file
+/// name, so the dev binary, the bundled binary and every test binary each
+/// recognize themselves without a hard-coded product name. Whole-name,
+/// case-insensitive comparison (Windows file names are case-insensitive); a
+/// name that merely contains either one is not recognized.
+pub fn is_recognized_exe_name(exe_name: &str, own_exe_name: Option<&str>) -> bool {
+    let lower = exe_name.to_lowercase();
+    lower == WEBVIEW_RUNTIME_EXE || own_exe_name.is_some_and(|own| lower == own.to_lowercase())
+}
+
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
@@ -439,6 +454,49 @@ mod tests {
         acc.clear();
         assert!(!acc.has_pending());
         assert!(acc.try_flush(2000).is_none());
+    }
+
+    // -- is_recognized_exe_name (DCP-5 executable-name ground) ------------
+
+    #[test]
+    fn recognized_exe_name_matches_own_name_whole_and_case_insensitively() {
+        assert!(is_recognized_exe_name(
+            "Docent-Desktop.EXE",
+            Some("docent-desktop.exe")
+        ));
+        assert!(is_recognized_exe_name(
+            "Docent Desktop.exe",
+            Some("Docent Desktop.exe")
+        ));
+    }
+
+    #[test]
+    fn recognized_exe_name_matches_the_webview_runtime_whole_name() {
+        assert!(is_recognized_exe_name("MSEdgeWebView2.exe", None));
+        assert!(is_recognized_exe_name(
+            "msedgewebview2.exe",
+            Some("docent-desktop.exe")
+        ));
+    }
+
+    // Regression: a third-party binary whose name merely contains "docent" was
+    // excluded by the substring match. No GitHub issue — found reconciling
+    // DCP-5's "binary name" against the code.
+    #[test]
+    fn regression_noissue_exe_name_only_containing_docent_is_kept() {
+        assert!(!is_recognized_exe_name(
+            "docent-helper.exe",
+            Some("docent-desktop.exe")
+        ));
+        assert!(!is_recognized_exe_name("docentcloud.exe", None));
+    }
+
+    // Regression: a binary whose name merely contains "msedgewebview2" (an
+    // updater, say) was excluded by the substring match. No GitHub issue — the
+    // same reconcile.
+    #[test]
+    fn regression_noissue_exe_name_only_containing_the_runtime_name_is_kept() {
+        assert!(!is_recognized_exe_name("msedgewebview2_updater.exe", None));
     }
 
     // -- should_keep_event (PID filtering) ---------------------------------

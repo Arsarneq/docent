@@ -188,24 +188,34 @@ fn windows_should_keep_event(event_pid: u32, excluded_pid: Option<u32>) -> bool 
         if is_descendant_of(event_pid, excl) {
             return false;
         }
-        // Fallback: check if the process is msedgewebview2.exe (WebView2
-        // renderer) — these are always Docent's children when self-capture
-        // exclusion is enabled.
-        if is_webview_process(event_pid) {
+        // Executable-name ground (DCP-5): the webview runtime's file name, or
+        // Docent's own binary name, regardless of tree membership.
+        if is_recognized_by_exe_name(event_pid) {
             return false;
         }
     }
     true
 }
 
-/// Check if a process is a WebView2 renderer by its executable name.
-fn is_webview_process(pid: u32) -> bool {
-    if let Some(name) = get_process_exe_name(pid) {
-        let lower = name.to_lowercase();
-        lower.contains("msedgewebview2") || lower.contains("docent")
-    } else {
-        false
-    }
+/// The running process's own executable file name, read once — Docent's own
+/// binary name for the executable-name ground (DCP-5), whatever the build named
+/// it (dev, bundled, or test binary).
+fn own_exe_name() -> Option<&'static str> {
+    static OWN: std::sync::OnceLock<Option<String>> = std::sync::OnceLock::new();
+    OWN.get_or_init(|| {
+        std::env::current_exe()
+            .ok()
+            .and_then(|p| p.file_name().map(|n| n.to_string_lossy().into_owned()))
+    })
+    .as_deref()
+}
+
+/// Check if a process is recognized by executable name (DCP-5): the webview
+/// runtime's file name or Docent's own binary name, matched whole
+/// ([`is_recognized_exe_name`](super::scroll::is_recognized_exe_name)).
+fn is_recognized_by_exe_name(pid: u32) -> bool {
+    get_process_exe_name(pid)
+        .is_some_and(|name| super::scroll::is_recognized_exe_name(&name, own_exe_name()))
 }
 
 /// Check if `pid` is a descendant (child, grandchild, etc.) of `ancestor_pid`.
@@ -2981,7 +2991,7 @@ impl AccessibilityBackend for WindowsAccessibilityBackend {
 mod tests {
     use super::{
         control_type_name, get_parent_pid, get_process_exe_name, is_descendant_of,
-        is_webview_process, windows_should_keep_event,
+        is_recognized_by_exe_name, windows_should_keep_event,
     };
 
     // -- process-tree helpers (against the live process table) -------------
@@ -3039,17 +3049,20 @@ mod tests {
     }
 
     #[test]
-    fn is_webview_process_matches_docent_binary_name() {
-        // The self-capture filter treats any process whose exe name contains
-        // "docent" (or "msedgewebview2") as part of Docent's own tree. The test
-        // binary is `docent-desktop…`, so this exercises the positive match.
-        assert!(is_webview_process(std::process::id()));
+    fn is_recognized_by_exe_name_matches_docent_binary_name() {
+        // The running test binary (`docent_desktop_lib-<hash>.exe`) is, by
+        // construction, this process's own binary name — the own-name branch
+        // matches it whole. The whole-name comparison's negative cases are the
+        // scroll module's regression tests
+        // `regression_noissue_exe_name_only_containing_docent_is_kept` and
+        // `regression_noissue_exe_name_only_containing_the_runtime_name_is_kept`.
+        assert!(is_recognized_by_exe_name(std::process::id()));
     }
 
     #[test]
-    fn is_webview_process_false_for_unknown_pid() {
-        // No exe name resolvable → not a WebView process.
-        assert!(!is_webview_process(u32::MAX - 1));
+    fn is_recognized_by_exe_name_false_for_unknown_pid() {
+        // No exe name resolvable → not recognized by name.
+        assert!(!is_recognized_by_exe_name(u32::MAX - 1));
     }
 
     // -- windows_should_keep_event (base-rule delegation) ------------------
@@ -3403,9 +3416,9 @@ mod tests {
 
     /// A PID no live process can be using, so the process-table lookups answer
     /// it deterministically: it resolves to no executable name, and therefore
-    /// to no Docent-tree membership by name. The adjacent cases
+    /// to no executable-name recognition. The adjacent cases
     /// `get_process_exe_name_unknown_pid_is_none` and
-    /// `is_webview_process_false_for_unknown_pid` pin those two answers.
+    /// `is_recognized_by_exe_name_false_for_unknown_pid` pin those two answers.
     const UNKNOWN_PROCESS: u32 = u32::MAX - 1;
 
     /// Set the Input_Thread's target-application atomic; `None` writes the
