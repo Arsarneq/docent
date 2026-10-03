@@ -653,7 +653,7 @@ test.describe('Recording State Transitions', () => {
   });
 
   // ── The record-start sweep's frame reach (ECP-2) ────────────────────────────
-  // What this case observes is ECP-2's record-start bullet (extension
+  // What this case observes is the record-start bullet (extension
   // capture-principles ECP-2) on a frame whose own document is not http(s).
   // The child here is a srcdoc frame — its own document is about:srcdoc —
   // built while no recording runs, so nothing has injected it: the per-frame

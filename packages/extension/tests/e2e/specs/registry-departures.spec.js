@@ -412,12 +412,12 @@ async function clickAwaitingRecentAction(serviceWorker, page, selector) {
 /**
  * Open a tab no recent user action precedes and wait for it to register, then
  * hand back the page and its tab id. A tab created with no recent user action
- * is not tracked as programmatic, and the whole set is asserted empty here —
- * each caller opens with nothing planted — rather than at each caller.
- * `baseTabs` is the registry's key set before the tab opens, so the new tab is
- * the one key it lacks. The planted-membership cases open every tab they close
- * through this, so their legs are set up the same by construction, as their
- * clicks are by clickAwaitingRecentAction.
+ * is not tracked as programmatic (extension capture-principles ECP-12), and the
+ * whole set is asserted empty here — each caller opens with nothing planted —
+ * rather than at each caller. `baseTabs` is the registry's key set before the
+ * tab opens, so the new tab is the one key it lacks. The planted-membership
+ * cases open every tab they close through this, so their legs are set up the
+ * same by construction, as their clicks are by clickAwaitingRecentAction.
  */
 async function openUntrackedTab(serviceWorker, context, baseTabs, html) {
   const page = await context.newPage();
