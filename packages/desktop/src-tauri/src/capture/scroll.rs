@@ -1,10 +1,12 @@
-// Scroll debounce/threshold filtering and the platform-agnostic PID-exclusion
-// base rule — pure-Rust logic for capture noise reduction.
+// Scroll debounce/threshold filtering, the platform-agnostic PID-exclusion
+// base rule, and the executable-name ground of DCP-5's self-capture exclusion
+// (the whole-name comparison against the webview runtime's file name and
+// Docent's own binary name) — pure-Rust logic for capture noise reduction.
 //
 // This module contains NO platform API calls so it can be compiled and tested
 // on any target. Platform-specific concerns layer on top elsewhere: the actual
-// `WM_MOUSEWHEEL` monitoring and the WebView2 process-tree filtering live in
-// `windows.rs`.
+// `WM_MOUSEWHEEL` monitoring, the WebView2 process-tree filtering, and the
+// Windows wrapper that reads a process's executable name live in `windows.rs`.
 //
 // Requirements (the shared debounce/coalesce rule, core CP-16; the window's
 // and the floor's values, and the floor's units, are `timing.rs`'s):
@@ -489,6 +491,10 @@ mod tests {
             Some("docent-desktop.exe")
         ));
         assert!(!is_recognized_exe_name("docentcloud.exe", None));
+        assert!(!is_recognized_exe_name(
+            "old-docent-desktop.exe",
+            Some("docent-desktop.exe")
+        ));
     }
 
     // Regression: a binary whose name merely contains "msedgewebview2" (an
@@ -497,6 +503,7 @@ mod tests {
     #[test]
     fn regression_noissue_exe_name_only_containing_the_runtime_name_is_kept() {
         assert!(!is_recognized_exe_name("msedgewebview2_updater.exe", None));
+        assert!(!is_recognized_exe_name("x_msedgewebview2.exe", None));
     }
 
     // -- should_keep_event (PID filtering) ---------------------------------
