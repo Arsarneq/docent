@@ -16,10 +16,14 @@ Tests live in two places:
   plus `commands`, `secret_store`, and `sync_http`). These run under
   `cargo test --lib`.
 - **Test binaries** — the `packages/desktop/src-tauri/tests/` directory (Cargo
-  convention), one file per concern. The binaries are exactly the `.rs` files
-  directly in it — the set CI's discovery step reads — listed below; a new one
-  joins this table in the same change that adds it, and a CI lint holds the two
-  in agreement. That same lint refuses an undiscovered test binary — one Cargo
+  convention); the Covers column states what each binary covers (a new binary
+  takes the `<concern>_test.rs` form §Where a new test goes states), and a
+  subject two binaries reach from different angles — the PID base filter, by
+  example in `windows_capture_test.rs` and as a property in
+  `pid_filter_test.rs` — stands in both rows. The binaries are exactly the
+  `.rs` files directly in it — the set CI's discovery step reads — listed
+  below; a new one joins this table in the same change that adds it, and a CI
+  lint holds the two in agreement. That same lint refuses an undiscovered test binary — one Cargo
   runs under local `cargo test` while CI's discovery never sees it — by either
   route: the directory form `tests/<name>/main.rs`, or the crate manifest
   stating the test targets itself (a `[[test]]` stanza, the same array written
