@@ -14,10 +14,14 @@
  * test-only evaluator the hygiene locks use.
  *
  * This is test-harness code (under a package's tests tree, eslint-ignored),
- * never a shipped runtime.
+ * never a shipped runtime. `buildVectors` is also imported by the shared unit
+ * suite (packages/shared/tests/unit/vector-meta-schema.test.js), which runs
+ * where this tree's own dependencies are not installed, so this module stays
+ * free of e2e-only packages.
  */
 
 import { serializeSnapshot } from '../../../../../corpus/lib/snapshot-walker.js';
+import { SHIPPED_OUTCOME } from '../../../../../corpus/lib/vector-meta-schema.js';
 import { measureStrategyMatches } from '../../../../shared/tests/unit/vector-measurement.js';
 
 // The walker is self-contained, so its source runs unchanged in the page.
@@ -102,7 +106,7 @@ export function buildVectors(sessionId, marks, actions) {
       tree_snapshot: snapshot,
       ground_truth: { node_id: groundTruthNodeId },
       matched_node_ids: matchedNodeIds,
-      expected_outcome: 'resolved',
+      expected_outcome: SHIPPED_OUTCOME,
     };
   });
 }

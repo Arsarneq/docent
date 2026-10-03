@@ -181,9 +181,8 @@ function clearActiveFrames() {
  * that direction is review-held. No capture decision reads the handle.
  */
 globalThis.__docentCaptureBookkeeping = Object.freeze({
-  /** Snapshot of the active-frame registry as { [tabId]: frameId[] }. */
-  frameRegistry: () =>
-    Object.fromEntries([...activeFrames].map(([tabId, frames]) => [tabId, [...frames]])),
+  /** Snapshot of the active-frame registry as [tabId, frameId[]] pairs. */
+  frameRegistry: () => [...activeFrames].map(([tabId, frames]) => [tabId, [...frames]]),
   /** Snapshot of the programmatic-tab set as tabId[]. */
   programmaticTabs: () => [...programmaticTabs],
   /** The ids a record-start would target, read through the seed's own query. */
