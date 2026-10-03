@@ -1,7 +1,9 @@
 /**
  * recorder-logic.test.js — Unit tests for extracted content script logic.
  *
- * Tests selector derivation, locator measurement, and element description
+ * Tests selector derivation, locator measurement, element description, the
+ * scroll decision, and the
+ * content script's inline scroll literals against their declared constants
  * with mock DOM elements. No browser required: the measurement root is a
  * fake `ownerDocument` whose querySelectorAll is backed by a Map from
  * selector string → element array (or the 'throw' sentinel).
