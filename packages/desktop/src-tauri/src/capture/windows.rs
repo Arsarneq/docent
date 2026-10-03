@@ -174,10 +174,12 @@ unsafe fn is_owned_by_excluded(hwnd: HWND, excluded_pid: u32) -> bool {
 ///
 /// Returns `true` if the event should be **kept**. Applies the shared base
 /// rule first (PID 0 / direct excluded-PID match), then, while self-capture
-/// exclusion is on, the Windows-only grounds of DCP-5: the process tree
-/// (`is_descendant_of`) — Docent renders its UI in a WebView2 host that spawns
-/// several layers of child processes under different PIDs — and the executable
-/// name, the webview runtime's or Docent's own (`is_recognized_by_exe_name`).
+/// exclusion is on, DCP-5's process-tree ground (`is_descendant_of`) — Docent
+/// renders its UI in a WebView2 host that spawns several layers of child
+/// processes under different PIDs — and its executable-name ground — the
+/// webview runtime's or Docent's own (`is_recognized_by_exe_name`); DCP-5's
+/// owned-window ground is the scope filter's, applied through
+/// `is_owned_by_excluded`, which itself consults this filter.
 fn windows_should_keep_event(event_pid: u32, excluded_pid: Option<u32>) -> bool {
     if !super::scroll::should_keep_event(event_pid, excluded_pid) {
         return false;

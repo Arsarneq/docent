@@ -232,11 +232,12 @@ export function composePlatform(platform) {
 /**
  * Enumerate the members of a schema's `<unionDefName>.oneOf` union,
  * dereferenced into `$defs`, in declaration order (an inline member is
- * returned as itself, with a null name). The single home for the `#/$defs/`
- * dereference convention — every union walk below goes through it, so the
- * sufficiency lint, the composition tests, the per-platform redaction drift
- * guards and the action-type locks can never disagree on how a union member
- * resolves. Returns [] when the schema declares no such union.
+ * returned as itself, with a null name). The one `#/$defs/` dereference behind
+ * `locatorStrategyDefs` and `actionTypes`, so their callers — the sufficiency
+ * lint, the composition tests, the per-platform redaction drift guards, and
+ * the action-type locks — resolve a union member the same way;
+ * `scripts/check-schema-echo.js` keeps its own reader of the action union for
+ * its echo legs. Returns [] when the schema declares no such union.
  *
  * @param {object} schema - a composed platform schema or a source layer
  * @param {string} unionDefName - the `$defs` entry holding the `oneOf` union
@@ -269,8 +270,10 @@ export function locatorStrategyDefs(schema) {
  * Enumerate a schema's action types: the `type.const` of each member of
  * `action.oneOf`, dereferenced into `$defs` through `unionMemberDefs`, in
  * declaration order. The single home for "the platform's action types", so
- * every test that states that set derives it here instead of restating it.
- * Returns [] when the schema declares no action union.
+ * every test that states that set derives it here instead of restating it —
+ * except the Rust action-mapping test's list, which the desktop unit lock
+ * `rust-action-types-lock.test.js` holds equal to this set. Returns [] when
+ * the schema declares no action union.
  *
  * @param {object} schema - a composed platform schema or a source layer
  * @returns {string[]}

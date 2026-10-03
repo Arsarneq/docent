@@ -159,12 +159,12 @@ mod tests {
         assert!(is_correlated(50, 100, FOCUS_CORRELATION_MS));
     }
 
-    // ─── click redundancy: suppressed iff gap <= CLICK_REDUNDANCY_MS ────────
+    // ─── click redundancy: suppressed iff a click is stamped and gap <= CLICK_REDUNDANCY_MS ───
 
     #[test]
     fn click_redundancy_inside_window_suppresses() {
-        // gap = 199 < 200 → redundant (suppressed)
-        assert!(is_click_redundant(10_199, 10_000));
+        // gap one short of the window → redundant (suppressed)
+        assert!(is_click_redundant(10_000 + CLICK_REDUNDANCY_MS - 1, 10_000));
     }
 
     // Regression: a focus or selection event exactly CLICK_REDUNDANCY_MS after a
