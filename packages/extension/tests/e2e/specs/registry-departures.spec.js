@@ -41,10 +41,12 @@
  * leading clear on the `RECORDING_START` and `RECORDING_CREATE` handlers, and
  * the stop chokepoint — so the watch never runs and that call-site clear is
  * the only one. A planted programmatic-tab entry serves the same purpose on
- * the set, and it carries both sides of the close suppression: planted
+ * the set, where the close suppression (extension capture-principles ECP-12)
+ * is varied one conjunct at a time: inside the recent-action window, planted
  * membership suppresses the close proxy for a tab closed after a user action
- * while the close lands inside the recent-action window, and past that window
- * the same planted membership leaves the proxy appended.
+ * while the same close of a tab with no planted entry appends it — the
+ * membership-varied control; past that window, the same planted membership
+ * leaves the proxy appended.
  *
  * WIPING simulates the in-memory loss an MV3 idle suspension causes, which
  * Playwright cannot force — a distinct limitation from the reload-reconnect
@@ -54,7 +56,13 @@
  * tab's entry after a wiped registry, and a wiped programmatic-tab set
  * letting a scripted close append a context_close the user never performed,
  * the degradation the correlation-marker class already admits (extension
- * runtime ERT-1).
+ * runtime ERT-1). The set's loss case runs one flow twice, and the first run
+ * is its control, on organic membership: a real click opens a popup tab by
+ * script, so the worker classifies the tab into the set at its creation with
+ * nothing planted, and with the set intact that membership suppresses the
+ * tab's scripted close (extension capture-principles ECP-12). The second run
+ * wipes the set between the open and the close, so the wipe is the one
+ * difference between the suppressed close and the appended one.
  *
  * One case belongs to none of those groups, because it reaches neither
  * structure the handle observes: the platform premise the same-value routes
@@ -74,6 +82,7 @@ import {
   getPendingActions,
   waitForActionsToSettle,
 } from '../helpers/extension-fixture.js';
+import { waitForState } from '../helpers/deadline-poll.js';
 import {
   TAB_CREATED_USER_ACTION_WINDOW,
   TAB_CLOSED_USER_ACTION_WINDOW,
@@ -158,32 +167,33 @@ async function sendSWMessage(panelPage, msg) {
 // Plants and wipes are synchronous inside the worker — when the evaluate
 // resolves, the mutation is applied — so plant-then-verify reads directly
 // instead of polling. Polls exist for the event-driven mutations only.
-//
-// The reads hand back different key types: frameRegistry() is built with
-// Object.fromEntries, so its tab ids arrive as STRINGS, while
-// programmaticTabs() and captureTargetTabIds() hand back the NUMBERS they
-// hold. The registry snapshot being string-keyed is the rule behind every
-// conversion here: an id used as a registry key is stringified whatever its
-// origin — a read, a module constant, or an id taken off the action stream —
-// and an id leaving the registry for anything else — a plant, or a comparison
-// against the numbers the stream and the other reads hand back — is a number.
 
-const readRegistry = (serviceWorker) =>
-  serviceWorker.evaluate(() => globalThis.__docentCaptureBookkeeping.frameRegistry());
+/**
+ * The registry snapshot as a Map from tab id to frame ids. The handle answers
+ * [tabId, frameIds] pairs, so a tab id arrives as the value the registry holds,
+ * and the read holds the type the worker keys by: a plant keyed by anything
+ * but a number would land beside the real entry rather than in it; every read
+ * asserts each key is a number, so such a plant fails at the next read,
+ * whichever site planted it.
+ */
+const readRegistry = async (serviceWorker) => {
+  const pairs = await serviceWorker.evaluate(() =>
+    globalThis.__docentCaptureBookkeeping.frameRegistry(),
+  );
+  for (const [tabId] of pairs) {
+    expect(typeof tabId, `registry key ${JSON.stringify(tabId)} must be a number`).toBe('number');
+  }
+  return new Map(pairs);
+};
 
 const readProgrammaticTabs = (serviceWorker) =>
   serviceWorker.evaluate(() => globalThis.__docentCaptureBookkeeping.programmaticTabs());
 
-const plantFrame = (serviceWorker, tabId, frameId) => {
-  // The registry keys tabs by NUMBER and the snapshot cannot show the
-  // difference, so the type is held here, at the site the mistake would be
-  // made — a string-keyed plant shadows the real entry rather than failing.
-  expect(typeof tabId, 'a planted tab id must be a number').toBe('number');
-  return serviceWorker.evaluate(
+const plantFrame = (serviceWorker, tabId, frameId) =>
+  serviceWorker.evaluate(
     ([t, f]) => globalThis.__docentCaptureBookkeeping.plantFrame(t, f),
     [tabId, frameId],
   );
-};
 
 const plantProgrammaticTab = (serviceWorker, tabId) =>
   serviceWorker.evaluate(
@@ -228,27 +238,6 @@ const readRecentActionAge = (serviceWorker) =>
   });
 
 /**
- * Poll `read()` until `predicate(value)` holds; throws on timeout with the
- * last value rendered by `format`.
- */
-async function waitForState(
-  read,
-  predicate,
-  describe,
-  { timeout = 10_000, interval = 50, format = JSON.stringify } = {},
-) {
-  const deadline = Date.now() + timeout;
-  for (;;) {
-    const value = await read();
-    if (predicate(value)) return value;
-    if (Date.now() > deadline) {
-      throw new Error(`Timed out waiting for ${describe}; last: ${format(value)}`);
-    }
-    await new Promise((r) => setTimeout(r, interval));
-  }
-}
-
-/**
  * The live tabs split by the record-start seed's own target query: the ids the
  * seed targets and the ids it does not. The in-seed half is the query itself,
  * read through the handle, not a restatement of what it matches — so widening
@@ -276,8 +265,8 @@ const liveTabsBySeedTarget = (serviceWorker) =>
  * `plantSentinels` holds the list against the live query before planting.
  */
 async function seedCoveredTabIds(serviceWorker, registry) {
-  const nonSeed = new Set((await liveTabsBySeedTarget(serviceWorker)).offSeed.map(String));
-  return Object.keys(registry).filter((t) => !nonSeed.has(t));
+  const nonSeed = new Set((await liveTabsBySeedTarget(serviceWorker)).offSeed);
+  return [...registry.keys()].filter((t) => !nonSeed.has(t));
 }
 
 /**
@@ -308,10 +297,7 @@ async function expectDeadTabIdUnowned(serviceWorker, liveIds) {
  * discriminating on some other property of a live tab is outside what these
  * sentinels see. The read-back is what keeps a plant that landed nowhere — an
  * id `registerFrame` drops for being null — from making a later check pass
- * vacuously. It cannot hold the key type at all; the plant helper asserts
- * that, for the reason stated there. The programmatic-tab plant needs no such
- * guard — that read hands back the values it holds, so a string plant fails
- * its own equality check.
+ * vacuously, and the read holds the key type (stated at readRegistry).
  */
 async function plantSentinels(serviceWorker, seedCoveredIds) {
   const { inSeed, offSeed: offSeedTabIds } = await liveTabsBySeedTarget(serviceWorker);
@@ -319,7 +305,7 @@ async function plantSentinels(serviceWorker, seedCoveredIds) {
   // live query: a key whose tab has departed would otherwise take an in-seed
   // sentinel no seed restores, and the seed waits below would hang instead
   // of failing with a reason.
-  const seedTargets = new Set(inSeed.map(String));
+  const seedTargets = new Set(inSeed);
   expect(
     seedCoveredIds.filter((t) => !seedTargets.has(t)),
     'every in-seed sentinel host must be a live tab inside the seed target set',
@@ -335,15 +321,12 @@ async function plantSentinels(serviceWorker, seedCoveredIds) {
   // The two halves above are every live tab, so the collision guard reads the
   // same snapshot the guards above did.
   await expectDeadTabIdUnowned(serviceWorker, [...inSeed, ...offSeedTabIds]);
-  // Past the guards the two lists differ in nothing the plants care about, so
-  // they normalize to one key type here: a read's string keys becoming the
-  // numbers a plant takes, which is the header's rule.
-  const orphanHosts = [...seedCoveredIds.map(Number), ...offSeedTabIds];
+  const orphanHosts = [...seedCoveredIds, ...offSeedTabIds];
   for (const t of orphanHosts) await plantFrame(serviceWorker, t, ORPHAN_FRAME_ID);
   await plantFrame(serviceWorker, DEAD_TAB_ID, 0);
   const planted = await readRegistry(serviceWorker);
-  expect(planted).toHaveProperty(String(DEAD_TAB_ID));
-  for (const t of orphanHosts) expect(planted[String(t)]).toContain(ORPHAN_FRAME_ID);
+  expect([...planted.keys()]).toContain(DEAD_TAB_ID);
+  for (const t of orphanHosts) expect(planted.get(t)).toContain(ORPHAN_FRAME_ID);
 }
 
 /**
@@ -356,14 +339,17 @@ async function plantSentinels(serviceWorker, seedCoveredIds) {
  * too.
  */
 function expectSentinelsGone(registry) {
-  expect(registry).not.toHaveProperty(String(DEAD_TAB_ID));
-  for (const [tabId, frames] of Object.entries(registry)) {
+  expect([...registry.keys()]).not.toContain(DEAD_TAB_ID);
+  for (const [tabId, frames] of registry) {
     expect(frames, `sentinel frame survived under tab ${tabId}`).not.toContain(ORPHAN_FRAME_ID);
   }
 }
 
 const waitForRegistry = (serviceWorker, predicate, opts) =>
-  waitForState(() => readRegistry(serviceWorker), predicate, 'registry state', opts);
+  waitForState(() => readRegistry(serviceWorker), predicate, 'registry state', {
+    format: (registry) => JSON.stringify([...registry]),
+    ...opts,
+  });
 
 const waitForProgrammaticTabs = (serviceWorker, predicate, opts) =>
   waitForState(
@@ -401,16 +387,17 @@ async function expectFlagAlreadyHolds(serviceWorker, value) {
  * at each of them.
  */
 async function seedCoveredOnceRegistered(serviceWorker) {
-  const live = await waitForRegistry(serviceWorker, (r) => Object.keys(r).length >= 1);
+  const live = await waitForRegistry(serviceWorker, (r) => r.size >= 1);
   return await seedCoveredTabIds(serviceWorker, live);
 }
 
 /**
  * Click, then wait for the recorder to persist the recent-action marker that
  * click produced — the signal the close-proxy timing window keys on, waited on
- * rather than bet on with a clock. The planted-suppression case's two legs
- * use this, so their setups are the same by construction and not merely by
- * comment; the wiped-set case's legs key on the close window itself instead.
+ * rather than bet on with a clock. The planted-membership cases use this for
+ * every click a close follows, so their setups are the same by construction
+ * and not merely by comment; the wiped-set case's legs key on the close window
+ * itself instead.
  */
 async function clickAwaitingRecentAction(serviceWorker, page, selector) {
   const before = Date.now();
@@ -420,6 +407,28 @@ async function clickAwaitingRecentAction(serviceWorker, page, selector) {
     (ts) => ts != null && ts >= before,
     'recent-action marker',
   );
+}
+
+/**
+ * Open a tab no recent user action precedes and wait for it to register, then
+ * hand back the page and its tab id. A tab created with no recent user action
+ * is not tracked as programmatic (extension capture-principles ECP-12), and the
+ * whole set is asserted empty here — each caller opens with nothing planted —
+ * rather than at each caller. `baseTabs` is the registry's key set before the
+ * tab opens, so the new tab is the one key it lacks. The planted-membership
+ * cases open every tab they close through this, so their legs are set up the
+ * same by construction, as their clicks are by clickAwaitingRecentAction.
+ */
+async function openUntrackedTab(serviceWorker, context, baseTabs, html) {
+  const page = await context.newPage();
+  await setTestContent(page, html);
+  const registered = await waitForRegistry(serviceWorker, (r) => r.size === baseTabs.size + 1);
+  const tabId = [...registered.keys()].find((k) => !baseTabs.has(k));
+  expect(
+    await readProgrammaticTabs(serviceWorker),
+    `the programmatic-tab set must be empty once untracked tab ${tabId} registers`,
+  ).toEqual([]);
+  return { page, tabId };
 }
 
 /**
@@ -437,7 +446,7 @@ async function clickAwaitingRecentAction(serviceWorker, page, selector) {
 async function expectRescopedDirectly(serviceWorker, seedCoveredIds) {
   const rescoped = await readRegistry(serviceWorker);
   expectSentinelsGone(rescoped);
-  for (const t of seedCoveredIds) expect(rescoped).toHaveProperty(t);
+  for (const t of seedCoveredIds) expect([...rescoped.keys()]).toContain(t);
 }
 
 /**
@@ -450,7 +459,7 @@ async function expectRescopedDirectly(serviceWorker, seedCoveredIds) {
 async function expectRescopedToSeedCovered(serviceWorker, seedCoveredIds) {
   const seeded = await waitForRegistry(
     serviceWorker,
-    (r) => seedCoveredIds.every((t) => t in r) && !(String(DEAD_TAB_ID) in r),
+    (r) => seedCoveredIds.every((t) => r.has(t)) && !r.has(DEAD_TAB_ID),
   );
   expectSentinelsGone(seeded);
 }
@@ -464,8 +473,8 @@ async function expectRescopedToSeedCovered(serviceWorker, seedCoveredIds) {
  * it falsely.
  */
 async function expectRegistryEmptied(serviceWorker, seedCoveredIds) {
-  const after = await waitForRegistry(serviceWorker, (r) => seedCoveredIds.every((t) => !(t in r)));
-  expect(after).toEqual({});
+  const after = await waitForRegistry(serviceWorker, (r) => seedCoveredIds.every((t) => !r.has(t)));
+  expect([...after]).toEqual([]);
 }
 
 test.describe('worker capture bookkeeping through the introspection handle', () => {
@@ -476,25 +485,22 @@ test.describe('worker capture bookkeeping through the introspection handle', () 
   }) => {
     // The recording tab is registered — the handle observes the real
     // registration the readiness beacon and the seed produced.
-    const before = await waitForRegistry(serviceWorker, (r) => Object.keys(r).length >= 1);
-    const baseTabs = new Set(Object.keys(before));
+    const before = await waitForRegistry(serviceWorker, (r) => r.size >= 1);
+    const baseTabs = new Set(before.keys());
 
     // A second recorded tab arrives and registers.
     const page2 = await context.newPage();
     await setTestContent(page2, '<h1>second tab</h1>');
-    const withSecond = await waitForRegistry(
-      serviceWorker,
-      (r) => Object.keys(r).length === baseTabs.size + 1,
-    );
-    const page2TabId = Object.keys(withSecond).find((k) => !baseTabs.has(k));
+    const withSecond = await waitForRegistry(serviceWorker, (r) => r.size === baseTabs.size + 1);
+    const page2TabId = [...withSecond.keys()].find((k) => !baseTabs.has(k));
     expect(page2TabId).toBeTruthy();
-    expect(withSecond[page2TabId]).toContain(0); // its main frame is registered
+    expect(withSecond.get(page2TabId)).toContain(0); // its main frame is registered
 
     // Close the tab: its whole frame set departs with it, and the first tab's
     // registration is untouched.
     await page2.close();
-    const after = await waitForRegistry(serviceWorker, (r) => !(page2TabId in r));
-    for (const k of baseTabs) expect(after).toHaveProperty(k);
+    const after = await waitForRegistry(serviceWorker, (r) => !r.has(page2TabId));
+    for (const k of baseTabs) expect([...after.keys()]).toContain(k);
   });
 
   test('a record-start on the panel-protocol route clears every planted entry and seeds the registry to the live frames', async ({
@@ -516,7 +522,7 @@ test.describe('worker capture bookkeeping through the introspection handle', () 
     // this way an empty registry IS the watch's clear observed, so the
     // sentinels planted after it can only be destroyed by the start under test.
     await writeRecordingFlag(serviceWorker, false);
-    await waitForRegistry(serviceWorker, (r) => Object.keys(r).length === 0);
+    await waitForRegistry(serviceWorker, (r) => r.size === 0);
     await plantSentinels(serviceWorker, seedCoveredIds);
 
     // Record-start again (the message route runs its own clear-and-seed and the
@@ -630,9 +636,9 @@ test.describe('worker capture bookkeeping through the introspection handle', () 
     await plantFrame(serviceWorker, DEAD_TAB_ID, 0);
     // The read-back the plant discipline states: the wait below is satisfied by
     // absence, so a probe that landed nowhere would pass it vacuously.
-    expect(await readRegistry(serviceWorker)).toHaveProperty(String(DEAD_TAB_ID));
+    expect([...(await readRegistry(serviceWorker)).keys()]).toContain(DEAD_TAB_ID);
     await writeRecordingFlag(serviceWorker, false);
-    await waitForRegistry(serviceWorker, (r) => !(String(DEAD_TAB_ID) in r));
+    await waitForRegistry(serviceWorker, (r) => !r.has(DEAD_TAB_ID));
 
     // Plant BETWEEN the two stops, so the second stop meets a registry that is
     // not already empty.
@@ -646,7 +652,7 @@ test.describe('worker capture bookkeeping through the introspection handle', () 
     expect((await sendSWMessage(panelPage, { type: 'RECORDING_STOP' })).ok).toBe(true);
     // Direct read; the emptied-state helper states the one-directional
     // late-write hazard.
-    expect(await readRegistry(serviceWorker)).toEqual({});
+    expect([...(await readRegistry(serviceWorker))]).toEqual([]);
   });
 
   test('a record-start driven by a direct write of the recording flag clears every planted entry and seeds the registry to the live frames', async ({
@@ -666,7 +672,7 @@ test.describe('worker capture bookkeeping through the introspection handle', () 
     // Stop by a direct flag write and let the watch finish processing it, then
     // plant the sentinels.
     await writeRecordingFlag(serviceWorker, false);
-    await waitForRegistry(serviceWorker, (r) => Object.keys(r).length === 0);
+    await waitForRegistry(serviceWorker, (r) => r.size === 0);
     await plantSentinels(serviceWorker, seedCoveredIds);
 
     // Restart by a direct flag write: the watch's clear-and-seed must end with
@@ -704,18 +710,15 @@ test.describe('worker capture bookkeeping through the introspection handle', () 
     context,
   }) => {
     await setTestContent(testPage, '<button id="btn">go</button>');
-    const base = await waitForRegistry(serviceWorker, (r) => Object.keys(r).length >= 1);
-    const baseTabs = new Set(Object.keys(base));
+    const base = await waitForRegistry(serviceWorker, (r) => r.size >= 1);
+    const baseTabs = new Set(base.keys());
 
-    // A tab created with no recent user action is not tracked as programmatic.
-    const page2 = await context.newPage();
-    await setTestContent(page2, '<h1>tab two</h1>');
-    const withP2 = await waitForRegistry(
+    const { page: page2, tabId: page2Id } = await openUntrackedTab(
       serviceWorker,
-      (r) => Object.keys(r).length === baseTabs.size + 1,
+      context,
+      baseTabs,
+      '<h1>tab two</h1>',
     );
-    const page2Id = Number(Object.keys(withP2).find((k) => !baseTabs.has(k)));
-    expect(await readProgrammaticTabs(serviceWorker)).toEqual([]);
 
     // Plant it, then close it right after a real user action: the planted
     // entry is consumed at the close and the proxy is suppressed.
@@ -724,7 +727,7 @@ test.describe('worker capture bookkeeping through the introspection handle', () 
     // The close must follow a recent user action.
     await clickAwaitingRecentAction(serviceWorker, testPage, '#btn');
     await page2.close();
-    await waitForRegistry(serviceWorker, (r) => !(String(page2Id) in r));
+    await waitForRegistry(serviceWorker, (r) => !r.has(page2Id));
     // The registry drop is observed before the close handler finishes deciding,
     // so let the stream settle before the negative read.
     await waitForActionsToSettle(serviceWorker, testPage);
@@ -737,14 +740,12 @@ test.describe('worker capture bookkeeping through the introspection handle', () 
     // the recent-action window from the click above lapse first, so this tab's
     // creation is not itself classified programmatic.
     await testPage.waitForTimeout(CREATION_WINDOW_LAPSE);
-    const page3 = await context.newPage();
-    await setTestContent(page3, '<h1>tab three</h1>');
-    const withP3 = await waitForRegistry(
+    const { page: page3, tabId: page3Id } = await openUntrackedTab(
       serviceWorker,
-      (r) => Object.keys(r).length === baseTabs.size + 1,
+      context,
+      baseTabs,
+      '<h1>tab three</h1>',
     );
-    const page3Id = Number(Object.keys(withP3).find((k) => !baseTabs.has(k)));
-    expect(await readProgrammaticTabs(serviceWorker)).toEqual([]);
     // Same precondition as the planted leg above.
     await clickAwaitingRecentAction(serviceWorker, testPage, '#btn');
     await page3.close();
@@ -765,18 +766,15 @@ test.describe('worker capture bookkeeping through the introspection handle', () 
     // this one holds the membership planted and varies the window. Between
     // them each conjunct of the suppression is what decides an outcome.
     await setTestContent(testPage, '<button id="btn">go</button>');
-    const base = await waitForRegistry(serviceWorker, (r) => Object.keys(r).length >= 1);
-    const baseTabs = new Set(Object.keys(base));
+    const base = await waitForRegistry(serviceWorker, (r) => r.size >= 1);
+    const baseTabs = new Set(base.keys());
 
-    // A tab created with no recent user action is not tracked as programmatic.
-    const page2 = await context.newPage();
-    await setTestContent(page2, '<h1>tab two</h1>');
-    const withP2 = await waitForRegistry(
+    const { page: page2, tabId: page2Id } = await openUntrackedTab(
       serviceWorker,
-      (r) => Object.keys(r).length === baseTabs.size + 1,
+      context,
+      baseTabs,
+      '<h1>tab two</h1>',
     );
-    const page2Id = Number(Object.keys(withP2).find((k) => !baseTabs.has(k)));
-    expect(await readProgrammaticTabs(serviceWorker)).toEqual([]);
 
     // Plant the membership this case holds, and read it back: the conjunct
     // this case does not vary is present from here on.
@@ -817,13 +815,13 @@ test.describe('worker capture bookkeeping through the introspection handle', () 
     serviceWorker,
   }) => {
     await setTestContent(testPage, '<button id="btn">go</button>');
-    await waitForRegistry(serviceWorker, (r) => Object.keys(r).length >= 1);
+    await waitForRegistry(serviceWorker, (r) => r.size >= 1);
 
     // SIMULATED suspension loss (the header states that Playwright cannot
     // force a real one): the wipe member simulates the in-memory loss one
     // causes.
     await wipeFrameRegistry(serviceWorker);
-    expect(await readRegistry(serviceWorker)).toEqual({});
+    expect([...(await readRegistry(serviceWorker))]).toEqual([]);
 
     // The next real append from the wiped tab is rescued by the lazy reseed:
     // the action reaches the stream and the appending tab is re-registered.
@@ -840,11 +838,8 @@ test.describe('worker capture bookkeeping through the introspection handle', () 
       (actions) => actions.filter((a) => a.type === 'click').length === clicksBefore + 1,
     );
     const appendingTabId = settled.filter((a) => a.type === 'click').at(-1).context_id;
-    expect(typeof appendingTabId, 'the rescued append must carry a numeric context_id').toBe(
-      'number',
-    );
     const healed = await readRegistry(serviceWorker);
-    expect(healed).toHaveProperty(String(appendingTabId));
+    expect([...healed.keys()]).toContain(appendingTabId);
   });
 
   test('a simulated suspension loss of the programmatic-tab set turns a scripted close into a recorded context_close', async ({
@@ -906,13 +901,12 @@ test.describe('worker capture bookkeeping through the introspection handle', () 
 
 // ─── The platform premise beneath the same-value routes ──────────────────────
 
-// A storage key the extension does not own, held before use against every key
-// its surfaces store — the worker's own writes, the panel adapter's settings
-// keys, and the recorder's marker — so this case observes its own writes and
-// nothing else observes them. The case pre-asserts the key reads back unset
-// besides, so a key introduced under this name later cannot decide it
-// silently.
-const PREMISE_KEY = 'docentSameValueWriteProbe';
+// A storage key the extension does not own, so this case observes its own
+// writes and nothing else observes them: a key a spec introduces for its own
+// use takes the `__` prefix (e2e.md §Adding a test). The case pre-asserts the
+// key reads back unset besides, so a key introduced under this name later
+// cannot decide it silently.
+const PREMISE_KEY = '__sameValueWriteProbe';
 
 /** Read the premise key straight from extension storage. */
 const readPremiseKey = (serviceWorker) =>
@@ -927,33 +921,34 @@ const writePremiseKey = (serviceWorker, value) =>
     [PREMISE_KEY, value],
   );
 
+/** Remove the premise key from extension storage. */
+const removePremiseKey = (serviceWorker) =>
+  serviceWorker.evaluate(async (k) => {
+    await chrome.storage.local.remove(k);
+  }, PREMISE_KEY);
+
 /**
- * Record the new value of every change event the premise key reports, in the
- * order they arrive. The listener is an observer installed beside the
- * production ones — Chrome dispatches a change to every listener — the shape
- * the readiness probe uses (helpers/frame-ready.js).
+ * Record every change event the premise key reports, in the order they
+ * arrive: the new value, or null for a removal, whose event carries none. The
+ * listener is an observer installed beside the production ones — Chrome
+ * dispatches a change to every listener — in the shape the readiness probe
+ * uses, install-once guard included (helpers/frame-ready.js). Nothing retires
+ * it: each test runs against a fresh browser context, and the case leaves the
+ * key removed.
  */
 const installPremiseProbe = (serviceWorker) =>
   serviceWorker.evaluate((k) => {
-    globalThis.__premiseProbeEvents = [];
-    globalThis.__premiseProbeListener = (changes, area) => {
+    globalThis.__premiseProbeEvents = globalThis.__premiseProbeEvents || [];
+    if (globalThis.__premiseProbeInstalled) return;
+    globalThis.__premiseProbeInstalled = true;
+    chrome.storage.onChanged.addListener((changes, area) => {
       if (area === 'local' && k in changes)
-        globalThis.__premiseProbeEvents.push(changes[k].newValue);
-    };
-    chrome.storage.onChanged.addListener(globalThis.__premiseProbeListener);
+        globalThis.__premiseProbeEvents.push(changes[k].newValue ?? null);
+    });
   }, PREMISE_KEY);
 
 const readPremiseProbeEvents = (serviceWorker) =>
   serviceWorker.evaluate(() => globalThis.__premiseProbeEvents);
-
-/** Retire the observer and the key it watched. */
-const removePremiseProbe = (serviceWorker) =>
-  serviceWorker.evaluate(async (k) => {
-    chrome.storage.onChanged.removeListener(globalThis.__premiseProbeListener);
-    delete globalThis.__premiseProbeListener;
-    delete globalThis.__premiseProbeEvents;
-    await chrome.storage.local.remove(k);
-  }, PREMISE_KEY);
 
 const waitForPremiseEvents = (serviceWorker, predicate) =>
   waitForState(() => readPremiseProbeEvents(serviceWorker), predicate, 'premise-key change events');
@@ -973,28 +968,33 @@ test.describe('the storage premise the same-value routes rest on', () => {
     ).toBeUndefined();
     await installPremiseProbe(serviceWorker);
 
-    // Establish a value and observe its event. This entry is the structural
-    // control: an observer that sees nothing at all cannot reach the equality
-    // assertion below, because the list it holds is never empty there.
-    await writePremiseKey(serviceWorker, 'established');
-    await waitForPremiseEvents(serviceWorker, (events) => events.length >= 1);
+    // One sequence pins the premise for both values the recording flag takes:
+    // each value is written, written again, and removed, every step awaited
+    // before the next. A removal changes the stored value, so it fires an event
+    // of its own, read as null. storage.onChanged dispatches in write order, so
+    // once a removal's event is observed, the same-value write before it would
+    // already have landed were it ever coming — the ordering barrier that
+    // replaces a duration wait here.
+    await writePremiseKey(serviceWorker, true);
+    await writePremiseKey(serviceWorker, true);
+    await removePremiseKey(serviceWorker);
+    await writePremiseKey(serviceWorker, false);
+    await writePremiseKey(serviceWorker, false);
+    await removePremiseKey(serviceWorker);
 
-    // The write under test, then a write of a DIFFERENT value, each awaited
-    // before the next. storage.onChanged dispatches in write order, so once
-    // the different-value event is observed, a same-value event would already
-    // have landed were it ever coming — the ordering barrier that replaces a
-    // duration wait here. The different-value write is also what exercises the
-    // barrier: making the same-value write carry a different value puts a
-    // third entry between these two and reds the assertion below.
-    await writePremiseKey(serviceWorker, 'established');
-    await writePremiseKey(serviceWorker, 'different');
-    const observed = await waitForPremiseEvents(serviceWorker, (events) =>
-      events.includes('different'),
+    // The wait resolves on the second removal's event — two nulls observed —
+    // so it ends after every write in the sequence whatever values the events
+    // carry, and an observer that sees nothing never resolves it, so it
+    // cannot reach the equality assertion below. The barrier is exercised
+    // there: making either same-value write carry the other value puts a fifth
+    // event into the list and reds that assertion.
+    const observed = await waitForPremiseEvents(
+      serviceWorker,
+      (events) => events.filter((e) => e === null).length >= 2,
     );
 
-    // Exactly the two writes that changed the value, in the order they ran.
-    expect(observed).toEqual(['established', 'different']);
-
-    await removePremiseProbe(serviceWorker);
+    // Exactly the writes that changed the value, each followed by its removal,
+    // in the order they ran.
+    expect(observed).toEqual([true, null, false, null]);
   });
 });

@@ -19,7 +19,12 @@
  * The same probe answers the negative direction: `expectNoFrameReady` holds a
  * frame to reporting nothing for a bounded window, which is how a test states
  * that no recorder is live in a document.
+ *
+ * Each wait is built on the bounded poll in `deadline-poll.js`, which states
+ * the expiry discipline and the timeout contract they share.
  */
+
+import { pollUntil, waitForState } from './deadline-poll.js';
 
 /** Install the FRAME_READY probe in the service worker (idempotent). */
 export async function installReadyProbe(serviceWorker) {
@@ -48,15 +53,12 @@ export async function waitForFrameReady(
   url,
   { timeout = 10_000, interval = 20 } = {},
 ) {
-  const deadline = Date.now() + timeout;
-  for (;;) {
-    const at = await getFrameReadyAt(serviceWorker, url);
-    if (at != null) return at;
-    if (Date.now() > deadline) {
-      throw new Error(`Timed out waiting for FRAME_READY from ${url}`);
-    }
-    await new Promise((r) => setTimeout(r, interval));
-  }
+  return waitForState(
+    () => getFrameReadyAt(serviceWorker, url),
+    (at) => at != null,
+    `FRAME_READY from ${url}`,
+    { timeout, interval },
+  );
 }
 
 /**
@@ -73,14 +75,14 @@ export async function waitForFrameReady(
  * this document's recorder.
  */
 export async function expectNoFrameReady(serviceWorker, url, { within, interval = 20 } = {}) {
-  const deadline = Date.now() + within;
-  for (;;) {
-    const at = await getFrameReadyAt(serviceWorker, url);
-    if (at != null) {
-      throw new Error(`FRAME_READY reported from ${url} (readyAt ${at}) within ${within}ms`);
-    }
-    if (Date.now() >= deadline) return;
-    await new Promise((r) => setTimeout(r, interval));
+  // A reported timestamp is never null, so the expiry's null is the absence.
+  const at = await pollUntil(
+    () => getFrameReadyAt(serviceWorker, url),
+    (readyAt) => readyAt != null,
+    { timeout: within, interval, onExpiry: () => null },
+  );
+  if (at != null) {
+    throw new Error(`FRAME_READY reported from ${url} (readyAt ${at}) within ${within}ms`);
   }
 }
 
@@ -99,13 +101,10 @@ export async function waitForFrameReadySince(
   sinceTs,
   { timeout = 10_000, interval = 20 } = {},
 ) {
-  const deadline = Date.now() + timeout;
-  for (;;) {
-    const at = await getFrameReadyAt(serviceWorker, url);
-    if (at != null && at > sinceTs) return at;
-    if (Date.now() > deadline) {
-      throw new Error(`Timed out waiting for FRAME_READY newer than ${sinceTs} from ${url}`);
-    }
-    await new Promise((r) => setTimeout(r, interval));
-  }
+  return waitForState(
+    () => getFrameReadyAt(serviceWorker, url),
+    (at) => at != null && at > sinceTs,
+    `FRAME_READY newer than ${sinceTs} from ${url}`,
+    { timeout, interval },
+  );
 }
