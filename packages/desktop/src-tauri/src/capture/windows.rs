@@ -5,8 +5,9 @@
 //
 // - **Input_Thread**: Runs `SetWinEventHook` / `SetWindowsHookEx` callbacks
 //   and a message pump. Captures raw event data (coordinates, window handles,
-//   key codes, timestamps) and dispatches `RawEvent`s to workers. Performs
-//   zero accessibility queries.
+//   key codes, timestamps) and dispatches `RawEvent`s to workers. Its one
+//   accessibility call is the `ElementFromPoint` pre-capture of clicked
+//   elements (DCP-1); every other accessibility query runs on the workers.
 //
 // - **Worker_Pool**: 3 pre-initialised Accessibility_Worker threads, each
 //   with its own COM STA apartment and `IUIAutomation` instance. Workers
@@ -1056,7 +1057,8 @@ impl CaptureLayer for WindowsCapture {
 
 /// The Input_Thread runs the platform's input observation loop (message pump +
 /// hooks). It captures raw event data and dispatches `RawEvent`s to the
-/// worker pool via a channel. It performs zero accessibility queries.
+/// worker pool via a channel. Its one accessibility call is the
+/// `ElementFromPoint` pre-capture of clicked elements (DCP-1).
 ///
 /// # Arguments
 ///
@@ -1812,7 +1814,8 @@ unsafe extern "system" fn input_win_event_proc(
 
 /// Low-level mouse hook for the Input_Thread. Captures raw mouse data,
 /// performs click-vs-drag classification, and dispatches `RawEvent`s.
-/// No accessibility queries.
+/// Makes the thread's one accessibility call — the `ElementFromPoint`
+/// pre-capture at a click (DCP-1).
 unsafe extern "system" fn input_mouse_ll_proc(
     n_code: i32,
     w_param: WPARAM,
