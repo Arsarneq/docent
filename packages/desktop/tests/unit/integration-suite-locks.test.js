@@ -78,13 +78,13 @@ describe('desktop integration-suite locks', () => {
     const reads = [];
     const resets = [];
     // Read through the comment-stripped view with literals kept: a comment is
-    // never a read, while a string can be page code handed to `evaluate`. An
-    // access is the member itself — `.name`, `?.name` or `['name']` — so prose
-    // naming it in a string is not one. A destructured alias
-    // (`const { _getInvokeCalls: g } = window.__TAURI__`) and a computed name are
-    // unseen here, as the helper-declaration case states its own limits above.
-    const access = (name) =>
-      new RegExp(`(?:\\??\\.\\s*${name}\\b|\\[\\s*(['"\`])${name}\\1\\s*\\])`, 'g');
+    // never a read, while a string can be page code handed to `evaluate`. Every
+    // mention of the name counts — a member access, a bracket string, a
+    // destructuring, an alias source, a call. The one form unseen here is a
+    // computed name (`window.__TAURI__[k]`), as the helper-declaration case
+    // states its own limits above; a prose string that merely mentions the name
+    // reds conservatively.
+    const access = (name) => new RegExp(`\\b${name}\\b`, 'g');
     for (const spec of SPECS) {
       const view = blankJsLiterals(read(spec), { literals: false });
       const lineOf = (index) => view.slice(0, index).split('\n').length;

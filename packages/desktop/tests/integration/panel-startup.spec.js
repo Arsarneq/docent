@@ -36,7 +36,10 @@ test.describe('Desktop Panel — startup gate', () => {
     // The promise is that every startup invoke was made before the open
     // returned, not the order the panel makes them in nor how many times it
     // makes each.
-    expect(new Set(await invokedCommands(page)), 'every startup invoke is recorded').toEqual(
+    expect(
+      new Set(await invokedCommands(page)),
+      "every startup invoke is recorded — openPanel's gate holds only while the render and the keep-alive invoke stay in one turn in the panel's init",
+    ).toEqual(
       new Set([
         'load_state',
         'list_windows',

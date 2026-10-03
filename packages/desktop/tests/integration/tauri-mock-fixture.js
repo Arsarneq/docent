@@ -38,9 +38,9 @@
  * unknown-invoke list each hand out a copy of what they hold (the reset hands
  * out nothing), so the one spec-side read of the record — the settle probe in
  * the dispatch and sync spec, which needs the invoke count and the saved blob
- * from one page turn and which the integration-suite locks name as the allowance — can sort,
- * reverse, or splice what it was given without reaching the record the mock
- * keeps.
+ * from one page turn and which the integration-suite locks name as the
+ * allowance — can sort, reverse, or splice what it was given without reaching
+ * the record the mock keeps.
  *
  * Spec-controlled behaviour rides named hooks on `window.__TAURI__`:
  * `_setWindows()` supplies the `list_windows` result, `_setImportResult()` the
@@ -562,19 +562,11 @@ export function installTauriMockServer(options = {}) {
 }
 
 /**
- * Open the panel: navigate to the served frontend, then wait for the panel to
- * have started up — its projects view as the panel rendered it
- * ({@link PROJECTS_VIEW_RENDERED}). The panel renders that view once it has
- * applied what it loaded, and the view is observable only once its startup
- * invokes are recorded — the render and the keep-alive invoke run in one turn —
- * so a spec's first action meets the started panel; only what startup set
- * running, such as an Auto-Sync cycle, can still be in flight. A visible
- * projects view would not do — the markup ships it un-hidden — and nor would
- * the startup `load_state` invoke, which is recorded when the call is made,
- * before the panel has its answer. An exception thrown during startup surfaces
- * as its own message, distinct from the one naming a bundle that never ran; the
- * watch itself stays armed for the test's whole run, so an error after the gate
- * fails the test in the shared afterEach.
+ * Open the panel: navigate to the served frontend, then wait for its projects
+ * view as the panel rendered it ({@link PROJECTS_VIEW_RENDERED}) — observable
+ * only once the startup invokes are recorded, so a spec's first action meets
+ * the started panel. Why that view is the gate, and how a startup exception is
+ * reported, is stated in the file header's `openPanel` paragraph.
  *
  * @param {import('@playwright/test').Page} page
  * @param {{ url: (pathname?: string) => string }} server the value
@@ -606,23 +598,18 @@ export async function openPanel(page, server, options = {}) {
   };
   try {
     await page.goto(server.url());
-    // Readiness has to be something the panel did, not something the markup
-    // already says: `#view-projects` is the one view shipped un-hidden, so it
-    // matches the moment the document parses, and an invoke is recorded when
-    // the call is made. The panel renders the projects view only once what was
-    // loaded has been applied, and that view is observable only once the startup
-    // invokes are recorded — the render and the keep-alive invoke run in one
-    // turn. A panel that never ran cannot produce it, so that rendered view is
-    // the whole gate.
+    // The gate is the rendered projects view alone; the file header says why.
     // A panel that throws before the render would otherwise cost the whole
     // timeout, so the wait races a poll over the page-error slot this open
-    // armed: a startup throw rejects within one poll, and either outcome stops
-    // the poll.
+    // armed: a startup throw rejects within one poll with a bare marker — the
+    // catch below builds the error from the page-error record — and either
+    // outcome stops the poll.
+    const threw = Symbol('startup threw');
     await new Promise((resolve, reject) => {
       const poll = setInterval(() => {
         if (!errors[seen]) return;
         clearInterval(poll);
-        reject(new Error('[tauri-mock] the panel threw while starting up'));
+        reject(threw);
       }, 50);
       page.waitForFunction(PROJECTS_VIEW_RENDERED, undefined, { timeout }).then(
         (value) => {

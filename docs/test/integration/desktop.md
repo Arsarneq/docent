@@ -52,13 +52,9 @@ the integration-suite locks name it as the allowance.
 **The helpers specs share.** Each carries the property a spec must not
 re-implement, so a wrong-reason pass fails at the helper: `openPanel` is the
 panel-open preamble (navigate, then wait for the projects view as the panel
-rendered it — rendered once startup has applied what it loaded, and observable
-only once the startup invokes are recorded, the render and the keep-alive invoke
-running in one turn, so a spec's first action meets the started panel, with only
-what startup set running, such as an Auto-Sync cycle, still in flight; a visible
-view would not do, the markup shipping it un-hidden, and nor would the startup
-`load_state` invoke, recorded when the call is made, before the panel has its
-answer); `createProject` walks the new-project form to the project view
+rendered it, observable only once the startup invokes are recorded, so a spec's
+first action meets the started panel); `createProject` walks the new-project
+form to the project view
 from a panel standing on its rendered projects view, and holds the view to the
 name it typed; `seedRecordedStep` walks an open panel to a committed step —
 project, recording, delivered actions, narration and commit, each leg skipped by
@@ -126,20 +122,20 @@ default discovery finds under `packages/desktop/tests/integration/`, at any
 depth; a new one joins this table in the same change that adds it, and a CI lint
 holds the two in agreement. No two specs here — and no spec twice — declare the
 same `describe > test` path, which a real-tree lock in the shared unit suite
-holds; a describe title alone may repeat, so a case moved between specs carries
-its full path with it.
+holds; a describe title alone may repeat, so a case moved between specs takes
+its full path into the destination's set, where it must stay distinct.
 
-| Spec                                        | Covers                                                                                                                                                                                                                                                                                                     |
-| ------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `panel-desktop.spec.js`                     | Core panel UI: project/recording creation, view transitions, step commit via simulated `capture:action` events, re-record entry, pause and resume, project and recording deletion; and a `RECORDING_START` sent through the adapter seam, which reaches `start_capture` and clears the reorder state.      |
-| `panel-commit-completeness-barrier.spec.js` | Step-commit completeness: a normal recording commit engages the fused stop-path flush barrier and waits for its `barrier_complete` sentinel before finalizing the step.                                                                                                                                    |
-| `panel-startup.spec.js`                     | The panel-open gate: with a slowed `load_state`, `openPanel` returns only once the panel has applied what it loaded, rendered its projects view and made its startup invokes.                                                                                                                              |
-| `panel-dispatch-sync.spec.js`               | Dispatch and sync settings saved, rejected when invalid, and read back, sync settings also after the panel is opened again as a fresh document, saved and cleared; the connection-test status after a save and the Auto-Sync enable; the sync button gate; the dispatch button gate and confirmation flow. |
-| `panel-advanced-flows.spec.js`              | Dispatch send with stubbed fetch, sync flow, inline rename, the multi-recording dispatch selector, re-record cancel.                                                                                                                                                                                       |
-| `panel-coverage-boost.spec.js`              | Metadata CRUD, import (including duplicate-project copies), export, sync partial-success and auth-error paths, "Send all", target-app selector, self-capture toggle, drag reorder.                                                                                                                         |
-| `import-export-rerecord-desktop.spec.js`    | Import/export round-trips (format stamp derived from the composed schema, never hardcoded), re-record, drag reorder persistence.                                                                                                                                                                           |
-| `accessibility-desktop.spec.js`             | axe-core WCAG 2.1 AA scan of each major panel view (machine-detectable issues only).                                                                                                                                                                                                                       |
-| `sync-samples.spec.js`                      | The real desktop client pulls the bundled `desktop-windows` seed sample from a running reference sync server and rejects the `extension`-stamped one.                                                                                                                                                      |
+| Spec                                        | Covers                                                                                                                                                                                                                                                                                                               |
+| ------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `panel-desktop.spec.js`                     | Core panel UI: project/recording creation, view transitions, step commit via simulated `capture:action` events, re-record entry, pause and resume, project and recording deletion; and a `RECORDING_START` sent through the adapter seam, which reaches `start_capture` and clears the reorder state.                |
+| `panel-commit-completeness-barrier.spec.js` | Step-commit completeness: a normal recording commit engages the fused stop-path flush barrier and waits for its `barrier_complete` sentinel before finalizing the step.                                                                                                                                              |
+| `panel-startup.spec.js`                     | The panel-open gate: with a slowed `load_state`, `openPanel` returns only once the panel has applied what it loaded, rendered its projects view and made its startup invokes.                                                                                                                                        |
+| `panel-dispatch-sync.spec.js`               | Dispatch and sync settings saved, rejected when invalid, and read back; sync settings also read back after the panel is opened again as a fresh document, saved and cleared; the connection-test status after a save and the Auto-Sync enable; the sync button gate; the dispatch button gate and confirmation flow. |
+| `panel-advanced-flows.spec.js`              | Dispatch send with stubbed fetch, sync flow, inline rename, the multi-recording dispatch selector, re-record cancel; project and recording creation by the Enter key; cancelling the new-project and new-recording forms.                                                                                            |
+| `panel-coverage-boost.spec.js`              | Metadata CRUD, import (including duplicate-project copies), export, sync partial-success and auth-error paths, "Send all", target-app selector, self-capture toggle, drag reorder.                                                                                                                                   |
+| `import-export-rerecord-desktop.spec.js`    | Import/export round-trips (format stamp derived from the composed schema, never hardcoded), re-record, drag reorder persistence.                                                                                                                                                                                     |
+| `accessibility-desktop.spec.js`             | axe-core WCAG 2.1 AA scan of each major panel view (machine-detectable issues only).                                                                                                                                                                                                                                 |
+| `sync-samples.spec.js`                      | The real desktop client pulls the bundled `desktop-windows` seed sample from a running reference sync server and rejects the `extension`-stamped one.                                                                                                                                                                |
 
 ## Running the suite
 

@@ -2,7 +2,9 @@
  * Desktop Panel — Advanced Flow Tests
  *
  * Tests dispatch send with mocked fetch, sync flow, inline rename,
- * recording selector (multi-recording dispatch), and re-record cancel.
+ * recording selector (multi-recording dispatch), re-record cancel, project and
+ * recording creation by the Enter key, and cancelling the new-project and
+ * new-recording forms.
  * These target the remaining uncovered paths in panel.js.
  */
 

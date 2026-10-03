@@ -31,7 +31,8 @@
  * The adapter's sentinel wait is bounded: past it the commit finalizes with what
  * arrived (and warns), which inside this test's window would let (3) pass with
  * the sentinel withheld or keyed to another barrier. So the spec first lifts that
- * bound past the test timeout, through the served adapter module's
+ * bound to twice the test's own timeout, read from `test.info()` so the bound
+ * outlasts the test by construction, through the served adapter module's
  * `_testOnly.setBarrierWaitTimeout` — the same module instance the panel runs,
  * since the page imports it by the URL the panel's own import resolves to — and
  * from then on only the matching sentinel can finalize the step. The
@@ -55,10 +56,6 @@ import {
 // matching `barrier_complete` sentinel on the capture:action stream.
 const STOP_BARRIER_ID = 4242;
 
-// Longer than the test timeout, so the adapter's bounded-wait fallback can never
-// finalize the step inside the test: only the sentinel can.
-const SENTINEL_WAIT_PIN_MS = 60_000;
-
 const server = installTauriMockServer({
   overrides: {
     stop_capture: `() => ({ barrier_id: ${STOP_BARRIER_ID}, wedged_workers: 0, completion: 'marker_ordered' })`,
@@ -75,6 +72,9 @@ const clickAction = (text) => ({
 
 test.describe('Desktop Panel — commit completeness barrier', () => {
   test('regression_noissue_commit_engages_stop_path_flush_barrier', async ({ page }) => {
+    // Twice this test's own timeout, so the adapter's bounded-wait fallback can
+    // never finalize the step inside the test: only the sentinel can.
+    const sentinelWaitPinMs = test.info().timeout * 2;
     await openPanel(page, server);
 
     // Simple mode so "Done this step" commits without a narration entry.
@@ -116,7 +116,7 @@ test.describe('Desktop Panel — commit completeness barrier', () => {
           m._testOnly.setBarrierWaitTimeout(ms);
           return ids;
         }),
-      SENTINEL_WAIT_PIN_MS,
+      sentinelWaitPinMs,
     );
     expect(seen, 'the imported adapter module is the instance the panel runs').toContain(777);
 
