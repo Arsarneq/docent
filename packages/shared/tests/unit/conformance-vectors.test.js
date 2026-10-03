@@ -20,6 +20,10 @@
  * no truth.docent.json, no baseline key); they use the desktop UIA snapshot +
  * desktop strategy evaluator.
  *
+ * Every committed vector is validated against the meta-schema through
+ * corpus/lib/vector-meta-schema.js, the module the extension corpus run and the
+ * desktop assembler also validate through.
+ *
  * Locks:
  *  (1) the vector names an active manifest session of its platform, OR an
  *      enumerated dedicated vector fixture of its platform;
@@ -44,21 +48,18 @@ import { isDeepStrictEqual } from 'node:util';
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { resolve, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import Ajv from 'ajv/dist/2020.js';
-import addFormats from 'ajv-formats';
 import { discoverSessions } from '../../../../scripts/corpus-compare.js';
 import { serializeSnapshot } from '../../../../corpus/lib/snapshot-walker.js';
+import {
+  metaSchemaErrors,
+  formatMetaSchemaErrors,
+} from '../../../../corpus/lib/vector-meta-schema.js';
 import { measureStrategyMatches } from './vector-measurement.js';
 import { measureDesktopStrategyMatches } from './vector-measurement-desktop.js';
 
 const __dirname = fileURLToPath(new URL('.', import.meta.url));
 const CORPUS_DIR = resolve(__dirname, '../../../../corpus');
 const MANIFEST_PATH = join(CORPUS_DIR, 'manifest.json');
-
-const metaSchema = JSON.parse(readFileSync(join(CORPUS_DIR, 'vector.schema.json'), 'utf8'));
-const ajv = new Ajv({ strict: false, allErrors: true });
-addFormats(ajv);
-const validateVector = ajv.compile(metaSchema);
 
 const fixtures = JSON.parse(
   readFileSync(join(CORPUS_DIR, 'vector-fixtures.json'), 'utf8'),
@@ -165,8 +166,8 @@ describe('conformance vectors: committed tree', () => {
     const platform = vector.platform;
     describe(`${session} / ${vector.vector_id}`, () => {
       it('validates against the vector meta-schema', () => {
-        const ok = validateVector(vector);
-        assert.ok(ok, JSON.stringify(validateVector.errors, null, 2));
+        const errors = metaSchemaErrors(vector);
+        assert.ok(errors.length === 0, formatMetaSchemaErrors(errors));
       });
 
       it('lock (1): names an active manifest session OR an enumerated fixture of its platform', () => {
