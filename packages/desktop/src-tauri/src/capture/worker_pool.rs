@@ -35,7 +35,7 @@ const SHUTDOWN_POLL_INTERVAL: Duration = Duration::from_millis(10);
 /// Maximum total time [`WorkerPool::flush_all`] waits for every worker to
 /// acknowledge a commit flush barrier (docent#298) before rescuing the
 /// stragglers' buffers in place and returning. Bounds the step-commit latency
-/// exactly as [`WORKER_SHUTDOWN_TIMEOUT`] bounds shutdown; a genuinely wedged
+/// exactly as `WORKER_SHUTDOWN_TIMEOUT` bounds shutdown; a genuinely wedged
 /// worker (parked in an unresponsive accessibility call) cannot stall commit
 /// past this — its completed-but-held actions are drained by the pool itself.
 pub const FLUSH_BARRIER_TIMEOUT: Duration = Duration::from_secs(5);
@@ -96,13 +96,17 @@ pub struct RawEvent {
     pub key_code: u32,
     /// Modifier key state: (ctrl, shift, alt, meta).
     pub modifiers: (bool, bool, bool, bool),
-    /// Scroll delta value (scroll events).
+    /// Wheel delta for scroll events, fed unconverted into [`RawScrollEvent`]
+    /// (which states its units and sign); the axis is `callback_params[0]`
+    /// (1 = horizontal).
     pub scroll_delta: f64,
     /// Platform-specific opaque callback parameters.
     ///
     /// On Windows: `[id_object, id_child, 0, 0]` from `SetWinEventHook`
-    /// callbacks. Workers use these to determine which sub-element triggered
-    /// the event. On other platforms: unused or platform-defined.
+    /// callbacks, which workers use to determine which sub-element triggered
+    /// the event; `[axis, 0, 0, 0]` from the mouse hook's wheel path, where
+    /// 1 = horizontal (read by the scroll arm). On other platforms: unused or
+    /// platform-defined.
     pub callback_params: [i64; 4],
     /// Pre-captured element description from the Input_Thread.
     /// For mouse click/right-click events, the Input_Thread may perform a
@@ -125,8 +129,8 @@ pub enum WorkerMessage {
     /// Commit flush barrier (docent#298): drain completed-but-held actions
     /// (`drain_into`) into the action stream, then acknowledge by sending this
     /// worker's index on the enclosed channel — **without exiting** the loop
-    /// (capture continues after the step commit). Contrast [`Shutdown`], which
-    /// drains and then exits.
+    /// (capture continues after the step commit). Contrast
+    /// [`WorkerMessage::Shutdown`], which drains and then exits.
     Flush(mpsc::Sender<usize>),
     /// Poison pill — drain remaining events then exit.
     Shutdown,
@@ -618,7 +622,7 @@ impl WorkerPool {
     /// Signal all workers to shut down and wait (bounded) for their threads.
     ///
     /// Sends `WorkerMessage::Shutdown` to each worker, then waits up to
-    /// [`WORKER_SHUTDOWN_TIMEOUT`] for **all** threads to finish. Any worker
+    /// `WORKER_SHUTDOWN_TIMEOUT` for **all** threads to finish. Any worker
     /// that hasn't exited by the deadline is detached (its `JoinHandle` is
     /// dropped) rather than joined.
     ///
@@ -1203,9 +1207,6 @@ struct WorkerState {
     last_focus_selector: String,
     last_value_map: HashMap<String, String>,
     last_drag_element: Option<ElementDescription>,
-    /// Timestamp of the last click event — used to suppress duplicate select
-    /// events that fire immediately after a click on the same element.
-    last_click_timestamp: u64,
 }
 
 impl WorkerState {
@@ -1214,7 +1215,6 @@ impl WorkerState {
             last_focus_selector: String::new(),
             last_value_map: HashMap::new(),
             last_drag_element: None,
-            last_click_timestamp: 0,
         }
     }
 }
@@ -1269,7 +1269,6 @@ fn process_raw_event<B: AccessibilityBackend>(
                 false,
                 window_rect.clone(),
             );
-            state.last_click_timestamp = raw.timestamp;
         }
         RawEventType::RightClick => {
             handle_click(
@@ -1280,7 +1279,6 @@ fn process_raw_event<B: AccessibilityBackend>(
                 true,
                 window_rect.clone(),
             );
-            state.last_click_timestamp = raw.timestamp;
         }
         RawEventType::Focus => {
             handle_focus(
