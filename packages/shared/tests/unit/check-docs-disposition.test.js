@@ -27,6 +27,11 @@
  * the fact: its trigger set and each cron field read on its own, the cron's own
  * comment included, and each prose surface restating that cadence held at its
  * own site.
+ *
+ * The path-filter flags in .github/workflows/test.yml that subscribe its job,
+ * unit-tests, to the files this suite holds are stated, with the holding each
+ * file carries, in scripts/check-ci-filter.js's HELD_FLAG_HOLDINGS and
+ * SUITE_HELD_HOLDINGS maps.
  */
 
 import { describe, it } from 'node:test';
@@ -994,6 +999,7 @@ const MUTATION_DOC = 'docs/test/strategy/mutation.md';
 /** The other workflows the CI guide states a scheduled cadence for. */
 const SCORECARD_WORKFLOW = '.github/workflows/scorecard.yml';
 const AUDIT_WORKFLOW = '.github/workflows/docs-disposition-audit.yml';
+const PIN_HISTORY_WORKFLOW = '.github/workflows/pin-history.yml';
 
 /** The workflow inventory's trigger column, read by name rather than position. */
 const RUNS_ON_HEADER = 'Runs on';
@@ -1108,6 +1114,11 @@ const SCHEDULED_WORKFLOWS = [
     file: AUDIT_WORKFLOW,
     headingStem: AUDIT_HEADING_STEM,
     triggerPhrase: '(Tuesdays, plus manual dispatch)',
+  },
+  {
+    file: PIN_HISTORY_WORKFLOW,
+    headingStem: 'pin-history probe',
+    triggerPhrase: '(Wednesdays, plus manual dispatch)',
   },
 ];
 

@@ -12,12 +12,16 @@
 
 import fs from 'fs';
 import path from 'path';
+import { waitForState } from './deadline-poll.js';
 
 /**
  * Read the ephemeral CDP port Chrome bound for this profile.
  *
- * The wait is bounded, and expiry is its own error naming the directory —
- * never a hang and never a success-shaped fallback value.
+ * The wait is bounded (`deadline-poll.js`), and expiry is its own error naming
+ * the directory and the last value read — null while the file is not written,
+ * the parsed first line otherwise, so an absent file, a zero port and an
+ * unparsable line (NaN) each read as themselves — never a hang and never a
+ * success-shaped fallback value.
  *
  * @param {string} userDataDir - The profile directory the browser launched with
  * @param {{ timeoutMs?: number, pollMs?: number }} [opts]
@@ -25,20 +29,17 @@ import path from 'path';
  */
 export async function readDevToolsPort(userDataDir, { timeoutMs = 10_000, pollMs = 50 } = {}) {
   const file = path.join(userDataDir, 'DevToolsActivePort');
-  const deadline = Date.now() + timeoutMs;
-  for (;;) {
+  const readPort = () => {
     try {
-      const firstLine = fs.readFileSync(file, 'utf-8').split('\n')[0].trim();
-      const port = Number.parseInt(firstLine, 10);
-      if (Number.isInteger(port) && port > 0) return port;
+      return Number.parseInt(fs.readFileSync(file, 'utf-8').split('\n')[0].trim(), 10);
     } catch {
-      // Not written yet — keep polling until the deadline.
+      return null; // Not written yet — keep polling until the deadline.
     }
-    if (Date.now() > deadline) {
-      throw new Error(
-        `DevToolsActivePort did not appear under ${userDataDir} within ${timeoutMs} ms`,
-      );
-    }
-    await new Promise((resolve) => setTimeout(resolve, pollMs));
-  }
+  };
+  return waitForState(
+    readPort,
+    (port) => Number.isInteger(port) && port > 0,
+    `DevToolsActivePort under ${userDataDir} within ${timeoutMs} ms`,
+    { timeout: timeoutMs, interval: pollMs, format: String },
+  );
 }

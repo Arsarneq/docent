@@ -88,11 +88,17 @@ likewise.
 
 The crate's commands are not the whole invokable surface: the webview can
 also invoke the Tauri plugin commands granted by the capability files (today
-[`capabilities/default.json`](../../../../../packages/desktop/src-tauri/capabilities/default.json)) —
-the `core:default` set and the dialog plugin's grants (`dialog:default`,
-which resolves to the plugin's message, open, and save commands, plus the
-explicit `dialog:allow-open` and `dialog:allow-save` allowances). The
-`core:default` grant is load-bearing: the adapter's `capture:action`
+[`capabilities/default.json`](../../../../../packages/desktop/src-tauri/capabilities/default.json)).
+This section's grant enumeration is the list below, each item naming the grant
+it lists as its first backticked token:
+
+- `core:default` — the core set.
+- `dialog:default` — the dialog plugin's default set, which resolves to the
+  plugin's message, open, and save commands.
+- `dialog:allow-open` — the dialog plugin's explicit open allowance.
+- `dialog:allow-save` — the dialog plugin's explicit save allowance.
+
+The `core:default` grant is load-bearing: the adapter's `capture:action`
 listener is itself an event-plugin invocation that grant authorizes,
 exercised on every captured action. The dialog grants are unused headroom
 today — no shipped frontend code invokes the dialog plugin; the file dialogs

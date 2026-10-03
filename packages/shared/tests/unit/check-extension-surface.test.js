@@ -3120,7 +3120,7 @@ describe('real-tree lock', () => {
     // members cannot red a lock that is not about their order.
     assert.deepEqual(
       outside,
-      ['Object', 'add', 'async', 'await', 'clear', 'frameId', 'frames', 'fromEntries', 'id', 'map', 't', 'tabId'].sort(), // prettier-ignore
+      ['add', 'async', 'await', 'clear', 'frameId', 'frames', 'id', 'map', 't', 'tabId'].sort(), // prettier-ignore
     );
   });
 

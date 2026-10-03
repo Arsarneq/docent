@@ -15,6 +15,11 @@
  * them the suite welds the automation branch's name to the contributor-facing
  * documents that spell it out, so a rename cannot leave a reader pointed at a
  * PR that no longer exists.
+ *
+ * The path-filter flags in .github/workflows/test.yml that subscribe its job,
+ * unit-tests, to the files this suite holds are stated, with the holding each
+ * file carries, in scripts/check-ci-filter.js's HELD_FLAG_HOLDINGS and
+ * SUITE_HELD_HOLDINGS maps.
  */
 
 import { describe, it } from 'node:test';
