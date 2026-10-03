@@ -10,6 +10,8 @@
  * - Recording state transitions (start/stop via storage), including the
  *   idle-surface negatives: nothing injected while no recording runs, and a
  *   recorder left in a still-open document attempting no append after the stop
+ * - The record-start sweep reaching a srcdoc child built while no recording
+ *   runs — a frame whose own scheme the sweep does not test (ECP-2)
  * - The trust registry's subframe departure route: a subframe held mid-departure
  *   still attempts its append, and that append no longer reaches the stream
  * - Form submit change suppression
@@ -29,7 +31,11 @@ import {
   waitForActionsToSettle,
   setTestContent,
 } from '../helpers/extension-fixture.js';
-import { expectNoFrameReady, waitForFrameReady } from '../helpers/frame-ready.js';
+import {
+  expectNoFrameReady,
+  waitForFrameReady,
+  waitForFrameReadySince,
+} from '../helpers/frame-ready.js';
 import { INJECT_TO_READY_BOUND } from '../../../lib/capture-timing.js';
 
 // The window an absence must hold through for it to mean something: four times
@@ -644,6 +650,61 @@ test.describe('Recording State Transitions', () => {
     const actions = await getPendingActions(serviceWorker);
     const clicks = actions.filter((a) => a.type === 'click');
     expect(clicks.length).toBe(1);
+  });
+
+  // ── The record-start sweep's frame reach (ECP-2) ────────────────────────────
+  // What this case observes is the record-start bullet (extension
+  // capture-principles ECP-2) on a frame whose own document is not http(s).
+  // The child here is a srcdoc frame — its own document is about:srcdoc —
+  // built while no recording runs, so nothing has injected it: the per-frame
+  // route is gated on a live recording. It is built while idle because a child
+  // built while recording keeps a recorder that wakes on the restart and
+  // captures with no sweep at all. Once it has loaded, no onCompleted follows,
+  // so after the restart the sweep is the one route that can reach it.
+  test('the record-start sweep injects a srcdoc child that loaded while no recording ran', async ({
+    testPage,
+    serviceWorker,
+  }) => {
+    await setTestContent(testPage, PAGE_HTML);
+    await setRecording(serviceWorker, false);
+    await testPage.waitForTimeout(200);
+
+    // Build the child while idle and wait for its document to load.
+    await testPage.evaluate(
+      () =>
+        new Promise((resolve) => {
+          const frame = document.createElement('iframe');
+          frame.id = 'swept';
+          frame.addEventListener('load', resolve, { once: true });
+          frame.srcdoc =
+            '<!DOCTYPE html><html><body><button id="swept-btn">child</button></body></html>';
+          document.body.appendChild(frame);
+        }),
+    );
+
+    // The child carries no recorder before the restart — observed over the same
+    // window the idle negatives hold, so a recorder reporting ready after the
+    // restart is the sweep's, not one that was already there.
+    await expectNoFrameReady(serviceWorker, 'about:srcdoc', { within: IDLE_ABSENCE_WINDOW_MS });
+
+    // The clock is read before the restart write, so only a readiness report
+    // the restart caused is newer than it.
+    const restartedAt = Date.now();
+    await setRecording(serviceWorker, true);
+    const readyAt = await waitForFrameReadySince(serviceWorker, 'about:srcdoc', restartedAt);
+    expect(
+      readyAt - restartedAt,
+      'the swept child reports ready inside the idle window',
+    ).toBeLessThan(IDLE_ABSENCE_WINDOW_MS);
+    await clearPendingActions(serviceWorker);
+
+    await testPage.frameLocator('#swept').locator('#swept-btn').click();
+    await waitForActionsToSettle(serviceWorker, testPage);
+
+    const clicks = (await getPendingActions(serviceWorker)).filter(
+      (a) => a.type === 'click' && a.element?.id === 'swept-btn',
+    );
+    expect(clicks.length, 'the click inside the swept srcdoc child is captured').toBe(1);
   });
 });
 
