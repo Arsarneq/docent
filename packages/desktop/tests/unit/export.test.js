@@ -26,37 +26,21 @@ import fc from 'fast-check';
 import { buildExport } from '../../shared/lib/export-project.js';
 import { composePlatform } from '../../../../scripts/build-schemas.js';
 import { stampFromSchema } from '../../shared/lib/format-stamp.js';
+import Ajv from 'ajv/dist/2020.js';
+import addFormats from 'ajv-formats';
 
 // The desktop platform schema is the source of truth for the docent_format
 // stamp; read it once for both building and validating exports here.
 const desktopSchema = composePlatform('desktop-windows');
 const expectedStamp = stampFromSchema(desktopSchema);
+const ajv = new Ajv({ allErrors: true, strict: false });
+addFormats(ajv);
+const validateDesktop = ajv.compile(desktopSchema);
 
-// ─── Schema validation (lightweight, no external JSON Schema library) ─────────
-// We validate the structural contract defined in session.schema.json directly.
+// ─── Schema validation (Ajv over the composed desktop schema) ─────────────────
 
 const UUIDV7_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 const ISO8601_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/;
-
-const VALID_ACTION_TYPES = new Set([
-  'navigate',
-  'click',
-  'right_click',
-  'type',
-  'select',
-  'key',
-  'focus',
-  'file_upload',
-  'drag_start',
-  'drop',
-  'scroll',
-  'context_switch',
-  'context_open',
-  'context_close',
-  'file_dialog',
-]);
-
-const VALID_CAPTURE_MODES = new Set(['dom', 'accessibility', 'coordinate']);
 
 function validateElement(el) {
   assert.strictEqual(typeof el.tag, 'string', 'element.tag must be a string');
@@ -72,16 +56,8 @@ function validateElement(el) {
 }
 
 function validateAction(action) {
-  assert.ok(
-    VALID_ACTION_TYPES.has(action.type),
-    `action.type "${action.type}" is not a valid action type`,
-  );
   assert.strictEqual(typeof action.timestamp, 'number', 'action.timestamp must be a number');
   assert.ok(Number.isInteger(action.timestamp), 'action.timestamp must be an integer');
-  assert.ok(
-    VALID_CAPTURE_MODES.has(action.capture_mode),
-    `action.capture_mode "${action.capture_mode}" is not valid`,
-  );
   assert.ok(
     action.context_id === null || Number.isInteger(action.context_id),
     'action.context_id must be integer or null',
@@ -154,6 +130,7 @@ function validateRecording(recording) {
 }
 
 function validateExport(exportData) {
+  assert.ok(validateDesktop(exportData), JSON.stringify(validateDesktop.errors?.slice(0, 3)));
   // Self-describing format stamp (required, pinned per platform)
   assert.ok(exportData.docent_format, 'export must have docent_format stamp');
   assert.deepStrictEqual(
@@ -236,7 +213,7 @@ const arbElement = fc.record({
   selector: fc.string({ minLength: 1, maxLength: 100 }),
 });
 
-const arbCaptureMode = fc.constantFrom('dom', 'accessibility', 'coordinate');
+const arbCaptureMode = fc.constantFrom('accessibility', 'coordinate');
 
 const arbContextId = fc.oneof(fc.integer({ min: 1, max: 100000 }), fc.constant(null));
 
@@ -250,7 +227,6 @@ const arbAction = fc.record({
   context_id: arbContextId,
   capture_mode: arbCaptureMode,
   window_rect: fc.constant(null),
-  frame_src: fc.constant(null),
 });
 
 const arbNarrationStep = fc.record({

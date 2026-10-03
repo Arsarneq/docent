@@ -249,6 +249,25 @@ export function locatorStrategyDefs(schema) {
 }
 
 /**
+ * Enumerate a schema's action types: the `type.const` of each member of
+ * `action.oneOf`, dereferenced into `$defs` through the same `#/$defs/`
+ * convention `locatorStrategyDefs` applies, in declaration order. The single
+ * home for "the platform's action types", so every test that states that set
+ * derives it here instead of restating it. Returns [] when the schema declares
+ * no action union.
+ *
+ * @param {object} schema - a composed platform schema or a source layer
+ * @returns {string[]}
+ */
+export function actionTypes(schema) {
+  return (schema.$defs?.action?.oneOf ?? []).map((member) => {
+    const def =
+      typeof member.$ref === 'string' ? schema.$defs[member.$ref.replace('#/$defs/', '')] : member;
+    return def?.properties?.type?.const;
+  });
+}
+
+/**
  * Return a clone of a composed schema with the `docent_format.schema_version`
  * `const` relaxed to a plain string, so historical recordings validate by
  * SHAPE regardless of which version stamp they carry.
