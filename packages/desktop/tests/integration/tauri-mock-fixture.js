@@ -64,13 +64,13 @@
  * renders that view once it has applied what it loaded, and the view is
  * observable only once its startup invokes are recorded — the render and the
  * keep-alive invoke run in one turn — so a spec's first action meets the
- * started panel; only what startup set running, such as an Auto-Sync cycle, can still be in flight. A visible
- * projects view would not do — the markup ships it un-hidden — and nor would
- * the startup `load_state` invoke, which is recorded when the call is made,
- * before the panel has its answer. An exception thrown during startup
- * surfaces as its own message, distinct from the one naming a bundle that never
- * ran; the watch itself stays armed for the test's whole run, so an error after
- * the gate fails the test in the shared afterEach.
+ * started panel; only what startup set running, such as an Auto-Sync cycle, can
+ * still be in flight. A visible projects view would not do — the markup ships
+ * it un-hidden — and nor would the startup `load_state` invoke, which is
+ * recorded when the call is made, before the panel has its answer. An exception
+ * thrown during startup surfaces as its own message, distinct from the one
+ * naming a bundle that never ran; the watch itself stays armed for the test's
+ * whole run, so an error after the gate fails the test in the shared afterEach.
  *
  * `createProject(page, name)` walks the new-project form and lands on the
  * project's detail view, holding that view to the name it typed — so a spec
@@ -567,14 +567,14 @@ export function installTauriMockServer(options = {}) {
  * ({@link PROJECTS_VIEW_RENDERED}). The panel renders that view once it has
  * applied what it loaded, and the view is observable only once its startup
  * invokes are recorded — the render and the keep-alive invoke run in one turn —
- * so a spec's first action meets the started panel; only what startup set running, such as an Auto-Sync
- * cycle, can still be in flight. A visible projects view would not do — the
- * markup ships it un-hidden — and nor would the startup `load_state` invoke,
- * which is recorded when the call is made, before the panel has its answer. An
- * exception thrown during startup surfaces as its own message, distinct from the
- * one naming a bundle that never ran; the watch itself stays armed for the
- * test's whole run, so an error after the gate fails the test in the shared
- * afterEach.
+ * so a spec's first action meets the started panel; only what startup set
+ * running, such as an Auto-Sync cycle, can still be in flight. A visible
+ * projects view would not do — the markup ships it un-hidden — and nor would
+ * the startup `load_state` invoke, which is recorded when the call is made,
+ * before the panel has its answer. An exception thrown during startup surfaces
+ * as its own message, distinct from the one naming a bundle that never ran; the
+ * watch itself stays armed for the test's whole run, so an error after the gate
+ * fails the test in the shared afterEach.
  *
  * @param {import('@playwright/test').Page} page
  * @param {{ url: (pathname?: string) => string }} server the value
@@ -615,22 +615,22 @@ export async function openPanel(page, server, options = {}) {
     // turn. A panel that never ran cannot produce it, so that rendered view is
     // the whole gate.
     // A panel that throws before the render would otherwise cost the whole
-    // timeout, so the wait races a watch over the page-error slot this open
+    // timeout, so the wait races a poll over the page-error slot this open
     // armed: a startup throw rejects within one poll, and either outcome stops
-    // the watch.
+    // the poll.
     await new Promise((resolve, reject) => {
-      const watch = setInterval(() => {
+      const poll = setInterval(() => {
         if (!errors[seen]) return;
-        clearInterval(watch);
+        clearInterval(poll);
         reject(new Error('[tauri-mock] the panel threw while starting up'));
       }, 50);
       page.waitForFunction(PROJECTS_VIEW_RENDERED, undefined, { timeout }).then(
         (value) => {
-          clearInterval(watch);
+          clearInterval(poll);
           resolve(value);
         },
         (error) => {
-          clearInterval(watch);
+          clearInterval(poll);
           reject(error);
         },
       );

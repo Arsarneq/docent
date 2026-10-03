@@ -46,11 +46,12 @@ function exportedHelpers() {
 const HELPERS = exportedHelpers();
 
 describe('desktop integration-suite locks', () => {
-  // The limits are stated rather than implied: a copy under another name, and a
-  // same-name binding introduced by destructuring, are each unseen here; and
-  // the helper set is read from `export function` and `export const`
-  // declarations, so a helper exported another way is outside every lock in
-  // this file.
+  // The limits are stated rather than implied: a copy under another name, a
+  // same-name binding introduced by destructuring, a name bound past the first
+  // in a multi-binding statement, a declaration without an initializer and a
+  // generator function are each unseen here; and the helper set is read from
+  // `export function` and `export const` declarations, so a helper exported
+  // another way is outside every lock in this file.
   it('no spec declares a helper the fixture exports', () => {
     const offences = [];
     for (const spec of SPECS) {
@@ -133,9 +134,11 @@ describe('desktop integration-suite locks', () => {
   // section leaves it whole. A boundary met early only drops names, so it reds
   // rather than passes; a bold or heading-shaped line inside a code fence would
   // end the section early — fences are not handled, and the section carries
-  // none. A lead-in that loses its bold extends the section to the next heading
-  // and could admit a name found only in the paragraphs that follow — the
-  // boundary is the lead-in's bold, so keep it bold.
+  // none. A lead-in that loses its bold extends the section to the next heading,
+  // and a rule line that loses its spaced dashes widens the fixture section to
+  // the next rule line the same way; either could admit a name found only in
+  // the paragraphs that follow — the boundaries are the lead-in's bold and the
+  // rule line's spaced dashes, so keep both.
   it('the shared-helpers sections of the fixture and the guide name every exported helper', () => {
     const fixtureLines = read(FIXTURE).split('\n');
     const headingIndex = fixtureLines.findIndex((line) =>

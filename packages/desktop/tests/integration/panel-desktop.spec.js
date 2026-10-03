@@ -431,9 +431,7 @@ test.describe('Desktop Panel — History View', () => {
     await seedRecordedStep(page, {
       project: 'P',
       recording: 'R',
-      actions: [
-        { type: 'click', capture_mode: 'accessibility', context_id: 1, element: { text: 'X' } },
-      ],
+      actions: [SUBMIT_CLICK],
       narration: 'Original',
     });
 

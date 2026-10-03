@@ -34,7 +34,8 @@ test.describe('Desktop Panel — startup gate', () => {
     expect(state.theme, 'the theme load_state answered is applied').toBe('dark');
     expect(state.emptyShown, 'the empty projects list is rendered').toBe(true);
     // The promise is that every startup invoke was made before the open
-    // returned, not the order the panel makes them in.
+    // returned, not the order the panel makes them in nor how many times it
+    // makes each.
     expect(new Set(await invokedCommands(page)), 'every startup invoke is recorded').toEqual(
       new Set([
         'load_state',

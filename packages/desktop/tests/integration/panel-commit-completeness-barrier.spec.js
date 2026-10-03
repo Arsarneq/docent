@@ -34,8 +34,11 @@
  * bound past the test timeout, through the served adapter module's
  * `_testOnly.setBarrierWaitTimeout` — the same module instance the panel runs,
  * since the page imports it by the URL the panel's own import resolves to — and
- * from then on only the matching sentinel can finalize the step. The bound lives
- * in the page's module, so it ends with the test's page; nothing is restored.
+ * from then on only the matching sentinel can finalize the step. The
+ * same-instance check below is what proves the import is the panel's module: a
+ * sentinel for an unrelated barrier, delivered before the import, must be found
+ * parked in the imported module. The bound lives in the page's module, so it
+ * ends with the test's page; nothing is restored.
  */
 
 import { test, expect } from './coverage-fixture.js';
