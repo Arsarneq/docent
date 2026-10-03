@@ -8,27 +8,39 @@
  * paths-filter step never defines, a broken hop between the filter map and the
  * `changes` job's outputs,
  * a literal filter entry naming no tracked file, a clause-registry document the
- * `suiteHeld` filter omits, a `suiteHeld` entry parted from the holdings map,
- * a filter entry stated more than once) and that the closure resolver follows
- * the npm-run and compound-command forms. The inputs that stand for state
- * outside the workflow — the tracked-file predicate and the registry's document
- * list — are proven required rather than defaulted. A real-tree lock proves the
- * shipped test.yml satisfies the contract over the inputs the command line
- * itself reads, with each of those inputs observed on its own.
+ * `suiteHeld` filter omits, an entry of a held flag parted from its holdings
+ * map, a filter entry stated more than once, a heavy job whose own closure is
+ * non-empty gating on no `buildScripts`), the redundancy between the ciCore
+ * legs, the command model's forms one by one, and the closure walk over a
+ * synthetic tree on disk — the npm-run chain and its cycle guard, a flagged
+ * `node` entry, the import and spawn edges, an entry outside scripts/, the
+ * forms read as no invocation, and the scripts/-relative over-include. The
+ * inputs that stand for state outside the workflow — the per-job closures, the
+ * tracked-file predicate and the registry's document list — are proven required
+ * rather than defaulted. The step reader and the filter-step locator both
+ * filter-map readers share are held on their own, and a holdings map for a flag
+ * the filter does not define reds. A real-tree lock proves the shipped test.yml
+ * satisfies the contract over the inputs the command line itself reads, with
+ * each of those inputs observed on its own; the CI guide's flag bullets and
+ * flag-exception sentence are held to citing the holdings maps, and each holder
+ * suite's header to naming the map it points at.
  */
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { dirname, join, resolve } from 'node:path';
 import {
   CI_CORE_GLOBS,
   GLOB_CHARS,
+  HELD_FLAG_HOLDINGS,
   SUITE_HELD_HOLDINGS,
   jobFlags,
   jobSteps,
   heavyJobs,
   entryFilesFromCommand,
+  computeBuildClosure,
   evaluateContract,
   pathsFilterStep,
   loadInputs,
@@ -39,6 +51,11 @@ const ROOT = resolve(import.meta.dirname, '..', '..', '..', '..');
 
 /** The files the holdings map states a holding for — the `suiteHeld` set. */
 const HELD_FILES = Object.keys(SUITE_HELD_HOLDINGS);
+
+/** The files each flag in HELD_FLAG_HOLDINGS states a holding for, by flag. */
+const HELD_FLAG_FILES = Object.fromEntries(
+  Object.entries(HELD_FLAG_HOLDINGS).map(([flag, map]) => [flag, Object.keys(map)]),
+);
 
 /** Build a job `if:` string from a flag list (+ the usual event OR-terms). */
 function ifFrom(flags) {
@@ -61,15 +78,15 @@ function defaultFilters() {
     schema: ['schemas/**'],
     referenceServer: ['reference-implementations/**'],
     corpus: ['corpus/**'],
-    releasePipeline: ['.github/workflows/publish.yml'],
-    contractDocs: ['.github/CONTRIBUTING.md'],
-    dispositionWorkflow: ['.github/workflows/docs-disposition.yml'],
-    // The shipped holdings map, which invariant 10 holds the filter to: it
-    // reads the shipped map, so a fixture stating any other list reds every
-    // case that asserts the whole problem list — the compliant baseline, the
-    // holdings-direction case that keeps this list, and the duplicate cases
-    // among them — while a case stating its own `suiteHeld`, or asserting only
-    // that a problem is present, stays green.
+    // The held flags state the shipped holdings maps, which invariant 10 holds
+    // each filter to: it reads the shipped maps, so a fixture stating any other
+    // list reds every case that asserts the whole problem list — the compliant
+    // baseline, the holdings-direction cases that keep these lists, and the
+    // duplicate cases among them — while a case stating its own list, or
+    // asserting only that a problem is present, stays green.
+    releasePipeline: [...HELD_FLAG_FILES.releasePipeline],
+    contractDocs: [...HELD_FLAG_FILES.contractDocs],
+    dispositionWorkflow: [...HELD_FLAG_FILES.dispositionWorkflow],
     suiteHeld: [...HELD_FILES],
     ciCore: [...CI_CORE_GLOBS],
     buildScripts: ['scripts/a.js', 'scripts/b.js'],
@@ -119,13 +136,28 @@ function makeWorkflow(overrides = {}) {
   for (const [id, flags] of Object.entries(jobFlagsMap)) jobs[id] = { if: ifFrom(flags) };
   const wf = { jobs, ...(overrides.wf || {}) };
   const closure = overrides.closure || new Set(['scripts/a.js', 'scripts/b.js']);
+  // Each heavy job's own closure: two jobs run scripts, the rest run none —
+  // desktop-cross-compile among them, the one heavy job gating on no
+  // buildScripts. Every heavy job carries an entry, as evaluateContract
+  // requires; an override replaces the entries it states.
+  const jobClosures = {
+    ...Object.fromEntries(
+      Object.keys(jobFlagsMap)
+        .filter((id) => id !== 'unit-tests')
+        .map((id) => [id, new Set()]),
+    ),
+    ...(overrides.jobClosures || {
+      'extension-e2e-tests': new Set(['scripts/a.js', 'scripts/b.js']),
+      'desktop-integration-tests': new Set(['scripts/a.js']),
+    }),
+  };
   const isTracked = overrides.isTracked || ((p) => FIXTURE_FILES.has(p));
   // Derived from the MERGED filters: a case that wants the registry to outrun
   // the flag deletes `filters.suiteHeld` after construction; an override of
   // `{ suiteHeld: undefined }` reaches invariant 8 first and throws there
   // instead of exercising invariant 9.
   const registryDocs = overrides.registryDocs || [...(filters.suiteHeld || [])];
-  return { wf, filters, closure, isTracked, registryDocs };
+  return { wf, filters, closure, jobClosures, isTracked, registryDocs };
 }
 
 /** Evaluate the fixture with the overrides applied — the short form of a case. */
@@ -237,6 +269,23 @@ describe('evaluateContract — invariant 3 (required per-job flags)', () => {
     );
   });
 
+  it('fires when reference-server-tests does not gate on buildScripts', () => {
+    // Its suites import scripts/build-schemas.js through a sub-package
+    // `npm test`, which the command model reads as no invocation, so its own
+    // closure is empty and invariant 12 licenses nothing from it: this entry
+    // is what holds the gate.
+    const base = withJobFlags(makeWorkflow(), 'reference-server-tests', [
+      'referenceServer',
+      'schema',
+      'shared',
+      'ciCore',
+      'releasePipeline',
+    ]);
+    assert.deepEqual(evaluateContract(base), [
+      'job `reference-server-tests` must gate on the `buildScripts` flag',
+    ]);
+  });
+
   it('fires when unit-tests does not gate on releasePipeline', () => {
     // The disposition suite unit-tests runs reads committed files rather than
     // executing them — both publish workflows, and the contributor contract
@@ -281,7 +330,7 @@ describe('evaluateContract — invariant 3 (required per-job flags)', () => {
   });
 
   it('fires when unit-tests does not gate on dispositionWorkflow', () => {
-    // The release-guard suite unit-tests runs reads docs-disposition.yml as a
+    // The release-output suite unit-tests runs reads docs-disposition.yml as a
     // file, holding its guard step's env block to the inputs the head-ref
     // derivation is written against; no other flag watches that workflow, so
     // without this one a PR touching it alone skips the suite holding it.
@@ -361,6 +410,22 @@ describe('evaluateContract — invariant 4 (.github/actions in ciCore)', () => {
     });
     const problems = evaluateContract(base);
     assert.ok(problems.some((p) => p.includes('.github/actions/**')));
+  });
+
+  it('with ciCoreGlobs at its default, a filter dropping the glob reds invariants 2 and 4 together', () => {
+    const filter = ['.github/workflows/test.yml', 'package.json', 'package-lock.json'];
+    assert.deepEqual(evaluate({ filters: { ciCore: filter } }), [
+      `ciCore globs must be exactly [${CI_CORE_GLOBS.join(', ')}]; found [${filter.join(', ')}]`,
+      'ciCore must include `.github/actions/**` (composite actions are used everywhere)',
+    ]);
+  });
+
+  it('with the list and the filter dropping the glob together, invariant 4 reds alone', () => {
+    const list = CI_CORE_GLOBS.filter((glob) => glob !== '.github/actions/**');
+    const base = makeWorkflow({ filters: { ciCore: [...list] } });
+    assert.deepEqual(evaluateContract({ ...base, ciCoreGlobs: list }), [
+      'ciCore must include `.github/actions/**` (composite actions are used everywhere)',
+    ]);
   });
 });
 
@@ -679,6 +744,96 @@ describe('evaluateContract — invariant 10 (the suiteHeld filter and its holdin
   });
 });
 
+describe('evaluateContract — invariant 10 (the held flags and their holdings)', () => {
+  for (const [flag, files] of Object.entries(HELD_FLAG_FILES)) {
+    const name = `HELD_FLAG_HOLDINGS.${flag}`;
+
+    it(`fires when an entry of \`${flag}\` is deleted from the filter`, () => {
+      for (const dropped of files) {
+        const problems = evaluate({ filters: { [flag]: files.filter((f) => f !== dropped) } });
+        assert.deepEqual(problems, [
+          `${name} states a holding for \`${dropped}\`, which the \`${flag}\` filter does not list`,
+        ]);
+      }
+    });
+
+    it(`fires both ways when an entry of \`${flag}\` is swapped for a wrong tracked file`, () => {
+      const [swapped, ...rest] = files;
+      const problems = evaluate({
+        filters: { [flag]: ['docs/README.md', ...rest] },
+        isTracked: (path) => FIXTURE_FILES.has(path) || path === 'docs/README.md',
+      });
+      assert.deepEqual(problems, [
+        `the \`${flag}\` filter lists \`docs/README.md\`, which ${name} states no holding for`,
+        `${name} states a holding for \`${swapped}\`, which the \`${flag}\` filter does not list`,
+      ]);
+    });
+
+    it(`fires both ways when an entry of \`${flag}\` is a glob typo`, () => {
+      const [typoed, ...rest] = files;
+      // A glob that matches nothing: a stray letter before the extension.
+      const glob = typoed.replace(/(\.[a-z]+)$/, 'x*$1');
+      const problems = evaluate({ filters: { [flag]: [glob, ...rest] } });
+      assert.deepEqual(problems, [
+        `the \`${flag}\` filter lists \`${glob}\`, which ${name} states no holding for`,
+        `${name} states a holding for \`${typoed}\`, which the \`${flag}\` filter does not list`,
+      ]);
+    });
+  }
+
+  it('fires when a holdings map names a flag the filter does not define', () => {
+    const base = makeWorkflow();
+    delete base.filters.dispositionWorkflow;
+    const problems = evaluateContract(base);
+    assert.ok(
+      problems.includes(
+        "HELD_FLAG_HOLDINGS.dispositionWorkflow states holdings for `dispositionWorkflow`, which the `changes` job's paths-filter step does not define",
+      ),
+      problems.join('\n'),
+    );
+  });
+});
+
+describe('evaluateContract — invariant 12 (a job running build scripts gates on buildScripts)', () => {
+  it('fires when a heavy job whose own closure is non-empty does not gate on buildScripts', () => {
+    const base = withJobFlags(makeWorkflow(), 'desktop-integration-tests', [
+      'desktop',
+      'shared',
+      'schema',
+      'referenceServer',
+      'ciCore',
+    ]);
+    assert.deepEqual(evaluateContract(base), [
+      'heavy job `desktop-integration-tests` runs scripts/a.js but does not gate on the `buildScripts` flag',
+    ]);
+  });
+
+  it('names every script the job runs, sorted', () => {
+    const base = withJobFlags(makeWorkflow(), 'extension-e2e-tests', [
+      'extension',
+      'shared',
+      'schema',
+      'referenceServer',
+      'corpus',
+      'ciCore',
+    ]);
+    assert.deepEqual(evaluateContract(base), [
+      'heavy job `extension-e2e-tests` runs scripts/a.js, scripts/b.js but does not gate on the `buildScripts` flag',
+    ]);
+  });
+
+  it('an empty closure licenses nothing: a job running no script may gate on buildScripts or not', () => {
+    // desktop-rust-tests gates on it with an empty closure, desktop-cross-compile
+    // does not — both green in the baseline.
+    const base = makeWorkflow();
+    assert.equal(base.jobClosures['desktop-rust-tests'].size, 0);
+    assert.ok(!jobFlags(base.wf.jobs['desktop-cross-compile']).has('buildScripts'));
+    assert.deepEqual(evaluateContract(base), []);
+    const emptied = makeWorkflow({ jobClosures: { 'desktop-cross-compile': new Set() } });
+    assert.deepEqual(evaluateContract(emptied), []);
+  });
+});
+
 describe('evaluateContract — invariant 11 (no filter lists an entry more than once)', () => {
   it('fires when a suiteHeld entry is stated more than once', () => {
     // The doubled list is the fixture's own set plus one repeat, so every leg
@@ -706,17 +861,39 @@ describe('evaluateContract — invariant 11 (no filter lists an entry more than 
 });
 
 describe('evaluateContract — the inputs it refuses to default', () => {
+  it('throws when jobClosures is missing', () => {
+    const { wf, filters, closure, isTracked, registryDocs } = makeWorkflow();
+    assert.throws(() => evaluateContract({ wf, filters, closure, isTracked, registryDocs }), {
+      name: 'TypeError',
+      message: 'evaluateContract: jobClosures is required',
+    });
+  });
+
+  it('throws naming the heavy job when jobClosures carries no entry for it', () => {
+    const { wf, filters, closure, jobClosures, isTracked, registryDocs } = makeWorkflow();
+    const rest = { ...jobClosures };
+    delete rest['desktop-rust-tests'];
+    assert.throws(
+      () => evaluateContract({ wf, filters, closure, jobClosures: rest, isTracked, registryDocs }),
+      {
+        name: 'TypeError',
+        message:
+          'evaluateContract: jobClosures carries no entry for heavy job `desktop-rust-tests`',
+      },
+    );
+  });
+
   it('throws when isTracked is missing', () => {
-    const { wf, filters, closure, registryDocs } = makeWorkflow();
-    assert.throws(() => evaluateContract({ wf, filters, closure, registryDocs }), {
+    const { wf, filters, closure, jobClosures, registryDocs } = makeWorkflow();
+    assert.throws(() => evaluateContract({ wf, filters, closure, jobClosures, registryDocs }), {
       name: 'TypeError',
       message: 'evaluateContract: isTracked is required',
     });
   });
 
   it('throws when registryDocs is missing', () => {
-    const { wf, filters, closure, isTracked } = makeWorkflow();
-    assert.throws(() => evaluateContract({ wf, filters, closure, isTracked }), {
+    const { wf, filters, closure, jobClosures, isTracked } = makeWorkflow();
+    assert.throws(() => evaluateContract({ wf, filters, closure, jobClosures, isTracked }), {
       name: 'TypeError',
       message: 'evaluateContract: registryDocs is required',
     });
@@ -764,6 +941,200 @@ describe('entryFilesFromCommand', () => {
 });
 
 /**
+ * The entry files a command resolves to under the command model, as
+ * root-relative paths against a synthetic root, sorted.
+ * @param {string} cmd the command string
+ * @param {Record<string, string>} [scripts] package.json's scripts
+ * @returns {string[]} the resolved entries
+ */
+function entriesOf(cmd, scripts = {}) {
+  const root = resolve('/world');
+  return [...entryFilesFromCommand(cmd, scripts, new Set(), root)]
+    .map((abs) => abs.slice(root.length + 1).replace(/\\/g, '/'))
+    .sort();
+}
+
+describe('entryFilesFromCommand — the command model, form by form', () => {
+  // Each form hides an invocation from a reader that splits at `&&`, `||`, `;`
+  // and newline and reads only a segment's first token; the model reads each.
+  const forms = [
+    ['echo x | node scripts/p.js', ['scripts/p.js']],
+    ['echo x |& node scripts/p.js', ['scripts/p.js']],
+    ['(node scripts/p.js)', ['scripts/p.js']],
+    ['(node scripts/p.js) 2>&1', ['scripts/p.js']],
+    ['$(node scripts/p.js)', ['scripts/p.js']],
+    ['node scripts/p.js>out', ['scripts/p.js']],
+    ['node scripts/a.js & node scripts/p.js', ['scripts/a.js', 'scripts/p.js']],
+    ['xvfb-run -a node scripts/p.js', ['scripts/p.js']],
+    ['FOO=1 node scripts/p.js', ['scripts/p.js']],
+    ['npm run --silent k', ['scripts/p.js']],
+    ['npm run-script k', ['scripts/p.js']],
+    ['npm --silent run k', ['scripts/p.js']],
+    ['xvfb-run -a npm run k', ['scripts/p.js']],
+    ['node scripts/p.js # note', ['scripts/p.js']],
+    ['node scripts/a.js scripts/b.js', ['scripts/a.js']],
+    ['node "scripts/p.js"', ['scripts/p.js']],
+    ['node --import ./scripts/a.js scripts/p.js', ['scripts/a.js', 'scripts/p.js']],
+    ['node --loader ./scripts/l.mjs scripts/p.js', ['scripts/l.mjs', 'scripts/p.js']],
+    ['node -r ./scripts/r.js scripts/p.js', ['scripts/p.js', 'scripts/r.js']],
+    ['node --require ./scripts/r.js scripts/p.js', ['scripts/p.js', 'scripts/r.js']],
+    ['echo " #x"; node scripts/p.js', ['scripts/p.js']],
+  ];
+  for (const [cmd, expected] of forms) {
+    it(`reads \`${cmd}\``, () => {
+      assert.deepEqual(entriesOf(cmd, { k: 'node scripts/p.js' }), expected);
+    });
+  }
+
+  it('reads an invocation inside quoted text — the stated over-include', () => {
+    assert.deepEqual(entriesOf('echo "run node scripts/p.js now"'), ['scripts/p.js']);
+    assert.deepEqual(entriesOf('sh -c "node scripts/p.js"'), ['scripts/p.js']);
+  });
+
+  it('reads a segment opening with `#` as a comment', () => {
+    assert.deepEqual(entriesOf('# node scripts/p.js'), []);
+    assert.deepEqual(entriesOf('npm ci\n  # node scripts/p.js\nnode scripts/a.js'), ['scripts/a.js']); // prettier-ignore
+  });
+
+  it('reads the stated misread and passed-over forms as the header says', () => {
+    // A sub-package run is read against the root manifest: the root key when
+    // there is one, nothing when there is none.
+    assert.deepEqual(entriesOf('cd sub && npm run k', { k: 'node scripts/p.js' }), ['scripts/p.js']); // prettier-ignore
+    assert.deepEqual(entriesOf('cd sub && npm run k', {}), []);
+    assert.deepEqual(entriesOf('npm --prefix=sub run k', { k: 'node scripts/p.js' }), ['scripts/p.js']); // prettier-ignore
+    // The spaced form takes `sub` as the verb, so it reads no invocation.
+    assert.deepEqual(entriesOf('npm --prefix sub run k', { k: 'node scripts/p.js' }), []);
+    // A `node` token after a wrapper is read like any other.
+    assert.deepEqual(entriesOf('npx node scripts/p.js'), ['scripts/p.js']);
+  });
+
+  it('reads a `=`-joined script flag value as an entry', () => {
+    assert.deepEqual(entriesOf('node --require=./scripts/a.js scripts/p.js'), ['scripts/a.js', 'scripts/p.js']); // prettier-ignore
+  });
+
+  it('the `&&` control reads both commands', () => {
+    assert.deepEqual(entriesOf('node scripts/a.js && node scripts/p.js'), ['scripts/a.js', 'scripts/p.js']); // prettier-ignore
+  });
+});
+
+/**
+ * A synthetic tree on disk for the closure walk: a package.json-free world
+ * whose scripts/ directory and one directory beside it hold the files each
+ * case reads. Built once per case under a fresh temp root and removed after.
+ * @param {(root: string) => void} fn the case body, handed the world's root
+ */
+function inWorld(fn) {
+  const root = mkdtempSync(join(tmpdir(), 'ci-filter-world-'));
+  const files = {
+    'scripts/chained.js': '',
+    'scripts/flagged.js': '',
+    'scripts/lib/importer.js': "import './helper.js';\n",
+    'scripts/lib/helper.js': '',
+    'scripts/sub/spawner.js':
+      "execFileSync(process.execPath, [join(ROOT, 'scripts', 'spawned.js')]);\n",
+    'scripts/spawned.js': '',
+    'tests/outside.test.js': "import '../scripts/from-outside.js';\n",
+    'scripts/from-outside.js': '',
+    'tests/over.js': "const name = 'over-included.js';\n",
+    'scripts/over-included.js': '',
+    'scripts/npx-only.js': '',
+    'scripts/cargo-only.js': '',
+  };
+  try {
+    for (const [path, text] of Object.entries(files)) {
+      mkdirSync(dirname(join(root, path)), { recursive: true });
+      writeFileSync(join(root, path), text);
+    }
+    fn(root);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+}
+
+/**
+ * The union closure one heavy job's steps reach in a world.
+ * @param {string} root the world's root
+ * @param {object[]} steps the job's steps
+ * @param {Record<string, string>} [scripts] package.json's scripts
+ * @returns {string[]} the closure, sorted
+ */
+function worldClosure(root, steps, scripts = {}) {
+  const wf = { jobs: { heavy: { if: "needs.changes.outputs.x == 'true'", steps } } };
+  const { closure, jobClosures } = computeBuildClosure(wf, scripts, root);
+  assert.deepEqual([...jobClosures.heavy].sort(), [...closure].sort());
+  return [...closure].sort();
+}
+
+describe('computeBuildClosure — the closure walk over a synthetic tree', () => {
+  it('drops the token an import inside a `node -e` expression yields, the file existing', () => {
+    inWorld((root) => {
+      assert.deepEqual(worldClosure(root, [{ run: `node -e "import('./scripts/chained.js')"` }]), []); // prettier-ignore
+    });
+  });
+
+  it('follows an npm-run chain to the script it runs', () => {
+    inWorld((root) => {
+      const scripts = { chain: 'npm run leaf', leaf: 'node scripts/chained.js' };
+      assert.deepEqual(worldClosure(root, [{ run: 'npm run chain' }], scripts), ['scripts/chained.js']); // prettier-ignore
+    });
+  });
+
+  it('reads a key that runs itself once, and ends', () => {
+    inWorld((root) => {
+      assert.deepEqual(worldClosure(root, [{ run: 'npm run loop' }], { loop: 'npm run loop' }), []); // prettier-ignore
+    });
+  });
+
+  it('takes a flagged node entry in a heavy job', () => {
+    inWorld((root) => {
+      const steps = [{ run: 'node --max-old-space-size=64 scripts/flagged.js' }];
+      assert.deepEqual(worldClosure(root, steps), ['scripts/flagged.js']);
+    });
+  });
+
+  it("follows an import edge resolved against the importing file's own directory", () => {
+    inWorld((root) => {
+      const steps = [{ run: 'node scripts/lib/importer.js' }];
+      assert.deepEqual(worldClosure(root, steps), ['scripts/lib/helper.js', 'scripts/lib/importer.js']); // prettier-ignore
+    });
+  });
+
+  it('follows a spawn literal resolved against scripts/', () => {
+    inWorld((root) => {
+      const steps = [{ run: 'node scripts/sub/spawner.js' }];
+      assert.deepEqual(worldClosure(root, steps), ['scripts/spawned.js', 'scripts/sub/spawner.js']); // prettier-ignore
+    });
+  });
+
+  it('scans an entry outside scripts/ for its references without making it a member', () => {
+    inWorld((root) => {
+      const steps = [{ run: 'node tests/outside.test.js' }];
+      assert.deepEqual(worldClosure(root, steps), ['scripts/from-outside.js']);
+    });
+  });
+
+  it('reads npx, cargo and a sub-package npm test as no invocation', () => {
+    inWorld((root) => {
+      const steps = [
+        { run: 'npx tool scripts/npx-only.js' },
+        { run: 'cargo xtask scripts/cargo-only.js' },
+        { run: 'npm test', 'working-directory': 'scripts' },
+      ];
+      assert.deepEqual(worldClosure(root, steps), []);
+    });
+  });
+
+  it('pins the scripts/-relative over-include: a bare literal outside scripts/ that names a script joins', () => {
+    // The header's stated conservatism: a `.js` literal is tried against
+    // scripts/ whatever directory wrote it.
+    inWorld((root) => {
+      const steps = [{ run: 'node tests/over.js' }];
+      assert.ok(worldClosure(root, steps).includes('scripts/over-included.js'));
+    });
+  });
+});
+
+/**
  * The inputs the command line evaluates, read once through the check's own
  * reader — so these cases observe what `run()` hands the contract rather than a
  * rebuild of it.
@@ -784,15 +1155,24 @@ const CHECK_SOURCE = blankJsLiterals(
 );
 
 /**
- * The CI guide's `suiteHeld` bullet, from its opening marker to the blank line
- * that ends it, with its wrapping collapsed so a phrase the guide breaks across
- * lines reads as one string.
+ * A CI guide flag bullet, from its opening marker to the next bullet or the
+ * blank line that ends the list, whichever comes first, with its wrapping
+ * collapsed so a phrase the guide breaks across lines reads as one string.
+ * @param {string} flag the flag the bullet opens with
+ * @returns {string} the bullet's text, or '' when the guide carries none
  */
-const CI_GUIDE_SUITE_HELD_BULLET = (() => {
+function ciGuideFlagBullet(flag) {
   const guide = readFileSync(resolve(ROOT, 'docs/guides/ci.md'), 'utf8');
-  const start = guide.indexOf('- `suiteHeld` —');
-  return guide.slice(start, guide.indexOf('\n\n', start)).replace(/\s+/g, ' ');
-})();
+  const start = guide.indexOf(`- \`${flag}\` —`);
+  if (start === -1) return '';
+  const ends = [guide.indexOf('\n\n', start), guide.indexOf('\n- ', start + 1)].filter(
+    (i) => i !== -1,
+  );
+  return guide.slice(start, Math.min(...ends)).replace(/\s+/g, ' ');
+}
+
+/** The CI guide's `suiteHeld` bullet. */
+const CI_GUIDE_SUITE_HELD_BULLET = ciGuideFlagBullet('suiteHeld');
 
 /**
  * The CI guide's flag-exception sentence, located on the whole guide with its
@@ -894,6 +1274,51 @@ describe('real-tree lock', () => {
     ]);
   });
 
+  it('reds on the committed workflow when desktop-integration-tests stops gating on buildScripts', () => {
+    // The job runs build scripts and pairs with no other job, so invariant 12
+    // is the whole of what reds.
+    const job = REAL.wf.jobs['desktop-integration-tests'];
+    const ungated = { ...job, if: job.if.replace(/\|\|\s*needs\.changes\.outputs\.buildScripts == 'true'/, '') }; // prettier-ignore
+    assert.ok(!jobFlags(ungated).has('buildScripts'), ungated.if);
+    const problems = evaluateContract({
+      ...REAL,
+      wf: { ...REAL.wf, jobs: { ...REAL.wf.jobs, 'desktop-integration-tests': ungated } },
+    });
+    const scripts = [...REAL.jobClosures['desktop-integration-tests']].sort();
+    assert.ok(scripts.length, 'the job runs build scripts');
+    assert.deepEqual(problems, [
+      `heavy job \`desktop-integration-tests\` runs ${scripts.join(', ')} but does not gate on the \`buildScripts\` flag`,
+    ]);
+  });
+
+  it('reds on the committed workflow when a held flag drops any entry', () => {
+    for (const [flag, files] of Object.entries(HELD_FLAG_FILES)) {
+      for (const dropped of files) {
+        const problems = evaluateContract({
+          ...REAL,
+          filters: { ...REAL.filters, [flag]: REAL.filters[flag].filter((e) => e !== dropped) },
+        });
+        assert.deepEqual(problems, [
+          `HELD_FLAG_HOLDINGS.${flag} states a holding for \`${dropped}\`, which the \`${flag}\` filter does not list`,
+        ]);
+      }
+    }
+  });
+
+  it('every heavy job the reader hands a non-empty closure for gates on buildScripts', () => {
+    const running = Object.entries(REAL.jobClosures)
+      .filter(([, own]) => own.size > 0)
+      .map(([id]) => id)
+      .sort();
+    assert.deepEqual(running, [
+      'desktop-corpus-diff',
+      'desktop-integration-tests',
+      'desktop-vectors-diff',
+      'extension-e2e-tests',
+    ]);
+    for (const id of running) assert.ok(jobFlags(REAL.wf.jobs[id]).has('buildScripts'), id);
+  });
+
   it('the buildScripts closure the reader hands over is exactly the scripts the heavy jobs run', () => {
     assert.deepEqual([...REAL.closure].sort(), [
       'scripts/build-desktop-dist.js',
@@ -918,7 +1343,9 @@ describe('loadInputs — the reader the command line and this suite share', () =
     // and a closure the reader took from the filter map would satisfy invariant
     // 1 by construction, leaving the text as what holds it.
     assert.ok(CHECK_SOURCE.includes('evaluateContract(loadInputs())'), 'run() reads no input of its own'); // prettier-ignore
-    assert.ok(CHECK_SOURCE.includes('closure: computeBuildClosure('), 'the closure is computed, not read off the filter map'); // prettier-ignore
+    assert.ok(CHECK_SOURCE.includes('const build = computeBuildClosure(wf, scripts);'), 'the closure is computed, not read off the filter map'); // prettier-ignore
+    assert.ok(CHECK_SOURCE.includes('closure: build.closure,'), 'the union handed over is the computed one'); // prettier-ignore
+    assert.ok(CHECK_SOURCE.includes('jobClosures: build.jobClosures,'), 'the per-job closures handed over are the computed ones'); // prettier-ignore
   });
 });
 
@@ -952,4 +1379,32 @@ describe('the CI guide names the flag; the check states the holdings', () => {
     for (const [file, holding] of Object.entries(SUITE_HELD_HOLDINGS))
       assert.ok(!CI_GUIDE_SUITE_HELD_BULLET.includes(holding), `${file}: ${holding}`);
   });
+
+  // The suites holding an entry of HELD_FLAG_HOLDINGS, each with the map names
+  // its header points at. The list is hand-kept in step with the suites holding
+  // an entry of `HELD_FLAG_HOLDINGS`. The hold is a plain substring over the
+  // header text, taken up to the file's first block-comment close — the name
+  // alone, not the sentence round it.
+  const HOLDER_SUITE_POINTERS = {
+    'packages/shared/tests/unit/check-docs-disposition.test.js': ['HELD_FLAG_HOLDINGS', 'SUITE_HELD_HOLDINGS'], // prettier-ignore
+    'packages/shared/tests/unit/check-no-release-outputs.test.js': ['HELD_FLAG_HOLDINGS', 'SUITE_HELD_HOLDINGS'], // prettier-ignore
+    'reference-implementations/sync-server/tests/unit/release-exclusion.test.js': ['HELD_FLAG_HOLDINGS'], // prettier-ignore
+  };
+  for (const [suite, names] of Object.entries(HOLDER_SUITE_POINTERS)) {
+    it(`the holder suite ${suite} names ${names.join(' and ')} in its header`, () => {
+      const header = readFileSync(resolve(ROOT, suite), 'utf8').split('*/')[0];
+      for (const name of names) assert.ok(header.includes(name), `${suite}: ${name}`);
+    });
+  }
+
+  for (const [flag, map] of Object.entries(HELD_FLAG_HOLDINGS)) {
+    it(`the guide's \`${flag}\` bullet cites the held-flag holdings map and restates no holding itself`, () => {
+      // Same match form and limit as the `suiteHeld` case above, over this
+      // bullet, which ends at the next bullet.
+      const bullet = ciGuideFlagBullet(flag);
+      assert.ok(bullet.includes('HELD_FLAG_HOLDINGS'), bullet || `no \`${flag}\` bullet`);
+      for (const [file, holding] of Object.entries(map))
+        assert.ok(!bullet.includes(holding), `${file}: ${holding}`);
+    });
+  }
 });

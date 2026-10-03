@@ -14,7 +14,12 @@
  * against both readers, and a partial rename over the real document as the
  * false green that read closes — the
  * capability-source and fixture-shape refusals, unreadable rows and cells,
- * duplicate structures, and empty parses — that the Rust comment stripper, the
+ * duplicate structures, and empty parses — the grant enumeration read as the
+ * section's list, both ways against the capability files, with an item whose
+ * first backticked token is not a grant refused by name and every other grant
+ * mention in the section held to membership in it, over synthetic text and
+ * over the real document with an item removed — that the Rust comment
+ * stripper, the
  * shared JavaScript tokenizer the caller scans read through, and the fence
  * stripper keep comments, literals, and fenced examples out of the scans, and
  * — as a real-tree lock — that the shipped tree satisfies the whole contract.
@@ -42,6 +47,7 @@ import {
   extractDsh1Section,
   extractDocRows,
   extractDocGrants,
+  extractDocGrantList,
   extractSectionProse,
   extractProseChannelTokens,
   extractEmitSites,
@@ -110,6 +116,8 @@ function makeSurface(overrides = {}) {
     emitSites: [{ path: 'src/lib.rs', method: 'emit', channel: CHANNEL, line: 90 }],
     fileGrants: ['core:default', 'dialog:allow-open'],
     docGrants: ['core:default', 'dialog:allow-open'],
+    docGrantMentions: ['core:default', 'dialog:allow-open'],
+    docUnreadableGrantItems: [],
     mockCommands: ['start_capture', 'stop_capture'],
     mockCases: ['start_capture', 'stop_capture'],
     docUnreadableRows: [],
@@ -325,6 +333,7 @@ const DUPLICATE_FIXTURES = {
   docCommands: ['start_capture', 'stop_capture', 'start_capture'],
   mockCommands: ['start_capture', 'stop_capture', 'start_capture'],
   mockCases: ['start_capture', 'stop_capture', 'start_capture'],
+  docGrants: ['core:default', 'dialog:allow-open', 'core:default'],
 };
 
 describe('evaluateCommandSurface — duplicates, every leg of the duplicates loop', () => {
@@ -634,20 +643,127 @@ describe('evaluateCommandSurface — the channel the doc row derives', () => {
 });
 
 describe('evaluateCommandSurface — capability grants', () => {
-  it('fires when the capability file grants something the doc does not name', () => {
+  it('fires when the capability file grants something the enumeration does not list', () => {
     const problems = evaluateCommandSurface(
       makeSurface({ fileGrants: ['core:default', 'dialog:allow-open', 'fs:allow-write'] }),
     );
-    assert.ok(problems.some((p) => p.includes('fs:allow-write') && p.includes('does not name it')));
+    assert.deepEqual(problems, [
+      "`fs:allow-write` is granted under packages/desktop/src-tauri/capabilities but the DSH-1 section's grant enumeration does not list it",
+    ]);
   });
 
-  it('fires when the doc names a grant no capability file carries', () => {
+  it('fires when the enumeration lists a grant no capability file carries', () => {
+    const listed = ['core:default', 'dialog:allow-open', 'dialog:allow-save'];
     const problems = evaluateCommandSurface(
-      makeSurface({ docGrants: ['core:default', 'dialog:allow-open', 'dialog:allow-save'] }),
+      makeSurface({ docGrants: listed, docGrantMentions: listed }),
     );
-    assert.ok(
-      problems.some((p) => p.includes('dialog:allow-save') && p.includes('no tracked capability file grants it')), // prettier-ignore
+    assert.deepEqual(problems, [
+      "`dialog:allow-save` is listed in the DSH-1 section's grant enumeration but no tracked capability file grants it",
+    ]);
+  });
+
+  it('fires when the enumeration drops a grant a mention elsewhere in the section still names', () => {
+    // The capability file still grants it too, so the file-vs-list leg and the
+    // membership hold each state their own line.
+    const problems = evaluateCommandSurface(makeSurface({ docGrants: ['dialog:allow-open'] }));
+    assert.deepEqual(problems, [
+      "`core:default` is granted under packages/desktop/src-tauri/capabilities but the DSH-1 section's grant enumeration does not list it",
+      '`core:default` is named as a grant in the DSH-1 section but its grant enumeration does not list it',
+    ]);
+  });
+
+  it('fires when an unlisted grant-shaped token stands outside the enumeration', () => {
+    const problems = evaluateCommandSurface(
+      makeSurface({ docGrantMentions: ['core:default', 'dialog:allow-open', 'fs:allow-read'] }),
     );
+    assert.deepEqual(problems, [
+      '`fs:allow-read` is named as a grant in the DSH-1 section but its grant enumeration does not list it',
+    ]);
+  });
+
+  it('refuses an enumeration item whose first backticked token is not a grant, by name', () => {
+    // The refused item names a grant-shaped token in passing; read through the
+    // extractors, that token is neither a mention nor a listed grant, so the
+    // one refused item yields exactly one line.
+    const item = '`capture:action` — not a grant, though it names `fs:allow-read`.';
+    const section = ['- `core:default` — the core set.', '- `dialog:allow-open` — open.', `- ${item}`].join('\n'); // prettier-ignore
+    const list = extractDocGrantList(section);
+    assert.deepEqual(list.unreadable, [item]);
+    const problems = evaluateCommandSurface(
+      makeSurface({
+        docGrants: list.grants,
+        docGrantMentions: extractDocGrants(section, list.unreadable),
+        docUnreadableGrantItems: list.unreadable,
+      }),
+    );
+    assert.deepEqual(problems, [
+      `the DSH-1 section's grant enumeration carries an item whose first backticked token is not a grant, ${JSON.stringify(item)}; each item names the grant it lists as its first backticked token`,
+    ]);
+  });
+
+  it('a list whose every item is refused reports those refusals and every other leg, no empty-surface line', () => {
+    // The table's second row is renamed and the prose drops the channel too:
+    // the grant diffs are what an empty grant set skips, so the command drift
+    // and the channel leg still report beside the refusals — a guard moved
+    // ahead of either leg reds this case.
+    const items = ['`capture:action` — not a grant.', 'plain words'];
+    const problems = evaluateCommandSurface(
+      makeSurface({
+        docGrants: [],
+        docUnreadableGrantItems: items,
+        docCommands: ['start_capture', 'stop_recording'],
+        sectionProse: 'No channel is named in this prose.',
+      }),
+    );
+    assert.deepEqual(problems, [
+      ...items.map(
+        (item) =>
+          `the DSH-1 section's grant enumeration carries an item whose first backticked token is not a grant, ${JSON.stringify(item)}; each item names the grant it lists as its first backticked token`,
+      ),
+      '`stop_capture` has #[tauri::command] but no row in the DSH-1 table (docs/architecture/application/desktop/windows/application-shell.md)',
+      '`stop_recording` has a DSH-1 table row but no #[tauri::command] function defines it',
+      "the DSH-1 section's prose outside its table never names `capture:action` in backticks — the channel the table states is stated in the clause's own prose too",
+    ]);
+  });
+
+  it('refuses a grant the enumeration lists in two items, by name', () => {
+    const problems = evaluateCommandSurface(
+      makeSurface({ docGrants: ['core:default', 'dialog:allow-open', 'core:default'] }),
+    );
+    assert.deepEqual(problems, ['`core:default` appears more than once in the grant enumeration']);
+  });
+});
+
+describe('extractDocGrantList — the enumeration is the section’s list', () => {
+  it('reads each top-level item’s first backticked token as the grant it lists', () => {
+    const section = [
+      '**DSH-1.** The contract.',
+      '',
+      'The grants:',
+      '',
+      '- `core:default` — the core set.',
+      '- `dialog:default` — the dialog set, which resolves to `dialog:allow-open`',
+      '  and its siblings.',
+      '',
+      'After the list, `core:default` again.',
+    ].join('\n');
+    assert.deepEqual(extractDocGrantList(section), {
+      grants: ['core:default', 'dialog:default'],
+      unreadable: [],
+    });
+  });
+
+  it('returns an item whose first backticked token is not a grant, or that carries no backticked token, as unreadable', () => {
+    const section = ['- `start_capture` — a command.', '- plain words', '- `fs:allow-read`'].join('\n'); // prettier-ignore
+    assert.deepEqual(extractDocGrantList(section), {
+      grants: ['fs:allow-read'],
+      unreadable: ['`start_capture` — a command.', 'plain words'],
+    });
+  });
+
+  it('reads no item from a fenced list or a section stating none', () => {
+    const doc = ['**DSH-1.** The contract.', '', '```text', '- `fs:allow-read`', '```', ''].join('\n'); // prettier-ignore
+    assert.deepEqual(extractDocGrantList(extractDsh1Section(doc)), { grants: [], unreadable: [] });
   });
 });
 
@@ -1376,8 +1492,12 @@ describe('auditTree — synthetic tree', () => {
     '| `start_capture` | a | b | c |',
     '| `capture:action` (event) | a | b | c |',
     '',
-    'Grants: `core:default` and `fs:allow-read`. The `capture:action` channel',
-    'has one frontend consumer.',
+    'The grants:',
+    '',
+    '- `core:default` — the core set.',
+    '- `fs:allow-read` — file reads.',
+    '',
+    'The `capture:action` channel has one frontend consumer.',
     '',
     '## Next',
   ].join('\n');
@@ -1630,6 +1750,51 @@ describe('real-tree lock', () => {
       lsFiles(FRONTEND_DIR).filter((f) => f.endsWith('.js')),
     );
     assert.deepEqual(problems, [foreignChannelRefusal('capture:legacy')]);
+  });
+
+  /**
+   * The audit over the shipped tree with the real document rewritten.
+   * @param {(doc: string) => string} rewrite the edit to the document
+   * @returns {string[]} the problems
+   */
+  const auditRewritten = (rewrite) => {
+    const doc = readFileSync(resolve(ROOT, DOC_PATH), 'utf8');
+    const readFile = (f) =>
+      f === DOC_PATH ? rewrite(doc) : readFileSync(resolve(ROOT, f), 'utf8');
+    return auditTree(
+      readFile,
+      lsFiles(SRC_DIR).filter((f) => f.endsWith('.rs')),
+      lsFiles(CAPABILITIES_DIR),
+      lsFiles(FRONTEND_DIR).filter((f) => f.endsWith('.js')),
+    ).problems;
+  };
+
+  /** One grant's item in the shipped enumeration, the whole line. */
+  const itemLine = (doc, grant) => {
+    const lines = doc.split('\n').filter((line) => line.startsWith(`- \`${grant}\``));
+    assert.equal(lines.length, 1, `the enumeration carries one \`${grant}\` item`);
+    return lines[0];
+  };
+
+  it('removing an item while mentions of its grant stand reds from both legs', () => {
+    // `core:default` is named again in the caller-closure paragraph and in the
+    // load-bearing sentence, so a whole-section read would stay green; the
+    // enumeration is what this case removes it from.
+    const problems = auditRewritten((doc) => {
+      assert.ok(doc.split('`core:default`').length - 1 > 1, 'the section names the grant again');
+      return doc.replace(`${itemLine(doc, 'core:default')}\n`, '');
+    });
+    assert.deepEqual(problems, [
+      "`core:default` is granted under packages/desktop/src-tauri/capabilities but the DSH-1 section's grant enumeration does not list it",
+      '`core:default` is named as a grant in the DSH-1 section but its grant enumeration does not list it',
+    ]);
+  });
+
+  it('removing the item of a grant the section names nowhere else reds from the file diff alone', () => {
+    const problems = auditRewritten((doc) => doc.replace(`${itemLine(doc, 'dialog:allow-save')}\n`, '')); // prettier-ignore
+    assert.deepEqual(problems, [
+      "`dialog:allow-save` is granted under packages/desktop/src-tauri/capabilities but the DSH-1 section's grant enumeration does not list it",
+    ]);
   });
 
   it('the shipped tree satisfies the whole contract', () => {
