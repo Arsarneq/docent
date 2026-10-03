@@ -472,9 +472,14 @@ jobs:
         run: npm ci
 
       # --- npm side: advisories (npm audit) + license gate (cargo-deny is
-      # Rust-only, so npm keeps its own advisory audit). ---
+      # Rust-only, so npm keeps its own advisory audit). The gate is
+      # scripts/check-npm-advisories.js over `npm audit` at level high on the
+      # root lockfile. Its in-file ignore list, IGNORED_ADVISORIES, gives every
+      # entry an advisory id, a package, a reason and an `until` day — the last
+      # day the entry holds; the script's header states the verdicts and the
+      # upkeep rule. ---
       - name: Audit npm dependencies (advisories)
-        run: npm audit --audit-level=high --package-lock-only
+        run: npm run check:npm-advisories
 
       # The npm license gate scans every real install root (this is NOT an
       # npm-workspaces repo), so each root needs its node_modules present.
