@@ -6,8 +6,9 @@
  * The clause states one closed contract: every `#[tauri::command]` the crate
  * defines is registered in `lib.rs`'s `generate_handler!` list and appears in
  * the doc's table, and the doc's one event row states the only event channel
- * the backend emits; the same section names the capability grants
- * (`capabilities/default.json`) that admit the plugin surface. This check
+ * the backend emits; the same section enumerates, as its one top-level list,
+ * the capability grants (`capabilities/default.json`) that admit the plugin
+ * surface. This check
  * recomputes every leg from the tree and fails on any drift:
  *
  *   1. the `#[tauri::command]` function set, the `generate_handler!`
@@ -38,11 +39,25 @@
  *      separator or the call's closing parenthesis follows — fails the check
  *      rather than passing;
  *   3. the grants declared by the tracked capability files under
- *      `capabilities/` equal the grant identifiers the clause's section names
- *      in backticks — the admission shape is a namespaced identifier ending
- *      in `:default`, `:allow-…`, or `:deny-…`, so other backticked tokens
- *      (command names, the event channel) never read as grants — again in
- *      both directions;
+ *      `capabilities/` equal the clause section's grant enumeration — the
+ *      section's top-level list, each item naming the grant it lists as its
+ *      first backticked token — again in both directions. The admission shape
+ *      is a namespaced identifier ending in `:default`, `:allow-…`, or
+ *      `:deny-…`, so other backticked tokens (command names, the event
+ *      channel) never read as grants; an item whose first backticked token is
+ *      not of that shape is refused by name, a grant listed in two items is
+ *      refused by name as a duplicate, and a section whose list carries no
+ *      item is the empty-surface refusal; a list whose every item is refused
+ *      reports those item refusals, and every other leg still runs; only the
+ *      grant diffs over the empty set are skipped. A grant-shaped token inside
+ *      a refused item counts neither as a mention nor in the list, so a refused
+ *      item adds no mention line of its own (a grant the capability files carry
+ *      still reds the list diff). Every grant-shaped
+ *      backticked token elsewhere in the section — prose and table cells
+ *      alike, fenced examples excluded — is held to membership in the
+ *      enumeration, one problem per token, so a grant the enumeration dropped while a mention
+ *      of it stands reds by name, and so does an illustrative mention of a
+ *      grant the capability files do not hold;
  *   4. the desktop integration suite's mock serviced-command surface — both
  *      the `CANONICAL_COMMANDS` override allow-list and the injected mock
  *      script's `case` labels (`tauri-mock-fixture.js`) — equals the crate's
@@ -106,9 +121,12 @@
  * whose string-literal contents are blanked, so what a diagnostic message says
  * about the surface never counts as the surface itself, while each emit's
  * channel is read from the intact text at the same offset; a `#[tauri::command]` declared inside a
- * test-only module would count as shipped surface; the clause's section cannot
- * name a grant-shaped identifier the capability files do not hold (an
- * illustrative mention outside a fence reds the gate); the prose weld reads
+ * test-only module would count as shipped surface; the clause's section names
+ * a grant-shaped identifier only as a member of its grant enumeration (an
+ * illustrative mention outside a fence reds the gate, naming the token); the
+ * grant enumeration is read as the section's top-level list, so a list the
+ * section gains for another purpose is read as grant items, and its items
+ * refused by name until it is written in another form; the prose weld reads
  * every WHOLE backticked token of the clause section's non-table prose that is
  * channel-shaped and not grant-shaped, and each one must be the channel the
  * table states, so a stale second channel standing beside an updated first
@@ -163,6 +181,7 @@ import {
   stripRustComments,
   switchCaseLabels,
   tokenizeJs,
+  topLevelListItems,
   trackedFilesUnder,
 } from './check-test-inventory.js';
 
@@ -327,14 +346,44 @@ export function extractDocRows(section) {
 }
 
 /**
- * Extract the grant identifiers the DSH-1 section names in backticks.
+ * Read the DSH-1 section's grant enumeration: its top-level list items,
+ * through the shared list reader, each item's first backticked token being the
+ * grant it lists. An item whose first backticked token is not grant-shaped —
+ * or that carries none — is returned unreadable, never skipped.
  * @param {string} section the DSH-1 clause text
+ * @returns {{ grants: string[], unreadable: string[] }} the listed grants in
+ *   list order, and the items the reader could not read as one
+ */
+export function extractDocGrantList(section) {
+  const grants = [];
+  const unreadable = [];
+  for (const item of topLevelListItems(section)) {
+    const first = /`([^`]+)`/.exec(item);
+    if (first && GRANT_RE.test(first[1])) grants.push(first[1]);
+    else unreadable.push(item);
+  }
+  return { grants, unreadable };
+}
+
+/**
+ * Extract every grant identifier the DSH-1 section names in backticks — the
+ * enumeration's items and every other mention alike — except the occurrences
+ * that stand inside a refused enumeration item, which that item's own refusal
+ * already reports.
+ * @param {string} section the DSH-1 clause text
+ * @param {string[]} [refusedItems] the enumeration items the list reader refused
  * @returns {string[]} grant identifiers in first-appearance order, deduplicated
  */
-export function extractDocGrants(section) {
+export function extractDocGrants(section, refusedItems = []) {
+  const inRefused = new Map();
+  for (const item of refusedItems)
+    for (const token of backtickedTokens(item, { shape: GRANT_RE }))
+      inRefused.set(token, (inRefused.get(token) ?? 0) + 1);
+  const all = backtickedTokens(section, { shape: GRANT_RE });
+  const count = (token) => all.filter((t) => t === token).length;
   // Deduplicated: a grant named twice in the prose is one grant, and the diff
   // legs over this surface are set diffs.
-  return backtickedTokens(section, { shape: GRANT_RE, dedupe: true });
+  return [...new Set(all)].filter((token) => count(token) > (inRefused.get(token) ?? 0));
 }
 
 /**
@@ -541,7 +590,9 @@ export const EMPTY_SURFACES = [
   ['docCommands', `no command rows found in the ${CLAUSE_ID} table of ${DOC_PATH}`],
   ['docEvents', `no event row found in the ${CLAUSE_ID} table of ${DOC_PATH}`],
   ['fileGrants', `no permissions found under ${CAPABILITIES_DIR}`],
-  ['docGrants', `no grant identifiers found in the ${CLAUSE_ID} section of ${DOC_PATH}`],
+  // Keyed on the list's items, read or refused: a list whose every item is
+  // refused states those refusals, not an empty enumeration.
+  ['docGrants', `no grant enumeration items found in the ${CLAUSE_ID} section of ${DOC_PATH}`, (s) => [...s.docGrants, ...s.docUnreadableGrantItems]], // prettier-ignore
   ['mockCommands', `no CANONICAL_COMMANDS entries found in ${MOCK_PATH}`],
   ['mockCases', `no serviced case labels found in the mock's invoke switch (${MOCK_PATH})`],
   ['invokeLiterals', `no invoke( call site naming a command in a string literal found in the tracked ${FRONTEND_DIR} JavaScript`], // prettier-ignore
@@ -562,6 +613,7 @@ export const DUPLICATE_SURFACES = [
   ['docCommands', `the doc table`],
   ['mockCommands', `the mock's CANONICAL_COMMANDS list`],
   ['mockCases', `the mock's invoke switch`],
+  ['docGrants', 'the grant enumeration'],
 ];
 
 /**
@@ -576,7 +628,9 @@ export const DUPLICATE_SURFACES = [
  * @param {string} s.sectionProse the clause section's text with its table lines removed — the family's one raw-text surface key, admitted because both reads over it are relative to the channel derived in-core below (the shared rule is stated at `emptySurfaceProblems` in scripts/check-test-inventory.js)
  * @param {{ path: string, method: string, channel: string | null, line: number }[]} s.emitSites
  * @param {string[]} s.fileGrants permissions across the tracked capability files
- * @param {string[]} s.docGrants grant identifiers the doc section names
+ * @param {string[]} s.docGrants the grants the doc section's grant enumeration lists
+ * @param {string[]} s.docGrantMentions every grant identifier the doc section names in backticks, deduplicated
+ * @param {string[]} s.docUnreadableGrantItems enumeration items whose first backticked token is not a grant
  * @param {string[]} s.mockCommands the mock's CANONICAL_COMMANDS entries
  * @param {string[]} s.mockCases the injected mock script's serviced case labels
  * @param {string[]} s.invokeLiterals command names the frontend's invoke( call sites state, deduplicated
@@ -599,13 +653,15 @@ export function evaluateCommandSurface(s) {
   for (const site of s.listenSites.filter((x) => x.name === null)) {
     problems.push(`${siteLabel(site, 'listen')} passes ${argLabel(site)} where the event channel goes — the scan reads a lone string literal, so the single-listener pin stays checkable`); // prettier-ignore
   }
+  for (const item of s.docUnreadableGrantItems) {
+    problems.push(`the ${CLAUSE_ID} section's grant enumeration carries an item whose first backticked token is not a grant, ${JSON.stringify(item)}; each item names the grant it lists as its first backticked token`); // prettier-ignore
+  }
 
   const empty = emptySurfaceProblems(s, EMPTY_SURFACES);
   if (empty.length > 0) {
     problems.push(...empty);
     return problems; // empty parses make set diffs meaningless
   }
-
   // A scalar count, guarded fail-closed on the `!== 1` form the shared rule
   // states (`emptySurfaceProblems` in scripts/check-test-inventory.js): an
   // extraction that produced no count hands this `undefined`, which is not 1,
@@ -693,10 +749,17 @@ export function evaluateCommandSurface(s) {
     problems.push(`the ${CLAUSE_ID} section's prose outside its table names \`${token}\` in backticks — a whole backticked token shaped like \`${channel}\`, the channel the table states (${CHANNEL_SHAPE_PHRASE}) — and the clause's prose names that channel and no other token of that shape: a token of the shape that names something else (a script or npm target, a URL scheme) belongs in this prose in some form other than a bare backticked token, while a second channel that really is one is a contract change this clause and this check take together`); // prettier-ignore
   }
 
-  problems.push(
-    ...missingFrom(s.fileGrants, s.docGrants, `is granted under ${CAPABILITIES_DIR} but the ${CLAUSE_ID} section does not name it`), // prettier-ignore
-    ...missingFrom(s.docGrants, s.fileGrants, `is named as a grant in the ${CLAUSE_ID} section but no tracked capability file grants it`), // prettier-ignore
-  );
+  // A grant list whose every item was refused above reads no grant: the grant
+  // diffs over an empty set would restate the refusals, so this guard skips
+  // those three diffs alone — it wraps them rather than returning, so every
+  // other leg, one appended after this block included, still runs.
+  if (s.docGrants.length > 0) {
+    problems.push(
+      ...missingFrom(s.fileGrants, s.docGrants, `is granted under ${CAPABILITIES_DIR} but the ${CLAUSE_ID} section's grant enumeration does not list it`), // prettier-ignore
+      ...missingFrom(s.docGrants, s.fileGrants, `is listed in the ${CLAUSE_ID} section's grant enumeration but no tracked capability file grants it`), // prettier-ignore
+      ...missingFrom(s.docGrantMentions, s.docGrants, `is named as a grant in the ${CLAUSE_ID} section but its grant enumeration does not list it`), // prettier-ignore
+    );
+  }
 
   return problems;
 }
@@ -733,6 +796,7 @@ export function auditTree(readFile, rustFiles, capabilityFiles, jsFiles) {
   const docText = readFile(DOC_PATH).replace(/\r\n/g, '\n');
   const section = extractDsh1Section(docText);
   const { commands: docCommands, events: docEvents, unreadable: docUnreadableRows } = extractDocRows(section); // prettier-ignore
+  const grantList = extractDocGrantList(section);
   const { commands: handlerCommands, occurrences: handlerOccurrences } = extractHandlerCommands(
     blankedByPath.get(LIB_PATH) ?? '',
   );
@@ -804,7 +868,9 @@ export function auditTree(readFile, rustFiles, capabilityFiles, jsFiles) {
     sectionProse: extractSectionProse(section),
     emitSites: extractEmitSites(strippedByPath, blankedByPath),
     fileGrants,
-    docGrants: extractDocGrants(section),
+    docGrants: grantList.grants,
+    docGrantMentions: extractDocGrants(section, grantList.unreadable),
+    docUnreadableGrantItems: grantList.unreadable,
     mockCommands: mockRead.commands,
     mockCases: mockCasesRead.cases,
     invokeLiterals: [...new Set(invokeSites.filter((x) => x.name !== null).map((x) => x.name))],
@@ -860,7 +926,8 @@ function run() {
     `✓ desktop command surface consistent: ${commandCount} commands agree across the crate, ` +
       `the registration, the doc table, the frontend's invoke( call sites, and the integration ` +
       `mock; one ${channel} emit site, one frontend listener, and the clause's prose names that ` +
-      `channel and no other channel-shaped token; ${grantCount} grants match the doc.`,
+      `channel and no other channel-shaped token; ${grantCount} grants match the doc's grant ` +
+      `enumeration, which every grant the clause names belongs to.`,
   );
 }
 

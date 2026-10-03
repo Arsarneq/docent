@@ -6,21 +6,19 @@
  * One test per active extension session in corpus/manifest.json. Each test:
  *   1. launches a fresh persistent context at the FIXED corpus viewport,
  *   2. navigates to the session's start page on the fixed-port corpus server,
- *   3. flips recording on (SW injects the recorder + seeds the
- *      active-frame registry) and waits for FRAME_READY newer than the
- *      navigation (the corpus's stable URLs make the plain per-URL wait
- *      stale on reload/revisit),
- *   4. runs the session's committed input driver (real Playwright input only —
- *      the recorder drops synthetic events),
- *   5. assembles the export envelope through the REAL shared production path
- *      (createProject/createRecording/createStep/addStepRecord → buildExport;
- *      buildExport is the panels' own single envelope builder — only the panel
- *      UI wiring is bypassed, which stays covered by the existing e2e suite),
+ *   3. flips recording on (extension capture-principles ECP-2, ECP-3) and
+ *      waits for FRAME_READY newer than the navigation (scripted-truth-corpus
+ *      STC-6),
+ *   4. runs the session's committed input driver (extension capture-principles
+ *      ECP-8, scripted-truth-corpus STC-7),
+ *   5. assembles the export envelope through
+ *      createProject/createRecording/createStep/addStepRecord → buildExport
+ *      (scripted-truth-corpus STC-13),
  *   6. writes corpus/out/extension/<id>.docent.json, and
  *   7. asserts the comparator's findings for the session equal its committed
- *      known-diffs baseline entries — the truth-diff gate. A timing flake
- *      fails the attempt and is retried; a persistent mismatch stays red. The
- *      CI `corpus:check` step re-verifies the same thing without retries.
+ *      known-diffs baseline entries — the truth-diff gate (retries:
+ *      playwright.corpus.config.js; the CI re-check without retries:
+ *      scripted-truth-corpus §Run surface).
  *
  * While a session's truth file does not exist yet (authoring), the truth-diff
  * gate is skipped with a loud warning; the corpus hygiene test in
@@ -54,6 +52,10 @@ import {
   serializeFinding,
 } from '../../../../../scripts/corpus-compare.js';
 import { CORPUS_ORIGIN } from '../../../../../corpus/serve.js';
+import {
+  metaSchemaErrors,
+  formatMetaSchemaErrors,
+} from '../../../../../corpus/lib/vector-meta-schema.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, '../../../../..');
@@ -109,10 +111,9 @@ for (const session of sessions) {
     const page = context.pages()[0] ?? (await context.newPage());
     const startUrl = `${CORPUS_ORIGIN}/${session.id}/${session.page}`;
 
-    // Land on the start page first, then flip recording: the SW's
-    // recording-flag watch injects the recorder into the open frames and seeds
-    // the active-frame registry (extension capture-principles ECP-3); readiness
-    // is then observed via FRAME_READY.
+    // Land on the start page first, then flip recording (extension
+    // capture-principles ECP-2, ECP-3); readiness is then observed via
+    // FRAME_READY.
     const beforeInject = Date.now();
     await page.goto(startUrl);
     await serviceWorker.evaluate(async () => {
@@ -151,10 +152,19 @@ for (const session of sessions) {
       const committedDir = path.join(repoRoot, 'corpus', 'sessions', session.id, 'vectors');
       for (const vector of produced) {
         const key = vector.vector_id.slice(session.id.length + 1);
-        fs.writeFileSync(
-          path.join(producedDir, `${key}.vector.json`),
-          JSON.stringify(vector, null, 2) + '\n',
-        );
+        const serialized = JSON.stringify(vector, null, 2) + '\n';
+        fs.writeFileSync(path.join(producedDir, `${key}.vector.json`), serialized);
+        // Produce-stage meta-schema gate over the bytes just written, ahead of the
+        // committed comparison. Soft, so a produced vector with no committed file
+        // does not stop the session's remaining vectors or its truth envelope;
+        // where a committed file exists, the comparison below still stops the loop.
+        const schemaErrors = metaSchemaErrors(JSON.parse(serialized));
+        expect
+          .soft(
+            schemaErrors.length === 0,
+            `produced vector ${key} violates the vector meta-schema:\n${formatMetaSchemaErrors(schemaErrors)}`,
+          )
+          .toBe(true);
         const committedPath = path.join(committedDir, `${key}.vector.json`);
         if (fs.existsSync(committedPath)) {
           const committed = JSON.parse(fs.readFileSync(committedPath, 'utf8'));
@@ -182,8 +192,7 @@ for (const session of sessions) {
     );
 
     // Truth-diff gate: the comparator itself, against the committed
-    // known-diffs baseline. Retries absorb timing flakes; truth mismatches
-    // beyond the baseline stay red.
+    // known-diffs baseline (retries: playwright.corpus.config.js).
     const truthPath = path.join(repoRoot, 'corpus', 'sessions', session.id, session.truth ?? 'truth.docent.json'); // prettier-ignore
     if (!fs.existsSync(truthPath)) {
       console.warn(`corpus: no truth for ${session.id} yet — produced only (authoring mode)`);

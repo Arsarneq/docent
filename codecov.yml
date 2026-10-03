@@ -15,16 +15,17 @@ coverage:
       default:
         target: 80%
         threshold: 2%
-        # Path filters skip the test (and coverage-upload) jobs on PRs that
-        # don't touch testable code — e.g. docs- or CI-only changes. Without a
-        # report for the head commit, Codecov would otherwise leave this status
-        # unreported, and since it's a required check that strands the PR in
-        # "Expected — waiting" forever. if_not_found: success posts a passing
-        # status when there's no coverage to compare, so those PRs can merge.
+        # Path filters skip the test jobs on PRs that don't touch testable
+        # code — e.g. docs- or CI-only changes; coverage-upload always runs
+        # and issues an empty upload when no artifact exists. When
+        # Codecov evaluates this status for a commit with no head report,
+        # if_not_found: success has it post as passing rather than wait. This
+        # status is not a required check; codecov/patch below is.
         if_not_found: success
     patch:
       default:
         target: 80%
+        # A diff with no coverable lines passes this status as "coverage not affected".
         if_not_found: success
 
 # Per-flag project status checks. Advisory (informational) for now while we

@@ -4,4 +4,4 @@
 #
 # It is recommended to check this file in to source control so that
 # everyone who runs the test benefits from these saved cases.
-cc f424c7844a8126bcb8a654bc0b793b1c2e78d18636b60cf6597580f4f0c2cde9 # shrinks to q0 = 3, q1 = 74, q2 = 29
+cc f424c7844a8126bcb8a654bc0b793b1c2e78d18636b60cf6597580f4f0c2cde9 # shrinks to q0 = 3, q1 = 74, q2 = 29 # reviewed 2026-10-02: landed with #244, a PR on another subject; seeds shortest_queue_dispatch_selects_least_busy_worker, a property that asserts worker counts after a fixed wait; kept as a replay of an input that once failed.

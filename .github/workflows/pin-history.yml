@@ -1,0 +1,47 @@
+# Weekly probe that every SHA-pinned action sits on its upstream's
+# default-branch history (scripts/check-pin-history.js; the policy is
+# docs/guides/ci.md, "Pins reference stable history"). It reads GitHub's REST
+# API for each upstream, so it runs on a schedule rather than on every PR; a pin
+# that left its upstream's history shows as a red run here before the jobs
+# using it fail.
+name: Pin history
+
+on:
+  schedule:
+    - cron: '17 6 * * 3' # Every Wednesday at 06:17 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  NODE_VERSION: '24'
+
+jobs:
+  pin-history:
+    # A ceiling, not a budget. The job is one checkout, one Node setup, and
+    # the probe — one repository lookup per upstream plus one compare per
+    # distinct pin, which took seconds from a developer host. This workflow
+    # has no runs on `main` to measure yet, so the bound rests on that one
+    # local run and sits far above it; the probe step carries its own bound
+    # below this one.
+    timeout-minutes: 10
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      # The probe imports node builtins and scripts/check-action-pins.js only,
+      # so it needs no install. The workflow token raises the API rate limit
+      # above the anonymous one; it is read from the step env, never expanded
+      # inside the command.
+      - name: Probe the action pins' upstream history
+        timeout-minutes: 5
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: npm run check:pin-history
