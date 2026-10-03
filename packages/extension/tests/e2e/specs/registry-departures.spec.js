@@ -41,10 +41,12 @@
  * leading clear on the `RECORDING_START` and `RECORDING_CREATE` handlers, and
  * the stop chokepoint — so the watch never runs and that call-site clear is
  * the only one. A planted programmatic-tab entry serves the same purpose on
- * the set, and it carries both sides of the close suppression: planted
- * membership suppresses the close proxy for a tab closed after a user action
- * while the close lands inside the recent-action window, and past that window
- * the same planted membership leaves the proxy appended.
+ * the set, and it carries both sides of the close suppression (extension
+ * capture-principles ECP-12): planted membership suppresses the close proxy
+ * for a tab closed after a user action while the close lands inside the
+ * recent-action window, and past that window the same planted membership
+ * leaves the proxy appended, and inside the window the same close of a tab
+ * with no planted entry appends the proxy — the membership-varied control.
  *
  * WIPING simulates the in-memory loss an MV3 idle suspension causes, which
  * Playwright cannot force — a distinct limitation from the reload-reconnect
@@ -54,7 +56,13 @@
  * tab's entry after a wiped registry, and a wiped programmatic-tab set
  * letting a scripted close append a context_close the user never performed,
  * the degradation the correlation-marker class already admits (extension
- * runtime ERT-1).
+ * runtime ERT-1). The set's loss case runs one flow twice, and the first run
+ * is its control, on organic membership: a real click opens a popup tab by
+ * script, so the worker classifies the tab into the set at its creation with
+ * nothing planted, and with the set intact that membership suppresses the
+ * tab's scripted close (extension capture-principles ECP-12). The second run
+ * wipes the set between the open and the close, so the wipe is the one
+ * difference between the suppressed close and the appended one.
  *
  * One case belongs to none of those groups, because it reaches neither
  * structure the handle observes: the platform premise the same-value routes
