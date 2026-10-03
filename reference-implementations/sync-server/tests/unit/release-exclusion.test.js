@@ -26,6 +26,11 @@ import { dirname, resolve } from 'node:path';
  * server. The seed-sample stamps are the ONLY reference-implementations mention
  * permitted in the guard; the publish BUILD pipelines stay free of it entirely.
  *
+ * The path-filter flag in .github/workflows/test.yml that subscribes its job,
+ * reference-server-tests, to the files this suite reads is stated, with the
+ * holding each file carries, in scripts/check-ci-filter.js's
+ * HELD_FLAG_HOLDINGS map.
+ *
  * Repo-root-relative paths are resolved from this test file's location:
  *   .../docent/reference-implementations/sync-server/tests/unit  → up 4 → repo root.
  */
