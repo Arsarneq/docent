@@ -12,8 +12,9 @@
  *   recorder left in a still-open document attempting no append after the stop
  * - The record-start sweep reaching a srcdoc child built while no recording
  *   runs — a frame whose own scheme the sweep does not test (ECP-2)
- * - The trust registry's subframe departure route: a subframe held mid-departure
- *   still attempts its append, and that append no longer reaches the stream
+ * - The active-frame registry's subframe departure route: a subframe held
+ *   mid-departure still attempts its append, and that append no longer
+ *   reaches the stream
  * - Form submit change suppression
  * - Edge cases (body/html clicks, hidden visibility)
  *
@@ -486,7 +487,7 @@ test.describe('Recording State Transitions', () => {
     await testPage.waitForTimeout(200);
   });
 
-  // ── The trust registry's subframe departure route (ECP-3) ──────────────────
+  // ── The active-frame registry's subframe departure route (ECP-3) ───────────
   // The registry drops a subframe as it navigates away, so a stale frame id
   // cannot be reused. The observable is the pair the append-attempt probe
   // makes visible: the departing document's recorder is still live and still

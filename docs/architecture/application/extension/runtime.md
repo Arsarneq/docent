@@ -66,8 +66,8 @@ worker:
   a writer outside the extension entirely (a test harness driving the
   browser).
 - **State rebuildable from the browser's own tables** — the active-frame
-  registry [ECP-3](capture-principles.md#frame-trust-and-readiness) defines
-  and governs, rebuildable from the browser's frame table.
+  registry [ECP-3](capture-principles.md#frame-trust-and-readiness) states,
+  rebuildable from the browser's frame table.
 - **Correlation markers** — the tab-lifecycle suppression timestamps, whose
   meaning expires within the timing windows centralized in
   [`lib/capture-timing.js`](../../../../packages/extension/lib/capture-timing.js),
@@ -91,13 +91,13 @@ query so an observer of what a clear spared never restates that set — plants
 entries, and simulates suspension loss with raw wipes run outside any
 production trigger; each structure's removal paths run from production events
 — the registry's at the sites that implement the departures
-[ECP-3](capture-principles.md#frame-trust-and-readiness) governs, the
+[ECP-3](capture-principles.md#frame-trust-and-readiness) states, the
 recording-flag watch included (Injection, below; which clears run on which
 flag change is stated at
 [ECP-3](capture-principles.md#frame-trust-and-readiness)), the set's by the
 per-tab delete stated above — the wipes from none. Each structure's writers
 likewise run from production events — the registry's the ones
-[ECP-3](capture-principles.md#frame-trust-and-readiness) governs, the on-load
+[ECP-3](capture-principles.md#frame-trust-and-readiness) states, the on-load
 registration included (Injection, below), the set's the tab-created
 suppression decision behind the correlation marker above — the plants from
 none. It decides nothing and holds no state of its own — the structures it
@@ -203,8 +203,8 @@ the event wiring that implements them:
 
 Once all its listeners are wired, each injected recorder sends the worker a
 `FRAME_READY` message — the readiness beacon
-[ECP-3](capture-principles.md#frame-trust-and-readiness) defines and
-governs; the e2e harness keys its waits on it
+[ECP-3](capture-principles.md#frame-trust-and-readiness) states; the
+e2e harness keys its waits on it
 ([e2e — readiness](../../../test/e2e.md#readiness--frame_ready-never-a-page-flag)).
 
 ---
@@ -293,8 +293,9 @@ capture-path messages answer as their [table rows](#capture-path) state:
 `GET_TAB_ID` with the bare `{ tabId }` shape, `FRAME_READY` with no response
 at all. `APPEND_ACTION` acknowledges a trust-gate drop with `{ ok: true }`:
 the acknowledgment confirms delivery, not acceptance
-([ECP-3](capture-principles.md#frame-trust-and-readiness) governs the drop
-itself), and `{ ok: false }` is reserved for storage failures.
+(the drop itself is stated at
+[ECP-3](capture-principles.md#frame-trust-and-readiness)), and `{ ok: false }`
+is reserved for storage failures.
 
 ---
 

@@ -30,7 +30,8 @@
  * @param {number} [params.sender.tab.id] — tab id
  * @param {string} params.runtimeId — our own chrome.runtime.id
  * @param {boolean} params.liveRecording — whether a recording is active
- * @param {Map<number, Set<number>>} params.activeFrames — tabId → injected frameIds
+ * @param {Map<number, Set<number>>} params.activeFrames — tabId → registered
+ *   frameIds (the active-frame registry)
  * @returns {boolean} true only if the message is from our own extension, during
  *   a live recording, from a frame of a tab we are actively recording.
  */
@@ -48,6 +49,6 @@ export function isTrustedActionSender({ sender, runtimeId, liveRecording, active
   const frames = activeFrames.get(tabId);
   if (!frames) return false;
 
-  // Must originate from a specific frame we injected into.
+  // Must originate from a specific frame in the active-frame registry.
   return frames.has(sender.frameId);
 }

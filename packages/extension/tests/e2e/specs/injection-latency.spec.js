@@ -1,13 +1,14 @@
 /**
  * E2E — Programmatic-injection latency (the decisive safety test).
  *
- * With programmatic injection, the recorder is no longer a passive `document_start` manifest content
- * script; the service worker injects it programmatically (injectImmediately:true)
- * on each frame's webNavigation.onCompleted while recording. This test proves the
+ * The service worker injects the recorder programmatically (injectImmediately:true)
+ * on each frame's webNavigation.onCompleted while recording, wherever the browser
+ * lets the extension reach it (extension capture-principles ECP-2). This test proves the
  * window between "frame finished loading" (T0 = onCompleted) and "recorder ready
  * to capture" (T1 = the recorder's FRAME_READY message) is comfortably below the
  * human deliberate-action floor — i.e. a frame is ready before a user could
- * plausibly act in it, so removing the static early-injection costs no fidelity.
+ * plausibly act in it, which is what lets injection run only while recording at
+ * no cost in capture fidelity (extension capture-principles ECP-5).
  *
  * The bar is single-sourced: INJECT_TO_READY_BOUND from lib/capture-timing.js,
  * where it is derived once from the documented ~200ms two-action floor, so no

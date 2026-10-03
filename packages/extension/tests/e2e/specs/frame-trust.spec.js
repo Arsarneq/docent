@@ -2,10 +2,11 @@
  * E2E — frame-trust sender validation (regression).
  *
  * APPEND_ACTION messages are appended to the recording ONLY when they come from
- * a frame the service worker injected into during the live recording (tracked in
- * the active-frame registry). This closes the third-party-iframe action-injection
- * surface: an embedded/compromised frame, or anything reaching the message port
- * that we did not inject, cannot write actions into a session.
+ * a frame in the active-frame registry during the live recording (extension
+ * capture-principles ECP-3). This closes the third-party-iframe
+ * action-injection surface: an embedded/compromised frame, or anything
+ * reaching the message port from outside the registry, cannot write actions
+ * into a session.
  *
  * This spec proves the DROP side of that contract:
  *   - an APPEND_ACTION with no tab sender (not from a recorded tab frame) is dropped;
@@ -101,7 +102,7 @@ test.describe('frame-trust — untrusted APPEND_ACTION is dropped', () => {
     serviceWorker,
   }) => {
     // The handler must route every APPEND_ACTION through the trust gate and drop a
-    // sender that is not an injected frame of an actively-recorded tab. We forge a
+    // sender that is not a registered frame of an actively-recorded tab. We forge a
     // well-formed APPEND_ACTION from an extension page (which has chrome.runtime
     // access but is not a recorded web frame) while no recording is live, so the
     // gate rejects it deterministically — independent of frame-registry reseeding.
