@@ -4,19 +4,15 @@
  *
  * `pollUntil` reads, tests the value, and sleeps until the predicate holds or
  * the deadline passes. A read always precedes the expiry check, so a value
- * that arrives on the read after the deadline still counts. Expiry is never
- * success-shaped: the caller supplies `onExpiry`, which receives the last value
- * read, and what it throws or returns is the call's outcome — a positive wait
- * throws its own message there, and a bounded absence returns there. The
- * timeout is a finite, non-negative number of milliseconds, so every wait
- * expires: any other value is refused with a TypeError at the call.
+ * that arrives on the read after the deadline still counts. Expiry has no
+ * outcome of its own: the caller supplies `onExpiry`, which receives the last
+ * value read, and what it throws or returns is the call's outcome — a positive
+ * wait throws there, a bounded absence returns there. Every wait expires (the
+ * timeout contract is stated at `pollUntil`).
  *
- * `waitForState` is the general positive wait built on it: a timeout names
- * what was awaited and renders the last value read. The positive readiness
- * waits (`frame-ready.js`) and the debug-port read (`devtools-port.js`) are
- * built on `waitForState`, each naming what it awaits and how its last value
- * renders; the bounded absence (`expectNoFrameReady` in `frame-ready.js`) is
- * built on `pollUntil`, returning at expiry.
+ * `waitForState` is the positive wait built on it: a timeout names what was
+ * awaited and renders the last value read with `format` (`JSON.stringify`
+ * unless the caller passes another).
  */
 
 /**

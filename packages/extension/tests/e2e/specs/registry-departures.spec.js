@@ -41,12 +41,12 @@
  * leading clear on the `RECORDING_START` and `RECORDING_CREATE` handlers, and
  * the stop chokepoint — so the watch never runs and that call-site clear is
  * the only one. A planted programmatic-tab entry serves the same purpose on
- * the set, and it carries both sides of the close suppression (extension
- * capture-principles ECP-12): planted membership suppresses the close proxy
- * for a tab closed after a user action while the close lands inside the
- * recent-action window, and past that window the same planted membership
- * leaves the proxy appended, and inside the window the same close of a tab
- * with no planted entry appends the proxy — the membership-varied control.
+ * the set, where the close suppression (extension capture-principles ECP-12)
+ * is varied one conjunct at a time: inside the recent-action window, planted
+ * membership suppresses the close proxy for a tab closed after a user action
+ * while the same close of a tab with no planted entry appends it — the
+ * membership-varied control; past that window, the same planted membership
+ * leaves the proxy appended.
  *
  * WIPING simulates the in-memory loss an MV3 idle suspension causes, which
  * Playwright cannot force — a distinct limitation from the reload-reconnect
@@ -172,8 +172,9 @@ async function sendSWMessage(panelPage, msg) {
  * The registry snapshot as a Map from tab id to frame ids. The handle answers
  * [tabId, frameIds] pairs, so a tab id arrives as the value the registry holds,
  * and the read holds the type the worker keys by: a plant keyed by anything
- * but a number lands beside the real entry rather than in it, so it fails
- * here, whichever site planted it.
+ * but a number would land beside the real entry rather than in it; every read
+ * asserts each key is a number, so such a plant fails at the next read,
+ * whichever site planted it.
  */
 const readRegistry = async (serviceWorker) => {
   const pairs = await serviceWorker.evaluate(() =>
@@ -296,7 +297,7 @@ async function expectDeadTabIdUnowned(serviceWorker, liveIds) {
  * discriminating on some other property of a live tab is outside what these
  * sentinels see. The read-back is what keeps a plant that landed nowhere — an
  * id `registerFrame` drops for being null — from making a later check pass
- * vacuously, and the read holds the key type (stated there).
+ * vacuously, and the read holds the key type (stated at readRegistry).
  */
 async function plantSentinels(serviceWorker, seedCoveredIds) {
   const { inSeed, offSeed: offSeedTabIds } = await liveTabsBySeedTarget(serviceWorker);
@@ -393,9 +394,10 @@ async function seedCoveredOnceRegistered(serviceWorker) {
 /**
  * Click, then wait for the recorder to persist the recent-action marker that
  * click produced — the signal the close-proxy timing window keys on, waited on
- * rather than bet on with a clock. The planted-suppression case's two legs
- * use this, so their setups are the same by construction and not merely by
- * comment; the wiped-set case's legs key on the close window itself instead.
+ * rather than bet on with a clock. The planted-membership cases use this for
+ * every click a close follows, so their setups are the same by construction
+ * and not merely by comment; the wiped-set case's legs key on the close window
+ * itself instead.
  */
 async function clickAwaitingRecentAction(serviceWorker, page, selector) {
   const before = Date.now();
@@ -410,11 +412,12 @@ async function clickAwaitingRecentAction(serviceWorker, page, selector) {
 /**
  * Open a tab no recent user action precedes and wait for it to register, then
  * hand back the page and its tab id. A tab created with no recent user action
- * is not tracked as programmatic, and that is asserted here rather than at each
- * caller. `baseTabs` is the registry's key set before the tab opens, so the
- * new tab is the one key it lacks. The planted-membership cases open every tab
- * they close through this, so their legs are set up the same by construction,
- * as their clicks are by clickAwaitingRecentAction.
+ * is not tracked as programmatic, and the whole set is asserted empty here —
+ * each caller opens with nothing planted — rather than at each caller.
+ * `baseTabs` is the registry's key set before the tab opens, so the new tab is
+ * the one key it lacks. The planted-membership cases open every tab they close
+ * through this, so their legs are set up the same by construction, as their
+ * clicks are by clickAwaitingRecentAction.
  */
 async function openUntrackedTab(serviceWorker, context, baseTabs, html) {
   const page = await context.newPage();
@@ -423,7 +426,7 @@ async function openUntrackedTab(serviceWorker, context, baseTabs, html) {
   const tabId = [...registered.keys()].find((k) => !baseTabs.has(k));
   expect(
     await readProgrammaticTabs(serviceWorker),
-    'a tab opened with no recent user action must not be tracked as programmatic',
+    `the programmatic-tab set must be empty once untracked tab ${tabId} registers`,
   ).toEqual([]);
   return { page, tabId };
 }

@@ -16,8 +16,8 @@
  *      (scripted-truth-corpus STC-13),
  *   6. writes corpus/out/extension/<id>.docent.json, and
  *   7. asserts the comparator's findings for the session equal its committed
- *      known-diffs baseline entries — the truth-diff gate (retries: e2e.md
- *      §Retries and timeouts; the CI re-check without retries:
+ *      known-diffs baseline entries — the truth-diff gate (retries:
+ *      playwright.corpus.config.js; the CI re-check without retries:
  *      scripted-truth-corpus §Run surface).
  *
  * While a session's truth file does not exist yet (authoring), the truth-diff
@@ -192,7 +192,7 @@ for (const session of sessions) {
     );
 
     // Truth-diff gate: the comparator itself, against the committed
-    // known-diffs baseline. (retries: e2e.md §Retries and timeouts)
+    // known-diffs baseline (retries: playwright.corpus.config.js).
     const truthPath = path.join(repoRoot, 'corpus', 'sessions', session.id, session.truth ?? 'truth.docent.json'); // prettier-ignore
     if (!fs.existsSync(truthPath)) {
       console.warn(`corpus: no truth for ${session.id} yet — produced only (authoring mode)`);

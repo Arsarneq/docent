@@ -40,7 +40,8 @@ Everything lives under `packages/extension/tests/e2e/`:
    one already present when recording starts is reached by the sweep wherever
    the browser lets the extension reach it, and one that finishes loading
    while recording is live is injected by the per-frame route — the route the
-   srcdoc-iframe rows below rest on.
+   srcdoc-iframe rows below rest on, apart from recorder-coverage's sweep case,
+   which builds its child while idle.
 3. Start recording by flipping `recording: true` in `chrome.storage.local`
    from the service worker. The SW's recording-flag watch injects the
    recorder into the open frames and seeds the active-frame registry
@@ -236,8 +237,9 @@ two in agreement.
   [CONTRIBUTING § Extending the Docs Governance](../../.github/CONTRIBUTING.md#extending-the-docs-governance).
 - Write for four attempts: fresh context per attempt, no reliance on prior
   state, and waits keyed to observable signals (readiness, settle) rather than
-  durations. A deadline-bounded wait is built on the shared poll in
-  `helpers/deadline-poll.js`.
+  durations. A deadline-bounded poll a helper or spec writes itself is built
+  on the shared poll in `helpers/deadline-poll.js`; an assertion-shaped wait
+  keeps Playwright's `expect.poll`.
 - A storage key a spec introduces for its own use takes the `__` prefix, which
   no extension storage key carries
   ([extension runtime ERT-3](../architecture/application/extension/runtime.md#storage-keys-and-write-ownership)).

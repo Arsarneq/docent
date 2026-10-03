@@ -11,7 +11,7 @@
  *   idle-surface negatives: nothing injected while no recording runs, and a
  *   recorder left in a still-open document attempting no append after the stop
  * - The record-start sweep reaching a srcdoc child built while no recording
- *   runs: the frame scheme the sweep does not test (ECP-2)
+ *   runs — a frame whose own scheme the sweep does not test (ECP-2)
  * - The trust registry's subframe departure route: a subframe held mid-departure
  *   still attempts its append, and that append no longer reaches the stream
  * - Form submit change suppression
@@ -653,15 +653,14 @@ test.describe('Recording State Transitions', () => {
   });
 
   // ── The record-start sweep's frame reach (ECP-2) ────────────────────────────
-  // The sweep's scheme test is the tab's: every frame of a swept tab the
-  // browser lets the extension reach is injected, whatever scheme its own
-  // document carries. The child here is a srcdoc frame — its own document is
-  // about:srcdoc — built while no recording runs, so nothing has injected it:
-  // the per-frame route is gated on a live recording. It is built while idle
-  // because a child built while recording keeps a recorder that wakes on the
-  // restart and captures with no sweep at all. Once it has loaded, no
-  // onCompleted follows, so after the restart the sweep is the one route that
-  // can reach it.
+  // What this case observes is ECP-2's record-start bullet (extension
+  // capture-principles ECP-2) on a frame whose own document is not http(s).
+  // The child here is a srcdoc frame — its own document is about:srcdoc —
+  // built while no recording runs, so nothing has injected it: the per-frame
+  // route is gated on a live recording. It is built while idle because a child
+  // built while recording keeps a recorder that wakes on the restart and
+  // captures with no sweep at all. Once it has loaded, no onCompleted follows,
+  // so after the restart the sweep is the one route that can reach it.
   test('the record-start sweep injects a srcdoc child that loaded while no recording ran', async ({
     testPage,
     serviceWorker,
@@ -692,7 +691,11 @@ test.describe('Recording State Transitions', () => {
     // the restart caused is newer than it.
     const restartedAt = Date.now();
     await setRecording(serviceWorker, true);
-    await waitForFrameReadySince(serviceWorker, 'about:srcdoc', restartedAt);
+    const readyAt = await waitForFrameReadySince(serviceWorker, 'about:srcdoc', restartedAt);
+    expect(
+      readyAt - restartedAt,
+      'the swept child reports ready inside the idle window',
+    ).toBeLessThan(IDLE_ABSENCE_WINDOW_MS);
     await clearPendingActions(serviceWorker);
 
     await testPage.frameLocator('#swept').locator('#swept-btn').click();
