@@ -1670,18 +1670,16 @@ unsafe extern "system" fn input_win_event_proc(
                 return; // Programmatic focus — suppress.
             }
 
-            // Suppress focus events that follow a mouse click (within
-            // timing::CLICK_REDUNDANCY_MS). The click already captures the
-            // interaction — focus is redundant.
+            // Suppress focus events that follow a mouse click —
+            // timing::is_click_redundant decides. The click already captures
+            // the interaction — focus is redundant.
             // Focus is only meaningful when caused by Tab key (keyboard navigation).
             let mouse_down = INPUT_MOUSE_DOWN_POS.with(|p| p.get().is_some());
             if mouse_down {
                 return; // Click in progress — focus is redundant.
             }
             let last_click = INPUT_LAST_CLICK_TIMESTAMP.with(|t| t.get());
-            if last_click > 0
-                && timing::is_correlated(timestamp, last_click, timing::CLICK_REDUNDANCY_MS)
-            {
+            if timing::is_click_redundant(timestamp, last_click) {
                 return; // Recent click — focus is redundant.
             }
 
@@ -1793,15 +1791,13 @@ unsafe extern "system" fn input_win_event_proc(
             // The click already captures what was selected — the selection
             // event is redundant. We check:
             // 1. Mouse button is currently down (click in progress)
-            // 2. A click was recent (within timing::CLICK_REDUNDANCY_MS)
+            // 2. A click was recent (timing::is_click_redundant decides)
             let mouse_down = INPUT_MOUSE_DOWN_POS.with(|p| p.get().is_some());
             if mouse_down {
                 return; // Click in progress — suppress.
             }
             let last_click = INPUT_LAST_CLICK_TIMESTAMP.with(|t| t.get());
-            if last_click > 0
-                && timing::is_correlated(timestamp, last_click, timing::CLICK_REDUNDANCY_MS)
-            {
+            if timing::is_click_redundant(timestamp, last_click) {
                 return; // Recent click — suppress.
             }
             input_dispatch_raw_event(RawEvent {
