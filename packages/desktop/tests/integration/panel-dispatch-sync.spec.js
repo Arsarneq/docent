@@ -356,7 +356,7 @@ test.describe('Desktop Panel — Dispatch Flow', () => {
       project: 'D',
       recording: 'R',
       actions: [SUBMIT_CLICK],
-      narration: 'Click OK',
+      narration: 'Click submit',
     });
 
     // Go to project view and click dispatch
@@ -386,7 +386,7 @@ test.describe('Desktop Panel — Dispatch Flow', () => {
       project: 'P',
       recording: 'R',
       actions: [SUBMIT_CLICK],
-      narration: 'Step',
+      narration: 'Click submit',
     });
 
     await page.click('#bc-project');
@@ -425,7 +425,7 @@ test.describe('Desktop Panel — Dispatch Flow', () => {
       project: 'P',
       recording: 'R',
       actions: [SUBMIT_CLICK],
-      narration: 'Click OK',
+      narration: 'Click submit',
     });
 
     // Go back to project view

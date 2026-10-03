@@ -730,10 +730,20 @@ test.describe('Desktop Panel — Adapter Capture Lifecycle', () => {
     // setter call echoes the value back, which is how this reads that the adapter
     // took the wider window rather than clamping it.
     const WIDENED_WINDOW_MS = 60_000;
-    const [previousWindow, echoedWindow] = await page.evaluate(async (ms) => {
+    // A second instance's listener would take every later delivery, so only a
+    // sentinel delivered before the import tells the panel's module from a copy.
+    await fireCaptureActions(page, [{ type: 'barrier_complete', barrier_id: 9100 }]);
+    const [previousWindow, echoedWindow, seenAtImport] = await page.evaluate(async (ms) => {
       const mod = await import('/adapter-tauri.js');
-      return [mod._testOnly.setBarrierWaitTimeout(ms), mod._testOnly.setBarrierWaitTimeout(ms)];
+      return [
+        mod._testOnly.setBarrierWaitTimeout(ms),
+        mod._testOnly.setBarrierWaitTimeout(ms),
+        mod._testOnly.seenBarrierIds(),
+      ];
     }, WIDENED_WINDOW_MS);
+    expect(seenAtImport, 'the imported adapter module is the instance the panel runs').toContain(
+      9100,
+    );
     assert.equal(
       echoedWindow,
       WIDENED_WINDOW_MS,
