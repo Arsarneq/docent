@@ -27,6 +27,15 @@
  * drained after the commit click but before the sentinel is still captured into
  * the step. On the pre-fix tree the commit ignores the stop report, calls
  * `commit_barrier` (→ barrier_id 0), and finalizes immediately, so (1)–(3) fail.
+ *
+ * The adapter's sentinel wait is bounded: past it the commit finalizes with what
+ * arrived (and warns), which inside this test's window would let (3) pass with
+ * the sentinel withheld or keyed to another barrier. So the spec first lifts that
+ * bound past the test timeout, through the served adapter module's
+ * `_testOnly.setBarrierWaitTimeout` — the same module instance the panel runs,
+ * since the page imports it by the URL the panel's own import resolves to — and
+ * from then on only the matching sentinel can finalize the step. The bound lives
+ * in the page's module, so it ends with the test's page; nothing is restored.
  */
 
 import { test, expect } from './coverage-fixture.js';
@@ -36,11 +45,16 @@ import {
   installTauriMockServer,
   invokedCommands,
   openPanel,
+  seedRecordedStep,
 } from './tauri-mock-fixture.js';
 
 // The barrier id the fused stop path reports; the commit must wait for the
 // matching `barrier_complete` sentinel on the capture:action stream.
 const STOP_BARRIER_ID = 4242;
+
+// Longer than the test timeout, so the adapter's bounded-wait fallback can never
+// finalize the step inside the test: only the sentinel can.
+const SENTINEL_WAIT_PIN_MS = 60_000;
 
 const server = installTauriMockServer({
   overrides: {
@@ -71,21 +85,37 @@ test.describe('Desktop Panel — commit completeness barrier', () => {
     await page.waitForSelector('#view-projects:not(.hidden)', { timeout: 5000 });
 
     // Project + recording → recording view (capture is active here).
-    await page.click('#btn-new-project');
-    await page.waitForSelector('#view-new-project:not(.hidden)', { timeout: 5000 });
-    await page.fill('#new-project-name', 'Barrier');
-    await page.click('#btn-new-project-create');
-    await page.waitForSelector('#view-project:not(.hidden)', { timeout: 5000 });
-    await page.click('#btn-new-recording');
-    await page.waitForSelector('#view-new-recording:not(.hidden)', { timeout: 5000 });
-    await page.fill('#new-recording-name', 'Rec');
-    await page.click('#btn-new-recording-create');
-    await page.waitForSelector('#view-recording:not(.hidden)', { timeout: 5000 });
+    await seedRecordedStep(page, {
+      project: 'Barrier',
+      recording: 'Rec',
+      actions: null,
+      narration: null,
+    });
 
     // An action captured during the step.
     await fireCaptureActions(page, [clickAction('First')]);
     await page.waitForTimeout(200);
     await expect(page.locator('#btn-commit-step-simple')).toBeEnabled();
+
+    // Pin the sentinel wait before the commit reads it, through an import
+    // proven to be the panel's own adapter instance. The order matters: a
+    // second instance would register its own `capture:action` listener when
+    // imported and take every LATER delivery (the mock keeps one handler per
+    // event), so only a sentinel for an unrelated barrier delivered BEFORE the
+    // import, and found parked in the imported module, tells the panel's
+    // instance from a copy; only then does the pin leave the matching sentinel
+    // as the one way the step can finalize.
+    await fireCaptureActions(page, [{ type: 'barrier_complete', barrier_id: 777 }]);
+    const seen = await page.evaluate(
+      (ms) =>
+        import('/adapter-tauri.js').then((m) => {
+          const ids = m._testOnly.seenBarrierIds();
+          m._testOnly.setBarrierWaitTimeout(ms);
+          return ids;
+        }),
+      SENTINEL_WAIT_PIN_MS,
+    );
+    expect(seen, 'the imported adapter module is the instance the panel runs').toContain(777);
 
     // Snapshot only the commit's invoke order.
     await clearInvokes(page);
@@ -111,8 +141,12 @@ test.describe('Desktop Panel — commit completeness barrier', () => {
     // Deliver the barrier sentinel for the id the stop path reported.
     await fireCaptureActions(page, [{ type: 'barrier_complete', barrier_id: STOP_BARRIER_ID }]);
 
-    // (3) The step now finalizes, carrying both actions.
-    await expect(page.locator('.step-item')).toHaveCount(1);
+    // (3) The step now finalizes, carrying both actions — and with the wait
+    // pinned past the test timeout, nothing but that sentinel can finalize it.
+    await expect(
+      page.locator('.step-item'),
+      `the step finalizes once the barrier_complete sentinel for barrier ${STOP_BARRIER_ID} arrives`,
+    ).toHaveCount(1);
 
     const committedActionCount = await page.evaluate(async () => {
       const raw = await window.__TAURI__.core.invoke('load_state');

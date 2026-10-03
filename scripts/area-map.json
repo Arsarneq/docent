@@ -883,7 +883,7 @@
     },
     {
       "path": "packages/desktop/tests/integration/panel-dispatch-sync.spec.js",
-      "reason": "The desktop panel's dispatch and sync integration spec: the endpoint gate on the dispatch button, the confirmation surface and its step summary, settings persistence, the sync button, and the re-record and delete flows. The dispatch protocol defines the endpoint rules, the transport seam, and the confirmation surface, with rows naming this spec (DI-10, DI-12, DI-13); the sync protocol defines the cycle the sync button starts; the integration-suite document owns the mocked-backend harness and lists it.",
+      "reason": "The desktop panel's dispatch and sync integration spec: the endpoint settings and the endpoint gate on the dispatch button, the confirmation surface and its step summary, the sync settings read back in the open panel and after a fresh-document re-open, the connection-test status and the Auto-Sync enable, and the sync button gate. The dispatch protocol defines the endpoint rules, the transport seam, and the confirmation surface, with rows naming this spec (DI-10, DI-12, DI-13); the sync protocol defines the cycle the sync button starts; the integration-suite document owns the mocked-backend harness and lists it.",
       "governed-by": [
         "docs/api/dispatch.md",
         "docs/api/sync-protocol.md",

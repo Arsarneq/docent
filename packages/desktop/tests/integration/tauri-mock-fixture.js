@@ -37,8 +37,8 @@
  * invoke to the record. The page-side getters over the record and over the
  * unknown-invoke list each hand out a copy of what they hold (the reset hands
  * out nothing), so the one spec-side read of the record — the settle probe in
- * the panel spec, which needs the invoke count and the saved blob from one page
- * turn and which the integration-suite locks name as the allowance — can sort,
+ * the dispatch and sync spec, which needs the invoke count and the saved blob
+ * from one page turn and which the integration-suite locks name as the allowance — can sort,
  * reverse, or splice what it was given without reaching the record the mock
  * keeps.
  *
@@ -59,14 +59,18 @@
  *
  * ── The helpers specs share ──────────────────────────────────────────────────
  * `openPanel(page, server)` is the panel-open preamble: navigate to the served
- * frontend, then wait for the panel to have loaded — its startup `load_state`
- * invoke recorded, and the projects view visible. Both halves are needed: that
- * view is the one the markup ships un-hidden, so it matches the moment the
- * document parses, while the invoke on its own says a call was made and not
- * that the panel got as far as showing what it loaded. An exception thrown
- * during startup surfaces as its own message, distinct from the one naming a
- * bundle that never ran; the watch itself stays armed for the test's whole
- * run, so an error after the gate fails the test in the shared afterEach.
+ * frontend, then wait for the panel to have started up — its projects view as
+ * the panel rendered it, the state `createProject` also starts from. The panel
+ * renders that view once it has applied what it loaded, and the view is
+ * observable only once its startup invokes are recorded — the render and the
+ * keep-alive invoke run in one turn — so a spec's first action meets the
+ * started panel; only what startup set running, such as an Auto-Sync cycle, can still be in flight. A visible
+ * projects view would not do — the markup ships it un-hidden — and nor would
+ * the startup `load_state` invoke, which is recorded when the call is made,
+ * before the panel has its answer. An exception thrown during startup
+ * surfaces as its own message, distinct from the one naming a bundle that never
+ * ran; the watch itself stays armed for the test's whole run, so an error after
+ * the gate fails the test in the shared afterEach.
  *
  * `createProject(page, name)` walks the new-project form and lands on the
  * project's detail view, holding that view to the name it typed — so a spec
@@ -95,7 +99,9 @@
  * caller as a value or `null`, a missing one throwing naming it, and `null`
  * skips its leg, so a caller stops where its own subject begins. The commit
  * is held to the step the panel rendered, so a commit that produced no step
- * fails here rather than in whatever the caller asserts next.
+ * fails here rather than in whatever the caller asserts next. `SUBMIT_CLICK`
+ * is the stock action such a run-up delivers when the action is not the
+ * subject.
  *
  * `invokedCommands(page)`, `invokesOf(page, command)` and `clearInvokes(page)`
  * read the mock's invoke record, the read itself being what a spec must not
@@ -557,25 +563,32 @@ export function installTauriMockServer(options = {}) {
 
 /**
  * Open the panel: navigate to the served frontend, then wait for the panel to
- * have loaded — its startup `load_state` invoke recorded, and the projects view
- * visible. The view alone would not do: it is the one the markup ships
- * un-hidden, so it matches the moment the document parses. An exception thrown
- * during startup surfaces as its own message, distinct from the one naming a
- * bundle that never ran; the watch itself stays armed for the test's whole run,
- * so an error after the gate fails the test in the shared afterEach.
+ * have started up — its projects view as the panel rendered it
+ * ({@link PROJECTS_VIEW_RENDERED}). The panel renders that view once it has
+ * applied what it loaded, and the view is observable only once its startup
+ * invokes are recorded — the render and the keep-alive invoke run in one turn —
+ * so a spec's first action meets the started panel; only what startup set running, such as an Auto-Sync
+ * cycle, can still be in flight. A visible projects view would not do — the
+ * markup ships it un-hidden — and nor would the startup `load_state` invoke,
+ * which is recorded when the call is made, before the panel has its answer. An
+ * exception thrown during startup surfaces as its own message, distinct from the
+ * one naming a bundle that never ran; the watch itself stays armed for the
+ * test's whole run, so an error after the gate fails the test in the shared
+ * afterEach.
  *
  * @param {import('@playwright/test').Page} page
  * @param {{ url: (pathname?: string) => string }} server the value
  *   {@link installTauriMockServer} returned
- * @param {{ timeout?: number }} [options] how long to give the panel to load and
- *   reach that view; a spec whose open is slower than the default says so here
+ * @param {{ timeout?: number }} [options] how long to give the panel to start up
+ *   and render that view; a spec whose open is slower than the default says so
+ *   here
  * @returns {Promise<void>}
  */
 export async function openPanel(page, server, options = {}) {
   const { timeout = 10000 } = options;
   // A panel that throws part-way through startup can still satisfy the gate
-  // below — its first invoke is already recorded and the projects view is
-  // already up — so read the page's error record across the whole open and
+  // below — the projects view renders before startup's last step has run —
+  // so read the page's error record across the whole open and
   // report that as its own failure, distinct from a bundle that never ran.
   // Only what the page reported since THIS open counts, so an error an earlier
   // part of the test already reported is never re-read as a startup failure;
@@ -595,24 +608,37 @@ export async function openPanel(page, server, options = {}) {
     await page.goto(server.url());
     // Readiness has to be something the panel did, not something the markup
     // already says: `#view-projects` is the one view shipped un-hidden, so it
-    // matches the moment the document parses — before any script has run, and
-    // just as well when none can. The panel's startup `load_state` is its first
-    // word to the backend, so waiting for that invoke beside a visible projects
-    // view is a wait that a panel which never ran cannot satisfy.
-    await page.waitForFunction(
-      () => {
-        const calls = window.__TAURI__?._getInvokeCalls?.() ?? [];
-        if (!calls.some((call) => call.cmd === 'load_state')) return false;
-        const view = document.querySelector('#view-projects');
-        return !!view && !view.classList.contains('hidden');
-      },
-      undefined,
-      { timeout },
-    );
+    // matches the moment the document parses, and an invoke is recorded when
+    // the call is made. The panel renders the projects view only once what was
+    // loaded has been applied, and that view is observable only once the startup
+    // invokes are recorded — the render and the keep-alive invoke run in one
+    // turn. A panel that never ran cannot produce it, so that rendered view is
+    // the whole gate.
+    // A panel that throws before the render would otherwise cost the whole
+    // timeout, so the wait races a watch over the page-error slot this open
+    // armed: a startup throw rejects within one poll, and either outcome stops
+    // the watch.
+    await new Promise((resolve, reject) => {
+      const watch = setInterval(() => {
+        if (!errors[seen]) return;
+        clearInterval(watch);
+        reject(new Error('[tauri-mock] the panel threw while starting up'));
+      }, 50);
+      page.waitForFunction(PROJECTS_VIEW_RENDERED, undefined, { timeout }).then(
+        (value) => {
+          clearInterval(watch);
+          resolve(value);
+        },
+        (error) => {
+          clearInterval(watch);
+          reject(error);
+        },
+      );
+    });
   } catch (cause) {
     if (errors[seen]) throw startupThrew();
     throw new Error(
-      `[tauri-mock] the panel did not load and reach the projects view within ${timeout}ms. ` +
+      `[tauri-mock] the panel did not start up and render its projects view within ${timeout}ms. ` +
         'This server serves packages/desktop/dist, the built frontend bundle, and a missing or ' +
         'stale bundle is what usually stops the panel here — rebuild it from the repository root ' +
         'with `npm run sync-shared && npm run build:desktop-dist`.',
@@ -715,6 +741,18 @@ export async function fireCaptureActions(page, payloads, options = {}) {
     { actions: payloads, delay: delayMs },
   );
 }
+
+/**
+ * A captured click on a "Submit" button, as a `capture:action` payload with no
+ * timestamp — `seedRecordedStep` stamps it at delivery. The stock action for a
+ * run-up whose subject is not the action.
+ */
+export const SUBMIT_CLICK = Object.freeze({
+  type: 'click',
+  capture_mode: 'accessibility',
+  context_id: 1,
+  element: Object.freeze({ text: 'Submit', tag: 'Button', selector: '#btn' }),
+});
 
 /**
  * Walk the open panel to a committed step: create a project (through
