@@ -10,8 +10,9 @@ Everything lives under `packages/extension/tests/e2e/`:
 - `specs/` — the suite this document covers, run by `npm run test:e2e`
   (`playwright.config.js`).
 - `helpers/` — the shared harness: the extension fixture, the frame-readiness
-  helpers, the coverage plumbing, the vector-snapshot collector the corpus
-  run's vector mode produces conformance vectors through, and the
+  helpers, the deadline-bounded poll the helpers and specs share
+  (`deadline-poll.js`), the coverage plumbing, the vector-snapshot collector
+  the corpus run's vector mode produces conformance vectors through, and the
   reference-server launcher the sync-samples spec spawns its server through.
 - `corpus/` — the extension producer of the
   [scripted-truth corpus](../verification/scripted-truth-corpus.md), a separate
@@ -235,7 +236,11 @@ two in agreement.
   [CONTRIBUTING § Extending the Docs Governance](../../.github/CONTRIBUTING.md#extending-the-docs-governance).
 - Write for four attempts: fresh context per attempt, no reliance on prior
   state, and waits keyed to observable signals (readiness, settle) rather than
-  durations.
+  durations. A deadline-bounded wait is built on the shared poll in
+  `helpers/deadline-poll.js`.
+- A storage key a spec introduces for its own use takes the `__` prefix, which
+  no extension storage key carries
+  ([extension runtime ERT-3](../architecture/application/extension/runtime.md#storage-keys-and-write-ownership)).
 
 ## Runs sharing this tree
 
