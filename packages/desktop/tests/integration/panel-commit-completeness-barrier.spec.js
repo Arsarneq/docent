@@ -31,12 +31,18 @@
  * The adapter's sentinel wait is bounded: past it the commit finalizes with what
  * arrived (and warns), which inside this test's window would let (3) pass with
  * the sentinel withheld or keyed to another barrier. So the spec first lifts that
- * bound to twice the test's own timeout, read from `test.info()`, with a fixed
- * floor for runs that disable the timeout, so the bound outlasts the test by
- * construction, through the served adapter module's
+ * bound to twice the test's own timeout, read from `test.info()`, or a fixed
+ * floor, whichever is larger, capped at the browser's timer range (past it the
+ * wait overflows and fires at once). Under the suite's timeouts — the per-test
+ * timeout and the finalization assertion's own retry window — no fallback can
+ * then finalize the step inside the test; under the shipped configuration the
+ * floor is the operative value. A run that disables the test timeout and raises
+ * the expect timeout past the bound is outside what the spec rules out, and a
+ * "did not arrive within" warning in a default run means the bound itself
+ * expired. The bound is set through the served adapter module's
  * `_testOnly.setBarrierWaitTimeout` — the same module instance the panel runs,
- * since the page imports it by the URL the panel's own import resolves to — and
- * from then on only the matching sentinel can finalize the step. The
+ * since the page imports it by the URL the panel's own import resolves to — so
+ * under those timeouts only the matching sentinel can finalize the step. The
  * same-instance check below is what proves the import is the panel's module: a
  * sentinel for an unrelated barrier, delivered before the import, must be found
  * parked in the imported module. The bound lives in the page's module, so it
@@ -73,11 +79,12 @@ const clickAction = (text) => ({
 
 test.describe('Desktop Panel — commit completeness barrier', () => {
   test('regression_noissue_commit_engages_stop_path_flush_barrier', async ({ page }) => {
-    // Twice this test's own timeout, with a fixed floor for runs that disable
-    // the timeout, so the bound outlasts the test by construction: the
-    // adapter's bounded-wait fallback can never finalize the step inside the
-    // test, only the sentinel can.
-    const sentinelWaitPinMs = Math.max(test.info().timeout * 2, 60_000);
+    // Twice this test's own timeout or a fixed floor, whichever is larger,
+    // capped at the browser's timer range (past it the wait overflows and fires
+    // at once): under the suite's timeouts the adapter's bounded-wait fallback
+    // cannot finalize the step inside the test, only the sentinel can (the
+    // header states the limits of that claim).
+    const sentinelWaitPinMs = Math.min(Math.max(test.info().timeout * 2, 60_000), 2 ** 31 - 1);
     await openPanel(page, server);
 
     // Simple mode so "Done this step" commits without a narration entry.
@@ -148,7 +155,8 @@ test.describe('Desktop Panel — commit completeness barrier', () => {
     await fireCaptureActions(page, [{ type: 'barrier_complete', barrier_id: STOP_BARRIER_ID }]);
 
     // (3) The step now finalizes, carrying both actions — and with the wait
-    // pinned past the test timeout, nothing but that sentinel can finalize it.
+    // pinned past the suite's timeouts, nothing but that sentinel can finalize
+    // it.
     await expect(
       page.locator('.step-item'),
       `the step finalizes once the barrier_complete sentinel for barrier ${STOP_BARRIER_ID} arrives`,

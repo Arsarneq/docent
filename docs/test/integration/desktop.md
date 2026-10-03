@@ -96,7 +96,8 @@ replaces a single command's behaviour with spec-supplied source — how
 `panel-commit-completeness-barrier.spec.js` has `stop_capture` return a real
 barrier report whose sentinel the spec then delivers itself; the spec also
 raises the adapter's sentinel wait bound through the served module's test-only
-seam, so no fallback can finalize the step inside the test. Naming a command
+seam, so under the suite's timeouts no fallback can finalize the step inside
+the test. Naming a command
 the canonical mock does not service is an error, so an override can only
 restate a serviced command, never widen the surface behind the fail-loud
 contract. The fixture also resolves the source in the test process and refuses a

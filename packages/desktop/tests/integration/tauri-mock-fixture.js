@@ -603,7 +603,7 @@ export async function openPanel(page, server, options = {}) {
     // The gate is the rendered projects view alone; the file header says why.
     // A panel that throws before the render would otherwise cost the whole
     // timeout, so the wait races a poll over the page-error slot this open
-    // armed: a startup throw rejects within one poll with a bare marker — the
+    // fixed: a startup throw rejects within one poll with a bare marker — the
     // catch below builds the error from the page-error record — and either
     // outcome stops the poll.
     const threw = Symbol('startup threw');
