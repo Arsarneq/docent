@@ -176,9 +176,10 @@ and how a Rust test's pyramid layer is auto-classified are in
 [the test pyramid](../docs/test/strategy/test-pyramid.md); how coverage reaches
 Codecov is in [coverage reporting](../docs/test/strategy/coverage.md).
 
-New code lands with tests: every PR is gated by Codecov's project and patch
-coverage statuses — which statuses gate, and how a PR that produces no
-coverage still passes, is in
+New code lands with tests: the Codecov status every PR requires is
+`codecov/patch`, the coverage of the lines the diff changes, and the project
+status `codecov.yml` configures beside it is not a required check — which
+status is required, and how a PR that produces no coverage still passes, is in
 [CI gates](../docs/guides/ci.md#coverage-and-the-codecov-statuses); how
 coverage is measured and sliced is in
 [coverage reporting](../docs/test/strategy/coverage.md).

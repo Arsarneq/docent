@@ -107,15 +107,16 @@ jobs:
               - 'scripts/corpus-assemble-desktop-vectors.js'
               - 'scripts/sufficiency-lint.js'
             # Release-pipeline sources read as files (readFileSync, not import)
-            # rather than executed: by reference-server-tests' release-exclusion
-            # suite, asserting the publish pipelines and the release-output
-            # guard never sweep in reference-implementations/, and by
-            # unit-tests' disposition suite, holding both publish workflows to
-            # the automation branch the release guards key on. A source-read
-            # coupling the buildScripts closure can't model, so it gets its own
-            # flag. The rule is per holding job: a file belongs here when some
-            # job whose suite holds it — asserts over its content in a way no
-            # always-on gate holds — gates on no other flag already matching
+            # rather than executed, by reference-server-tests' release-exclusion
+            # suite and unit-tests' disposition suite. A source-read coupling
+            # the buildScripts closure can't model, so it gets its own flag.
+            # What holds each entry, in which job, is stated beside it in
+            # scripts/check-ci-filter.js's HELD_FLAG_HOLDINGS map, the home of
+            # this flag's holdings and of contractDocs' and dispositionWorkflow's
+            # below; the same check holds the map and these lists to one set
+            # both ways. The rule is per holding job: a file belongs here when
+            # some job whose suite holds it — asserts over its content in a way
+            # no always-on gate holds — gates on no other flag already matching
             # that file. That is what keeps the guard script listed — unit-tests
             # reaches it through the broad ci bucket, but reference-server-tests
             # is a heavy job and never gates on ci.
@@ -124,25 +125,20 @@ jobs:
               - '.github/workflows/publish-desktop.yml'
               - 'scripts/check-no-release-outputs.js'
             # The contributor contract files, read as files by unit-tests'
-            # disposition suite, which welds itself to a surface in each: the
-            # governance line CONTRIBUTING fences and the PR template scaffolds,
-            # held to the check's own constant; CONTRIBUTING's exemption
-            # paragraph, held to every field the exemption reads and to citing
-            # the release-output surface by its home rather than restating it;
-            # and the shipped template itself, audited as-is so its guidance
-            # comments stay inert. An edit to either file must run that suite.
-            # Narrow on purpose — it gates unit-tests alone, the only job whose
-            # suite holds them. Same per-holding-job rule as the flag above.
+            # disposition suite, which welds itself to a surface in each; the
+            # surfaces are stated beside each entry in HELD_FLAG_HOLDINGS. An
+            # edit to either file must run that suite. Narrow on purpose — it
+            # gates unit-tests alone, the only job whose suite holds them. Same
+            # per-holding-job rule as the flag above.
             contractDocs:
               - '.github/CONTRIBUTING.md'
               - '.github/PULL_REQUEST_TEMPLATE.md'
             # .github/workflows/docs-disposition.yml, read as a file by
-            # unit-tests' release-guard suite: it holds that workflow's guard
-            # step env block to the event fields the head-ref derivation is
-            # written against, so an edit there must run that suite. Narrow on
-            # purpose — it gates unit-tests alone, so the heavy jobs never fire
-            # for a workflow only that suite holds. Same per-holding-job rule as
-            # the flags above.
+            # unit-tests' release-output suite (the holding stated beside the
+            # entry in HELD_FLAG_HOLDINGS), so an edit there must run that
+            # suite. Narrow on purpose — it gates unit-tests alone, so the heavy
+            # jobs never fire for a workflow only that suite holds. Same
+            # per-holding-job rule as the flags above.
             dispositionWorkflow:
               - '.github/workflows/docs-disposition.yml'
             # Files a unit-tests suite or step holds — asserts over their
@@ -164,6 +160,7 @@ jobs:
               - '.github/PUBLISHING.md'
               - '.github/workflows/docs-disposition-audit.yml'
               - '.github/workflows/mutation.yml'
+              - '.github/workflows/pin-history.yml'
               - '.github/workflows/scorecard.yml'
               - 'README.md'
               - 'docs/api/dispatch.md'
@@ -405,6 +402,14 @@ jobs:
       # exit code instead of passing vacuously.
       - name: Validate job bounds and caches
         run: npm run lint:workflow-bounds
+
+      # proptest appends every input that falsifies a property to a committed
+      # seed file and replays it on every run from then on. Each seed line in a
+      # tracked seed file under the desktop crate carries a dated review note,
+      # so a seed a run left behind reds here until it is kept on purpose or
+      # deleted; scripts/check-proptest-seeds.js holds the form.
+      - name: Validate proptest seed files
+        run: npm run lint:proptest-seeds
 
       # The Clippy gate's invocation has one home (docs/guides/ci.md §CI-1), which
       # any other statement of it repeats exactly, and is run in the Rust jobs
@@ -1434,8 +1439,9 @@ jobs:
   # every test job is skipped, so no artifacts exist — in that case the final
   # step issues a Codecov `empty-upload`, which tells Codecov the commit has no
   # coverage to report and to pass its status checks. Without this, the required
-  # codecov/project and codecov/patch checks would never be reported on such
-  # PRs and GitHub would block them on "Expected — waiting" forever.
+  # codecov/patch check would never be reported on such PRs and GitHub would
+  # block them on "Expected — waiting" forever (codecov/project, configured in
+  # codecov.yml, is not a required check).
   coverage-upload:
     needs:
       - unit-tests
@@ -1543,7 +1549,7 @@ jobs:
 
       # No test job produced coverage (docs-/CI-only PR). Tell Codecov the
       # commit is intentionally coverage-free so it posts passing status checks
-      # instead of leaving the required project/patch checks unreported.
+      # instead of leaving the required codecov/patch check unreported.
       - name: Codecov empty upload (no coverage on this commit)
         if: steps.detect.outputs.has_coverage == 'false'
         uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7
