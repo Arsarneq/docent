@@ -23,13 +23,13 @@ Tests live in two places:
   `pid_filter_test.rs` — stands in both rows. The binaries are exactly the
   `.rs` files directly in it — the set CI's discovery step reads — listed
   below; a new one joins this table in the same change that adds it, and a CI
-  lint holds the two in agreement. That same lint refuses an undiscovered test binary — one Cargo
-  runs under local `cargo test` while CI's discovery never sees it — by either
-  route: the directory form `tests/<name>/main.rs`, or the crate manifest
-  stating the test targets itself (a `[[test]]` stanza, the same array written
-  as a root-table `test = [ … ]` value, or a `[package]` `autotests` key); a
-  nested module file (the `tests/common/mod.rs` convention) is shared code
-  rather than a binary, and stays green.
+  lint holds the two in agreement. That same lint refuses an undiscovered test
+  binary — one Cargo runs under local `cargo test` while CI's discovery never
+  sees it — by either route: the directory form `tests/<name>/main.rs`, or the
+  crate manifest stating the test targets itself (a `[[test]]` stanza, the same
+  array written as a root-table `test = [ … ]` value, or a `[package]`
+  `autotests` key); a nested module file (the `tests/common/mod.rs` convention)
+  is shared code rather than a binary, and stays green.
 
   **Top-level-only is the rule, and this paragraph is where it lives.**
   Widening the discovery to what Cargo itself can build is a deliberate
