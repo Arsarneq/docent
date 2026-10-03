@@ -88,11 +88,16 @@ let activeRecordingId = null;
 // holds the flag in memory rather than awaiting a storage read on every trigger.
 let liveRecording = false;
 
-// Active-frame registry: tabId → Set<frameId> of frames we have injected the
-// recorder into during the current recording. A frame is "trusted" (its
-// APPEND_ACTION messages are appended) only if it is in this registry — that is
-// the per-frame sender check that stops an embedded third-party frame, or any
-// page that can reach the message port, from injecting actions into a session.
+// Active-frame registry: tabId → Set<frameId> of the frames registered as
+// trusted — seeded from the browser's frame table at record-start and written
+// per frame by the on-load registration and each recorder's readiness beacon;
+// an entry leaves as its subframe navigates away or its tab closes, and the
+// whole registry is cleared at record-start ahead of the seed and on every
+// record-stop path (extension capture-principles ECP-3). A frame is "trusted"
+// (its APPEND_ACTION messages are appended) only if it is in this registry —
+// that is the per-frame sender check that stops an embedded third-party frame,
+// or any page that can reach the message port, from injecting actions into a
+// session.
 //
 // In-memory only — frameIds are session-scoped and churn as frames load/unload,
 // so this is NOT persisted. An SW restart leaves it empty, and a clear can leave
@@ -135,7 +140,7 @@ async function seedFramesForTab(tabId) {
  * two cover the same set by construction rather than by two matching literals
  * (the set extension capture-principles ECP-2 defines for record-start). It
  * bounds those two only: the per-frame writers extension capture-principles
- * ECP-3 inventories — the on-load registration below and each recorder's
+ * ECP-3 states — the on-load registration below and each recorder's
  * readiness beacon — each admit the (tab, frame) pair their own event carries,
  * whatever tab it sits in.
  */
@@ -155,7 +160,7 @@ async function seedActiveFrames() {
 
 /**
  * Clear the whole registry — the clears extension capture-principles ECP-3
- * inventories, at the call sites that run them: the record-start clear-and-seed
+ * states, at the call sites that run them: the record-start clear-and-seed
  * routes, every record-stop path, and both branches of the recording-flag
  * watch.
  */
@@ -251,8 +256,10 @@ chrome.action.onClicked.addListener((tab) => {
   chrome.sidePanel.open({ tabId: tab.id });
 });
 
-// When recording is enabled, inject content script into all frames
-// (including about:srcdoc iframes that don't match manifest patterns).
+// When the recording flag becomes true, run the record-start sequence: inject
+// the recorder into every frame the browser lets the extension reach in
+// every open http/https tab (extension capture-principles ECP-2), then seed
+// the registry from the browser's frame table (ECP-3).
 // Also mirror the `recording` flag into memory so the Auto-Sync scheduler can
 // drop triggers synchronously while capture is active.
 // The recording-flag watch keys the registry's clears to the flag itself
@@ -269,24 +276,27 @@ chrome.storage.onChanged.addListener((changes, area) => {
   if (area === 'local' && changes.recording) {
     liveRecording = changes.recording.newValue === true;
     if (changes.recording.newValue === true) {
-      // Inject into all current frames, then record which frames we injected
-      // into so their actions are trusted. Clearing first keeps the registry
-      // scoped to the new recording.
+      // Inject into the open http/https tabs' frames, then seed the registry
+      // from the browser's frame table (ECP-3). Clearing first keeps the
+      // registry scoped to the new recording.
       clearActiveFrames();
       injectContentScript().then(() => seedActiveFrames());
     } else {
-      // The flag went false, on whatever route — drop the trust registry.
+      // The flag went false, on whatever route — drop the active-frame registry.
       clearActiveFrames();
     }
   }
 });
 
 // When a frame finishes loading while recording, inject the recorder into THAT
-// specific frame and register it as trusted. This covers main frames, srcdoc
-// iframes, and dynamically created/child frames — it is the injection path that
-// replaces the old static manifest `all_frames` auto-inject (which is gone with
-// programmatic injection). Runs for every frame (not just the main frame): subframes are exactly the
-// frames the static entry used to cover automatically.
+// specific frame and register it as trusted. This is the during-recording
+// injection path (extension capture-principles ECP-2): it runs for every frame,
+// not just the main frame, wherever the browser lets the extension reach it, so
+// main frames, srcdoc iframes, dynamically created child frames, and the frames
+// of tabs opened mid-recording are each covered as they finish loading. This
+// route injects as early as the browser allows (injectImmediately), and it is
+// where the inject-to-ready bound (extension capture-principles ECP-5) is
+// measured.
 chrome.webNavigation.onCompleted.addListener(async (details) => {
   if (!(await isRecording())) return;
   try {
@@ -301,9 +311,10 @@ chrome.webNavigation.onCompleted.addListener(async (details) => {
   }
 });
 
-// A subframe navigating away unloads its recorder; drop it from the trust
-// registry so a stale frameId can't be reused. (A main frame's registration
-// follows on the next onCompleted, so main frames are left alone here.)
+// A subframe navigating away unloads its recorder; drop it from the
+// active-frame registry so a stale frameId can't be reused. (A main
+// frame's registration follows on the next onCompleted, so main frames
+// are left alone here.)
 chrome.webNavigation.onBeforeNavigate.addListener((details) => {
   if (details.frameId === 0) return;
   const frames = activeFrames.get(details.tabId);
@@ -423,7 +434,7 @@ async function appendSwAction(action) {
 
 // Validate an APPEND_ACTION sender against the active-frame registry, then append
 // on success. Drops untrusted senders silently (warn + return — never throw), so
-// a frame we did not inject into cannot write actions into the recording.
+// a frame outside the registry cannot write actions into the recording.
 async function validateAndAppend(action, sender) {
   // Lazy reseed: if a recording is live but this tab has no registry entry, its
   // registration is missing — a suspension lost the registry, or a clear took a
@@ -640,7 +651,7 @@ chrome.tabs.onRemoved.addListener(async (tabId, removeInfo) => {
   lastTabRemovedTimestamp = Date.now();
   // Clean up tracking regardless of recording state.
   const wasProgrammatic = programmaticTabs.delete(tabId);
-  // The tab is gone — drop all of its frames from the trust registry.
+  // The tab is gone — drop all of its frames from the active-frame registry.
   activeFrames.delete(tabId);
   if (!(await isRecording())) return;
   // Cascading close (entire window closing) — not a distinct user action.
@@ -688,10 +699,10 @@ async function setRecording(value) {
   // — that one and the sync-state watch), which keeps the mirror correct for
   // any external change as well.
   liveRecording = value === true;
-  // Drop the trust registry the moment capture stops, on every record-stop path
-  // (RECORDING_STOP, RECORDING_OPEN, PROJECT_OPEN/DELETE, RECORDING_DELETE).
-  // This chokepoint stays synchronous, ahead of the storage write below;
-  // doubling stated at the recording-flag watch.
+  // Drop the active-frame registry the moment capture stops, on every
+  // record-stop path (RECORDING_STOP, RECORDING_OPEN, PROJECT_OPEN/DELETE,
+  // RECORDING_DELETE). This chokepoint stays synchronous, ahead of the
+  // storage write below; doubling stated at the recording-flag watch.
   if (value !== true) clearActiveFrames();
   await chrome.storage.local.set({ recording: value });
 }
@@ -706,9 +717,10 @@ async function injectContentScript() {
         await chrome.scripting.executeScript({
           target: { tabId: tab.id, allFrames: true },
           files: ['content/recorder.js'],
-          // Inject as early as possible to recover the document_start timing the
-          // removed static content_scripts entry used to provide, so the recorder
-          // is ready before the user's first interaction.
+          // Inject as early as the browser allows (injectImmediately), so a tab
+          // still loading at record-start gets the recorder as soon as possible.
+          // The inject-to-ready bound (extension capture-principles ECP-5) is
+          // measured on the per-frame route, not on this sweep.
           injectImmediately: true,
         });
       } catch {
@@ -952,7 +964,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   // APPEND_ACTION: content script sends actions here for serialized storage
   // writes (this also serializes them with clearPendingActions). Each sender is
   // validated against the active-frame registry before its action is appended,
-  // so only frames we injected into during a live recording can write actions —
+  // so only frames in the registry during a live recording can write actions —
   // an untrusted/spoofed sender (e.g. an embedded third-party frame reaching the
   // message port) is dropped silently, never appended and never thrown on.
   if (message.type === 'APPEND_ACTION') {

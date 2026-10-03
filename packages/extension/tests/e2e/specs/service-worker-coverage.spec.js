@@ -1067,7 +1067,7 @@ test.describe('SW Message: Synchronous handlers', () => {
   }) => {
     await resetState(serviceWorker);
 
-    // The panel page is not an injected frame of an actively-recorded tab (and no
+    // The panel page is not a registered frame of an actively-recorded tab (and no
     // recording is live), so the SW's APPEND_ACTION handler routes it through the
     // frame-trust gate and drops it silently — still acknowledging the message so
     // the sender's port closes cleanly. The accept path (a real recorded frame's

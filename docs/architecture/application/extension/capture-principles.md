@@ -46,7 +46,8 @@ its `recording` watch — until navigation replaces their documents. The idle
 surface that acts is just the service worker. (The
 `host_permissions: <all_urls>` grant is retained by decision: it is what lets
 the service worker inject into any open http/https tab the moment recording
-starts.)
+starts, and into each frame that finishes loading for the rest of the
+recording, on whatever host the browser lets the extension reach.)
 
 ### Frame trust and readiness
 

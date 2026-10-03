@@ -183,10 +183,12 @@ describe('Security: content script injection scope (manifest)', () => {
   });
 
   it('declares no passive static content script — the recorder is injected programmatically only while recording', () => {
-    // The recorder is no longer registered statically against <all_urls>; it would
-    // otherwise run in every page and frame at all times. It is now injected
-    // programmatically (chrome.scripting) by the service worker only during an
-    // active recording, so no recorder code is present on a page when idle.
+    // The manifest carries no content script and grants the "scripting"
+    // permission — this test pins both manifest facts. Together with the host
+    // grant the permissions doc enumerates, they are what lets the service
+    // worker inject the recorder programmatically (chrome.scripting), and only
+    // while a recording is active (extension capture-principles ECP-2; the idle
+    // surface is pinned end-to-end, not here).
     const cs = manifest.content_scripts ?? [];
     assert.equal(cs.length, 0, 'manifest must not register a passive static content script');
     assert.ok(

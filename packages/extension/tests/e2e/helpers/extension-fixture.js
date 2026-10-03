@@ -14,16 +14,15 @@
  * (service worker, extension pages), not from regular page contexts. We access
  * it via the service worker's evaluate method.
  *
- * Recorder injection: the extension declares no manifest content_scripts entry.
- * The service worker injects content/recorder.js programmatically
- * (chrome.scripting.executeScript), and only while a recording is active: a
- * sweep of the open http/https tabs at record-start, then each frame as it
- * finishes loading (webNavigation.onCompleted). A top-level test page therefore
- * lives on a real http(s) URL — the initial page because that is what the
- * sweep's tab query matches, and a mid-recording page because reaching it
- * takes the real navigation that fires the per-frame route, while its http(s)
- * URL is what a restart's record-start sweep matches again (ECP-2) — so we
- * serve test HTML via a local HTTP server.
+ * Recorder injection: the service worker injects content/recorder.js
+ * programmatically (chrome.scripting.executeScript), and only while a recording
+ * is active: a sweep of the open http/https tabs at record-start, then each
+ * frame as it finishes loading (webNavigation.onCompleted). A top-level test
+ * page therefore lives on a real http(s) URL — the initial page because that is
+ * what the sweep's tab query matches, and a mid-recording page because reaching
+ * it takes the real navigation that fires the per-frame route, while its
+ * http(s) URL is what a restart's record-start sweep matches again (ECP-2) — so
+ * we serve test HTML via a local HTTP server.
  *
  * Coverage: Uses CDP Profiler on the testPage to capture content script
  * (recorder.js) execution in the page's isolated world.
@@ -136,15 +135,16 @@ export const test = base.extend({
       cdpSession = null;
     }
 
-    // Navigate to the local server. With programmatic injection the recorder is no longer a passive
-    // manifest content script — it is injected by the SW only while recording,
-    // so nothing runs here until recording is turned on below.
+    // Navigate to the local server. The SW injects the recorder only while
+    // recording (ECP-2), so nothing runs here until recording is turned on below.
     const pageUrl = `http://127.0.0.1:${serverPort}/`;
     await page.goto(pageUrl);
 
     // Start recording via the service worker. Flipping `recording` true fires
-    // the SW's recording-flag watch, which programmatically injects the
-    // recorder into this tab's frames and seeds the active-frame registry.
+    // the SW's recording-flag watch: it runs the record-start sweep, injecting
+    // the recorder into every frame the browser lets the extension reach in
+    // every open http/https tab, this one included, and seeding the
+    // active-frame registry from the browser's frame table (ECP-2; ECP-3).
     await serviceWorker.evaluate(async () => {
       await chrome.storage.local.set({ recording: true, pendingActions: [], pendingCount: 0 });
     });
