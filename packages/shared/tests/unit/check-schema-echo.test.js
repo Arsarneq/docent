@@ -765,21 +765,18 @@ describe('evaluateSchemaEcho — the payload-table legs (each table against its 
 
   it('reports a target’s field drift per table when tables in both registers hold it', () => {
     const held = { ...makeSurface().tables[0], label: 'the sync payload step table' };
-    const problems = evaluateSchemaEcho(
-      withTarget(STEP, second, { properties: ['uuid', 'narration', 'step_type', 'expect', 'sprouted'] }), // prettier-ignore
-    );
-    const both = evaluateSchemaEcho({
+    const problems = evaluateSchemaEcho({
       ...withTarget(STEP, second, { properties: ['uuid', 'narration', 'step_type', 'expect', 'sprouted'] }), // prettier-ignore
       payloadTables: [top(), held],
       payloadTableRows: [...top().fields, ...held.fields],
     });
-    for (const label of ['the step-fields table', held.label]) {
-      assert.ok(
-        both.includes(`\`sprouted\` is a property of the composed ${second} \`step\` def but ${label} has no row for it`), // prettier-ignore
-        both.join('\n'),
-      );
-    }
-    assert.ok(!problems.some((p) => p.includes(held.label)), problems.join('\n'));
+    // The drift lines name exactly the tables that hold the target, one each.
+    assert.deepEqual(
+      problems.filter((p) => p.startsWith('`sprouted`') && p.endsWith('has no row for it')),
+      ['the step-fields table', held.label].map(
+        (label) => `\`sprouted\` is a property of the composed ${second} \`step\` def but ${label} has no row for it`, // prettier-ignore
+      ),
+    );
   });
 
   it('fires when a root property has no row, on the platform that grew it', () => {
@@ -1074,7 +1071,7 @@ describe('auditTree — each target read once per platform across both registers
     const surfaces = auditTree((path) => readTree(path), compose);
     const pairs = surfaces.defs.map((d) => `${d.platform} ${d.pointer}`);
     assert.equal(new Set(pairs).size, pairs.length, pairs.join(' | '));
-    const missing = `the composed ${second} schema carries no \`project\` def — the field-table leg cannot run`; // prettier-ignore
+    const missing = `the composed ${second} schema carries no \`project\` def — the \`project\` legs cannot run`; // prettier-ignore
     assert.equal(surfaces.anchorProblems.filter((p) => p === missing).length, 1, surfaces.anchorProblems.join('\n')); // prettier-ignore
     assert.ok(
       !surfaces.anchorProblems.some((p) => p.includes(`composed ${first} schema carries no`)),
@@ -1495,11 +1492,15 @@ describe('readTargetSurface', () => {
   it('is loud on a missing def, a def with no properties, and a non-array required', () => {
     const missing = readTargetSurface(schema, 'extension', '#/$defs/ghost');
     assert.equal(missing.present, false);
-    assert.ok(missing.problems[0].includes('no `ghost` def'));
+    assert.deepEqual(missing.problems, [
+      'the composed extension schema carries no `ghost` def — the `ghost` legs cannot run',
+    ]);
     assert.equal(missing.where, 'the composed extension `ghost` def');
     const loose = readTargetSurface(schema, 'extension', '#/$defs/loose');
     assert.equal(loose.present, false);
-    assert.ok(loose.problems[0].includes('no properties object'));
+    assert.deepEqual(loose.problems, [
+      'the composed extension `loose` def carries no properties object — the `loose` legs cannot run',
+    ]);
     const odd = readTargetSurface(schema, 'extension', '#/$defs/odd');
     assert.ok(odd.problems[0].includes('required that is not an array'));
   });
@@ -1507,11 +1508,13 @@ describe('readTargetSurface', () => {
   it('is loud on a root with no properties and on a schema that is not an object', () => {
     const bare = readTargetSurface({ $defs: {} }, 'extension', ROOT_POINTER);
     assert.equal(bare.present, false);
-    assert.ok(bare.problems[0].includes('extension schema root carries no properties object'));
+    assert.deepEqual(bare.problems, [
+      "the composed extension schema root carries no properties object — the schema root's legs cannot run",
+    ]);
     const absent = readTargetSurface(null, 'desktop-windows', ROOT_POINTER);
     assert.equal(absent.present, false);
     assert.deepEqual(absent.problems, [
-      'the composed desktop-windows schema is not an object — the payload-table legs cannot run',
+      "the composed desktop-windows schema is not an object — the schema root's legs cannot run",
     ]);
   });
 

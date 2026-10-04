@@ -721,15 +721,15 @@ export function readTargetSurface(schema, platform, pointer) {
   const display = { where: target.where(platform), subject: target.subject, noun: target.noun };
   if (target.defName === null) {
     if (!isPlainObject(schema)) {
-      return { ...EMPTY_OBJECT_SURFACE, ...display, problems: [`the composed ${platform} schema is not an object — the payload-table legs cannot run`] }; // prettier-ignore
+      return { ...EMPTY_OBJECT_SURFACE, ...display, problems: [`the composed ${platform} schema is not an object — ${target.legs} cannot run`] }; // prettier-ignore
     }
-    return { ...readObjectSurface(schema, display.where), ...display };
+    return { ...readObjectSurface(schema, display.where, target.legs), ...display };
   }
   const def = schema?.$defs?.[target.defName];
   if (!isPlainObject(def)) {
-    return { ...EMPTY_OBJECT_SURFACE, ...display, problems: [`the composed ${platform} schema carries no \`${target.defName}\` def — the field-table leg cannot run`] }; // prettier-ignore
+    return { ...EMPTY_OBJECT_SURFACE, ...display, problems: [`the composed ${platform} schema carries no \`${target.defName}\` def — ${target.legs} cannot run`] }; // prettier-ignore
   }
-  return { ...readObjectSurface(def, display.where), ...display };
+  return { ...readObjectSurface(def, display.where, target.legs), ...display };
 }
 
 const EMPTY_OBJECT_SURFACE = {
@@ -742,15 +742,17 @@ const EMPTY_OBJECT_SURFACE = {
 };
 
 /**
- * The one surface reader: `node`'s property names, `required`, and `anyOf`
- * branches, each diagnosis naming `where`.
- * @param {object} def the object schema
+ * The one surface reader: `def`'s property names, `required`, and `anyOf`
+ * branches, each diagnosis naming `where`, and a read that cannot run naming
+ * the legs that read it.
+ * @param {object} def the object schema — a def, or the schema root
  * @param {string} where how a diagnosis names it
+ * @param {string} legs the legs that read it, as {@link describeTarget} names them
  * @returns {Omit<ReturnType<typeof readTargetSurface>, 'where' | 'subject' | 'noun'>}
  */
-function readObjectSurface(def, where) {
+function readObjectSurface(def, where, legs) {
   if (!isPlainObject(def.properties)) {
-    return { ...EMPTY_OBJECT_SURFACE, problems: [`${where} carries no properties object — the field-table leg cannot run`] }; // prettier-ignore
+    return { ...EMPTY_OBJECT_SURFACE, problems: [`${where} carries no properties object — ${legs} cannot run`] }; // prettier-ignore
   }
   const problems = [];
   const required = Array.isArray(def.required) ? def.required : [];
