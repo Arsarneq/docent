@@ -64,8 +64,10 @@
  * entry with its siblings' entries untouched, or the whole project baseline.
  * For an accept that equals the adopted state, but for a resolution it is the
  * incoming version, NOT the state the user adopted. Adoption does so with NO
- * sync transport at all (no push/pull). Beside the property, accepting a
- * project-level deletion review is pinned to leave no project baseline.
+ * sync transport at all (no push/pull). Beside the property, the accepted
+ * deletion reviews are pinned at both grains: a project-level one leaves no
+ * project baseline, and a recording-level one removes that recording's entry
+ * with its siblings' entries untouched.
  *
  * **Part C — declining (outside a cycle) advances NOTHING.** Declining a Review
  * keeps the local version and leaves the baseline exactly where it was — absent
@@ -697,6 +699,10 @@ describe('Baseline advances only on confirmed agreement or adoption, never on pu
         const seedStaleBaseline = scenario.seedStaleBaseline || (projectLevel && deletion);
         const unitRef = projectLevel ? project_id : `${project_id}:${recording_id}`;
 
+        // For a resolution, the adopted state's markers (`merged`, `-resolved`)
+        // keep it apart from the incoming version (`incoming`, `-incoming`), and
+        // the stale baseline's (`stale`, `-stale`, `stale-only`) keep it apart
+        // from both; an acceptance adopts the incoming version itself.
         const localRecording = recOf(recording_id, 'local', localSteps);
         const localProject = projOf(project_id, [localRecording, siblingRec]);
         const incomingRecording = recOf(recording_id, 'incoming', incomingSteps);
@@ -757,6 +763,13 @@ describe('Baseline advances only on confirmed agreement or adoption, never on pu
           deletion ? null : adopted,
           'the adopted unit is applied to local data',
         );
+        if (adopt === 'resolve') {
+          assert.notEqual(
+            projectLevel ? baseline.digest : getRecordingBaselineDigest(baseline, recording_id),
+            projectLevel ? digestProject(adopted) : digestRecording(adopted),
+            'the baseline does not advance to the adopted state',
+          );
+        }
         if (projectLevel) {
           assert.equal(
             baseline.digest,
@@ -791,6 +804,26 @@ describe('Baseline advances only on confirmed agreement or adoption, never on pu
     assert.equal(result.ok, true, String(result.reason));
     assert.equal(getItem(state, 'p'), null, 'the adopted item is cleared');
     assert.equal(getBaseline(state, 'p'), null, 'no project baseline is left');
+  });
+
+  it("accepting a recording-level deletion review removes that recording's baseline entry and leaves its siblings", () => {
+    const state = createEmptySyncState();
+    const gone = recOf('r-gone', 'agreed', []);
+    const sibling = recOf('r-sibling', 'agreed', []);
+    advanceBaseline(state, 'p', projOf('p', [gone, sibling]), FIXED_NOW);
+    upsertReview(state, 'p:r-gone', null, FIXED_NOW);
+    const result = acceptReview(state, [projOf('p', [gone, sibling])], 'p:r-gone', {
+      now: FIXED_NOW,
+    });
+    assert.equal(result.ok, true, String(result.reason));
+    assert.equal(getItem(state, 'p:r-gone'), null, 'the adopted item is cleared');
+    const baseline = getBaseline(state, 'p');
+    assert.equal(getRecordingBaselineDigest(baseline, 'r-gone'), null, 'the entry is removed');
+    assert.equal(
+      getRecordingBaselineDigest(baseline, 'r-sibling'),
+      digestRecording(sibling),
+      "a sibling's baseline entry is untouched",
+    );
   });
 
   // ── Part C: declining (outside a cycle) advances NOTHING ───────────
