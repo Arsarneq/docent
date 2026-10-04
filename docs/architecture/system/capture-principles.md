@@ -151,6 +151,10 @@ interaction is captured.
 
 **CP-16.** Scroll gestures are debounced (300 ms) and coalesced into one
 `scroll` action per settled sequence; a sequence whose net displacement stays
-within 200 px on both axes is discarded
+within the floor on both axes is discarded
 ([docent#232](https://github.com/Arsarneq/docent/issues/232) tracks revising
-the floor). Both platforms apply this identically.
+the floor). The rule is the same on both platforms; the quantity it measures
+is each platform's own — the extension's change in the scrolled container's
+offset in layout pixels, the desktop's summed native wheel deltas — and each
+platform's capture doc states it with its floor's home. The exported
+`delta_x`/`delta_y` carry that quantity, as their schema descriptions state.

@@ -324,7 +324,10 @@ with a caveat):
   event class equally.
 - Scroll gestures are debounced and coalesced with a sub-threshold discard —
   the shared rule in
-  [core CP-16](../../../../architecture/system/capture-principles.md#capture-surface)
+  [core CP-16](../../../../architecture/system/capture-principles.md#capture-surface);
+  the quantity here is the sum of the native wheel deltas the input layer feeds
+  (120 per detent), and the floor is `SCROLL_MIN_DISTANCE_PX` in
+  `src/capture/timing.rs`, whose `_PX` suffix is historical
 - A file dialog confirmed from the keyboard (Enter on the filename field)
   produces no `file_dialog` action — the proxy triggers only on a click of
   the dialog's Save/Open button

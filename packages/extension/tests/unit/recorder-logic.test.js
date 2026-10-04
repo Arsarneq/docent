@@ -1,7 +1,9 @@
 /**
  * recorder-logic.test.js — Unit tests for extracted content script logic.
  *
- * Tests selector derivation, locator measurement, and element description
+ * Tests selector derivation, locator measurement, element description, the
+ * scroll decision, and the
+ * content script's inline scroll literals against their declared constants
  * with mock DOM elements. No browser required: the measurement root is a
  * fake `ownerDocument` whose querySelectorAll is backed by a Map from
  * selector string → element array (or the 'throw' sentinel).
@@ -12,6 +14,8 @@
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { SCROLL_DEBOUNCE, SCROLL_MIN_DISTANCE_PX } from '../../lib/capture-timing.js';
 import {
   selectorFor,
   describeElement,
@@ -617,6 +621,21 @@ describe('shouldCaptureScroll', () => {
   it('captures 201px scroll', () => {
     const result = shouldCaptureScroll(0, 0, 201, 0);
     assert.equal(result.capture, true);
+  });
+
+  it('discards exactly SCROLL_MIN_DISTANCE_PX and captures just above it', () => {
+    assert.equal(shouldCaptureScroll(0, 0, SCROLL_MIN_DISTANCE_PX, 0).capture, false);
+    assert.equal(shouldCaptureScroll(0, 0, 0, SCROLL_MIN_DISTANCE_PX).capture, false);
+    assert.equal(shouldCaptureScroll(0, 0, SCROLL_MIN_DISTANCE_PX + 1, 0).capture, true);
+  });
+
+  it('the content script applies the declared scroll floor and settle debounce inline', () => {
+    const source = readFileSync(new URL('../../content/recorder.js', import.meta.url), 'utf8');
+    const occurrences = (text) => source.split(text).length - 1;
+    const floor = `if (deltaY > ${SCROLL_MIN_DISTANCE_PX} || deltaX > ${SCROLL_MIN_DISTANCE_PX}) {`;
+    const settle = `}, ${SCROLL_DEBOUNCE});`;
+    assert.equal(occurrences(floor), 1, `recorder.js applies the floor once as: ${floor}`);
+    assert.equal(occurrences(settle), 1, `recorder.js applies the settle once as: ${settle}`);
   });
 
   it('captures scroll up (negative delta)', () => {

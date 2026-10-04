@@ -239,6 +239,10 @@ with a caveat):
 - `window.close()` detection uses a timing window on programmatic tabs
 - Scroll gestures are debounced and coalesced with a sub-threshold discard —
   the shared rule in
-  [core CP-16](../../../architecture/system/capture-principles.md#capture-surface)
+  [core CP-16](../../../architecture/system/capture-principles.md#capture-surface);
+  the quantity here is the change in the scrolled container's offset in the
+  document's layout pixels, and the floor is declared as
+  `SCROLL_MIN_DISTANCE_PX` in `lib/capture-timing.js` and applied inline in
+  the content script
 - Actions performed during a [storage-pressure pause](#storage-pressure) are
   not captured
