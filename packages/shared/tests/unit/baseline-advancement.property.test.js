@@ -696,7 +696,9 @@ describe('Baseline advances only on confirmed agreement or adoption, never on pu
         const siblingRec = recOf(sibling_id, 'sibling', jsonNormalize(scenario.siblingSteps));
         const projectLevel = level === 'project';
         const deletion = adopt === 'resolve-delete';
-        const seedStaleBaseline = scenario.seedStaleBaseline || (projectLevel && deletion);
+        // A delete-vs-change conflict exists only against a prior baseline, so
+        // the deletion resolution always seeds one, at either level.
+        const seedStaleBaseline = scenario.seedStaleBaseline || deletion;
         const unitRef = projectLevel ? project_id : `${project_id}:${recording_id}`;
 
         // For a resolution, the adopted state's markers (`merged`, `-resolved`)
@@ -730,13 +732,11 @@ describe('Baseline advances only on confirmed agreement or adoption, never on pu
           result = acceptReview(state, [localProject], unitRef, { now: FIXED_NOW });
           adopted = incoming;
         } else {
-          upsertConflict(
-            state,
-            unitRef,
-            projectLevel && deletion ? null : local,
-            incoming,
-            FIXED_NOW,
-          );
+          // A deletion resolves a delete-vs-change conflict at either level:
+          // the local side is null and the unit absent locally (the project
+          // passed without the recording, or no project at all), the incoming
+          // side the changed unit.
+          upsertConflict(state, unitRef, deletion ? null : local, incoming, FIXED_NOW);
           adopted = deletion
             ? { deleted: true }
             : projectLevel
@@ -744,7 +744,7 @@ describe('Baseline advances only on confirmed agreement or adoption, never on pu
               : recOf(recording_id, 'merged', [...localSteps, ...incomingSteps]);
           result = resolveConflict(
             state,
-            projectLevel && deletion ? [] : [localProject],
+            deletion ? (projectLevel ? [] : [projOf(project_id, [siblingRec])]) : [localProject],
             unitRef,
             adopted,
             { now: FIXED_NOW },
