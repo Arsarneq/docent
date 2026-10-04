@@ -742,6 +742,14 @@ describe('evaluateSchemaEcho — duplicates, unreadable cells, and empty parses'
       );
     });
   }
+
+  it('names what an empty target-surface set stops: both registers’ comparisons', () => {
+    const problems = evaluateSchemaEcho(makeSurface({ defs: [] }));
+    assert.ok(
+      problems.includes('no composed target surfaces read — the field-table and payload-table legs cannot run'), // prettier-ignore
+      problems.join('\n'),
+    );
+  });
 });
 
 describe('evaluateSchemaEcho — the payload-table legs (each table against its target)', () => {
@@ -842,7 +850,7 @@ describe('evaluateSchemaEcho — the payload-table legs (each table against its 
       }),
     );
     assert.ok(
-      problems.includes("the sync payload top-level table parsed no readable rows — the schema root's legs cannot run"), // prettier-ignore
+      problems.includes('the sync payload top-level table parsed no readable rows — the payload-table legs cannot run'), // prettier-ignore
       problems.join('\n'),
     );
     const defTable = evaluateSchemaEcho(
@@ -853,7 +861,7 @@ describe('evaluateSchemaEcho — the payload-table legs (each table against its 
     );
     assert.ok(
       defTable.includes(
-        'the step-fields table parsed no readable rows — the `step` legs cannot run',
+        'the step-fields table parsed no readable rows — the field-table legs cannot run',
       ),
       defTable.join('\n'),
     );
@@ -1071,7 +1079,7 @@ describe('auditTree — each target read once per platform across both registers
     const surfaces = auditTree((path) => readTree(path), compose);
     const pairs = surfaces.defs.map((d) => `${d.platform} ${d.pointer}`);
     assert.equal(new Set(pairs).size, pairs.length, pairs.join(' | '));
-    const missing = `the composed ${second} schema carries no \`project\` def — the \`project\` legs cannot run`; // prettier-ignore
+    const missing = `the composed ${second} schema carries no \`project\` def — the field-table and payload-table legs cannot run`; // prettier-ignore
     assert.equal(surfaces.anchorProblems.filter((p) => p === missing).length, 1, surfaces.anchorProblems.join('\n')); // prettier-ignore
     assert.ok(
       !surfaces.anchorProblems.some((p) => p.includes(`composed ${first} schema carries no`)),
@@ -1429,16 +1437,17 @@ describe('describeTarget — the target pointers and the words each one decides'
     assert.equal(target.defName, null);
     assert.equal(target.where('extension'), 'the composed extension schema root');
     assert.equal(target.subject, 'the schema root');
-    assert.equal(target.legs, "the schema root's legs");
+    assert.equal(target.legs, 'the payload-table legs');
     assert.equal(target.noun, 'this root');
   });
 
-  it('reads a def pointer as that def, in today’s words', () => {
+  it('reads a def pointer as that def, naming its legs by the register kinds that hold it', () => {
     const target = describeTarget('#/$defs/project');
     assert.equal(target.defName, 'project');
     assert.equal(target.where('desktop-windows'), 'the composed desktop-windows `project` def');
     assert.equal(target.subject, '`project`');
-    assert.equal(target.legs, 'the `project` legs');
+    assert.equal(target.legs, 'the field-table and payload-table legs');
+    assert.equal(describeTarget('#/$defs/step').legs, 'the field-table legs');
     assert.equal(target.noun, 'this def');
   });
 
@@ -1493,13 +1502,13 @@ describe('readTargetSurface', () => {
     const missing = readTargetSurface(schema, 'extension', '#/$defs/ghost');
     assert.equal(missing.present, false);
     assert.deepEqual(missing.problems, [
-      'the composed extension schema carries no `ghost` def — the `ghost` legs cannot run',
+      'the composed extension schema carries no `ghost` def — the field-table legs cannot run',
     ]);
     assert.equal(missing.where, 'the composed extension `ghost` def');
     const loose = readTargetSurface(schema, 'extension', '#/$defs/loose');
     assert.equal(loose.present, false);
     assert.deepEqual(loose.problems, [
-      'the composed extension `loose` def carries no properties object — the `loose` legs cannot run',
+      'the composed extension `loose` def carries no properties object — the field-table legs cannot run',
     ]);
     const odd = readTargetSurface(schema, 'extension', '#/$defs/odd');
     assert.ok(odd.problems[0].includes('required that is not an array'));
@@ -1509,12 +1518,12 @@ describe('readTargetSurface', () => {
     const bare = readTargetSurface({ $defs: {} }, 'extension', ROOT_POINTER);
     assert.equal(bare.present, false);
     assert.deepEqual(bare.problems, [
-      "the composed extension schema root carries no properties object — the schema root's legs cannot run",
+      'the composed extension schema root carries no properties object — the payload-table legs cannot run',
     ]);
     const absent = readTargetSurface(null, 'desktop-windows', ROOT_POINTER);
     assert.equal(absent.present, false);
     assert.deepEqual(absent.problems, [
-      "the composed desktop-windows schema is not an object — the schema root's legs cannot run",
+      'the composed desktop-windows schema is not an object — the payload-table legs cannot run',
     ]);
   });
 

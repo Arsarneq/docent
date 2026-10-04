@@ -682,7 +682,7 @@ export function describeTarget(pointer) {
     return {
       defName: null,
       subject: 'the schema root',
-      legs: "the schema root's legs",
+      legs: 'the payload-table legs',
       noun: 'this root',
       where: (platform) => `the composed ${platform} schema root`,
     };
@@ -692,10 +692,19 @@ export function describeTarget(pointer) {
     throw new Error(`the target pointer "${pointer}" is neither "${ROOT_POINTER}" nor "#/$defs/<name>" — a register entry this check cannot resolve is the check's own bug`); // prettier-ignore
   }
   const name = def[1];
+  // The legs are named by the register kinds that hold the def: the lookup
+  // knows which registers address it, so a diagnosis says which legs stop.
+  const inField = FIELD_TABLE_LEGS.some(([, , defName]) => defName === name);
+  const inPayload = PAYLOAD_TABLE_LEGS.some(([, , target]) => target === pointer);
   return {
     defName: name,
     subject: `\`${name}\``,
-    legs: `the \`${name}\` legs`,
+    legs:
+      inField && inPayload
+        ? 'the field-table and payload-table legs'
+        : inPayload
+          ? 'the payload-table legs'
+          : 'the field-table legs',
     noun: 'this def',
     where: (platform) => `the composed ${platform} \`${name}\` def`,
   };
@@ -723,13 +732,13 @@ export function readTargetSurface(schema, platform, pointer) {
     if (!isPlainObject(schema)) {
       return { ...EMPTY_OBJECT_SURFACE, ...display, problems: [`the composed ${platform} schema is not an object — ${target.legs} cannot run`] }; // prettier-ignore
     }
-    return { ...readObjectSurface(schema, display.where, target.legs), ...display };
+    return { ...readObjectSurface(schema, target, platform), ...display };
   }
   const def = schema?.$defs?.[target.defName];
   if (!isPlainObject(def)) {
     return { ...EMPTY_OBJECT_SURFACE, ...display, problems: [`the composed ${platform} schema carries no \`${target.defName}\` def — ${target.legs} cannot run`] }; // prettier-ignore
   }
-  return { ...readObjectSurface(def, display.where, target.legs), ...display };
+  return { ...readObjectSurface(def, target, platform), ...display };
 }
 
 const EMPTY_OBJECT_SURFACE = {
@@ -743,14 +752,17 @@ const EMPTY_OBJECT_SURFACE = {
 
 /**
  * The one surface reader: `def`'s property names, `required`, and `anyOf`
- * branches, each diagnosis naming `where`, and a read that cannot run naming
- * the legs that read it.
+ * branches, each diagnosis naming the target's place on `platform`, and a
+ * read that cannot run naming the legs that read the target — both read from
+ * the resolved target.
  * @param {object} def the object schema — a def, or the schema root
- * @param {string} where how a diagnosis names it
- * @param {string} legs the legs that read it, as {@link describeTarget} names them
+ * @param {ReturnType<typeof describeTarget>} target the resolved target
+ * @param {string} platform the platform id, for diagnoses
  * @returns {Omit<ReturnType<typeof readTargetSurface>, 'where' | 'subject' | 'noun'>}
  */
-function readObjectSurface(def, where, legs) {
+function readObjectSurface(def, target, platform) {
+  const where = target.where(platform);
+  const legs = target.legs;
   if (!isPlainObject(def.properties)) {
     return { ...EMPTY_OBJECT_SURFACE, problems: [`${where} carries no properties object — ${legs} cannot run`] }; // prettier-ignore
   }
@@ -904,7 +916,7 @@ export const EMPTY_SURFACES = [
   ['actionMembers', `no action-wrapper membership read from the composed schemas — the §${POSTURE_CLAUSE_ID} prefix leg cannot run`], // prettier-ignore
   ['fieldTableKeys', `no field tables found in ${SESSION_FORMAT_DOC_PATH} — the coverage leg cannot run`], // prettier-ignore
   ['tableRows', `no field-table rows read from ${SESSION_FORMAT_DOC_PATH} — the field-table legs cannot run`], // prettier-ignore
-  ['defs', 'no composed defs read — the field-table legs cannot run'],
+  ['defs', 'no composed target surfaces read — the field-table and payload-table legs cannot run'], // prettier-ignore
   ['payloadTableRows', `no payload-table rows read from ${SYNC_PROTOCOL_DOC_PATH} — the payload-table legs cannot run`], // prettier-ignore
 ];
 
