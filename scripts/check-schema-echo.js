@@ -1,6 +1,7 @@
 /**
- * check-schema-echo.js — admission test for the session-format document's
- * echo contract against the schemas that define the format:
+ * check-schema-echo.js — admission test for the echoes of the schemas that
+ * define the format, in the session-format document and in the sync
+ * protocol's payload tables, against those schemas:
  *
  *   - authority statements (docs/technical/session-format.md §SF-1): every
  *     registered surface that restates which side governs still carries its
@@ -20,7 +21,17 @@
  *     the platforms held to the same shared def — over a table set the
  *     document cannot grow silently: every `Field`-headed table it carries is
  *     either a registered leg or a registered review-held entry, held both
- *     ways.
+ *     ways;
+ *   - the payload tables (docs/api/sync-protocol.md §SP-5, the
+ *     Full_Project_Payload tables under Payload Shapes): each registered
+ *     table's field names, `yes` rows and `one of` rows equal its target's
+ *     `properties`, `required`, and `anyOf` branches — the top-level table the
+ *     composed schema's root, the project and recording tables their defs —
+ *     through the same comparisons, both directions, every platform; a table
+ *     is selected by its whole header, its `##` section and the heading it
+ *     sits under, over a table set that document cannot grow silently either:
+ *     every `Field`-headed table it carries is a registered payload leg or a
+ *     registered review-held entry, held both ways.
  *
  * Schemas are composed IN-PROCESS from the source layers through
  * `composePlatform` ([`build-schemas.js`](./build-schemas.js)). The published
@@ -29,7 +40,8 @@
  *
  * Every parsed surface must be non-empty, an unreadable table cell is refused
  * rather than skipped, a table whose Required column moved or whose section
- * and header no longer select exactly one table is refused by name, and a def
+ * and header — or, for a payload table, section, heading and whole header — no
+ * longer select exactly one table is refused by name, and a def
  * the posture model exempts must still have the shape the exemption rests on
  * — a broken read fails loudly instead of passing vacuously. A def outside
  * every registered class is judged as a closed object, so it must declare
@@ -39,7 +51,8 @@
  * answered with something other than the surface it reads there — a registered
  * authority surface the tree could not hand over or that read empty, a
  * field-table cell that is not a lone backticked field name, a section and
- * header selecting other than exactly one table, a moved Required column, a
+ * header — or, for a payload table, a section, heading and whole header —
+ * selecting other than exactly one table, a moved Required column, a
  * registry that could not be read, and one whose text is not JSON — is
  * machinery breakage on the check's own input and ends the run on exit 2. An
  * echo that read fine and disagrees with the schemas is drift, and ends it on
@@ -81,14 +94,21 @@
  *     `anyOf` branch per marked field, each requiring that field alone — so a
  *     collapsed branch demanding several at once reds rather than passing on
  *     the union. A row's Type and Description columns are review-held, as are
- *     the document's prose echoes of field semantics. `UNHELD_FIELD_TABLES`
- *     carries the field tables no def answers, each with its reason, and the
- *     coverage leg holds that register honest in both directions;
- *   - what the field-table legs close over is the `Field`-headed shape in
- *     this one document; a table the document carries in another shape, and
- *     the format's echoes in other documents, are outside this check. Where a
- *     table's section and first header cell are shared by a sibling, the
- *     one-table selection could not address it even if it were registered.
+ *     the documents' prose echoes of field semantics. `UNHELD_FIELD_TABLES`
+ *     and `UNHELD_PAYLOAD_TABLES` carry the field tables no def answers, each
+ *     with its reason, and the coverage legs hold those registers honest in
+ *     both directions;
+ *   - each coverage leg closes over the `Field`-headed shape of its own
+ *     document — the session-format document's keyed by section and first
+ *     header cell, the sync protocol's by section, heading and whole header; a
+ *     table either document carries in another shape is outside them, and
+ *     where a session-format table's section and first header cell are shared
+ *     by a sibling, the one-table selection could not address it even if it
+ *     were registered. The format's echoes in other documents are outside the
+ *     check. The payload-table legs hold field sets, never the prose sentences
+ *     that restate one (the projection sentence under §SP-5 is review-held),
+ *     and the manifest-shaped tables, which no schema def states, are
+ *     review-held with their reasons.
  *
  * Usage:
  *   node scripts/check-schema-echo.js  # or: npm run lint:schema-echo
@@ -107,11 +127,14 @@ import {
   flattenWhitespace,
   missingFrom,
   parseTables,
+  selectTablesByHeader,
   stripFences,
 } from './check-test-inventory.js';
 
-/** Repo-relative path of the document whose echoes this check holds. */
+/** Repo-relative path of the session-format document, whose field tables the field-table legs hold. */
 export const SESSION_FORMAT_DOC_PATH = 'docs/technical/session-format.md';
+/** Repo-relative path of the sync protocol, whose payload tables the payload-table legs hold. */
+export const SYNC_PROTOCOL_DOC_PATH = 'docs/api/sync-protocol.md';
 /** The authority-ordering clause the statement leg verifies. */
 export const AUTHORITY_CLAUSE_ID = 'SF-1';
 /** The unknown-key posture clause the posture walk verifies. */
@@ -167,7 +190,7 @@ export const AUTHORITY_SURFACES = [
     'the dispatch specification deferring the payload data to the schemas',
   ],
   [
-    'docs/api/sync-protocol.md',
+    SYNC_PROTOCOL_DOC_PATH,
     /the per-platform schemas define it authoritatively/,
     'the sync protocol deferring the step structure to the schemas',
   ],
@@ -213,6 +236,43 @@ export const UNHELD_FIELD_TABLES = [
   ['Actions', FIELD_TABLE_HEADER, 'the fields it lists live on every action def rather than one, and it carries no Required column'], // prettier-ignore
   ['Locator candidates (`locators`)', FIELD_TABLE_HEADER, 'its fields are the locator wrapper plus what every strategy member shares, which no single def states'], // prettier-ignore
 ];
+
+/** The whole header every payload table carries — the header its selection names. */
+export const PAYLOAD_TABLE_HEADER = ['Field', 'Type', 'Required', 'Description'];
+
+/**
+ * The sync protocol's payload tables, each held against its target in the
+ * composed schema: `[section, subsection, target, label]`. The target is a
+ * JSON pointer — `#` for the schema's root, `#/$defs/<name>` for a def, the
+ * forms {@link describeTarget} reads. A table is selected by its whole header
+ * ({@link PAYLOAD_TABLE_HEADER}), its `##` section, and the deeper heading it
+ * sits under, and exactly one table must match — the payload tables share one
+ * header, so the heading is what addresses each of them. Exported so the
+ * suite's family is generated from this list.
+ */
+export const PAYLOAD_TABLE_LEGS = [
+  ['Payload Shapes', 'Top-level fields', '#', 'the sync payload top-level table'],
+  ['Payload Shapes', 'Project fields', '#/$defs/project', 'the sync payload project table'],
+  ['Payload Shapes', 'Recording fields', '#/$defs/recording', 'the sync payload recording table'],
+];
+
+/**
+ * The sync protocol's `Field`-headed tables held by review rather than by a
+ * payload leg, each with the reason no def answers it: `[section, subsection,
+ * header, reason]`. Together with {@link PAYLOAD_TABLE_LEGS} this closes that
+ * document's `Field`-headed table set — the payload coverage leg holds both
+ * directions, as the field-table coverage leg does for the session-format
+ * document, so a new table there must join one list or the other.
+ */
+export const UNHELD_PAYLOAD_TABLES = [
+  ['Endpoints', 'GET /projects', ['Field', 'Type', 'Description'], 'the manifest entry a listing returns, which no schema def states'], // prettier-ignore
+  ['Payload Shapes', 'Project_Manifest', PAYLOAD_TABLE_HEADER, 'the manifest entry a listing returns, which no schema def states'], // prettier-ignore
+];
+
+/** The pointer addressing a composed schema's root. */
+export const ROOT_POINTER = '#';
+/** The pointer form addressing one top-level def; its capture is the def name. */
+const DEF_POINTER_RE = /^#\/\$defs\/([^/]+)$/;
 
 /** The Required column's index in every registered field table. */
 export const REQUIRED_COLUMN = 2;
@@ -323,7 +383,18 @@ export function extractFieldTable(docText, section, headerCell, label) {
   if (matched.length !== 1) {
     return { rows: [], unreadable: [], problems: [`${SESSION_FORMAT_DOC_PATH} carries ${matched.length} tables under "${section}" leading with "${headerCell}" — ${label} models exactly one`] }; // prettier-ignore
   }
-  const table = matched[0];
+  return readFieldRows(matched[0], label);
+}
+
+/**
+ * Read one selected field table's rows as `{ field, required }`, the cells the
+ * reader refuses, and a moved Required column — the one row reader both the
+ * field-table legs and the payload-table legs use.
+ * @param {{ header: string[], rows: string[][] }} table
+ * @param {string} label how the leg names the table in a diagnosis
+ * @returns {{ rows: { field: string, required: string }[], unreadable: string[], problems: string[] }}
+ */
+export function readFieldRows(table, label) {
   const problems = [];
   const headerAt = (table.header[REQUIRED_COLUMN] ?? '').trim();
   if (headerAt !== REQUIRED_HEADER) {
@@ -346,6 +417,26 @@ export function extractFieldTable(docText, section, headerCell, label) {
     rows.push({ field, required });
   }
   return { rows, unreadable, problems };
+}
+
+/**
+ * Read one payload table: the one table the sync protocol carries under
+ * `section` › `subsection` with exactly {@link PAYLOAD_TABLE_HEADER}, through
+ * the row reader every field table shares. A selection matching other than one
+ * table is refused by name.
+ * @param {string} docText the sync protocol's text
+ * @param {string} section the `##` section the table sits in
+ * @param {string} subsection the deeper heading it sits under
+ * @param {string} label how the leg names the table in a diagnosis
+ * @returns {ReturnType<typeof readFieldRows>}
+ */
+export function extractPayloadTable(docText, section, subsection, label) {
+  const header = PAYLOAD_TABLE_HEADER;
+  const { tables, matches } = selectTablesByHeader(docText, { header, section, subsection });
+  if (matches !== 1) {
+    return { rows: [], unreadable: [], problems: [`${SYNC_PROTOCOL_DOC_PATH} carries ${matches} tables under "${section} › ${subsection}" headed "${header.join(' | ')}" — ${label} models exactly one`] }; // prettier-ignore
+  }
+  return readFieldRows(tables[0], label);
 }
 
 /**
@@ -381,6 +472,53 @@ export function registeredFieldTableKeys() {
   return [...FIELD_TABLE_LEGS, ...UNHELD_FIELD_TABLES].map(([section, header]) =>
     fieldTableKey(section, header),
   );
+}
+
+/**
+ * Every `Field`-headed table the sync protocol carries, each keyed by its
+ * section, the heading it sits under and its whole header — the address the
+ * payload-table selection reads, so the payload coverage leg tells apart the
+ * tables one section carries under one first header cell.
+ * @param {string} docText the sync protocol's text
+ * @returns {string[]}
+ */
+export function extractPayloadTableKeys(docText) {
+  return parseTables(docText)
+    .filter((table) => (table.header[0] ?? '').trim() === FIELD_TABLE_HEADER)
+    .map((table) =>
+      payloadTableKey(
+        table.section ?? '(no section)',
+        table.subsection ?? '(no heading)',
+        table.header.map((cell) => cell.trim()),
+      ),
+    );
+}
+
+/**
+ * The payload coverage leg's key for one table.
+ * @param {string} section
+ * @param {string} subsection
+ * @param {string[]} header
+ * @returns {string}
+ */
+export function payloadTableKey(section, subsection, header) {
+  return `${section} / ${subsection} / ${header.join(' | ')}`;
+}
+
+/**
+ * Every sync-protocol table the payload registers account for — the held
+ * payload legs plus the review-held entries, through the one key.
+ * @returns {string[]}
+ */
+export function registeredPayloadTableKeys() {
+  return [
+    ...PAYLOAD_TABLE_LEGS.map(([section, subsection]) =>
+      payloadTableKey(section, subsection, PAYLOAD_TABLE_HEADER),
+    ),
+    ...UNHELD_PAYLOAD_TABLES.map(([section, subsection, header]) =>
+      payloadTableKey(section, subsection, header),
+    ),
+  ];
 }
 
 /** The subset of the cited-path shape this leg models: a plain literal path. */
@@ -531,39 +669,93 @@ export function readActionMembers(schema, platform) {
 }
 
 /**
- * Read one composed def's field surface: its property names, its `required`
- * array, and the union of its `anyOf` branches' `required` arrays (the
- * schema's expression of "at least one of"). A def that is missing, carries
- * no `properties`, or carries an `anyOf` branch this reader does not model is
- * a problem, never an empty pass.
+ * Resolve a register's target pointer to what the legs need to know of it:
+ * the def name it addresses (null for the root) and the display strings every
+ * diagnosis about it reads — the one place they are decided. A pointer in
+ * neither form is the register's own bug rather than an input this check
+ * reads, so it throws by name instead of joining either exit code's answer.
+ * @param {string} pointer `#`, or `#/$defs/<name>`
+ * @returns {{ defName: string | null, subject: string, legs: string, noun: string, where: (platform: string) => string }}
+ */
+export function describeTarget(pointer) {
+  if (pointer === ROOT_POINTER) {
+    return {
+      defName: null,
+      subject: 'the schema root',
+      legs: "the schema root's legs",
+      noun: 'this root',
+      where: (platform) => `the composed ${platform} schema root`,
+    };
+  }
+  const def = DEF_POINTER_RE.exec(pointer ?? '');
+  if (!def) {
+    throw new Error(`the target pointer "${pointer}" is neither "${ROOT_POINTER}" nor "#/$defs/<name>" — a register entry this check cannot resolve is the check's own bug`); // prettier-ignore
+  }
+  const name = def[1];
+  return {
+    defName: name,
+    subject: `\`${name}\``,
+    legs: `the \`${name}\` legs`,
+    noun: 'this def',
+    where: (platform) => `the composed ${platform} \`${name}\` def`,
+  };
+}
+
+/**
+ * Read one target's field surface from a composed schema: its property names,
+ * its `required` array, and the union of its `anyOf` branches' `required`
+ * arrays (the schema's expression of "at least one of"), with the display
+ * strings {@link describeTarget} decides for it. A target that is missing,
+ * carries no `properties`, or carries an `anyOf` branch this reader does not
+ * model is a problem, never an empty pass.
  * Each `anyOf` branch's own `required` array is kept alongside their union:
  * the union answers which fields the branches mention, the branches answer
  * whether the shape is one-per-field.
  * @param {object} schema a composed platform schema
  * @param {string} platform the platform id, for diagnoses
- * @param {string} defName the `$defs` key
- * @returns {{ present: boolean, hasAnyOf: boolean, properties: string[], required: string[], anyOfBranches: string[][], anyOfRequired: string[], problems: string[] }}
+ * @param {string} pointer the target's pointer
+ * @returns {{ present: boolean, hasAnyOf: boolean, properties: string[], required: string[], anyOfBranches: string[][], anyOfRequired: string[], where: string, subject: string, noun: string, problems: string[] }}
  */
-export function readDefSurface(schema, platform, defName) {
-  const empty = {
-    present: false,
-    hasAnyOf: false,
-    properties: [],
-    required: [],
-    anyOfBranches: [],
-    anyOfRequired: [],
-  };
-  const def = schema?.$defs?.[defName];
-  if (!isPlainObject(def)) {
-    return { ...empty, problems: [`the composed ${platform} schema carries no \`${defName}\` def — the field-table leg cannot run`] }; // prettier-ignore
+export function readTargetSurface(schema, platform, pointer) {
+  const target = describeTarget(pointer);
+  const display = { where: target.where(platform), subject: target.subject, noun: target.noun };
+  if (target.defName === null) {
+    if (!isPlainObject(schema)) {
+      return { ...EMPTY_OBJECT_SURFACE, ...display, problems: [`the composed ${platform} schema is not an object — the payload-table legs cannot run`] }; // prettier-ignore
+    }
+    return { ...readObjectSurface(schema, display.where), ...display };
   }
+  const def = schema?.$defs?.[target.defName];
+  if (!isPlainObject(def)) {
+    return { ...EMPTY_OBJECT_SURFACE, ...display, problems: [`the composed ${platform} schema carries no \`${target.defName}\` def — the field-table leg cannot run`] }; // prettier-ignore
+  }
+  return { ...readObjectSurface(def, display.where), ...display };
+}
+
+const EMPTY_OBJECT_SURFACE = {
+  present: false,
+  hasAnyOf: false,
+  properties: [],
+  required: [],
+  anyOfBranches: [],
+  anyOfRequired: [],
+};
+
+/**
+ * The one surface reader: `node`'s property names, `required`, and `anyOf`
+ * branches, each diagnosis naming `where`.
+ * @param {object} def the object schema
+ * @param {string} where how a diagnosis names it
+ * @returns {Omit<ReturnType<typeof readTargetSurface>, 'where' | 'subject' | 'noun'>}
+ */
+function readObjectSurface(def, where) {
   if (!isPlainObject(def.properties)) {
-    return { ...empty, problems: [`the composed ${platform} \`${defName}\` def carries no properties object — the field-table leg cannot run`] }; // prettier-ignore
+    return { ...EMPTY_OBJECT_SURFACE, problems: [`${where} carries no properties object — the field-table leg cannot run`] }; // prettier-ignore
   }
   const problems = [];
   const required = Array.isArray(def.required) ? def.required : [];
   if (def.required !== undefined && !Array.isArray(def.required)) {
-    problems.push(`the composed ${platform} \`${defName}\` def carries a required that is not an array — the required read cannot run`); // prettier-ignore
+    problems.push(`${where} carries a required that is not an array — the required read cannot run`); // prettier-ignore
   }
   const hasAnyOf = Array.isArray(def.anyOf);
   const anyOfRequired = [];
@@ -571,7 +763,7 @@ export function readDefSurface(schema, platform, defName) {
   if (hasAnyOf) {
     for (const [i, branch] of def.anyOf.entries()) {
       if (!isPlainObject(branch) || !Array.isArray(branch.required)) {
-        problems.push(`the composed ${platform} \`${defName}\` def's anyOf branch ${i} states no required array — the one-of read models required-only branches`); // prettier-ignore
+        problems.push(`${where}'s anyOf branch ${i} states no required array — the one-of read models required-only branches`); // prettier-ignore
         continue;
       }
       anyOfBranches.push(branch.required);
@@ -599,7 +791,7 @@ export function readDefSurface(schema, platform, defName) {
  * @returns {string} a class name from {@link POSTURE_CLASSES}
  */
 export function classifyObjectSchema(pointer) {
-  const top = /^#\/\$defs\/([^/]+)$/.exec(pointer);
+  const top = DEF_POINTER_RE.exec(pointer);
   if (!top) return 'closed';
   const defName = top[1];
   if (WRAPPER_DEFS.includes(defName)) return 'wrapper';
@@ -711,6 +903,7 @@ export const EMPTY_SURFACES = [
   ['fieldTableKeys', `no field tables found in ${SESSION_FORMAT_DOC_PATH} — the coverage leg cannot run`], // prettier-ignore
   ['tableRows', `no field-table rows read from ${SESSION_FORMAT_DOC_PATH} — the field-table legs cannot run`], // prettier-ignore
   ['defs', 'no composed defs read — the field-table legs cannot run'],
+  ['payloadTableRows', `no payload-table rows read from ${SYNC_PROTOCOL_DOC_PATH} — the payload-table legs cannot run`], // prettier-ignore
 ];
 
 /**
@@ -727,6 +920,9 @@ export function readFailureProblems(s) {
   const problems = [];
   for (const cell of s.tableUnreadable) {
     problems.push(`${SESSION_FORMAT_DOC_PATH} carries a cell the scan cannot read — ${cell}`);
+  }
+  for (const cell of s.payloadTableUnreadable) {
+    problems.push(`${SYNC_PROTOCOL_DOC_PATH} carries a cell the scan cannot read — ${cell}`);
   }
   for (const surface of s.authority) {
     if (surface.unreadable) {
@@ -746,11 +942,16 @@ export function readFailureProblems(s) {
  * @param {{ platform: string, defName: string, referenced: boolean, found: boolean }[]} s.metadataHosts
  * @param {string | null} s.authorityRow the §SF-1 row's check-ref, or null when unreadable
  * @param {{ platform: string, members: string[], prefixed: string[] }[]} s.actionMembers
- * @param {string[]} s.fieldTableKeys every field table the document carries
- * @param {{ defName: string, label: string, fields: string[], yes: string[], no: string[], oneOf: string[] }[]} s.tables
+ * @param {string[]} s.fieldTableKeys every field table the session-format document carries
+ * @param {{ pointer: string, label: string, fields: string[], yes: string[], no: string[], oneOf: string[] }[]} s.tables
  * @param {string[]} s.tableRows every readable field name, across the tables
  * @param {string[]} s.tableUnreadable refused table cells
- * @param {{ platform: string, defName: string, present: boolean, hasAnyOf: boolean, properties: string[], required: string[], anyOfBranches: string[][], anyOfRequired: string[] }[]} s.defs
+ * @param {string[]} s.payloadTableKeys every `Field`-headed table the sync protocol carries
+ * @param {{ pointer: string, label: string, fields: string[], yes: string[], no: string[], oneOf: string[] }[]} s.payloadTables
+ * @param {string[]} s.payloadTableRows every readable field name, across the payload tables
+ * @param {string[]} s.payloadTableUnreadable refused payload-table cells
+ * @param {{ platform: string, pointer: string, present: boolean, hasAnyOf: boolean, properties: string[], required: string[], anyOfBranches: string[][], anyOfRequired: string[], where: string, subject: string, noun: string }[]} s.defs
+ *   one surface per distinct target pointer per composed platform, across both registers
  * @returns {string[]} problems; empty when every echo holds
  */
 export function evaluateSchemaEcho(s) {
@@ -843,16 +1044,45 @@ export function evaluateSchemaEcho(s) {
     ...missingFrom(registeredTables, s.fieldTableKeys, `is registered as a field table but ${SESSION_FORMAT_DOC_PATH} carries no such table — the registration is stale`), // prettier-ignore
   );
 
-  const defsFor = (defName) => s.defs.filter((d) => d.defName === defName);
-  for (const table of s.tables) {
+  // The same closure over the sync protocol, keyed by the address its
+  // selection reads: a table no register holds, a registration whose table is
+  // gone, and a pair the selector could not tell apart.
+  const registeredPayload = registeredPayloadTableKeys();
+  problems.push(
+    ...duplicatesIn(s.payloadTableKeys, `${SYNC_PROTOCOL_DOC_PATH}'s field tables — two tables under one heading with one whole header are a pair the selector cannot address`), // prettier-ignore
+    ...missingFrom(s.payloadTableKeys, registeredPayload, `is a field table in ${SYNC_PROTOCOL_DOC_PATH} that no payload leg holds and no entry records as review-held`), // prettier-ignore
+    ...missingFrom(registeredPayload, s.payloadTableKeys, `is registered as a payload table but ${SYNC_PROTOCOL_DOC_PATH} carries no such table — the registration is stale`), // prettier-ignore
+  );
+
+  problems.push(...fieldTableProblems([...s.tables, ...s.payloadTables], s.defs));
+
+  return problems;
+}
+
+/**
+ * The field-set, Required and `one of` comparisons, both directions, every
+ * platform — the one comparison every field-table and payload-table leg runs,
+ * whatever target it is keyed to — and the platforms held to one surface per
+ * target. A table is compared with the surfaces read at its pointer; the
+ * cross-platform agreement runs once per pointer over every surface read,
+ * outside the per-table loop, so a target more than one table holds is
+ * diagnosed once.
+ * @param {{ pointer: string, label: string, fields: string[], yes: string[], no: string[], oneOf: string[] }[]} tables
+ * @param {{ platform: string, pointer: string, present: boolean, where: string, subject: string, noun: string }[]} surfaces
+ *   the composed surfaces, each carrying the display strings its pointer decides
+ * @returns {string[]}
+ */
+export function fieldTableProblems(tables, surfaces) {
+  const problems = [];
+  for (const table of tables) {
     problems.push(...duplicatesIn(table.fields, table.label));
     if (table.fields.length === 0) {
-      problems.push(`${table.label} parsed no readable rows — the \`${table.defName}\` legs cannot run`); // prettier-ignore
+      problems.push(`${table.label} parsed no readable rows — ${describeTarget(table.pointer).legs} cannot run`); // prettier-ignore
       continue;
     }
-    for (const def of defsFor(table.defName)) {
+    for (const def of surfaces.filter((d) => d.pointer === table.pointer)) {
       if (!def.present) continue; // the read's own problem, reported beside these
-      const where = `the composed ${def.platform} \`${def.defName}\` def`;
+      const where = def.where;
       problems.push(
         ...missingFrom(table.fields, def.properties, `is a row of ${table.label} but ${where} has no such property`), // prettier-ignore
         ...missingFrom(def.properties, table.fields, `is a property of ${where} but ${table.label} has no row for it`), // prettier-ignore
@@ -885,23 +1115,25 @@ export function evaluateSchemaEcho(s) {
         }
       }
     }
+  }
 
-    // Every composed platform shares each registered def; a leaf or family
-    // layer that replaces one outright would otherwise satisfy the table on
-    // the platform the doc was written against and diverge on the others.
-    // Each diagnosis names the two platforms it compared, so a tree with more
-    // than two reports which pair disagreed.
-    const [first, ...rest] = defsFor(table.defName).filter((d) => d.present);
+  // Every composed platform shares each registered target; a leaf or family
+  // layer that replaces one outright would otherwise satisfy the table on the
+  // platform the doc was written against and diverge on the others. Each
+  // diagnosis names the two platforms it compared, so a tree with more than
+  // two reports which pair disagreed.
+  for (const pointer of new Set(surfaces.map((d) => d.pointer))) {
+    const [first, ...rest] = surfaces.filter((d) => d.pointer === pointer && d.present);
     for (const other of rest) {
-      const defLabel = `\`${table.defName}\``;
-      const shared = 'every composed platform must share this def';
+      const subject = first.subject;
+      const shared = `every composed platform must share ${first.noun}`;
       problems.push(
-        ...missingFrom(first.properties, other.properties, `is a property of ${defLabel} on ${first.platform} but missing on ${other.platform} — ${shared}`), // prettier-ignore
-        ...missingFrom(other.properties, first.properties, `is a property of ${defLabel} on ${other.platform} but missing on ${first.platform} — ${shared}`), // prettier-ignore
-        ...missingFrom(first.required, other.required, `is required by ${defLabel} on ${first.platform} but not on ${other.platform} — ${shared}`), // prettier-ignore
-        ...missingFrom(other.required, first.required, `is required by ${defLabel} on ${other.platform} but not on ${first.platform} — ${shared}`), // prettier-ignore
-        ...missingFrom(first.anyOfRequired, other.anyOfRequired, `is required by an anyOf branch of ${defLabel} on ${first.platform} but not on ${other.platform} — ${shared}`), // prettier-ignore
-        ...missingFrom(other.anyOfRequired, first.anyOfRequired, `is required by an anyOf branch of ${defLabel} on ${other.platform} but not on ${first.platform} — ${shared}`), // prettier-ignore
+        ...missingFrom(first.properties, other.properties, `is a property of ${subject} on ${first.platform} but missing on ${other.platform} — ${shared}`), // prettier-ignore
+        ...missingFrom(other.properties, first.properties, `is a property of ${subject} on ${other.platform} but missing on ${first.platform} — ${shared}`), // prettier-ignore
+        ...missingFrom(first.required, other.required, `is required by ${subject} on ${first.platform} but not on ${other.platform} — ${shared}`), // prettier-ignore
+        ...missingFrom(other.required, first.required, `is required by ${subject} on ${other.platform} but not on ${first.platform} — ${shared}`), // prettier-ignore
+        ...missingFrom(first.anyOfRequired, other.anyOfRequired, `is required by an anyOf branch of ${subject} on ${first.platform} but not on ${other.platform} — ${shared}`), // prettier-ignore
+        ...missingFrom(other.anyOfRequired, first.anyOfRequired, `is required by an anyOf branch of ${subject} on ${other.platform} but not on ${first.platform} — ${shared}`), // prettier-ignore
       );
     }
   }
@@ -914,8 +1146,9 @@ export function evaluateSchemaEcho(s) {
  *
  * `machineryProblems` carries the reads taken here that answered with something
  * other than the surface asked for — a registry that could not be read or whose
- * text is not JSON, and a field table whose section and header no longer select
- * exactly one table or whose Required column has moved. It is a subset of
+ * text is not JSON, and a field table whose section and header — or, for a
+ * payload table, section, heading and whole header — no longer select exactly
+ * one table, or whose Required column has moved. It is a subset of
  * `anchorProblems`, streamed a second time so the CLI can end machinery
  * breakage on its own exit code without re-deriving which lines those are.
  * @param {(path: string) => (string | null)} readFile repo-relative reader (null if unreadable)
@@ -941,14 +1174,13 @@ export function auditTree(readFile, composeFor) {
   const objects = [];
   const metadataHosts = [];
   const actionMembers = [];
-  const defs = [];
   const schemas = new Map();
   for (const platform of PLATFORM_IDS) {
     let schema;
     try {
       schema = composeFor(platform);
     } catch (error) {
-      anchorProblems.push(`the ${platform} schema does not compose from its source layers (${error.message}) — the posture and field-table legs cannot run`); // prettier-ignore
+      anchorProblems.push(`the ${platform} schema does not compose from its source layers (${error.message}) — the posture, field-table and payload-table legs cannot run`); // prettier-ignore
       continue;
     }
     schemas.set(platform, schema);
@@ -984,17 +1216,46 @@ export function auditTree(readFile, composeFor) {
     tableUnreadable.push(...read.unreadable);
     const marked = (mark) => read.rows.filter((r) => r.required === mark).map((r) => r.field);
     tables.push({
-      defName,
+      pointer: `#/$defs/${defName}`,
       label,
       fields: read.rows.map((r) => r.field),
       yes: marked(REQUIRED_YES),
       no: marked(REQUIRED_NO),
       oneOf: marked(REQUIRED_ONE_OF),
     });
+  }
+
+  // The sync protocol is read the same way: its unreadability is the authority
+  // leg's to name, and the payload-table legs then run over no text.
+  const syncText = readFile(SYNC_PROTOCOL_DOC_PATH) ?? '';
+  const payloadTables = [];
+  const payloadTableUnreadable = [];
+  for (const [section, subsection, pointer, label] of PAYLOAD_TABLE_LEGS) {
+    const read = extractPayloadTable(syncText, section, subsection, label);
+    anchorProblems.push(...read.problems);
+    machineryProblems.push(...read.problems);
+    payloadTableUnreadable.push(...read.unreadable);
+    const marked = (mark) => read.rows.filter((r) => r.required === mark).map((r) => r.field);
+    payloadTables.push({
+      pointer,
+      label,
+      fields: read.rows.map((r) => r.field),
+      yes: marked(REQUIRED_YES),
+      no: marked(REQUIRED_NO),
+      oneOf: marked(REQUIRED_ONE_OF),
+    });
+  }
+
+  // Each distinct target is read once per platform across both registers, so
+  // a def more than one table holds yields one surface per platform and one
+  // diagnosis.
+  const defs = [];
+  const pointers = new Set([...tables, ...payloadTables].map((table) => table.pointer));
+  for (const pointer of pointers) {
     for (const [platform, schema] of schemas) {
-      const surface = readDefSurface(schema, platform, defName);
+      const surface = readTargetSurface(schema, platform, pointer);
       anchorProblems.push(...surface.problems);
-      defs.push({ platform, defName, ...surface });
+      defs.push({ platform, pointer, ...surface });
     }
   }
 
@@ -1008,6 +1269,10 @@ export function auditTree(readFile, composeFor) {
     tables,
     tableRows: tables.flatMap((t) => t.fields),
     tableUnreadable,
+    payloadTableKeys: extractPayloadTableKeys(syncText),
+    payloadTables,
+    payloadTableRows: payloadTables.flatMap((t) => t.fields),
+    payloadTableUnreadable,
     defs,
     anchorProblems,
     machineryProblems,
@@ -1039,7 +1304,7 @@ if (isMain) {
   if (machinery.length > 0) {
     console.error('An input this check reads answered with something other than the surface it reads there:\n'); // prettier-ignore
     for (const problem of machinery) console.error(`  - ${problem}`);
-    console.error(`\n${machinery.length} input(s). This check asks the tree for the registered authority surfaces, the ${SESSION_FORMAT_DOC_PATH} field tables its legs are keyed to, and the §${AUTHORITY_CLAUSE_ID} row of ${REGISTRY_PATH}, then compares each with the schemas composed from their source layers. What came back instead is listed above — a surface the tree could not hand over or one that read empty, a cell that is not a lone backticked field name, a section and header selecting other than exactly one table, a moved Required column, a registry that could not be read, or one whose text is not JSON. That is breakage on this check's own input, so it ends on this check's own exit code (exit 2), apart from an echo that drifted (exit 1). Restore the surface where the check reads it, or move the register and the surface together.\n`); // prettier-ignore
+    console.error(`\n${machinery.length} input(s). This check asks the tree for the registered authority surfaces, the ${SESSION_FORMAT_DOC_PATH} field tables its legs are keyed to, the ${SYNC_PROTOCOL_DOC_PATH} payload tables PAYLOAD_TABLE_LEGS registers, and the §${AUTHORITY_CLAUSE_ID} row of ${REGISTRY_PATH}, then compares each with the schemas composed from their source layers. What came back instead is listed above — a surface the tree could not hand over or one that read empty, a cell that is not a lone backticked field name, a section and header — or, for a payload table, a section, heading and whole header — selecting other than exactly one table, a moved Required column, a registry that could not be read, or one whose text is not JSON. That is breakage on this check's own input, so it ends on this check's own exit code (exit 2), apart from an echo that drifted (exit 1). Restore the surface where the check reads it, or move the register and the surface together.\n`); // prettier-ignore
     process.exit(2);
   }
   const problems = [...surfaces.anchorProblems, ...evaluateSchemaEcho(surfaces)];
@@ -1049,6 +1314,6 @@ if (isMain) {
     console.error(`\n${problems.length} problem(s). Where a document and a schema disagree, the schema governs (§${AUTHORITY_CLAUSE_ID}): fix the prose unless the schema is the wrong side. Where a schema and this check's posture model disagree, a def changed shape — change it back, or move the model and the clause it restates together.`); // prettier-ignore
     process.exit(1);
   }
-  console.log(`✓ schema echoes consistent: ${surfaces.authority.length} authority surfaces, ${surfaces.tables.length} field tables, and the additionalProperties posture over ${surfaces.objects.length} object subschemas agree with the composed schemas.`); // prettier-ignore
+  console.log(`✓ schema echoes consistent: ${surfaces.authority.length} authority surfaces, ${surfaces.tables.length} field tables, ${surfaces.payloadTables.length} payload tables, and the additionalProperties posture over ${surfaces.objects.length} object subschemas agree with the composed schemas.`); // prettier-ignore
 }
 /* c8 ignore stop */
