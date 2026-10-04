@@ -519,7 +519,7 @@
     },
     {
       "path": "scripts/check-schema-echo.js",
-      "reason": "The schema-echo admission test — it owes the ci/release area's whole doc set as a unit; beyond that set, the session-format doc's authority-ordering clause and its unknown-key posture clause (SF-1, SF-14) are verified by it, per their registry rows, so the format doc governs it beside that set; the sync protocol's forward-compatibility clause (SP-5) is verified by it for the payload tables its payload-table leg holds, per its registry row, so the sync protocol doc governs it too; the surfaces it reads are its subject, not its doctrine.",
+      "reason": "The schema-echo admission test — it owes the ci/release area's whole doc set as a unit; beyond that set, the session-format doc's authority-ordering clause and its unknown-key posture clause (SF-1, SF-14) are verified by it, per their registry rows, so the format doc governs it beside that set; the sync protocol's forward-compatibility clause (SP-5) is verified by it for the payload tables its payload-table legs hold, per its registry row, so the sync protocol doc governs it too; the surfaces it reads are its subject, not its doctrine.",
       "governed-by": [
         "area:ci/release",
         "docs/technical/session-format.md",
