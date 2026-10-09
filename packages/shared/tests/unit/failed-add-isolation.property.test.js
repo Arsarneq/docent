@@ -246,7 +246,7 @@ const arbScenario = fc
 
 /** Materialize a scenario into local/incoming projects and the failing id. */
 function materialize(scenario) {
-  const { ids, numBrandNewProjects, numExistingRecs, numNewRecs, failingOffset } = scenario;
+  const { ids, numBrandNewProjects, numExistingRecs, failingOffset } = scenario;
 
   const p0Id = ids[0];
   const brandNewProjectIds = ids.slice(1, 1 + numBrandNewProjects);

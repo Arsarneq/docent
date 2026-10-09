@@ -46,8 +46,6 @@ function baseSchema() {
   };
 }
 
-const clone = (o) => JSON.parse(JSON.stringify(o));
-
 describe('classifyChange: none', () => {
   it('identical schemas → none', () => {
     assert.equal(classifyChange(baseSchema(), baseSchema()).level, 'none');

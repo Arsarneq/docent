@@ -607,6 +607,11 @@ describe('Closing a lock makes the recording eligible next cycle (lock/unlock ro
       ),
       'cycle 1: locked brand-new not in baseline',
     );
+    assert.equal(
+      getItem(store.getState(), unitRef),
+      null,
+      'cycle 1: nothing deferred while locked',
+    );
 
     // Cycle 2 — unlocked: auto-added.
     const c2 = await sync(
