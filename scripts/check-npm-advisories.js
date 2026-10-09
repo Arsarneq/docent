@@ -94,16 +94,6 @@ export const IGNORED_ADVISORIES = [
       'addresses another advisory while keeping micromatch 4.0.8, which depends on braces.',
     until: '2026-11-03',
   },
-  {
-    id: 'GHSA-ch52-4w7c-c8xp',
-    package: 'http-cache-semantics',
-    reason:
-      'No patched release is published: the vulnerable range (<= 4.2.0) covers ' +
-      'http-cache-semantics 4.2.0, the latest version. It is reached only through ' +
-      'license-checker-rseidelsohn, the development dependency behind the npm license gate, and ' +
-      'npm audit offers only a semver-major downgrade of that tool as a remedy.',
-    until: '2026-11-03',
-  },
 ];
 
 /** The fields every list entry carries, each a non-empty string. */
