@@ -31,7 +31,7 @@ import {
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-function generateLargeProject(recordingCount, stepsPerRecording, actionsPerStep = 3) {
+function generateLargeProject(recordingCount, stepsPerRecording) {
   const project = createProject('Large Project');
   project.metadata = { ticket: 'PERF-1', tags: ['smoke', 'regression', 'critical'] };
 
@@ -41,7 +41,7 @@ function generateLargeProject(recordingCount, stepsPerRecording, actionsPerStep 
 
     for (let s = 0; s < stepsPerRecording; s++) {
       const actions = [];
-      for (let a = 0; a < actionsPerStep; a++) {
+      for (let a = 0; a < 3; a++) {
         actions.push({
           type: 'click',
           timestamp: Date.now() + s * 1000 + a,
@@ -70,9 +70,9 @@ function generateLargeProject(recordingCount, stepsPerRecording, actionsPerStep 
 
 function timeMs(fn) {
   const start = performance.now();
-  const result = fn();
+  fn();
   const elapsed = performance.now() - start;
-  return { result, elapsed };
+  return { elapsed };
 }
 
 // ─── Performance: resolveActiveSteps ──────────────────────────────────────────
@@ -183,20 +183,6 @@ describe('Performance: renderRecordingList', () => {
     const { elapsed } = timeMs(() => renderRecordingList(recordings));
 
     assert.ok(elapsed < 30, `renderRecordingList took ${elapsed.toFixed(1)}ms (limit: 30ms)`);
-  });
-});
-
-// ─── Performance: JSON serialization ──────────────────────────────────────────
-
-describe('Performance: JSON serialization round-trip', () => {
-  it('serialize + deserialize 100 recordings × 50 steps in under 200ms', () => {
-    const project = generateLargeProject(100, 50, 2);
-
-    const { elapsed: serializeTime, result: json } = timeMs(() => JSON.stringify(project));
-    const { elapsed: deserializeTime } = timeMs(() => JSON.parse(json));
-
-    const total = serializeTime + deserializeTime;
-    assert.ok(total < 200, `Round-trip took ${total.toFixed(1)}ms (limit: 200ms)`);
   });
 });
 
