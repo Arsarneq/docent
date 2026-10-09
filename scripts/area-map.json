@@ -1,5 +1,5 @@
 {
-  "description": "Maps every area of the repository to the code it owns and the documentation that governs it, so 'which docs govern this change?' always has a machine-readable answer. This file is committed data guarded by an admission test: scripts/check-area-map.js fails CI when the map goes stale (a pattern matching no tracked file, an entry pointing at an untracked file), when a tracked file resolves to no area and is neither a repo-wide doc nor a justified exception, or when any tracked .md doc (anywhere in the repo, not only under docs/) is placed in no area's doc set, repo-wide list, or justified 'unassigned' exception — being matched only by a code pattern is not a doc home. An 'unassigned' exception earns its keep file by file: an entry no covered file needs is unnecessary as a whole, and a covered file that resolves anyway while other covered files still need the entry is reported on its own, so the entry is narrowed to the files that need it. An area owns code, a doc set, or both: a docs-only area (no code) is valid when it carries a non-empty doc set. An area earns its place by supplying something the rest of the map does not — docs some tracked file's governing set would otherwise lose, or coverage some tracked file would otherwise lack: an area whose deletion — with every 'area:<name>' reference to it first inlined to the docs it stands for, so what is asked is what the area supplies rather than whether a declaration names it — leaves every tracked file governed by exactly the same docs, and none of them unowned, makes no contribution the rest of the map does not already make. Each area is judged on its own against the rest of the map, never as a set: areas that supply the same docs each answer for the others, so each is named and each removal is a new question the next run answers. Patterns support '*', '**', and {a,b} alternation only, in every list of this map that states one: an area's 'code' patterns, the 'unassigned' exceptions, the 'declared-governance' declarations, and the 'governance-partitions' trees. In each of them a pattern must describe the tree through every alternative it expands to — braces expand to the cross product of their groups, so what is held is what a pattern expands to rather than what its entry visibly spells: every expansion must match at least one tracked file, an expansion matching nothing beside siblings that still match is stale on its own and the entry is rewritten until each expansion matches, and an entry with no live expansion left is stale as a whole. Doc entries are literal tracked paths, never patterns. Code files and docs are many-to-many: a file or doc may belong to several areas. A code file may also name a governing doc directly with a '// see docs/<path>.md' comment, which adds every area whose doc set contains that doc. A file may instead DECLARE its complete governing doc set with a 'declared-governance' entry (a required 'governed-by' array — [] states the governing set is empty): that declared set governs the file's disposition in place of the docs its covering code area would supply, and area membership and '// see' pointers add nothing more. A declared file keeps the code-area coverage its patterns give it (a declaration grants no coverage of its own), and its governance is declared once and from one source (a declared file is not also a repo-wide doc, nor does it carry a '// see' pointer into a doc set). Each element of a 'governed-by' array is either a literal tracked doc path or an 'area:<name>' reference standing for that area's whole doc set, which it expands to — the compositional way to say a file owes an area's doctrine as a unit, with any further doc named as a literal beside it. 'governance-partitions' lists the trees whose files each declare their own governance, one entry per tree stating the 'pattern' that names the tree and the 'reason' its files declare one by one: every tracked file matching one of those patterns carries a declared-governance entry, so a file added there states its subject rather than inheriting the union its tree ride supplies, and a partition pattern matching no tracked file is stale. Inside a partitioned tree, a declaration stating exactly what the covering areas supply is the honest answer and is kept as such; outside one, that same statement adds nothing and is redundant — read file by file, so an entry stating nothing new for every file it answers for is redundant as a whole, while one stating nothing new for some of those files is reported on them and splits. Each side therefore reads the same declaration differently, so a declared-governance entry belongs to one side of a boundary: an entry matching both partition-covered files and files outside every partition is refused, and splits at the boundary.",
+  "description": "Maps every area of the repository to the code it owns and the documentation that governs it, so 'which docs govern this change?' always has a machine-readable answer. This file is committed data guarded by an admission test: scripts/check-area-map.js fails CI when the map goes stale (a pattern matching no tracked file, an entry pointing at an untracked file), when a tracked file resolves to no area and is neither a repo-wide doc nor a justified exception, or when any tracked .md doc (anywhere in the repo, not only under docs/) is placed in no area's doc set, repo-wide list, or justified 'unassigned' exception — being matched only by a code pattern is not a doc home. An 'unassigned' exception earns its keep file by file: an entry no covered file needs is unnecessary as a whole, and a covered file that resolves anyway while other covered files still need the entry is reported on its own, so the entry is narrowed to the files that need it. An area owns code, a doc set, or both: a docs-only area (no code) is valid when it carries a non-empty doc set. An area earns its place by supplying something the rest of the map does not — docs some tracked file's governing set would otherwise lose, or coverage some tracked file would otherwise lack: an area whose deletion — with every 'area:<name>' reference to it first inlined to the docs it stands for, so what is asked is what the area supplies rather than whether a declaration names it — leaves every tracked file governed by exactly the same docs, and none of them unowned, makes no contribution the rest of the map does not already make. Each area is judged on its own against the rest of the map, never as a set: areas that supply the same docs each answer for the others, so each is named and each removal is a new question the next run answers. Patterns support '*', '**', and {a,b} alternation only, in every list of this map that states one: an area's 'code' patterns, the 'unassigned' exceptions, the 'declared-governance' declarations, and the 'governance-partitions' trees and name classes. In each of them a pattern must describe the tree through every alternative it expands to — braces expand to the cross product of their groups, so what is held is what a pattern expands to rather than what its entry visibly spells: every expansion must match at least one tracked file, an expansion matching nothing beside siblings that still match is stale on its own and the entry is rewritten until each expansion matches, and an entry with no live expansion left is stale as a whole. Doc entries are literal tracked paths, never patterns. Code files and docs are many-to-many: a file or doc may belong to several areas. A code file may also name a governing doc directly with a '// see docs/<path>.md' comment, which adds every area whose doc set contains that doc. A file may instead DECLARE its complete governing doc set with a 'declared-governance' entry (a required 'governed-by' array — [] states the governing set is empty): that declared set governs the file's disposition in place of the docs its covering code area would supply, and area membership and '// see' pointers add nothing more. A declared file keeps the code-area coverage its patterns give it (a declaration grants no coverage of its own), and its governance is declared once and from one source (a declared file is not also a repo-wide doc, nor does it carry a '// see' pointer into a doc set). Each element of a 'governed-by' array is either a literal tracked doc path or an 'area:<name>' reference standing for that area's whole doc set, which it expands to — the compositional way to say a file owes an area's doctrine as a unit, with any further doc named as a literal beside it. 'governance-partitions' lists the trees or name classes whose files each declare their own governance, one entry per tree or name class stating the 'pattern' that names it and the 'reason' its files declare one by one: every tracked file matching one of those patterns carries a declared-governance entry, so a file added there states its subject rather than inheriting the union its tree and name-class rides supply, and a partition pattern matching no tracked file is stale. Inside a partition, a declaration stating exactly what the covering areas supply is the honest answer and is kept as such; outside one, that same statement adds nothing and is redundant — read file by file, so an entry stating nothing new for every file it answers for is redundant as a whole, while one stating nothing new for some of those files is reported on them and splits. Each side therefore reads the same declaration differently, so a declared-governance entry belongs to one side of a boundary: an entry matching both partition-covered files and files outside every partition is refused, and splits at the boundary.",
   "repo-wide": {
     "description": "Docs that apply to every area of the repository — a change anywhere can be governed by them. They resolve in their own right and do not need to belong to an area's doc set (though some also do).",
     "docs": [
@@ -250,7 +250,7 @@
     },
     {
       "path": "packages/shared/assets/**",
-      "reason": "Shipped end-user assets (icons, the reading guide delivered with dispatch payloads) — product artifacts, not project documentation."
+      "reason": "Shipped end-user assets — the icons, and the reading guidance delivered with dispatch payloads, whose prose the dispatch protocol doc holds to the schemas and the wrapper specification (DI-5) — product artifacts, not project documentation."
     },
     {
       "path": ".github/SECURITY.md",
@@ -281,6 +281,18 @@
     {
       "pattern": "packages/desktop/src-tauri/tests/**",
       "reason": "The Tauri crate's test directory sits under tree-wide code patterns from both the desktop capture area and the desktop test area, so a file added there is born owing both doc sets at once. Each file states the contract it pins instead, named per entry."
+    },
+    {
+      "pattern": ".github/workflows/*",
+      "reason": "The workflow directory: every workflow is a different gate with its own doc dependencies, so a workflow added here states the docs its gate leans on instead of riding the generic release-area set."
+    },
+    {
+      "pattern": "packages/extension/tests/e2e/helpers/*",
+      "reason": "The end-to-end helpers: the extension tests area supplies every helper here the same doc set while the helpers' subjects split — harness mechanics, readiness, coverage collection — and one helper is pinned by the corpus area beside them, so a helper added here states its subject instead of inheriting that set."
+    },
+    {
+      "pattern": "**/playwright*.config.js",
+      "reason": "The Playwright configuration name class: the shared Playwright harness area matches it repo-wide, so a configuration added under any tree is born owing that harness set on top of its tree's; it states its suite instead. A configuration inside a tree that is itself a partition is claimed by both entries until that tree's pattern is narrowed around it."
     }
   ],
   "declared-governance": [
@@ -459,6 +471,36 @@
       ]
     },
     {
+      "path": ".github/workflows/{cla,pr-title}.yml",
+      "reason": "The contributor gates: the signature check and the conventional-commit title check. CONTRIBUTING states their rules; the release process doc states the signature workflow's token and the version suggestion the merged titles feed; the CI guide inventories the gates, and the local CI guide states the title check's local run and that the signature check has none.",
+      "governed-by": ["area:ci/release"]
+    },
+    {
+      "path": ".github/workflows/docs-disposition.yml",
+      "reason": "The docs-disposition gate: it holds the PR body's sections to the grammar CONTRIBUTING states and admits the release pipeline's own regeneration PR without them — the branch the release process doc names, with the enumeration that doc points to; the CI guide inventories it and the local CI guide states its local run.",
+      "governed-by": ["area:ci/release"]
+    },
+    {
+      "path": ".github/workflows/docs-disposition-audit.yml",
+      "reason": "The docs-disposition audit: the weekly, non-gating measurement of how often a doc judged unaffected in a merged PR's disposition was edited soon after by overlapping work — the review-calibration signal CONTRIBUTING states, which the CI guide describes among its scheduled runs and the local CI guide names among the workflows whose verdicts have no local run.",
+      "governed-by": ["docs/guides/ci.md", "docs/guides/local-ci.md", ".github/CONTRIBUTING.md"]
+    },
+    {
+      "path": ".github/workflows/{publish,publish-desktop,next-release-version}.yml",
+      "reason": "The release pipelines: the publishing runs and the next-version computation the release process doc states step by step; the CI guide inventories them, and the local CI guide states their closest local rehearsal and the next-version suggestion's local equivalent.",
+      "governed-by": ["docs/guides/ci.md", "docs/guides/local-ci.md", ".github/PUBLISHING.md"]
+    },
+    {
+      "path": ".github/workflows/pin-history.yml",
+      "reason": "The weekly action-pin history probe, which the CI guide inventories and describes among its scheduled runs.",
+      "governed-by": ["docs/guides/ci.md"]
+    },
+    {
+      "path": ".github/workflows/scorecard.yml",
+      "reason": "The scorecard run: the supply-chain posture read the CI guide describes among its scheduled runs, which the local CI guide names among the workflows whose verdicts have no local run.",
+      "governed-by": ["docs/guides/ci.md", "docs/guides/local-ci.md"]
+    },
+    {
       "path": "scripts/check-command-surface.js",
       "reason": "The desktop command-surface admission test — it owes the ci/release area's whole doc set as a unit; beyond that set, the application-shell doc's command-table clause is verified by it, per its registry row, and its mock-surface leg implements the integration-suite doc's serviced-command contract. Its exported comment-stripped and string-blanked Rust views also serve the clause-registry check, which resolves a row's named test cases against the declarations a cited Rust file states, so an edit to them changes what that gate holds a registry row's test-case field to.",
       "governed-by": [
@@ -540,6 +582,11 @@
       "path": "scripts/check-no-release-outputs.js",
       "reason": "The release-output guard — it owes the ci/release area's whole doc set as a unit; beyond that set, the feature-branch dist gate that the format doc's version-bump clause is verified by, per its registry row and the release process doc.",
       "governed-by": ["area:ci/release", "docs/technical/session-format.md"]
+    },
+    {
+      "path": "scripts/{update-version-table,bump-schema,auto-version-schemas}.js",
+      "reason": "The release-output writers: they write the version bumps, the version tables and badges, and the app manifests the release pipeline regenerates. They owe the format area's whole doc set as a unit; beyond it, the release process doc states the lockstep rule binding these writers to the release-output enumeration — a release output added outside the enumerated paths extends the enumeration in the same change.",
+      "governed-by": ["area:format", ".github/PUBLISHING.md"]
     },
     {
       "path": "schemas/dist/*.schema.json",
@@ -778,6 +825,33 @@
       ]
     },
     {
+      "path": "packages/extension/tests/e2e/helpers/extension-fixture.js",
+      "reason": "The extension fixture: it launches the extension context the specs drive and profiles the page's extension scripts for coverage, which the end-to-end suite doc states; the extension capture doctrine states the injection and readiness rules it leans on (ECP-2, ECP-3), and the coverage strategy the tracked-file rule its profiles feed (COV-3).",
+      "governed-by": [
+        "docs/test/e2e.md",
+        "docs/architecture/application/extension/capture-principles.md",
+        "docs/test/strategy/coverage.md"
+      ]
+    },
+    {
+      "path": "packages/extension/tests/e2e/helpers/frame-ready.js",
+      "reason": "The frame-readiness wait: it reads the readiness beacon the recorder sends, which the end-to-end suite doc states and the extension capture doctrine states.",
+      "governed-by": [
+        "docs/test/e2e.md",
+        "docs/architecture/application/extension/capture-principles.md"
+      ]
+    },
+    {
+      "path": "packages/extension/tests/e2e/helpers/cdp-sw-coverage.js",
+      "reason": "The service-worker coverage collector: it profiles the worker over the devtools protocol for the coverage run the end-to-end suite doc states and the coverage strategy's tracked-file rule (COV-3) governs.",
+      "governed-by": ["docs/test/e2e.md", "docs/test/strategy/coverage.md"]
+    },
+    {
+      "path": "packages/extension/tests/e2e/helpers/{coverage-launch,deadline-poll,devtools-port,reference-server-launcher}.js",
+      "reason": "The harness mechanics: the debug-port browser launch, bounded polling, the devtools port discovery and the reference server launch, which the end-to-end suite doc states.",
+      "governed-by": ["docs/test/e2e.md"]
+    },
+    {
       "path": "packages/extension/tests/e2e/playwright.config.js",
       "reason": "The end-to-end run's configuration — the single worker, the retry budget, the shared teardown, and the trace policy. The end-to-end suite document states that harness contract; the specs the run collects carry their own governing set — declared per spec where its inherited governance reaches past what the extension test area supplies, and that area's own doc set otherwise.",
       "governed-by": ["docs/test/e2e.md"]
@@ -786,6 +860,21 @@
       "path": "packages/extension/tests/e2e/playwright.{corpus,vectors}.config.js",
       "reason": "The corpus determinism regime and its vector-producing variant: the fixed viewport, the fixed-port page server, the produce-stage retries around the truth-diff gate, and the flag that turns on vector production with meta-schema validation of each produced vector and its produced-equals-committed oracle. The corpus doctrine names both configs as the production sites, and the end-to-end suite document states the harness contract they share with the rest of this tree.",
       "governed-by": ["docs/verification/scripted-truth-corpus.md", "docs/test/e2e.md"]
+    },
+    {
+      "path": "packages/extension/tests/e2e/{package.json,package-lock.json,.gitignore}",
+      "reason": "The end-to-end harness root: the manifest and lockfile behind the run command the end-to-end suite doc states, and the ignore file keeping the run's outputs out of the tree.",
+      "governed-by": ["docs/test/e2e.md"]
+    },
+    {
+      "path": "packages/extension/tests/e2e/global-setup.js",
+      "reason": "The end-to-end global setup: the coverage run id the suite doc states it mints.",
+      "governed-by": ["docs/test/e2e.md"]
+    },
+    {
+      "path": "packages/extension/tests/e2e/global-teardown.js",
+      "reason": "The end-to-end global teardown: the coverage merge the suite doc states, over the hand-maintained tracked-file list the coverage strategy names (COV-3).",
+      "governed-by": ["docs/test/e2e.md", "docs/test/strategy/coverage.md"]
     },
     {
       "path": "packages/extension/tests/e2e/specs/injection-latency.spec.js",
@@ -897,6 +986,29 @@
     {
       "path": "packages/desktop/tests/integration/playwright.config.js",
       "reason": "The desktop integration run's configuration — the single worker, the retry budget, headless mode, and the shared teardown that merges the run's coverage. The integration-suite document states that harness contract; the specs the run collects carry their own governing set — declared per spec where its inherited governance reaches past what the desktop test area supplies, and that area's own doc set otherwise.",
+      "governed-by": ["docs/test/integration/desktop.md"]
+    },
+    {
+      "path": "packages/desktop/tests/integration/{package,package-lock}.json",
+      "reason": "The desktop integration harness root: the manifest and lockfile with the run commands and harness dependencies of the mocked-backend Playwright run, which the integration suite doc states.",
+      "governed-by": ["docs/test/integration/desktop.md"]
+    },
+    {
+      "path": "packages/desktop/tests/integration/coverage-fixture.js",
+      "reason": "The desktop integration coverage fixture: it collects each page's coverage and writes the run's lcov report, which the integration suite doc states, over the hand-maintained tracked-file list the coverage strategy names (COV-3).",
+      "governed-by": ["docs/test/integration/desktop.md", "docs/test/strategy/coverage.md"]
+    },
+    {
+      "path": "packages/desktop/tests/integration/tauri-mock-fixture.js",
+      "reason": "The desktop integration Tauri mock: the mocked backend and the dist server every spec drives, which the integration suite doc states; its command table services the command surface the application shell doc defines (DSH-1).",
+      "governed-by": [
+        "docs/test/integration/desktop.md",
+        "docs/architecture/application/desktop/windows/application-shell.md"
+      ]
+    },
+    {
+      "path": "packages/desktop/tests/integration/{global-setup,global-teardown,reference-server-launcher}.js",
+      "reason": "The desktop integration harness mechanics: the run-scoped coverage dump naming the global setup mints, the global teardown converting the run's dumps into one lcov report, and the reference sync server launch the sync-sample spec pulls from, which the integration suite doc states.",
       "governed-by": ["docs/test/integration/desktop.md"]
     },
     {
