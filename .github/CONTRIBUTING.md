@@ -42,17 +42,22 @@ update.
 
 ## Development Setup
 
+Both platforms need Node.js 24+ and start from `npm install` at the repository
+root: it installs the build tooling the later steps use (the shared-code sync
+builds the import validators with `ajv` and `esbuild`; the unit suites resolve
+their test dependencies from the root) and the [git hooks](#git-hooks).
+
 ### Chrome Extension
 
 ```bash
 git clone https://github.com/Arsarneq/docent.git
 cd docent
 
+# Install root dependencies
+npm install
+
 # Sync shared code into the extension package
 npm run dev:extension
-
-# Install test dependencies
-cd packages/extension && npm install
 
 # Load the extension in Chrome
 # 1. Open chrome://extensions
@@ -62,14 +67,14 @@ cd packages/extension && npm install
 
 ### Desktop Application (Windows)
 
-Prerequisites: Windows 10 or later, the [Rust toolchain](https://rustup.rs/) (stable),
-Node.js 24+, and the Tauri CLI (`cargo install tauri-cli`, which provides `cargo tauri`).
+Prerequisites, beyond Node.js: Windows 10 or later, the
+[Rust toolchain](https://rustup.rs/) (stable), and the Tauri CLI (`cargo install tauri-cli`, which provides `cargo tauri`).
 
 ```bash
 git clone https://github.com/Arsarneq/docent.git
 cd docent
 
-# Install root dependencies (the dist build uses esbuild and @tauri-apps/api)
+# Install root dependencies (the dist build also uses @tauri-apps/api)
 npm install
 
 # Sync shared code and assemble the desktop frontend bundle (packages/desktop/dist)
@@ -169,6 +174,10 @@ npm run test:desktop       # desktop JavaScript unit tests
 npm run test:desktop:rust  # desktop Rust tests (cargo)
 npm run test:shared        # shared module unit tests
 ```
+
+`npm run test:integration` and `npm run test:e2e` need a one-time harness install
+first: [the integration suite's steps](../docs/test/integration/desktop.md#running-the-suite)
+and [the end-to-end suite's steps](../docs/test/e2e.md#running-the-suite).
 
 To opt a Rust test out of CI entirely (e.g. it depends on something unavailable on
 runners), add a `ci-skip` marker comment to its source. How the suites are layered

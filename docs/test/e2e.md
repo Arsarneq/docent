@@ -2,8 +2,7 @@
 
 Playwright tests that drive a real Chrome with the extension loaded and assert
 what the extension captured, stored, and shows. The commands to run them are in
-the [contributing guide](../../.github/CONTRIBUTING.md#running-tests)
-(`npm run test:e2e`).
+[Running the suite](#running-the-suite) (`npm run test:e2e`).
 
 Everything lives under `packages/extension/tests/e2e/`:
 
@@ -215,6 +214,24 @@ two in agreement.
 | `registry-departures.spec.js`      | Registry departure routes of [ECP-3](../architecture/application/extension/capture-principles.md#frame-trust-and-readiness) beyond the subframe drop `recorder-coverage.spec.js` pins, plus the arrival-side lazy reseed; both conjuncts of [ECP-12](../architecture/application/extension/capture-principles.md#exceptions-within-the-surface)'s `window.close()` suppression — membership in the programmatic-tab set and the recent-action window — each varied with the other held, and that set's loss signature, a degradation the correlation-marker class admits (extension runtime ERT-1); and the platform premise beneath the same-value routes, that a write of the value a key already holds fires no change event. The registry and the set are reached through the introspection handle [extension runtime ERT-5](../architecture/application/extension/runtime.md#lifecycle-and-the-persisted-state-model) states, with suspension loss simulated and labeled; the spec header carries each case's mechanism. |
 | `sync-samples.spec.js`             | Against a real spawned reference sync server seeded with the bundled samples: the extension pulls and reconciles its own platform's sample and rejects the other platform's as a stamp mismatch — the guard that a schema-shape change cannot ship beside a stale seed sample.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
 | `sidepanel-coverage.spec.js`       | Exercises the basic panel flows (projects, settings, theme, recording creation) while collecting panel and SW coverage; the flows deliberately overlap the panel specs — this file exists for the coverage plumbing.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+
+## Running the suite
+
+```bash
+# One-time / after shared changes: install the root dependencies and sync
+npm install && npm run sync-shared
+
+# Install suite dependencies (own package.json)
+cd packages/extension/tests/e2e && npm ci && npx playwright install chromium
+
+# From the repository root
+npm run test:e2e
+```
+
+`npm run test:e2e` runs `npm test` in the suite directory. The suite launches a
+headed browser, since extensions do not load headless, so on a Linux machine
+without a display run it under `xvfb-run` (`xvfb-run npm run test:e2e`), as CI
+does.
 
 ## Adding a test
 
