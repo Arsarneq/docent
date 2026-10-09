@@ -99,7 +99,7 @@
     "eslint-config-prettier": "^10.1.8",
     "fast-check": "^4.10.2",
     "js-yaml": "^4.2.0",
-    "lefthook": "^2.1.14",
+    "lefthook": "^2.1.17",
     "license-checker-rseidelsohn": "5.0.1",
     "markdownlint-cli2": "^0.23.3",
     "prettier": "^3.9.9",
