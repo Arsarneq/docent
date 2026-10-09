@@ -4,7 +4,8 @@
  * single-quoted, each glob double-quoted and resolving to files; the quoting
  * rule stops at the lefthook hooks (`lefthook.yml` says why), while the
  * pre-push ESLint call is held to `lint:js`'s tree set less the trees the CI
- * guide names as CI's alone.
+ * guide names as CI's alone, and every tracked JavaScript file under
+ * `packages/` is held to `lint:js`'s trees or the configuration's ignores.
  *
  * Regression: `npm run lint:md` and `npm run lint:css` were unusable on Windows.
  * Their globs were wrapped in SINGLE quotes. A POSIX shell strips single quotes,
@@ -25,6 +26,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync, globSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
 import path from 'node:path';
 
 const ROOT = path.resolve(import.meta.dirname, '../../../..');
@@ -158,6 +160,32 @@ describe('lint script quoting is cross-platform (Windows cmd.exe delivery)', () 
       "the pre-push ESLint call in lefthook.yml must list lint:js's trees less the trees " +
         "docs/guides/ci.md §Local hooks names as CI's alone; add the tree to the hook, or " +
         `name it in that sentence (it names as CI's alone: ${ciOnly.join(', ')})`,
+    );
+  });
+
+  it('every tracked JavaScript file under packages/ is reached by lint:js or ignored by the configuration', async () => {
+    const trees = [...eslintTrees(scripts['lint:js'].replace(/^eslint\s+/, ''))];
+    const config = (await import(path.join(ROOT, 'eslint.config.js'))).default;
+    const ignores = config
+      .filter((block) => block.ignores && Object.keys(block).length === 1)
+      .flatMap((block) => block.ignores);
+    const files = execFileSync('git', ['ls-files', '-z', '--', 'packages'], {
+      cwd: ROOT,
+      encoding: 'utf8',
+    })
+      .split('\0')
+      .filter((f) => /\.(js|mjs|cjs)$/.test(f));
+    assert.ok(files.length > 0, 'git ls-files listed no JavaScript file under packages/');
+    const unreached = files.filter(
+      (f) =>
+        !trees.some((t) => f.startsWith(t + '/')) &&
+        !ignores.some((pattern) => path.matchesGlob(f, pattern)),
+    );
+    assert.deepEqual(
+      unreached,
+      [],
+      'these tracked files are under no tree lint:js lists and match no ignore pattern in ' +
+        'eslint.config.js: add their tree to lint:js (and the pre-push hook), or ignore them',
     );
   });
 

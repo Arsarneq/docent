@@ -213,12 +213,14 @@ the committed tree, or only as one of every tracked source under a lock on the
 suite's own machinery, sets no flag, because that gate reds the same drift on
 every PR and that lock asserts nothing about the file — so for `cla.yml` and
 `pr-title.yml` among the sibling workflows (the workflow-bounds suite re-runs
-its check over them) and for `codecov.yml` and `eslint.config.js` among
-the root configs (the clause-governance suite's citation walk; the latter also
-passes through the test-inventory suite's every-tracked-source lock, which
-asserts the suite's own tokenizer, not the file's content); and a file no suite
-reads and no path-filtered job's run depends on, `.editorconfig` and
-`.prettierrc` among the root configs, sets none either. The always-on `lint`,
+its check over them) and for `codecov.yml` among the root configs (the
+clause-governance suite's citation walk); and a file no suite reads and no
+path-filtered job's run depends on, `.editorconfig` and `.prettierrc` among
+the root configs, sets none either. `eslint.config.js` is read both ways: the
+clause-governance suite's citation walk and the test-inventory suite's
+every-tracked-source lock, which asserts that suite's own tokenizer, read it
+without asserting its content, while the lint-glob guard's reach case asserts
+its ignore patterns, so it sets the `suiteHeld` flag. The always-on `lint`,
 `zizmor`, `actionlint`, `dependency-audit`, and `coverage-upload` jobs are what
 cover both. The split is a committed contract:
 [`check-ci-filter.js`](../../scripts/check-ci-filter.js)
@@ -694,7 +696,8 @@ unlinked assistant trailer registers a phantom contributor that cannot sign
 the CLA. The `pre-push` hook runs ESLint, Stylelint, the Prettier check,
 and the rustfmt check in parallel — a local mirror of the `lint` job's
 leading gates. The mirror is close, not exact: the hook's ESLint call
-enumerates the main package trees, while CI's `lint:js` also covers
+enumerates the package source trees, the extension library, the extension and
+desktop test trees and the repository scripts, while CI's `lint:js` also covers
 `reference-implementations/` and `corpus/`, so a change confined to those
 trees can pass the hook and still red CI. For running the full CI jobs
 locally, see
