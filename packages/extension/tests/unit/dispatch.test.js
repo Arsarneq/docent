@@ -7,7 +7,7 @@
 
 // ── Mock chrome.storage.local ──────────────────────────────────────────────
 let storageData = {};
-let sessionData = {};
+const sessionData = {};
 let storageListeners = [];
 globalThis.chrome = {
   storage: {

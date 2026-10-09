@@ -160,7 +160,10 @@ test.describe('Accessibility — WCAG 2.1 AA', () => {
     expect(violations, formatViolations(violations)).toHaveLength(0);
   });
 
-  test('recording view (simple mode) has no violations', async ({ panelPage, serviceWorker }) => {
+  test('recording view (simple mode) has no violations', async ({
+    panelPage,
+    serviceWorker: _serviceWorker,
+  }) => {
     // Switch to simple mode via settings
     await panelPage.click('#btn-settings');
     await panelPage.waitForSelector('#view-settings:not(.hidden)', { timeout: 5000 });

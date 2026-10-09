@@ -176,11 +176,7 @@ test.describe('Import Flow', () => {
 // ─── Export Flow ──────────────────────────────────────────────────────────────
 
 test.describe('Export Flow', () => {
-  test('export produces valid .docent.json download', async ({
-    panelPage,
-    serviceWorker,
-    context,
-  }) => {
+  test('export produces valid .docent.json download', async ({ panelPage, serviceWorker }) => {
     await createProjectWithStep(panelPage, serviceWorker);
 
     // Go to project view

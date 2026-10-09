@@ -57,8 +57,8 @@ const SCHEMA = {
 
 // ─── Fake chrome.* + fetch (installed before importing the SW) ────────────────
 
-let storageData = {};
-let sessionData = {};
+const storageData = {};
+const sessionData = {};
 const storageChangeListeners = [];
 let alarmListener = null;
 let messageListener = null;
