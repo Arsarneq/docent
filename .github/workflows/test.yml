@@ -445,6 +445,10 @@ jobs:
           git fetch --no-tags origin "$GITHUB_BASE_REF"
           node scripts/check-no-release-outputs.js "origin/$GITHUB_BASE_REF"
 
+      - name: Run the documented extension setup on a fresh clone
+        timeout-minutes: 5
+        run: npm run check:fresh-clone-setup
+
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # master
         with:
@@ -478,11 +482,11 @@ jobs:
 
       # --- npm side: advisories (npm audit) + license gate (cargo-deny is
       # Rust-only, so npm keeps its own advisory audit). The gate is
-      # scripts/check-npm-advisories.js over `npm audit` at level high on the
-      # root lockfile. Its in-file ignore list, IGNORED_ADVISORIES, gives every
-      # entry an advisory id, a package, a reason and an `until` day — the last
-      # day the entry holds; the script's header states the verdicts and the
-      # upkeep rule. ---
+      # scripts/check-npm-advisories.js over `npm audit` at level high in every
+      # npm root (the license gate's install roots). Its in-file ignore list,
+      # IGNORED_ADVISORIES, gives every entry an advisory id, a package, a
+      # reason and an `until` day — the last day the entry holds; the script's
+      # header states the verdicts and the upkeep rule. ---
       - name: Audit npm dependencies (advisories)
         run: npm run check:npm-advisories
 

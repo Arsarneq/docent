@@ -9,7 +9,9 @@ area documents the tests that prove the capture **software** itself works.
 
 This area is documentation _about_ the suites — what each covers and the doctrine
 behind it. It is not a how-to: the commands to run the suites live in the
-[contributing guide](../../.github/CONTRIBUTING.md#running-tests), and running the
+[contributing guide](../../.github/CONTRIBUTING.md#running-tests), and a suite with a
+one-time harness carries its first-run steps in its own doc, which the guide
+links, and running the
 CI jobs on your own machine is covered in
 [Running CI locally](../guides/local-ci.md).
 
