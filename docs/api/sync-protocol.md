@@ -354,7 +354,7 @@ The `schema_version` shown is illustrative, not the current version.
 }
 ```
 
-**Top-level fields:**
+#### Top-level fields
 
 | Field           | Type   | Required | Description                                                                                                              |
 | --------------- | ------ | -------- | ------------------------------------------------------------------------------------------------------------------------ |
@@ -362,7 +362,7 @@ The `schema_version` shown is illustrative, not the current version.
 | `project`       | object | yes      | Project metadata (see below).                                                                                            |
 | `recordings`    | array  | yes      | Array of recording objects (see below).                                                                                  |
 
-**Project fields:**
+#### Project fields
 
 | Field        | Type              | Required | Description                                                                        |
 | ------------ | ----------------- | -------- | ---------------------------------------------------------------------------------- |
@@ -371,7 +371,7 @@ The `schema_version` shown is illustrative, not the current version.
 | `created_at` | string (ISO 8601) | yes      | Creation timestamp.                                                                |
 | `metadata`   | object            | no       | User-defined key-value pairs. Omitted when absent; an empty object is sent as one. |
 
-**Recording fields:**
+#### Recording fields
 
 | Field          | Type              | Required | Description                                                                        |
 | -------------- | ----------------- | -------- | ---------------------------------------------------------------------------------- |
@@ -386,6 +386,8 @@ to active steps only. See the [Docent Session Format](../technical/session-forma
 documentation for the step structure (the per-platform schemas define it
 authoritatively).
 
+#### How unrecognized top-level fields are handled
+
 > **SP-5.** **Forward compatibility.** A server MAY add optional top-level fields
 > to the payload it stores, whether it is storing a client's `PUT` or rewriting
 > its stored copy in a later write of its own. SP-1's verbatim return leaves it
@@ -395,9 +397,10 @@ authoritatively).
 > the server returns, so a future protocol version can add fields without
 > breaking clients built against this specification. The tolerance belongs to
 > the client's transport layer: a pulled payload is validated and reconstructed
-> on its **known-field projection** — the `docent_format`, `project`, and
-> `recordings` fields tabled above — so a field this specification does not name
-> is dropped there. The projection also decides what a push carries: the client
+> on its **known-field projection** — the top-level fields tabled above, which
+> are the top-level properties the client's platform schema declares, required
+> and optional alike — so a field this specification does not name is dropped
+> there. The projection also decides what a push carries: the client
 > builds every `PUT` body from these same named top-level fields, so **a push that
 > lands replaces the stored payload with one built without the added field**. A
 > top-level field therefore lasts no longer than the next landing push of its
@@ -581,8 +584,10 @@ Key rules:
   push is not proof of agreement (a concurrent client may overwrite it first), so
   the baseline advances only when a later pull confirms incoming equals local, or
   when the user adopts a change. On adoption it advances to the **resolved-against
-  incoming version**, so the adopted state is re-validated against the server (and
-  re-detected as a conflict if another client moved it) on the next cycle.
+  incoming version** of the adopted unit — a recording's own baseline entry, its
+  siblings' entries untouched, or, for the project's own name and metadata, the
+  whole project baseline — so the adopted state is re-validated against the server
+  (and re-detected as a conflict if another client moved it) on the next cycle.
 
 A locked recording is skipped in this phase entirely: its incoming changes are
 neither applied nor offered until it is closed.
