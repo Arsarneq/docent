@@ -69,7 +69,6 @@
     "update-version-table": "node scripts/update-version-table.js",
     "bump:schema": "node scripts/bump-schema.js",
     "prepublish": "npm run sync-shared",
-    "postinstall": "lefthook install",
     "corpus:assemble:desktop": "node scripts/corpus-assemble-desktop.js",
     "corpus:check:desktop": "node scripts/corpus-compare.js --platform desktop-windows --baseline corpus/known-diffs.desktop-windows.json --lint",
     "vectors:produce:desktop": "cargo test --manifest-path packages/desktop/src-tauri/Cargo.toml --test corpus_capture v_vector_fixture -- --test-threads=1",

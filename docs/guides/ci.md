@@ -682,7 +682,12 @@ every PR:
 ## Local hooks (lefthook)
 
 [`lefthook.yml`](../../lefthook.yml) installs two git hooks (via `lefthook
-install`, run automatically by `npm install`). The `commit-msg` hook strips
+install`, which the `lefthook` package's own install script runs on an
+install that places the `lefthook` package (a fresh clone's `npm install`, any
+`npm ci`) and skips when the `CI` environment variable is set to anything
+but empty, `0` or `false` — unless `LEFTHOOK` is set the same way — so CI
+runners carry no hooks; npm's install-script policy must allow that script,
+which the default does with a notice). The `commit-msg` hook strips
 AI-assistant co-author trailers
 ([`strip-ai-coauthor.js`](../../scripts/strip-ai-coauthor.js)) — an
 unlinked assistant trailer registers a phantom contributor that cannot sign

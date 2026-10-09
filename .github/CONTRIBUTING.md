@@ -90,8 +90,11 @@ cargo tauri build
 
 ### Git hooks
 
-`npm install` at the repository root also installs the project's git hooks
-(lefthook runs from the `postinstall` script). The `pre-push` hook runs a local
+`npm install` at the repository root also installs the project's git hooks:
+the `lefthook` dev dependency's own install script runs `lefthook install` —
+skipped when `CI` is set in the shell; the
+[CI guide](../docs/guides/ci.md#local-hooks-lefthook) states the rule. The
+`pre-push` hook runs a local
 mirror of CI's leading lint gates, and the `commit-msg` hook strips
 AI-assistant co-author trailers, which would otherwise register a phantom
 contributor that cannot sign the CLA.
