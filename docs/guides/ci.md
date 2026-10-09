@@ -56,13 +56,11 @@ Two entries live outside the table's closure:
   README badge links there); its findings have driven in-repo changes such
   as the least-privilege `permissions:` blocks in the publish workflows.
 - **Dependabot** ([`dependabot.yml`](../../.github/dependabot.yml)) is
-  configuration, not a workflow: weekly dependency-update PRs for three npm
-  roots (the repository root, the extension package, and the extension e2e
-  suite), the desktop cargo crate, and the `github-actions` ecosystem (its
-  pinning role is [below](#every-action-is-pinned-to-a-commit-sha)). The
-  desktop-integration suite's npm root is not on Dependabot's list — the
-  license gate still scans it, but its dependency advisories are covered by
-  neither Dependabot nor the root-lockfile `npm audit`.
+  configuration, not a workflow: weekly dependency-update PRs for every npm
+  root the [dependency audit](#dependency-and-license-audit) reads, the
+  desktop cargo crate, and the `github-actions` ecosystem (its pinning role is
+  [below](#every-action-is-pinned-to-a-commit-sha)). The shared unit suite
+  holds its npm entries to the audited roots.
 
 The three release workflows (`publish.yml`, `publish-desktop.yml`,
 `next-release-version.yml`) are named here only for closure: their modes
@@ -353,11 +351,13 @@ name is today.
 
 The `dependency-audit` job runs on every PR and push. On the npm side, the
 advisory gate is [`check-npm-advisories.js`](../../scripts/check-npm-advisories.js)
-(`npm run check:npm-advisories`), which reads `npm audit` at level high over
-the root lockfile and holds every high or critical advisory to the check's
-in-file ignore list, the counterpart of `deny.toml`'s advisory ignore list on
-the Rust side. Every entry carries an advisory id, a package, a reason, and an
-`until` day — the last day the entry holds, the gate redding the day after; the
+(`npm run check:npm-advisories`), which reads `npm audit` at level high in
+every npm root (the directories carrying a tracked `package-lock.json`, the
+roots the license gate below scans) and holds every high or critical advisory
+to the check's in-file ignore list, the counterpart of `deny.toml`'s advisory
+ignore list on the Rust side. Every entry carries an advisory id, a package, a
+reason, and an `until` day — the last day the entry holds, the gate redding
+the day after — and names its root when that is not the repository root; the
 script's header states the verdicts and the upkeep rule (how an entry is added
 or renewed, and when a stale, expired, fix-available or wrong-package entry is
 deleted, refreshed or corrected). Then a default-deny license

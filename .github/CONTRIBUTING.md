@@ -288,11 +288,10 @@ PR-body and title checks — is inventoried workflow by workflow in
 gate.
 
 Adding a third-party dependency? It must clear the default-deny license
-allowlist (scanned over every install root) and the advisory audits — the
-root-lockfile `npm audit` and the Rust `cargo deny` — whose exact coverage
-([CI gates](../docs/guides/ci.md#dependency-and-license-audit)) is the
-gate's own statement; `npm run check:licenses` runs the npm allowlist
-locally.
+allowlist and the advisory audits (`npm audit` and the Rust `cargo deny`); the
+npm side of both reads every npm root, and their exact coverage
+([CI gates](../docs/guides/ci.md#dependency-and-license-audit)) is the gate's
+own statement; `npm run check:licenses` runs the npm allowlist locally.
 
 ## Docs Disposition and Change Record
 
