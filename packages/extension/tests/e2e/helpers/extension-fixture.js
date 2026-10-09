@@ -123,7 +123,7 @@ export const test = base.extend({
     const page = context.pages()[0] || (await context.newPage());
 
     // Start CDP profiler BEFORE navigation so it captures content script load
-    let cdpSession = null;
+    let cdpSession;
     try {
       cdpSession = await context.newCDPSession(page);
       await cdpSession.send('Profiler.enable');

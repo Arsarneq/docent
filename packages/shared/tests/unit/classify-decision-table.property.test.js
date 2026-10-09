@@ -37,7 +37,7 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import fc from 'fast-check';
 import { classifyProject, classifyUnit } from '../../conflict-detector.js';
-import { digestProject, digestRecording } from '../../sync-digest.js';
+import { digestProject } from '../../sync-digest.js';
 
 // ─── The exhaustive set of valid classifications (ClassKind) ─────────────────
 

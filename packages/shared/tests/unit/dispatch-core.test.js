@@ -5,7 +5,7 @@
  * large payload, large response, non-JSON response), and DispatchError.
  */
 
-import { describe, it, beforeEach, afterEach } from 'node:test';
+import { describe, it, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { STUB_SCHEMA } from '../fixtures/stub-schema.js';
 import {
@@ -272,7 +272,7 @@ describe('sendPayload — error handling', () => {
   });
 
   it('throws DispatchError with AbortError message on timeout', async () => {
-    globalThis.fetch = async (_url, opts) => {
+    globalThis.fetch = async () => {
       // Simulate AbortError
       const err = new Error('The operation was aborted');
       err.name = 'AbortError';

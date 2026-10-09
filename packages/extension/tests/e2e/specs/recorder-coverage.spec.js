@@ -330,7 +330,6 @@ test.describe('Recording State Transitions', () => {
   test('actions are NOT captured when recording is stopped', async ({
     testPage,
     serviceWorker,
-    context,
   }) => {
     await setTestContent(testPage, PAGE_HTML);
     await testPage.waitForTimeout(200);

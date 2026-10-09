@@ -22,12 +22,7 @@ import {
 } from '../../lib/session.js';
 import { buildPayload } from '../../dispatch-core.js';
 import { STUB_SCHEMA } from '../fixtures/stub-schema.js';
-import {
-  renderStepList,
-  renderStepDetail,
-  renderProjectList,
-  renderRecordingList,
-} from '../../views/render.js';
+import { renderStepList, renderProjectList, renderRecordingList } from '../../views/render.js';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 

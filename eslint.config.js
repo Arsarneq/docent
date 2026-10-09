@@ -1,6 +1,14 @@
 import js from '@eslint/js';
 import prettier from 'eslint-config-prettier';
 
+// Node globals every Node-run block shares; each block adds its own extras.
+const nodeGlobals = {
+  process: 'readonly',
+  console: 'readonly',
+  Buffer: 'readonly',
+  URL: 'readonly',
+};
+
 export default [
   js.configs.recommended,
   prettier,
@@ -20,7 +28,7 @@ export default [
       ],
       'no-undef': 'error',
       'no-console': 'off',
-      'prefer-const': 'error',
+      'prefer-const': ['error', { destructuring: 'all' }],
       'no-var': 'error',
     },
   },
@@ -107,12 +115,9 @@ export default [
     files: ['scripts/**/*.js'],
     languageOptions: {
       globals: {
-        process: 'readonly',
-        console: 'readonly',
-        Buffer: 'readonly',
+        ...nodeGlobals,
         __dirname: 'readonly',
         __filename: 'readonly',
-        URL: 'readonly',
         structuredClone: 'readonly',
       },
     },
@@ -139,10 +144,7 @@ export default [
     files: ['corpus/**/*.js'],
     languageOptions: {
       globals: {
-        process: 'readonly',
-        console: 'readonly',
-        Buffer: 'readonly',
-        URL: 'readonly',
+        ...nodeGlobals,
       },
     },
   },
@@ -153,12 +155,78 @@ export default [
     files: ['reference-implementations/**/*.js'],
     languageOptions: {
       globals: {
-        process: 'readonly',
-        console: 'readonly',
-        Buffer: 'readonly',
-        URL: 'readonly',
+        ...nodeGlobals,
         crypto: 'readonly',
         fetch: 'readonly',
+      },
+    },
+  },
+  {
+    // Test trees under node:test and the Playwright runner — both run in Node.
+    // The unit suites (shared, extension, desktop) and the Playwright specs,
+    // fixtures and helpers alike import from node:* and call Node's globals.
+    files: ['packages/*/tests/**/*.{js,mjs,cjs}'],
+    languageOptions: {
+      globals: {
+        ...nodeGlobals,
+        fetch: 'readonly',
+        Headers: 'readonly',
+        Response: 'readonly',
+        performance: 'readonly',
+        structuredClone: 'readonly',
+        setTimeout: 'readonly',
+        clearTimeout: 'readonly',
+        setInterval: 'readonly',
+        clearInterval: 'readonly',
+        setImmediate: 'readonly',
+      },
+    },
+  },
+  {
+    // Browser-injected code in the desktop integration suite: callbacks passed
+    // to page.evaluate / addInitScript / waitForFunction run in the page, so the
+    // spec files carry page globals beside their Node ones.
+    files: ['packages/desktop/tests/integration/**/*.{js,mjs,cjs}'],
+    languageOptions: {
+      globals: {
+        window: 'readonly',
+        document: 'readonly',
+      },
+    },
+  },
+  {
+    // Browser-injected code in the extension end-to-end suite: its page
+    // callbacks also build DOM events and files to drive real input.
+    files: ['packages/extension/tests/e2e/**/*.{js,mjs,cjs}'],
+    languageOptions: {
+      globals: {
+        window: 'readonly',
+        document: 'readonly',
+        history: 'readonly',
+        Event: 'readonly',
+        MouseEvent: 'readonly',
+        KeyboardEvent: 'readonly',
+        DragEvent: 'readonly',
+        DataTransfer: 'readonly',
+        File: 'readonly',
+        HTMLInputElement: 'readonly',
+      },
+    },
+    rules: {
+      // Playwright reads a fixture's dependencies from its first parameter's
+      // destructuring pattern and requires one, so a fixture that depends on
+      // nothing is written `async ({}, use) =>` — the empty pattern is the
+      // runner's own idiom, not an empty destructuring left behind.
+      'no-empty-pattern': ['error', { allowObjectPatternsAsParameters: true }],
+    },
+  },
+  {
+    // Extension-context injected code: the end-to-end suite evaluates in the
+    // extension's pages and service worker, where the chrome.* API is present.
+    files: ['packages/extension/tests/e2e/**/*.{js,mjs,cjs}'],
+    languageOptions: {
+      globals: {
+        chrome: 'readonly',
       },
     },
   },
@@ -172,8 +240,12 @@ export default [
       'packages/desktop/src/index.html',
       'packages/desktop/dist/**',
       'packages/desktop/src-tauri/**',
-      'packages/*/tests/**',
       'coverage/**',
+      // Runner output under the admitted test trees (gitignored, but ESLint reads
+      // no .gitignore): an HTML report's trace viewer ships bundled scripts.
+      'packages/*/tests/**/playwright-report/**',
+      'packages/*/tests/**/test-results/**',
+      'packages/*/tests/**/coverage/**',
       'corpus/out/**',
     ],
   },

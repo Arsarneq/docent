@@ -91,27 +91,6 @@ async function simulateActions(serviceWorker, actions) {
   }, actions);
 }
 
-/** Create a project via the SW message handler. */
-async function createProjectViaSW(serviceWorker, name) {
-  return await serviceWorker.evaluate(async (n) => {
-    return await chrome.runtime.sendMessage({ type: 'PROJECT_CREATE', name: n });
-  }, name);
-}
-
-/** Create a recording via the SW message handler. */
-async function createRecordingViaSW(serviceWorker, name) {
-  return await serviceWorker.evaluate(async (n) => {
-    return await chrome.runtime.sendMessage({ type: 'RECORDING_CREATE', name: n });
-  }, name);
-}
-
-/** Start recording via the SW. */
-async function startRecording(serviceWorker) {
-  await serviceWorker.evaluate(async () => {
-    await chrome.storage.local.set({ recording: true });
-  });
-}
-
 test.describe('Side Panel — Commit Step (Narration Mode)', () => {
   test('simulate actions + type narration + commit → step appears', async ({
     panelPage,
@@ -638,10 +617,11 @@ test.describe('Side Panel — Export', () => {
 
     // Click export — triggers blob download in extension
     const [download] = await Promise.all([
-      panelPage.waitForEvent('download', { timeout: 5000 }).catch(() => null),
+      panelPage.waitForEvent('download', { timeout: 5000 }),
       panelPage.click('#btn-export-project'),
     ]);
-    await panelPage.waitForTimeout(500);
+    // The file is named after the project, then a timestamp.
+    expect(download.suggestedFilename()).toMatch(/^Export_\d+\.docent\.json$/);
   });
 });
 

@@ -131,10 +131,6 @@ describe('uuidv7ToDate', () => {
 
 describe('compareUuidv7', () => {
   it('returns negative when a < b', () => {
-    const a = uuidv7();
-    const b = uuidv7();
-    // Same millisecond, but b generated after a — random bits make b >= a
-    // Use a guaranteed case instead
     assert.ok(
       compareUuidv7(
         '00000000-0000-7000-8000-000000000000',

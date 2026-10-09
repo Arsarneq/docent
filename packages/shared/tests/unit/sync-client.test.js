@@ -578,9 +578,7 @@ describe('pullProjects', () => {
       recordings: [],
     };
 
-    let callCount = 0;
     mockFetch((url) => {
-      callCount++;
       if (url.endsWith('/projects')) return makeResponse(200, manifest);
       if (url.endsWith(`/projects/${P1}`)) throw new Error('Connection reset');
       if (url.endsWith(`/projects/${P2}`)) return makeResponse(200, p2Payload);

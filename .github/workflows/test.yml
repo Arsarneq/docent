@@ -184,6 +184,8 @@ jobs:
               - 'docs/test/strategy/mutation.md'
               - 'docs/verification/scripted-truth-corpus.md'
               - 'docs/verification/sufficiency-lint.md'
+              - 'eslint.config.js'
+              - 'lefthook.yml'
             # The broad script bucket — gates unit-tests only (its shared unit
             # suite imports most scripts via packages/shared/tests/unit/check-*.test.js);
             # .c8rc.json configures that job's JS coverage.

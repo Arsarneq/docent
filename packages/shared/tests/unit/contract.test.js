@@ -9,31 +9,25 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { buildPayload } from '../../dispatch-core.js';
 import { composePlatform } from '../../../../scripts/build-schemas.js';
-import {
-  createProject,
-  createRecording,
-  createStep,
-  addStepRecord,
-  resolveActiveSteps,
-} from '../../lib/session.js';
+import { createProject, createRecording, createStep, addStepRecord } from '../../lib/session.js';
 
 // Compose the platform schemas from SOURCE LAYERS (not schemas/dist/, which is
 // the released artifact and can lag a PR's schema changes).
 const extensionSchema = composePlatform('extension');
 const desktopSchema = composePlatform('desktop-windows');
 
-// ─── Simple schema validation helpers ─────────────────────────────────────────
-// We don't pull in ajv to keep dependencies minimal. Instead we validate
-// the structural contract manually against the schema's required fields.
-
-function getRequiredFields(schema, defName) {
-  const def = schema.$defs?.[defName] || schema.definitions?.[defName];
-  return def?.required || [];
-}
-
-function getProperties(schema, defName) {
-  const def = schema.$defs?.[defName] || schema.definitions?.[defName];
-  return Object.keys(def?.properties || {});
+/**
+ * Assert that an object carries every field the schema definition requires.
+ *
+ * @param {object} obj the payload object under test
+ * @param {string} defName the schema definition naming its required fields
+ */
+function assertRequiredFields(obj, defName) {
+  const required = extensionSchema.$defs[defName]?.required ?? [];
+  assert.ok(required.length > 0, `the schema's ${defName} definition lists no required field`);
+  for (const field of required) {
+    assert.ok(Object.hasOwn(obj, field), `${defName} is missing required field ${field}`);
+  }
 }
 
 // ─── Contract: buildPayload output ────────────────────────────────────────────
@@ -101,9 +95,7 @@ describe('Contract: buildPayload output structure', () => {
   });
 
   it('project has required fields: project_id, name, created_at', () => {
-    assert.ok(payload.project.project_id, 'missing project_id');
-    assert.ok(payload.project.name, 'missing name');
-    assert.ok(payload.project.created_at, 'missing created_at');
+    assertRequiredFields(payload.project, 'project');
   });
 
   it('project metadata is included when present', () => {
@@ -112,9 +104,7 @@ describe('Contract: buildPayload output structure', () => {
 
   it('recording has required fields: recording_id, name, created_at, steps', () => {
     const rec = payload.recordings[0];
-    assert.ok(rec.recording_id, 'missing recording_id');
-    assert.ok(rec.name, 'missing name');
-    assert.ok(rec.created_at, 'missing created_at');
+    assertRequiredFields(rec, 'recording');
     assert.ok(Array.isArray(rec.steps), 'steps should be an array');
   });
 
@@ -138,10 +128,8 @@ describe('Contract: buildPayload output structure', () => {
 
   it('step has required fields: uuid, logical_id, step_number, created_at, actions, deleted', () => {
     for (const step of payload.recordings[0].steps) {
-      assert.ok(step.uuid, 'missing uuid');
-      assert.ok(step.logical_id, 'missing logical_id');
+      assertRequiredFields(step, 'step');
       assert.ok(typeof step.step_number === 'number', 'step_number should be number');
-      assert.ok(step.created_at, 'missing created_at');
       assert.ok(Array.isArray(step.actions), 'actions should be array');
       assert.ok(typeof step.deleted === 'boolean', 'deleted should be boolean');
     }
