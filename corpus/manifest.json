@@ -154,7 +154,7 @@
       "truth": "truth.docent.json",
       "overrides": "overrides.json",
       "knownDiffIssues": [],
-      "notes": "user clicks session window then primer window: two activation context_switches + clicks; the primer teardown reverts foreground to the session window (trailing click-correlated context_switch)"
+      "notes": "user clicks session window then primer window: each click into the non-foreground window records its activation context_switch, then the click"
     },
     {
       "id": "d-selection-gate",
