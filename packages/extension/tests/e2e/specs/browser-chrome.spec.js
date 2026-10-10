@@ -18,19 +18,8 @@ import {
   clearPendingActions,
 } from '../helpers/extension-fixture.js';
 
-const FORM_HTML = `<!DOCTYPE html>
-<html><body>
-  <input id="name" type="text" value="hello world" />
-  <select id="color">
-    <option value="red">Red</option>
-    <option value="green">Green</option>
-    <option value="blue">Blue</option>
-  </select>
-  <a id="link" href="http://127.0.0.1:{{PORT}}/other">Other page</a>
-</body></html>`;
-
 test.describe('Manual Test 2 — Right-click link → Open in new tab', () => {
-  test('right-click produces right_click action', async ({ testPage, serviceWorker, context }) => {
+  test('right-click produces right_click action', async ({ testPage, serviceWorker }) => {
     await setTestContent(
       testPage,
       '<html><body><a id="link" href="http://example.com">Link</a></body></html>',
@@ -98,7 +87,7 @@ test.describe('Manual Test 4 — Select element via keyboard', () => {
 });
 
 test.describe('Manual Test 5 — Ctrl+T (new tab)', () => {
-  test('creating a new tab produces context_open', async ({ context, serviceWorker, testPage }) => {
+  test('creating a new tab produces context_open', async ({ serviceWorker, testPage }) => {
     await clearPendingActions(serviceWorker);
 
     // Create a new tab via the extension API (simulates Ctrl+T)
@@ -114,11 +103,7 @@ test.describe('Manual Test 5 — Ctrl+T (new tab)', () => {
 });
 
 test.describe('Manual Test 6 — Ctrl+N (new window)', () => {
-  test('creating a new window produces context_open', async ({
-    context,
-    serviceWorker,
-    testPage,
-  }) => {
+  test('creating a new window produces context_open', async ({ serviceWorker, testPage }) => {
     await clearPendingActions(serviceWorker);
 
     // Create a new window via the extension API (simulates Ctrl+N)
@@ -140,7 +125,7 @@ test.describe('Manual Test 6 — Ctrl+N (new window)', () => {
 });
 
 test.describe('Manual Test 7 — Ctrl+W (close tab)', () => {
-  test('closing a tab produces context_close', async ({ context, serviceWorker, testPage }) => {
+  test('closing a tab produces context_close', async ({ serviceWorker, testPage }) => {
     // Create a tab to close
     const tabId = await serviceWorker.evaluate(async () => {
       const tab = await chrome.tabs.create({ url: 'about:blank' });
@@ -162,7 +147,7 @@ test.describe('Manual Test 7 — Ctrl+W (close tab)', () => {
 });
 
 test.describe('Manual Test 9 — Click a tab (context_switch)', () => {
-  test('switching tabs produces context_switch', async ({ context, serviceWorker, testPage }) => {
+  test('switching tabs produces context_switch', async ({ serviceWorker, testPage }) => {
     // Create a second tab
     const tabId = await serviceWorker.evaluate(async () => {
       const tab = await chrome.tabs.create({ url: 'about:blank' });
@@ -185,6 +170,9 @@ test.describe('Manual Test 9 — Click a tab (context_switch)', () => {
     const actions = await getPendingActions(serviceWorker);
     const types = actions.map((a) => a.type);
     expect(types).toContain('context_switch');
+    // The switch names the tab the user activated.
+    const contextSwitch = actions.find((a) => a.type === 'context_switch');
+    expect(contextSwitch.context_id).toBe(originalTabId);
 
     // Clean up
     await serviceWorker.evaluate(async (id) => {

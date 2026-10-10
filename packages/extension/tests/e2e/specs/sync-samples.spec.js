@@ -156,7 +156,7 @@ const test = base.extend({
   },
 
   extensionId: async ({ context }, use) => {
-    let sw = context.serviceWorkers()[0] ?? (await context.waitForEvent('serviceworker'));
+    const sw = context.serviceWorkers()[0] ?? (await context.waitForEvent('serviceworker'));
     const id = sw.url().match(/chrome-extension:\/\/([^/]+)/)?.[1];
     await use(id);
   },

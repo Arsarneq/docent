@@ -4,11 +4,16 @@
  * through `main` with fixture reports fed through its audit seam; the list and
  * date rules and the report reader are exercised directly; the audit command is
  * reached only through its spawn seam, so the suite never runs npm. The shipped
- * list is locked to its shape.
+ * list is locked to its shape, and the audited npm roots to the tracked lockfiles
+ * and to Dependabot's npm entries.
  */
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
+import { execFileSync } from 'node:child_process';
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
+import yaml from 'js-yaml';
 import {
   AUDIT_COMMAND,
   IGNORED_ADVISORIES,
@@ -20,8 +25,12 @@ import {
   readReport,
   runAudit,
 } from '../../../../scripts/check-npm-advisories.js';
+import { INSTALL_ROOTS } from '../../../../scripts/check-licenses-npm.js';
 
 const TODAY = '2026-10-03';
+
+/** The repository root, where the audit runs for the root lockfile. */
+const REPO = path.resolve(import.meta.dirname, '../../../..');
 
 /** A root advisory object as npm's report states it under `via`. */
 function root(name, id, severity = 'high') {
@@ -76,6 +85,7 @@ function gate(text, { list = LIST, today = TODAY } = {}) {
   const err = [];
   const code = main({
     audit: () => text,
+    npmRoots: ['.'],
     list,
     today,
     out: (l) => out.push(l),
@@ -326,7 +336,7 @@ describe('the machinery verdict, on exit 2', () => {
   it('a failing audit command, driven through main', () => {
     const spawn = () => ({ status: 3, stdout: '', stderr: 'npm crashed' });
     const err = [];
-    const code = main({ audit: () => runAudit({ spawn }), list: [], today: TODAY, out: () => {}, err: (l) => err.push(l) }); // prettier-ignore
+    const code = main({ audit: () => runAudit({ spawn }), npmRoots: ['.'], list: [], today: TODAY, out: () => {}, err: (l) => err.push(l) }); // prettier-ignore
     assert.equal(code, 2);
     assert.match(err.join('\n'), /answered with something other than what it reads there:\n\s+`npm audit --json --package-lock-only` exited 3: npm crashed/); // prettier-ignore
   });
@@ -350,6 +360,7 @@ describe('the machinery verdict, on exit 2', () => {
         audited = true;
         return report(TWO_ROOTS);
       },
+      npmRoots: ['.'],
       list: [...LIST, LIST[0]],
       today: TODAY,
       out: () => {},
@@ -357,7 +368,7 @@ describe('the machinery verdict, on exit 2', () => {
     });
     assert.equal(r, 2);
     assert.equal(audited, false);
-    assert.throws(() => checkList([...LIST, LIST[0]]), /entry 3 repeats id GHSA-vfj7-8cjw-p6xm/);
+    assert.throws(() => checkList([...LIST, LIST[0]]), /entry 3 repeats id GHSA-vfj7-8cjw-p6xm for root \./); // prettier-ignore
   });
 
   it('an error that is not an input error still ends on exit 2 with its message', () => {
@@ -366,6 +377,7 @@ describe('the machinery verdict, on exit 2', () => {
       audit: () => {
         throw new Error('unexpected');
       },
+      npmRoots: ['.'],
       list: [],
       today: TODAY,
       out: () => {},
@@ -396,10 +408,13 @@ describe('checkList — the list’s shape', () => {
     assert.equal(isCalendarDay(20261103), false);
   });
 
-  it('the shipped list carries the four fields on every entry, unique ids, calendar-day untils', () => {
+  it('the shipped list carries an id, a package, a reason and an until on every entry, unique ids per npm root, calendar-day untils', () => {
     assert.doesNotThrow(() => checkList(IGNORED_ADVISORIES));
     for (const e of IGNORED_ADVISORIES) {
-      assert.deepEqual(Object.keys(e).sort(), ['id', 'package', 'reason', 'until']);
+      const keys = Object.keys(e)
+        .filter((k) => k !== 'root')
+        .sort();
+      assert.deepEqual(keys, ['id', 'package', 'reason', 'until']);
     }
   });
 });
@@ -440,6 +455,9 @@ describe('runAudit — the command seam', () => {
     assert.equal(runAudit({ spawn }), '{"x":1}');
     assert.equal(called.cmd, AUDIT_COMMAND);
     assert.equal(called.opts.shell, true);
+    assert.equal(called.opts.cwd, REPO);
+    runAudit({ spawn, npmRoot: 'packages/desktop/tests/integration' });
+    assert.equal(called.opts.cwd, path.join(REPO, 'packages/desktop/tests/integration'));
     assert.equal(runAudit({ spawn: ok(0, '{}') }), '{}');
   });
 
@@ -448,5 +466,133 @@ describe('runAudit — the command seam', () => {
     assert.throws(() => runAudit({ spawn: () => ({ status: 2, stdout: '', stderr: 'boom' }) }), /exited 2: boom/); // prettier-ignore
     assert.throws(() => runAudit({ spawn: ok(0, '  ') }), /printed no report/);
     assert.throws(() => runAudit({ spawn: ok(1, undefined) }), InputError);
+  });
+});
+
+describe('every npm root, each judged on its own', () => {
+  const SUB = 'packages/desktop/tests/integration';
+  const SUB_ID = 'GHSA-dddd-eeee-ffff';
+  const subReport = report({ ws: { severity: 'high', via: [root('ws', SUB_ID)] } });
+  const byRoot = { '.': report(TWO_ROOTS), [SUB]: subReport };
+
+  /** Run the gate over two roots, each with its own report. */
+  function gate2(list) {
+    const out = [];
+    const err = [];
+    const audited = [];
+    const code = main({
+      audit: (r) => {
+        audited.push(r);
+        return byRoot[r];
+      },
+      npmRoots: ['.', SUB],
+      list,
+      today: TODAY,
+      out: (l) => out.push(l),
+      err: (l) => err.push(l),
+    });
+    return { code, audited, out: out.join('\n'), err: err.join('\n') };
+  }
+
+  it('audits every root, in order', () => {
+    assert.deepEqual(gate2([...LIST, { ...entry(SUB_ID, 'ws'), root: SUB }]).audited, ['.', SUB]);
+  });
+
+  it('a second root’s own advisory, unlisted: exit 1 naming its root', () => {
+    const r = gate2(LIST);
+    assert.equal(r.code, 1);
+    assert.match(r.err, new RegExp(`✗ ${SUB_ID} \\(ws; high\\) is not on the ignore list: .* \\[root: ${SUB}\\]`)); // prettier-ignore
+    assert.doesNotMatch(
+      r.err,
+      new RegExp(BRACES),
+      'the root lockfile’s listed advisories stay green',
+    );
+  });
+
+  it('an entry scoped to the second root holds it there: exit 0 naming the root', () => {
+    const r = gate2([...LIST, { ...entry(SUB_ID, 'ws'), root: SUB }]);
+    assert.equal(r.code, 0, r.err);
+    assert.match(r.out, /reported 3 high or critical root advisories across 5 vulnerable package\(s\) over 2 npm roots/); // prettier-ignore
+    assert.match(r.out, new RegExp(`${SUB_ID} holds through 2026-11-03 \\[root: ${SUB}\\]`));
+  });
+
+  it('an entry naming no root is judged against the root lockfile only: stale there, the other root unlisted', () => {
+    const r = gate2([...LIST, entry(SUB_ID, 'ws')]);
+    assert.equal(r.code, 1);
+    assert.match(r.err, new RegExp(`ignore-list entry ${SUB_ID} \\(ws\\) is stale: .* \\[root: \\.\\]`)); // prettier-ignore
+    assert.match(r.err, new RegExp(`✗ ${SUB_ID} .* is not on the ignore list: .* \\[root: ${SUB}\\]`)); // prettier-ignore
+  });
+
+  it('an entry scoped to the root lockfile by name is the same as naming none', () => {
+    const r = gate2([{ ...LIST[0], root: '.' }, LIST[1], { ...entry(SUB_ID, 'ws'), root: SUB }]);
+    assert.equal(r.code, 0, r.err);
+  });
+
+  it('a stale entry scoped to the second root reds there', () => {
+    const list = [...LIST, { ...entry(SUB_ID, 'ws'), root: SUB }, { ...entry(BRACES, 'braces'), root: SUB }]; // prettier-ignore
+    const r = gate2(list);
+    assert.equal(r.code, 1);
+    assert.match(r.err, new RegExp(`ignore-list entry ${BRACES} \\(braces\\) is stale: .* \\[root: ${SUB}\\]`)); // prettier-ignore
+  });
+
+  it('a machinery failure in one root names that root: exit 2', () => {
+    const err = [];
+    const code = main({
+      audit: (r) => (r === SUB ? 'npm ERR! network' : report(TWO_ROOTS)),
+      npmRoots: ['.', SUB],
+      list: LIST,
+      today: TODAY,
+      out: () => {},
+      err: (l) => err.push(l),
+    });
+    assert.equal(code, 2);
+    assert.match(err.join('\n'), new RegExp(`is not JSON \\[root: ${SUB}\\]`));
+  });
+
+  it('checkList: a root outside the audited set is malformed; one id may hold in two roots, never twice in one', () => {
+    assert.throws(
+      () => checkList([{ ...LIST[0], root: 'packages/nowhere' }], ['.', SUB]),
+      /entry 1 \(GHSA-vfj7-8cjw-p6xm\) names root packages\/nowhere, which is not one of the audited npm roots/,
+    );
+    assert.throws(
+      () => checkList([{ ...LIST[0], root: '' }], ['.', SUB]),
+      /names root , which is not/,
+    );
+    assert.doesNotThrow(() => checkList([LIST[0], { ...LIST[0], root: SUB }], ['.', SUB]));
+    assert.throws(
+      () => checkList([LIST[0], { ...LIST[0], root: '.' }], ['.', SUB]),
+      /entry 2 repeats id GHSA-vfj7-8cjw-p6xm for root \./,
+    );
+  });
+});
+
+describe('the audited npm roots', () => {
+  // A GIT_ variable inherited from a hook (GIT_INDEX_FILE, say) would point the
+  // listing at another index, so the child runs without them.
+  const env = Object.fromEntries(
+    Object.entries(process.env).filter(([k]) => !k.startsWith('GIT_')),
+  );
+  const tracked =
+    execFileSync('git', ['ls-files', '-z', '--', 'package-lock.json', '**/package-lock.json'], { cwd: REPO, env, encoding: 'utf8' }) // prettier-ignore
+      .split('\0')
+      .filter(Boolean)
+      .map((f) => path.posix.dirname(f))
+      .sort();
+
+  it('are exactly the directories carrying a tracked lockfile', () => {
+    assert.ok(
+      tracked.length > 0,
+      'git ls-files listed no lockfile — the comparison would prove nothing',
+    );
+    assert.deepEqual([...INSTALL_ROOTS].sort(), tracked);
+  });
+
+  it('each takes a Dependabot npm entry, and Dependabot names no other npm directory', () => {
+    const config = yaml.load(readFileSync(path.join(REPO, '.github/dependabot.yml'), 'utf8'));
+    const npmDirs = config.updates
+      .filter((u) => u['package-ecosystem'] === 'npm')
+      .map((u) => (u.directory === '/' ? '.' : u.directory.replace(/^\//, '')))
+      .sort();
+    assert.deepEqual(npmDirs, [...INSTALL_ROOTS].sort());
   });
 });

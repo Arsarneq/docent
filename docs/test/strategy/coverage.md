@@ -30,8 +30,9 @@ flag's last-known coverage.
 
 **COV-2.** Coverage is sliced two ways. **Flags** encode _how_ lines were
 covered — the pyramid layer (`unit`, `integration`, `e2e`) crossed with language
-(`javascript`, `rust`). **Components** encode _which package_ the code lives in
-(`extension`, `desktop`, `shared`) — path-based filters defined in `codecov.yml`.
+(`javascript`, `rust`), exactly the flags `codecov.yml` defines. **Components**
+encode _which package_ the code lives in (`extension`, `desktop`, `shared`) —
+exactly the path-based filters `codecov.yml` defines.
 
 ## Closed-world tracked-file lists (e2e and desktop integration)
 
@@ -42,14 +43,16 @@ against a **hard-coded, closed list** of source files and drops everything else:
 
 - **Extension e2e** — `TRACKED_FILES` in
   `packages/extension/tests/e2e/global-teardown.js` (a hand-maintained subset
-  of the sidepanel, background, and content scripts the suite loads).
+  of the scripts the suite loads, drawn from exactly the sidepanel, background
+  and content trees).
 - **Desktop integration** — `TRACKED_FILES` in
   `packages/desktop/tests/integration/coverage-fixture.js` (a hand-maintained
   subset of the desktop frontend scripts, served from `dist/` and reported
   against `src/`).
 
 The lists are closed worlds on purpose: page coverage sees every script a page
-loads (test pages, injected mocks, third-party fixtures), and the list is what
+loads (test pages, injected mocks and third-party fixtures among them), and the
+list is what
 keeps the report to Docent's own source. The cost is a maintenance rule —
 **a Docent source file the suites load reports no e2e/integration coverage
 until it is added to the matching `TRACKED_FILES` list** in the same change.

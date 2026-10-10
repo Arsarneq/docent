@@ -24,6 +24,7 @@
     "check:clippy-invocation": "node scripts/check-clippy-invocation.js",
     "check:licenses": "node scripts/check-licenses-npm.js",
     "check:npm-advisories": "node scripts/check-npm-advisories.js",
+    "check:fresh-clone-setup": "node scripts/check-fresh-clone-setup.js",
     "sync-shared": "node scripts/sync-shared.js",
     "build:desktop-dist": "node scripts/build-desktop-dist.js",
     "dev:desktop": "npm run sync-shared && npm run build:desktop-dist && echo 'Run cargo tauri dev from packages/desktop/src-tauri/'",
@@ -42,7 +43,7 @@
     "test:desktop:coverage": "c8 --reporter=text --reporter=lcov node --test packages/desktop/tests/unit/*.test.js",
     "test:coverage": "c8 --reporter=text --reporter=lcov node --test packages/shared/tests/unit/*.test.js packages/desktop/tests/unit/*.test.js",
     "lint": "npm run lint:js && npm run lint:css && npm run lint:md && npm run lint:links && npm run lint:reachability && npm run lint:area-map && npm run lint:clause-registry && npm run lint:clause-governance && npm run lint:clause-preamble && npm run lint:test-inventory && npm run lint:verification-inventory && npm run lint:ci-filter && npm run lint:command-surface && npm run lint:extension-surface && npm run lint:capture-surface && npm run lint:adapter-surface && npm run lint:doc-closure && npm run lint:schema-echo && npm run lint:tracked-ignored && npm run lint:workflow-bounds && npm run lint:proptest-seeds && npm run lint:format",
-    "lint:js": "eslint packages/shared/ packages/extension/sidepanel/ packages/extension/content/ packages/extension/background/ packages/desktop/src/ scripts/ reference-implementations/ corpus/",
+    "lint:js": "eslint packages/shared/ packages/extension/sidepanel/ packages/extension/content/ packages/extension/background/ packages/extension/lib/ packages/extension/tests/ packages/desktop/src/ packages/desktop/tests/ scripts/ reference-implementations/ corpus/",
     "lint:css": "stylelint \"packages/shared/views/**/*.css\"",
     "lint:md": "markdownlint-cli2 \"**/*.md\"",
     "lint:links": "remark . --quiet --frail --ignore-path .gitignore",
@@ -68,7 +69,6 @@
     "update-version-table": "node scripts/update-version-table.js",
     "bump:schema": "node scripts/bump-schema.js",
     "prepublish": "npm run sync-shared",
-    "postinstall": "lefthook install",
     "corpus:assemble:desktop": "node scripts/corpus-assemble-desktop.js",
     "corpus:check:desktop": "node scripts/corpus-compare.js --platform desktop-windows --baseline corpus/known-diffs.desktop-windows.json --lint",
     "vectors:produce:desktop": "cargo test --manifest-path packages/desktop/src-tauri/Cargo.toml --test corpus_capture v_vector_fixture -- --test-threads=1",
@@ -76,16 +76,10 @@
     "vectors:check:desktop": "npm run vectors:produce:desktop && npm run vectors:assemble:desktop && node --test packages/shared/tests/unit/conformance-vectors.test.js"
   },
   "overrides": {
-    "@npmcli/config": {
-      "minimatch": "^10.0.3"
-    },
     "js-yaml": "^4.2.0",
     "markdown-it": "^14.3.2",
     "qs": "^6.15.2",
-    "unified-engine": {
-      "minimatch": "^10.0.3"
-    },
-    "smol-toml": "^1.8.0"
+    "smol-toml": "^1.9.0"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

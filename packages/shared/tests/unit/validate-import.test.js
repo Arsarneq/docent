@@ -71,7 +71,7 @@ describe('validatePayload — delegates to the schema validator', () => {
 describe('validatePayload — size bound', () => {
   it('rejects a payload over maxBytes before validating', () => {
     let called = false;
-    const spy = (d) => {
+    const spy = () => {
       called = true;
       return true;
     };
@@ -100,7 +100,7 @@ describe('validatePayload — size bound', () => {
 describe('validatePayload — depth bound', () => {
   it('rejects a payload nested deeper than maxDepth', () => {
     // Build an object nested well past a small limit.
-    let nested = {};
+    const nested = {};
     let cursor = nested;
     for (let i = 0; i < 20; i++) {
       cursor.child = {};

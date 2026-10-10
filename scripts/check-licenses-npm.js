@@ -35,9 +35,13 @@ const PROGRAM_NAME = path.basename(import.meta.filename);
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
-// The real npm install roots (this is not an npm-workspaces monorepo). Anything
-// with its own package.json + node_modules that pulls third-party deps.
-const INSTALL_ROOTS = [
+// The real npm install roots (this is not an npm-workspaces monorepo): every
+// directory carrying a tracked package-lock.json, relative to the repository
+// root. This list is their one home — the advisory gate
+// (scripts/check-npm-advisories.js) audits the same roots, and
+// packages/shared/tests/unit/check-npm-advisories.test.js holds the list to the
+// tracked lockfiles and to Dependabot's npm entries.
+export const INSTALL_ROOTS = [
   '.',
   'packages/extension',
   'packages/extension/tests/e2e',

@@ -80,7 +80,6 @@ import {
   declineReview,
   resolveConflict,
   buildKeepResolution,
-  DELETE_RESOLUTION,
 } from '../../conflict-resolution.js';
 import {
   createEmptySyncState,
@@ -360,7 +359,7 @@ describe('Resolution pushes nothing; the resolved state propagates next cycle pe
   it('resolving (keep-local/merge) or accepting issues NO network request, then propagates as changed-local-outgoing (pushed) or already-converged', async () => {
     await fc.assert(
       fc.asyncProperty(arbScenario, async (scenario) => {
-        const { project_id, recording_id, action, extra } = scenario;
+        const { project_id, recording_id, action } = scenario;
         const ref = `${project_id}:${recording_id}`;
         const { seed, localProjects, manifest, payloadById, serverRec, nextUuid } =
           materializeCycle1(scenario);

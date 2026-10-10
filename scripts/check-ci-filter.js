@@ -252,7 +252,7 @@ const SUITE_HELD_HOLDINGS = {
   'docs/clause-registry.json':
     "the disposition suite's example-anchor row and the schema-echo suite's check-ref literal",
   'docs/guides/ci.md':
-    "the preamble suite's registry link, the disposition suite's cadence welds, the workflow-bounds suite's cargo-mutants version cell, and the path-filter suite's holdings-citation and flag-exception anchors",
+    "the preamble suite's registry link, the disposition suite's cadence welds, the workflow-bounds suite's cargo-mutants version cell, the path-filter suite's holdings-citation and flag-exception anchors, and the lint-glob suite's sentence anchor (\"CI's `lint:js` also covers … and …\")",
   'docs/guides/local-ci.md':
     "the disposition suite's cadence cross-reference and heading, and the release-output suite's automation-branch tokens",
   'docs/technical/locator-resolution.md': "the preamble suite's registry link",
@@ -269,6 +269,8 @@ const SUITE_HELD_HOLDINGS = {
     "the preamble suite's registry link and the inventory suite's literal anchors",
   'docs/verification/sufficiency-lint.md':
     "the preamble suite's registry link and the inventory suite's literal anchors",
+  'eslint.config.js': "the lint-glob suite's reach case over the ignore patterns",
+  'lefthook.yml': "the lint-glob suite's pre-push ESLint tree set",
 };
 // The flags whose entries a holder suite earns — `releasePipeline`,
 // `contractDocs` and `dispositionWorkflow` — with what holds each entry: per

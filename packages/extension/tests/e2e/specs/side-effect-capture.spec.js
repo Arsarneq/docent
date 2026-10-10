@@ -144,7 +144,6 @@ test.describe('Side-Effect Capture', () => {
   test('programmatic window.open lifecycle should not be captured', async ({
     testPage,
     serviceWorker,
-    context,
   }) => {
     await testPage.evaluate(() => {
       document.getElementById('btn').addEventListener('click', () => {

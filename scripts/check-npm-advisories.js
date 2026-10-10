@@ -1,9 +1,17 @@
 /**
  * check-npm-advisories.js — the npm advisory gate: every high or critical
- * advisory `npm audit` reports over the root lockfile fails the build unless
- * the in-file ignore list below names it, with its reason and its `until` day,
- * and the entry still holds — the verdicts below say when a listed advisory
- * still reds.
+ * advisory `npm audit` reports over any of the repository's npm roots fails the
+ * build unless the in-file ignore list below names it for that root, with its
+ * reason and its `until` day, and the entry still holds — the verdicts below
+ * say when a listed advisory still reds.
+ *
+ * The npm roots are every directory carrying a tracked lockfile, the list kept
+ * in one home (INSTALL_ROOTS in scripts/check-licenses-npm.js, the roots the
+ * license gate scans). The audit runs once in each npm root, and each npm
+ * root's report is judged on its own against the entries naming that npm root,
+ * so every audit finding below carries the npm root it was read from; a
+ * malformed ignore list, or an error the run does not model, is reported
+ * without one.
  *
  * The audit is `npm audit --json --package-lock-only`, read at the gate's level
  * (high and critical; advisories below `high` are not read). npm's report
@@ -34,21 +42,27 @@
  *
  * Exit 2, the machinery verdict, which keeps a read this check could not take
  * whole apart from an advisory the gate holds: a malformed list (a missing or
- * empty field, an id not of the GHSA form, a duplicate id, an `until` that is
- * not a calendar day); audit output that does not run, is not JSON, carries
- * npm's own `error` object (quoted), or lacks a field this check reads; an
+ * empty field, an id not of the GHSA form, an id twice for one npm root, an
+ * `until` that is not a calendar day, a `root` that is not one of the npm
+ * roots); audit
+ * output that does not run, is not JSON, carries npm's own `error` object
+ * (quoted), or lacks a field this check reads, each named with its npm root; an
  * unexplained chain; a `metadata` count that disagrees with the entries read;
  * and any other error the run meets.
  *
- * Each list entry is `{ id, package, reason, until }`: the GHSA id, a package
- * the advisory is filed against, why the advisory is waved through, and
- * `until`, the last day the entry holds (a calendar day, YYYY-MM-DD, UTC; the
- * gate reds the day after). An entry is added with the id from the red line's
- * url, the package, the reason, and an `until` no more than one month out, and
- * renewed the same way. This paragraph is the upkeep rule's one home: a stale
- * entry is deleted; an expired entry is re-checked — renewed with a new day and
- * its reason revisited while `fixAvailable` is `true` for none of the packages
- * the advisory is filed against, and otherwise given the fix-available remedy;
+ * Each list entry is `{ id, package, reason, until }`, with an optional `root`:
+ * the GHSA id, a package the advisory is filed against, why the advisory is
+ * waved through, `until`, the last day the entry holds (a calendar day,
+ * YYYY-MM-DD, UTC; the gate reds the day after), and `root`, the npm root whose
+ * report the entry is judged against — the repository root (`.`) when the
+ * entry names none. An advisory reported in two npm roots takes one entry
+ * per npm root. An entry is added with the id from the red line's url, the
+ * package, the npm root the red line names (unless it is `.`), the reason, and an `until`
+ * no more than one month out, and renewed the same way. This paragraph is the
+ * upkeep rule's one home: a stale entry is deleted; an expired entry is
+ * re-checked — renewed with a new day and its reason revisited while
+ * `fixAvailable` is `true` for none of the packages the advisory is filed
+ * against, and otherwise given the fix-available remedy;
  * for a fix-available entry the lockfile is refreshed first, and the entry is
  * deleted once the advisory is no longer reported at high or critical; an entry
  * naming a wrong package is corrected. The list is the npm counterpart of the
@@ -68,14 +82,25 @@
 import { spawnSync } from 'node:child_process';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { INSTALL_ROOTS } from './check-licenses-npm.js';
 
 const ROOT = path.resolve(import.meta.dirname, '..');
 
 /** The severities this gate reads; anything below `high` is outside it. */
 export const GATE_SEVERITIES = ['high', 'critical'];
 
-/** The audit this check reads: the root lockfile, without an install. */
+/** The audit this check reads in each npm root: its lockfile, without an install. */
 export const AUDIT_COMMAND = 'npm audit --json --package-lock-only';
+
+/** The npm root an ignore-list entry is judged against when it names none. */
+export const DEFAULT_NPM_ROOT = '.';
+
+/**
+ * The npm root an ignore-list entry is judged against.
+ * @param {{ root?: string }} entry
+ * @returns {string}
+ */
+export const npmRootOf = (entry) => entry.root ?? DEFAULT_NPM_ROOT;
 
 /**
  * The advisories this gate waves through, each by name. Every entry carries the
@@ -92,16 +117,6 @@ export const IGNORED_ADVISORIES = [
       'remedy clears it: the fixes npm audit offers are semver-major downgrades of stylelint, ' +
       'stylelint-config-standard and remark-cli, and the update it offers for markdownlint-cli2 ' +
       'addresses another advisory while keeping micromatch 4.0.8, which depends on braces.',
-    until: '2026-11-03',
-  },
-  {
-    id: 'GHSA-ch52-4w7c-c8xp',
-    package: 'http-cache-semantics',
-    reason:
-      'No patched release is published: the vulnerable range (<= 4.2.0) covers ' +
-      'http-cache-semantics 4.2.0, the latest version. It is reached only through ' +
-      'license-checker-rseidelsohn, the development dependency behind the npm license gate, and ' +
-      'npm audit offers only a semver-major downgrade of that tool as a remedy.',
     until: '2026-11-03',
   },
 ];
@@ -139,11 +154,13 @@ export function isCalendarDay(value) {
 /**
  * Hold the ignore list to its shape: every entry an object carrying the four
  * fields as non-empty strings, an id of the GHSA form, an `until` that is a
- * calendar day, and no id twice.
+ * calendar day, a `root` (when it names one) that is one of the audited npm
+ * roots, and no id twice for one npm root.
  * @param {Array<object>} list the ignore list
+ * @param {string[]} [npmRoots] the audited npm roots
  * @throws {InputError} naming the first malformed entry
  */
-export function checkList(list) {
+export function checkList(list, npmRoots = INSTALL_ROOTS) {
   if (!Array.isArray(list)) throw new InputError('the ignore list is not an array');
   const seen = new Set();
   list.forEach((entry, i) => {
@@ -158,8 +175,12 @@ export function checkList(list) {
     if (!isCalendarDay(entry.until)) {
       throw new InputError(`${at} (${entry.id}) has until ${entry.until}, which is not a calendar day written YYYY-MM-DD`); // prettier-ignore
     }
-    if (seen.has(entry.id)) throw new InputError(`${at} repeats id ${entry.id}`);
-    seen.add(entry.id);
+    if ('root' in entry && !npmRoots.includes(entry.root)) {
+      throw new InputError(`${at} (${entry.id}) names root ${String(entry.root)}, which is not one of the audited npm roots: ${npmRoots.join(', ')}`); // prettier-ignore
+    }
+    const key = `${npmRootOf(entry)}\0${entry.id}`;
+    if (seen.has(key)) throw new InputError(`${at} repeats id ${entry.id} for root ${npmRootOf(entry)}`); // prettier-ignore
+    seen.add(key);
   });
 }
 
@@ -296,16 +317,18 @@ export function judge({ roots, list, today }) {
 }
 
 /**
- * Run the audit and return its standard output. npm exits 1 when it reports a
- * vulnerability and still prints the report, so 0 and 1 are both a report.
+ * Run the audit in one npm root and return its standard output. npm exits 1 when
+ * it reports a vulnerability and still prints the report, so 0 and 1 are both a
+ * report.
  * @param {object} [seams]
  * @param {typeof spawnSync} [seams.spawn] the process runner
+ * @param {string} [seams.npmRoot] the npm root to audit, relative to the repository root
  * @returns {string} the audit's standard output
  * @throws {InputError} when the command does not run or prints nothing
  */
-export function runAudit({ spawn = spawnSync } = {}) {
+export function runAudit({ spawn = spawnSync, npmRoot = DEFAULT_NPM_ROOT } = {}) {
   const result = spawn(AUDIT_COMMAND, {
-    cwd: ROOT,
+    cwd: path.join(ROOT, npmRoot),
     encoding: 'utf8',
     shell: true,
     maxBuffer: 64 * 1024 * 1024,
@@ -323,9 +346,11 @@ export function runAudit({ spawn = spawnSync } = {}) {
 /**
  * The red lines for a verdict, one per finding.
  * @param {ReturnType<typeof judge>} verdict
+ * @param {string} npmRoot the npm root the verdict was read from, which every line names
  * @returns {string[]}
  */
-function redLines(verdict) {
+function redLines(verdict, npmRoot) {
+  const at = ` [root: ${npmRoot}]`;
   return [
     ...verdict.unlisted.map(
       (r) => `✗ ${r.id} (${r.packages.join(', ')}; ${r.severity}) is not on the ignore list: ${r.title} — ${r.url}`, // prettier-ignore
@@ -342,15 +367,16 @@ function redLines(verdict) {
     ...verdict.fixable.map(
       ({ entry, root }) => `✗ ignore-list entry ${entry.id} (${entry.package}): a fix is available for ${root.fixPackages.join(', ')} — refresh the lockfile; the entry goes once the advisory is no longer reported at high or critical`, // prettier-ignore
     ),
-  ];
+  ].map((line) => line + at);
 }
 
 /**
- * The gate: hold the list to its shape, read the audit, judge, and print. Any
- * error the run meets ends on the machinery verdict (exit 2), never an uncaught
- * exception.
+ * The gate: hold the list to its shape, read each npm root's audit, judge it
+ * against the entries naming that npm root, and print. Any error the run meets ends
+ * on the machinery verdict (exit 2), never an uncaught exception.
  * @param {object} [seams]
- * @param {() => string} [seams.audit] returns the audit's standard output
+ * @param {(npmRoot: string) => string} [seams.audit] returns one npm root's audit output
+ * @param {string[]} [seams.npmRoots] the npm roots to audit
  * @param {string} [seams.today] the current calendar day, YYYY-MM-DD (UTC)
  * @param {Array<object>} [seams.list] the ignore list
  * @param {(line: string) => void} [seams.out] the green line's sink
@@ -358,18 +384,32 @@ function redLines(verdict) {
  * @returns {0 | 1 | 2} the exit code
  */
 export function main({
-  audit = runAudit,
+  audit = (npmRoot) => runAudit({ npmRoot }),
+  npmRoots = INSTALL_ROOTS,
   today = new Date().toISOString().slice(0, 10),
   list = IGNORED_ADVISORIES,
   out = console.log,
   err = console.error,
 } = {}) {
-  let report;
-  let verdict;
+  const reads = [];
   try {
-    checkList(list);
-    report = readReport(audit());
-    verdict = judge({ roots: report.roots, list, today });
+    checkList(list, npmRoots);
+    for (const npmRoot of npmRoots) {
+      let report;
+      try {
+        report = readReport(audit(npmRoot));
+      } catch (error) {
+        if (error instanceof InputError)
+          throw new InputError(`${error.message} [root: ${npmRoot}]`);
+        throw error;
+      }
+      const entries = list.filter((entry) => npmRootOf(entry) === npmRoot);
+      reads.push({
+        npmRoot,
+        report,
+        verdict: judge({ roots: report.roots, list: entries, today }),
+      });
+    }
   } catch (error) {
     const what =
       error instanceof InputError
@@ -384,22 +424,31 @@ export function main({
     );
     return 2;
   }
-  const lines = redLines(verdict);
+  const lines = reads.flatMap(({ npmRoot, verdict }) => redLines(verdict, npmRoot));
   if (lines.length > 0) {
     for (const line of lines) err(line);
     err(
       `\nThe ignore list is IGNORED_ADVISORIES in scripts/check-npm-advisories.js: each entry ` +
-        `names one advisory with its reason and the last day it holds.`,
+        `names one advisory for one npm root with its reason and the last day it holds.`,
     );
     return 1;
   }
-  const n = report.roots.size;
-  const ignored = verdict.ignored.map((e) => `${e.id} holds through ${e.until}`).join(', ');
+  const n = reads.reduce((sum, r) => sum + r.report.roots.size, 0);
+  const vulnerable = reads.reduce((sum, r) => sum + r.report.vulnerableCount, 0);
+  const over = `over ${npmRoots.length === 1 ? 'the npm root' : `${npmRoots.length} npm roots`} (${npmRoots.join(', ')})`; // prettier-ignore
+  const ignored = reads
+    .flatMap(({ npmRoot, verdict }) =>
+      verdict.ignored.map(
+        (e) =>
+          `${e.id} holds through ${e.until}${npmRoot === DEFAULT_NPM_ROOT ? '' : ` [root: ${npmRoot}]`}`,
+      ),
+    ) // prettier-ignore
+    .join(', ');
   out(
     n === 0
-      ? `✓ npm audit reported no high or critical advisory over the root lockfile, and the ignore list is empty.` // prettier-ignore
+      ? `✓ npm audit reported no high or critical advisory ${over}, and the ignore list is empty.` // prettier-ignore
       : `✓ npm audit reported ${n} high or critical root advisor${n === 1 ? 'y' : 'ies'} across ` +
-          `${report.vulnerableCount} vulnerable package(s); every one is on the ignore list and ` +
+          `${vulnerable} vulnerable package(s) ${over}; every one is on the ignore list and ` +
           `holds today (ignored: ${ignored}).`,
   );
   return 0;

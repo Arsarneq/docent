@@ -15,6 +15,12 @@
  *   SOFT limits (self-imposed guardrails): the JS budget below. NOT a platform
  *   requirement — a tripwire we own and may deliberately raise for a legitimate
  *   intentional artifact. When raising one, update the number AND the rationale.
+ *   Headroom target (the per-type soft budgets; the whole-package limit above
+ *   is not one): a raise sets the budget to the measured size plus 3%, rounded
+ *   up to the next whole KB; its history entry records the measured size in
+ *   bytes and the install layout it was measured in, the margin the new budget
+ *   leaves, and the files whose size changed since the previously recorded
+ *   size, with their byte deltas; a raise that departs from the 3% states why.
  *
  * JS budget history:
  *   - Originally 250KB (hand-written ES modules only).
@@ -46,6 +52,27 @@
  *     bundles only this one file so the API resolves under the strict
  *     `script-src 'self'` CSP. Deliberate security artifact, not accidental
  *     bloat — budget raised to fit it plus normal headroom.
+ *   - Raised to 570KB: measured 566,329 B (`node_modules` inside the
+ *     checkout); margin 17,351 B; growth since 549,831 B at 9c21c1d (rebuilt
+ *     with its own lockfile, `node_modules` inside the checkout):
+ *     `adapter-tauri.js` +8,911 B, `shared/generated/validate-desktop-windows.js`
+ *     −6,378 B, `shared/sync-client.js` +4,169 B, `shared/views/adapter.js`
+ *     +3,694 B, `shared/lib/import-project.js` +3,363 B, `tauri-bridge.js`
+ *     +1,022 B, `persistence.js` +582 B, `panel.js` −450 B,
+ *     `shared/lib/validate-import.js` +442 B, others +1,143 B. Deliberate:
+ *     `adapter-tauri.js` grew with the backend flush and commit
+ *     completeness-barrier work, the panel caller-model seam and locator
+ *     emission, `shared/sync-client.js` with the pull path's known-field
+ *     projection, the deferred-review fix and the push-scope comments,
+ *     `shared/views/adapter.js` with the platform-adapter typedef and seam
+ *     work, `shared/lib/import-project.js` with preserving simple-mode step
+ *     fields and metadata on import, `tauri-bridge.js` with the bundled
+ *     `@tauri-apps/api` update from 2.11.1 to 2.12.0, `persistence.js` with
+ *     single-sourcing session persistence, and `shared/lib/validate-import.js`
+ *     with the pull path's validation clauses; `panel.js` shrank as import and
+ *     persistence moved out of it, and the generated validator shrank, its
+ *     schemas' log showing the `locators[]` contract, the `described_after_ms`
+ *     field and description edits; no new dependency.
  *
  * Requires `npm run build:desktop-dist` to have been run first.
  */
@@ -58,6 +85,14 @@ import { fileURLToPath } from 'node:url';
 
 const __dirname = fileURLToPath(new URL('.', import.meta.url));
 const desktopDistDir = resolve(__dirname, '../../dist');
+
+const JS_BUDGET_KB = 570;
+
+/** The headroom rule's figures for a measured size: the next budget and its margin. */
+function nextBudget(bytes) {
+  const kb = Math.ceil((bytes * 1.03) / 1024);
+  return `${bytes} B measured; the headroom rule's next budget is ${kb}KB, leaving ${kb * 1024 - bytes} B`;
+}
 
 function getDirSize(dir, extensions = null) {
   let total = 0;
@@ -87,12 +122,12 @@ function formatSize(bytes) {
 }
 
 describe('Build size: Desktop dist', () => {
-  it('total JS size is under 560KB', () => {
+  it(`total JS size is under ${JS_BUDGET_KB}KB`, () => {
     const size = getDirSize(desktopDistDir, ['.js']);
     assert.ok(size > 0, 'No JS files found — has build:desktop-dist been run?');
     assert.ok(
-      size < 560 * 1024,
-      `Desktop dist JS is ${formatSize(size)} (soft limit: 560KB). Regression tripwire, not a platform limit — if the growth is an intentional artifact, raise the limit AND its rationale in this file's header; otherwise check for an accidental large dependency.`,
+      size < JS_BUDGET_KB * 1024,
+      `Desktop dist JS is ${formatSize(size)} (${nextBudget(size)}; soft limit: ${JS_BUDGET_KB}KB). Regression tripwire, not a platform limit — if the growth is an intentional artifact, raise the limit AND its rationale in this file's header; otherwise check for an accidental large dependency.`,
     );
   });
 

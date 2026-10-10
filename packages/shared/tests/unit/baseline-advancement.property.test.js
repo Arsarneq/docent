@@ -56,12 +56,18 @@
  *     baseline UNCHANGED — a push plus a deferral never advances it.
  *
  * **Part B — adoption (outside a cycle) advances to the resolved-against
- * incoming version.** For ANY PENDING Review item or Conflict, accepting the
- * review (`acceptReview`) or resolving the conflict (`resolveConflict`) advances
- * the affected Unit's baseline entry PER-UNIT to the **resolved-against incoming
- * version** — for an accept that equals the adopted state, but for a merge
- * resolution it is the incoming version, NOT the merged state the user adopted.
- * Adoption does so with NO sync transport at all (no push/pull).
+ * incoming version.** For ANY PENDING Review item or Conflict, at either unit
+ * level — one recording, or the project's own name and metadata — accepting the
+ * review (`acceptReview`) or resolving the conflict (`resolveConflict`, keeping
+ * or merging a version, or accepting the deletion) advances the baseline
+ * PER-UNIT to the **resolved-against incoming version**: a recording's own
+ * entry with its siblings' entries untouched, or the whole project baseline.
+ * For an accept that equals the adopted state, but for a resolution it is the
+ * incoming version, NOT the state the user adopted. Adoption does so with NO
+ * sync transport at all (no push/pull). Beside the property, the accepted
+ * deletion reviews are pinned at both grains: a project-level one leaves no
+ * project baseline, and a recording-level one removes that recording's entry
+ * with its siblings' entries untouched.
  *
  * **Part C — declining (outside a cycle) advances NOTHING.** Declining a Review
  * keeps the local version and leaves the baseline exactly where it was — absent
@@ -667,116 +673,156 @@ describe('Baseline advances only on confirmed agreement or adoption, never on pu
   });
 
   const arbAdoption = fc.record({
+    // Ids distinct by construction: the adopted recording, a sibling, and a
+    // stale-only recording the incoming project lacks.
+    ids: fc.uniqueArray(arbId, { minLength: 3, maxLength: 3 }),
     project_id: arbId,
-    recording_id: arbId,
-    mode: fc.constantFrom('accept', 'resolve-merge'),
+    // The unit level × the adoption: each pair is an adoption to an incoming version.
+    level: fc.constantFrom('recording', 'project'),
+    adopt: fc.constantFrom('accept', 'resolve', 'resolve-delete'),
     localSteps: fc.array(arbAdoptStep, { maxLength: 3 }),
     incomingSteps: fc.array(arbAdoptStep, { maxLength: 3 }),
+    siblingSteps: fc.array(arbAdoptStep, { maxLength: 3 }),
     seedStaleBaseline: fc.boolean(),
   });
 
   it('adopting a change (accept review / resolve conflict) advances the baseline PER-UNIT to the resolved-against incoming version, not to the adopted state, with no transport', async () => {
     await fc.assert(
       fc.asyncProperty(arbAdoption, async (scenario) => {
-        const { project_id, recording_id, mode, seedStaleBaseline } = scenario;
-        // Normalize generated step arrays to plain prototype so deepStrictEqual
-        // compares values, not fast-check's null-prototype artifacts.
+        const { project_id, level, adopt } = scenario;
+        const [recording_id, sibling_id, staleOnly_id] = scenario.ids;
         const localSteps = jsonNormalize(scenario.localSteps);
         const incomingSteps = jsonNormalize(scenario.incomingSteps);
-        const unitRef = `${project_id}:${recording_id}`;
+        const siblingRec = recOf(sibling_id, 'sibling', jsonNormalize(scenario.siblingSteps));
+        const projectLevel = level === 'project';
+        const deletion = adopt === 'resolve-delete';
+        // A delete-vs-change conflict exists only against a prior baseline, so
+        // the deletion resolution always seeds one, at either level.
+        const seedStaleBaseline = scenario.seedStaleBaseline || deletion;
+        const unitRef = projectLevel ? project_id : `${project_id}:${recording_id}`;
 
+        // For a resolution, the adopted state's markers (`merged`, `-resolved`)
+        // keep it apart from the incoming version (`incoming`, `-incoming`), and
+        // the stale baseline's (`stale`, `-stale`, `stale-only`) keep it apart
+        // from both; an acceptance adopts the incoming version itself.
         const localRecording = recOf(recording_id, 'local', localSteps);
-        const localProject = projOf(project_id, [localRecording]);
-        // The resolved-against incoming version — the version the user resolves
-        // against. Its name marker ('incoming') makes its digest distinct from
-        // the adopted recording's, so the test can prove the baseline advances to
-        // THIS version and not to whatever the user adopted.
+        const localProject = projOf(project_id, [localRecording, siblingRec]);
         const incomingRecording = recOf(recording_id, 'incoming', incomingSteps);
+        const incomingProject = projOf(project_id, [localRecording, siblingRec], '-incoming');
 
         const state = createEmptySyncState();
-        let staleBaselineRec = null;
         if (seedStaleBaseline) {
-          // A stale prior baseline so we can prove adoption OVERWRITES the
-          // affected recording's entry to the resolved-against incoming version.
-          staleBaselineRec = recOf(recording_id, 'stale', localSteps);
-          advanceBaseline(state, project_id, projOf(project_id, [staleBaselineRec]), FIXED_NOW);
+          const stale = [recOf(recording_id, 'stale', localSteps), siblingRec];
+          if (projectLevel) stale.push(recOf(staleOnly_id, 'stale-only', []));
+          advanceBaseline(state, project_id, projOf(project_id, stale, '-stale'), FIXED_NOW);
         }
 
-        // Adoption must never reach the network — record any fetch call.
         let fetchCalled = false;
         globalThis.fetch = async () => {
           fetchCalled = true;
           return makeResponse(200, null);
         };
 
+        const incoming = projectLevel ? incomingProject : incomingRecording;
+        const local = projectLevel ? localProject : localRecording;
         let result;
-        let adoptedRecording;
-        if (mode === 'accept') {
-          // A PENDING Review item; accepting it adopts the incoming change. The
-          // adopted recording EQUALS the resolved-against incoming version.
-          upsertReview(state, unitRef, incomingRecording, FIXED_NOW);
+        let adopted;
+        if (adopt === 'accept') {
+          upsertReview(state, unitRef, incoming, FIXED_NOW);
           result = acceptReview(state, [localProject], unitRef, { now: FIXED_NOW });
-          adoptedRecording = incomingRecording;
+          adopted = incoming;
         } else {
-          // A Conflict resolved by MERGING — the user adopts an append-only
-          // superset of both histories. The merged recording's name marker
-          // ('merged') makes it DISTINCT from the resolved-against incoming
-          // version, so the baseline advancing to the incoming version is
-          // observably different from advancing to the adopted (merged) state.
-          upsertConflict(state, unitRef, localRecording, incomingRecording, FIXED_NOW);
-          const merged = recOf(recording_id, 'merged', [...localSteps, ...incomingSteps]);
-          result = resolveConflict(state, [localProject], unitRef, merged, { now: FIXED_NOW });
-          adoptedRecording = merged;
+          // A deletion resolves a delete-vs-change conflict at either level:
+          // the local side is null and the unit absent locally (the project
+          // passed without the recording, or no project at all), the incoming
+          // side the changed unit.
+          upsertConflict(state, unitRef, deletion ? null : local, incoming, FIXED_NOW);
+          adopted = deletion
+            ? { deleted: true }
+            : projectLevel
+              ? projOf(project_id, [localRecording, siblingRec], '-resolved')
+              : recOf(recording_id, 'merged', [...localSteps, ...incomingSteps]);
+          result = resolveConflict(
+            state,
+            deletion ? (projectLevel ? [] : [projOf(project_id, [siblingRec])]) : [localProject],
+            unitRef,
+            adopted,
+            { now: FIXED_NOW },
+          );
         }
 
-        // Adoption happened entirely client-side — no push, no pull.
         assert.equal(fetchCalled, false, 'adoption must not perform any sync transport');
-
-        // Adoption succeeded and cleared the deferred item.
-        assert.equal(result.ok, true, 'adoption of a pending item must succeed');
+        assert.equal(result.ok, true, `adoption of a pending item must succeed: ${result.reason}`);
         assert.equal(getItem(state, unitRef), null, 'the adopted item is cleared');
 
-        // The adopted recording is present in the returned projects.
-        const adoptedProject = findProject(result.projects, project_id);
-        assert.ok(adoptedProject, 'the adopted project is present after adoption');
-        const recInProjects = findRecording(adoptedProject, recording_id);
-        assert.deepStrictEqual(
-          recInProjects,
-          adoptedRecording,
-          'the adopted recording is applied to local data',
-        );
-
-        // The baseline advanced PER-UNIT to the RESOLVED-AGAINST INCOMING version,
-        // NOT to the adopted state.
         const baseline = getBaseline(state, project_id);
         assert.ok(baseline, 'a baseline exists after adoption');
-        assert.equal(
-          getRecordingBaselineDigest(baseline, recording_id),
-          digestRecording(incomingRecording),
-          'baseline must advance per-unit to the resolved-against incoming version',
+        const adoptedProject = findProject(result.projects, project_id) ?? null;
+        assert.deepStrictEqual(
+          projectLevel ? adoptedProject : findRecording(adoptedProject, recording_id),
+          deletion ? null : adopted,
+          'the adopted unit is applied to local data',
         );
-
-        if (mode === 'resolve-merge') {
-          // The distinguishing guarantee: the baseline is the INCOMING version,
-          // never the merged state the user actually adopted.
+        if (adopt === 'resolve') {
           assert.notEqual(
-            getRecordingBaselineDigest(baseline, recording_id),
-            digestRecording(adoptedRecording),
-            'baseline must NOT advance to the adopted (merged) state',
+            projectLevel ? baseline.digest : getRecordingBaselineDigest(baseline, recording_id),
+            projectLevel ? digestProject(adopted) : digestRecording(adopted),
+            'the baseline does not advance to the adopted state',
           );
         }
-
-        // The stale prior entry, when seeded, was overwritten by the
-        // resolved-against incoming version.
-        if (seedStaleBaseline) {
-          assert.notEqual(
-            getRecordingBaselineDigest(baseline, recording_id),
-            digestRecording(staleBaselineRec),
-            'the stale baseline entry must be overwritten on adoption',
+        if (projectLevel) {
+          assert.equal(
+            baseline.digest,
+            digestProject(incomingProject),
+            'the whole project baseline advances to the incoming project',
           );
+        } else {
+          assert.equal(
+            getRecordingBaselineDigest(baseline, recording_id),
+            digestRecording(incomingRecording),
+            'baseline must advance per-unit to the resolved-against incoming version',
+          );
+          if (seedStaleBaseline) {
+            assert.equal(
+              getRecordingBaselineDigest(baseline, sibling_id),
+              digestRecording(siblingRec),
+              "a sibling's baseline entry is untouched",
+            );
+          }
         }
       }),
       { numRuns: 200 },
+    );
+  });
+
+  it('accepting a project-level deletion review clears the project baseline', () => {
+    const state = createEmptySyncState();
+    const proj = projOf('p', []);
+    advanceBaseline(state, 'p', proj, FIXED_NOW);
+    upsertReview(state, 'p', null, FIXED_NOW);
+    const result = acceptReview(state, [proj], 'p', { now: FIXED_NOW });
+    assert.equal(result.ok, true, String(result.reason));
+    assert.equal(getItem(state, 'p'), null, 'the adopted item is cleared');
+    assert.equal(getBaseline(state, 'p'), null, 'no project baseline is left');
+  });
+
+  it("accepting a recording-level deletion review removes that recording's baseline entry and leaves its siblings", () => {
+    const state = createEmptySyncState();
+    const gone = recOf('r-gone', 'agreed', []);
+    const sibling = recOf('r-sibling', 'agreed', []);
+    advanceBaseline(state, 'p', projOf('p', [gone, sibling]), FIXED_NOW);
+    upsertReview(state, 'p:r-gone', null, FIXED_NOW);
+    const result = acceptReview(state, [projOf('p', [gone, sibling])], 'p:r-gone', {
+      now: FIXED_NOW,
+    });
+    assert.equal(result.ok, true, String(result.reason));
+    assert.equal(getItem(state, 'p:r-gone'), null, 'the adopted item is cleared');
+    const baseline = getBaseline(state, 'p');
+    assert.equal(getRecordingBaselineDigest(baseline, 'r-gone'), null, 'the entry is removed');
+    assert.equal(
+      getRecordingBaselineDigest(baseline, 'r-sibling'),
+      digestRecording(sibling),
+      "a sibling's baseline entry is untouched",
     );
   });
 
