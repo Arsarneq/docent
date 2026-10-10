@@ -84,6 +84,64 @@ describe('evaluateConditionalWrite — present and matching If-Match', () => {
       proceed: true,
     });
   });
+
+  it('proceeds when If-Match lists the current ETag', () => {
+    const payload = samplePayload();
+    const existing = storedRecord(payload);
+    const current = deriveETag(payload);
+    for (const value of [`"other", ${current}`, `${current} ,, "other"`]) {
+      assert.deepEqual(
+        evaluateConditionalWrite(value, existing),
+        { proceed: true },
+        JSON.stringify(value),
+      );
+    }
+  });
+
+  it('proceeds when If-Match is * and a project is stored', () => {
+    assert.deepEqual(evaluateConditionalWrite('*', storedRecord(samplePayload())), {
+      proceed: true,
+    });
+  });
+
+  it('proceeds when If-Match is the current ETag with surrounding space or tab', () => {
+    const payload = samplePayload();
+    assert.deepEqual(
+      evaluateConditionalWrite(` \t${deriveETag(payload)}\t `, storedRecord(payload)),
+      { proceed: true },
+    );
+  });
+
+  it('proceeds when If-Match is * with surrounding space or tab and a project is stored', () => {
+    assert.deepEqual(evaluateConditionalWrite('\t* ', storedRecord(samplePayload())), {
+      proceed: true,
+    });
+  });
+
+  it('proceeds when If-Match lists the current ETag beside a tag carrying an obs-text byte', () => {
+    const payload = samplePayload();
+    assert.deepEqual(
+      evaluateConditionalWrite(`"café", ${deriveETag(payload)}`, storedRecord(payload)),
+      { proceed: true },
+    );
+  });
+
+  it('proceeds when If-Match lists the current ETag beside a tag carrying a comma', () => {
+    // Members are matched in place: a comma is legal inside an opaque-tag (RFC 9110 §8.8.3).
+    const payload = samplePayload();
+    assert.deepEqual(
+      evaluateConditionalWrite(`"a,b", ${deriveETag(payload)}`, storedRecord(payload)),
+      { proceed: true },
+    );
+  });
+
+  it('proceeds when If-Match lists the current ETag beside a weak tag', () => {
+    const payload = samplePayload();
+    assert.deepEqual(
+      evaluateConditionalWrite(`W/"other", ${deriveETag(payload)}`, storedRecord(payload)),
+      { proceed: true },
+    );
+  });
 });
 
 describe('evaluateConditionalWrite — present and mismatching If-Match (412)', () => {
@@ -105,6 +163,58 @@ describe('evaluateConditionalWrite — present and mismatching If-Match (412)', 
       proceed: false,
       status: 412,
     });
+  });
+
+  it('rejects with 412 when If-Match is a weak tag of the current ETag', () => {
+    const payload = samplePayload();
+    assert.deepEqual(evaluateConditionalWrite(`W/${deriveETag(payload)}`, storedRecord(payload)), {
+      proceed: false,
+      status: 412,
+    });
+  });
+
+  it('rejects with 412 when If-Match is * and no project is stored', () => {
+    assert.deepEqual(evaluateConditionalWrite('*', null), { proceed: false, status: 412 });
+  });
+
+  it('rejects with 412 when If-Match opens with a non-breaking space', () => {
+    // 0xA0 is outside HTTP's whitespace (space and tab); Node's latin1 decoding
+    // carries it from the wire as U+00A0.
+    const payload = samplePayload();
+    assert.deepEqual(
+      evaluateConditionalWrite(`\u00A0${deriveETag(payload)}`, storedRecord(payload)),
+      { proceed: false, status: 412 },
+    );
+  });
+
+  it('rejects with 412 when If-Match is an empty list', () => {
+    const existing = storedRecord(samplePayload());
+    for (const value of ['', ',']) {
+      assert.deepEqual(
+        evaluateConditionalWrite(value, existing),
+        { proceed: false, status: 412 },
+        JSON.stringify(value),
+      );
+    }
+  });
+
+  it('rejects with 412 when If-Match does not parse as * or an entity-tag list', () => {
+    // Each input carries the current ETag, so a parse admitting it would match.
+    const payload = samplePayload();
+    const existing = storedRecord(payload);
+    const current = deriveETag(payload);
+    for (const value of [
+      current.slice(1, -1),
+      `"x" ${current}`,
+      `*, ${current}`,
+      `"a b", ${current}`,
+    ]) {
+      assert.deepEqual(
+        evaluateConditionalWrite(value, existing),
+        { proceed: false, status: 412 },
+        JSON.stringify(value),
+      );
+    }
   });
 
   it('rejects with 412 when If-Match is present but no project is stored', () => {

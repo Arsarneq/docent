@@ -13,12 +13,22 @@
  *   | --------------- | -------------- | ------------------------- |
  *   | absent          | any            | proceed (last-write-wins) |
  *   | present         | matches ETag   | proceed                   |
+ *   | present (`*`)   | stored         | proceed                   |
  *   | present         | ETag mismatch  | reject 412                |
  *   | present         | absent (null)  | reject 412                |
  *
- * The precondition is evaluated against the stored project's CURRENT ETag,
+ * "Matches" is HTTP's If-Match rule (RFC 9110 §13.1.1): `*` matches when a
+ * project is stored under the request's id, and an entity-tag list matches
+ * when a member equals the current ETag under strong comparison (§8.8.3.2) —
+ * a weak tag never matches. An empty list has no member to match (§13.1.1,
+ * its second evaluation step), and a value that does not parse as `*` or an
+ * entity-tag list matches nothing (its last step: otherwise the condition is
+ * false).
+ *
+ * An entity-tag list is evaluated against the stored project's CURRENT ETag,
  * derived from its content only via `deriveETag(existing.payload)` — never from
- * the server-maintained `last_modified`. When the request
+ * the server-maintained `last_modified`; `*` needs no ETag, a stored project
+ * being enough. When the request
  * carries no `If-Match`, the write is an ordinary last-write-wins write and the
  * stored ETag is irrelevant. When an `If-Match` is present
  * but no project is stored, the precondition cannot match and the write is
@@ -46,6 +56,51 @@ import { deriveETag } from './etag.js';
  *
  * @typedef {{ proceed: true } | { proceed: false, status: 412 }} ConditionalWriteDecision
  */
+
+/** The whole value is `*`, with optional space or tab on either side (RFC 9110 §13.1.1). */
+const WILDCARD = /^[ \t]*\*[ \t]*$/;
+
+/**
+ * One member of an If-Match entity-tag list, at the start of the rest of the value; members are
+ * matched in place, not split on commas: a comma is legal inside an opaque-tag (RFC 9110 §8.8.3).
+ */
+const ENTITY_TAG = /(W\/)?"[\x21\x23-\x7E\x80-\xFF]*"/y;
+
+/** Advance past optional whitespace (RFC 9110 OWS: space and tab). */
+function skipOws(value, i) {
+  while (i < value.length && (value[i] === ' ' || value[i] === '\t')) i++;
+  return i;
+}
+
+/**
+ * Parse an `If-Match` field value (RFC 9110 §13.1.1: `"*" / #entity-tag`).
+ *
+ * Space, tab and empty list members are skipped before and after each member, as HTTP's list
+ * syntax allows; an empty value is an empty list.
+ *
+ * @param {string} value  the raw header value
+ * @returns {'*' | Array<{ weak: boolean, opaque: string }> | null}
+ *   `'*'`, the list's members, or null when the value is neither.
+ */
+function parseIfMatch(value) {
+  if (WILDCARD.test(value)) return '*';
+  const members = [];
+  let i = skipOws(value, 0);
+  while (i < value.length) {
+    if (value[i] === ',') {
+      i = skipOws(value, i + 1);
+      continue;
+    }
+    ENTITY_TAG.lastIndex = i;
+    const match = ENTITY_TAG.exec(value);
+    if (match === null) return null;
+    const weak = match[1] !== undefined;
+    members.push({ weak, opaque: match[0].slice(weak ? 2 : 0) });
+    i = skipOws(value, ENTITY_TAG.lastIndex);
+    if (i < value.length && value[i] !== ',') return null;
+  }
+  return members;
+}
 
 /**
  * Evaluate the optional conditional-write precondition (docent#152) for a
@@ -81,10 +136,15 @@ export function evaluateConditionalWrite(ifMatch, existing) {
     return { proceed: false, status: 412 };
   }
 
-  // Compare the request's If-Match value against the stored
-  // project's CURRENT ETag, derived from its content only (never last_modified).
+  const parsed = parseIfMatch(ifMatch);
+  if (parsed === '*') {
+    return { proceed: true };
+  }
+
+  // Compare the request's If-Match value against the stored project's CURRENT
+  // ETag, derived from its content only (never last_modified).
   const currentETag = deriveETag(existing.payload);
-  if (ifMatch === currentETag) {
+  if (parsed !== null && parsed.some((m) => !m.weak && m.opaque === currentETag)) {
     return { proceed: true };
   }
 

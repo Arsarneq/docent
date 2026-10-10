@@ -717,7 +717,20 @@
       "doc": "docs/api/sync-protocol.md",
       "clause": "SP-14",
       "tag": "check-exists",
-      "check-ref": "Every row of the If-Match table is pinned end-to-end over HTTP by reference-implementations/sync-server/tests/integration/conditional-write.test.js: the absent-header row by its \"PUT with NO If-Match overwrites (last-write-wins) → 200\" case, the matching row by \"PUT with a matching If-Match → 200 and a fresh ETag\", and the non-matching row on both its branches — a stale tag by \"PUT with a stale If-Match → 412, and the stored content is unchanged\", and no project stored by \"PUT with an If-Match and no project stored → 412, and nothing is created\", which seeds one unrelated project first and then reads the store back over the same HTTP surface a client has: the refused id reads as absent, and the manifest holds exactly the ids stored before the refused write. The same no-project-stored branch is pinned at the decision-function level by reference-implementations/sync-server/tests/unit/conditional-write.test.js."
+      "check-ref": "The If-Match table's rows, and the If-Match rule the bullet above the table states, are pinned end-to-end over HTTP on the reference server by reference-implementations/sync-server/tests/integration/conditional-write.test.js, in the cases listed below: a write with no header is last-write-wins; an exact tag, an entity-tag list holding the current ETag (a stale or a weak tag beside it, or across repeated header lines) and * on a stored project match; a stale tag, stale tags across repeated header lines, a weak tag of the current ETag and a tag or * with no project stored under the id do not. The no-project cases seed one unrelated project and read the store back over the same HTTP surface a client has (the refused id reads as absent, and the manifest holds exactly the ids stored before). The header parse — surrounding whitespace, a non-breaking space, an unquoted value and empty list members among its inputs — and the no-project-stored branch are pinned at the decision-function level by reference-implementations/sync-server/tests/unit/conditional-write.test.js.",
+      "test-cases": [
+        "PUT with NO If-Match overwrites (last-write-wins) → 200",
+        "PUT with a matching If-Match → 200 and a fresh ETag",
+        "PUT with a stale If-Match → 412, and the stored content is unchanged",
+        "PUT with an If-Match and no project stored → 412, and nothing is created",
+        "PUT with an entity-tag list holding the current ETag → 200",
+        "PUT with an entity-tag list holding a weak tag and the current ETag → 200",
+        "PUT with repeated If-Match lines, the current ETag between stale tags → 200",
+        "PUT with repeated stale If-Match lines → 412, and the stored content is unchanged",
+        "PUT with If-Match: * on a stored project → 200",
+        "PUT with a weak If-Match of the current ETag → 412, and the stored content is unchanged",
+        "PUT with If-Match: * and no project stored → 412, and nothing is created"
+      ]
     },
     {
       "doc": "docs/api/sync-protocol.md",
