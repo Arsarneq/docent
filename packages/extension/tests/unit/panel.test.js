@@ -2,8 +2,9 @@
  * panel.test.js — Unit and property-based tests for dispatch UI behaviour
  *
  * Since panel.js uses top-level await and DOM globals, we cannot import it
- * directly in Node. Instead, we extract and test the key logic functions
- * inline, verifying the correctness properties described in the spec.
+ * directly in Node. Instead, we test its key logic inline: one helper a verbatim
+ * copy, the rest reshaped, verifying the correctness properties described in
+ * the spec.
  *
  * Uses Node's built-in test runner (node:test) and fast-check.
  *
@@ -16,14 +17,14 @@ import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import fc from 'fast-check';
 
-// ─── Logic helpers (extracted from panel.js) ──────────────────────────────────
+// ─── Logic helpers (the active-steps resolver copied from panel.js; the rest reshaped from it) ───
 //
-// These mirror the functions in panel.js exactly so that tests validate the
-// same logic the UI relies on.
+// The active-steps resolver below is a verbatim copy of panel.js's, held
+// identical by panel-mirror-parity.test.js; the other helpers below are
+// reshaped from panel.js and pin only themselves.
 
 /**
  * Resolves the active (non-deleted, latest-version) steps for a recording.
- * Mirrors the algorithm in panel.js and session.js.
  */
 function resolveActiveStepsForRecording(r) {
   const groups = new Map();
@@ -36,7 +37,7 @@ function resolveActiveStepsForRecording(r) {
 
 /**
  * Returns true when the Dispatch button should be enabled.
- * Mirrors the logic in panel.js updateDispatchButton().
+ * Reshaped from panel.js updateDispatchButton().
  */
 function shouldDispatchButtonBeEnabled(dispatchSettings, project) {
   if (!dispatchSettings.endpointUrl) return false;
@@ -46,7 +47,7 @@ function shouldDispatchButtonBeEnabled(dispatchSettings, project) {
 
 /**
  * Returns recordings that have at least one active step, each annotated with
- * an `activeSteps` array. Mirrors the logic in panel.js openDispatchFlow().
+ * an `activeSteps` array. Reshaped from panel.js openDispatchFlow().
  */
 function getRecordingsWithActiveSteps(project) {
   return (project?.recordings ?? [])

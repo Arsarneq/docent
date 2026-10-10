@@ -324,9 +324,9 @@ chrome.webNavigation.onBeforeNavigate.addListener((details) => {
 // ─── Navigation & context lifecycle capture ──────────────────────────────────
 // The SW records the browser-chrome proxies: cross-document navigations
 // (including back/forward/reload), context opens, context closes, and context
-// switches. In-page (SPA) navigations are deliberately not captured at all —
-// they are effects of already-captured clicks/keys (extension
-// capture-principles ECP-8).
+// switches. In-page (SPA) navigations are not captured: no history-state
+// listener (extension capture-principles ECP-8; ECP-12 lists the same-document
+// back/forward exception).
 // All actions are stamped with context_id so the receiving system knows which
 // context the action occurred in.
 

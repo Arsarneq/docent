@@ -7,6 +7,7 @@ export default {
       'node --test',
       'packages/desktop/tests/unit/adapter-tauri.test.js',
       'packages/desktop/tests/unit/persistence-unit.test.js',
+      'packages/desktop/tests/unit/persistence.test.js',
       'packages/desktop/tests/unit/reorder-buffer.test.js',
     ].join(' '),
   },

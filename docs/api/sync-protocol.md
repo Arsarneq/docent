@@ -25,13 +25,12 @@ resolution is client-side. A server built against the
 [Endpoints](#endpoints) and [Payload Shapes](#payload-shapes) sections below is
 complete and correct regardless of how the client reconciles — the
 [Sync Behavior](#sync-behavior) section documents the client cycle for context,
-not as a server obligation. What the other sections add is bound to a choice a
-deployment makes: [Authentication](#authentication) binds a server that requires
-it (SP-2), the [optional conditional write](#optional-conditional-write) binds
-one that offers it (SP-14), and [Server scope and CORS](#server-scope-and-cors)
-binds the
-deployment choice to expose the server to a browser origin (SP-25), while
-directing consuming systems to the underlying storage (SP-24). The same is true
+not as a server obligation. What the other sections add —
+[Authentication](#authentication) binding a server that requires it (SP-2), the
+[optional conditional write](#optional-conditional-write) binding one that
+offers it (SP-14), and [Server scope and CORS](#server-scope-and-cors) binding
+the deployment choice to expose the server to a browser origin (SP-25), those
+sections among them — is bound to a choice a deployment makes. The same is true
 of a choice made inside [Endpoints](#endpoints) and
 [Payload Shapes](#payload-shapes) themselves — a server that adds an optional
 top-level field takes on what SP-5 says about it.
@@ -165,7 +164,7 @@ test-specific server support is required.
 ]
 ```
 
-**Response fields (Project_Manifest entry):**
+**Response fields (Project_Manifest entry)** — the fields this specification defines for an entry:
 
 | Field           | Type              | Description                  |
 | --------------- | ----------------- | ---------------------------- |
@@ -518,11 +517,11 @@ exclude, they do not merely warn):
    full payload.
 3. **SP-8.** Each pulled payload is checked before it is accepted:
    - **Stamp compatibility** — the payload's `docent_format` MUST match the
-     pulling client's platform and schema version. A project from a different
-     platform, a different schema version, or with a missing stamp is **skipped
-     and reported to the user** (not merged), with the reason (update the client
-     or pin the producing version). A stamp-incompatible project is never turned
-     into a conflict.
+     pulling client's platform and schema version. A project whose stamp does
+     not match — another platform, another schema version, or no stamp at all —
+     is **skipped and reported to the user** (not merged), with the reason
+     (update the client or pin the producing version). A stamp-incompatible
+     project is never turned into a conflict.
    - **Schema validation** — the payload's known-field projection
      ([SP-5](#full_project_payload)) MUST validate against the client's platform
      schema. A payload whose projection fails that check is skipped and reported
@@ -547,11 +546,15 @@ cache the bypass is inert.
 ### Reconcile phase
 
 **SP-9.** For every project and recording (the _units_), the client classifies
-the unit by comparing three states: the **local** version, the **incoming**
-(pulled) version, and the **baseline** — the last state this client and the
-server mutually agreed on. Classification uses content equality (a canonical
-digest of name, metadata, and full step history), not timestamps, because
-`last_modified` is unreliable against an opaque store. That digest canonicalizes
+each unit it compares into exactly one row of the table below by comparing three
+states: the **local** version, the **incoming** (pulled) version, and the
+**baseline** — the last state this client and the server mutually agreed on.
+Classification uses content equality (a canonical digest), not timestamps,
+because `last_modified` is unreliable against an opaque store. The digest's
+inputs are what `sync-digest.js`'s projection takes: a recording's id,
+`created_at`, name, metadata and full step history; a project's id, name,
+`created_at` and metadata; and the whole-project digest, those with its
+recording digests in order. That digest canonicalizes
 the values it covers, so key order never shifts identity, but it copies a field's
 presence rather than defaulting it: an absent `metadata` and an empty one are
 distinct inputs and yield distinct digests, so a client that materializes one
@@ -566,11 +569,12 @@ into the other before comparing reads a round-tripped unit as changed.
 | Diverged               | Both local and incoming differ from baseline (or no baseline) | Record a **conflict**; defer to the user.                                                               |
 | Deletion case          | A unit present in baseline is absent on one side              | Propagate an agreed deletion, hold a server deletion for review, or record a delete-vs-change conflict. |
 
-Key rules:
+Key rules (the headline guarantees; the clauses below state further ones):
 
 - **Safe outcomes are automatic** — adding brand-new units, advancing the
   baseline on agreement, and pushing changed-local-outgoing units never require
-  user interaction.
+  user interaction, nor does propagating an agreed deletion; the table above
+  decides which outcomes are automatic.
 - **Adopting an incoming change into an existing recording is always user-gated**
   — it happens only through review-and-accept (or the explicit conflict-resolution
   workflow), never silently. (Two opt-in client-local settings can auto-apply a
@@ -612,9 +616,9 @@ name+metadata, or one recording):
    it while the other side **changed** it. Deleting and editing are
    irreconcilable, so the user chooses delete or keep-the-change.
 
-Because content identity is a canonical digest of **name + metadata + full step
-history**, _any_ of those changing on both sides triggers a conflict — there is
-nothing special about steps. Worked examples (all verified against the
+Because content identity is SP-9's canonical digest, a unit changed on both
+sides diverges whichever of its inputs moved — its name or metadata as much as a
+recording's steps. Worked examples (all verified against the
 classifier):
 
 | Local change            | Incoming (server) change          | Result                            |
@@ -626,7 +630,8 @@ classifier):
 | Edit a recording        | Delete that recording             | **Conflict** (delete-vs-change)   |
 | Delete a recording      | Edit that recording               | **Conflict** (delete-vs-change)   |
 
-What is **NOT** a conflict (resolves without a forced choice):
+What is **NOT** a conflict — the two situations above close the conflict set,
+so these illustrate the rest:
 
 - **Only one side changed.** A change on only the local side is auto-pushed
   (`changed-local-outgoing`); a change on only the incoming side is held as a
@@ -717,9 +722,10 @@ conflict):
   baseline: it strictly adds new step records, dropping none of the baseline's
   records (retention is checked by record identity), **and changes nothing
   else** — same name, same metadata. A change that drops or replaces step
-  records, renames the unit, or edits metadata still becomes a review even with
-  this on (a step append is lossless to adopt silently; a rename of a unit you
-  may have open is a separate, surprising change). The predicate is a
+  records, renames the unit, or edits metadata — any change beyond appending
+  steps — still becomes a review even with this on (a step append is lossless to
+  adopt silently; a rename of a unit you may have open is a separate, surprising
+  change). The predicate is a
   step-history concept, so auto-apply is scoped to **recording-level** units:
   a project-level `changed-incoming` (a project-metadata change) always defers
   to review. A version the user previously
@@ -737,7 +743,8 @@ and never resolves anything at the moment of toggling — including for a unit
 already held for review: a pending incoming version that satisfies the
 predicate is applied on the first cycle after the setting is turned on.
 
-What is **NOT** a review:
+What is **NOT** a review (illustrations; SP-9's classification decides every
+unit):
 
 - **You changed it too** — that is a conflict (diverged), not a review.
 - **You changed it, the server didn't** — auto-pushed (`changed-local-outgoing`),
@@ -768,11 +775,12 @@ begins with a fresh pull, so a concurrent server change is re-detected rather th
 overwritten).
 
 **SP-13.** Because the server only offers a whole-project `PUT`, the client
-assembles each project's payload **per recording**:
+assembles each project's payload **per recording**, every recording present
+being either pushable or deferred-or-locked:
 
-- A recording that is **pushable** — clean brand-new-local, changed-local-outgoing,
-  already-converged, or an auto-applied incoming version — is sent at its **local**
-  version, so the local edit reaches the server.
+- A recording that is **pushable** — one of clean brand-new-local,
+  changed-local-outgoing, already-converged, or an auto-applied incoming version
+  — is sent at its **local** version, so the local edit reaches the server.
 - A recording that is **deferred** (review or conflict) or **locked** is sent at
   the version most recently **agreed-or-pulled** for it (its snapshot version when
   it was pulled this cycle, otherwise its baseline version) — **not** its
@@ -787,27 +795,29 @@ assembles each project's payload **per recording**:
   project, so it is correctly not re-sent — the deletion propagates rather than
   being resurrected.
 
-A project with **nothing to write** is skipped rather than re-sending an unchanged
-payload. "Nothing to write" is decided by **content**: a project is
+A project with **nothing to write** is skipped rather than re-sending an
+unchanged payload. "Nothing to write" is decided by **content**: a project is
 skipped when every assembled unit's wire-version is content-identical (by
 canonical digest) to the server's agreed-or-pulled version of that unit, so the
-`PUT` would only re-send the server's own bytes. This covers a project
-auto-added from the server this cycle, a fully-converged project, a project whose
-only change is a deferred Review/Conflict (sent at the agreed-or-pulled version),
-and a project whose only non-converged unit is a **locked** recording — its live
-local edits are held back at the agreed-or-pulled version this cycle and reach the
-server only on a later cycle, after the recording is unlocked and reconciled (no
-authored work is lost). Push reads only committed `recording.steps`; uncommitted
-captured actions live in a separate store and never enter the payload.
+`PUT` would only re-send the server's own bytes. This covers, for example, a
+project auto-added from the server this cycle, a fully-converged project, a
+project whose only change is a deferred Review/Conflict (sent at the
+agreed-or-pulled version), and a project whose only non-converged unit is a
+**locked** recording — its live local edits are held back at the
+agreed-or-pulled version this cycle and reach the server only on a later cycle,
+after the recording is unlocked and reconciled (no authored work is lost). Push
+reads only committed `recording.steps`; uncommitted captured actions live in a
+separate store and never enter the payload.
 
 Push never advances the baseline.
 
 ### Cycle atomicity and halt outcomes
 
 **SP-19.** The reconcile phase persists its outcome **atomically**: the
-client's durable sync state (baselines, snapshots, reviews, conflicts,
-dismissals) transitions from its prior state to the fully-reconciled state in
-a single persist, or not at all. Any internal failure during detection or the
+client's durable sync state (baselines, snapshots, reviews, conflicts and
+dismissals among them — the client's sync-state store holds the set)
+transitions from its prior state to the fully-reconciled state in a single
+persist, or not at all. Any internal failure during detection or the
 persist — including a version that cannot be retained in recoverable form
 while a conflict is being recorded — halts the whole cycle with **no
 changes**: no durable state is written, local data is returned untouched (no
@@ -816,15 +826,19 @@ partial merge), and nothing is pushed. Docent's clients surface this halt as
 pending items are preserved." — client presentation, not wire protocol.
 
 **SP-20.** An authentication halt (`401`/`403` — see
-[Response Codes](#response-codes)) always preserves all durable state; what
-the interrupted cycle keeps differs by the phase the failure lands in:
+[Response Codes](#response-codes)) always preserves the durable state the cycle
+owns; only the sync settings can move, and only as SP-23 states, on an
+automatically triggered cycle's auth halt in either phase. What the interrupted
+cycle keeps differs by the phase the failure lands in, one of two:
 
 - **Pull-phase auth halt** — the cycle returns before any reconcile or push,
-  so nothing at all is touched: local data, baselines, snapshots, reviews, and
-  conflicts are exactly as they were.
+  so nothing the cycle owns is touched: local data and the sync state's
+  baselines, snapshots, reviews, conflicts and dismissals are exactly as they
+  were.
 - **Push-phase auth halt** — the same cycle's pull and reconcile have already
-  completed and been persisted; that reconcile outcome (newly recorded
-  reviews/conflicts, advanced baselines, merged projects) is kept, and the
+  completed and been persisted; that reconcile outcome (newly recorded reviews
+  and conflicts, advanced baselines and merged projects among them — whatever
+  the reconcile phase persisted or merged) is kept, and the
   halt stops only the remaining server writes.
 
 Either way nothing is lost; the phases differ only in whether the current
@@ -850,7 +864,7 @@ a minute.
   guaranteed a trigger that dispatches it.
 
 **SP-22.** Triggers pass through a coalescing scheduler shared by both
-platforms, whose contract is:
+platforms, whose contract is exactly:
 
 - **At most one cycle per cooldown window** (5 s by default): a burst of
   triggers collapses into one running cycle plus at most a single pending
@@ -916,7 +930,8 @@ pull-first ordering keeps narrowing it as described above.
 
 ## Optional conditional write
 
-**SP-14.** A server MAY implement optimistic concurrency as follows. When the
+**SP-14.** A server MAY implement optimistic concurrency, the capability being
+exactly the two behaviors below. When the
 `If-Match` request header is absent the server behaves as the plain
 last-write-wins store above — the capability has no effect on clients that do not opt in, and a
 server without it remains fully conformant.
@@ -926,7 +941,8 @@ server without it remains fully conformant.
   stored payload's content only (never from `last_modified`): two reads of the
   same unchanged project return the same value, and any change to the content
   yields a different one.
-- **`If-Match` on `PUT /projects/:id`:**
+- **`If-Match` on `PUT /projects/:id`** — the three cases below cover every
+  request:
 
 | `If-Match` on the `PUT`                                              | Behavior                                                                                           |
 | -------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------- |

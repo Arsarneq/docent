@@ -28,8 +28,8 @@ would have succeeded."
 
 **Scope.** The procedure defines _resolution_ for the resolvable core, with
 exactly three outcomes. It never decides what a failure _means_ — interpreting
-a `not-resolved` (recording? environment? missing parameter? application
-change?) belongs to
+a `not-resolved` — whether the recording, the environment, a missing
+parameter or an application change explains it, for example — belongs to
 [Replay Sufficiency — Failure Attribution](../requirements/replay-sufficiency.md#failure-attribution).
 
 **Governing rules.**
@@ -93,7 +93,7 @@ conforms only by accident.
 
 ### 1. Eligibility
 
-**LR-8.** A candidate is **ineligible as a selector** when:
+**LR-8.** A candidate is **ineligible as a selector** exactly when either holds:
 
 - `masked: true` — its value is the mask, not the observation; or
 - `match_index: null` — the recorder measured this candidate as _not_
@@ -127,9 +127,6 @@ non-piercing matching):
 | `role_name`   | _schema-reserved; not currently captured_ (accessible-name computation is pending capture work)                             |
 | `label`       | _schema-reserved; not currently captured_                                                                                   |
 
-**LR-11.** Reserved strategies have no application semantics until the capture
-work that emits them lands; conformance vectors cover emitted strategies only.
-
 **Desktop** (queries run over the bound top-level window, Control view,
 window itself included):
 
@@ -140,6 +137,9 @@ window itself included):
 | `class_name`    | elements whose class name equals `value`                                                   |
 | `labeled_by`    | elements whose label relation resolves to an element named `value`                         |
 | `tree_path`     | the element reached by walking `value`'s segments from the window root in the Control view |
+
+**LR-11.** Reserved strategies have no application semantics until the capture
+work that emits them lands; conformance vectors cover emitted strategies only.
 
 **LR-25.** `role_name.role` binds to the non-localized control type — the
 same value as the recorded `element.tag` — never to the localized
@@ -159,19 +159,20 @@ inputs.
   comparison is prefix/containment against the live element's visible text
   normalized the same way, never raw equality. When recorded text is null —
   including on `redacted` elements — the test is vacuously satisfied.
-- **LR-15.** **Staleness advisory.** Element descriptions can be captured
-  after the action's effects began (`described_after_ms` states the observed
-  gap where recorded; deferred captures without the field carry no signal). A
-  text contradiction **alone** MUST NOT reject a candidate when at least one
-  field with discriminating power — `id`, `name`, or a test-attribute value —
-  positively corroborates. `tag` alone never suffices: any same-tag element
-  passes it trivially, and treating it as corroboration would disable this
-  guard.
+- **LR-15.** **Staleness advisory.** Element descriptions can be captured after
+  the action's effects began (`described_after_ms` states the observed gap where
+  recorded; deferred captures without the field carry no signal). A text
+  contradiction **alone** MUST NOT reject a candidate when at least one field
+  with discriminating power — today `id` (on the desktop, the automation id) and
+  `name`; a test-attribute value would join them were an element field to carry
+  one — positively corroborates. `tag` alone never suffices: any same-tag
+  element passes it trivially, and treating it as corroboration would disable
+  this guard.
 
 ### 4. Per-candidate verdict
 
 **LR-16.** The per-candidate verdict follows from the candidate's live match
-count and the corroboration result:
+count and the corroboration result; every candidate takes exactly one row:
 
 | Live matches for the candidate    | Verdict                                                   |
 | --------------------------------- | --------------------------------------------------------- |
@@ -203,10 +204,12 @@ NOT reduce the distinct count below what the recorded facts disambiguate.
 | `resolved`      | exactly one distinct candidate-resolved element after the containment filter |
 | `not-resolved`  | anything else                                                                |
 
-**LR-19.** A `not-resolved` carries **diagnostics**: the set of distinct
-candidate-resolved elements (when plural), the corroboration-disqualified
-candidates, and per-candidate match circumstances (unmeasured, masked,
-`match_index: null`, live multi-match). The diagnostics inform — they MUST
+**LR-19.** A `not-resolved` carries exactly these **diagnostics**: the set of
+distinct candidate-resolved elements (when plural), the
+corroboration-disqualified candidates, and per-candidate match circumstances
+(unmeasured, masked, `match_index: null`, live multi-match, for example; LR-8's
+eligibility rules, LR-16's verdicts and SF-11's absent pair define the
+circumstances). The diagnostics inform — they MUST
 NOT decide — [failure attribution](../requirements/replay-sufficiency.md#failure-attribution):
 
 - a masked entry whose pre-mask statistics were `match_count: 1` and
@@ -215,6 +218,10 @@ NOT decide — [failure attribution](../requirements/replay-sufficiency.md#failu
 - corroboration-disqualified candidates are wrong-referent evidence;
 - candidates unmeasured by design (input-time described actions) are never,
   by themselves, evidence of insufficiency.
+
+These readings illustrate how the diagnostics inform attribution; they do not
+close it — the diagnostics this clause defines bound what a reading can rest
+on.
 
 **LR-20.** Consumers MAY refine beyond the procedure — for example, selecting
 among a multi-match by the recorded `match_index` when the live match count
@@ -273,17 +280,18 @@ conformance vector, it produces the vector's stated outcome — and, for
 **LR-26.** Vectors are inert data emitted at capture time by harnesses that
 observe the acted-on element directly (the ground truth is known, never
 computed by this procedure): recorded locators and element facts, a tree
-snapshot of the bound scope, and the ground truth.
+snapshot of the bound scope, and the ground truth, in the shape the vector
+meta-schema (STC-10) defines in full.
 
-**LR-23.** **Vector inclusion criterion** — decidable from recorded facts
-alone: the element carries at least one eligible candidate recorded
+**LR-23.** **Vector inclusion criterion** — decidable from recorded facts alone:
+the element carries at least one eligible candidate recorded
 measured-unique-and-selecting (`match_count: 1`, `match_index: 0`). Element
 classes outside the criterion — masked-only-unique, fully unmeasured,
-ordinal-only, unbindable scope — are out of vector scope; their sufficiency
-story is owned by the static lint and the capture backlog, not by resolution
-vectors. Per-strategy coverage on both platforms is owned by the corpus's
-page-authoring and coverage-ledger clauses,
-[scripted-truth-corpus §STC-6 and §STC-12](../verification/scripted-truth-corpus.md).
+ordinal-only and unbindable-scope elements among them — are out of vector scope;
+their sufficiency story is owned by the static lint and the capture backlog, not
+by resolution vectors. Per-strategy coverage on both platforms is owned by the
+corpus's page-authoring and coverage-ledger clauses, [scripted-truth-corpus
+§STC-6 and §STC-12](../verification/scripted-truth-corpus.md).
 
 ---
 
@@ -296,7 +304,7 @@ element is sensitive. It is **not** a claim that unannotated strategies cannot
 carry user-identifying content; it states what the chokepoint does today.
 
 - Extension: `text` is value-derived. The derived `css` value is structural —
-  ids, test attributes, tag names and positions — and carries no rendered
+  exactly ids, test attributes, tag names and positions — and carries no rendered
   text; an enrichment that ever embeds rendered text in a selector requires
   re-annotation.
 - Desktop: no desktop strategy is masked by the chokepoint.
