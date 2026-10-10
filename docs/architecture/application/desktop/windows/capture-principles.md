@@ -49,13 +49,14 @@ the marker on the action stream, rather than for the drain command to return,
 is what makes the guarantee hold: the command result and the action events
 travel different channels with no mutual ordering.
 
-The barrier does not wait on sequence numbers. The ids delivered to the
-frontend are legitimately a **subset** of those the input thread assigned —
-modifier-only keys are dropped, a typing burst coalesces to one action carrying
-only its last id, and a settled scroll carries no id at all — so "wait until the
-highest id assigned has arrived" is both unsatisfiable in normal use and unable
-to tell a filtered id from a late one. Only the backend knows when each worker
-has finished, which is what the drain-and-acknowledge barrier establishes.
+The barrier does not wait on sequence numbers. The ids delivered to the frontend
+are legitimately a **subset** of those the input thread assigned — the workers
+drop or coalesce input, for example: lone Shift, Ctrl or Alt presses are
+dropped, a typing burst coalesces to one action carrying only its last id, and a
+settled scroll carries no id at all — so "wait until the highest id assigned has
+arrived" is both unsatisfiable in normal use and unable to tell a filtered id
+from a late one. Only the backend knows when each worker has finished, which is
+what the drain-and-acknowledge barrier establishes.
 
 The barrier is **bounded** at every tier, and an expired bound MUST be
 distinguishable from success. A worker wedged in an unresponsive accessibility
@@ -78,7 +79,8 @@ waiting still satisfies the wait, and a duplicate marker for an
 already-collected barrier is inert. A barrier
 run with no active capture reports that nothing was buffered and that no
 barrier ran, and the commit collects immediately. The pipeline mechanics behind
-this clause — channels, routing, and the drain paths including the fallback —
+this clause — channels, routing, and the drain paths including the fallback,
+for example —
 are oriented in
 [the capture pipeline](capture-pipeline.md).
 
@@ -91,7 +93,7 @@ can mix both:
 
 | Mode            | When                                        | Element description                                                                                                                                     |
 | --------------- | ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `accessibility` | ElementFromPoint returns a specific control | Full: tag, id, name, role, text, tree path                                                                                                              |
+| `accessibility` | ElementFromPoint returns a specific control | Full: tag, id, name, role, text and tree path among its fields (the session format's element definition holds the set)                                  |
 | `coordinate`    | ElementFromPoint returns Window/Pane only   | Fallback: the window-level description (window control type + tree path) when the window resolved; tag="unknown", selector="coord:x,y" when nothing did |
 
 ---
@@ -141,7 +143,7 @@ filter judges the process of the event's
 ## Event Attribution and Foreground Scope
 
 **DCP-14.** The scope filters (DCP-5) act on an **attributed** process — each
-event source names the window whose process is judged:
+event source of the DCP-4 surface names the window whose process is judged:
 
 | Event source            | Attributed window                                                                        |
 | ----------------------- | ---------------------------------------------------------------------------------------- |
@@ -225,25 +227,25 @@ middle-click type); a right-button press records a `right_click`.
 
 ## Sensitive-value redaction
 
-**DCP-11.** The native capture layer masks password fields directly from the
-UIA `IsPassword` signal. Other sensitive values — credit-card, SSN, and secret
-fields identified by their accessibility name — are masked at the **adapter
-chokepoint**, which processes each action's `element` (and its `value`) before
-the action enters the pending list. Both the shared detection and the redaction
-shape are the cross-platform rule
-([core CP-11](../../../../architecture/system/capture-principles.md#sensitive-values)).
+**DCP-11.** The native capture layer masks password fields directly from the UIA
+`IsPassword` signal. Other sensitive values — the classes core CP-11 names,
+recognised by the shared detection from their accessibility name or automation
+id — are masked at the
+**adapter chokepoint**, which processes each action's `element` (and its
+`value`) before the action enters the pending list. Both the shared detection
+and the redaction shape are the cross-platform rule ([core
+CP-11](../../../../architecture/system/capture-principles.md#sensitive-values)).
 (Tokened-URL redaction is extension-only, since the desktop app has no captured
 URLs.)
 
 Locator candidates (`locators[]`) pass the redaction chokepoint untouched by
-design ([locator-resolution §LR-24](../../../../technical/locator-resolution.md)): every desktop strategy is identity-derived — ids, control types,
-labels, and tree paths, the very signals the detection keys on — never the
-typed value, which lives in `value`/`text` and is masked as above. Masking a
-label would both destroy the locator and mask a non-secret; redaction stays
-conservative. Locator match statistics are measured on the worker at the
-moment the element is described (asynchronously, after the input that caused
-it), never inside the low-level input hook — hook-described click elements
-carry candidate values only, with the pair absent.
+design ([locator-resolution §LR-24](../../../../technical/locator-resolution.md)): every desktop strategy is identity-derived — the signals of LR-10's
+desktop strategies — never the typed value, which lives in `value`/`text` and
+is masked as above. Masking a label would both destroy the locator and mask a
+non-secret; redaction stays conservative. Locator match statistics are measured
+on the worker at the moment the element is described (asynchronously, after the
+input that caused it), never inside the low-level input hook — hook-described
+click elements carry candidate values only, with the pair absent.
 
 That describe moment is itself exported as an observed fact: every
 accessibility-described element carries `described_after_ms`, the measured gap
@@ -251,8 +253,9 @@ between the input and the moment its description was captured — `0` for
 hook-described clicks, the real gap for worker describes (which can grow under
 queue backlog; the number says so instead of hiding it). Coordinate-mode
 elements make no element-identity claims at all: locators, provider facts, and
-the describe latency are absent there — coordinate mode records where the user
-acted, not which element the accessibility layer resolved.
+the describe latency are among the fields absent there (the coordinate path's
+description decides what is present) — coordinate mode records
+where the user acted, not which element the accessibility layer resolved.
 
 ---
 
@@ -294,8 +297,8 @@ this clause admits, all of them input that never became a buffered action:
   and still cannot accept the event — surfaced on stderr, never silent.
 
 A worker panic is detected on the next dispatch, the worker is respawned in
-place at the same index, and the send is retried on the fresh worker;
-value-change, focus, and selection events route **sticky** — the same window
+place at the same index, and the send is retried on the fresh worker; exactly
+the value-change, focus, and selection events route **sticky** — the same window
 handle always reaches the same worker — so per-window supersession and
 deduplication stay correct; a drop routes to the worker that took its drag
 start; events without a routing affinity use shortest-queue dispatch.
@@ -310,6 +313,9 @@ interactions that would appear to be inside the
 [capture surface](#capture-surface) above but are not captured (or are captured
 with a caveat):
 
+- A lone Shift, Ctrl or Alt press — a keypress, but the worker drops it; these
+  keys are recorded only within a combination (a lone Win press is recorded, as
+  `Meta`)
 - Win+D (show desktop) — a keypress, but the system intercepts it before the
   hooks
 - Win+L (lock screen) — a keypress, but the system intercepts it before the
