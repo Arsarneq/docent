@@ -8,14 +8,24 @@ and composed schemas — and, for the machinery and size-budget suites, against
 the committed tree and the built artifacts themselves — with no browser, no
 Tauri backend, and no network involved.
 
-Where a platform file cannot be imported under the runner (a content script, a
-service worker, a panel that awaits at the top level), the suite drives an
-extracted module or a copy of the shipped text. Two copies carry a parity guard
-holding them identical to the text that ships — the recorder's capture block and
-the service worker's append chokepoint — so those cases pin what ships. The
-worker's other replicated handlers and the panel's send gate carry no such
-guard: those cases pin the mirror, and hold only for as long as the mirror
-matches the file it was copied from.
+Where a suite does not run the shipped code it describes — a content script, a
+service worker or a panel that awaits at the top level cannot be imported under
+the runner, nor can a module-private function — the suite drives an extracted
+module, a copy of the shipped text, or a replica reshaped from it. The copies
+named in
+[CONTRIBUTING § Single-source logic](../../.github/CONTRIBUTING.md#single-source-logic)
+carry parity guards that hold them to the text that ships. Reshaped from the
+shipped code, and pinning only themselves where they stand in for it or seed it,
+are: in the extension tree, the
+worker's replicated handlers beyond its append chokepoint, its
+frame-registration fixture, the panel suite's other helpers, the capture-timing
+suite's recent-action decision and the navigation-logic module reshaped from the
+worker's navigation decisions; in the shared tree, the settings state-machine
+suite's panel settings logic and, as fixture seeds, the sync suites' allowlisted
+projections (their baseline and payload builders); and in the desktop tree, the
+settings suite's save and load. Where a suite holds the module's output to one
+of those projections, the projection serves as an oracle there, and a drift
+fails the comparison.
 
 Every tree is discovered the same way: a `node --test` glob over the test files
 at the top of its `tests/unit` directory. A file joins its suite by matching
@@ -187,9 +197,10 @@ application has its own suite, documented in
 
 `packages/extension/tests/unit` — the extension's adapter, panel, and background
 paths: the capture logic extracted from the content script, the service worker's
-message handlers, the parity guards over the recorder's capture block and the
-worker's append chokepoint, and the static-source guards over what those two
-capture sources may contain. The browser-driven
+message handlers, this tree's parity guards, named in
+[CONTRIBUTING § Single-source logic](../../.github/CONTRIBUTING.md#single-source-logic),
+and the static-source guards over what the content script and the service
+worker may contain. The browser-driven
 half of the extension is documented in
 [End-to-end tests](e2e.md).
 
