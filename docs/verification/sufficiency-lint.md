@@ -66,6 +66,10 @@ is self-detecting in code, never a memory exercise.
 ## The predicates
 
 The tables below are the whole catalogue (`--list` prints it from the code).
+One predicate is also used outside the lint: the conformance-vector element
+check ([scripted-truth corpus STC-10](scripted-truth-corpus.md#emission-produced-then-reviewed-and-committed))
+holds every vector's locators to `locator-pair-invariants`, so a change to that
+predicate changes what a produced or committed vector must satisfy.
 Predicates check strictly beyond the schema: anything the schema validator
 already enforces is not re-checked. Each finding carries a stable pointer
 (`rec[r].step[s].action[a]:<type>`, or `rec[r]` for recording-level
