@@ -55,7 +55,7 @@ tempfile = "3"
 # edition-2021 resolver (v2) it never enters the shipped graph (cargo tree -e
 # no-dev confirms). windows-core is already a transitive dep of the shipped build.
 [target.'cfg(windows)'.dev-dependencies]
-windows-core = "0.62"
+windows-core = "0.100"
 
 [lib]
 name = "docent_desktop_lib"
