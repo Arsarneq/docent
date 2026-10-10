@@ -391,7 +391,7 @@ describe('Security: sensitive data isolation', () => {
 describe('Security: import robustness', () => {
   it('deeply nested objects do not cause stack overflow', () => {
     // Create a deeply nested structure
-    let obj = {
+    const obj = {
       project_id: 'p1',
       name: 'P',
       created_at: '2026-01-01T00:00:00.000Z',
@@ -678,8 +678,7 @@ describe('Security: adversarial dispatch responses', () => {
       }
     };
 
-    // Manually trigger abort to test the path (real timeout is 30s)
-    const controller = new AbortController();
+    // The stub throws the AbortError a fired timeout raises (the real timeout is 30s).
     globalThis.fetch = async () => {
       const err = new Error('The operation was aborted');
       err.name = 'AbortError';

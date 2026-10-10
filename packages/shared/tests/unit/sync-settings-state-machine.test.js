@@ -6,7 +6,7 @@
  * Both platform panels (extension `sidepanel/panel.js`, desktop `src/panel.js`)
  * use top-level `await` and DOM globals, so they cannot be imported under
  * `node --test`. Following the established `packages/extension/tests/unit/panel.test.js`
- * convention, the panel's settings state-machine logic is MIRRORED here as small
+ * convention, the panel's settings state-machine logic is RESHAPED here as small
  * pure functions and driven against the REAL shared layer that owns the state —
  * the `sync-store` settings helpers (`getSettings`/`setSettings`), the
  * `connection-test` helpers (`testConnection`/`settingsFingerprint`), and the
@@ -14,7 +14,7 @@
  * rather than DOM wiring (identical behavior on both
  * platforms given identical settings + inputs).
  *
- * The mirrored functions reproduce, line-for-line in behavior, the panel's:
+ * The reshaped functions reproduce the behaviour of the panel's:
  *   - reconciliation-policy toggle render
  *   - `canEnableAutoSync` enable rule
  *   - Auto-Sync controls render incl. the active status indicator
@@ -46,14 +46,14 @@ import { createEmptySyncState, getSettings, setSettings } from '../../sync-store
 import { testConnection, settingsFingerprint } from '../../connection-test.js';
 import { createSyncScheduler } from '../../sync-scheduler.js';
 
-// ─── Mirrored panel logic (verbatim behavior of panel.js) ─────────────────────
+// ─── Reshaped panel logic (the panel's behaviour, not its text) ───────────────
 //
 // These reproduce the settings state machine in both panels. They read only a
 // `syncSettings` ({ serverUrl, apiKey }) snapshot and the durable `syncState`,
 // exactly as the panels do, and never touch the DOM.
 
 /**
- * Render state for the two reconciliation-policy toggles. Mirrors
+ * Render state for the two reconciliation-policy toggles. Reshaped from
  * the first lines of `updateAutoSyncControls()` in both panels.
  *
  * @param {import('../../sync-types.js').SyncState} syncState
@@ -68,7 +68,7 @@ function renderPolicyToggles(syncState) {
 }
 
 /**
- * The Auto-Sync enable rule. Mirrors `canEnableAutoSync()`
+ * The Auto-Sync enable rule. Reshaped from `canEnableAutoSync()`
  * (extension) / `hasPassingConnectionTest()` (desktop): an endpoint must be
  * present AND a Connection_Test must have PASSED for the CURRENT settings, which
  * is enforced by matching the stored `testedSettingsFingerprint` against the
@@ -90,7 +90,7 @@ function canEnableAutoSync(syncSettings, syncState) {
 
 /**
  * Render state for the Auto-Sync toggle + its status indicator.
- * Mirrors the Auto-Sync half of `updateAutoSyncControls()` in both panels:
+ * Reshaped from the Auto-Sync half of `updateAutoSyncControls()` in both panels:
  *   - the toggle reflects the persisted `autoSync` value;
  *   - it is interactive only when enableable OR already on;
  *   - the "Auto-sync active" status indicator shows only while active;
@@ -113,7 +113,7 @@ function renderAutoSyncControls(syncSettings, syncState) {
 }
 
 /**
- * Render state for the manual Sync button. Mirrors
+ * Render state for the manual Sync button. Reshaped from
  * `updateSyncButton()` in both panels: hidden while Auto-Sync is active (no
  * manual force-sync affordance), shown and endpoint-gated otherwise.
  *
@@ -172,7 +172,7 @@ function recordConnectionTest(syncState, syncSettings, reason) {
 }
 
 /**
- * The 401/403 auto-disable + needs-retest transition. Mirrors the
+ * The 401/403 auto-disable + needs-retest transition. Reshaped from the
  * desktop `disableAutoSync({ needsRetest: true })` and the extension service
  * worker's background auto-disable: persist `autoSync:false`, flag the prior
  * test as an auth failure, and clear the tested fingerprint so the enable rule

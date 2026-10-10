@@ -18,8 +18,6 @@ import { mock } from 'node:test';
 let storageData = {};
 let sessionData = {};
 let storageListeners = [];
-let mockSendMessage;
-let mockFetch;
 
 function resetStorage() {
   storageData = {};
@@ -95,10 +93,10 @@ globalThis.chrome = {
   },
 };
 
-mockSendMessage = mock.fn(async () => ({}));
+const mockSendMessage = mock.fn(async () => ({}));
 globalThis.chrome.runtime.sendMessage = mockSendMessage;
 
-mockFetch = mock.fn(async () => ({ ok: true, text: async () => '', json: async () => ({}) }));
+const mockFetch = mock.fn(async () => ({ ok: true, text: async () => '', json: async () => ({}) }));
 globalThis.fetch = mockFetch;
 
 // Dynamic import after globals are set up

@@ -141,7 +141,7 @@ export default async function globalTeardown() {
       lcovOutput += `SF:${filePath}\n`;
 
       if (fnMap) {
-        for (const [id, fn] of Object.entries(fnMap)) {
+        for (const fn of Object.values(fnMap)) {
           lcovOutput += `FN:${fn.loc.start.line},${fn.name || '(anonymous)'}\n`;
         }
         lcovOutput += `FNF:${Object.keys(fnMap).length}\n`;

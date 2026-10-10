@@ -25,7 +25,6 @@ import {
   diffEnvelopes,
   discoverSessions,
   sessionsIn,
-  serializeFinding,
   toBaseline,
   MachineryError,
   MATCH_STAT_FIELDS,

@@ -120,7 +120,8 @@ under its host permissions; the desktop rebinds it at adapter load to the
 native `sync_http_request` command, since a webview `fetch` would be
 CORS-blocked against a non-CORS server).
 
-What stays platform-local, by design:
+What stays platform-local, by design — SC-1's definition decides; beside the
+adapters above, the large pieces are:
 
 - **The panel driver** — each platform's `panel.js` wires the shared views
   and modules to its adapter and owns the DOM event handling. On the
@@ -210,8 +211,9 @@ an input able to stale the outputs; a PR that sets none of the workflow's
 change flags skips it).
 
 The freshness rule in practice: after editing anything under
-`packages/shared/` or a shell, re-run `npm run sync-shared` before loading
-the extension, building the desktop app, or running platform tests
+`packages/shared/` or a shell, re-run `npm run sync-shared` before anything
+that runs the synced copies — loading the extension, building the desktop app
+and running platform tests among them —
 ([Contributing — Project Structure](../../../.github/CONTRIBUTING.md#project-structure)).
 The pipelines never trust a stale copy either: the CI test jobs re-run the
 sync before exercising platform code, and each release pipeline syncs before

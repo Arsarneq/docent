@@ -20,13 +20,9 @@ import { loadSessionState, saveSessionState } from '../../src/persistence.js';
 
 // ─── Global mocks ─────────────────────────────────────────────────────────────
 
-let mockInvoke;
-let mockFetch;
-let mockListen;
-
-mockInvoke = mock.fn();
-mockFetch = mock.fn();
-mockListen = mock.fn(async () => () => {});
+const mockInvoke = mock.fn();
+const mockFetch = mock.fn();
+const mockListen = mock.fn(async () => () => {});
 
 globalThis.window = {
   __TAURI__: {
