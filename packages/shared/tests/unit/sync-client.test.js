@@ -1,7 +1,9 @@
 /**
  * sync-client.test.js — Unit tests for the shared sync-client module.
  *
- * Tests pushProjects, pullProjects, and sync functions with mocked fetch.
+ * Tests pushProjects, pullProjects, and sync against a stubbed fetch, and calls
+ * the payload builders (buildHeaders, buildPayloadForProject) and the pull
+ * projection (envelopeProjection) directly.
  * Uses Node.js built-in test runner and fast-check for property-based tests.
  *
  */

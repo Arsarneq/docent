@@ -7,13 +7,14 @@ outside-in and proves the recorded **data** keeps the guarantees the format make
 to a consumer ([Replay Sufficiency](../requirements/replay-sufficiency.md)); this
 area documents the tests that prove the capture **software** itself works.
 
-This area is documentation _about_ the suites — what each covers and the doctrine
-behind it. It is not a how-to: the commands to run the suites live in the
-[contributing guide](../../.github/CONTRIBUTING.md#running-tests), and a suite with a
-one-time harness carries its first-run steps in its own doc, which the guide
-links, and running the
-CI jobs on your own machine is covered in
-[Running CI locally](../guides/local-ci.md).
+This area is documentation _about_ the suites — what each covers and the
+doctrine behind it. The commands that run the suites by layer and by package
+live in the [contributing guide](../../.github/CONTRIBUTING.md#running-tests).
+Where a suite doc has a "Running the suite" section, it carries what running
+that one suite takes: its one-time harness install, which the guide links, the
+invocations particular to the suite, and the guide's command for it beside them,
+so its first run reads in one place. Running the CI jobs on your own machine is
+covered in [Running CI locally](../guides/local-ci.md).
 
 ## Documents
 

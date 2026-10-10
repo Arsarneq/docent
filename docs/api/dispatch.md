@@ -24,8 +24,8 @@ identifiers reflect minting order and can appear out of numeric sequence.
 **DI-1.** An endpoint built against the [Request](#the-request),
 [Payload structure](#payload-structure), and
 [Response handling](#response-handling) sections is complete and correct — it
-accepts the POST and returns a `2xx`. The remaining sections — validation,
-retries, and send gating — bind the client, not the endpoint, with one named
+accepts the POST and returns a `2xx`. The remaining sections — retries, size
+bounds and send eligibility among them — bind the client, not the endpoint, with one named
 exception: the [Endpoint scope and CORS](#endpoint-scope-and-cors) section
 carries the endpoint's one deployment obligation (DI-15).
 
@@ -120,8 +120,9 @@ top-level fields rather than hard-validating the key set. Additions are
 announced by this specification — the wrapper carries no version signal of
 its own; `docent_format` stamps the inner `.docent.json` format only.
 
-The `.docent.json` export file contains `docent_format`, `project`, and
-`recordings` (no `reading_guidance` or `schema` wrapper).
+The `.docent.json` export file's top level is what the platform schemas
+define: `docent_format`, `project`, and `recordings` (no `reading_guidance` or
+`schema` wrapper).
 
 The stamp's values are read off the packaged schema itself — the single source
 of truth — never hand-written. A client that cannot load its packaged schema
@@ -190,9 +191,10 @@ body.
 
 ## Retries and duplicate delivery
 
-**DI-7.** Transient failures — a network error, the 30-second per-attempt
-timeout, HTTP `429`, or any `5xx` — are retried up to three times after the
-first attempt (at most four attempts per send). Each retry is delayed by
+**DI-7.** Transient failures — DI-6's transient set: a network error, the
+30-second per-attempt timeout, HTTP `429`, or any `5xx` — are retried up to
+three times after the first attempt (at most four attempts per send). Each retry
+is delayed by
 full-jitter exponential backoff: a uniformly random delay up to a cap that
 starts at 500 ms and doubles per retry, bounded at 8 s. A `Retry-After` header
 on the response being retried overrides the jittered delay, capped at 30 s: a
@@ -210,8 +212,9 @@ the response path) is retried, so an endpoint MAY receive the same payload
 more than once. The protocol carries no idempotency token.
 
 **DI-16.** Every attempt of a send carries a byte-identical body — the payload
-is serialized once, before the attempt loop — and the identifiers inside it
-(`project_id`, `recording_id`, step `uuid`s) are stable across attempts, so an
+is serialized once, before the attempt loop — so every field in it,
+`project_id`, `recording_id` and step `uuid`s among them, is stable across
+attempts, so an
 endpoint that needs exactly-once processing can deduplicate on content or
 identifiers.
 
@@ -241,10 +244,10 @@ implementation that also guards the sync server URL settings:
 3. It carries no embedded credentials (userinfo).
 4. The host is not a link-local IPv4 address (`169.254.0.0/16`, which includes
    the cloud-metadata endpoint) — rejected on either scheme.
-5. When an API key is configured alongside it: the scheme is `https://`, or
-   the host is loopback (`localhost`, `127.0.0.0/8`, `::1`) over `http://` —
-   a Bearer token (and a payload that may contain PII) MUST NOT travel
-   plaintext past the local machine.
+5. When an API key is configured alongside it: the scheme is `https://`, or the
+   host is loopback (exactly `localhost`, `127.0.0.0/8` and `::1`) over
+   `http://` — a Bearer token (and a payload that may contain PII) MUST NOT
+   travel plaintext past the local machine.
 
 An empty value is valid and clears the endpoint (disabling Send — see
 [Send eligibility](#send-eligibility-and-the-post-send-cooldown)). Without an
@@ -269,8 +272,9 @@ address, with a 30-second request timeout of its own.
 
 ## Transport seam
 
-**DI-12.** Shared dispatch, sync, and connection-test logic issues every HTTP
-request through a single transport seam
+**DI-12.** Shared dispatch, sync, and connection-test logic — exactly the
+shared modules that send HTTP — issues every HTTP request through a single
+transport seam
 ([`packages/shared/lib/http-transport.js`](../../packages/shared/lib/http-transport.js));
 a platform MAY bind a native transport once at startup, and left unbound, the
 seam defaults to the environment's `fetch`. The contract is a strict subset of
@@ -295,7 +299,7 @@ These are client behaviours, not endpoint obligations.
 open project has at least one recording whose resolved active view (the
 [step-resolution rule](../technical/session-format.md#steps)) contains at
 least one step. The send flow offers only recordings with at least one active
-step — individually or all together — and shows a confirmation of the
+step — individually or all together — and shows a confirmation of exactly the
 endpoint, the selected recording names, and the active-step count before
 anything is sent. Active steps gate eligibility and drive the displayed
 counts; the payload itself carries each selected recording's full step

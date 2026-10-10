@@ -29,15 +29,16 @@ enforce this at the worker's entry module.
 
 **ECP-2.** The recorder is **not** a passive `<all_urls>` content script. It
 is injected programmatically by the service worker, and **only while a
-recording is active**:
+recording is active**, by exactly these two routes:
 
 - On record-start, the service worker sweeps the open http/https tabs: the
   scheme test is the tab's — every frame of a swept tab that the browser lets
   the extension reach is injected, whatever scheme its own document carries.
 - For the rest of the recording, each frame is injected as it finishes loading
   (`webNavigation.onCompleted`), whenever the browser lets the extension reach
-  it — no scheme test on this path — so newly opened tabs, navigations,
-  `srcdoc` frames, and dynamically created iframes are covered as they appear.
+  it — no scheme test on this path — so, for example, newly opened tabs,
+  navigations, `srcdoc` frames, and dynamically created iframes are covered as
+  they appear.
 
 When no recording is running, nothing is injected and nothing captures: the
 service worker injects no recorder, and recorder instances a prior recording
@@ -55,8 +56,8 @@ recording, on whatever host the browser lets the extension reach.)
 service worker validates every inbound `APPEND_ACTION` against an in-memory
 **active-frame registry** (tab → frames): a message MUST be accepted only when
 it comes from this extension, during a live recording, from a (tab, frame)
-pair present in the registry. Anything else — an embedded ad, analytics, or
-third-party widget that can reach the message port — is dropped.
+pair present in the registry. Anything else — for example an embedded ad,
+analytics, or third-party widget that can reach the message port — is dropped.
 The registry is seeded from the browser's own frame table
 (`webNavigation.getAllFrames`) at record-start, and is written one frame at a
 time by two further paths: the on-load registration that follows each
@@ -69,7 +70,8 @@ lazily reseeded from the same frame table when an append arrives from a tab
 with no registry entry at all (the missing-entry signature: a suspension is
 one cause, a clear whose seed does not re-cover that tab another), rather than
 false-rejecting a legitimate frame whose registration is gone. An entry
-departs along the registry's own routes: a subframe is dropped as it navigates
+departs along exactly three routes, the registry's own: a subframe is dropped
+as it navigates
 away (a main frame is left in place — its registration follows on the load), a
 closed tab's frames go with the tab, and the whole registry is cleared at
 record-start, ahead of the registry seed, and again on every record-stop path
@@ -163,6 +165,18 @@ or, where the immediate effect lands in the page instead, one of the recorder's
 | Select file in OS dialog      | `file_upload`                     | `change` (the recorder's own surface, correlated with a click) |
 | Right-click → Open in new tab | `context_open` + `navigate(link)` | `chrome.tabs.onCreated` + `chrome.webNavigation.onCommitted`   |
 
+The table's user-action rows illustrate; its event sources are the fixed set
+ECP-6 holds the worker's registrations to, as core CP-14 requires. Which
+navigations get a proxy is decided by the service worker's committed-navigation
+handler — its browser-chrome transition set, its redirect skip and its new-tab
+exception among its rules; the context rows are the tab events the
+capture-surface check holds the worker to under ECP-6, and the file-upload row
+the DOM surface that clause lists. Its new-tab row, and the click-opened tab the scripted-truth
+corpus pins, both record the new context's first navigation beside the user's
+action; whether that navigation is the action's first link under core CP-8 or a
+later one, and whether the pair is one proxy under CP-9, this table does not
+settle, and the rows stand as the shipped behaviour.
+
 ---
 
 ## Filtering Approach
@@ -174,7 +188,12 @@ observable signals:
 - Chrome's `transitionType` identifies browser chrome navigations vs effects
 - `programmaticTabs` set tracks tabs from `window.open()`
 - Timing windows centralized in `lib/capture-timing.js` (see code for values)
-- SPA navigation capture removed entirely (all are effects of captured clicks/keys)
+
+The listed signals illustrate how this clause reads the stream; core CP-6's
+definition of what is not a user action decides what the filter excludes, and
+ECP-12 lists what else the worker drops. Same-document (SPA) navigations are not
+captured: navigate proxies come from committed navigations only, and no
+history-state or fragment listener exists.
 
 ---
 
@@ -192,7 +211,8 @@ detection and the redaction shape are the cross-platform rule
 Locator candidates pass the chokepoint with one exception: the `text` strategy
 is value-derived, so its value is masked in place (`masked: true`) on
 sensitive elements; the derived `css` value is structural by construction —
-ids, test attributes, tag names and positions — and carries no rendered text.
+exactly ids, test attributes, tag names and positions — and carries no rendered
+text.
 (Which strategies are value-derived is declared per strategy by the schema's
 `x-value-derived` annotation — [locator-resolution §LR-24](../../../technical/locator-resolution.md).)
 
@@ -235,6 +255,14 @@ with a caveat):
   the keyboard surface is the whitelist, not all keys
 - Arrow keys in native `<select>` are swallowed by the browser before the
   recorder's listeners see them
+- Back/forward between same-document entries (an SPA's history) — a
+  browser-chrome action; the worker's committed-navigation listener does not
+  report it
+- A second navigation to the same address within the worker's repeat window
+  (five seconds) of the last recorded one, reloads excepted — dropped as a
+  repeat
+- A typed address on an internal scheme (`chrome://`, `chrome-extension://`,
+  `about:`) — the worker skips those schemes before any proxy is considered
 - `window.open()` detection uses a timing window (see `capture-timing.js`)
 - `window.close()` detection uses a timing window on programmatic tabs
 - Scroll gestures are debounced and coalesced with a sub-threshold discard —
