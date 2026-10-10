@@ -96,7 +96,8 @@ function buildProject(project_id, nameSuffix, recordings) {
 
 /**
  * Allowlisted projection of a project's own scalar identity fields (no
- * recordings). Mirrors `projectMetaSkeleton` in conflict-resolution.js so the
+ * recordings). Matches `projectMetaSkeleton` in conflict-resolution.js: an
+ * oracle the property holds the module's output to, needing no parity test. The
  * independently-computed expected per-unit baseline is shaped exactly like the
  * one the module writes.
  */

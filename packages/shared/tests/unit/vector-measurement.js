@@ -19,65 +19,11 @@
  * `#id` | `tag[attr="value"]` | `tag`, optionally `:nth-of-type(n)`. No general
  * CSS engine and no external dependency — the grammar is Docent-controlled and
  * closed, so a matcher for exactly it covers every emitted css value. The
- * cssEscape / cssString helpers are copied verbatim from recorder-logic.js so
- * the id/attribute forms compare against the exact strings capture emits.
+ * cssEscape / cssString helpers are imported from recorder-logic.js, so the
+ * id/attribute forms compare against the exact strings capture emits.
  */
 
-/**
- * Docent's stated text-normalization predicate (recorder-logic.js normalizeText):
- * leading/trailing whitespace removed, internal whitespace runs collapsed.
- *
- * @param {string} s
- * @returns {string}
- */
-export function normalizeText(s) {
-  return String(s).trim().replace(/\s+/g, ' ');
-}
-
-/** Copied verbatim from recorder-logic.js (the CSSOM "serialize an identifier"). */
-function cssEscape(value) {
-  const s = String(value);
-  const first = s.charCodeAt(0);
-  let out = '';
-  for (let i = 0; i < s.length; i++) {
-    const code = s.charCodeAt(i);
-    if (code === 0x0000) {
-      out += '�';
-      continue;
-    }
-    if (
-      (code >= 0x0001 && code <= 0x001f) ||
-      code === 0x007f ||
-      (i === 0 && code >= 0x0030 && code <= 0x0039) ||
-      (i === 1 && code >= 0x0030 && code <= 0x0039 && first === 0x002d)
-    ) {
-      out += `\\${code.toString(16)} `;
-      continue;
-    }
-    if (i === 0 && s.length === 1 && code === 0x002d) {
-      out += `\\${s.charAt(i)}`;
-      continue;
-    }
-    if (
-      code >= 0x0080 ||
-      code === 0x002d ||
-      code === 0x005f ||
-      (code >= 0x0030 && code <= 0x0039) ||
-      (code >= 0x0041 && code <= 0x005a) ||
-      (code >= 0x0061 && code <= 0x007a)
-    ) {
-      out += s.charAt(i);
-      continue;
-    }
-    out += `\\${s.charAt(i)}`;
-  }
-  return out;
-}
-
-/** Copied verbatim from recorder-logic.js (double-quoted attribute value). */
-function cssString(value) {
-  return String(value).replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/\n/g, '\\a ');
-}
+import { normalizeText, cssEscape, cssString } from '../../../extension/content/recorder-logic.js';
 
 /**
  * Pre-order list of snapshot nodes plus a node → parent map, so segment queries

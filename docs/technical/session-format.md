@@ -58,9 +58,10 @@ Schemas are versioned independently per platform:
 <!-- VERSION_TABLE_END -->
 
 **SF-2.** **Version bumps** are determined **mechanically at release time** by
-[`scripts/auto-version-schemas.js`](../../scripts/auto-version-schemas.js), which
-diffs the last released schema (`schemas/dist/<platform>.schema.json`) against
-the schema composed from the current source layers and classifies the change:
+[`scripts/auto-version-schemas.js`](../../scripts/auto-version-schemas.js), which diffs the last
+released schema (`schemas/dist/<platform>.schema.json`) against the schema composed from the current
+source layers and classifies the change into exactly one of three levels — the script is the
+complete statement of which change takes which level, and the kinds below name each level's:
 
 - **Patch** (x.x.1): documentation-only changes (description clarifications)
 - **Minor** (x.1.0): new optional fields, new action types, new enum values on existing fields, pure type widenings (the old accepted type set is kept and extended — e.g. a string field additionally allowing null), and `additionalProperties` relaxations (a closed object opting to accept unknown keys)
@@ -224,10 +225,10 @@ recording. This includes re-recorded versions and soft-deleted steps.
 3. Exclude steps where `deleted: true`
 4. Sort by `step_number`
 
-**SF-9.** The step history is append-only: a producer MUST NOT edit a
-version record in place. Every mutation appends a new record with a
-fresh `uuid` — a re-record appends the replacement version; a deletion appends
-a **tombstone**, a full copy of the last active version with a fresh `uuid`, a
+**SF-9.** The step history is append-only: a producer MUST NOT edit a version
+record in place. Every mutation appends a new record with a fresh `uuid` — for
+example, a re-record appends the replacement version; a deletion appends a
+**tombstone**, a full copy of the last active version with a fresh `uuid`, a
 fresh `created_at`, and `deleted: true` (content preserved, so history stays
 recoverable); a reorder appends new records only for the steps whose
 `step_number` changed.
@@ -457,19 +458,18 @@ resolution procedure defines it, and the sufficiency lint enforces the masking i
 
 ### Measurement semantics
 
-**SF-11.** The pair is a snapshot — valid at the recorded `timestamp`, in the stated scope and order,
-measured **at the moment the acted-on element is described for capture**. On the extension,
+**SF-11.** The pair is a snapshot — valid at the recorded `timestamp`, in the stated scope and
+order, measured **at the moment the acted-on element is described for capture**. On the extension,
 that is inside the capture handler (before the action's effects run) for immediately-captured
 actions, and at capture-commit for deliberately debounced or deferred captures (Tab-correlated
-focus, scroll settle, contenteditable typing pauses). On desktop, elements are described
-asynchronously on a worker after the input that caused them, so the measurement reflects the
-tree as it stands when the description is built — the action's effects may already be
-underway; desktop click actions whose element was described directly at input time carry
-candidate values only, with the pair absent (not measured). How long after the input the
-description (and so the pair) was actually captured is exported per element as
-`described_after_ms` — `0` for input-time describes, the real observed gap for worker
-describes — so a consumer can apply its own staleness judgement instead of trusting an
-implicit one:
+focus, scroll settle, contenteditable typing pauses — the extension's recorder decides which
+captures it defers). On desktop, elements are described asynchronously on a worker after the input
+that caused them, so the measurement reflects the tree as it stands when the description is built —
+the action's effects may already be underway; desktop click actions whose element was described
+directly at input time carry candidate values only, with the pair absent (not measured). How long
+after the input the description (and so the pair) was actually captured is exported per element as
+`described_after_ms` — `0` for input-time describes, the real observed gap for worker describes — so
+a consumer can apply its own staleness judgement instead of trusting an implicit one:
 
 | Platform  | Scope                                                                                | Order                                                                                                        |
 | --------- | ------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------ |

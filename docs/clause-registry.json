@@ -83,7 +83,7 @@
       "doc": "docs/architecture/system/capture-principles.md",
       "clause": "CP-8",
       "tag": "judgment-only",
-      "justification": "Which effect is the immediate one in a new proxy's causal chain is judgment; regressions on existing proxies are probed by the scripted-truth corpus."
+      "justification": "Whether a proxy records only its immediate effect is judgment at review; no check can read a causal chain. The scripted-truth corpus probes the existing proxies for regressions."
     },
     {
       "doc": "docs/architecture/system/capture-principles.md",
@@ -95,7 +95,7 @@
       "doc": "docs/architecture/system/capture-principles.md",
       "clause": "CP-10",
       "tag": "judgment-only",
-      "justification": "Whether a proxy's recorded shape identifies the user action is judgment."
+      "justification": "Whether a proxy's recorded shape identifies the action at the effect level is judgment at review; no check reads a proxy's design."
     },
     {
       "doc": "docs/architecture/system/capture-principles.md",
