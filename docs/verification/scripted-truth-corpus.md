@@ -35,20 +35,23 @@ identifiers reflect minting order and can appear out of numeric sequence.
   line-by-line review against the script; anywhere current capture falls short
   of the reviewed truth, the divergence goes into the known-diffs baseline
   (issue-tagged in the manifest), never silently enshrined into the truth.
-- **STC-2.** **Corpus diffs cover only current-format-expressible capture defects**:
-  missing/extra/wrong actions and wrong field values. Facts the format cannot
-  state (viewport, start URL, hover, readiness…) are the sufficiency lint's
-  gap-predicate territory — truth files are schema-valid current-format
-  documents, so such facts structurally cannot appear as corpus diffs.
+- **STC-2.** **Corpus diffs cover only current-format-expressible capture defects**,
+  exactly the comparator's finding kinds: missing or extra recordings, steps and
+  actions, and wrong field values. Facts the format cannot
+  state (viewport, start URL, hover, readiness, for example) are the
+  sufficiency lint's gap-predicate territory — truth files are schema-valid
+  current-format documents, so such facts structurally cannot appear as corpus
+  diffs.
 - **STC-3.** **CI stays green while known capture gaps are open.** The committed
   `corpus/known-diffs.<platform>.json` is locked in BOTH directions by
   `npm run corpus:check` and `corpus:check:desktop`: a NEW diff is a capture
   regression; a VANISHED diff
   means a fix landed — both fail CI until the baseline is deliberately
   regenerated (the comparator's `--write-baseline` flag) and reviewed. The
-  `--strict` and `--lint-strict` flags exist and are CI-wired per platform (the
-  gate slice): `--strict` once that platform's known-diffs baseline empties,
-  `--lint-strict` once additionally none of that platform's ACTIVE sessions'
+  comparator's `--strict` and `--lint-strict` flags exist and are wired per
+  platform into that platform's gate command above: `--strict` once that
+  platform's known-diffs baseline empties, `--lint-strict` once additionally
+  none of that platform's ACTIVE sessions'
   committed truths carries a `fail`-class entry in the committed sufficiency
   baseline — both demands machine-held by the verification-inventory lint,
   which reds the moment a trigger comes true and the gate command still omits
@@ -248,7 +251,8 @@ its pointer names the action itself rather than a locator entry.
 
 ## Page-authoring rules
 
-**STC-6.** Pages are authored for determinism:
+**STC-6.** Pages are authored for determinism, by exactly these rules beside
+STC-4's hermetic serving:
 
 - Interactive elements carry `id` + `data-testid` — EXCEPT elements
   deliberately left identifier-less so the derived `css` locator stays
@@ -285,14 +289,15 @@ machine-local paths.
 
 **STC-8.** The desktop truth leg reuses the same doctrine with a two-stage
 pipeline: a Rust integration test drives real OS input against controlled
-windows and serializes the captured events — in the same shape the runtime
-emits — to per-session dump files; `npm run corpus:assemble:desktop` then
-replays each dump through the real frontend pipeline (the reorder buffer, the
-redaction chokepoint, the commit flush barrier's frontend collection path, and
-the same shared session model and export the desktop panel uses) into envelopes
-for the same
-comparator (`npm run corpus:check:desktop`). In CI the producer runs on the
-Windows job and uploads the dumps; a separate job assembles and diffs them.
+windows and serializes the captured events — in the same shape the runtime emits
+— to per-session dump files; `npm run corpus:assemble:desktop` then replays each
+dump through the real frontend pipeline (the stages the assembler exercises —
+the reorder buffer, the redaction chokepoint, the commit flush barrier's
+frontend collection path, and the same shared session model and export the
+desktop panel uses, for example; STC-13 names what it leaves to other suites)
+into envelopes for the same comparator (`npm run corpus:check:desktop`). In CI
+the producer runs on the Windows job and uploads the dumps; a separate job
+assembles and diffs them.
 
 **STC-9.** Desktop sessions are designed to be environment-independent: a
 session window is deliberately never raised programmatically (a programmatic
@@ -304,7 +309,8 @@ sessions that stay unstable anyway).
 
 **STC-22.** **Catalogue criterion — what earns a desktop session.** Each
 active desktop session pins exactly one capture behaviour end-to-end from
-real OS input: an action-emission class (`d-click`; `d-double-click`'s
+real OS input, and the active desktop sessions are exactly these (held to the
+manifest, STC-14): an action-emission class (`d-click`; `d-double-click`'s
 two-clicks truth), the activation/foreground proxy (`d-context-switch`), a
 correlation gate (`d-selection-gate`), input coalescing (`d-type-edit`), the
 redaction chokepoint (`d-redaction`), the scroll significance floor from both
@@ -349,8 +355,9 @@ non-navigating vector-carrying action, the session driver calls
 injected via `page.evaluate`) serializes the bound frame's `documentElement`,
 marking the ground truth by the **identity** of the element the driver just acted
 on (never a positional index). Canonical serialization — attribute keys sorted,
-children in document order, node text in the trim-only `element.text` form, node
-ids in document order — so a produced snapshot is deterministic. After the run,
+children in document order, node text in the trim-only `element.text` form and
+node ids in document order among its rules; the snapshot walker states them
+whole — so a produced snapshot is deterministic. After the run,
 `element_facts` and `locators` are taken from the real recorded action (correlated
 by element identity) and `matched_node_ids` are measured over the produced
 snapshot. Produced vectors land under the gitignored `corpus/out/extension-vectors/`.
@@ -396,7 +403,8 @@ names an active lock. For every committed vector:
 
 Lock 5's query evaluator implements the spec's Application step per strategy over
 the serialized snapshot — attribute field-walks, the all-tag normalized-text
-predicate, and Docent's own bounded `css` derivation grammar. A repo-level unit
+predicate, and Docent's own bounded `css` derivation grammar, for example;
+LR-10's strategy tables define each query. A repo-level unit
 test additionally greps the shipped runtime paths for identifiers unique to the
 ordered procedure, so a resolver can never be smuggled into a shipped surface.
 
@@ -404,8 +412,9 @@ ordered procedure, so a resolver can never be smuggled into a shipped surface.
 
 **STC-12.** `corpus/vectors-coverage.json` maps each emitted strategy, per
 platform, to the committed vector where it is the measured-unique candidate,
-at element granularity (extension rows: `session`, `vector`, `element`,
-`action_index`; desktop rows: `fixture`, `vector`, `element`). A lock ties
+at element granularity (extension rows carry exactly `session`, `vector`,
+`element`, `action_index`; desktop rows exactly `fixture`, `vector`,
+`element`). A lock ties
 every emitted strategy to a real committed vector — on the desktop, a
 strategy MAY instead carry a recorded reason on the ledger's gap side, and
 the union equals the emitted set. On the extension, `role_name` and `label`
@@ -415,7 +424,8 @@ vector scope.
 ### Determinism
 
 **STC-24.** Extension snapshots are static by the page-authoring rules above
-(no animation, no time/locale-dependent text, fixed viewport), so the produced
+(among them no animation, no time/locale-dependent text and a fixed viewport),
+so the produced
 snapshot content is deterministic across runs, and the produce-stage oracle
 holds each produced vector deep-equal to its committed counterpart —
 structurally, formatting excepted: the oracle parses the committed file and
@@ -440,7 +450,9 @@ evaluator. The differences are all data:
   and `tree_path` are counted over exactly what a query sees at the window.
 - **STC-15.** **Locale determinism by authored provenance.** A committed snapshot MUST NOT
   freeze OS-locale strings. `control_type` / `automation_id` / `class_name` /
-  structure are kept verbatim (stable, count-relevant); the localized `name` of
+  structure are kept verbatim (stable, count-relevant); the vector meta-schema's
+  `desktop_node` definition states how each field this clause does not name is
+  recorded; the localized `name` of
   any node that does **not** carry an authored content `automation_id` — whatever
   its tree position, so OS descendants (a scrollbar, a menu item) are covered — is
   normalized to a reserved placeholder. The window root keeps its authored title.
@@ -449,8 +461,9 @@ evaluator. The differences are all data:
   content-targeting query.
 - **STC-16.** **Fixture-sourced, producer-emitted.** Desktop vectors are sourced from a
   dedicated vector-only fixture window (`corpus/vector-fixtures.json`), not a manifest
-  corpus session: it has no `truth.docent.json`, no known-diffs baseline key, and
-  no sufficiency-baseline entry. Its `element_facts` + `locators` are captured
+  corpus session: it carries none of a manifest session's own artefacts — no
+  `truth.docent.json`, no known-diffs baseline key and no sufficiency-baseline
+  entry among them. Its `element_facts` + `locators` are captured
   through the real desktop path (never hand-authored); the vector is
   self-describing, so lock (2) checks internal consistency. The vector-carrying
   action is a worker-described one (its element carries measured stats); an
@@ -520,9 +533,9 @@ evaluator. The differences are all data:
   panels call); the extension panel's commit and export flows stay covered by
   the [extension end-to-end suite](../test/e2e.md), and the desktop panel's by
   the [desktop integration suite](../test/integration/desktop.md). The desktop
-  assembler replays event **arrival order** through the real JS pipeline; it
-  does not exercise the live Tauri emit-to-listen bridge, the panel commit UI,
-  persistence, or arrival timing.
+  assembler replays event **arrival order** through the real JS pipeline; the
+  surfaces it leaves to other suites include the live Tauri emit-to-listen
+  bridge, the panel commit UI, persistence, and arrival timing.
 - A `match-stats` relaxation can hide a `locator-pair-invariants` violation
   from the corpus diff — which is why produced files are additionally run
   through the sufficiency lint (`--lint`) and relaxations are per-entry,
@@ -532,16 +545,20 @@ evaluator. The differences are all data:
   the gitignored `corpus/out/` can't leak into the lint baseline). Their gap/fail
   findings live in `packages/shared/tests/fixtures/sufficiency-baseline.json`.
 
+These caveats illustrate the corpus's known limits; they do not close them —
+what the corpus drives — STC-8's pipeline and the comparator — decides what a
+limit of this kind is.
+
 ## Adding or retiring a session
 
-**STC-14.** Add: create `corpus/sessions/<id>/` (pages, script, truth per the
-doctrine above), register it in `corpus/manifest.json`, produce, review the
-truth line-by-line, regenerate and review both baselines, and — for a desktop
-session — name it in STC-22's enumeration, which is held to the manifest's
-active sessions both ways by the verification-inventory lint. Retire: never
-delete silently — set `"status": "retired"` in the manifest with a reason (and
-issue link); the entry stays listed, and a desktop id leaves STC-22's
+**STC-14.** Add: create `corpus/sessions/<id>/` (pages, script and truth among
+them, per the doctrine above), register it in `corpus/manifest.json`, produce,
+review the truth line-by-line, regenerate and review both baselines, and — for a
+desktop session — name it in STC-22's enumeration, which is held to the
+manifest's active sessions both ways by the verification-inventory lint. Retire:
+never delete silently — set `"status": "retired"` in the manifest with a reason
+(and issue link); the entry stays listed, and a desktop id leaves STC-22's
 enumeration in the same change, since that lint counts only active sessions. A
 session that cannot pass CI reliably across its retry budget is redesigned or
-retired — never relaxed into meaninglessness.
-Removal decisions belong to the maintainer.
+retired — never relaxed into meaninglessness. Removal decisions belong to the
+maintainer.

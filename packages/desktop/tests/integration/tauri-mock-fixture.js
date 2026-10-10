@@ -450,7 +450,9 @@ export function installTauriMockServer(options = {}) {
     try {
       makeHandler = new Function(`return (${source});`);
     } catch (err) {
-      throw new Error(`[tauri-mock] the override for '${command}' does not parse: ${err.message}`);
+      throw new Error(`[tauri-mock] the override for '${command}' does not parse: ${err.message}`, {
+        cause: err,
+      });
     }
     let handler;
     try {
@@ -458,6 +460,7 @@ export function installTauriMockServer(options = {}) {
     } catch (err) {
       throw new Error(
         `[tauri-mock] the override for '${command}' threw while being evaluated: ${err.message}`,
+        { cause: err },
       );
     }
     if (typeof handler !== 'function') {

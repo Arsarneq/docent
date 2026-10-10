@@ -1,7 +1,9 @@
 /**
  * sync-client.test.js — Unit tests for the shared sync-client module.
  *
- * Tests pushProjects, pullProjects, and sync functions with mocked fetch.
+ * Tests pushProjects, pullProjects, and sync against a stubbed fetch, and calls
+ * the payload builders (buildHeaders, buildPayloadForProject) and the pull
+ * projection (envelopeProjection) directly.
  * Uses Node.js built-in test runner and fast-check for property-based tests.
  *
  */
@@ -436,9 +438,10 @@ describe('buildPayloadForProject', () => {
   // projection alone carries is never offered to it here — the recorder case
   // above stays the sole guard for that direction, and the two compose:
   // schema properties survive the projection, whose names the recorder holds
-  // to the push body's. On a red, the projection is only half the fix — the
-  // sync protocol doc's payload table and its projection sentence state the
-  // same field set and must move with it (SP-5).
+  // to the push body's. The sync protocol doc's top-level payload table is
+  // held to the same root by the schema-echo check (lint:schema-echo), so a
+  // root property that grows reds there until the table lists it; the
+  // projection sentence under SP-5 is review-held.
   it('the pull projection keeps every composed schema top-level property', () => {
     const kept = {};
     const expected = {};
@@ -457,8 +460,7 @@ describe('buildPayloadForProject', () => {
       kept,
       expected,
       'a drifted platform dropped a composed-schema top-level property on pull — ' +
-        'extend the projection AND the sync protocol doc: its payload table and ' +
-        'projection sentence state this same field set (SP-5)',
+        'extend the projection to carry it (SP-5)',
     );
   });
 });
@@ -578,9 +580,7 @@ describe('pullProjects', () => {
       recordings: [],
     };
 
-    let callCount = 0;
     mockFetch((url) => {
-      callCount++;
       if (url.endsWith('/projects')) return makeResponse(200, manifest);
       if (url.endsWith(`/projects/${P1}`)) throw new Error('Connection reset');
       if (url.endsWith(`/projects/${P2}`)) return makeResponse(200, p2Payload);

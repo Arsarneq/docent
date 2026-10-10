@@ -240,8 +240,6 @@ const extensionActionArb = fc.oneof(contentScriptActionArb, serviceWorkerActionA
 // action union rather than restated here.
 const VALID_ACTION_TYPES = new Set(actionTypes(composePlatform('extension')));
 
-const CONTEXT_LIFECYCLE_TYPES = new Set(['context_switch', 'context_open', 'context_close']);
-
 const LEGACY_FIELD_NAMES = ['tab_id', 'tab_switch', 'tab_open', 'tab_close'];
 
 // ── Naming property tests ──────────────────────────────────────────────────

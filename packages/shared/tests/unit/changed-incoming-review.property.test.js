@@ -161,7 +161,7 @@ function passValidator() {
 }
 passValidator.errors = [];
 
-// ─── allowlisted projections (mirror sync-client.js exactly) ──────────────────
+// ─── allowlisted projections (reshaped from sync-client.js) ───────────────────
 // The orchestrator lands incoming Units and baselines through these same
 // allowlists, so the expected merged/review/baseline shapes are computed with
 // identical projections.
