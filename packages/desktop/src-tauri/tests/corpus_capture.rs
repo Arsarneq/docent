@@ -44,6 +44,7 @@ use std::time::{Duration, Instant};
 use enigo::{Coordinate, Direction, Enigo, Keyboard, Mouse, Settings};
 use serial_test::serial;
 
+use docent_desktop_lib::capture::timing;
 use docent_desktop_lib::capture::windows::WindowsCapture;
 use docent_desktop_lib::capture::{ActionEvent, ActionPayload, CaptureLayer, ElementDescription};
 
@@ -583,6 +584,15 @@ fn write_dump(session: &str, events: &[ActionEvent]) {
     .expect("write dump");
 }
 
+/// The post-script settle of every session `run_mouse_session_with` drives:
+/// lets worker describes and coalescing finish, and outlasts the foreground
+/// correlation window so the session window's re-activation at the primer's
+/// teardown is never read as user input.
+const POST_SCRIPT_SETTLE_MS: u64 = 800;
+// One window of margin: the foreground event's stamp and the last input's
+// are both taken at processing time, not at the event.
+const _: () = assert!(POST_SCRIPT_SETTLE_MS > 2 * timing::FOREGROUND_CORRELATION_MS);
+
 /// Run one mouse-driven session: start capture, create the (unraised) session
 /// and primer windows, run the scripted input against their centres, stop
 /// bounded, write the dump. `scroll_edit` adds the multiline EDIT child to
@@ -611,9 +621,17 @@ fn run_mouse_session_with(
 
     let mut enigo = Enigo::new(&Settings::default()).unwrap();
     script(&mut enigo, &win, &primer);
-    drop(primer);
     // Let worker describes and coalescing settle before stopping.
-    thread::sleep(Duration::from_millis(800));
+    thread::sleep(Duration::from_millis(POST_SCRIPT_SETTLE_MS));
+    // Destroying the primer is harness teardown, not user input. When the
+    // script leaves the primer in the foreground, its destruction makes the OS
+    // re-activate the session window; inside the foreground correlation window
+    // (DCP-7) the capture would read that code-driven activation as caused by
+    // the script's last input and record a context_switch no user performed
+    // (CP-6). The settle above outlasts that window with margin, asserted at
+    // compile time beside the constant, so teardown stays out of every
+    // session's action stream.
+    drop(primer);
 
     drop(win);
     let start = Instant::now();

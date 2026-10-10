@@ -1,5 +1,5 @@
 {
-  "description": "Enumerated dedicated vector-only fixtures — controlled windows/pages that source conformance vectors but are NOT manifest corpus sessions: they have no truth.docent.json, no corpus baseline key, and no sufficiency-baseline entry. Their element_facts and locators are producer-emitted (real capture over the fixture), and their vectors are self-describing (lock (2) checks internal consistency, not a session truth). A vector under corpus/sessions/<id>/vectors/ whose <id> is not a manifest session must be listed here (hygiene lock (1)).",
+  "description": "Enumerated dedicated vector-only fixtures — controlled windows/pages that source conformance vectors but are NOT manifest corpus sessions: they have no truth.docent.json, no corpus baseline key, and no sufficiency-baseline entry. Their element_facts and locators are producer-emitted (real capture over the fixture), and their vectors are self-describing (the element check holds their shape; lock (2) has no session element to equal). A vector under corpus/sessions/<id>/vectors/ whose <id> is not a manifest session must be listed here (hygiene lock (1)).",
   "fixtures": [
     {
       "id": "desktop-fixture",

@@ -131,21 +131,6 @@
                 ],
                 "described_after_ms": 0
               }
-            },
-            {
-              "timestamp": 1783355758000,
-              "context_id": 393880,
-              "capture_mode": "accessibility",
-              "frame_src": null,
-              "window_rect": {
-                "x": 200,
-                "y": 200,
-                "width": 600,
-                "height": 400
-              },
-              "type": "context_switch",
-              "source": "corpus_capture-806379f16d469119.exe",
-              "title": "Docent Corpus Session"
             }
           ],
           "deleted": false,

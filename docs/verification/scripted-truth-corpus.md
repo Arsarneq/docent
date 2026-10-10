@@ -111,9 +111,9 @@ artifacts are produced by five jobs:
 
 - **Extension corpus and vectors** — the `extension-e2e-tests` job produces
   both through the vectors config (one superset run: truth envelopes plus
-  produced vectors, each validated against the meta-schema, and the
-  produce-stage vector oracle), then runs `npm run corpus:check` in the same
-  job.
+  produced vectors, each validated against the meta-schema and, where it
+  holds, the element check (STC-10), and the produce-stage vector oracle),
+  then runs `npm run corpus:check` in the same job.
 - **Desktop corpus** — the `desktop-rust-tests` job (Windows) runs the
   producer in its auto-discovered integration tier and uploads the per-session
   event dumps as an artifact; the `desktop-corpus-diff` job (Linux) downloads
@@ -122,9 +122,10 @@ artifacts are produced by five jobs:
 - **Desktop vectors** — the `desktop-vectors-produce` job (the pinned Windows
   image — STC-18) runs the `v_vector_fixture` producer and uploads the vector
   source dump; the `desktop-vectors-diff` job (Linux) runs
-  `npm run vectors:assemble:desktop` (meta-schema validation of each produced
-  vector, then the normalized produced==committed oracle) and the hygiene
-  locks.
+  `npm run vectors:assemble:desktop` (meta-schema and element-check
+  validation of each produced vector, the normalized produced==committed
+  oracle, and the completeness pass that fails the run when a committed
+  desktop vector is not reproduced — STC-10) and the hygiene locks.
 
 The structural hygiene locks (STC-11) additionally run over the committed
 vectors with the shared unit suite, with no producer involved — locally via
@@ -305,7 +306,9 @@ raise succeeds locally and fails on a headless runner — the divergence would
 make truths machine-dependent); the first scripted click is the deterministic
 activation, and a primer window equalizes the session window's pre-click
 non-foreground status across environments (see the retirement rule below for
-sessions that stay unstable anyway).
+sessions that stay unstable anyway); the harness destroys the primer only
+after its post-script settle, past the foreground correlation window, so the
+session window's re-activation at teardown is never read as user input.
 
 **STC-22.** **Catalogue criterion — what earns a desktop session.** Each
 active desktop session pins exactly one capture behaviour end-to-end from
@@ -362,13 +365,24 @@ whole — so a produced snapshot is deterministic. After the run,
 by element identity) and `matched_node_ids` are measured over the produced
 snapshot. Produced vectors land under the gitignored `corpus/out/extension-vectors/`.
 The run validates every produced vector against the meta-schema, including one
-that has no committed file yet, then asserts each produced vector that has a
-committed file deep-equals that file: the produce-stage oracle. A produced
-vector with no committed file is reported with a warning and never compared.
+that has no committed file yet, and, where it holds, the element check, then
+asserts each produced vector that has a committed file deep-equals that file:
+the produce-stage oracle. A produced vector with no committed file is reported
+with a warning and never compared. The element check holds that a vector's
+`element_facts` + `locators`, rejoined, are an element of the platform's
+composed `.docent.json` schema, and that its match statistics keep the locator
+pair rule: a numeric `match_index` only beside a `match_count` and below it.
+The hygiene suite holds every committed vector to the same check, where a
+hand-edited non-finite number is refused too. The desktop assembler also holds
+every committed desktop vector to the run: a committed fixture with no dump, or
+a committed vector whose file key — derived from the captured element's `tag`
+and `id` — no dump of its fixture produced, fails the run and withholds every
+produced-only vector from review; a fixture with no committed vectors is the
+bootstrap case.
 This run's emitter and the desktop assembler take the shipped outcome (STC-23)
-from one module, `corpus/lib/vector-meta-schema.js`. Bootstrap a new vector by
-producing it, reviewing it, and committing it (the truth doctrine above,
-applied to vectors).
+and the element check from one module, `corpus/lib/vector-meta-schema.js`.
+Bootstrap a new vector by producing it, reviewing it, and committing it (the
+truth doctrine above, applied to vectors).
 
 ### Hygiene locks (structural; `packages/shared/tests/unit`)
 
@@ -388,16 +402,19 @@ names an active lock. For every committed vector:
    dedicated vector fixture (the truth-less desktop source — see below);
 2. **session-sourced:** `element_facts` + `locators` equal a captured element of
    that session (`element_facts` is that element minus its nested locators);
-   **fixture-sourced (desktop):** the producer-emitted `element_facts` +
-   `locators` are self-describing — internally consistent and well-formed for
-   their strategies (the labeled_by/tree_path additive-stats augmentation is the
-   only permitted extra);
+   **fixture-sourced (desktop):** no session element exists to equal; the
+   lock holds that `platform` equals `desktop-windows`; that `element_facts`
+   nests no locators is the meta-schema's, and the element's shape is the
+   element check (STC-10), both outside this list;
 3. an eligible candidate is measured-unique (`match_count: 1`, `match_index: 0`);
 4. `ground_truth.node_id` exists in `tree_snapshot`;
 5. over the committed snapshot every eligible candidate (not masked, `match_index`
    not null) selects exactly the ground-truth node or is non-selecting (0 or >1) —
    none selects a single other node; the measured-unique candidate selects exactly
-   the ground truth; and the recorded `matched_node_ids` re-derive;
+   the ground truth; the recorded `matched_node_ids` re-derive; and every
+   eligible candidate's recorded `match_count` and `match_index`, each where
+   present, equal the measured list's length and the ground truth's position in
+   it;
 6. the ground-truth node's committed `tag` (exact) and `text` (containment; vacuous
    when null) equal `element_facts`.
 
@@ -438,7 +455,10 @@ extension leg needs none.)
 
 The desktop leg reuses this machinery — the same meta-schema, the locks STC-11
 states, the produced==committed oracle — with a desktop-shaped snapshot and
-evaluator. The differences are all data:
+evaluator. The desktop assembler's own behaviours are the completeness pass
+(STC-10, stated under Emission), the harness-measured pairs (STC-17) and the
+compare normalization (STC-18); the list below states the other differences,
+STC-17's and STC-18's among them:
 
 - **Snapshot node (`desktop_node`).** A serialized node of the UI Automation
   Control view: `control_type` (non-localized), `name`, `automation_id`,
@@ -465,16 +485,18 @@ evaluator. The differences are all data:
   `truth.docent.json`, no known-diffs baseline key and no sufficiency-baseline
   entry among them. Its `element_facts` + `locators` are captured
   through the real desktop path (never hand-authored); the vector is
-  self-describing, so lock (2) checks internal consistency. The vector-carrying
-  action is a worker-described one (its element carries measured stats); an
-  input-time click element is unmeasured and sources no vector.
+  self-describing: the element check (STC-10) holds its shape, and lock (2) has
+  no session element to equal. The vector-carrying action is a worker-described
+  one (its element carries measured stats); an input-time click element is
+  unmeasured and sources no vector.
 - **STC-17.** **Harness-measured `labeled_by` / `tree_path`.** Capture skips match stats for
   these two (`labeled_by` is not a UIA property-condition; `tree_path` counting
   is O(nodes × depth)). The offline harness has no runtime budget, so it measures
   both by evaluating their stated query over the committed snapshot and records
   the resulting `match_count` / `match_index` — derived FROM the snapshot, so lock
-  (5) re-derives them. This is the only place a vector's `locators` may exceed the
-  captured element, and only on those two strategies.
+  (5) re-derives every eligible one and the assembler's rebuild of the committed
+  vector re-derives each whole. This is the only place a vector's `locators` may
+  exceed the captured element, and only on those two strategies.
 - **STC-18.** **Reproduce discipline: normalized, not byte-identical.** A desktop
   `element_facts` carries environment-variant fields a static DOM does not:
   `described_after_ms` (worker latency) and a `selector` whose ancestry above the
