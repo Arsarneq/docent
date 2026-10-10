@@ -108,10 +108,10 @@ from the composed contract, never hardcoded: every strategy definition
 declares the `x-value-derived` annotation
 ([locator-resolution §LR-24](../technical/locator-resolution.md#value-derived-strategies)
 defines it), and the definitions annotated `true` form the enforced set. The lint
-MUST refuse to run on a malformed annotation contract rather than guess: a
-strategy definition that does not declare the annotation (absence must mean
-nothing, never a silent false), an annotated definition with no `strategy`
-const, or one with no `value` field each halt the lint loudly.
+MUST refuse to run on a malformed annotation contract rather than guess;
+exactly these malformations halt it loudly: a strategy definition that does not
+declare the annotation (absence must mean nothing, never a silent false), an
+annotated definition with no `strategy` const, or one with no `value` field.
 
 On that contract, `masked-locator-honesty` enforces exactly:
 
@@ -152,7 +152,8 @@ Baseline entries are `"<class>:<id> <pointer>"` per file, keyed by
 repo-relative forward-slash path. The lock
 ([`packages/shared/tests/unit/sufficiency-lint.test.js`](../../packages/shared/tests/unit/sufficiency-lint.test.js))
 imports its file discovery and baseline serialization from the lint itself,
-so the walk, filters, sorting, and entry format cannot diverge from what the
+so nothing it imports — the walk, filters, sorting, and entry format among
+them — can diverge from what the
 CLI's `--write-baseline` produces (the two-root list is stated separately in
 the lock and in the `sufficiency:check` npm script; both of those execute, so
 a divergence between them reddens at whichever entry point runs rather than
@@ -166,7 +167,7 @@ The baseline is the honesty ledger, not a pass: it currently holds open
 `fail` findings alongside the standing `gap` findings — the committed file
 is the live enumeration of what is known-open. CI stays green while they
 are open — and reddens the moment any of them appears, vanishes, or
-moves.
+moves — the three ways an entry can drift.
 
 ## Entry points and enforcement
 
@@ -206,8 +207,10 @@ registered glob in a command that lint admits:
 | `npm run test:shared` (the [unit suite](../../packages/shared/tests/unit/sufficiency-lint.test.js)) | the same file set against the same baseline, plus per-predicate pins on minimal hand-built actions | how the gate reaches CI — the `unit-tests` job runs this suite on every push to `main` and on each pull request whose change filters fire (as `npm run test:coverage`, which includes those files); the pins catch a predicate that silently stops firing (or fires on legal absence)                                                                                                                                                                                                                                 |
 | `npm run corpus:check` / `corpus:check:desktop` (the comparator's `--lint`)                         | each produced corpus envelope, immediately after the truth diff                                    | the `extension-e2e-tests` job and the `desktop-corpus-diff` job run these as their truth-diff step; advisory — the comparator's `--lint-strict` exits 1 on `fail` findings over produced files and is wired per platform once that platform's known-diffs baseline is empty **and** its active committed truths carry no `fail`-class finding in the committed baseline (SL-5) — both parts machine-held by the verification-inventory lint ([scripted-truth-corpus §STC-3](scripted-truth-corpus.md#truth-doctrine)) |
 
-The lint's own `--strict` is the corresponding gate slice at this surface:
-today's standing enforcement is the both-direction baseline lock, which
+The lint's own `--strict`, which exits 1 on any `fail` finding, is this
+surface's counterpart to the comparator's `--lint-strict`, and stays a
+command-line option: today's standing enforcement is the both-direction
+baseline lock, which
 admits the ledgered findings while forbidding silent drift in either
 direction. The frozen fixtures half of the standing corpus keeps its `fail`
 findings permanently: each is a historical recording, preserved exactly as it

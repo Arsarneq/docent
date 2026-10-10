@@ -159,7 +159,7 @@ function passValidator() {
 }
 passValidator.errors = [];
 
-// ─── allowlisted projections (mirror sync-client.js exactly) ──────────────────
+// ─── allowlisted projections (reshaped from sync-client.js) ───────────────────
 
 /** @param {object} r */
 function recordingProjection(r) {

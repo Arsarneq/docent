@@ -306,7 +306,7 @@ describe('bumpVersion', () => {
 // the version-bump rules between this classifier and
 // docs/technical/session-format.md (no tracked issue; surfaced in that PR).
 describe('classifyChange: constraint-keyword introduction escalates to major', () => {
-  it('regression_enum_introduced_on_unconstrained_field_is_major', () => {
+  it('regression_noissue_enum_introduced_on_unconstrained_field_is_major', () => {
     const a = baseSchema();
     const b = baseSchema();
     b.$defs.project.properties.name = { type: 'string', enum: ['a', 'b'] };
@@ -315,28 +315,32 @@ describe('classifyChange: constraint-keyword introduction escalates to major', (
     assert.ok(reasons.some((r) => r.level === 'major' && r.message.includes('enum introduced')));
   });
 
-  it('regression_anyOf_introduced_on_existing_node_is_major', () => {
+  it('regression_noissue_anyOf_introduced_on_existing_node_is_major', () => {
     const a = baseSchema();
     const b = baseSchema();
     b.$defs.project.anyOf = [{ required: ['metadata'] }, { required: ['name'] }];
     assert.equal(classifyChange(a, b).level, 'major');
   });
 
-  it('regression_oneOf_introduced_on_existing_node_is_major', () => {
+  it('regression_noissue_oneOf_introduced_on_existing_node_is_major', () => {
     const a = baseSchema();
     const b = baseSchema();
     b.$defs.capture_mode.oneOf = [{ const: 'accessibility' }, { const: 'coordinate' }];
     assert.equal(classifyChange(a, b).level, 'major');
   });
 
-  it('regression_allOf_introduced_on_existing_node_is_major', () => {
+  it('regression_noissue_allOf_introduced_on_existing_node_is_major', () => {
     const a = baseSchema();
     const b = baseSchema();
     b.$defs.project.allOf = [{ required: ['name'] }];
     assert.equal(classifyChange(a, b).level, 'major');
   });
 
-  it('regression_properties_introduced_on_existing_open_object_is_major', () => {
+  // Regression: a `properties` map introduced on an existing open object starts
+  // constraining per-key values that were previously open; reading it as an
+  // addition would ship that tightening as a minor bump. Surfaced in the same
+  // review as the constraint keywords above (no tracked issue).
+  it('regression_noissue_properties_introduced_on_existing_open_object_is_major', () => {
     const a = baseSchema();
     const b = baseSchema();
     b.$defs.project.properties.metadata = {
