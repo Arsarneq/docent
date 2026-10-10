@@ -941,13 +941,17 @@ server without it remains fully conformant.
   stored payload's content only (never from `last_modified`): two reads of the
   same unchanged project return the same value, and any change to the content
   yields a different one.
-- **`If-Match` on `PUT /projects/:id`** — the three cases below cover every
-  request:
+- **`If-Match` on `PUT /projects/:id`** — the header matches under HTTP's
+  `If-Match` rule ([RFC 9110 §13.1.1](https://www.rfc-editor.org/rfc/rfc9110#section-13.1.1)):
+  `*` matches when a project is stored under the request's id, and an
+  entity-tag list matches when a member equals the stored project's ETag under
+  strong comparison, so a weak tag (`W/"…"`) never matches; a value of neither
+  form does not match. The three cases below cover every request:
 
 | `If-Match` on the `PUT`                                              | Behavior                                                                                           |
 | -------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------- |
 | Absent                                                               | Last-write-wins: the payload is stored per the normal `PUT` rules, regardless of the current ETag. |
-| Present and matches the stored ETag                                  | The write proceeds (`200`/`201`) and returns a fresh `ETag`.                                       |
+| Present and matches under that rule                                  | The write proceeds (`200`) and returns a fresh `ETag`.                                             |
 | Present and does **not** match (including when no project is stored) | `412 Precondition Failed`; the store is left unchanged.                                            |
 
 The [reference server](../../reference-implementations/sync-server/README.md)
