@@ -16,7 +16,7 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import fc from 'fast-check';
 
-// ─── Pure helpers extracted from dispatch.js / persistence.js ─────────────────
+// ─── Pure helpers reshaped from dispatch.js / persistence.js ──────────────────
 // We replicate the pure serialization logic here to test the round-trip
 // without depending on Tauri globals (window.__TAURI__).
 

@@ -156,6 +156,26 @@ npm run test:integration
 `npx playwright test`; `npm run test:headed` opens a visible browser). In CI
 the suite runs in the `desktop-integration-tests` job on Linux.
 
+## Adding a test
+
+- **A panel or flow scenario** extends the spec whose table row it belongs to
+  (or a new file when it opens a genuinely new group), on the fixtures
+  [Configuration and coverage](#configuration-and-coverage) names: `test` and
+  `expect` from `./coverage-fixture.js`, the backend from
+  `installTauriMockServer()`.
+- **Reaching the state a scenario starts from** goes through the shared
+  helpers [the mock section](#how-the-tauri-backend-is-mocked) names —
+  `openPanel`, `createProject`, `seedRecordedStep`, and `fireCaptureActions`
+  for captured input — and what the panel did is read through its invoke-record
+  readers and `window.__TAURI__` hooks.
+- **A command answering differently for one spec** takes the override seam,
+  which restates a command the mock services and never adds one.
+- A new spec or test file joins the table in
+  [What the suite covers](#what-the-suite-covers) in the same change that adds
+  it; what it and its clause rows
+  must additionally satisfy is in
+  [CONTRIBUTING § Extending the Docs Governance](../../../.github/CONTRIBUTING.md#extending-the-docs-governance).
+
 ## Configuration and coverage
 
 `playwright.config.js` keeps the suite deterministic: 15 s per-test timeout, 1

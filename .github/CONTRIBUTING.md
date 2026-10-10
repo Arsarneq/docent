@@ -208,7 +208,7 @@ coverage is measured and sliced is in
 
 ### Single-source logic
 
-Pure-logic extraction and the mirrored capture block are JavaScript's own, and
+Pure-logic extraction and mirrored copies are JavaScript's own, and
 name the JavaScript surfaces they govern; cite-the-owner binds every surface
 this repository tracks — code in any language, and prose.
 
@@ -224,14 +224,27 @@ this repository tracks — code in any language, and prose.
   through its injected seams, the sync-state store and the rebindable HTTP
   transport ([Shared Core](../docs/architecture/system/shared-core.md#the-adapter-seam))
   — which also keeps them unit-testable as pure modules.
-- **The mirrored capture block.** Content scripts cannot import modules, so
-  the extension's capture logic deliberately exists as two textual copies: the
-  testable module `packages/extension/content/recorder-logic.js` and an inline
-  copy between the `BEGIN`/`END MIRRORED CAPTURE LOGIC` markers in
-  `packages/extension/content/recorder.js`. Edit both copies together, inside
-  the markers only — a parity test asserts the two blocks are identical
-  up to its mechanical transformation (export-stripping and indentation) and
-  fails the unit suite when they drift.
+- **Mirrored copies.** A copy of shipped code that a test's verdict stands on
+  carries a parity test: the test holds the copy identical to the shipped text,
+  or identical under a stated mechanical transformation, and fails the unit
+  suite when either side moves alone, so the cases pin what ships. Content
+  scripts cannot import
+  modules, so the extension's capture logic deliberately exists as two textual
+  copies: the testable module `packages/extension/content/recorder-logic.js`
+  and an inline copy between the `BEGIN`/`END MIRRORED CAPTURE LOGIC` markers
+  in `packages/extension/content/recorder.js` — edit both together, inside the
+  markers only; the transformation there is export-stripping and indentation.
+  The service worker's unit suite holds its append chokepoint the same way,
+  indentation only, and its active-unit helpers with no transformation
+  (`service-worker-mirror-parity.test.js`); the panel suite holds its
+  active-steps resolver with no transformation (`panel-mirror-parity.test.js`).
+  A replica reshaped from the shipped code — simulated state around a re-typed
+  handler, logic lifted out of a DOM callback — has no shipped text to be held
+  to, so it pins only itself; the suite's document names it as such
+  ([JavaScript unit tests](../docs/test/unit.md)), and extracting the logic
+  into a pure module is what brings it under test. A test oracle the shipped
+  code's output is compared against needs no parity test, even where its text
+  matches the shipped code: a drift between them fails the comparison.
 - **Cite the owner of a fact you do not own.** A comment — or a documentation
   sentence — asserting something another artifact owns names that owner and
   stops there; the mechanics the file itself owns stay written out. Which
@@ -456,9 +469,29 @@ is the one home of that list. What each kind of change keeps green:
   qualifier instead, which the check accepts only from a document registered
   for it. A lowercase `must`, `should`, or `may` inside a clause's scope is
   either uppercased as the clause's own requirement or takes an allowlist entry
-  recording why it states none; the canonical text and that allowlist live in
-  [`scripts/check-clause-preamble.js`](../scripts/check-clause-preamble.js),
-  which `lint:clause-preamble` holds those documents to. Every repository path
+  recording why it states none. The canonical text, the qualifier's
+  registrations with the reason each document takes it, and that allowlist live
+  in [`scripts/check-clause-preamble.js`](../scripts/check-clause-preamble.js),
+  which `lint:clause-preamble` holds those documents to; any clause-bearing
+  document's preamble — [Capture Principles](../docs/architecture/system/capture-principles.md)
+  for one — shows the text as a reader meets it. A clause's meaning lives in
+  the doctrine text; a row's justification states how compliance is verified
+  and why no check decides it, never the clause's meaning. A list inside a
+  clause's scope — bulleted, numbered, a table's rows, or an inline series of
+  three or more members of one set — states whether it is closed. A closed
+  list says so in the words that close it: an exactness word (`exactly`,
+  `complete`, `closed`, `no other`), a count (`three scope filters`,
+  `one of two`), the definition the clause itself states, or a pointer to the
+  clause or artifact that closes it exactly, so extending it is an edit to the
+  list itself or to the artifact it points at. An open list says that it
+  illustrates and names what decides membership instead
+  (`the listed classes illustrate it and do not close it; the shared detection decides`).
+  A field list in a protocol or format clause states what the specification
+  defines; whether a
+  peer may add fields is what the specification's tolerance statement decides,
+  where it has one. A numbered procedure, whose steps are the procedure, and a
+  list or table keyed by platform, which covers each shipped platform, carry
+  their closure by form. Every repository path
   a row cites — the code that implements or guards the clause — must in turn be
   governed by the clause's own doc under the area map, so a change to that code
   cannot drift from the doctrine it stands on without priming the doc;
@@ -469,9 +502,9 @@ is the one home of that list. What each kind of change keeps green:
 
 Every bug-fix PR must include a test that reproduces the original failure:
 
-- **Naming:** `regression_<issue_number>_<short_description>` (e.g. `regression_42_duplicate_select_after_click`)
+- **Naming:** `regression_<issue_number>_<short_description>` (e.g. `regression_42_duplicate_select_after_click`); a defect no issue tracks takes `regression_noissue_<short_description>`. Cases named before the no-issue form was stated may keep their names; a new case takes one of the forms.
 - **Location:** Same test file as the module being fixed (unit tests alongside the fix)
-- **Comment:** Include a link to the original issue/PR in the test comment
+- **Comment:** Include a link to the original issue/PR in the test comment; a `noissue` test's comment states the defect it reproduces
 - **Assertion:** Test the exact input that triggered the bug and assert the correct behaviour (not just "doesn't crash")
 
 Example:

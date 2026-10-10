@@ -1,7 +1,9 @@
 /**
  * sync-client.test.js — Unit tests for the shared sync-client module.
  *
- * Tests pushProjects, pullProjects, and sync functions with mocked fetch.
+ * Tests pushProjects, pullProjects, and sync against a stubbed fetch, and calls
+ * the payload builders (buildHeaders, buildPayloadForProject) and the pull
+ * projection (envelopeProjection) directly.
  * Uses Node.js built-in test runner and fast-check for property-based tests.
  *
  */
@@ -578,9 +580,7 @@ describe('pullProjects', () => {
       recordings: [],
     };
 
-    let callCount = 0;
     mockFetch((url) => {
-      callCount++;
       if (url.endsWith('/projects')) return makeResponse(200, manifest);
       if (url.endsWith(`/projects/${P1}`)) throw new Error('Connection reset');
       if (url.endsWith(`/projects/${P2}`)) return makeResponse(200, p2Payload);

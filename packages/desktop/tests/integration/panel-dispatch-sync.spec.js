@@ -99,7 +99,7 @@ async function waitForSavedSettings(page, expected, timeout = SETTLE_TIMEOUT_MS)
     const writes = window.__TAURI__
       ._getInvokeCalls()
       .filter((call) => call.cmd === 'save_state').length;
-    let settings = null;
+    let settings;
     try {
       settings = JSON.parse(window.__TAURI__._getSavedState()).settings ?? null;
     } catch {
