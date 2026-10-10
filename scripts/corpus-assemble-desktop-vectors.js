@@ -22,7 +22,13 @@
  * matches re-derive). It writes the produced vector to
  * corpus/out/desktop-windows-vectors/<fixture>/<key>.vector.json, holds it to
  * the vector meta-schema (corpus/lib/vector-meta-schema.js) and, when a
- * committed file exists, asserts they match.
+ * committed file exists, asserts they match. Every committed desktop vector —
+ * each `corpus/sessions/<id>/vectors/*.vector.json` whose `platform` is
+ * `desktop-windows` — is held to this run: a committed fixture with no dump, or
+ * a committed key no dump of its fixture produced, fails the run and withholds
+ * every produced-only vector from review; a fixture with no committed vectors
+ * is the bootstrap case. Each produced vector that passes the meta-schema is
+ * also held to the element check.
  *
  * Nothing here executes the resolution procedure: it is per-candidate match
  * COUNTING plus field splitting, over inert committed data — it applies one
@@ -34,7 +40,7 @@
  */
 
 import { readFileSync, writeFileSync, readdirSync, mkdirSync, existsSync } from 'node:fs';
-import { resolve, join } from 'node:path';
+import { resolve, join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { isDeepStrictEqual } from 'node:util';
 import { measureDesktopStrategyMatches } from '../packages/shared/tests/unit/vector-measurement-desktop.js';
@@ -42,7 +48,9 @@ import { normalizeDescribedAfterMs, normalizeCoordSelector } from './corpus-comp
 import {
   SHIPPED_OUTCOME,
   metaSchemaErrors,
+  elementCheckErrors,
   formatMetaSchemaErrors,
+  committedVectorFiles,
 } from '../corpus/lib/vector-meta-schema.js';
 
 const REPO_ROOT = resolve(fileURLToPath(new URL('.', import.meta.url)), '..');
@@ -173,10 +181,14 @@ async function main(argv) {
 
   let mismatch = false;
   let invalid = false;
+  const producedKeys = new Map();
+  const deferred = [];
   for (const file of dumps.sort()) {
     const dump = JSON.parse(readFileSync(join(vectorsDir, file), 'utf8'));
     const { fixture } = dump;
     const { key, vector } = buildDesktopVector(dump);
+    if (!producedKeys.has(fixture)) producedKeys.set(fixture, new Set());
+    producedKeys.get(fixture).add(key);
 
     const producedDir = join(vectorsDir, fixture);
     mkdirSync(producedDir, { recursive: true });
@@ -184,15 +196,25 @@ async function main(argv) {
     const serialized = JSON.stringify(vector, null, 2) + '\n';
     writeFileSync(producedPath, serialized);
 
-    // Produce-stage meta-schema gate over the bytes just written: a produced
-    // vector that breaks the vector meta-schema is reported with every error;
-    // the committed comparison below still runs, an invalid vector with no
-    // committed file is reported as not committable instead of as ready for
-    // review, the loop goes on to the next dump, and the run exits 1 at the end.
-    const errors = metaSchemaErrors(JSON.parse(serialized));
+    // Produce-stage gates over the bytes just written: a produced vector that
+    // breaks the vector meta-schema, or — when the meta-schema holds — the
+    // element check, is reported with every error; the committed comparison
+    // below still runs, an invalid vector with no committed file is collected
+    // as not committable instead of as ready for review, the loop goes on to
+    // the next dump, and the run exits 1 at the end.
+    const produced = JSON.parse(serialized);
+    const errors = metaSchemaErrors(produced);
     if (errors.length > 0) {
       console.error(`${fixture}/${key}: violates the vector meta-schema`);
       console.error(formatMetaSchemaErrors(errors));
+      invalid = true;
+    }
+    const elementErrors = errors.length > 0 ? [] : elementCheckErrors(produced);
+    if (elementErrors.length > 0) {
+      console.error(
+        `${fixture}/${key}: fails the element check (the platform element definition and the locator pair rule)`,
+      );
+      console.error(formatMetaSchemaErrors(elementErrors));
       invalid = true;
     }
 
@@ -206,14 +228,76 @@ async function main(argv) {
         mismatch = true;
       }
     } else if (errors.length > 0) {
-      console.error(
-        `${fixture}/${key}: produced (no committed vector yet) — fails the vector meta-schema; fix the producer before committing`,
-      );
+      deferred.push({
+        id: `${fixture}/${key}`,
+        stream: 'error',
+        text: `${fixture}/${key}: produced (no committed vector yet) — fails the vector meta-schema; fix the producer before committing`,
+      });
+    } else if (elementErrors.length > 0) {
+      deferred.push({
+        id: `${fixture}/${key}`,
+        stream: 'error',
+        text: `${fixture}/${key}: produced (no committed vector yet) — fails the element check; fix the producer before committing`,
+      });
     } else {
-      console.log(`${fixture}/${key}: produced (no committed vector yet — review then commit)`);
+      deferred.push({
+        id: `${fixture}/${key}`,
+        stream: 'log',
+        text: `${fixture}/${key}: produced (no committed vector yet — review then commit)`,
+      });
     }
   }
-  return mismatch || invalid ? 1 : 0;
+
+  // Completeness over every committed desktop vector: the committed set drives
+  // the pass, so a renamed fixture (whose dump still writes) cannot pass as a
+  // new one. A committed file that does not parse, or holds null, ends the run
+  // in main's rejection handler, as a bad dump does. Committed vectors of other
+  // platforms are skipped by design — completeness covers the desktop vectors —
+  // and the hygiene suite's meta-schema case rejects a malformed remainder.
+  // Produced-only lines print only when the run is complete.
+  const committedByFixture = new Map();
+  for (const { session: fx, key: k, vector: v } of committedVectorFiles()) {
+    if (v.platform !== 'desktop-windows') continue;
+    if (!committedByFixture.has(fx)) committedByFixture.set(fx, []);
+    committedByFixture.get(fx).push(k);
+  }
+  const incompleteFx = new Set();
+  for (const [fx, keys] of committedByFixture) {
+    keys.sort();
+    const got = producedKeys.get(fx);
+    if (!got) {
+      console.error(`${fx}: no dump produced for this fixture (committed: ${keys.join(', ')})`);
+      console.error(
+        '  a renamed or removed fixture moves or deletes its committed vectors directory',
+      );
+      incompleteFx.add(fx);
+      continue;
+    }
+    const prod = [...got].sort().join(', ');
+    for (const k of keys) {
+      if (got.has(k)) continue;
+      console.error(`${fx}/${k}: committed vector NOT reproduced by this run (produced: ${prod})`);
+      console.error(
+        "  no dump of this fixture produced this key — the vector's key changed (the captured element's tag or id, or the key derivation)",
+      );
+      console.error(
+        `  if intended, delete the committed file, re-run, and review the produced vectors under ${relative(REPO_ROOT, vectorsDir)}/${fx}/`,
+      );
+      incompleteFx.add(fx);
+    }
+  }
+  const incomplete = incompleteFx.size > 0;
+  if (!incomplete) {
+    for (const d of deferred) (d.stream === 'log' ? console.log : console.error)(d.text);
+  } else if (deferred.length > 0) {
+    console.error(
+      `produced-only vectors withheld until every committed desktop vector reproduces: ${deferred
+        .map((d) => d.id)
+        .sort()
+        .join(', ')}`,
+    );
+  }
+  return mismatch || invalid || incomplete ? 1 : 0;
 }
 
 const isMain = process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url);

@@ -54,6 +54,7 @@ import {
 import { CORPUS_ORIGIN } from '../../../../../corpus/serve.js';
 import {
   metaSchemaErrors,
+  elementCheckErrors,
   formatMetaSchemaErrors,
 } from '../../../../../corpus/lib/vector-meta-schema.js';
 
@@ -165,6 +166,18 @@ for (const session of sessions) {
             `produced vector ${key} violates the vector meta-schema:\n${formatMetaSchemaErrors(schemaErrors)}`,
           )
           .toBe(true);
+        // Where the meta-schema holds, the element check: the vector's
+        // element_facts + locators against the platform's element definition
+        // and the locator pair rule (scripted-truth-corpus STC-10).
+        if (schemaErrors.length === 0) {
+          const errors = elementCheckErrors(JSON.parse(serialized));
+          expect
+            .soft(
+              errors.length === 0,
+              `produced vector ${key} fails the element check:\n${formatMetaSchemaErrors(errors)}`,
+            )
+            .toBe(true);
+        }
         const committedPath = path.join(committedDir, `${key}.vector.json`);
         if (fs.existsSync(committedPath)) {
           const committed = JSON.parse(fs.readFileSync(committedPath, 'utf8'));

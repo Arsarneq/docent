@@ -20,22 +20,30 @@
  * no truth.docent.json, no baseline key); they use the desktop UIA snapshot +
  * desktop strategy evaluator.
  *
- * Every committed vector is validated against the meta-schema through
+ * Every committed vector is validated against the meta-schema and, beside it,
+ * the element check — its element_facts + locators against the platform
+ * schema's element definition plus the locator pair rule — through
  * corpus/lib/vector-meta-schema.js, the module the extension corpus run and the
- * desktop assembler also validate through.
+ * desktop assembler also validate through. Neither is a numbered lock: a schema
+ * validation plus a predicate is neither a count nor a committed-field
+ * equality.
  *
  * Locks:
  *  (1) the vector names an active manifest session of its platform, OR an
  *      enumerated dedicated vector fixture of its platform;
  *  (2) session-sourced: element_facts + locators equal a captured element of
- *      that session; fixture-sourced: the self-describing element_facts +
- *      locators are internally consistent and well-formed;
+ *      that session; fixture-sourced: no session element exists to equal, and
+ *      the vector's platform is desktop-windows (its shape is the element
+ *      check's);
  *  (3) an eligible candidate is measured-unique (match_count 1, match_index 0);
  *  (4) ground_truth.node_id exists in tree_snapshot;
  *  (5) over the snapshot, every eligible candidate selects exactly the ground
  *      truth or is non-selecting (0 or >1), no eligible candidate selects a
  *      single other node, the measured-unique candidate selects exactly the
- *      ground truth, and the recorded matched_node_ids re-derive;
+ *      ground truth, the recorded matched_node_ids re-derive, and every
+ *      eligible candidate's recorded match_count and match_index, each where
+ *      present, equal the measured list's length and the ground truth's
+ *      position in it;
  *  (6) the ground-truth node's committed tag/text fields equal element_facts.
  *
  * Plus: the walker reproduces the committed snapshot, and the measurement is
@@ -45,14 +53,16 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { isDeepStrictEqual } from 'node:util';
-import { existsSync, readFileSync, readdirSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { resolve, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { discoverSessions } from '../../../../scripts/corpus-compare.js';
 import { serializeSnapshot } from '../../../../corpus/lib/snapshot-walker.js';
 import {
   metaSchemaErrors,
+  elementCheckErrors,
   formatMetaSchemaErrors,
+  committedVectorFiles,
 } from '../../../../corpus/lib/vector-meta-schema.js';
 import { measureStrategyMatches } from './vector-measurement.js';
 import { measureDesktopStrategyMatches } from './vector-measurement-desktop.js';
@@ -75,22 +85,6 @@ function measureFor(platform, snapshot, locator) {
 /** The node's own control-type field, by platform (extension tag / desktop control_type). */
 function nodeTagOf(platform, node) {
   return platform === 'desktop-windows' ? node.control_type : node.tag;
-}
-
-/** Every `.vector.json` committed under corpus/sessions/<id>/vectors/. */
-function discoverVectors() {
-  const sessionsDir = join(CORPUS_DIR, 'sessions');
-  const found = [];
-  for (const session of readdirSync(sessionsDir)) {
-    const dir = join(sessionsDir, session, 'vectors');
-    if (!existsSync(dir)) continue;
-    for (const name of readdirSync(dir)) {
-      if (!name.endsWith('.vector.json')) continue;
-      const vector = JSON.parse(readFileSync(join(dir, name), 'utf8'));
-      found.push({ session, name, vector });
-    }
-  }
-  return found;
 }
 
 /** Pre-order list of every node in a snapshot subtree (both platforms). */
@@ -125,37 +119,8 @@ function collectElements(truth) {
   return els;
 }
 
-/** The allowed key set for a desktop locator entry of each strategy. */
-const DESKTOP_LOCATOR_KEYS = {
-  automation_id: new Set(['strategy', 'value', 'match_count', 'match_index', 'masked']),
-  role_name: new Set(['strategy', 'role', 'name', 'match_count', 'match_index', 'masked']),
-  class_name: new Set(['strategy', 'value', 'match_count', 'match_index', 'masked']),
-  // labeled_by / tree_path carry {strategy, value}; the harness MAY additionally
-  // augment them with a measured match_count/match_index pair (the declared,
-  // bounded augmentation — STC-17). No other strategy is augmented.
-  labeled_by: new Set(['strategy', 'value', 'match_count', 'match_index', 'masked']),
-  tree_path: new Set(['strategy', 'value', 'match_count', 'match_index', 'masked']),
-};
-
-/** Is one committed desktop locator entry well-formed for its strategy? */
-function desktopLocatorWellFormed(l) {
-  const allowed = DESKTOP_LOCATOR_KEYS[l.strategy];
-  if (!allowed) return false;
-  for (const k of Object.keys(l)) if (!allowed.has(k)) return false;
-  if (l.strategy === 'role_name') {
-    if (typeof l.role !== 'string' || typeof l.name !== 'string') return false;
-  } else if (typeof l.value !== 'string') {
-    return false;
-  }
-  if ('match_count' in l && !(Number.isInteger(l.match_count) && l.match_count >= 1)) return false;
-  if ('match_index' in l && l.match_index !== null) {
-    if (!(Number.isInteger(l.match_index) && l.match_index >= 0)) return false;
-    if ('match_count' in l && l.match_index >= l.match_count) return false;
-  }
-  return true;
-}
-
-const vectors = discoverVectors();
+/** Every `.vector.json` committed under corpus/sessions/<id>/vectors/, parsed. */
+const vectors = committedVectorFiles();
 
 describe('conformance vectors: committed tree', () => {
   it('at least one vector is committed', () => {
@@ -167,6 +132,15 @@ describe('conformance vectors: committed tree', () => {
     describe(`${session} / ${vector.vector_id}`, () => {
       it('validates against the vector meta-schema', () => {
         const errors = metaSchemaErrors(vector);
+        assert.ok(errors.length === 0, formatMetaSchemaErrors(errors));
+      });
+
+      it('element_facts + locators pass the element check', () => {
+        // The element check runs only on a meta-schema-valid vector; when the
+        // meta-schema fails, the meta-schema case beside this one carries the
+        // failure and this case has nothing to check.
+        if (metaSchemaErrors(vector).length > 0) return;
+        const errors = elementCheckErrors(vector);
         assert.ok(errors.length === 0, formatMetaSchemaErrors(errors));
       });
 
@@ -184,10 +158,6 @@ describe('conformance vectors: committed tree', () => {
       });
 
       it('lock (2): element_facts + locators are consistent with the captured element', () => {
-        // element_facts never nests locators, either mode (the corroboration
-        // fact source is the non-locator fields only).
-        assert.ok(!('locators' in vector.element_facts), 'element_facts must not nest locators');
-
         const manifestSession = discoverSessions(MANIFEST_PATH, platform).find((x) => x.id === session); // prettier-ignore
         if (manifestSession) {
           // Session-sourced: match a real captured element of the session truth.
@@ -201,14 +171,9 @@ describe('conformance vectors: committed tree', () => {
           assert.ok(match, 'no captured element matches element_facts + locators exactly');
           return;
         }
-        // Fixture-sourced (desktop): the vector is self-describing — check the
-        // authored locators are internally well-formed for their strategies,
-        // with the labeled_by/tree_path additive-stats augmentation permitted
-        // and no other keys.
+        // Fixture-sourced (desktop): no session element exists to equal; the
+        // element's shape is the element check's, beside the meta-schema case.
         assert.equal(platform, 'desktop-windows', 'only desktop has fixture-sourced vectors');
-        for (const l of vector.locators) {
-          assert.ok(desktopLocatorWellFormed(l), `malformed desktop locator: ${JSON.stringify(l)}`);
-        }
       });
 
       it('lock (3): carries an eligible measured-unique candidate', () => {
@@ -226,7 +191,7 @@ describe('conformance vectors: committed tree', () => {
         );
       });
 
-      it('lock (5): eligible candidates select exactly the ground truth or nothing; recorded matches re-derive', () => {
+      it('lock (5): eligible candidates select exactly the ground truth or nothing; recorded matches and match statistics re-derive', () => {
         const gt = vector.ground_truth.node_id;
         assert.equal(
           vector.matched_node_ids.length,
@@ -249,14 +214,24 @@ describe('conformance vectors: committed tree', () => {
             isDeepStrictEqual(measured, vector.matched_node_ids[i]),
             `recorded matches for candidate ${i} re-derive from the snapshot`,
           );
+          if ('match_count' in l) {
+            assert.equal(
+              measured.length,
+              l.match_count,
+              `recorded match_count of candidate ${i} re-derives`,
+            );
+          }
+          if (typeof l.match_index === 'number') {
+            assert.equal(
+              measured.indexOf(gt),
+              l.match_index,
+              `recorded match_index of candidate ${i} is the ground truth's position`,
+            );
+          }
           if (measured.length === 1) {
             assert.equal(measured[0], gt, `a single-match candidate names the ground truth (${i})`);
           }
           if (l.match_count === 1 && l.match_index === 0) {
-            assert.ok(
-              isDeepStrictEqual(measured, [gt]),
-              `measured-unique candidate ${i} selects exactly the ground truth`,
-            );
             coveredProven = true;
           }
         });
