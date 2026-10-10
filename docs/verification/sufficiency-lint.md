@@ -207,8 +207,10 @@ registered glob in a command that lint admits:
 | `npm run test:shared` (the [unit suite](../../packages/shared/tests/unit/sufficiency-lint.test.js)) | the same file set against the same baseline, plus per-predicate pins on minimal hand-built actions | how the gate reaches CI — the `unit-tests` job runs this suite on every push to `main` and on each pull request whose change filters fire (as `npm run test:coverage`, which includes those files); the pins catch a predicate that silently stops firing (or fires on legal absence)                                                                                                                                                                                                                                 |
 | `npm run corpus:check` / `corpus:check:desktop` (the comparator's `--lint`)                         | each produced corpus envelope, immediately after the truth diff                                    | the `extension-e2e-tests` job and the `desktop-corpus-diff` job run these as their truth-diff step; advisory — the comparator's `--lint-strict` exits 1 on `fail` findings over produced files and is wired per platform once that platform's known-diffs baseline is empty **and** its active committed truths carry no `fail`-class finding in the committed baseline (SL-5) — both parts machine-held by the verification-inventory lint ([scripted-truth-corpus §STC-3](scripted-truth-corpus.md#truth-doctrine)) |
 
-The lint's own `--strict` is the corresponding gate slice at this surface:
-today's standing enforcement is the both-direction baseline lock, which
+The lint's own `--strict`, which exits 1 on any `fail` finding, is this
+surface's counterpart to the comparator's `--lint-strict`, and stays a
+command-line option: today's standing enforcement is the both-direction
+baseline lock, which
 admits the ledgered findings while forbidding silent drift in either
 direction. The frozen fixtures half of the standing corpus keeps its `fail`
 findings permanently: each is a historical recording, preserved exactly as it

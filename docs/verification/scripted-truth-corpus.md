@@ -48,9 +48,10 @@ identifiers reflect minting order and can appear out of numeric sequence.
   regression; a VANISHED diff
   means a fix landed — both fail CI until the baseline is deliberately
   regenerated (the comparator's `--write-baseline` flag) and reviewed. The
-  `--strict` and `--lint-strict` flags exist and are CI-wired per platform (the
-  gate slice): `--strict` once that platform's known-diffs baseline empties,
-  `--lint-strict` once additionally none of that platform's ACTIVE sessions'
+  comparator's `--strict` and `--lint-strict` flags exist and are wired per
+  platform into that platform's gate command above: `--strict` once that
+  platform's known-diffs baseline empties, `--lint-strict` once additionally
+  none of that platform's ACTIVE sessions'
   committed truths carries a `fail`-class entry in the committed sufficiency
   baseline — both demands machine-held by the verification-inventory lint,
   which reds the moment a trigger comes true and the gate command still omits
