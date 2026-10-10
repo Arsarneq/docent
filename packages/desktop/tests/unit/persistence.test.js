@@ -14,22 +14,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import fc from 'fast-check';
-
-// ─── Pure serialization helpers (same logic as persistence.js) ────────────────
-
-function serializeState(state) {
-  return JSON.stringify(state);
-}
-
-function deserializeState(json) {
-  try {
-    const parsed = JSON.parse(json);
-    if (typeof parsed !== 'object' || parsed === null) return null;
-    return parsed;
-  } catch {
-    return null;
-  }
-}
+import { serializeState, deserializeState } from '../../src/persistence.js';
 
 // ─── Arbitraries ──────────────────────────────────────────────────────────────
 
