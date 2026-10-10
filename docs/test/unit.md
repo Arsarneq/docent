@@ -203,6 +203,7 @@ half of the extension is documented in
 | `frame-trust.test.js`                  | The per-frame trust predicate deciding whether an appended action may enter a recording.                                                                         |
 | `naming.property.test.js`              | Extension actions carry the platform-neutral naming and capture mode the extension schema contract states, each type one the composed extension schema declares. |
 | `navigation-logic.test.js`             | The navigation and tab-creation capture decisions across transition types and timing states.                                                                     |
+| `panel-mirror-parity.test.js`          | The panel suite's copy of the active-steps resolver stays textually identical to the shipped function.                                                           |
 | `panel.test.js`                        | The send gate in the panel: button state, recording selection, the confirmation summary, and the cancel path.                                                    |
 | `recorder-logic.test.js`               | The extracted content-script logic (selector derivation, locator measurement, element description, the scroll decision) and the recorder's scroll literals.      |
 | `recorder-mirror-parity.test.js`       | The recorder's two copies of the capture logic stay textually identical under the mechanical transformation.                                                     |
@@ -210,7 +211,7 @@ half of the extension is documented in
 | `regression-294-window-rect.test.js`   | A static-source guard that the extension emits no desktop-only window rectangle field.                                                                           |
 | `schema-validation.test.js`            | Extension export data validates against the extension schema composed from its source layers, negative cases included.                                           |
 | `secret-crypto.test.js`                | At-rest key encryption: the envelope shape, the round trip, the path taken after a restart, and tampered ciphertext.                                             |
-| `service-worker-mirror-parity.test.js` | The append chokepoint's second copy stays textually identical to the shipped function.                                                                           |
+| `service-worker-mirror-parity.test.js` | The append chokepoint's and the active-unit helpers' second copies stay textually identical to the shipped functions, the chokepoint under indentation only.     |
 | `service-worker-static-import.test.js` | A static-source guard that the background path uses the statically imported validator, never a dynamic import.                                                   |
 | `service-worker.test.js`               | The worker's message handlers: the panel protocol, import and export, the trusted-sender gate, redaction, and storage-failure recovery.                          |
 | `storage-quota.test.js`                | The storage-pressure classifier: the warn band's threshold and the resume hysteresis.                                                                            |
