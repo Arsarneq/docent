@@ -1,7 +1,8 @@
 /**
  * navigation-logic.js — Pure navigation capture decision logic.
  *
- * Extracted from service-worker.js for unit testability.
+ * A reshaped replica of the service worker's navigation decisions, kept for unit
+ * testability; the worker does not import it.
  * Determines whether a webNavigation.onCommitted event should be captured
  * and what nav_type to assign, and whether a tabs.onCreated event should
  * produce a context_open action.

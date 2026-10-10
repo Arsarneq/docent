@@ -25,6 +25,10 @@ stated without a keyword, and subsidiary absolutes inside a clause inherit its
 force. A clause's scope runs from its marker to the next marker or heading;
 identifiers reflect minting order and can appear out of numeric sequence.
 
+CI-1, the Clippy gate's single invocation, sits beside the gate it governs,
+after the lint table under
+[The lint and freshness gates](#the-lint-and-freshness-gates).
+
 ## The workflow inventory
 
 Every tracked workflow file directly under

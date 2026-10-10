@@ -325,7 +325,7 @@ for an existing key, MUST extend these tables in the same change.
 | `docentSyncApiKey`        | Sync API key, stored as an encrypted envelope                                                                                                                     | Side panel                                                                                      |
 | `docentTheme`             | Theme setting                                                                                                                                                     | Side panel                                                                                      |
 | `docentRecordingMode`     | Default step-context mode (narration / simple)                                                                                                                    | Side panel                                                                                      |
-| `docentSyncState`         | The durable sync reconcile state blob: baselines, snapshots, reviews, conflicts, and sync settings                                                                | Side panel and service worker, each through the shared sync-store helpers over the same adapter |
+| `docentSyncState`         | The durable sync reconcile state blob: baselines, snapshots, reviews, conflicts and sync settings among them — the sync-state store holds the set                 | Side panel and service worker, each through the shared sync-store helpers over the same adapter |
 
 `chrome.storage.session` (held in memory by the browser, cleared on browser
 restart):

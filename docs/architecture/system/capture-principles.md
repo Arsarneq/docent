@@ -30,7 +30,8 @@ Platform-specific details:
 **CP-1.** Capture what the user did — not what the code did.
 
 **CP-2.** The core rule is an inclusion filter on the action stream: effects,
-code-driven events, and guessed intent MUST NOT enter it.
+code-driven events, and guessed intent MUST NOT enter it; CP-5's definition
+decides what does, and the named kinds illustrate what it keeps out.
 
 **CP-3.** A small amount of observed context MAY be recorded _alongside_ the
 actions to describe them faithfully — proxies for actions that happen outside
@@ -64,7 +65,7 @@ application code are not user actions and MUST NOT be captured as actions:
 
 - Focus/value/selection changes triggered by code
 - Windows/tabs opening or closing from code
-- Navigations triggered by code (redirects, pushState, window.location)
+- Navigations triggered by code (redirects, pushState and window.location, for example)
 - Scrolls triggered by code
 - Synthetic/generated events from the platform
 - Timer-driven UI updates
@@ -78,17 +79,26 @@ consequence is judged against the category definition above.
 ## Proxy Capture
 
 **CP-7.** Some user actions happen outside the capture layer's visibility
-(browser chrome, OS shell, window title bar). These are captured by proxy:
+(browser chrome, the OS shell or a window title bar, for example). These are
+captured by proxy:
 the **immediate effect** stands in for the user action.
 
 Every proxy is bound by three rules:
 
 **CP-8.** A proxy MUST record only the **immediate** effect — never cascading
-effects.
+effects. Immediacy is causal, not temporal: the immediate effect is the first
+link in the user action's causal chain; a cascading effect is any later link,
+whenever it arrives.
 
 **CP-9.** A user action MUST produce at most **one** proxy — no duplicates.
 
-**CP-10.** A proxy MUST **identify** what the user did.
+**CP-10.** A proxy MUST **identify** what the user did. Identity is at the
+level of the action's effect, not its gesture: the proxy records the action's
+kind and the parameters that define its effect, such as the context it acts on
+or a navigation's destination. Clicking another window and pressing Alt+Tab,
+which each switch the window in focus, share one proxy shape; a typed address
+and a bookmark to the same page share the navigation's shape, told apart by one
+of its fields: a classification derived from the browser's transition type.
 
 ---
 
@@ -96,7 +106,9 @@ effects.
 
 **CP-11.** Capture the action — mask the sensitive value. Docent records that
 the user typed into a field, but when the field is sensitive (a password, or a
-credit-card / SSN / secret field) the value MUST be redacted at capture time,
+field the shared sensitivity detection recognises — a card number, a
+social-security or tax id, or a secret, for example) the value MUST be redacted
+at capture time,
 the element's `text` nulled, and the element flagged `redacted`; the action
 stays in the stream, the secret MUST NOT enter it. Detection is a **single
 shared implementation** used by both
@@ -147,7 +159,9 @@ the surface**: interactions that would appear to be covered by the surface
 description but are not captured (or are captured with a caveat). An entry
 belongs on a platform's exception list only when the surface description alone
 would mislead — the closed positive enumeration otherwise answers whether an
-interaction is captured.
+interaction is captured. Each platform's exception list is complete against
+this test: an interaction the test admits that the list omits is a
+documentation defect.
 
 **CP-16.** Scroll gestures are debounced (300 ms) and coalesced into one
 `scroll` action per settled sequence; a sequence whose net displacement stays

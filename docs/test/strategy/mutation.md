@@ -111,9 +111,11 @@ _Exercises_ is
 transitive import reachability, confined to the surface's own package tree: the
 walk reads a comment-stripped view of each file and follows the literal
 specifiers it states, static and dynamic alike, so a specifier resolving by
-path shape to a tracked file of that same package extends the reach, while a
-dependency, a file of another package, a synced `shared/` copy, and a generated
-validator each terminate it. The Rust side runs the same relation over `use`
+path shape to a tracked file of that same package extends the reach, while
+exactly these terminate it — a dependency, a file of another package or of no
+package, a synced `shared/` copy, and a generated validator (the test-inventory
+gate's terminating specifier classes are their one home). The Rust side runs
+the same relation over `use`
 paths, read over a view with comments stripped and string-literal contents
 blanked — so a declaration a source merely quotes is the text it is rather than
 an edge or a refusal — and where a `mod` declaration is containment rather than

@@ -1,12 +1,9 @@
 /**
  * regression.test.js — Regression tests for previously fixed bugs.
  *
- * Convention: each test is named `regression_<issue_or_pr>_<short_description>`
- * and includes a comment linking to the original fix.
- *
- * Every bug-fix PR should include a regression test here (or in the
- * platform-specific regression file) that exercises the exact input
- * that triggered the bug.
+ * The cases here were named before CONTRIBUTING § Regression Tests gained its
+ * no-issue form: fixes carry the PR that landed them, edge cases the behaviour
+ * they hold. A new regression test follows that section.
  *
  * Covers issue #64.
  */
