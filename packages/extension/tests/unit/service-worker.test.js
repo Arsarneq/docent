@@ -40,6 +40,7 @@ function reset() {
   pendingActions = [];
 }
 
+// Verbatim copies of the worker's active-unit helpers, held by service-worker-mirror-parity.test.js
 function getActiveProject() {
   return projects.find((p) => p.project_id === activeProjectId) ?? null;
 }

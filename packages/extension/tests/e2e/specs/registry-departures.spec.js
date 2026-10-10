@@ -479,7 +479,7 @@ async function expectRegistryEmptied(serviceWorker, seedCoveredIds) {
 
 test.describe('worker capture bookkeeping through the introspection handle', () => {
   test("a closed tab's frames leave the registry with the tab", async ({
-    testPage,
+    testPage: _testPage,
     serviceWorker,
     context,
   }) => {
@@ -538,7 +538,7 @@ test.describe('worker capture bookkeeping through the introspection handle', () 
   });
 
   test('a record-start while already recording clears every planted entry without a flag transition', async ({
-    testPage,
+    testPage: _testPage,
     serviceWorker,
     panelPage,
   }) => {
@@ -563,7 +563,7 @@ test.describe('worker capture bookkeeping through the introspection handle', () 
   });
 
   test('a record-create while already recording clears every planted entry ahead of its seed', async ({
-    testPage,
+    testPage: _testPage,
     serviceWorker,
     panelPage,
   }) => {
@@ -611,7 +611,7 @@ test.describe('worker capture bookkeeping through the introspection handle', () 
   });
 
   test('a second record-stop empties a registry planted after the first stop', async ({
-    testPage,
+    testPage: _testPage,
     serviceWorker,
     panelPage,
   }) => {
@@ -656,8 +656,8 @@ test.describe('worker capture bookkeeping through the introspection handle', () 
   });
 
   test('a record-start driven by a direct write of the recording flag clears every planted entry and seeds the registry to the live frames', async ({
-    testPage,
-    offSeedPage,
+    testPage: _testPage,
+    offSeedPage: _offSeedPage,
     serviceWorker,
   }) => {
     // No panel-protocol message anywhere on this route: capture is stopped and
@@ -685,8 +685,8 @@ test.describe('worker capture bookkeeping through the introspection handle', () 
   });
 
   test('a record-stop driven by a direct write of the recording flag empties the registry', async ({
-    testPage,
-    offSeedPage,
+    testPage: _testPage,
+    offSeedPage: _offSeedPage,
     serviceWorker,
   }) => {
     // The registered page plus the planted sentinels, then a stop with no

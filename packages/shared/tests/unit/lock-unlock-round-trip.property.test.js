@@ -144,7 +144,7 @@ function passValidator() {
 }
 passValidator.errors = [];
 
-// ─── allowlisted projections (mirror sync-client.js / pull reconstruction) ────
+// ─── allowlisted projections (reshaped from sync-client.js / pull reconstruction) ───
 
 /** @param {object} r */
 function recordingProjection(r) {
@@ -606,6 +606,11 @@ describe('Closing a lock makes the recording eligible next cycle (lock/unlock ro
         (r) => r.recording_id === TGT,
       ),
       'cycle 1: locked brand-new not in baseline',
+    );
+    assert.equal(
+      getItem(store.getState(), unitRef),
+      null,
+      'cycle 1: nothing deferred while locked',
     );
 
     // Cycle 2 — unlocked: auto-added.

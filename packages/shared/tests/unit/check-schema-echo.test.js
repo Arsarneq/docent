@@ -1,13 +1,15 @@
 /**
  * check-schema-echo.test.js — Unit tests for the schema-echo admission test
- * (scripts/check-schema-echo.js). The session-format document restates what
- * the schemas define, so every red path must fail loud: these tests prove the
- * authority-statement leg, one posture red per class, the field-table diffs in
- * both directions over every composed platform, the cross-platform def
- * agreement (whose diagnoses must name the platforms they compared), the
- * unreadable-cell and moved-column refusals, duplicates, empty parses — and,
- * as a real-tree lock, that the shipped tree satisfies every leg through the
- * reader the CLI itself uses.
+ * (scripts/check-schema-echo.js). The session-format document and the sync
+ * protocol's payload tables restate what the schemas define, so every red path
+ * must fail loud: these tests prove the authority-statement leg, one posture
+ * red per class, the field-table and payload-table diffs in both directions
+ * over every composed platform, the target pointers those tables are held
+ * against, the cross-platform agreement (whose diagnoses must name the
+ * platforms they compared), both documents' coverage legs, the unreadable-cell,
+ * moved-column and selection refusals, duplicates, empty parses — and, as a
+ * real-tree lock, that the shipped tree satisfies every leg through the reader
+ * the CLI itself uses.
  *
  * The register/row closure's refusal of a citation naming files by PATTERN is
  * pinned as a retained decision, not an accident of the shape it reads: the
@@ -40,41 +42,76 @@ import {
   FIELD_TABLE_LEGS,
   METADATA_DEF,
   METADATA_REF,
+  PAYLOAD_TABLE_HEADER,
+  PAYLOAD_TABLE_LEGS,
   PLATFORM_IDS,
   POSTURE_CLASSES,
   REGISTRY_PATH,
   REQUIRED_COLUMN,
   REQUIRED_HEADER,
+  ROOT_POINTER,
   SESSION_FORMAT_DOC_PATH,
+  SYNC_PROTOCOL_DOC_PATH,
   TRAVERSED_KEYWORDS,
   UNHELD_FIELD_TABLES,
+  UNHELD_PAYLOAD_TABLES,
   auditTree,
   citedMarkdownPaths,
   classifyObjectSchema,
   describeDeclaration,
+  describeTarget,
   evaluateSchemaEcho,
   extractFieldTable,
   extractFieldTableKeys,
+  extractPayloadTable,
+  extractPayloadTableKeys,
   fieldTableKey,
+  fieldTableProblems,
   normalizeProse,
+  payloadTableKey,
   postureHolds,
   readActionMembers,
   readClauseRow,
-  readDefSurface,
+  readTargetSurface,
   registeredFieldTableKeys,
+  registeredPayloadTableKeys,
   statesValueConstraint,
   treeSurfaces,
   walkObjectSchemas,
 } from '../../../../scripts/check-schema-echo.js';
-import { PLATFORMS } from '../../../../scripts/build-schemas.js';
+import { PLATFORMS, composePlatform } from '../../../../scripts/build-schemas.js';
 
 const ROOT = resolve(import.meta.dirname, '..', '..', '..', '..');
 const readTree = (path) => readFileSync(resolve(ROOT, path), 'utf8');
 
+/** The `step` def's pointer, the target the synthetic field table is held against. */
+const STEP = '#/$defs/step';
+
 /**
- * A consistent synthetic surface every echo leg accepts. `tableRows` is
- * derived from `tables` unless a test overrides it, exactly as the tree read
- * derives it — so a fixture cannot state a row count its tables do not carry.
+ * One synthetic composed surface at `pointer` on `platform`, carrying the
+ * display strings the check's resolver decides for that pointer.
+ */
+function surfaceAt(platform, pointer, fields) {
+  const target = describeTarget(pointer);
+  return {
+    platform,
+    pointer,
+    present: true,
+    hasAnyOf: false,
+    anyOfBranches: [],
+    anyOfRequired: [],
+    ...fields,
+    where: target.where(platform),
+    subject: target.subject,
+    noun: target.noun,
+  };
+}
+
+/**
+ * A consistent synthetic surface every echo leg accepts. `tableRows` and
+ * `payloadTableRows` are derived from their tables unless a test overrides
+ * them, exactly as the tree read derives them — so a fixture cannot state a
+ * row count its tables do not carry.
  */
 function makeSurface(overrides = {}) {
   const surface = {
@@ -95,7 +132,7 @@ function makeSurface(overrides = {}) {
     fieldTableKeys: registeredFieldTableKeys(),
     tables: [
       {
-        defName: 'step',
+        pointer: STEP,
         label: 'the step-fields table',
         fields: ['uuid', 'narration', 'step_type', 'expect'],
         yes: ['uuid'],
@@ -104,27 +141,57 @@ function makeSurface(overrides = {}) {
       },
     ],
     tableUnreadable: [],
-    defs: PLATFORM_IDS.map((platform) => ({
-      platform,
-      defName: 'step',
-      present: true,
-      hasAnyOf: true,
-      properties: ['uuid', 'narration', 'step_type', 'expect'],
-      required: ['uuid'],
-      anyOfBranches: [['narration'], ['step_type']],
-      anyOfRequired: ['narration', 'step_type'],
-    })),
+    payloadTableKeys: registeredPayloadTableKeys(),
+    payloadTables: [
+      {
+        pointer: ROOT_POINTER,
+        label: 'the sync payload top-level table',
+        fields: ['docent_format', 'project', 'recordings'],
+        yes: ['docent_format', 'project', 'recordings'],
+        no: [],
+        oneOf: [],
+      },
+    ],
+    payloadTableUnreadable: [],
+    defs: [
+      ...PLATFORM_IDS.map((platform) =>
+        surfaceAt(platform, STEP, {
+          hasAnyOf: true,
+          properties: ['uuid', 'narration', 'step_type', 'expect'],
+          required: ['uuid'],
+          anyOfBranches: [['narration'], ['step_type']],
+          anyOfRequired: ['narration', 'step_type'],
+        }),
+      ),
+      ...PLATFORM_IDS.map((platform) =>
+        surfaceAt(platform, ROOT_POINTER, {
+          properties: ['docent_format', 'project', 'recordings'],
+          required: ['docent_format', 'project', 'recordings'],
+        }),
+      ),
+    ],
     ...overrides,
   };
   if (!('tableRows' in overrides)) surface.tableRows = surface.tables.flatMap((t) => t.fields);
+  if (!('payloadTableRows' in overrides)) {
+    surface.payloadTableRows = surface.payloadTables.flatMap((t) => t.fields);
+  }
   return surface;
 }
 
-/** The synthetic surface with one platform's `step` def replaced. */
-const withDef = (platform, patch) =>
+/** The synthetic surface with one platform's surface at `pointer` replaced. */
+const withTarget = (pointer, platform, patch) =>
   makeSurface({
-    defs: makeSurface().defs.map((d) => (d.platform === platform ? { ...d, ...patch } : d)),
+    defs: makeSurface().defs.map((d) =>
+      d.platform === platform && d.pointer === pointer ? { ...d, ...patch } : d,
+    ),
   });
+
+/** The synthetic surface with one platform's schema root replaced. */
+const withRoot = (platform, patch) => withTarget(ROOT_POINTER, platform, patch);
+
+/** The synthetic surface with one platform's `step` def replaced. */
+const withDef = (platform, patch) => withTarget(STEP, platform, patch);
 
 describe('evaluateSchemaEcho — compliant baseline', () => {
   it('returns no problems when every echo holds', () => {
@@ -675,6 +742,349 @@ describe('evaluateSchemaEcho — duplicates, unreadable cells, and empty parses'
       );
     });
   }
+
+  it('names what an empty target-surface set stops: both registers’ comparisons', () => {
+    const problems = evaluateSchemaEcho(makeSurface({ defs: [] }));
+    assert.ok(
+      problems.includes('no composed target surfaces read — the field-table and payload-table legs cannot run'), // prettier-ignore
+      problems.join('\n'),
+    );
+  });
+});
+
+describe('evaluateSchemaEcho — the payload-table legs (each table against its target)', () => {
+  const top = () => makeSurface().payloadTables[0];
+  const [first, second] = PLATFORM_IDS;
+
+  it('fires when the table names a field its target has no property for, on every platform', () => {
+    const table = top();
+    const problems = evaluateSchemaEcho(
+      makeSurface({
+        payloadTables: [{ ...table, fields: [...table.fields, 'ghost'], no: ['ghost'] }],
+      }),
+    );
+    for (const platform of PLATFORM_IDS) {
+      assert.ok(
+        problems.includes(`\`ghost\` is a row of the sync payload top-level table but the composed ${platform} schema root has no such property`), // prettier-ignore
+        problems.join('\n'),
+      );
+    }
+  });
+
+  it('reports a target’s field drift per table when tables in both registers hold it', () => {
+    const held = { ...makeSurface().tables[0], label: 'the sync payload step table' };
+    const problems = evaluateSchemaEcho({
+      ...withTarget(STEP, second, { properties: ['uuid', 'narration', 'step_type', 'expect', 'sprouted'] }), // prettier-ignore
+      payloadTables: [top(), held],
+      payloadTableRows: [...top().fields, ...held.fields],
+    });
+    // The drift lines name exactly the tables that hold the target, one each.
+    assert.deepEqual(
+      problems.filter((p) => p.startsWith('`sprouted`') && p.endsWith('has no row for it')),
+      ['the step-fields table', held.label].map(
+        (label) => `\`sprouted\` is a property of the composed ${second} \`step\` def but ${label} has no row for it`, // prettier-ignore
+      ),
+    );
+  });
+
+  it('fires when a root property has no row, on the platform that grew it', () => {
+    const problems = evaluateSchemaEcho(
+      withRoot(second, { properties: ['docent_format', 'project', 'recordings', 'extra'] }),
+    );
+    assert.ok(
+      problems.includes(`\`extra\` is a property of the composed ${second} schema root but the sync payload top-level table has no row for it`), // prettier-ignore
+      problems.join('\n'),
+    );
+  });
+
+  it('fires on a required mismatch in both directions, and on a "no" row the root requires', () => {
+    const notRequired = evaluateSchemaEcho(withRoot(first, { required: ['project', 'recordings'] })); // prettier-ignore
+    assert.ok(
+      notRequired.includes(`\`docent_format\` is marked "yes" in the sync payload top-level table but the composed ${first} schema root does not require it`), // prettier-ignore
+      notRequired.join('\n'),
+    );
+    const markedNo = evaluateSchemaEcho(
+      makeSurface({ payloadTables: [{ ...top(), yes: ['project', 'recordings'], no: ['docent_format'] }] }), // prettier-ignore
+    );
+    assert.ok(
+      markedNo.includes(`\`docent_format\` is required by the composed ${first} schema root but the sync payload top-level table does not mark it "yes"`), // prettier-ignore
+      markedNo.join('\n'),
+    );
+    assert.ok(
+      markedNo.includes(`\`docent_format\` is marked "no" in the sync payload top-level table but the composed ${first} schema root requires it`), // prettier-ignore
+      markedNo.join('\n'),
+    );
+  });
+
+  it('holds every platform to one root, in the root’s own words', () => {
+    const problems = evaluateSchemaEcho(withRoot(second, { required: ['project', 'recordings'] }));
+    assert.ok(
+      problems.includes(`\`docent_format\` is required by the schema root on ${first} but not on ${second} — every composed platform must share this root`), // prettier-ignore
+      problems.join('\n'),
+    );
+  });
+
+  it('prints a cross-platform split once for a def both registers hold', () => {
+    const held = { ...makeSurface().tables[0], label: 'the sync payload step table' };
+    const problems = evaluateSchemaEcho({
+      ...withDef(second, { required: [] }),
+      payloadTables: [top(), held],
+      payloadTableRows: [...top().fields, ...held.fields],
+    });
+    const split = `\`uuid\` is required by \`step\` on ${first} but not on ${second} — every composed platform must share this def`; // prettier-ignore
+    assert.equal(problems.filter((p) => p === split).length, 1, problems.join('\n'));
+  });
+
+  it('holds the platforms to one surface at every pointer read, whether or not a table parsed rows', () => {
+    const surfaces = withRoot(second, { required: [] }).defs;
+    assert.ok(
+      fieldTableProblems([], surfaces).includes(`\`project\` is required by the schema root on ${first} but not on ${second} — every composed platform must share this root`), // prettier-ignore
+    );
+  });
+
+  it('refuses a payload table that parsed no readable rows, in its target’s words', () => {
+    const problems = evaluateSchemaEcho(
+      makeSurface({
+        payloadTables: [{ ...top(), fields: [], yes: [] }],
+        payloadTableRows: ['kept-alive'],
+      }),
+    );
+    assert.ok(
+      problems.includes('the sync payload top-level table parsed no readable rows — the payload-table legs cannot run'), // prettier-ignore
+      problems.join('\n'),
+    );
+    const defTable = evaluateSchemaEcho(
+      makeSurface({
+        tables: [{ ...makeSurface().tables[0], fields: [], yes: [], no: [], oneOf: [] }],
+        tableRows: ['kept-alive'],
+      }),
+    );
+    assert.ok(
+      defTable.includes(
+        'the step-fields table parsed no readable rows — the field-table legs cannot run',
+      ),
+      defTable.join('\n'),
+    );
+  });
+
+  it('names an unreadable payload-table cell by the sync protocol', () => {
+    const problems = evaluateSchemaEcho(
+      makeSurface({ payloadTableUnreadable: ['a Required cell — maybe'] }),
+    );
+    assert.ok(
+      problems.includes(`${SYNC_PROTOCOL_DOC_PATH} carries a cell the scan cannot read — a Required cell — maybe`), // prettier-ignore
+      problems.join('\n'),
+    );
+  });
+});
+
+describe('evaluateSchemaEcho — the payload coverage leg (both ways)', () => {
+  it('fires when the sync protocol carries a field table no list registers', () => {
+    const extra = payloadTableKey('Payload Shapes', 'Widget fields', PAYLOAD_TABLE_HEADER);
+    const problems = evaluateSchemaEcho(
+      makeSurface({ payloadTableKeys: [...registeredPayloadTableKeys(), extra] }),
+    );
+    assert.ok(
+      problems.includes(`\`${extra}\` is a field table in ${SYNC_PROTOCOL_DOC_PATH} that no payload leg holds and no entry records as review-held`), // prettier-ignore
+      problems.join('\n'),
+    );
+  });
+
+  it('fires when a registration names a table the sync protocol no longer carries', () => {
+    const [gone, ...kept] = registeredPayloadTableKeys();
+    const problems = evaluateSchemaEcho(makeSurface({ payloadTableKeys: kept }));
+    assert.ok(
+      problems.includes(`\`${gone}\` is registered as a payload table but ${SYNC_PROTOCOL_DOC_PATH} carries no such table — the registration is stale`), // prettier-ignore
+      problems.join('\n'),
+    );
+  });
+
+  it('fires when one heading carries a pair under one whole header the selector cannot address', () => {
+    const keys = registeredPayloadTableKeys();
+    const problems = evaluateSchemaEcho(makeSurface({ payloadTableKeys: [...keys, keys.at(-1)] }));
+    assert.ok(
+      problems.some((p) => p.includes('more than once') && p.includes('a pair the selector cannot address')), // prettier-ignore
+      problems.join('\n'),
+    );
+  });
+
+  it('derives the registered keys from both lists through the one key', () => {
+    assert.deepEqual(registeredPayloadTableKeys(), [
+      ...PAYLOAD_TABLE_LEGS.map(([section, subsection]) => payloadTableKey(section, subsection, PAYLOAD_TABLE_HEADER)), // prettier-ignore
+      ...UNHELD_PAYLOAD_TABLES.map(([section, subsection, header]) => payloadTableKey(section, subsection, header)), // prettier-ignore
+    ]);
+    assert.equal(payloadTableKey('A', 'B', ['Field', 'Type']), 'A / B / Field | Type');
+  });
+
+  it('keys every Field-headed table by section, heading and whole header, and no other table', () => {
+    const doc = [
+      'Preamble.',
+      '',
+      '| Field | Note |',
+      '| ----- | ---- |',
+      '| `x` | before any heading |',
+      '',
+      '## Shapes',
+      '',
+      '| Field | Type |',
+      '| ----- | ---- |',
+      '| `a` | t |',
+      '',
+      '### One',
+      '',
+      '| Field | Type | Required | Description |',
+      '| ----- | ---- | -------- | ----------- |',
+      '| `b` | t | yes | d |',
+      '',
+      '| Code | Meaning |',
+      '| ---- | ------- |',
+      '| 200 | ok |',
+    ].join('\n');
+    assert.deepEqual(extractPayloadTableKeys(doc), [
+      '(no section) / (no heading) / Field | Note',
+      'Shapes / (no heading) / Field | Type',
+      'Shapes / One / Field | Type | Required | Description',
+    ]);
+  });
+});
+
+describe('PAYLOAD_TABLE_LEGS — the registered payload tables', () => {
+  it('is non-empty and distinct, and its header carries the Required column where the row reader reads it', () => {
+    assert.ok(PAYLOAD_TABLE_LEGS.length > 0);
+    for (const projection of [
+      PAYLOAD_TABLE_LEGS.map(([section, subsection]) => `${section}\t${subsection}`),
+      PAYLOAD_TABLE_LEGS.map(([, , pointer]) => pointer),
+      PAYLOAD_TABLE_LEGS.map(([, , , label]) => label),
+    ]) {
+      assert.equal(new Set(projection).size, projection.length, projection.join(' | '));
+    }
+    assert.equal(PAYLOAD_TABLE_HEADER[REQUIRED_COLUMN], REQUIRED_HEADER);
+  });
+
+  for (const [section, subsection, pointer, label] of PAYLOAD_TABLE_LEGS) {
+    it(`${label} selects exactly one readable table, and its target ${pointer} resolves on every platform`, () => {
+      const read = extractPayloadTable(
+        readTree(SYNC_PROTOCOL_DOC_PATH),
+        section,
+        subsection,
+        label,
+      );
+      assert.deepEqual(read.problems, []);
+      assert.deepEqual(read.unreadable, []);
+      assert.ok(read.rows.length > 0, `${label} parsed no rows`);
+      for (const platform of PLATFORM_IDS) {
+        const surface = readTargetSurface(composePlatform(platform), platform, pointer);
+        assert.deepEqual(surface.problems, [], platform);
+        assert.equal(surface.present, true, platform);
+      }
+    });
+  }
+});
+
+describe('UNHELD_PAYLOAD_TABLES — the review-held sync-protocol tables', () => {
+  it('states a reason per entry and never collides with a held leg', () => {
+    const legKeys = PAYLOAD_TABLE_LEGS.map(([section, subsection]) => payloadTableKey(section, subsection, PAYLOAD_TABLE_HEADER)); // prettier-ignore
+    const keys = UNHELD_PAYLOAD_TABLES.map(([section, subsection, header]) => payloadTableKey(section, subsection, header)); // prettier-ignore
+    assert.equal(new Set(keys).size, keys.length);
+    for (const key of keys) assert.ok(!legKeys.includes(key), key);
+    for (const [, , , reason] of UNHELD_PAYLOAD_TABLES) assert.ok(reason.length > 0);
+  });
+
+  it('the sync protocol carries every registered table and no other Field-headed one', () => {
+    const found = extractPayloadTableKeys(readTree(SYNC_PROTOCOL_DOC_PATH));
+    assert.deepEqual([...found].sort(), [...registeredPayloadTableKeys()].sort());
+  });
+});
+
+describe('extractPayloadTable', () => {
+  const doc = [
+    '## Payload Shapes',
+    '',
+    '### Payload',
+    '',
+    '#### Top-level fields',
+    '',
+    '| Field | Type | Required | Description |',
+    '| ----- | ---- | -------- | ----------- |',
+    '| `docent_format` | object | yes | stamp |',
+    '',
+    '#### Project fields',
+    '',
+    '| Field | Type | Required | Description |',
+    '| ----- | ---- | -------- | ----------- |',
+    '| `project_id` | string | yes | id |',
+  ].join('\n');
+
+  it('selects by section, heading, and whole header — one of several same-header tables', () => {
+    const read = extractPayloadTable(doc, 'Payload Shapes', 'Top-level fields', 'the top table');
+    assert.deepEqual(read.problems, []);
+    assert.deepEqual(read.rows, [{ field: 'docent_format', required: 'yes' }]);
+  });
+
+  it('refuses a selection matching no table, by name', () => {
+    const read = extractPayloadTable(doc, 'Payload Shapes', 'Payload', 'the top table');
+    assert.deepEqual(read.rows, []);
+    assert.deepEqual(read.problems, [
+      `${SYNC_PROTOCOL_DOC_PATH} carries 0 tables under "Payload Shapes › Payload" headed "${PAYLOAD_TABLE_HEADER.join(' | ')}" — the top table models exactly one`, // prettier-ignore
+    ]);
+  });
+
+  it('refuses a selection matching two tables rather than merging them', () => {
+    const twice = doc.replace('#### Project fields', '');
+    const read = extractPayloadTable(twice, 'Payload Shapes', 'Top-level fields', 'the top table');
+    assert.deepEqual(read.rows, []);
+    assert.ok(read.problems[0].includes(`${SYNC_PROTOCOL_DOC_PATH} carries 2 tables`), read.problems.join('\n')); // prettier-ignore
+  });
+
+  it('refuses a header that differs in any cell, never selecting on the first alone', () => {
+    const offCell = doc.replace('| Field | Type | Required | Description |', '| Field | Type | Needed | Description |'); // prettier-ignore
+    const read = extractPayloadTable(offCell, 'Payload Shapes', 'Top-level fields', 'the top table'); // prettier-ignore
+    assert.ok(read.problems[0].includes('carries 0 tables'), read.problems.join('\n'));
+  });
+});
+
+describe('auditTree — the sync protocol read empty or not at all', () => {
+  for (const [what, answer, tail] of [
+    ['read empty', '', 'read empty'],
+    ['unreadable', null, 'could not be read'],
+  ]) {
+    it(`names the read failure once, by the authority leg, and the selection refusals follow when it is ${what}`, () => {
+      const surfaces = auditTree((path) => (path === SYNC_PROTOCOL_DOC_PATH ? answer : readTree(path)), composePlatform); // prettier-ignore
+      for (const [, subsection] of PAYLOAD_TABLE_LEGS) {
+        assert.ok(
+          surfaces.machineryProblems.some((p) => p.startsWith(`${SYNC_PROTOCOL_DOC_PATH} carries 0 tables under "Payload Shapes › ${subsection}"`)), // prettier-ignore
+          surfaces.machineryProblems.join('\n'),
+        );
+      }
+      const problems = evaluateSchemaEcho(surfaces);
+      const failures = problems.filter((p) => p.startsWith(`${SYNC_PROTOCOL_DOC_PATH} ${tail}`));
+      assert.deepEqual(failures, [`${SYNC_PROTOCOL_DOC_PATH} ${tail} — ${describe1(SYNC_PROTOCOL_DOC_PATH)}`]); // prettier-ignore
+      assert.ok(
+        problems.includes(`no payload-table rows read from ${SYNC_PROTOCOL_DOC_PATH} — the payload-table legs cannot run`), // prettier-ignore
+        problems.join('\n'),
+      );
+    });
+  }
+});
+
+describe('auditTree — each target read once per platform across both registers', () => {
+  it('reads a def both registers hold once, so a def missing on one platform is named once', () => {
+    const [first, second] = PLATFORM_IDS;
+    const compose = (platform) => {
+      const schema = composePlatform(platform);
+      if (platform !== second) return schema;
+      const { project: _dropped, ...defs } = schema.$defs;
+      return { ...schema, $defs: defs };
+    };
+    const surfaces = auditTree((path) => readTree(path), compose);
+    const pairs = surfaces.defs.map((d) => `${d.platform} ${d.pointer}`);
+    assert.equal(new Set(pairs).size, pairs.length, pairs.join(' | '));
+    const missing = `the composed ${second} schema carries no \`project\` def — the field-table and payload-table legs cannot run`; // prettier-ignore
+    assert.equal(surfaces.anchorProblems.filter((p) => p === missing).length, 1, surfaces.anchorProblems.join('\n')); // prettier-ignore
+    assert.ok(
+      !surfaces.anchorProblems.some((p) => p.includes(`composed ${first} schema carries no`)),
+    );
+  });
 });
 
 describe('AUTHORITY_SURFACES — the registered echo surfaces', () => {
@@ -1021,8 +1431,39 @@ describe('extractFieldTable', () => {
   });
 });
 
-describe('readDefSurface', () => {
+describe('describeTarget — the target pointers and the words each one decides', () => {
+  it('reads the root pointer as the schema root', () => {
+    const target = describeTarget(ROOT_POINTER);
+    assert.equal(target.defName, null);
+    assert.equal(target.where('extension'), 'the composed extension schema root');
+    assert.equal(target.subject, 'the schema root');
+    assert.equal(target.legs, 'the payload-table legs');
+    assert.equal(target.noun, 'this root');
+  });
+
+  it('reads a def pointer as that def, naming its legs by the register kinds that hold it', () => {
+    const target = describeTarget('#/$defs/project');
+    assert.equal(target.defName, 'project');
+    assert.equal(target.where('desktop-windows'), 'the composed desktop-windows `project` def');
+    assert.equal(target.subject, '`project`');
+    assert.equal(target.legs, 'the field-table and payload-table legs');
+    assert.equal(describeTarget('#/$defs/step').legs, 'the field-table legs');
+    assert.equal(target.noun, 'this def');
+  });
+
+  it('throws by name on a pointer in neither form — the register’s own bug, not a tree input', () => {
+    for (const pointer of ['#/properties/project', '#/$defs/a/b', '', undefined]) {
+      assert.throws(() => describeTarget(pointer), /is neither "#" nor "#\/\$defs\/<name>"/, String(pointer)); // prettier-ignore
+      assert.throws(() => readTargetSurface({}, 'extension', pointer), /check's own bug/);
+    }
+  });
+});
+
+describe('readTargetSurface', () => {
   const schema = {
+    properties: { a: {}, b: {} },
+    required: ['a'],
+    anyOf: [{ required: ['b'] }],
     $defs: {
       step: {
         type: 'object',
@@ -1037,28 +1478,57 @@ describe('readDefSurface', () => {
   };
 
   it('reads properties, required, and the deduplicated anyOf union', () => {
-    const read = readDefSurface(schema, 'extension', 'step');
+    const read = readTargetSurface(schema, 'extension', '#/$defs/step');
     assert.deepEqual(read.problems, []);
     assert.deepEqual(read.properties, ['uuid', 'narration', 'step_type']);
     assert.deepEqual(read.required, ['uuid']);
     assert.deepEqual(read.anyOfRequired.sort(), ['narration', 'step_type']);
     assert.equal(read.hasAnyOf, true);
     assert.equal(read.present, true);
+    assert.equal(read.where, 'the composed extension `step` def');
+  });
+
+  it('reads the root envelope’s own properties, required, and anyOf', () => {
+    const read = readTargetSurface(schema, 'extension', ROOT_POINTER);
+    assert.deepEqual(read.problems, []);
+    assert.deepEqual(read.properties, ['a', 'b']);
+    assert.deepEqual(read.required, ['a']);
+    assert.deepEqual(read.anyOfRequired, ['b']);
+    assert.equal(read.where, 'the composed extension schema root');
+    assert.equal(read.noun, 'this root');
   });
 
   it('is loud on a missing def, a def with no properties, and a non-array required', () => {
-    const missing = readDefSurface(schema, 'extension', 'ghost');
+    const missing = readTargetSurface(schema, 'extension', '#/$defs/ghost');
     assert.equal(missing.present, false);
-    assert.ok(missing.problems[0].includes('no `ghost` def'));
-    const loose = readDefSurface(schema, 'extension', 'loose');
+    assert.deepEqual(missing.problems, [
+      'the composed extension schema carries no `ghost` def — the field-table legs cannot run',
+    ]);
+    assert.equal(missing.where, 'the composed extension `ghost` def');
+    const loose = readTargetSurface(schema, 'extension', '#/$defs/loose');
     assert.equal(loose.present, false);
-    assert.ok(loose.problems[0].includes('no properties object'));
-    const odd = readDefSurface(schema, 'extension', 'odd');
+    assert.deepEqual(loose.problems, [
+      'the composed extension `loose` def carries no properties object — the field-table legs cannot run',
+    ]);
+    const odd = readTargetSurface(schema, 'extension', '#/$defs/odd');
     assert.ok(odd.problems[0].includes('required that is not an array'));
   });
 
+  it('is loud on a root with no properties and on a schema that is not an object', () => {
+    const bare = readTargetSurface({ $defs: {} }, 'extension', ROOT_POINTER);
+    assert.equal(bare.present, false);
+    assert.deepEqual(bare.problems, [
+      'the composed extension schema root carries no properties object — the payload-table legs cannot run',
+    ]);
+    const absent = readTargetSurface(null, 'desktop-windows', ROOT_POINTER);
+    assert.equal(absent.present, false);
+    assert.deepEqual(absent.problems, [
+      'the composed desktop-windows schema is not an object — the payload-table legs cannot run',
+    ]);
+  });
+
   it('refuses an anyOf branch it does not model instead of reading it as empty', () => {
-    const read = readDefSurface(schema, 'desktop-windows', 'vague');
+    const read = readTargetSurface(schema, 'desktop-windows', '#/$defs/vague');
     assert.equal(read.hasAnyOf, true);
     assert.deepEqual(read.anyOfRequired, []);
     assert.ok(read.problems[0].includes('anyOf branch 0') && read.problems[0].includes('desktop-windows')); // prettier-ignore
@@ -1173,7 +1643,7 @@ describe('auditTree — a schema that will not compose', () => {
     );
     assert.ok(
       surfaces.anchorProblems.some(
-        (p) => p.includes('does not compose from its source layers') && p.includes('layer chain broken'), // prettier-ignore
+        (p) => p.includes('does not compose from its source layers') && p.includes('layer chain broken') && p.endsWith('— the posture, field-table and payload-table legs cannot run'), // prettier-ignore
       ),
       surfaces.anchorProblems.join('\n'),
     );
@@ -1189,8 +1659,15 @@ describe('real-tree lock', () => {
     assert.deepEqual(evaluateSchemaEcho(surfaces), []);
     assert.equal(surfaces.authority.length, AUTHORITY_SURFACES.length);
     assert.equal(surfaces.tables.length, FIELD_TABLE_LEGS.length);
+    assert.equal(surfaces.payloadTables.length, PAYLOAD_TABLE_LEGS.length);
     assert.ok(surfaces.tableRows.length > 0);
+    assert.ok(surfaces.payloadTableRows.length > 0);
     assert.ok(surfaces.defs.every((d) => d.present));
+    const targets = new Set([
+      ...FIELD_TABLE_LEGS.map(([, , defName]) => `#/$defs/${defName}`),
+      ...PAYLOAD_TABLE_LEGS.map(([, , pointer]) => pointer),
+    ]);
+    assert.equal(surfaces.defs.length, targets.size * PLATFORM_IDS.length);
     for (const platform of PLATFORM_IDS) {
       assert.ok(surfaces.objects.some((o) => o.platform === platform), platform); // prettier-ignore
     }
@@ -1292,6 +1769,29 @@ describe('the CLI’s two exit codes, over copies of the surfaces it reads', () 
     assert.equal(r.status, 2, `${r.stdout}${r.stderr}`);
     assert.match(r.stderr, /does not parse as JSON/);
     assert.doesNotMatch(r.stderr, /^\s+at /m);
+  });
+
+  it('a payload table whose heading no longer selects it is the machinery verdict, on exit 2', () => {
+    const doc = SYNC_PROTOCOL_DOC_PATH;
+    const [[, subsection]] = PAYLOAD_TABLE_LEGS;
+    const r = run(tree((files) => files.set(doc, files.get(doc).replace(`#### ${subsection}`, '#### Renamed')))); // prettier-ignore
+    assert.equal(r.status, 2, `${r.stdout}${r.stderr}`);
+    assert.match(r.stderr, /carries 0 tables under/);
+  });
+
+  it('a payload table that dropped a required field is drift, on exit 1', () => {
+    const doc = SYNC_PROTOCOL_DOC_PATH;
+    const r = run(tree((files) => files.set(doc, files.get(doc).replace(/^\| `recordings` .*\n/m, '')))); // prettier-ignore
+    assert.equal(r.status, 1, `${r.stdout}${r.stderr}`);
+    assert.match(r.stderr, /`recordings` is a property of the composed \S+ schema root but the sync payload top-level table has no row for it/); // prettier-ignore
+  });
+
+  it('a Field-headed table no payload register holds is drift, on exit 1', () => {
+    const doc = SYNC_PROTOCOL_DOC_PATH;
+    const added = '\n## Appendix\n\n| Field | Type |\n| ----- | ---- |\n| `x` | t |\n';
+    const r = run(tree((files) => files.set(doc, `${files.get(doc)}${added}`)));
+    assert.equal(r.status, 1, `${r.stdout}${r.stderr}`);
+    assert.match(r.stderr, /`Appendix \/ \(no heading\) \/ Field \| Type` is a field table in docs\/api\/sync-protocol\.md that no payload leg holds/); // prettier-ignore
   });
 
   it('an echo that drifted, every read having answered, ends on exit 1 instead', () => {

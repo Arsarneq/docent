@@ -26,6 +26,16 @@ updates:
       - 'dependencies'
       - 'test'
 
+  - package-ecosystem: 'npm'
+    directory: '/packages/desktop/tests/integration'
+    schedule:
+      interval: 'weekly'
+    open-pull-requests-limit: 3
+    labels:
+      - 'dependencies'
+      - 'test'
+      - 'desktop-windows'
+
   - package-ecosystem: 'cargo'
     directory: '/packages/desktop/src-tauri'
     schedule:

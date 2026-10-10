@@ -18,6 +18,12 @@
  *   may deliberately raise when a legitimate, intentional artifact grows the
  *   bundle. When raising one, update the number AND the rationale so the
  *   tripwire keeps catching *unexpected* growth.
+ *   Headroom target (the per-type soft budgets; the whole-package limit above
+ *   is not one): a raise sets the budget to the measured size plus 3%, rounded
+ *   up to the next whole KB; its history entry records the measured size in
+ *   bytes and the install layout it was measured in, the margin the new budget
+ *   leaves, and the files whose size changed since the previously recorded
+ *   size, with their byte deltas; a raise that departs from the 3% states why.
  *
  * JS budget history:
  *   - Originally 200KB (hand-written ES modules only).
@@ -73,6 +79,19 @@
  *     620KB raise, ~19.5KB at the 645KB raise), so the tripwire regains room to
  *     catch unexpected growth without widening the budget past what those
  *     raises set.
+ *   - Raised to 674KB: measured 669,175 B (`node_modules` inside the
+ *     checkout); margin 21,001 B; growth since 660,922 B at b049f56 (the
+ *     header's recorded size): `background/service-worker.js` +5,474 B,
+ *     `shared/views/adapter.js` +1,730 B, `lib/capture-timing.js` +607 B,
+ *     `shared/sync-client.js` +410 B, others +32 B. Deliberate:
+ *     `background/service-worker.js` grew with the worker introspection handle
+ *     that pins the frame registry's departures and with comments aligned to
+ *     the doctrine terms, `shared/views/adapter.js` with the platform-adapter
+ *     seam held in both directions and the panel's caller model stated at the
+ *     seam, `lib/capture-timing.js` with the derived inject-to-ready bound, and
+ *     `shared/sync-client.js` with the push-scope comments and the exported
+ *     envelope projection that holds the pull and push halves together; no new
+ *     dependency.
  *
  * Requires `npm run sync-shared` to have been run first.
  */
@@ -80,12 +99,18 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { readdirSync, statSync } from 'node:fs';
-import { join, resolve } from 'node:path';
+import { join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const __dirname = fileURLToPath(new URL('.', import.meta.url));
 const extensionDir = resolve(__dirname, '../..');
 
+/**
+ * Sums the sizes of the files under `dir`, optionally only those ending in one
+ * of `extensions`, skipping every file that sits inside a directory named in
+ * `excludeDirs`. A directory is matched by whole name among the path segments
+ * below `dir`, so where the checkout itself lives never decides what counts.
+ */
 function getDirSize(dir, extensions = null, excludeDirs = []) {
   let total = 0;
   try {
@@ -93,7 +118,8 @@ function getDirSize(dir, extensions = null, excludeDirs = []) {
     for (const entry of entries) {
       if (entry.isFile()) {
         const fullPath = join(entry.parentPath || entry.path, entry.name);
-        if (excludeDirs.some((ex) => fullPath.includes(ex))) continue;
+        const dirSegments = relative(dir, fullPath).split(sep).slice(0, -1);
+        if (dirSegments.some((segment) => excludeDirs.includes(segment))) continue;
         if (extensions && !extensions.some((ext) => entry.name.endsWith(ext))) continue;
         try {
           total += statSync(fullPath).size;
@@ -116,23 +142,33 @@ function formatSize(bytes) {
 
 const extensionExcludes = ['node_modules', 'tests', '.git', 'coverage'];
 
+const JS_BUDGET_KB = 674;
+
+/** The headroom rule's figures for a measured size: the next budget and its margin. */
+function nextBudget(bytes) {
+  const kb = Math.ceil((bytes * 1.03) / 1024);
+  return `${bytes} B measured; the headroom rule's next budget is ${kb}KB, leaving ${kb * 1024 - bytes} B`;
+}
+
 describe('Build size: Extension', () => {
-  it('total JS size is under 660KB (uncompressed)', () => {
+  it(`total JS size is under ${JS_BUDGET_KB}KB (uncompressed)`, () => {
     const size = getDirSize(extensionDir, ['.js'], extensionExcludes);
     assert.ok(size > 0, 'No JS files found — has sync-shared been run?');
     assert.ok(
-      size < 660 * 1024,
-      `Extension JS is ${formatSize(size)} (soft limit: 660KB). This is a regression tripwire, not a platform limit — if the growth is an intentional artifact, raise the limit AND its rationale in this file's header; otherwise check for an accidental large dependency.`,
+      size < JS_BUDGET_KB * 1024,
+      `Extension JS is ${formatSize(size)} (${nextBudget(size)}; soft limit: ${JS_BUDGET_KB}KB). This is a regression tripwire, not a platform limit — if the growth is an intentional artifact, raise the limit AND its rationale in this file's header; otherwise check for an accidental large dependency.`,
     );
   });
 
   it('total CSS size is under 50KB', () => {
     const size = getDirSize(extensionDir, ['.css'], extensionExcludes);
+    assert.ok(size > 0, 'No CSS files found — has sync-shared been run?');
     assert.ok(size < 50 * 1024, `Extension CSS is ${formatSize(size)} (limit: 50KB).`);
   });
 
   it('total HTML size is under 100KB', () => {
     const size = getDirSize(extensionDir, ['.html'], extensionExcludes);
+    assert.ok(size > 0, 'No HTML files found — has sync-shared been run?');
     assert.ok(size < 100 * 1024, `Extension HTML is ${formatSize(size)} (limit: 100KB).`);
   });
 

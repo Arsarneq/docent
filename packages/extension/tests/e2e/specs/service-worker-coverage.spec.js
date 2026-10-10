@@ -223,7 +223,7 @@ test.describe('SW Message: Project CRUD', () => {
       type: 'PROJECT_CREATE',
       name: 'First',
     });
-    const { project: p2 } = await sendSWMessage(panelPage, {
+    await sendSWMessage(panelPage, {
       type: 'PROJECT_CREATE',
       name: 'Second',
     });
@@ -286,7 +286,7 @@ test.describe('SW Message: Project CRUD', () => {
       type: 'PROJECT_CREATE',
       name: 'Keep',
     });
-    const { project: p2 } = await sendSWMessage(panelPage, {
+    await sendSWMessage(panelPage, {
       type: 'PROJECT_CREATE',
       name: 'Remove',
     });
@@ -372,7 +372,7 @@ test.describe('SW Message: Recording lifecycle', () => {
       type: 'RECORDING_CREATE',
       name: 'R1',
     });
-    const { recording: r2 } = await sendSWMessage(panelPage, {
+    await sendSWMessage(panelPage, {
       type: 'RECORDING_CREATE',
       name: 'R2',
     });
@@ -1050,7 +1050,10 @@ test.describe('SW Message: Error paths', () => {
 // ─── GET_TAB_ID and APPEND_ACTION (synchronous handlers) ─────────────────────
 
 test.describe('SW Message: Synchronous handlers', () => {
-  test('GET_TAB_ID returns tabId from sender context', async ({ serviceWorker, panelPage }) => {
+  test('GET_TAB_ID returns tabId from sender context', async ({
+    serviceWorker: _serviceWorker,
+    panelPage,
+  }) => {
     // GET_TAB_ID is handled synchronously and returns sender.tab.id.
     // The panel page is opened as a tab, so it has a valid tab ID.
     const result = await panelPage.evaluate(async () => {
@@ -1185,7 +1188,7 @@ test.describe('SW Message: Full workflow integration', () => {
         pendingCount: 1,
       });
     });
-    const { step: s2 } = await sendSWMessage(panelPage, {
+    await sendSWMessage(panelPage, {
       type: 'STEP_COMMIT',
       narration: 'Click login',
       narration_source: 'typed',
@@ -1267,10 +1270,7 @@ async function readPending(serviceWorker) {
 }
 
 test.describe('SW Lifecycle: tab create/close/switch', () => {
-  test('chrome.tabs.create triggers onCreated → context_open', async ({
-    serviceWorker,
-    context,
-  }) => {
+  test('chrome.tabs.create triggers onCreated → context_open', async ({ serviceWorker }) => {
     await resetState(serviceWorker);
     await enableRecording(serviceWorker);
 

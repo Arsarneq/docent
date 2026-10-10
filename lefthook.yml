@@ -11,9 +11,10 @@ pre-push:
   parallel: true
   commands:
     lint-js:
-      run: npx eslint packages/shared/ packages/extension/sidepanel/ packages/extension/content/ packages/extension/background/ packages/desktop/src/ scripts/
+      run: npx eslint packages/shared/ packages/extension/sidepanel/ packages/extension/content/ packages/extension/background/ packages/extension/lib/ packages/extension/tests/ packages/desktop/src/ packages/desktop/tests/ scripts/
     lint-css:
       glob: '*.css'
+      # single quotes on purpose: lefthook runs hooks through a POSIX shell (on Windows, Git's sh -c inside lefthook's own double quotes), which reads them as quotes.
       run: npx stylelint 'packages/shared/views/**/*.css'
     lint-format:
       run: npx prettier --check .

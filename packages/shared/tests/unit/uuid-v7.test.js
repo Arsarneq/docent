@@ -5,7 +5,7 @@
  * Uses Node.js built-in test runner + fast-check.
  */
 
-import { describe, it } from 'node:test';
+import { describe, it, mock } from 'node:test';
 import assert from 'node:assert/strict';
 import fc from 'fast-check';
 import { uuidv7, uuidv7ToDate, compareUuidv7, isValidUuidv7 } from '../../lib/uuid-v7.js';
@@ -48,16 +48,20 @@ describe('uuidv7 — format', () => {
 
 describe('uuidv7 — monotonic ordering', () => {
   it('UUIDs share the same timestamp prefix within the same millisecond', () => {
-    // Within a single ms, the first 12 hex chars (timestamp) should be identical
-    const ids = [];
-    for (let i = 0; i < 10; i++) ids.push(uuidv7());
-    const prefix = ids[0].replace(/-/g, '').slice(0, 12);
-    for (const id of ids) {
-      const p = id.replace(/-/g, '').slice(0, 12);
-      // May differ if we cross a ms boundary, but most should match
-      // Just verify they're within 1ms of each other
-      const diff = Math.abs(parseInt(p, 16) - parseInt(prefix, 16));
-      assert.ok(diff <= 1, `Timestamp drift > 1ms: ${diff}`);
+    // The clock is held on one known millisecond through the generator's only
+    // time source, Date.now, so "the same millisecond" is a fact of the case
+    // rather than a race against the wall clock: every id carries that
+    // millisecond as its 48-bit big-endian prefix.
+    const ms = 0x0190a1b2c3d4;
+    const now = mock.method(Date, 'now', () => ms);
+    try {
+      const ids = Array.from({ length: 10 }, () => uuidv7());
+      for (const id of ids) {
+        assert.equal(id.replace(/-/g, '').slice(0, 12), '0190a1b2c3d4', `prefix of ${id}`);
+      }
+      assert.equal(new Set(ids).size, ids.length, 'same-millisecond ids stay distinct');
+    } finally {
+      now.mock.restore();
     }
   });
 
@@ -114,20 +118,19 @@ describe('uuidv7ToDate', () => {
   });
 
   it('round-trips the timestamp from a known time', () => {
-    // Generate and immediately extract — should be within 1ms
-    const id = uuidv7();
-    const now = Date.now();
-    const extracted = uuidv7ToDate(id).getTime();
-    assert.ok(Math.abs(extracted - now) <= 1, `Drift too large: ${Math.abs(extracted - now)}ms`);
+    // A known millisecond, held through Date.now, comes back exactly.
+    const ms = 1_700_000_000_123;
+    const now = mock.method(Date, 'now', () => ms);
+    try {
+      assert.equal(uuidv7ToDate(uuidv7()).getTime(), ms);
+    } finally {
+      now.mock.restore();
+    }
   });
 });
 
 describe('compareUuidv7', () => {
   it('returns negative when a < b', () => {
-    const a = uuidv7();
-    const b = uuidv7();
-    // Same millisecond, but b generated after a — random bits make b >= a
-    // Use a guaranteed case instead
     assert.ok(
       compareUuidv7(
         '00000000-0000-7000-8000-000000000000',

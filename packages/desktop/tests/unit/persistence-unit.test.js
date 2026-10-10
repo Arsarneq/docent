@@ -9,7 +9,7 @@
  * See LICENSE in the project root for license information.
  */
 
-import { describe, it, beforeEach } from 'node:test';
+import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { mock } from 'node:test';
 

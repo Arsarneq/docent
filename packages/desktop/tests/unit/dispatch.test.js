@@ -18,12 +18,9 @@ import { mock } from 'node:test';
 
 // ─── Global mocks ─────────────────────────────────────────────────────────────
 
-let mockInvoke;
-let mockFetch;
-
 // Set up globals before importing dispatch.js
-mockInvoke = mock.fn();
-mockFetch = mock.fn();
+const mockInvoke = mock.fn();
+const mockFetch = mock.fn();
 
 globalThis.window = {
   __TAURI__: {
@@ -96,9 +93,7 @@ describe('saveDispatchSettings()', () => {
 
     // First call: load_state returns existing state
     // Second call: save_state succeeds
-    let callCount = 0;
-    mockInvoke.mock.mockImplementation(async (cmd, args) => {
-      callCount++;
+    mockInvoke.mock.mockImplementation(async (cmd) => {
       if (cmd === 'load_state') return JSON.stringify(existingState);
       if (cmd === 'save_state') return undefined;
       throw new Error(`Unexpected command: ${cmd}`);
@@ -118,9 +113,7 @@ describe('saveDispatchSettings()', () => {
   });
 
   it('creates fresh state when load fails', async () => {
-    let callCount = 0;
-    mockInvoke.mock.mockImplementation(async (cmd, args) => {
-      callCount++;
+    mockInvoke.mock.mockImplementation(async (cmd) => {
       if (cmd === 'load_state') throw new Error('File not found');
       if (cmd === 'save_state') return undefined;
       throw new Error(`Unexpected command: ${cmd}`);
