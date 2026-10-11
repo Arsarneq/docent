@@ -472,6 +472,193 @@ describe('auditInventories — the extraction fails loudly', () => {
   });
 });
 
+/** An inventory that opts into the row shape, over one `##` section of one document. */
+const shaped = (section = 'Unit', rowShape = { coversMax: 300 }) => ({
+  doc: 'docs/unit.md',
+  section,
+  header: ['Test file', 'Covers'],
+  dir: `tests/${section.toLowerCase()}`,
+  selects: (name) => /^[^/]+\.test\.js$/.test(name),
+  ...(rowShape ? { rowShape } : {}),
+});
+
+/**
+ * One inventory section in the row shape: the marker, the compact table, then
+ * each detail section after it. `rows` are written as given, so a case states
+ * every line it breaks; `details` are `[file, slug-less heading text]` bodies.
+ */
+function shapedSection(section, rows, details = [], { header, delimiter } = {}) {
+  return [
+    `## ${section}`,
+    '',
+    '<!-- prettier-ignore -->',
+    header ?? '| Test file | Covers |',
+    delimiter ?? '| --- | --- |',
+    ...rows,
+    ...details.flatMap((name) => [
+      '',
+      `### \`${name}\``,
+      '',
+      `- what \`${name}\` covers in detail`,
+    ]),
+    '',
+  ];
+}
+
+/** Audit a row-shape document whose suite holds exactly the named files. */
+function auditShape(lines, names, inventories = [shaped()]) {
+  const files = ['docs/unit.md', ...names];
+  return auditInventories({
+    files,
+    readFile: (f) => (f === 'docs/unit.md' ? ['# Unit tests', '', ...lines].join('\n') : null),
+    inventories,
+    lists: [],
+  });
+}
+
+/** The one row-shape verdict a red case expects, matched by its cause. */
+function assertOneRowShape(result, pattern) {
+  assert.equal(
+    result.rowShape?.length,
+    1,
+    `one row-shape verdict, got ${JSON.stringify(result.rowShape)}`,
+  );
+  assert.match(result.rowShape[0], pattern);
+  assert.equal(formatProblems(result).length, 1);
+}
+
+describe('auditInventories — the row shape of an opted-in inventory', () => {
+  const ok = '| `b.test.js` | The b module. |';
+  const linked = '| `a.test.js` | The a module. [Detail](#atestjs) |';
+
+  it('flags a Covers cell one character over the cap', () => {
+    const cell = 'x'.repeat(301);
+    const result = auditShape(shapedSection('Unit', [`| \`b.test.js\` | ${cell} |`]), [
+      'tests/unit/b.test.js',
+    ]);
+    assertOneRowShape(result, /`b\.test\.js`.*301 characters.*300/);
+  });
+
+  it('passes a Covers cell exactly at the cap', () => {
+    const cell = 'x'.repeat(300);
+    const result = auditShape(shapedSection('Unit', [`| \`b.test.js\` | ${cell} |`]), [
+      'tests/unit/b.test.js',
+    ]);
+    assert.deepEqual(formatProblems(result), []);
+  });
+
+  it('flags a padded row', () => {
+    const result = auditShape(shapedSection('Unit', ['| `b.test.js` | The b module.    |']), [
+      'tests/unit/b.test.js',
+    ]);
+    assertOneRowShape(result, /row for `b\.test\.js` is not in the compact form/);
+  });
+
+  it('flags a padded header', () => {
+    const lines = shapedSection('Unit', [ok], [], { header: '| Test file   | Covers |' });
+    const result = auditShape(lines, ['tests/unit/b.test.js']);
+    assertOneRowShape(result, /header line is not in the compact form/);
+  });
+
+  it('flags a delimiter padded with dashes', () => {
+    const lines = shapedSection('Unit', [ok], [], { delimiter: '| ----------- | --- |' });
+    const result = auditShape(lines, ['tests/unit/b.test.js']);
+    assertOneRowShape(result, /delimiter line is not in the compact form.*\| --- \| --- \|/);
+  });
+
+  it('passes a padded table in an inventory that has not opted in', () => {
+    const lines = [
+      '## Unit',
+      '',
+      '| Test file   | Covers        |',
+      '| ----------- | ------------- |',
+      '| `b.test.js` | The b module. |',
+      '',
+    ];
+    const result = auditShape(lines, ['tests/unit/b.test.js'], [shaped('Unit', null)]);
+    assert.deepEqual(formatProblems(result), []);
+  });
+
+  it('passes a cell holding an escaped pipe', () => {
+    const result = auditShape(
+      shapedSection('Unit', ['| `b.test.js` | Reads `a \\| b` as one cell. |']),
+      ['tests/unit/b.test.js'],
+    );
+    assert.deepEqual(formatProblems(result), []);
+  });
+
+  it("flags a link, whatever its text, to another file's detail heading", () => {
+    const rows = [linked, '| `b.test.js` | The b module. [Detail](#btestjs) [see a](#atestjs) |'];
+    const result = auditShape(shapedSection('Unit', rows, ['a.test.js', 'b.test.js']), [
+      'tests/unit/a.test.js',
+      'tests/unit/b.test.js',
+    ]);
+    assertOneRowShape(result, /`b\.test\.js`'s Covers cell links "#atestjs", which is not its own/);
+  });
+
+  it('flags a detail heading whose row no longer links it', () => {
+    const rows = ['| `a.test.js` | The a module. |', ok];
+    const result = auditShape(shapedSection('Unit', rows, ['a.test.js']), [
+      'tests/unit/a.test.js',
+      'tests/unit/b.test.js',
+    ]);
+    assertOneRowShape(
+      result,
+      /"### `a\.test\.js`" heading \(#atestjs\).*no link to it from its row/,
+    );
+  });
+
+  it('flags a detail heading with no row in its section', () => {
+    const result = auditShape(shapedSection('Unit', [ok], ['c.test.js']), ['tests/unit/b.test.js']);
+    assertOneRowShape(
+      result,
+      /"### `c\.test\.js`" heading \(#ctestjs\).*has no row in its section/,
+    );
+  });
+
+  it('flags a second detail heading for one file', () => {
+    const result = auditShape(shapedSection('Unit', [linked], ['a.test.js', 'a.test.js']), [
+      'tests/unit/a.test.js',
+    ]);
+    assertOneRowShape(result, /second "### `a\.test\.js`" heading \(#atestjs-1\)/);
+  });
+
+  it("passes one file in two trees, each row linking its own section's heading", () => {
+    // The document-order slug: the second tree's heading takes `-1`.
+    const lines = [
+      ...shapedSection(
+        'Desktop',
+        ['| `a.test.js` | The desktop a. [Detail](#atestjs) |'],
+        ['a.test.js'],
+      ),
+      ...shapedSection(
+        'Extension',
+        ['| `a.test.js` | The extension a. [Detail](#atestjs-1) |'],
+        ['a.test.js'],
+      ),
+    ];
+    const result = auditShape(
+      lines,
+      ['tests/desktop/a.test.js', 'tests/extension/a.test.js'],
+      [shaped('Desktop'), shaped('Extension')],
+    );
+    assert.deepEqual(formatProblems(result), []);
+  });
+
+  it('passes a heading-shaped line inside a fenced block in the section', () => {
+    const lines = [
+      ...shapedSection('Unit', [linked], ['a.test.js']),
+      '```text',
+      '### `a.test.js`',
+      '### `no-such.test.js`',
+      '```',
+      '',
+    ];
+    const result = auditShape(lines, ['tests/unit/a.test.js']);
+    assert.deepEqual(formatProblems(result), []);
+  });
+});
+
 describe('formatProblems — the red report', () => {
   it('formats every populated problem class the audit reports', () => {
     // Driven from the audit's own result shape: every class it can populate
