@@ -236,8 +236,7 @@ this repository tracks — code in any language, and prose.
   markers only; the transformation there is export-stripping and indentation.
   The service worker's unit suite holds its append chokepoint the same way,
   indentation only, and its active-unit helpers with no transformation
-  (`service-worker-mirror-parity.test.js`); the panel suite holds its
-  active-steps resolver with no transformation (`panel-mirror-parity.test.js`).
+  (`service-worker-mirror-parity.test.js`).
   A replica reshaped from the shipped code — simulated state around a re-typed
   handler, logic lifted out of a DOM callback — has no shipped text to be held
   to, so it pins only itself; the suite's document names it as such

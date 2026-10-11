@@ -1,10 +1,10 @@
 /**
  * panel.test.js — Unit and property-based tests for dispatch UI behaviour
  *
- * Since panel.js uses top-level await and DOM globals, we cannot import it
- * directly in Node. Instead, we test its key logic inline: one helper a verbatim
- * copy, the rest reshaped, verifying the correctness properties described in
- * the spec.
+ * The send gate's decisions — button state, the recording selection and the
+ * confirmation values — run against the shipped send-gate module the panel
+ * imports (sidepanel/send-gate.js). The cancel, send and export flows below
+ * simulate the panel's DOM-bound handlers around those functions.
  *
  * Uses Node's built-in test runner (node:test) and fast-check.
  *
@@ -16,58 +16,12 @@
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import fc from 'fast-check';
-
-// ─── Logic helpers (the active-steps resolver copied from panel.js; the rest reshaped from it) ───
-//
-// The active-steps resolver below is a verbatim copy of panel.js's, held
-// identical by panel-mirror-parity.test.js; the other helpers below are
-// reshaped from panel.js and pin only themselves.
-
-/**
- * Resolves the active (non-deleted, latest-version) steps for a recording.
- */
-function resolveActiveStepsForRecording(r) {
-  const groups = new Map();
-  for (const s of r.steps ?? []) {
-    const existing = groups.get(s.logical_id);
-    if (!existing || s.uuid > existing.uuid) groups.set(s.logical_id, s);
-  }
-  return Array.from(groups.values()).filter((s) => !s.deleted);
-}
-
-/**
- * Returns true when the Dispatch button should be enabled.
- * Reshaped from panel.js updateDispatchButton().
- */
-function shouldDispatchButtonBeEnabled(dispatchSettings, project) {
-  if (!dispatchSettings.endpointUrl) return false;
-  const recordings = project?.recordings ?? [];
-  return recordings.some((r) => resolveActiveStepsForRecording(r).length > 0);
-}
-
-/**
- * Returns recordings that have at least one active step, each annotated with
- * an `activeSteps` array. Reshaped from panel.js openDispatchFlow().
- */
-function getRecordingsWithActiveSteps(project) {
-  return (project?.recordings ?? [])
-    .map((r) => ({ ...r, activeSteps: resolveActiveStepsForRecording(r) }))
-    .filter((r) => r.activeSteps.length > 0);
-}
-
-/**
- * Simulates showConfirmation: returns the values that would be written to the
- * DOM elements confirmEndpoint, confirmRecordings, confirmSteps.
- */
-function buildConfirmationValues(dispatchSettings, recordings) {
-  const totalSteps = recordings.reduce((n, r) => n + r.activeSteps.length, 0);
-  return {
-    endpoint: dispatchSettings.endpointUrl ?? '',
-    recordings: recordings.map((r) => r.name).join(', '),
-    steps: String(totalSteps),
-    totalSteps,
-  };
-}
+import {
+  buildConfirmationValues,
+  getRecordingsWithActiveSteps,
+  resolveRecordingActiveSteps,
+  shouldDispatchButtonBeEnabled,
+} from '../../sidepanel/send-gate.js';
 
 // ─── Arbitraries ──────────────────────────────────────────────────────────────
 
@@ -75,6 +29,7 @@ function buildConfirmationValues(dispatchSettings, recordings) {
 const stepArb = fc.record({
   logical_id: fc.uuid(),
   uuid: fc.uuid(),
+  step_number: fc.integer({ min: 1, max: 20 }),
   narration: fc.string(),
   deleted: fc.boolean(),
 });
@@ -362,7 +317,7 @@ describe('Dispatch button state reflects project content', () => {
 
         const hasEndpoint = Boolean(settings.endpointUrl);
         const hasActiveSteps = (project.recordings ?? []).some(
-          (r) => resolveActiveStepsForRecording(r).length > 0,
+          (r) => resolveRecordingActiveSteps(r).length > 0,
         );
         const expected = hasEndpoint && hasActiveSteps;
 
@@ -388,7 +343,7 @@ describe('Recording selector lists exactly recordings with active steps', () => 
 
         // Independently compute M: recordings that have ≥1 active step
         const expectedM = (project.recordings ?? []).filter(
-          (r) => resolveActiveStepsForRecording(r).length > 0,
+          (r) => resolveRecordingActiveSteps(r).length > 0,
         ).length;
 
         assert.strictEqual(
@@ -412,8 +367,7 @@ describe('Recording selector lists exactly recordings with active steps', () => 
     // Generate projects that have at least 2 recordings with active steps
     const projectWith2PlusActiveArb = projectArb.filter(
       (p) =>
-        (p.recordings ?? []).filter((r) => resolveActiveStepsForRecording(r).length > 0).length >=
-        2,
+        (p.recordings ?? []).filter((r) => resolveRecordingActiveSteps(r).length > 0).length >= 2,
     );
 
     await fc.assert(
@@ -553,7 +507,7 @@ describe('Confirmation gate — no dispatch without confirmation, no dispatch on
       fc.asyncProperty(
         settingsWithEndpointArb.filter((s) => Boolean(s.endpointUrl)),
         projectArb.filter((p) =>
-          (p.recordings ?? []).some((r) => resolveActiveStepsForRecording(r).length > 0),
+          (p.recordings ?? []).some((r) => resolveRecordingActiveSteps(r).length > 0),
         ),
         (settings, project) => {
           let sendPayloadCallCount = 0;
@@ -610,5 +564,38 @@ describe('Confirmation gate — no dispatch without confirmation, no dispatch on
       'sendPayload must be called exactly once when the user confirms',
     );
     void recordings;
+  });
+});
+
+// ─── Active steps resolve in step order ───────────────────────────────────────
+
+describe('Recording selection resolves active steps in step_number order', () => {
+  test('each recording carries its active steps sorted by step_number', () => {
+    const project = {
+      recordings: [
+        {
+          recording_id: 'r1',
+          name: 'Rec',
+          steps: [
+            { logical_id: 'c', uuid: '3', step_number: 3, deleted: false },
+            { logical_id: 'a', uuid: '1', step_number: 1, deleted: false },
+            { logical_id: 'b', uuid: '2', step_number: 2, deleted: false },
+          ],
+        },
+      ],
+    };
+    const [rec] = getRecordingsWithActiveSteps(project);
+    assert.deepStrictEqual(
+      rec.activeSteps.map((s) => s.step_number),
+      [1, 2, 3],
+    );
+  });
+
+  test('a recording with no steps array resolves to no active steps', () => {
+    assert.deepStrictEqual(resolveRecordingActiveSteps({ recording_id: 'r1' }), []);
+    assert.deepStrictEqual(
+      getRecordingsWithActiveSteps({ recordings: [{ recording_id: 'r1' }] }),
+      [],
+    );
   });
 });

@@ -18,10 +18,11 @@ carry parity guards that hold them to the text that ships. Reshaped from the
 shipped code, and pinning only themselves where they stand in for it or seed it,
 are: in the extension tree, the
 worker's replicated handlers beyond its append chokepoint, its
-frame-registration fixture, the panel suite's other helpers and the
-capture-timing suite's recent-action decision; in the shared tree, the settings state-machine
-suite's panel settings logic and, as fixture seeds, the sync suites' allowlisted
-projections (their baseline and payload builders); and in the desktop tree, the
+frame-registration fixture, the panel suite's simulated send, cancel and
+export handlers and the capture-timing suite's recent-action decision; in the
+shared tree, the settings state-machine suite's panel settings logic and, as
+fixture seeds, the sync suites' allowlisted projections (their baseline and
+payload builders); and in the desktop tree, the
 settings suite's save and load. Where a suite holds the module's output to one
 of those projections, the projection serves as an oracle there, and a drift
 fails the comparison.
@@ -214,8 +215,7 @@ half of the extension is documented in
 | `frame-trust.test.js`                  | The per-frame trust predicate deciding whether an appended action may enter a recording.                                                                                      |
 | `naming.property.test.js`              | Extension actions carry the platform-neutral naming and capture mode the extension schema contract states, each type one the composed extension schema declares.              |
 | `navigation-logic.test.js`             | The navigation and tab-creation capture decisions across transition types and timing states, and a static-source guard that the worker's listeners decide through the module. |
-| `panel-mirror-parity.test.js`          | The panel suite's copy of the active-steps resolver stays textually identical to the shipped function.                                                                        |
-| `panel.test.js`                        | The send gate in the panel: button state, recording selection, the confirmation summary, and the cancel path.                                                                 |
+| `panel.test.js`                        | The send gate in the panel, run against the shipped send-gate module: button state, recording selection, the confirmation summary, and the cancel path.                       |
 | `recorder-logic.test.js`               | The extracted content-script logic (selector derivation, locator measurement, element description, the scroll decision) and the recorder's scroll literals.                   |
 | `recorder-mirror-parity.test.js`       | The recorder's two copies of the capture logic stay textually identical under the mechanical transformation.                                                                  |
 | `recording-mode.test.js`               | Recording-mode persistence through the Chrome adapter.                                                                                                                        |

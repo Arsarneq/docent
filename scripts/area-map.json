@@ -449,6 +449,15 @@
       "governed-by": ["area:extension/sidepanel", "docs/technical/session-format.md"]
     },
     {
+      "path": "packages/extension/sidepanel/send-gate.js",
+      "reason": "The panel's send gate as a pure module — whether Send is enabled, which recordings the dispatch flow offers, and the confirmation values — imported by the panel and its unit suite. The dispatch protocol defines send eligibility (DI-13); the session format defines the active-steps resolution it runs through the shared resolver (SF-8); the shared-core document decides where behaviour-defining logic lives (SC-1), so a change landing such logic here primes that question.",
+      "governed-by": [
+        "docs/api/dispatch.md",
+        "docs/technical/session-format.md",
+        "docs/architecture/system/shared-core.md"
+      ]
+    },
+    {
       "path": ".github/workflows/test.yml",
       "reason": "The CI hub workflow — it owes the ci/release area's whole doc set as a unit; beyond that set it implements the shared-core freshness gate, the Rust test self-classification, the coverage staging topology, the release process's platform-scoped call and secret contracts, the corpus doctrine's producer/differ job topology and pinned-image rule, the job and posture claims the sufficiency-lint doc's entry-points table states, and the job ids that BOTH verification documents' job cites are pinned against by the verification-inventory admission test.",
       "governed-by": [
