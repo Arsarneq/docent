@@ -18,7 +18,8 @@ export default {
   // Break just below the measured score (62.08 on the 2026-10-11 local
   // re-measure, against the kill set the command above lists) so a
   // mutation-score regression reddens the weekly run instead of drifting
-  // silently; ratchet upward as the score improves.
+  // silently; re-measure whenever the command list above changes, and ratchet
+  // upward as the score improves.
   thresholds: { break: 60 },
   coverageAnalysis: 'off',
   tempDirName: '.stryker-tmp',
