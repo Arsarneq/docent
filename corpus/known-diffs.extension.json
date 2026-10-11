@@ -4,7 +4,9 @@
   "ext-select": [],
   "ext-key": [],
   "ext-navigate": [],
-  "ext-tab-open": [],
+  "ext-tab-open": [
+    "missing-action rec[0].step[0].action[1]:context_open expected=\"{\\\"capture_mode\\\":\\\"dom\\\",\\\"context_id\\\":\\\"<ctx:2>\\\",\\\"opener_context_id\\\":\\\"<ctx:1>\\\",\\\"source\\\":null,\\\"timestamp\\\":\\\"…"
+  ],
   "ext-iframe": [],
   "ext-file-upload": [],
   "ext-dnd-native": [],

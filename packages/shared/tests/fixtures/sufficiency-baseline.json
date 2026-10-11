@@ -56,7 +56,6 @@
     "gap:viewport-context rec[0]"
   ],
   "corpus/sessions/ext-tab-open/truth.docent.json": [
-    "fail:context-introduced rec[0]",
     "gap:start-point rec[0]",
     "gap:viewport-context rec[0]"
   ],
