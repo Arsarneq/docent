@@ -37,7 +37,7 @@
       "code": [
         "packages/extension/sidepanel/**",
         "packages/extension/tests/unit/{auto-sync-host,dispatch,adapter-chrome,panel,secret-crypto}.test.js",
-        "packages/extension/tests/e2e/specs/sync-samples.spec.js"
+        "packages/extension/tests/e2e/specs/{sync-samples,panel-core-flows}.spec.js"
       ],
       "docs": [
         "docs/architecture/application/extension/capture-principles.md",
