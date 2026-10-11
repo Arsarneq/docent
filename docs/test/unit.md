@@ -8,10 +8,12 @@ and composed schemas — and, for the machinery and size-budget suites, against
 the committed tree and the built artifacts themselves — with no browser, no
 Tauri backend, and no network involved.
 
-Where a suite does not run the shipped code it describes — a content script, a
-service worker or a panel that awaits at the top level cannot be imported under
-the runner, nor can a module-private function — the suite drives an extracted
-module, a copy of the shipped text, or a replica reshaped from it. The copies
+Where a suite does not run the shipped code it describes — a content script and
+a panel that awaits at the top level cannot be imported under the runner, nor
+can a module-private function — the suite drives an extracted module, a copy of
+the shipped text, or a replica reshaped from it. The service worker imports
+under the runner behind a fake `chrome` global, which is how the background
+sync-host and navigation-proxy suites drive it. The copies
 named in
 [CONTRIBUTING § Single-source logic](../../.github/CONTRIBUTING.md#single-source-logic)
 carry parity guards that hold them to the text that ships. Reshaped from the
@@ -197,7 +199,7 @@ application has its own suite, documented in
 
 `packages/extension/tests/unit` — the extension's adapter, panel, and background
 paths: the capture logic extracted from the content script, the service worker's
-message handlers, this tree's parity guards, named in
+message handlers and navigation listeners, this tree's parity guards, named in
 [CONTRIBUTING § Single-source logic](../../.github/CONTRIBUTING.md#single-source-logic),
 and the static-source guards over what the content script and the service
 worker may contain. The browser-driven
@@ -215,7 +217,7 @@ half of the extension is documented in
 | `frame-trust.test.js`                  | The per-frame trust predicate deciding whether an appended action may enter a recording.                                                                                      |
 | `naming.property.test.js`              | Extension actions carry the platform-neutral naming and capture mode the extension schema contract states, each type one the composed extension schema declares.              |
 | `navigation-logic.test.js`             | The navigation and tab-creation capture decisions across transition types and timing states, and a static-source guard that the worker's listeners decide through the module. |
-| `panel.test.js`                        | The send gate in the panel, run against the shipped send-gate module: button state, recording selection, the confirmation summary, and the cancel path.                       |
+| `panel.test.js`                        | The send gate in the panel, run against the shipped send-gate module: button state, recording selection and the confirmation summary; the cancel path is simulated.           |
 | `recorder-logic.test.js`               | The extracted content-script logic (selector derivation, locator measurement, element description, the scroll decision) and the recorder's scroll literals.                   |
 | `recorder-mirror-parity.test.js`       | The recorder's two copies of the capture logic stay textually identical under the mechanical transformation.                                                                  |
 | `recording-mode.test.js`               | Recording-mode persistence through the Chrome adapter.                                                                                                                        |
