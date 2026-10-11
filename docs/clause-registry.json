@@ -1041,7 +1041,8 @@
       "check-ref": "'dispatch button disabled without endpoint configured' and 'dispatch flow shows confirmation with step count' in packages/desktop/tests/integration/panel-dispatch-sync.spec.js pin the desktop panel's endpoint gate and confirmation surface (npm run test:integration). The extension panel's active-steps eligibility filter, recording selection and confirmation values are pinned by packages/extension/tests/unit/panel.test.js against the send-gate module the panel calls (npm run test:extension), and its endpoint gate by 'configure endpoint → Send button becomes enabled' in packages/extension/tests/e2e/specs/panel-core-flows.spec.js (npm run test:e2e). Named gap: the desktop panel's active-steps eligibility filter has no dedicated pin and is review-held.",
       "test-cases": [
         "dispatch button disabled without endpoint configured",
-        "dispatch flow shows confirmation with step count"
+        "dispatch flow shows confirmation with step count",
+        "configure endpoint → Send button becomes enabled"
       ]
     },
     {
