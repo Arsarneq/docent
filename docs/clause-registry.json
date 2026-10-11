@@ -562,7 +562,7 @@
       "doc": "docs/architecture/application/desktop/windows/capture-principles.md",
       "clause": "DCP-6",
       "tag": "judgment-only",
-      "justification": "Whether a proxy row still records the immediate effect of the shell interaction it names is a per-proxy judgment (CP-7..CP-10 apply), and whether the click row's activation is the establishment under core CP-17 is the same judgment."
+      "justification": "Whether a proxy row still records the immediate effect of the shell interaction it names is a per-proxy judgment (CP-7..CP-10 apply), and whether the click row's activation is the establishment under core CP-17 is likewise a judgment at review."
     },
     {
       "doc": "docs/architecture/application/desktop/windows/capture-principles.md",

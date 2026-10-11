@@ -86,8 +86,8 @@ consequence is judged against the category definition above.
 (browser chrome, the OS shell or a window title bar, for example). These are
 captured by proxy:
 the **immediate effect** stands in for the user action and enters the action
-stream in its place (CP-2). A proxy that changes context records that context's
-establishment as CP-17 states it.
+stream in its place (CP-2). A proxy that opens or switches into a
+context records that context's establishment as CP-17 states it.
 
 Every proxy is bound by three rules:
 
@@ -113,14 +113,15 @@ of its fields: a classification derived from the browser's transition type.
 
 **CP-17.** A context's establishment is a context opened, or an existing
 context switched into, as the first change of context in a user action's causal
-chain, a close counting as a change of context (CP-8), or as a later change in
+chain (a close counting as a change of context, CP-8), or as a later change in
 that chain into a context first appearing there (session-format SF-10); any
 other later change in that chain,
 into a context the recording already introduced, such as the tab the browser
 activates after a close, is a cascade. Its entries are the establishment's
 `context_open` or `context_switch` and, for a context opened at a destination
 the opening action names (a link's target, for example), the navigation that
-loads it; together they are the action's immediate effect (CP-8). They enter
+loads it; for the first change in the chain, together they are the action's
+immediate effect (CP-8). They enter
 beside the action when it is captured directly, and as its one proxy (CP-9)
 otherwise; the entries of a context first appearing later in the chain enter in
 the same role beside them, never as a further proxy (CP-8). Whether the
@@ -179,8 +180,8 @@ judgment.
 ## Capture Surface
 
 **CP-14.** Each platform's capture surface is enumerated **positively** and
-treated as **closed**: it lists a fixed set of trusted inputs, the proxies, and
-the establishment entries (CP-17) that platform captures (the enumerations live in the
+treated as **closed**: it lists a fixed set of trusted inputs and the proxies
+that platform captures (the enumerations live in the
 [extension](../../architecture/application/extension/capture-principles.md) and
 [desktop](../../architecture/application/desktop/windows/capture-principles.md)
 docs). An interaction that reaches none of the enumerated surface is **not
