@@ -16,7 +16,7 @@
         "packages/extension/{background,content,lib}/**",
         "packages/extension/manifest.json",
         "packages/extension/icons/**",
-        "packages/extension/{package,package-lock}.json",
+        "packages/extension/package.json",
         "packages/extension/tests/unit/{recorder-logic,service-worker,frame-trust,service-worker-static-import}.test.js",
         "packages/extension/tests/e2e/specs/{service-worker-lifecycle,service-worker-coverage,injection-latency,storage-quota,locators}.spec.js"
       ],
@@ -741,6 +741,11 @@
       "path": "packages/shared/tests/support/coverage-run.js",
       "reason": "The run-scoped naming contract for the two Playwright suites' raw coverage dumps — consumed by the extension e2e harness and the desktop integration harness alike, so its contract is what those two suite documents state about coverage collection.",
       "governed-by": ["docs/test/e2e.md", "docs/test/integration/desktop.md"]
+    },
+    {
+      "path": "packages/shared/tests/support/child-env.js",
+      "reason": "The shared unit suites' one home for running their git-reading work clear of an inherited git environment — the child-process environment, the in-process route, and the pin-and-restore tool. Its contract is what the unit-suite document states about the suites that import it.",
+      "governed-by": ["docs/test/unit.md"]
     },
     {
       "path": "packages/desktop/src-tauri/tests/{action_mapping_test,capture_mode_test,coordinate_dpi_test,coordinate_test,element_mapping_test,pid_filter_test,windows_capture_test}.rs",

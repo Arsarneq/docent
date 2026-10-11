@@ -36,12 +36,20 @@
  * repository, because the derivation reads the tracked files of the directory
  * it is invoked in, and a source lock holds the wrapper to taking its adapters
  * from that derivation rather than from a list of its own.
+ *
+ * Every tree read and every spawn here runs clear of an inherited `GIT_*`
+ * environment, through the one home for it (../support/child-env.js): the
+ * in-process derivations go through `treeAdapters()` or `withoutGitEnv`, and
+ * the wrapper and the scratch repository's `git` spawn under `childEnv`. A
+ * git hook's `GIT_INDEX_FILE` would otherwise point those reads at another
+ * index — the derivation would find no adapters, every generated family would
+ * vanish, and the wrapper cases would red.
  */
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import {
@@ -62,9 +70,29 @@ import {
   evaluateAdapterSurface,
   auditTree,
 } from '../../../../scripts/check-adapter-surface.js';
+import { childEnv, withEnv, withoutGitEnv } from '../support/child-env.js';
 
 const ROOT = resolve(import.meta.dirname, '..', '..', '..', '..');
 const SCRIPT = resolve(ROOT, 'scripts', 'check-adapter-surface.js');
+/**
+ * The derivation over the tracked tree, run clear of git's environment — the
+ * one route every whole-tree derivation in this suite takes.
+ * @returns {{ adapters: { path: string, key: string, platform: string }[], problems: string[] }}
+ */
+function treeAdapters() {
+  return withoutGitEnv(() => trackedAdapters());
+}
+
+/**
+ * Run the command-line wrapper in `cwd` under the ambient environment with
+ * git's dropped; throws on a non-zero exit, as `execFileSync` does.
+ * @param {string} cwd the directory the wrapper derives its adapters from
+ * @returns {string} the wrapper's standard output
+ */
+function runWrapper(cwd) {
+  return execFileSync(process.execPath, [SCRIPT], { cwd, encoding: 'utf8', env: childEnv({}) });
+}
+
 /** A path stood in for an adapter in the extractor-level fixtures. */
 const FIXTURE_PATH = 'packages/fixture/adapter-fixture.js';
 
@@ -74,7 +102,7 @@ const FIXTURE_PATH = 'packages/fixture/adapter-fixture.js';
  * it. The suite runs from the repository root, which is what the derivation
  * reads its population from.
  */
-const ADAPTERS = trackedAdapters().adapters;
+const ADAPTERS = treeAdapters().adapters;
 const EMPTY_SURFACES = emptySurfaces(ADAPTERS);
 const DUPLICATE_SURFACES = duplicateSurfaces(ADAPTERS);
 
@@ -163,7 +191,8 @@ function makeSeamDoc(paths) {
  */
 function makeScratchRepo(populate) {
   const dir = mkdtempSync(join(tmpdir(), 'adapter-surface-'));
-  const git = (...args) => execFileSync('git', args, { cwd: dir, encoding: 'utf8' });
+  const git = (...args) =>
+    execFileSync('git', args, { cwd: dir, encoding: 'utf8', env: childEnv({}) });
   git('init', '--quiet');
   populate((path, content) => {
     mkdirSync(dirname(join(dir, path)), { recursive: true });
@@ -629,7 +658,7 @@ describe('auditTree — reading the tree', () => {
 
   for (const path of [TYPEDEF_PATH, ...ADAPTERS.map((a) => a.path)]) {
     it(`refuses an unreadable ${path} instead of parsing it as empty`, () => {
-      const { problems } = auditTree((f) => (f === path ? null : REAL(f)));
+      const { problems } = withoutGitEnv(() => auditTree((f) => (f === path ? null : REAL(f))));
       assert.ok(
         problems.some((p) => p.includes(path) && p.includes('cannot be read')),
         problems.join('\n') || `no unreadable-file refusal for ${path}`,
@@ -645,7 +674,9 @@ describe('auditTree — reading the tree', () => {
       '@property {() => Promise<string>} loadTheme',
       '@property {() => Promise<string>} [loadTheme]',
     );
-    const { problems } = auditTree((f) => (f === TYPEDEF_PATH ? refused : REAL(f)));
+    const { problems } = withoutGitEnv(() =>
+      auditTree((f) => (f === TYPEDEF_PATH ? refused : REAL(f))),
+    );
     assert.ok(
       problems.some((p) => p.includes('states no member name after its type')),
       problems.join('\n') || 'no optional-form refusal',
@@ -656,7 +687,7 @@ describe('auditTree — reading the tree', () => {
   });
 
   it('the shipped tree satisfies the contract', () => {
-    const { problems, memberCount } = auditTree(REAL);
+    const { problems, memberCount } = withoutGitEnv(() => auditTree(REAL));
     assert.deepEqual(problems, [], problems.join('\n'));
     assert.ok(memberCount > 0);
     // The lock also proves the check reads the real files it names.
@@ -721,7 +752,7 @@ describe('deriveAdapters — the filename convention decides the set', () => {
   });
 
   it('the shipped tree derives the adapters the seam document sends a reader to', () => {
-    const derived = trackedAdapters();
+    const derived = treeAdapters();
     assert.deepEqual(derived.problems, []);
     assert.ok(derived.adapters.length > 1);
     const enumeration = extractSeamEnumeration(readFileSync(resolve(ROOT, SEAM_DOC_PATH), 'utf8'));
@@ -843,7 +874,9 @@ describe('auditTree — the derivation and the document’s enumeration are held
       '## The adapter seam',
       `## The adapter seam\n\n[\`adapter-ghost.js\`](${up}${gone})`,
     );
-    const { problems } = auditTree((f) => (f === SEAM_DOC_PATH ? drifted : REAL(f)));
+    const { problems } = withoutGitEnv(() =>
+      auditTree((f) => (f === SEAM_DOC_PATH ? drifted : REAL(f))),
+    );
     assert.ok(
       problems.some((p) => p.includes(gone) && p.includes('no such concrete adapter')),
       problems.join('\n') || 'a stale enumeration entry passed',
@@ -853,7 +886,7 @@ describe('auditTree — the derivation and the document’s enumeration are held
 
 describe('the command-line wrapper', () => {
   it('exits 0 on the committed tree and reports the contract it held', () => {
-    const out = execFileSync(process.execPath, [SCRIPT], { cwd: ROOT, encoding: 'utf8' });
+    const out = runWrapper(ROOT);
     assert.match(out, /adapter surface consistent/);
     assert.match(out, new RegExp(`${TYPEDEF_NAME} members`));
     for (const { path } of ADAPTERS) assert.ok(out.includes(path), out);
@@ -889,7 +922,7 @@ describe('the command-line wrapper', () => {
     try {
       let failure = null;
       try {
-        execFileSync(process.execPath, [SCRIPT], { cwd: dir, encoding: 'utf8' });
+        runWrapper(dir);
       } catch (err) {
         failure = err;
       }
@@ -908,6 +941,49 @@ describe('the command-line wrapper', () => {
       assert.ok(red.includes(TYPEDEF_PATH), red);
     } finally {
       rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('the suite runs clear of an inherited git environment', () => {
+  // Regression: a `GIT_INDEX_FILE` inherited from a git hook pointed this
+  // suite's tree reads at another index. The module-scope derivation found no
+  // adapters, so every generated family dropped out without a failure, and the
+  // wrapper cases — whose children inherited the variable — went red.
+  it('regression_noissue_adapter_surface_reads_the_committed_tree_under_a_poisoned_git_env', () => {
+    // The poisoned index sits in a directory this case creates, so git could
+    // write there: an unpinned `git add` would leave a file behind to observe.
+    const scratch = mkdtempSync(join(tmpdir(), 'adapter-surface-poison-'));
+    const poisoned = join(scratch, 'index');
+    try {
+      withEnv({ GIT_INDEX_FILE: poisoned }, () => {
+        // The adapters leg: the derivation still reads the committed tree.
+        const derived = treeAdapters().adapters;
+        assert.deepEqual(derived, ADAPTERS, 'adapters leg: the derivation read another index');
+        assert.ok(derived.length >= 2, `adapters leg: derived ${derived.length} adapters`);
+        // The wrapper leg: its child sees the committed tree too.
+        let out;
+        try {
+          out = runWrapper(ROOT);
+        } catch (err) {
+          assert.fail(`wrapper leg: the wrapper exited ${err.status}\n${err.stderr}`);
+        }
+        assert.match(out, /adapter surface consistent/, 'wrapper leg');
+        // The untouched-index leg: the scratch repository's git and the wrapper
+        // run there leave the poisoned index alone. A one-file repository
+        // derives no adapters, so the wrapper exits red there either way.
+        const dir = makeScratchRepo((write) => write('README.md', 'scratch\n'));
+        try {
+          runWrapper(dir);
+        } catch {
+          // The exit is not what this leg reads — only the index path below.
+        } finally {
+          rmSync(dir, { recursive: true, force: true });
+        }
+      });
+      assert.equal(existsSync(poisoned), false, 'untouched-index leg: git wrote the inherited index'); // prettier-ignore
+    } finally {
+      rmSync(scratch, { recursive: true, force: true });
     }
   });
 });

@@ -152,11 +152,11 @@ after editing one:
 that exist locally. The three Stryker jobs are npm scripts; each wants the
 same setup its CI job performs first:
 
-| CI job              | Setup first                                                        | Local command                     |
-| ------------------- | ------------------------------------------------------------------ | --------------------------------- |
-| `stryker-shared`    | `npm ci`; `npm run sync-shared`                                    | `npm run test:mutation`           |
-| `stryker-extension` | `npm ci`; `cd packages/extension && npm ci`; `npm run sync-shared` | `npm run test:mutation:extension` |
-| `stryker-desktop`   | `npm ci`; `npm run sync-shared`; `npm run build:desktop-dist`      | `npm run test:mutation:desktop`   |
+| CI job              | Setup first                                                   | Local command                     |
+| ------------------- | ------------------------------------------------------------- | --------------------------------- |
+| `stryker-shared`    | `npm ci`; `npm run sync-shared`                               | `npm run test:mutation`           |
+| `stryker-extension` | `npm ci`; `npm run sync-shared`                               | `npm run test:mutation:extension` |
+| `stryker-desktop`   | `npm ci`; `npm run sync-shared`; `npm run build:desktop-dist` | `npm run test:mutation:desktop`   |
 
 The Rust job, `cargo-mutants-desktop`, runs on `windows-latest` — so
 natively on a Windows machine: install cargo-mutants (the job pins `27.1.0`),

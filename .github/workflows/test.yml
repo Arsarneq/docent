@@ -494,9 +494,6 @@ jobs:
 
       # The npm license gate scans every real install root (this is NOT an
       # npm-workspaces repo), so each root needs its node_modules present.
-      - name: Install extension dependencies
-        run: cd packages/extension && npm ci
-
       - name: Install extension e2e dependencies
         run: cd packages/extension/tests/e2e && npm ci
 
@@ -567,9 +564,6 @@ jobs:
 
       - name: Install root dependencies
         run: npm ci
-
-      - name: Install extension test dependencies
-        run: cd packages/extension && npm ci
 
       - name: Check version tables in sync
         run: node scripts/check-version-sync.js

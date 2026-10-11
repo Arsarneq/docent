@@ -5,11 +5,14 @@
  * exit code 0, the success line prints) — the red paths are proven by each
  * script's own unit tests on synthetic input. Under coverage runs the child
  * processes inherit instrumentation, keeping the wrappers inside the measured
- * set. The environment a smoke's child runs under has ONE home: `runScript`.
- * It reaches past the variables a script reads itself — a check that shells out
- * to `git` answers to git's environment too, and `GIT_INDEX_FILE` alone turns
- * most of the cases below red — so the child gets the ambient environment with
- * every `GIT_*` variable dropped, plus whatever the case pins. The same path
+ * set. The environment a smoke's child runs under has ONE route: `runScript`,
+ * which takes it from `childEnv` in the shared suites' one home for it
+ * (../support/child-env.js). It reaches past the variables a script reads
+ * itself — a check that shells out to `git` answers to git's environment too,
+ * and `GIT_INDEX_FILE` alone turns most of the cases below red — so the child
+ * gets the ambient environment with every `GIT_*` variable dropped, plus
+ * whatever the case pins. The harness locks at the end of this file hold that
+ * home's behaviour for every suite importing it. The same path
  * then runs on a laptop, a pull-request runner, and a release tag build alike.
  * Adding a smoke here? Pin EVERY variable that can steer the target's answer,
  * not just the ones it names: its own process.env read-set (including the
@@ -24,44 +27,9 @@ import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { childEnv, withEnv, withoutGitEnv } from '../support/child-env.js';
 
 const ROOT = path.resolve(import.meta.dirname, '../../../..');
-
-/**
- * The one home for the environment a smoke's child runs under: the ambient
- * environment with every `GIT_*` variable dropped, then the case's own pins on
- * top. A case pins the target's own process.env read-set; no case pins git's
- * environment, because it is scrubbed here for all of them.
- * @param {Record<string, string>} pins the case's own environment
- * @returns {Record<string, string>} the child's environment
- */
-function childEnv(pins) {
-  const ambient = Object.fromEntries(
-    Object.entries(process.env).filter(([name]) => !name.startsWith('GIT_')),
-  );
-  return { ...ambient, ...pins };
-}
-
-/**
- * Run `fn` with `pins` set on THIS process's environment, restoring every
- * pinned name to the value it had — including its absence — however `fn` ends.
- * The one home for a lock that has to poison the ambient environment the child
- * inherits from, so no case leaves a variable behind for the cases after it.
- * @param {Record<string, string>} pins the names to pin, and their values
- * @param {() => void} fn the body to run under them
- */
-function withEnv(pins, fn) {
-  const restore = Object.keys(pins).map((name) => [name, process.env[name]]);
-  Object.assign(process.env, pins);
-  try {
-    fn();
-  } finally {
-    for (const [name, value] of restore) {
-      if (value === undefined) delete process.env[name];
-      else process.env[name] = value;
-    }
-  }
-}
 
 /** Run a check script; throws (failing the test) on a non-zero exit. */
 function runScript(script, { args = [], env = {} } = {}) {
@@ -237,7 +205,16 @@ describe('check-script CLI smoke (deterministic green paths)', () => {
   });
 });
 
-describe('the harness locks — the child environment every smoke above runs under', () => {
+describe('the harness locks — the shared environment helpers, held for every suite importing them', () => {
+  // Hook-style git names beside one generated per run, so a scrub or a restore
+  // narrowed to any fixed list of names reds here.
+  const POISON = {
+    GIT_INDEX_FILE: '/nowhere/index',
+    GIT_DIR: '/nowhere/gitdir',
+    GIT_WORK_TREE: '/nowhere/worktree',
+    [`GIT_PROBE_${process.pid}`]: 'probe',
+  };
+
   it('a poisoned git environment does not reach the child', () => {
     // GIT_INDEX_FILE pointed at a file that does not exist reads as an empty
     // index, so every `git ls-files` listing comes back empty and the checks
@@ -249,15 +226,16 @@ describe('the harness locks — the child environment every smoke above runs und
     });
   });
 
-  it('childEnv drops a GIT_ variable the ambient environment carries', () => {
-    withEnv({ GIT_INDEX_FILE: '/nowhere/index' }, () => {
-      assert.equal('GIT_INDEX_FILE' in childEnv({}), false);
+  it('childEnv drops every GIT_ variable the ambient environment carries', () => {
+    withEnv(POISON, () => {
+      const env = childEnv();
+      for (const name of Object.keys(POISON)) assert.equal(name in env, false, name);
     });
   });
 
   it('withEnv puts back what it pinned, whether or not the name carried a value', () => {
     // The `a poisoned git environment does not reach the child` and
-    // `childEnv drops a GIT_ variable the ambient environment carries` cases
+    // `childEnv drops every GIT_ variable the ambient environment carries` cases
     // poison the environment this process hands its children; a pin left behind
     // would follow every case that runs after them, so the restore is held on a
     // name that had a value, on one that did not, and on the path where the
@@ -275,6 +253,26 @@ describe('the harness locks — the child environment every smoke above runs und
       assert.equal(process.env[held], 'kept');
     });
     assert.equal(held in process.env, false);
+    // The body's result comes back to the caller.
+    assert.equal(
+      withEnv({}, () => 42),
+      42,
+    );
+  });
+
+  it('withoutGitEnv runs in-process work clear of GIT_ variables and puts each one back', () => {
+    // The in-process counterpart of the scrub: a tree read in this process
+    // runs with no GIT_ name set, and every one returns with its value —
+    // after the body returns, and on the path where the body throws.
+    withEnv(POISON, () => {
+      const seen = withoutGitEnv(() =>
+        Object.keys(process.env).filter((n) => n.startsWith('GIT_')),
+      );
+      assert.deepEqual(seen, []);
+      for (const [name, value] of Object.entries(POISON)) assert.equal(process.env[name], value, name); // prettier-ignore
+      assert.throws(() => withoutGitEnv(() => { throw new Error('boom'); }), /boom/); // prettier-ignore
+      for (const [name, value] of Object.entries(POISON)) assert.equal(process.env[name], value, name); // prettier-ignore
+    });
   });
 
   it("a case's own pin survives the scrub", () => {

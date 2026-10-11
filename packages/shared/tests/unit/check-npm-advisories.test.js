@@ -26,6 +26,7 @@ import {
   runAudit,
 } from '../../../../scripts/check-npm-advisories.js';
 import { INSTALL_ROOTS } from '../../../../scripts/check-licenses-npm.js';
+import { childEnv } from '../support/child-env.js';
 
 const TODAY = '2026-10-03';
 
@@ -569,9 +570,7 @@ describe('every npm root, each judged on its own', () => {
 describe('the audited npm roots', () => {
   // A GIT_ variable inherited from a hook (GIT_INDEX_FILE, say) would point the
   // listing at another index, so the child runs without them.
-  const env = Object.fromEntries(
-    Object.entries(process.env).filter(([k]) => !k.startsWith('GIT_')),
-  );
+  const env = childEnv({});
   const tracked =
     execFileSync('git', ['ls-files', '-z', '--', 'package-lock.json', '**/package-lock.json'], { cwd: REPO, env, encoding: 'utf8' }) // prettier-ignore
       .split('\0')
