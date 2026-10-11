@@ -5,8 +5,9 @@
  * prose — the retry count and the attempts it gives, the trace setting, the
  * per-test timeout and the single worker — and an authoring rule built on the
  * attempt count. These locks hold that prose to the values
- * packages/extension/tests/e2e/playwright.config.js sets, so a change to either
- * side alone reds here and the config stays the one home of the numbers.
+ * packages/extension/tests/e2e/playwright.config.js sets, so a change to a held
+ * sentence or value on either side reds here, and a second `retries:` code span
+ * beside the built one; the config stays the one home of the numbers.
  *
  * The config is read as text, not imported: it imports `@playwright/test`, which
  * only the end-to-end directory's own install holds, and the unit job never runs
@@ -15,8 +16,9 @@
  * must be set exactly once, so a nested key of the same name reds here instead
  * of being misread. Each value must be a single literal — an expression such as
  * `30_000 * 2` reds rather than being read as its first token — and each
- * section is read with its code blocks blanked, so a sentence shown inside a
- * fence is never taken for the guide's own.
+ * section is read with its code blocks and HTML comments blanked, so a sentence
+ * shown inside a fence or kept inside a comment is never taken for the guide's
+ * own.
  */
 
 import { describe, it } from 'node:test';
@@ -89,8 +91,9 @@ function numberWord(n) {
 /**
  * A section of the guide — the lines from its heading to the next heading of
  * any level, found and bounded on a view with code blocks blanked, then read
- * with its own code blocks blanked too, so a sentence shown inside a fence is
- * never taken for the guide's own — joined with its whitespace collapsed.
+ * with its own code blocks and HTML comments blanked too, so a sentence shown
+ * inside a fence or kept inside a comment is never taken for the guide's own —
+ * joined with its whitespace collapsed.
  * @param {string} heading the heading line, exactly as written
  * @returns {string} the section's text
  */
@@ -98,7 +101,9 @@ function section(heading) {
   const escaped = heading.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   const body = extractHeadingSection(read(DOC), new RegExp(`^${escaped}$`), /^#{1,6}\s/);
   assert.ok(body !== null, `${DOC} has no "${heading}" heading`);
-  return stripFences(body).replace(/\s+/g, ' ');
+  return stripFences(body)
+    .replace(/<!--[\s\S]*?-->/g, ' ')
+    .replace(/\s+/g, ' ');
 }
 
 describe("the end-to-end guide states the Playwright config's values", () => {
@@ -116,9 +121,9 @@ describe("the end-to-end guide states the Playwright config's values", () => {
       `${DOC}'s Retries and timeouts section does not state "${expected}" — the values ` +
         `${CONFIG} sets; restate the sentence from the config`,
     );
-    // The built sentence is the section's only statement of the retries, so a
-    // second, contradicting one beside it reds too.
-    const statements = text.match(/`retries: /g) ?? [];
+    // A second `retries:` code span beside the built one reds; prose is not
+    // held lexically.
+    const statements = text.match(/`retries:\s*\d/g) ?? [];
     assert.equal(
       statements.length,
       1,
